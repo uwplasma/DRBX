@@ -34,6 +34,7 @@ def solve_lp_fixed_point(
     arnoldi_max_m: int | None = None,
     nev: int = 6,
     seed: int = 0,
+    verbose: bool = False,
 ) -> LpFixedPointResult:
     """Self-consistent SOL width estimate using the Halpern 2013 fixed-point rule.
 
@@ -90,6 +91,7 @@ def solve_lp_fixed_point(
             nev=nev,
             seed=seed,
             do_initial_value=False,
+            verbose=False,
         )
 
         gamma = scan.gamma_eigs
@@ -101,6 +103,13 @@ def solve_lp_fixed_point(
         Lp_target = float(q * ratio_star)
 
         hist.append((Lp, ky_star, gamma_star, ratio_star, Lp_target))
+
+        if verbose:
+            print(
+                f"[Lp fixed-point] Lp={Lp:10.4f}  ky*={ky_star:8.4f}  "
+                f"(gamma/ky)*={ratio_star:10.4e}  target={Lp_target:10.4f}",
+                flush=True,
+            )
 
         if not np.isfinite(Lp_target) or Lp_target <= 0:
             raise RuntimeError("Failed to find a positive Lp_target; mode may be stable.")

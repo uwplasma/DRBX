@@ -21,6 +21,8 @@ class Scan1DResult:
     eigs: np.ndarray
     gamma_iv: np.ndarray | None = None
     omega_iv: np.ndarray | None = None
+    arnoldi_m_used: np.ndarray | None = None
+    arnoldi_rel_resid: np.ndarray | None = None
 
 
 def _ensure_out_dir(path: str | Path) -> Path:
@@ -45,6 +47,8 @@ def scan_ky(
     tmax: float = 30.0,
     dt0: float = 0.01,
     nsave: int = 200,
+    verbose: bool = False,
+    print_every: int = 1,
 ) -> Scan1DResult:
     """Scan leading eigenvalues (and optionally initial-value growth rates) over a ky grid."""
 
@@ -63,6 +67,8 @@ def scan_ky(
     eigs = np.zeros((ky.size, nev), dtype=np.complex128)
     gamma_iv = np.zeros((ky.size,), dtype=float) if do_initial_value else None
     omega_iv = np.zeros((ky.size,), dtype=float) if do_initial_value else None
+    arnoldi_m_used = np.zeros((ky.size,), dtype=int)
+    arnoldi_rel_resid = np.zeros((ky.size,), dtype=float)
 
     max_m = arnoldi_max_m
     if max_m is None:
@@ -90,6 +96,8 @@ def scan_ky(
         eigs[i, : len(arn.eigenvalues)] = arn.eigenvalues
         gamma_eigs[i] = float(np.real(lead))
         omega_eigs[i] = float(np.imag(lead))
+        arnoldi_m_used[i] = int(m)
+        arnoldi_rel_resid[i] = float(rel_resid)
 
         if do_initial_value:
             gr: GrowthRateResult = estimate_growth_rate(
@@ -100,6 +108,17 @@ def scan_ky(
             gamma_iv[i] = gr.gamma
             omega_iv[i] = gr.omega
 
+        if verbose and (i % max(int(print_every), 1) == 0 or i == ky.size - 1):
+            msg = (
+                f"[scan_ky {i+1:>3d}/{ky.size}] ky={ky_i:9.4f}  "
+                f"gamma={gamma_eigs[i]:10.4e}  omega={omega_eigs[i]:10.4e}  "
+                f"m={m:4d}  rel_res={rel_resid:8.2e}"
+            )
+            if do_initial_value:
+                assert gamma_iv is not None
+                msg += f"  gamma_iv={gamma_iv[i]:10.4e}"
+            print(msg, flush=True)
+
     return Scan1DResult(
         ky=ky,
         gamma_eigs=gamma_eigs,
@@ -107,6 +126,8 @@ def scan_ky(
         eigs=eigs,
         gamma_iv=gamma_iv,
         omega_iv=omega_iv,
+        arnoldi_m_used=arnoldi_m_used,
+        arnoldi_rel_resid=arnoldi_rel_resid,
     )
 
 
@@ -130,6 +151,8 @@ def scan_kx_ky(
     arnoldi_max_m: int | None = None,
     nev: int = 6,
     seed: int = 0,
+    verbose: bool = False,
+    print_every_kx: int = 1,
 ) -> Scan2DResult:
     """2D scan of leading eigenvalues over (kx, ky).
 
@@ -159,6 +182,8 @@ def scan_kx_ky(
     max_m = min(max_m, 5 * nl)
 
     for ix, kx_i in enumerate(kx):
+        if verbose and (ix % max(int(print_every_kx), 1) == 0 or ix == kx.size - 1):
+            print(f"[scan_kx_ky {ix+1:>3d}/{kx.size}] kx={kx_i:9.4f}", flush=True)
         for iy, ky_i in enumerate(ky):
             matvec = linear_matvec(y_eq, params, geom, kx=float(kx_i), ky=float(ky_i))
 

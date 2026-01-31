@@ -30,21 +30,21 @@ The fixed-point solver is implemented in:
 
 and exercised in:
 
-- `examples/literature/halpern2013_gradient_removal.py`
+- `examples/3_advanced/03_halpern2013_gradient_removal_lp.py`
 
 ## Running the example
 
 ```bash
-python examples/literature/halpern2013_gradient_removal.py
+python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
 ```
 
 Outputs:
 
-- `out_halpern2013_gradient_removal/gamma_over_ky_two_gradients.png`
-- `out_halpern2013_gradient_removal/Lp_vs_curvature0.png`
-- `out_halpern2013_gradient_removal/results.npz`
+- `out/3_advanced/halpern2013_gradient_removal/gamma_over_ky_curves.png`
+- `out/3_advanced/halpern2013_gradient_removal/lp_fixed_point_history.png`
+- `out/3_advanced/halpern2013_gradient_removal/lp_scaling_curvature0.png`
+- `out/3_advanced/halpern2013_gradient_removal/results.npz`
 
 In the script we vary `curvature0` as a surrogate "drive knob" (since v1 lacks beta/induction).
 When adding electromagnetic physics later, this example is a natural place to connect the workflow
 to a true $\beta$-scan.
-

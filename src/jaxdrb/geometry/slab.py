@@ -53,3 +53,24 @@ class SlabGeometry(eqx.Module):
         curv_y = self.curvature0 * jnp.cos(theta)
         omega_d = kx * curv_x + ky * curv_y
         return 1j * omega_d * f
+
+    def B(self) -> jnp.ndarray:
+        # Slab model: treat B as constant for plotting/diagnostics.
+        return jnp.ones_like(self.l)
+
+    def coefficients(self) -> dict[str, jnp.ndarray]:
+        gxx, gxy, gyy = self.metric_components()
+        theta = self.l
+        curv_x = jnp.zeros_like(theta)
+        curv_y = self.curvature0 * jnp.cos(theta)
+        dpar_factor = jnp.ones_like(theta) if self.dpar_factor is None else self.dpar_factor
+        return {
+            "l": self.l,
+            "gxx": gxx,
+            "gxy": gxy,
+            "gyy": gyy,
+            "curv_x": curv_x,
+            "curv_y": curv_y,
+            "dpar_factor": dpar_factor,
+            "B": self.B(),
+        }

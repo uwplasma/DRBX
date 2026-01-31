@@ -71,19 +71,25 @@ This is a v1 implementation aimed at fast iteration:
 
 ## Examples (including literature workflows)
 
-Quick smoke test:
+The `examples/` tree is organized by complexity:
+
+- `examples/1_simple/`: quick “hello world” ky scans + diagnostics
+- `examples/2_intermediate/`: tabulated-geometry round-trip, kx–ky scans, JAX autodiff workflow
+- `examples/3_advanced/`: literature-inspired workflows + stellarator (pyQSC) geometry
+
+Quick smoke test (runs the simple examples):
+
+```bash
+make examples
+```
+
+Run everything except the pyQSC stellarator case:
 
 ```bash
 make examples-all
 ```
 
-Literature-inspired analysis scripts (gamma/ky maximization, ky–kx scans, etc.):
-
-```bash
-make examples-literature
-```
-
-Near-axis stellarator example (requires pyQSC checkout next to this repo):
+Near-axis stellarator example (requires a pyQSC checkout next to this repo):
 
 ```bash
 make examples-stellarator

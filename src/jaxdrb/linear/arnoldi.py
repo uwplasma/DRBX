@@ -204,3 +204,90 @@ def arnoldi_leading_eig(
             return ArnoldiLeadingResult(best_eval, best_resid, n_restart=r + 1)
 
     return ArnoldiLeadingResult(best_eval, best_resid, n_restart=n_restart)
+
+
+@dataclass
+class ArnoldiLeadingVectorResult:
+    """Leading-eigenvalue result including a Ritz vector approximation.
+
+    The returned vector is a Ritz vector from the Arnoldi factorization (not an exact eigenvector
+    of the full operator). It is typically sufficient for plotting eigenfunction structure.
+    """
+
+    eigenvalue: np.complex128
+    residual_norm: float
+    vector: Any
+
+
+def arnoldi_leading_ritz_vector(
+    matvec,
+    v0,
+    *,
+    m: int = 80,
+    seed: int | None = None,
+) -> ArnoldiLeadingVectorResult:
+    """Return the leading Ritz eigenvalue and its associated Ritz vector.
+
+    This routine runs a single Arnoldi cycle of dimension `m` and constructs the Ritz vector
+    v = Q_k y for the Ritz eigenpair of H_k with the largest real part.
+    """
+
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+    else:
+        rng = np.random.default_rng()
+
+    v0_flat, meta = _flatten_pytree(v0)
+    n = v0_flat.size
+    if _norm(v0_flat) == 0.0:
+        v0_flat = rng.normal(size=n) + 1j * rng.normal(size=n)
+
+    q = np.zeros((m + 1, n), dtype=np.complex128)
+    h = np.zeros((m + 1, m), dtype=np.complex128)
+    q[0] = v0_flat / _norm(v0_flat)
+
+    k = m
+    for j in range(m):
+        w = matvec(_unflatten_pytree(q[j], meta))
+        w_flat, _ = _flatten_pytree(w)
+
+        for i in range(j + 1):
+            hij = _inner(q[i], w_flat)
+            h[i, j] = hij
+            w_flat = w_flat - hij * q[i]
+
+        for i in range(j + 1):
+            hij = _inner(q[i], w_flat)
+            h[i, j] = h[i, j] + hij
+            w_flat = w_flat - hij * q[i]
+
+        hj1 = _norm(w_flat)
+        h[j + 1, j] = hj1
+        if hj1 == 0.0:
+            k = j + 1
+            break
+        q[j + 1] = w_flat / hj1
+
+    if k == 0:
+        raise RuntimeError("Arnoldi produced an empty Krylov space.")
+
+    Hk = h[:k, :k]
+    evals, evecs = np.linalg.eig(Hk)
+    idx = int(np.argmax(evals.real))
+    lam = np.complex128(evals[idx])
+
+    if k == 1:
+        resid = 0.0
+    else:
+        beta = h[k, k - 1] if k < h.shape[0] else 0.0
+        resid = float(np.abs(beta * evecs[-1, idx]))
+
+    y = evecs[:, idx]
+    v_flat = (q[:k].T @ y).astype(np.complex128)
+    nrm = _norm(v_flat)
+    if nrm == 0.0:
+        raise RuntimeError("Arnoldi produced a zero Ritz vector.")
+    v_flat = v_flat / nrm
+
+    v = _unflatten_pytree(v_flat, meta)
+    return ArnoldiLeadingVectorResult(eigenvalue=lam, residual_norm=resid, vector=v)

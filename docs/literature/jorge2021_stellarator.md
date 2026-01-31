@@ -20,7 +20,7 @@ make examples-stellarator
 or directly:
 
 ```bash
-PYTHONPATH=../pyQSC-main python examples/run_pyqsc_stellarator.py
+PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
 ```
 
 This script:
@@ -34,7 +34,7 @@ This script:
 - runs two linear scans that illustrate resistive-like vs inertial-like branches,
 - computes a fixed-point $L_p$ estimate using `jaxdrb.analysis.lp.solve_lp_fixed_point`.
 
-Outputs are written to `out_pyqsc_stellarator_example/`.
+Outputs are written to `out/3_advanced/stellarator_nearaxis_pyqsc/`.
 
 ## How the geometry is constructed (implementation sketch)
 
@@ -58,4 +58,3 @@ useful bridge between near-axis expansions and local linear stability studies.
 - The field-line mapping in a stellarator is not exactly periodic; the example selects a toroidal
   domain length that makes the mapping **approximately periodic**, compatible with the v1 periodic
   parallel derivative.
-

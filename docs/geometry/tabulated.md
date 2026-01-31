@@ -18,6 +18,7 @@ The file currently requires a **uniform** `l` grid.
 
 - `curv_x`, `curv_y`: curvature coefficients, shape `(nl,)`
 - `dpar_factor`: multiplicative factor for the finite-difference `d/dl`
+- `B`: magnetic field magnitude along the field line (used for diagnostics/plotting)
 
 If omitted, curvature defaults to zero and `dpar_factor` defaults to 1.
 
@@ -39,8 +40,8 @@ $$
 
 ## Example
 
-See `examples/run_tabulated_geom.py` for a full working example that:
+See `examples/2_intermediate/01_tabulated_geometry_roundtrip.py` for a full working example that:
 
 1. generates a `.npz` file from an analytic geometry,
-2. runs a `ky` scan using `--geom tabulated`.
-
+2. loads it via `TabulatedGeometry`,
+3. confirms that growth rates match the analytic-geometry scan.
