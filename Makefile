@@ -1,4 +1,4 @@
-.PHONY: install install-dev test lint examples examples-all examples-literature examples-stellarator docs
+.PHONY: install install-dev test lint docs examples examples-simple examples-intermediate examples-advanced examples-all examples-stellarator
 
 install:
 	python -m pip install -e . --no-build-isolation
@@ -15,22 +15,27 @@ lint:
 	black src tests examples
 
 examples:
-	python examples/run_slab_scan.py
+	$(MAKE) examples-simple
 
-examples-all:
-	python examples/run_slab_scan.py
-	python examples/run_tabulated_geom.py
-	python examples/run_circular_tokamak.py
-	python examples/run_cyclone_salpha.py
+examples-simple:
+	python examples/1_simple/01_slab_ky_scan.py
+	python examples/1_simple/02_circular_tokamak_ky_scan.py
+	python examples/1_simple/03_salpha_cyclone_ky_scan.py
 
-examples-literature:
-	python examples/literature/mosetto2012_driftwaves.py
-	python examples/literature/mosetto2012_ballooning.py
-	python examples/literature/halpern2013_gradient_removal.py
-	python examples/literature/cyclone_kxky_scan.py
+examples-intermediate:
+	python examples/2_intermediate/01_tabulated_geometry_roundtrip.py
+	python examples/2_intermediate/02_cyclone_kxky_scan.py
+	python examples/2_intermediate/03_jax_autodiff_optimize_ky_star.py
+
+examples-advanced:
+	python examples/3_advanced/01_mosetto2012_driftwave_branches.py
+	python examples/3_advanced/02_mosetto2012_ballooning_branches.py
+	python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
+
+examples-all: examples-simple examples-intermediate examples-advanced
 
 examples-stellarator:
-	PYTHONPATH=../pyQSC-main python examples/run_pyqsc_stellarator.py
+	PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
 
 docs:
 	mkdocs build --strict

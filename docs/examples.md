@@ -1,67 +1,80 @@
 # Examples
 
-The `examples/` folder contains runnable scripts that exercise the CLI on several geometries.
+The `examples/` tree is organized by complexity:
 
-All examples write an output folder with `results.npz` and `gamma_ky.png`.
+- `examples/1_simple/`: quick “hello world” runs (single ky scan, minimal knobs).
+- `examples/2_intermediate/`: richer diagnostics (tabulated geometry round-trip, kx–ky scans, JAX workflows).
+- `examples/3_advanced/`: literature-inspired workflows and stellarator (pyQSC) geometry.
 
-## Slab scan
+All scripts:
 
-```bash
-python examples/run_slab_scan.py
-```
+- write an `out/...` folder with `.npz` data plus multiple publication-ready `.png` figures,
+- print progress and key numbers so it does not look like the run is “hanging”.
 
-## Circular tokamak scan
+> Tip: most examples will run faster if you reduce `nl` and use fewer `ky`/`kx` points.
 
-```bash
-python examples/run_circular_tokamak.py
-```
+## 1) Simple (fast)
 
-This uses `--geom tokamak` with a circular tokamak model (large aspect ratio).
-
-## Cyclone (s-alpha) scan
+Slab ky scan (curvature off, drift-wave-like):
 
 ```bash
-python examples/run_cyclone_salpha.py
+python examples/1_simple/01_slab_ky_scan.py
 ```
 
-This uses `--geom salpha` with Cyclone-like defaults (q≈1.4, shat≈0.796, epsilon≈0.18).
-
-## Tabulated geometry scan
+Circular tokamak ky scan (curvature on):
 
 ```bash
-python examples/run_tabulated_geom.py
+python examples/1_simple/02_circular_tokamak_ky_scan.py
 ```
 
-This example generates a `.npz` file and then runs a scan with `--geom tabulated`.
-
-## Literature workflows
-
-The `examples/literature/` folder contains scripts that mirror common SOL/edge analysis steps used in
-the literature:
+Cyclone-like s-alpha ky scan:
 
 ```bash
-python examples/literature/mosetto2012_driftwaves.py
-python examples/literature/mosetto2012_ballooning.py
-python examples/literature/halpern2013_gradient_removal.py
-python examples/literature/cyclone_kxky_scan.py
+python examples/1_simple/03_salpha_cyclone_ky_scan.py
 ```
 
-These scripts write `out_*` folders with plots and `.npz` outputs. See the “Literature reproduction”
-docs section for interpretation.
+## 2) Intermediate (diagnostics + workflows)
 
-## Stellarator (pyQSC near-axis)
+Tabulated geometry round-trip (export analytic coefficients → reload → verify results match):
 
 ```bash
-make examples-stellarator
+python examples/2_intermediate/01_tabulated_geometry_roundtrip.py
 ```
 
-This runs `examples/run_pyqsc_stellarator.py`, which:
+2D (kx, ky) scan on Cyclone-like s-alpha geometry:
 
-- generates a tabulated geometry file from a near-axis pyQSC configuration,
-- runs branch scans and a fixed-point $L_p$ estimate.
+```bash
+python examples/2_intermediate/02_cyclone_kxky_scan.py
+```
 
-## Tips
+JAX “advantage” demo: autodiff optimization of $k_{y,*}$ that maximizes $\max(\gamma,0)/k_y$:
 
-- Start with small `nl` (e.g. 32) and fewer `ky` points when iterating quickly.
-- For small `ky`, Arnoldi may need a larger Krylov dimension to converge; the CLI adapts `m` up to
-  `5*nl`.
+```bash
+python examples/2_intermediate/03_jax_autodiff_optimize_ky_star.py
+```
+
+## 3) Advanced (literature-inspired + stellarator)
+
+Mosetto (2012) drift-wave branch workflow (curvature off):
+
+```bash
+python examples/3_advanced/01_mosetto2012_driftwave_branches.py
+```
+
+Mosetto (2012) ballooning-like branch + shear trends (curvature on):
+
+```bash
+python examples/3_advanced/02_mosetto2012_ballooning_branches.py
+```
+
+Halpern (2013) gradient removal + fixed-point $L_p$ workflow:
+
+```bash
+python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
+```
+
+Near-axis stellarator geometry from pyQSC (optional deps):
+
+```bash
+PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
+```

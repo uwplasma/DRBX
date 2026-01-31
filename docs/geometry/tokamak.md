@@ -67,5 +67,7 @@ gyrokinetics). In CBC, `alpha = 0` (electrostatic / zero-beta) and typical geome
 - `shat ≈ 0.796`
 - `epsilon ≈ 0.18`
 
-See the example `examples/run_cyclone_salpha.py`.
+See:
 
+- `examples/1_simple/03_salpha_cyclone_ky_scan.py` (ky scan),
+- `examples/2_intermediate/02_cyclone_kxky_scan.py` (kx–ky scan).

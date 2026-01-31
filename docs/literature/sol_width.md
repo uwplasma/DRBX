@@ -68,7 +68,7 @@ This is what `solve_lp_fixed_point(..., omega_n_scale=...)` controls.
 Run:
 
 ```bash
-python examples/literature/halpern2013_gradient_removal.py
+python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
 ```
 
 This script:
@@ -105,4 +105,3 @@ print(res.Lp, res.ky_star, res.gamma_over_ky_star)
 
 For SOL studies that are boundary-condition dominated (line-tied, sheath, etc.), consider v1 results
 as a *methodology demo* rather than a predictive model.
-

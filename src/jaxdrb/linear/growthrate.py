@@ -50,7 +50,15 @@ class GrowthRateResult:
     log_norm: np.ndarray
 
 
-def estimate_growth_rate(
+@dataclass
+class GrowthRateJaxResult:
+    gamma: jax.Array
+    omega: jax.Array
+    t: jax.Array
+    log_norm: jax.Array
+
+
+def estimate_growth_rate_jax(
     matvec,
     y0,
     *,
@@ -62,11 +70,12 @@ def estimate_growth_rate(
     rtol: float = 1e-6,
     atol: float = 1e-9,
     max_steps: int = 500000,
-) -> GrowthRateResult:
-    """Estimate growth rate from initial-value evolution dv/dt = A v.
+) -> GrowthRateJaxResult:
+    """JAX-native growth-rate estimator from dv/dt = A v (differentiable).
 
-    Returns gamma from a least-squares fit of log(||v||) vs t over the last `fit_window`
-    fraction of the time history.
+    This is the same algorithm as `estimate_growth_rate`, but it returns JAX arrays and does not
+    convert results to Python floats / NumPy arrays. This makes it suitable for autodiff-based
+    workflows (e.g. optimize parameters to reduce growth rate).
     """
 
     y0_vec, meta = _pack_complex_pytree_to_real(y0)
@@ -83,6 +92,7 @@ def estimate_growth_rate(
     ts = jnp.linspace(0.0, tmax, nsave)
     saveat = diffrax.SaveAt(ts=ts)
     stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
+
     if method == "direct":
         sol = diffrax.diffeqsolve(
             diffrax.ODETerm(lambda t, y, args: matvec_real(y)),
@@ -166,9 +176,48 @@ def estimate_growth_rate(
     Atb2 = A.T @ pp
     omega, _c2 = linear_solve.solve_cholesky(lambda x: AtA @ x, Atb2)
 
+    return GrowthRateJaxResult(
+        gamma=gamma,
+        omega=omega,
+        t=ts,
+        log_norm=logn,
+    )
+
+
+def estimate_growth_rate(
+    matvec,
+    y0,
+    *,
+    tmax: float = 200.0,
+    dt0: float = 0.05,
+    nsave: int = 200,
+    fit_window: float = 0.5,
+    method: str = "renormalized",
+    rtol: float = 1e-6,
+    atol: float = 1e-9,
+    max_steps: int = 500000,
+) -> GrowthRateResult:
+    """Estimate growth rate from initial-value evolution dv/dt = A v.
+
+    Returns gamma from a least-squares fit of log(||v||) vs t over the last `fit_window`
+    fraction of the time history.
+    """
+
+    res = estimate_growth_rate_jax(
+        matvec,
+        y0,
+        tmax=tmax,
+        dt0=dt0,
+        nsave=nsave,
+        fit_window=fit_window,
+        method=method,
+        rtol=rtol,
+        atol=atol,
+        max_steps=max_steps,
+    )
     return GrowthRateResult(
-        gamma=float(gamma),
-        omega=float(omega),
-        t=np.asarray(ts),
-        log_norm=np.asarray(logn),
+        gamma=float(res.gamma),
+        omega=float(res.omega),
+        t=np.asarray(res.t),
+        log_norm=np.asarray(res.log_norm),
     )

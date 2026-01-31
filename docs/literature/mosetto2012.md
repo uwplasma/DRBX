@@ -23,14 +23,14 @@ In `jaxdrb`:
 Run:
 
 ```bash
-python examples/literature/mosetto2012_driftwaves.py
+python examples/3_advanced/01_mosetto2012_driftwave_branches.py
 ```
 
-Outputs in `out_mosetto2012_driftwaves/` include:
+Outputs in `out/3_advanced/mosetto2012_driftwave_branches/` include:
 
-- `gamma_ky.png`: leading growth rate vs $k_y$ for two branches,
-- `gamma_over_ky.png`: $\gamma/k_y$ vs $k_y$ and the maximizing $k_{y,*}$,
-- `summary.json`: the maximizing $k_{y,*}$ and $(\gamma/k_y)_{\max}$ for each branch.
+- `branches_overlay.png`: $\gamma(k_y)$ and $\max(\gamma,0)/k_y$ for RDW-like vs IDW-like,
+- `scan_panel_*.png`: a compact scan diagnostic for each branch,
+- `eigenfunctions_*.png` and `spectrum_*.png`: mode structure and Ritz spectrum at $k_{y,*}$.
 
 ### Interpreting the branches
 
@@ -47,7 +47,7 @@ collisionality/inertia ordering.
 Run:
 
 ```bash
-python examples/literature/mosetto2012_ballooning.py
+python examples/3_advanced/02_mosetto2012_ballooning_branches.py
 ```
 
 This script:
@@ -68,6 +68,5 @@ To match Mosetto (2012) figures quantitatively you will generally need:
 - matching boundary conditions and field-line connection length,
 - inclusion of additional closure terms that are omitted in `jaxdrb` v1.
 
-The point of the `examples/literature/` scripts is to provide a *transparent, hackable reference*
+The point of the `examples/3_advanced/` scripts is to provide a *transparent, hackable reference*
 for these workflows within a JAX-based matrix-free linear solver.
-

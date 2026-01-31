@@ -27,6 +27,7 @@ class TabulatedGeometry(eqx.Module):
     curv_x: jnp.ndarray
     curv_y: jnp.ndarray
     dpar_factor: jnp.ndarray
+    B0: jnp.ndarray
 
     @classmethod
     def from_npz(cls, path: str | Path) -> "TabulatedGeometry":
@@ -52,6 +53,7 @@ class TabulatedGeometry(eqx.Module):
             curv_x=jnp.asarray(get("curv_x", 0.0)),
             curv_y=jnp.asarray(get("curv_y", 0.0)),
             dpar_factor=jnp.asarray(get("dpar_factor", 1.0)),
+            B0=jnp.asarray(get("B", 1.0)),
         )
 
     def kperp2(self, kx: float, ky: float) -> jnp.ndarray:
@@ -63,3 +65,18 @@ class TabulatedGeometry(eqx.Module):
     def curvature(self, kx: float, ky: float, f: jnp.ndarray) -> jnp.ndarray:
         omega_d = kx * self.curv_x + ky * self.curv_y
         return 1j * omega_d * f
+
+    def B(self) -> jnp.ndarray:
+        return self.B0
+
+    def coefficients(self) -> dict[str, jnp.ndarray]:
+        return {
+            "l": self.l,
+            "gxx": self.gxx,
+            "gxy": self.gxy,
+            "gyy": self.gyy,
+            "curv_x": self.curv_x,
+            "curv_y": self.curv_y,
+            "dpar_factor": self.dpar_factor,
+            "B": self.B0,
+        }

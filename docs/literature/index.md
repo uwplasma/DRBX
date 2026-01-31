@@ -34,10 +34,12 @@ papers:
 
 See the scripts in:
 
-- `examples/literature/` (tokamak slab/s-alpha workflows),
-- `examples/run_pyqsc_stellarator.py` (stellarator near-axis / pyQSC-driven workflow).
+- `examples/3_advanced/01_mosetto2012_driftwave_branches.py`
+- `examples/3_advanced/02_mosetto2012_ballooning_branches.py`
+- `examples/3_advanced/03_halpern2013_gradient_removal_lp.py`
+- `examples/3_advanced/04_stellarator_nearaxis_pyqsc.py` (stellarator near-axis / pyQSC-driven workflow).
 
-Each script writes an `out_*` folder with:
+Each script writes an `out/3_advanced/...` folder with:
 
 - a machine-readable `.npz` results file,
 - one or more plots (`.png`),
@@ -49,4 +51,3 @@ Each script writes an `out_*` folder with:
 - Mosetto (2012) regimes and branch toggles: `literature/mosetto2012.md`
 - Halpern (2013) gradient removal workflow: `literature/halpern2013.md`
 - Near-axis stellarator geometry (pyQSC): `literature/jorge2021_stellarator.md`
-
