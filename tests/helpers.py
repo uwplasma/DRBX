@@ -40,4 +40,3 @@ def leading_eig_dense(matvec, nl: int) -> np.complex128:
     A = dense_matrix(matvec, nl)
     eigs = np.linalg.eigvals(A)
     return np.complex128(eigs[np.argmax(eigs.real)])
-

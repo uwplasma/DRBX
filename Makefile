@@ -1,4 +1,4 @@
-.PHONY: install install-dev test lint examples examples-all docs
+.PHONY: install install-dev test lint examples examples-all examples-literature examples-stellarator docs
 
 install:
 	python -m pip install -e . --no-build-isolation
@@ -23,6 +23,14 @@ examples-all:
 	python examples/run_circular_tokamak.py
 	python examples/run_cyclone_salpha.py
 
+examples-literature:
+	python examples/literature/mosetto2012_driftwaves.py
+	python examples/literature/mosetto2012_ballooning.py
+	python examples/literature/halpern2013_gradient_removal.py
+	python examples/literature/cyclone_kxky_scan.py
+
+examples-stellarator:
+	PYTHONPATH=../pyQSC-main python examples/run_pyqsc_stellarator.py
+
 docs:
 	mkdocs build --strict
-

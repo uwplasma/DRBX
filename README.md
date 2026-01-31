@@ -38,6 +38,12 @@ Example ky scan in a shear-slab geometry:
 jaxdrb-scan --geom slab --ky-min 0.05 --ky-max 1.0 --nky 32 --out out_slab
 ```
 
+2D eigenvalue scan over `(kx, ky)`:
+
+```bash
+jaxdrb-scan2d --geom salpha --kx-min -1.0 --kx-max 1.0 --nkx 33 --ky-min 0.1 --ky-max 1.0 --nky 24 --out out_kxky
+```
+
 Circular tokamak:
 
 ```bash
@@ -62,3 +68,32 @@ This is a v1 implementation aimed at fast iteration:
 - Fourier representation in perpendicular directions: `exp(i kx psi + i ky alpha)`
 - 1D grid along the field line (`l`)
 - Boussinesq polarization closure: `Omega = -k_perp^2(l) * phi`
+
+## Examples (including literature workflows)
+
+Quick smoke test:
+
+```bash
+make examples-all
+```
+
+Literature-inspired analysis scripts (gamma/ky maximization, ky–kx scans, etc.):
+
+```bash
+make examples-literature
+```
+
+Near-axis stellarator example (requires pyQSC checkout next to this repo):
+
+```bash
+make examples-stellarator
+```
+
+## Docs
+
+Build locally:
+
+```bash
+python -m pip install -e ".[docs]"
+mkdocs serve
+```

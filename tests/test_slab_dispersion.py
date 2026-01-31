@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
-
 from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.linear.matvec import linear_matvec
 from jaxdrb.models.cold_ion_drb import equilibrium
@@ -70,8 +68,12 @@ def test_ballooning_like_curvature_and_shear_trends() -> None:
     # Curvature drive increases growth.
     geom0 = SlabGeometry.make(nl=nl, shat=1.0, curvature0=0.0)
     geom1 = SlabGeometry.make(nl=nl, shat=1.0, curvature0=0.3)
-    g0 = leading_eig_dense(linear_matvec(equilibrium(nl), base_params, geom0, kx=0.0, ky=ky), nl).real
-    g1 = leading_eig_dense(linear_matvec(equilibrium(nl), base_params, geom1, kx=0.0, ky=ky), nl).real
+    g0 = leading_eig_dense(
+        linear_matvec(equilibrium(nl), base_params, geom0, kx=0.0, ky=ky), nl
+    ).real
+    g1 = leading_eig_dense(
+        linear_matvec(equilibrium(nl), base_params, geom1, kx=0.0, ky=ky), nl
+    ).real
     assert g1 > g0
 
     # Magnetic shear stabilizes (for this ballooning-like case).
@@ -84,4 +86,3 @@ def test_ballooning_like_curvature_and_shear_trends() -> None:
         linear_matvec(equilibrium(nl), base_params, geom_hi, kx=0.0, ky=ky), nl
     ).real
     assert g_hi < g_lo
-

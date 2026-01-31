@@ -32,6 +32,7 @@ docs = [
 
 [project.scripts]
 jaxdrb-scan = "jaxdrb.cli.main:main"
+jaxdrb-scan2d = "jaxdrb.cli.scan2d:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -43,6 +44,10 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+ignore = ["E741"]
+per-file-ignores = { "examples/**/*.py" = ["E402"] }
 
 [tool.black]
 line-length = 100

@@ -9,7 +9,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from jaxdrb.cli.main import main
 
-
 if __name__ == "__main__":
     out = Path("out_slab_example")
     args = [

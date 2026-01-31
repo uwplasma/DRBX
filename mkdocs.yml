@@ -25,6 +25,12 @@ nav:
       - solvers/index.md
       - solvers/initial-value.md
       - solvers/arnoldi.md
+  - Literature:
+      - literature/index.md
+      - literature/sol_width.md
+      - literature/mosetto2012.md
+      - literature/halpern2013.md
+      - literature/jorge2021_stellarator.md
   - CLI: cli.md
   - Examples: examples.md
   - Development: development.md
@@ -42,4 +48,3 @@ markdown_extensions:
 extra_javascript:
   - assets/javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
-

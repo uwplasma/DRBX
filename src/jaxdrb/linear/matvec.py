@@ -24,4 +24,3 @@ def linear_matvec(
 
     _f0, lin = jax.linearize(f, y0)
     return lin
-

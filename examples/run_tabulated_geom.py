@@ -12,7 +12,9 @@ from jaxdrb.cli.main import main  # noqa: E402
 from jaxdrb.geometry.slab import SlabGeometry  # noqa: E402
 
 
-def write_example_geometry(path: Path, *, nl: int = 64, shat: float = 0.8, curvature0: float = 0.2) -> None:
+def write_example_geometry(
+    path: Path, *, nl: int = 64, shat: float = 0.8, curvature0: float = 0.2
+) -> None:
     geom = SlabGeometry.make(nl=nl, shat=shat, curvature0=curvature0)
     gxx, gxy, gyy = geom.metric_components()
 

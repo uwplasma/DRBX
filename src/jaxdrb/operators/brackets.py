@@ -14,4 +14,3 @@ def poisson_bracket_fourier(kx: float, ky: float, phi: jnp.ndarray, f: jnp.ndarr
 
     _ = (kx, ky, phi, f)
     return jnp.zeros_like(f)
-
