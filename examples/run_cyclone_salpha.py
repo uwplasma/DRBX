@@ -8,7 +8,6 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from jaxdrb.cli.main import main  # noqa: E402
 
-
 if __name__ == "__main__":
     out = Path("out_cyclone_salpha_example")
     args = [
@@ -41,4 +40,3 @@ if __name__ == "__main__":
     ]
     sys.argv = ["jaxdrb-scan", *args]
     main()
-

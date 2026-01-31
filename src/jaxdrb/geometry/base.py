@@ -23,4 +23,3 @@ class Geometry(Protocol):
     @abstractmethod
     def curvature(self, kx: float, ky: float, f: jnp.ndarray) -> jnp.ndarray:
         """Curvature operator C(f) (typically ~ i k_y ω_d(l) f)."""
-

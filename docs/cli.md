@@ -6,6 +6,12 @@ The package installs a console script:
 jaxdrb-scan ...
 ```
 
+and a 2D scan helper:
+
+```bash
+jaxdrb-scan2d ...
+```
+
 The CLI performs a local scan over `ky` (and a fixed `kx`) for a selected geometry, and computes:
 
 - a leading eigenvalue estimate (matrix-free Arnoldi),
@@ -75,3 +81,11 @@ Initial-value:
 
 `gamma_ky.png` plots `gamma_eigs` and `gamma_iv` vs `ky`.
 
+## 2D scan (kx, ky)
+
+`jaxdrb-scan2d` performs a 2D eigenvalue scan over a `kx×ky` grid and writes:
+
+- `results_2d.npz`: `kx`, `ky`, `gamma_eigs(kx,ky)`, `omega_eigs(kx,ky)`
+- `gamma_kxky.png`: heatmap of $\gamma(k_x,k_y)$
+- `gamma_ky_max_over_kx.png`: $\max_{k_x}\gamma$ vs $k_y$
+- `kx_star_vs_ky.png`: $k_x^*(k_y)$ that maximizes $\gamma$

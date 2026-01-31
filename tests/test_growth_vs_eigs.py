@@ -35,4 +35,3 @@ def test_growth_rate_matches_leading_eigenvalue() -> None:
     gr = estimate_growth_rate(matvec, v0, tmax=30.0, dt0=0.01, nsave=200, fit_window=0.5)
 
     assert abs(gr.gamma - lam.real) / (abs(lam.real) + 1e-12) < 5e-2
-

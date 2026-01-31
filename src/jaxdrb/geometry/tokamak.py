@@ -202,4 +202,3 @@ class SAlphaGeometry(eqx.Module):
             "dpar_factor": dpar_factor,
             "B": self.B(),
         }
-

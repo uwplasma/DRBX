@@ -88,8 +88,8 @@ $$
 \frac{\partial n}{\partial t}
 = \mathcal{D}_n(\phi)
 - \nabla_\parallel v_{\parallel e}
- C_\phi - C_p
- D_n\,\Delta_\perp n.
+ + C_\phi - C_p
+ + D_n\,\Delta_\perp n.
 $$
 
 ### Vorticity
@@ -97,8 +97,8 @@ $$
 $$
 \frac{\partial \Omega}{\partial t}
 = -\nabla_\parallel j_\parallel
- C_p
- D_\Omega\,\Delta_\perp \Omega.
+ + C_p
+ + D_\Omega\,\Delta_\perp \Omega.
 $$
 
 ### Electron parallel momentum (Ohm’s law + inertia)
@@ -106,7 +106,7 @@ $$
 $$
 \hat{m}_e\,\frac{\partial v_{\parallel e}}{\partial t}
 = -\nabla_\parallel(\phi - n - T_e)
- \eta\,(v_{\parallel i} - v_{\parallel e}).
+ + \eta\,(v_{\parallel i} - v_{\parallel e}).
 $$
 
 `eta` here is a resistive coupling coefficient and `me_hat` is the electron inertia knob.
@@ -124,7 +124,7 @@ $$
 \frac{\partial T_e}{\partial t}
 = \mathcal{D}_{T_e}(\phi)
 - \frac{2}{3}\nabla_\parallel v_{\parallel e}
- D_{T_e}\,\Delta_\perp T_e.
+ + D_{T_e}\,\Delta_\perp T_e.
 $$
 
 ## What is *not* in v1
@@ -136,4 +136,3 @@ The following are intentionally deferred:
 - Sheath boundary conditions and realistic SOL closures.
 - Two-dimensional Poisson solves (we rely on the Fourier closure for v1).
 - Full Braginskii closures for viscosity, heat flux, etc.
-
