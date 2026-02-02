@@ -16,13 +16,13 @@ Both methods use the same primitive: a matrix-free Jacobian-vector product.
 Given the RHS function `F(Y) = dY/dt`, and an equilibrium `Y0`, the Jacobian is:
 
 $$
-J = \\left.\\frac{\\partial F}{\\partial Y}\\right|_{Y=Y_0}.
+J = \left.\frac{\partial F}{\partial Y}\right|_{Y=Y_0}.
 $$
 
 Instead of forming `J` explicitly, we use JAX to construct a linear operator:
 
 $$
-v \\mapsto J v
+v \mapsto J v
 $$
 
 with `jax.linearize`. See `src/jaxdrb/linear/matvec.py`.
@@ -32,4 +32,3 @@ This is critical for:
 - keeping memory use small,
 - enabling geometry-agnostic operators,
 - supporting large `nl` without building a dense matrix.
-

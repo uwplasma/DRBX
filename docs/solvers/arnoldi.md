@@ -8,13 +8,13 @@ the Jacobian.
 Given an initial vector `v0`, Arnoldi builds an orthonormal basis for the Krylov subspace:
 
 $$
-\\mathcal{K}_m(A, v_0) = \\operatorname{span}\\{v_0, A v_0, A^2 v_0, \\ldots, A^{m-1} v_0\\}.
+\mathcal{K}_m(A, v_0) = \operatorname{span}\{v_0, A v_0, A^2 v_0, \ldots, A^{m-1} v_0\}.
 $$
 
 It produces an upper Hessenberg matrix `H_m` such that:
 
 $$
-A Q_m \\approx Q_m H_m,
+A Q_m \approx Q_m H_m,
 $$
 
 where columns of `Q_m` are the orthonormal Krylov basis vectors.
@@ -39,4 +39,3 @@ The CLI implements a simple adaptive strategy:
 3. if it is above `--arnoldi-tol`, increase `m` (up to `--arnoldi-max-m` or the full dimension).
 
 See `src/jaxdrb/linear/arnoldi.py` and the logic in `src/jaxdrb/cli/main.py`.
-
