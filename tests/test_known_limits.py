@@ -26,7 +26,8 @@ def test_no_drive_limit_is_neutrally_stable() -> None:
         DTe=0.0,
     )
 
-    lam = leading_eig_dense(linear_matvec(equilibrium(nl), params, geom, kx=0.0, ky=0.3), nl)
+    y0 = equilibrium(nl)
+    lam = leading_eig_dense(linear_matvec(y0, params, geom, kx=0.0, ky=0.3), y0)
     assert abs(lam.real) < 1e-10
 
 
@@ -55,8 +56,9 @@ def test_connection_length_effect_via_q() -> None:
         nl=nl, shat=0.0, q=8.0, R0=1.0, epsilon=0.18, curvature0=0.18
     )
 
-    g2 = leading_eig_dense(linear_matvec(equilibrium(nl), params, geom_q2, kx=kx, ky=ky), nl).real
-    g8 = leading_eig_dense(linear_matvec(equilibrium(nl), params, geom_q8, kx=kx, ky=ky), nl).real
+    y0 = equilibrium(nl)
+    g2 = leading_eig_dense(linear_matvec(y0, params, geom_q2, kx=kx, ky=ky), y0).real
+    g8 = leading_eig_dense(linear_matvec(y0, params, geom_q8, kx=kx, ky=ky), y0).real
 
     assert np.isfinite(g2) and np.isfinite(g8)
     assert g8 > g2

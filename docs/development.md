@@ -30,11 +30,11 @@ Build docs (requires `.[docs]` installed):
 make docs
 ```
 
-## Coding principles (v1)
+## Coding principles
 
 - Keep geometry isolated behind the `Geometry` interface.
 - Prefer matrix-free linear operators (`matvec`) over dense matrices.
-- Avoid global Poisson solves in v1; keep the Fourier polarization closure fast.
+- Avoid global Poisson solves unless needed; keep the Fourier polarization closure fast.
 - Keep allocations small; use JAX primitives where appropriate.
 
 ## Adding a new geometry provider
@@ -64,4 +64,3 @@ Before opening a PR:
 
 - ensure `python -m pytest -q` passes,
 - keep changes focused (separate PRs for unrelated refactors).
-

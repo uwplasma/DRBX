@@ -10,8 +10,8 @@ Demonstrate an ISTTOK-inspired linear workflow based on:
   R. Jorge et al., Phys. Plasmas 23, 102511 (2016). DOI: 10.1063/1.4964783
 
 The original paper is primarily nonlinear and includes SOL-specific physics (sources and sheath
-boundary conditions). `jaxdrb` v1 is electrostatic and uses periodic field-line boundary
-conditions, so this script is a *qualitative* workflow replica rather than a quantitative match.
+boundary conditions). `jaxdrb` is electrostatic and uses periodic field-line boundary conditions,
+so this script is a *qualitative* workflow replica rather than a quantitative match.
 
 What this script does:
   1) Build a circular tokamak geometry with parameters close to the ISTTOK values quoted in the
@@ -234,7 +234,7 @@ def main() -> None:
             "ky": {"min": float(ky.min()), "max": float(ky.max()), "n": int(ky.size)},
             "params_resistive_like": params_res.__dict__,
             "params_inertial_like": params_in.__dict__,
-            "note": "v1 is electrostatic and periodic in l; results are qualitative workflow demonstrations.",
+            "note": "Electrostatic + periodic-in-l model; results are qualitative workflow demonstrations.",
         },
     )
     save_json(

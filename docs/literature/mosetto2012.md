@@ -6,8 +6,10 @@ scrape-off layer and identify distinct regimes:
 - drift-wave branches (often separated into resistive vs inertial),
 - ballooning-mode branches (resistive vs inertial, and an ideal branch at finite beta).
 
-`jaxdrb` v1 is electrostatic, so it does not reproduce the ideal electromagnetic branch
-quantitatively. However, it can reproduce the **workflow** of branch separation and scanning.
+The default `jaxdrb` model is electrostatic, so it does not reproduce the ideal electromagnetic
+branch quantitatively. An electromagnetic extension model is available (`--model em`), but it is
+still intended for qualitative trends and methodology. `jaxdrb` can reproduce the **workflow** of
+branch separation and scanning.
 
 ## What `jaxdrb` maps to in the paper
 
@@ -34,7 +36,7 @@ Outputs in `out/3_advanced/mosetto2012_driftwave_branches/` include:
 
 ### Interpreting the branches
 
-In this v1 demo, we label:
+In this demo, we label:
 
 - **RDW-like**: small electron inertia (`me_hat` small) and finite resistivity (`eta` moderate),
 - **IDW-like**: finite inertia (`me_hat` larger) and weak resistivity (`eta` small).
@@ -66,7 +68,7 @@ To match Mosetto (2012) figures quantitatively you will generally need:
 - electromagnetic effects (finite beta, $A_\parallel$),
 - the same normalization and operator definitions used in their code,
 - matching boundary conditions and field-line connection length,
-- inclusion of additional closure terms that are omitted in `jaxdrb` v1.
+- inclusion of additional closure terms that are omitted in the current default model.
 
 The point of the `examples/3_advanced/` scripts is to provide a *transparent, hackable reference*
 for these workflows within a JAX-based matrix-free linear solver.

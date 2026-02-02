@@ -1,6 +1,6 @@
-# Model equations (cold-ion DRB, v1)
+# Model equations (cold-ion DRB)
 
-This page documents the *implemented* system in `jaxdrb` v1.
+This page documents the *implemented* system in `jaxdrb`.
 
 > The model here is intentionally a “workhorse” drift-reduced Braginskii-like system used for
 > qualitative edge/SOL linear stability exploration. It is not a full SOL model (no sheath BCs,
@@ -48,7 +48,7 @@ All physics is expressed through three geometry-provided operators:
 The curvature operator is deliberately abstract: different geometries can implement different
 definitions of $C(\cdot)$ appropriate for the chosen normalization and coordinate conventions.
 
-## The v1 RHS
+## The implemented RHS
 
 The implemented RHS is in `src/jaxdrb/models/cold_ion_drb.py`.
 
@@ -80,7 +80,7 @@ $$
 \Delta_\perp f = -k_\perp^2(l)\,f.
 $$
 
-Then the v1 model is:
+Then the model is:
 
 ### Continuity
 
@@ -127,12 +127,11 @@ $$
  + D_{T_e}\,\Delta_\perp T_e.
 $$
 
-## What is *not* in v1
+## What is not implemented (yet)
 
 The following are intentionally deferred:
 
 - Full nonlinear $E\times B$ brackets `[\phi, f]` (single-mode self-nonlinearity is zero).
-- Non-Boussinesq polarization: $\Omega = \nabla_\perp\cdot(n\nabla_\perp\phi)$.
 - Sheath boundary conditions and realistic SOL closures.
-- Two-dimensional Poisson solves (we rely on the Fourier closure for v1).
+- Two-dimensional Poisson solves (we rely on the Fourier closure).
 - Full Braginskii closures for viscosity, heat flux, etc.

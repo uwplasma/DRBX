@@ -1,6 +1,6 @@
 # Limitations and interpretation
 
-This project is in an intentionally simplified v1 state.
+This project is intentionally simplified.
 
 ## Physical scope
 
@@ -27,4 +27,3 @@ that:
 - your geometry model matches the reference’s operator definitions,
 - the parameter normalization matches the reference,
 - the equilibrium drives (e.g. `omega_n`) map to the reference gradients.
-

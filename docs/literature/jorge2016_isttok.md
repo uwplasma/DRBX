@@ -10,7 +10,7 @@ Their paper is primarily nonlinear and includes SOL-specific physics (sources, s
 conditions, open-field-line connection), but it also motivates and uses linear-mode analysis to
 identify driving instabilities and parameter trends.
 
-`jaxdrb` v1 does **not** implement sheath boundary conditions or sources, so it cannot reproduce
+`jaxdrb` does **not** implement sheath boundary conditions or sources, so it cannot reproduce
 the nonlinear ISTTOK results quantitatively. What it *can* do is reproduce the local linear analysis
 workflow on an **ISTTOK-like large-aspect-ratio geometry** (circular tokamak with parameters drawn
 from the paper) and explore how growth rates and branch structure vary with model parameters.
@@ -30,7 +30,7 @@ In `jaxdrb`, we map these into the analytic circular tokamak model:
 - `q = 8`
 - `epsilon ≈ 0.18`
 - `shat = 0`
-- `curvature0 ≈ epsilon` (v1 curvature amplitude)
+- `curvature0 ≈ epsilon` (curvature amplitude used in the toy geometry)
 
 ## Example script
 
@@ -62,4 +62,3 @@ For quantitative agreement with ISTTOK turbulence regimes, the following missing
 
 `jaxdrb`’s purpose here is to provide a transparent, geometry-pluggable *linear* solver that makes
 parameter scans and matrix-free eigenvalue computations easy (and differentiable, where desired).
-

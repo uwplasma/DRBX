@@ -30,7 +30,7 @@ def test_growth_rate_matches_leading_eigenvalue() -> None:
     y0 = equilibrium(nl)
     matvec = linear_matvec(y0, params, geom, kx=kx, ky=ky)
 
-    lam = leading_eig_dense(matvec, nl)
+    lam = leading_eig_dense(matvec, y0)
     v0 = State.random(jax.random.PRNGKey(0), nl, amplitude=1e-3)
     # This case has multiple nearby modes; use a longer time to ensure the dominant mode wins.
     gr = estimate_growth_rate(matvec, v0, tmax=90.0, dt0=0.03, nsave=300, fit_window=0.5)

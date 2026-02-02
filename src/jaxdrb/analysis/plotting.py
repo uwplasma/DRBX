@@ -275,37 +275,44 @@ def save_eigenfunction_panel(
     kperp2_min: float = 1e-6,
     filename: str = "eigenfunctions.png",
 ) -> Path:
-    """Plot eigenfunction structure along the field line for the 5-field state."""
+    """Plot eigenfunction structure along the field line.
 
-    from jaxdrb.models.cold_ion_drb import phi_from_omega
+    Works for all current model states by plotting any fields that are present on `state`.
+    """
 
     out_dir = _ensure_dir(out_dir)
     l = np.asarray(geom.l, dtype=float)
     k2 = np.asarray(geom.kperp2(float(kx), float(ky)), dtype=float)
 
-    omega = np.asarray(state.omega)
-    phi = np.asarray(phi_from_omega(state.omega, k2, float(kperp2_min)))
+    omega = np.asarray(getattr(state, "omega"))
+    k2_safe = np.maximum(k2, float(kperp2_min))
+    phi = -omega / k2_safe
 
-    fields = [
-        ("n", np.asarray(state.n)),
-        ("phi", phi),
-        ("Te", np.asarray(state.Te)),
-        ("vpar_e", np.asarray(state.vpar_e)),
-        ("vpar_i", np.asarray(state.vpar_i)),
-        ("omega", omega),
-    ]
+    fields: list[tuple[str, np.ndarray]] = []
+    for name in ("n", "phi", "Te", "Ti", "vpar_e", "vpar_i", "psi", "omega"):
+        if name == "phi":
+            fields.append(("phi", np.asarray(phi)))
+        elif hasattr(state, name):
+            fields.append((name, np.asarray(getattr(state, name))))
 
     import matplotlib.pyplot as plt
 
-    fig, axs = plt.subplots(3, 2, figsize=(11.0, 8.0), sharex=True, constrained_layout=True)
-    axs = axs.reshape(-1)
-    for ax, (name, f) in zip(axs, fields, strict=True):
+    nplots = len(fields)
+    ncols = 2
+    nrows = int(np.ceil(nplots / ncols))
+    fig, axs = plt.subplots(
+        nrows, ncols, figsize=(11.0, 2.6 * nrows), sharex=True, constrained_layout=True
+    )
+    axs = np.asarray(axs).reshape(-1)
+    for ax, (name, f) in zip(axs, fields, strict=False):
         ax.plot(l, np.abs(f), "-", label="abs")
         ax.plot(l, np.real(f), "--", label="Re")
         ax.set_title(name)
         ax.legend(loc="upper right", frameon=False)
 
-    for ax in axs[-2:]:
+    for ax in axs[nplots:]:
+        ax.axis("off")
+    for ax in axs[max(0, nplots - ncols) : nplots]:
         ax.set_xlabel(r"$l$")
 
     fig.suptitle(rf"Leading mode: $\lambda={eigenvalue.real:+.3e}{eigenvalue.imag:+.3e}i$")

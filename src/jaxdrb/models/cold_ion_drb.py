@@ -8,6 +8,19 @@ import jax.random as jr
 from jaxdrb.models.params import DRBParams
 
 
+class Equilibrium(eqx.Module):
+    """Background profiles along the field line used by the RHS.
+
+    The evolving `State` is interpreted as a perturbation about this equilibrium.
+    """
+
+    n0: jnp.ndarray
+
+    @classmethod
+    def constant(cls, nl: int, *, n0: float = 1.0, dtype=jnp.float64) -> "Equilibrium":
+        return cls(n0=jnp.full((nl,), float(n0), dtype=dtype))
+
+
 class State(eqx.Module):
     n: jnp.ndarray
     omega: jnp.ndarray
@@ -46,9 +59,21 @@ class State(eqx.Module):
         )
 
 
-def phi_from_omega(omega: jnp.ndarray, kperp2: jnp.ndarray, kperp2_min: float) -> jnp.ndarray:
+def phi_from_omega(
+    omega: jnp.ndarray,
+    kperp2: jnp.ndarray,
+    *,
+    kperp2_min: float,
+    boussinesq: bool,
+    n0: jnp.ndarray | None = None,
+    n0_min: float = 1e-6,
+) -> jnp.ndarray:
     k2 = jnp.maximum(kperp2, kperp2_min)
-    return -omega / k2
+    if boussinesq:
+        return -omega / k2
+    if n0 is None:
+        raise ValueError("Non-Boussinesq polarization requires an equilibrium density n0.")
+    return -omega / (k2 * jnp.maximum(n0, n0_min))
 
 
 def rhs_nonlinear(
@@ -59,15 +84,25 @@ def rhs_nonlinear(
     *,
     kx: float,
     ky: float,
+    eq: Equilibrium | None = None,
 ) -> State:
     """Cold-ion drift-reduced Braginskii-like RHS in flux-tube (single-(kx,ky)) form.
 
     For a single Fourier mode, the nonlinear Poisson bracket self-interaction vanishes, so this
-    v1 implementation is linear in `y` but kept in this form for future extension.
+    implementation is linear in `y` but kept in this form for future extension.
     """
 
     k2 = geom.kperp2(kx, ky)
-    phi = phi_from_omega(y.omega, k2, params.kperp2_min)
+    if eq is None:
+        eq = Equilibrium.constant(int(y.n.size), n0=1.0)
+    phi = phi_from_omega(
+        y.omega,
+        k2,
+        kperp2_min=params.kperp2_min,
+        boussinesq=params.boussinesq,
+        n0=eq.n0,
+        n0_min=params.n0_min,
+    )
 
     dpar = geom.dpar
     C = geom.curvature
@@ -115,3 +150,7 @@ def rhs_nonlinear(
 
 def equilibrium(nl: int, dtype=jnp.complex128) -> State:
     return State.zeros(nl, dtype=dtype)
+
+
+def default_equilibrium(nl: int, *, n0: float = 1.0) -> Equilibrium:
+    return Equilibrium.constant(nl, n0=n0)

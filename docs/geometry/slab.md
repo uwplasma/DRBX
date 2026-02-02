@@ -29,11 +29,10 @@ implemented with periodic finite differences.
 
 ## Curvature
 
-In v1, slab curvature is represented with a simple cosine variation:
+In the slab geometry, curvature is represented with a simple cosine variation:
 
 $$
 C(f) = i\,(k_x\,0 + k_y\,\omega_{d,0}\cos\theta)\,f.
 $$
 
 Set `curvature0=0` for a curvature-free drift-wave-like benchmark.
-

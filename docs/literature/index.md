@@ -1,7 +1,7 @@
 # Literature reproduction guide
 
 This section explains how to use `jaxdrb` to reproduce **common linear SOL/edge analysis workflows**
-seen in the literature, using the v1 cold-ion drift-reduced Braginskii-like model and the
+seen in the literature, using the cold-ion drift-reduced Braginskii-like model and the
 matrix-free eigen/initial-value solvers.
 
 ## Scope and caveats (important)
@@ -13,12 +13,13 @@ The papers in this repo include:
 - Jorge et al. (2016): SOL turbulence context and diagnostics (ISTTOK),
 - Jorge & Landreman (2021): near-axis stellarator geometry for turbulence simulations.
 
-`jaxdrb` v1 is **electrostatic** and intentionally simplified:
+The default `jaxdrb` model is **electrostatic** and intentionally simplified:
 
 - periodic field-line boundary conditions,
 - Boussinesq polarization closure in Fourier form,
 - no sheath boundary conditions (line-tied/sheath physics is essential in some SOL studies),
-- no magnetic induction / $A_\parallel$ (so *ideal* ballooning physics is not captured quantitatively),
+- the electrostatic model omits magnetic induction / $A_\parallel$ (an electromagnetic extension
+  model exists, but does not aim to reproduce every published closure term),
 - reduced closure set (no gyroviscosity, no full heat flux closures).
 
 Even with these limitations, `jaxdrb` can reproduce many **methodological** steps used in the

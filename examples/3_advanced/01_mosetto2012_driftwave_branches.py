@@ -14,7 +14,7 @@ In the SOL/edge literature, it is common to separate "branches" by ordering:
 - resistive drift-wave-like (small electron inertia, finite resistivity),
 - inertial drift-wave-like (finite inertia, weak resistivity).
 
-`jaxdrb` v1 is electrostatic and simplified, so expect **qualitative** agreement rather than
+The default `jaxdrb` model is electrostatic and simplified, so expect **qualitative** agreement rather than
 quantitative reproduction of any specific figure. The point is to provide a clear, hackable
 reference implementation of the analysis steps used in the literature.
 

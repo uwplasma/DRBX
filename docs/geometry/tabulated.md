@@ -32,7 +32,7 @@ $$
 
 ## How curvature is computed
 
-The v1 tabulated curvature operator uses:
+The tabulated curvature operator uses:
 
 $$
 C(f) = i\,(k_x\,\texttt{curv\_x}(l) + k_y\,\texttt{curv\_y}(l))\,f.

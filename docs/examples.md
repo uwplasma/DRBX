@@ -53,6 +53,18 @@ JAX “advantage” demo: autodiff optimization of $k_{y,*}$ that maximizes $\ma
 python examples/2_intermediate/03_jax_autodiff_optimize_ky_star.py
 ```
 
+Electromagnetic (finite-beta) workflow demo:
+
+```bash
+python examples/2_intermediate/04_em_beta_scan.py
+```
+
+Hot-ion (finite $\tau_i$) workflow demo:
+
+```bash
+python examples/2_intermediate/05_hot_ions_tau_scan.py
+```
+
 ## 3) Advanced (literature-inspired + stellarator)
 
 Mosetto (2012) drift-wave branch workflow (curvature off):

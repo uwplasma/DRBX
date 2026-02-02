@@ -45,7 +45,7 @@ which performs the fixed-point iteration:
 
 In a reduced fluid model, $L_p$ enters through equilibrium gradients.
 
-In v1 of `jaxdrb`, the simplest mapping is to interpret the density-gradient drive as:
+In `jaxdrb`, the simplest mapping is to interpret the density-gradient drive as:
 
 $$
 \omega_n \sim \frac{R}{L_p}.
@@ -60,7 +60,7 @@ $$
 This is what `solve_lp_fixed_point(..., omega_n_scale=...)` controls.
 
 > If you want to treat *pressure* gradients more faithfully, you can include a temperature-gradient
-> drive `omega_Te` and relate $L_p$ to both $L_n$ and $L_{T_e}$, but the v1 examples keep
+> drive `omega_Te` and relate $L_p$ to both $L_n$ and $L_{T_e}$, but the examples keep
 > `omega_Te=0` for clarity.
 
 ## A worked example
@@ -101,7 +101,7 @@ print(res.Lp, res.ky_star, res.gamma_over_ky_star)
   - the ky range,
   - numerical diffusion (stabilization),
   - geometry coefficients,
-  - boundary conditions (not modeled in v1).
+  - boundary conditions (not modeled here).
 
-For SOL studies that are boundary-condition dominated (line-tied, sheath, etc.), consider v1 results
+For SOL studies that are boundary-condition dominated (line-tied, sheath, etc.), consider these results
 as a *methodology demo* rather than a predictive model.

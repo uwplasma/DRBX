@@ -1,7 +1,7 @@
 # jaxdrb
 
 `jaxdrb` is a JAX-based linear stability tool for cold-ion, drift-reduced Braginskii-like edge/SOL
-models in a **flux-tube / field-line** representation. The v1 goal is to quickly compute unstable
+models in a **flux-tube / field-line** representation. The goal is to quickly compute unstable
 modes (drift-wave-like and ballooning-like branches; resistive and inertial behavior) across
 different geometries while keeping the model core independent of the geometry source.
 
@@ -10,7 +10,7 @@ This documentation is aimed at:
 - Newcomers: conceptual overview, getting started, CLI usage, and examples.
 - Experienced users: detailed equations, algorithms, and implementation notes.
 
-## What is implemented (v1)
+## What is implemented
 
 ### Representation
 
@@ -26,7 +26,7 @@ $$
 \nabla_\perp^2 \hat{f} = -k_\perp^2(l)\,\hat{f}.
 $$
 
-### Fields
+### Baseline fields (cold-ion electrostatic)
 
 The state is a 5-field vector (all functions of `l`):
 
@@ -41,6 +41,14 @@ $$
 \quad\Rightarrow\quad
 \phi = -\frac{\Omega}{k_\perp^2(l)}.
 $$
+
+`jaxdrb` also includes model variants that add:
+
+- **hot ions** (adds an ion-temperature field `Ti` and ion-pressure couplings),
+- **electromagnetic induction** (adds an inductive field `psi ~ A_parallel` and an Ampère closure),
+- **non-Boussinesq polarization** linearized about an equilibrium $n_0(l)$.
+
+See: `model/extensions.md`.
 
 ### Geometry abstraction
 

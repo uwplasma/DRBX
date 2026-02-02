@@ -23,7 +23,7 @@ This makes it straightforward to:
 
 ## k_perp^2 in flux-tube form
 
-In v1 the perpendicular structure is Fourier and geometry enters through:
+The perpendicular structure is Fourier and geometry enters through:
 
 $$
 k_\perp^2(l) = k_x^2\,g^{xx}(l) + 2 k_x k_y\,g^{xy}(l) + k_y^2\,g^{yy}(l).
@@ -53,4 +53,3 @@ $$
 
 Geometries may optionally include Jacobian factors through a `dpar_factor(l)` coefficient or a
 more sophisticated operator.
-
