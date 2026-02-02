@@ -9,9 +9,24 @@ theme:
     - toc.follow
     - content.code.copy
 
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_root_toc_entry: false
+            show_source: false
+
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Theory:
+      - theory/index.md
+      - theory/algorithms.md
+      - theory/known-limits.md
   - Model:
       - model/equations.md
       - model/normalization.md
@@ -25,15 +40,19 @@ nav:
       - solvers/index.md
       - solvers/initial-value.md
       - solvers/arnoldi.md
+  - API:
+      - api/index.md
   - Literature:
       - literature/index.md
       - literature/sol_width.md
       - literature/mosetto2012.md
       - literature/halpern2013.md
+      - literature/jorge2016_isttok.md
       - literature/jorge2021_stellarator.md
   - CLI: cli.md
   - Examples: examples.md
   - Development: development.md
+  - References: references.md
   - Roadmap: roadmap.md
 
 markdown_extensions:

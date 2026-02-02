@@ -97,12 +97,12 @@ def rhs_nonlinear(
     dn = drive_n - dpar(y.vpar_e) + C_phi - C_p + params.Dn * lap_n
 
     # Vorticity
-    domega = -dpar(jpar) + C_p + params.DOmega * lap_omega
+    domega = dpar(jpar) + C_p + params.DOmega * lap_omega
 
     # Electron parallel momentum (Ohm's law + inertia)
     # me_hat d/dt v_e = -∇_||(phi - n - Te) - eta (v_e - v_i)
-    grad_par_pe = dpar(phi - y.n - y.Te)
-    dvpar_e = (-grad_par_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
+    grad_par_phi_pe = dpar(phi - y.n - y.Te)
+    dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)

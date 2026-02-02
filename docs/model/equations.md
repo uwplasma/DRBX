@@ -96,7 +96,7 @@ $$
 
 $$
 \frac{\partial \Omega}{\partial t}
-= -\nabla_\parallel j_\parallel
+= \nabla_\parallel j_\parallel
  + C_p
  + D_\Omega\,\Delta_\perp \Omega.
 $$
@@ -105,8 +105,8 @@ $$
 
 $$
 \hat{m}_e\,\frac{\partial v_{\parallel e}}{\partial t}
-= -\nabla_\parallel(\phi - n - T_e)
- + \eta\,(v_{\parallel i} - v_{\parallel e}).
+= \nabla_\parallel(\phi - n - T_e)
+ - \eta\,(v_{\parallel e} - v_{\parallel i}).
 $$
 
 `eta` here is a resistive coupling coefficient and `me_hat` is the electron inertia knob.

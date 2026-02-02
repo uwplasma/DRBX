@@ -31,6 +31,7 @@ examples-advanced:
 	python examples/3_advanced/01_mosetto2012_driftwave_branches.py
 	python examples/3_advanced/02_mosetto2012_ballooning_branches.py
 	python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
+	python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
 
 examples-all: examples-simple examples-intermediate examples-advanced
 

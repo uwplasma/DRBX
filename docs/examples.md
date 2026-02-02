@@ -78,3 +78,9 @@ Near-axis stellarator geometry from pyQSC (optional deps):
 ```bash
 PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
 ```
+
+ISTTOK-inspired linear workflow (Jorge et al. 2016):
+
+```bash
+python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
+```
