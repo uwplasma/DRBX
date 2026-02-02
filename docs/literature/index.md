@@ -50,4 +50,5 @@ Each script writes an `out/3_advanced/...` folder with:
 - SOL width estimation: `literature/sol_width.md`
 - Mosetto (2012) regimes and branch toggles: `literature/mosetto2012.md`
 - Halpern (2013) gradient removal workflow: `literature/halpern2013.md`
+- Jorge et al. (2016) ISTTOK context (and `jaxdrb` mapping): `literature/jorge2016_isttok.md`
 - Near-axis stellarator geometry (pyQSC): `literature/jorge2021_stellarator.md`

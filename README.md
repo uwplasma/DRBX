@@ -95,6 +95,12 @@ Near-axis stellarator example (requires a pyQSC checkout next to this repo):
 make examples-stellarator
 ```
 
+ISTTOK-inspired linear workflow (Jorge et al. 2016):
+
+```bash
+python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
+```
+
 ## Docs
 
 Build locally:

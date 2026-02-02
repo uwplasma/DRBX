@@ -32,6 +32,7 @@ def test_growth_rate_matches_leading_eigenvalue() -> None:
 
     lam = leading_eig_dense(matvec, nl)
     v0 = State.random(jax.random.PRNGKey(0), nl, amplitude=1e-3)
-    gr = estimate_growth_rate(matvec, v0, tmax=30.0, dt0=0.01, nsave=200, fit_window=0.5)
+    # This case has multiple nearby modes; use a longer time to ensure the dominant mode wins.
+    gr = estimate_growth_rate(matvec, v0, tmax=90.0, dt0=0.03, nsave=300, fit_window=0.5)
 
     assert abs(gr.gamma - lam.real) / (abs(lam.real) + 1e-12) < 5e-2

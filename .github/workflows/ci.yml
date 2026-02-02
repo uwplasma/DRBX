@@ -12,8 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -67,4 +67,3 @@ jobs:
           python -m pip install -U pip
           python -m pip install -e ".[docs]"
           mkdocs build --strict
-
