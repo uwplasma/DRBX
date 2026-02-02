@@ -8,18 +8,26 @@ from pathlib import Path
 import jax
 import numpy as np
 
+from jaxdrb.analysis.plotting import (
+    save_eigenfunction_panel,
+    save_eigenvalue_spectrum,
+    save_geometry_overview,
+    save_scan_panels,
+    set_mpl_style,
+)
+from jaxdrb.analysis.scan import scan_ky
 from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.geometry.tabulated import TabulatedGeometry
 from jaxdrb.geometry.tokamak import CircularTokamakGeometry, SAlphaGeometry
-from jaxdrb.linear.arnoldi import arnoldi_eigs
-from jaxdrb.linear.growthrate import estimate_growth_rate
-from jaxdrb.linear.matvec import linear_matvec
-from jaxdrb.models.cold_ion_drb import State, equilibrium
+from jaxdrb.linear.arnoldi import arnoldi_eigs, arnoldi_leading_ritz_vector
+from jaxdrb.linear.matvec import linear_matvec_from_rhs
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.registry import DEFAULT_MODEL, MODELS, get_model
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jaxdrb-scan")
+    parser.add_argument("--model", choices=sorted(MODELS), default=DEFAULT_MODEL.name)
     parser.add_argument("--geom", choices=["slab", "tabulated", "tokamak", "salpha"], required=True)
     parser.add_argument("--geom-file", type=str, default=None)
     parser.add_argument("--nl", type=int, default=64)
@@ -33,12 +41,18 @@ def main() -> None:
 
     parser.add_argument("--omega-n", type=float, default=0.8)
     parser.add_argument("--omega-Te", type=float, default=0.0)
+    parser.add_argument("--omega-Ti", type=float, default=0.0)
     parser.add_argument("--eta", type=float, default=1.0)
     parser.add_argument("--me-hat", type=float, default=0.05)
+    parser.add_argument("--beta", type=float, default=0.0)
+    parser.add_argument("--tau-i", type=float, default=0.0)
     parser.add_argument("--no-curvature", action="store_true")
+    parser.add_argument("--no-boussinesq", action="store_true")
     parser.add_argument("--Dn", type=float, default=0.01)
     parser.add_argument("--DOmega", type=float, default=0.01)
     parser.add_argument("--DTe", type=float, default=0.01)
+    parser.add_argument("--DTi", type=float, default=0.01)
+    parser.add_argument("--Dpsi", type=float, default=0.0)
     parser.add_argument("--kperp2-min", type=float, default=1e-6)
 
     parser.add_argument("--ky-min", type=float, required=True)
@@ -55,6 +69,7 @@ def main() -> None:
     parser.add_argument("--dt0", type=float, default=0.01)
     parser.add_argument("--nsave", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--no-initial-value", action="store_true")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -65,8 +80,12 @@ def main() -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("XDG_CACHE_HOME", str(cache_dir))
     os.environ.setdefault("MPLCONFIGDIR", str(out_dir / ".mplcache"))
+    set_mpl_style()
+
+    model = get_model(args.model)
 
     run_cfg = {
+        "model": args.model,
         "geom": args.geom,
         "geom_file": args.geom_file,
         "nl": args.nl,
@@ -79,12 +98,18 @@ def main() -> None:
         "curvature0": args.curvature0,
         "omega_n": args.omega_n,
         "omega_Te": args.omega_Te,
+        "omega_Ti": args.omega_Ti,
         "eta": args.eta,
         "me_hat": args.me_hat,
+        "beta": args.beta,
+        "tau_i": args.tau_i,
         "curvature_on": not args.no_curvature,
+        "boussinesq": not args.no_boussinesq,
         "Dn": args.Dn,
         "DOmega": args.DOmega,
         "DTe": args.DTe,
+        "DTi": args.DTi,
+        "Dpsi": args.Dpsi,
         "kperp2_min": args.kperp2_min,
         "ky_min": args.ky_min,
         "ky_max": args.ky_max,
@@ -98,6 +123,7 @@ def main() -> None:
         "dt0": args.dt0,
         "nsave": args.nsave,
         "seed": args.seed,
+        "do_initial_value": not args.no_initial_value,
     }
 
     if args.geom == "slab":
@@ -138,87 +164,98 @@ def main() -> None:
     params = DRBParams(
         omega_n=args.omega_n,
         omega_Te=args.omega_Te,
+        omega_Ti=args.omega_Ti,
         eta=args.eta,
         me_hat=args.me_hat,
+        beta=args.beta,
+        tau_i=args.tau_i,
         curvature_on=not args.no_curvature,
+        boussinesq=not args.no_boussinesq,
         Dn=args.Dn,
         DOmega=args.DOmega,
         DTe=args.DTe,
+        DTi=args.DTi,
+        Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
     )
 
     ky_grid = np.linspace(args.ky_min, args.ky_max, args.nky)
-
-    gamma_eigs = np.zeros((args.nky,), dtype=float)
-    omega_eigs = np.zeros((args.nky,), dtype=float)
-    gamma_iv = np.zeros((args.nky,), dtype=float)
-    eigs = np.zeros((args.nky, args.nev), dtype=np.complex128)
-
-    y_eq = equilibrium(args.nl)
-
-    key = jax.random.PRNGKey(args.seed)
-    for i, ky in enumerate(ky_grid):
-        key, subkey = jax.random.split(key)
-        v0 = State.random(subkey, args.nl, amplitude=1e-3)
-
-        matvec = linear_matvec(y_eq, params, geom, kx=args.kx, ky=float(ky))
-        max_m = args.arnoldi_max_m
-        if max_m is None:
-            max_m = 5 * args.nl
-        max_m = min(max_m, 5 * args.nl)
-
-        m = min(args.arnoldi_m, max_m)
-        arn = arnoldi_eigs(matvec, v0, m=m, nev=args.nev, seed=args.seed)
-        lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
-        lead = arn.eigenvalues[lead_idx]
-        rel_resid = float(arn.residual_norms[lead_idx] / (abs(lead) + 1.0))
-        while rel_resid > args.arnoldi_tol and m < max_m:
-            m = min(int(np.ceil(m * 2.0)), max_m)
-            arn = arnoldi_eigs(matvec, v0, m=m, nev=args.nev, seed=args.seed)
-            lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
-            lead = arn.eigenvalues[lead_idx]
-            rel_resid = float(arn.residual_norms[lead_idx] / (abs(lead) + 1.0))
-
-        eigs[i, : len(arn.eigenvalues)] = arn.eigenvalues
-        gamma_eigs[i] = float(np.real(lead))
-        omega_eigs[i] = float(np.imag(lead))
-
-        gr = estimate_growth_rate(
-            matvec,
-            v0,
-            tmax=args.tmax,
-            dt0=args.dt0,
-            nsave=args.nsave,
-            fit_window=0.5,
-        )
-        gamma_iv[i] = gr.gamma
-
-        print(
-            f"ky={ky:8.4f}  gamma_eig={gamma_eigs[i]:10.4e}  gamma_iv={gamma_iv[i]:10.4e}  "
-            f"m={m:4d}  rel_res={rel_resid:9.2e}"
-        )
+    res = scan_ky(
+        params,
+        geom,
+        ky=ky_grid,
+        kx=float(args.kx),
+        nl=args.nl,
+        model=model,
+        arnoldi_m=args.arnoldi_m,
+        arnoldi_tol=args.arnoldi_tol,
+        arnoldi_max_m=args.arnoldi_max_m,
+        nev=args.nev,
+        seed=args.seed,
+        do_initial_value=not args.no_initial_value,
+        tmax=args.tmax,
+        dt0=args.dt0,
+        nsave=args.nsave,
+        verbose=True,
+        print_every=1,
+    )
 
     np.savez(
         out_dir / "results.npz",
-        ky=ky_grid,
-        gamma_eigs=gamma_eigs,
-        omega_eigs=omega_eigs,
-        gamma_iv=gamma_iv,
-        eigs=eigs,
+        ky=res.ky,
+        gamma_eigs=res.gamma_eigs,
+        omega_eigs=res.omega_eigs,
+        eigs=res.eigs,
+        gamma_iv=res.gamma_iv if res.gamma_iv is not None else np.nan * res.gamma_eigs,
+        omega_iv=res.omega_iv if res.omega_iv is not None else np.nan * res.omega_eigs,
+        arnoldi_m_used=res.arnoldi_m_used,
+        arnoldi_rel_resid=res.arnoldi_rel_resid,
     )
 
-    import matplotlib.pyplot as plt
+    # Representative eigenfunction/spectrum at ky* maximizing max(gamma,0)/ky
+    ratio = np.maximum(res.gamma_eigs, 0.0) / res.ky
+    i_star = int(np.argmax(ratio))
+    ky_star = float(res.ky[i_star])
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(ky_grid, gamma_eigs, "o-", label="Re(eig)")
-    ax.plot(ky_grid, gamma_iv, "s--", label="init-value")
-    ax.set_xlabel(r"$k_y$")
-    ax.set_ylabel(r"$\gamma$")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_dir / "gamma_ky.png", dpi=150)
-    plt.close(fig)
+    # Summary plots
+    save_geometry_overview(out_dir, geom=geom, kx=float(args.kx), ky=float(ky_star))
+    save_scan_panels(
+        out_dir,
+        ky=res.ky,
+        gamma=res.gamma_eigs,
+        omega=res.omega_eigs,
+        gamma_iv=res.gamma_iv,
+        title=f"jaxdrb scan ({args.model}, {args.geom})",
+        filename="scan_panel.png",
+    )
+    y_eq = model.equilibrium(args.nl)
+    rhs_kwargs = {}
+    if model.default_eq is not None:
+        rhs_kwargs["eq"] = model.default_eq(args.nl)
+    key = jax.random.PRNGKey(args.seed + 1)
+    v0 = model.random_state(key, args.nl, amplitude=1e-3)
+    matvec_star = linear_matvec_from_rhs(
+        model.rhs, y_eq, params, geom, kx=float(args.kx), ky=ky_star, rhs_kwargs=rhs_kwargs
+    )
+    arn = arnoldi_eigs(matvec_star, v0, m=int(args.arnoldi_m), nev=int(args.nev), seed=args.seed)
+    lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
+    lead = complex(arn.eigenvalues[lead_idx])
+    ritz = arnoldi_leading_ritz_vector(matvec_star, v0, m=int(args.arnoldi_m), seed=args.seed)
 
-    print(f"Wrote {out_dir / 'results.npz'}")
-    print(f"Wrote {out_dir / 'gamma_ky.png'}")
+    save_eigenvalue_spectrum(out_dir, eigenvalues=arn.eigenvalues, highlight=lead)
+    save_eigenfunction_panel(
+        out_dir,
+        geom=geom,
+        state=ritz.vector,
+        eigenvalue=ritz.eigenvalue,
+        kx=float(args.kx),
+        ky=ky_star,
+        kperp2_min=float(args.kperp2_min),
+        filename="eigenfunctions.png",
+    )
+
+    print(f"Wrote {out_dir / 'results.npz'}", flush=True)
+    print(f"Wrote {out_dir / 'scan_panel.png'}", flush=True)
+    print(f"Wrote {out_dir / 'geometry_overview.png'}", flush=True)
+    print(f"Wrote {out_dir / 'spectrum.png'}", flush=True)
+    print(f"Wrote {out_dir / 'eigenfunctions.png'}", flush=True)

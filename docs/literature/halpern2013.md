@@ -4,8 +4,10 @@ Halpern et al. (Phys. Plasmas 20, 052306 (2013)) focus on how electromagnetic ef
 ballooning instabilities and show how non-linear saturation can be interpreted through a gradient
 removal paradigm.
 
-`jaxdrb` v1 does not include magnetic induction, so it does not reproduce the **ideal** ballooning
-threshold quantitatively. It *does* reproduce the analysis steps:
+The electrostatic `jaxdrb` model does not include magnetic induction, so it does not reproduce the
+**ideal** ballooning threshold quantitatively. An electromagnetic extension model is available
+(`--model em`), but matching published ideal thresholds typically requires additional closure
+terms and boundary conditions beyond the scope of this repo. `jaxdrb` *does* reproduce the analysis steps:
 
 - scanning $\gamma(k_y)$,
 - computing $(\gamma/k_y)_{\max}$,
@@ -45,6 +47,7 @@ Outputs:
 - `out/3_advanced/halpern2013_gradient_removal/lp_scaling_curvature0.png`
 - `out/3_advanced/halpern2013_gradient_removal/results.npz`
 
-In the script we vary `curvature0` as a surrogate "drive knob" (since v1 lacks beta/induction).
+In the script we vary `curvature0` as a surrogate "drive knob" (since the electrostatic model
+lacks beta/induction).
 When adding electromagnetic physics later, this example is a natural place to connect the workflow
 to a true $\beta$-scan.

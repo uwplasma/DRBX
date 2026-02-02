@@ -33,7 +33,7 @@ $$
 
 ### Curvature operator
 
-In v1:
+In these analytic tokamak geometries:
 
 $$
 C(f) = i\,k_y\,\omega_{d,0}\cos\theta\,B(\theta)\,f.

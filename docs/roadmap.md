@@ -1,6 +1,6 @@
 # Roadmap
 
-This is a v1 project with a focus on correctness and extensibility over completeness.
+This project focuses on correctness and extensibility over completeness.
 
 ## Near-term
 
@@ -10,7 +10,8 @@ This is a v1 project with a focus on correctness and extensibility over complete
 
 ## Medium-term
 
-- Relax the Boussinesq closure to non-Boussinesq polarization.
+- Extend non-Boussinesq polarization beyond the linearized equilibrium form (and add more realistic
+  equilibrium profile support along `l`).
 - Add multi-mode perpendicular spectral support to enable nonlinear brackets.
 - Add sheath boundary conditions and simple SOL closures.
 
@@ -18,4 +19,3 @@ This is a v1 project with a focus on correctness and extensibility over complete
 
 - Coupling to equilibrium/field-line tracer pipelines and high-fidelity geometry.
 - Implicit/IMEX time stepping and better stiffness handling in the initial-value solver.
-

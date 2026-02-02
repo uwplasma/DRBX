@@ -1,6 +1,6 @@
 # Known limits and qualitative checks
 
-This page documents **qualitative** limits and trends that `jaxdrb` v1 is designed to recover.
+This page documents **qualitative** limits and trends that `jaxdrb` is designed to recover.
 These checks are intended to answer “are we solving the equations consistently?” rather than to
 claim quantitative agreement with any particular code or experiment.
 
@@ -46,7 +46,7 @@ Many SOL/edge papers separate low-frequency branches by the relative importance 
 
 at fixed geometry and equilibrium gradients.
 
-In `jaxdrb` v1:
+In `jaxdrb`:
 
 - `eta` is a resistive coupling knob in Ohm’s law,
 - `me_hat` controls electron inertia.
@@ -71,4 +71,3 @@ and can increase growth rates in representative cases.
 This is checked in:
 
 - `tests/test_known_limits.py::test_connection_length_effect_via_q`
-

@@ -25,7 +25,7 @@ What this script does:
 
 Important notes
 ---------------
-- This is a *methodology* demo; our v1 physics model is simplified and electrostatic.
+- This is a *methodology* demo; the default physics model is simplified and electrostatic.
 - The near-axis mapping and coefficient definitions here follow the spirit of the NAQS paper and
   are intended to produce reasonable, smooth 1D coefficients along the field line.
 - This script depends on optional packages:
@@ -227,7 +227,7 @@ def build_tabulated_geometry_from_pyqsc(
     curv_x = 2.0 * np.einsum("ij,ij->i", b_x_gradB, grad_r) / (B0**2)
     curv_y = 2.0 * np.einsum("ij,ij->i", b_x_gradB, grad_a) / (B0**2)
 
-    # d/dl scaling: treat l as arclength-like coordinate for v1 (periodic FD).
+    # d/dl scaling: treat l as an arclength-like coordinate (periodic FD).
     dpar_factor = 1.0 / np.linalg.norm(e_l, axis=1)
 
     meta = {

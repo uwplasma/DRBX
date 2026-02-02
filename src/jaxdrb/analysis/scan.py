@@ -8,9 +8,9 @@ import numpy as np
 
 from jaxdrb.linear.arnoldi import arnoldi_eigs
 from jaxdrb.linear.growthrate import GrowthRateResult, estimate_growth_rate
-from jaxdrb.linear.matvec import linear_matvec
-from jaxdrb.models.cold_ion_drb import State, equilibrium
+from jaxdrb.linear.matvec import linear_matvec_from_rhs
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.registry import DEFAULT_MODEL, ModelSpec
 
 
 @dataclass
@@ -37,6 +37,7 @@ def scan_ky(
     *,
     ky: np.ndarray,
     kx: float = 0.0,
+    model: ModelSpec = DEFAULT_MODEL,
     nl: int | None = None,
     arnoldi_m: int = 40,
     arnoldi_tol: float = 1e-3,
@@ -59,7 +60,10 @@ def scan_ky(
     if nl is None:
         nl = int(getattr(geom, "l").size)
 
-    y_eq = equilibrium(nl)
+    y_eq = model.equilibrium(nl)
+    rhs_kwargs = {}
+    if model.default_eq is not None:
+        rhs_kwargs["eq"] = model.default_eq(nl)
     key = jax.random.PRNGKey(seed)
 
     gamma_eigs = np.zeros((ky.size,), dtype=float)
@@ -77,9 +81,11 @@ def scan_ky(
 
     for i, ky_i in enumerate(ky):
         key, subkey = jax.random.split(key)
-        v0 = State.random(subkey, nl, amplitude=1e-3)
+        v0 = model.random_state(subkey, nl, amplitude=1e-3)
 
-        matvec = linear_matvec(y_eq, params, geom, kx=float(kx), ky=float(ky_i))
+        matvec = linear_matvec_from_rhs(
+            model.rhs, y_eq, params, geom, kx=float(kx), ky=float(ky_i), rhs_kwargs=rhs_kwargs
+        )
 
         m = min(int(arnoldi_m), max_m)
         arn = arnoldi_eigs(matvec, v0, m=m, nev=nev, seed=seed)
@@ -145,6 +151,7 @@ def scan_kx_ky(
     *,
     kx: np.ndarray,
     ky: np.ndarray,
+    model: ModelSpec = DEFAULT_MODEL,
     nl: int | None = None,
     arnoldi_m: int = 40,
     arnoldi_tol: float = 1e-3,
@@ -168,10 +175,13 @@ def scan_kx_ky(
     if nl is None:
         nl = int(getattr(geom, "l").size)
 
-    y_eq = equilibrium(nl)
+    y_eq = model.equilibrium(nl)
+    rhs_kwargs = {}
+    if model.default_eq is not None:
+        rhs_kwargs["eq"] = model.default_eq(nl)
     key = jax.random.PRNGKey(seed)
     key, subkey0 = jax.random.split(key)
-    v0 = State.random(subkey0, nl, amplitude=1e-3)
+    v0 = model.random_state(subkey0, nl, amplitude=1e-3)
 
     gamma_eigs = np.zeros((kx.size, ky.size), dtype=float)
     omega_eigs = np.zeros((kx.size, ky.size), dtype=float)
@@ -185,7 +195,15 @@ def scan_kx_ky(
         if verbose and (ix % max(int(print_every_kx), 1) == 0 or ix == kx.size - 1):
             print(f"[scan_kx_ky {ix+1:>3d}/{kx.size}] kx={kx_i:9.4f}", flush=True)
         for iy, ky_i in enumerate(ky):
-            matvec = linear_matvec(y_eq, params, geom, kx=float(kx_i), ky=float(ky_i))
+            matvec = linear_matvec_from_rhs(
+                model.rhs,
+                y_eq,
+                params,
+                geom,
+                kx=float(kx_i),
+                ky=float(ky_i),
+                rhs_kwargs=rhs_kwargs,
+            )
 
             m = min(int(arnoldi_m), max_m)
             arn = arnoldi_eigs(matvec, v0, m=m, nev=nev, seed=seed)

@@ -18,7 +18,7 @@ and a self-consistent SOL scale length Lp is obtained by solving (see Halpern 20
 
   Lp = q * (gamma/ky)_max(Lp)
 
-In `jaxdrb` v1 we demonstrate the *algorithmic workflow* using a simplified electrostatic model.
+In `jaxdrb` we demonstrate the *algorithmic workflow* using a simplified electrostatic model.
 
 Run
 ---

@@ -2,14 +2,20 @@
 
 This section is generated from docstrings using `mkdocstrings`.
 
-> The API is still evolving (v1). Prefer the CLI and examples for end-to-end workflows, and use
+> The API is still evolving. Prefer the CLI and examples for end-to-end workflows, and use
 > the API reference for implementation details and extension points.
 
 ## Core model
 
 ::: jaxdrb.models.cold_ion_drb
 
+::: jaxdrb.models.hot_ion_drb
+
+::: jaxdrb.models.em_drb
+
 ::: jaxdrb.models.params
+
+::: jaxdrb.models.registry
 
 ## Geometry
 
@@ -36,4 +42,3 @@ This section is generated from docstrings using `mkdocstrings`.
 ::: jaxdrb.analysis.lp
 
 ::: jaxdrb.analysis.plotting
-

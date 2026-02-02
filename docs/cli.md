@@ -21,6 +21,7 @@ It writes a results folder with machine-readable output and a plot.
 
 ## Common options
 
+- `--model {cold-ion-es, hot-ion-es, em}` selects the physics model variant
 - `--geom {slab, tokamak, salpha, tabulated}`
 - `--kx FLOAT` (default 0.0)
 - `--ky-min FLOAT`, `--ky-max FLOAT`, `--nky INT`
@@ -49,10 +50,16 @@ Tabulated:
 ## Physics options
 
 - `--omega-n FLOAT`, `--omega-Te FLOAT` background-gradient drives
+- `--omega-Ti FLOAT` ion temperature-gradient drive (hot-ion model)
 - `--eta FLOAT` resistive coupling
 - `--me-hat FLOAT` electron inertia knob
+- `--beta FLOAT` inductive coupling strength (electromagnetic model)
+- `--tau-i FLOAT` ion-to-electron temperature ratio (hot-ion model)
 - `--no-curvature` disables curvature terms
+- `--no-boussinesq` uses a linearized non-Boussinesq polarization closure (about equilibrium `n0(l)`)
 - `--Dn`, `--DOmega`, `--DTe` perpendicular diffusion coefficients
+- `--DTi` ion temperature diffusion (hot-ion model)
+- `--Dpsi` psi diffusion (electromagnetic model)
 
 ## Solver options
 
@@ -66,6 +73,7 @@ Arnoldi:
 Initial-value:
 
 - `--tmax FLOAT`, `--dt0 FLOAT`, `--nsave INT`
+- `--no-initial-value` disables the initial-value solver (eigenvalues only)
 
 ## Outputs
 
@@ -79,7 +87,12 @@ Initial-value:
 - `gamma_iv`: initial-value growth estimate (shape `(nky,)`)
 - `eigs`: complex eigenvalues returned by Arnoldi (shape `(nky, nev)`)
 
-`gamma_ky.png` plots `gamma_eigs` and `gamma_iv` vs `ky`.
+The CLI also writes a set of diagnostic plots:
+
+- `scan_panel.png`: $\gamma(k_y)$, $\omega(k_y)$, and $\max(\gamma,0)/k_y$
+- `geometry_overview.png`: basic geometry coefficients along `l`
+- `spectrum.png`: Ritz spectrum at the maximizing $k_{y,*}$
+- `eigenfunctions.png`: eigenfunction amplitudes/real parts along `l` at $k_{y,*}$
 
 ## 2D scan (kx, ky)
 

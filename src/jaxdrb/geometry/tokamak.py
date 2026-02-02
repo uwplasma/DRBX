@@ -19,7 +19,7 @@ class CircularTokamakGeometry(eqx.Module):
       - ∇_|| is approximated as (1 / (q R0)) d/dtheta.
 
     Notes:
-      - For v1 we keep the metric minimal: g_xx = 1, g_xy = s_hat * theta, g_yy = 1 + g_xy^2.
+      - The metric is intentionally minimal: g_xx = 1, g_xy = s_hat * theta, g_yy = 1 + g_xy^2.
       - The curvature operator is implemented as C(f) = i (kx curv_x + ky curv_y) f with
         curv_y(theta) ~ curvature0 * cos(theta) * B(theta).
     """
@@ -108,7 +108,7 @@ class SAlphaGeometry(eqx.Module):
     """s-alpha tokamak flux-tube geometry (ballooning representation).
 
     This is a standard analytic model used in many gyrokinetic/ballooning benchmarks. In this
-    v1 implementation, the primary effect of `alpha` is to modify the local radial wavevector
+    implementation, the primary effect of `alpha` is to modify the local radial wavevector
     along the field line through the metric cross term:
 
       g_xy(theta) = s_hat * theta - alpha * sin(theta)

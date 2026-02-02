@@ -56,5 +56,5 @@ useful bridge between near-axis expansions and local linear stability studies.
 - This example requires pyQSC. If you do not have it installed, use the local checkout:
   `PYTHONPATH=../pyQSC-main`.
 - The field-line mapping in a stellarator is not exactly periodic; the example selects a toroidal
-  domain length that makes the mapping **approximately periodic**, compatible with the v1 periodic
-  parallel derivative.
+  domain length that makes the mapping **approximately periodic**, compatible with the current
+  periodic parallel derivative.

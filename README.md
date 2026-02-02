@@ -38,6 +38,18 @@ Example ky scan in a shear-slab geometry:
 jaxdrb-scan --geom slab --ky-min 0.05 --ky-max 1.0 --nky 32 --out out_slab
 ```
 
+Electromagnetic example (adds `psi ~ A_parallel`):
+
+```bash
+jaxdrb-scan --model em --geom slab --beta 0.1 --ky-min 0.05 --ky-max 1.0 --nky 32 --out out_em
+```
+
+Hot-ion example (adds `Ti`):
+
+```bash
+jaxdrb-scan --model hot-ion-es --geom slab --tau-i 1.0 --omega-Ti 0.8 --ky-min 0.05 --ky-max 1.0 --nky 32 --out out_hot
+```
+
 2D eigenvalue scan over `(kx, ky)`:
 
 ```bash
@@ -64,10 +76,11 @@ jaxdrb-scan --geom tabulated --geom-file mygeom.npz --ky-min 0.05 --ky-max 1.0 -
 
 ## Status
 
-This is a v1 implementation aimed at fast iteration:
+This implementation is aimed at fast iteration:
 - Fourier representation in perpendicular directions: `exp(i kx psi + i ky alpha)`
 - 1D grid along the field line (`l`)
-- Boussinesq polarization closure: `Omega = -k_perp^2(l) * phi`
+- Polarization closure in Fourier form (Boussinesq by default; optional linearized non-Boussinesq)
+- Model variants: cold-ion electrostatic, hot-ion electrostatic (adds `Ti`), electromagnetic (adds `psi`)
 
 ## Examples (including literature workflows)
 

@@ -1,6 +1,6 @@
 # Theory overview
 
-This section collects the high-level theoretical context behind `jaxdrb` v1:
+This section collects the high-level theoretical context behind `jaxdrb`:
 
 - what model we solve (cold-ion drift-reduced Braginskii-like 5-field system),
 - what approximations are made to enable a fast, geometry-pluggable, matrix-free solver,
@@ -8,7 +8,7 @@ This section collects the high-level theoretical context behind `jaxdrb` v1:
 
 ## What `jaxdrb` is (and is not)
 
-`jaxdrb` v1 is a **linear stability tool** for local (field-line / flux-tube) edge/SOL modes.
+`jaxdrb` is a **linear stability tool** for local (field-line / flux-tube) edge/SOL modes.
 It targets workflows common in the SOL literature:
 
 - compute leading eigenvalues $\lambda = \gamma + i\omega$ as functions of $(k_x, k_y)$,
@@ -16,15 +16,16 @@ It targets workflows common in the SOL literature:
 - compute the transport proxy $\max(\gamma, 0)/k_y$ and estimate $L_p$ via fixed-point rules
   used in gradient-removal saturation models.
 
-It is **not** a full SOL turbulence code in v1:
+It is **not** a full SOL turbulence code:
 
 - no sheath / line-tied boundary conditions,
 - no sources/sinks, no open-field-line connection to divertor plates,
-- electrostatic only (no $A_\parallel$ / induction),
+- the default model is electrostatic (an electromagnetic extension model exists, but is still
+  intentionally simplified),
 - 1D along the field line (perpendicular dependence is Fourier).
 
 Those features are common in SOL codes (GBS/BOUT++/TOKAM3X/etc.) but are intentionally outside
-v1 so we can iterate quickly and keep the solver matrix-free.
+the current scope so we can iterate quickly and keep the solver matrix-free.
 
 ## Coordinate and spectral representation
 
@@ -52,7 +53,7 @@ with $(g^{xx}, g^{xy}, g^{yy})$ supplied by the geometry provider.
 
 ## Polarization closure and vorticity variable
 
-In v1 we use the Boussinesq (constant-density) polarization closure:
+By default we use the Boussinesq (constant-density) polarization closure:
 
 $$
 \Omega(l,t) \equiv -k_\perp^2(l)\,\phi(l,t),
@@ -91,4 +92,3 @@ This makes it straightforward to swap between:
 
 Both rely on the same primitive: a matrix-free Jacobian–vector product $v \mapsto Jv$
 computed using `jax.linearize`.
-

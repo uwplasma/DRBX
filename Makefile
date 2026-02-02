@@ -26,6 +26,8 @@ examples-intermediate:
 	python examples/2_intermediate/01_tabulated_geometry_roundtrip.py
 	python examples/2_intermediate/02_cyclone_kxky_scan.py
 	python examples/2_intermediate/03_jax_autodiff_optimize_ky_star.py
+	python examples/2_intermediate/04_em_beta_scan.py
+	python examples/2_intermediate/05_hot_ions_tau_scan.py
 
 examples-advanced:
 	python examples/3_advanced/01_mosetto2012_driftwave_branches.py

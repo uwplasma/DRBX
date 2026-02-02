@@ -11,7 +11,7 @@ $$
 \frac{dY}{dt} = F(Y),
 $$
 
-and choose an equilibrium $Y_0$ (in v1, the default equilibrium is the zero-perturbation state).
+and choose an equilibrium $Y_0$ (by default, the equilibrium is the zero-perturbation state).
 The linearized operator is the Jacobian:
 
 $$
@@ -106,11 +106,10 @@ Implementation:
 
 ## 4) Perpendicular operators in a flux-tube representation
 
-The key v1 simplification is to represent perpendicular structure as a single Fourier mode
+The key simplification is to represent perpendicular structure as a single Fourier mode
 $\exp(i k_x \psi + i k_y \alpha)$, so:
 
 - $\nabla_\perp^2 f \to -k_\perp^2(l)\,f$,
 - polarization closure is algebraic: $\Omega = -k_\perp^2 \phi$.
 
 This keeps the operator application cheap and makes matrix-free eigenvalue methods practical.
-
