@@ -95,7 +95,7 @@ def solve_lp_fixed_point(
         )
 
         gamma = scan.gamma_eigs
-        ratio = gamma / ky
+        ratio = np.maximum(gamma, 0.0) / ky
         idx = int(np.argmax(ratio))
         ky_star = float(ky[idx])
         gamma_star = float(gamma[idx])
@@ -112,7 +112,10 @@ def solve_lp_fixed_point(
             )
 
         if not np.isfinite(Lp_target) or Lp_target <= 0:
-            raise RuntimeError("Failed to find a positive Lp_target; mode may be stable.")
+            raise RuntimeError(
+                "Failed to find a positive Lp_target. The scan may be stable "
+                "(max(gamma,0)/ky == 0) or the parameters/ky range may be inconsistent."
+            )
 
         Lp_next = (1.0 - relax) * Lp + relax * Lp_target
         if abs(Lp_next - Lp) / Lp < tol:

@@ -13,7 +13,7 @@ Initial-value methods are robust and easy to automate, but can suffer from:
 We want to integrate:
 
 $$
-\\frac{dv}{dt} = A v
+\frac{dv}{dt} = A v
 $$
 
 where `A = J` is the linearized operator and `v` is the perturbation vector.
@@ -21,7 +21,7 @@ where `A = J` is the linearized operator and `v` is the perturbation vector.
 Write:
 
 $$
-v(t) = \\exp(a(t))\,u(t),
+v(t) = \exp(a(t))\,u(t),
 $$
 
 where `u` is a normalized direction vector and `a` is the accumulated log-norm.
@@ -29,20 +29,20 @@ where `u` is a normalized direction vector and `a` is the accumulated log-norm.
 Choose `a'(t)` to remove the growth from `u`:
 
 $$
-a'(t) = \\gamma(t),\\qquad
-u'(t) = A u - \\gamma(t)\,u.
+a'(t) = \gamma(t),\qquad
+u'(t) = A u - \gamma(t)\,u.
 $$
 
-Here `γ(t)` is taken as the (real part of) a Rayleigh quotient:
+Here $\gamma(t)$ is taken as the (real part of) a Rayleigh quotient:
 
 $$
-\\gamma(t) = \\Re\\left[\\frac{u^\\dagger A u}{u^\\dagger u}\\right].
+\gamma(t) = \Re\left[\frac{u^\dagger A u}{u^\dagger u}\right].
 $$
 
 We additionally track an accumulated “phase” slope via the imaginary part:
 
 $$
-\\omega(t) = \\Im\\left[\\frac{u^\\dagger A u}{u^\\dagger u}\\right].
+\omega(t) = \Im\left[\frac{u^\dagger A u}{u^\dagger u}\right].
 $$
 
 In the implementation, because we store complex states as real vectors for Diffrax, we compute
@@ -55,4 +55,3 @@ these parts explicitly from the real/imag blocks.
 - Growth rate is estimated by least squares fitting of `a(t)` over a late-time window.
 
 See `src/jaxdrb/linear/growthrate.py`.
-
