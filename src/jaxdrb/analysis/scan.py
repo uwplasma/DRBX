@@ -6,7 +6,7 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from jaxdrb.linear.arnoldi import arnoldi_eigs
+from jaxdrb.linear.arnoldi import arnoldi_leading_ritz_vector
 from jaxdrb.linear.growthrate import GrowthRateResult, estimate_growth_rate
 from jaxdrb.linear.matvec import linear_matvec_from_rhs
 from jaxdrb.models.params import DRBParams
@@ -50,6 +50,7 @@ def scan_ky(
     nsave: int = 200,
     verbose: bool = False,
     print_every: int = 1,
+    continuation: bool = True,
 ) -> Scan1DResult:
     """Scan leading eigenvalues (and optionally initial-value growth rates) over a ky grid."""
 
@@ -77,29 +78,30 @@ def scan_ky(
     max_m = arnoldi_max_m
     if max_m is None:
         max_m = 5 * nl
-    max_m = min(max_m, 5 * nl)
+    max_m = min(int(max_m), 5 * nl)
 
+    v0 = None
     for i, ky_i in enumerate(ky):
-        key, subkey = jax.random.split(key)
-        v0 = model.random_state(subkey, nl, amplitude=1e-3)
+        if v0 is None or not continuation:
+            key, subkey = jax.random.split(key)
+            v0 = model.random_state(subkey, nl, amplitude=1e-3)
 
         matvec = linear_matvec_from_rhs(
             model.rhs, y_eq, params, geom, kx=float(kx), ky=float(ky_i), rhs_kwargs=rhs_kwargs
         )
 
         m = min(int(arnoldi_m), max_m)
-        arn = arnoldi_eigs(matvec, v0, m=m, nev=nev, seed=seed)
-        lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
-        lead = arn.eigenvalues[lead_idx]
-        rel_resid = float(arn.residual_norms[lead_idx] / (abs(lead) + 1.0))
+        ritz = arnoldi_leading_ritz_vector(matvec, v0, m=m, nev=nev, seed=seed)
+        lead = ritz.eigenvalue
+        rel_resid = float(ritz.residual_norm / (abs(lead) + 1.0))
         while rel_resid > arnoldi_tol and m < max_m:
             m = min(int(np.ceil(m * 2.0)), max_m)
-            arn = arnoldi_eigs(matvec, v0, m=m, nev=nev, seed=seed)
-            lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
-            lead = arn.eigenvalues[lead_idx]
-            rel_resid = float(arn.residual_norms[lead_idx] / (abs(lead) + 1.0))
+            v0 = ritz.vector
+            ritz = arnoldi_leading_ritz_vector(matvec, v0, m=m, nev=nev, seed=seed)
+            lead = ritz.eigenvalue
+            rel_resid = float(ritz.residual_norm / (abs(lead) + 1.0))
 
-        eigs[i, : len(arn.eigenvalues)] = arn.eigenvalues
+        eigs[i, : len(ritz.eigenvalues)] = ritz.eigenvalues
         gamma_eigs[i] = float(np.real(lead))
         omega_eigs[i] = float(np.imag(lead))
         arnoldi_m_used[i] = int(m)
@@ -124,6 +126,9 @@ def scan_ky(
                 assert gamma_iv is not None
                 msg += f"  gamma_iv={gamma_iv[i]:10.4e}"
             print(msg, flush=True)
+
+        if continuation:
+            v0 = ritz.vector
 
     return Scan1DResult(
         ky=ky,
@@ -189,7 +194,7 @@ def scan_kx_ky(
     max_m = arnoldi_max_m
     if max_m is None:
         max_m = 5 * nl
-    max_m = min(max_m, 5 * nl)
+    max_m = min(int(max_m), 5 * nl)
 
     for ix, kx_i in enumerate(kx):
         if verbose and (ix % max(int(print_every_kx), 1) == 0 or ix == kx.size - 1):
@@ -206,16 +211,15 @@ def scan_kx_ky(
             )
 
             m = min(int(arnoldi_m), max_m)
-            arn = arnoldi_eigs(matvec, v0, m=m, nev=nev, seed=seed)
-            lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
-            lead = arn.eigenvalues[lead_idx]
-            rel_resid = float(arn.residual_norms[lead_idx] / (abs(lead) + 1.0))
+            ritz = arnoldi_leading_ritz_vector(matvec, v0, m=m, nev=nev, seed=seed)
+            lead = ritz.eigenvalue
+            rel_resid = float(ritz.residual_norm / (abs(lead) + 1.0))
             while rel_resid > arnoldi_tol and m < max_m:
                 m = min(int(np.ceil(m * 2.0)), max_m)
-                arn = arnoldi_eigs(matvec, v0, m=m, nev=nev, seed=seed)
-                lead_idx = int(np.argmax(np.real(arn.eigenvalues)))
-                lead = arn.eigenvalues[lead_idx]
-                rel_resid = float(arn.residual_norms[lead_idx] / (abs(lead) + 1.0))
+                v0 = ritz.vector
+                ritz = arnoldi_leading_ritz_vector(matvec, v0, m=m, nev=nev, seed=seed)
+                lead = ritz.eigenvalue
+                rel_resid = float(ritz.residual_norm / (abs(lead) + 1.0))
 
             gamma_eigs[ix, iy] = float(np.real(lead))
             omega_eigs[ix, iy] = float(np.imag(lead))

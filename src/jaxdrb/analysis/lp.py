@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import equinox as eqx
 import numpy as np
 
 from jaxdrb.analysis.scan import scan_ky
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.registry import DEFAULT_MODEL, ModelSpec
 
 
 @dataclass
@@ -25,6 +27,7 @@ def solve_lp_fixed_point(
     ky: np.ndarray,
     Lp0: float,
     omega_n_scale: float = 1.0,
+    model: ModelSpec = DEFAULT_MODEL,
     max_iter: int = 50,
     tol: float = 1e-3,
     relax: float = 0.7,
@@ -68,23 +71,14 @@ def solve_lp_fixed_point(
     hist = []
 
     for _it in range(max_iter):
-        params_lp = DRBParams(
-            omega_n=float(omega_n_scale / Lp),
-            omega_Te=params.omega_Te,
-            eta=params.eta,
-            me_hat=params.me_hat,
-            curvature_on=params.curvature_on,
-            Dn=params.Dn,
-            DOmega=params.DOmega,
-            DTe=params.DTe,
-            kperp2_min=params.kperp2_min,
-        )
+        params_lp: DRBParams = eqx.tree_at(lambda p: p.omega_n, params, float(omega_n_scale / Lp))
 
         scan = scan_ky(
             params_lp,
             geom,
             ky=ky,
             kx=kx,
+            model=model,
             arnoldi_m=arnoldi_m,
             arnoldi_tol=arnoldi_tol,
             arnoldi_max_m=arnoldi_max_m,
