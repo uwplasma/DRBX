@@ -110,3 +110,26 @@ jaxdrb-scan --model em          --geom slab --beta 0.1 --out out_em/
 
 See `cli.md` for the full set of flags and defaults.
 
+## Parallel closures and sinks (optional)
+
+Several additional *linear* terms can be enabled to mimic common Braginskii-like closures and
+SOL modeling ingredients while keeping the system matrix-free and robust:
+
+- Parallel electron heat conduction:
+  $$\partial_t T_e \;\leftarrow\; \partial_t T_e + \chi_{\parallel,T_e}\,\nabla_\parallel^2 T_e.$$
+- Parallel flow diffusion/viscosity:
+  $$\partial_t v_{\parallel s} \;\leftarrow\; \partial_t v_{\parallel s} + \nu_{\parallel,s}\,\nabla_\parallel^2 v_{\parallel s},
+  \qquad s\in\{e,i\}.$$
+- Volumetric sinks (simple damping proxies):
+  $$\partial_t f \;\leftarrow\; \partial_t f - \nu_{\mathrm{sink},f}\,f.$$
+
+These are controlled by:
+
+- `chi_par_Te`, `nu_par_e`, `nu_par_i`,
+- `nu_sink_n`, `nu_sink_Te`, `nu_sink_vpar`.
+
+Example workflow:
+
+```bash
+python examples/2_intermediate/06_parallel_closures_effects.py
+```

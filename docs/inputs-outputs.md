@@ -43,6 +43,9 @@ Most runs are controlled by a `jaxdrb.models.params.DRBParams` object. Common pa
 - `me_hat`: electron inertia toggle/strength for inertial branches
 - `curvature_on`: enable/disable curvature drive
 - `Dn`, `DOmega`, `DTe`, `Dpsi`, `DTi`: small diffusion terms for stabilization (model-dependent)
+- `chi_par_Te`: optional parallel electron heat conduction coefficient (closure)
+- `nu_par_e`, `nu_par_i`: optional parallel flow diffusion/viscosity coefficients (closures)
+- `nu_sink_n`, `nu_sink_Te`, `nu_sink_vpar`: optional volumetric sinks (proxies for sources/sinks)
 - `beta`: electromagnetic beta parameter (electromagnetic model)
 - `tau_i`: ion-temperature ratio (hot-ion model)
 - `boussinesq`: polarization closure toggle (Boussinesq vs linearized non-Boussinesq)

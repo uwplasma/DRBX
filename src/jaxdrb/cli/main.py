@@ -72,6 +72,23 @@ def main() -> None:
     parser.add_argument("--Dpsi", type=float, default=0.0)
     parser.add_argument("--kperp2-min", type=float, default=1e-6)
 
+    # Optional parallel closures and volumetric sinks (useful for SOL-like studies).
+    parser.add_argument("--chi-par-Te", type=float, default=0.0, help="Parallel Te conduction χ_||")
+    parser.add_argument(
+        "--nu-par-e", type=float, default=0.0, help="Parallel electron flow diffusion/viscosity"
+    )
+    parser.add_argument(
+        "--nu-par-i", type=float, default=0.0, help="Parallel ion flow diffusion/viscosity"
+    )
+    parser.add_argument("--nu-sink-n", type=float, default=0.0, help="Volumetric sink on n")
+    parser.add_argument("--nu-sink-Te", type=float, default=0.0, help="Volumetric sink on Te")
+    parser.add_argument(
+        "--nu-sink-vpar",
+        type=float,
+        default=0.0,
+        help="Volumetric sink on vpar_e and vpar_i",
+    )
+
     # Optional SOL/sheath closures (only active for *open* geometries).
     #
     # `--sheath` is kept as a short alias for `--sheath-bc` (Loizu-style MPSE BCs).
@@ -258,6 +275,12 @@ def main() -> None:
         DTi=args.DTi,
         Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
+        chi_par_Te=float(args.chi_par_Te),
+        nu_par_e=float(args.nu_par_e),
+        nu_par_i=float(args.nu_par_i),
+        nu_sink_n=float(args.nu_sink_n),
+        nu_sink_Te=float(args.nu_sink_Te),
+        nu_sink_vpar=float(args.nu_sink_vpar),
         sheath_bc_on=bool(args.sheath or args.sheath_bc),
         sheath_bc_nu_factor=float(args.sheath_bc_nu_factor),
         sheath_lambda=float(args.sheath_lambda),

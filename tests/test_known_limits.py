@@ -5,7 +5,7 @@ import numpy as np
 from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.geometry.tokamak import CircularTokamakGeometry
 from jaxdrb.linear.matvec import linear_matvec
-from jaxdrb.models.cold_ion_drb import equilibrium
+from jaxdrb.models.cold_ion_drb import State, equilibrium
 from jaxdrb.models.params import DRBParams
 from tests.helpers import leading_eig_dense
 
@@ -62,3 +62,40 @@ def test_connection_length_effect_via_q() -> None:
 
     assert np.isfinite(g2) and np.isfinite(g8)
     assert g8 > g2
+
+
+def test_parallel_heat_conduction_damps_temperature_modes() -> None:
+    # With all couplings disabled, Te evolves only via parallel conduction:
+    #   dTe/dt = χ_|| ∂_||^2 Te
+    nl = 32
+    geom = SlabGeometry.make(nl=nl, shat=0.0, curvature0=0.0)
+    params = DRBParams(
+        omega_n=0.0,
+        omega_Te=0.0,
+        eta=1.0,
+        me_hat=0.05,
+        curvature_on=False,
+        Dn=0.0,
+        DOmega=0.0,
+        DTe=0.0,
+        chi_par_Te=0.2,
+    )
+
+    y0 = equilibrium(nl)
+    matvec = linear_matvec(y0, params, geom, kx=0.0, ky=0.3)
+
+    l = np.asarray(geom.l)
+    y = State.zeros(nl)
+    y = State(
+        n=y.n,
+        omega=y.omega,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+        Te=(np.cos(l) + 1j * np.sin(l)).astype(np.complex128),
+    )
+    dy = matvec(y)
+
+    # Te should be damped: Re <Te*, dTe> < 0.
+    inner = np.vdot(np.asarray(y.Te), np.asarray(dy.Te))
+    assert np.isfinite(inner.real)
+    assert inner.real < 0.0

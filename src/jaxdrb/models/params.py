@@ -29,6 +29,26 @@ class DRBParams(eqx.Module):
     DOmega: float = 0.02
     DTe: float = 0.02
 
+    # Parallel closures (optional; act along the field line)
+    #
+    # These are simple, robust placeholders for Braginskii-like transport:
+    #   χ_|| ∂_||^2 Te     (parallel electron heat conduction)
+    #   ν_|| ∂_||^2 v_||   (parallel viscosity / diffusion of parallel flow)
+    #
+    # These are most relevant for open-field-line (SOL) studies, and can help
+    # regularize small-scale parallel structure in linear problems.
+    chi_par_Te: float = 0.0
+    nu_par_e: float = 0.0
+    nu_par_i: float = 0.0
+
+    # Simple volumetric sinks (optional)
+    #
+    # These are linear damping terms used as crude proxies for sources/sinks that
+    # appear in full SOL models (ionization, radiation, cross-field losses, etc.).
+    nu_sink_n: float = 0.0
+    nu_sink_Te: float = 0.0
+    nu_sink_vpar: float = 0.0
+
     # Polarization closure safety
     kperp2_min: float = 1e-6
 

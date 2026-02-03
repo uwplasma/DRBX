@@ -93,6 +93,9 @@ def rhs_nonlinear(
     dpar = geom.dpar
     C = geom.curvature
 
+    def d2par(f: jnp.ndarray) -> jnp.ndarray:
+        return dpar(dpar(f))
+
     use_algebraic_ohm = params.me_hat == 0.0
 
     drive_n = -1j * ky * params.omega_n * phi
@@ -126,6 +129,7 @@ def rhs_nonlinear(
 
     jpar = y.vpar_i - vpar_e_eff
     dn = drive_n - dpar(vpar_e_eff) + (C_p - C_phi) + params.Dn * lap_n
+    dn = dn - float(getattr(params, "nu_sink_n", 0.0)) * y.n
 
     # Vorticity
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
@@ -135,12 +139,18 @@ def rhs_nonlinear(
         dvpar_e = -eta_eff * (y.vpar_e - vpar_e_eff)
     else:
         dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
+    dvpar_e = dvpar_e + float(getattr(params, "nu_par_e", 0.0)) * d2par(y.vpar_e)
+    dvpar_e = dvpar_e - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_e
 
     # Ion parallel momentum with ion pressure (tau_i=0 recovers cold ions).
     dvpar_i = -dpar(phi + tau_i * (y.n + y.Ti))
+    dvpar_i = dvpar_i + float(getattr(params, "nu_par_i", 0.0)) * d2par(y.vpar_i)
+    dvpar_i = dvpar_i - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_i
 
     # Electron temperature
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e_eff) + params.DTe * lap_Te
+    dTe = dTe + float(getattr(params, "chi_par_Te", 0.0)) * d2par(y.Te)
+    dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
     # Ion temperature (minimal)
     DTi = getattr(params, "DTi", params.DTe)
