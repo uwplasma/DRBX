@@ -7,6 +7,11 @@ import jax.random as jr
 
 from jaxdrb.models.cold_ion_drb import Equilibrium, phi_from_omega
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.sheath import (
+    apply_loizu_mpse_boundary_conditions,
+    sheath_bc_rate,
+    sheath_loss_rate,
+)
 
 
 class State(eqx.Module):
@@ -129,15 +134,33 @@ def rhs_nonlinear(
     # Electron temperature (using vpar_e reconstructed from vpar_i and jpar)
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e) + params.DTe * lap_Te
 
-    if getattr(params, "sheath_on", False) and hasattr(geom, "sheath_mask"):
-        Lpar = jnp.abs(jnp.asarray(geom.l[-1] - geom.l[0], dtype=jnp.float64)) + 1e-30
-        nu = float(getattr(params, "sheath_nu_factor", 1.0)) * (2.0 / Lpar)
+    # Loizu-style MPSE sheath BCs: use reconstructed vpar_e = vpar_i - jpar and enforce the BCs
+    # through equivalent relaxation on (vpar_i, psi).
+    dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
+        params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e, vpar_i=y.vpar_i, Te=y.Te
+    )
+    dvpar_i = dvpar_i + dvpar_i_sh
+    # Convert dvpar_e contribution into a psi relaxation via jpar = k2 * psi and vpar_e = vpar_i - jpar:
+    # dvpar_e = dvpar_i - d(jpar)  ->  d(jpar) = dvpar_i - dvpar_e.
+    djpar = dvpar_i_sh - dvpar_e_sh
+    k2_safe = jnp.maximum(k2, float(getattr(params, "kperp2_min", 1e-6)))
+    dpsi = dpsi + (djpar / k2_safe)
 
-        dn = dn - nu * y.n
-        dTe = dTe - nu * y.Te
-        domega = domega - nu * y.omega
-        dpsi = dpsi - nu * y.psi
-        dvpar_i = dvpar_i - nu * y.vpar_i
+    bc = sheath_bc_rate(params, geom)
+    if bc is not None:
+        nu_bc, mask = bc
+        dn = dn - nu_bc * mask * y.n
+        dTe = dTe - nu_bc * mask * y.Te
+        domega = domega - nu_bc * mask * y.omega
+        dpsi = dpsi - nu_bc * mask * y.psi
+
+    # Optional volumetric loss proxy.
+    nu_loss = sheath_loss_rate(params, geom)
+    dn = dn - nu_loss * y.n
+    domega = domega - nu_loss * y.omega
+    dpsi = dpsi - nu_loss * y.psi
+    dvpar_i = dvpar_i - nu_loss * y.vpar_i
+    dTe = dTe - nu_loss * y.Te
 
     return State(n=dn, omega=domega, psi=dpsi, vpar_i=dvpar_i, Te=dTe)
 

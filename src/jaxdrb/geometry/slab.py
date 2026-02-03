@@ -3,7 +3,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 
-from jaxdrb.operators.fd import d1_open, d1_periodic
+from jaxdrb.operators.fd import d1_open_fv, d1_periodic
 
 
 class SlabGeometry(eqx.Module):
@@ -117,7 +117,7 @@ class OpenSlabGeometry(eqx.Module):
         return (kx**2) * gxx + 2.0 * kx * ky * gxy + (ky**2) * gyy
 
     def dpar(self, f: jnp.ndarray) -> jnp.ndarray:
-        df = d1_open(f, self.dl)
+        df = d1_open_fv(f, self.dl)
         if self.dpar_factor is None:
             return df
         return self.dpar_factor * df
@@ -147,6 +147,10 @@ class OpenSlabGeometry(eqx.Module):
             "curv_y": curv_y,
             "dpar_factor": dpar_factor,
             "B": self.B(),
-            "sheath_mask": self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta),
-            "sheath_sign": self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta),
+            "sheath_mask": (
+                self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
+            ),
+            "sheath_sign": (
+                self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+            ),
         }

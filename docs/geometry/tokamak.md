@@ -6,7 +6,7 @@
 - `SAlphaGeometry` (s-alpha model) with an `alpha` parameter
 - open-field-line variants `OpenCircularTokamakGeometry` and `OpenSAlphaGeometry`
 
-Both are implemented in `src/jaxdrb/geometry/tokamak.py`.
+Both are implemented in [`src/jaxdrb/geometry/tokamak.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/tokamak.py).
 
 ## Circular tokamak (large aspect ratio)
 

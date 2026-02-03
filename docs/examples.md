@@ -4,7 +4,7 @@ The `examples/` tree is organized by complexity:
 
 - `examples/1_simple/`: quick “hello world” runs (single ky scan, minimal knobs).
 - `examples/2_intermediate/`: richer diagnostics (tabulated geometry round-trip, kx–ky scans, JAX workflows).
-- `examples/3_advanced/`: literature-inspired workflows and stellarator (pyQSC) geometry.
+- `examples/3_advanced/`: literature-inspired workflows and stellarator (ESSOS) geometry.
 
 All scripts:
 
@@ -33,7 +33,7 @@ Cyclone-like s-alpha ky scan:
 python examples/1_simple/03_salpha_cyclone_ky_scan.py
 ```
 
-Open field line + sheath-loss closure (SOL-style damping proxy):
+Open field line + sheath closures (MPSE Bohm-sheath BC enforcement + optional volumetric loss proxy):
 
 ```bash
 python examples/1_simple/04_open_slab_sheath_ky_scan.py
@@ -91,11 +91,14 @@ Halpern (2013) gradient removal + fixed-point $L_p$ workflow:
 python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
 ```
 
-Near-axis stellarator geometry from pyQSC (optional deps):
+Near-axis stellarator geometry via ESSOS (optional dependency):
 
 ```bash
-PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
+python examples/3_advanced/04_stellarator_nearaxis_essos.py
 ```
+
+Additional advanced literature/geometry examples (optional and potentially slower) are listed in
+`docs/literature/index.md`.
 
 ISTTOK-inspired linear workflow (Jorge et al. 2016):
 

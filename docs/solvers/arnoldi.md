@@ -30,7 +30,8 @@ The implementation returns a residual norm estimate per Ritz value.
 
 - `jaxdrb` flattens the `State` pytree into a complex vector for the linear algebra (NumPy).
 - The only expensive operation is repeated application of `matvec(v)`.
-- For difficult cases (e.g., small `ky`) convergence may require large `m`.
+- Convergence may require a larger `m` when the leading eigenvalue is near-marginal (small real part),
+  when multiple modes are nearly degenerate, or when the spectrum is strongly non-normal (common at small `ky`).
 
 The CLI implements a simple adaptive strategy:
 
@@ -38,4 +39,4 @@ The CLI implements a simple adaptive strategy:
 2. compute the relative residual for the leading (largest real part) Ritz value,
 3. if it is above `--arnoldi-tol`, increase `m` (up to `--arnoldi-max-m` or the full dimension).
 
-See `src/jaxdrb/linear/arnoldi.py` and the logic in `src/jaxdrb/cli/main.py`.
+See [`src/jaxdrb/linear/arnoldi.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/linear/arnoldi.py) and the CLI entrypoint in [`src/jaxdrb/cli/main.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/cli/main.py).

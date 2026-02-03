@@ -1,6 +1,6 @@
 # Tabulated geometry (`.npz`)
 
-`TabulatedGeometry` (`src/jaxdrb/geometry/tabulated.py`) loads a precomputed field-line geometry
+`TabulatedGeometry` ([`src/jaxdrb/geometry/tabulated.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/tabulated.py)) loads a precomputed field-line geometry
 from a `.npz` file.
 
 This is the primary path for plugging in geometry from external equilibrium tools.

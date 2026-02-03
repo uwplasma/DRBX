@@ -3,7 +3,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 
-from jaxdrb.operators.fd import d1_open, d1_periodic
+from jaxdrb.operators.fd import d1_open_fv, d1_periodic
 
 
 class CircularTokamakGeometry(eqx.Module):
@@ -247,13 +247,17 @@ class OpenCircularTokamakGeometry(CircularTokamakGeometry):
         )
 
     def dpar(self, f: jnp.ndarray) -> jnp.ndarray:
-        return d1_open(f, self.dl) / (self.q * self.R0)
+        return d1_open_fv(f, self.dl) / (self.q * self.R0)
 
     def coefficients(self) -> dict[str, jnp.ndarray]:
         out = super().coefficients()
         theta = self.l
-        out["sheath_mask"] = self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
-        out["sheath_sign"] = self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+        out["sheath_mask"] = (
+            self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
+        )
+        out["sheath_sign"] = (
+            self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+        )
         return out
 
 
@@ -298,11 +302,15 @@ class OpenSAlphaGeometry(SAlphaGeometry):
         )
 
     def dpar(self, f: jnp.ndarray) -> jnp.ndarray:
-        return d1_open(f, self.dl) / (self.q * self.R0)
+        return d1_open_fv(f, self.dl) / (self.q * self.R0)
 
     def coefficients(self) -> dict[str, jnp.ndarray]:
         out = super().coefficients()
         theta = self.l
-        out["sheath_mask"] = self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
-        out["sheath_sign"] = self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+        out["sheath_mask"] = (
+            self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
+        )
+        out["sheath_sign"] = (
+            self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+        )
         return out

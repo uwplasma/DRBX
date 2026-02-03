@@ -25,7 +25,7 @@ $$
 v \mapsto J v
 $$
 
-with `jax.linearize`. See `src/jaxdrb/linear/matvec.py`.
+with `jax.linearize`. See [`src/jaxdrb/linear/matvec.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/linear/matvec.py).
 
 This is critical for:
 

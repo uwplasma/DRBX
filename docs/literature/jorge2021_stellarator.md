@@ -1,12 +1,12 @@
-# Jorge & Landreman (2021): near-axis stellarator geometry (pyQSC)
+# Jorge & Landreman (2021): near-axis stellarator geometry (ESSOS)
 
-Jorge & Landreman (Plasma Phys. Control. Fusion 63, 014001 (2021)) discuss how **near-axis**
+Jorge & Landreman (Plasma Phys. Control. Fusion 63, 014001 (2021), see `docs/references.md`) discuss how **near-axis**
 expansions can provide geometric coefficients needed for turbulence simulations, and compare fitted
 near-axis models to full equilibria.
 
 `jaxdrb` is designed so that magnetic geometry is pluggable. This makes it straightforward to:
 
-1. generate a **tabulated field-line geometry** from a near-axis solution (pyQSC),
+1. generate a **tabulated field-line geometry** from a near-axis solution (ESSOS),
 2. run the same linear stability workflows (ky scans, branch toggles, $(\gamma/k_y)_{\max}$, and $L_p$ estimation).
 
 ## What the example does
@@ -20,41 +20,40 @@ make examples-stellarator
 or directly:
 
 ```bash
-PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
+python examples/3_advanced/04_stellarator_nearaxis_essos.py
 ```
 
 This script:
 
-- loads a near-axis configuration from pyQSC (`Qsc.from_paper("r1 section 5.1")`),
+- builds a near-axis configuration using `essos.fields.near_axis`,
 - chooses a radius `r=0.1` and a field-line label `alpha=0`,
 - constructs a `.npz` geometry file containing:
   - perpendicular metric coefficients (`gxx`, `gxy`, `gyy`) used for $k_\perp^2(l)$,
-  - an approximate curvature-drift-like coefficient (`curv_x`, `curv_y`),
-  - a parallel-derivative factor `dpar_factor(l)` based on local arc length,
-- runs two linear scans that illustrate resistive-like vs inertial-like branches,
-- computes a fixed-point $L_p$ estimate using `jaxdrb.analysis.lp.solve_lp_fixed_point`.
+  - curvature coefficients (`curv_x`, `curv_y`) from the field-line curvature,
+  - a parallel-derivative factor `dpar_factor(l)` (here `l` is arclength, so `dpar_factor=1`),
+- runs a ky scan using the same matrix-free eigen-solver used elsewhere in `jaxdrb`.
 
-Outputs are written to `out/3_advanced/stellarator_nearaxis_pyqsc/`.
+Outputs are written to `out/3_advanced/stellarator_nearaxis_essos/`.
+
+![Near-axis stellarator ky scan (ESSOS geometry)](../assets/images/essos_nearaxis_scan_panel.png)
 
 ## How the geometry is constructed (implementation sketch)
 
-The example uses a finite-difference approach:
+The example currently uses a pragmatic two-step construction:
 
-1. build flux-surface coordinates $x(r,\theta,\phi)$ from pyQSC for `r`, `r±dr`,
-2. evaluate the chosen field line via $\theta(\phi) = \alpha + \iota\,\varphi(\phi)$,
-3. compute covariant basis vectors $\partial x/\partial r$, $\partial x/\partial \alpha$,
-   and $\partial x/\partial l$ (here $l$ is a toroidal-angle-like coordinate),
-4. compute the perpendicular contravariant metric coefficients:
-   $$g^{rr}=|\nabla r|^2,\quad g^{r\alpha}=\nabla r\cdot\nabla\alpha,\quad g^{\alpha\alpha}=|\nabla\alpha|^2,$$
-5. store these arrays in a `.npz` file and run `jaxdrb` through `TabulatedGeometry`.
+1. Use ESSOS to evaluate a periodic near-axis surface in cylindrical coordinates and build a
+   **field line in xyz** (via interpolation on a precomputed $(\theta,\varphi)$ grid).
+2. Define `l` as arclength and compute curvature coefficients from the geometry of the xyz curve.
+3. Use a **local orthonormal perpendicular basis** around the field line (Frenet-like), so the
+   stored metric coefficients are approximately:
+   $$g^{xx}\approx 1,\quad g^{xy}\approx 0,\quad g^{yy}\approx 1.$$
 
-This procedure is *not* a substitute for a full GS2/GENE-compatible geometry module, but it is a
-useful bridge between near-axis expansions and local linear stability studies.
+This is sufficient for exploratory studies and for demonstrating ESSOS integration. A future
+extension can replace the local-orthonormal metric with a Clebsch-like $(r,\alpha)$ metric derived
+from the near-axis expansion (as in the NAQS paper).
 
 ## Practical notes
 
-- This example requires pyQSC. If you do not have it installed, use the local checkout:
-  `PYTHONPATH=../pyQSC-main`.
-- The field-line mapping in a stellarator is not exactly periodic; the example selects a toroidal
-  domain length that makes the mapping **approximately periodic**, compatible with the current
-  periodic parallel derivative.
+- This example requires ESSOS (`pip install essos` or a local editable install).
+- The current `TabulatedGeometry` path uses periodic finite differences in `l`. The near-axis
+  field line is treated as periodic over a single field period.

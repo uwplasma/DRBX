@@ -16,7 +16,8 @@ This project is intentionally simplified.
 
 - The field-line coordinate `l` uses periodic finite differences by default.
 - The eigenvalue solver is a basic, matrix-free Arnoldi implementation without implicit restarting.
-- For difficult cases the CLI increases the Krylov dimension up to the full state dimension
+- For cases that converge slowly (near-marginal growth, nearly-degenerate modes, or non-normal operators),
+  the CLI increases the Krylov dimension up to the full state dimension
   `N = 5 * nl`.
 
 ## Coordinate and operator conventions

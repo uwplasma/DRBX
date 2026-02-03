@@ -16,10 +16,10 @@ This makes it straightforward to:
 
 ## Built-in geometries
 
-- **Shear slab**: `SlabGeometry` (`src/jaxdrb/geometry/slab.py`)
-- **Circular tokamak**: `CircularTokamakGeometry` (`src/jaxdrb/geometry/tokamak.py`)
-- **s-alpha**: `SAlphaGeometry` (`src/jaxdrb/geometry/tokamak.py`) with Cyclone-like defaults
-- **Tabulated**: `TabulatedGeometry` (`src/jaxdrb/geometry/tabulated.py`) from `.npz`
+- **Shear slab**: `SlabGeometry` ([`src/jaxdrb/geometry/slab.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/slab.py))
+- **Circular tokamak**: `CircularTokamakGeometry` ([`src/jaxdrb/geometry/tokamak.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/tokamak.py))
+- **s-alpha**: `SAlphaGeometry` ([`src/jaxdrb/geometry/tokamak.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/tokamak.py)) with Cyclone-like defaults
+- **Tabulated**: `TabulatedGeometry` ([`src/jaxdrb/geometry/tabulated.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/tabulated.py)) from `.npz`
 
 ## k_perp^2 in flux-tube form
 

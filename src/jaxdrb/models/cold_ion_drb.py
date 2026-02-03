@@ -6,6 +6,11 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.sheath import (
+    apply_loizu_mpse_boundary_conditions,
+    sheath_bc_rate,
+    sheath_loss_rate,
+)
 
 
 class Equilibrium(eqx.Module):
@@ -160,20 +165,28 @@ def rhs_nonlinear(
     # Electron temperature
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
 
-    # Optional SOL/sheath closure (open-field-line geometries only).
-    #
-    # For linear stability studies, a common reduced approach is to represent end-plate
-    # losses with a volumetric loss rate nu_sh ~ 2 c_s / L_parallel. In our normalization
-    # c_s is O(1), so we use nu_sh ~ 2/L_parallel with an optional multiplier.
-    if getattr(params, "sheath_on", False) and hasattr(geom, "sheath_mask"):
-        Lpar = jnp.abs(jnp.asarray(geom.l[-1] - geom.l[0], dtype=jnp.float64)) + 1e-30
-        nu = float(getattr(params, "sheath_nu_factor", 1.0)) * (2.0 / Lpar)
+    # Optional Loizu-style MPSE sheath BCs (open field lines), enforced as relaxation terms.
+    dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
+        params=params, geom=geom, eq=eq, phi=phi, vpar_e=y.vpar_e, vpar_i=y.vpar_i, Te=y.Te
+    )
+    dvpar_e = dvpar_e + dvpar_e_sh
+    dvpar_i = dvpar_i + dvpar_i_sh
 
-        dn = dn - nu * y.n
-        dTe = dTe - nu * y.Te
-        domega = domega - nu * y.omega
-        dvpar_e = dvpar_e - nu * y.vpar_e
-        dvpar_i = dvpar_i - nu * y.vpar_i
+    # Additional MPSE (sheath) sinks on open field lines: represent end-plate losses and current closure.
+    bc = sheath_bc_rate(params, geom)
+    if bc is not None:
+        nu_bc, mask = bc
+        dn = dn - nu_bc * mask * y.n
+        dTe = dTe - nu_bc * mask * y.Te
+        domega = domega - nu_bc * mask * y.omega
+
+    # Optional volumetric sheath-loss proxy.
+    nu_loss = sheath_loss_rate(params, geom)
+    dn = dn - nu_loss * y.n
+    domega = domega - nu_loss * y.omega
+    dvpar_e = dvpar_e - nu_loss * y.vpar_e
+    dvpar_i = dvpar_i - nu_loss * y.vpar_i
+    dTe = dTe - nu_loss * y.Te
 
     return State(n=dn, omega=domega, vpar_e=dvpar_e, vpar_i=dvpar_i, Te=dTe)
 

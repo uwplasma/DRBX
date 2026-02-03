@@ -21,6 +21,7 @@ examples-simple:
 	python examples/1_simple/01_slab_ky_scan.py
 	python examples/1_simple/02_circular_tokamak_ky_scan.py
 	python examples/1_simple/03_salpha_cyclone_ky_scan.py
+	python examples/1_simple/04_open_slab_sheath_ky_scan.py
 
 examples-intermediate:
 	python examples/2_intermediate/01_tabulated_geometry_roundtrip.py
@@ -38,7 +39,7 @@ examples-advanced:
 examples-all: examples-simple examples-intermediate examples-advanced
 
 examples-stellarator:
-	PYTHONPATH=../pyQSC-main python examples/3_advanced/04_stellarator_nearaxis_pyqsc.py
+	python examples/3_advanced/04_stellarator_nearaxis_essos.py
 
 docs:
 	mkdocs build --strict
