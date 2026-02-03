@@ -10,7 +10,7 @@ Their paper is primarily nonlinear and includes SOL-specific physics (sources, s
 conditions, open-field-line connection), but it also motivates and uses linear-mode analysis to
 identify driving instabilities and parameter trends.
 
-`jaxdrb` does **not** implement sheath boundary conditions or sources, so it cannot reproduce
+`jaxdrb` does **not** implement full sheath boundary conditions or sources, so it cannot reproduce
 the nonlinear ISTTOK results quantitatively. What it *can* do is reproduce the local linear analysis
 workflow on an **ISTTOK-like large-aspect-ratio geometry** (circular tokamak with parameters drawn
 from the paper) and explore how growth rates and branch structure vary with model parameters.

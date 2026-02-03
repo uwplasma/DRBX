@@ -74,7 +74,7 @@ def rhs_nonlinear(
 
     k2 = geom.kperp2(kx, ky)
     if eq is None:
-        eq = Equilibrium.constant(int(y.n.size), n0=1.0)
+        eq = Equilibrium.constant(int(y.n.size), n0=1.0, Te0=1.0)
 
     phi = phi_from_omega(
         y.omega,
@@ -103,9 +103,11 @@ def rhs_nonlinear(
     if params.curvature_on:
         C_phi = C(kx, ky, phi)
         C_p = C(kx, ky, p_tot)
+        C_T = (2.0 / 3.0) * C(kx, ky, (7.0 / 2.0) * y.Te + y.n - phi)
     else:
         C_phi = jnp.zeros_like(phi)
         C_p = jnp.zeros_like(phi)
+        C_T = jnp.zeros_like(phi)
 
     lap_n = -k2 * y.n
     lap_omega = -k2 * y.omega
@@ -113,24 +115,35 @@ def rhs_nonlinear(
     lap_Ti = -k2 * y.Ti
 
     # Continuity
-    dn = drive_n - dpar(y.vpar_e) + C_phi - C_p + params.Dn * lap_n
+    dn = drive_n - dpar(y.vpar_e) + (C_p - C_phi) + params.Dn * lap_n
 
     # Vorticity
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
 
     # Electron parallel momentum
-    grad_par_phi_pe = dpar(phi - y.n - y.Te)
+    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
     dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
 
     # Ion parallel momentum with ion pressure (tau_i=0 recovers cold ions).
     dvpar_i = -dpar(phi + tau_i * (y.n + y.Ti))
 
     # Electron temperature
-    dTe = drive_Te - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
+    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
 
     # Ion temperature (minimal)
     DTi = getattr(params, "DTi", params.DTe)
     dTi = drive_Ti - (2.0 / 3.0) * dpar(y.vpar_i) + DTi * lap_Ti
+
+    if getattr(params, "sheath_on", False) and hasattr(geom, "sheath_mask"):
+        Lpar = jnp.abs(jnp.asarray(geom.l[-1] - geom.l[0], dtype=jnp.float64)) + 1e-30
+        nu = float(getattr(params, "sheath_nu_factor", 1.0)) * (2.0 / Lpar)
+
+        dn = dn - nu * y.n
+        dTe = dTe - nu * y.Te
+        dTi = dTi - nu * y.Ti
+        domega = domega - nu * y.omega
+        dvpar_e = dvpar_e - nu * y.vpar_e
+        dvpar_i = dvpar_i - nu * y.vpar_i
 
     return State(n=dn, omega=domega, vpar_e=dvpar_e, vpar_i=dvpar_i, Te=dTe, Ti=dTi)
 

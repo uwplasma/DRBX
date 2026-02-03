@@ -5,7 +5,10 @@ This project is intentionally simplified.
 ## Physical scope
 
 - The model is meant for **qualitative** drift-wave / ballooning-like stability behavior.
-- The current equations are not a complete SOL model (no sheath BCs, no realistic closure terms).
+- The current equations are not a complete SOL model:
+  - no full sheath boundary-condition implementation at the magnetic pre-sheath entrance,
+  - no neutral physics or realistic sources/sinks,
+  - simplified closures (a lightweight volumetric sheath-loss option exists for open field lines).
 - The equilibrium is currently a simple local expansion (constant gradient drives via `omega_n`,
   `omega_Te`) rather than a self-consistent profile.
 

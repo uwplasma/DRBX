@@ -33,6 +33,12 @@ Cyclone-like s-alpha ky scan:
 python examples/1_simple/03_salpha_cyclone_ky_scan.py
 ```
 
+Open field line + sheath-loss closure (SOL-style damping proxy):
+
+```bash
+python examples/1_simple/04_open_slab_sheath_ky_scan.py
+```
+
 ## 2) Intermediate (diagnostics + workflows)
 
 Tabulated geometry round-trip (export analytic coefficients → reload → verify results match):

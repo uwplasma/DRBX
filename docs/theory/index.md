@@ -18,7 +18,7 @@ It targets workflows common in the SOL literature:
 
 It is **not** a full SOL turbulence code:
 
-- no sheath / line-tied boundary conditions,
+- no *full* sheath / line-tied boundary-condition implementation (a lightweight sheath-loss closure exists for open field lines),
 - no sources/sinks, no open-field-line connection to divertor plates,
 - the default model is electrostatic (an electromagnetic extension model exists, but is still
   intentionally simplified),

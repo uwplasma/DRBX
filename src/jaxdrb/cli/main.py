@@ -16,9 +16,9 @@ from jaxdrb.analysis.plotting import (
     set_mpl_style,
 )
 from jaxdrb.analysis.scan import scan_ky
-from jaxdrb.geometry.slab import SlabGeometry
+from jaxdrb.geometry.slab import OpenSlabGeometry, SlabGeometry
 from jaxdrb.geometry.tabulated import TabulatedGeometry
-from jaxdrb.geometry.tokamak import CircularTokamakGeometry, SAlphaGeometry
+from jaxdrb.geometry.tokamak import CircularTokamakGeometry, OpenCircularTokamakGeometry, OpenSAlphaGeometry, SAlphaGeometry
 from jaxdrb.linear.arnoldi import arnoldi_eigs, arnoldi_leading_ritz_vector
 from jaxdrb.linear.matvec import linear_matvec_from_rhs
 from jaxdrb.models.params import DRBParams
@@ -28,7 +28,11 @@ from jaxdrb.models.registry import DEFAULT_MODEL, MODELS, get_model
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jaxdrb-scan")
     parser.add_argument("--model", choices=sorted(MODELS), default=DEFAULT_MODEL.name)
-    parser.add_argument("--geom", choices=["slab", "tabulated", "tokamak", "salpha"], required=True)
+    parser.add_argument(
+        "--geom",
+        choices=["slab", "slab-open", "tabulated", "tokamak", "tokamak-open", "salpha", "salpha-open"],
+        required=True,
+    )
     parser.add_argument("--geom-file", type=str, default=None)
     parser.add_argument("--nl", type=int, default=64)
     parser.add_argument("--length", type=float, default=float(2 * np.pi))
@@ -54,6 +58,15 @@ def main() -> None:
     parser.add_argument("--DTi", type=float, default=0.01)
     parser.add_argument("--Dpsi", type=float, default=0.0)
     parser.add_argument("--kperp2-min", type=float, default=1e-6)
+
+    # Optional SOL/sheath closures (only active for *open* geometries).
+    parser.add_argument("--sheath", action="store_true", help="Enable Bohm-sheath closure at open ends")
+    parser.add_argument(
+        "--sheath-nu-factor",
+        type=float,
+        default=1.0,
+        help="Multiplier for the sheath loss rate (nu_sh ~ 2/L_parallel).",
+    )
 
     parser.add_argument("--ky-min", type=float, required=True)
     parser.add_argument("--ky-max", type=float, required=True)
@@ -111,6 +124,8 @@ def main() -> None:
         "DTi": args.DTi,
         "Dpsi": args.Dpsi,
         "kperp2_min": args.kperp2_min,
+        "sheath_on": bool(args.sheath),
+        "sheath_nu_factor": float(args.sheath_nu_factor),
         "ky_min": args.ky_min,
         "ky_max": args.ky_max,
         "nky": args.nky,
@@ -130,6 +145,10 @@ def main() -> None:
         geom = SlabGeometry.make(
             nl=args.nl, length=args.length, shat=args.shat, curvature0=args.curvature0
         )
+    elif args.geom == "slab-open":
+        geom = OpenSlabGeometry.make(
+            nl=args.nl, length=args.length, shat=args.shat, curvature0=args.curvature0
+        )
     elif args.geom == "tokamak":
         geom = CircularTokamakGeometry.make(
             nl=args.nl,
@@ -140,8 +159,29 @@ def main() -> None:
             epsilon=args.epsilon,
             curvature0=args.curvature0 if args.curvature0 != 0.0 else None,
         )
+    elif args.geom == "tokamak-open":
+        geom = OpenCircularTokamakGeometry.make(
+            nl=args.nl,
+            length=args.length,
+            shat=args.shat,
+            q=args.q,
+            R0=args.R0,
+            epsilon=args.epsilon,
+            curvature0=args.curvature0 if args.curvature0 != 0.0 else None,
+        )
     elif args.geom == "salpha":
         geom = SAlphaGeometry.make(
+            nl=args.nl,
+            length=args.length,
+            shat=args.shat,
+            alpha=args.alpha,
+            q=args.q,
+            R0=args.R0,
+            epsilon=args.epsilon,
+            curvature0=args.curvature0 if args.curvature0 != 0.0 else None,
+        )
+    elif args.geom == "salpha-open":
+        geom = OpenSAlphaGeometry.make(
             nl=args.nl,
             length=args.length,
             shat=args.shat,
@@ -177,6 +217,8 @@ def main() -> None:
         DTi=args.DTi,
         Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
+        sheath_on=bool(args.sheath),
+        sheath_nu_factor=float(args.sheath_nu_factor),
     )
 
     ky_grid = np.linspace(args.ky_min, args.ky_max, args.nky)

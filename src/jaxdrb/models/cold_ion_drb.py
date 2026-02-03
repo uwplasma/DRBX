@@ -15,10 +15,21 @@ class Equilibrium(eqx.Module):
     """
 
     n0: jnp.ndarray
+    Te0: jnp.ndarray
 
     @classmethod
-    def constant(cls, nl: int, *, n0: float = 1.0, dtype=jnp.float64) -> "Equilibrium":
-        return cls(n0=jnp.full((nl,), float(n0), dtype=dtype))
+    def constant(
+        cls,
+        nl: int,
+        *,
+        n0: float = 1.0,
+        Te0: float = 1.0,
+        dtype=jnp.float64,
+    ) -> "Equilibrium":
+        return cls(
+            n0=jnp.full((nl,), float(n0), dtype=dtype),
+            Te0=jnp.full((nl,), float(Te0), dtype=dtype),
+        )
 
 
 class State(eqx.Module):
@@ -94,7 +105,7 @@ def rhs_nonlinear(
 
     k2 = geom.kperp2(kx, ky)
     if eq is None:
-        eq = Equilibrium.constant(int(y.n.size), n0=1.0)
+        eq = Equilibrium.constant(int(y.n.size), n0=1.0, Te0=1.0)
     phi = phi_from_omega(
         y.omega,
         k2,
@@ -118,9 +129,11 @@ def rhs_nonlinear(
     if params.curvature_on:
         C_phi = C(kx, ky, phi)
         C_p = C(kx, ky, y.n + y.Te)
+        C_T = (2.0 / 3.0) * C(kx, ky, (7.0 / 2.0) * y.Te + y.n - phi)
     else:
         C_phi = jnp.zeros_like(phi)
         C_p = jnp.zeros_like(phi)
+        C_T = jnp.zeros_like(phi)
 
     # Perp diffusion in Fourier space: D * ∇_⊥^2 f -> -D k_⊥^2 f
     lap_n = -k2 * y.n
@@ -129,21 +142,38 @@ def rhs_nonlinear(
 
     # --- Model ---
     # Continuity
-    dn = drive_n - dpar(y.vpar_e) + C_phi - C_p + params.Dn * lap_n
+    # Many SOL/edge DRB conventions use a curvature-compressibility term C(p) - C(phi),
+    # consistent with e.g. Mosetto et al. (2012) in the cold-ion limit.
+    dn = drive_n - dpar(y.vpar_e) + (C_p - C_phi) + params.Dn * lap_n
 
     # Vorticity
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
 
     # Electron parallel momentum (Ohm's law + inertia)
     # me_hat d/dt v_e = -∇_||(phi - n - Te) - eta (v_e - v_i)
-    grad_par_phi_pe = dpar(phi - y.n - y.Te)
+    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
     dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)
 
     # Electron temperature
-    dTe = drive_Te - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
+    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
+
+    # Optional SOL/sheath closure (open-field-line geometries only).
+    #
+    # For linear stability studies, a common reduced approach is to represent end-plate
+    # losses with a volumetric loss rate nu_sh ~ 2 c_s / L_parallel. In our normalization
+    # c_s is O(1), so we use nu_sh ~ 2/L_parallel with an optional multiplier.
+    if getattr(params, "sheath_on", False) and hasattr(geom, "sheath_mask"):
+        Lpar = jnp.abs(jnp.asarray(geom.l[-1] - geom.l[0], dtype=jnp.float64)) + 1e-30
+        nu = float(getattr(params, "sheath_nu_factor", 1.0)) * (2.0 / Lpar)
+
+        dn = dn - nu * y.n
+        dTe = dTe - nu * y.Te
+        domega = domega - nu * y.omega
+        dvpar_e = dvpar_e - nu * y.vpar_e
+        dvpar_i = dvpar_i - nu * y.vpar_i
 
     return State(n=dn, omega=domega, vpar_e=dvpar_e, vpar_i=dvpar_i, Te=dTe)
 
@@ -153,4 +183,4 @@ def equilibrium(nl: int, dtype=jnp.complex128) -> State:
 
 
 def default_equilibrium(nl: int, *, n0: float = 1.0) -> Equilibrium:
-    return Equilibrium.constant(nl, n0=n0)
+    return Equilibrium.constant(nl, n0=n0, Te0=1.0)

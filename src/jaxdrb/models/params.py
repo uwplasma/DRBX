@@ -38,3 +38,18 @@ class DRBParams(eqx.Module):
     # Non-Boussinesq (linearized about equilibrium n0): Omega = -k_perp^2 * n0 * phi
     boussinesq: bool = True
     n0_min: float = 1e-6
+
+    # Braginskii coefficients (dimensionless, in the same normalization as the model).
+    #
+    # Many drift-reduced Braginskii implementations include an electron "thermal force" term
+    # in Ohm's law, often written as ∇_||(phi - n - 1.71 Te) in (Te/e) potential units.
+    alpha_Te_ohm: float = 1.71
+
+    # Optional open-field-line / sheath closure knobs.
+    #
+    # When `sheath_on=True` and the geometry provides `sheath_mask` and `sheath_sign`, we
+    # apply Bohm-sheath entrance conditions through a penalty relaxation at the two ends.
+    # This enables SOL-like studies without changing the matrix-free workflows.
+    sheath_on: bool = False
+    sheath_nu_factor: float = 1.0
+    sheath_Te_floor: float = 1e-6

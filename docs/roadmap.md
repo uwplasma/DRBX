@@ -13,7 +13,8 @@ This project focuses on correctness and extensibility over completeness.
 - Extend non-Boussinesq polarization beyond the linearized equilibrium form (and add more realistic
   equilibrium profile support along `l`).
 - Add multi-mode perpendicular spectral support to enable nonlinear brackets.
-- Add sheath boundary conditions and simple SOL closures.
+- Add full sheath boundary conditions (line-tied / limiter / divertor) at the magnetic pre-sheath entrance.
+  (A lightweight volumetric sheath-loss closure exists today for open-field-line geometries.)
 
 ## Long-term
 

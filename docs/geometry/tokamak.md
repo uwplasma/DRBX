@@ -4,6 +4,7 @@
 
 - `CircularTokamakGeometry` for a circular cross-section, large-aspect-ratio tokamak
 - `SAlphaGeometry` (s-alpha model) with an `alpha` parameter
+- open-field-line variants `OpenCircularTokamakGeometry` and `OpenSAlphaGeometry`
 
 Both are implemented in `src/jaxdrb/geometry/tokamak.py`.
 
@@ -22,6 +23,9 @@ We approximate:
 $$
 \nabla_\parallel \approx \frac{1}{q R_0}\,\frac{d}{d\theta}.
 $$
+
+For open-field-line variants, the same scaling is used but the derivative is evaluated with an
+open-boundary finite-difference stencil (no periodic wrapping).
 
 ### Magnetic field strength
 
