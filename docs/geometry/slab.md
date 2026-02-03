@@ -1,6 +1,8 @@
 # Shear slab geometry
 
 `SlabGeometry` (`src/jaxdrb/geometry/slab.py`) is the simplest analytic benchmark geometry.
+An open-field-line variant `OpenSlabGeometry` is also available (non-periodic parallel derivative),
+intended for SOL-style studies and for use with the optional sheath-loss closure.
 
 ## Definition
 
@@ -26,6 +28,11 @@ $$
 $$
 
 implemented with periodic finite differences.
+
+### Open field lines
+
+`OpenSlabGeometry` replaces periodic wrapping with an open-boundary finite difference stencil
+(centered in the interior, one-sided at the ends).
 
 ## Curvature
 

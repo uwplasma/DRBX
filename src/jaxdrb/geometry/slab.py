@@ -3,7 +3,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 
-from jaxdrb.operators.fd import d1_periodic
+from jaxdrb.operators.fd import d1_open, d1_periodic
 
 
 class SlabGeometry(eqx.Module):
@@ -73,4 +73,80 @@ class SlabGeometry(eqx.Module):
             "curv_y": curv_y,
             "dpar_factor": dpar_factor,
             "B": self.B(),
+        }
+
+
+class OpenSlabGeometry(eqx.Module):
+    """Open-field-line variant of `SlabGeometry` (non-periodic parallel derivative).
+
+    This geometry is intended for SOL/limiter-style problems where the parallel coordinate has
+    *ends* (e.g. magnetic pre-sheath entrances), so periodic wrapping is not appropriate.
+
+    Boundary indices are `0` (left) and `-1` (right).
+    """
+
+    l: jnp.ndarray
+    dl: float = eqx.field(static=True)
+    shat: float = 0.0
+    curvature0: float = 0.0
+    dpar_factor: jnp.ndarray | None = None
+
+    sheath_mask: jnp.ndarray | None = None  # (nl,) 1 at boundaries, else 0
+    sheath_sign: jnp.ndarray | None = None  # (nl,) -1 at left, +1 at right, else 0
+
+    @classmethod
+    def make(cls, nl: int = 65, length: float = 2 * jnp.pi, **kwargs) -> "OpenSlabGeometry":
+        if nl < 3:
+            raise ValueError("nl must be >= 3 for open geometries.")
+        l = jnp.linspace(-0.5 * length, 0.5 * length, nl, endpoint=True)
+        dl = float(length / (nl - 1))
+
+        mask = jnp.zeros((nl,), dtype=jnp.float64).at[0].set(1.0).at[-1].set(1.0)
+        sign = jnp.zeros((nl,), dtype=jnp.float64).at[0].set(-1.0).at[-1].set(+1.0)
+        return cls(l=l, dl=dl, sheath_mask=mask, sheath_sign=sign, **kwargs)
+
+    def metric_components(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        theta = self.l
+        gxx = jnp.ones_like(theta)
+        gxy = self.shat * theta
+        gyy = 1.0 + (self.shat * theta) ** 2
+        return gxx, gxy, gyy
+
+    def kperp2(self, kx: float, ky: float) -> jnp.ndarray:
+        gxx, gxy, gyy = self.metric_components()
+        return (kx**2) * gxx + 2.0 * kx * ky * gxy + (ky**2) * gyy
+
+    def dpar(self, f: jnp.ndarray) -> jnp.ndarray:
+        df = d1_open(f, self.dl)
+        if self.dpar_factor is None:
+            return df
+        return self.dpar_factor * df
+
+    def curvature(self, kx: float, ky: float, f: jnp.ndarray) -> jnp.ndarray:
+        theta = self.l
+        curv_x = jnp.zeros_like(theta)
+        curv_y = self.curvature0 * jnp.cos(theta)
+        omega_d = kx * curv_x + ky * curv_y
+        return 1j * omega_d * f
+
+    def B(self) -> jnp.ndarray:
+        return jnp.ones_like(self.l)
+
+    def coefficients(self) -> dict[str, jnp.ndarray]:
+        gxx, gxy, gyy = self.metric_components()
+        theta = self.l
+        curv_x = jnp.zeros_like(theta)
+        curv_y = self.curvature0 * jnp.cos(theta)
+        dpar_factor = jnp.ones_like(theta) if self.dpar_factor is None else self.dpar_factor
+        return {
+            "l": self.l,
+            "gxx": gxx,
+            "gxy": gxy,
+            "gyy": gyy,
+            "curv_x": curv_x,
+            "curv_y": curv_y,
+            "dpar_factor": dpar_factor,
+            "B": self.B(),
+            "sheath_mask": self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta),
+            "sheath_sign": self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta),
         }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 
-from jaxdrb.operators.fd import d1_periodic
+from jaxdrb.operators.fd import d1_open, d1_periodic
 
 
 class CircularTokamakGeometry(eqx.Module):
@@ -202,3 +202,107 @@ class SAlphaGeometry(eqx.Module):
             "dpar_factor": dpar_factor,
             "B": self.B(),
         }
+
+
+class OpenCircularTokamakGeometry(CircularTokamakGeometry):
+    """Open-field-line variant of `CircularTokamakGeometry` (non-periodic ∇_||).
+
+    This uses the same analytic coefficients but replaces the periodic derivative with an
+    open-boundary finite difference, and exposes `sheath_mask/sheath_sign` for sheath closures.
+    """
+
+    sheath_mask: jnp.ndarray | None = None
+    sheath_sign: jnp.ndarray | None = None
+
+    @classmethod
+    def make(
+        cls,
+        *,
+        nl: int = 65,
+        length: float = float(2 * jnp.pi),
+        shat: float = 0.0,
+        q: float = 1.4,
+        R0: float = 1.0,
+        epsilon: float = 0.18,
+        curvature0: float | None = None,
+    ) -> "OpenCircularTokamakGeometry":
+        if nl < 3:
+            raise ValueError("nl must be >= 3 for open geometries.")
+        l = jnp.linspace(-0.5 * length, 0.5 * length, nl, endpoint=True)
+        dl = float(length / (nl - 1))
+        if curvature0 is None:
+            curvature0 = float(epsilon)
+        mask = jnp.zeros((nl,), dtype=jnp.float64).at[0].set(1.0).at[-1].set(1.0)
+        sign = jnp.zeros((nl,), dtype=jnp.float64).at[0].set(-1.0).at[-1].set(+1.0)
+        return cls(
+            l=l,
+            dl=dl,
+            shat=shat,
+            q=q,
+            R0=R0,
+            epsilon=epsilon,
+            curvature0=curvature0,
+            sheath_mask=mask,
+            sheath_sign=sign,
+        )
+
+    def dpar(self, f: jnp.ndarray) -> jnp.ndarray:
+        return d1_open(f, self.dl) / (self.q * self.R0)
+
+    def coefficients(self) -> dict[str, jnp.ndarray]:
+        out = super().coefficients()
+        theta = self.l
+        out["sheath_mask"] = self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
+        out["sheath_sign"] = self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+        return out
+
+
+class OpenSAlphaGeometry(SAlphaGeometry):
+    """Open-field-line variant of `SAlphaGeometry` (non-periodic ∇_||)."""
+
+    sheath_mask: jnp.ndarray | None = None
+    sheath_sign: jnp.ndarray | None = None
+
+    @classmethod
+    def make(
+        cls,
+        *,
+        nl: int = 65,
+        length: float = float(2 * jnp.pi),
+        shat: float = 0.796,
+        alpha: float = 0.0,
+        q: float = 1.4,
+        R0: float = 1.0,
+        epsilon: float = 0.18,
+        curvature0: float | None = None,
+    ) -> "OpenSAlphaGeometry":
+        if nl < 3:
+            raise ValueError("nl must be >= 3 for open geometries.")
+        l = jnp.linspace(-0.5 * length, 0.5 * length, nl, endpoint=True)
+        dl = float(length / (nl - 1))
+        if curvature0 is None:
+            curvature0 = float(epsilon)
+        mask = jnp.zeros((nl,), dtype=jnp.float64).at[0].set(1.0).at[-1].set(1.0)
+        sign = jnp.zeros((nl,), dtype=jnp.float64).at[0].set(-1.0).at[-1].set(+1.0)
+        return cls(
+            l=l,
+            dl=dl,
+            shat=shat,
+            alpha=alpha,
+            q=q,
+            R0=R0,
+            epsilon=epsilon,
+            curvature0=curvature0,
+            sheath_mask=mask,
+            sheath_sign=sign,
+        )
+
+    def dpar(self, f: jnp.ndarray) -> jnp.ndarray:
+        return d1_open(f, self.dl) / (self.q * self.R0)
+
+    def coefficients(self) -> dict[str, jnp.ndarray]:
+        out = super().coefficients()
+        theta = self.l
+        out["sheath_mask"] = self.sheath_mask if self.sheath_mask is not None else jnp.zeros_like(theta)
+        out["sheath_sign"] = self.sheath_sign if self.sheath_sign is not None else jnp.zeros_like(theta)
+        return out

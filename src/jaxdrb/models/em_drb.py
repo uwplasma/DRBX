@@ -76,7 +76,7 @@ def rhs_nonlinear(
 
     k2 = geom.kperp2(kx, ky)
     if eq is None:
-        eq = Equilibrium.constant(int(y.n.size), n0=1.0)
+        eq = Equilibrium.constant(int(y.n.size), n0=1.0, Te0=1.0)
 
     phi = phi_from_omega(
         y.omega,
@@ -100,9 +100,11 @@ def rhs_nonlinear(
     if params.curvature_on:
         C_phi = C(kx, ky, phi)
         C_p = C(kx, ky, y.n + y.Te)
+        C_T = (2.0 / 3.0) * C(kx, ky, (7.0 / 2.0) * y.Te + y.n - phi)
     else:
         C_phi = jnp.zeros_like(phi)
         C_p = jnp.zeros_like(phi)
+        C_T = jnp.zeros_like(phi)
 
     lap_n = -k2 * y.n
     lap_omega = -k2 * y.omega
@@ -110,13 +112,13 @@ def rhs_nonlinear(
     lap_psi = -k2 * y.psi
 
     # Continuity
-    dn = drive_n - dpar(vpar_e) + C_phi - C_p + params.Dn * lap_n
+    dn = drive_n - dpar(vpar_e) + (C_p - C_phi) + params.Dn * lap_n
 
     # Vorticity (current coupling via Ampère)
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
 
     # Induction / generalized Ohm
-    grad_par_phi_pe = dpar(phi - y.n - y.Te)
+    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
     coef = 0.5 * getattr(params, "beta", 0.0) + params.me_hat * jnp.maximum(k2, params.kperp2_min)
     coef = jnp.maximum(coef, 1e-12)
     dpsi = (-grad_par_phi_pe - params.eta * jpar + getattr(params, "Dpsi", 0.0) * lap_psi) / coef
@@ -125,7 +127,17 @@ def rhs_nonlinear(
     dvpar_i = -dpar(phi)
 
     # Electron temperature (using vpar_e reconstructed from vpar_i and jpar)
-    dTe = drive_Te - (2.0 / 3.0) * dpar(vpar_e) + params.DTe * lap_Te
+    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e) + params.DTe * lap_Te
+
+    if getattr(params, "sheath_on", False) and hasattr(geom, "sheath_mask"):
+        Lpar = jnp.abs(jnp.asarray(geom.l[-1] - geom.l[0], dtype=jnp.float64)) + 1e-30
+        nu = float(getattr(params, "sheath_nu_factor", 1.0)) * (2.0 / Lpar)
+
+        dn = dn - nu * y.n
+        dTe = dTe - nu * y.Te
+        domega = domega - nu * y.omega
+        dpsi = dpsi - nu * y.psi
+        dvpar_i = dvpar_i - nu * y.vpar_i
 
     return State(n=dn, omega=domega, psi=dpsi, vpar_i=dvpar_i, Te=dTe)
 

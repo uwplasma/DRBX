@@ -17,7 +17,8 @@ The default `jaxdrb` model is **electrostatic** and intentionally simplified:
 
 - periodic field-line boundary conditions,
 - Boussinesq polarization closure in Fourier form,
-- no sheath boundary conditions (line-tied/sheath physics is essential in some SOL studies),
+- no *full* sheath boundary conditions (line-tied/sheath physics is essential in some SOL studies),
+  though a lightweight volumetric sheath-loss closure exists for open-field-line geometries,
 - the electrostatic model omits magnetic induction / $A_\parallel$ (an electromagnetic extension
   model exists, but does not aim to reproduce every published closure term),
 - reduced closure set (no gyroviscosity, no full heat flux closures).

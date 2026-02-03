@@ -22,7 +22,7 @@ It writes a results folder with machine-readable output and a plot.
 ## Common options
 
 - `--model {cold-ion-es, hot-ion-es, em}` selects the physics model variant
-- `--geom {slab, tokamak, salpha, tabulated}`
+- `--geom {slab, slab-open, tokamak, tokamak-open, salpha, salpha-open, tabulated}`
 - `--kx FLOAT` (default 0.0)
 - `--ky-min FLOAT`, `--ky-max FLOAT`, `--nky INT`
 - `--nl INT` number of grid points along the field line
@@ -60,6 +60,8 @@ Tabulated:
 - `--Dn`, `--DOmega`, `--DTe` perpendicular diffusion coefficients
 - `--DTi` ion temperature diffusion (hot-ion model)
 - `--Dpsi` psi diffusion (electromagnetic model)
+- `--sheath` enables the optional open-field-line sheath-loss closure (only active for `*-open` geometries)
+- `--sheath-nu-factor FLOAT` multiplies the loss rate `nu_sh ~ 2/L_parallel`
 
 ## Solver options
 
