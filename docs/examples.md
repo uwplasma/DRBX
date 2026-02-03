@@ -71,6 +71,12 @@ Hot-ion (finite $\tau_i$) workflow demo:
 python examples/2_intermediate/05_hot_ions_tau_scan.py
 ```
 
+Parallel closures + sinks demo (parallel heat conduction / flow diffusion):
+
+```bash
+python examples/2_intermediate/06_parallel_closures_effects.py
+```
+
 ## 3) Advanced (literature-inspired + stellarator)
 
 Mosetto (2012) drift-wave branch workflow (curvature off):

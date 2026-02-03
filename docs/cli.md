@@ -60,6 +60,9 @@ Tabulated:
 - `--Dn`, `--DOmega`, `--DTe` perpendicular diffusion coefficients
 - `--DTi` ion temperature diffusion (hot-ion model)
 - `--Dpsi` psi diffusion (electromagnetic model)
+- `--chi-par-Te FLOAT` parallel electron heat conduction coefficient
+- `--nu-par-e FLOAT`, `--nu-par-i FLOAT` parallel flow diffusion/viscosity coefficients
+- `--nu-sink-n FLOAT`, `--nu-sink-Te FLOAT`, `--nu-sink-vpar FLOAT` simple volumetric sinks
 - `--sheath` enables Loizu-style MPSE Bohm sheath BCs (alias for `--sheath-bc`)
 - `--sheath-bc` enables Loizu-style magnetic-pre-sheath entrance BCs (only active for `*-open` geometries)
 - `--sheath-bc-nu-factor FLOAT` multiplies the BC enforcement rate (~`2/L_parallel`)

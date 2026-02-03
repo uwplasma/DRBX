@@ -95,6 +95,9 @@ def rhs_nonlinear(
     dpar = geom.dpar
     C = geom.curvature
 
+    def d2par(f: jnp.ndarray) -> jnp.ndarray:
+        return dpar(dpar(f))
+
     # Ampère closure: j_|| = -∇_⊥^2 psi -> +k_⊥^2 psi
     jpar = k2 * y.psi
     vpar_e = y.vpar_i - jpar
@@ -118,6 +121,7 @@ def rhs_nonlinear(
 
     # Continuity
     dn = drive_n - dpar(vpar_e) + (C_p - C_phi) + params.Dn * lap_n
+    dn = dn - float(getattr(params, "nu_sink_n", 0.0)) * y.n
 
     # Vorticity (current coupling via Ampère)
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
@@ -130,9 +134,13 @@ def rhs_nonlinear(
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)
+    dvpar_i = dvpar_i + float(getattr(params, "nu_par_i", 0.0)) * d2par(y.vpar_i)
+    dvpar_i = dvpar_i - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_i
 
     # Electron temperature (using vpar_e reconstructed from vpar_i and jpar)
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e) + params.DTe * lap_Te
+    dTe = dTe + float(getattr(params, "chi_par_Te", 0.0)) * d2par(y.Te)
+    dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
     # Loizu-style MPSE sheath BCs: use reconstructed vpar_e = vpar_i - jpar and enforce the BCs
     # through equivalent relaxation on (vpar_i, psi).
