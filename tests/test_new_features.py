@@ -6,6 +6,7 @@ import jax.numpy as jnp
 
 from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.geometry.tabulated import TabulatedGeometry
+from jaxdrb.analysis.scan import scan_ky
 from jaxdrb.linear.arnoldi import arnoldi_leading_ritz_vector
 from jaxdrb.linear.growthrate import estimate_growth_rate_jax
 from jaxdrb.linear.matvec import linear_matvec
@@ -84,3 +85,32 @@ def test_tabulated_geometry_reads_B(tmp_path) -> None:
 
     geom = TabulatedGeometry.from_npz(path)
     assert np.allclose(np.asarray(geom.B()), B)
+
+
+def test_me_hat_zero_runs_without_nans() -> None:
+    nl = 12
+    geom = SlabGeometry.make(nl=nl, shat=0.4, curvature0=0.2)
+    params = DRBParams(
+        omega_n=0.8,
+        omega_Te=0.0,
+        eta=1.0,
+        me_hat=0.0,  # algebraic Ohm's law limit
+        curvature_on=True,
+        Dn=0.01,
+        DOmega=0.01,
+        DTe=0.01,
+    )
+    ky = np.array([0.3, 0.6], dtype=float)
+    res = scan_ky(
+        params,
+        geom,
+        ky=ky,
+        kx=0.0,
+        arnoldi_m=24,
+        arnoldi_tol=5e-3,
+        nev=2,
+        do_initial_value=False,
+        verbose=False,
+        seed=0,
+    )
+    assert np.all(np.isfinite(res.gamma_eigs))

@@ -123,8 +123,11 @@ def rhs_nonlinear(
     dpar = geom.dpar
     C = geom.curvature
 
-    # Parallel current (n0 = 1 normalization)
-    jpar = y.vpar_i - y.vpar_e
+    # Electron inertia handling:
+    # - For me_hat > 0: evolve vpar_e with an inertial Ohm's law.
+    # - For me_hat = 0: treat Ohm's law as an algebraic constraint and use a fast relaxation
+    #   toward the constrained value (avoids division-by-zero and keeps the 5-field state shape).
+    use_algebraic_ohm = params.me_hat == 0.0
 
     # Drives from background gradients: -[phi, n0] -> -i ky omega_n phi
     drive_n = -1j * ky * params.omega_n * phi
@@ -149,25 +152,36 @@ def rhs_nonlinear(
     # Continuity
     # Many SOL/edge DRB conventions use a curvature-compressibility term C(p) - C(phi),
     # consistent with e.g. Mosetto et al. (2012) in the cold-ion limit.
-    dn = drive_n - dpar(y.vpar_e) + (C_p - C_phi) + params.Dn * lap_n
+    # vpar_e used in compressibility is the constrained value in the me_hat=0 limit.
+    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
+    eta_eff = jnp.maximum(params.eta, 1e-12)
+    vpar_e_eff = jnp.where(use_algebraic_ohm, y.vpar_i + grad_par_phi_pe / eta_eff, y.vpar_e)
+
+    # Parallel current (n0 = 1 normalization)
+    jpar = y.vpar_i - vpar_e_eff
+
+    dn = drive_n - dpar(vpar_e_eff) + (C_p - C_phi) + params.Dn * lap_n
 
     # Vorticity
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
 
     # Electron parallel momentum (Ohm's law + inertia)
     # me_hat d/dt v_e = -∇_||(phi - n - Te) - eta (v_e - v_i)
-    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
-    dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
+    if use_algebraic_ohm:
+        # Relax vpar_e toward the algebraic Ohm's-law constraint value.
+        dvpar_e = -eta_eff * (y.vpar_e - vpar_e_eff)
+    else:
+        dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)
 
     # Electron temperature
-    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
+    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e_eff) + params.DTe * lap_Te
 
     # Optional Loizu-style MPSE sheath BCs (open field lines), enforced as relaxation terms.
     dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
-        params=params, geom=geom, eq=eq, phi=phi, vpar_e=y.vpar_e, vpar_i=y.vpar_i, Te=y.Te
+        params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e_eff, vpar_i=y.vpar_i, Te=y.Te
     )
     dvpar_e = dvpar_e + dvpar_e_sh
     dvpar_i = dvpar_i + dvpar_i_sh

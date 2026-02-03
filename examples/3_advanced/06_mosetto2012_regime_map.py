@@ -5,44 +5,62 @@ from __future__ import annotations
 
 Purpose
 -------
-Create a Mosetto-like "regime map" showing which linear branch dominates across a 2D scan in:
+Create a Mosetto-like instability *regime map* following the conceptual picture in:
 
-  - collisionality-like parameter: `eta`
-  - background drive strength: `omega_n` (proxy for R/Ln or R/Lp in local models)
+  A. Mosetto, F. D. Halpern, S. Jolliet, and P. Ricci,
+  "Low-frequency linear-mode regimes in the tokamak scrape-off layer",
+  Phys. Plasmas 19, 112103 (2012).
 
-and classify the dominant instability into four labels:
+In the electrostatic limit, Mosetto et al. categorize the dominant linear instability into
+four regimes:
 
-  - InDW: inertial drift-wave-like
-  - RDW: resistive drift-wave-like
-  - InBM: inertial ballooning-like
-  - RBM: resistive ballooning-like
+  - InDW: inertial drift wave
+  - RDW:  resistive drift wave
+  - InBM: inertial ballooning mode
+  - RBM:  resistive ballooning mode
+
+This script produces a **workflow-aligned** version of that map using the drift-reduced model
+already implemented in `jaxdrb`:
+
+  - Horizontal axis: a collisionality-like knob (here `eta`, the normalized parallel resistivity).
+  - Vertical axis: a background drive knob (here `omega_n`, a proxy for R/L_n in local models).
+
+Classification (ablation-based)
+-------------------------------
+Rather than toggling branches by hand, we classify the dominant mode *at each parameter point*
+via two simple ablations:
+
+1) Drift-wave-like vs ballooning-like:
+   Compare the peak growth rate with curvature **on** vs **off**.
+2) Inertial vs resistive:
+   Compare the peak growth rate with electron inertia **on** vs **off** (`me_hat=0`).
+
+This yields a 2×2 decision table → {InDW, RDW, InBM, RBM}.
 
 Important caveat
 ----------------
-This is a **workflow + visualization** replica rather than a quantitatively exact reproduction of
-any specific Mosetto figure: our model is simplified, electrostatic by default, and we separate
-branches by toggling parameters and curvature.
+Mosetto Fig. 6(a) is a schematic overview of regimes in SOL parameter space. Reproducing the
+*quantitative* boundaries requires matching the full model and boundary conditions used in the
+paper. This example aims to:
 
-Classification strategy used here (transparent + hackable):
-----------------------------------------------------------
-For each (eta, omega_n) point, we compute the peak growth rate over ky for each branch candidate:
-
-  - DW branches: curvature_off, (me_hat small / large) for resistive vs inertial
-  - BM branches: curvature_on,  (me_hat small / large) for resistive vs inertial
-
-We then assign the regime label corresponding to the maximum of the four peak growth rates.
+  - match the **qualitative** region structure,
+  - be transparent about the classification rule,
+  - be fast enough to run routinely.
 
 Run
 ---
   python examples/3_advanced/06_mosetto2012_regime_map.py
 
+Environment knobs
+-----------------
+Set `JAXDRB_FAST=0` for a finer grid (slower).
+
 Outputs
 -------
 Written to `out/3_advanced/mosetto2012_regime_map/`:
 
-  - `regime_map.png`: colored map of dominant regime
-  - `gamma_max_maps.png`: four panels with gamma_max(eta, omega_n) per branch
-  - `results.npz`: numeric results (gamma maxima etc.)
+  - `mosetto2012_fig6a_like.png`: dominant-regime map + helper panels
+  - `results.npz`: numeric arrays
 """
 
 import os
@@ -56,11 +74,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from jaxdrb.analysis.plotting import save_json, set_mpl_style
 from jaxdrb.analysis.scan import scan_ky
-from jaxdrb.geometry.slab import SlabGeometry
+from jaxdrb.geometry.tokamak import CircularTokamakGeometry
 from jaxdrb.models.params import DRBParams
 
 
-def _gamma_max_over_ky(scan) -> float:
+def _gamma_max(scan) -> float:
     return float(np.max(scan.gamma_eigs))
 
 
@@ -78,168 +96,198 @@ def main() -> None:
     else:
         print("JAXDRB_FAST=0: using a finer grid (may take a long time).", flush=True)
 
-    # Geometry: slab, with curvature amplitude that can drive BM-like modes when enabled.
-    nl = 24 if fast else 64
-    geom = SlabGeometry.make(nl=nl, length=float(2 * np.pi), shat=0.4, curvature0=0.2)
+    # Geometry: large-aspect-ratio circular tokamak with shear and curvature.
+    nl = 24 if fast else 96
+    geom = CircularTokamakGeometry.make(
+        nl=nl, shat=0.8, q=3.0, R0=1.0, epsilon=0.18, curvature0=0.18
+    )
+
     kx = 0.0
+    ky = np.linspace(0.08, 0.9, 6 if fast else 30)
 
-    # ky scan used at each parameter point.
-    ky = np.linspace(0.08, 1.0, 8 if fast else 28)
+    # Parameter scan ranges chosen to highlight the qualitative 4-regime structure.
+    eta_grid = np.logspace(-2.3, 0.4, 6 if fast else 26)  # "collisionality-like"
+    omega_n_grid = np.linspace(0.0, 2.2, 7 if fast else 31)  # proxy for R/L_n
 
-    # Parameter grids (log for eta, linear for omega_n).
-    eta_grid = np.logspace(-2.0, 1.0, 5 if fast else 18)
-    omega_n_grid = np.linspace(0.0, 2.0, 6 if fast else 21)
-
-    # Branch definition knobs (qualitative):
-    # - resistive-like: small electron inertia (me_hat small) and finite eta
-    # - inertial-like: larger me_hat and weak eta
-    me_resistive = 1e-3
-    me_inertial = 0.08
-
+    # Baseline parameters (electrostatic, cold ions).
     base = DRBParams(
-        omega_n=0.8,  # overwritten
+        omega_n=1.0,  # overwritten
         omega_Te=0.0,
-        eta=1.0,  # overwritten
-        me_hat=0.05,  # overwritten per-branch
-        curvature_on=False,  # overwritten per-branch
+        eta=0.1,  # overwritten
+        me_hat=0.05,  # inertia on in "full" runs
+        curvature_on=True,
+        beta=0.0,
+        tau_i=0.0,
+        boussinesq=True,
         Dn=0.01,
         DOmega=0.01,
         DTe=0.01,
+        kperp2_min=1e-6,
     )
 
-    # Store gamma_max per branch: [eta, omega_n]
-    gamma_in_dw = np.zeros((eta_grid.size, omega_n_grid.size))
-    gamma_r_dw = np.zeros_like(gamma_in_dw)
-    gamma_in_bm = np.zeros_like(gamma_in_dw)
-    gamma_r_bm = np.zeros_like(gamma_in_dw)
+    # Classification thresholds (heuristic, but robust):
+    # - DW if curvature-off retains at least this fraction of the growth rate.
+    # - Resistive if inertia-off retains at least this fraction of the growth rate.
+    frac_threshold = 0.5
+    tiny = 1e-12
+
+    gamma_full = np.zeros((eta_grid.size, omega_n_grid.size))
+    gamma_no_curv = np.zeros_like(gamma_full)
+    gamma_no_inertia = np.zeros_like(gamma_full)
+    label_idx = np.full_like(gamma_full, fill_value=-1, dtype=int)
+
+    labels = ["InDW", "RDW", "InBM", "RBM"]
 
     npoints = eta_grid.size * omega_n_grid.size
-    print(f"Scanning (eta, omega_n) grid… ({npoints} points, 4 branches per point)", flush=True)
+    print(f"Scanning (eta, omega_n) grid… ({npoints} points; 3 scans per point)", flush=True)
+
     for i, eta in enumerate(eta_grid):
         for j, omega_n in enumerate(omega_n_grid):
-            # Resistive DW-like: curvature off
             p = DRBParams(**{**base.__dict__, "eta": float(eta), "omega_n": float(omega_n)})
 
-            s_rdw = scan_ky(
-                DRBParams(**{**p.__dict__, "me_hat": float(me_resistive), "curvature_on": False}),
+            arn_m = 14 if fast else 40
+            arn_tol = 7e-3 if fast else 2e-3
+            arn_nev = 2 if fast else 6
+
+            s_full = scan_ky(
+                p,
                 geom,
                 ky=ky,
                 kx=kx,
-                arnoldi_m=16 if fast else 32,
-                arnoldi_tol=6e-3 if fast else 2e-3,
-                nev=2 if fast else 6,
+                arnoldi_m=arn_m,
+                arnoldi_tol=arn_tol,
+                arnoldi_max_m=5 * nl,
+                nev=arn_nev,
                 do_initial_value=False,
                 verbose=False,
                 seed=0,
             )
-            gamma_r_dw[i, j] = _gamma_max_over_ky(s_rdw)
+            g_full = _gamma_max(s_full)
 
-            s_idw = scan_ky(
-                DRBParams(**{**p.__dict__, "me_hat": float(me_inertial), "curvature_on": False}),
+            s_noc = scan_ky(
+                DRBParams(**{**p.__dict__, "curvature_on": False}),
                 geom,
                 ky=ky,
                 kx=kx,
-                arnoldi_m=16 if fast else 32,
-                arnoldi_tol=6e-3 if fast else 2e-3,
-                nev=2 if fast else 6,
+                arnoldi_m=arn_m,
+                arnoldi_tol=arn_tol,
+                arnoldi_max_m=5 * nl,
+                nev=arn_nev,
                 do_initial_value=False,
                 verbose=False,
                 seed=0,
             )
-            gamma_in_dw[i, j] = _gamma_max_over_ky(s_idw)
+            g_noc = _gamma_max(s_noc)
 
-            # Ballooning-like branches: curvature on
-            s_rbm = scan_ky(
-                DRBParams(**{**p.__dict__, "me_hat": float(me_resistive), "curvature_on": True}),
+            s_noi = scan_ky(
+                DRBParams(**{**p.__dict__, "me_hat": 0.0}),
                 geom,
                 ky=ky,
                 kx=kx,
-                arnoldi_m=16 if fast else 32,
-                arnoldi_tol=6e-3 if fast else 2e-3,
-                nev=2 if fast else 6,
+                arnoldi_m=arn_m,
+                arnoldi_tol=arn_tol,
+                arnoldi_max_m=5 * nl,
+                nev=arn_nev,
                 do_initial_value=False,
                 verbose=False,
                 seed=0,
             )
-            gamma_r_bm[i, j] = _gamma_max_over_ky(s_rbm)
+            g_noi = _gamma_max(s_noi)
 
-            s_ibm = scan_ky(
-                DRBParams(**{**p.__dict__, "me_hat": float(me_inertial), "curvature_on": True}),
-                geom,
-                ky=ky,
-                kx=kx,
-                arnoldi_m=16 if fast else 32,
-                arnoldi_tol=6e-3 if fast else 2e-3,
-                nev=2 if fast else 6,
-                do_initial_value=False,
-                verbose=False,
-                seed=0,
-            )
-            gamma_in_bm[i, j] = _gamma_max_over_ky(s_ibm)
+            gamma_full[i, j] = g_full
+            gamma_no_curv[i, j] = g_noc
+            gamma_no_inertia[i, j] = g_noi
 
-        print(f"[{i+1:02d}/{eta_grid.size}] eta={eta:8.2e} done", flush=True)
+            if g_full <= tiny:
+                label_idx[i, j] = -1
+                continue
 
-    # Classification: pick max of the four gamma_max values.
-    stack = np.stack([gamma_in_dw, gamma_r_dw, gamma_in_bm, gamma_r_bm], axis=0)
-    labels = ["InDW", "RDW", "InBM", "RBM"]
-    idx = np.argmax(stack, axis=0)  # [eta, omega_n]
+            dw_like = g_noc >= frac_threshold * g_full
+            resistive_like = g_noi >= frac_threshold * g_full
 
-    # Make a nice categorical colormap.
+            if dw_like and (not resistive_like):
+                label_idx[i, j] = 0  # InDW
+            elif dw_like and resistive_like:
+                label_idx[i, j] = 1  # RDW
+            elif (not dw_like) and (not resistive_like):
+                label_idx[i, j] = 2  # InBM
+            else:
+                label_idx[i, j] = 3  # RBM
+
+        print(f"[{i+1:02d}/{eta_grid.size}] eta={eta:9.3e} done", flush=True)
+
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap, BoundaryNorm
 
+    fig = plt.figure(figsize=(12.0, 8.2), constrained_layout=True)
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.1, 1.0])
+
+    # --- Dominant label map ---
+    ax = fig.add_subplot(gs[0, :])
     cmap = ListedColormap(["#4C78A8", "#F58518", "#54A24B", "#E45756"])
     norm = BoundaryNorm(np.arange(-0.5, 4.5, 1.0), cmap.N)
 
-    fig, ax = plt.subplots(figsize=(8.6, 5.8), constrained_layout=True)
     im = ax.pcolormesh(
-        omega_n_grid,
         np.log10(eta_grid),
-        idx,
+        omega_n_grid,
+        label_idx.T,
         shading="auto",
         cmap=cmap,
         norm=norm,
     )
-    ax.set_xlabel(r"drive $\omega_n$  (proxy for $R/L_n$)")
-    ax.set_ylabel(r"$\log_{10}(\eta)$  (collisionality-like)")
-    ax.set_title("Dominant regime label (workflow replica)")
+    ax.set_xlabel(r"$\log_{10}(\eta)$  (collisionality-like)")
+    ax.set_ylabel(r"drive $\omega_n$  (proxy for $R/L_n$)")
+    ax.set_title("Dominant instability label (Mosetto-like regime map; ablation-classified)")
 
-    cbar = fig.colorbar(im, ax=ax, ticks=[0, 1, 2, 3])
+    cbar = fig.colorbar(im, ax=ax, ticks=[0, 1, 2, 3], pad=0.01)
     cbar.ax.set_yticklabels(labels)
-    fig.savefig(out_dir / "regime_map.png", dpi=240)
-    plt.close(fig)
 
-    # Also show gamma_max maps for each branch (helps debug the classification).
-    fig, axs = plt.subplots(2, 2, figsize=(11.2, 8.0), constrained_layout=True)
-    panels = [
-        ("InDW: max gamma over ky", gamma_in_dw),
-        ("RDW: max gamma over ky", gamma_r_dw),
-        ("InBM: max gamma over ky", gamma_in_bm),
-        ("RBM: max gamma over ky", gamma_r_bm),
-    ]
-    for ax, (title, arr) in zip(axs.reshape(-1), panels, strict=True):
-        im = ax.pcolormesh(omega_n_grid, np.log10(eta_grid), arr, shading="auto", cmap="magma")
-        ax.set_title(title)
-        ax.set_xlabel(r"$\omega_n$")
-        ax.set_ylabel(r"$\log_{10}(\eta)$")
-        fig.colorbar(im, ax=ax, shrink=0.85, label=r"$\gamma_{\max}$")
-    fig.savefig(out_dir / "gamma_max_maps.png", dpi=240)
+    # --- Helper panels: ablation ratios ---
+    r_curv = np.where(gamma_full > tiny, gamma_no_curv / gamma_full, np.nan)
+    r_inertia = np.where(gamma_full > tiny, gamma_no_inertia / gamma_full, np.nan)
+
+    ax1 = fig.add_subplot(gs[1, 0])
+    im1 = ax1.pcolormesh(np.log10(eta_grid), omega_n_grid, r_curv.T, shading="auto", cmap="viridis")
+    ax1.axhline(0.0, color="k", lw=0.5, alpha=0.3)
+    ax1.set_xlabel(r"$\log_{10}(\eta)$")
+    ax1.set_ylabel(r"$\omega_n$")
+    ax1.set_title(r"Curvature-off ratio: $\gamma_{\mathrm{no\,curv}}/\gamma_{\mathrm{full}}$")
+    fig.colorbar(im1, ax=ax1, shrink=0.88)
+
+    ax2 = fig.add_subplot(gs[1, 1])
+    im2 = ax2.pcolormesh(
+        np.log10(eta_grid), omega_n_grid, r_inertia.T, shading="auto", cmap="viridis"
+    )
+    ax2.axhline(0.0, color="k", lw=0.5, alpha=0.3)
+    ax2.set_xlabel(r"$\log_{10}(\eta)$")
+    ax2.set_ylabel(r"$\omega_n$")
+    ax2.set_title(r"Inertia-off ratio: $\gamma_{m_e=0}/\gamma_{\mathrm{full}}$")
+    fig.colorbar(im2, ax=ax2, shrink=0.88)
+
+    fig.savefig(out_dir / "mosetto2012_fig6a_like.png", dpi=240)
     plt.close(fig)
 
     np.savez(
         out_dir / "results.npz",
         eta=eta_grid,
         omega_n=omega_n_grid,
-        gamma_in_dw=gamma_in_dw,
-        gamma_r_dw=gamma_r_dw,
-        gamma_in_bm=gamma_in_bm,
-        gamma_r_bm=gamma_r_bm,
-        regime_index=idx,
+        ky=ky,
+        gamma_full=gamma_full,
+        gamma_no_curv=gamma_no_curv,
+        gamma_no_inertia=gamma_no_inertia,
+        label_index=label_idx,
     )
     save_json(
         out_dir / "params.json",
         {
-            "geometry": {"type": "slab", "nl": nl, "shat": 0.4, "curvature0": 0.2},
+            "paper": "Mosetto et al. (2012) Phys. Plasmas 19, 112103",
+            "geometry": {
+                "type": "circular_tokamak",
+                "nl": nl,
+                "shat": 0.8,
+                "q": 3.0,
+                "epsilon": 0.18,
+            },
             "kx": kx,
             "ky": {"min": float(ky.min()), "max": float(ky.max()), "n": int(ky.size)},
             "eta": {
@@ -252,15 +300,16 @@ def main() -> None:
                 "max": float(omega_n_grid.max()),
                 "n": int(omega_n_grid.size),
             },
-            "branch_definition": {
-                "me_hat_resistive": me_resistive,
-                "me_hat_inertial": me_inertial,
+            "classification": {
+                "method": "ablation ratios vs full model",
+                "frac_threshold": frac_threshold,
                 "labels": labels,
+                "rules": {
+                    "DW": "gamma_no_curv >= frac_threshold * gamma_full",
+                    "resistive": "gamma_me_hat0 >= frac_threshold * gamma_full",
+                },
             },
-            "notes": [
-                "This is a qualitative workflow replica; branch labeling is by parameter toggles.",
-                "Interpret omega_n as a proxy for R/Ln (or R/Lp) only in a reduced/local sense.",
-            ],
+            "base_params": base.__dict__,
         },
     )
 

@@ -93,7 +93,7 @@ def rhs_nonlinear(
     dpar = geom.dpar
     C = geom.curvature
 
-    jpar = y.vpar_i - y.vpar_e
+    use_algebraic_ohm = params.me_hat == 0.0
 
     drive_n = -1j * ky * params.omega_n * phi
     drive_Te = -1j * ky * params.omega_Te * phi
@@ -119,21 +119,28 @@ def rhs_nonlinear(
     lap_Te = -k2 * y.Te
     lap_Ti = -k2 * y.Ti
 
-    # Continuity
-    dn = drive_n - dpar(y.vpar_e) + (C_p - C_phi) + params.Dn * lap_n
+    # Continuity: use constrained vpar_e in the me_hat=0 limit.
+    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
+    eta_eff = jnp.maximum(params.eta, 1e-12)
+    vpar_e_eff = jnp.where(use_algebraic_ohm, y.vpar_i + grad_par_phi_pe / eta_eff, y.vpar_e)
+
+    jpar = y.vpar_i - vpar_e_eff
+    dn = drive_n - dpar(vpar_e_eff) + (C_p - C_phi) + params.Dn * lap_n
 
     # Vorticity
     domega = dpar(jpar) + C_p + params.DOmega * lap_omega
 
     # Electron parallel momentum
-    grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
-    dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
+    if use_algebraic_ohm:
+        dvpar_e = -eta_eff * (y.vpar_e - vpar_e_eff)
+    else:
+        dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
 
     # Ion parallel momentum with ion pressure (tau_i=0 recovers cold ions).
     dvpar_i = -dpar(phi + tau_i * (y.n + y.Ti))
 
     # Electron temperature
-    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(y.vpar_e) + params.DTe * lap_Te
+    dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e_eff) + params.DTe * lap_Te
 
     # Ion temperature (minimal)
     DTi = getattr(params, "DTi", params.DTe)
@@ -141,7 +148,7 @@ def rhs_nonlinear(
 
     # Loizu-style MPSE sheath BCs (applied in the cold-ion sound-speed normalization).
     dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
-        params=params, geom=geom, eq=eq, phi=phi, vpar_e=y.vpar_e, vpar_i=y.vpar_i, Te=y.Te
+        params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e_eff, vpar_i=y.vpar_i, Te=y.Te
     )
     dvpar_e = dvpar_e + dvpar_e_sh
     dvpar_i = dvpar_i + dvpar_i_sh
