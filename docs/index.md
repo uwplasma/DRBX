@@ -89,6 +89,6 @@ preview of the workflows `jaxdrb` supports.
 
 ![Mosetto-style regime map (workflow replica)](assets/images/mosetto2012_regime_map.png)
 
-![s–alpha growth-rate map (qualitative, EM model)](assets/images/halpern2013_salpha_gamma_map.png)
+![s–alpha ideal-ballooning map (Halpern 2013 Eq. 16)](assets/images/halpern2013_salpha_gamma_map.png)
 
 ![Near-axis stellarator ky scan (ESSOS geometry)](assets/images/essos_nearaxis_scan_panel.png)

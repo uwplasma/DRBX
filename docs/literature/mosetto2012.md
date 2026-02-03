@@ -33,10 +33,11 @@ python examples/3_advanced/06_mosetto2012_regime_map.py
 ```
 
 This example computes a **proxy regime map** by evaluating four branch candidates and selecting
-the one with the largest growth rate over a ky scan:
+the one with the largest growth rate over a ky scan, then classifies it using two simple
+ablations:
 
-- inertial drift wave (InDW) vs resistive drift wave (RDW): curvature off,
-- inertial ballooning (InBM) vs resistive ballooning (RBM): curvature on.
+- **DW vs BM:** compare growth with curvature on/off,
+- **inertial vs resistive:** compare growth with electron inertia on/off (`me_hat=0`).
 
 ![Mosetto-style regime map (proxy)](../assets/images/mosetto2012_regime_map.png)
 

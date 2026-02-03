@@ -35,6 +35,8 @@ This section is generated from docstrings using `mkdocstrings`.
 
 ::: jaxdrb.linear.growthrate
 
+::: jaxdrb.linear.ideal_ballooning
+
 ## Analysis utilities
 
 ::: jaxdrb.analysis.scan

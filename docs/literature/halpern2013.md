@@ -1,17 +1,19 @@
-# Halpern (2013): gradient removal and SOL width
+# Halpern (2013): ideal ballooning and gradient removal
 
 Halpern et al. (Phys. Plasmas 20, 052306 (2013)) focus on how electromagnetic effects modify SOL
 ballooning instabilities and show how non-linear saturation can be interpreted through a gradient
 removal paradigm.
 
-The electrostatic `jaxdrb` model does not include magnetic induction, so it does not reproduce the
-**ideal** ballooning threshold quantitatively. An electromagnetic extension model is available
-(`--model em`), but matching published ideal thresholds typically requires additional closure
-terms and boundary conditions beyond the scope of this repo. `jaxdrb` *does* reproduce the analysis steps:
+`jaxdrb` supports two complementary pieces of that workflow:
 
 - scanning $\gamma(k_y)$,
 - computing $(\gamma/k_y)_{\max}$,
 - solving the fixed-point relation for $L_p$.
+
+In addition, Halpern et al. derive a reduced **ideal ballooning** eigenproblem (their Eq. (16))
+that produces an s–alpha stability diagram. `jaxdrb` implements this eigenproblem directly so the
+diagram can be reproduced cheaply and transparently, without conflating it with the drift-reduced
+Braginskii closure set.
 
 ## The analysis pipeline
 
@@ -54,9 +56,10 @@ to a true $\beta$-scan.
 
 ## s–alpha “ideal ballooning” map (qualitative)
 
-Halpern et al. (2013) emphasize how increasing drive can transition the dominant instability toward
-an ideal-ballooning-like regime. In reduced local models, a common way to visualize this is an
-s–alpha diagram (magnetic shear vs pressure-gradient parameter).
+Halpern et al. (2013) present an ideal-ballooning s–alpha diagram obtained from a reduced
+Sturm–Liouville eigenproblem (their Eq. (16)). In `jaxdrb` this is implemented in:
+
+- `jaxdrb.linear.ideal_ballooning.ideal_ballooning_gamma_hat`
 
 Run:
 
@@ -64,7 +67,7 @@ Run:
 python examples/3_advanced/07_halpern2013_salpha_ideal_ballooning_map.py
 ```
 
-This example scans $(\hat{s},\alpha)$ at a fixed `ky` (chosen for a fast qualitative map) using
-the electromagnetic model variant, and plots the leading growth rate.
+This example scans $(\hat{s},\alpha)$ and plots the resulting $\hat{c}(\hat{s},\alpha)$ map, along
+with a coarse marginal stability curve $\alpha_{\mathrm{crit}}(\hat{s})$ extracted from the grid.
 
 ![s–alpha growth-rate map (qualitative)](../assets/images/halpern2013_salpha_gamma_map.png)
