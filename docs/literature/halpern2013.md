@@ -51,3 +51,20 @@ In the script we vary `curvature0` as a surrogate "drive knob" (since the electr
 lacks beta/induction).
 When adding electromagnetic physics later, this example is a natural place to connect the workflow
 to a true $\beta$-scan.
+
+## s–alpha “ideal ballooning” map (qualitative)
+
+Halpern et al. (2013) emphasize how increasing drive can transition the dominant instability toward
+an ideal-ballooning-like regime. In reduced local models, a common way to visualize this is an
+s–alpha diagram (magnetic shear vs pressure-gradient parameter).
+
+Run:
+
+```bash
+python examples/3_advanced/07_halpern2013_salpha_ideal_ballooning_map.py
+```
+
+This example scans $(\hat{s},\alpha)$ at a fixed `ky` (chosen for a fast qualitative map) using
+the electromagnetic model variant, and plots the leading growth rate.
+
+![s–alpha growth-rate map (qualitative)](../assets/images/halpern2013_salpha_gamma_map.png)

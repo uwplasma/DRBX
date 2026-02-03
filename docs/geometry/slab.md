@@ -1,6 +1,6 @@
 # Shear slab geometry
 
-`SlabGeometry` (`src/jaxdrb/geometry/slab.py`) is the simplest analytic benchmark geometry.
+`SlabGeometry` ([`src/jaxdrb/geometry/slab.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/slab.py)) is the simplest analytic benchmark geometry.
 An open-field-line variant `OpenSlabGeometry` is also available (non-periodic parallel derivative),
 intended for SOL-style studies and for use with the optional sheath-loss closure.
 

@@ -47,9 +47,25 @@ class DRBParams(eqx.Module):
 
     # Optional open-field-line / sheath closure knobs.
     #
-    # When `sheath_on=True` and the geometry provides `sheath_mask` and `sheath_sign`, we
-    # apply Bohm-sheath entrance conditions through a penalty relaxation at the two ends.
-    # This enables SOL-like studies without changing the matrix-free workflows.
+    # There are two related but distinct mechanisms:
+    #
+    # - `sheath_bc_on`: Loizu-style magnetic-pre-sheath entrance boundary conditions (MPSE),
+    #   enforced weakly at the two ends of an *open* field line.
+    # - `sheath_loss_on`: a lightweight volumetric end-loss proxy nu_sh ~ 2/L_parallel, useful
+    #   for quick stabilization studies (not a substitute for MPSE BCs).
+    #
+    # Backwards compatibility: older configs used `sheath_on` + `sheath_nu_factor` as the
+    # volumetric loss proxy.
+    sheath_bc_on: bool = False
+    sheath_bc_nu_factor: float = 1.0
+    sheath_bc_linearized: bool = True
+    sheath_lambda: float = 3.28  # ~ 0.5 ln(mi/(2π me)) for hydrogen
+    sheath_delta: float = 0.0  # ion transmission correction (cold ions -> 0)
+    sheath_Te_floor: float = 1e-6
+
+    sheath_loss_on: bool = False
+    sheath_loss_nu_factor: float = 1.0
+
+    # Deprecated (kept for compatibility; treated as sheath_loss_*):
     sheath_on: bool = False
     sheath_nu_factor: float = 1.0
-    sheath_Te_floor: float = 1e-6

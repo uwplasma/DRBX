@@ -50,6 +50,8 @@ This script:
   - an $L_p$ proxy curve $L_p(k_y)=q\,\max(\gamma,0)/k_y$ and the maximizing $k_{y,*}$,
   - representative eigenfunction structure at the maximizing point.
 
+![Lp proxy vs ky (ISTTOK-inspired workflow)](../assets/images/jorge2016_lp_proxy_vs_ky.png)
+
 ## Notes on quantitative comparisons
 
 For quantitative agreement with ISTTOK turbulence regimes, the following missing physics matters:

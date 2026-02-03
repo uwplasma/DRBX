@@ -17,8 +17,9 @@ The default `jaxdrb` model is **electrostatic** and intentionally simplified:
 
 - periodic field-line boundary conditions,
 - Boussinesq polarization closure in Fourier form,
-- no *full* sheath boundary conditions (line-tied/sheath physics is essential in some SOL studies),
-  though a lightweight volumetric sheath-loss closure exists for open-field-line geometries,
+- no *full* sheath boundary-condition set (line-tied/sheath physics is essential in some SOL studies),
+  though `jaxdrb` includes a simplified MPSE Bohm-sheath boundary enforcement option and a
+  lightweight volumetric end-loss proxy for open-field-line geometries,
 - the electrostatic model omits magnetic induction / $A_\parallel$ (an electromagnetic extension
   model exists, but does not aim to reproduce every published closure term),
 - reduced closure set (no gyroviscosity, no full heat flux closures).
@@ -39,7 +40,11 @@ See the scripts in:
 - `examples/3_advanced/01_mosetto2012_driftwave_branches.py`
 - `examples/3_advanced/02_mosetto2012_ballooning_branches.py`
 - `examples/3_advanced/03_halpern2013_gradient_removal_lp.py`
-- `examples/3_advanced/04_stellarator_nearaxis_pyqsc.py` (stellarator near-axis / pyQSC-driven workflow).
+- `examples/3_advanced/04_stellarator_nearaxis_essos.py` (stellarator near-axis / ESSOS-driven workflow).
+- `examples/3_advanced/06_mosetto2012_regime_map.py` (Mosetto-like regime map: InDW/RDW/InBM/RBM).
+- `examples/3_advanced/07_halpern2013_salpha_ideal_ballooning_map.py` (s–alpha growth-rate map).
+- `examples/3_advanced/08_essos_vmec_edge_s09.py` (VMEC field line via ESSOS at s=0.9).
+- `examples/3_advanced/10_essos_biotsavart_r14.py` (Biot-Savart field line via ESSOS).
 
 Each script writes an `out/3_advanced/...` folder with:
 
@@ -53,4 +58,4 @@ Each script writes an `out/3_advanced/...` folder with:
 - Mosetto (2012) regimes and branch toggles: `literature/mosetto2012.md`
 - Halpern (2013) gradient removal workflow: `literature/halpern2013.md`
 - Jorge et al. (2016) ISTTOK context (and `jaxdrb` mapping): `literature/jorge2016_isttok.md`
-- Near-axis stellarator geometry (pyQSC): `literature/jorge2021_stellarator.md`
+- Near-axis stellarator geometry (ESSOS): `literature/jorge2021_stellarator.md`

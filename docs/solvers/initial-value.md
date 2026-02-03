@@ -54,4 +54,4 @@ these parts explicitly from the real/imag blocks.
 - Adaptive step size control uses a PID controller (`rtol`, `atol`).
 - Growth rate is estimated by least squares fitting of `a(t)` over a late-time window.
 
-See `src/jaxdrb/linear/growthrate.py`.
+See [`src/jaxdrb/linear/growthrate.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/linear/growthrate.py).

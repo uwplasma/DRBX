@@ -32,6 +32,9 @@ docs = [
   "mkdocs-literate-nav>=0.6",
   "pymdown-extensions>=10",
 ]
+essos = [
+  "essos",
+]
 
 [project.scripts]
 jaxdrb-scan = "jaxdrb.cli.main:main"

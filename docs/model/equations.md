@@ -4,9 +4,9 @@ This page documents the *implemented* system in `jaxdrb`.
 
 > The model here is intentionally a “workhorse” drift-reduced Braginskii-like system used for
 > qualitative edge/SOL linear stability exploration. It is not a full SOL model (no full
-> sheath boundary-condition implementation, no neutral physics, no realistic sources/sinks,
-> no gyroviscosity, etc.). A lightweight **sheath-loss closure** is available for open-field-line
-> geometries (see below).
+> sheath boundary-condition *set*, no neutral physics, no realistic sources/sinks, no gyroviscosity,
+> etc.). For open-field-line geometries, `jaxdrb` includes a simplified MPSE Bohm-sheath boundary
+> enforcement option and a lightweight volumetric end-loss proxy (see below).
 
 ## Fields and closure
 
@@ -52,7 +52,7 @@ definitions of $C(\cdot)$ appropriate for the chosen normalization and coordinat
 
 ## The implemented RHS
 
-The implemented RHS is in `src/jaxdrb/models/cold_ion_drb.py`.
+The implemented RHS is in [`src/jaxdrb/models/cold_ion_drb.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/models/cold_ion_drb.py).
 
 Define the parallel current:
 
@@ -137,13 +137,51 @@ $$
  + D_{T_e}\,\Delta_\perp T_e.
 $$
 
-## Optional sheath-loss closure (open field lines)
+## Open-field-line sheath closures (MPSE BCs + loss proxy)
 
-For open-field-line geometries (e.g. `OpenSlabGeometry`), `jaxdrb` supports an **optional**
-volumetric sheath-loss closure controlled by `DRBParams.sheath_on`:
+For open-field-line geometries (e.g. `OpenSlabGeometry`), sheath physics enters through
+boundary conditions at the **magnetic pre-sheath entrance (MPSE)**. In the reduced Braginskii/SOL
+literature (e.g. Loizu-style treatments), the simplest cold-ion Bohm-sheath relations are:
 
 $$
-\nu_\mathrm{sh} \;\approx\; \texttt{sheath\_nu\_factor}\,\frac{2}{L_\parallel},
+v_{\parallel i} = \pm(1-\delta)\,c_s,\qquad
+v_{\parallel e} = \pm c_s\,\exp\!\left(\Lambda - \frac{e\phi}{T_e}\right),
+$$
+
+with:
+
+- $c_s = \sqrt{T_e}$ (cold-ion limit),
+- $\Lambda \approx \tfrac12\ln\!\left(m_i/(2\pi m_e)\right)$,
+- $\delta$ an optional transmission correction (we default to $\delta=0$).
+
+### MPSE boundary conditions (implemented)
+
+`jaxdrb` implements a **linearized MPSE** closure for *perturbations* about a Bohm-matched equilibrium
+(see Loizu et al. (2012) in [References](../references.md) for a full treatment). With $\phi$ interpreted as a floating-potential-shifted
+perturbation (so the equilibrium satisfies ambipolarity), and with the evolved fields $(\phi, T_e)$
+representing perturbations, the linearized boundary targets used by `jaxdrb` are:
+
+$$
+\delta v_{\parallel i} = \pm(1-\delta)\,\frac{T_e}{2},\qquad
+\delta v_{\parallel e} = \pm\left(\frac{T_e}{2} - \phi\right).
+$$
+
+Numerically, these are enforced weakly at the two ends of the open field line using a relaxation
+(SAT/penalty-style) term with a rate scaled as:
+
+$$
+\nu_\mathrm{bc} \approx \texttt{sheath\_bc\_nu\_factor}\,\frac{2}{L_\parallel}.
+$$
+
+See: [`src/jaxdrb/models/sheath.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/models/sheath.py).
+
+### Volumetric end-loss proxy (optional)
+
+As a lightweight alternative (useful for quick scans), `jaxdrb` also provides an optional **volumetric**
+end-loss proxy controlled by `DRBParams.sheath_loss_on`:
+
+$$
+\nu_\mathrm{sh} \;\approx\; \texttt{sheath\_loss\_nu\_factor}\,\frac{2}{L_\parallel},
 $$
 
 where $L_\parallel$ is the parallel domain length (the span of the `l` grid). When enabled, the
@@ -166,6 +204,7 @@ pre-sheath entrance.
 The following are intentionally deferred:
 
 - Full nonlinear $E\times B$ brackets `[\phi, f]` (single-mode self-nonlinearity is zero).
-- Full sheath boundary conditions (line-tied / limiter / divertor) at the magnetic pre-sheath entrance.
+- Full Loizu-style MPSE boundary conditions (including incidence-angle terms and additional boundary
+  closures for other fields beyond $(v_{\parallel e}, v_{\parallel i})$).
 - Two-dimensional Poisson solves (we rely on the Fourier closure).
 - Full Braginskii closures for viscosity, heat flux, etc.

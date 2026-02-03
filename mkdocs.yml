@@ -1,13 +1,19 @@
 site_name: jaxdrb
 site_description: Cold-ion drift-reduced Braginskii linear stability solver in JAX
+repo_url: https://github.com/uwplasma/jax_drb
+repo_name: uwplasma/jax_drb
+edit_uri: edit/main/docs/
 
 theme:
   name: material
   features:
     - navigation.sections
     - navigation.indexes
+    - navigation.footer
     - toc.follow
     - content.code.copy
+    - content.action.view
+    - content.action.edit
 
 plugins:
   - search
@@ -23,6 +29,8 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Inputs & Outputs: inputs-outputs.md
+  - Testing: testing.md
   - Theory:
       - theory/index.md
       - theory/algorithms.md
@@ -67,4 +75,4 @@ markdown_extensions:
 
 extra_javascript:
   - assets/javascripts/mathjax.js
-  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - assets/vendor/mathjax/tex-mml-chtml.js

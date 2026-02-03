@@ -47,12 +47,18 @@ def main() -> None:
     os.environ.setdefault("MPLCONFIGDIR", str(out_dir / ".mplcache"))
     set_mpl_style()
 
-    nl = 65
+    fast = os.environ.get("JAXDRB_FAST", "1") != "0"
+    if fast:
+        print("JAXDRB_FAST=1: using a coarse grid for a quick run.", flush=True)
+    else:
+        print("JAXDRB_FAST=0: using a finer grid (slower).", flush=True)
+
+    nl = 49 if fast else 97
     length = 6.0
     geom = OpenSlabGeometry.make(nl=nl, length=length, shat=0.0, curvature0=0.0)
 
     kx = 0.0
-    ky = np.linspace(0.05, 1.2, 28)
+    ky = np.linspace(0.05, 1.2, 18 if fast else 36)
 
     base = dict(
         omega_n=0.8,
@@ -66,46 +72,65 @@ def main() -> None:
         kperp2_min=1e-6,
     )
 
-    params_no_sheath = DRBParams(**base, sheath_on=False)
-    params_sheath = DRBParams(**base, sheath_on=True, sheath_nu_factor=1.0)
+    params_no = DRBParams(**base)
+    params_loss = DRBParams(**base, sheath_loss_on=True, sheath_loss_nu_factor=1.0)
+    params_bc = DRBParams(**base, sheath_bc_on=True, sheath_bc_nu_factor=1.0)
 
     print("Running ky scan (open slab, no sheath)…", flush=True)
     scan0 = scan_ky(
-        params_no_sheath,
+        params_no,
         geom,
         ky=ky,
         kx=kx,
-        arnoldi_m=35,
+        arnoldi_m=25 if fast else 45,
         arnoldi_tol=1e-3,
         nev=6,
         do_initial_value=True,
-        tmax=20.0,
+        tmax=12.0 if fast else 25.0,
         dt0=0.02,
-        nsave=140,
+        nsave=110 if fast else 180,
         verbose=True,
         print_every=1,
         seed=0,
     )
 
-    print("Running ky scan (open slab, with sheath losses)…", flush=True)
+    print("Running ky scan (open slab, with volumetric sheath-loss proxy)…", flush=True)
     scan1 = scan_ky(
-        params_sheath,
+        params_loss,
         geom,
         ky=ky,
         kx=kx,
-        arnoldi_m=35,
+        arnoldi_m=25 if fast else 45,
         arnoldi_tol=1e-3,
         nev=6,
         do_initial_value=True,
-        tmax=20.0,
+        tmax=12.0 if fast else 25.0,
         dt0=0.02,
-        nsave=140,
+        nsave=110 if fast else 180,
         verbose=True,
         print_every=1,
         seed=1,
     )
 
-    # Two separate panels + a quick overlay figure.
+    print("Running ky scan (open slab, with Loizu-style MPSE sheath BCs)…", flush=True)
+    scan2 = scan_ky(
+        params_bc,
+        geom,
+        ky=ky,
+        kx=kx,
+        arnoldi_m=25 if fast else 45,
+        arnoldi_tol=1e-3,
+        nev=6,
+        do_initial_value=True,
+        tmax=12.0 if fast else 25.0,
+        dt0=0.02,
+        nsave=110 if fast else 180,
+        verbose=True,
+        print_every=1,
+        seed=2,
+    )
+
+    # Panels + overlays.
     save_scan_panels(
         out_dir,
         ky=scan0.ky,
@@ -121,19 +146,29 @@ def main() -> None:
         gamma=scan1.gamma_eigs,
         omega=scan1.omega_eigs,
         gamma_iv=scan1.gamma_iv,
-        title="Open slab: ky scan (with sheath losses)",
-        filename="scan_panel_sheath.png",
+        title="Open slab: ky scan (volumetric sheath-loss proxy)",
+        filename="scan_panel_sheath_loss.png",
+    )
+    save_scan_panels(
+        out_dir,
+        ky=scan2.ky,
+        gamma=scan2.gamma_eigs,
+        omega=scan2.omega_eigs,
+        gamma_iv=scan2.gamma_iv,
+        title="Open slab: ky scan (MPSE Bohm sheath BCs, Loizu-style)",
+        filename="scan_panel_sheath_bc.png",
     )
 
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(1, 1, figsize=(7.2, 4.2), constrained_layout=True)
     ax.plot(scan0.ky, scan0.gamma_eigs, "o-", label="no sheath")
-    ax.plot(scan1.ky, scan1.gamma_eigs, "s--", label="sheath losses")
+    ax.plot(scan1.ky, scan1.gamma_eigs, "s--", label="sheath loss (volumetric)")
+    ax.plot(scan2.ky, scan2.gamma_eigs, "^-.", label="sheath BC (MPSE)")
     ax.axhline(0.0, color="k", alpha=0.25, lw=1)
     ax.set_xlabel(r"$k_y$")
     ax.set_ylabel(r"$\gamma$")
-    ax.set_title(r"Open slab: effect of sheath-loss closure on $\gamma(k_y)$")
+    ax.set_title(r"Open slab: effect of sheath closures on $\gamma(k_y)$")
     ax.legend()
     fig.savefig(out_dir / "gamma_overlay.png", dpi=220)
     plt.close(fig)
@@ -141,11 +176,18 @@ def main() -> None:
     save_json(
         out_dir / "params.json",
         {
-            "geom": {"type": "open_slab", "nl": nl, "length": float(length), "shat": 0.0, "curvature0": 0.0},
+            "geom": {
+                "type": "open_slab",
+                "nl": nl,
+                "length": float(length),
+                "shat": 0.0,
+                "curvature0": 0.0,
+            },
             "kx": kx,
             "ky": {"min": float(ky.min()), "max": float(ky.max()), "n": int(ky.size)},
-            "params_no_sheath": params_no_sheath.__dict__,
-            "params_sheath": params_sheath.__dict__,
+            "params_no": params_no.__dict__,
+            "params_sheath_loss": params_loss.__dict__,
+            "params_sheath_bc": params_bc.__dict__,
         },
     )
     print(f"Wrote {out_dir}", flush=True)
@@ -153,4 +195,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

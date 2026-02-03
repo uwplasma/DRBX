@@ -42,4 +42,3 @@ def test_alpha_Te_ohm_enters_parallel_electron_momentum() -> None:
     diff = r1.vpar_e - r0.vpar_e
     err = jnp.max(jnp.abs(diff + 1.71 * dpar_Te))
     assert float(err) < 5e-12
-

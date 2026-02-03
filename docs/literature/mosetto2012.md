@@ -20,6 +20,26 @@ In `jaxdrb`:
 - resistivity vs inertia is controlled by `eta` and `me_hat`,
 - the background gradient drive is controlled by `omega_n` (and optionally `omega_Te`).
 
+## Regime-map workflow (InDW / RDW / InBM / RBM)
+
+Mosetto (2012) discuss how low-frequency instabilities change character across parameter space.
+A common workflow is to scan a grid of parameters (collisionality and gradient strength) and label
+each point by which branch dominates.
+
+Run:
+
+```bash
+python examples/3_advanced/06_mosetto2012_regime_map.py
+```
+
+This example computes a **proxy regime map** by evaluating four branch candidates and selecting
+the one with the largest growth rate over a ky scan:
+
+- inertial drift wave (InDW) vs resistive drift wave (RDW): curvature off,
+- inertial ballooning (InBM) vs resistive ballooning (RBM): curvature on.
+
+![Mosetto-style regime map (proxy)](../assets/images/mosetto2012_regime_map.png)
+
 ## Drift-wave-like scan (curvature off)
 
 Run:

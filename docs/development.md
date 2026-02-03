@@ -2,7 +2,7 @@
 
 ## Repository structure
 
-Source code lives in `src/jaxdrb/`:
+Source code lives in [`src/jaxdrb/`](https://github.com/uwplasma/jax_drb/tree/main/src/jaxdrb):
 
 - `geometry/`: geometry providers (analytic and tabulated)
 - `models/`: the drift-reduced model RHS and parameter definitions
@@ -47,7 +47,7 @@ Create a new `eqx.Module` implementing:
 
 Then:
 
-- add it to `src/jaxdrb/geometry/__init__.py`,
+- add it to [`src/jaxdrb/geometry/__init__.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/__init__.py),
 - add a CLI option (optional),
 - add an example and (ideally) a small test.
 

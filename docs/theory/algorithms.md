@@ -55,7 +55,8 @@ part (largest $\gamma$).
 
 Practical details:
 
-- For difficult cases, `scan_ky` adapts the Krylov dimension `m` until a relative residual is below
+- For cases that converge slowly (near-marginal growth, nearly-degenerate modes, or non-normal operators),
+  `scan_ky` adapts the Krylov dimension `m` until a relative residual is below
   a tolerance, capped at `arnoldi_max_m`.
 - `arnoldi_leading_ritz_vector` constructs a Ritz vector $v = Q_m y$ for plotting eigenfunctions.
 

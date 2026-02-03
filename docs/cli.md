@@ -60,8 +60,13 @@ Tabulated:
 - `--Dn`, `--DOmega`, `--DTe` perpendicular diffusion coefficients
 - `--DTi` ion temperature diffusion (hot-ion model)
 - `--Dpsi` psi diffusion (electromagnetic model)
-- `--sheath` enables the optional open-field-line sheath-loss closure (only active for `*-open` geometries)
-- `--sheath-nu-factor FLOAT` multiplies the loss rate `nu_sh ~ 2/L_parallel`
+- `--sheath` enables Loizu-style MPSE Bohm sheath BCs (alias for `--sheath-bc`)
+- `--sheath-bc` enables Loizu-style magnetic-pre-sheath entrance BCs (only active for `*-open` geometries)
+- `--sheath-bc-nu-factor FLOAT` multiplies the BC enforcement rate (~`2/L_parallel`)
+- `--sheath-lambda FLOAT` sets $\Lambda = 0.5\ln(m_i/(2\pi m_e))$ (default ~3.28)
+- `--sheath-delta FLOAT` ion transmission correction (cold ions → 0)
+- `--sheath-loss` enables a volumetric end-loss proxy (not a substitute for MPSE BCs)
+- `--sheath-loss-nu-factor FLOAT` multiplies the loss rate `nu_sh ~ 2/L_parallel`
 
 ## Solver options
 

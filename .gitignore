@@ -26,6 +26,9 @@ dist/
 .mplcache/
 .cache/
 
+# Local vendored docs assets (prefer CDN for MathJax)
+docs/assets/vendor/
+
 # Coverage (optional)
 .coverage
 coverage.xml

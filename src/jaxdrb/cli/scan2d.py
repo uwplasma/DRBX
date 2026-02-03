@@ -11,7 +11,12 @@ from jaxdrb.analysis.scan import scan_kx_ky
 from jaxdrb.analysis.plotting import save_kxky_heatmap, set_mpl_style
 from jaxdrb.geometry.slab import OpenSlabGeometry, SlabGeometry
 from jaxdrb.geometry.tabulated import TabulatedGeometry
-from jaxdrb.geometry.tokamak import CircularTokamakGeometry, OpenCircularTokamakGeometry, OpenSAlphaGeometry, SAlphaGeometry
+from jaxdrb.geometry.tokamak import (
+    CircularTokamakGeometry,
+    OpenCircularTokamakGeometry,
+    OpenSAlphaGeometry,
+    SAlphaGeometry,
+)
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.registry import DEFAULT_MODEL, MODELS, get_model
 
@@ -21,7 +26,15 @@ def main() -> None:
     parser.add_argument("--model", choices=sorted(MODELS), default=DEFAULT_MODEL.name)
     parser.add_argument(
         "--geom",
-        choices=["slab", "slab-open", "tabulated", "tokamak", "tokamak-open", "salpha", "salpha-open"],
+        choices=[
+            "slab",
+            "slab-open",
+            "tabulated",
+            "tokamak",
+            "tokamak-open",
+            "salpha",
+            "salpha-open",
+        ],
         required=True,
     )
     parser.add_argument("--geom-file", type=str, default=None)
@@ -50,12 +63,30 @@ def main() -> None:
     parser.add_argument("--Dpsi", type=float, default=0.0)
     parser.add_argument("--kperp2-min", type=float, default=1e-6)
 
-    parser.add_argument("--sheath", action="store_true", help="Enable Bohm-sheath closure at open ends")
+    parser.add_argument("--sheath", action="store_true", help="Alias for --sheath-bc (MPSE BCs)")
     parser.add_argument(
-        "--sheath-nu-factor",
+        "--sheath-bc", action="store_true", help="Enable Loizu-style MPSE Bohm sheath BCs"
+    )
+    parser.add_argument(
+        "--sheath-bc-nu-factor", type=float, default=1.0, help="BC enforcement rate factor (~2/L||)"
+    )
+    parser.add_argument(
+        "--sheath-lambda", type=float, default=3.28, help="Lambda = 0.5 ln(mi/(2π me))"
+    )
+    parser.add_argument(
+        "--sheath-delta",
         type=float,
-        default=1.0,
-        help="Multiplier for the sheath loss rate (nu_sh ~ 2/L_parallel).",
+        default=0.0,
+        help="Ion transmission correction (cold ions -> 0)",
+    )
+
+    parser.add_argument(
+        "--sheath-loss",
+        action="store_true",
+        help="Enable volumetric end-loss proxy (nu_sh ~ 2/L||)",
+    )
+    parser.add_argument(
+        "--sheath-loss-nu-factor", type=float, default=1.0, help="Multiplier for nu_sh"
     )
 
     parser.add_argument("--ky-min", type=float, required=True)
@@ -200,8 +231,12 @@ def main() -> None:
         DTi=args.DTi,
         Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
-        sheath_on=bool(args.sheath),
-        sheath_nu_factor=float(args.sheath_nu_factor),
+        sheath_bc_on=bool(args.sheath or args.sheath_bc),
+        sheath_bc_nu_factor=float(args.sheath_bc_nu_factor),
+        sheath_lambda=float(args.sheath_lambda),
+        sheath_delta=float(args.sheath_delta),
+        sheath_loss_on=bool(args.sheath_loss),
+        sheath_loss_nu_factor=float(args.sheath_loss_nu_factor),
     )
 
     ky_grid = np.linspace(args.ky_min, args.ky_max, args.nky)
