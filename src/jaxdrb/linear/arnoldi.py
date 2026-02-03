@@ -216,6 +216,8 @@ class ArnoldiLeadingVectorResult:
 
     eigenvalue: np.complex128
     residual_norm: float
+    eigenvalues: np.ndarray
+    residual_norms: np.ndarray
     vector: Any
 
 
@@ -225,6 +227,7 @@ def arnoldi_leading_ritz_vector(
     *,
     m: int = 80,
     seed: int | None = None,
+    nev: int | None = 6,
 ) -> ArnoldiLeadingVectorResult:
     """Return the leading Ritz eigenvalue and its associated Ritz vector.
 
@@ -273,14 +276,25 @@ def arnoldi_leading_ritz_vector(
 
     Hk = h[:k, :k]
     evals, evecs = np.linalg.eig(Hk)
-    idx = int(np.argmax(evals.real))
-    lam = np.complex128(evals[idx])
-
     if k == 1:
-        resid = 0.0
+        resids = np.zeros((1,), dtype=float)
     else:
         beta = h[k, k - 1] if k < h.shape[0] else 0.0
-        resid = float(np.abs(beta * evecs[-1, idx]))
+        resids = np.abs(beta * evecs[-1, :]).astype(float)
+
+    order = np.argsort(evals.real)[::-1]
+    evals_sorted = evals[order]
+    resids_sorted = resids[order]
+    if nev is None:
+        evals_out = evals_sorted
+        resids_out = resids_sorted
+    else:
+        evals_out = evals_sorted[: int(nev)]
+        resids_out = resids_sorted[: int(nev)]
+
+    idx = int(order[0])
+    lam = np.complex128(evals[idx])
+    resid = float(resids[idx])
 
     y = evecs[:, idx]
     v_flat = (q[:k].T @ y).astype(np.complex128)
@@ -290,4 +304,10 @@ def arnoldi_leading_ritz_vector(
     v_flat = v_flat / nrm
 
     v = _unflatten_pytree(v_flat, meta)
-    return ArnoldiLeadingVectorResult(eigenvalue=lam, residual_norm=resid, vector=v)
+    return ArnoldiLeadingVectorResult(
+        eigenvalue=lam,
+        residual_norm=resid,
+        eigenvalues=evals_out,
+        residual_norms=resids_out,
+        vector=v,
+    )

@@ -71,3 +71,34 @@ and can increase growth rates in representative cases.
 This is checked in:
 
 - `tests/test_known_limits.py::test_connection_length_effect_via_q`
+
+## 6) Non-Boussinesq polarization reduces to Boussinesq when $n_0=1$
+
+When using the linearized non-Boussinesq closure
+$$
+\Omega=-k_\perp^2 n_0 \phi,
+$$
+and the equilibrium density is uniform with $n_0=1$, the closure is identical to the Boussinesq
+form and the linear operator should match exactly.
+
+This is checked in:
+
+- `tests/test_polarization_models.py::test_non_boussinesq_matches_boussinesq_when_n0_is_one`
+
+## 7) Hot-ion model reduces to cold-ion model as $\tau_i\to 0$
+
+The hot-ion electrostatic variant adds an ion temperature field and ion-pressure couplings.
+In the limit $\tau_i \equiv T_{i0}/T_{e0} \to 0$, it should reduce to the cold-ion model.
+
+This is checked in:
+
+- `tests/test_hot_ion_model.py::test_hot_ion_tau_zero_matches_cold_ion_leading_growth`
+
+## 8) Electromagnetic no-drive limit: neutral stability
+
+The electromagnetic extension adds an inductive field `psi` and an Ampère closure for $j_\parallel$.
+In the no-drive, no-dissipation limit it should also be neutrally stable.
+
+This is checked in:
+
+- `tests/test_em_model.py::test_em_no_drive_limit_is_neutrally_stable`

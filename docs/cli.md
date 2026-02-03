@@ -66,7 +66,7 @@ Tabulated:
 Arnoldi:
 
 - `--arnoldi-m INT` initial Krylov dimension
-- `--arnoldi-max-m INT` cap (default: full dimension `5*nl`)
+- `--arnoldi-max-m INT` cap (default: full dimension `N` of the state)
 - `--arnoldi-tol FLOAT` target relative residual
 - `--nev INT` number of Ritz values saved per `ky`
 

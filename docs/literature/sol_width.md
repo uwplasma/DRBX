@@ -59,6 +59,11 @@ $$
 
 This is what `solve_lp_fixed_point(..., omega_n_scale=...)` controls.
 
+`solve_lp_fixed_point` also accepts a `model=...` argument so you can run the same fixed-point
+workflow with the electromagnetic (`--model em`) or hot-ion (`--model hot-ion-es`) variants. The
+mapping $\omega_n\sim 1/L_p$ is still a simplified choice; if you want a more faithful mapping for
+those models you can generalize the equilibrium drive terms accordingly.
+
 > If you want to treat *pressure* gradients more faithfully, you can include a temperature-gradient
 > drive `omega_Te` and relate $L_p$ to both $L_n$ and $L_{T_e}$, but the examples keep
 > `omega_Te=0` for clarity.
