@@ -114,3 +114,16 @@ $\exp(i k_x \psi + i k_y \alpha)$, so:
 - polarization closure is algebraic: $\Omega = -k_\perp^2 \phi$.
 
 This keeps the operator application cheap and makes matrix-free eigenvalue methods practical.
+
+## 5) Toward nonlinear runs
+
+The current linear workflows operate on a single Fourier-perpendicular mode (single `(kx,ky)`), so
+the Poisson bracket self-interaction vanishes. To transition toward nonlinear simulations, the
+code is being prepared so that:
+
+- linear terms (parallel operators, curvature, diffusion, sources/sinks, sheath SAT terms) are
+  factored into reusable “term modules”,
+- nonlinear advection terms (e.g. $E\times B$ Poisson brackets) can be added on top of the same
+  geometry/closure infrastructure.
+
+The utilities in `src/jaxdrb/rhs/` are the first step in that direction.

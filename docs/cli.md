@@ -65,7 +65,9 @@ Tabulated:
 - `--nu-sink-n FLOAT`, `--nu-sink-Te FLOAT`, `--nu-sink-vpar FLOAT` simple volumetric sinks
 - `--sheath` enables Loizu-style MPSE Bohm sheath BCs (alias for `--sheath-bc`)
 - `--sheath-bc` enables Loizu-style magnetic-pre-sheath entrance BCs (only active for `*-open` geometries)
+- `--sheath-bc-model {simple,loizu2012}` selects the MPSE enforcement model
 - `--sheath-bc-nu-factor FLOAT` multiplies the BC enforcement rate (~`2/L_parallel`)
+- `--sheath-cos2 FLOAT` sets a proxy for $\cos^2(a)$ used in the Loizu 2012 vorticity relation
 - `--sheath-lambda FLOAT` sets $\Lambda = 0.5\ln(m_i/(2\pi m_e))$ (default ~3.28)
 - `--sheath-delta FLOAT` ion transmission correction (cold ions → 0)
 - `--sheath-loss` enables a volumetric end-loss proxy (not a substitute for MPSE BCs)

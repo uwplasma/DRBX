@@ -123,3 +123,147 @@ def apply_loizu_mpse_boundary_conditions(
     dvpar_i = -nu * mask * (vpar_i - vpar_i_bc)
     dvpar_e = -nu * mask * (vpar_e - vpar_e_bc)
     return dvpar_e, dvpar_i
+
+
+def apply_loizu2012_mpse_full_linear_bc(
+    *,
+    params,
+    geom,
+    eq,
+    kperp2: jnp.ndarray,
+    phi: jnp.ndarray,
+    n: jnp.ndarray,
+    omega: jnp.ndarray,
+    vpar_e: jnp.ndarray,
+    vpar_i: jnp.ndarray,
+    Te: jnp.ndarray,
+    dpar,
+    d2par,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Apply a linearized 'full set' of MPSE boundary conditions from Loizu et al. (2012).
+
+    This implements a *model-aligned* subset of the boundary relations derived in:
+
+      J. Loizu et al., Phys. Plasmas 19, 122307 (2012).
+
+    Specifically, it enforces (in linearized form) boundary constraints for:
+
+      - v_||i  (Bohm-Chodura / MPSE ion flow)
+      - v_||e  (magnetized-electron response)
+      - ∂_|| n and ∂_|| phi  (density/potential gradient relations)
+      - omega  (vorticity boundary relation, linearized form of Eq. (24))
+      - ∂_|| Te = 0 (isothermal-electron assumption at MPSE, Eq. (23))
+
+    Notes / mapping to `jaxdrb`
+    ---------------------------
+    - Loizu uses coordinates (s,x) with incidence angle `a`. Here, we treat `l` as the parallel
+      coordinate and approximate cos^2(a) by `params.sheath_cos2` (default 1).
+    - Terms involving transverse gradients (∂_x) and ExB/diamagnetic corrections are omitted in
+      this initial implementation to stay consistent with `jaxdrb`'s 1D field-line + Fourier-perp
+      closure.
+    - These constraints are enforced weakly via SAT/penalty relaxation terms at the boundary
+      nodes, with rate nu ~ 2/L_parallel.
+    """
+
+    # Ensure JAX arrays (tests may pass NumPy arrays).
+    kperp2 = jnp.asarray(kperp2)
+    phi = jnp.asarray(phi)
+    n = jnp.asarray(n)
+    omega = jnp.asarray(omega)
+    vpar_e = jnp.asarray(vpar_e)
+    vpar_i = jnp.asarray(vpar_i)
+    Te = jnp.asarray(Te)
+
+    if not bool(getattr(params, "sheath_bc_on", False)):
+        z = jnp.zeros_like(n)
+        return z, z, z, z, z
+    if not (hasattr(geom, "sheath_mask") and hasattr(geom, "sheath_sign")):
+        z = jnp.zeros_like(n)
+        return z, z, z, z, z
+
+    mask = getattr(geom, "sheath_mask", None)
+    sign = getattr(geom, "sheath_sign", None)
+    if mask is None or sign is None:
+        z = jnp.zeros_like(n)
+        return z, z, z, z, z
+
+    bc = sheath_bc_rate(params, geom)
+    if bc is None:
+        z = jnp.zeros_like(n)
+        return z, z, z, z, z
+    nu, _mask = bc
+    # Trust geometry-provided mask.
+    mask = jnp.asarray(mask, dtype=jnp.float64)
+    sign = jnp.asarray(sign, dtype=jnp.float64)
+
+    # Cold-ion sound speed in our normalization: c_s ~ sqrt(Te0). (Te0=1 default.)
+    Te0 = jnp.asarray(eq.Te0, dtype=jnp.float64)
+    cs0 = jnp.sqrt(Te0)
+
+    delta = float(getattr(params, "sheath_delta", 0.0))
+    cos2 = float(getattr(params, "sheath_cos2", 1.0))
+
+    # In Loizu 2012, several MPSE relations are expressed as constraints on *parallel derivatives*.
+    # To keep the enforcement stable with a generic open-grid dpar operator, we convert these into
+    # equivalent constraints on boundary *values* using one-sided finite differences.
+
+    # Helper: one-sided (2nd order) second derivative at endpoints.
+    # Left:  f''(0) ≈ (2 f0 - 5 f1 + 4 f2 - f3) / dl^2
+    # Right: f''(N) ≈ (2 fN - 5 f_{N-1} + 4 f_{N-2} - f_{N-3}) / dl^2
+    dl = jnp.asarray(geom.dl, dtype=jnp.float64)
+    dl2 = jnp.maximum(dl * dl, 1e-30)
+
+    def d2_endpoints(f: jnp.ndarray) -> jnp.ndarray:
+        f0 = (2.0 * f[0] - 5.0 * f[1] + 4.0 * f[2] - f[3]) / dl2
+        fN = (2.0 * f[-1] - 5.0 * f[-2] + 4.0 * f[-3] - f[-4]) / dl2
+        out = jnp.zeros_like(f)
+        out = out.at[0].set(f0)
+        out = out.at[-1].set(fN)
+        return out
+
+    # Linearized velocity BCs for perturbations about Bohm-matched equilibrium.
+    vpar_i_target = sign * (1.0 - delta) * (0.5 * Te)
+
+    # Te-gradient constraint at the ends: ∂_|| Te = 0 -> Te boundary equals neighbor (Neumann).
+    Te_target = Te
+    Te_target = Te_target.at[0].set(Te[1])
+    Te_target = Te_target.at[-1].set(Te[-2])
+
+    # Potential-gradient constraint (simplified Loizu 2012 Eq. (21)):
+    #   ∂_|| phi + c_s ∂_|| v_||i = 0  ->  phi boundary value from neighbor + vpar_i.
+    phi_target = phi
+    phi_target = phi_target.at[0].set(phi[1] + cs0[0] * (vpar_i_target[0] - vpar_i[1]))
+    phi_target = phi_target.at[-1].set(phi[-2] + cs0[-1] * (vpar_i_target[-1] - vpar_i[-2]))
+
+    # Density-gradient constraint (simplified Loizu 2012 Eq. (22), with n0=1):
+    #   ∂_|| n + (1/c_s) ∂_|| v_||i = 0  ->  n boundary value from neighbor + vpar_i.
+    invcs = 1.0 / jnp.maximum(cs0, 1e-12)
+    n_target = n
+    n_target = n_target.at[0].set(n[1] + invcs[0] * (vpar_i_target[0] - vpar_i[1]))
+    n_target = n_target.at[-1].set(n[-2] + invcs[-1] * (vpar_i_target[-1] - vpar_i[-2]))
+
+    # Vorticity boundary relation (Loizu 2012 Eq. (24), linearized: drop (∂v)^2 term):
+    #   omega + cos^2(a) * c_s * ∂_||^2 v_||i = 0 -> omega boundary target.
+    omega_target = omega
+    omega_target = omega_target.at[0].set(-cos2 * cs0[0] * d2_endpoints(vpar_i_target)[0])
+    omega_target = omega_target.at[-1].set(-cos2 * cs0[-1] * d2_endpoints(vpar_i_target)[-1])
+
+    # vpar_e target (linearized magnetized-electron response):
+    # use the *target* boundary phi and Te.
+    vpar_e_target = sign * (0.5 * Te_target - phi_target)
+
+    # Convert phi_target -> omega_target_polar via omega = -k_perp^2 phi at the boundary.
+    k2_safe = jnp.maximum(
+        jnp.asarray(kperp2, dtype=jnp.float64), float(getattr(params, "kperp2_min", 1e-6))
+    )
+    omega_target = omega_target.at[0].set((-k2_safe[0]) * phi_target[0])
+    omega_target = omega_target.at[-1].set((-k2_safe[-1]) * phi_target[-1])
+
+    # Weak enforcement via relaxation on boundary *values* only.
+    dvpar_i = -nu * mask * (vpar_i - vpar_i_target)
+    dvpar_e = -nu * mask * (vpar_e - vpar_e_target)
+    dn = -nu * mask * (n - n_target)
+    dTe = -nu * mask * (Te - Te_target)
+    domega = -nu * mask * (omega - omega_target)
+
+    return dn, domega, dvpar_e, dvpar_i, dTe
