@@ -73,5 +73,5 @@ gyrokinetics). In CBC, `alpha = 0` (electrostatic / zero-beta) and typical geome
 
 See:
 
-- `examples/1_simple/03_salpha_cyclone_ky_scan.py` (ky scan),
-- `examples/2_intermediate/02_cyclone_kxky_scan.py` (kx–ky scan).
+- `examples/scripts/01_linear_basics/salpha_cyclone_ky_scan.py` (ky scan),
+- `examples/scripts/01_linear_basics/cyclone_kxky_scan.py` (kx–ky scan).

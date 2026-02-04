@@ -17,31 +17,31 @@ where $N(x,y,t)$ is a neutral particle density.
 The neutral model is:
 
 $$
-\partial_t N + [\phi, N] = D_N \nabla_\perp^2 N + S_0 - \nu_s N - S_{\\text{ion}} + S_{\\text{rec}}.
+\partial_t N + [\phi, N] = D_N \nabla_\perp^2 N + S_0 - \nu_s N - S_{\text{ion}} + S_{\text{rec}}.
 $$
 
 Ionization and recombination are modeled as:
 
 $$
-S_{\\text{ion}} = \nu_{\\text{ion}}\,n_{\\text{abs}}\,N_{\\text{abs}},\qquad
-S_{\\text{rec}} = \nu_{\\text{rec}}\,n_{\\text{abs}},
+S_{\text{ion}} = \nu_{\text{ion}}\,n_{\text{abs}}\,N_{\text{abs}},\qquad
+S_{\text{rec}} = \nu_{\text{rec}}\,n_{\text{abs}},
 $$
 
 where, in the HW2D milestone, $n$ is treated as a fluctuation about a constant background
-$n_{\\text{abs}} = n_0 + n$ (with small floors applied to keep the rates physical).
+$n_{\text{abs}} = n_0 + n$ (with small floors applied to keep the rates physical).
 
 ## Coupling to the plasma density
 
 Particle exchange between neutrals and plasma enters the density equation as:
 
 $$
-\partial_t n \;\;\\leftarrow\;\; \partial_t n + S_{\\text{ion}} - S_{\\text{rec}}.
+\partial_t n \;\;\leftarrow\;\; \partial_t n + S_{\text{ion}} - S_{\text{rec}}.
 $$
 
 With $S_0=0$, $D_N=0$, and $\nu_s=0$, this choice conserves the domain-mean total particle content:
 
 $$
-\\frac{d}{dt}\langle n + N \\rangle = 0.
+\frac{d}{dt}\langle n + N \rangle = 0.
 $$
 
 ## What this is (and is not)

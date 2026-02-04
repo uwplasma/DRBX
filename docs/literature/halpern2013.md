@@ -34,20 +34,20 @@ The fixed-point solver is implemented in:
 
 and exercised in:
 
-- `examples/3_advanced/03_halpern2013_gradient_removal_lp.py`
+- `examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py`
 
 ## Running the example
 
 ```bash
-python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
+python examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
 ```
 
 Outputs:
 
-- `out/3_advanced/halpern2013_gradient_removal/gamma_over_ky_curves.png`
-- `out/3_advanced/halpern2013_gradient_removal/lp_fixed_point_history.png`
-- `out/3_advanced/halpern2013_gradient_removal/lp_scaling_curvature0.png`
-- `out/3_advanced/halpern2013_gradient_removal/results.npz`
+- `out/halpern2013_gradient_removal/gamma_over_ky_curves.png`
+- `out/halpern2013_gradient_removal/lp_fixed_point_history.png`
+- `out/halpern2013_gradient_removal/lp_scaling_curvature0.png`
+- `out/halpern2013_gradient_removal/results.npz`
 
 In the script we vary `curvature0` as a surrogate "drive knob" (since the electrostatic model
 lacks beta/induction).
@@ -64,7 +64,7 @@ Sturm–Liouville eigenproblem (their Eq. (16)). In `jaxdrb` this is implemented
 Run:
 
 ```bash
-python examples/3_advanced/07_halpern2013_salpha_ideal_ballooning_map.py
+python examples/scripts/06_literature_tokamak_sol/halpern2013_salpha_ideal_ballooning_map.py
 ```
 
 This example scans $(\hat{s},\alpha)$ and plots the resulting $\hat{c}(\hat{s},\alpha)$ map, along

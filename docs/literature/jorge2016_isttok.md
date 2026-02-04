@@ -37,7 +37,7 @@ In `jaxdrb`, we map these into the analytic circular tokamak model:
 Run:
 
 ```bash
-python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
+python examples/scripts/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
 ```
 
 This script:
