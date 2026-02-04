@@ -65,8 +65,11 @@ def main() -> None:
 
     parser.add_argument("--neutrals", action="store_true")
     parser.add_argument("--Dn0", type=float, default=1e-3)
-    parser.add_argument("--nu-ion", type=float, default=2.0)
-    parser.add_argument("--nu-rec", type=float, default=0.2)
+    parser.add_argument("--nu-ion", type=float, default=0.2)
+    parser.add_argument("--nu-rec", type=float, default=0.02)
+    parser.add_argument(
+        "--n-background", type=float, default=1.0, help="Background density used in ionization"
+    )
     parser.add_argument("--neutral-source", type=float, default=0.0)
     parser.add_argument("--neutral-sink", type=float, default=0.0)
 
@@ -97,6 +100,7 @@ def main() -> None:
         Dn0=float(args.Dn0),
         nu_ion=float(args.nu_ion),
         nu_rec=float(args.nu_rec),
+        n_background=float(args.n_background),
         S0=float(args.neutral_source),
         nu_sink=float(args.neutral_sink),
     )

@@ -95,7 +95,13 @@ jaxdrb-hw2d --nx 96 --ny 96 --tmax 40 --dt 0.05 --out out_hw2d_cli
 Nonlinear + neutrals (minimal particle exchange model):
 
 ```bash
-jaxdrb-hw2d --neutrals --nu-ion 2.0 --nu-rec 0.2 --out out_hw2d_neutrals_cli
+jaxdrb-hw2d --neutrals --nu-ion 0.2 --nu-rec 0.02 --out out_hw2d_neutrals_cli
+```
+
+Movie example (GIF):
+
+```bash
+python examples/3_advanced/22_hw2d_movie.py
 ```
 
 ## Status
@@ -109,6 +115,12 @@ This implementation is aimed at fast iteration:
 Nonlinear support is evolving. The first nonlinear milestone is a 2D periodic drift-wave testbed
 (`jaxdrb.nonlinear.hw2d`) used to validate and benchmark core operators (brackets, FFT Poisson solves,
 dealiasing, time stepping) and to host optional additional physics (e.g. neutrals) in a togglable way.
+
+Boundary conditions:
+- Linear field-line models: periodic/Dirichlet/Neumann end-conditions are available as a benchmarking hook
+  (`--line-bc ...`), in addition to Loizu-style MPSE/sheath entrance closures.
+- Nonlinear HW2D: periodic by default; Dirichlet/Neumann experiments are supported via FD + CG Poisson solve
+  (see `docs/model/boundary-conditions.md`).
 
 ## Examples (including literature workflows)
 

@@ -22,6 +22,12 @@ When products are formed in real space (e.g. in the pseudo-spectral bracket), hi
 
 For periodic domains, polarization is solved spectrally by inverting $-k_\perp^2$ mode-by-mode, with the $k=0$ mode fixed to enforce a gauge ($\\hat\\phi(0)=0$).
 
+For non-periodic boundary-condition experiments, the HW2D milestone also includes a finite-difference Laplacian with a **matrix-free CG solve**. This keeps the code:
+
+- end-to-end differentiable (CG is a JAX primitive),
+- modular (the Poisson solve is the only elliptic step in the electrostatic closure),
+- close to what will be required for nonlinear DRB with nontrivial geometry and boundaries.
+
 ## Time integration
 
 Two time-stepping paths are supported:
@@ -33,6 +39,17 @@ Two time-stepping paths are supported:
 - **Diffrax adaptive integration**:
   - provides a convenient, robust reference integrator,
   - useful for verification and for problems where adaptive stepping is important.
+
+## Differentiability
+
+The nonlinear milestone is implemented to remain compatible with JAX transformations:
+
+- RHS functions are JAX-pure (no side effects, no Python data-dependent control flow in jitted regions).
+- Fixed-step stepping is implemented via `lax.scan`, which is differentiable and efficient under XLA.
+- The non-periodic Poisson solve uses JAX's matrix-free CG, which is differentiable through the solver iterations.
+
+This enables end-to-end differentiation of scalar objectives that depend on simulation outputs, e.g.
+optimizing parameters of the drive/damping terms or (in future) geometry parameters.
 
 ## Toward nonlinear DRB
 
@@ -49,4 +66,3 @@ The likely next algorithmic step for nonlinear DRB is an **IMEX** or **operator-
 - implicit or semi-implicit: stiff parallel diffusion/closure operators.
 
 Diffrax provides implicit and IMEX-capable solvers; this is a natural fit for the nonlinear transition plan.
-

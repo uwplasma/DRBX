@@ -20,6 +20,12 @@ class NeutralParams(eqx.Module):
     enabled: bool = False
     Dn0: float = 0.0  # neutral diffusion
 
+    # In HW2D, `n` is typically interpreted as a fluctuation about a background.
+    # Ionization and recombination rates should depend on the *absolute* density.
+    n_background: float = 1.0
+    n_floor: float = 1e-6
+    N_floor: float = 1e-6
+
     # Ionization / recombination rates.
     #
     # Minimal particle exchange (conserves ∫(n+N) if Sn=0 and D=0):
@@ -51,8 +57,11 @@ def rhs_neutral(
     diff = dn0.Dn0 * lap_N
     src = dn0.S0 - dn0.nu_sink * N
 
-    ion = dn0.nu_ion * n * N
-    rec = dn0.nu_rec * n
+    n_abs = jnp.maximum(float(dn0.n_background) + n, float(dn0.n_floor))
+    N_abs = jnp.maximum(N, float(dn0.N_floor))
+
+    ion = dn0.nu_ion * n_abs * N_abs
+    rec = dn0.nu_rec * n_abs
 
     dN = -adv_N + diff + src - ion + rec
     dn_contrib = ion - rec

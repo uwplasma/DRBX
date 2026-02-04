@@ -23,9 +23,12 @@ $$
 Ionization and recombination are modeled as:
 
 $$
-S_{\\text{ion}} = \nu_{\\text{ion}}\,n\,N,\qquad
-S_{\\text{rec}} = \nu_{\\text{rec}}\,n.
+S_{\\text{ion}} = \nu_{\\text{ion}}\,n_{\\text{abs}}\,N_{\\text{abs}},\qquad
+S_{\\text{rec}} = \nu_{\\text{rec}}\,n_{\\text{abs}},
 $$
+
+where, in the HW2D milestone, $n$ is treated as a fluctuation about a constant background
+$n_{\\text{abs}} = n_0 + n$ (with small floors applied to keep the rates physical).
 
 ## Coupling to the plasma density
 
@@ -50,3 +53,12 @@ $$
   - recycling sources tied to sheath fluxes and geometry,
   - kinetic neutral closures (or coupling to external neutral solvers).
 
+## References (SOL context)
+
+Plasma–neutral coupling is a core ingredient of quantitative SOL modeling. For broader context and
+state-of-the-art nonlinear SOL simulations that include neutrals and sheath physics, see:
+
+- P. Ricci et al., *Simulation of plasma turbulence in scrape-off layer conditions: the GBS code*,
+  Plasma Phys. Control. Fusion 54, 124047 (2012).
+- F. D. Halpern et al., *Model extensions for SOL simulations (neutrals, sheath, etc.)* (2016) (PDF in `drb_literature/`).
+- G. Bufferand et al., *Review of SOL turbulence modeling*, Nucl. Fusion 61, 116052 (2021).

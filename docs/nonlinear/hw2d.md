@@ -60,3 +60,16 @@ This system is not the full SOL drift-reduced Braginskii system; it is a nonline
   - a simple centered-difference bracket (for comparison only).
 - Polarization uses an FFT Poisson solve with a zero-mean gauge for $\phi$.
 
+## Boundary conditions
+
+The default nonlinear configuration is **periodic** in both $x$ and $y$, which enables the
+fastest algorithms (FFT Poisson solve and pseudo-spectral bracket).
+
+For development and benchmarking, `jaxdrb` also supports **Dirichlet** and **Neumann** boundary
+conditions in $(x,y)$ using:
+
+- finite-difference derivatives and Laplacian operators,
+- a matrix-free conjugate-gradient (CG) Poisson solve for $\phi$.
+
+This path is currently more limited and slower than the periodic/spectral path, but it is
+useful for preparing the transition to open-boundary nonlinear SOL simulations.

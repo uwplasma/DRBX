@@ -63,6 +63,9 @@ Tabulated:
 - `--chi-par-Te FLOAT` parallel electron heat conduction coefficient
 - `--nu-par-e FLOAT`, `--nu-par-i FLOAT` parallel flow diffusion/viscosity coefficients
 - `--nu-sink-n FLOAT`, `--nu-sink-Te FLOAT`, `--nu-sink-vpar FLOAT` simple volumetric sinks
+- `--line-bc {none,dirichlet,neumann}` applies a user-defined BC along `l` to all fields (benchmarking/nonlinear-prep)
+- `--line-bc-value FLOAT`, `--line-bc-grad FLOAT` set Dirichlet value or Neumann gradient for `--line-bc`
+- `--line-bc-nu FLOAT` sets the RHS relaxation rate (0 disables BC enforcement)
 - `--sheath` enables Loizu-style MPSE Bohm sheath BCs (alias for `--sheath-bc`)
 - `--sheath-bc` enables Loizu-style magnetic-pre-sheath entrance BCs (only active for `*-open` geometries)
 - `--sheath-bc-model {simple,loizu2012}` selects the MPSE enforcement model
@@ -126,7 +129,20 @@ jaxdrb-hw2d --nx 96 --ny 96 --tmax 40 --dt 0.05 --out out_hw2d_cli
 With neutrals enabled:
 
 ```bash
-jaxdrb-hw2d --neutrals --nu-ion 2.0 --nu-rec 0.2 --out out_hw2d_neutrals_cli
+jaxdrb-hw2d --neutrals --nu-ion 0.2 --nu-rec 0.02 --out out_hw2d_neutrals_cli
 ```
 
 Outputs include `params.json`, `timeseries.npz`, and snapshot plots (`n.png`, `phi.png`, `omega.png`, and `N.png` if enabled).
+
+Boundary condition experiments (non-periodic, FD+CG path):
+
+```bash
+jaxdrb-hw2d --poisson cg_fd --bracket centered --bc-x dirichlet --bc-y dirichlet --bc-enforce-nu 10.0 --out out_hw2d_bc
+```
+
+HW2D-specific options include:
+
+- `--bracket {spectral,arakawa,centered}`
+- `--poisson {spectral,cg_fd}`
+- `--bc-x`, `--bc-y` in `{periodic,dirichlet,neumann}`
+- `--bc-enforce-nu FLOAT` (boundary relaxation rate; useful for non-periodic experiments)

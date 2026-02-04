@@ -19,6 +19,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
+from jaxdrb.analysis.plotting import set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 from jaxdrb.nonlinear.neutrals import NeutralParams
@@ -36,12 +37,13 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.05)
     parser.add_argument("--save-stride", type=int, default=20)
     parser.add_argument("--out", type=str, default="out_hw2d_neutrals")
-    parser.add_argument("--nu-ion", type=float, default=2.0)
-    parser.add_argument("--nu-rec", type=float, default=0.2)
+    parser.add_argument("--nu-ion", type=float, default=0.2)
+    parser.add_argument("--nu-rec", type=float, default=0.02)
     args = parser.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    set_mpl_style()
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=True)
     neutrals = NeutralParams(
@@ -49,6 +51,7 @@ def main() -> None:
         Dn0=1e-3,
         nu_ion=float(args.nu_ion),
         nu_rec=float(args.nu_rec),
+        n_background=1.0,
         S0=0.0,
         nu_sink=0.0,
     )
@@ -124,15 +127,46 @@ def main() -> None:
 
     # Final snapshots.
     phi = model.phi_from_omega(y.omega)
-    fields = {"n": y.n, "N": y.N, "phi": phi}
-    for name, arr in fields.items():
+    fields = {"n": (y.n, "RdBu_r"), "N": (y.N, "viridis"), "phi": (phi, "RdBu_r")}
+    for name, (arr, cmap) in fields.items():
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap="RdBu_r")
+        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap=cmap)
         ax.set_title(name)
         fig.colorbar(im, ax=ax, shrink=0.9)
         fig.tight_layout()
         fig.savefig(out_dir / f"{name}.png", dpi=200)
         plt.close(fig)
+
+    # Summary panel.
+    fig = plt.figure(figsize=(12, 7))
+    gs = fig.add_gridspec(2, 3, width_ratios=[1.1, 1.0, 1.0])
+
+    ax0 = fig.add_subplot(gs[:, 0])
+    ax0.plot(ts, nbar, label=r"$\langle n \rangle$", lw=2)
+    ax0.plot(ts, Nbar, label=r"$\langle N \rangle$", lw=2)
+    ax0.set_xlabel("t")
+    ax0.set_title("Mean particle content")
+    ax0.legend()
+
+    for ax, (name, arr, cmap) in zip(
+        [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
+        [("n", y.n, "RdBu_r"), ("N", y.N, "viridis"), ("phi", phi, "RdBu_r")],
+    ):
+        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap=cmap)
+        ax.set_title(name)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    ax1 = fig.add_subplot(gs[1, 2])
+    ax1.plot(ts, (jnp.array(nbar) + jnp.array(Nbar)), lw=2)
+    ax1.set_xlabel("t")
+    ax1.set_title(r"$\langle n + N \rangle$")
+
+    fig.suptitle("Nonlinear HW2D with minimal neutrals (periodic)", y=0.98)
+    fig.tight_layout()
+    fig.savefig(out_dir / "panel.png", dpi=220)
+    plt.close(fig)
 
     print(f"[hw2d-neutrals] wrote results to {out_dir}")
 
