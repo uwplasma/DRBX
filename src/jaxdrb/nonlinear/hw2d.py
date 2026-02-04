@@ -11,11 +11,12 @@ from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_c
 
 from .grid import Grid2D
 from .neutrals import NeutralParams, rhs_neutral
+from .fd import biharmonic as biharmonic_fd
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import laplacian as laplacian_fd
 from .fd import enforce_bc_relaxation, inv_laplacian_cg
-from .spectral import ddy, dealias, inv_laplacian, laplacian, poisson_bracket_spectral
+from .spectral import biharmonic, ddy, dealias, inv_laplacian, laplacian, poisson_bracket_spectral
 
 
 class HW2DParams(eqx.Module):
@@ -30,13 +31,19 @@ class HW2DParams(eqx.Module):
     # Dissipation.
     Dn: float = 1e-3
     DOmega: float = 1e-3
+    nu4_n: float = 0.0  # hyperdiffusion coefficient for n: adds -nu4_n ∇⁴ n
+    nu4_omega: float = 0.0  # hyperdiffusion coefficient for omega: adds -nu4_omega ∇⁴ omega
 
     # Numerical options.
-    bracket: Literal["spectral", "arakawa", "centered"] = "spectral"
+    bracket: Literal["spectral", "arakawa", "centered"] = "arakawa"
     poisson: Literal["spectral", "cg_fd"] = "spectral"
     dealias_on: bool = True
     k2_min: float = 1e-12
     bc_enforce_nu: float = 0.0  # boundary relaxation rate for non-periodic BCs
+
+    # Optional "modified HW" coupling: apply α(φ-n) only to non-zonal components (ky≠0),
+    # avoiding unphysical damping of zonal flows.
+    alpha_nonzonal_only: bool = False
 
     # Optional neutral coupling.
     neutrals: NeutralParams = NeutralParams()
@@ -75,8 +82,10 @@ class HW2DModel(eqx.Module):
         if self.params.bracket == "arakawa":
             if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
                 raise ValueError("Arakawa bracket implementation currently assumes periodic BCs.")
-            j = poisson_bracket_arakawa(phi, f, self.grid.dx, self.grid.dy)
-            return dealias(j, self.grid.dealias_mask) if self.params.dealias_on else j
+            # Arakawa's Jacobian is designed to conserve quadratic invariants on periodic grids.
+            # Applying an FFT filter to it can break these conservation properties, so we return it
+            # as-is.
+            return poisson_bracket_arakawa(phi, f, self.grid.dx, self.grid.dy)
         if self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
             j = poisson_bracket_centered(phi, f, self.grid.dx, self.grid.dy)
         else:
@@ -116,6 +125,8 @@ class HW2DModel(eqx.Module):
 
         # Resistive/adiabatic coupling.
         couple = self.params.alpha * (phi - n)
+        if self.params.alpha_nonzonal_only:
+            couple = couple - jnp.mean(couple, axis=1, keepdims=True)
 
         if (
             self.grid.bc.kind_x == 0
@@ -130,6 +141,24 @@ class HW2DModel(eqx.Module):
 
         dn = -adv_n + drive_n + couple + self.params.Dn * lap_n
         dw = -adv_w + drive_w + couple + self.params.DOmega * lap_w
+
+        # Optional hyperdiffusion (biharmonic). This is commonly used in HW studies to control
+        # the enstrophy cascade with minimal impact on large scales.
+        if self.params.nu4_n != 0.0 or self.params.nu4_omega != 0.0:
+            if (
+                self.grid.bc.kind_x == 0
+                and self.grid.bc.kind_y == 0
+                and self.params.poisson == "spectral"
+            ):
+                dn = dn - self.params.nu4_n * biharmonic(n, self.grid.k2)
+                dw = dw - self.params.nu4_omega * biharmonic(omega, self.grid.k2)
+            else:
+                dn = dn - self.params.nu4_n * biharmonic_fd(
+                    n, self.grid.dx, self.grid.dy, self.grid.bc
+                )
+                dw = dw - self.params.nu4_omega * biharmonic_fd(
+                    omega, self.grid.dx, self.grid.dy, self.grid.bc
+                )
 
         # Optional boundary enforcement (useful for non-periodic BC experiments).
         if self.params.bc_enforce_nu != 0.0:
@@ -220,6 +249,95 @@ class HW2DModel(eqx.Module):
         out = {"E": E, "Z": Z}
         if y.N is not None:
             out["Nbar"] = jnp.mean(y.N)
+        return out
+
+    def energy_budget(self, y: HW2DState) -> dict[str, jnp.ndarray]:
+        """Compute a discrete energy budget for HW2D.
+
+        We use the standard energy functional (Camargo et al. 1995):
+
+          E = 1/2 ⟨ n^2 + |∇φ|^2 ⟩
+
+        and the periodic-domain identity:
+
+          d/dt (1/2⟨|∇φ|^2⟩) = -⟨ φ ∂t ω ⟩,
+
+        so that:
+
+          Ė = ⟨ n ∂t n - φ ∂t ω ⟩.
+
+        This lets us attribute contributions from each term in the RHS. In the continuous system,
+        the Poisson-bracket advection terms are energy-conserving; this is a useful numerical check.
+        """
+
+        n = y.n
+        omega = y.omega
+        phi = self.phi_from_omega(omega)
+
+        adv_n = self._bracket(phi, n)
+        adv_w = self._bracket(phi, omega)
+
+        if (
+            self.params.bracket == "spectral"
+            and self.grid.bc.kind_x == 0
+            and self.grid.bc.kind_y == 0
+        ):
+            dphi_dy = ddy(phi, self.grid.ky)
+            dn_dy = ddy(n, self.grid.ky)
+        else:
+            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            dn_dy = ddy_fd(n, self.grid.dy, self.grid.bc)
+
+        drive_n = -self.params.kappa * dphi_dy
+        drive_w = -self.params.kappa * dn_dy
+
+        couple = self.params.alpha * (phi - n)
+        if self.params.alpha_nonzonal_only:
+            couple = couple - jnp.mean(couple, axis=1, keepdims=True)
+
+        if (
+            self.grid.bc.kind_x == 0
+            and self.grid.bc.kind_y == 0
+            and self.params.poisson == "spectral"
+        ):
+            lap_n = laplacian(n, self.grid.k2)
+            lap_w = laplacian(omega, self.grid.k2)
+            bih_n = biharmonic(n, self.grid.k2)
+            bih_w = biharmonic(omega, self.grid.k2)
+        else:
+            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+
+        dn_adv = -adv_n
+        dw_adv = -adv_w
+        dn_drive = drive_n
+        dw_drive = drive_w
+        dn_couple = couple
+        dw_couple = couple
+        dn_diff = self.params.Dn * lap_n
+        dw_diff = self.params.DOmega * lap_w
+        dn_hyper = -self.params.nu4_n * bih_n
+        dw_hyper = -self.params.nu4_omega * bih_w
+
+        def edot(dn_term, dw_term):
+            return jnp.mean(n * dn_term - phi * dw_term)
+
+        out = {
+            "E_dot_adv": edot(dn_adv, dw_adv),
+            "E_dot_drive": edot(dn_drive, dw_drive),
+            "E_dot_couple": edot(dn_couple, dw_couple),
+            "E_dot_diff": edot(dn_diff, dw_diff),
+            "E_dot_hyper": edot(dn_hyper, dw_hyper),
+        }
+        out["E_dot_total"] = (
+            out["E_dot_adv"]
+            + out["E_dot_drive"]
+            + out["E_dot_couple"]
+            + out["E_dot_diff"]
+            + out["E_dot_hyper"]
+        )
         return out
 
 

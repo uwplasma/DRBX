@@ -37,7 +37,7 @@ def main() -> None:
     parser.add_argument("--nx", type=int, default=96)
     parser.add_argument("--ny", type=int, default=96)
     parser.add_argument("--nsteps", type=int, default=800)
-    parser.add_argument("--dt", type=float, default=0.05)
+    parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument("--save-stride", type=int, default=20)
     parser.add_argument("--out", type=str, default="out_hw2d")
     args = parser.parse_args()
@@ -50,10 +50,13 @@ def main() -> None:
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=True)
     params = HW2DParams(
         kappa=1.0,  # background gradient drive
-        alpha=0.5,  # finite resistive coupling -> drift waves
-        Dn=2e-4,
-        DOmega=2e-4,
-        bracket="spectral",
+        alpha=1.0,  # finite resistive coupling -> drift waves
+        Dn=1e-3,
+        DOmega=1e-3,
+        # Hyperdiffusion is commonly used in HW simulations to control the enstrophy cascade.
+        nu4_n=1e-6,
+        nu4_omega=1e-6,
+        bracket="arakawa",
         dealias_on=True,
     )
     model = HW2DModel(params=params, grid=grid)
@@ -84,6 +87,8 @@ def main() -> None:
         _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
         t = t + dt * save_stride
         diag = model.diagnostics(y)
+        if not jnp.isfinite(diag["E"]) or not jnp.isfinite(diag["Z"]):
+            raise FloatingPointError(f"Non-finite diagnostics at chunk {k + 1}/{nchunks}: {diag}")
         ts.append(t)
         Es.append(float(diag["E"]))
         Zs.append(float(diag["Z"]))

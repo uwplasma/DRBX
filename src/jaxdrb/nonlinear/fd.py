@@ -61,6 +61,12 @@ def laplacian(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
     return d2x + d2y
 
 
+def biharmonic(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
+    """Return ∇⁴(u) using two applications of the FD Laplacian."""
+
+    return laplacian(laplacian(u, dx, dy, bc), dx, dy, bc)
+
+
 def boundary_mask(nx: int, ny: int, *, bc: BC2D) -> jnp.ndarray:
     """Mask for boundary nodes relevant to non-periodic BCs."""
 

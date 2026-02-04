@@ -30,13 +30,12 @@ from jaxdrb.nonlinear.stepper import rk4_scan
 
 def main() -> None:
     os.environ.setdefault("MPLBACKEND", "Agg")
-    jax.config.update("jax_enable_x64", False)
     set_mpl_style()
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nx", type=int, default=64)
     parser.add_argument("--ny", type=int, default=64)
-    parser.add_argument("--dt", type=float, default=0.03)
+    parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--tmax", type=float, default=30.0)
     parser.add_argument("--save-stride", type=int, default=10)
     parser.add_argument("--seed", type=int, default=0)
@@ -49,10 +48,13 @@ def main() -> None:
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=True)
     params = HW2DParams(
         kappa=1.0,
-        alpha=0.5,
-        Dn=2e-4,
-        DOmega=2e-4,
-        bracket="spectral",
+        alpha=1.0,
+        Dn=1e-3,
+        DOmega=1e-3,
+        # Stabilize the enstrophy cascade at high k (Camargo et al. 1995 use hyperdiffusion).
+        nu4_n=1e-6,
+        nu4_omega=1e-6,
+        bracket="arakawa",
         poisson="spectral",
         dealias_on=True,
     )
@@ -82,6 +84,10 @@ def main() -> None:
         _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
         t = t + dt * save_stride
         diag = model.diagnostics(y)
+        if not jnp.isfinite(diag["E"]) or not jnp.isfinite(diag["Z"]):
+            raise FloatingPointError(
+                f"Non-finite diagnostics at frame {k + 1}/{nframes}, t={t:.3f}: {diag}"
+            )
         ts.append(float(t))
         Es.append(float(diag["E"]))
         Zs.append(float(diag["Z"]))
