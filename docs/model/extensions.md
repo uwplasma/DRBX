@@ -134,6 +134,20 @@ Example:
 python examples/3_advanced/11_loizu2012_full_mpse_bc.py
 ```
 
+## User-defined end conditions (benchmarking / development)
+
+In addition to MPSE/sheath closures, `jaxdrb` provides a **user-defined** boundary-condition hook
+for the field-line coordinate $l$:
+
+- periodic
+- Dirichlet
+- Neumann
+
+These are enforced weakly as RHS relaxation terms at the two endpoints and can be useful for
+benchmarking sensitivity to end conditions or for nonlinear-preparation experiments.
+
+See `docs/model/boundary-conditions.md` for details and the API mapping.
+
 ## Parallel closures and sinks (optional)
 
 Several additional *linear* terms can be enabled to mimic common Braginskii-like closures and

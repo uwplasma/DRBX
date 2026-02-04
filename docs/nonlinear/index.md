@@ -24,7 +24,7 @@ From the repository root:
 ```bash
 python examples/3_advanced/20_hw2d_driftwave_turbulence.py
 python examples/3_advanced/21_hw2d_neutrals_effect.py
+python examples/3_advanced/22_hw2d_movie.py
 ```
 
 Both examples write results to small `out_*` folders with plots and `.npz` data.
-

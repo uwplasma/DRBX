@@ -37,6 +37,7 @@ nav:
       - theory/known-limits.md
   - Model:
       - model/equations.md
+      - model/boundary-conditions.md
       - model/extensions.md
       - model/normalization.md
       - model/limitations.md

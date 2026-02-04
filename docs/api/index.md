@@ -60,3 +60,9 @@ This section is generated from docstrings using `mkdocstrings`.
 ## Operators
 
 ::: jaxdrb.operators.brackets
+
+## Boundary conditions
+
+::: jaxdrb.bc
+
+::: jaxdrb.models.bcs

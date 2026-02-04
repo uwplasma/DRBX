@@ -129,3 +129,9 @@ Nonlinear + neutrals (minimal particle-exchange model):
 ```bash
 python examples/3_advanced/21_hw2d_neutrals_effect.py
 ```
+
+Nonlinear movie (fast GIF output):
+
+```bash
+python examples/3_advanced/22_hw2d_movie.py
+```
