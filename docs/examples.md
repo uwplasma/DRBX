@@ -77,6 +77,12 @@ Parallel closures + sinks demo (parallel heat conduction / flow diffusion):
 python examples/2_intermediate/06_parallel_closures_effects.py
 ```
 
+Method of Manufactured Solutions (MMS) for the nonlinear HW2D testbed:
+
+```bash
+python examples/2_intermediate/07_mms_hw2d_convergence.py
+```
+
 ## 3) Advanced (literature-inspired + stellarator)
 
 Mosetto (2012) drift-wave branch workflow (curvature off):
