@@ -112,3 +112,33 @@ See:
 
 - Geometry docs: `docs/geometry/`
 - Examples: `examples/02_geometry/`, `examples/07_essos_geometries/`
+
+## Elliptic (Poisson/polarization) solver verification
+
+Elliptic solves are a central ingredient for nonlinear evolution (polarization closure).
+
+`jaxdrb` includes:
+
+- a spectral inverse Laplacian for periodic domains (exact up to roundoff),
+- a matrix-free conjugate-gradient (CG) FD Poisson solver for Dirichlet/Neumann domains.
+
+Verification tests:
+
+- `tests/test_fd_poisson_cg.py`
+
+Example output (Dirichlet and Neumann cases):
+
+![FD+CG Poisson verification](assets/images/poisson_cg_verification_panel.png)
+
+## FCI operator verification (preparation milestone)
+
+Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building blocks are validated:
+
+- field-line maps + bilinear interpolation on structured planes,
+- centered parallel derivative operator and MMS-style convergence checks.
+
+See:
+
+- Tests: `tests/test_fci_parallel.py`
+- Docs: `docs/fci/index.md`
+- Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`

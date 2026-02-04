@@ -94,7 +94,9 @@ class HW2DModel(eqx.Module):
             df_dx = ddx_fd(f, self.grid.dx, self.grid.bc)
             df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
             j = dphi_dx * df_dy - dphi_dy * df_dx
-        return dealias(j, self.grid.dealias_mask) if self.params.dealias_on else j
+        if self.params.dealias_on and self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+            return dealias(j, self.grid.dealias_mask)
+        return j
 
     def rhs(self, t: float, y: HW2DState) -> HW2DState:
         _ = t

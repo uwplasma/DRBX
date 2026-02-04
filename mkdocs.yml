@@ -48,6 +48,8 @@ nav:
       - geometry/slab.md
       - geometry/tokamak.md
       - geometry/tabulated.md
+  - FCI:
+      - fci/index.md
   - Solvers:
       - solvers/index.md
       - solvers/initial-value.md

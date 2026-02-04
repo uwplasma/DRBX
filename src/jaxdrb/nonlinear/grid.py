@@ -7,7 +7,17 @@ from jaxdrb.bc import BC2D, bc2d_from_strings
 
 
 class Grid2D(eqx.Module):
-    """Uniform 2D periodic grid with FFT wavenumbers and dealias mask."""
+    """Uniform 2D grid with optional periodic/Dirichlet/Neumann BCs.
+
+    Notes
+    -----
+    - For periodic directions, the grid is cell-centered with `endpoint=False` and spacing `L/n`.
+    - For non-periodic directions, the grid includes both boundaries with `endpoint=True` and
+      spacing `L/(n-1)`. This makes finite-difference boundary stencils consistent with the
+      physical domain endpoints.
+    - FFT wavenumbers and dealias masks are provided for convenience; they are only valid when
+      both directions are periodic.
+    """
 
     nx: int
     ny: int
@@ -42,11 +52,20 @@ class Grid2D(eqx.Module):
         bc_grad_x: float = 0.0,
         bc_grad_y: float = 0.0,
     ) -> "Grid2D":
-        dx = Lx / nx
-        dy = Ly / ny
+        bc = bc2d_from_strings(
+            bc_x=bc_x,  # type: ignore[arg-type]
+            bc_y=bc_y,  # type: ignore[arg-type]
+            value_x=bc_value_x,
+            value_y=bc_value_y,
+            grad_x=bc_grad_x,
+            grad_y=bc_grad_y,
+        )
 
-        x = jnp.linspace(0.0, Lx, nx, endpoint=False)
-        y = jnp.linspace(0.0, Ly, ny, endpoint=False)
+        dx = Lx / nx if bc.kind_x == 0 else Lx / (nx - 1)
+        dy = Ly / ny if bc.kind_y == 0 else Ly / (ny - 1)
+
+        x = jnp.linspace(0.0, Lx, nx, endpoint=(bc.kind_x != 0))
+        y = jnp.linspace(0.0, Ly, ny, endpoint=(bc.kind_y != 0))
 
         kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=dx)
         ky_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=dy)
@@ -61,15 +80,6 @@ class Grid2D(eqx.Module):
             dealias_mask = mask.astype(jnp.float32)
         else:
             dealias_mask = jnp.ones((nx, ny), dtype=jnp.float32)
-
-        bc = bc2d_from_strings(
-            bc_x=bc_x,  # type: ignore[arg-type]
-            bc_y=bc_y,  # type: ignore[arg-type]
-            value_x=bc_value_x,
-            value_y=bc_value_y,
-            grad_x=bc_grad_x,
-            grad_y=bc_grad_y,
-        )
 
         return cls(
             nx=nx,

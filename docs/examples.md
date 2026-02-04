@@ -132,3 +132,19 @@ MMS convergence:
 ```bash
 python examples/08_nonlinear_hw2d/mms_hw2d_convergence.py
 ```
+
+## FCI preparation milestone
+
+Slab MMS-style convergence for an FCI parallel derivative (field-line map + interpolation + centered difference):
+
+```bash
+python examples/09_fci/fci_slab_parallel_derivative_mms.py --out out_fci_mms
+```
+
+## Verification (elliptic solves)
+
+FD+CG Poisson solver verification (Dirichlet and Neumann cases):
+
+```bash
+python examples/10_verification/poisson_cg_verification.py --out out_poisson_cg_verify
+```

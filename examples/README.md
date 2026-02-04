@@ -17,6 +17,8 @@ describing what the scripts do and what figures to expect.
 - `examples/06_literature_tokamak_sol/`: literature-aligned workflows (Mosetto/Halpern/Jorge)
 - `examples/07_essos_geometries/`: ESSOS-driven stellarator/VMEC/Biot–Savart geometry examples
 - `examples/08_nonlinear_hw2d/`: nonlinear HW2D milestone (turbulence, neutrals, MMS, movie)
+- `examples/09_fci/`: flux-coordinate independent (FCI) preparation milestone (field-line maps + parallel operators)
+- `examples/10_verification/`: verification examples (elliptic solves, MMS, conservation checks)
 
 ## Running
 
