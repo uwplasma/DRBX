@@ -15,7 +15,7 @@ from jaxdrb.models.braginskii import nu_par_e as nu_par_e_eff
 from jaxdrb.models.braginskii import nu_par_i as nu_par_i_eff
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
-    apply_loizu2012_mpse_full_linear_bc,
+    apply_loizu2012_mpse_full_linear_bc_hot_ion,
     sheath_energy_losses,
     sheath_bc_rate,
     sheath_loss_rate,
@@ -167,7 +167,8 @@ def rhs_nonlinear(
 
     # Optional MPSE (sheath) boundary conditions (applied in the cold-ion sound-speed normalization).
     if int(getattr(params, "sheath_bc_model", 0)) == 1:
-        dn_bc, domega_bc, dvpar_e_bc, dvpar_i_bc, dTe_bc = apply_loizu2012_mpse_full_linear_bc(
+        dn_bc, domega_bc, dvpar_e_bc, dvpar_i_bc, dTe_bc, dTi_bc = (
+            apply_loizu2012_mpse_full_linear_bc_hot_ion(
             params=params,
             geom=geom,
             eq=eq,
@@ -182,11 +183,13 @@ def rhs_nonlinear(
             dpar=dpar,
             d2par=d2par,
         )
+        )
         dn = dn + dn_bc
         domega = domega + domega_bc
         dvpar_e = dvpar_e + dvpar_e_bc
         dvpar_i = dvpar_i + dvpar_i_bc
         dTe = dTe + dTe_bc
+        dTi = dTi + dTi_bc
     else:
         dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
             params=params,

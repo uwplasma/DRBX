@@ -123,7 +123,7 @@ two field-line endpoints):
 - `sheath_bc_model=0` (**simple**): velocity-only BCs for $v_{\parallel i}$ and $v_{\parallel e}$.
 - `sheath_bc_model=1` (**loizu2012**): a *linearized*, model-aligned “full set” that also enforces
   endpoint constraints involving $\partial_\parallel \phi$, $\partial_\parallel n$, $\omega$,
-  and $\partial_\parallel T_e=0$.
+  and $\partial_\parallel T_e=0$ (and, in the hot-ion model, $\partial_\parallel T_i=0$).
 
 The Loizu2012 option omits transverse-gradient corrections (terms involving $\partial_x$) in this
 initial implementation, to remain consistent with `jaxdrb`’s 1D field-line + Fourier-perp closure.
