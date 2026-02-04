@@ -131,7 +131,7 @@ initial implementation, to remain consistent with `jaxdrb`’s 1D field-line + F
 Example:
 
 ```bash
-python examples/scripts/03_sheath_mpse/loizu2012_full_mpse_bc.py
+python examples/03_sheath_mpse/loizu2012_full_mpse_bc.py
 ```
 
 ## Sheath heat transmission and secondary electron emission (SEE)
@@ -192,7 +192,7 @@ where $\delta$ is a constant SEE yield. This affects:
 **Example**
 
 ```bash
-python examples/scripts/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
+python examples/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
 ```
 
 ### Notes and limitations
@@ -246,5 +246,5 @@ coefficients; see `docs/model/braginskii.md`.
 Example workflow:
 
 ```bash
-python examples/scripts/04_closures_transport/parallel_closures_effects.py
+python examples/04_closures_transport/parallel_closures_effects.py
 ```

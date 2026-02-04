@@ -20,7 +20,7 @@ make examples-stellarator
 or directly:
 
 ```bash
-python examples/scripts/07_essos_geometries/stellarator_nearaxis_essos.py
+python examples/07_essos_geometries/stellarator_nearaxis_essos.py
 ```
 
 This script:

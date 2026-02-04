@@ -2,7 +2,7 @@
 
 Runnable scripts live in:
 
-`examples/scripts/`
+`examples/`
 
 and are organized by **topic** (geometry, sheath closures, literature workflows, nonlinear HW2D, …).
 Each script prints progress and writes `.npz` + publication-friendly `.png` figures.
@@ -14,25 +14,25 @@ Each script prints progress and writes `.npz` + publication-friendly `.png` figu
 Slab ky scan:
 
 ```bash
-python examples/scripts/01_linear_basics/slab_ky_scan.py
+python examples/01_linear_basics/slab_ky_scan.py
 ```
 
 Circular tokamak ky scan:
 
 ```bash
-python examples/scripts/01_linear_basics/circular_tokamak_ky_scan.py
+python examples/01_linear_basics/circular_tokamak_ky_scan.py
 ```
 
 Cyclone-like s–α ky scan:
 
 ```bash
-python examples/scripts/01_linear_basics/salpha_cyclone_ky_scan.py
+python examples/01_linear_basics/salpha_cyclone_ky_scan.py
 ```
 
 2D scan over `(kx, ky)` in s–α:
 
 ```bash
-python examples/scripts/01_linear_basics/cyclone_kxky_scan.py
+python examples/01_linear_basics/cyclone_kxky_scan.py
 ```
 
 ## Geometry I/O
@@ -40,7 +40,7 @@ python examples/scripts/01_linear_basics/cyclone_kxky_scan.py
 Tabulated geometry round-trip:
 
 ```bash
-python examples/scripts/02_geometry/tabulated_geometry_roundtrip.py
+python examples/02_geometry/tabulated_geometry_roundtrip.py
 ```
 
 ## Sheath / MPSE boundary conditions
@@ -48,19 +48,19 @@ python examples/scripts/02_geometry/tabulated_geometry_roundtrip.py
 Open field line + MPSE Bohm BCs:
 
 ```bash
-python examples/scripts/03_sheath_mpse/open_slab_sheath_ky_scan.py
+python examples/03_sheath_mpse/open_slab_sheath_ky_scan.py
 ```
 
 Loizu (2012) MPSE boundary condition comparison:
 
 ```bash
-python examples/scripts/03_sheath_mpse/loizu2012_full_mpse_bc.py
+python examples/03_sheath_mpse/loizu2012_full_mpse_bc.py
 ```
 
 Sheath heat transmission + SEE effects:
 
 ```bash
-python examples/scripts/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
+python examples/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
 ```
 
 ## Closures / transport
@@ -68,13 +68,13 @@ python examples/scripts/03_sheath_mpse/sheath_heat_see_effects.py --out out_shea
 Parallel closures and sinks:
 
 ```bash
-python examples/scripts/04_closures_transport/parallel_closures_effects.py
+python examples/04_closures_transport/parallel_closures_effects.py
 ```
 
 Braginskii/Spitzer transport scalings (equilibrium-based):
 
 ```bash
-python examples/scripts/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
+python examples/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
 ```
 
 ## JAX autodiff
@@ -82,7 +82,7 @@ python examples/scripts/04_closures_transport/braginskii_closures_effects.py --o
 Autodiff optimization of $k_{y,*}$:
 
 ```bash
-python examples/scripts/05_jax_autodiff/autodiff_optimize_ky_star.py
+python examples/05_jax_autodiff/autodiff_optimize_ky_star.py
 ```
 
 ## Literature workflows
@@ -90,9 +90,9 @@ python examples/scripts/05_jax_autodiff/autodiff_optimize_ky_star.py
 Mosetto (2012), Halpern (2013), Jorge (2016):
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/mosetto2012_regime_map.py
-python examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
-python examples/scripts/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
+python examples/06_literature_tokamak_sol/mosetto2012_regime_map.py
+python examples/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
+python examples/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
 ```
 
 More context and references: `docs/literature/`.
@@ -102,9 +102,9 @@ More context and references: `docs/literature/`.
 Near-axis/VMEC/Biot–Savart workflows:
 
 ```bash
-python examples/scripts/07_essos_geometries/stellarator_nearaxis_essos.py
-python examples/scripts/07_essos_geometries/essos_vmec_edge_s09.py
-python examples/scripts/07_essos_geometries/essos_biotsavart_r14.py
+python examples/07_essos_geometries/stellarator_nearaxis_essos.py
+python examples/07_essos_geometries/essos_vmec_edge_s09.py
+python examples/07_essos_geometries/essos_biotsavart_r14.py
 ```
 
 ## Nonlinear HW2D milestone
@@ -112,23 +112,23 @@ python examples/scripts/07_essos_geometries/essos_biotsavart_r14.py
 Baseline turbulence run:
 
 ```bash
-python examples/scripts/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
+python examples/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
 ```
 
 Neutrals effect:
 
 ```bash
-python examples/scripts/08_nonlinear_hw2d/hw2d_neutrals_effect.py
+python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 ```
 
 Movie (fast GIF):
 
 ```bash
-python examples/scripts/08_nonlinear_hw2d/hw2d_movie.py
+python examples/08_nonlinear_hw2d/hw2d_movie.py
 ```
 
 MMS convergence:
 
 ```bash
-python examples/scripts/08_nonlinear_hw2d/mms_hw2d_convergence.py
+python examples/08_nonlinear_hw2d/mms_hw2d_convergence.py
 ```

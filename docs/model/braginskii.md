@@ -104,7 +104,7 @@ Equilibrium scalars (currently constant along the field line):
 ## Example
 
 ```bash
-python examples/scripts/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
+python examples/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
 ```
 
 This produces a panel comparing $\gamma(k_y)$ and $\max(\gamma,0)/k_y$ with and without Braginskii scalings,

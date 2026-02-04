@@ -51,7 +51,7 @@ In `jaxdrb`:
 - `eta` is a resistive coupling knob in Ohm’s law,
 - `me_hat` controls electron inertia.
 
-The literature-aligned examples in `examples/scripts/06_literature_tokamak_sol/` show how scanning these parameters produces
+The literature-aligned examples in `examples/06_literature_tokamak_sol/` show how scanning these parameters produces
 distinct growth-rate curves and different maximizers of $\max(\gamma,0)/k_y$.
 
 ## 5) Connection length effect (via `q` in analytic tokamak geometry)

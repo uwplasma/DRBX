@@ -34,12 +34,12 @@ The fixed-point solver is implemented in:
 
 and exercised in:
 
-- `examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py`
+- `examples/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py`
 
 ## Running the example
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
+python examples/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
 ```
 
 Outputs:
@@ -64,7 +64,7 @@ Sturm–Liouville eigenproblem (their Eq. (16)). In `jaxdrb` this is implemented
 Run:
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/halpern2013_salpha_ideal_ballooning_map.py
+python examples/06_literature_tokamak_sol/halpern2013_salpha_ideal_ballooning_map.py
 ```
 
 This example scans $(\hat{s},\alpha)$ and plots the resulting $\hat{c}(\hat{s},\alpha)$ map, along

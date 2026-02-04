@@ -29,7 +29,7 @@ each point by which branch dominates.
 Run:
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/mosetto2012_regime_map.py
+python examples/06_literature_tokamak_sol/mosetto2012_regime_map.py
 ```
 
 This example computes a **proxy regime map** by evaluating four branch candidates and selecting
@@ -46,7 +46,7 @@ ablations:
 Run:
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/mosetto2012_driftwave_branches.py
+python examples/06_literature_tokamak_sol/mosetto2012_driftwave_branches.py
 ```
 
 Outputs in `out/mosetto2012_driftwave_branches/` include:
@@ -70,7 +70,7 @@ collisionality/inertia ordering.
 Run:
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/mosetto2012_ballooning_branches.py
+python examples/06_literature_tokamak_sol/mosetto2012_ballooning_branches.py
 ```
 
 This script:
@@ -91,5 +91,5 @@ To match Mosetto (2012) figures quantitatively you will generally need:
 - matching boundary conditions and field-line connection length,
 - inclusion of additional closure terms that are omitted in the current default model.
 
-The point of the `examples/scripts/06_literature_tokamak_sol/` scripts is to provide a *transparent, hackable reference*
+The point of the `examples/06_literature_tokamak_sol/` scripts is to provide a *transparent, hackable reference*
 for these workflows within a JAX-based matrix-free linear solver.

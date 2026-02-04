@@ -37,15 +37,15 @@ papers:
 
 See the scripts in:
 
-- `examples/scripts/06_literature_tokamak_sol/mosetto2012_driftwave_branches.py`
-- `examples/scripts/06_literature_tokamak_sol/mosetto2012_ballooning_branches.py`
-- `examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py`
-- `examples/scripts/07_essos_geometries/stellarator_nearaxis_essos.py` (stellarator near-axis / ESSOS-driven workflow).
-- `examples/scripts/06_literature_tokamak_sol/mosetto2012_regime_map.py` (Mosetto-like regime map: InDW/RDW/InBM/RBM).
-- `examples/scripts/06_literature_tokamak_sol/halpern2013_salpha_ideal_ballooning_map.py` (s–alpha growth-rate map).
-- `examples/scripts/07_essos_geometries/essos_vmec_edge_s09.py` (VMEC field line via ESSOS at s=0.9).
-- `examples/scripts/07_essos_geometries/essos_biotsavart_r14.py` (Biot–Savart field line via ESSOS).
-- `examples/scripts/03_sheath_mpse/loizu2012_full_mpse_bc.py` (MPSE BC comparison: simple vs Loizu-2012 mode).
+- `examples/06_literature_tokamak_sol/mosetto2012_driftwave_branches.py`
+- `examples/06_literature_tokamak_sol/mosetto2012_ballooning_branches.py`
+- `examples/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py`
+- `examples/07_essos_geometries/stellarator_nearaxis_essos.py` (stellarator near-axis / ESSOS-driven workflow).
+- `examples/06_literature_tokamak_sol/mosetto2012_regime_map.py` (Mosetto-like regime map: InDW/RDW/InBM/RBM).
+- `examples/06_literature_tokamak_sol/halpern2013_salpha_ideal_ballooning_map.py` (s–alpha growth-rate map).
+- `examples/07_essos_geometries/essos_vmec_edge_s09.py` (VMEC field line via ESSOS at s=0.9).
+- `examples/07_essos_geometries/essos_biotsavart_r14.py` (Biot–Savart field line via ESSOS).
+- `examples/03_sheath_mpse/loizu2012_full_mpse_bc.py` (MPSE BC comparison: simple vs Loizu-2012 mode).
 
 Each script writes an `out/...` folder with:
 
