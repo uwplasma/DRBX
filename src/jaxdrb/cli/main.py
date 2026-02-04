@@ -26,6 +26,7 @@ from jaxdrb.geometry.tokamak import (
 )
 from jaxdrb.linear.arnoldi import arnoldi_eigs, arnoldi_leading_ritz_vector
 from jaxdrb.linear.matvec import linear_matvec_from_rhs
+from jaxdrb.models.cold_ion_drb import Equilibrium
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.bcs import LineBCs
 from jaxdrb.models.registry import DEFAULT_MODEL, MODELS, get_model
@@ -96,6 +97,9 @@ def main() -> None:
     # Optional parallel closures and volumetric sinks (useful for SOL-like studies).
     parser.add_argument("--chi-par-Te", type=float, default=0.0, help="Parallel Te conduction χ_||")
     parser.add_argument(
+        "--chi-par-Ti", type=float, default=0.0, help="Parallel Ti conduction χ_|| (hot-ion)"
+    )
+    parser.add_argument(
         "--nu-par-e", type=float, default=0.0, help="Parallel electron flow diffusion/viscosity"
     )
     parser.add_argument(
@@ -108,6 +112,47 @@ def main() -> None:
         type=float,
         default=0.0,
         help="Volumetric sink on vpar_e and vpar_i",
+    )
+
+    # Braginskii-like transport scalings (equilibrium-based).
+    parser.add_argument(
+        "--braginskii",
+        action="store_true",
+        help="Enable Braginskii/Spitzer equilibrium-based transport scalings (η~Te^{-3/2}, χ||~T^{5/2}, ν||~T^{5/2}).",
+    )
+    parser.add_argument("--braginskii-Tref", type=float, default=1.0)
+    parser.add_argument("--braginskii-T-floor", type=float, default=1e-3)
+    parser.add_argument("--braginskii-T-smooth", type=float, default=1e-3)
+    parser.add_argument(
+        "--no-braginskii-eta",
+        action="store_true",
+        help="Disable η~Te^{-3/2} scaling (use constant η even if --braginskii is set).",
+    )
+    parser.add_argument(
+        "--no-braginskii-kappa-e",
+        action="store_true",
+        help="Disable χ||,e~Te^{5/2} scaling (use constant χ||,e even if --braginskii is set).",
+    )
+    parser.add_argument(
+        "--no-braginskii-kappa-i",
+        action="store_true",
+        help="Disable χ||,i~Ti^{5/2} scaling (hot-ion model).",
+    )
+    parser.add_argument(
+        "--no-braginskii-visc-e",
+        action="store_true",
+        help="Disable ν||,e~Te^{5/2} scaling (use constant ν||,e even if --braginskii is set).",
+    )
+    parser.add_argument(
+        "--no-braginskii-visc-i",
+        action="store_true",
+        help="Disable ν||,i~Ti^{5/2} scaling (use constant ν||,i even if --braginskii is set).",
+    )
+
+    # Equilibrium profiles (along l). Currently constant scalars; future work will allow tabulated profiles.
+    parser.add_argument("--eq-n0", type=float, default=1.0, help="Equilibrium density n0.")
+    parser.add_argument(
+        "--eq-Te0", type=float, default=1.0, help="Equilibrium electron temperature Te0."
     )
 
     # Optional SOL/sheath closures (only active for *open* geometries).
@@ -260,6 +305,17 @@ def main() -> None:
         "line_bc_value": float(args.line_bc_value),
         "line_bc_grad": float(args.line_bc_grad),
         "line_bc_nu": float(args.line_bc_nu),
+        "eq_n0": float(args.eq_n0),
+        "eq_Te0": float(args.eq_Te0),
+        "braginskii_on": bool(args.braginskii),
+        "braginskii_Tref": float(args.braginskii_Tref),
+        "braginskii_T_floor": float(args.braginskii_T_floor),
+        "braginskii_T_smooth": float(args.braginskii_T_smooth),
+        "braginskii_eta_on": not bool(args.no_braginskii_eta),
+        "braginskii_kappa_e_on": not bool(args.no_braginskii_kappa_e),
+        "braginskii_kappa_i_on": not bool(args.no_braginskii_kappa_i),
+        "braginskii_visc_e_on": not bool(args.no_braginskii_visc_e),
+        "braginskii_visc_i_on": not bool(args.no_braginskii_visc_i),
         "sheath_bc_on": bool(args.sheath or args.sheath_bc)
         or (args.geom.endswith("-open") and not args.no_sheath_bc),
         "sheath_bc_nu_factor": float(args.sheath_bc_nu_factor),
@@ -373,11 +429,21 @@ def main() -> None:
         Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
         chi_par_Te=float(args.chi_par_Te),
+        chi_par_Ti=float(args.chi_par_Ti),
         nu_par_e=float(args.nu_par_e),
         nu_par_i=float(args.nu_par_i),
         nu_sink_n=float(args.nu_sink_n),
         nu_sink_Te=float(args.nu_sink_Te),
         nu_sink_vpar=float(args.nu_sink_vpar),
+        braginskii_on=bool(args.braginskii),
+        braginskii_Tref=float(args.braginskii_Tref),
+        braginskii_T_floor=float(args.braginskii_T_floor),
+        braginskii_T_smooth=float(args.braginskii_T_smooth),
+        braginskii_eta_on=not bool(args.no_braginskii_eta),
+        braginskii_kappa_e_on=not bool(args.no_braginskii_kappa_e),
+        braginskii_kappa_i_on=not bool(args.no_braginskii_kappa_i),
+        braginskii_visc_e_on=not bool(args.no_braginskii_visc_e),
+        braginskii_visc_i_on=not bool(args.no_braginskii_visc_i),
         sheath_bc_on=bool(args.sheath or args.sheath_bc)
         or (args.geom.endswith("-open") and not args.no_sheath_bc),
         sheath_bc_model=1 if args.sheath_bc_model == "loizu2012" else 0,
@@ -397,12 +463,15 @@ def main() -> None:
         line_bcs=line_bcs,
     )
 
+    eq = Equilibrium.constant(args.nl, n0=float(args.eq_n0), Te0=float(args.eq_Te0))
+
     ky_grid = np.linspace(args.ky_min, args.ky_max, args.nky)
     res = scan_ky(
         params,
         geom,
         ky=ky_grid,
         kx=float(args.kx),
+        eq=eq,
         nl=args.nl,
         model=model,
         arnoldi_m=args.arnoldi_m,
@@ -448,8 +517,7 @@ def main() -> None:
     )
     y_eq = model.equilibrium(args.nl)
     rhs_kwargs = {}
-    if model.default_eq is not None:
-        rhs_kwargs["eq"] = model.default_eq(args.nl)
+    rhs_kwargs["eq"] = eq
     key = jax.random.PRNGKey(args.seed + 1)
     v0 = model.random_state(key, args.nl, amplitude=1e-3)
     matvec_star = linear_matvec_from_rhs(

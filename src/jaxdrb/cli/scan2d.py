@@ -17,6 +17,7 @@ from jaxdrb.geometry.tokamak import (
     OpenSAlphaGeometry,
     SAlphaGeometry,
 )
+from jaxdrb.models.cold_ion_drb import Equilibrium
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.bcs import LineBCs
 from jaxdrb.models.registry import DEFAULT_MODEL, MODELS, get_model
@@ -63,6 +64,29 @@ def main() -> None:
     parser.add_argument("--DTi", type=float, default=0.01)
     parser.add_argument("--Dpsi", type=float, default=0.0)
     parser.add_argument("--kperp2-min", type=float, default=1e-6)
+
+    # Optional parallel closures and volumetric sinks (useful for SOL-like studies).
+    parser.add_argument("--chi-par-Te", type=float, default=0.0)
+    parser.add_argument("--chi-par-Ti", type=float, default=0.0)
+    parser.add_argument("--nu-par-e", type=float, default=0.0)
+    parser.add_argument("--nu-par-i", type=float, default=0.0)
+    parser.add_argument("--nu-sink-n", type=float, default=0.0)
+    parser.add_argument("--nu-sink-Te", type=float, default=0.0)
+    parser.add_argument("--nu-sink-vpar", type=float, default=0.0)
+
+    # Braginskii-like transport scalings (equilibrium-based).
+    parser.add_argument("--braginskii", action="store_true")
+    parser.add_argument("--braginskii-Tref", type=float, default=1.0)
+    parser.add_argument("--braginskii-T-floor", type=float, default=1e-3)
+    parser.add_argument("--braginskii-T-smooth", type=float, default=1e-3)
+    parser.add_argument("--no-braginskii-eta", action="store_true")
+    parser.add_argument("--no-braginskii-kappa-e", action="store_true")
+    parser.add_argument("--no-braginskii-kappa-i", action="store_true")
+    parser.add_argument("--no-braginskii-visc-e", action="store_true")
+    parser.add_argument("--no-braginskii-visc-i", action="store_true")
+
+    parser.add_argument("--eq-n0", type=float, default=1.0)
+    parser.add_argument("--eq-Te0", type=float, default=1.0)
 
     parser.add_argument(
         "--line-bc",
@@ -266,10 +290,28 @@ def main() -> None:
         "DTi": args.DTi,
         "Dpsi": args.Dpsi,
         "kperp2_min": args.kperp2_min,
+        "chi_par_Te": float(args.chi_par_Te),
+        "chi_par_Ti": float(args.chi_par_Ti),
+        "nu_par_e": float(args.nu_par_e),
+        "nu_par_i": float(args.nu_par_i),
+        "nu_sink_n": float(args.nu_sink_n),
+        "nu_sink_Te": float(args.nu_sink_Te),
+        "nu_sink_vpar": float(args.nu_sink_vpar),
+        "braginskii_on": bool(args.braginskii),
+        "braginskii_Tref": float(args.braginskii_Tref),
+        "braginskii_T_floor": float(args.braginskii_T_floor),
+        "braginskii_T_smooth": float(args.braginskii_T_smooth),
+        "braginskii_eta_on": not bool(args.no_braginskii_eta),
+        "braginskii_kappa_e_on": not bool(args.no_braginskii_kappa_e),
+        "braginskii_kappa_i_on": not bool(args.no_braginskii_kappa_i),
+        "braginskii_visc_e_on": not bool(args.no_braginskii_visc_e),
+        "braginskii_visc_i_on": not bool(args.no_braginskii_visc_i),
         "line_bc": args.line_bc,
         "line_bc_value": float(args.line_bc_value),
         "line_bc_grad": float(args.line_bc_grad),
         "line_bc_nu": float(args.line_bc_nu),
+        "eq_n0": float(args.eq_n0),
+        "eq_Te0": float(args.eq_Te0),
         "sheath_bc_on": bool(args.sheath or args.sheath_bc)
         or (args.geom.endswith("-open") and not args.no_sheath_bc),
         "sheath_end_damp_on": bool(args.sheath_end_damp),
@@ -316,6 +358,22 @@ def main() -> None:
         DTi=args.DTi,
         Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
+        chi_par_Te=float(args.chi_par_Te),
+        chi_par_Ti=float(args.chi_par_Ti),
+        nu_par_e=float(args.nu_par_e),
+        nu_par_i=float(args.nu_par_i),
+        nu_sink_n=float(args.nu_sink_n),
+        nu_sink_Te=float(args.nu_sink_Te),
+        nu_sink_vpar=float(args.nu_sink_vpar),
+        braginskii_on=bool(args.braginskii),
+        braginskii_Tref=float(args.braginskii_Tref),
+        braginskii_T_floor=float(args.braginskii_T_floor),
+        braginskii_T_smooth=float(args.braginskii_T_smooth),
+        braginskii_eta_on=not bool(args.no_braginskii_eta),
+        braginskii_kappa_e_on=not bool(args.no_braginskii_kappa_e),
+        braginskii_kappa_i_on=not bool(args.no_braginskii_kappa_i),
+        braginskii_visc_e_on=not bool(args.no_braginskii_visc_e),
+        braginskii_visc_i_on=not bool(args.no_braginskii_visc_i),
         sheath_bc_on=bool(args.sheath or args.sheath_bc)
         or (args.geom.endswith("-open") and not args.no_sheath_bc),
         sheath_bc_nu_factor=float(args.sheath_bc_nu_factor),
@@ -333,6 +391,8 @@ def main() -> None:
         line_bcs=line_bcs,
     )
 
+    eq = Equilibrium.constant(args.nl, n0=float(args.eq_n0), Te0=float(args.eq_Te0))
+
     ky_grid = np.linspace(args.ky_min, args.ky_max, args.nky)
     kx_grid = np.linspace(args.kx_min, args.kx_max, args.nkx)
 
@@ -342,6 +402,7 @@ def main() -> None:
         kx=kx_grid,
         ky=ky_grid,
         model=model,
+        eq=eq,
         arnoldi_m=args.arnoldi_m,
         arnoldi_tol=args.arnoldi_tol,
         arnoldi_max_m=args.arnoldi_max_m,

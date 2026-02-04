@@ -111,6 +111,7 @@ This implementation is aimed at fast iteration:
 - 1D grid along the field line (`l`)
 - Polarization closure in Fourier form (Boussinesq by default; optional linearized non-Boussinesq)
 - Model variants: cold-ion electrostatic, hot-ion electrostatic (adds `Ti`), electromagnetic (adds `psi`)
+- Optional equilibrium-based Braginskii/Spitzer scalings for $\eta$, $\chi_\parallel$, and $\nu_\parallel$ (see `docs/model/braginskii.md`)
 
 Nonlinear support is evolving. The first nonlinear milestone is a 2D periodic drift-wave testbed
 (`jaxdrb.nonlinear.hw2d`) used to validate and benchmark core operators (brackets, FFT Poisson solves,

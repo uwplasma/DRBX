@@ -240,6 +240,9 @@ These are controlled by:
 - `chi_par_Te`, `nu_par_e`, `nu_par_i`,
 - `nu_sink_n`, `nu_sink_Te`, `nu_sink_vpar`.
 
+`jaxdrb` also supports equilibrium-based **Braginskii/Spitzer temperature scalings** for these
+coefficients; see `docs/model/braginskii.md`.
+
 Example workflow:
 
 ```bash

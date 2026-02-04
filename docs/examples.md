@@ -89,6 +89,12 @@ Sheath heat transmission + secondary electron emission (SEE) effects on an open 
 python examples/2_intermediate/08_sheath_heat_see_effects.py --out out_sheath_heat
 ```
 
+Braginskii/Spitzer transport scalings (equilibrium-based):
+
+```bash
+python examples/2_intermediate/09_braginskii_closures_effects.py --out out_braginskii
+```
+
 ## 3) Advanced (literature-inspired + stellarator)
 
 Mosetto (2012) drift-wave branch workflow (curvature off):

@@ -40,6 +40,7 @@ class DRBParams(eqx.Module):
     # These are most relevant for open-field-line (SOL) studies, and can help
     # regularize small-scale parallel structure in linear problems.
     chi_par_Te: float = 0.0
+    chi_par_Ti: float = 0.0  # hot-ion model only
     nu_par_e: float = 0.0
     nu_par_i: float = 0.0
 
@@ -66,6 +67,27 @@ class DRBParams(eqx.Module):
     # Many drift-reduced Braginskii implementations include an electron "thermal force" term
     # in Ohm's law, often written as ∇_||(phi - n - 1.71 Te) in (Te/e) potential units.
     alpha_Te_ohm: float = 1.71
+
+    # Braginskii-like transport scalings (optional, equilibrium-based).
+    #
+    # When enabled, a subset of Spitzer/Braginskii temperature scalings are applied using the
+    # equilibrium temperature profile(s) along the field line:
+    #   - Spitzer resistivity:          η ∝ T_e^{-3/2}
+    #   - Spitzer-Härm conduction:      χ_|| ∝ T^{5/2}
+    #   - Parallel viscosity proxy:     ν_|| ∝ T^{5/2}
+    #
+    # This is implemented in a way that keeps the linear RHS matrix-free and differentiable:
+    # coefficients are evaluated on the equilibrium profile (Te0, Ti0) and treated as spatially
+    # varying multipliers in the linear operators.
+    braginskii_on: bool = False
+    braginskii_eta_on: bool = True
+    braginskii_kappa_e_on: bool = True
+    braginskii_kappa_i_on: bool = True
+    braginskii_visc_e_on: bool = True
+    braginskii_visc_i_on: bool = True
+    braginskii_Tref: float = 1.0
+    braginskii_T_floor: float = 1e-3
+    braginskii_T_smooth: float = 1e-3
 
     # Optional open-field-line / sheath closure knobs.
     #
