@@ -86,6 +86,18 @@ Tabulated geometry:
 jaxdrb-scan --geom tabulated --geom-file mygeom.npz --ky-min 0.05 --ky-max 1.0 --nky 32 --out out_tab
 ```
 
+Nonlinear milestone (2D periodic HW-like drift-wave turbulence):
+
+```bash
+jaxdrb-hw2d --nx 96 --ny 96 --tmax 40 --dt 0.05 --out out_hw2d_cli
+```
+
+Nonlinear + neutrals (minimal particle exchange model):
+
+```bash
+jaxdrb-hw2d --neutrals --nu-ion 2.0 --nu-rec 0.2 --out out_hw2d_neutrals_cli
+```
+
 ## Status
 
 This implementation is aimed at fast iteration:
@@ -93,6 +105,10 @@ This implementation is aimed at fast iteration:
 - 1D grid along the field line (`l`)
 - Polarization closure in Fourier form (Boussinesq by default; optional linearized non-Boussinesq)
 - Model variants: cold-ion electrostatic, hot-ion electrostatic (adds `Ti`), electromagnetic (adds `psi`)
+
+Nonlinear support is evolving. The first nonlinear milestone is a 2D periodic drift-wave testbed
+(`jaxdrb.nonlinear.hw2d`) used to validate and benchmark core operators (brackets, FFT Poisson solves,
+dealiasing, time stepping) and to host optional additional physics (e.g. neutrals) in a togglable way.
 
 ## Examples (including literature workflows)
 

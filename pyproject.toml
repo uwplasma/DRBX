@@ -39,6 +39,7 @@ essos = [
 [project.scripts]
 jaxdrb-scan = "jaxdrb.cli.main:main"
 jaxdrb-scan2d = "jaxdrb.cli.scan2d:main"
+jaxdrb-hw2d = "jaxdrb.cli.hw2d:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -117,3 +117,15 @@ Loizu (2012) MPSE boundary conditions (simple vs full-set linearized enforcement
 ```bash
 python examples/3_advanced/11_loizu2012_full_mpse_bc.py
 ```
+
+Nonlinear milestone (2D periodic drift-wave turbulence, HW-like):
+
+```bash
+python examples/3_advanced/20_hw2d_driftwave_turbulence.py
+```
+
+Nonlinear + neutrals (minimal particle-exchange model):
+
+```bash
+python examples/3_advanced/21_hw2d_neutrals_effect.py
+```
