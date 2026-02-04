@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.bcs import bc_relaxation_1d
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
     apply_loizu2012_mpse_full_linear_bc,
@@ -234,6 +235,15 @@ def rhs_nonlinear(
     dvpar_e = dvpar_e - nu_loss * y.vpar_e
     dvpar_i = dvpar_i - nu_loss * y.vpar_i
     dTe = dTe - nu_loss * y.Te
+
+    # Optional user-defined boundary conditions along l (weak relaxation).
+    if getattr(params, "line_bcs", None) is not None and params.line_bcs.enabled:
+        dl = float(geom.dl)
+        dn = dn + bc_relaxation_1d(y.n, bc=params.line_bcs.n, dl=dl)
+        domega = domega + bc_relaxation_1d(y.omega, bc=params.line_bcs.omega, dl=dl)
+        dvpar_e = dvpar_e + bc_relaxation_1d(y.vpar_e, bc=params.line_bcs.vpar_e, dl=dl)
+        dvpar_i = dvpar_i + bc_relaxation_1d(y.vpar_i, bc=params.line_bcs.vpar_i, dl=dl)
+        dTe = dTe + bc_relaxation_1d(y.Te, bc=params.line_bcs.Te, dl=dl)
 
     return State(n=dn, omega=domega, vpar_e=dvpar_e, vpar_i=dvpar_i, Te=dTe)
 

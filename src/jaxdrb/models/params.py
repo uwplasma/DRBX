@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import equinox as eqx
 
+from jaxdrb.models.bcs import LineBCs
+
 
 class DRBParams(eqx.Module):
     # Background-gradient drives (dimensionless)
@@ -94,3 +96,10 @@ class DRBParams(eqx.Module):
     # Deprecated (kept for compatibility; treated as sheath_loss_*):
     sheath_on: bool = False
     sheath_nu_factor: float = 1.0
+
+    # Optional user-defined line boundary conditions (Dirichlet/Neumann/Periodic).
+    #
+    # These are enforced weakly as additional RHS terms and are primarily intended
+    # for benchmarking and for nonlinear-transition preparation work. In most SOL
+    # studies you will use MPSE/sheath BCs instead.
+    line_bcs: LineBCs = eqx.field(static=True, default=LineBCs.disabled())
