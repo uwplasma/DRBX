@@ -161,6 +161,13 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--sheath-end-damp",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable additional boundary-localized damping at sheath nodes (robust default).",
+    )
+
+    parser.add_argument(
         "--sheath-heat",
         action="store_true",
         help="Enable sheath heat transmission (energy losses) using γ factors at the sheath nodes.",
@@ -260,6 +267,7 @@ def main() -> None:
         "sheath_delta": float(args.sheath_delta),
         "sheath_loss_on": bool(args.sheath_loss),
         "sheath_loss_nu_factor": float(args.sheath_loss_nu_factor),
+        "sheath_end_damp_on": bool(args.sheath_end_damp),
         "sheath_heat_on": bool(args.sheath_heat),
         "sheath_gamma_auto": bool(args.sheath_gamma_auto),
         "sheath_gamma_e": float(args.sheath_gamma_e),
@@ -379,6 +387,7 @@ def main() -> None:
         sheath_delta=float(args.sheath_delta),
         sheath_loss_on=bool(args.sheath_loss),
         sheath_loss_nu_factor=float(args.sheath_loss_nu_factor),
+        sheath_end_damp_on=bool(args.sheath_end_damp),
         sheath_heat_on=bool(args.sheath_heat),
         sheath_gamma_auto=bool(args.sheath_gamma_auto),
         sheath_gamma_e=float(args.sheath_gamma_e),

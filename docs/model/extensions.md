@@ -203,6 +203,10 @@ python examples/2_intermediate/08_sheath_heat_see_effects.py --out out_sheath_he
 - The Loizu (2012) “full set” MPSE option includes $\partial_\parallel T_e=0$ as part of its boundary
   constraints; combining that option with sheath energy-loss terms is not recommended unless you are
   explicitly studying sensitivity to mixed end conditions.
+- By default, `jaxdrb` also applies a small additional damping term localized at the sheath nodes
+  (`DRBParams.sheath_end_damp_on=True`) to prevent spurious boundary-driven growth in no-drive limits
+  for the reduced 1D linear system. Disable this only if you are explicitly benchmarking sensitivity
+  to end-loss modeling details.
 
 ## User-defined end conditions (benchmarking / development)
 

@@ -76,6 +76,7 @@ Tabulated:
 - `--sheath-delta FLOAT` ion transmission correction (cold ions → 0)
 - `--sheath-loss` enables a volumetric end-loss proxy (not a substitute for MPSE BCs)
 - `--sheath-loss-nu-factor FLOAT` multiplies the loss rate `nu_sh ~ 2/L_parallel`
+- `--sheath-end-damp`, `--no-sheath-end-damp` toggles an additional boundary-localized damping term at the sheath nodes (robust default)
 - `--sheath-heat` enables a lightweight sheath heat transmission / energy-loss closure at the MPSE nodes
 - `--sheath-gamma-auto`, `--no-sheath-gamma-auto` toggles $\gamma_e \approx 2 + \Lambda_{\mathrm{eff}}$ vs a manual $\gamma_e$
 - `--sheath-gamma-e FLOAT` manual electron heat transmission factor (used with `--no-sheath-gamma-auto`)
