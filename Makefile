@@ -33,6 +33,7 @@ examples-intermediate:
 	python examples/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
 	python examples/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
 	python examples/08_nonlinear_hw2d/mms_hw2d_convergence.py --out out_mms_hw2d
+	python examples/10_verification/poisson_cg_verification.py --out out_poisson_cg_verify
 
 examples-advanced:
 	python examples/06_literature_tokamak_sol/mosetto2012_driftwave_branches.py
@@ -45,6 +46,7 @@ examples-advanced:
 	python examples/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
 	python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 	python examples/08_nonlinear_hw2d/hw2d_movie.py
+	python examples/09_fci/fci_slab_parallel_derivative_mms.py --out out_fci_mms
 
 examples-all: examples-simple examples-intermediate examples-advanced
 
