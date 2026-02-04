@@ -148,3 +148,15 @@ FD+CG Poisson solver verification (Dirichlet and Neumann cases):
 ```bash
 python examples/10_verification/poisson_cg_verification.py --out out_poisson_cg_verify
 ```
+
+Arnoldi vs dense Jacobian (tiny problem):
+
+```bash
+python examples/10_verification/arnoldi_vs_dense_jacobian.py --out out_arnoldi_dense_verify
+```
+
+Shear-Alfvén dispersion verification (Zhu et al. 2018 / GDB):
+
+```bash
+python examples/10_verification/saw_dispersion_gdb2018.py --out out_saw_gdb2018
+```

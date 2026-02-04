@@ -86,6 +86,15 @@ MMS tests are included to validate the implementation order and to catch sign/no
 - Example: `examples/08_nonlinear_hw2d/mms_hw2d_convergence.py`
 - Tests: see `tests/` for MMS-based checks
 
+Additional operator convergence tests:
+
+- `tests/test_fd_1d_operators.py` (1D derivative operators used in field-line geometry discretizations)
+
+This verification strategy (including MMS) is widely used in SOL turbulence codes. For example:
+
+- F. D. Halpern et al., *The GBS code for tokamak scrape-off layer simulations*, **J. Comput. Phys.** 315 (2016) 388–408.
+  DOI: [`10.1016/j.jcp.2016.03.040`](https://doi.org/10.1016/j.jcp.2016.03.040).
+
 ## Linear solver checks (matrix-free J·v)
 
 The linear stability solvers are validated by internal consistency checks:
@@ -99,6 +108,24 @@ See:
 - Tests: `tests/test_growth_vs_eigs.py`, `tests/test_slab_dispersion.py`
 - Solver docs: `docs/solvers/`
 - Known limits: `docs/theory/known-limits.md`
+
+### Arnoldi vs dense Jacobian (tiny problem)
+
+On very small problems it is feasible to explicitly form the dense Jacobian (by applying `J·v` to basis vectors)
+and compare its eigenvalues to Arnoldi Ritz values. This validates the end-to-end workflow:
+
+- `jax.linearize` for matrix-free `J·v`,
+- Arnoldi implementation (including residual norms).
+
+Test:
+
+- [`tests/test_arnoldi_dense_compare.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_arnoldi_dense_compare.py)
+
+Example:
+
+- [`examples/10_verification/arnoldi_vs_dense_jacobian.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/arnoldi_vs_dense_jacobian.py)
+
+![Arnoldi vs dense eigenvalue spectrum](assets/images/arnoldi_vs_dense_spectrum.png)
 
 ## Geometry provider checks
 
@@ -124,11 +151,42 @@ Elliptic solves are a central ingredient for nonlinear evolution (polarization c
 
 Verification tests:
 
-- `tests/test_fd_poisson_cg.py`
+- [`tests/test_fd_poisson_cg.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fd_poisson_cg.py)
 
 Example output (Dirichlet and Neumann cases):
 
 ![FD+CG Poisson verification](assets/images/poisson_cg_verification_panel.png)
+
+## Verification problems inspired by GDB (Zhu et al. 2018)
+
+The GDB code paper (Zhu et al., 2018, CPC) describes a suite of simplified verification tests:
+
+- Kelvin–Helmholtz growth (Poisson bracket),
+- shear-Alfvén wave propagation (parallel operator),
+- resistive ballooning growth (curvature operator),
+- convergence of turbulence statistics with resolution.
+
+`jaxdrb` includes a directly comparable **shear-Alfvén dispersion** verification in `jaxdrb.verification`,
+and uses separate operator/unit tests for Poisson brackets, parallel derivatives, and curvature coefficients.
+
+Reference:
+
+- B. Zhu et al., *GDB: A global 3D two-fluid model of plasma turbulence and transport in the tokamak edge*,
+  **Computer Physics Communications** 232 (2018) 46–58. DOI: [`10.1016/j.cpc.2018.06.002`](https://doi.org/10.1016/j.cpc.2018.06.002).
+
+Test:
+
+- [`tests/test_gdb2018_saw.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_gdb2018_saw.py)
+
+Example:
+
+- [`examples/10_verification/saw_dispersion_gdb2018.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/saw_dispersion_gdb2018.py)
+
+Implementation:
+
+- [`src/jaxdrb/verification/gdb2018.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/verification/gdb2018.py)
+
+![SAW phase speed vs Te (GDB 2018 verification)](assets/images/saw_gdb2018_speed_vs_Te.png)
 
 ## FCI operator verification (preparation milestone)
 
@@ -142,3 +200,13 @@ See:
 - Tests: `tests/test_fci_parallel.py`
 - Docs: `docs/fci/index.md`
 - Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
+
+## Differentiability checks
+
+One goal of `jaxdrb` is to keep verification and solver workflows **end-to-end differentiable** where feasible.
+This is validated with small gradient checks through time integration and operator pipelines.
+
+See:
+
+- `tests/test_hw2d_validation.py` (gradient through nonlinear time stepping)
+- `tests/test_fci_parallel.py` (gradient through FCI mapping and ∂_|| operator)
