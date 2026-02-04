@@ -111,3 +111,9 @@ ISTTOK-inspired linear workflow (Jorge et al. 2016):
 ```bash
 python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
 ```
+
+Loizu (2012) MPSE boundary conditions (simple vs full-set linearized enforcement):
+
+```bash
+python examples/3_advanced/11_loizu2012_full_mpse_bc.py
+```

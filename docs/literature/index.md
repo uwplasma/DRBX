@@ -17,9 +17,9 @@ The default `jaxdrb` model is **electrostatic** and intentionally simplified:
 
 - periodic field-line boundary conditions,
 - Boussinesq polarization closure in Fourier form,
-- no *full* sheath boundary-condition set (line-tied/sheath physics is essential in some SOL studies),
-  though `jaxdrb` includes a simplified MPSE Bohm-sheath boundary enforcement option and a
-  lightweight volumetric end-loss proxy for open-field-line geometries,
+- open-field-line MPSE/sheath boundary physics is essential in many SOL studies; `jaxdrb` includes
+  both a simplified velocity-only MPSE enforcement mode and a Loizu-2012-inspired linearized
+  “full set” for open geometries,
 - the electrostatic model omits magnetic induction / $A_\parallel$ (an electromagnetic extension
   model exists, but does not aim to reproduce every published closure term),
 - reduced closure set (no gyroviscosity, no full heat flux closures).
@@ -45,6 +45,7 @@ See the scripts in:
 - `examples/3_advanced/07_halpern2013_salpha_ideal_ballooning_map.py` (s–alpha growth-rate map).
 - `examples/3_advanced/08_essos_vmec_edge_s09.py` (VMEC field line via ESSOS at s=0.9).
 - `examples/3_advanced/10_essos_biotsavart_r14.py` (Biot-Savart field line via ESSOS).
+- `examples/3_advanced/11_loizu2012_full_mpse_bc.py` (MPSE BC comparison: simple vs Loizu-2012 mode).
 
 Each script writes an `out/3_advanced/...` folder with:
 

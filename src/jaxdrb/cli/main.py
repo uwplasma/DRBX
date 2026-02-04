@@ -98,7 +98,19 @@ def main() -> None:
         "--sheath-bc", action="store_true", help="Enable Loizu-style MPSE Bohm sheath BCs"
     )
     parser.add_argument(
+        "--sheath-bc-model",
+        choices=["simple", "loizu2012"],
+        default="simple",
+        help="MPSE BC model: 'simple' (velocity-only) or 'loizu2012' (full linearized set).",
+    )
+    parser.add_argument(
         "--sheath-bc-nu-factor", type=float, default=1.0, help="BC enforcement rate factor (~2/L||)"
+    )
+    parser.add_argument(
+        "--sheath-cos2",
+        type=float,
+        default=1.0,
+        help="Proxy for cos^2(incidence angle) in Loizu 2012 vorticity BC (default 1).",
     )
     parser.add_argument(
         "--sheath-lambda", type=float, default=3.28, help="Lambda = 0.5 ln(mi/(2π me))"
@@ -282,7 +294,9 @@ def main() -> None:
         nu_sink_Te=float(args.nu_sink_Te),
         nu_sink_vpar=float(args.nu_sink_vpar),
         sheath_bc_on=bool(args.sheath or args.sheath_bc),
+        sheath_bc_model=1 if args.sheath_bc_model == "loizu2012" else 0,
         sheath_bc_nu_factor=float(args.sheath_bc_nu_factor),
+        sheath_cos2=float(args.sheath_cos2),
         sheath_lambda=float(args.sheath_lambda),
         sheath_delta=float(args.sheath_delta),
         sheath_loss_on=bool(args.sheath_loss),

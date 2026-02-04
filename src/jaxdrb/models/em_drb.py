@@ -9,6 +9,7 @@ from jaxdrb.models.cold_ion_drb import Equilibrium, phi_from_omega
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
+    apply_loizu2012_mpse_full_linear_bc,
     sheath_bc_rate,
     sheath_loss_rate,
 )
@@ -142,17 +143,41 @@ def rhs_nonlinear(
     dTe = dTe + float(getattr(params, "chi_par_Te", 0.0)) * d2par(y.Te)
     dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
-    # Loizu-style MPSE sheath BCs: use reconstructed vpar_e = vpar_i - jpar and enforce the BCs
-    # through equivalent relaxation on (vpar_i, psi).
-    dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
-        params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e, vpar_i=y.vpar_i, Te=y.Te
-    )
-    dvpar_i = dvpar_i + dvpar_i_sh
-    # Convert dvpar_e contribution into a psi relaxation via jpar = k2 * psi and vpar_e = vpar_i - jpar:
-    # dvpar_e = dvpar_i - d(jpar)  ->  d(jpar) = dvpar_i - dvpar_e.
-    djpar = dvpar_i_sh - dvpar_e_sh
-    k2_safe = jnp.maximum(k2, float(getattr(params, "kperp2_min", 1e-6)))
-    dpsi = dpsi + (djpar / k2_safe)
+    # Optional MPSE sheath BCs: use reconstructed vpar_e = vpar_i - jpar and enforce BCs through
+    # equivalent relaxation on (n, omega, Te, vpar_i, psi).
+    if int(getattr(params, "sheath_bc_model", 0)) == 1:
+        dn_bc, domega_bc, dvpar_e_bc, dvpar_i_bc, dTe_bc = apply_loizu2012_mpse_full_linear_bc(
+            params=params,
+            geom=geom,
+            eq=eq,
+            kperp2=k2,
+            phi=phi,
+            n=y.n,
+            omega=y.omega,
+            vpar_e=vpar_e,
+            vpar_i=y.vpar_i,
+            Te=y.Te,
+            dpar=dpar,
+            d2par=d2par,
+        )
+        dn = dn + dn_bc
+        domega = domega + domega_bc
+        dTe = dTe + dTe_bc
+        dvpar_i = dvpar_i + dvpar_i_bc
+
+        # Convert dvpar_e constraint into a psi relaxation via jpar = k2 * psi and vpar_e = vpar_i - jpar:
+        # dvpar_e = dvpar_i - d(jpar)  ->  d(jpar) = dvpar_i - dvpar_e.
+        djpar = dvpar_i_bc - dvpar_e_bc
+        k2_safe = jnp.maximum(k2, float(getattr(params, "kperp2_min", 1e-6)))
+        dpsi = dpsi + (djpar / k2_safe)
+    else:
+        dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
+            params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e, vpar_i=y.vpar_i, Te=y.Te
+        )
+        dvpar_i = dvpar_i + dvpar_i_sh
+        djpar = dvpar_i_sh - dvpar_e_sh
+        k2_safe = jnp.maximum(k2, float(getattr(params, "kperp2_min", 1e-6)))
+        dpsi = dpsi + (djpar / k2_safe)
 
     bc = sheath_bc_rate(params, geom)
     if bc is not None:

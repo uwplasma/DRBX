@@ -78,6 +78,11 @@ class DRBParams(eqx.Module):
     # volumetric loss proxy.
     sheath_bc_on: bool = False
     sheath_bc_nu_factor: float = 1.0
+    # MPSE model selector:
+    #   0 = simple (velocity-only, linearized or nonlinear)
+    #   1 = Loizu 2012 "full set" (linearized: includes density/potential/vorticity/Te-gradient constraints)
+    sheath_bc_model: int = 0
+    sheath_cos2: float = 1.0  # proxy for cos^2(incidence angle) in Loizu 2012 vorticity BC
     sheath_bc_linearized: bool = True
     sheath_lambda: float = 3.28  # ~ 0.5 ln(mi/(2π me)) for hydrogen
     sheath_delta: float = 0.0  # ion transmission correction (cold ions -> 0)

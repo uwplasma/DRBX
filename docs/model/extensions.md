@@ -110,6 +110,30 @@ jaxdrb-scan --model em          --geom slab --beta 0.1 --out out_em/
 
 See `cli.md` for the full set of flags and defaults.
 
+## MPSE / sheath boundary conditions (Loizu 2012)
+
+For *open* field lines (SOL/limiter), `jaxdrb` can apply magnetic-pre-sheath entrance (MPSE)
+boundary conditions inspired by:
+
+- J. Loizu et al., Phys. Plasmas 19, 122307 (2012).
+
+Two MPSE enforcement modes are available (both are **weak** SAT/penalty relaxations applied at the
+two field-line endpoints):
+
+- `sheath_bc_model=0` (**simple**): velocity-only BCs for $v_{\parallel i}$ and $v_{\parallel e}$.
+- `sheath_bc_model=1` (**loizu2012**): a *linearized*, model-aligned “full set” that also enforces
+  endpoint constraints involving $\partial_\parallel \phi$, $\partial_\parallel n$, $\omega$,
+  and $\partial_\parallel T_e=0$.
+
+The Loizu2012 option omits transverse-gradient corrections (terms involving $\partial_x$) in this
+initial implementation, to remain consistent with `jaxdrb`’s 1D field-line + Fourier-perp closure.
+
+Example:
+
+```bash
+python examples/3_advanced/11_loizu2012_full_mpse_bc.py
+```
+
 ## Parallel closures and sinks (optional)
 
 Several additional *linear* terms can be enabled to mimic common Braginskii-like closures and

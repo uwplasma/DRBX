@@ -8,6 +8,7 @@ import jax.random as jr
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
+    apply_loizu2012_mpse_full_linear_bc,
     sheath_bc_rate,
     sheath_loss_rate,
 )
@@ -189,12 +190,34 @@ def rhs_nonlinear(
     dTe = dTe + float(getattr(params, "chi_par_Te", 0.0)) * d2par(y.Te)
     dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
-    # Optional Loizu-style MPSE sheath BCs (open field lines), enforced as relaxation terms.
-    dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
-        params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e_eff, vpar_i=y.vpar_i, Te=y.Te
-    )
-    dvpar_e = dvpar_e + dvpar_e_sh
-    dvpar_i = dvpar_i + dvpar_i_sh
+    # Optional MPSE (sheath) boundary conditions for open field lines.
+    # Model 0: velocity-only (legacy). Model 1: Loizu 2012 "full set" (linearized, model-aligned).
+    if int(getattr(params, "sheath_bc_model", 0)) == 1:
+        dn_bc, domega_bc, dvpar_e_bc, dvpar_i_bc, dTe_bc = apply_loizu2012_mpse_full_linear_bc(
+            params=params,
+            geom=geom,
+            eq=eq,
+            kperp2=k2,
+            phi=phi,
+            n=y.n,
+            omega=y.omega,
+            vpar_e=vpar_e_eff,
+            vpar_i=y.vpar_i,
+            Te=y.Te,
+            dpar=dpar,
+            d2par=d2par,
+        )
+        dn = dn + dn_bc
+        domega = domega + domega_bc
+        dvpar_e = dvpar_e + dvpar_e_bc
+        dvpar_i = dvpar_i + dvpar_i_bc
+        dTe = dTe + dTe_bc
+    else:
+        dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
+            params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e_eff, vpar_i=y.vpar_i, Te=y.Te
+        )
+        dvpar_e = dvpar_e + dvpar_e_sh
+        dvpar_i = dvpar_i + dvpar_i_sh
 
     # Additional MPSE (sheath) sinks on open field lines: represent end-plate losses and current closure.
     bc = sheath_bc_rate(params, geom)
