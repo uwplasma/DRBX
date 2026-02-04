@@ -45,7 +45,7 @@ $$
 
 Here:
 
-- $[\phi,f] = \partial_x \phi\,\partial_y f - \partial_y \phi\,\partial_x f$ is the $E\\times B$ Poisson bracket,
+- $[\phi,f] = \partial_x \phi\,\partial_y f - \partial_y \phi\,\partial_x f$ is the $E\times B$ Poisson bracket,
 - $\kappa$ is a background-gradient drive parameter (a proxy for $R/L_n$),
 - $\alpha$ controls resistive/adiabatic coupling,
 - $D_n, D_\omega$ are stabilizing diffusion coefficients.

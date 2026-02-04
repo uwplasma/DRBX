@@ -126,4 +126,4 @@ code is being prepared so that:
 - nonlinear advection terms (e.g. $E\times B$ Poisson brackets) can be added on top of the same
   geometry/closure infrastructure.
 
-The utilities in `src/jaxdrb/rhs/` are the first step in that direction.
+The utilities in [`src/jaxdrb/rhs/`](https://github.com/uwplasma/jax_drb/tree/main/src/jaxdrb/rhs) are the first step in that direction.

@@ -1,25 +1,27 @@
 # Examples
 
-The `examples/` tree is organized by complexity:
+Runnable example scripts live in:
 
-- `examples/1_simple/`: quick "hello world" runs (fast, minimal parameters).
-- `examples/2_intermediate/`: branch comparisons, parameter scans, and JAX-based workflows.
-- `examples/3_advanced/`: literature-inspired reproduction scripts and stellarator (ESSOS) geometry.
+`examples/scripts/`
 
-Each script:
+Each subfolder focuses on a specific module/topic (geometry, sheath closures, literature workflows,
+nonlinear HW2D, etc.). The structure is meant to stay stable as new physics and algorithms are added.
 
-- writes an `out/...` folder with `.npz` data + publication-ready `.png` figures,
-- prints progress so you can tell it is still running,
-- is intended to be readable (docstrings + explicit variable names).
+## Running
 
-Most examples are pure-Python and can be run from the repo root, e.g.
+From the repository root:
 
 ```bash
-python examples/1_simple/01_slab_ky_scan.py
+python examples/scripts/01_linear_basics/slab_ky_scan.py
 ```
 
-The stellarator near-axis example uses ESSOS. If ESSOS is installed, you can run:
+Most scripts write a small results folder (typically under `out/` or a user-provided `--out` path)
+containing:
 
-```bash
-python examples/3_advanced/04_stellarator_nearaxis_essos.py
-```
+- `.npz` outputs with the raw scan data,
+- publication-friendly `.png` plots.
+
+## Index
+
+See `examples/scripts/README.md` for a topic-by-topic index.
+

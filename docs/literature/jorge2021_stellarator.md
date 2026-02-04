@@ -20,7 +20,7 @@ make examples-stellarator
 or directly:
 
 ```bash
-python examples/3_advanced/04_stellarator_nearaxis_essos.py
+python examples/scripts/07_essos_geometries/stellarator_nearaxis_essos.py
 ```
 
 This script:
@@ -33,7 +33,7 @@ This script:
   - a parallel-derivative factor `dpar_factor(l)` (here `l` is arclength, so `dpar_factor=1`),
 - runs a ky scan using the same matrix-free eigen-solver used elsewhere in `jaxdrb`.
 
-Outputs are written to `out/3_advanced/stellarator_nearaxis_essos/`.
+Outputs are written to `out/stellarator_nearaxis_essos/`.
 
 ![Near-axis stellarator ky scan (ESSOS geometry)](../assets/images/essos_nearaxis_scan_panel.png)
 

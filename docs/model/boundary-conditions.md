@@ -13,8 +13,8 @@ This page documents both the *physics-motivated* sheath/MPSE closures and the *n
 
 The field-line geometries provided by `jaxdrb.geometry.*` choose one of:
 
-- **Periodic** field lines (closed topology): periodic finite differences are used for $\\nabla_\\parallel$.
-- **Open** field lines (SOL-like): open-grid finite differences are used for $\\nabla_\\parallel$ and *optional* sheath/MPSE closures can be enabled.
+- **Periodic** field lines (closed topology): periodic finite differences are used for $\nabla_\parallel$.
+- **Open** field lines (SOL-like): open-grid finite differences are used for $\nabla_\parallel$ and *optional* sheath/MPSE closures can be enabled.
 
 ### MPSE / sheath entrance boundary conditions (physics closure)
 
@@ -54,10 +54,10 @@ Implementation:
 - Each RHS adds a term of the form
 
 $$
-\\partial_t f \\;\\leftarrow\\; \\partial_t f - \\nu\\,\\chi_{\\partial\\Omega}\\,(f - f_{\\text{target}}),
+\partial_t f \;\leftarrow\; \partial_t f - \nu\,\chi_{\partial\Omega}\,(f - f_{\text{target}}),
 $$
 
-where $\\chi_{\\partial\\Omega}$ is a mask that is nonzero only at the two ends of the grid, and $f_{\\text{target}}$ is computed from the requested BC (value or implied value from a one-sided derivative relation).
+where $\chi_{\partial\Omega}$ is a mask that is nonzero only at the two ends of the grid, and $f_{\text{target}}$ is computed from the requested BC (value or implied value from a one-sided derivative relation).
 
 CLI shortcut (applied to all fields uniformly):
 

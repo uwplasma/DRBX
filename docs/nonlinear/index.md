@@ -23,9 +23,9 @@ The purpose is not to replace SOL-specific DRB models. Rather, it is a fast and 
 From the repository root:
 
 ```bash
-python examples/3_advanced/20_hw2d_driftwave_turbulence.py
-python examples/3_advanced/21_hw2d_neutrals_effect.py
-python examples/3_advanced/22_hw2d_movie.py
+python examples/scripts/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
+python examples/scripts/08_nonlinear_hw2d/hw2d_neutrals_effect.py
+python examples/scripts/08_nonlinear_hw2d/hw2d_movie.py
 ```
 
 Both examples write results to small `out_*` folders with plots and `.npz` data.

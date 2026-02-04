@@ -104,7 +104,7 @@ Equilibrium scalars (currently constant along the field line):
 ## Example
 
 ```bash
-python examples/2_intermediate/09_braginskii_closures_effects.py --out out_braginskii
+python examples/scripts/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
 ```
 
 This produces a panel comparing $\gamma(k_y)$ and $\max(\gamma,0)/k_y$ with and without Braginskii scalings,
@@ -114,4 +114,3 @@ and shows how changing $T_{e0}$ modifies the effective resistivity and parallel 
 
 For the full classical transport theory, see the standard Braginskii and Spitzer–Härm literature,
 and the references cited in the SOL papers in `docs/references.md`.
-

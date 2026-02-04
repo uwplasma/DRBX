@@ -73,7 +73,7 @@ those models you can generalize the equilibrium drive terms accordingly.
 Run:
 
 ```bash
-python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
+python examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
 ```
 
 This script:

@@ -1,155 +1,134 @@
 # Examples
 
-The `examples/` tree is organized by complexity:
+Runnable scripts live in:
 
-- `examples/1_simple/`: quick “hello world” runs (single ky scan, minimal knobs).
-- `examples/2_intermediate/`: richer diagnostics (tabulated geometry round-trip, kx–ky scans, JAX workflows).
-- `examples/3_advanced/`: literature-inspired workflows and stellarator (ESSOS) geometry.
+`examples/scripts/`
 
-All scripts:
+and are organized by **topic** (geometry, sheath closures, literature workflows, nonlinear HW2D, …).
+Each script prints progress and writes `.npz` + publication-friendly `.png` figures.
 
-- write an `out/...` folder with `.npz` data plus multiple publication-ready `.png` figures,
-- print progress and key numbers so it does not look like the run is “hanging”.
+> Tip: most examples run faster if you reduce `nl` and use fewer `ky`/`kx` points.
 
-> Tip: most examples will run faster if you reduce `nl` and use fewer `ky`/`kx` points.
+## Linear basics
 
-## 1) Simple (fast)
-
-Slab ky scan (curvature off, drift-wave-like):
+Slab ky scan:
 
 ```bash
-python examples/1_simple/01_slab_ky_scan.py
+python examples/scripts/01_linear_basics/slab_ky_scan.py
 ```
 
-Circular tokamak ky scan (curvature on):
+Circular tokamak ky scan:
 
 ```bash
-python examples/1_simple/02_circular_tokamak_ky_scan.py
+python examples/scripts/01_linear_basics/circular_tokamak_ky_scan.py
 ```
 
-Cyclone-like s-alpha ky scan:
+Cyclone-like s–α ky scan:
 
 ```bash
-python examples/1_simple/03_salpha_cyclone_ky_scan.py
+python examples/scripts/01_linear_basics/salpha_cyclone_ky_scan.py
 ```
 
-Open field line + sheath closures (MPSE Bohm-sheath BC enforcement + optional volumetric loss proxy):
+2D scan over `(kx, ky)` in s–α:
 
 ```bash
-python examples/1_simple/04_open_slab_sheath_ky_scan.py
+python examples/scripts/01_linear_basics/cyclone_kxky_scan.py
 ```
 
-## 2) Intermediate (diagnostics + workflows)
+## Geometry I/O
 
-Tabulated geometry round-trip (export analytic coefficients → reload → verify results match):
+Tabulated geometry round-trip:
 
 ```bash
-python examples/2_intermediate/01_tabulated_geometry_roundtrip.py
+python examples/scripts/02_geometry/tabulated_geometry_roundtrip.py
 ```
 
-2D (kx, ky) scan on Cyclone-like s-alpha geometry:
+## Sheath / MPSE boundary conditions
+
+Open field line + MPSE Bohm BCs:
 
 ```bash
-python examples/2_intermediate/02_cyclone_kxky_scan.py
+python examples/scripts/03_sheath_mpse/open_slab_sheath_ky_scan.py
 ```
 
-JAX “advantage” demo: autodiff optimization of $k_{y,*}$ that maximizes $\max(\gamma,0)/k_y$:
+Loizu (2012) MPSE boundary condition comparison:
 
 ```bash
-python examples/2_intermediate/03_jax_autodiff_optimize_ky_star.py
+python examples/scripts/03_sheath_mpse/loizu2012_full_mpse_bc.py
 ```
 
-Electromagnetic (finite-beta) workflow demo:
+Sheath heat transmission + SEE effects:
 
 ```bash
-python examples/2_intermediate/04_em_beta_scan.py
+python examples/scripts/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
 ```
 
-Hot-ion (finite $\tau_i$) workflow demo:
+## Closures / transport
+
+Parallel closures and sinks:
 
 ```bash
-python examples/2_intermediate/05_hot_ions_tau_scan.py
-```
-
-Parallel closures + sinks demo (parallel heat conduction / flow diffusion):
-
-```bash
-python examples/2_intermediate/06_parallel_closures_effects.py
-```
-
-Method of Manufactured Solutions (MMS) for the nonlinear HW2D testbed:
-
-```bash
-python examples/2_intermediate/07_mms_hw2d_convergence.py
-```
-
-Sheath heat transmission + secondary electron emission (SEE) effects on an open field line:
-
-```bash
-python examples/2_intermediate/08_sheath_heat_see_effects.py --out out_sheath_heat
+python examples/scripts/04_closures_transport/parallel_closures_effects.py
 ```
 
 Braginskii/Spitzer transport scalings (equilibrium-based):
 
 ```bash
-python examples/2_intermediate/09_braginskii_closures_effects.py --out out_braginskii
+python examples/scripts/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
 ```
 
-## 3) Advanced (literature-inspired + stellarator)
+## JAX autodiff
 
-Mosetto (2012) drift-wave branch workflow (curvature off):
+Autodiff optimization of $k_{y,*}$:
 
 ```bash
-python examples/3_advanced/01_mosetto2012_driftwave_branches.py
+python examples/scripts/05_jax_autodiff/autodiff_optimize_ky_star.py
 ```
 
-Mosetto (2012) ballooning-like branch + shear trends (curvature on):
+## Literature workflows
+
+Mosetto (2012), Halpern (2013), Jorge (2016):
 
 ```bash
-python examples/3_advanced/02_mosetto2012_ballooning_branches.py
+python examples/scripts/06_literature_tokamak_sol/mosetto2012_regime_map.py
+python examples/scripts/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
+python examples/scripts/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
 ```
 
-Halpern (2013) gradient removal + fixed-point $L_p$ workflow:
+More context and references: `docs/literature/`.
+
+## ESSOS geometries (optional)
+
+Near-axis/VMEC/Biot–Savart workflows:
 
 ```bash
-python examples/3_advanced/03_halpern2013_gradient_removal_lp.py
+python examples/scripts/07_essos_geometries/stellarator_nearaxis_essos.py
+python examples/scripts/07_essos_geometries/essos_vmec_edge_s09.py
+python examples/scripts/07_essos_geometries/essos_biotsavart_r14.py
 ```
 
-Near-axis stellarator geometry via ESSOS (optional dependency):
+## Nonlinear HW2D milestone
+
+Baseline turbulence run:
 
 ```bash
-python examples/3_advanced/04_stellarator_nearaxis_essos.py
+python examples/scripts/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
 ```
 
-Additional advanced literature/geometry examples (optional and potentially slower) are listed in
-`docs/literature/index.md`.
-
-ISTTOK-inspired linear workflow (Jorge et al. 2016):
+Neutrals effect:
 
 ```bash
-python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
+python examples/scripts/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 ```
 
-Loizu (2012) MPSE boundary conditions (simple vs full-set linearized enforcement):
+Movie (fast GIF):
 
 ```bash
-python examples/3_advanced/11_loizu2012_full_mpse_bc.py
+python examples/scripts/08_nonlinear_hw2d/hw2d_movie.py
 ```
 
-Nonlinear milestone (2D periodic drift-wave turbulence, HW-like):
+MMS convergence:
 
 ```bash
-python examples/3_advanced/20_hw2d_driftwave_turbulence.py
-```
-
-Nonlinear + neutrals (minimal particle-exchange model):
-
-```bash
-python examples/3_advanced/21_hw2d_neutrals_effect.py
-```
-
-Nonlinear movie (fast GIF output):
-
-```bash
-python examples/3_advanced/22_hw2d_movie.py
+python examples/scripts/08_nonlinear_hw2d/mms_hw2d_convergence.py
 ```

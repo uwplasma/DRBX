@@ -40,7 +40,7 @@ $$
 
 ## Example
 
-See `examples/2_intermediate/01_tabulated_geometry_roundtrip.py` for a full working example that:
+See `examples/scripts/02_geometry/tabulated_geometry_roundtrip.py` for a full working example that:
 
 1. generates a `.npz` file from an analytic geometry,
 2. loads it via `TabulatedGeometry`,
