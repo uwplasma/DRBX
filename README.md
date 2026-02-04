@@ -101,7 +101,7 @@ jaxdrb-hw2d --neutrals --nu-ion 0.2 --nu-rec 0.02 --out out_hw2d_neutrals_cli
 Movie example (GIF):
 
 ```bash
-python examples/scripts/08_nonlinear_hw2d/hw2d_movie.py
+python examples/08_nonlinear_hw2d/hw2d_movie.py
 ```
 
 ## Status
@@ -127,14 +127,12 @@ Boundary conditions:
 
 ## Examples (including literature workflows)
 
-The `examples/` tree is organized by complexity:
+Runnable scripts live in `examples/` and are organized by topic:
 
-Runnable scripts live in `examples/scripts/` and are organized by topic:
-
-- `examples/scripts/01_linear_basics/`: quick linear scans and `(kx,ky)` workflows
-- `examples/scripts/03_sheath_mpse/`: MPSE/sheath boundary conditions and open-field-line studies
-- `examples/scripts/06_literature_tokamak_sol/`: literature-aligned SOL workflows
-- `examples/scripts/08_nonlinear_hw2d/`: nonlinear HW2D milestone
+- `examples/01_linear_basics/`: quick linear scans and `(kx,ky)` workflows
+- `examples/03_sheath_mpse/`: MPSE/sheath boundary conditions and open-field-line studies
+- `examples/06_literature_tokamak_sol/`: literature-aligned SOL workflows
+- `examples/08_nonlinear_hw2d/`: nonlinear HW2D milestone
 
 Quick smoke test (runs the simple examples):
 
@@ -157,13 +155,13 @@ make examples-stellarator
 ISTTOK-inspired linear workflow (Jorge et al. 2016):
 
 ```bash
-python examples/scripts/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
+python examples/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
 ```
 
 Sheath heat transmission + SEE effects (open field line):
 
 ```bash
-python examples/scripts/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
+python examples/03_sheath_mpse/sheath_heat_see_effects.py --out out_sheath_heat
 ```
 
 ## Docs
