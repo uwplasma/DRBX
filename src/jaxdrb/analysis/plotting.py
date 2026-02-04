@@ -29,6 +29,22 @@ def set_mpl_style() -> None:
     )
 
 
+def robust_symmetric_vlim(arr: np.ndarray, *, q: float = 0.995, eps: float = 1e-12) -> float:
+    """Robust symmetric color limit for diverging fields.
+
+    Uses a quantile of |arr| so a few outliers do not saturate the colormap.
+    """
+
+    a = np.asarray(arr)
+    if a.size == 0:
+        return float(eps)
+    a = np.abs(a[np.isfinite(a)])
+    if a.size == 0:
+        return float(eps)
+    vmax = float(np.quantile(a, q))
+    return float(max(vmax, eps))
+
+
 def _ensure_dir(path: str | Path) -> Path:
     p = Path(path)
     p.mkdir(parents=True, exist_ok=True)
