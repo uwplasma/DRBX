@@ -57,6 +57,12 @@ Loizu (2012) MPSE boundary condition comparison:
 python examples/03_sheath_mpse/loizu2012_full_mpse_bc.py
 ```
 
+Loizu (2012) MPSE “full set” in the hot-ion model (includes $\partial_\parallel T_i = 0$ at the MPSE nodes):
+
+```bash
+python examples/03_sheath_mpse/loizu2012_full_hot_ion_mpse_bc.py
+```
+
 Sheath heat transmission + SEE effects:
 
 ```bash

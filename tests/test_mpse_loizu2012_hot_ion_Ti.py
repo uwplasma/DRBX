@@ -97,4 +97,3 @@ def test_loizu2012_full_set_hot_ion_Ti_neumann_vanishes_when_satisfied() -> None
 
     mask = np.asarray(geom.sheath_mask).astype(bool)
     assert np.max(np.abs(np.asarray(dTi)[mask])) < 1e-12
-
