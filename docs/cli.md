@@ -68,6 +68,7 @@ Tabulated:
 - `--line-bc-nu FLOAT` sets the RHS relaxation rate (0 disables BC enforcement)
 - `--sheath` enables Loizu-style MPSE Bohm sheath BCs (alias for `--sheath-bc`)
 - `--sheath-bc` enables Loizu-style magnetic-pre-sheath entrance BCs (only active for `*-open` geometries)
+- `--no-sheath-bc` disables MPSE Bohm sheath BCs for `*-open` geometries (Bohm is the default for open-field-line runs)
 - `--sheath-bc-model {simple,loizu2012}` selects the MPSE enforcement model
 - `--sheath-bc-nu-factor FLOAT` multiplies the BC enforcement rate (~`2/L_parallel`)
 - `--sheath-cos2 FLOAT` sets a proxy for $\cos^2(a)$ used in the Loizu 2012 vorticity relation
