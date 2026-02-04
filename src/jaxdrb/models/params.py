@@ -90,6 +90,35 @@ class DRBParams(eqx.Module):
     sheath_delta: float = 0.0  # ion transmission correction (cold ions -> 0)
     sheath_Te_floor: float = 1e-6
 
+    # Optional sheath heat transmission / energy loss closures (open field lines).
+    #
+    # These are simple, physically-motivated end-loss terms controlled by sheath heat
+    # transmission factors γ. They are intended as a next-step bridge toward fully
+    # quantitative SOL modeling with sources, recycling, and state-dependent closures.
+    sheath_heat_on: bool = False
+    sheath_gamma_auto: bool = True
+    sheath_gamma_e: float = 0.0  # used if sheath_gamma_auto=False
+    sheath_gamma_i: float = 3.5
+
+    # Optional secondary electron emission (SEE) model (simple constant yield).
+    #
+    # In an ambipolar, Maxwellian sheath model, SEE reduces the floating potential drop.
+    # We represent this by modifying the effective Λ used in the floating-potential shift:
+    #   Λ_eff = Λ + ln(1 - δ_SEE),  0 <= δ_SEE < 1.
+    sheath_see_on: bool = False
+    sheath_see_yield: float = 0.0
+
+    # Boundary-localized end losses at the sheath nodes.
+    #
+    # In the reduced 1D field-line + Fourier-perp model, MPSE velocity-only boundary conditions can
+    # otherwise excite spurious boundary-driven growth in "no-drive" limits. This option adds a
+    # lightweight damping term localized at the MPSE nodes for (n, omega, Te, and psi where present).
+    #
+    # This is separate from `sheath_loss_on` (volumetric) and `sheath_heat_on` (energy transmission),
+    # and is on by default for robustness. Disable only if you are explicitly benchmarking sensitivity
+    # to end-loss modeling details.
+    sheath_end_damp_on: bool = True
+
     sheath_loss_on: bool = False
     sheath_loss_nu_factor: float = 1.0
 

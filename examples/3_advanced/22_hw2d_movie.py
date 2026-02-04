@@ -86,7 +86,7 @@ def main() -> None:
         Es.append(float(diag["E"]))
         Zs.append(float(diag["Z"]))
         frames_n.append(jax.device_get(y.n))
-        print(f"[hw2d-movie] frame {k+1}/{nframes} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
+        print(f"[hw2d-movie] frame {k + 1}/{nframes} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
 
     jnp.savez(out_dir / "timeseries.npz", t=jnp.array(ts), E=jnp.array(Es), Z=jnp.array(Zs))
 

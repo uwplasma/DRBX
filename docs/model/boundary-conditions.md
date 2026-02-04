@@ -33,6 +33,10 @@ The code includes:
 For `*-open` geometries in the CLI, MPSE/Bohm sheath entrance boundary conditions are enabled by default
 (disable with `--no-sheath-bc`).
 
+`jaxdrb` also provides an optional **sheath heat transmission / energy-loss** closure localized at the
+MPSE nodes. This is controlled by `DRBParams.sheath_heat_on` (and related `sheath_gamma_*` / SEE knobs)
+and is documented in `docs/model/extensions.md`.
+
 ### User-defined BCs (numerical hook)
 
 For benchmarking and nonlinear-preparation work, `jaxdrb` also supports **user-defined** BCs that can be applied to the *evolving perturbation fields* at the ends of the field line:

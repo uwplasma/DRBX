@@ -76,6 +76,12 @@ Tabulated:
 - `--sheath-delta FLOAT` ion transmission correction (cold ions → 0)
 - `--sheath-loss` enables a volumetric end-loss proxy (not a substitute for MPSE BCs)
 - `--sheath-loss-nu-factor FLOAT` multiplies the loss rate `nu_sh ~ 2/L_parallel`
+- `--sheath-heat` enables a lightweight sheath heat transmission / energy-loss closure at the MPSE nodes
+- `--sheath-gamma-auto`, `--no-sheath-gamma-auto` toggles $\gamma_e \approx 2 + \Lambda_{\mathrm{eff}}$ vs a manual $\gamma_e$
+- `--sheath-gamma-e FLOAT` manual electron heat transmission factor (used with `--no-sheath-gamma-auto`)
+- `--sheath-gamma-i FLOAT` ion heat transmission factor (hot-ion model; default 3.5)
+- `--sheath-see` enables a simple secondary electron emission (SEE) correction
+- `--sheath-see-yield FLOAT` sets a constant SEE yield $\delta$ (used to form $\Lambda_{\mathrm{eff}} = \Lambda + \ln(1-\delta)$)
 
 ## Solver options
 

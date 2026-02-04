@@ -118,7 +118,7 @@ def scan_ky(
 
         if verbose and (i % max(int(print_every), 1) == 0 or i == ky.size - 1):
             msg = (
-                f"[scan_ky {i+1:>3d}/{ky.size}] ky={ky_i:9.4f}  "
+                f"[scan_ky {i + 1:>3d}/{ky.size}] ky={ky_i:9.4f}  "
                 f"gamma={gamma_eigs[i]:10.4e}  omega={omega_eigs[i]:10.4e}  "
                 f"m={m:4d}  rel_res={rel_resid:8.2e}"
             )
@@ -198,7 +198,7 @@ def scan_kx_ky(
 
     for ix, kx_i in enumerate(kx):
         if verbose and (ix % max(int(print_every_kx), 1) == 0 or ix == kx.size - 1):
-            print(f"[scan_kx_ky {ix+1:>3d}/{kx.size}] kx={kx_i:9.4f}", flush=True)
+            print(f"[scan_kx_ky {ix + 1:>3d}/{kx.size}] kx={kx_i:9.4f}", flush=True)
         for iy, ky_i in enumerate(ky):
             matvec = linear_matvec_from_rhs(
                 model.rhs,

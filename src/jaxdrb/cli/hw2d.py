@@ -191,7 +191,7 @@ def main() -> None:
         nbar.append(float(jnp.mean(y.n)))
         if y.N is not None:
             Nbar.append(float(jnp.mean(y.N)))
-        print(f"[jaxdrb-hw2d] chunk {k+1}/{nchunks} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
+        print(f"[jaxdrb-hw2d] chunk {k + 1}/{nchunks} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
 
     jnp.savez(out_dir / "timeseries.npz", t=jnp.array(ts), E=jnp.array(Es), Z=jnp.array(Zs))
 

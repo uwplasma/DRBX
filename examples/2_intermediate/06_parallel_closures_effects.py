@@ -90,7 +90,7 @@ def main() -> None:
 
     scans = []
     for i, chi in enumerate(chi_grid):
-        print(f"[{i+1}/{chi_grid.size}] chi_par_Te={chi:g}", flush=True)
+        print(f"[{i + 1}/{chi_grid.size}] chi_par_Te={chi:g}", flush=True)
         p = DRBParams(**{**base.__dict__, "chi_par_Te": float(chi)})
         s = scan_ky(
             p,

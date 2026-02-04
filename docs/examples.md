@@ -83,6 +83,12 @@ Method of Manufactured Solutions (MMS) for the nonlinear HW2D testbed:
 python examples/2_intermediate/07_mms_hw2d_convergence.py
 ```
 
+Sheath heat transmission + secondary electron emission (SEE) effects on an open field line:
+
+```bash
+python examples/2_intermediate/08_sheath_heat_see_effects.py --out out_sheath_heat
+```
+
 ## 3) Advanced (literature-inspired + stellarator)
 
 Mosetto (2012) drift-wave branch workflow (curvature off):

@@ -214,7 +214,7 @@ def main() -> None:
             else:
                 label_idx[i, j] = 3  # RBM
 
-        print(f"[{i+1:02d}/{eta_grid.size}] eta={eta:9.3e} done", flush=True)
+        print(f"[{i + 1:02d}/{eta_grid.size}] eta={eta:9.3e} done", flush=True)
 
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap, BoundaryNorm

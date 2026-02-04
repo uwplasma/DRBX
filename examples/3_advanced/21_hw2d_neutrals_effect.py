@@ -91,7 +91,7 @@ def main() -> None:
         nbar.append(float(jnp.mean(y.n)))
         Nbar.append(float(jnp.mean(y.N)))
         print(
-            f"[hw2d-neutrals] chunk {k+1}/{nchunks} t={t:.3f} <n>={nbar[-1]:.3e} <N>={Nbar[-1]:.3e}"
+            f"[hw2d-neutrals] chunk {k + 1}/{nchunks} t={t:.3f} <n>={nbar[-1]:.3e} <N>={Nbar[-1]:.3e}"
         )
 
     (out_dir / "params.json").write_text(
