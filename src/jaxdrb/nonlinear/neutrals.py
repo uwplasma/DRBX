@@ -3,8 +3,6 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 
-from .spectral import laplacian
-
 
 class NeutralParams(eqx.Module):
     """Minimal neutral interaction model (toggable).
@@ -41,8 +39,8 @@ def rhs_neutral(
     N: jnp.ndarray,
     n: jnp.ndarray,
     dn0: NeutralParams,
-    k2: jnp.ndarray,
     adv_N: jnp.ndarray,
+    lap_N: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Return (dN/dt, dn/dt contribution) from neutral physics."""
 
@@ -50,7 +48,7 @@ def rhs_neutral(
         z = jnp.zeros_like(N)
         return z, z
 
-    diff = dn0.Dn0 * laplacian(N, k2)
+    diff = dn0.Dn0 * lap_N
     src = dn0.S0 - dn0.nu_sink * N
 
     ion = dn0.nu_ion * n * N

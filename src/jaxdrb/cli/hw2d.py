@@ -34,7 +34,34 @@ def main() -> None:
     parser.add_argument(
         "--bracket", choices=["spectral", "arakawa", "centered"], default="spectral"
     )
+    parser.add_argument("--poisson", choices=["spectral", "cg_fd"], default="spectral")
     parser.add_argument("--no-dealias", action="store_true")
+    parser.add_argument(
+        "--bc-x",
+        choices=["periodic", "dirichlet", "neumann"],
+        default="periodic",
+        help="x boundary condition",
+    )
+    parser.add_argument(
+        "--bc-y",
+        choices=["periodic", "dirichlet", "neumann"],
+        default="periodic",
+        help="y boundary condition",
+    )
+    parser.add_argument(
+        "--bc-value-x", type=float, default=0.0, help="Dirichlet value at x boundaries"
+    )
+    parser.add_argument(
+        "--bc-value-y", type=float, default=0.0, help="Dirichlet value at y boundaries"
+    )
+    parser.add_argument("--bc-grad-x", type=float, default=0.0, help="Neumann grad at x boundaries")
+    parser.add_argument("--bc-grad-y", type=float, default=0.0, help="Neumann grad at y boundaries")
+    parser.add_argument(
+        "--bc-enforce-nu",
+        type=float,
+        default=0.0,
+        help="Boundary relaxation rate for evolving fields (0 disables)",
+    )
 
     parser.add_argument("--neutrals", action="store_true")
     parser.add_argument("--Dn0", type=float, default=1e-3)
@@ -52,7 +79,19 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=args.Lx, Ly=args.Ly, dealias=not args.no_dealias)
+    grid = Grid2D.make(
+        nx=args.nx,
+        ny=args.ny,
+        Lx=args.Lx,
+        Ly=args.Ly,
+        dealias=not args.no_dealias,
+        bc_x=args.bc_x,
+        bc_y=args.bc_y,
+        bc_value_x=float(args.bc_value_x),
+        bc_value_y=float(args.bc_value_y),
+        bc_grad_x=float(args.bc_grad_x),
+        bc_grad_y=float(args.bc_grad_y),
+    )
     neutrals = NeutralParams(
         enabled=bool(args.neutrals),
         Dn0=float(args.Dn0),
@@ -67,7 +106,9 @@ def main() -> None:
         Dn=float(args.Dn),
         DOmega=float(args.DOmega),
         bracket=args.bracket,
+        poisson=args.poisson,
         dealias_on=not args.no_dealias,
+        bc_enforce_nu=float(args.bc_enforce_nu),
         neutrals=neutrals,
     )
     model = HW2DModel(params=params, grid=grid)
@@ -94,7 +135,15 @@ def main() -> None:
                     "Dn": params.Dn,
                     "DOmega": params.DOmega,
                     "bracket": params.bracket,
+                    "poisson": params.poisson,
                     "dealias_on": params.dealias_on,
+                    "bc_x": args.bc_x,
+                    "bc_y": args.bc_y,
+                    "bc_value_x": float(args.bc_value_x),
+                    "bc_value_y": float(args.bc_value_y),
+                    "bc_grad_x": float(args.bc_grad_x),
+                    "bc_grad_y": float(args.bc_grad_y),
+                    "bc_enforce_nu": float(args.bc_enforce_nu),
                 },
                 "neutrals": {
                     "enabled": neutrals.enabled,

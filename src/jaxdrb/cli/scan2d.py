@@ -18,6 +18,7 @@ from jaxdrb.geometry.tokamak import (
     SAlphaGeometry,
 )
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.bcs import LineBCs
 from jaxdrb.models.registry import DEFAULT_MODEL, MODELS, get_model
 
 
@@ -62,6 +63,25 @@ def main() -> None:
     parser.add_argument("--DTi", type=float, default=0.01)
     parser.add_argument("--Dpsi", type=float, default=0.0)
     parser.add_argument("--kperp2-min", type=float, default=1e-6)
+
+    parser.add_argument(
+        "--line-bc",
+        choices=["none", "dirichlet", "neumann"],
+        default="none",
+        help="Apply a user BC along l to all fields (benchmarking/nonlinear-prep; may conflict with MPSE).",
+    )
+    parser.add_argument(
+        "--line-bc-value", type=float, default=0.0, help="Dirichlet value at l-ends"
+    )
+    parser.add_argument(
+        "--line-bc-grad", type=float, default=0.0, help="Neumann gradient at l-ends"
+    )
+    parser.add_argument(
+        "--line-bc-nu",
+        type=float,
+        default=0.0,
+        help="BC relaxation rate (0 disables BC enforcement).",
+    )
 
     parser.add_argument("--sheath", action="store_true", help="Alias for --sheath-bc (MPSE BCs)")
     parser.add_argument(
@@ -201,6 +221,10 @@ def main() -> None:
         "DTi": args.DTi,
         "Dpsi": args.Dpsi,
         "kperp2_min": args.kperp2_min,
+        "line_bc": args.line_bc,
+        "line_bc_value": float(args.line_bc_value),
+        "line_bc_grad": float(args.line_bc_grad),
+        "line_bc_nu": float(args.line_bc_nu),
         "ky_min": args.ky_min,
         "ky_max": args.ky_max,
         "nky": args.nky,
@@ -214,6 +238,13 @@ def main() -> None:
         "seed": args.seed,
     }
     (out_dir / "params.json").write_text(json.dumps(run_cfg, indent=2, sort_keys=True) + "\n")
+
+    if args.line_bc == "dirichlet":
+        line_bcs = LineBCs.all_dirichlet(value=float(args.line_bc_value), nu=float(args.line_bc_nu))
+    elif args.line_bc == "neumann":
+        line_bcs = LineBCs.all_neumann(grad=float(args.line_bc_grad), nu=float(args.line_bc_nu))
+    else:
+        line_bcs = LineBCs.disabled()
 
     params = DRBParams(
         omega_n=args.omega_n,
@@ -237,6 +268,7 @@ def main() -> None:
         sheath_delta=float(args.sheath_delta),
         sheath_loss_on=bool(args.sheath_loss),
         sheath_loss_nu_factor=float(args.sheath_loss_nu_factor),
+        line_bcs=line_bcs,
     )
 
     ky_grid = np.linspace(args.ky_min, args.ky_max, args.nky)
