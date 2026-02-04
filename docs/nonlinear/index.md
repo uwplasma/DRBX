@@ -10,6 +10,7 @@ This section introduces the first nonlinear milestone included in the codebase:
   - dealiasing,
   - time stepping with JAX + Diffrax,
   - optional coupling to a **neutral density** field.
+  - operator verification via the **method of manufactured solutions** (MMS).
 
 The purpose is not to replace SOL-specific DRB models. Rather, it is a fast and controlled environment to:
 
