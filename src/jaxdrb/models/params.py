@@ -78,7 +78,7 @@ class DRBParams(eqx.Module):
     #
     # Backwards compatibility: older configs used `sheath_on` + `sheath_nu_factor` as the
     # volumetric loss proxy.
-    sheath_bc_on: bool = False
+    sheath_bc_on: bool = True
     sheath_bc_nu_factor: float = 1.0
     # MPSE model selector:
     #   0 = simple (velocity-only, linearized or nonlinear)

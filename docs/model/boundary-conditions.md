@@ -30,6 +30,9 @@ The code includes:
 - a **simple** MPSE mode (velocity-focused closure), and
 - a **Loizu (2012) “full set”** *linearized* enforcement mode used for SOL linear studies.
 
+For `*-open` geometries in the CLI, MPSE/Bohm sheath entrance boundary conditions are enabled by default
+(disable with `--no-sheath-bc`).
+
 ### User-defined BCs (numerical hook)
 
 For benchmarking and nonlinear-preparation work, `jaxdrb` also supports **user-defined** BCs that can be applied to the *evolving perturbation fields* at the ends of the field line:
@@ -77,4 +80,3 @@ jaxdrb-hw2d --poisson cg_fd --bracket centered --bc-x dirichlet --bc-y dirichlet
 ```
 
 Because the non-periodic path is intended for development/benchmarking, it is currently more limited than the periodic path (and slower).
-

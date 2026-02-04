@@ -119,6 +119,7 @@ dealiasing, time stepping) and to host optional additional physics (e.g. neutral
 Boundary conditions:
 - Linear field-line models: periodic/Dirichlet/Neumann end-conditions are available as a benchmarking hook
   (`--line-bc ...`), in addition to Loizu-style MPSE/sheath entrance closures.
+- For `*-open` geometries, Bohm/MPSE sheath entrance BCs are enabled by default (disable with `--no-sheath-bc`).
 - Nonlinear HW2D: periodic by default; Dirichlet/Neumann experiments are supported via FD + CG Poisson solve
   (see `docs/model/boundary-conditions.md`).
 

@@ -114,6 +114,11 @@ def main() -> None:
     #
     # `--sheath` is kept as a short alias for `--sheath-bc` (Loizu-style MPSE BCs).
     parser.add_argument("--sheath", action="store_true", help="Alias for --sheath-bc (MPSE BCs)")
+    parser.add_argument(
+        "--no-sheath-bc",
+        action="store_true",
+        help="Disable MPSE Bohm sheath boundary conditions even for *-open geometries.",
+    )
 
     parser.add_argument(
         "--sheath-bc", action="store_true", help="Enable Loizu-style MPSE Bohm sheath BCs"
@@ -215,7 +220,8 @@ def main() -> None:
         "line_bc_value": float(args.line_bc_value),
         "line_bc_grad": float(args.line_bc_grad),
         "line_bc_nu": float(args.line_bc_nu),
-        "sheath_bc_on": bool(args.sheath or args.sheath_bc),
+        "sheath_bc_on": bool(args.sheath or args.sheath_bc)
+        or (args.geom.endswith("-open") and not args.no_sheath_bc),
         "sheath_bc_nu_factor": float(args.sheath_bc_nu_factor),
         "sheath_lambda": float(args.sheath_lambda),
         "sheath_delta": float(args.sheath_delta),
@@ -325,7 +331,8 @@ def main() -> None:
         nu_sink_n=float(args.nu_sink_n),
         nu_sink_Te=float(args.nu_sink_Te),
         nu_sink_vpar=float(args.nu_sink_vpar),
-        sheath_bc_on=bool(args.sheath or args.sheath_bc),
+        sheath_bc_on=bool(args.sheath or args.sheath_bc)
+        or (args.geom.endswith("-open") and not args.no_sheath_bc),
         sheath_bc_model=1 if args.sheath_bc_model == "loizu2012" else 0,
         sheath_bc_nu_factor=float(args.sheath_bc_nu_factor),
         sheath_cos2=float(args.sheath_cos2),

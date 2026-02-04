@@ -85,6 +85,11 @@ def main() -> None:
 
     parser.add_argument("--sheath", action="store_true", help="Alias for --sheath-bc (MPSE BCs)")
     parser.add_argument(
+        "--no-sheath-bc",
+        action="store_true",
+        help="Disable MPSE Bohm sheath boundary conditions even for *-open geometries.",
+    )
+    parser.add_argument(
         "--sheath-bc", action="store_true", help="Enable Loizu-style MPSE Bohm sheath BCs"
     )
     parser.add_argument(
@@ -225,6 +230,8 @@ def main() -> None:
         "line_bc_value": float(args.line_bc_value),
         "line_bc_grad": float(args.line_bc_grad),
         "line_bc_nu": float(args.line_bc_nu),
+        "sheath_bc_on": bool(args.sheath or args.sheath_bc)
+        or (args.geom.endswith("-open") and not args.no_sheath_bc),
         "ky_min": args.ky_min,
         "ky_max": args.ky_max,
         "nky": args.nky,
@@ -262,7 +269,8 @@ def main() -> None:
         DTi=args.DTi,
         Dpsi=args.Dpsi,
         kperp2_min=args.kperp2_min,
-        sheath_bc_on=bool(args.sheath or args.sheath_bc),
+        sheath_bc_on=bool(args.sheath or args.sheath_bc)
+        or (args.geom.endswith("-open") and not args.no_sheath_bc),
         sheath_bc_nu_factor=float(args.sheath_bc_nu_factor),
         sheath_lambda=float(args.sheath_lambda),
         sheath_delta=float(args.sheath_delta),

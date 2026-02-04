@@ -207,19 +207,28 @@ def apply_loizu2012_mpse_full_linear_bc(
     # To keep the enforcement stable with a generic open-grid dpar operator, we convert these into
     # equivalent constraints on boundary *values* using one-sided finite differences.
 
-    # Helper: one-sided (2nd order) second derivative at endpoints.
+    # We implement the following MPSE relations (Loizu et al., Phys. Plasmas 19, 122307 (2012))
+    # in a form consistent with jaxdrb's 1D field-line + Fourier-perp closure:
+    #
+    #   (17) v_||i = ± (1-δ) c_s   (Bohm/Chodura ion flow)
+    #   (21) ∂_s φ = -c_s (1+...) ∂_s v_||i   (linear: ∂_s φ = -c_s0 ∂_s v_||i)
+    #   (22) ∂_s n = -(n/c_s)(1+...) ∂_s v_||i (linear about n0=1: ∂_s n = -(1/c_s0) ∂_s v_||i)
+    #   (23) ∂_s T_e = 0
+    #   (24) ω = -cos^2(a)[ (1+...) (∂_s v)^2 + c_s (1+...) ∂_s^2 v ]
+    #        (linear: ω = -cos^2(a) c_s0 ∂_s^2 v_||i)
+    #
+    # Since jaxdrb evolves perturbations about an equilibrium (n0=Te0=1 by default), we apply the
+    # linearized forms, i.e. we drop products of perturbations.
+
+    nl = int(n.size)
+    if nl < 5:
+        raise ValueError("Loizu2012 full MPSE BC requires nl>=5 for 2nd-order boundary stencils.")
+
+    # One-sided (2nd order) second derivative stencil at endpoints:
     # Left:  f''(0) ≈ (2 f0 - 5 f1 + 4 f2 - f3) / dl^2
     # Right: f''(N) ≈ (2 fN - 5 f_{N-1} + 4 f_{N-2} - f_{N-3}) / dl^2
     dl = jnp.asarray(geom.dl, dtype=jnp.float64)
     dl2 = jnp.maximum(dl * dl, 1e-30)
-
-    def d2_endpoints(f: jnp.ndarray) -> jnp.ndarray:
-        f0 = (2.0 * f[0] - 5.0 * f[1] + 4.0 * f[2] - f[3]) / dl2
-        fN = (2.0 * f[-1] - 5.0 * f[-2] + 4.0 * f[-3] - f[-4]) / dl2
-        out = jnp.zeros_like(f)
-        out = out.at[0].set(f0)
-        out = out.at[-1].set(fN)
-        return out
 
     # Linearized velocity BCs for perturbations about Bohm-matched equilibrium.
     vpar_i_target = sign * (1.0 - delta) * (0.5 * Te)
@@ -229,35 +238,55 @@ def apply_loizu2012_mpse_full_linear_bc(
     Te_target = Te_target.at[0].set(Te[1])
     Te_target = Te_target.at[-1].set(Te[-2])
 
-    # Potential-gradient constraint (simplified Loizu 2012 Eq. (21)):
-    #   ∂_|| phi + c_s ∂_|| v_||i = 0  ->  phi boundary value from neighbor + vpar_i.
+    # Potential-gradient constraint (Loizu 2012 Eq. (21), linearized):
+    #   ∂_s φ = -c_s0 ∂_s v_||i  ->  boundary φ value implied by neighbor and v_||i.
+    #
+    # Using a 1st-order one-sided derivative at the boundary:
+    #   (φ_1 - φ_0)/dl = -c_s0 (v_1 - v_0)/dl
+    # -> φ_0 = φ_1 + c_s0 (v_1 - v_0)
+    # and similarly at the right end.
     phi_target = phi
-    phi_target = phi_target.at[0].set(phi[1] + cs0[0] * (vpar_i_target[0] - vpar_i[1]))
-    phi_target = phi_target.at[-1].set(phi[-2] + cs0[-1] * (vpar_i_target[-1] - vpar_i[-2]))
+    phi_target = phi_target.at[0].set(phi[1] + cs0[0] * (vpar_i[1] - vpar_i_target[0]))
+    phi_target = phi_target.at[-1].set(phi[-2] + cs0[-1] * (vpar_i[-2] - vpar_i_target[-1]))
 
     # Density-gradient constraint (simplified Loizu 2012 Eq. (22), with n0=1):
     #   ∂_|| n + (1/c_s) ∂_|| v_||i = 0  ->  n boundary value from neighbor + vpar_i.
     invcs = 1.0 / jnp.maximum(cs0, 1e-12)
     n_target = n
-    n_target = n_target.at[0].set(n[1] + invcs[0] * (vpar_i_target[0] - vpar_i[1]))
-    n_target = n_target.at[-1].set(n[-2] + invcs[-1] * (vpar_i_target[-1] - vpar_i[-2]))
-
-    # Vorticity boundary relation (Loizu 2012 Eq. (24), linearized: drop (∂v)^2 term):
-    #   omega + cos^2(a) * c_s * ∂_||^2 v_||i = 0 -> omega boundary target.
-    omega_target = omega
-    omega_target = omega_target.at[0].set(-cos2 * cs0[0] * d2_endpoints(vpar_i_target)[0])
-    omega_target = omega_target.at[-1].set(-cos2 * cs0[-1] * d2_endpoints(vpar_i_target)[-1])
+    n_target = n_target.at[0].set(n[1] + invcs[0] * (vpar_i[1] - vpar_i_target[0]))
+    n_target = n_target.at[-1].set(n[-2] + invcs[-1] * (vpar_i[-2] - vpar_i_target[-1]))
 
     # vpar_e target (linearized magnetized-electron response):
     # use the *target* boundary phi and Te.
     vpar_e_target = sign * (0.5 * Te_target - phi_target)
 
-    # Convert phi_target -> omega_target_polar via omega = -k_perp^2 phi at the boundary.
+    # Convert phi_target -> omega_target via omega = -k_perp^2 phi at the boundary.
     k2_safe = jnp.maximum(
         jnp.asarray(kperp2, dtype=jnp.float64), float(getattr(params, "kperp2_min", 1e-6))
     )
+    omega_target = omega
     omega_target = omega_target.at[0].set((-k2_safe[0]) * phi_target[0])
     omega_target = omega_target.at[-1].set((-k2_safe[-1]) * phi_target[-1])
+
+    # Vorticity relation (Loizu 2012 Eq. (24), linearized) enforced by adjusting the
+    # *adjacent* ion flow values (v_1 and v_{N-1}) rather than the boundary Bohm value.
+    #
+    # With ω = -k⊥² φ (Fourier-perp), Eq. (24) provides a target for ∂_s² v at the boundary:
+    #   ω = -cos²(a) c_s0 ∂_s² v  ->  ∂_s² v_target = -ω_target / (cos² c_s0).
+    #
+    # Using the one-sided stencil with v0 fixed by Bohm:
+    #   v''(0) ≈ (2 v0 - 5 v1 + 4 v2 - v3)/dl²  -> solve for v1_target.
+    # and similarly at the right end solving for v_{N-1} (index -2).
+    vort_coef = jnp.maximum(cos2 * cs0, 1e-12)
+    v2_target_left = -omega_target[0] / vort_coef[0]
+    v2_target_right = -omega_target[-1] / vort_coef[-1]
+
+    v1_target_left = (
+        2.0 * vpar_i_target[0] + 4.0 * vpar_i[2] - vpar_i[3] - dl2 * v2_target_left
+    ) / 5.0
+    v1_target_right = (
+        2.0 * vpar_i_target[-1] + 4.0 * vpar_i[-3] - vpar_i[-4] - dl2 * v2_target_right
+    ) / 5.0
 
     # Weak enforcement via relaxation on boundary *values* only.
     dvpar_i = -nu * mask * (vpar_i - vpar_i_target)
@@ -265,5 +294,12 @@ def apply_loizu2012_mpse_full_linear_bc(
     dn = -nu * mask * (n - n_target)
     dTe = -nu * mask * (Te - Te_target)
     domega = -nu * mask * (omega - omega_target)
+
+    # Additional weak enforcement at the adjacent points for the vorticity relation.
+    mask_adj = jnp.zeros((nl,), dtype=jnp.float64).at[1].set(1.0).at[-2].set(1.0)
+    v_adj_target = jnp.zeros_like(vpar_i)
+    v_adj_target = v_adj_target.at[1].set(v1_target_left)
+    v_adj_target = v_adj_target.at[-2].set(v1_target_right)
+    dvpar_i = dvpar_i - nu * mask_adj * (vpar_i - v_adj_target)
 
     return dn, domega, dvpar_e, dvpar_i, dTe
