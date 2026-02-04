@@ -160,6 +160,39 @@ def main() -> None:
         help="Multiplier for the sheath-loss rate (nu_sh ~ 2/L_parallel).",
     )
 
+    parser.add_argument(
+        "--sheath-heat",
+        action="store_true",
+        help="Enable sheath heat transmission (energy losses) using γ factors at the sheath nodes.",
+    )
+    parser.add_argument(
+        "--sheath-gamma-auto",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use γ_e ≈ 2 + Λ_eff (default). Use --no-sheath-gamma-auto to set γ_e manually.",
+    )
+    parser.add_argument(
+        "--sheath-gamma-e",
+        type=float,
+        default=0.0,
+        help="Electron heat transmission factor γ_e (used if --no-sheath-gamma-auto).",
+    )
+    parser.add_argument(
+        "--sheath-gamma-i",
+        type=float,
+        default=3.5,
+        help="Ion heat transmission factor γ_i (hot-ion model only).",
+    )
+    parser.add_argument(
+        "--sheath-see", action="store_true", help="Enable secondary electron emission (SEE)."
+    )
+    parser.add_argument(
+        "--sheath-see-yield",
+        type=float,
+        default=0.0,
+        help="Constant SEE yield δ (0<=δ<1). Modifies Λ_eff = Λ + ln(1-δ).",
+    )
+
     parser.add_argument("--ky-min", type=float, required=True)
     parser.add_argument("--ky-max", type=float, required=True)
     parser.add_argument("--nky", type=int, default=32)
@@ -227,6 +260,12 @@ def main() -> None:
         "sheath_delta": float(args.sheath_delta),
         "sheath_loss_on": bool(args.sheath_loss),
         "sheath_loss_nu_factor": float(args.sheath_loss_nu_factor),
+        "sheath_heat_on": bool(args.sheath_heat),
+        "sheath_gamma_auto": bool(args.sheath_gamma_auto),
+        "sheath_gamma_e": float(args.sheath_gamma_e),
+        "sheath_gamma_i": float(args.sheath_gamma_i),
+        "sheath_see_on": bool(args.sheath_see),
+        "sheath_see_yield": float(args.sheath_see_yield),
         "ky_min": args.ky_min,
         "ky_max": args.ky_max,
         "nky": args.nky,
@@ -340,6 +379,12 @@ def main() -> None:
         sheath_delta=float(args.sheath_delta),
         sheath_loss_on=bool(args.sheath_loss),
         sheath_loss_nu_factor=float(args.sheath_loss_nu_factor),
+        sheath_heat_on=bool(args.sheath_heat),
+        sheath_gamma_auto=bool(args.sheath_gamma_auto),
+        sheath_gamma_e=float(args.sheath_gamma_e),
+        sheath_gamma_i=float(args.sheath_gamma_i),
+        sheath_see_on=bool(args.sheath_see),
+        sheath_see_yield=float(args.sheath_see_yield),
         line_bcs=line_bcs,
     )
 

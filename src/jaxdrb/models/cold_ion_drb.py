@@ -10,6 +10,7 @@ from jaxdrb.models.bcs import bc_relaxation_1d
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
     apply_loizu2012_mpse_full_linear_bc,
+    sheath_energy_losses,
     sheath_bc_rate,
     sheath_loss_rate,
 )
@@ -215,18 +216,29 @@ def rhs_nonlinear(
         dTe = dTe + dTe_bc
     else:
         dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
-            params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e_eff, vpar_i=y.vpar_i, Te=y.Te
+            params=params,
+            geom=geom,
+            eq=eq,
+            phi=phi,
+            vpar_e=vpar_e_eff,
+            vpar_i=y.vpar_i,
+            Te=y.Te,
         )
         dvpar_e = dvpar_e + dvpar_e_sh
         dvpar_i = dvpar_i + dvpar_i_sh
 
-    # Additional MPSE (sheath) sinks on open field lines: represent end-plate losses and current closure.
-    bc = sheath_bc_rate(params, geom)
-    if bc is not None:
-        nu_bc, mask = bc
-        dn = dn - nu_bc * mask * y.n
-        dTe = dTe - nu_bc * mask * y.Te
-        domega = domega - nu_bc * mask * y.omega
+    # Optional sheath heat transmission / energy losses.
+    dTe_sh, _ = sheath_energy_losses(params=params, geom=geom, Te=y.Te)
+    dTe = dTe + dTe_sh
+
+    # Legacy / development: optional additional damping localized at sheath nodes.
+    if bool(getattr(params, "sheath_end_damp_on", False)):
+        bc = sheath_bc_rate(params, geom)
+        if bc is not None:
+            nu_bc, mask = bc
+            dn = dn - nu_bc * mask * y.n
+            dTe = dTe - nu_bc * mask * y.Te
+            domega = domega - nu_bc * mask * y.omega
 
     # Optional volumetric sheath-loss proxy.
     nu_loss = sheath_loss_rate(params, geom)

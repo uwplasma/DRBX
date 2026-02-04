@@ -11,6 +11,7 @@ from jaxdrb.models.bcs import bc_relaxation_1d
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
     apply_loizu2012_mpse_full_linear_bc,
+    sheath_energy_losses,
     sheath_bc_rate,
     sheath_loss_rate,
 )
@@ -180,13 +181,19 @@ def rhs_nonlinear(
         k2_safe = jnp.maximum(k2, float(getattr(params, "kperp2_min", 1e-6)))
         dpsi = dpsi + (djpar / k2_safe)
 
-    bc = sheath_bc_rate(params, geom)
-    if bc is not None:
-        nu_bc, mask = bc
-        dn = dn - nu_bc * mask * y.n
-        dTe = dTe - nu_bc * mask * y.Te
-        domega = domega - nu_bc * mask * y.omega
-        dpsi = dpsi - nu_bc * mask * y.psi
+    # Optional sheath heat transmission / energy losses.
+    dTe_sh, _ = sheath_energy_losses(params=params, geom=geom, Te=y.Te)
+    dTe = dTe + dTe_sh
+
+    # Legacy / development: optional additional damping localized at sheath nodes.
+    if bool(getattr(params, "sheath_end_damp_on", False)):
+        bc = sheath_bc_rate(params, geom)
+        if bc is not None:
+            nu_bc, mask = bc
+            dn = dn - nu_bc * mask * y.n
+            dTe = dTe - nu_bc * mask * y.Te
+            domega = domega - nu_bc * mask * y.omega
+            dpsi = dpsi - nu_bc * mask * y.psi
 
     # Optional volumetric loss proxy.
     nu_loss = sheath_loss_rate(params, geom)

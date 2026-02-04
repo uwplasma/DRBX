@@ -135,7 +135,7 @@ def main() -> None:
 
     print("\nComputing Lp vs curvature drive (toy scaling study)…", flush=True)
     for i, c0 in enumerate(curvature_grid):
-        print(f"[{i+1}/{curvature_grid.size}] curvature0={c0:.3f}", flush=True)
+        print(f"[{i + 1}/{curvature_grid.size}] curvature0={c0:.3f}", flush=True)
         geom_i = CircularTokamakGeometry.make(
             nl=nl, shat=0.8, q=q, R0=1.0, epsilon=0.18, curvature0=float(c0)
         )

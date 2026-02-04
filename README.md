@@ -120,6 +120,7 @@ Boundary conditions:
 - Linear field-line models: periodic/Dirichlet/Neumann end-conditions are available as a benchmarking hook
   (`--line-bc ...`), in addition to Loizu-style MPSE/sheath entrance closures.
 - For `*-open` geometries, Bohm/MPSE sheath entrance BCs are enabled by default (disable with `--no-sheath-bc`).
+- Optional sheath energy-loss knobs (bridge toward quantitative SOL modeling): `--sheath-heat` and `--sheath-see`.
 - Nonlinear HW2D: periodic by default; Dirichlet/Neumann experiments are supported via FD + CG Poisson solve
   (see `docs/model/boundary-conditions.md`).
 
@@ -153,6 +154,12 @@ ISTTOK-inspired linear workflow (Jorge et al. 2016):
 
 ```bash
 python examples/3_advanced/05_jorge2016_isttok_linear_workflow.py
+```
+
+Sheath heat transmission + SEE effects (open field line):
+
+```bash
+python examples/2_intermediate/08_sheath_heat_see_effects.py --out out_sheath_heat
 ```
 
 ## Docs

@@ -93,7 +93,7 @@ def main() -> None:
                 "omega": jnp.asarray(y.omega),
             }
         )
-        print(f"[hw2d] chunk {k+1}/{nchunks} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
+        print(f"[hw2d] chunk {k + 1}/{nchunks} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
 
     # Save parameters + time series.
     (out_dir / "params.json").write_text(

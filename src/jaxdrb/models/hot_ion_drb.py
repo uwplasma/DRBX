@@ -11,6 +11,7 @@ from jaxdrb.models.bcs import bc_relaxation_1d
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
     apply_loizu2012_mpse_full_linear_bc,
+    sheath_energy_losses,
     sheath_bc_rate,
     sheath_loss_rate,
 )
@@ -171,6 +172,7 @@ def rhs_nonlinear(
             vpar_e=vpar_e_eff,
             vpar_i=y.vpar_i,
             Te=y.Te,
+            Ti=y.Ti,
             dpar=dpar,
             d2par=d2par,
         )
@@ -181,18 +183,32 @@ def rhs_nonlinear(
         dTe = dTe + dTe_bc
     else:
         dvpar_e_sh, dvpar_i_sh = apply_loizu_mpse_boundary_conditions(
-            params=params, geom=geom, eq=eq, phi=phi, vpar_e=vpar_e_eff, vpar_i=y.vpar_i, Te=y.Te
+            params=params,
+            geom=geom,
+            eq=eq,
+            phi=phi,
+            vpar_e=vpar_e_eff,
+            vpar_i=y.vpar_i,
+            Te=y.Te,
+            Ti=y.Ti,
         )
         dvpar_e = dvpar_e + dvpar_e_sh
         dvpar_i = dvpar_i + dvpar_i_sh
 
-    bc = sheath_bc_rate(params, geom)
-    if bc is not None:
-        nu_bc, mask = bc
-        dn = dn - nu_bc * mask * y.n
-        dTe = dTe - nu_bc * mask * y.Te
-        dTi = dTi - nu_bc * mask * y.Ti
-        domega = domega - nu_bc * mask * y.omega
+    # Optional sheath heat transmission / energy losses.
+    dTe_sh, dTi_sh = sheath_energy_losses(params=params, geom=geom, Te=y.Te, Ti=y.Ti)
+    dTe = dTe + dTe_sh
+    dTi = dTi + (jnp.zeros_like(y.Ti) if dTi_sh is None else dTi_sh)
+
+    # Legacy / development: optional additional damping localized at sheath nodes.
+    if bool(getattr(params, "sheath_end_damp_on", False)):
+        bc = sheath_bc_rate(params, geom)
+        if bc is not None:
+            nu_bc, mask = bc
+            dn = dn - nu_bc * mask * y.n
+            dTe = dTe - nu_bc * mask * y.Te
+            dTi = dTi - nu_bc * mask * y.Ti
+            domega = domega - nu_bc * mask * y.omega
 
     # Optional volumetric loss proxy.
     nu_loss = sheath_loss_rate(params, geom)

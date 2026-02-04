@@ -134,6 +134,76 @@ Example:
 python examples/3_advanced/11_loizu2012_full_mpse_bc.py
 ```
 
+## Sheath heat transmission and secondary electron emission (SEE)
+
+`jaxdrb` includes an **optional** sheath energy-loss closure intended as a stepping stone toward
+quantitative scrape-off-layer (SOL) modeling with sources/sinks, recycling, and full sheath models.
+
+### Heat transmission (energy losses)
+
+Fluid sheath theory is often summarized by a sheath heat-flux condition of the form
+
+$$
+q_{\parallel e} \big|_{\mathrm{sheath}} \;\approx\; \gamma_e\,n\,T_e\,c_s,
+$$
+
+with an analogous ion term $q_{\parallel i}\approx \gamma_i\,n\,T_i\,c_s$. In a reduced 1D field-line
+setting (Fourier in $(x,y)$), enforcing this exactly requires a consistent model for parallel
+conduction/convection and a Robin-type boundary condition on temperature.
+
+In the current `jaxdrb` linear workflows, this is implemented as a **lightweight end-loss closure**:
+when enabled, the RHS receives an additional term localized at the MPSE nodes,
+
+$$
+\partial_t T_e \;\leftarrow\; \partial_t T_e \;-\; \nu_{\mathrm{bc}}\,\chi_{\partial\Omega}\,\gamma_e\,T_e,
+$$
+
+and similarly for $T_i$ in the hot-ion model. Here $\nu_{\mathrm{bc}}\sim 2/L_\parallel$ is the same
+rate scale used by the MPSE SAT/penalty enforcement, and $\chi_{\partial\Omega}$ is a mask that is
+nonzero only at the two field-line endpoints.
+
+**Toggles**
+
+- `DRBParams(sheath_heat_on=True)` enables these energy-loss terms.
+- `DRBParams(sheath_gamma_auto=True)` uses an automatic estimate for $\gamma_e$ (see below).
+- `DRBParams(sheath_gamma_i=3.5)` sets the ion energy transmission factor used when $T_i$ is evolved.
+
+### SEE (secondary electron emission)
+
+Secondary electron emission tends to reduce the floating potential drop. `jaxdrb` represents this
+with a simple, constant-yield correction to the sheath parameter $\Lambda$:
+
+$$
+\Lambda_{\mathrm{eff}} \;=\; \Lambda + \ln(1-\delta),
+\qquad 0 \le \delta < 1,
+$$
+
+where $\delta$ is a constant SEE yield. This affects:
+
+- the *automatic* electron energy transmission factor, via
+  $$\gamma_e \approx 2 + \Lambda_{\mathrm{eff}},$$
+- and the *nonlinear* (nonlinearized) MPSE electron-flow expression, which uses $\Lambda_{\mathrm{eff}}$
+  in the floating-potential shift.
+
+**Toggles**
+
+- `DRBParams(sheath_see_on=True, sheath_see_yield=...)`
+
+**Example**
+
+```bash
+python examples/2_intermediate/08_sheath_heat_see_effects.py --out out_sheath_heat
+```
+
+### Notes and limitations
+
+- This closure is intentionally simple and does **not** replace a full sheath model with energy
+  balance, recycling, and self-consistent current closure; it is meant as an incremental step that
+  remains matrix-free, robust, and differentiable.
+- The Loizu (2012) “full set” MPSE option includes $\partial_\parallel T_e=0$ as part of its boundary
+  constraints; combining that option with sheath energy-loss terms is not recommended unless you are
+  explicitly studying sensitivity to mixed end conditions.
+
 ## User-defined end conditions (benchmarking / development)
 
 In addition to MPSE/sheath closures, `jaxdrb` provides a **user-defined** boundary-condition hook

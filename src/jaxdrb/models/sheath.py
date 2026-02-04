@@ -38,6 +38,65 @@ def sheath_loss_rate(params, geom) -> jnp.ndarray:
     return _loss_rate_from_Lpar(Lpar, nu_factor=nu_factor)
 
 
+def sheath_lambda_effective(params) -> jnp.ndarray:
+    """Effective sheath parameter Λ including optional secondary electron emission (SEE).
+
+    We use a simple ambipolar correction with a constant SEE yield δ:
+
+      Λ_eff = Λ + ln(1 - δ)
+
+    where 0 <= δ < 1. This reduces Λ_eff for δ>0, consistent with a reduced floating potential drop.
+
+    Notes
+    -----
+    `jaxdrb` treats `phi` in sheath BCs as a floating-potential-shifted perturbation potential, so
+    SEE mostly changes the equilibrium floating shift, not the linear response coefficient.
+    """
+
+    lam = jnp.asarray(getattr(params, "sheath_lambda", 3.28), dtype=jnp.float64)
+    if not bool(getattr(params, "sheath_see_on", False)):
+        return lam
+    delta = jnp.asarray(getattr(params, "sheath_see_yield", 0.0), dtype=jnp.float64)
+    delta = jnp.clip(delta, 0.0, 0.999999)
+    return lam + jnp.log1p(-delta)
+
+
+def sheath_gamma_e(params) -> jnp.ndarray:
+    """Electron heat transmission factor γ_e."""
+
+    if bool(getattr(params, "sheath_gamma_auto", True)):
+        # Common fluid-sheath estimate: γ_e ≈ 2 + Λ_eff.
+        return 2.0 + sheath_lambda_effective(params)
+    return jnp.asarray(getattr(params, "sheath_gamma_e", 0.0), dtype=jnp.float64)
+
+
+def sheath_energy_losses(
+    *,
+    params,
+    geom,
+    Te: jnp.ndarray,
+    Ti: jnp.ndarray | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray | None]:
+    """Return (dTe_sheath, dTi_sheath) from sheath heat transmission closures."""
+
+    if not bool(getattr(params, "sheath_heat_on", False)):
+        return jnp.zeros_like(Te), None if Ti is None else jnp.zeros_like(Ti)
+    bc = sheath_bc_rate(params, geom)
+    if bc is None:
+        return jnp.zeros_like(Te), None if Ti is None else jnp.zeros_like(Ti)
+    nu, mask = bc
+    mask = jnp.asarray(mask, dtype=jnp.float64)
+
+    ge = sheath_gamma_e(params)
+    dTe = -nu * mask * ge * Te
+
+    if Ti is None:
+        return dTe, None
+    gi = jnp.asarray(getattr(params, "sheath_gamma_i", 3.5), dtype=jnp.float64)
+    dTi = -nu * mask * gi * Ti
+    return dTe, dTi
+
+
 def apply_loizu_mpse_boundary_conditions(
     *,
     params,
@@ -47,6 +106,7 @@ def apply_loizu_mpse_boundary_conditions(
     vpar_e: jnp.ndarray,
     vpar_i: jnp.ndarray,
     Te: jnp.ndarray,
+    Ti: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Apply Loizu-type magnetic-pre-sheath entrance (MPSE) boundary conditions.
 
@@ -94,8 +154,11 @@ def apply_loizu_mpse_boundary_conditions(
         #   δv_||e = ± (δTe / 2 - δφ)
         #
         # where phi is the floating-potential-shifted perturbation potential.
-        vpar_i_bc = sign * (1.0 - delta) * (0.5 * Te)
-        vpar_e_bc = sign * (0.5 * Te - phi)
+        tau_i = float(getattr(params, "tau_i", 0.0))
+        cs0 = jnp.sqrt(jnp.asarray(eq.Te0, dtype=jnp.float64) * (1.0 + tau_i))
+        dcs = (0.5 / jnp.maximum(cs0, 1e-12)) * (Te if Ti is None else (Te + Ti))
+        vpar_i_bc = sign * (1.0 - delta) * dcs
+        vpar_e_bc = sign * (dcs - phi)
     else:
         # Nonlinear MPSE (kept for completeness; in linear studies prefer the linearized form).
         Te0 = jnp.asarray(eq.Te0, dtype=jnp.float64)
@@ -103,10 +166,14 @@ def apply_loizu_mpse_boundary_conditions(
         Te_floor = float(getattr(params, "sheath_Te_floor", 1e-6))
         Te_tot = jnp.where(jnp.real(Te_tot) > Te_floor, Te_tot, Te_floor + 0j)
 
-        cs0 = jnp.sqrt(Te0)
-        cs = jnp.sqrt(Te_tot)
+        tau_i = float(getattr(params, "tau_i", 0.0))
+        Ti0 = tau_i * Te0
+        Ti_tot = Ti0 + (jnp.zeros_like(Te_tot) if Ti is None else Ti)
 
-        lam = float(getattr(params, "sheath_lambda", 3.28))
+        cs0 = jnp.sqrt(Te0 + Ti0)
+        cs = jnp.sqrt(Te_tot + Ti_tot)
+
+        lam = sheath_lambda_effective(params)
         phi_float = lam * Te0
         exp_arg = lam - (phi_float + phi) / Te_tot
         exp_arg = jnp.clip(exp_arg, a_min=-80.0, a_max=80.0)
@@ -137,6 +204,7 @@ def apply_loizu2012_mpse_full_linear_bc(
     vpar_e: jnp.ndarray,
     vpar_i: jnp.ndarray,
     Te: jnp.ndarray,
+    Ti: jnp.ndarray | None = None,
     dpar,
     d2par,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
@@ -173,6 +241,8 @@ def apply_loizu2012_mpse_full_linear_bc(
     vpar_e = jnp.asarray(vpar_e)
     vpar_i = jnp.asarray(vpar_i)
     Te = jnp.asarray(Te)
+    if Ti is not None:
+        Ti = jnp.asarray(Ti)
 
     if not bool(getattr(params, "sheath_bc_on", False)):
         z = jnp.zeros_like(n)
@@ -196,9 +266,10 @@ def apply_loizu2012_mpse_full_linear_bc(
     mask = jnp.asarray(mask, dtype=jnp.float64)
     sign = jnp.asarray(sign, dtype=jnp.float64)
 
-    # Cold-ion sound speed in our normalization: c_s ~ sqrt(Te0). (Te0=1 default.)
+    # Ion sound speed in our normalization (hot-ion extension uses cs^2 ~ Te0*(1+tau_i)).
+    tau_i = float(getattr(params, "tau_i", 0.0))
     Te0 = jnp.asarray(eq.Te0, dtype=jnp.float64)
-    cs0 = jnp.sqrt(Te0)
+    cs0 = jnp.sqrt(Te0 * (1.0 + tau_i))
 
     delta = float(getattr(params, "sheath_delta", 0.0))
     cos2 = float(getattr(params, "sheath_cos2", 1.0))
@@ -230,8 +301,10 @@ def apply_loizu2012_mpse_full_linear_bc(
     dl = jnp.asarray(geom.dl, dtype=jnp.float64)
     dl2 = jnp.maximum(dl * dl, 1e-30)
 
-    # Linearized velocity BCs for perturbations about Bohm-matched equilibrium.
-    vpar_i_target = sign * (1.0 - delta) * (0.5 * Te)
+    # Linearized velocity BCs for perturbations about Bohm-matched equilibrium:
+    #   δv_i = ±(1-δ) δcs, with δcs = (δTe + δTi)/(2 cs0).
+    dcs = (0.5 / jnp.maximum(cs0, 1e-12)) * (Te if Ti is None else (Te + Ti))
+    vpar_i_target = sign * (1.0 - delta) * dcs
 
     # Te-gradient constraint at the ends: ∂_|| Te = 0 -> Te boundary equals neighbor (Neumann).
     Te_target = Te
@@ -257,8 +330,9 @@ def apply_loizu2012_mpse_full_linear_bc(
     n_target = n_target.at[-1].set(n[-2] + invcs[-1] * (vpar_i[-2] - vpar_i_target[-1]))
 
     # vpar_e target (linearized magnetized-electron response):
-    # use the *target* boundary phi and Te.
-    vpar_e_target = sign * (0.5 * Te_target - phi_target)
+    # use the *target* boundary phi and (Te,Ti) through δcs.
+    dcs_target = (0.5 / jnp.maximum(cs0, 1e-12)) * (Te_target if Ti is None else (Te_target + Ti))
+    vpar_e_target = sign * (dcs_target - phi_target)
 
     # Convert phi_target -> omega_target via omega = -k_perp^2 phi at the boundary.
     k2_safe = jnp.maximum(
