@@ -114,3 +114,19 @@ The CLI also writes a set of diagnostic plots:
 - `gamma_kxky.png`: heatmap of $\gamma(k_x,k_y)$
 - `gamma_ky_max_over_kx.png`: $\max_{k_x}\gamma$ vs $k_y$
 - `kx_star_vs_ky.png`: $k_x^*(k_y)$ that maximizes $\gamma$
+
+## Nonlinear HW2D
+
+`jaxdrb-hw2d` runs a 2D periodic nonlinear HW-like drift-wave testbed (see `docs/nonlinear/`):
+
+```bash
+jaxdrb-hw2d --nx 96 --ny 96 --tmax 40 --dt 0.05 --out out_hw2d_cli
+```
+
+With neutrals enabled:
+
+```bash
+jaxdrb-hw2d --neutrals --nu-ion 2.0 --nu-rec 0.2 --out out_hw2d_neutrals_cli
+```
+
+Outputs include `params.json`, `timeseries.npz`, and snapshot plots (`n.png`, `phi.png`, `omega.png`, and `N.png` if enabled).

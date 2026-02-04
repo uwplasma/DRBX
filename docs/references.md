@@ -40,6 +40,34 @@ geometry).
   **Physics of Plasmas 2**, 707–715 (1995).
   [DOI: 10.1063/1.871421](https://doi.org/10.1063/1.871421)
 
+## Nonlinear drift-wave testbed + numerics
+
+- A. Hasegawa and M. Wakatani,
+  *Plasma edge turbulence*,
+  **Physical Review Letters 50**, 682 (1983).
+  [DOI: 10.1103/PhysRevLett.50.682](https://doi.org/10.1103/PhysRevLett.50.682)
+
+- A. Arakawa,
+  *Computational design for long-term numerical integration of the equations of fluid motion: Two-dimensional incompressible flow. Part I*,
+  **Journal of Computational Physics 1**, 119–143 (1966).
+  [DOI: 10.1016/0021-9991(66)90015-5](https://doi.org/10.1016/0021-9991(66)90015-5)
+
+- S. A. Orszag,
+  *On the elimination of aliasing in finite-difference schemes by filtering high-wavenumber components*,
+  **Journal of the Atmospheric Sciences 28**, 1074–1074 (1971).
+  [DOI: 10.1175/1520-0469(1971)028<1074:OTEOAI>2.0.CO;2](https://doi.org/10.1175/1520-0469(1971)028%3C1074:OTEOAI%3E2.0.CO;2)
+
+## Plasma–neutral interactions (SOL context)
+
+- F. D. Halpern et al.,
+  *[SOL turbulence modeling and code validation; includes model extensions such as neutrals]* (2016).
+  (See the PDF in `drb_literature/` included with this repository clone.)
+
+- G. Bufferand et al.,
+  *[Review: SOL turbulence and edge/SOL modeling]*,
+  **Nuclear Fusion 61**, 116052 (2021).
+  (See the PDF in `drb_literature/` included with this repository clone.)
+
 ## Drift-reduced Braginskii background
 
 For a general overview of Braginskii closures and drift-reduced fluid modeling, see the

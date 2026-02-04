@@ -44,3 +44,19 @@ This section is generated from docstrings using `mkdocstrings`.
 ::: jaxdrb.analysis.lp
 
 ::: jaxdrb.analysis.plotting
+
+## Nonlinear (milestone)
+
+::: jaxdrb.nonlinear.grid
+
+::: jaxdrb.nonlinear.hw2d
+
+::: jaxdrb.nonlinear.neutrals
+
+::: jaxdrb.nonlinear.spectral
+
+::: jaxdrb.nonlinear.stepper
+
+## Operators
+
+::: jaxdrb.operators.brackets

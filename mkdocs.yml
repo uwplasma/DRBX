@@ -49,6 +49,12 @@ nav:
       - solvers/index.md
       - solvers/initial-value.md
       - solvers/arnoldi.md
+  - Nonlinear:
+      - nonlinear/index.md
+      - nonlinear/hw2d.md
+      - nonlinear/neutrals.md
+      - nonlinear/algorithms.md
+      - nonlinear/performance.md
   - API:
       - api/index.md
   - Literature:
