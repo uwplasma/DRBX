@@ -377,3 +377,61 @@ def apply_loizu2012_mpse_full_linear_bc(
     dvpar_i = dvpar_i - nu * mask_adj * (vpar_i - v_adj_target)
 
     return dn, domega, dvpar_e, dvpar_i, dTe
+
+
+def apply_loizu2012_mpse_full_linear_bc_hot_ion(
+    *,
+    params,
+    geom,
+    eq,
+    kperp2: jnp.ndarray,
+    phi: jnp.ndarray,
+    n: jnp.ndarray,
+    omega: jnp.ndarray,
+    vpar_e: jnp.ndarray,
+    vpar_i: jnp.ndarray,
+    Te: jnp.ndarray,
+    Ti: jnp.ndarray,
+    dpar,
+    d2par,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Hot-ion extension of the Loizu (2012) full-set MPSE BCs.
+
+    This function wraps :func:`apply_loizu2012_mpse_full_linear_bc` and adds a simple, robust
+    ion-temperature endpoint constraint:
+
+      ∂_|| T_i = 0  (Neumann at the two MPSE nodes)
+
+    This mirrors the common electron-temperature entrance constraint (Eq. (23) in Loizu 2012),
+    and provides a reasonable baseline for hot-ion model development/benchmarking in open
+    field-line geometries.
+    """
+
+    dn, domega, dvpar_e, dvpar_i, dTe = apply_loizu2012_mpse_full_linear_bc(
+        params=params,
+        geom=geom,
+        eq=eq,
+        kperp2=kperp2,
+        phi=phi,
+        n=n,
+        omega=omega,
+        vpar_e=vpar_e,
+        vpar_i=vpar_i,
+        Te=Te,
+        Ti=Ti,
+        dpar=dpar,
+        d2par=d2par,
+    )
+
+    Ti = jnp.asarray(Ti)
+    bc = sheath_bc_rate(params, geom)
+    if bc is None:
+        return dn, domega, dvpar_e, dvpar_i, dTe, jnp.zeros_like(Ti)
+    nu, mask = bc
+    mask = jnp.asarray(mask, dtype=jnp.float64)
+
+    Ti_target = Ti
+    Ti_target = Ti_target.at[0].set(Ti[1])
+    Ti_target = Ti_target.at[-1].set(Ti[-2])
+    dTi = -nu * mask * (Ti - Ti_target)
+    return dn, domega, dvpar_e, dvpar_i, dTe, dTi
