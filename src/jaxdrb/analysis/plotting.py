@@ -6,6 +6,65 @@ from pathlib import Path
 import numpy as np
 
 
+def to_jsonable(obj, *, max_array_elems: int = 2048):
+    """Convert an arbitrary object into a JSON-serializable structure.
+
+    This is used for writing `params.json` style files from examples/CLI runs.
+    The conversion is intentionally conservative:
+
+    - Scalars become Python scalars.
+    - Small arrays become nested lists.
+    - Large arrays are summarized by shape/dtype and a few basic stats.
+    - Unknown objects fall back to `repr(obj)`.
+    """
+
+    if obj is None:
+        return None
+    if isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, (np.integer, np.floating)):
+        return obj.item()
+    if isinstance(obj, (complex, np.complexfloating)):
+        c = complex(obj)
+        return {"re": float(np.real(c)), "im": float(np.imag(c))}
+
+    if isinstance(obj, dict):
+        return {str(k): to_jsonable(v, max_array_elems=max_array_elems) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [to_jsonable(v, max_array_elems=max_array_elems) for v in obj]
+
+    # NumPy / JAX arrays
+    try:
+        a = np.asarray(obj)
+        # Guard: many custom objects become a 0-d object array under `np.asarray`.
+        # In that case we should *not* treat `a.item()` as a JSON scalar; fall through
+        # to attribute-based handling / repr instead.
+        if a.dtype == object:
+            raise TypeError("object-dtype array fallback")
+        if a.shape != () or isinstance(obj, np.ndarray):
+            n = int(a.size)
+            if n <= max_array_elems:
+                return a.tolist()
+            areal = a.real if np.iscomplexobj(a) else a
+            finite = np.isfinite(areal)
+            stats = {}
+            if np.any(finite):
+                x = np.asarray(areal[finite], dtype=float)
+                stats = {"min": float(np.min(x)), "max": float(np.max(x))}
+            return {"shape": list(a.shape), "dtype": str(a.dtype), "size": n, "stats": stats}
+        return a.item()
+    except Exception:
+        pass
+
+    # eqx.Module / dataclasses / custom classes: recurse over attributes when possible.
+    if hasattr(obj, "__dict__"):
+        return {
+            str(k): to_jsonable(v, max_array_elems=max_array_elems) for k, v in vars(obj).items()
+        }
+
+    return repr(obj)
+
+
 def set_mpl_style() -> None:
     """Set a lightweight, publication-friendly Matplotlib style."""
 
@@ -52,7 +111,7 @@ def _ensure_dir(path: str | Path) -> Path:
 
 
 def save_json(path: str | Path, obj: dict) -> None:
-    Path(path).write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n")
+    Path(path).write_text(json.dumps(to_jsonable(obj), indent=2, sort_keys=True) + "\n")
 
 
 def save_scan_panels(

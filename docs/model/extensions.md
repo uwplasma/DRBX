@@ -132,6 +132,7 @@ Example:
 
 ```bash
 python examples/03_sheath_mpse/loizu2012_full_mpse_bc.py
+python examples/03_sheath_mpse/loizu2012_full_hot_ion_mpse_bc.py
 ```
 
 ## Sheath heat transmission and secondary electron emission (SEE)

@@ -169,20 +169,20 @@ def rhs_nonlinear(
     if int(getattr(params, "sheath_bc_model", 0)) == 1:
         dn_bc, domega_bc, dvpar_e_bc, dvpar_i_bc, dTe_bc, dTi_bc = (
             apply_loizu2012_mpse_full_linear_bc_hot_ion(
-            params=params,
-            geom=geom,
-            eq=eq,
-            kperp2=k2,
-            phi=phi,
-            n=y.n,
-            omega=y.omega,
-            vpar_e=vpar_e_eff,
-            vpar_i=y.vpar_i,
-            Te=y.Te,
-            Ti=y.Ti,
-            dpar=dpar,
-            d2par=d2par,
-        )
+                params=params,
+                geom=geom,
+                eq=eq,
+                kperp2=k2,
+                phi=phi,
+                n=y.n,
+                omega=y.omega,
+                vpar_e=vpar_e_eff,
+                vpar_i=y.vpar_i,
+                Te=y.Te,
+                Ti=y.Ti,
+                dpar=dpar,
+                d2par=d2par,
+            )
         )
         dn = dn + dn_bc
         domega = domega + domega_bc

@@ -30,6 +30,9 @@ The code includes:
 - a **simple** MPSE mode (velocity-focused closure), and
 - a **Loizu (2012) “full set”** *linearized* enforcement mode used for SOL linear studies.
 
+In the **hot-ion** model, the Loizu2012 full-set option also enforces a matching
+ion-temperature entrance constraint $\partial_\parallel T_i = 0$ (Neumann at the MPSE nodes).
+
 For `*-open` geometries in the CLI, MPSE/Bohm sheath entrance boundary conditions are enabled by default
 (disable with `--no-sheath-bc`).
 
