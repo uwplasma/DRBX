@@ -22,8 +22,9 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 
-from jaxdrb.analysis.plotting import set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 from jaxdrb.nonlinear.stepper import rk4_scan
@@ -139,7 +140,11 @@ def main() -> None:
     fields = {"n": y.n, "phi": phi, "omega": y.omega}
     for name, arr in fields.items():
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap="RdBu_r")
+        arr_np = np.asarray(arr)
+        vmax = robust_symmetric_vlim(arr_np, q=0.995)
+        im = ax.imshow(
+            arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
+        )
         ax.set_title(name)
         fig.colorbar(im, ax=ax, shrink=0.9)
         fig.tight_layout()
@@ -199,7 +204,11 @@ def main() -> None:
         [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
         [("n", y.n), ("phi", phi), ("omega", y.omega)],
     ):
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap="RdBu_r")
+        arr_np = np.asarray(arr)
+        vmax = robust_symmetric_vlim(arr_np, q=0.995)
+        im = ax.imshow(
+            arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
+        )
         ax.set_title(name)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         ax.set_xticks([])

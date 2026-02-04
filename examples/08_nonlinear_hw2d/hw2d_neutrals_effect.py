@@ -18,8 +18,9 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 
-from jaxdrb.analysis.plotting import set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 from jaxdrb.nonlinear.neutrals import NeutralParams
@@ -131,10 +132,17 @@ def main() -> None:
 
     # Final snapshots.
     phi = model.phi_from_omega(y.omega)
-    fields = {"n": (y.n, "RdBu_r"), "N": (y.N, "viridis"), "phi": (phi, "RdBu_r")}
+    fields = {"n": (y.n, "coolwarm"), "N": (y.N, "viridis"), "phi": (phi, "coolwarm")}
     for name, (arr, cmap) in fields.items():
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap=cmap)
+        arr_np = np.asarray(arr)
+        if cmap in ("coolwarm", "RdBu_r"):
+            vmax = robust_symmetric_vlim(arr_np, q=0.995)
+            im = ax.imshow(
+                arr_np.T, origin="lower", aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax
+            )
+        else:
+            im = ax.imshow(arr_np.T, origin="lower", aspect="auto", cmap=cmap)
         ax.set_title(name)
         fig.colorbar(im, ax=ax, shrink=0.9)
         fig.tight_layout()
@@ -154,9 +162,16 @@ def main() -> None:
 
     for ax, (name, arr, cmap) in zip(
         [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
-        [("n", y.n, "RdBu_r"), ("N", y.N, "viridis"), ("phi", phi, "RdBu_r")],
+        [("n", y.n, "coolwarm"), ("N", y.N, "viridis"), ("phi", phi, "coolwarm")],
     ):
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap=cmap)
+        arr_np = np.asarray(arr)
+        if cmap in ("coolwarm", "RdBu_r"):
+            vmax = robust_symmetric_vlim(arr_np, q=0.995)
+            im = ax.imshow(
+                arr_np.T, origin="lower", aspect="auto", cmap=cmap, vmin=-vmax, vmax=vmax
+            )
+        else:
+            im = ax.imshow(arr_np.T, origin="lower", aspect="auto", cmap=cmap)
         ax.set_title(name)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         ax.set_xticks([])

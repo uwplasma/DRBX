@@ -8,11 +8,13 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 from jaxdrb.nonlinear.neutrals import NeutralParams
 from jaxdrb.nonlinear.stepper import rk4_scan
+from jaxdrb.analysis.plotting import robust_symmetric_vlim
 
 
 def main() -> None:
@@ -225,7 +227,11 @@ def main() -> None:
     phi = model.phi_from_omega(y.omega)
     for name, arr in {"n": y.n, "phi": phi, "omega": y.omega}.items():
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap="RdBu_r")
+        arr_np = np.asarray(arr)
+        vmax = robust_symmetric_vlim(arr_np, q=0.995)
+        im = ax.imshow(
+            arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
+        )
         ax.set_title(name)
         fig.colorbar(im, ax=ax, shrink=0.9)
         fig.tight_layout()

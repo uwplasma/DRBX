@@ -21,8 +21,9 @@ import jax
 import jax.numpy as jnp
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
+import numpy as np
 
-from jaxdrb.analysis.plotting import set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 from jaxdrb.nonlinear.stepper import rk4_scan
@@ -33,11 +34,13 @@ def main() -> None:
     set_mpl_style()
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--nx", type=int, default=64)
-    parser.add_argument("--ny", type=int, default=64)
+    # Defaults chosen to produce a longer-time movie without being slow/heavy.
+    parser.add_argument("--nx", type=int, default=48)
+    parser.add_argument("--ny", type=int, default=48)
+    # dt is the main stability knob for long-time runs.
     parser.add_argument("--dt", type=float, default=0.01)
-    parser.add_argument("--tmax", type=float, default=30.0)
-    parser.add_argument("--save-stride", type=int, default=10)
+    parser.add_argument("--tmax", type=float, default=80.0)
+    parser.add_argument("--save-stride", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=str, default="out_hw2d_movie")
     args = parser.parse_args()
@@ -97,25 +100,33 @@ def main() -> None:
     jnp.savez(out_dir / "timeseries.npz", t=jnp.array(ts), E=jnp.array(Es), Z=jnp.array(Zs))
 
     # Build movie (GIF) using fixed color limits for readability.
-    arr0 = frames_n[0]
-    vmax = float(jnp.quantile(jnp.abs(arr0), 0.995) + 1e-12)
+    frames_arr = np.stack([np.asarray(a) for a in frames_n], axis=0)
+    vmax = robust_symmetric_vlim(frames_arr, q=0.995)
+    arr0 = frames_arr[0]
 
-    fig, ax = plt.subplots(1, 1, figsize=(5, 4))
-    im = ax.imshow(arr0.T, origin="lower", cmap="RdBu_r", vmin=-vmax, vmax=vmax, animated=True)
-    ax.set_title("n(x,y,t)")
+    fig, ax = plt.subplots(1, 1, figsize=(4.6, 3.6))
+    fig.set_dpi(95)
+    im = ax.imshow(
+        arr0.T,
+        origin="lower",
+        cmap="coolwarm",
+        vmin=-vmax,
+        vmax=vmax,
+        animated=True,
+        interpolation="nearest",
+    )
+    ax.set_title("HW2D: density fluctuation n(x,y,t)")
     ax.set_xticks([])
     ax.set_yticks([])
-    cb = fig.colorbar(im, ax=ax, shrink=0.85)
-    cb.set_label("n")
 
     def update(i):
-        im.set_array(frames_n[i].T)
+        im.set_array(frames_arr[i].T)
         ax.set_xlabel(f"t = {ts[i]:.2f}")
         return (im,)
 
     ani = animation.FuncAnimation(fig, update, frames=len(frames_n), interval=40, blit=True)
     gif_path = out_dir / "movie.gif"
-    ani.save(gif_path, writer=animation.PillowWriter(fps=20))
+    ani.save(gif_path, writer=animation.PillowWriter(fps=12))
     plt.close(fig)
 
     # Final summary panel.
@@ -135,7 +146,11 @@ def main() -> None:
         [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
         [("n", y.n), ("phi", phi), ("omega", y.omega)],
     ):
-        im = ax.imshow(arr.T, origin="lower", aspect="auto", cmap="RdBu_r")
+        arr_np = np.asarray(arr)
+        vmax = robust_symmetric_vlim(arr_np, q=0.995)
+        im = ax.imshow(
+            arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
+        )
         ax.set_title(name)
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         ax.set_xticks([])
