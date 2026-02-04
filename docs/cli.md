@@ -61,8 +61,13 @@ Tabulated:
 - `--DTi` ion temperature diffusion (hot-ion model)
 - `--Dpsi` psi diffusion (electromagnetic model)
 - `--chi-par-Te FLOAT` parallel electron heat conduction coefficient
+- `--chi-par-Ti FLOAT` parallel ion heat conduction coefficient (hot-ion model)
 - `--nu-par-e FLOAT`, `--nu-par-i FLOAT` parallel flow diffusion/viscosity coefficients
 - `--nu-sink-n FLOAT`, `--nu-sink-Te FLOAT`, `--nu-sink-vpar FLOAT` simple volumetric sinks
+- `--eq-n0 FLOAT`, `--eq-Te0 FLOAT` equilibrium scalars (currently constant along `l`)
+- `--braginskii` enables equilibrium-based Braginskii/Spitzer transport scalings (η~Te^{-3/2}, χ||~T^{5/2}, ν||~T^{5/2})
+- `--braginskii-Tref FLOAT`, `--braginskii-T-floor FLOAT`, `--braginskii-T-smooth FLOAT` control the scaling reference and smooth positivity floor
+- `--no-braginskii-eta`, `--no-braginskii-kappa-e`, `--no-braginskii-kappa-i`, `--no-braginskii-visc-e`, `--no-braginskii-visc-i` disable specific scalings
 - `--line-bc {none,dirichlet,neumann}` applies a user-defined BC along `l` to all fields (benchmarking/nonlinear-prep)
 - `--line-bc-value FLOAT`, `--line-bc-grad FLOAT` set Dirichlet value or Neumann gradient for `--line-bc`
 - `--line-bc-nu FLOAT` sets the RHS relaxation rate (0 disables BC enforcement)

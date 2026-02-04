@@ -72,3 +72,11 @@ geometry).
 
 For a general overview of Braginskii closures and drift-reduced fluid modeling, see the
 standard plasma fluid literature and the references cited in the papers above.
+
+- S. I. Braginskii,
+  *Transport processes in a plasma*,
+  in **Reviews of Plasma Physics, Vol. 1** (Consultants Bureau, 1965).
+
+- L. Spitzer Jr. and R. Härm,
+  *Transport phenomena in a completely ionized gas*,
+  **Physical Review 89**, 977 (1953).

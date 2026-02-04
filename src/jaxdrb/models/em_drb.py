@@ -8,6 +8,9 @@ import jax.random as jr
 from jaxdrb.models.cold_ion_drb import Equilibrium, phi_from_omega
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.bcs import bc_relaxation_1d
+from jaxdrb.models.braginskii import chi_par_Te as chi_par_Te_eff
+from jaxdrb.models.braginskii import eta_parallel as eta_parallel_eff
+from jaxdrb.models.braginskii import nu_par_i as nu_par_i_eff
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
     apply_loizu2012_mpse_full_linear_bc,
@@ -133,16 +136,17 @@ def rhs_nonlinear(
     grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
     coef = 0.5 * getattr(params, "beta", 0.0) + params.me_hat * jnp.maximum(k2, params.kperp2_min)
     coef = jnp.maximum(coef, 1e-12)
-    dpsi = (-grad_par_phi_pe - params.eta * jpar + getattr(params, "Dpsi", 0.0) * lap_psi) / coef
+    eta_eff = jnp.maximum(eta_parallel_eff(params, eq), 1e-12)
+    dpsi = (-grad_par_phi_pe - eta_eff * jpar + getattr(params, "Dpsi", 0.0) * lap_psi) / coef
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)
-    dvpar_i = dvpar_i + float(getattr(params, "nu_par_i", 0.0)) * d2par(y.vpar_i)
+    dvpar_i = dvpar_i + nu_par_i_eff(params, eq) * d2par(y.vpar_i)
     dvpar_i = dvpar_i - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_i
 
     # Electron temperature (using vpar_e reconstructed from vpar_i and jpar)
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e) + params.DTe * lap_Te
-    dTe = dTe + float(getattr(params, "chi_par_Te", 0.0)) * d2par(y.Te)
+    dTe = dTe + chi_par_Te_eff(params, eq) * d2par(y.Te)
     dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
     # Optional MPSE sheath BCs: use reconstructed vpar_e = vpar_i - jpar and enforce BCs through

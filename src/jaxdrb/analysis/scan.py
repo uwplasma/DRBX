@@ -39,6 +39,7 @@ def scan_ky(
     kx: float = 0.0,
     model: ModelSpec = DEFAULT_MODEL,
     nl: int | None = None,
+    eq=None,
     arnoldi_m: int = 40,
     arnoldi_tol: float = 1e-3,
     arnoldi_max_m: int | None = None,
@@ -63,7 +64,9 @@ def scan_ky(
 
     y_eq = model.equilibrium(nl)
     rhs_kwargs = {}
-    if model.default_eq is not None:
+    if eq is not None:
+        rhs_kwargs["eq"] = eq
+    elif model.default_eq is not None:
         rhs_kwargs["eq"] = model.default_eq(nl)
     key = jax.random.PRNGKey(seed)
 
@@ -158,6 +161,7 @@ def scan_kx_ky(
     ky: np.ndarray,
     model: ModelSpec = DEFAULT_MODEL,
     nl: int | None = None,
+    eq=None,
     arnoldi_m: int = 40,
     arnoldi_tol: float = 1e-3,
     arnoldi_max_m: int | None = None,
@@ -182,7 +186,9 @@ def scan_kx_ky(
 
     y_eq = model.equilibrium(nl)
     rhs_kwargs = {}
-    if model.default_eq is not None:
+    if eq is not None:
+        rhs_kwargs["eq"] = eq
+    elif model.default_eq is not None:
         rhs_kwargs["eq"] = model.default_eq(nl)
     key = jax.random.PRNGKey(seed)
     key, subkey0 = jax.random.split(key)

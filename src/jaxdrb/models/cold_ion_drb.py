@@ -7,6 +7,10 @@ import jax.random as jr
 
 from jaxdrb.models.params import DRBParams
 from jaxdrb.models.bcs import bc_relaxation_1d
+from jaxdrb.models.braginskii import chi_par_Te as chi_par_Te_eff
+from jaxdrb.models.braginskii import eta_parallel as eta_parallel_eff
+from jaxdrb.models.braginskii import nu_par_e as nu_par_e_eff
+from jaxdrb.models.braginskii import nu_par_i as nu_par_i_eff
 from jaxdrb.models.sheath import (
     apply_loizu_mpse_boundary_conditions,
     apply_loizu2012_mpse_full_linear_bc,
@@ -160,7 +164,7 @@ def rhs_nonlinear(
     # consistent with e.g. Mosetto et al. (2012) in the cold-ion limit.
     # vpar_e used in compressibility is the constrained value in the me_hat=0 limit.
     grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
-    eta_eff = jnp.maximum(params.eta, 1e-12)
+    eta_eff = jnp.maximum(eta_parallel_eff(params, eq), 1e-12)
     vpar_e_eff = jnp.where(use_algebraic_ohm, y.vpar_i + grad_par_phi_pe / eta_eff, y.vpar_e)
 
     # Parallel current (n0 = 1 normalization)
@@ -178,18 +182,18 @@ def rhs_nonlinear(
         # Relax vpar_e toward the algebraic Ohm's-law constraint value.
         dvpar_e = -eta_eff * (y.vpar_e - vpar_e_eff)
     else:
-        dvpar_e = (grad_par_phi_pe - params.eta * (y.vpar_e - y.vpar_i)) / params.me_hat
-    dvpar_e = dvpar_e + float(getattr(params, "nu_par_e", 0.0)) * d2par(y.vpar_e)
+        dvpar_e = (grad_par_phi_pe - eta_eff * (y.vpar_e - y.vpar_i)) / params.me_hat
+    dvpar_e = dvpar_e + nu_par_e_eff(params, eq) * d2par(y.vpar_e)
     dvpar_e = dvpar_e - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_e
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)
-    dvpar_i = dvpar_i + float(getattr(params, "nu_par_i", 0.0)) * d2par(y.vpar_i)
+    dvpar_i = dvpar_i + nu_par_i_eff(params, eq) * d2par(y.vpar_i)
     dvpar_i = dvpar_i - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_i
 
     # Electron temperature
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e_eff) + params.DTe * lap_Te
-    dTe = dTe + float(getattr(params, "chi_par_Te", 0.0)) * d2par(y.Te)
+    dTe = dTe + chi_par_Te_eff(params, eq) * d2par(y.Te)
     dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
     # Optional MPSE (sheath) boundary conditions for open field lines.
