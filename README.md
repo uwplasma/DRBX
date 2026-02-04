@@ -104,6 +104,12 @@ Movie example (GIF):
 python examples/08_nonlinear_hw2d/hw2d_movie.py
 ```
 
+HW2D validation (energy budget closure + invariant checks; Camargo/Biskamp/Scott 1995 style):
+
+```bash
+python examples/08_nonlinear_hw2d/hw2d_camargo1995_validation.py --out out_hw2d_camargo1995
+```
+
 ## Status
 
 This implementation is aimed at fast iteration:
@@ -116,6 +122,7 @@ This implementation is aimed at fast iteration:
 Nonlinear support is evolving. The first nonlinear milestone is a 2D periodic drift-wave testbed
 (`jaxdrb.nonlinear.hw2d`) used to validate and benchmark core operators (brackets, FFT Poisson solves,
 dealiasing, time stepping) and to host optional additional physics (e.g. neutrals) in a togglable way.
+See `docs/validation.md` for a concise list of validation checks and generated figures.
 
 Boundary conditions:
 - Linear field-line models: periodic/Dirichlet/Neumann end-conditions are available as a benchmarking hook

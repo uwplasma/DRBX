@@ -31,6 +31,7 @@ nav:
   - Getting Started: getting-started.md
   - Inputs & Outputs: inputs-outputs.md
   - Testing: testing.md
+  - Validation: validation.md
   - Theory:
       - theory/index.md
       - theory/algorithms.md
@@ -57,6 +58,7 @@ nav:
       - nonlinear/neutrals.md
       - nonlinear/algorithms.md
       - nonlinear/performance.md
+      - nonlinear/conservative-drb.md
   - API:
       - api/index.md
   - Literature:
@@ -66,6 +68,7 @@ nav:
       - literature/halpern2013.md
       - literature/jorge2016_isttok.md
       - literature/jorge2021_stellarator.md
+      - literature/camargo1995.md
   - CLI: cli.md
   - Examples: examples.md
   - Development: development.md
@@ -83,8 +86,8 @@ markdown_extensions:
 
 extra_javascript:
   - assets/javascripts/mathjax.js
-  # Load MathJax from a CDN so equations render correctly on Read the Docs.
-  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  # Vendored MathJax to satisfy Read the Docs' CSP (no external scripts).
+  - assets/vendor/mathjax/tex-svg.js
 
 extra_css:
   - assets/stylesheets/extra.css

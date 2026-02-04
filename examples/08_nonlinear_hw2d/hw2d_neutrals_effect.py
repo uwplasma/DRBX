@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("--nx", type=int, default=96)
     parser.add_argument("--ny", type=int, default=96)
     parser.add_argument("--nsteps", type=int, default=600)
-    parser.add_argument("--dt", type=float, default=0.05)
+    parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument("--save-stride", type=int, default=20)
     parser.add_argument("--out", type=str, default="out_hw2d_neutrals")
     parser.add_argument("--nu-ion", type=float, default=0.2)
@@ -57,10 +57,12 @@ def main() -> None:
     )
     params = HW2DParams(
         kappa=1.0,
-        alpha=0.5,
-        Dn=2e-4,
-        DOmega=2e-4,
-        bracket="spectral",
+        alpha=1.0,
+        Dn=1e-3,
+        DOmega=1e-3,
+        nu4_n=1e-6,
+        nu4_omega=1e-6,
+        bracket="arakawa",
         dealias_on=True,
         neutrals=neutrals,
     )
@@ -87,6 +89,8 @@ def main() -> None:
     for k in range(nchunks):
         _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
         t = t + dt * save_stride
+        if not jnp.isfinite(jnp.mean(y.n)) or not jnp.isfinite(jnp.mean(y.N)):
+            raise FloatingPointError(f"Non-finite means at chunk {k + 1}/{nchunks}")
         ts.append(t)
         nbar.append(float(jnp.mean(y.n)))
         Nbar.append(float(jnp.mean(y.N)))
