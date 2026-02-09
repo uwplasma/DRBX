@@ -37,6 +37,14 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+      - name: Performance gate (core kernels)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_core_kernels.py \
+            --min-hw2d-steps-s 8 \
+            --min-matvec-s 120 \
+            --json-out out/ci/perf_metrics.json
+
   build:
     name: Build (sdist/wheel)
     runs-on: ubuntu-latest

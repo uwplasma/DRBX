@@ -27,6 +27,7 @@ Key files:
 - Model: `src/jaxdrb/nonlinear/hw2d.py`
 - Conservative bracket (Arakawa): `src/jaxdrb/operators/brackets.py`
 - Validation tests: `tests/test_hw2d_validation.py`
+- Hard-gate invariant test: `tests/test_hw2d_conservative_gate.py`
 - Validation example: `examples/08_nonlinear_hw2d/hw2d_camargo1995_validation.py`
 
 ### Energy functional and budget closure
@@ -79,6 +80,21 @@ For additional qualitative turbulence diagnostics, the validation example also p
 
 ![HW2D final-time spectra](assets/images/hw2d_camargo1995_spectrum.png)
 
+### Hard benchmark gate for nonlinear invariants
+
+`jaxdrb` includes a dedicated regression gate that evolves the ideal periodic HW2D subset and
+checks strict conservation of:
+
+- energy proxy $E$,
+- enstrophy proxy $Z$,
+- mean density $\langle n\rangle$ (mass proxy),
+- mean vorticity $\langle \omega\rangle$ (charge/current-balance proxy),
+- mean $\mathbf{E}\times\mathbf{B}$ velocity (net momentum proxy).
+
+Gate test:
+
+- `tests/test_hw2d_conservative_gate.py`
+
 ## Method of manufactured solutions (MMS)
 
 MMS tests are included to validate the implementation order and to catch sign/normalization mistakes.
@@ -108,6 +124,37 @@ See:
 - Tests: `tests/test_growth_vs_eigs.py`, `tests/test_slab_dispersion.py`
 - Solver docs: `docs/solvers/`
 - Known limits: `docs/theory/known-limits.md`
+
+## Sheath / MPSE quantitative gates
+
+Open-field-line sheath closures are validated with explicit quantitative consistency checks:
+
+- Loizu-2012 full-set MPSE constraints for constructed states that satisfy the enforced boundary targets:
+  - `tests/test_mpse_loizu2012_consistency.py`
+- EM current closure consistency at the sheath:
+  - MPSE-induced $(\delta v_{\parallel i} - \delta v_{\parallel e})$ is checked against the implemented
+    $\delta \psi$ update through Ampere closure.
+  - `tests/test_sheath_quantitative_gate.py`
+- Hot-ion sheath heat + SEE toggles:
+  - enabling heat transmission/SEE must change $(dT_e, dT_i)$ exactly by the closure terms from
+    `sheath_energy_losses`.
+  - `tests/test_sheath_quantitative_gate.py`
+
+Core implementation:
+
+- `src/jaxdrb/models/sheath.py`
+- `src/jaxdrb/models/em_drb.py`
+- `src/jaxdrb/models/hot_ion_drb.py`
+
+## Literature transition-boundary gates
+
+In addition to qualitative trend scans, `jaxdrb` enforces quantitative threshold checks where reduced
+models are available:
+
+- Halpern (2013) ideal-ballooning threshold gate:
+  - finite $\alpha_{\mathrm{crit}}$ at $\hat{s}=0$,
+  - monotonic shear stabilization of $\alpha_{\mathrm{crit}}(\hat{s})$.
+  - `tests/test_ideal_ballooning.py`
 
 ### Arnoldi vs dense Jacobian (tiny problem)
 
@@ -200,6 +247,37 @@ See:
 - Tests: `tests/test_fci_parallel.py`
 - Docs: `docs/fci/index.md`
 - Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
+
+## Neutral-model validation gates
+
+The neutral milestone model is validated with explicit particle-balance and source/sink checks:
+
+- isolated ionization conservation of total particles $\langle n + N \rangle$,
+- isolated ionization+recombination conservation of total particles,
+- uniform source/sink relaxation to the analytic equilibrium $N^\*=S_0/\nu_{\mathrm{sink}}$.
+
+Tests:
+
+- `tests/test_neutrals_exchange.py`
+
+Implementation:
+
+- `src/jaxdrb/nonlinear/neutrals.py`
+
+## Performance regression gates
+
+CI enforces a conservative core-kernel throughput gate on Ubuntu/Python 3.12:
+
+- nonlinear HW2D RK4 stepping throughput (steps/s),
+- linear matrix-free matvec throughput (matvec/s).
+
+Gate script:
+
+- `benchmarks/check_core_kernels.py`
+
+CI workflow:
+
+- `.github/workflows/ci.yml`
 
 ## Differentiability checks
 
