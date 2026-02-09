@@ -184,3 +184,79 @@ def test_hot_ion_sheath_heat_and_see_toggles_are_quantitatively_consistent() -> 
     # SEE lowers Lambda_eff and therefore lowers the electron heat-transmission coefficient gamma_e.
     mask = np.asarray(geom.sheath_mask).astype(bool)
     assert np.all(np.abs(np.asarray(dTe_sh1)[mask]) < np.abs(np.asarray(dTe_sh0)[mask]))
+
+
+def test_em_sheath_heat_and_see_toggles_only_add_expected_energy_losses() -> None:
+    """Quantitative EM gate: heat/SEE toggles affect Te exactly via sheath_energy_losses."""
+
+    nl = 33
+    kx = 0.0
+    ky = 0.35
+    geom = OpenSlabGeometry.make(nl=nl, length=6.0, shat=0.0, curvature0=0.0)
+    eq = Equilibrium.constant(nl, n0=1.0, Te0=1.0)
+
+    common = dict(
+        omega_n=0.0,
+        omega_Te=0.0,
+        eta=0.3,
+        me_hat=0.05,
+        beta=0.08,
+        curvature_on=False,
+        Dn=0.0,
+        DOmega=0.0,
+        DTe=0.0,
+        Dpsi=0.0,
+        sheath_bc_on=True,
+        sheath_bc_model=1,
+        sheath_bc_nu_factor=1.0,
+        sheath_end_damp_on=False,
+        sheath_loss_on=False,
+        sheath_gamma_auto=True,
+        sheath_lambda=3.28,
+    )
+    p_base = DRBParams(**{**common, "sheath_heat_on": False, "sheath_see_on": False})
+    p_heat_no_see = DRBParams(**{**common, "sheath_heat_on": True, "sheath_see_on": False})
+    p_heat_see = DRBParams(
+        **{
+            **common,
+            "sheath_heat_on": True,
+            "sheath_see_on": True,
+            "sheath_see_yield": 0.3,
+        }
+    )
+
+    x = np.linspace(0.0, 2.0 * np.pi, nl)
+    y = EMState(
+        n=(0.07 * np.sin(2.0 * x) + 0.03j * np.cos(x)).astype(np.complex128),
+        omega=(0.05 * np.cos(3.0 * x) + 0.02j * np.sin(2.0 * x)).astype(np.complex128),
+        psi=(0.06 * np.sin(x) + 0.02j * np.cos(2.0 * x)).astype(np.complex128),
+        vpar_i=(0.04 * np.cos(2.0 * x) + 0.01j * np.sin(3.0 * x)).astype(np.complex128),
+        Te=(0.2 + 0.04 * np.sin(3.0 * x)).astype(np.complex128),
+    )
+
+    r_base = em_rhs(0.0, y, p_base, geom, kx=kx, ky=ky, eq=eq)
+    r_h0 = em_rhs(0.0, y, p_heat_no_see, geom, kx=kx, ky=ky, eq=eq)
+    r_h1 = em_rhs(0.0, y, p_heat_see, geom, kx=kx, ky=ky, eq=eq)
+
+    dTe_h0, _ = sheath_energy_losses(params=p_heat_no_see, geom=geom, Te=y.Te)
+    dTe_h1, _ = sheath_energy_losses(params=p_heat_see, geom=geom, Te=y.Te)
+
+    np.testing.assert_allclose(
+        np.asarray(r_h0.Te - r_base.Te), np.asarray(dTe_h0), atol=1e-12, rtol=0.0
+    )
+    np.testing.assert_allclose(
+        np.asarray(r_h1.Te - r_base.Te), np.asarray(dTe_h1), atol=1e-12, rtol=0.0
+    )
+
+    # Heat/SEE closures are energy-loss terms only: they should not alter EM current-closure updates.
+    np.testing.assert_allclose(np.asarray(r_h0.psi), np.asarray(r_base.psi), atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(np.asarray(r_h1.psi), np.asarray(r_base.psi), atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(
+        np.asarray(r_h0.vpar_i), np.asarray(r_base.vpar_i), atol=1e-12, rtol=0.0
+    )
+    np.testing.assert_allclose(
+        np.asarray(r_h1.vpar_i), np.asarray(r_base.vpar_i), atol=1e-12, rtol=0.0
+    )
+
+    mask = np.asarray(geom.sheath_mask).astype(bool)
+    assert np.all(np.abs(np.asarray(dTe_h1)[mask]) < np.abs(np.asarray(dTe_h0)[mask]))
