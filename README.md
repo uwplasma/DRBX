@@ -145,6 +145,11 @@ in increasingly realistic diverted geometries.
 - Verification and benchmark scripts live in `examples/10_verification/`.
 - The documentation has a dedicated validation page with references and reproduced figures: `docs/validation.md`.
 - A micro-benchmark for HW2D stepping lives in `benchmarks/bench_hw2d_step.py`.
+- A hard conservative gate for the periodic cold-ion DRB branch is included in:
+  - `tests/test_drb_nonlinear_conservative_gate.py`
+  - `examples/10_verification/drb_cold_ion_conservative_gate.py`
+
+![Cold-ion DRB conservative gate](docs/assets/images/drb_cold_ion_conservative_gate.png)
 
 ## Documentation
 

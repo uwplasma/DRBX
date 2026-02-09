@@ -17,6 +17,8 @@ This section is generated from docstrings using `mkdocstrings`.
 
 ::: jaxdrb.models.registry
 
+::: jaxdrb.models.invariants
+
 ## Geometry
 
 ::: jaxdrb.geometry.base
@@ -66,3 +68,5 @@ This section is generated from docstrings using `mkdocstrings`.
 ::: jaxdrb.bc
 
 ::: jaxdrb.models.bcs
+
+::: jaxdrb.models.sheath

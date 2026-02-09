@@ -155,6 +155,10 @@ models are available:
   - finite $\alpha_{\mathrm{crit}}$ at $\hat{s}=0$,
   - monotonic shear stabilization of $\alpha_{\mathrm{crit}}(\hat{s})$.
   - `tests/test_ideal_ballooning.py`
+- Mosetto (2012)-style regime transition gate (workflow classifier):
+  - low-$\eta$ points remain RBM-like for selected low/high drives,
+  - high-$\eta$ points transition to RDW-like for the same drives.
+  - `tests/test_mosetto_regime_quantitative_gate.py`
 
 ### Arnoldi vs dense Jacobian (tiny problem)
 
@@ -279,6 +283,33 @@ Tests:
 - `tests/test_nonlinear_fieldline_toggles.py`
 - `tests/test_polarization_models.py`
 - `tests/test_braginskii_scalings.py`
+
+## DRB nonlinear conservative hard gate (field-line branch)
+
+Beyond the HW2D testbed, `jaxdrb` now includes a **hard conservative gate on the actual cold-ion DRB model**
+in a periodic conservative subset (`omega_n=omega_Te=0`, curvature/sinks/diffusion/sheath off, finite `me_hat`).
+
+Tracked diagnostics:
+
+- quadratic DRB energy functional
+  $$
+  E=\frac{1}{2}\left\langle |n|^2 + k_\perp^2 |\phi|^2 + \hat m_e |v_{\parallel e}|^2 + |v_{\parallel i}|^2
+  + \frac{3}{2}\alpha_{Te}|T_e|^2 \right\rangle,
+  $$
+- mass proxy $\langle n\rangle$,
+- charge proxy $\langle \Omega\rangle$,
+- mean current $\langle j_\parallel \rangle$ with $j_\parallel=v_{\parallel i}-v_{\parallel e}$,
+- momentum proxy $\langle v_{\parallel i}+\hat m_e v_{\parallel e}\rangle$.
+
+Implementation:
+
+- Functional/diagnostics: `src/jaxdrb/models/invariants.py`
+- Hard-gate tests: `tests/test_drb_nonlinear_conservative_gate.py`
+- Reproducible figure/example: `examples/10_verification/drb_cold_ion_conservative_gate.py`
+
+Example output:
+
+![Cold-ion DRB conservative gate](assets/images/drb_cold_ion_conservative_gate.png)
 
 ## Performance regression gates
 

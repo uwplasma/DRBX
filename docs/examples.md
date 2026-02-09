@@ -178,3 +178,9 @@ Shear-Alfvén dispersion verification (Zhu et al. 2018 / GDB):
 ```bash
 python examples/10_verification/saw_dispersion_gdb2018.py --out out_saw_gdb2018
 ```
+
+Cold-ion DRB conservative hard-gate benchmark:
+
+```bash
+python examples/10_verification/drb_cold_ion_conservative_gate.py
+```

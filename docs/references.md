@@ -80,3 +80,9 @@ standard plasma fluid literature and the references cited in the papers above.
 - L. Spitzer Jr. and R. Härm,
   *Transport phenomena in a completely ionized gas*,
   **Physical Review 89**, 977 (1953).
+
+## Conservative nonlinear DRB
+
+- B. De Lucca et al.,
+  *Conservative formulation of the drift-reduced fluid plasma model* (2026),
+  arXiv: [2601.05704](https://arxiv.org/abs/2601.05704)
