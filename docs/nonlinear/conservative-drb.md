@@ -28,6 +28,16 @@ exact conservation laws (energy, mass, charge, momentum) in arbitrary magnetic g
 Nonlinear conservative DRB is **not yet implemented**; the HW2D milestone and the conservative utilities
 in `src/jaxdrb/nonlinear/conservative/` exist to make the transition more systematic.
 
+As a concrete bridge, `jaxdrb` now includes a **field-line cold-ion DRB conservative gate** for the
+periodic/no-source subset:
+
+- energy functional and invariant diagnostics:
+  - [`src/jaxdrb/models/invariants.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/models/invariants.py)
+- hard CI gate:
+  - [`tests/test_drb_nonlinear_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_drb_nonlinear_conservative_gate.py)
+- reproducible verification example:
+  - [`examples/10_verification/drb_cold_ion_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/drb_cold_ion_conservative_gate.py)
+
 ## What “conservative nonlinear DRB” requires
 
 ### 1) A discrete energy functional and a budget diagnostic
@@ -83,4 +93,3 @@ The lowest-risk path is:
 
 These steps allow progressively stronger validation before adding the full complexity of SOL boundaries, sources,
 and multi-physics closures.
-

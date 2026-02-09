@@ -18,6 +18,12 @@ The purpose is not to replace SOL-specific DRB models. Rather, it is a fast and 
 - validate invariants (when applicable),
 - prepare the code structure for the eventual nonlinear DRB system (including open-field-line boundary conditions, sources/sinks, and additional closures).
 
+In addition, `jaxdrb` now includes a **periodic cold-ion DRB conservative gate** on the actual field-line
+branch (energy/mass/charge/current/momentum invariants), exposed as:
+
+- test: `tests/test_drb_nonlinear_conservative_gate.py`
+- example: `examples/10_verification/drb_cold_ion_conservative_gate.py`
+
 ## Run the nonlinear examples
 
 From the repository root:

@@ -25,6 +25,7 @@ The tests aim to provide:
 
 - **Regression protection** for the linear operators and model RHS implementations.
 - **Basic physics sanity checks** in known “no-drive” limits.
+- **Hard conservative gates** for selected nonlinear and field-line DRB subsets.
 - **API stability** for key user-facing functions and dataclasses.
 
 Examples of covered checks:
@@ -33,6 +34,10 @@ Examples of covered checks:
 - Consistency of scan outputs (`gamma_eigs`, `omega_eigs`, eigenvalues) and file writing behavior.
 - Open-field-line sheath closures: volumetric end-loss proxy and (simplified) MPSE boundary
   enforcement in small problems.
+- Quantitative sheath gates for EM current closure and heat/SEE closure terms.
+- Conservative invariant gates:
+  - HW2D ideal subset (`tests/test_hw2d_conservative_gate.py`),
+  - cold-ion DRB periodic subset (`tests/test_drb_nonlinear_conservative_gate.py`).
 
 ## Optional ESSOS tests
 
@@ -69,5 +74,4 @@ The CI definition lives in:
 
 They do **not** claim quantitative agreement with any one published SOL closure set in all regimes.
 Where the implementation uses simplified closures (e.g. linearized MPSE BC enforcement), the docs
-and tests aim to make that explicit.
-
+and tests make this explicit and isolate those assumptions in dedicated gates/examples.
