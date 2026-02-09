@@ -96,6 +96,10 @@ def rhs_nonlinear(
         boussinesq=params.boussinesq,
         n0=eq.n0,
         n0_min=params.n0_min,
+        n=y.n,
+        non_boussinesq_perturbed_density_on=bool(
+            getattr(params, "non_boussinesq_perturbed_density_on", False)
+        ),
     )
 
     dpar = geom.dpar
@@ -132,7 +136,7 @@ def rhs_nonlinear(
 
     # Continuity: use constrained vpar_e in the me_hat=0 limit.
     grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
-    eta_eff = jnp.maximum(eta_parallel_eff(params, eq), 1e-12)
+    eta_eff = jnp.maximum(eta_parallel_eff(params, eq, Te_state=y.Te), 1e-12)
     vpar_e_eff = jnp.where(use_algebraic_ohm, y.vpar_i + grad_par_phi_pe / eta_eff, y.vpar_e)
 
     jpar = y.vpar_i - vpar_e_eff
@@ -147,23 +151,23 @@ def rhs_nonlinear(
         dvpar_e = -eta_eff * (y.vpar_e - vpar_e_eff)
     else:
         dvpar_e = (grad_par_phi_pe - eta_eff * (y.vpar_e - y.vpar_i)) / params.me_hat
-    dvpar_e = dvpar_e + nu_par_e_eff(params, eq) * d2par(y.vpar_e)
+    dvpar_e = dvpar_e + nu_par_e_eff(params, eq, Te_state=y.Te) * d2par(y.vpar_e)
     dvpar_e = dvpar_e - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_e
 
     # Ion parallel momentum with ion pressure (tau_i=0 recovers cold ions).
     dvpar_i = -dpar(phi + tau_i * (y.n + y.Ti))
-    dvpar_i = dvpar_i + nu_par_i_eff(params, eq) * d2par(y.vpar_i)
+    dvpar_i = dvpar_i + nu_par_i_eff(params, eq, Te_state=y.Te, Ti_state=y.Ti) * d2par(y.vpar_i)
     dvpar_i = dvpar_i - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_i
 
     # Electron temperature
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e_eff) + params.DTe * lap_Te
-    dTe = dTe + chi_par_Te_eff(params, eq) * d2par(y.Te)
+    dTe = dTe + chi_par_Te_eff(params, eq, Te_state=y.Te) * d2par(y.Te)
     dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
     # Ion temperature (minimal)
     DTi = getattr(params, "DTi", params.DTe)
     dTi = drive_Ti - (2.0 / 3.0) * dpar(y.vpar_i) + DTi * lap_Ti
-    dTi = dTi + chi_par_Ti_eff(params, eq) * d2par(y.Ti)
+    dTi = dTi + chi_par_Ti_eff(params, eq, Te_state=y.Te, Ti_state=y.Ti) * d2par(y.Ti)
 
     # Optional MPSE (sheath) boundary conditions (applied in the cold-ion sound-speed normalization).
     if int(getattr(params, "sheath_bc_model", 0)) == 1:
