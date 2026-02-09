@@ -30,7 +30,28 @@ def _Ti0_eff(params, eq) -> jnp.ndarray:
     return tau_i * _Te0_eff(params, eq)
 
 
-def eta_parallel(params, eq) -> jnp.ndarray:
+def _Te_eff(params, eq, Te_state: jnp.ndarray | None = None) -> jnp.ndarray:
+    Te = _Te0_eff(params, eq)
+    if bool(getattr(params, "braginskii_state_dependent_on", False)) and Te_state is not None:
+        floor = float(getattr(params, "braginskii_T_floor", 1e-3))
+        width = float(getattr(params, "braginskii_T_smooth", 1e-3))
+        Te = smooth_floor(Te + jnp.real(jnp.asarray(Te_state)), floor=floor, width=width)
+    return Te
+
+
+def _Ti_eff(params, eq, Te_state: jnp.ndarray | None = None, Ti_state: jnp.ndarray | None = None):
+    Ti = _Ti0_eff(params, eq)
+    if bool(getattr(params, "braginskii_state_dependent_on", False)):
+        floor = float(getattr(params, "braginskii_T_floor", 1e-3))
+        width = float(getattr(params, "braginskii_T_smooth", 1e-3))
+        if Ti_state is not None:
+            Ti = smooth_floor(Ti + jnp.real(jnp.asarray(Ti_state)), floor=floor, width=width)
+        elif Te_state is not None:
+            Ti = smooth_floor(Ti + jnp.real(jnp.asarray(Te_state)), floor=floor, width=width)
+    return Ti
+
+
+def eta_parallel(params, eq, Te_state: jnp.ndarray | None = None) -> jnp.ndarray:
     """Parallel resistivity η (constant or Spitzer-like scaling)."""
 
     eta0 = jnp.asarray(getattr(params, "eta", 0.0), dtype=jnp.float64)
@@ -39,13 +60,13 @@ def eta_parallel(params, eq) -> jnp.ndarray:
     if not bool(getattr(params, "braginskii_eta_on", True)):
         return eta0
 
-    Te0 = _Te0_eff(params, eq)
+    Te0 = _Te_eff(params, eq, Te_state=Te_state)
     Tref = jnp.asarray(getattr(params, "braginskii_Tref", 1.0), dtype=jnp.float64)
     # Spitzer resistivity scaling: η ∝ T_e^{-3/2}. (Zeff, lnΛ can be folded into eta0.)
     return eta0 * (Tref / Te0) ** 1.5
 
 
-def chi_par_Te(params, eq) -> jnp.ndarray:
+def chi_par_Te(params, eq, Te_state: jnp.ndarray | None = None) -> jnp.ndarray:
     """Parallel electron heat conduction coefficient χ_||,e.
 
     In Braginskii/Spitzer-Härm scaling, κ_||,e ∝ T_e^{5/2}. In the reduced model we represent
@@ -58,12 +79,17 @@ def chi_par_Te(params, eq) -> jnp.ndarray:
     if not bool(getattr(params, "braginskii_kappa_e_on", True)):
         return chi0
 
-    Te0 = _Te0_eff(params, eq)
+    Te0 = _Te_eff(params, eq, Te_state=Te_state)
     Tref = jnp.asarray(getattr(params, "braginskii_Tref", 1.0), dtype=jnp.float64)
     return chi0 * (Te0 / Tref) ** 2.5
 
 
-def chi_par_Ti(params, eq) -> jnp.ndarray:
+def chi_par_Ti(
+    params,
+    eq,
+    Te_state: jnp.ndarray | None = None,
+    Ti_state: jnp.ndarray | None = None,
+) -> jnp.ndarray:
     """Parallel ion heat conduction coefficient χ_||,i (hot-ion model)."""
 
     chi0 = jnp.asarray(getattr(params, "chi_par_Ti", 0.0), dtype=jnp.float64)
@@ -72,12 +98,12 @@ def chi_par_Ti(params, eq) -> jnp.ndarray:
     if not bool(getattr(params, "braginskii_kappa_i_on", True)):
         return chi0
 
-    Ti0 = _Ti0_eff(params, eq)
+    Ti0 = _Ti_eff(params, eq, Te_state=Te_state, Ti_state=Ti_state)
     Tref = jnp.asarray(getattr(params, "braginskii_Tref", 1.0), dtype=jnp.float64)
     return chi0 * (Ti0 / Tref) ** 2.5
 
 
-def nu_par_e(params, eq) -> jnp.ndarray:
+def nu_par_e(params, eq, Te_state: jnp.ndarray | None = None) -> jnp.ndarray:
     """Parallel electron flow diffusion/viscosity coefficient (placeholder scaling)."""
 
     nu0 = jnp.asarray(getattr(params, "nu_par_e", 0.0), dtype=jnp.float64)
@@ -86,12 +112,17 @@ def nu_par_e(params, eq) -> jnp.ndarray:
     if not bool(getattr(params, "braginskii_visc_e_on", True)):
         return nu0
 
-    Te0 = _Te0_eff(params, eq)
+    Te0 = _Te_eff(params, eq, Te_state=Te_state)
     Tref = jnp.asarray(getattr(params, "braginskii_Tref", 1.0), dtype=jnp.float64)
     return nu0 * (Te0 / Tref) ** 2.5
 
 
-def nu_par_i(params, eq) -> jnp.ndarray:
+def nu_par_i(
+    params,
+    eq,
+    Te_state: jnp.ndarray | None = None,
+    Ti_state: jnp.ndarray | None = None,
+) -> jnp.ndarray:
     """Parallel ion flow diffusion/viscosity coefficient (placeholder scaling)."""
 
     nu0 = jnp.asarray(getattr(params, "nu_par_i", 0.0), dtype=jnp.float64)
@@ -102,6 +133,9 @@ def nu_par_i(params, eq) -> jnp.ndarray:
 
     # In the hot-ion model, use Ti0 for the ion scaling; otherwise fall back to Te0.
     tau_i = float(getattr(params, "tau_i", 0.0))
-    T0 = _Ti0_eff(params, eq) if tau_i > 0.0 else _Te0_eff(params, eq)
+    if tau_i > 0.0:
+        T0 = _Ti_eff(params, eq, Te_state=Te_state, Ti_state=Ti_state)
+    else:
+        T0 = _Te_eff(params, eq, Te_state=Te_state)
     Tref = jnp.asarray(getattr(params, "braginskii_Tref", 1.0), dtype=jnp.float64)
     return nu0 * (T0 / Tref) ** 2.5

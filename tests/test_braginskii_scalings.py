@@ -93,3 +93,35 @@ def test_kappa_and_viscosity_scalings_use_T_pow_5_2() -> None:
     Ti_pow = Ti0**2.5
     assert np.allclose(np.asarray(chi_par_Ti(params, eq)), 5.0 * Ti_pow, rtol=0.0, atol=1e-12)
     assert np.allclose(np.asarray(nu_par_i(params, eq)), 11.0 * Ti_pow, rtol=0.0, atol=1e-12)
+
+
+def test_state_dependent_braginskii_eta_uses_evolving_temperature_when_enabled() -> None:
+    Te0 = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float64)
+    eq = Equilibrium(n0=jnp.ones_like(Te0), Te0=Te0)
+    Te_state = jnp.array([0.2, -0.1, 0.4], dtype=jnp.complex128)
+
+    p_eq = DRBParams(
+        eta=2.0,
+        braginskii_on=True,
+        braginskii_eta_on=True,
+        braginskii_state_dependent_on=False,
+        braginskii_Tref=1.0,
+        braginskii_T_floor=1e-6,
+        braginskii_T_smooth=1e-6,
+    )
+    p_state = DRBParams(
+        eta=2.0,
+        braginskii_on=True,
+        braginskii_eta_on=True,
+        braginskii_state_dependent_on=True,
+        braginskii_Tref=1.0,
+        braginskii_T_floor=1e-6,
+        braginskii_T_smooth=1e-6,
+    )
+
+    eta_eq = np.asarray(eta_parallel(p_eq, eq, Te_state=Te_state))
+    eta_state = np.asarray(eta_parallel(p_state, eq, Te_state=Te_state))
+    expected = 2.0 * np.asarray(1.0 / (Te0 + Te_state.real)) ** 1.5
+
+    assert np.allclose(eta_eq, 2.0, rtol=0.0, atol=1e-12)
+    assert np.allclose(eta_state, expected, rtol=0.0, atol=5e-12)

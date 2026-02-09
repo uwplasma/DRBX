@@ -27,6 +27,38 @@ def test_phi_from_omega_non_boussinesq_scales_with_n0() -> None:
     assert np.allclose(np.asarray(phi_nb), np.asarray(phi_b) / 2.0)
 
 
+def test_phi_from_omega_non_boussinesq_state_dependent_density_toggle() -> None:
+    nl = 6
+    omega = (1.0 + 0.0j) * jnp.ones((nl,), dtype=jnp.complex128)
+    k2 = 2.0 * jnp.ones((nl,), dtype=jnp.float64)
+    n0 = 2.0 * jnp.ones((nl,), dtype=jnp.float64)
+    n = 0.5 * jnp.ones((nl,), dtype=jnp.complex128)
+
+    phi_eq = phi_from_omega(
+        omega,
+        k2,
+        kperp2_min=1e-12,
+        boussinesq=False,
+        n0=n0,
+        n0_min=1e-12,
+        n=n,
+        non_boussinesq_perturbed_density_on=False,
+    )
+    phi_state = phi_from_omega(
+        omega,
+        k2,
+        kperp2_min=1e-12,
+        boussinesq=False,
+        n0=n0,
+        n0_min=1e-12,
+        n=n,
+        non_boussinesq_perturbed_density_on=True,
+    )
+
+    expected_ratio = np.asarray((n0 / (n0 + n.real))[0])
+    assert np.allclose(np.asarray(phi_state / phi_eq), expected_ratio, rtol=0.0, atol=1e-12)
+
+
 def test_non_boussinesq_matches_boussinesq_when_n0_is_one() -> None:
     nl = 10
     geom = SlabGeometry.make(nl=nl, shat=0.0, curvature0=0.0)

@@ -6,7 +6,7 @@ See `docs/validation.md` for the validation plots and tests anchored to drift-wa
 
 ## State
 
-The HW2D state is
+The baseline HW2D state is
 
 $$
 y = (n, \omega),
@@ -17,6 +17,10 @@ where:
 - $n(x,y,t)$ is the fluctuating density (in normalized units),
 - $\omega(x,y,t)$ is the vorticity,
 - $\phi(x,y,t)$ is the electrostatic potential, obtained from a polarization closure.
+
+With neutrals enabled, the state becomes $y=(n,\omega,N)$ and optional coupling terms are added
+as documented in `docs/nonlinear/neutrals.md`, including ionization/recombination exchange and
+an optional charge-exchange-like vorticity drag toggle.
 
 ## Polarization (Poisson solve)
 

@@ -59,8 +59,11 @@ class DRBParams(eqx.Module):
     #
     # Boussinesq: Omega = -k_perp^2 * phi
     # Non-Boussinesq (linearized about equilibrium n0): Omega = -k_perp^2 * n0 * phi
+    # Optional nonlinear non-Boussinesq: Omega = -k_perp^2 * (n0 + Re[n]) * phi
+    # (enabled with `non_boussinesq_perturbed_density_on`).
     boussinesq: bool = True
     n0_min: float = 1e-6
+    non_boussinesq_perturbed_density_on: bool = False
 
     # Braginskii coefficients (dimensionless, in the same normalization as the model).
     #
@@ -80,6 +83,10 @@ class DRBParams(eqx.Module):
     # coefficients are evaluated on the equilibrium profile (Te0, Ti0) and treated as spatially
     # varying multipliers in the linear operators.
     braginskii_on: bool = False
+    # In nonlinear runs, allow evaluating Braginskii coefficients on evolving fields:
+    #   Te_eff = Te0 + Re[Te], Ti_eff = Ti0 + Re[Ti] (with smooth positivity floor).
+    # Keep this OFF for linear eigenvalue studies where coefficients should remain equilibrium-based.
+    braginskii_state_dependent_on: bool = False
     braginskii_eta_on: bool = True
     braginskii_kappa_e_on: bool = True
     braginskii_kappa_i_on: bool = True

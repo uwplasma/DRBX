@@ -39,20 +39,25 @@ class NeutralParams(eqx.Module):
     S0: float = 0.0
     nu_sink: float = 0.0
 
+    # Optional charge-exchange-like momentum drag proxy in vorticity equation:
+    #   dω/dt <- dω/dt - nu_cx_omega * N * ω
+    nu_cx_omega: float = 0.0
+
 
 def rhs_neutral(
     *,
     N: jnp.ndarray,
     n: jnp.ndarray,
+    omega: jnp.ndarray,
     dn0: NeutralParams,
     adv_N: jnp.ndarray,
     lap_N: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return (dN/dt, dn/dt contribution) from neutral physics."""
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return (dN/dt, dn/dt contribution, domega/dt contribution) from neutral physics."""
 
     if not dn0.enabled:
         z = jnp.zeros_like(N)
-        return z, z
+        return z, z, z
 
     diff = dn0.Dn0 * lap_N
     src = dn0.S0 - dn0.nu_sink * N
@@ -65,4 +70,5 @@ def rhs_neutral(
 
     dN = -adv_N + diff + src - ion + rec
     dn_contrib = ion - rec
-    return dN, dn_contrib
+    domega_contrib = -dn0.nu_cx_omega * N_abs * omega
+    return dN, dn_contrib, domega_contrib

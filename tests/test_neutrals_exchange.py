@@ -123,3 +123,91 @@ def test_neutral_source_sink_uniform_relaxes_to_analytic_equilibrium():
     N0 = 0.2
     expected = N_star + (N0 - N_star) * math.exp(-nu_sink * t_end)
     assert jnp.abs(Nbar - expected) < 2e-8
+
+
+def test_neutral_charge_exchange_drag_term_on_omega_is_applied() -> None:
+    grid = Grid2D.make(nx=8, ny=8, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=True)
+    nu_cx = 0.3
+    params = HW2DParams(
+        kappa=0.0,
+        alpha=0.0,
+        Dn=0.0,
+        DOmega=0.0,
+        bracket="arakawa",
+        dealias_on=True,
+        neutrals=NeutralParams(
+            enabled=True,
+            Dn0=0.0,
+            nu_ion=0.0,
+            nu_rec=0.0,
+            S0=0.0,
+            nu_sink=0.0,
+            nu_cx_omega=nu_cx,
+        ),
+    )
+    model = HW2DModel(params=params, grid=grid)
+
+    n = jnp.zeros((grid.nx, grid.ny))
+    omega = 0.7 * jnp.ones((grid.nx, grid.ny))
+    N = 1.5 * jnp.ones((grid.nx, grid.ny))
+    y = HW2DState(n=n, omega=omega, N=N)
+    dy = model.rhs(0.0, y)
+
+    expected = -nu_cx * N * omega
+    assert jnp.max(jnp.abs(dy.omega - expected)) < 1e-12
+
+
+def test_neutrals_passive_limit_keeps_hw2d_invariants() -> None:
+    """Invariant gate with neutrals enabled but passive (no exchange/source/sink/drag)."""
+
+    grid = Grid2D.make(nx=24, ny=24, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=True)
+    params = HW2DParams(
+        kappa=0.0,
+        alpha=0.0,
+        Dn=0.0,
+        DOmega=0.0,
+        nu4_n=0.0,
+        nu4_omega=0.0,
+        bracket="arakawa",
+        poisson="spectral",
+        dealias_on=False,
+        neutrals=NeutralParams(
+            enabled=True,
+            Dn0=0.0,
+            nu_ion=0.0,
+            nu_rec=0.0,
+            S0=0.0,
+            nu_sink=0.0,
+            nu_cx_omega=0.0,
+        ),
+    )
+    model = HW2DModel(params=params, grid=grid)
+
+    key = jax.random.key(7)
+    y0 = HW2DState(
+        n=1e-2 * jax.random.normal(key, (grid.nx, grid.ny)),
+        omega=1e-2 * jax.random.normal(jax.random.split(key, 2)[1], (grid.nx, grid.ny)),
+        N=1.0 + 1e-2 * jax.random.normal(jax.random.split(key, 3)[2], (grid.nx, grid.ny)),
+    )
+
+    dt = 0.01
+    nsteps = 300
+
+    @jax.jit
+    def integrate(y_init: HW2DState) -> HW2DState:
+        def body(i, carry):
+            t, y_ = carry
+            y_next = rk4_step(y_, t, dt, model.rhs)
+            return (t + dt, y_next)
+
+        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y_init))
+        return y_end
+
+    d0 = model.diagnostics(y0)
+    y1 = integrate(y0)
+    d1 = model.diagnostics(y1)
+
+    relE = jnp.abs(d1["E"] - d0["E"]) / jnp.maximum(d0["E"], 1e-30)
+    relZ = jnp.abs(d1["Z"] - d0["Z"]) / jnp.maximum(d0["Z"], 1e-30)
+    assert relE < 1e-4
+    assert relZ < 1e-4

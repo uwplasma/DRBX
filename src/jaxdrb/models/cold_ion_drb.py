@@ -90,13 +90,19 @@ def phi_from_omega(
     boussinesq: bool,
     n0: jnp.ndarray | None = None,
     n0_min: float = 1e-6,
+    n: jnp.ndarray | None = None,
+    non_boussinesq_perturbed_density_on: bool = False,
 ) -> jnp.ndarray:
     k2 = jnp.maximum(kperp2, kperp2_min)
     if boussinesq:
         return -omega / k2
     if n0 is None:
         raise ValueError("Non-Boussinesq polarization requires an equilibrium density n0.")
-    return -omega / (k2 * jnp.maximum(n0, n0_min))
+    if non_boussinesq_perturbed_density_on and n is not None:
+        n_eff = jnp.maximum(jnp.asarray(n0) + jnp.real(jnp.asarray(n)), n0_min)
+    else:
+        n_eff = jnp.maximum(jnp.asarray(n0), n0_min)
+    return -omega / (k2 * n_eff)
 
 
 def rhs_nonlinear(
@@ -125,6 +131,10 @@ def rhs_nonlinear(
         boussinesq=params.boussinesq,
         n0=eq.n0,
         n0_min=params.n0_min,
+        n=y.n,
+        non_boussinesq_perturbed_density_on=bool(
+            getattr(params, "non_boussinesq_perturbed_density_on", False)
+        ),
     )
 
     dpar = geom.dpar
@@ -164,7 +174,7 @@ def rhs_nonlinear(
     # consistent with e.g. Mosetto et al. (2012) in the cold-ion limit.
     # vpar_e used in compressibility is the constrained value in the me_hat=0 limit.
     grad_par_phi_pe = dpar(phi - y.n - float(params.alpha_Te_ohm) * y.Te)
-    eta_eff = jnp.maximum(eta_parallel_eff(params, eq), 1e-12)
+    eta_eff = jnp.maximum(eta_parallel_eff(params, eq, Te_state=y.Te), 1e-12)
     vpar_e_eff = jnp.where(use_algebraic_ohm, y.vpar_i + grad_par_phi_pe / eta_eff, y.vpar_e)
 
     # Parallel current (n0 = 1 normalization)
@@ -183,17 +193,17 @@ def rhs_nonlinear(
         dvpar_e = -eta_eff * (y.vpar_e - vpar_e_eff)
     else:
         dvpar_e = (grad_par_phi_pe - eta_eff * (y.vpar_e - y.vpar_i)) / params.me_hat
-    dvpar_e = dvpar_e + nu_par_e_eff(params, eq) * d2par(y.vpar_e)
+    dvpar_e = dvpar_e + nu_par_e_eff(params, eq, Te_state=y.Te) * d2par(y.vpar_e)
     dvpar_e = dvpar_e - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_e
 
     # Ion parallel momentum (cold ions)
     dvpar_i = -dpar(phi)
-    dvpar_i = dvpar_i + nu_par_i_eff(params, eq) * d2par(y.vpar_i)
+    dvpar_i = dvpar_i + nu_par_i_eff(params, eq, Te_state=y.Te) * d2par(y.vpar_i)
     dvpar_i = dvpar_i - float(getattr(params, "nu_sink_vpar", 0.0)) * y.vpar_i
 
     # Electron temperature
     dTe = drive_Te + C_T - (2.0 / 3.0) * dpar(vpar_e_eff) + params.DTe * lap_Te
-    dTe = dTe + chi_par_Te_eff(params, eq) * d2par(y.Te)
+    dTe = dTe + chi_par_Te_eff(params, eq, Te_state=y.Te) * d2par(y.Te)
     dTe = dTe - float(getattr(params, "nu_sink_Te", 0.0)) * y.Te
 
     # Optional MPSE (sheath) boundary conditions for open field lines.

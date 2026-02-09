@@ -47,8 +47,14 @@ and treated as **spatially varying multipliers** on the linear operators.
 This approach captures the most important SOL-relevant effect: **temperature-dependent parallel losses and
 resistive coupling** through $T_{e0}(l)$.
 
-Future nonlinear milestones will extend these to **state-dependent** coefficients evaluated on the evolving
-fields, while preserving differentiability.
+That state-dependent mode is now available behind a toggle:
+
+- `DRBParams(braginskii_state_dependent_on=True)`.
+
+When enabled, coefficients are evaluated on floored effective temperatures
+$T_e^\mathrm{eff}=T_{e0}+\mathrm{Re}(T_e)$ and (for hot ions)
+$T_i^\mathrm{eff}=T_{i0}+\mathrm{Re}(T_i)$.
+For linear eigenvalue workflows, keep this toggle disabled to preserve equilibrium-linear operators.
 
 ## Code mapping
 
@@ -81,6 +87,7 @@ implemented as `smooth_floor(...)`.
 In `DRBParams`:
 
 - Master switch: `braginskii_on`
+- Nonlinear state-dependent switch: `braginskii_state_dependent_on`
 - Per-effect toggles:
   - `braginskii_eta_on` (Spitzer $\eta$ scaling)
   - `braginskii_kappa_e_on`, `braginskii_kappa_i_on` ($\chi_\parallel$ scalings)
