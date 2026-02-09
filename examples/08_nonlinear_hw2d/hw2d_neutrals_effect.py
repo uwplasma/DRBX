@@ -3,6 +3,7 @@
 This example demonstrates a simple, togglable plasma–neutral interaction:
   - neutrals N are advected by E×B and diffuse
   - ionization transfers particles from neutrals to plasma density (n)
+  - optional charge-exchange-like drag damps vorticity: domega <- domega - nu_cx_omega*N*omega
 
 While this periodic 2D setup is not a full SOL geometry, it is a clean and fast
 way to validate coupling terms and test algorithmic performance in JAX.
@@ -40,6 +41,7 @@ def main() -> None:
     parser.add_argument("--out", type=str, default="out_hw2d_neutrals")
     parser.add_argument("--nu-ion", type=float, default=0.2)
     parser.add_argument("--nu-rec", type=float, default=0.02)
+    parser.add_argument("--nu-cx-omega", type=float, default=0.0)
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -55,6 +57,7 @@ def main() -> None:
         n_background=1.0,
         S0=0.0,
         nu_sink=0.0,
+        nu_cx_omega=float(args.nu_cx_omega),
     )
     params = HW2DParams(
         kappa=1.0,
@@ -111,6 +114,7 @@ def main() -> None:
                     "nu_rec": neutrals.nu_rec,
                     "S0": neutrals.S0,
                     "nu_sink": neutrals.nu_sink,
+                    "nu_cx_omega": neutrals.nu_cx_omega,
                 },
             },
             indent=2,
@@ -178,9 +182,13 @@ def main() -> None:
         ax.set_yticks([])
 
     ax1 = fig.add_subplot(gs[1, 2])
-    ax1.plot(ts, (jnp.array(nbar) + jnp.array(Nbar)), lw=2)
+    ax1.plot(ts, (jnp.array(nbar) + jnp.array(Nbar)), lw=2, label=r"$\langle n+N\rangle$")
+    if neutrals.nu_cx_omega > 0.0:
+        ax1.set_title(rf"$\langle n+N\rangle$ and $\nu_{{cx,\omega}}={neutrals.nu_cx_omega:g}$")
+    else:
+        ax1.set_title(r"$\langle n+N\rangle$")
     ax1.set_xlabel("t")
-    ax1.set_title(r"$\langle n + N \rangle$")
+    ax1.legend(loc="best", fontsize=9)
 
     fig.suptitle("Nonlinear HW2D with minimal neutrals (periodic)", y=0.98)
     fig.tight_layout()

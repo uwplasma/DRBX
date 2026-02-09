@@ -67,6 +67,11 @@ def main() -> None:
     parser.add_argument("--tau-i", type=float, default=0.0)
     parser.add_argument("--no-curvature", action="store_true")
     parser.add_argument("--no-boussinesq", action="store_true")
+    parser.add_argument(
+        "--non-boussinesq-perturbed-density",
+        action="store_true",
+        help="Use n0+Re[n] in non-Boussinesq polarization (nonlinear milestone toggle).",
+    )
     parser.add_argument("--Dn", type=float, default=0.01)
     parser.add_argument("--DOmega", type=float, default=0.01)
     parser.add_argument("--DTe", type=float, default=0.01)
@@ -119,6 +124,11 @@ def main() -> None:
         "--braginskii",
         action="store_true",
         help="Enable Braginskii/Spitzer equilibrium-based transport scalings (η~Te^{-3/2}, χ||~T^{5/2}, ν||~T^{5/2}).",
+    )
+    parser.add_argument(
+        "--braginskii-state-dependent",
+        action="store_true",
+        help="Evaluate Braginskii coefficients on evolving temperatures (nonlinear milestone toggle).",
     )
     parser.add_argument("--braginskii-Tref", type=float, default=1.0)
     parser.add_argument("--braginskii-T-floor", type=float, default=1e-3)
@@ -295,6 +305,7 @@ def main() -> None:
         "tau_i": args.tau_i,
         "curvature_on": not args.no_curvature,
         "boussinesq": not args.no_boussinesq,
+        "non_boussinesq_perturbed_density_on": bool(args.non_boussinesq_perturbed_density),
         "Dn": args.Dn,
         "DOmega": args.DOmega,
         "DTe": args.DTe,
@@ -308,6 +319,7 @@ def main() -> None:
         "eq_n0": float(args.eq_n0),
         "eq_Te0": float(args.eq_Te0),
         "braginskii_on": bool(args.braginskii),
+        "braginskii_state_dependent_on": bool(args.braginskii_state_dependent),
         "braginskii_Tref": float(args.braginskii_Tref),
         "braginskii_T_floor": float(args.braginskii_T_floor),
         "braginskii_T_smooth": float(args.braginskii_T_smooth),
@@ -422,6 +434,7 @@ def main() -> None:
         tau_i=args.tau_i,
         curvature_on=not args.no_curvature,
         boussinesq=not args.no_boussinesq,
+        non_boussinesq_perturbed_density_on=bool(args.non_boussinesq_perturbed_density),
         Dn=args.Dn,
         DOmega=args.DOmega,
         DTe=args.DTe,
@@ -436,6 +449,7 @@ def main() -> None:
         nu_sink_Te=float(args.nu_sink_Te),
         nu_sink_vpar=float(args.nu_sink_vpar),
         braginskii_on=bool(args.braginskii),
+        braginskii_state_dependent_on=bool(args.braginskii_state_dependent),
         braginskii_Tref=float(args.braginskii_Tref),
         braginskii_T_floor=float(args.braginskii_T_floor),
         braginskii_T_smooth=float(args.braginskii_T_smooth),

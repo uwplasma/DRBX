@@ -23,9 +23,19 @@ $$
 In the current examples, the equilibrium density is $n_0=1$ by default, so Boussinesq and
 non-Boussinesq are identical in linear scans unless you provide a nontrivial $n_0(l)$.
 
+For nonlinear milestone runs, `jaxdrb` also provides an optional state-dependent variant:
+
+$$
+\Omega = -k_\perp^2(l)\,[n_0(l)+\mathrm{Re}(n)]\,\phi,
+$$
+
+enabled by `DRBParams(non_boussinesq_perturbed_density_on=True)`. This toggle is intended for
+time-evolution workflows; keep it off for linear eigenvalue scans.
+
 **Code mapping**
 
 - Parameter toggle: `DRBParams(boussinesq=True/False)`.
+- Nonlinear toggle: `DRBParams(non_boussinesq_perturbed_density_on=True/False)`.
 - Implementation: `jaxdrb.models.cold_ion_drb.phi_from_omega(...)` and the `eq.n0(l)` profile.
 
 ## Hot ions (adds Ti)

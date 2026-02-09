@@ -255,6 +255,7 @@ The neutral milestone model is validated with explicit particle-balance and sour
 - isolated ionization conservation of total particles $\langle n + N \rangle$,
 - isolated ionization+recombination conservation of total particles,
 - uniform source/sink relaxation to the analytic equilibrium $N^\*=S_0/\nu_{\mathrm{sink}}$.
+- exact enforcement of optional charge-exchange-like vorticity drag.
 
 Tests:
 
@@ -263,6 +264,21 @@ Tests:
 Implementation:
 
 - `src/jaxdrb/nonlinear/neutrals.py`
+
+## Nonlinear closure-toggle gates (field-line DRB)
+
+For nonlinear-preparation workflows in the field-line DRB models, `jaxdrb` includes dedicated
+toggle tests for:
+
+- nonlinear non-Boussinesq polarization (`n_0 + Re[n]` denominator),
+- state-dependent Braginskii coefficients (`T_{e0}+Re[Te]`, `T_{i0}+Re[Ti]`),
+- finite-RHS sanity under combined state-dependent toggles.
+
+Tests:
+
+- `tests/test_nonlinear_fieldline_toggles.py`
+- `tests/test_polarization_models.py`
+- `tests/test_braginskii_scalings.py`
 
 ## Performance regression gates
 

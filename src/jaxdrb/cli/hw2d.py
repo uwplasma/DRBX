@@ -74,6 +74,12 @@ def main() -> None:
     )
     parser.add_argument("--neutral-source", type=float, default=0.0)
     parser.add_argument("--neutral-sink", type=float, default=0.0)
+    parser.add_argument(
+        "--nu-cx-omega",
+        type=float,
+        default=0.0,
+        help="Charge-exchange-like vorticity drag coefficient (domega <- domega - nu_cx_omega*N*omega).",
+    )
 
     parser.add_argument("--out", type=str, default="out_hw2d_cli")
     args = parser.parse_args()
@@ -105,6 +111,7 @@ def main() -> None:
         n_background=float(args.n_background),
         S0=float(args.neutral_source),
         nu_sink=float(args.neutral_sink),
+        nu_cx_omega=float(args.nu_cx_omega),
     )
     params = HW2DParams(
         kappa=float(args.kappa),
@@ -158,6 +165,7 @@ def main() -> None:
                     "nu_rec": neutrals.nu_rec,
                     "S0": neutrals.S0,
                     "nu_sink": neutrals.nu_sink,
+                    "nu_cx_omega": neutrals.nu_cx_omega,
                 },
                 "time": {"dt": dt, "tmax": float(args.tmax), "save_stride": save_stride},
             },

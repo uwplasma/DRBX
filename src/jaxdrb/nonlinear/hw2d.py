@@ -188,9 +188,10 @@ class HW2DModel(eqx.Module):
             lap_N = laplacian(y.N, self.grid.k2)
         else:
             lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, self.grid.bc)
-        dN, dn_from_neutrals = rhs_neutral(
+        dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
             N=y.N,
             n=n,
+            omega=omega,
             dn0=self.params.neutrals,
             adv_N=adv_N,
             lap_N=lap_N,
@@ -199,7 +200,7 @@ class HW2DModel(eqx.Module):
             dN = dN + enforce_bc_relaxation(
                 y.N, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
             )
-        return HW2DState(n=dn + dn_from_neutrals, omega=dw, N=dN)
+        return HW2DState(n=dn + dn_from_neutrals, omega=dw + dw_from_neutrals, N=dN)
 
     def diffeqsolve(
         self,

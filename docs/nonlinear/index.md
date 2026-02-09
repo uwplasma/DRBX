@@ -26,6 +26,7 @@ From the repository root:
 python examples/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
 python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 python examples/08_nonlinear_hw2d/hw2d_movie.py
+python examples/04_closures_transport/nonlinear_flux_tube_toggles.py
 ```
 
 Both examples write results to small `out_*` folders with plots and `.npz` data.

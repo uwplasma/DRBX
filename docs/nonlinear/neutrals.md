@@ -44,14 +44,36 @@ $$
 \frac{d}{dt}\langle n + N \rangle = 0.
 $$
 
+## Optional charge-exchange-like momentum drag
+
+An additional neutral toggle applies a vorticity drag proxy:
+
+$$
+\partial_t \omega \;\leftarrow\; \partial_t \omega - \nu_{\mathrm{cx},\omega}\,N\,\omega.
+$$
+
+This is a lightweight momentum-loss closure inspired by charge-exchange damping workflows in
+SOL turbulence modeling. It is intentionally simple and meant for controlled ablation studies.
+
 ## What this is (and is not)
 
 - This minimal model is meant to be **physically motivated** and **testable**, not complete.
 - It provides clean hooks for upcoming additions:
-  - charge-exchange momentum sinks,
+  - more realistic charge-exchange momentum sinks,
   - energy loss terms due to ionization/radiation,
   - recycling sources tied to sheath fluxes and geometry,
   - kinetic neutral closures (or coupling to external neutral solvers).
+
+## Validation gates
+
+Neutral tests include:
+
+- ionization-only total-particle conservation,
+- ionization+recombination total-particle conservation,
+- analytic source/sink relaxation to $N^\*=S_0/\nu_s$,
+- exact charge-exchange vorticity-drag term enforcement.
+
+See `tests/test_neutrals_exchange.py`.
 
 ## References (SOL context)
 

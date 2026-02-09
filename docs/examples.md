@@ -83,6 +83,12 @@ Braginskii/Spitzer transport scalings (equilibrium-based):
 python examples/04_closures_transport/braginskii_closures_effects.py --out out_braginskii
 ```
 
+Nonlinear field-line toggles (state-dependent non-Boussinesq + Braginskii):
+
+```bash
+python examples/04_closures_transport/nonlinear_flux_tube_toggles.py
+```
+
 ## JAX autodiff
 
 Autodiff optimization of $k_{y,*}$:
@@ -125,6 +131,12 @@ Neutrals effect:
 
 ```bash
 python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
+```
+
+Neutrals with optional charge-exchange-like vorticity drag:
+
+```bash
+python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py --nu-cx-omega 0.2
 ```
 
 Movie (fast GIF):

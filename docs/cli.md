@@ -57,6 +57,7 @@ Tabulated:
 - `--tau-i FLOAT` ion-to-electron temperature ratio (hot-ion model)
 - `--no-curvature` disables curvature terms
 - `--no-boussinesq` uses a linearized non-Boussinesq polarization closure (about equilibrium `n0(l)`)
+- `--non-boussinesq-perturbed-density` uses `n0+Re[n]` in non-Boussinesq polarization (nonlinear milestone toggle)
 - `--Dn`, `--DOmega`, `--DTe` perpendicular diffusion coefficients
 - `--DTi` ion temperature diffusion (hot-ion model)
 - `--Dpsi` psi diffusion (electromagnetic model)
@@ -66,6 +67,7 @@ Tabulated:
 - `--nu-sink-n FLOAT`, `--nu-sink-Te FLOAT`, `--nu-sink-vpar FLOAT` simple volumetric sinks
 - `--eq-n0 FLOAT`, `--eq-Te0 FLOAT` equilibrium scalars (currently constant along `l`)
 - `--braginskii` enables equilibrium-based Braginskii/Spitzer transport scalings (η~Te^{-3/2}, χ||~T^{5/2}, ν||~T^{5/2})
+- `--braginskii-state-dependent` evaluates Braginskii coefficients on evolving temperatures (nonlinear milestone toggle)
 - `--braginskii-Tref FLOAT`, `--braginskii-T-floor FLOAT`, `--braginskii-T-smooth FLOAT` control the scaling reference and smooth positivity floor
 - `--no-braginskii-eta`, `--no-braginskii-kappa-e`, `--no-braginskii-kappa-i`, `--no-braginskii-visc-e`, `--no-braginskii-visc-i` disable specific scalings
 - `--line-bc {none,dirichlet,neumann}` applies a user-defined BC along `l` to all fields (benchmarking/nonlinear-prep)
@@ -145,6 +147,12 @@ With neutrals enabled:
 jaxdrb-hw2d --neutrals --nu-ion 0.2 --nu-rec 0.02 --out out_hw2d_neutrals_cli
 ```
 
+With optional charge-exchange-like vorticity drag:
+
+```bash
+jaxdrb-hw2d --neutrals --nu-ion 0.2 --nu-rec 0.02 --nu-cx-omega 0.2 --out out_hw2d_neutrals_cx
+```
+
 Outputs include `params.json`, `timeseries.npz`, and snapshot plots (`n.png`, `phi.png`, `omega.png`, and `N.png` if enabled).
 
 Boundary condition experiments (non-periodic, FD+CG path):
@@ -159,3 +167,5 @@ HW2D-specific options include:
 - `--poisson {spectral,cg_fd}`
 - `--bc-x`, `--bc-y` in `{periodic,dirichlet,neumann}`
 - `--bc-enforce-nu FLOAT` (boundary relaxation rate; useful for non-periodic experiments)
+- neutral knobs: `--neutrals`, `--nu-ion`, `--nu-rec`, `--neutral-source`, `--neutral-sink`,
+  `--nu-cx-omega`
