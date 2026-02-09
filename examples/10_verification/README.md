@@ -13,3 +13,4 @@ Scripts:
 - `poisson_cg_verification.py`: verify the FD+CG Poisson solver for Dirichlet and Neumann BCs against analytic solutions.
 - `arnoldi_vs_dense_jacobian.py`: verify matrix-free Arnoldi eigenvalues vs a dense Jacobian eigensolve (tiny system).
 - `saw_dispersion_gdb2018.py`: verify a shear-Alfvén dispersion relation from the GDB code paper (Zhu et al. 2018).
+- `drb_cold_ion_conservative_gate.py`: hard-gate conservation benchmark on the periodic cold-ion DRB branch (energy/mass/charge/current/momentum).
