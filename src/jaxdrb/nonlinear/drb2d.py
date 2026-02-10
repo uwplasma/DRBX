@@ -4,7 +4,6 @@ from typing import Literal
 
 import diffrax as dfx
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 
 from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_centered
