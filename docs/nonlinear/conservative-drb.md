@@ -61,6 +61,29 @@ and CI-facing validation:
 
 ![Cold-ion DRB operator split diagnostics](../assets/images/drb_operator_split_diagnostics.png)
 
+## DRB2D conservative testbed (new)
+
+A minimal 2D nonlinear DRB testbed is now included to validate conservative operators in a
+fully nonlinear setting while keeping the domain periodic and the numerics lightweight.
+This is the next step beyond HW2D and uses the same conservative Arakawa bracket in the
+perpendicular plane.
+
+Key properties:
+
+- 5-field DRB state: `(n, omega, vpar_e, vpar_i, Te)`
+- ExB nonlinearity via Arakawa bracket (periodic x/y)
+- Optional parallel coupling via constant `kpar` (off for conservative gate)
+- Operator split toggles (`operator_split_on`, `operator_conservative_on`, etc.)
+
+Example:
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_conservative_gate.py
+```
+
+![DRB2D conservative energy time series](../assets/images/drb2d_conservative_energy.png)
+
+
 ## What “conservative nonlinear DRB” requires
 
 ### 1) A discrete energy functional and a budget diagnostic

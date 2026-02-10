@@ -97,6 +97,8 @@ preview of the workflows `jaxdrb` supports.
 
 ![Cold-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics.png)
 
+![DRB2D conservative nonlinear energy gate](assets/images/drb2d_conservative_energy.png)
+
 
 ![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
 

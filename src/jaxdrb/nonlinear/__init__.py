@@ -8,6 +8,7 @@ This package contains a minimal 2D periodic nonlinear testbed (HW-like) used to:
 
 from .grid import Grid2D
 from .hw2d import HW2DModel, HW2DParams, HW2DState
+from .drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from .neutrals import NeutralParams
 
 __all__ = [
@@ -15,5 +16,8 @@ __all__ = [
     "HW2DModel",
     "HW2DParams",
     "HW2DState",
+    "DRB2DModel",
+    "DRB2DParams",
+    "DRB2DState",
     "NeutralParams",
 ]
