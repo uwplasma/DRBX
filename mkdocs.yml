@@ -32,6 +32,7 @@ nav:
   - Inputs & Outputs: inputs-outputs.md
   - Testing: testing.md
   - Validation: validation.md
+  - Figure Guide: figure-guide.md
   - Theory:
       - theory/index.md
       - theory/algorithms.md
