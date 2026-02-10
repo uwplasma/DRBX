@@ -1,6 +1,6 @@
 """Make a short movie of a nonlinear DRB2D run (periodic).
 
-Designed to run in ~5-10 seconds on a laptop. If the wall time exceeds the
+Designed to run in ~20-30 seconds on a laptop. If the wall time exceeds the
 limit, the script stops early and still writes a movie from collected frames.
 """
 
@@ -28,11 +28,11 @@ def main() -> None:
     set_mpl_style()
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--nx", type=int, default=32)
-    parser.add_argument("--ny", type=int, default=32)
-    parser.add_argument("--dt", type=float, default=0.03)
-    parser.add_argument("--tmax", type=float, default=20.0)
-    parser.add_argument("--save-stride", type=int, default=25)
+    parser.add_argument("--nx", type=int, default=24)
+    parser.add_argument("--ny", type=int, default=24)
+    parser.add_argument("--dt", type=float, default=1.0)
+    parser.add_argument("--tmax", type=float, default=350.0)
+    parser.add_argument("--save-stride", type=int, default=5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=30.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
@@ -43,14 +43,14 @@ def main() -> None:
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     params = DRB2DParams(
-        omega_n=2.0,
-        omega_Te=1.0,
+        omega_n=7.0,
+        omega_Te=6.0,
         kpar=0.0,
         eta=0.0,
         me_hat=0.2,
-        Dn=1e-3,
-        DOmega=1e-3,
-        DTe=1e-3,
+        Dn=1e-5,
+        DOmega=1e-5,
+        DTe=1e-5,
         bracket="arakawa",
         poisson="spectral",
         dealias_on=False,
