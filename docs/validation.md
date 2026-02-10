@@ -365,6 +365,15 @@ Example output:
 
 ![Cold-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics.png)
 
+Interpretation notes:
+
+- The conservative-gate figure should show invariant drifts at or below roundoff for the conservative
+  subset (periodic, no sources/sinks, curvature off).
+- The operator-gate figure enforces *instantaneous* invariants from `dy = rhs_nonlinear(y)` across a
+  range of `k_y`, making the gate stricter than a finite-time drift check.
+- The split diagnostics verify that the full RHS is the sum of conservative/source/dissipative
+  components and show how each term's magnitude changes across `k_y`.
+
 ## Performance regression gates
 
 CI enforces a conservative core-kernel throughput gate on Ubuntu/Python 3.12:

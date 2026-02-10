@@ -27,6 +27,10 @@ branch (energy/mass/charge/current/momentum invariants), with both finite-time a
 - example: `examples/10_verification/drb_cold_ion_operator_gate.py`
 - CI benchmark: `benchmarks/check_drb_conservative_gate.py`
 
+![Cold-ion DRB strict conservative operator gate](../assets/images/drb_cold_ion_operator_gate.png)
+
+![Cold-ion DRB operator split diagnostics](../assets/images/drb_operator_split_diagnostics.png)
+
 ## Run the nonlinear examples
 
 From the repository root:
