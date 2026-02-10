@@ -92,3 +92,5 @@ preview of the workflows `jaxdrb` supports.
 ![s–alpha ideal-ballooning map (Halpern 2013 Eq. 16)](assets/images/halpern2013_salpha_gamma_map.png)
 
 ![Near-axis stellarator ky scan (ESSOS geometry)](assets/images/essos_nearaxis_scan_panel.png)
+
+![Cold-ion DRB strict conservative operator gate](assets/images/drb_cold_ion_operator_gate.png)

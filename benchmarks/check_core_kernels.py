@@ -15,18 +15,22 @@ import json
 import time
 import warnings
 from pathlib import Path
+import sys
 
 import jax
 import jax.numpy as jnp
 
-from jaxdrb.geometry.slab import SlabGeometry
-from jaxdrb.linear.matvec import linear_matvec
-from jaxdrb.models.cold_ion_drb import State as ColdState
-from jaxdrb.models.cold_ion_drb import equilibrium
-from jaxdrb.models.params import DRBParams
-from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
-from jaxdrb.nonlinear.stepper import rk4_scan
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from jaxdrb.geometry.slab import SlabGeometry  # noqa: E402
+from jaxdrb.linear.matvec import linear_matvec  # noqa: E402
+from jaxdrb.models.cold_ion_drb import State as ColdState  # noqa: E402
+from jaxdrb.models.cold_ion_drb import equilibrium  # noqa: E402
+from jaxdrb.models.params import DRBParams  # noqa: E402
+from jaxdrb.nonlinear.grid import Grid2D  # noqa: E402
+from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic  # noqa: E402
+from jaxdrb.nonlinear.stepper import rk4_scan  # noqa: E402
 
 
 def _bench_hw2d_steps_per_second(*, nx: int, ny: int, nsteps: int, repeats: int) -> float:

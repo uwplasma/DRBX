@@ -151,8 +151,13 @@ in increasingly realistic diverted geometries.
 - A hard conservative gate for the periodic cold-ion DRB branch is included in:
   - `tests/test_drb_nonlinear_conservative_gate.py`
   - `examples/10_verification/drb_cold_ion_conservative_gate.py`
+- A strict operator-level conservative gate (`dy=rhs(y)` invariant-rate residuals) is included in:
+  - `tests/test_drb_operator_rates.py`
+  - `benchmarks/check_drb_conservative_gate.py` (wired in CI)
+  - `examples/10_verification/drb_cold_ion_operator_gate.py`
 
 ![Cold-ion DRB conservative gate](docs/assets/images/drb_cold_ion_conservative_gate.png)
+![Cold-ion DRB strict operator gate](docs/assets/images/drb_cold_ion_operator_gate.png)
 
 ## Documentation
 

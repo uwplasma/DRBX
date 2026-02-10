@@ -29,14 +29,18 @@ Nonlinear conservative DRB is **not yet implemented**; the HW2D milestone and th
 in `src/jaxdrb/nonlinear/conservative/` exist to make the transition more systematic.
 
 As a concrete bridge, `jaxdrb` now includes a **field-line cold-ion DRB conservative gate** for the
-periodic/no-source subset:
+periodic/no-source subset, with both finite-time and instantaneous operator checks:
 
 - energy functional and invariant diagnostics:
   - [`src/jaxdrb/models/invariants.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/models/invariants.py)
-- hard CI gate:
+- hard tests:
   - [`tests/test_drb_nonlinear_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_drb_nonlinear_conservative_gate.py)
+  - [`tests/test_drb_operator_rates.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_drb_operator_rates.py)
 - reproducible verification example:
   - [`examples/10_verification/drb_cold_ion_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/drb_cold_ion_conservative_gate.py)
+  - [`examples/10_verification/drb_cold_ion_operator_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/drb_cold_ion_operator_gate.py)
+- hard CI benchmark gate:
+  - [`benchmarks/check_drb_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/benchmarks/check_drb_conservative_gate.py)
 
 ## What “conservative nonlinear DRB” requires
 
@@ -50,6 +54,23 @@ For any candidate nonlinear DRB formulation, we need:
 
 This is why HW2D includes an explicit budget diagnostic (`HW2DModel.energy_budget`) and why conservation
 checks are centralized in `src/jaxdrb/nonlinear/conservative/checks.py`.
+
+For the cold-ion field-line branch, `jaxdrb` now also checks **operator residuals** directly from
+`dy = rhs_nonlinear(y)`:
+
+$$
+\dot E = \Re\left\langle
+n^*\,\dot n
+-\phi^*\,\dot\Omega
++\hat m_e v_{\parallel e}^*\,\dot v_{\parallel e}
++v_{\parallel i}^*\,\dot v_{\parallel i}
++\frac{3}{2}\alpha_{Te}\,T_e^*\,\dot T_e
+\right\rangle,
+$$
+
+with companion checks on $\frac{d}{dt}\langle n\rangle$, $\frac{d}{dt}\langle\Omega\rangle$,
+$\frac{d}{dt}\langle j_\parallel\rangle$, and
+$\frac{d}{dt}\langle v_{\parallel i}+\hat m_e v_{\parallel e}\rangle$.
 
 ### 2) A conservation-respecting discretization (perpendicular + parallel)
 
