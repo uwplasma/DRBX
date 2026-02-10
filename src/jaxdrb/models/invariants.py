@@ -4,6 +4,8 @@ import jax.numpy as jnp
 
 from jaxdrb.models.cold_ion_drb import Equilibrium, State, phi_from_omega, rhs_nonlinear
 from jaxdrb.models.params import DRBParams
+from jaxdrb.models.hot_ion_drb import State as HotState
+from jaxdrb.models.em_drb import State as EMState
 
 
 def _mean_abs2(z: jnp.ndarray) -> jnp.ndarray:
@@ -180,3 +182,44 @@ def cold_ion_operator_residuals(
         eq = Equilibrium.constant(int(y.n.size), n0=1.0, Te0=1.0)
     dy = rhs_nonlinear(t, y, params, geom, kx=kx, ky=ky, eq=eq)
     return cold_ion_invariant_rates_from_rhs(y, dy, params=params, geom=geom, kx=kx, ky=ky, eq=eq)
+
+
+def hot_ion_mean_rates_from_rhs(
+    y: HotState,
+    dy: HotState,
+    *,
+    params: DRBParams,
+    geom,
+    kx: float,
+    ky: float,
+    eq: Equilibrium | None = None,
+) -> dict[str, jnp.ndarray]:
+    """Return mean-rate invariants for the hot-ion branch (conservative subset checks)."""
+    return {
+        "dmass_dt": jnp.mean(jnp.real(dy.n)),
+        "dcharge_dt": jnp.mean(jnp.real(dy.omega)),
+        "dcurrent_dt": jnp.mean(jnp.real(dy.vpar_i - dy.vpar_e)),
+        "dmomentum_dt": jnp.mean(jnp.real(dy.vpar_i + float(params.me_hat) * dy.vpar_e)),
+    }
+
+
+def em_mean_rates_from_rhs(
+    y: EMState,
+    dy: EMState,
+    *,
+    params: DRBParams,
+    geom,
+    kx: float,
+    ky: float,
+    eq: Equilibrium | None = None,
+) -> dict[str, jnp.ndarray]:
+    """Return mean-rate invariants for the EM branch (conservative subset checks)."""
+    k2 = geom.kperp2(kx, ky)
+    djpar = k2 * dy.psi
+    dvpar_e = dy.vpar_i - djpar
+    return {
+        "dmass_dt": jnp.mean(jnp.real(dy.n)),
+        "dcharge_dt": jnp.mean(jnp.real(dy.omega)),
+        "dcurrent_dt": jnp.mean(jnp.real(djpar)),
+        "dmomentum_dt": jnp.mean(jnp.real(dy.vpar_i + float(params.me_hat) * dvpar_e)),
+    }
