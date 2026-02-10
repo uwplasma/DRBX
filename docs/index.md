@@ -96,3 +96,8 @@ preview of the workflows `jaxdrb` supports.
 ![Cold-ion DRB strict conservative operator gate](assets/images/drb_cold_ion_operator_gate.png)
 
 ![Cold-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics.png)
+
+
+![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
+
+![EM DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_em.png)

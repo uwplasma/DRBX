@@ -46,6 +46,13 @@ jobs:
             --json-out out/ci/perf_metrics.json
 
       - name: Physics gate (cold-ion DRB conservative operator)
+
+      - name: Physics gate (hot-ion/EM DRB mean invariants)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb_hot_em_split_gate.py \
+            --max-abs-mean-dt 1e-11 \
+            --json-out out/ci/drb_hot_em_gate.json
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
           python benchmarks/check_drb_conservative_gate.py \
