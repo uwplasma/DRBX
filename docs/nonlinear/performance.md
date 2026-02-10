@@ -36,6 +36,21 @@ This benchmarks and enforces minimum throughput for:
 Thresholds are configurable from the CLI and are intentionally conservative to avoid
 flaky failures on shared CI runners.
 
+## CI physics gate (conservative DRB)
+
+For the field-line cold-ion DRB branch, CI also enforces a strict conservation benchmark:
+
+```bash
+python benchmarks/check_drb_conservative_gate.py
+```
+
+This gate checks:
+
+- instantaneous operator residuals (`dE/dt`, mean-rate residuals),
+- finite-time drifts (`(E-E0)/E0`, mean invariant drifts),
+
+on the periodic conservative subset used for hard regression protection.
+
 ## Recommended workflow for performance
 
 - Use `jax_enable_x64=False` unless you need high-precision diagnostics.
