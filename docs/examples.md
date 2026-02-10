@@ -125,6 +125,15 @@ python examples/07_essos_geometries/essos_vmec_edge_s09.py
 python examples/07_essos_geometries/essos_biotsavart_r14.py
 ```
 
+
+## DRB2D conservative nonlinear gate
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_conservative_gate.py
+```
+
+Produces a conservative energy time series figure and JSON metrics.
+
 ## Nonlinear HW2D milestone
 
 Baseline turbulence run:
