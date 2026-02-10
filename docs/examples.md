@@ -107,6 +107,12 @@ python examples/06_literature_tokamak_sol/halpern2013_gradient_removal_lp.py
 python examples/06_literature_tokamak_sol/jorge2016_isttok_linear_workflow.py
 ```
 
+Optional slower calibrated-vs-ablation comparison for the Mosetto map:
+
+```bash
+python examples/06_literature_tokamak_sol/mosetto2012_regime_map.py --classifier both
+```
+
 More context and references: `docs/literature/`.
 
 ## ESSOS geometries (optional)

@@ -156,8 +156,13 @@ models are available:
   - monotonic shear stabilization of $\alpha_{\mathrm{crit}}(\hat{s})$.
   - `tests/test_ideal_ballooning.py`
 - Mosetto (2012)-style regime transition gate (workflow classifier):
-  - low-$\eta$ points remain RBM-like for selected low/high drives,
-  - high-$\eta$ points transition to RDW-like for the same drives.
+  - analytic/calibrated threshold checks at $\gamma$-ratio $g=1$:
+    - $R/L_n|_{\mathrm{RDW/RBM}}\approx 75.2$,
+    - $R/L_n|_{\mathrm{InDW/InBM}}\approx 18.8$,
+    - $d_{\mathrm{crit}}(\hat{s}=0)\approx 3.55,\ d_{\mathrm{crit}}(\hat{s}=5)\approx 1.12$.
+  - explicit 4-regime anchor-point classification checks (InDW/RDW/InBM/RBM).
+  - solver-ablation transition check retained as a secondary workflow consistency test.
+  - `tests/test_mosetto_calibration.py`
   - `tests/test_mosetto_regime_quantitative_gate.py`
 
 ### Arnoldi vs dense Jacobian (tiny problem)
