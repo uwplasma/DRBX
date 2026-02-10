@@ -65,7 +65,7 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 
 | HW2D turbulence | DRB2D conservative dynamics |
 | --- | --- |
-| ![HW2D turbulence movie](docs/assets/images/hw2d_turbulence.gif) | ![DRB2D turbulence movie](docs/assets/images/drb2d_turbulence.gif) |
+| <img src="docs/assets/images/hw2d_turbulence.gif" width="420" /> | <img src="docs/assets/images/drb2d_turbulence.gif" width="420" /> |
 
 ## Quickstart
 
