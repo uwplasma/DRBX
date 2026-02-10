@@ -48,6 +48,14 @@ jobs:
       - name: Physics gate (cold-ion DRB conservative operator)
 
       - name: Physics gate (hot-ion/EM DRB mean invariants)
+
+      - name: Physics gate (DRB2D conservative energy)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_conservative_gate.py \
+            --max-rel-span 5e-4 \
+            --max-rel-end 5e-4 \
+            --json-out out/ci/drb2d_gate.json
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
           python benchmarks/check_drb_hot_em_split_gate.py \
