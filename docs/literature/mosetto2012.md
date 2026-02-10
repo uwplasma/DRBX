@@ -32,14 +32,20 @@ Run:
 python examples/06_literature_tokamak_sol/mosetto2012_regime_map.py
 ```
 
-This example computes a **proxy regime map** by evaluating four branch candidates and selecting
-the one with the largest growth rate over a ky scan, then classifies it using two simple
-ablations:
+This example now provides a **calibrated 4-regime map** based on the transition formulas
+discussed in Mosetto et al. (Sec. V), with explicit thresholds for:
 
-- **DW vs BM:** compare growth with curvature on/off,
-- **inertial vs resistive:** compare growth with electron inertia on/off (`me_hat=0`).
+- RDW ↔ RBM,
+- InDW ↔ InBM,
+- RDW ↔ InDW (through a calibrated `d` threshold fit).
 
-![Mosetto-style regime map (proxy)](../assets/images/mosetto2012_regime_map.png)
+You can also request an additional (slow) solver-ablation map for comparison:
+
+```bash
+python examples/06_literature_tokamak_sol/mosetto2012_regime_map.py --classifier both
+```
+
+![Mosetto-style regime map (calibrated 4-regime)](../assets/images/mosetto2012_regime_map.png)
 
 ## Drift-wave-like scan (curvature off)
 
