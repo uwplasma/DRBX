@@ -130,6 +130,7 @@ python examples/07_essos_geometries/essos_biotsavart_r14.py
 
 ```bash
 python examples/08_nonlinear_drb2d/drb2d_conservative_gate.py
+python examples/08_nonlinear_drb2d/drb2d_movie.py
 ```
 
 Produces a conservative energy time series figure and JSON metrics.
