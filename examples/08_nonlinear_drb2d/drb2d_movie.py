@@ -30,11 +30,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nx", type=int, default=32)
     parser.add_argument("--ny", type=int, default=32)
-    parser.add_argument("--dt", type=float, default=0.01)
-    parser.add_argument("--tmax", type=float, default=8.0)
+    parser.add_argument("--dt", type=float, default=0.02)
+    parser.add_argument("--tmax", type=float, default=20.0)
     parser.add_argument("--save-stride", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--max-wall", type=float, default=10.0)
+    parser.add_argument("--max-wall", type=float, default=30.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
     args = parser.parse_args()
 
@@ -43,14 +43,14 @@ def main() -> None:
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     params = DRB2DParams(
-        omega_n=0.2,
-        omega_Te=0.1,
+        omega_n=1.2,
+        omega_Te=0.6,
         kpar=0.0,
         eta=0.0,
         me_hat=0.2,
-        Dn=1e-4,
-        DOmega=1e-4,
-        DTe=1e-4,
+        Dn=5e-4,
+        DOmega=5e-4,
+        DTe=5e-4,
         bracket="arakawa",
         poisson="spectral",
         dealias_on=False,
