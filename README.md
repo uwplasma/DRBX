@@ -164,6 +164,10 @@ in increasingly realistic diverted geometries.
 ![Cold-ion DRB strict operator gate](docs/assets/images/drb_cold_ion_operator_gate.png)
 ![Cold-ion DRB operator split diagnostics](docs/assets/images/drb_operator_split_diagnostics.png)
 
+The operator gate checks *instantaneous* invariant rates from the cold-ion field-line RHS, while the
+split diagnostics verify the conservative/source/dissipative decomposition used to prepare a fully
+conservative nonlinear DRB operator.
+
 ## Documentation
 
 Online docs (Read the Docs): https://jax-drb.readthedocs.io/

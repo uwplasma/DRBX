@@ -43,6 +43,24 @@ periodic/no-source subset, with both finite-time and instantaneous operator chec
 - hard CI benchmark gate:
   - [`benchmarks/check_drb_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/benchmarks/check_drb_conservative_gate.py)
 
+## Figures and diagnostics (current implementation)
+
+The conservative gate now produces three canonical figures that are used in both documentation
+and CI-facing validation:
+
+1. **Finite-time invariant drifts** from a periodic conservative subset (energy, mass, charge,
+   parallel current, momentum). These should remain at roundoff-level for the conservative subset.
+2. **Operator-level residuals** measured directly from `dy = rhs_nonlinear(y)` on random states
+   and multiple `k_y`, enforcing that *instantaneous* invariant rates are small.
+3. **Operator split diagnostics** to verify conservative/source/dissipative decomposition and
+   show the relative magnitude of each component across `k_y`.
+
+![Cold-ion DRB conservative gate](../assets/images/drb_cold_ion_conservative_gate.png)
+
+![Cold-ion DRB strict operator gate](../assets/images/drb_cold_ion_operator_gate.png)
+
+![Cold-ion DRB operator split diagnostics](../assets/images/drb_operator_split_diagnostics.png)
+
 ## What “conservative nonlinear DRB” requires
 
 ### 1) A discrete energy functional and a budget diagnostic
