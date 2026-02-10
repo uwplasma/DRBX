@@ -190,3 +190,9 @@ Cold-ion DRB conservative hard-gate benchmark:
 ```bash
 python examples/10_verification/drb_cold_ion_conservative_gate.py
 ```
+
+Cold-ion DRB strict operator-gate benchmark:
+
+```bash
+python examples/10_verification/drb_cold_ion_operator_gate.py
+```

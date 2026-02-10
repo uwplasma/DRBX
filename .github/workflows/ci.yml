@@ -45,6 +45,17 @@ jobs:
             --min-matvec-s 120 \
             --json-out out/ci/perf_metrics.json
 
+      - name: Physics gate (cold-ion DRB conservative operator)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb_conservative_gate.py \
+            --max-abs-denergy-dt 5e-8 \
+            --max-abs-dmean-dt 1e-11 \
+            --max-rel-energy-span 3e-4 \
+            --max-rel-energy-end 3e-4 \
+            --max-abs-mean-drift 5e-10 \
+            --json-out out/ci/drb_conservative_metrics.json
+
   build:
     name: Build (sdist/wheel)
     runs-on: ubuntu-latest

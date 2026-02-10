@@ -309,12 +309,44 @@ Tracked diagnostics:
 Implementation:
 
 - Functional/diagnostics: `src/jaxdrb/models/invariants.py`
-- Hard-gate tests: `tests/test_drb_nonlinear_conservative_gate.py`
-- Reproducible figure/example: `examples/10_verification/drb_cold_ion_conservative_gate.py`
+- Hard-gate tests:
+  - `tests/test_drb_nonlinear_conservative_gate.py`
+  - `tests/test_drb_operator_rates.py`
+- Reproducible examples:
+  - `examples/10_verification/drb_cold_ion_conservative_gate.py`
+  - `examples/10_verification/drb_cold_ion_operator_gate.py`
+- CI physics benchmark gate:
+  - `benchmarks/check_drb_conservative_gate.py`
+  - `.github/workflows/ci.yml` (Ubuntu + Python 3.12)
+
+### Operator-level residual gate
+
+In addition to finite-time drift checks, `jaxdrb` now enforces a strict **operator-level** gate:
+
+- compute `dy = rhs_nonlinear(y)` on random states and multiple `k_y`,
+- evaluate instantaneous rates
+  $$
+  \dot{E},\ \frac{d}{dt}\langle n\rangle,\ \frac{d}{dt}\langle\Omega\rangle,\ \frac{d}{dt}\langle j_\parallel\rangle,\ \frac{d}{dt}\langle v_{\parallel i}+\hat m_e v_{\parallel e}\rangle,
+  $$
+- fail if rates exceed conservative roundoff-scale thresholds.
+
+For Boussinesq periodic runs, the energy-rate diagnostic is evaluated using the exact discrete chain rule:
+$$
+\dot E = \Re\left\langle
+n^*\,\dot n
+-\phi^*\,\dot\Omega
++\hat m_e v_{\parallel e}^*\,\dot v_{\parallel e}
++v_{\parallel i}^*\,\dot v_{\parallel i}
++\frac{3}{2}\alpha_{Te}\,T_e^*\,\dot T_e
+\right\rangle,
+$$
+which is the direct quadratic-form derivative of the implemented energy functional.
 
 Example output:
 
 ![Cold-ion DRB conservative gate](assets/images/drb_cold_ion_conservative_gate.png)
+
+![Cold-ion DRB operator gate](assets/images/drb_cold_ion_operator_gate.png)
 
 ## Performance regression gates
 

@@ -58,7 +58,9 @@ GitHub Actions runs:
 - linting (`ruff`, `black`),
 - unit tests (`pytest`),
 - docs build (`mkdocs build --strict`),
-- packaging build (sdist/wheel).
+- packaging build (sdist/wheel),
+- performance gate (`benchmarks/check_core_kernels.py`),
+- physics-conservation benchmark gate (`benchmarks/check_drb_conservative_gate.py`).
 
 The CI definition lives in:
 
