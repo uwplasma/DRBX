@@ -365,6 +365,11 @@ Example output:
 
 ![Cold-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics.png)
 
+
+![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
+
+![EM DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_em.png)
+
 Interpretation notes:
 
 - The conservative-gate figure should show invariant drifts at or below roundoff for the conservative
