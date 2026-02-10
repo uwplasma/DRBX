@@ -37,7 +37,8 @@ Examples of covered checks:
 - Quantitative sheath gates for EM current closure and heat/SEE closure terms.
 - Conservative invariant gates:
   - HW2D ideal subset (`tests/test_hw2d_conservative_gate.py`),
-  - cold-ion DRB periodic subset (`tests/test_drb_nonlinear_conservative_gate.py`).
+  - cold-ion DRB periodic subset (`tests/test_drb_nonlinear_conservative_gate.py`),
+  - cold-ion DRB operator split and residual gates (`tests/test_drb_operator_rates.py`, `tests/test_drb_operator_split.py`).
 
 ## Optional ESSOS tests
 

@@ -94,3 +94,5 @@ preview of the workflows `jaxdrb` supports.
 ![Near-axis stellarator ky scan (ESSOS geometry)](assets/images/essos_nearaxis_scan_panel.png)
 
 ![Cold-ion DRB strict conservative operator gate](assets/images/drb_cold_ion_operator_gate.png)
+
+![Cold-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics.png)

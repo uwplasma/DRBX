@@ -161,3 +161,13 @@ class DRBParams(eqx.Module):
     # for benchmarking and for nonlinear-transition preparation work. In most SOL
     # studies you will use MPSE/sheath BCs instead.
     line_bcs: LineBCs = eqx.field(static=True, default=LineBCs.disabled())
+
+    # Nonlinear operator split toggles (cold-ion DRB branch).
+    #
+    # When enabled, `jaxdrb.models.cold_ion_drb.rhs_nonlinear` is assembled as:
+    #   RHS = RHS_conservative + RHS_source + RHS_dissipative,
+    # with explicit toggles for each part.
+    operator_split_on: bool = False
+    operator_conservative_on: bool = True
+    operator_source_on: bool = True
+    operator_dissipative_on: bool = True

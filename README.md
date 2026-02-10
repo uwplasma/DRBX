@@ -155,9 +155,14 @@ in increasingly realistic diverted geometries.
   - `tests/test_drb_operator_rates.py`
   - `benchmarks/check_drb_conservative_gate.py` (wired in CI)
   - `examples/10_verification/drb_cold_ion_operator_gate.py`
+- Operator splitting milestone (`RHS = conservative + source + dissipative`) is included in:
+  - `src/jaxdrb/models/cold_ion_drb.py` (`rhs_nonlinear_decomposed`)
+  - `tests/test_drb_operator_split.py`
+  - `examples/10_verification/drb_operator_split_diagnostics.py`
 
 ![Cold-ion DRB conservative gate](docs/assets/images/drb_cold_ion_conservative_gate.png)
 ![Cold-ion DRB strict operator gate](docs/assets/images/drb_cold_ion_operator_gate.png)
+![Cold-ion DRB operator split diagnostics](docs/assets/images/drb_operator_split_diagnostics.png)
 
 ## Documentation
 

@@ -15,3 +15,4 @@ Scripts:
 - `saw_dispersion_gdb2018.py`: verify a shear-Alfvén dispersion relation from the GDB code paper (Zhu et al. 2018).
 - `drb_cold_ion_conservative_gate.py`: hard-gate conservation benchmark on the periodic cold-ion DRB branch (energy/mass/charge/current/momentum).
 - `drb_cold_ion_operator_gate.py`: strict operator-level conservative gate (`dy=rhs(y)` residuals + finite-time drift).
+- `drb_operator_split_diagnostics.py`: conservative/source/dissipative split diagnostics and toggle consistency checks.

@@ -49,6 +49,8 @@ Most runs are controlled by a `jaxdrb.models.params.DRBParams` object. Common pa
 - `beta`: electromagnetic beta parameter (electromagnetic model)
 - `tau_i`: ion-temperature ratio (hot-ion model)
 - `boussinesq`: polarization closure toggle (Boussinesq vs linearized non-Boussinesq)
+- `operator_split_on`, `operator_conservative_on`, `operator_source_on`, `operator_dissipative_on`:
+  nonlinear-preparation split toggles for the cold-ion RHS
 
 ### Wavenumbers and grids
 

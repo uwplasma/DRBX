@@ -39,6 +39,7 @@ periodic/no-source subset, with both finite-time and instantaneous operator chec
 - reproducible verification example:
   - [`examples/10_verification/drb_cold_ion_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/drb_cold_ion_conservative_gate.py)
   - [`examples/10_verification/drb_cold_ion_operator_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/drb_cold_ion_operator_gate.py)
+  - [`examples/10_verification/drb_operator_split_diagnostics.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/10_verification/drb_operator_split_diagnostics.py)
 - hard CI benchmark gate:
   - [`benchmarks/check_drb_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/benchmarks/check_drb_conservative_gate.py)
 
@@ -71,6 +72,12 @@ $$
 with companion checks on $\frac{d}{dt}\langle n\rangle$, $\frac{d}{dt}\langle\Omega\rangle$,
 $\frac{d}{dt}\langle j_\parallel\rangle$, and
 $\frac{d}{dt}\langle v_{\parallel i}+\hat m_e v_{\parallel e}\rangle$.
+
+The cold-ion branch now also exposes explicit split terms in code:
+$$
+\partial_t Y = \mathcal{R}_{\mathrm{cons}} + \mathcal{R}_{\mathrm{src}} + \mathcal{R}_{\mathrm{diss}},
+$$
+via `rhs_nonlinear_decomposed(...)` and the split toggles in `DRBParams`.
 
 ### 2) A conservation-respecting discretization (perpendicular + parallel)
 
