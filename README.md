@@ -45,10 +45,13 @@ nonlinear/verification milestones to make the numerics reviewer-checkable and en
 
 ![ISTTOK Lp proxy vs ky](docs/assets/images/jorge2016_lp_proxy_vs_ky.png)
 
-**Instability regime map (Mosetto et al. 2012-style workflow)**  
+**Instability regime map (Mosetto et al. 2012 calibrated 4-regime workflow)**  
 `examples/06_literature_tokamak_sol/mosetto2012_regime_map.py`
 
 ![Mosetto 2012-style regime map](docs/assets/images/mosetto2012_regime_map.png)
+
+Optional slower comparison with the solver-ablation classifier:
+`python examples/06_literature_tokamak_sol/mosetto2012_regime_map.py --classifier both`
 
 **Full MPSE/sheath boundary condition set (Loizu 2012, hot-ion model)**  
 `examples/03_sheath_mpse/loizu2012_full_hot_ion_mpse_bc.py`

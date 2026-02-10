@@ -194,7 +194,6 @@ def test_cold_ion_drb_instantaneous_invariant_rates_vanish_in_conservative_subse
     # A centered estimate is much less sensitive to cancellation error than a one-sided
     # difference in this near-conservative limit.
     eps = 1.0e-7
-    E0 = float(cold_ion_invariants(y, params=params, geom=geom, kx=kx, ky=ky, eq=eq)["energy"])
     y_plus = jax.tree_util.tree_map(lambda a, b: a + eps * b, y, dy)
     y_minus = jax.tree_util.tree_map(lambda a, b: a - eps * b, y, dy)
     E_plus = float(

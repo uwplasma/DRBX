@@ -47,6 +47,8 @@ This section is generated from docstrings using `mkdocstrings`.
 
 ::: jaxdrb.analysis.plotting
 
+::: jaxdrb.analysis.mosetto_regime
+
 ## Nonlinear (milestone)
 
 ::: jaxdrb.nonlinear.grid

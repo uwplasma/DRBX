@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from jaxdrb.analysis.mosetto_regime import MosettoCalibration, classify_regime
 from jaxdrb.analysis.scan import scan_ky
 from jaxdrb.geometry.tokamak import CircularTokamakGeometry
 from jaxdrb.models.params import DRBParams
@@ -53,12 +54,8 @@ def _regime_label(*, eta: float, omega_n: float, geom, ky: np.ndarray) -> str:
     return "RBM"
 
 
-def test_mosetto_like_regime_transition_low_to_high_collisionality() -> None:
-    """Quantitative gate for the dominant low-eta/high-eta branch transition.
-
-    For the workflow settings used in `mosetto2012_regime_map.py`, low collisionality points are
-    typically classified as RBM-like while high collisionality points are RDW-like.
-    """
+def test_mosetto_like_ablation_transition_low_to_high_collisionality() -> None:
+    """Ablation-based solver gate for the dominant low-eta/high-eta transition."""
     geom = CircularTokamakGeometry.make(
         nl=24, shat=0.8, q=3.0, R0=1.0, epsilon=0.18, curvature0=0.18
     )
@@ -71,3 +68,30 @@ def test_mosetto_like_regime_transition_low_to_high_collisionality() -> None:
     # High-collisionality branch transitions to drift-wave/resistive-like.
     assert _regime_label(eta=2.0, omega_n=0.2, geom=geom, ky=ky) == "RDW"
     assert _regime_label(eta=2.0, omega_n=2.0, geom=geom, ky=ky) == "RDW"
+
+
+def test_mosetto_calibrated_four_regimes_at_anchor_points() -> None:
+    """Calibrated 4-regime gate including InDW/InBM."""
+    cal = MosettoCalibration(gamma_ratio=1.0, rln_per_omega_n=40.0, d_scale=1.0)
+    shat = 0.8
+    me_hat = 0.05
+
+    label, _ = classify_regime(
+        eta=0.03, omega_n=2.0, me_hat=me_hat, shat=shat, calibration=cal
+    )  # inertial + DW
+    assert label == "InDW"
+
+    label, _ = classify_regime(
+        eta=0.5, omega_n=2.0, me_hat=me_hat, shat=shat, calibration=cal
+    )  # resistive + DW
+    assert label == "RDW"
+
+    label, _ = classify_regime(
+        eta=0.03, omega_n=0.2, me_hat=me_hat, shat=shat, calibration=cal
+    )  # inertial + BM
+    assert label == "InBM"
+
+    label, _ = classify_regime(
+        eta=0.5, omega_n=0.2, me_hat=me_hat, shat=shat, calibration=cal
+    )  # resistive + BM
+    assert label == "RBM"
