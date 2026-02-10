@@ -196,3 +196,9 @@ Cold-ion DRB strict operator-gate benchmark:
 ```bash
 python examples/10_verification/drb_cold_ion_operator_gate.py
 ```
+
+Cold-ion DRB operator-splitting diagnostics:
+
+```bash
+python examples/10_verification/drb_operator_split_diagnostics.py
+```

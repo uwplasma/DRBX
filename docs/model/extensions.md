@@ -259,3 +259,35 @@ Example workflow:
 ```bash
 python examples/04_closures_transport/parallel_closures_effects.py
 ```
+
+## Conservative vs dissipative operator split (nonlinear-preparation toggle)
+
+For the cold-ion field-line branch, `jaxdrb` now exposes an explicit operator split:
+
+$$
+\partial_t Y = \mathcal{R}_{\mathrm{cons}}(Y) + \mathcal{R}_{\mathrm{src}}(Y) + \mathcal{R}_{\mathrm{diss}}(Y),
+$$
+
+where:
+
+- $\mathcal{R}_{\mathrm{cons}}$ contains ideal parallel couplings used in conservative limits,
+- $\mathcal{R}_{\mathrm{src}}$ contains background-drive and curvature source terms,
+- $\mathcal{R}_{\mathrm{diss}}$ contains resistivity, closures, diffusion, sinks, and boundary losses.
+
+Toggles (all in `DRBParams`):
+
+- `operator_split_on`
+- `operator_conservative_on`
+- `operator_source_on`
+- `operator_dissipative_on`
+
+With `operator_split_on=False` (default), `rhs_nonlinear` returns the standard full RHS.
+With `operator_split_on=True`, each split component can be enabled/disabled independently for
+ablation studies and conservative-model development.
+
+Code mapping:
+
+- split implementation: `jaxdrb.models.cold_ion_drb.rhs_nonlinear_decomposed`
+- assembled RHS with toggles: `jaxdrb.models.cold_ion_drb.rhs_nonlinear`
+- verification example: `examples/10_verification/drb_operator_split_diagnostics.py`
+- tests: `tests/test_drb_operator_split.py`

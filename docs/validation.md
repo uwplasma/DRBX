@@ -312,9 +312,11 @@ Implementation:
 - Hard-gate tests:
   - `tests/test_drb_nonlinear_conservative_gate.py`
   - `tests/test_drb_operator_rates.py`
+  - `tests/test_drb_operator_split.py`
 - Reproducible examples:
   - `examples/10_verification/drb_cold_ion_conservative_gate.py`
   - `examples/10_verification/drb_cold_ion_operator_gate.py`
+  - `examples/10_verification/drb_operator_split_diagnostics.py`
 - CI physics benchmark gate:
   - `benchmarks/check_drb_conservative_gate.py`
   - `.github/workflows/ci.yml` (Ubuntu + Python 3.12)
@@ -342,11 +344,26 @@ n^*\,\dot n
 $$
 which is the direct quadratic-form derivative of the implemented energy functional.
 
+### Conservative/source/dissipative split verification
+
+The cold-ion RHS now supports explicit operator splitting:
+$$
+\mathcal{R}=\mathcal{R}_{\mathrm{cons}}+\mathcal{R}_{\mathrm{src}}+\mathcal{R}_{\mathrm{diss}}.
+$$
+
+Validation checks enforce:
+
+- exact reconstruction of the full RHS from split components,
+- zero RHS when all split toggles are disabled,
+- conservative-only split preserving invariant-rate residuals at roundoff level.
+
 Example output:
 
 ![Cold-ion DRB conservative gate](assets/images/drb_cold_ion_conservative_gate.png)
 
 ![Cold-ion DRB operator gate](assets/images/drb_cold_ion_operator_gate.png)
+
+![Cold-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics.png)
 
 ## Performance regression gates
 
