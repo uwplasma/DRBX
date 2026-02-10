@@ -379,6 +379,18 @@ Interpretation notes:
 - The split diagnostics verify that the full RHS is the sum of conservative/source/dissipative
   components and show how each term's magnitude changes across `k_y`.
 
+## DRB2D conservative nonlinear gate (periodic)
+
+`jaxdrb` now includes a fully nonlinear 2D DRB testbed with a conservative Arakawa bracket,
+used to validate nonlinear conservation in a periodic domain. The gate is currently enforced
+in tests and produces the figure below.
+
+- example: `examples/08_nonlinear_drb2d/drb2d_conservative_gate.py`
+- test: `tests/test_drb2d_conservative_gate.py`
+
+![DRB2D conservative energy time series](assets/images/drb2d_conservative_energy.png)
+
+
 ## Performance regression gates
 
 CI enforces a conservative core-kernel throughput gate on Ubuntu/Python 3.12:
