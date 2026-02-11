@@ -13,7 +13,7 @@ from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import laplacian as laplacian_fd
 from .fd import enforce_bc_relaxation, inv_laplacian_cg
-from .spectral import dealias, inv_laplacian, laplacian, poisson_bracket_spectral
+from .spectral import dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
 
 
 class DRB2DParams(eqx.Module):
@@ -31,6 +31,10 @@ class DRB2DParams(eqx.Module):
     kpar: float = 0.0
     eta: float = 0.0
     me_hat: float = 0.2
+
+    # Curvature drive (simple slab interchange model).
+    curvature_on: bool = False
+    curvature_coeff: float = 0.0
 
     # Dissipation.
     Dn: float = 0.0
@@ -131,6 +135,19 @@ class DRB2DModel(eqx.Module):
             return jnp.zeros_like(f)
         return 1j * float(self.params.kpar) * f
 
+    def _curvature(self, f: jnp.ndarray) -> jnp.ndarray:
+        if not self.params.curvature_on or self.params.curvature_coeff == 0.0:
+            return jnp.zeros_like(f)
+        if (
+            self.grid.bc.kind_x == 0
+            and self.grid.bc.kind_y == 0
+            and self.params.poisson == "spectral"
+        ):
+            df_dy = ddy(f, self.grid.ky)
+        else:
+            df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
+        return -float(self.params.curvature_coeff) * df_dy
+
     def rhs_decomposed(self, t: float, y: DRB2DState) -> DRB2DDecomposition:
         _ = t
         n = y.n
@@ -152,6 +169,10 @@ class DRB2DModel(eqx.Module):
         grad_par_phi_pe = self._dpar(phi - n - float(self.params.alpha_Te_ohm) * Te)
         jpar = vpar_i - vpar_e
 
+        C_phi = self._curvature(phi)
+        C_p = self._curvature(n + Te)
+        C_T = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
+
         conservative = DRB2DState(
             n=adv_n - self._dpar(vpar_e),
             omega=adv_w + self._dpar(jpar),
@@ -171,11 +192,11 @@ class DRB2DModel(eqx.Module):
             drive_Te = -float(self.params.omega_Te) * dphi_dy
 
         source = DRB2DState(
-            n=drive_n,
-            omega=jnp.zeros_like(omega),
+            n=drive_n + (C_p - C_phi),
+            omega=C_p,
             vpar_e=jnp.zeros_like(vpar_e),
             vpar_i=jnp.zeros_like(vpar_i),
-            Te=drive_Te,
+            Te=drive_Te + C_T,
         )
 
         if (
