@@ -41,6 +41,24 @@ def test_hw2d_short_run_no_nans():
     assert jnp.all(jnp.isfinite(y_end.omega))
 
 
+def test_hw2d_short_run_no_nans_cg_fd_poisson():
+    from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
+    from jaxdrb.nonlinear.stepper import rk4_scan
+
+    grid = Grid2D.make(nx=16, ny=16, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
+    model = HW2DModel(
+        params=HW2DParams(
+            kappa=1.0, alpha=0.5, Dn=1e-3, DOmega=1e-3, bracket="arakawa", poisson="cg_fd"
+        ),
+        grid=grid,
+    )
+    y0 = hw2d_random_ic(jax.random.key(3), grid, amp=1e-3)
+
+    _, y_end = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=5, rhs=model.rhs)
+    assert jnp.all(jnp.isfinite(y_end.n))
+    assert jnp.all(jnp.isfinite(y_end.omega))
+
+
 def test_inv_laplacian_cg_dirichlet_recovers_manufactured_solution():
     from jaxdrb.bc import bc2d_from_strings
 
@@ -60,6 +78,22 @@ def test_inv_laplacian_cg_dirichlet_recovers_manufactured_solution():
     bc = bc2d_from_strings(bc_x="dirichlet", bc_y="dirichlet", value_x=0.0, value_y=0.0)
     omega = laplacian_fd(phi, dx, dy, bc)
     phi_rec = inv_laplacian_cg(omega, dx=dx, dy=dy, bc=bc, maxiter=400)
+
+    err = jnp.linalg.norm((phi_rec - phi).ravel()) / jnp.linalg.norm(phi.ravel())
+    assert err < 1e-6
+
+
+def test_inv_laplacian_cg_periodic_recovers_manufactured_solution():
+    grid = Grid2D.make(nx=32, ny=28, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
+    key = jax.random.key(42)
+
+    # Manufactured discrete solution (mean-zero gauge).
+    phi = jax.random.normal(key, (grid.nx, grid.ny))
+    phi = phi - jnp.mean(phi)
+    omega = laplacian_fd(phi, grid.dx, grid.dy, grid.bc)
+
+    phi_rec = inv_laplacian_cg(omega, dx=grid.dx, dy=grid.dy, bc=grid.bc, maxiter=800, tol=1e-12)
+    phi_rec = phi_rec - jnp.mean(phi_rec)
 
     err = jnp.linalg.norm((phi_rec - phi).ravel()) / jnp.linalg.norm(phi.ravel())
     assert err < 1e-6
