@@ -187,10 +187,10 @@ def inv_laplacian_cg(
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = laplacian(v, dx, dy, bc)
+            out = -laplacian(v, dx, dy, bc)
             return out.reshape((-1,))
 
-        b = rhs0.reshape((-1,))
+        b = (-rhs0).reshape((-1,))
         x0 = jnp.zeros_like(b)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=tol, maxiter=maxiter)
         u = x.reshape((nx, ny))

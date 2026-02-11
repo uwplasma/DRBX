@@ -6,7 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from jaxdrb.nonlinear.stepper import rk4_step
+from jaxdrb.nonlinear.stepper import implicit_midpoint_step, rk4_step
 
 
 @eqx.filter_jit
@@ -27,6 +27,29 @@ def energy_time_series(
     def step(carry, _):
         t, y = carry
         y_next = rk4_step(y, t, dt, rhs)
+        E_next = energy(y_next)
+        return (t + dt, y_next), E_next
+
+    (_, _), Es = jax.lax.scan(step, (jnp.asarray(t0), y0), xs=None, length=int(nsteps))
+    return Es
+
+
+@eqx.filter_jit
+def energy_time_series_midpoint(
+    *,
+    y0,
+    rhs: Callable[[float, object], object],
+    energy: Callable[[object], jnp.ndarray],
+    t0: float,
+    dt: float,
+    nsteps: int,
+    n_iter: int = 6,
+) -> jnp.ndarray:
+    """Energy time series using implicit midpoint stepping."""
+
+    def step(carry, _):
+        t, y = carry
+        y_next = implicit_midpoint_step(y, t, dt, rhs, n_iter=n_iter)
         E_next = energy(y_next)
         return (t + dt, y_next), E_next
 

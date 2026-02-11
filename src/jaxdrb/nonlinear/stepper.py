@@ -18,6 +18,27 @@ def rk4_step(y, t: float, dt: float, rhs: Callable[[float, object], object]):
     )
 
 
+@eqx.filter_jit
+def implicit_midpoint_step(
+    y, t: float, dt: float, rhs: Callable[[float, object], object], *, n_iter: int = 6
+):
+    """Fixed-point implicit midpoint step.
+
+    This is time-reversible and preserves quadratic invariants for skew-symmetric
+    operators up to solver tolerance, so it is useful for strict conservation checks.
+    """
+
+    k0 = rhs(t, y)
+    y1 = jax.tree.map(lambda yi, ki: yi + dt * ki, y, k0)
+
+    def body(_, y_curr):
+        y_mid = jax.tree.map(lambda yi, yi1: 0.5 * (yi + yi1), y, y_curr)
+        k_mid = rhs(t + 0.5 * dt, y_mid)
+        return jax.tree.map(lambda yi, ki: yi + dt * ki, y, k_mid)
+
+    return jax.lax.fori_loop(0, int(n_iter), body, y1)
+
+
 def rk4_scan(y0, *, t0: float, dt: float, nsteps: int, rhs: Callable[[float, object], object]):
     """Fixed-step RK4 time stepping using `lax.scan` (fast under `jit`)."""
 
