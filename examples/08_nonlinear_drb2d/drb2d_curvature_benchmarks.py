@@ -27,6 +27,12 @@ import numpy as np
 from jaxdrb.analysis.plotting import set_mpl_style
 from jaxdrb.linear.growthrate import estimate_growth_rate
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
+from jaxdrb.nonlinear.drb2d_em import DRB2DEMModel, DRB2DEMParams, DRB2DEMState
+from jaxdrb.nonlinear.drb2d_hot_ion import (
+    DRB2DHotIonModel,
+    DRB2DHotIonParams,
+    DRB2DHotIonState,
+)
 from jaxdrb.nonlinear.grid import Grid2D
 
 
@@ -45,6 +51,22 @@ def _gamma_proxy_tokam1d(*, omega_star: float, g: float, ky: float, kperp2: floa
 def _linear_gamma(model: DRB2DModel, v0: DRB2DState) -> float:
     zero = jnp.zeros_like(v0.n)
     y_zero = DRB2DState(n=zero, omega=zero, vpar_e=zero, vpar_i=zero, Te=zero)
+    _, jvp_fn = jax.linearize(lambda y: model.rhs(0.0, y), y_zero)
+    res = estimate_growth_rate(jvp_fn, v0, tmax=15.0, dt0=0.02, nsave=120, fit_window=0.5)
+    return float(res.gamma)
+
+
+def _linear_gamma_hot(model: DRB2DHotIonModel, v0: DRB2DHotIonState) -> float:
+    zero = jnp.zeros_like(v0.n)
+    y_zero = DRB2DHotIonState(n=zero, omega=zero, vpar_e=zero, vpar_i=zero, Te=zero, Ti=zero)
+    _, jvp_fn = jax.linearize(lambda y: model.rhs(0.0, y), y_zero)
+    res = estimate_growth_rate(jvp_fn, v0, tmax=15.0, dt0=0.02, nsave=120, fit_window=0.5)
+    return float(res.gamma)
+
+
+def _linear_gamma_em(model: DRB2DEMModel, v0: DRB2DEMState) -> float:
+    zero = jnp.zeros_like(v0.n)
+    y_zero = DRB2DEMState(n=zero, omega=zero, psi=zero, vpar_i=zero, Te=zero)
     _, jvp_fn = jax.linearize(lambda y: model.rhs(0.0, y), y_zero)
     res = estimate_growth_rate(jvp_fn, v0, tmax=15.0, dt0=0.02, nsave=120, fit_window=0.5)
     return float(res.gamma)
@@ -79,14 +101,32 @@ def main() -> None:
         vpar_i=jnp.zeros_like(jnp.asarray(mode)),
         Te=jnp.asarray(amp * mode),
     )
+    v0_hot = DRB2DHotIonState(
+        n=jnp.asarray(amp * mode),
+        omega=jnp.asarray(amp * mode),
+        vpar_e=jnp.zeros_like(jnp.asarray(mode)),
+        vpar_i=jnp.zeros_like(jnp.asarray(mode)),
+        Te=jnp.asarray(amp * mode),
+        Ti=jnp.asarray(amp * mode),
+    )
+    v0_em = DRB2DEMState(
+        n=jnp.asarray(amp * mode),
+        omega=jnp.asarray(amp * mode),
+        psi=jnp.asarray(amp * mode),
+        vpar_i=jnp.zeros_like(jnp.asarray(mode)),
+        Te=jnp.asarray(amp * mode),
+    )
 
-    curv_vals = np.linspace(0.0, 0.64, 5)
+    omega_n_drive = 0.6
+    curv_vals = np.linspace(0.0, 0.4, 5)
     gamma_interchange = []
     gamma_resistive = []
+    gamma_hot = []
+    gamma_em = []
 
     for curv in curv_vals:
         params_interchange = DRB2DParams(
-            omega_n=0.0,
+            omega_n=omega_n_drive,
             omega_Te=0.0,
             kpar=0.0,
             eta=0.0,
@@ -101,7 +141,7 @@ def main() -> None:
             dealias_on=False,
         )
         params_resistive = DRB2DParams(
-            omega_n=0.0,
+            omega_n=omega_n_drive,
             omega_Te=0.0,
             kpar=0.3,
             eta=0.2,
@@ -119,6 +159,43 @@ def main() -> None:
             _linear_gamma(DRB2DModel(params=params_interchange, grid=grid), v0)
         )
         gamma_resistive.append(_linear_gamma(DRB2DModel(params=params_resistive, grid=grid), v0))
+        params_hot = DRB2DHotIonParams(
+            omega_n=omega_n_drive,
+            omega_Te=0.0,
+            omega_Ti=0.0,
+            kpar=0.0,
+            eta=0.0,
+            me_hat=0.2,
+            tau_i=1.0,
+            curvature_on=True,
+            curvature_coeff=float(curv),
+            Dn=0.0,
+            DOmega=0.0,
+            DTe=0.0,
+            DTi=0.0,
+            bracket="arakawa",
+            poisson="spectral",
+            dealias_on=False,
+        )
+        params_em = DRB2DEMParams(
+            omega_n=omega_n_drive,
+            omega_Te=0.0,
+            kpar=0.0,
+            eta=0.0,
+            me_hat=0.2,
+            beta=0.2,
+            Dpsi=0.0,
+            curvature_on=True,
+            curvature_coeff=float(curv),
+            Dn=0.0,
+            DOmega=0.0,
+            DTe=0.0,
+            bracket="arakawa",
+            poisson="spectral",
+            dealias_on=False,
+        )
+        gamma_hot.append(_linear_gamma_hot(DRB2DHotIonModel(params=params_hot, grid=grid), v0_hot))
+        gamma_em.append(_linear_gamma_em(DRB2DEMModel(params=params_em, grid=grid), v0_em))
         print(
             f"[drb2d-curv] curv={curv:.2f} "
             f"gamma_int={gamma_interchange[-1]:.3e} "
@@ -127,6 +204,8 @@ def main() -> None:
 
     gamma_interchange = np.asarray(gamma_interchange)
     gamma_resistive = np.asarray(gamma_resistive)
+    gamma_hot = np.asarray(gamma_hot)
+    gamma_em = np.asarray(gamma_em)
 
     g_ref = 0.3
     omega_scan = np.linspace(0.0, 0.9, 7)
@@ -163,10 +242,12 @@ def main() -> None:
     gamma_proxy = np.asarray(gamma_proxy)
     omega_crit = g_ref * float(args.ky) * (1.0 + (args.kx**2 + args.ky**2) / 4.0)
 
-    fig, axs = plt.subplots(1, 2, figsize=(12.0, 4.2))
+    fig, axs = plt.subplots(1, 2, figsize=(12.8, 4.4))
     ax = axs[0]
     ax.plot(curv_vals, gamma_interchange, "o-", lw=2, label="interchange (kpar=0, eta=0)")
     ax.plot(curv_vals, gamma_resistive, "s-", lw=2, label="resistive-like (kpar=0.3, eta=0.2)")
+    ax.plot(curv_vals, gamma_hot, "^-", lw=2, label="hot-ion (kpar=0, tau_i=1)")
+    ax.plot(curv_vals, gamma_em, "d-", lw=2, label="EM (kpar=0, beta=0.2)")
     ax.set_xlabel("curvature coefficient")
     ax.set_ylabel("linear growth γ")
     ax.set_title("Curvature-driven growth")
@@ -192,6 +273,8 @@ def main() -> None:
         curvature=curv_vals,
         gamma_interchange=gamma_interchange,
         gamma_resistive=gamma_resistive,
+        gamma_hot=gamma_hot,
+        gamma_em=gamma_em,
         omega_scan=omega_scan,
         gamma_scan=gamma_scan,
         gamma_proxy=gamma_proxy,

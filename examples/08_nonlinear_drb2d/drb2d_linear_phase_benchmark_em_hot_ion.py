@@ -234,8 +234,8 @@ def main() -> None:
 
     kx = 1.0
     ky = 1.0
-    kpar = 0.4
-    curvature_coeff = 0.6
+    kpar = 0.2
+    curvature_coeff = 0.4
 
     gamma_lin_hot, t_hot, logn_hot = _linear_growth_hot_ion(
         kx=kx, ky=ky, kpar=kpar, curvature_coeff=curvature_coeff
