@@ -6,7 +6,6 @@ import jax
 
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.stepper import rk4_step
 
 
 def test_drb2d_energy_budget_closure_with_curvature_and_drives() -> None:
@@ -45,17 +44,24 @@ def test_drb2d_energy_budget_closure_with_curvature_and_drives() -> None:
 
     dt = 0.02
     nsteps = 80
-    t = 0.0
-    Es = []
-    Edot = []
-    for _ in range(nsteps):
-        y = rk4_step(y, t, dt, model.rhs)
-        t = t + dt
-        Es.append(float(model.energy(y)))
-        Edot.append(float(model.energy_budget(y)["E_dot_total"]))
-
-    Es = np.asarray(Es)
-    Edot = np.asarray(Edot)
+    save_ts = np.arange(dt, dt * (nsteps + 1), dt)
+    sol = model.diffeqsolve(
+        y0=y,
+        t0=0.0,
+        t1=float(dt * nsteps),
+        dt0=float(dt),
+        save_ts=jax.numpy.asarray(save_ts),
+        solver="dopri8",
+        adaptive=False,
+        rtol=1e-8,
+        atol=1e-10,
+        max_steps=20_000,
+        progress=False,
+    )
+    Es = np.asarray(jax.device_get(jax.vmap(model.energy)(sol.ys)))
+    Edot = np.asarray(
+        jax.device_get(jax.vmap(lambda yi: model.energy_budget(yi)["E_dot_total"])(sol.ys))
+    )
     dE_dt_fd = np.gradient(Es, dt)
     corr = float(np.corrcoef(dE_dt_fd, Edot)[0, 1])
     assert corr > 0.9
