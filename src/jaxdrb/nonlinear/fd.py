@@ -172,6 +172,7 @@ def inv_laplacian_cg(
     atol: float = 0.0,
     preconditioner: str = "jacobi",
     gauge_epsilon: float | None = None,
+    nan_guard: bool = True,
 ) -> jnp.ndarray:
     """Solve ``∇² u = rhs`` with an SPD(-ish) FD Laplacian using (P)CG.
 
@@ -218,6 +219,8 @@ def inv_laplacian_cg(
         x0 = jnp.zeros_like(b)
         M = make_M(b.size)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny))
         return u - jnp.mean(u)
 
@@ -250,6 +253,8 @@ def inv_laplacian_cg(
         x, _ = jax.scipy.sparse.linalg.cg(
             mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = jnp.zeros((nx, ny), dtype=rhs.dtype)
         u = u.at[0, :].set(float(bc.x_value))
         u = u.at[-1, :].set(float(bc.x_value))
@@ -283,6 +288,8 @@ def inv_laplacian_cg(
         x0 = jnp.zeros_like(b)
         M = make_M(b.size)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny)) + u_bc
         return u - jnp.mean(u)
 
