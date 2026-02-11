@@ -83,6 +83,20 @@ python examples/08_nonlinear_drb2d/drb2d_conservative_gate.py
 
 ![DRB2D conservative energy time series](../assets/images/drb2d_conservative_energy.png)
 
+### DRB2D energy budget with curvature + drives
+
+The DRB2D testbed also includes a full energy-budget diagnostic with curvature and
+background-gradient drives enabled. This provides a quantitative closure check
+(`dE/dt` from finite differences vs. the RHS budget), and it is enforced in tests.
+
+Example:
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_energy_budget.py
+```
+
+![DRB2D energy budget](../assets/images/drb2d_energy_budget.png)
+
 
 ## What “conservative nonlinear DRB” requires
 

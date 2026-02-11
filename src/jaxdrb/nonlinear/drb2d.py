@@ -290,6 +290,158 @@ class DRB2DModel(eqx.Module):
             + c_T * jnp.real(jnp.conj(y.Te) * y.Te)
         )
 
+    def energy_rate(self, y: DRB2DState, dy: DRB2DState) -> jnp.ndarray:
+        phi = self.phi_from_omega(y.omega)
+        c_T = 1.5 * float(self.params.alpha_Te_ohm)
+        return jnp.mean(
+            jnp.real(jnp.conj(y.n) * dy.n)
+            - jnp.real(jnp.conj(phi) * dy.omega)
+            + float(self.params.me_hat) * jnp.real(jnp.conj(y.vpar_e) * dy.vpar_e)
+            + jnp.real(jnp.conj(y.vpar_i) * dy.vpar_i)
+            + c_T * jnp.real(jnp.conj(y.Te) * dy.Te)
+        )
+
+    def energy_budget(self, y: DRB2DState) -> dict[str, jnp.ndarray]:
+        """Return a term-by-term energy budget for DRB2D.
+
+        Uses the discrete identity:
+          dE/dt = < n*dn - phi*dOmega + me_hat*vpar_e*dvpar_e + vpar_i*dvpar_i
+                    + 1.5*alpha_Te*T_e*dT_e >
+        """
+        n = y.n
+        omega = y.omega
+        vpar_e = y.vpar_e
+        vpar_i = y.vpar_i
+        Te = y.Te
+
+        phi = self.phi_from_omega(omega)
+
+        # Nonlinear ExB advection.
+        adv_n = -self._bracket(phi, n)
+        adv_w = -self._bracket(phi, omega)
+        adv_ve = -self._bracket(phi, vpar_e)
+        adv_vi = -self._bracket(phi, vpar_i)
+        adv_Te = -self._bracket(phi, Te)
+
+        # Parallel couplings (k_par model).
+        grad_par_phi_pe = self._dpar(phi - n - float(self.params.alpha_Te_ohm) * Te)
+        jpar = vpar_i - vpar_e
+        par_n = -self._dpar(vpar_e)
+        par_w = self._dpar(jpar)
+        par_ve = grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12)
+        par_vi = -self._dpar(phi)
+        par_Te = -(2.0 / 3.0) * self._dpar(vpar_e)
+
+        # Curvature and drives.
+        C_phi = self._curvature(phi)
+        C_p = self._curvature(n + Te)
+        C_T = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
+
+        drive_n = 0.0
+        drive_Te = 0.0
+        if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0:
+            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            drive_n = -float(self.params.omega_n) * dphi_dy
+            drive_Te = -float(self.params.omega_Te) * dphi_dy
+
+        # Dissipation.
+        if (
+            self.grid.bc.kind_x == 0
+            and self.grid.bc.kind_y == 0
+            and self.params.poisson == "spectral"
+        ):
+            lap_n = laplacian(n, self.grid.k2)
+            lap_w = laplacian(omega, self.grid.k2)
+            lap_Te = laplacian(Te, self.grid.k2)
+        else:
+            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+
+        diss_n = float(self.params.Dn) * lap_n
+        diss_w = float(self.params.DOmega) * lap_w
+        diss_ve = -(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12)) * (
+            vpar_e - vpar_i
+        )
+        diss_vi = jnp.zeros_like(vpar_i)
+        diss_Te = float(self.params.DTe) * lap_Te
+
+        if self.params.bc_enforce_nu != 0.0:
+            diss_n = diss_n + enforce_bc_relaxation(
+                n, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+            )
+            diss_w = diss_w + enforce_bc_relaxation(
+                omega,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                nu=self.params.bc_enforce_nu,
+            )
+            diss_ve = diss_ve + enforce_bc_relaxation(
+                vpar_e,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                nu=self.params.bc_enforce_nu,
+            )
+            diss_vi = diss_vi + enforce_bc_relaxation(
+                vpar_i,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                nu=self.params.bc_enforce_nu,
+            )
+            diss_Te = diss_Te + enforce_bc_relaxation(
+                Te, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+            )
+
+        edot_adv = self.energy_rate(
+            y, DRB2DState(n=adv_n, omega=adv_w, vpar_e=adv_ve, vpar_i=adv_vi, Te=adv_Te)
+        )
+        edot_par = self.energy_rate(
+            y, DRB2DState(n=par_n, omega=par_w, vpar_e=par_ve, vpar_i=par_vi, Te=par_Te)
+        )
+        edot_curv = self.energy_rate(
+            y,
+            DRB2DState(
+                n=C_p - C_phi,
+                omega=C_p,
+                vpar_e=jnp.zeros_like(vpar_e),
+                vpar_i=jnp.zeros_like(vpar_i),
+                Te=C_T,
+            ),
+        )
+        edot_drive = self.energy_rate(
+            y,
+            DRB2DState(
+                n=drive_n,
+                omega=jnp.zeros_like(omega),
+                vpar_e=jnp.zeros_like(vpar_e),
+                vpar_i=jnp.zeros_like(vpar_i),
+                Te=drive_Te,
+            ),
+        )
+        edot_diss = self.energy_rate(
+            y,
+            DRB2DState(n=diss_n, omega=diss_w, vpar_e=diss_ve, vpar_i=diss_vi, Te=diss_Te),
+        )
+
+        out = {
+            "E_dot_adv": edot_adv,
+            "E_dot_parallel": edot_par,
+            "E_dot_curvature": edot_curv,
+            "E_dot_drive": edot_drive,
+            "E_dot_diss": edot_diss,
+        }
+        out["E_dot_total"] = (
+            out["E_dot_adv"]
+            + out["E_dot_parallel"]
+            + out["E_dot_curvature"]
+            + out["E_dot_drive"]
+            + out["E_dot_diss"]
+        )
+        return out
+
     def diffeqsolve(
         self,
         *,

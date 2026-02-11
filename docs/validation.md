@@ -390,6 +390,21 @@ in tests and produces the figure below.
 
 ![DRB2D conservative energy time series](assets/images/drb2d_conservative_energy.png)
 
+## DRB2D energy budget gate (curvature + drives)
+
+The DRB2D testbed includes a full energy-budget diagnostic with curvature and background
+drives enabled. The gate enforces:
+
+- exact agreement between the energy-rate computed from the full RHS and the sum of
+  budget terms, and
+- strong correlation between finite-difference $dE/dt$ and the budget time series.
+
+Test + example:
+
+- test: `tests/test_drb2d_energy_budget.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_energy_budget.py`
+
+![DRB2D energy budget](assets/images/drb2d_energy_budget.png)
 ### DRB2D limit checks (HW2D + curvature)
 
 Two additional checks anchor the DRB2D testbed to known limits:
@@ -404,10 +419,13 @@ Two additional checks anchor the DRB2D testbed to known limits:
 
 ## DRB2D linear-phase benchmark (2D vs linear solver)
 
-We benchmark the early-time growth rate in DRB2D against the linear flux-tube solver
-using a constant-geometry approximation and matching (kx, ky, k_par).
+We benchmark the DRB2D linear-phase growth rate against the linear flux-tube solver
+using a constant-geometry approximation and matching (kx, ky, k_par). The DRB2D
+rate is computed from the **linearized** DRB2D operator (via `jax.linearize`) to
+avoid nonlinear transient effects.
 
 - example: `examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py`
+- test: `tests/test_drb2d_linear_phase_match.py` (strict quantitative gate, 20% tolerance)
 
 ![DRB2D linear-phase growth](assets/images/drb2d_linear_phase_growth.png)
 
