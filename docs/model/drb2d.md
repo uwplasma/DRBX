@@ -48,6 +48,55 @@ $$
 The source terms $S_\cdot$ include optional background-gradient drives and diffusion terms,
 controlled by `DRB2DParams`.
 
+### Hot-ion extension (2D)
+
+The hot-ion DRB2D extension adds an ion-temperature field $T_i$ and modifies the
+pressure and ion-parallel dynamics:
+
+$$
+p_\mathrm{tot} = (1+\tau_i)\,n + T_e + \tau_i T_i,
+$$
+
+$$
+\partial_t v_{\parallel i} + [\phi, v_{\parallel i}] = -\nabla_\parallel\left(\phi + \tau_i (n + T_i)\right) + S_{v_i},
+$$
+
+$$
+\partial_t T_i + [\phi, T_i] = -\tfrac{2}{3} \nabla_\parallel v_{\parallel i} + S_{T_i}.
+$$
+
+Curvature uses $C(p_\mathrm{tot})$ and the hot-ion model adds an optional $-\omega_{Ti}\,\partial_y\phi$
+background drive.
+
+### EM extension (2D)
+
+The electromagnetic branch replaces $v_{\parallel e}$ with an inductive potential
+$\psi \sim -A_\parallel$ and Ampere closure:
+
+$$
+j_\parallel = -\nabla_\perp^2 \psi,\qquad v_{\parallel e} = v_{\parallel i} - j_\parallel.
+$$
+
+Ohm's law in the reduced EM model is implemented via
+
+$$
+\partial_t \psi = -\nabla_\parallel(\phi - n - 1.71 T_e)
+  - \eta\,j_\parallel + D_\psi \nabla_\perp^2 \psi,
+$$
+
+using a spectral inversion with coefficient
+$\hat m_e k_\perp^2 + \tfrac{1}{2}\beta$.
+
+## Polarization closure toggles
+
+The DRB2D testbed supports both Boussinesq and non-Boussinesq polarization:
+
+- Boussinesq: $\Omega = \nabla_\perp^2 \phi$
+- Non-Boussinesq (density-weighted): $\Omega = \nabla_\perp^2 (n_\mathrm{eff}\,\phi)$, with
+  $n_\mathrm{eff} = n_0$ or $n_0 + \Re[n]$ if `non_boussinesq_perturbed_density_on=True`.
+
+Non-Boussinesq mode is currently supported for **spectral** Poisson solves on periodic grids.
+
 ## Energy budget
 
 For periodic domains with Boussinesq polarization, the discrete energy functional is

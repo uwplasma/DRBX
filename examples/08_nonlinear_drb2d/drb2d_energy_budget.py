@@ -20,7 +20,13 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 from jaxdrb.analysis.plotting import set_mpl_style
-from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams
+from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
+from jaxdrb.nonlinear.drb2d_em import DRB2DEMModel, DRB2DEMParams, DRB2DEMState
+from jaxdrb.nonlinear.drb2d_hot_ion import (
+    DRB2DHotIonModel,
+    DRB2DHotIonParams,
+    DRB2DHotIonState,
+)
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.stepper import rk4_step
 
@@ -48,7 +54,17 @@ def run_time_series(
 
     ts = []
     Es = []
-    budgets = {k: [] for k in ["E_dot_adv", "E_dot_parallel", "E_dot_curvature", "E_dot_drive", "E_dot_diss", "E_dot_total"]}
+    budgets = {
+        k: []
+        for k in [
+            "E_dot_adv",
+            "E_dot_parallel",
+            "E_dot_curvature",
+            "E_dot_drive",
+            "E_dot_diss",
+            "E_dot_total",
+        ]
+    }
 
     t = jnp.asarray(0.0)
     y = y0
@@ -88,6 +104,7 @@ def main() -> None:
     p.add_argument("--tmax", type=float, default=20.0)
     p.add_argument("--stride", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--model", type=str, default="cold", choices=["cold", "hot-ion", "em"])
     p.add_argument("--out", type=str, default="out_drb2d_budget")
     args = p.parse_args()
 
@@ -96,33 +113,89 @@ def main() -> None:
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
 
-    params = DRB2DParams(
-        omega_n=0.8,
-        omega_Te=0.3,
-        kpar=0.0,
-        eta=0.2,
-        me_hat=0.2,
-        curvature_on=True,
-        curvature_coeff=0.6,
-        Dn=1e-3,
-        DOmega=1e-3,
-        DTe=1e-3,
-        bracket="arakawa",
-        poisson="spectral",
-        dealias_on=False,
-    )
-    model = DRB2DModel(params=params, grid=grid)
-
     key = jax.random.key(args.seed)
     shape = (grid.nx, grid.ny)
-    n0 = 1e-3 * jax.random.normal(key, shape)
-    omega0 = 1e-3 * jax.random.normal(jax.random.key(args.seed + 1), shape)
-    vpar_e0 = 1e-3 * jax.random.normal(jax.random.key(args.seed + 2), shape)
-    vpar_i0 = 1e-3 * jax.random.normal(jax.random.key(args.seed + 3), shape)
-    Te0 = 1e-3 * jax.random.normal(jax.random.key(args.seed + 4), shape)
-    from jaxdrb.nonlinear.drb2d import DRB2DState
 
-    y0 = DRB2DState(n=n0, omega=omega0, vpar_e=vpar_e0, vpar_i=vpar_i0, Te=Te0)
+    if args.model == "cold":
+        params = DRB2DParams(
+            omega_n=0.8,
+            omega_Te=0.3,
+            kpar=0.0,
+            eta=0.2,
+            me_hat=0.2,
+            curvature_on=True,
+            curvature_coeff=0.6,
+            Dn=1e-3,
+            DOmega=1e-3,
+            DTe=1e-3,
+            bracket="arakawa",
+            poisson="spectral",
+            dealias_on=False,
+        )
+        model = DRB2DModel(params=params, grid=grid)
+        y0 = DRB2DState(
+            n=1e-3 * jax.random.normal(key, shape),
+            omega=1e-3 * jax.random.normal(jax.random.key(args.seed + 1), shape),
+            vpar_e=1e-3 * jax.random.normal(jax.random.key(args.seed + 2), shape),
+            vpar_i=1e-3 * jax.random.normal(jax.random.key(args.seed + 3), shape),
+            Te=1e-3 * jax.random.normal(jax.random.key(args.seed + 4), shape),
+        )
+    elif args.model == "hot-ion":
+        params = DRB2DHotIonParams(
+            omega_n=0.8,
+            omega_Te=0.3,
+            omega_Ti=0.2,
+            kpar=0.0,
+            eta=0.2,
+            me_hat=0.2,
+            tau_i=1.0,
+            alpha_Te_ohm=1.71,
+            alpha_Ti=1.0,
+            curvature_on=True,
+            curvature_coeff=0.6,
+            Dn=1e-3,
+            DOmega=1e-3,
+            DTe=1e-3,
+            DTi=1e-3,
+            bracket="arakawa",
+            poisson="spectral",
+            dealias_on=False,
+        )
+        model = DRB2DHotIonModel(params=params, grid=grid)
+        y0 = DRB2DHotIonState(
+            n=1e-3 * jax.random.normal(key, shape),
+            omega=1e-3 * jax.random.normal(jax.random.key(args.seed + 1), shape),
+            vpar_e=1e-3 * jax.random.normal(jax.random.key(args.seed + 2), shape),
+            vpar_i=1e-3 * jax.random.normal(jax.random.key(args.seed + 3), shape),
+            Te=1e-3 * jax.random.normal(jax.random.key(args.seed + 4), shape),
+            Ti=1e-3 * jax.random.normal(jax.random.key(args.seed + 5), shape),
+        )
+    else:
+        params = DRB2DEMParams(
+            omega_n=0.8,
+            omega_Te=0.3,
+            kpar=0.0,
+            eta=0.2,
+            me_hat=0.2,
+            beta=0.2,
+            Dpsi=1e-3,
+            curvature_on=True,
+            curvature_coeff=0.6,
+            Dn=1e-3,
+            DOmega=1e-3,
+            DTe=1e-3,
+            bracket="arakawa",
+            poisson="spectral",
+            dealias_on=False,
+        )
+        model = DRB2DEMModel(params=params, grid=grid)
+        y0 = DRB2DEMState(
+            n=1e-3 * jax.random.normal(key, shape),
+            omega=1e-3 * jax.random.normal(jax.random.key(args.seed + 1), shape),
+            psi=1e-3 * jax.random.normal(jax.random.key(args.seed + 2), shape),
+            vpar_i=1e-3 * jax.random.normal(jax.random.key(args.seed + 3), shape),
+            Te=1e-3 * jax.random.normal(jax.random.key(args.seed + 4), shape),
+        )
 
     print(
         f"[drb2d-budget] grid=({grid.nx},{grid.ny}) dt={args.dt} tmax={args.tmax} "
@@ -133,7 +206,8 @@ def main() -> None:
     series = run_time_series(
         model=model, y0=y0, dt=float(args.dt), tmax=float(args.tmax), stride=int(args.stride)
     )
-    jnp.savez(out_dir / "timeseries.npz", **series)
+    suffix = "" if args.model == "cold" else f"_{args.model.replace('-', '_')}"
+    jnp.savez(out_dir / f"timeseries{suffix}.npz", **series)
 
     t = series["t"]
     E = series["E"]
@@ -175,7 +249,7 @@ def main() -> None:
     ax.legend()
 
     fig.tight_layout()
-    fig.savefig(out_dir / "panel_budget.png", dpi=220)
+    fig.savefig(out_dir / f"panel_budget{suffix}.png", dpi=220)
     plt.close(fig)
 
     print(f"[drb2d-budget] wrote {out_dir}")

@@ -41,6 +41,10 @@ python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 python examples/08_nonlinear_hw2d/hw2d_movie.py
 python examples/08_nonlinear_drb2d/drb2d_movie.py
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py
+python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion
+python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em
+python examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py
+python examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py
 python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py
 
 python examples/08_nonlinear_drb2d/drb2d_conservative_gate.py
@@ -48,3 +52,8 @@ python examples/04_closures_transport/nonlinear_flux_tube_toggles.py
 ```
 
 Both examples write results to small `out_*` folders with plots and `.npz` data.
+
+![DRB2D energy budget](../assets/images/drb2d_energy_budget.png)
+![DRB2D hot-ion energy budget](../assets/images/drb2d_energy_budget_hot_ion.png)
+![DRB2D EM energy budget](../assets/images/drb2d_energy_budget_em.png)
+![DRB2D curvature benchmark](../assets/images/drb2d_curvature_benchmarks.png)
