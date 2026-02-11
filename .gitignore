@@ -17,6 +17,7 @@ out*/
 
 site/
 _out_make_hw2d_assets/
+_out_make_drb2d_assets/
 
 # Packaging/build artifacts
 *.egg-info/
