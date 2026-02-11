@@ -27,7 +27,7 @@ import numpy as np
 from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
-from jaxdrb.nonlinear.stepper import rk4_scan
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def main() -> None:
@@ -85,7 +85,14 @@ def main() -> None:
 
     nchunks = nsteps // save_stride
     for k in range(nchunks):
-        _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
+        _, y = diffeqsolve_fixed_steps(
+            rhs,
+            y0=y,
+            t0=t,
+            dt=dt,
+            nsteps=save_stride,
+            solver="dopri5",
+        )
         t = t + dt * save_stride
         diag = model.diagnostics(y)
         if not jnp.isfinite(diag["E"]) or not jnp.isfinite(diag["Z"]):

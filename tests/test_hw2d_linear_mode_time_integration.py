@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, HW2DState
-from jaxdrb.nonlinear.stepper import rk4_step
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def test_hw2d_single_mode_growth_matches_analytic_eigs() -> None:
@@ -70,11 +70,16 @@ def test_hw2d_single_mode_growth_matches_analytic_eigs() -> None:
     # Integrate for short time and measure amplification of the selected Fourier coefficient.
     dt = 0.02
     nsteps = 200  # t=4
-    t = 0.0
-    for _ in range(nsteps):
-        y = rk4_step(y, t, dt, model.rhs)
-        t += dt
-    n_hat1 = jnp.fft.fft2(y.n)[i, j]
+    _, y_end = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+    )
+    t = dt * nsteps
+    n_hat1 = jnp.fft.fft2(y_end.n)[i, j]
 
     # Compare growth rates from amplitude ratios.
     g_num = jnp.log(jnp.abs(n_hat1) / jnp.abs(n_hat0)) / t

@@ -4,7 +4,7 @@ This script enforces physics-regression thresholds on the periodic conservative 
 actual field-line cold-ion DRB branch:
 
 1) instantaneous operator residuals (invariant rates from RHS),
-2) finite-time invariant drifts under fixed-step RK4 evolution.
+2) finite-time invariant drifts under fixed-step Diffrax evolution.
 
 It is designed for CI gating and writes optional JSON metrics for artifacts.
 """
@@ -30,7 +30,7 @@ from jaxdrb.models.invariants import (  # noqa: E402
     cold_ion_invariants,
 )
 from jaxdrb.models.params import DRBParams  # noqa: E402
-from jaxdrb.nonlinear.stepper import rk4_step  # noqa: E402
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps  # noqa: E402
 
 
 def _build_conservative_setup(*, nl: int) -> tuple[SlabGeometry, Equilibrium, DRBParams]:
@@ -112,21 +112,23 @@ def _time_drift_metrics(
     def rhs_local(t, y):
         return rhs_nonlinear(t, y, params, geom, kx=0.0, ky=ky, eq=eq)
 
+    def inv_vec(y):
+        inv = cold_ion_invariants(y, params=params, geom=geom, kx=0.0, ky=ky, eq=eq)
+        return jnp.asarray([inv[k] for k in keys], dtype=jnp.float64)
+
     @jax.jit
     def evolve(y_init):
-        inv0 = cold_ion_invariants(y_init, params=params, geom=geom, kx=0.0, ky=ky, eq=eq)
-        vec0 = jnp.asarray([inv0[k] for k in keys], dtype=jnp.float64)
-
-        def step(carry, _):
-            t, y = carry
-            y_next = rk4_step(y, t, dt, rhs_local)
-            inv = cold_ion_invariants(y_next, params=params, geom=geom, kx=0.0, ky=ky, eq=eq)
-            vec = jnp.asarray([inv[k] for k in keys], dtype=jnp.float64)
-            return (t + dt, y_next), vec
-
-        (_, _), hist = jax.lax.scan(
-            step, (jnp.asarray(0.0, dtype=jnp.float64), y_init), xs=None, length=int(nsteps)
+        vec0 = inv_vec(y_init)
+        ys, _ = diffeqsolve_fixed_steps(
+            rhs_local,
+            y0=y_init,
+            t0=0.0,
+            dt=dt,
+            nsteps=int(nsteps),
+            solver="dopri5",
+            save_every=1,
         )
+        hist = jax.vmap(inv_vec)(ys)
         return jnp.vstack([vec0[None, :], hist])
 
     H = np.asarray(evolve(y0))

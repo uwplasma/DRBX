@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable, Literal
 
 import diffrax as dfx
+import jax
 import jax.numpy as jnp
 
 DiffraxSolverName = Literal[
@@ -94,3 +95,46 @@ def diffeqsolve(
         max_steps=int(max_steps),
         progress_meter=dfx.TextProgressMeter() if progress else dfx.NoProgressMeter(),
     )
+
+
+def diffeqsolve_fixed_steps(
+    rhs: Callable[[float, object], object],
+    *,
+    y0,
+    t0: float,
+    dt: float,
+    nsteps: int,
+    solver: DiffraxSolverName = "dopri5",
+    save_every: int = 1,
+    max_steps: int | None = None,
+    progress: bool = False,
+) -> tuple[jnp.ndarray, object]:
+    """Fixed-step integration using Diffrax.
+
+    Returns (ys, y_end) where ys are the saved states at the requested cadence.
+    """
+
+    if nsteps <= 0:
+        raise ValueError("nsteps must be positive.")
+    if save_every <= 0:
+        raise ValueError("save_every must be positive.")
+
+    t1 = t0 + dt * nsteps
+    save_ts = t0 + dt * jnp.arange(save_every, nsteps + 1, save_every)
+    sol = diffeqsolve(
+        rhs,
+        y0=y0,
+        t0=t0,
+        t1=t1,
+        dt0=dt,
+        save_ts=save_ts,
+        solver=solver,
+        adaptive=False,
+        rtol=1e-6,
+        atol=1e-9,
+        max_steps=int(max_steps) if max_steps is not None else int(nsteps * 2 + 100),
+        progress=progress,
+    )
+    ys = sol.ys
+    y_end = jax.tree.map(lambda x: x[-1], ys)
+    return ys, y_end

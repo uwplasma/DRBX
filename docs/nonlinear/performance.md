@@ -7,7 +7,7 @@
 The nonlinear HW2D kernel is implemented in a way that is friendly to XLA:
 
 - FFT-based operators use `jax.numpy.fft`.
-- Fixed-step time stepping uses `jax.lax.scan` to avoid Python loops in the compiled region.
+- Fixed-step time stepping uses Diffrax with a constant step size controller.
 - Dealiasing uses a precomputed mask to avoid dynamic shapes.
 
 ## Benchmark
@@ -18,7 +18,8 @@ The repository includes a micro-benchmark:
 python benchmarks/bench_hw2d_step.py
 ```
 
-This compiles and runs a short RK4 integration and prints a rough throughput in steps/s.
+This compiles and runs short fixed-step integrations and prints throughput in steps/s
+for several Diffrax solvers.
 
 ## CI regression gate
 
@@ -30,7 +31,7 @@ python benchmarks/check_core_kernels.py
 
 This benchmarks and enforces minimum throughput for:
 
-- HW2D nonlinear RK4 stepping (`steps/s`),
+- HW2D nonlinear fixed-step Diffrax stepping (`steps/s`),
 - linear matrix-free matvec application (`matvec/s`).
 
 Thresholds are configurable from the CLI and are intentionally conservative to avoid
@@ -55,4 +56,4 @@ on the periodic conservative subset used for hard regression protection.
 
 - Use `jax_enable_x64=False` unless you need high-precision diagnostics.
 - Keep `nx, ny` and the time-step fixed across repeated runs to maximize JIT reuse.
-- Prefer `lax.scan` stepping for long runs; use Diffrax for reference/verification and adaptive stepping.
+- Prefer fixed-step Diffrax for long runs; use adaptive Diffrax solvers for verification and stiff cases.

@@ -5,27 +5,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from jaxdrb.geometry.slab import SlabGeometry
+from jaxdrb.nonlinear.integrate import diffeqsolve, diffeqsolve_fixed_steps
 from jaxdrb.models.cold_ion_drb import Equilibrium, State, rhs_nonlinear
 from jaxdrb.models.invariants import cold_ion_invariant_rates_from_rhs, cold_ion_invariants
 from jaxdrb.models.params import DRBParams
-
-
-def _rk4_step(y: State, t: jnp.ndarray, dt: float, rhs_fn) -> State:
-    def add(a: State, b: State, scale: float) -> State:
-        return jax.tree_util.tree_map(lambda x, y_: x + scale * y_, a, b)
-
-    k1 = rhs_fn(t, y)
-    k2 = rhs_fn(t + 0.5 * dt, add(y, k1, 0.5 * dt))
-    k3 = rhs_fn(t + 0.5 * dt, add(y, k2, 0.5 * dt))
-    k4 = rhs_fn(t + dt, add(y, k3, dt))
-    return jax.tree_util.tree_map(
-        lambda a, b, c, d, e: a + (dt / 6.0) * (b + 2.0 * c + 2.0 * d + e),
-        y,
-        k1,
-        k2,
-        k3,
-        k4,
-    )
 
 
 def test_cold_ion_drb_conservative_gate_energy_mass_charge_current_momentum() -> None:
@@ -65,28 +48,29 @@ def test_cold_ion_drb_conservative_gate_energy_mass_charge_current_momentum() ->
     def rhs_local(t: jnp.ndarray, y: State) -> State:
         return rhs_nonlinear(t, y, params, geom, kx=kx, ky=ky, eq=eq)
 
-    @jax.jit
-    def evolve_and_measure(y_init: State) -> jnp.ndarray:
-        inv0 = cold_ion_invariants(y_init, params=params, geom=geom, kx=kx, ky=ky, eq=eq)
-        v0 = jnp.array(
-            [inv0["energy"], inv0["mass"], inv0["charge"], inv0["current"], inv0["momentum"]]
+    inv0 = cold_ion_invariants(y0, params=params, geom=geom, kx=kx, ky=ky, eq=eq)
+    v0 = jnp.array(
+        [inv0["energy"], inv0["mass"], inv0["charge"], inv0["current"], inv0["momentum"]]
+    )
+
+    ys, _ = diffeqsolve_fixed_steps(
+        rhs_local,
+        y0=y0,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+        save_every=1,
+    )
+
+    def inv_vec(y: State) -> jnp.ndarray:
+        inv = cold_ion_invariants(y, params=params, geom=geom, kx=kx, ky=ky, eq=eq)
+        return jnp.array(
+            [inv["energy"], inv["mass"], inv["charge"], inv["current"], inv["momentum"]]
         )
 
-        def scan_step(carry, _):
-            t, y = carry
-            y_next = _rk4_step(y, t, dt, rhs_local)
-            inv = cold_ion_invariants(y_next, params=params, geom=geom, kx=kx, ky=ky, eq=eq)
-            vec = jnp.array(
-                [inv["energy"], inv["mass"], inv["charge"], inv["current"], inv["momentum"]]
-            )
-            return (t + dt, y_next), vec
-
-        (_, _), vals = jax.lax.scan(
-            scan_step, (jnp.asarray(0.0, dtype=jnp.float64), y_init), xs=None, length=nsteps
-        )
-        return jnp.vstack([v0[None, :], vals])
-
-    V = np.asarray(evolve_and_measure(y0))
+    vals = jax.vmap(inv_vec)(ys)
+    V = np.asarray(jnp.vstack([v0[None, :], vals]))
 
     # 0: energy (relative span + end drift), 1..4: conservative means (absolute spans).
     E = V[:, 0]
@@ -140,19 +124,20 @@ def test_cold_ion_drb_energy_decreases_with_resistivity() -> None:
     def rhs_local(t: jnp.ndarray, y: State) -> State:
         return rhs_nonlinear(t, y, params, geom, kx=kx, ky=ky, eq=eq)
 
-    @jax.jit
-    def evolve(y_init: State) -> tuple[jnp.ndarray, jnp.ndarray]:
-        E0 = cold_ion_invariants(y_init, params=params, geom=geom, kx=kx, ky=ky, eq=eq)["energy"]
-
-        def body(i, carry):
-            t, y = carry
-            return (t + dt, _rk4_step(y, t, dt, rhs_local))
-
-        _, y1 = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0, dtype=jnp.float64), y_init))
-        E1 = cold_ion_invariants(y1, params=params, geom=geom, kx=kx, ky=ky, eq=eq)["energy"]
-        return E0, E1
-
-    E0, E1 = [float(x) for x in evolve(y0)]
+    E0 = float(cold_ion_invariants(y0, params=params, geom=geom, kx=kx, ky=ky, eq=eq)["energy"])
+    sol = diffeqsolve(
+        rhs_local,
+        y0=y0,
+        t0=0.0,
+        t1=float(dt * nsteps),
+        dt0=float(dt),
+        solver="dopri5",
+        adaptive=False,
+        save_ts=None,
+        max_steps=nsteps * 2 + 200,
+        progress=False,
+    )
+    E1 = float(cold_ion_invariants(sol.ys, params=params, geom=geom, kx=kx, ky=ky, eq=eq)["energy"])
     assert E1 < E0
 
 

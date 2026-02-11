@@ -2,7 +2,7 @@
 
 This script benchmarks two hot paths used throughout nonlinear and linear workflows:
 
-1) HW2D nonlinear RK4 stepping throughput (steps/s),
+1) HW2D nonlinear Diffrax fixed-step throughput (steps/s),
 2) matrix-free linear `J·v` throughput via repeated matvecs (matvec/s).
 
 It is designed for CI regression gating with conservative thresholds.
@@ -30,7 +30,7 @@ from jaxdrb.models.cold_ion_drb import equilibrium  # noqa: E402
 from jaxdrb.models.params import DRBParams  # noqa: E402
 from jaxdrb.nonlinear.grid import Grid2D  # noqa: E402
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic  # noqa: E402
-from jaxdrb.nonlinear.stepper import rk4_scan  # noqa: E402
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps  # noqa: E402
 
 
 def _bench_hw2d_steps_per_second(*, nx: int, ny: int, nsteps: int, repeats: int) -> float:
@@ -41,7 +41,15 @@ def _bench_hw2d_steps_per_second(*, nx: int, ny: int, nsteps: int, repeats: int)
 
     @jax.jit
     def run_once(y):
-        _, y_end = rk4_scan(y, t0=0.0, dt=0.05, nsteps=nsteps, rhs=model.rhs)
+        _, y_end = diffeqsolve_fixed_steps(
+            model.rhs,
+            y0=y,
+            t0=0.0,
+            dt=0.05,
+            nsteps=nsteps,
+            solver="dopri5",
+            save_every=nsteps,
+        )
         return y_end
 
     # Compile.

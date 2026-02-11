@@ -39,7 +39,7 @@ def test_centered_bracket_integral_is_small():
 
 def test_hw2d_passive_advection_conserves_l2_under_arakawa_bracket():
     from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
-    from jaxdrb.nonlinear.stepper import rk4_scan
+    from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
     grid = Grid2D.make(nx=32, ny=32, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     model = HW2DModel(
@@ -52,7 +52,7 @@ def test_hw2d_passive_advection_conserves_l2_under_arakawa_bracket():
         return model.rhs(t, y)
 
     l2_0 = jnp.mean(jnp.abs(y0.n) ** 2)
-    _, y1 = rk4_scan(y0, t0=0.0, dt=0.02, nsteps=40, rhs=rhs)
+    _, y1 = diffeqsolve_fixed_steps(rhs, y0=y0, t0=0.0, dt=0.02, nsteps=40)
     l2_1 = jnp.mean(jnp.abs(y1.n) ** 2)
 
     rel = jnp.abs(l2_1 - l2_0) / jnp.maximum(l2_0, 1e-30)

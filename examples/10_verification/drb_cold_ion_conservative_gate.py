@@ -48,6 +48,7 @@ from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.models.cold_ion_drb import Equilibrium, State, rhs_nonlinear
 from jaxdrb.models.invariants import cold_ion_invariants
 from jaxdrb.models.params import DRBParams
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 @dataclass(frozen=True)
@@ -59,24 +60,6 @@ class RunCfg:
     nsteps: int = 4000
     seed: int = 101
     amplitude: float = 1.0e-2
-
-
-def _rk4_step(y: State, t: jnp.ndarray, dt: float, rhs_fn) -> State:
-    def add(a: State, b: State, scale: float) -> State:
-        return jax.tree_util.tree_map(lambda x, y_: x + scale * y_, a, b)
-
-    k1 = rhs_fn(t, y)
-    k2 = rhs_fn(t + 0.5 * dt, add(y, k1, 0.5 * dt))
-    k3 = rhs_fn(t + 0.5 * dt, add(y, k2, 0.5 * dt))
-    k4 = rhs_fn(t + dt, add(y, k3, dt))
-    return jax.tree_util.tree_map(
-        lambda a, b, c, d, e: a + (dt / 6.0) * (b + 2.0 * c + 2.0 * d + e),
-        y,
-        k1,
-        k2,
-        k3,
-        k4,
-    )
 
 
 def main() -> None:
@@ -113,22 +96,28 @@ def main() -> None:
 
     keys = ("energy", "mass", "charge", "current", "momentum")
 
-    @jax.jit
     def evolve(y_init: State) -> tuple[jnp.ndarray, jnp.ndarray, State]:
         inv0 = cold_ion_invariants(y_init, params=params, geom=geom, kx=cfg.kx, ky=cfg.ky, eq=eq)
         vec0 = jnp.array([inv0[k] for k in keys], dtype=jnp.float64)
 
-        def step(carry, _):
-            t, y = carry
-            y_next = _rk4_step(y, t, cfg.dt, rhs_local)
-            inv = cold_ion_invariants(y_next, params=params, geom=geom, kx=cfg.kx, ky=cfg.ky, eq=eq)
-            vec = jnp.array([inv[k] for k in keys], dtype=jnp.float64)
-            return (t + cfg.dt, y_next), vec
-
-        (_, y_end), hist = jax.lax.scan(
-            step, (jnp.asarray(0.0, dtype=jnp.float64), y_init), xs=None, length=cfg.nsteps
+        ys, y_end = diffeqsolve_fixed_steps(
+            rhs_local,
+            y0=y_init,
+            t0=0.0,
+            dt=cfg.dt,
+            nsteps=cfg.nsteps,
+            solver="dopri5",
         )
-        full = jnp.vstack([vec0[None, :], hist])
+        vecs = jax.vmap(
+            lambda y: jnp.array(
+                [
+                    cold_ion_invariants(y, params=params, geom=geom, kx=cfg.kx, ky=cfg.ky, eq=eq)[k]
+                    for k in keys
+                ],
+                dtype=jnp.float64,
+            )
+        )(ys)
+        full = jnp.vstack([vec0[None, :], vecs])
         t = cfg.dt * jnp.arange(cfg.nsteps + 1, dtype=jnp.float64)
         return t, full, y_end
 

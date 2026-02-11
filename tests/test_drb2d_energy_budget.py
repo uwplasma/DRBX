@@ -3,9 +3,11 @@ from __future__ import annotations
 import numpy as np
 
 import jax
+import jax.numpy as jnp
 
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
+from jaxdrb.nonlinear.neutrals import NeutralParams
 
 
 def test_drb2d_energy_budget_closure_with_curvature_and_drives() -> None:
@@ -69,3 +71,45 @@ def test_drb2d_energy_budget_closure_with_curvature_and_drives() -> None:
     dE_dt_fd = np.gradient(Es, dt)
     corr = float(np.corrcoef(dE_dt_fd, Edot)[0, 1])
     assert corr > 0.9
+
+
+def test_drb2d_energy_budget_includes_neutral_exchange_terms() -> None:
+    grid = Grid2D.make(nx=24, ny=24, Lx=2 * np.pi, Ly=2 * np.pi, dealias=False)
+    params = DRB2DParams(
+        omega_n=0.0,
+        omega_Te=0.0,
+        kpar=0.0,
+        eta=0.0,
+        me_hat=0.2,
+        curvature_on=False,
+        Dn=0.0,
+        DOmega=0.0,
+        DTe=0.0,
+        bracket="arakawa",
+        poisson="spectral",
+        dealias_on=False,
+        neutrals=NeutralParams(
+            enabled=True,
+            Dn0=0.0,
+            nu_ion=1.0,
+            nu_rec=0.4,
+            S0=0.0,
+            nu_sink=0.0,
+        ),
+    )
+    model = DRB2DModel(params=params, grid=grid)
+
+    key = jax.random.key(42)
+    shape = (grid.nx, grid.ny)
+    n0 = 1e-3 * jax.random.normal(key, shape)
+    omega0 = 1e-3 * jax.random.normal(jax.random.key(1), shape)
+    vpar_e0 = jnp.zeros(shape)
+    vpar_i0 = jnp.zeros(shape)
+    Te0 = jnp.zeros(shape)
+    N0 = 1.0 + 1e-2 * jax.random.normal(jax.random.key(2), shape)
+    y = DRB2DState(n=n0, omega=omega0, vpar_e=vpar_e0, vpar_i=vpar_i0, Te=Te0, N=N0)
+
+    rhs = model.rhs(0.0, y)
+    edot_full = float(model.energy_rate(y, rhs))
+    edot_budget = float(model.energy_budget(y)["E_dot_total"])
+    assert abs(edot_full - edot_budget) / max(abs(edot_full), 1e-12) < 1e-10

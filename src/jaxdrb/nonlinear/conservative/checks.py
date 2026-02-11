@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from jaxdrb.nonlinear.stepper import implicit_midpoint_step, rk4_step
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
+from jaxdrb.nonlinear.stepper import implicit_midpoint_step
 
 
-@eqx.filter_jit
 def energy_time_series(
     *,
     y0,
@@ -24,17 +22,18 @@ def energy_time_series(
     This is intended for *quick, reviewer-proof* conservation checks in tests/examples.
     """
 
-    def step(carry, _):
-        t, y = carry
-        y_next = rk4_step(y, t, dt, rhs)
-        E_next = energy(y_next)
-        return (t + dt, y_next), E_next
+    ys, _ = diffeqsolve_fixed_steps(
+        rhs,
+        y0=y0,
+        t0=t0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+        save_every=1,
+    )
+    return jax.vmap(energy)(ys)
 
-    (_, _), Es = jax.lax.scan(step, (jnp.asarray(t0), y0), xs=None, length=int(nsteps))
-    return Es
 
-
-@eqx.filter_jit
 def energy_time_series_midpoint(
     *,
     y0,

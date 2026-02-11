@@ -11,7 +11,7 @@ from jaxdrb.nonlinear.drb2d_hot_ion import (
     DRB2DHotIonState,
 )
 from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.stepper import rk4_scan
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def _rand(key, shape, amp: float):
@@ -60,7 +60,14 @@ def test_drb2d_smoke_dirichlet_centered_cg_no_nans():
         vpar_i=z,
         Te=z,
     )
-    _, y1 = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=5, rhs=model.rhs)
+    _, y1 = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=0.05,
+        nsteps=5,
+        solver="dopri5",
+    )
     assert jnp.all(jnp.isfinite(y1.n))
     assert jnp.all(jnp.isfinite(y1.omega))
 
@@ -99,7 +106,14 @@ def test_drb2d_hot_ion_smoke_periodic_arakawa_spectral_no_nans():
         Te=_rand(jax.random.key(5), shape, amp),
         Ti=_rand(jax.random.key(6), shape, amp),
     )
-    _, y1 = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=3, rhs=model.rhs)
+    _, y1 = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=0.05,
+        nsteps=3,
+        solver="dopri5",
+    )
     assert jnp.all(jnp.isfinite(y1.n))
     assert jnp.all(jnp.isfinite(y1.omega))
     assert jnp.all(jnp.isfinite(y1.Te))
@@ -139,7 +153,14 @@ def test_drb2d_em_smoke_periodic_arakawa_spectral_no_nans():
         vpar_i=z,
         Te=_rand(jax.random.key(10), shape, amp),
     )
-    _, y1 = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=3, rhs=model.rhs)
+    _, y1 = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=0.05,
+        nsteps=3,
+        solver="dopri5",
+    )
     assert jnp.all(jnp.isfinite(y1.n))
     assert jnp.all(jnp.isfinite(y1.omega))
     assert jnp.all(jnp.isfinite(y1.psi))
