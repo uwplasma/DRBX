@@ -28,6 +28,13 @@ def main() -> None:
     set_mpl_style()
 
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--field",
+        type=str,
+        default="omega",
+        choices=["n", "omega", "Te"],
+        help="Field to animate. Default is omega (usually most visually turbulent).",
+    )
     parser.add_argument("--nx", type=int, default=128)
     parser.add_argument("--ny", type=int, default=128)
     parser.add_argument("--dt", type=float, default=0.02)
@@ -48,9 +55,9 @@ def main() -> None:
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     params = DRB2DParams(
-        # A curvature-driven, resistive-like case that rapidly develops dynamics.
+        # A curvature-driven case that rapidly develops nonlinear dynamics.
         omega_n=0.8,
-        omega_Te=0.0,
+        omega_Te=0.2,
         # Keep kpar=0 for a real-valued nonlinear turbulence movie (no Fourier-parallel coupling).
         kpar=0.0,
         eta=0.0,
@@ -90,7 +97,7 @@ def main() -> None:
     print(
         f"[drb2d-movie] grid=({grid.nx},{grid.ny}) dt={dt} tmax={args.tmax} "
         f"save_stride={save_stride} frames={nframes} solver={args.solver} "
-        f"adaptive={not args.fixed_step}"
+        f"adaptive={not args.fixed_step} field={args.field}"
     )
 
     t_start = time.time()
@@ -111,14 +118,21 @@ def main() -> None:
     if wall > float(args.max_wall):
         print(f"[drb2d-movie] warning: wall time {wall:.1f}s exceeded max-wall={args.max_wall}s")
 
-    frames_n = [jax.device_get(sol.ys.n[i]) for i in range(nframes)]
+    if args.field == "n":
+        frames = [jax.device_get(sol.ys.n[i]) for i in range(nframes)]
+    elif args.field == "omega":
+        frames = [jax.device_get(sol.ys.omega[i]) for i in range(nframes)]
+    else:
+        frames = [jax.device_get(sol.ys.Te[i]) for i in range(nframes)]
     ts = [float(t) for t in np.asarray(save_ts)]
-    rms = [float(np.sqrt(np.mean(np.asarray(fr) ** 2))) for fr in frames_n]
+    rms = [float(np.sqrt(np.mean(np.asarray(fr) ** 2))) for fr in frames]
     for k in range(nframes):
         if k == 0 or (k + 1) % max(1, nframes // 10) == 0 or k == nframes - 1:
-            print(f"[drb2d-movie] frame {k + 1}/{nframes} t={ts[k]:.2f} rms(n)={rms[k]:.3e}")
+            print(
+                f"[drb2d-movie] frame {k + 1}/{nframes} t={ts[k]:.2f} rms({args.field})={rms[k]:.3e}"
+            )
 
-    frames_arr = np.stack([np.asarray(a) for a in frames_n], axis=0)
+    frames_arr = np.stack([np.asarray(a) for a in frames], axis=0)
     # Plot normalized fluctuations so the early-time linear phase is visible even
     # when the late-time nonlinear amplitude is much larger.
     frames_fluct = frames_arr - frames_arr.mean(axis=(1, 2), keepdims=True)
@@ -137,7 +151,7 @@ def main() -> None:
         animated=True,
         interpolation="nearest",
     )
-    ax.set_title("DRB2D: normalized density fluctuation (n-<n>)/rms")
+    ax.set_title(f"DRB2D: normalized {args.field} fluctuation ({args.field}-<{args.field}>)/rms")
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -193,14 +207,11 @@ def main() -> None:
     fig.savefig(out_dir / "panel.png", dpi=220)
     plt.close(fig)
 
-    assets_dir = Path(__file__).resolve().parents[2] / "docs" / "assets" / "images"
-    if assets_dir.exists():
-        (assets_dir / "drb2d_turbulence.gif").write_bytes(gif_path.read_bytes())
-        (assets_dir / "drb2d_turbulence_panel.png").write_bytes(
-            (out_dir / "panel.png").read_bytes()
-        )
-
     print(f"[drb2d-movie] wrote {gif_path}")
+    print(
+        "[drb2d-movie] to update README assets, run: "
+        "python docs/assets/scripts/make_drb2d_readme_assets.py"
+    )
 
 
 if __name__ == "__main__":
