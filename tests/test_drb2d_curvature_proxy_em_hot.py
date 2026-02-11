@@ -101,6 +101,16 @@ def test_em_hot_drive_threshold_tracks_proxy() -> None:
         )
         return _linear_gamma_em(DRB2DEMModel(params=params_em, grid=grid), v0_em)
 
+    def gamma_proxy(omega_n: float) -> float:
+        kperp2 = kx**2 + ky**2
+        b = -g_ref * ky
+        c = -(g_ref * ky / kperp2) * (g_ref * ky - omega_n)
+        disc = b * b - 4.0 * c
+        root = np.sqrt(disc + 0.0j)
+        w1 = 0.5 * (g_ref * ky + root)
+        w2 = 0.5 * (g_ref * ky - root)
+        return float(max(w1.imag, w2.imag))
+
     gamma_hot_low = gamma_hot(omega_low)
     gamma_hot_high = gamma_hot(omega_high)
     gamma_em_low = gamma_em(omega_low)
@@ -108,3 +118,13 @@ def test_em_hot_drive_threshold_tracks_proxy() -> None:
 
     assert gamma_hot_high > gamma_hot_low
     assert gamma_em_high > gamma_em_low
+
+    omega_scan = np.linspace(0.0, 0.9, 5)
+    gamma_hot_scan = np.asarray([gamma_hot(float(w)) for w in omega_scan])
+    gamma_em_scan = np.asarray([gamma_em(float(w)) for w in omega_scan])
+    gamma_proxy_scan = np.asarray([gamma_proxy(float(w)) for w in omega_scan])
+
+    corr_hot = np.corrcoef(gamma_hot_scan, gamma_proxy_scan)[0, 1]
+    corr_em = np.corrcoef(gamma_em_scan, gamma_proxy_scan)[0, 1]
+    assert corr_hot > 0.4
+    assert corr_em > 0.4

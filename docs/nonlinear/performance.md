@@ -57,3 +57,36 @@ on the periodic conservative subset used for hard regression protection.
 - Use `jax_enable_x64=False` unless you need high-precision diagnostics.
 - Keep `nx, ny` and the time-step fixed across repeated runs to maximize JIT reuse.
 - Prefer fixed-step Diffrax for long runs; use adaptive Diffrax solvers for verification and stiff cases.
+
+## Solver comparison (Diffrax)
+
+We include a lightweight solver comparison that uses a short DRB2D run and a
+smaller-step Dopri8 reference to estimate solver accuracy vs runtime:
+
+```bash
+python examples/10_verification/drb2d_solver_comparison.py
+```
+
+![DRB2D solver comparison](../assets/images/drb2d_solver_comparison.png)
+
+**Guidance**:
+- Use `dopri5`/`tsit5` for fast fixed-step runs and regression gates.
+- Use `dopri8` or adaptive stepping when validating stiff closures or when you need
+  tighter accuracy.
+
+## Non-Boussinesq Poisson preconditioning
+
+The non-Boussinesq polarization solve uses a variable-coefficient SPD operator. We
+ship a small benchmark comparing Jacobi vs FFT/circulant preconditioning:
+
+```bash
+python examples/10_verification/poisson_preconditioner_bench.py
+```
+
+![Poisson preconditioner benchmark](../assets/images/poisson_preconditioner_bench.png)
+
+**Guidance**:
+- For periodic grids, the spectral/circulant preconditioner often reduces residuals
+  at the cost of extra FFTs. It tends to win once you amortize repeated solves.
+- For non-periodic BCs, Jacobi is robust and cheap; start there, then switch to
+  spectral if you see slow CG convergence.
