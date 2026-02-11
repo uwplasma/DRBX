@@ -58,5 +58,6 @@ Both examples write results to small `out_*` folders with plots and `.npz` data.
 ![DRB2D hot-ion energy budget](../assets/images/drb2d_energy_budget_hot_ion.png)
 ![DRB2D EM energy budget](../assets/images/drb2d_energy_budget_em.png)
 ![DRB2D curvature benchmark](../assets/images/drb2d_curvature_benchmarks.png)
+The curvature benchmark now includes EM and hot-ion variants alongside the base DRB2D branch.
 ![DRB2D hot-ion linear-phase benchmark](../assets/images/drb2d_linear_phase_hot_ion.png)
 ![DRB2D EM linear-phase benchmark](../assets/images/drb2d_linear_phase_em.png)

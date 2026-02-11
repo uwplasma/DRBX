@@ -219,7 +219,8 @@ Each entry lists the file, how it is generated, and what it is meant to show.
 - `python examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py`
 
 **Purpose**:
-- Compares curvature-drive growth trends for interchange-like and resistive-like branches.
+- Compares curvature-drive growth trends for interchange-like, resistive-like,
+  hot-ion, and EM branches.
 - Adds a drive-threshold comparison against a Tokam1D dispersion proxy.
 
 **Notes**:
