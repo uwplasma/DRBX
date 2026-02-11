@@ -11,9 +11,10 @@ from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .grid import Grid2D
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
+from .fd import biharmonic as biharmonic_fd
 from .fd import laplacian as laplacian_fd
 from .fd import enforce_bc_relaxation, inv_laplacian_cg
-from .spectral import dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
+from .spectral import biharmonic, dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
 
 
 class DRB2DParams(eqx.Module):
@@ -46,6 +47,17 @@ class DRB2DParams(eqx.Module):
     Dn: float = 0.0
     DOmega: float = 0.0
     DTe: float = 0.0
+
+    # Hyperdiffusion (biharmonic), implemented as -D4 * ∇⁴. Useful for keeping coarse-grid
+    # nonlinear movies visually turbulent without excessive Laplacian diffusion.
+    Dn4: float = 0.0
+    DOmega4: float = 0.0
+    DTe4: float = 0.0
+
+    # Optional drag on zonal (ky=0) vorticity, implemented as -mu * <omega>_y.
+    # This is a common numerical control knob in 2D drift-wave/interchange turbulence to
+    # prevent long-time condensation into a purely zonal/banded state.
+    mu_zonal_omega: float = 0.0
 
     # Numerical options.
     bracket: Literal["spectral", "arakawa", "centered"] = "arakawa"
@@ -224,18 +236,28 @@ class DRB2DModel(eqx.Module):
             lap_n = laplacian(n, self.grid.k2)
             lap_w = laplacian(omega, self.grid.k2)
             lap_Te = laplacian(Te, self.grid.k2)
+            bih_n = biharmonic(n, self.grid.k2)
+            bih_w = biharmonic(omega, self.grid.k2)
+            bih_Te = biharmonic(Te, self.grid.k2)
         else:
             lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+
+        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
         dissipative = DRB2DState(
-            n=float(self.params.Dn) * lap_n,
-            omega=float(self.params.DOmega) * lap_w,
+            n=float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n,
+            omega=float(self.params.DOmega) * lap_w
+            - float(self.params.DOmega4) * bih_w
+            - float(self.params.mu_zonal_omega) * omega_zonal,
             vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
             * (vpar_e - vpar_i),
             vpar_i=jnp.zeros_like(vpar_i),
-            Te=float(self.params.DTe) * lap_Te,
+            Te=float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te,
         )
 
         if self.params.bc_enforce_nu != 0.0:
@@ -398,18 +420,30 @@ class DRB2DModel(eqx.Module):
             lap_n = laplacian(n, self.grid.k2)
             lap_w = laplacian(omega, self.grid.k2)
             lap_Te = laplacian(Te, self.grid.k2)
+            bih_n = biharmonic(n, self.grid.k2)
+            bih_w = biharmonic(omega, self.grid.k2)
+            bih_Te = biharmonic(Te, self.grid.k2)
         else:
             lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
 
-        diss_n = float(self.params.Dn) * lap_n
-        diss_w = float(self.params.DOmega) * lap_w
+        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
+
+        diss_n = float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n
+        diss_w = (
+            float(self.params.DOmega) * lap_w
+            - float(self.params.DOmega4) * bih_w
+            - float(self.params.mu_zonal_omega) * omega_zonal
+        )
         diss_ve = -(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12)) * (
             vpar_e - vpar_i
         )
         diss_vi = jnp.zeros_like(vpar_i)
-        diss_Te = float(self.params.DTe) * lap_Te
+        diss_Te = float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te
 
         if self.params.bc_enforce_nu != 0.0:
             diss_n = diss_n + enforce_bc_relaxation(
