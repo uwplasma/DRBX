@@ -138,6 +138,8 @@ python examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py
 python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark_em_hot_ion.py
 python examples/08_nonlinear_drb2d/drb2d_movie.py
 python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py
+python examples/10_verification/drb2d_solver_comparison.py
+python examples/10_verification/poisson_preconditioner_bench.py
 ```
 
 Produces a conservative energy time series figure and JSON metrics.

@@ -94,6 +94,13 @@ knobs and should be reported explicitly when used.
 ![DRB2D curvature benchmark (includes hot-ion/EM variants)](docs/assets/images/drb2d_curvature_benchmarks.png)
 ![DRB2D EM/hot-ion curvature proxy](docs/assets/images/drb2d_curvature_benchmarks_em_hot.png)
 
+**Diffrax solver comparison (DRB2D)**
+
+![DRB2D solver comparison](docs/assets/images/drb2d_solver_comparison.png)
+
+See [docs/nonlinear/performance.md](docs/nonlinear/performance.md) for solver guidance and
+preconditioner benchmarks.
+
 ## Quickstart
 
 Install editable:

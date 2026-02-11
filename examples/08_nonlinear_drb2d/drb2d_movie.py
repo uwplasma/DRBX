@@ -35,13 +35,19 @@ def main() -> None:
         choices=["n", "omega", "Te"],
         help="Field to animate. Default is omega (usually most visually turbulent).",
     )
-    parser.add_argument("--nx", type=int, default=128)
-    parser.add_argument("--ny", type=int, default=128)
+    parser.add_argument("--nx", type=int, default=64)
+    parser.add_argument("--ny", type=int, default=64)
     parser.add_argument("--dt", type=float, default=0.02)
-    parser.add_argument("--tmax", type=float, default=60.0)
-    parser.add_argument("--save-stride", type=int, default=15)
-    parser.add_argument("--solver", type=str, default="dopri8")
-    parser.add_argument("--fixed-step", action="store_true")
+    parser.add_argument("--tmax", type=float, default=30.0)
+    parser.add_argument("--save-stride", type=int, default=12)
+    parser.add_argument("--solver", type=str, default="dopri5")
+    parser.add_argument("--fixed-step", action="store_true", default=True)
+    parser.add_argument(
+        "--adaptive",
+        dest="fixed_step",
+        action="store_false",
+        help="Use adaptive time stepping (overrides fixed-step default).",
+    )
     parser.add_argument("--rtol", type=float, default=1e-5)
     parser.add_argument("--atol", type=float, default=1e-8)
     parser.add_argument("--progress", action="store_true")
@@ -57,23 +63,23 @@ def main() -> None:
     parser.add_argument(
         "--curvature",
         type=float,
-        default=0.8,
+        default=0.7,
         help="Curvature coefficient (0 disables curvature drive).",
     )
-    parser.add_argument("--Dn", type=float, default=2e-4, help="Laplacian diffusion on n.")
-    parser.add_argument("--DOmega", type=float, default=2e-4, help="Laplacian diffusion on omega.")
-    parser.add_argument("--DTe", type=float, default=2e-4, help="Laplacian diffusion on Te.")
-    parser.add_argument("--Dn4", type=float, default=1e-6, help="Hyperdiffusion (-Dn4*∇^4) on n.")
+    parser.add_argument("--Dn", type=float, default=8e-4, help="Laplacian diffusion on n.")
+    parser.add_argument("--DOmega", type=float, default=8e-4, help="Laplacian diffusion on omega.")
+    parser.add_argument("--DTe", type=float, default=8e-4, help="Laplacian diffusion on Te.")
+    parser.add_argument("--Dn4", type=float, default=2e-5, help="Hyperdiffusion (-Dn4*∇^4) on n.")
     parser.add_argument(
-        "--DOmega4", type=float, default=1e-6, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
+        "--DOmega4", type=float, default=2e-5, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
     )
     parser.add_argument(
-        "--DTe4", type=float, default=1e-6, help="Hyperdiffusion (-DTe4*∇^4) on Te."
+        "--DTe4", type=float, default=2e-5, help="Hyperdiffusion (-DTe4*∇^4) on Te."
     )
     parser.add_argument(
         "--mu-zonal-omega",
         type=float,
-        default=0.12,
+        default=0.08,
         help="Drag coefficient on zonal (ky=0) omega component.",
     )
     args = parser.parse_args()
@@ -113,7 +119,7 @@ def main() -> None:
 
     key = jax.random.key(args.seed)
     shape = (grid.nx, grid.ny)
-    amp = 1e-2
+    amp = 6e-3
     n = amp * jax.random.normal(key, shape)
     omega = amp * jax.random.normal(jax.random.key(args.seed + 1), shape)
     vpar_e = amp * jax.random.normal(jax.random.key(args.seed + 2), shape)
