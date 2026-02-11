@@ -14,6 +14,7 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import matplotlib.animation as animation
+from matplotlib.ticker import MaxNLocator
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -27,12 +28,12 @@ def main() -> None:
     set_mpl_style()
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--nx", type=int, default=32)
-    parser.add_argument("--ny", type=int, default=32)
-    parser.add_argument("--dt", type=float, default=0.05)
-    parser.add_argument("--tmax", type=float, default=30.0)
+    parser.add_argument("--nx", type=int, default=128)
+    parser.add_argument("--ny", type=int, default=128)
+    parser.add_argument("--dt", type=float, default=0.02)
+    parser.add_argument("--tmax", type=float, default=60.0)
     parser.add_argument("--save-stride", type=int, default=15)
-    parser.add_argument("--solver", type=str, default="tsit5")
+    parser.add_argument("--solver", type=str, default="dopri8")
     parser.add_argument("--fixed-step", action="store_true")
     parser.add_argument("--rtol", type=float, default=1e-5)
     parser.add_argument("--atol", type=float, default=1e-8)
@@ -47,14 +48,19 @@ def main() -> None:
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     params = DRB2DParams(
-        omega_n=2.5,
-        omega_Te=1.5,
+        # A curvature-driven, resistive-like case that rapidly develops dynamics.
+        omega_n=0.8,
+        omega_Te=0.0,
+        # Keep kpar=0 for a real-valued nonlinear turbulence movie (no Fourier-parallel coupling).
         kpar=0.0,
         eta=0.0,
         me_hat=0.2,
-        Dn=2e-4,
-        DOmega=2e-4,
-        DTe=2e-4,
+        curvature_on=True,
+        curvature_coeff=0.35,
+        # Dissipation to control the cascade on coarse grids.
+        Dn=8e-4,
+        DOmega=8e-4,
+        DTe=8e-4,
         bracket="arakawa",
         poisson="spectral",
         dealias_on=False,
@@ -67,11 +73,12 @@ def main() -> None:
 
     key = jax.random.key(args.seed)
     shape = (grid.nx, grid.ny)
-    n = 1e-3 * jax.random.normal(key, shape)
-    omega = 1e-3 * jax.random.normal(jax.random.key(args.seed + 1), shape)
-    vpar_e = 1e-3 * jax.random.normal(jax.random.key(args.seed + 2), shape)
-    vpar_i = 1e-3 * jax.random.normal(jax.random.key(args.seed + 3), shape)
-    Te = 1e-3 * jax.random.normal(jax.random.key(args.seed + 4), shape)
+    amp = 1e-2
+    n = amp * jax.random.normal(key, shape)
+    omega = amp * jax.random.normal(jax.random.key(args.seed + 1), shape)
+    vpar_e = amp * jax.random.normal(jax.random.key(args.seed + 2), shape)
+    vpar_i = amp * jax.random.normal(jax.random.key(args.seed + 3), shape)
+    Te = amp * jax.random.normal(jax.random.key(args.seed + 4), shape)
     y = DRB2DState(n=n, omega=omega, vpar_e=vpar_e, vpar_i=vpar_i, Te=Te)
 
     dt = float(args.dt)
@@ -106,14 +113,23 @@ def main() -> None:
 
     frames_n = [jax.device_get(sol.ys.n[i]) for i in range(nframes)]
     ts = [float(t) for t in np.asarray(save_ts)]
+    rms = [float(np.sqrt(np.mean(np.asarray(fr) ** 2))) for fr in frames_n]
+    for k in range(nframes):
+        if k == 0 or (k + 1) % max(1, nframes // 10) == 0 or k == nframes - 1:
+            print(f"[drb2d-movie] frame {k + 1}/{nframes} t={ts[k]:.2f} rms(n)={rms[k]:.3e}")
 
     frames_arr = np.stack([np.asarray(a) for a in frames_n], axis=0)
-    vmax = robust_symmetric_vlim(frames_arr, q=0.995)
+    # Plot normalized fluctuations so the early-time linear phase is visible even
+    # when the late-time nonlinear amplitude is much larger.
+    frames_fluct = frames_arr - frames_arr.mean(axis=(1, 2), keepdims=True)
+    frame_rms = np.sqrt(np.mean(frames_fluct**2, axis=(1, 2), keepdims=True))
+    frames_plot = frames_fluct / (frame_rms + 1e-30)
+    vmax = robust_symmetric_vlim(frames_plot, q=0.995)
 
     fig, ax = plt.subplots(1, 1, figsize=(4.6, 3.6))
     fig.set_dpi(95)
     im = ax.imshow(
-        frames_arr[0].T,
+        frames_plot[0].T,
         origin="lower",
         cmap="coolwarm",
         vmin=-vmax,
@@ -121,12 +137,12 @@ def main() -> None:
         animated=True,
         interpolation="nearest",
     )
-    ax.set_title("DRB2D: density fluctuation n(x,y,t)")
+    ax.set_title("DRB2D: normalized density fluctuation (n-<n>)/rms")
     ax.set_xticks([])
     ax.set_yticks([])
 
     def update(i):
-        im.set_array(frames_arr[i].T)
+        im.set_array(frames_plot[i].T)
         ax.set_xlabel(f"t = {ts[i]:.2f}")
         return (im,)
 
@@ -135,9 +151,54 @@ def main() -> None:
     ani.save(gif_path, writer=animation.PillowWriter(fps=12))
     plt.close(fig)
 
+    # Save a static summary panel (final-time snapshots + a simple timeseries).
+    E = np.asarray(
+        jax.device_get(
+            jax.jit(lambda ys: jax.vmap(model.energy)(ys))(sol.ys),
+        )
+    )
+    fig = plt.figure(figsize=(12, 7), constrained_layout=True)
+    gs = fig.add_gridspec(2, 3, width_ratios=[1.1, 1.0, 1.0])
+
+    ax0 = fig.add_subplot(gs[:, 0])
+    ax0.plot(ts, E, label="E", lw=2)
+    ax0.plot(ts, np.asarray(rms) ** 2, label=r"$\mathrm{rms}(n)^2$", lw=2)
+    ax0.set_yscale("log")
+    ax0.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax0.set_xlabel("t")
+    ax0.set_title("Diagnostics")
+    ax0.legend()
+
+    phi_f = np.asarray(jax.device_get(model.phi_from_omega(sol.ys.omega[-1], n=sol.ys.n[-1])))
+    for ax, (name, arr) in zip(
+        [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
+        [("n", sol.ys.n[-1]), ("phi", phi_f), ("omega", sol.ys.omega[-1])],
+    ):
+        arr_np = np.asarray(jax.device_get(arr))
+        vmax = robust_symmetric_vlim(arr_np, q=0.995)
+        im = ax.imshow(
+            arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
+        )
+        ax.set_title(name)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    ax1 = fig.add_subplot(gs[1, 2])
+    ax1.plot(ts, np.gradient(np.log(np.maximum(E, 1e-30)), np.asarray(ts)), lw=2)
+    ax1.set_xlabel("t")
+    ax1.set_title(r"Instantaneous $\gamma(t)=d\ln E/dt$")
+
+    fig.suptitle("DRB2D nonlinear run (movie saved)")
+    fig.savefig(out_dir / "panel.png", dpi=220)
+    plt.close(fig)
+
     assets_dir = Path(__file__).resolve().parents[2] / "docs" / "assets" / "images"
     if assets_dir.exists():
         (assets_dir / "drb2d_turbulence.gif").write_bytes(gif_path.read_bytes())
+        (assets_dir / "drb2d_turbulence_panel.png").write_bytes(
+            (out_dir / "panel.png").read_bytes()
+        )
 
     print(f"[drb2d-movie] wrote {gif_path}")
 
