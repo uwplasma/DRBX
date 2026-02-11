@@ -65,7 +65,12 @@ class HW2DModel(eqx.Module):
                 raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
             return inv_laplacian(omega, self.grid.k2, k2_min=self.params.k2_min)
         return inv_laplacian_cg(
-            omega, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, maxiter=300
+            omega,
+            dx=self.grid.dx,
+            dy=self.grid.dy,
+            bc=self.grid.bc,
+            maxiter=300,
+            preconditioner="spectral",
         )
 
     def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
