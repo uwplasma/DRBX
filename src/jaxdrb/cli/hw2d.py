@@ -13,7 +13,6 @@ import numpy as np
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 from jaxdrb.nonlinear.neutrals import NeutralParams
-from jaxdrb.nonlinear.stepper import rk4_scan
 from jaxdrb.analysis.plotting import robust_symmetric_vlim
 
 
@@ -26,6 +25,38 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.05)
     parser.add_argument("--tmax", type=float, default=40.0)
     parser.add_argument("--save-stride", type=int, default=20)
+    parser.add_argument(
+        "--solver",
+        type=str,
+        default="tsit5",
+        choices=[
+            "tsit5",
+            "dopri5",
+            "dopri8",
+            "euler",
+            "implicit_euler",
+            "kvaerno3",
+            "kvaerno4",
+            "kvaerno5",
+            "kencarp3",
+            "kencarp4",
+            "kencarp5",
+        ],
+        help="Diffrax solver to use. Implicit solvers can help for stiff closure/dissipation.",
+    )
+    parser.add_argument(
+        "--fixed-step",
+        action="store_true",
+        help="Use constant step size dt (disables adaptive PID control).",
+    )
+    parser.add_argument("--rtol", type=float, default=1e-5, help="Diffrax relative tolerance.")
+    parser.add_argument("--atol", type=float, default=1e-8, help="Diffrax absolute tolerance.")
+    parser.add_argument(
+        "--max-steps", type=int, default=300_000, help="Maximum number of Diffrax steps."
+    )
+    parser.add_argument(
+        "--progress", action="store_true", help="Show Diffrax progress meter (can be verbose)."
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--amp", type=float, default=1e-3)
 
@@ -134,9 +165,10 @@ def main() -> None:
     )
 
     dt = float(args.dt)
-    nsteps = int(jnp.ceil(args.tmax / dt))
     save_stride = int(args.save_stride)
-    nchunks = max(1, nsteps // save_stride)
+    frame_dt = dt * save_stride
+    save_ts = jnp.arange(0.0, float(args.tmax) + 1e-12, frame_dt)
+    nframes = int(save_ts.size)
 
     (out_dir / "params.json").write_text(
         json.dumps(
@@ -167,7 +199,16 @@ def main() -> None:
                     "nu_sink": neutrals.nu_sink,
                     "nu_cx_omega": neutrals.nu_cx_omega,
                 },
-                "time": {"dt": dt, "tmax": float(args.tmax), "save_stride": save_stride},
+                "time": {
+                    "dt0": dt,
+                    "tmax": float(args.tmax),
+                    "save_stride": save_stride,
+                    "solver": args.solver,
+                    "adaptive": (not args.fixed_step),
+                    "rtol": float(args.rtol),
+                    "atol": float(args.atol),
+                    "max_steps": int(args.max_steps),
+                },
             },
             indent=2,
             sort_keys=True,
@@ -176,32 +217,44 @@ def main() -> None:
     )
 
     print(
-        f"[jaxdrb-hw2d] grid=({grid.nx},{grid.ny}) dt={dt} nsteps={nsteps} "
-        f"chunks={nchunks} bracket={params.bracket} neutrals={neutrals.enabled}"
+        f"[jaxdrb-hw2d] grid=({grid.nx},{grid.ny}) dt0={dt} tmax={args.tmax} "
+        f"save_stride={save_stride} frames={nframes} solver={args.solver} "
+        f"adaptive={not args.fixed_step} bracket={params.bracket} neutrals={neutrals.enabled}"
     )
 
-    def rhs(t, y):
-        return model.rhs(t, y)
+    sol = model.diffeqsolve(
+        y0=y0,
+        t0=0.0,
+        t1=float(args.tmax),
+        dt0=dt,
+        save_ts=save_ts,
+        solver=args.solver,
+        adaptive=not args.fixed_step,
+        rtol=float(args.rtol),
+        atol=float(args.atol),
+        max_steps=int(args.max_steps),
+        progress=bool(args.progress),
+    )
 
-    t = 0.0
-    y = y0
-    ts = []
+    ts = [float(t) for t in np.asarray(save_ts)]
     Es = []
     Zs = []
     nbar = []
     Nbar = []
-
-    for k in range(nchunks):
-        _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
-        t = t + dt * save_stride
-        diag = model.diagnostics(y)
-        ts.append(t)
+    y_frames = sol.ys
+    for k in range(nframes):
+        yk = type(y0)(
+            n=y_frames.n[k],
+            omega=y_frames.omega[k],
+            N=None if y_frames.N is None else y_frames.N[k],
+        )
+        diag = model.diagnostics(yk)
         Es.append(float(diag["E"]))
         Zs.append(float(diag["Z"]))
-        nbar.append(float(jnp.mean(y.n)))
-        if y.N is not None:
-            Nbar.append(float(jnp.mean(y.N)))
-        print(f"[jaxdrb-hw2d] chunk {k + 1}/{nchunks} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
+        nbar.append(float(jnp.mean(yk.n)))
+        if yk.N is not None:
+            Nbar.append(float(jnp.mean(yk.N)))
+        print(f"[jaxdrb-hw2d] frame {k + 1}/{nframes} t={ts[k]:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
 
     jnp.savez(out_dir / "timeseries.npz", t=jnp.array(ts), E=jnp.array(Es), Z=jnp.array(Zs))
 
@@ -232,8 +285,13 @@ def main() -> None:
         fig.savefig(out_dir / "means.png", dpi=200)
         plt.close(fig)
 
-    phi = model.phi_from_omega(y.omega)
-    for name, arr in {"n": y.n, "phi": phi, "omega": y.omega}.items():
+    y_end = type(y0)(
+        n=y_frames.n[-1],
+        omega=y_frames.omega[-1],
+        N=None if y_frames.N is None else y_frames.N[-1],
+    )
+    phi = model.phi_from_omega(y_end.omega)
+    for name, arr in {"n": y_end.n, "phi": phi, "omega": y_end.omega}.items():
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
         arr_np = np.asarray(arr)
         vmax = robust_symmetric_vlim(arr_np, q=0.995)
@@ -246,9 +304,9 @@ def main() -> None:
         fig.savefig(out_dir / f"{name}.png", dpi=200)
         plt.close(fig)
 
-    if y.N is not None:
+    if y_end.N is not None:
         fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-        im = ax.imshow(y.N.T, origin="lower", aspect="auto", cmap="viridis")
+        im = ax.imshow(y_end.N.T, origin="lower", aspect="auto", cmap="viridis")
         ax.set_title("N (neutrals)")
         fig.colorbar(im, ax=ax, shrink=0.9)
         fig.tight_layout()
