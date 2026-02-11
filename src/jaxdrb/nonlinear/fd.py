@@ -192,15 +192,44 @@ def inv_laplacian_cg(
         # Gauge-lifting term scale: small compared to the FD Laplacian diagonal.
         gauge_epsilon = 1e-12 * float(diag)
 
-    def make_M(size: int):
+    def _spectral_M(*, shape: tuple[int, int], dx_eff: float, dy_eff: float):
+        """FFT-based circulant preconditioner for the FD Laplacian.
+
+        This approximates the inverse of ``(-∇² + eps*P0)`` on a periodic domain of the same
+        shape. It is exact for the periodic gauge-fixed case and often reduces CG iterations
+        substantially for Dirichlet/Neumann problems.
+        """
+
+        npx, npy = shape
+        kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npx, d=dx_eff)
+        ky_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npy, d=dy_eff)
+        kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+        k2 = kx**2 + ky**2
+        denom = jnp.where(k2 > 0.0, k2, float(gauge_epsilon))
+
+        def M(v_flat):
+            v = v_flat.reshape(shape)
+            v_hat = jnp.fft.fft2(v)
+            u_hat = v_hat / denom
+            u = jnp.fft.ifft2(u_hat)
+            if not jnp.iscomplexobj(v):
+                u = u.real
+            return u.reshape((-1,))
+
+        return M
+
+    def make_M(*, size: int, shape: tuple[int, int], dx_eff: float, dy_eff: float):
         if preconditioner == "jacobi":
             inv_diag = 1.0 / jnp.asarray(diag, dtype=rhs.dtype)
 
             def M(v_flat):
-                _ = size
+                _ = (size, shape, dx_eff, dy_eff)
                 return inv_diag * v_flat
 
             return M
+        if preconditioner == "spectral":
+            _ = (size,)
+            return _spectral_M(shape=shape, dx_eff=dx_eff, dy_eff=dy_eff)
         if preconditioner in ("none", "", None):
             return None
         raise ValueError(f"Unknown preconditioner: {preconditioner}")
@@ -217,7 +246,7 @@ def inv_laplacian_cg(
 
         b = (-rhs0).reshape((-1,))
         x0 = jnp.zeros_like(b)
-        M = make_M(b.size)
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -249,7 +278,7 @@ def inv_laplacian_cg(
             return (-Lu).reshape((-1,))
 
         x0 = jnp.zeros_like(b_int)
-        M = make_M(b_int.size)
+        M = make_M(size=b_int.size, shape=(nx - 2, ny - 2), dx_eff=dx, dy_eff=dy)
         x, _ = jax.scipy.sparse.linalg.cg(
             mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
@@ -286,7 +315,7 @@ def inv_laplacian_cg(
 
         b = (-rhs_eff).reshape((-1,))
         x0 = jnp.zeros_like(b)
-        M = make_M(b.size)
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)

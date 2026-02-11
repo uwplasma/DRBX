@@ -133,6 +133,12 @@ The DRB2D testbed supports both Boussinesq and non-Boussinesq polarization:
 
 Non-Boussinesq mode is currently supported for **spectral** Poisson solves on periodic grids.
 
+For non-periodic boundary conditions, `jaxdrb` uses an SPD finite-difference Laplacian with
+preconditioned conjugate gradients (PCG) in `jaxdrb.nonlinear.fd.inv_laplacian_cg`. The default
+preconditioner is a lightweight FFT-based circulant inverse (`preconditioner="spectral"`), which
+is exact for periodic gauge-fixed solves and typically improves robustness for Dirichlet/Neumann
+problems.
+
 ## Energy budget
 
 For periodic domains with Boussinesq polarization, the discrete energy functional is

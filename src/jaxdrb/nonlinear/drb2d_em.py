@@ -133,7 +133,12 @@ class DRB2DEMModel(eqx.Module):
         if not self.params.boussinesq:
             raise ValueError("Non-Boussinesq polarization currently requires spectral Poisson.")
         return inv_laplacian_cg(
-            omega, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, maxiter=300
+            omega,
+            dx=self.grid.dx,
+            dy=self.grid.dy,
+            bc=self.grid.bc,
+            maxiter=300,
+            preconditioner="spectral",
         )
 
     def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
