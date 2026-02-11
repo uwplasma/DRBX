@@ -103,6 +103,8 @@ preview of the workflows `jaxdrb` supports.
 ![DRB2D energy budget (hot-ion)](assets/images/drb2d_energy_budget_hot_ion.png)
 ![DRB2D energy budget (EM)](assets/images/drb2d_energy_budget_em.png)
 ![DRB2D curvature benchmark](assets/images/drb2d_curvature_benchmarks.png)
+![DRB2D hot-ion linear-phase benchmark](assets/images/drb2d_linear_phase_hot_ion.png)
+![DRB2D EM linear-phase benchmark](assets/images/drb2d_linear_phase_em.png)
 
 ![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
 

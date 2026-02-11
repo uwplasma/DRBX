@@ -447,11 +447,25 @@ Two additional checks anchor the DRB2D testbed to known limits:
 
 A dedicated curvature benchmark compares growth-rate trends for a purely interchange-like
 case (kpar=0, eta=0) and a resistive-like branch (kpar>0, eta>0) on the same grid.
+It also compares the drive threshold against a published Tokam1D dispersion proxy.
+See `docs/references.md` for the JPP Tokam1D citation used to define the proxy.
 
 - test: `tests/test_drb2d_curvature_benchmarks.py`
 - example: `examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py`
 
 ![DRB2D curvature benchmark](assets/images/drb2d_curvature_benchmarks.png)
+
+### DRB2D hot-ion / EM linear-phase benchmarks
+
+We also verify that the hot-ion and EM DRB2D linearized operators recover the
+same growth rates as the corresponding 1D linear solvers.
+
+- test: `tests/test_drb2d_linear_phase_match_hot_ion.py`
+- test: `tests/test_drb2d_linear_phase_match_em.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark_em_hot_ion.py`
+
+![DRB2D hot-ion linear-phase benchmark](assets/images/drb2d_linear_phase_hot_ion.png)
+![DRB2D EM linear-phase benchmark](assets/images/drb2d_linear_phase_em.png)
 
 
 ## DRB2D linear-phase benchmark (2D vs linear solver)
