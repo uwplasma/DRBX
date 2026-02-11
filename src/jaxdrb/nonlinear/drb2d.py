@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-import diffrax as dfx
 import equinox as eqx
 import jax.numpy as jnp
 
 from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_centered
 
+from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .grid import Grid2D
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
@@ -495,19 +495,24 @@ class DRB2DModel(eqx.Module):
         t1: float,
         dt0: float,
         save_ts: jnp.ndarray | None = None,
+        solver: DiffraxSolverName = "tsit5",
+        adaptive: bool = True,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
+        max_steps: int = 200_000,
+        progress: bool = False,
     ):
-        term = dfx.ODETerm(lambda t, y, args: self.rhs(t, y))
-        solver = dfx.Tsit5()
-        stepsize_controller = dfx.PIDController(rtol=1e-5, atol=1e-8)
-        saveat = dfx.SaveAt(ts=save_ts) if save_ts is not None else dfx.SaveAt(t1=True)
-        return dfx.diffeqsolve(
-            term,
-            solver,
+        return diffeqsolve_ode(
+            self.rhs,
+            y0=y0,
             t0=t0,
             t1=t1,
             dt0=dt0,
-            y0=y0,
-            saveat=saveat,
-            stepsize_controller=stepsize_controller,
-            max_steps=200_000,
+            save_ts=save_ts,
+            solver=solver,
+            adaptive=adaptive,
+            rtol=rtol,
+            atol=atol,
+            max_steps=max_steps,
+            progress=progress,
         )

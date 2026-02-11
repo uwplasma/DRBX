@@ -7,6 +7,7 @@ import jax.numpy as jnp
 
 from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_centered
 
+from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import enforce_bc_relaxation, inv_laplacian_cg, laplacian as laplacian_fd
@@ -463,3 +464,33 @@ class DRB2DHotIonModel(eqx.Module):
             "E_dot_diss": E_dot_diss,
             "E_dot_total": E_dot_total,
         }
+
+    def diffeqsolve(
+        self,
+        *,
+        y0: DRB2DHotIonState,
+        t0: float,
+        t1: float,
+        dt0: float,
+        save_ts: jnp.ndarray | None = None,
+        solver: DiffraxSolverName = "tsit5",
+        adaptive: bool = True,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
+        max_steps: int = 200_000,
+        progress: bool = False,
+    ):
+        return diffeqsolve_ode(
+            self.rhs,
+            y0=y0,
+            t0=t0,
+            t1=t1,
+            dt0=dt0,
+            save_ts=save_ts,
+            solver=solver,
+            adaptive=adaptive,
+            rtol=rtol,
+            atol=atol,
+            max_steps=max_steps,
+            progress=progress,
+        )

@@ -20,7 +20,6 @@ import numpy as np
 from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.stepper import rk4_scan
 
 
 def main() -> None:
@@ -33,6 +32,11 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.05)
     parser.add_argument("--tmax", type=float, default=30.0)
     parser.add_argument("--save-stride", type=int, default=15)
+    parser.add_argument("--solver", type=str, default="tsit5")
+    parser.add_argument("--fixed-step", action="store_true")
+    parser.add_argument("--rtol", type=float, default=1e-5)
+    parser.add_argument("--atol", type=float, default=1e-8)
+    parser.add_argument("--progress", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=30.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
@@ -71,32 +75,37 @@ def main() -> None:
     y = DRB2DState(n=n, omega=omega, vpar_e=vpar_e, vpar_i=vpar_i, Te=Te)
 
     dt = float(args.dt)
-    nsteps = int(jnp.ceil(float(args.tmax) / dt))
     save_stride = int(args.save_stride)
-    nframes = max(1, nsteps // save_stride)
+    frame_dt = dt * save_stride
+    save_ts = jnp.arange(frame_dt, float(args.tmax) + 1e-12, frame_dt)
+    nframes = int(save_ts.size)
 
     print(
         f"[drb2d-movie] grid=({grid.nx},{grid.ny}) dt={dt} tmax={args.tmax} "
-        f"nsteps={nsteps} save_stride={save_stride} frames={nframes}"
+        f"save_stride={save_stride} frames={nframes} solver={args.solver} "
+        f"adaptive={not args.fixed_step}"
     )
 
-    frames_n = []
-    ts = []
-    t = 0.0
     t_start = time.time()
+    sol = model.diffeqsolve(
+        y0=y,
+        t0=0.0,
+        t1=float(args.tmax),
+        dt0=dt,
+        save_ts=save_ts,
+        solver=args.solver,
+        adaptive=not args.fixed_step,
+        rtol=float(args.rtol),
+        atol=float(args.atol),
+        max_steps=300_000,
+        progress=bool(args.progress),
+    )
+    wall = time.time() - t_start
+    if wall > float(args.max_wall):
+        print(f"[drb2d-movie] warning: wall time {wall:.1f}s exceeded max-wall={args.max_wall}s")
 
-    def rhs(t_, y_):
-        return model.rhs(t_, y_)
-
-    for k in range(nframes):
-        _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
-        t = t + dt * save_stride
-        frames_n.append(jax.device_get(y.n))
-        ts.append(float(t))
-        print(f"[drb2d-movie] frame {k + 1}/{nframes} t={t:.2f}")
-        if time.time() - t_start > float(args.max_wall):
-            print("[drb2d-movie] wall-time limit reached, stopping early")
-            break
+    frames_n = [jax.device_get(sol.ys.n[i]) for i in range(nframes)]
+    ts = [float(t) for t in np.asarray(save_ts)]
 
     frames_arr = np.stack([np.asarray(a) for a in frames_n], axis=0)
     vmax = robust_symmetric_vlim(frames_arr, q=0.995)
