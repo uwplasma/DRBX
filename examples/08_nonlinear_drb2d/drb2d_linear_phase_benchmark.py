@@ -20,10 +20,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from jaxdrb.analysis.plotting import save_json, set_mpl_style
-from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.linear.growthrate import estimate_growth_rate_jax
 from jaxdrb.linear.matvec import linear_matvec
-from jaxdrb.models.cold_ion_drb import Equilibrium, State, rhs_nonlinear
+from jaxdrb.models.cold_ion_drb import Equilibrium, State
 from jaxdrb.models.params import DRBParams
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
