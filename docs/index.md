@@ -99,6 +99,10 @@ preview of the workflows `jaxdrb` supports.
 
 ![DRB2D conservative nonlinear energy gate](assets/images/drb2d_conservative_energy.png)
 
+![DRB2D energy budget (cold-ion)](assets/images/drb2d_energy_budget.png)
+![DRB2D energy budget (hot-ion)](assets/images/drb2d_energy_budget_hot_ion.png)
+![DRB2D energy budget (EM)](assets/images/drb2d_energy_budget_em.png)
+![DRB2D curvature benchmark](assets/images/drb2d_curvature_benchmarks.png)
 
 ![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
 
