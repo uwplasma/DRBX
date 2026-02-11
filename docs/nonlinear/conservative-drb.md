@@ -97,6 +97,29 @@ python examples/08_nonlinear_drb2d/drb2d_energy_budget.py
 
 ![DRB2D energy budget](../assets/images/drb2d_energy_budget.png)
 
+Hot-ion and EM variants use the same driver with a model toggle:
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion
+python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em
+```
+
+![DRB2D hot-ion energy budget](../assets/images/drb2d_energy_budget_hot_ion.png)
+![DRB2D EM energy budget](../assets/images/drb2d_energy_budget_em.png)
+
+### DRB2D non-Boussinesq polarization gate
+
+The DRB2D testbed now supports a **non-Boussinesq** polarization closure,
+with a dedicated energy-rate consistency gate.
+
+Example:
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py
+```
+
+![DRB2D non-Boussinesq energy](../assets/images/drb2d_nonbouss_energy.png)
+
 
 ## What “conservative nonlinear DRB” requires
 

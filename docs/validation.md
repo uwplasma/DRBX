@@ -405,6 +405,33 @@ Test + example:
 - example: `examples/08_nonlinear_drb2d/drb2d_energy_budget.py`
 
 ![DRB2D energy budget](assets/images/drb2d_energy_budget.png)
+
+### DRB2D hot-ion / EM energy-budget parity
+
+The hot-ion and EM DRB2D extensions re-use the same budget structure, and
+their split/full RHS parity is enforced with energy-rate consistency checks:
+
+- test: `tests/test_drb2d_hot_ion_split_parity.py`
+- test: `tests/test_drb2d_em_split_parity.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion`
+- example: `examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em`
+
+![DRB2D hot-ion energy budget](assets/images/drb2d_energy_budget_hot_ion.png)
+![DRB2D EM energy budget](assets/images/drb2d_energy_budget_em.png)
+
+## DRB2D non-Boussinesq polarization gate
+
+The non-Boussinesq DRB2D branch is enabled behind a toggle and validated via:
+
+- energy-rate consistency between the full RHS and a finite-difference directional derivative,
+- small-amplitude consistency with the Boussinesq energy functional.
+
+Test + example:
+
+- test: `tests/test_drb2d_nonboussinesq_gate.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py`
+
+![DRB2D non-Boussinesq energy](assets/images/drb2d_nonbouss_energy.png)
 ### DRB2D limit checks (HW2D + curvature)
 
 Two additional checks anchor the DRB2D testbed to known limits:
@@ -415,6 +442,16 @@ Two additional checks anchor the DRB2D testbed to known limits:
 - **Curvature drive sign check**: enabling the slab curvature operator should increase early-time
   growth rates relative to the curvature-free case.
   - test: `tests/test_drb2d_curvature_drive.py`
+
+### DRB2D curvature-drive benchmarks (interchange / resistive-like)
+
+A dedicated curvature benchmark compares growth-rate trends for a purely interchange-like
+case (kpar=0, eta=0) and a resistive-like branch (kpar>0, eta>0) on the same grid.
+
+- test: `tests/test_drb2d_curvature_benchmarks.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py`
+
+![DRB2D curvature benchmark](assets/images/drb2d_curvature_benchmarks.png)
 
 
 ## DRB2D linear-phase benchmark (2D vs linear solver)

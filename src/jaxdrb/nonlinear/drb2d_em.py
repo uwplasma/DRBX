@@ -2,28 +2,30 @@ from __future__ import annotations
 
 from typing import Literal
 
-import diffrax as dfx
 import equinox as eqx
 import jax.numpy as jnp
 
 from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_centered
 
-from .grid import Grid2D
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
-from .fd import laplacian as laplacian_fd
-from .fd import enforce_bc_relaxation, inv_laplacian_cg
-from .spectral import dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
+from .fd import enforce_bc_relaxation, inv_laplacian_cg, laplacian as laplacian_fd
+from .grid import Grid2D
+from .spectral import (
+    dealias,
+    ddy,
+    inv_laplacian,
+    laplacian,
+    poisson_bracket_spectral,
+    rfft2,
+    irfft2,
+)
 
 
-class DRB2DParams(eqx.Module):
-    """Conservative 2D nonlinear DRB testbed (periodic in x/y).
+class DRB2DEMParams(eqx.Module):
+    """Electromagnetic extension of the conservative 2D nonlinear DRB testbed."""
 
-    This is a minimal nonlinear DRB model used to validate conservative operators
-    and prepare the full nonlinear field-line system.
-    """
-
-    # Background-gradient drives (optional).
+    # Background-gradient drives.
     omega_n: float = 0.0
     omega_Te: float = 0.0
 
@@ -31,6 +33,8 @@ class DRB2DParams(eqx.Module):
     kpar: float = 0.0
     eta: float = 0.0
     me_hat: float = 0.2
+    beta: float = 0.0
+    Dpsi: float = 0.0
 
     # Curvature drive (simple slab interchange model).
     curvature_on: bool = False
@@ -57,47 +61,47 @@ class DRB2DParams(eqx.Module):
     # Thermal-force coefficient in Ohm's law.
     alpha_Te_ohm: float = 1.71
 
-    # Operator split toggles (shared pattern).
+    # Operator split toggles.
     operator_split_on: bool = False
     operator_conservative_on: bool = True
     operator_source_on: bool = True
     operator_dissipative_on: bool = True
 
 
-class DRB2DState(eqx.Module):
+class DRB2DEMState(eqx.Module):
     n: jnp.ndarray
     omega: jnp.ndarray
-    vpar_e: jnp.ndarray
+    psi: jnp.ndarray
     vpar_i: jnp.ndarray
     Te: jnp.ndarray
 
 
-class DRB2DDecomposition(eqx.Module):
-    conservative: DRB2DState
-    source: DRB2DState
-    dissipative: DRB2DState
+class DRB2DEMDecomposition(eqx.Module):
+    conservative: DRB2DEMState
+    source: DRB2DEMState
+    dissipative: DRB2DEMState
 
-    def total(self) -> DRB2DState:
+    def total(self) -> DRB2DEMState:
         return _state_add(_state_add(self.conservative, self.source), self.dissipative)
 
 
-def _state_add(a: DRB2DState, b: DRB2DState) -> DRB2DState:
-    return DRB2DState(
+def _state_add(a: DRB2DEMState, b: DRB2DEMState) -> DRB2DEMState:
+    return DRB2DEMState(
         n=a.n + b.n,
         omega=a.omega + b.omega,
-        vpar_e=a.vpar_e + b.vpar_e,
+        psi=a.psi + b.psi,
         vpar_i=a.vpar_i + b.vpar_i,
         Te=a.Te + b.Te,
     )
 
 
-def _state_zeros_like(y: DRB2DState) -> DRB2DState:
+def _state_zeros_like(y: DRB2DEMState) -> DRB2DEMState:
     z = jnp.zeros_like(y.n)
-    return DRB2DState(n=z, omega=z, vpar_e=z, vpar_i=z, Te=z)
+    return DRB2DEMState(n=z, omega=z, psi=z, vpar_i=z, Te=z)
 
 
-class DRB2DModel(eqx.Module):
-    params: DRB2DParams
+class DRB2DEMModel(eqx.Module):
+    params: DRB2DEMParams
     grid: Grid2D
 
     def phi_from_omega(self, omega: jnp.ndarray, n: jnp.ndarray | None = None) -> jnp.ndarray:
@@ -165,40 +169,54 @@ class DRB2DModel(eqx.Module):
             df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
         return -float(self.params.curvature_coeff) * df_dy
 
-    def rhs_decomposed(self, t: float, y: DRB2DState) -> DRB2DDecomposition:
+    def _psi_rhs_from_terms(self, term_hat: jnp.ndarray) -> jnp.ndarray:
+        coef = 0.5 * float(self.params.beta) + float(self.params.me_hat) * jnp.maximum(
+            self.grid.k2, self.params.k2_min
+        )
+        coef = jnp.maximum(coef, 1e-12)
+        psi_rhs_hat = term_hat / coef
+        return irfft2(psi_rhs_hat)
+
+    def rhs_decomposed(self, t: float, y: DRB2DEMState) -> DRB2DEMDecomposition:
         _ = t
         n = y.n
         omega = y.omega
-        vpar_e = y.vpar_e
+        psi = y.psi
         vpar_i = y.vpar_i
         Te = y.Te
 
-        phi = self.phi_from_omega(omega, n=n)
+        if self.params.poisson != "spectral":
+            raise ValueError("DRB2D EM branch currently requires spectral Poisson.")
 
-        # Nonlinear ExB advection (conservative on periodic grids with Arakawa bracket).
+        phi = self.phi_from_omega(omega, n=n)
+        psi_hat = rfft2(psi)
+        jpar = -laplacian(psi, self.grid.k2)
+        vpar_e = vpar_i - jpar
+
         adv_n = -self._bracket(phi, n)
         adv_w = -self._bracket(phi, omega)
-        adv_ve = -self._bracket(phi, vpar_e)
+        adv_psi = -self._bracket(phi, psi)
         adv_vi = -self._bracket(phi, vpar_i)
         adv_Te = -self._bracket(phi, Te)
 
-        # Parallel couplings (modeled by k_par).
         grad_par_phi_pe = self._dpar(phi - n - float(self.params.alpha_Te_ohm) * Te)
-        jpar = vpar_i - vpar_e
+        grad_par_hat = rfft2(grad_par_phi_pe)
+        jpar_hat = self.grid.k2 * psi_hat
+        lap_psi_hat = -self.grid.k2 * psi_hat
+        par_psi = self._psi_rhs_from_terms(-grad_par_hat)
 
         C_phi = self._curvature(phi)
         C_p = self._curvature(n + Te)
-        C_T = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
+        C_Te = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
 
-        conservative = DRB2DState(
+        conservative = DRB2DEMState(
             n=adv_n - self._dpar(vpar_e),
             omega=adv_w + self._dpar(jpar),
-            vpar_e=adv_ve + grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12),
+            psi=adv_psi + par_psi,
             vpar_i=adv_vi - self._dpar(phi),
             Te=adv_Te - (2.0 / 3.0) * self._dpar(vpar_e),
         )
 
-        # Background drives (simple -ky omega_n phi, -ky omega_Te phi in Fourier-y).
         drive_n = 0.0
         drive_Te = 0.0
         if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0:
@@ -208,12 +226,12 @@ class DRB2DModel(eqx.Module):
             drive_n = -float(self.params.omega_n) * dphi_dy
             drive_Te = -float(self.params.omega_Te) * dphi_dy
 
-        source = DRB2DState(
+        source = DRB2DEMState(
             n=drive_n + (C_p - C_phi),
             omega=C_p,
-            vpar_e=jnp.zeros_like(vpar_e),
+            psi=jnp.zeros_like(psi),
             vpar_i=jnp.zeros_like(vpar_i),
-            Te=drive_Te + C_T,
+            Te=drive_Te + C_Te,
         )
 
         if (
@@ -229,11 +247,14 @@ class DRB2DModel(eqx.Module):
             lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
 
-        dissipative = DRB2DState(
+        diss_psi = self._psi_rhs_from_terms(
+            -float(self.params.eta) * jpar_hat + float(self.params.Dpsi) * lap_psi_hat
+        )
+
+        dissipative = DRB2DEMState(
             n=float(self.params.Dn) * lap_n,
             omega=float(self.params.DOmega) * lap_w,
-            vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
-            * (vpar_e - vpar_i),
+            psi=diss_psi,
             vpar_i=jnp.zeros_like(vpar_i),
             Te=float(self.params.DTe) * lap_Te,
         )
@@ -241,7 +262,7 @@ class DRB2DModel(eqx.Module):
         if self.params.bc_enforce_nu != 0.0:
             dissipative = _state_add(
                 dissipative,
-                DRB2DState(
+                DRB2DEMState(
                     n=enforce_bc_relaxation(
                         n,
                         dx=self.grid.dx,
@@ -256,8 +277,8 @@ class DRB2DModel(eqx.Module):
                         bc=self.grid.bc,
                         nu=self.params.bc_enforce_nu,
                     ),
-                    vpar_e=enforce_bc_relaxation(
-                        vpar_e,
+                    psi=enforce_bc_relaxation(
+                        psi,
                         dx=self.grid.dx,
                         dy=self.grid.dy,
                         bc=self.grid.bc,
@@ -280,9 +301,11 @@ class DRB2DModel(eqx.Module):
                 ),
             )
 
-        return DRB2DDecomposition(conservative=conservative, source=source, dissipative=dissipative)
+        return DRB2DEMDecomposition(
+            conservative=conservative, source=source, dissipative=dissipative
+        )
 
-    def rhs(self, t: float, y: DRB2DState) -> DRB2DState:
+    def rhs(self, t: float, y: DRB2DEMState) -> DRB2DEMState:
         split = self.rhs_decomposed(t, y)
         if not self.params.operator_split_on:
             return split.total()
@@ -296,9 +319,10 @@ class DRB2DModel(eqx.Module):
             out = _state_add(out, split.dissipative)
         return out
 
-    def energy(self, y: DRB2DState) -> jnp.ndarray:
+    def energy(self, y: DRB2DEMState) -> jnp.ndarray:
         phi = self.phi_from_omega(y.omega, n=y.n)
         c_T = 1.5 * float(self.params.alpha_Te_ohm)
+        jpar = -laplacian(y.psi, self.grid.k2)
         if not self.params.boussinesq:
             n_eff = float(self.params.n0)
             if self.params.non_boussinesq_perturbed_density_on:
@@ -307,38 +331,40 @@ class DRB2DModel(eqx.Module):
             phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2 * n_eff
         else:
             phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2
+        psi_term = float(self.params.beta) * jnp.real(jnp.conj(y.psi) * jpar)
         return 0.5 * jnp.mean(
             jnp.real(jnp.conj(y.n) * y.n)
             + phi_term
-            + float(self.params.me_hat) * jnp.real(jnp.conj(y.vpar_e) * y.vpar_e)
             + jnp.real(jnp.conj(y.vpar_i) * y.vpar_i)
             + c_T * jnp.real(jnp.conj(y.Te) * y.Te)
+            + psi_term
         )
 
-    def energy_rate(self, y: DRB2DState, dy: DRB2DState) -> jnp.ndarray:
+    def energy_rate(self, y: DRB2DEMState, dy: DRB2DEMState) -> jnp.ndarray:
         if self.params.boussinesq:
             phi = self.phi_from_omega(y.omega, n=y.n)
             c_T = 1.5 * float(self.params.alpha_Te_ohm)
+            jpar = -laplacian(y.psi, self.grid.k2)
             return jnp.mean(
                 jnp.real(jnp.conj(y.n) * dy.n)
                 - jnp.real(jnp.conj(phi) * dy.omega)
-                + float(self.params.me_hat) * jnp.real(jnp.conj(y.vpar_e) * dy.vpar_e)
                 + jnp.real(jnp.conj(y.vpar_i) * dy.vpar_i)
                 + c_T * jnp.real(jnp.conj(y.Te) * dy.Te)
+                + float(self.params.beta) * jnp.real(jnp.conj(jpar) * dy.psi)
             )
 
         eps = jnp.asarray(1.0e-7, dtype=jnp.float64)
-        y_plus = DRB2DState(
+        y_plus = DRB2DEMState(
             n=y.n + eps * dy.n,
             omega=y.omega + eps * dy.omega,
-            vpar_e=y.vpar_e + eps * dy.vpar_e,
+            psi=y.psi + eps * dy.psi,
             vpar_i=y.vpar_i + eps * dy.vpar_i,
             Te=y.Te + eps * dy.Te,
         )
-        y_minus = DRB2DState(
+        y_minus = DRB2DEMState(
             n=y.n - eps * dy.n,
             omega=y.omega - eps * dy.omega,
-            vpar_e=y.vpar_e - eps * dy.vpar_e,
+            psi=y.psi - eps * dy.psi,
             vpar_i=y.vpar_i - eps * dy.vpar_i,
             Te=y.Te - eps * dy.Te,
         )
@@ -346,41 +372,39 @@ class DRB2DModel(eqx.Module):
         E_minus = self.energy(y_minus)
         return (E_plus - E_minus) / (2.0 * eps)
 
-    def energy_budget(self, y: DRB2DState) -> dict[str, jnp.ndarray]:
-        """Return a term-by-term energy budget for DRB2D.
+    def energy_budget(self, y: DRB2DEMState) -> dict[str, jnp.ndarray]:
+        """Return a term-by-term energy budget for EM DRB2D."""
 
-        Uses the discrete identity:
-          dE/dt = < n*dn - phi*dOmega + me_hat*vpar_e*dvpar_e + vpar_i*dvpar_i
-                    + 1.5*alpha_Te*T_e*dT_e >
-        """
         n = y.n
         omega = y.omega
-        vpar_e = y.vpar_e
+        psi = y.psi
         vpar_i = y.vpar_i
         Te = y.Te
-
         phi = self.phi_from_omega(omega, n=n)
+        psi_hat = rfft2(psi)
+        jpar = -laplacian(psi, self.grid.k2)
+        vpar_e = vpar_i - jpar
 
-        # Nonlinear ExB advection.
         adv_n = -self._bracket(phi, n)
         adv_w = -self._bracket(phi, omega)
-        adv_ve = -self._bracket(phi, vpar_e)
+        adv_psi = -self._bracket(phi, psi)
         adv_vi = -self._bracket(phi, vpar_i)
         adv_Te = -self._bracket(phi, Te)
 
-        # Parallel couplings (k_par model).
         grad_par_phi_pe = self._dpar(phi - n - float(self.params.alpha_Te_ohm) * Te)
-        jpar = vpar_i - vpar_e
+        grad_par_hat = rfft2(grad_par_phi_pe)
+        jpar_hat = self.grid.k2 * psi_hat
+        lap_psi_hat = -self.grid.k2 * psi_hat
+
         par_n = -self._dpar(vpar_e)
         par_w = self._dpar(jpar)
-        par_ve = grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12)
+        par_psi = self._psi_rhs_from_terms(-grad_par_hat)
         par_vi = -self._dpar(phi)
         par_Te = -(2.0 / 3.0) * self._dpar(vpar_e)
 
-        # Curvature and drives.
         C_phi = self._curvature(phi)
         C_p = self._curvature(n + Te)
-        C_T = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
+        C_Te = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
 
         drive_n = 0.0
         drive_Te = 0.0
@@ -389,7 +413,6 @@ class DRB2DModel(eqx.Module):
             drive_n = -float(self.params.omega_n) * dphi_dy
             drive_Te = -float(self.params.omega_Te) * dphi_dy
 
-        # Dissipation.
         if (
             self.grid.bc.kind_x == 0
             and self.grid.bc.kind_y == 0
@@ -403,111 +426,38 @@ class DRB2DModel(eqx.Module):
             lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
 
+        diss_psi = self._psi_rhs_from_terms(
+            -float(self.params.eta) * jpar_hat + float(self.params.Dpsi) * lap_psi_hat
+        )
+
         diss_n = float(self.params.Dn) * lap_n
         diss_w = float(self.params.DOmega) * lap_w
-        diss_ve = -(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12)) * (
-            vpar_e - vpar_i
-        )
         diss_vi = jnp.zeros_like(vpar_i)
         diss_Te = float(self.params.DTe) * lap_Te
 
-        if self.params.bc_enforce_nu != 0.0:
-            diss_n = diss_n + enforce_bc_relaxation(
-                n, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
-            )
-            diss_w = diss_w + enforce_bc_relaxation(
-                omega,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=self.grid.bc,
-                nu=self.params.bc_enforce_nu,
-            )
-            diss_ve = diss_ve + enforce_bc_relaxation(
-                vpar_e,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=self.grid.bc,
-                nu=self.params.bc_enforce_nu,
-            )
-            diss_vi = diss_vi + enforce_bc_relaxation(
-                vpar_i,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=self.grid.bc,
-                nu=self.params.bc_enforce_nu,
-            )
-            diss_Te = diss_Te + enforce_bc_relaxation(
-                Te, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+        c_T = 1.5 * float(self.params.alpha_Te_ohm)
+
+        def edot(n_term, w_term, psi_term, vi_term, Te_term):
+            return jnp.mean(
+                jnp.real(jnp.conj(n) * n_term)
+                - jnp.real(jnp.conj(phi) * w_term)
+                + jnp.real(jnp.conj(vpar_i) * vi_term)
+                + c_T * jnp.real(jnp.conj(Te) * Te_term)
+                + float(self.params.beta) * jnp.real(jnp.conj(jpar) * psi_term)
             )
 
-        edot_adv = self.energy_rate(
-            y, DRB2DState(n=adv_n, omega=adv_w, vpar_e=adv_ve, vpar_i=adv_vi, Te=adv_Te)
-        )
-        edot_par = self.energy_rate(
-            y, DRB2DState(n=par_n, omega=par_w, vpar_e=par_ve, vpar_i=par_vi, Te=par_Te)
-        )
-        edot_curv = self.energy_rate(
-            y,
-            DRB2DState(
-                n=C_p - C_phi,
-                omega=C_p,
-                vpar_e=jnp.zeros_like(vpar_e),
-                vpar_i=jnp.zeros_like(vpar_i),
-                Te=C_T,
-            ),
-        )
-        edot_drive = self.energy_rate(
-            y,
-            DRB2DState(
-                n=drive_n,
-                omega=jnp.zeros_like(omega),
-                vpar_e=jnp.zeros_like(vpar_e),
-                vpar_i=jnp.zeros_like(vpar_i),
-                Te=drive_Te,
-            ),
-        )
-        edot_diss = self.energy_rate(
-            y,
-            DRB2DState(n=diss_n, omega=diss_w, vpar_e=diss_ve, vpar_i=diss_vi, Te=diss_Te),
-        )
+        E_dot_adv = edot(adv_n, adv_w, adv_psi, adv_vi, adv_Te)
+        E_dot_parallel = edot(par_n, par_w, par_psi, par_vi, par_Te)
+        E_dot_curvature = edot(C_p - C_phi, C_p, 0.0, 0.0, C_Te)
+        E_dot_drive = edot(drive_n, 0.0, 0.0, 0.0, drive_Te)
+        E_dot_diss = edot(diss_n, diss_w, diss_psi, diss_vi, diss_Te)
+        E_dot_total = E_dot_adv + E_dot_parallel + E_dot_curvature + E_dot_drive + E_dot_diss
 
-        out = {
-            "E_dot_adv": edot_adv,
-            "E_dot_parallel": edot_par,
-            "E_dot_curvature": edot_curv,
-            "E_dot_drive": edot_drive,
-            "E_dot_diss": edot_diss,
+        return {
+            "E_dot_adv": E_dot_adv,
+            "E_dot_parallel": E_dot_parallel,
+            "E_dot_curvature": E_dot_curvature,
+            "E_dot_drive": E_dot_drive,
+            "E_dot_diss": E_dot_diss,
+            "E_dot_total": E_dot_total,
         }
-        out["E_dot_total"] = (
-            out["E_dot_adv"]
-            + out["E_dot_parallel"]
-            + out["E_dot_curvature"]
-            + out["E_dot_drive"]
-            + out["E_dot_diss"]
-        )
-        return out
-
-    def diffeqsolve(
-        self,
-        *,
-        y0: DRB2DState,
-        t0: float,
-        t1: float,
-        dt0: float,
-        save_ts: jnp.ndarray | None = None,
-    ):
-        term = dfx.ODETerm(lambda t, y, args: self.rhs(t, y))
-        solver = dfx.Tsit5()
-        stepsize_controller = dfx.PIDController(rtol=1e-5, atol=1e-8)
-        saveat = dfx.SaveAt(ts=save_ts) if save_ts is not None else dfx.SaveAt(t1=True)
-        return dfx.diffeqsolve(
-            term,
-            solver,
-            t0=t0,
-            t1=t1,
-            dt0=dt0,
-            y0=y0,
-            saveat=saveat,
-            stepsize_controller=stepsize_controller,
-            max_steps=200_000,
-        )
