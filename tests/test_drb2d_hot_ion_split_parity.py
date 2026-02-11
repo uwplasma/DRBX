@@ -30,6 +30,11 @@ def test_drb2d_hot_ion_split_parity_and_energy_budget() -> None:
         DOmega=1e-3,
         DTe=1e-3,
         DTi=1e-3,
+        Dn4=2e-4,
+        DOmega4=2e-4,
+        DTe4=2e-4,
+        DTi4=2e-4,
+        mu_zonal_omega=0.1,
         bracket="arakawa",
         poisson="spectral",
         dealias_on=False,
@@ -52,7 +57,20 @@ def test_drb2d_hot_ion_split_parity_and_energy_budget() -> None:
     split = model.rhs_decomposed(0.0, y)
     rhs = model.rhs(0.0, y)
     total = split.total()
-    err = float(jax.numpy.max(jax.numpy.abs(rhs.n - total.n)))
+    err = float(
+        jax.numpy.max(
+            jax.numpy.asarray(
+                [
+                    jax.numpy.max(jax.numpy.abs(rhs.n - total.n)),
+                    jax.numpy.max(jax.numpy.abs(rhs.omega - total.omega)),
+                    jax.numpy.max(jax.numpy.abs(rhs.vpar_e - total.vpar_e)),
+                    jax.numpy.max(jax.numpy.abs(rhs.vpar_i - total.vpar_i)),
+                    jax.numpy.max(jax.numpy.abs(rhs.Te - total.Te)),
+                    jax.numpy.max(jax.numpy.abs(rhs.Ti - total.Ti)),
+                ]
+            )
+        )
+    )
     assert err < 1e-12
 
     edot_full = float(model.energy_rate(y, rhs))

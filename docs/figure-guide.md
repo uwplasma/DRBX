@@ -180,6 +180,11 @@ Each entry lists the file, how it is generated, and what it is meant to show.
 - Shows short-time nonlinear DRB2D dynamics with a conservative advection core.
 - Intended as a fast, reproducible visualization for regression checks.
 
+**Notes**:
+- The README movie defaults include a small amount of hyperdiffusion (`Dn4`, `DOmega4`, `DTe4`)
+  and a zonal vorticity drag (`mu_zonal_omega`) to avoid long-time collapse into a purely
+  banded/zonal state on coarse grids.
+
 ## DRB2D linear-phase growth benchmark
 
 **File**: `docs/assets/images/drb2d_linear_phase_growth.png`

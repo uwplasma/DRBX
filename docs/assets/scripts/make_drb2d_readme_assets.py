@@ -92,7 +92,7 @@ def main() -> None:
         "--dt",
         "0.02",
         "--tmax",
-        "40.0",
+        "20.0",
         "--save-stride",
         "10",
         "--solver",

@@ -48,6 +48,34 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=30.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
+    parser.add_argument(
+        "--omega-n", type=float, default=1.0, help="Background density-gradient drive."
+    )
+    parser.add_argument(
+        "--omega-Te", type=float, default=0.35, help="Background Te-gradient drive."
+    )
+    parser.add_argument(
+        "--curvature",
+        type=float,
+        default=0.8,
+        help="Curvature coefficient (0 disables curvature drive).",
+    )
+    parser.add_argument("--Dn", type=float, default=2e-4, help="Laplacian diffusion on n.")
+    parser.add_argument("--DOmega", type=float, default=2e-4, help="Laplacian diffusion on omega.")
+    parser.add_argument("--DTe", type=float, default=2e-4, help="Laplacian diffusion on Te.")
+    parser.add_argument("--Dn4", type=float, default=1e-6, help="Hyperdiffusion (-Dn4*∇^4) on n.")
+    parser.add_argument(
+        "--DOmega4", type=float, default=1e-6, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
+    )
+    parser.add_argument(
+        "--DTe4", type=float, default=1e-6, help="Hyperdiffusion (-DTe4*∇^4) on Te."
+    )
+    parser.add_argument(
+        "--mu-zonal-omega",
+        type=float,
+        default=0.12,
+        help="Drag coefficient on zonal (ky=0) omega component.",
+    )
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -56,18 +84,23 @@ def main() -> None:
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     params = DRB2DParams(
         # A curvature-driven case that rapidly develops nonlinear dynamics.
-        omega_n=0.8,
-        omega_Te=0.2,
+        omega_n=float(args.omega_n),
+        omega_Te=float(args.omega_Te),
         # Keep kpar=0 for a real-valued nonlinear turbulence movie (no Fourier-parallel coupling).
         kpar=0.0,
         eta=0.0,
         me_hat=0.2,
-        curvature_on=True,
-        curvature_coeff=0.35,
-        # Dissipation to control the cascade on coarse grids.
-        Dn=8e-4,
-        DOmega=8e-4,
-        DTe=8e-4,
+        curvature_on=(float(args.curvature) != 0.0),
+        curvature_coeff=float(args.curvature),
+        # Dissipation to control the cascade on coarse grids. Hyperdiffusion keeps the
+        # small-scale spectrum under control while preserving large-scale structure.
+        Dn=float(args.Dn),
+        DOmega=float(args.DOmega),
+        DTe=float(args.DTe),
+        Dn4=float(args.Dn4),
+        DOmega4=float(args.DOmega4),
+        DTe4=float(args.DTe4),
+        mu_zonal_omega=float(args.mu_zonal_omega),
         bracket="arakawa",
         poisson="spectral",
         dealias_on=False,
@@ -136,6 +169,16 @@ def main() -> None:
     # Plot normalized fluctuations so the early-time linear phase is visible even
     # when the late-time nonlinear amplitude is much larger.
     frames_fluct = frames_arr - frames_arr.mean(axis=(1, 2), keepdims=True)
+    # Simple zonal-dominance diagnostic: the fraction of fluctuation RMS living in the
+    # ky=0 (y-mean) component. Values near 1 indicate a nearly pure banded/zonal state.
+    zonal = frames_fluct.mean(axis=2, keepdims=True)
+    rms_total = np.sqrt(np.mean(frames_fluct**2, axis=(1, 2)))
+    rms_zonal = np.sqrt(np.mean(zonal**2, axis=(1, 2)))
+    ratio = rms_zonal / (rms_total + 1e-30)
+    print(
+        "[drb2d-movie] zonal-rms ratio "
+        f"min={ratio.min():.3f} max={ratio.max():.3f} final={ratio[-1]:.3f}"
+    )
     frame_rms = np.sqrt(np.mean(frames_fluct**2, axis=(1, 2), keepdims=True))
     frames_plot = frames_fluct / (frame_rms + 1e-30)
     vmax = robust_symmetric_vlim(frames_plot, q=0.995)

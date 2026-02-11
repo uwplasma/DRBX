@@ -10,9 +10,10 @@ from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_c
 from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
+from .fd import biharmonic as biharmonic_fd
 from .fd import enforce_bc_relaxation, inv_laplacian_cg, laplacian as laplacian_fd
 from .grid import Grid2D
-from .spectral import dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
+from .spectral import biharmonic, dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
 
 
 class DRB2DHotIonParams(eqx.Module):
@@ -48,6 +49,15 @@ class DRB2DHotIonParams(eqx.Module):
     DOmega: float = 0.0
     DTe: float = 0.0
     DTi: float = 0.0
+
+    # Hyperdiffusion (biharmonic), implemented as -D4 * ∇⁴.
+    Dn4: float = 0.0
+    DOmega4: float = 0.0
+    DTe4: float = 0.0
+    DTi4: float = 0.0
+
+    # Optional drag on zonal (ky=0) vorticity: -mu * <omega>_y.
+    mu_zonal_omega: float = 0.0
 
     # Numerical options.
     bracket: Literal["spectral", "arakawa", "centered"] = "arakawa"
@@ -231,20 +241,32 @@ class DRB2DHotIonModel(eqx.Module):
             lap_w = laplacian(omega, self.grid.k2)
             lap_Te = laplacian(Te, self.grid.k2)
             lap_Ti = laplacian(Ti, self.grid.k2)
+            bih_n = biharmonic(n, self.grid.k2)
+            bih_w = biharmonic(omega, self.grid.k2)
+            bih_Te = biharmonic(Te, self.grid.k2)
+            bih_Ti = biharmonic(Ti, self.grid.k2)
         else:
             lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Ti = laplacian_fd(Ti, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_Ti = biharmonic_fd(Ti, self.grid.dx, self.grid.dy, self.grid.bc)
+
+        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
         dissipative = DRB2DHotIonState(
-            n=float(self.params.Dn) * lap_n,
-            omega=float(self.params.DOmega) * lap_w,
+            n=float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n,
+            omega=float(self.params.DOmega) * lap_w
+            - float(self.params.DOmega4) * bih_w
+            - float(self.params.mu_zonal_omega) * omega_zonal,
             vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
             * (vpar_e - vpar_i),
             vpar_i=jnp.zeros_like(vpar_i),
-            Te=float(self.params.DTe) * lap_Te,
-            Ti=float(self.params.DTi) * lap_Ti,
+            Te=float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te,
+            Ti=float(self.params.DTi) * lap_Ti - float(self.params.DTi4) * bih_Ti,
         )
 
         if self.params.bc_enforce_nu != 0.0:
@@ -421,20 +443,66 @@ class DRB2DHotIonModel(eqx.Module):
             lap_w = laplacian(omega, self.grid.k2)
             lap_Te = laplacian(Te, self.grid.k2)
             lap_Ti = laplacian(Ti, self.grid.k2)
+            bih_n = biharmonic(n, self.grid.k2)
+            bih_w = biharmonic(omega, self.grid.k2)
+            bih_Te = biharmonic(Te, self.grid.k2)
+            bih_Ti = biharmonic(Ti, self.grid.k2)
         else:
             lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
             lap_Ti = laplacian_fd(Ti, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+            bih_Ti = biharmonic_fd(Ti, self.grid.dx, self.grid.dy, self.grid.bc)
 
-        diss_n = float(self.params.Dn) * lap_n
-        diss_w = float(self.params.DOmega) * lap_w
+        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
+
+        diss_n = float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n
+        diss_w = (
+            float(self.params.DOmega) * lap_w
+            - float(self.params.DOmega4) * bih_w
+            - float(self.params.mu_zonal_omega) * omega_zonal
+        )
         diss_ve = -(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12)) * (
             vpar_e - vpar_i
         )
         diss_vi = jnp.zeros_like(vpar_i)
-        diss_Te = float(self.params.DTe) * lap_Te
-        diss_Ti = float(self.params.DTi) * lap_Ti
+        diss_Te = float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te
+        diss_Ti = float(self.params.DTi) * lap_Ti - float(self.params.DTi4) * bih_Ti
+
+        if self.params.bc_enforce_nu != 0.0:
+            diss_n = diss_n + enforce_bc_relaxation(
+                n, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+            )
+            diss_w = diss_w + enforce_bc_relaxation(
+                omega,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                nu=self.params.bc_enforce_nu,
+            )
+            diss_ve = diss_ve + enforce_bc_relaxation(
+                vpar_e,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                nu=self.params.bc_enforce_nu,
+            )
+            diss_vi = diss_vi + enforce_bc_relaxation(
+                vpar_i,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                nu=self.params.bc_enforce_nu,
+            )
+            diss_Te = diss_Te + enforce_bc_relaxation(
+                Te, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+            )
+            diss_Ti = diss_Ti + enforce_bc_relaxation(
+                Ti, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+            )
 
         c_Te = 1.5 * float(self.params.alpha_Te_ohm)
         c_Ti = 1.5 * float(self.params.alpha_Ti)

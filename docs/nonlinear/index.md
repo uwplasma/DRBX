@@ -63,3 +63,15 @@ Both examples write results to small `out_*` folders with plots and `.npz` data.
 The curvature benchmark now includes EM and hot-ion variants alongside the base DRB2D branch.
 ![DRB2D hot-ion linear-phase benchmark](../assets/images/drb2d_linear_phase_hot_ion.png)
 ![DRB2D EM linear-phase benchmark](../assets/images/drb2d_linear_phase_em.png)
+
+## Notes on DRB2D turbulence movies
+
+The DRB2D movie (`examples/08_nonlinear_drb2d/drb2d_movie.py`) is intended to be short and
+reproducible, but 2D drift-wave/interchange-like systems can condense into a zonal/banded state
+at long times. To keep the README movie visually informative on coarse grids, the default
+parameters include:
+
+- small biharmonic hyperdiffusion (`Dn4`, `DOmega4`, `DTe4`) and
+- a weak zonal vorticity drag (`mu_zonal_omega`)
+
+These are numerical control knobs and should be reported explicitly when used in studies.
