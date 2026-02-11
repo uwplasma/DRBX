@@ -4,7 +4,12 @@ import jax
 import jax.numpy as jnp
 
 from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.fd import inv_laplacian_cg, laplacian as laplacian_fd
+from jaxdrb.nonlinear.fd import (
+    inv_div_n_grad_cg,
+    inv_laplacian_cg,
+    laplacian as laplacian_fd,
+    div_n_grad,
+)
 from jaxdrb.nonlinear.spectral import inv_laplacian, laplacian
 
 
@@ -24,7 +29,7 @@ def test_inv_laplacian_inverts_laplacian_zero_mean_gauge():
 
 def test_hw2d_short_run_no_nans():
     from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
-    from jaxdrb.nonlinear.stepper import rk4_scan
+    from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
     grid = Grid2D.make(nx=24, ny=24, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=True)
     model = HW2DModel(
@@ -36,14 +41,14 @@ def test_hw2d_short_run_no_nans():
     def rhs(t, y):
         return model.rhs(t, y)
 
-    _, y_end = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=10, rhs=rhs)
+    _, y_end = diffeqsolve_fixed_steps(rhs, y0=y0, t0=0.0, dt=0.05, nsteps=10)
     assert jnp.all(jnp.isfinite(y_end.n))
     assert jnp.all(jnp.isfinite(y_end.omega))
 
 
 def test_hw2d_short_run_no_nans_cg_fd_poisson():
     from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
-    from jaxdrb.nonlinear.stepper import rk4_scan
+    from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
     grid = Grid2D.make(nx=16, ny=16, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     model = HW2DModel(
@@ -54,7 +59,7 @@ def test_hw2d_short_run_no_nans_cg_fd_poisson():
     )
     y0 = hw2d_random_ic(jax.random.key(3), grid, amp=1e-3)
 
-    _, y_end = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=5, rhs=model.rhs)
+    _, y_end = diffeqsolve_fixed_steps(model.rhs, y0=y0, t0=0.0, dt=0.05, nsteps=5)
     assert jnp.all(jnp.isfinite(y_end.n))
     assert jnp.all(jnp.isfinite(y_end.omega))
 
@@ -124,9 +129,36 @@ def test_inv_laplacian_cg_neumann_recovers_manufactured_solution():
     assert err < 1e-6
 
 
+def test_inv_div_n_grad_cg_periodic_recovers_manufactured_solution():
+    grid = Grid2D.make(nx=32, ny=28, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
+    x = jnp.linspace(0.0, grid.Lx, grid.nx, endpoint=False)[:, None]
+    y = jnp.linspace(0.0, grid.Ly, grid.ny, endpoint=False)[None, :]
+
+    phi = jnp.sin(2.0 * x) * jnp.sin(3.0 * y)
+    n_coeff = 1.0 + 0.2 * jnp.sin(x) + 0.1 * jnp.cos(y)
+    n_coeff = jnp.maximum(n_coeff, 0.2)
+
+    rhs = -div_n_grad(phi, n_coeff, grid.dx, grid.dy, grid.bc)
+    phi_rec = inv_div_n_grad_cg(
+        rhs,
+        n_coeff=n_coeff,
+        dx=grid.dx,
+        dy=grid.dy,
+        bc=grid.bc,
+        maxiter=800,
+        tol=1e-12,
+        preconditioner="spectral",
+    )
+    phi_rec = phi_rec - jnp.mean(phi_rec)
+    phi0 = phi - jnp.mean(phi)
+
+    err = jnp.linalg.norm((phi_rec - phi0).ravel()) / jnp.linalg.norm(phi0.ravel())
+    assert err < 2e-4
+
+
 def test_drb2d_short_run_no_nans_cg_fd_poisson():
     from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
-    from jaxdrb.nonlinear.stepper import rk4_scan
+    from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
     grid = Grid2D.make(nx=16, ny=16, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
     model = DRB2DModel(
@@ -152,7 +184,7 @@ def test_drb2d_short_run_no_nans_cg_fd_poisson():
     z = jnp.zeros_like(n0)
     y0 = DRB2DState(n=n0, omega=omega0, vpar_e=z, vpar_i=z, Te=z)
 
-    _, y_end = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=5, rhs=model.rhs)
+    _, y_end = diffeqsolve_fixed_steps(model.rhs, y0=y0, t0=0.0, dt=0.05, nsteps=5)
     assert jnp.all(jnp.isfinite(y_end.n))
     assert jnp.all(jnp.isfinite(y_end.omega))
     assert jnp.all(jnp.isfinite(y_end.vpar_e))

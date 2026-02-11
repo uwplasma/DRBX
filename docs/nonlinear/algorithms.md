@@ -32,9 +32,10 @@ For non-periodic boundary-condition experiments, the HW2D milestone also include
 
 Two time-stepping paths are supported:
 
-- **Fast fixed-step RK4 using `jax.lax.scan`**:
-  - intended for performance and long integrations under `jit`,
-  - used in the example scripts for speed.
+- **Fixed-step Diffrax integration**:
+  - uses `diffrax.diffeqsolve` with a constant step size controller,
+  - preserves the fixed-step semantics used in conservative gates and regression tests,
+  - keeps the implementation end-to-end differentiable.
 
 - **Diffrax adaptive integration**:
   - provides a convenient, robust reference integrator,
@@ -45,7 +46,7 @@ Two time-stepping paths are supported:
 The nonlinear milestone is implemented to remain compatible with JAX transformations:
 
 - RHS functions are JAX-pure (no side effects, no Python data-dependent control flow in jitted regions).
-- Fixed-step stepping is implemented via `lax.scan`, which is differentiable and efficient under XLA.
+- Fixed-step stepping uses Diffrax with constant step sizes (still differentiable and XLA-friendly).
 - The non-periodic Poisson solve uses JAX's matrix-free CG, which is differentiable through the solver iterations.
 
 This enables end-to-end differentiation of scalar objectives that depend on simulation outputs, e.g.

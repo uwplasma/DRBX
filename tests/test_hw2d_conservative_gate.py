@@ -7,22 +7,20 @@ import jax.numpy as jnp
 
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, HW2DState
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 from jaxdrb.nonlinear.spectral import ddx, ddy
-from jaxdrb.nonlinear.stepper import rk4_step
 
 
 def _integrate_fixed_steps(model: HW2DModel, y0: HW2DState, *, dt: float, nsteps: int) -> HW2DState:
-    @jax.jit
-    def advance(y: HW2DState) -> HW2DState:
-        def body(i, carry):
-            t, y_ = carry
-            y_next = rk4_step(y_, t, dt, model.rhs)
-            return (t + dt, y_next)
-
-        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y))
-        return y_end
-
-    return advance(y0)
+    _, y_end = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+    )
+    return y_end
 
 
 def _mean_exb_velocity(model: HW2DModel, y: HW2DState) -> tuple[jnp.ndarray, jnp.ndarray]:

@@ -11,9 +11,22 @@ from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import biharmonic as biharmonic_fd
-from .fd import enforce_bc_relaxation, inv_laplacian_cg, laplacian as laplacian_fd
+from .fd import (
+    enforce_bc_relaxation,
+    inv_div_n_grad_cg,
+    inv_laplacian_cg,
+    laplacian as laplacian_fd,
+)
 from .grid import Grid2D
-from .spectral import biharmonic, dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
+from .spectral import (
+    biharmonic,
+    dealias,
+    ddx as ddx_spec,
+    ddy as ddy_spec,
+    inv_laplacian,
+    laplacian,
+    poisson_bracket_spectral,
+)
 
 
 class DRB2DHotIonParams(eqx.Module):
@@ -112,28 +125,37 @@ class DRB2DHotIonModel(eqx.Module):
     grid: Grid2D
 
     def phi_from_omega(self, omega: jnp.ndarray, n: jnp.ndarray | None = None) -> jnp.ndarray:
-        if self.params.poisson == "spectral":
-            if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
-                raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
-            if self.params.boussinesq:
+        if self.params.boussinesq:
+            if self.params.poisson == "spectral":
+                if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
+                    raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
                 return inv_laplacian(omega, self.grid.k2, k2_min=self.params.k2_min)
-            if n is None:
-                raise ValueError("Non-Boussinesq polarization requires density n.")
-            n_eff = float(self.params.n0)
-            if self.params.non_boussinesq_perturbed_density_on:
-                n_eff = n_eff + jnp.real(jnp.asarray(n))
-            n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            k2 = jnp.maximum(self.grid.k2, self.params.k2_min)
-            return -omega / (k2 * n_eff)
-        if not self.params.boussinesq:
-            raise ValueError("Non-Boussinesq polarization currently requires spectral Poisson.")
-        return inv_laplacian_cg(
+            return inv_laplacian_cg(
+                omega,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                maxiter=300,
+                preconditioner="spectral" if self.grid.bc.kind_x == 0 else "jacobi",
+            )
+
+        if n is None:
+            raise ValueError("Non-Boussinesq polarization requires density n.")
+        n_eff = float(self.params.n0)
+        if self.params.non_boussinesq_perturbed_density_on:
+            n_eff = n_eff + jnp.real(jnp.asarray(n))
+        n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
+        precond = (
+            "spectral" if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0) else "jacobi"
+        )
+        return inv_div_n_grad_cg(
             omega,
+            n_coeff=n_eff,
             dx=self.grid.dx,
             dy=self.grid.dy,
             bc=self.grid.bc,
-            maxiter=300,
-            preconditioner="spectral",
+            maxiter=400,
+            preconditioner=precond,
         )
 
     def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
@@ -176,7 +198,7 @@ class DRB2DHotIonModel(eqx.Module):
             and self.grid.bc.kind_y == 0
             and self.params.poisson == "spectral"
         ):
-            df_dy = ddy(f, self.grid.ky)
+            df_dy = ddy_spec(f, self.grid.ky)
         else:
             df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
         return -float(self.params.curvature_coeff) * df_dy
@@ -350,7 +372,20 @@ class DRB2DHotIonModel(eqx.Module):
             if self.params.non_boussinesq_perturbed_density_on:
                 n_eff = n_eff + jnp.real(jnp.asarray(y.n))
             n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2 * n_eff
+            if (
+                self.grid.bc.kind_x == 0
+                and self.grid.bc.kind_y == 0
+                and self.params.poisson == "spectral"
+            ):
+                gradphi_x = ddx_spec(phi, self.grid.kx)
+                gradphi_y = ddy_spec(phi, self.grid.ky)
+            else:
+                gradphi_x = ddx_fd(phi, self.grid.dx, self.grid.bc)
+                gradphi_y = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            phi_term = jnp.real(n_eff) * (
+                jnp.real(jnp.conj(gradphi_x) * gradphi_x)
+                + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
+            )
         else:
             phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2
         return 0.5 * jnp.mean(

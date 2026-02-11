@@ -7,8 +7,8 @@ import jax.numpy as jnp
 
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, HW2DState
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 from jaxdrb.nonlinear.neutrals import NeutralParams
-from jaxdrb.nonlinear.stepper import rk4_step
 
 
 def test_neutral_ionization_conserves_total_particles_when_isolated():
@@ -106,17 +106,14 @@ def test_neutral_source_sink_uniform_relaxes_to_analytic_equilibrium():
     dt = 0.02
     nsteps = 500
 
-    @jax.jit
-    def integrate(y_init: HW2DState) -> HW2DState:
-        def body(i, carry):
-            t, y_ = carry
-            y_next = rk4_step(y_, t, dt, model.rhs)
-            return (t + dt, y_next)
-
-        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y_init))
-        return y_end
-
-    y1 = integrate(y0)
+    _, y1 = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+    )
     assert y1.N is not None
     Nbar = jnp.mean(y1.N)
     t_end = dt * nsteps
@@ -193,18 +190,15 @@ def test_neutrals_passive_limit_keeps_hw2d_invariants() -> None:
     dt = 0.01
     nsteps = 300
 
-    @jax.jit
-    def integrate(y_init: HW2DState) -> HW2DState:
-        def body(i, carry):
-            t, y_ = carry
-            y_next = rk4_step(y_, t, dt, model.rhs)
-            return (t + dt, y_next)
-
-        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y_init))
-        return y_end
-
     d0 = model.diagnostics(y0)
-    y1 = integrate(y0)
+    _, y1 = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+    )
     d1 = model.diagnostics(y1)
 
     relE = jnp.abs(d1["E"] - d0["E"]) / jnp.maximum(d0["E"], 1e-30)

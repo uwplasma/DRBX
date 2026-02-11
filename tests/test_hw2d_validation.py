@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, HW2DState
-from jaxdrb.nonlinear.stepper import rk4_step
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def _real_field_from_single_mode(
@@ -173,17 +173,14 @@ def test_hw2d_stability_no_nans_short_run() -> None:
     dt = 0.01
     nsteps = 800  # t=8
 
-    @jax.jit
-    def integrate(y0: HW2DState) -> HW2DState:
-        def body(i, carry):
-            t, y_ = carry
-            y_next = rk4_step(y_, t, dt, model.rhs)
-            return (t + dt, y_next)
-
-        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y0))
-        return y_end
-
-    y_end = integrate(y)
+    _, y_end = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+    )
     diag = model.diagnostics(y_end)
     assert bool(jnp.isfinite(diag["E"]))
     assert bool(jnp.isfinite(diag["Z"]))
@@ -224,18 +221,15 @@ def test_hw2d_ideal_invariants_conserved_over_time_arakawa() -> None:
     dt = 0.01
     nsteps = 600  # t=6
 
-    @jax.jit
-    def integrate(y: HW2DState) -> HW2DState:
-        def body(i, carry):
-            t, y_ = carry
-            y_next = rk4_step(y_, t, dt, model.rhs)
-            return (t + dt, y_next)
-
-        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y))
-        return y_end
-
     diag0 = model.diagnostics(y0)
-    y_end = integrate(y0)
+    _, y_end = diffeqsolve_fixed_steps(
+        model.rhs,
+        y0=y0,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+    )
     diag1 = model.diagnostics(y_end)
 
     relE = float(jnp.abs(diag1["E"] - diag0["E"]) / jnp.maximum(diag0["E"], 1e-30))
@@ -273,11 +267,14 @@ def test_hw2d_end_to_end_grad_is_finite() -> None:
         )
         model = HW2DModel(params=params, grid=grid)
 
-        def body(i, carry):
-            t, y = carry
-            return (t + dt, rk4_step(y, t, dt, model.rhs))
-
-        _, y_end = jax.lax.fori_loop(0, nsteps, body, (jnp.asarray(0.0), y0))
+        _, y_end = diffeqsolve_fixed_steps(
+            model.rhs,
+            y0=y0,
+            t0=0.0,
+            dt=dt,
+            nsteps=nsteps,
+            solver="dopri5",
+        )
         return model.diagnostics(y_end)["E"]
 
     g = jax.grad(final_energy)(0.7)

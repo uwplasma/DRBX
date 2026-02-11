@@ -35,7 +35,7 @@ import matplotlib.pyplot as plt
 from jaxdrb.analysis.plotting import set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, HW2DState, hw2d_random_ic
-from jaxdrb.nonlinear.stepper import rk4_step
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def isotropic_spectrum(
@@ -72,20 +72,21 @@ def run_time_series(
     tmax: float,
     stride: int,
 ) -> tuple[dict[str, jnp.ndarray], HW2DState]:
-    """Integrate with fixed-step RK4 and record diagnostics/budgets every `stride` steps."""
+    """Integrate with fixed-step Diffrax and record diagnostics/budgets every `stride` steps."""
 
     nsteps = int(jnp.ceil(tmax / dt))
     nrec = max(1, nsteps // stride)
 
-    @jax.jit
-    def advance_chunk(t: jnp.ndarray, y: HW2DState) -> tuple[jnp.ndarray, HW2DState]:
-        def body(i, carry):
-            t_, y_ = carry
-            y_next = rk4_step(y_, t_, dt, model.rhs)
-            return (t_ + dt, y_next)
-
-        t_end, y_end = jax.lax.fori_loop(0, stride, body, (t, y))
-        return t_end, y_end
+    def advance_chunk(t: float, y: HW2DState) -> tuple[float, HW2DState]:
+        _, y_end = diffeqsolve_fixed_steps(
+            model.rhs,
+            y0=y,
+            t0=float(t),
+            dt=float(dt),
+            nsteps=int(stride),
+            solver="dopri5",
+        )
+        return t + dt * stride, y_end
 
     ts = []
     Es = []
@@ -102,7 +103,7 @@ def run_time_series(
         ]
     }
 
-    t = jnp.asarray(0.0)
+    t = 0.0
     y = y0
     for i in range(nrec):
         t, y = advance_chunk(t, y)

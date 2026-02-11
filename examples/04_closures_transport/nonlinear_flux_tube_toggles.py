@@ -27,7 +27,7 @@ from jaxdrb.analysis.plotting import set_mpl_style
 from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.models.cold_ion_drb import Equilibrium, State, phi_from_omega, rhs_nonlinear
 from jaxdrb.models.params import DRBParams
-from jaxdrb.nonlinear.stepper import rk4_scan
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,7 +81,14 @@ def integrate_case(
         return rhs_nonlinear(t_in, y_in, params, geom, kx=0.0, ky=0.35, eq=eq)
 
     for k in range(nchunks):
-        _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
+        _, y = diffeqsolve_fixed_steps(
+            rhs,
+            y0=y,
+            t0=t,
+            dt=dt,
+            nsteps=save_stride,
+            solver="dopri5",
+        )
         t += dt * save_stride
         ts.append(t)
         Es.append(energy_proxy(y))

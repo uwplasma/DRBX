@@ -34,6 +34,34 @@ def _pad_y(u: jnp.ndarray, dy: float, bc: BC2D) -> jnp.ndarray:
     return jnp.concatenate([gl, u, gr], axis=1)
 
 
+def _pad_coeff_x(n: jnp.ndarray, bc: BC2D) -> jnp.ndarray:
+    """Pad a variable coefficient field with a single ghost cell in x.
+
+    For non-periodic boundaries we extend by constant edge values to preserve
+    positivity of n and maintain an SPD discrete operator.
+    """
+
+    if bc.kind_x == 0:
+        gl = n[-1:, :]
+        gr = n[0:1, :]
+    else:
+        gl = n[0:1, :]
+        gr = n[-1:, :]
+    return jnp.concatenate([gl, n, gr], axis=0)
+
+
+def _pad_coeff_y(n: jnp.ndarray, bc: BC2D) -> jnp.ndarray:
+    """Pad a variable coefficient field with a single ghost cell in y."""
+
+    if bc.kind_y == 0:
+        gl = n[:, -1:]
+        gr = n[:, 0:1]
+    else:
+        gl = n[:, 0:1]
+        gr = n[:, -1:]
+    return jnp.concatenate([gl, n, gr], axis=1)
+
+
 def ddx(u: jnp.ndarray, dx: float, bc: BC2D) -> jnp.ndarray:
     if bc.kind_x == 0:
         return (jnp.roll(u, -1, axis=0) - jnp.roll(u, 1, axis=0)) / (2.0 * dx)
@@ -65,6 +93,32 @@ def biharmonic(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
     """Return ∇⁴(u) using two applications of the FD Laplacian."""
 
     return laplacian(laplacian(u, dx, dy, bc), dx, dy, bc)
+
+
+def div_n_grad(u: jnp.ndarray, n: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
+    """Return ∇·(n ∇u) using a symmetric flux form.
+
+    This is the variable-coefficient operator needed for non-Boussinesq polarization:
+        -∇·(n ∇phi) = Omega.
+    """
+
+    upx = _pad_x(u, dx, bc)
+    npx = _pad_coeff_x(n, bc)
+    n_xp = 0.5 * (npx[1:-1, :] + npx[2:, :])
+    n_xm = 0.5 * (npx[1:-1, :] + npx[:-2, :])
+    du_xp = (upx[2:, :] - upx[1:-1, :]) / dx
+    du_xm = (upx[1:-1, :] - upx[:-2, :]) / dx
+    div_x = (n_xp * du_xp - n_xm * du_xm) / dx
+
+    upy = _pad_y(u, dy, bc)
+    npy = _pad_coeff_y(n, bc)
+    n_yp = 0.5 * (npy[:, 1:-1] + npy[:, 2:])
+    n_ym = 0.5 * (npy[:, 1:-1] + npy[:, :-2])
+    du_yp = (upy[:, 2:] - upy[:, 1:-1]) / dy
+    du_ym = (upy[:, 1:-1] - upy[:, :-2]) / dy
+    div_y = (n_yp * du_yp - n_ym * du_ym) / dy
+
+    return div_x + div_y
 
 
 def boundary_mask(nx: int, ny: int, *, bc: BC2D) -> jnp.ndarray:
@@ -324,4 +378,158 @@ def inv_laplacian_cg(
 
     raise ValueError(
         "inv_laplacian_cg supports periodic, dirichlet/dirichlet, or neumann/neumann BCs."
+    )
+
+
+def inv_div_n_grad_cg(
+    rhs: jnp.ndarray,
+    *,
+    n_coeff: jnp.ndarray,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    maxiter: int = 200,
+    tol: float = 1e-10,
+    atol: float = 0.0,
+    preconditioner: str = "jacobi",
+    gauge_epsilon: float | None = None,
+    nan_guard: bool = True,
+) -> jnp.ndarray:
+    """Solve ``-∇·(n ∇u) = rhs`` with variable coefficient n using (P)CG.
+
+    This is the non-Boussinesq polarization solve needed in 2D DRB models.
+    """
+
+    nx, ny = rhs.shape
+
+    n_eff = jnp.asarray(n_coeff)
+    n_eff = jnp.maximum(n_eff, jnp.asarray(0.0, dtype=rhs.dtype))
+
+    if gauge_epsilon is None:
+        gauge_epsilon = 1e-12
+
+    def diag_from_coeff(nc: jnp.ndarray) -> jnp.ndarray:
+        npx = _pad_coeff_x(nc, bc)
+        npy = _pad_coeff_y(nc, bc)
+        n_xp = 0.5 * (npx[1:-1, :] + npx[2:, :])
+        n_xm = 0.5 * (npx[1:-1, :] + npx[:-2, :])
+        n_yp = 0.5 * (npy[:, 1:-1] + npy[:, 2:])
+        n_ym = 0.5 * (npy[:, 1:-1] + npy[:, :-2])
+        return (n_xp + n_xm) / dx**2 + (n_yp + n_ym) / dy**2
+
+    diag = diag_from_coeff(n_eff)
+
+    def _spectral_M(*, shape: tuple[int, int], nbar: float, dx_eff: float, dy_eff: float):
+        npx, npy = shape
+        kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npx, d=dx_eff)
+        ky_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npy, d=dy_eff)
+        kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+        k2 = kx**2 + ky**2
+        denom = jnp.where(k2 > 0.0, nbar * k2, float(gauge_epsilon))
+
+        def M(v_flat):
+            v = v_flat.reshape(shape)
+            v_hat = jnp.fft.fft2(v)
+            u_hat = v_hat / denom
+            u = jnp.fft.ifft2(u_hat)
+            if not jnp.iscomplexobj(v):
+                u = u.real
+            return u.reshape((-1,))
+
+        return M
+
+    def make_M(*, shape: tuple[int, int], nbar: float):
+        if preconditioner == "jacobi":
+            inv_diag = 1.0 / jnp.maximum(diag, 1e-14)
+
+            def M(v_flat):
+                return inv_diag.reshape((-1,)) * v_flat
+
+            return M
+        if preconditioner == "spectral":
+            return _spectral_M(shape=shape, nbar=nbar, dx_eff=dx, dy_eff=dy)
+        if preconditioner in ("none", "", None):
+            return None
+        raise ValueError(f"Unknown preconditioner: {preconditioner}")
+
+    if bc.kind_x == 0 and bc.kind_y == 0:
+        rhs0 = rhs - jnp.mean(rhs)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -div_n_grad(v, n_eff, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(v)
+            return out.reshape((-1,))
+
+        b = rhs0.reshape((-1,))
+        x0 = jnp.zeros_like(b)
+        nbar = jnp.mean(n_eff)
+        M = make_M(shape=(nx, ny), nbar=nbar)
+        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        return u - jnp.mean(u)
+
+    if bc.kind_x == 1 and bc.kind_y == 1:
+        b_int = (-rhs[1:-1, 1:-1]).reshape((-1,))
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx - 2, ny - 2))
+            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+            u = u.at[0, :].set(float(bc.x_value))
+            u = u.at[-1, :].set(float(bc.x_value))
+            u = u.at[:, 0].set(float(bc.y_value))
+            u = u.at[:, -1].set(float(bc.y_value))
+            corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+            u = u.at[0, 0].set(corner)
+            u = u.at[0, -1].set(corner)
+            u = u.at[-1, 0].set(corner)
+            u = u.at[-1, -1].set(corner)
+            u = u.at[1:-1, 1:-1].set(v)
+            Lu = div_n_grad(u, n_eff, dx, dy, bc)
+            return (-Lu[1:-1, 1:-1]).reshape((-1,))
+
+        x0 = jnp.zeros_like(b_int)
+        nbar = jnp.mean(n_eff)
+        M = make_M(shape=(nx - 2, ny - 2), nbar=nbar)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+        u = u.at[0, :].set(float(bc.x_value))
+        u = u.at[-1, :].set(float(bc.x_value))
+        u = u.at[:, 0].set(float(bc.y_value))
+        u = u.at[:, -1].set(float(bc.y_value))
+        corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+        u = u.at[0, 0].set(corner)
+        u = u.at[0, -1].set(corner)
+        u = u.at[-1, 0].set(corner)
+        u = u.at[-1, -1].set(corner)
+        u = u.at[1:-1, 1:-1].set(x.reshape((nx - 2, ny - 2)))
+        return u
+
+    if bc.kind_x == 2 and bc.kind_y == 2:
+        if float(bc.x_grad) != 0.0 or float(bc.y_grad) != 0.0:
+            raise ValueError("Non-Boussinesq solve only supports homogeneous Neumann BCs.")
+        rhs0 = rhs - jnp.mean(rhs)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -div_n_grad(v, n_eff, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(v)
+            return out.reshape((-1,))
+
+        b = (-rhs0).reshape((-1,))
+        x0 = jnp.zeros_like(b)
+        nbar = jnp.mean(n_eff)
+        M = make_M(shape=(nx, ny), nbar=nbar)
+        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        return u - jnp.mean(u)
+
+    raise ValueError(
+        "inv_div_n_grad_cg supports periodic, dirichlet/dirichlet, or homogeneous neumann BCs."
     )
