@@ -7,6 +7,6 @@ drift-reduced Braginskii (DRB) formulations.
 See `docs/nonlinear/conservative-drb.md` and `docs/roadmap.md`.
 """
 
-from .checks import energy_drift, energy_time_series
+from .checks import energy_drift, energy_time_series, energy_time_series_midpoint
 
-__all__ = ["energy_drift", "energy_time_series"]
+__all__ = ["energy_drift", "energy_time_series", "energy_time_series_midpoint"]

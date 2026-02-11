@@ -387,8 +387,12 @@ in tests and produces the figure below.
 
 - example: `examples/08_nonlinear_drb2d/drb2d_conservative_gate.py`
 - test: `tests/test_drb2d_conservative_gate.py`
+- test: `tests/test_drb2d_conservative_gate_midpoint.py`
 
 ![DRB2D conservative energy time series](assets/images/drb2d_conservative_energy.png)
+The conservative gate uses an RK4 time step, so residual drift reflects time-discretization error.
+The midpoint test (`tests/test_drb2d_conservative_gate_midpoint.py`) enforces a tighter invariant
+gate for reviewer-grade conservation checks.
 
 ## DRB2D energy budget gate (curvature + drives)
 
@@ -454,8 +458,11 @@ See `docs/references.md` for the JPP Tokam1D citation used to define the proxy.
 - test: `tests/test_drb2d_curvature_benchmarks.py`
 - test: `tests/test_drb2d_curvature_benchmarks_hot_em.py`
 - example: `examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py`
+- test: `tests/test_drb2d_curvature_proxy_em_hot.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks_em_hot_proxy.py`
 
 ![DRB2D curvature benchmark](assets/images/drb2d_curvature_benchmarks.png)
+![DRB2D EM/hot-ion curvature proxy](assets/images/drb2d_curvature_benchmarks_em_hot.png)
 
 ### DRB2D hot-ion / EM linear-phase benchmarks
 

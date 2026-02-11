@@ -88,6 +88,7 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 **DRB2D curvature-drive benchmark (proxy threshold)**
 
 ![DRB2D curvature benchmark (includes hot-ion/EM variants)](docs/assets/images/drb2d_curvature_benchmarks.png)
+![DRB2D EM/hot-ion curvature proxy](docs/assets/images/drb2d_curvature_benchmarks_em_hot.png)
 
 ## Quickstart
 
