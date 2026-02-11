@@ -223,12 +223,22 @@ def inv_laplacian_cg(
 
     if bc.kind_x == 1 and bc.kind_y == 1:
         # Dirichlet: solve for interior unknowns with boundary fixed.
-        value = float(bc.x_value)
         b_int = (-rhs[1:-1, 1:-1]).reshape((-1,))
 
         def mv(v_flat):
             v = v_flat.reshape((nx - 2, ny - 2))
-            u = jnp.full((nx, ny), value, dtype=rhs.dtype)
+            # Set constant Dirichlet values on each pair of boundaries. Corners are set to the
+            # average value to avoid an arbitrary overwrite if x_value != y_value.
+            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+            u = u.at[0, :].set(float(bc.x_value))
+            u = u.at[-1, :].set(float(bc.x_value))
+            u = u.at[:, 0].set(float(bc.y_value))
+            u = u.at[:, -1].set(float(bc.y_value))
+            corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+            u = u.at[0, 0].set(corner)
+            u = u.at[0, -1].set(corner)
+            u = u.at[-1, 0].set(corner)
+            u = u.at[-1, -1].set(corner)
             u = u.at[1:-1, 1:-1].set(v)
             Lu = (u[2:, 1:-1] - 2.0 * u[1:-1, 1:-1] + u[:-2, 1:-1]) / dx**2 + (
                 u[1:-1, 2:] - 2.0 * u[1:-1, 1:-1] + u[1:-1, :-2]
@@ -240,7 +250,16 @@ def inv_laplacian_cg(
         x, _ = jax.scipy.sparse.linalg.cg(
             mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
-        u = jnp.full((nx, ny), value, dtype=rhs.dtype)
+        u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+        u = u.at[0, :].set(float(bc.x_value))
+        u = u.at[-1, :].set(float(bc.x_value))
+        u = u.at[:, 0].set(float(bc.y_value))
+        u = u.at[:, -1].set(float(bc.y_value))
+        corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+        u = u.at[0, 0].set(corner)
+        u = u.at[0, -1].set(corner)
+        u = u.at[-1, 0].set(corner)
+        u = u.at[-1, -1].set(corner)
         u = u.at[1:-1, 1:-1].set(x.reshape((nx - 2, ny - 2)))
         return u
 
