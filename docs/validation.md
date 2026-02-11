@@ -446,11 +446,13 @@ Two additional checks anchor the DRB2D testbed to known limits:
 ### DRB2D curvature-drive benchmarks (interchange / resistive-like)
 
 A dedicated curvature benchmark compares growth-rate trends for a purely interchange-like
-case (kpar=0, eta=0) and a resistive-like branch (kpar>0, eta>0) on the same grid.
-It also compares the drive threshold against a published Tokam1D dispersion proxy.
+case (kpar=0, eta=0) and a resistive-like branch (kpar>0, eta>0) on the same grid,
+and now includes hot-ion/EM variants. It also compares the drive threshold against
+a published Tokam1D dispersion proxy.
 See `docs/references.md` for the JPP Tokam1D citation used to define the proxy.
 
 - test: `tests/test_drb2d_curvature_benchmarks.py`
+- test: `tests/test_drb2d_curvature_benchmarks_hot_em.py`
 - example: `examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py`
 
 ![DRB2D curvature benchmark](assets/images/drb2d_curvature_benchmarks.png)

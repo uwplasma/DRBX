@@ -80,8 +80,8 @@ def _drb2d_growth_rate(*, kx: float, ky: float, kpar: float, curvature_coeff: fl
 def test_drb2d_linear_phase_matches_linear_solver_em() -> None:
     kx = 1.0
     ky = 1.0
-    kpar = 0.4
-    curvature_coeff = 0.6
+    kpar = 0.2
+    curvature_coeff = 0.4
 
     drb_params = DRBParams(
         omega_n=0.8,
@@ -117,4 +117,4 @@ def test_drb2d_linear_phase_matches_linear_solver_em() -> None:
     gamma_drb2d = _drb2d_growth_rate(kx=kx, ky=ky, kpar=kpar, curvature_coeff=curvature_coeff)
 
     rel_err = abs(gamma_drb2d - gamma_lin) / max(abs(gamma_lin), 1e-12)
-    assert rel_err < 0.4
+    assert rel_err < 0.15

@@ -79,7 +79,7 @@ def test_curvature_benchmarks_match_proxy_threshold() -> None:
         operator_split_on=False,
     )
     params_curv = DRB2DParams(
-        omega_n=0.0,
+        omega_n=0.6,
         omega_Te=0.0,
         kpar=0.0,
         eta=0.0,
