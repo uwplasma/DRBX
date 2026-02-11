@@ -168,18 +168,41 @@ def inv_laplacian_cg(
     dy: float,
     bc: BC2D,
     maxiter: int = 200,
-    tol: float = 0.0,
+    tol: float = 1e-10,
+    atol: float = 0.0,
+    preconditioner: str = "jacobi",
+    gauge_epsilon: float | None = None,
 ) -> jnp.ndarray:
-    """Solve ∇² u = rhs with FD Laplacian and configurable BCs using fixed-iter CG.
+    """Solve ``∇² u = rhs`` with an SPD(-ish) FD Laplacian using (P)CG.
 
     Notes
     -----
-    - For pure Neumann problems, the Laplacian has a constant nullspace; we project
-      rhs to zero-mean and return the zero-mean solution.
-    - This solver is end-to-end differentiable through JAX's CG implementation.
+    - We solve the symmetric system ``(-∇² + eps*P0) u = -rhs`` where ``P0`` projects
+      onto the constant mode (mean). For periodic/Neumann problems this removes the
+      singular nullspace and selects the zero-mean gauge.
+    - ``preconditioner="jacobi"`` applies a simple diagonal preconditioner.
+    - This routine is end-to-end differentiable through JAX's ``cg`` implementation.
     """
 
     nx, ny = rhs.shape
+    diag = 2.0 / dx**2 + 2.0 / dy**2
+
+    if gauge_epsilon is None:
+        # Gauge-lifting term scale: small compared to the FD Laplacian diagonal.
+        gauge_epsilon = 1e-12 * float(diag)
+
+    def make_M(size: int):
+        if preconditioner == "jacobi":
+            inv_diag = 1.0 / jnp.asarray(diag, dtype=rhs.dtype)
+
+            def M(v_flat):
+                _ = size
+                return inv_diag * v_flat
+
+            return M
+        if preconditioner in ("none", "", None):
+            return None
+        raise ValueError(f"Unknown preconditioner: {preconditioner}")
 
     if bc.kind_x == 0 and bc.kind_y == 0:
         # Periodic: solve full system (nullspace fixed by zero-mean gauge).
@@ -187,19 +210,21 @@ def inv_laplacian_cg(
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = -laplacian(v, dx, dy, bc)
+            # SPD lift: add eps * mean(v) to eliminate the constant nullspace.
+            out = -laplacian(v, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(v)
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
         x0 = jnp.zeros_like(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=tol, maxiter=maxiter)
+        M = make_M(b.size)
+        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         u = x.reshape((nx, ny))
         return u - jnp.mean(u)
 
     if bc.kind_x == 1 and bc.kind_y == 1:
         # Dirichlet: solve for interior unknowns with boundary fixed.
         value = float(bc.x_value)
-        b_int = rhs[1:-1, 1:-1].reshape((-1,))
+        b_int = (-rhs[1:-1, 1:-1]).reshape((-1,))
 
         def mv(v_flat):
             v = v_flat.reshape((nx - 2, ny - 2))
@@ -208,10 +233,13 @@ def inv_laplacian_cg(
             Lu = (u[2:, 1:-1] - 2.0 * u[1:-1, 1:-1] + u[:-2, 1:-1]) / dx**2 + (
                 u[1:-1, 2:] - 2.0 * u[1:-1, 1:-1] + u[1:-1, :-2]
             ) / dy**2
-            return Lu.reshape((-1,))
+            return (-Lu).reshape((-1,))
 
         x0 = jnp.zeros_like(b_int)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b_int, x0=x0, tol=tol, atol=tol, maxiter=maxiter)
+        M = make_M(b_int.size)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
         u = jnp.full((nx, ny), value, dtype=rhs.dtype)
         u = u.at[1:-1, 1:-1].set(x.reshape((nx - 2, ny - 2)))
         return u
@@ -229,12 +257,13 @@ def inv_laplacian_cg(
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = _laplacian_homogeneous(v, dx, dy, bc)
+            out = -_laplacian_homogeneous(v, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(v)
             return out.reshape((-1,))
 
-        b = rhs_eff.reshape((-1,))
+        b = (-rhs_eff).reshape((-1,))
         x0 = jnp.zeros_like(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=tol, maxiter=maxiter)
+        M = make_M(b.size)
+        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         u = x.reshape((nx, ny)) + u_bc
         return u - jnp.mean(u)
 
