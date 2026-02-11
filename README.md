@@ -67,6 +67,10 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 | --- | --- |
 | <img src="docs/assets/images/hw2d_turbulence.gif" width="420" height="320" /> | <img src="docs/assets/images/drb2d_turbulence.gif" width="420" height="320" /> |
 
+**DRB2D linear-phase benchmark (2D vs linear solver)**
+
+![DRB2D linear-phase growth](docs/assets/images/drb2d_linear_phase_growth.png)
+
 ## Quickstart
 
 Install editable:
@@ -91,12 +95,12 @@ Make a short nonlinear movie (GIF):
 
 ```bash
 python examples/08_nonlinear_hw2d/hw2d_movie.py --out out_hw2d_movie
+```
 
 Make a short nonlinear DRB2D movie (GIF):
 
 ```bash
 python examples/08_nonlinear_drb2d/drb2d_movie.py --out out_drb2d_movie
-```
 ```
 
 ## Model at a glance (linear flux-tube form)

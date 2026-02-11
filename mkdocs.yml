@@ -39,6 +39,7 @@ nav:
       - theory/known-limits.md
   - Model:
       - model/equations.md
+      - model/drb2d.md
       - model/braginskii.md
       - model/boundary-conditions.md
       - model/extensions.md

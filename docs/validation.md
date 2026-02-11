@@ -390,6 +390,27 @@ in tests and produces the figure below.
 
 ![DRB2D conservative energy time series](assets/images/drb2d_conservative_energy.png)
 
+### DRB2D limit checks (HW2D + curvature)
+
+Two additional checks anchor the DRB2D testbed to known limits:
+
+- **HW2D ideal limit**: when `vpar_e=vpar_i=Te=0`, `kpar=0`, and all drives/dissipation are off,
+  the DRB2D RHS for `(n, omega)` reduces to the ideal HW2D advection system.
+  - test: `tests/test_drb2d_hw2d_limit.py`
+- **Curvature drive sign check**: enabling the slab curvature operator should increase early-time
+  growth rates relative to the curvature-free case.
+  - test: `tests/test_drb2d_curvature_drive.py`
+
+
+## DRB2D linear-phase benchmark (2D vs linear solver)
+
+We benchmark the early-time growth rate in DRB2D against the linear flux-tube solver
+using a constant-geometry approximation and matching (kx, ky, k_par).
+
+- example: `examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py`
+
+![DRB2D linear-phase growth](assets/images/drb2d_linear_phase_growth.png)
+
 
 ## Performance regression gates
 
