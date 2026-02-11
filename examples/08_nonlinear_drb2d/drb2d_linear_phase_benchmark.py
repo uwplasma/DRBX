@@ -71,9 +71,7 @@ def main() -> None:
     )
 
     # Linear solver (constant geometry, kpar=0).
-    geom = ConstantGeometry(
-        kpar=kpar, kperp2_value=kx**2 + ky**2, curvature_coeff=curvature_coeff
-    )
+    geom = ConstantGeometry(kpar=kpar, kperp2_value=kx**2 + ky**2, curvature_coeff=curvature_coeff)
     eq = Equilibrium.constant(1, n0=1.0, Te0=1.0)
     y0 = State.zeros(1)
     matvec = linear_matvec(y0, drb_params, geom, kx=kx, ky=ky, eq=eq)
@@ -125,7 +123,9 @@ def main() -> None:
     y_zero = DRB2DState(n=zero, omega=zero, vpar_e=zero, vpar_i=zero, Te=zero)
     _, jvp_fn = jax.linearize(lambda y: model.rhs(0.0, y), y_zero)
 
-    drb_res = estimate_growth_rate_jax(jvp_fn, y_mode, tmax=20.0, dt0=0.02, nsave=120, fit_window=0.5)
+    drb_res = estimate_growth_rate_jax(
+        jvp_fn, y_mode, tmax=20.0, dt0=0.02, nsave=120, fit_window=0.5
+    )
     gamma_nl = float(drb_res.gamma)
 
     import matplotlib.pyplot as plt

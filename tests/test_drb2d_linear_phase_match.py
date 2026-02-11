@@ -93,9 +93,7 @@ def test_drb2d_linear_phase_matches_linear_solver() -> None:
         sheath_loss_on=False,
         sheath_end_damp_on=False,
     )
-    geom = ConstantGeometry(
-        kpar=kpar, kperp2_value=kx**2 + ky**2, curvature_coeff=curvature_coeff
-    )
+    geom = ConstantGeometry(kpar=kpar, kperp2_value=kx**2 + ky**2, curvature_coeff=curvature_coeff)
     eq = Equilibrium.constant(1, n0=1.0, Te0=1.0)
     y0 = State.zeros(1)
     matvec = linear_matvec(y0, drb_params, geom, kx=kx, ky=ky, eq=eq)
@@ -109,9 +107,7 @@ def test_drb2d_linear_phase_matches_linear_solver() -> None:
     lin_res = estimate_growth_rate(matvec, v0, tmax=20.0, dt0=0.02, nsave=120, fit_window=0.5)
     gamma_lin = float(lin_res.gamma)
 
-    gamma_drb2d = _drb2d_growth_rate(
-        kx=kx, ky=ky, kpar=kpar, curvature_coeff=curvature_coeff
-    )
+    gamma_drb2d = _drb2d_growth_rate(kx=kx, ky=ky, kpar=kpar, curvature_coeff=curvature_coeff)
 
     rel_err = abs(gamma_drb2d - gamma_lin) / max(abs(gamma_lin), 1e-12)
     assert rel_err < 0.2
