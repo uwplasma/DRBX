@@ -26,7 +26,6 @@ import numpy as np
 from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
-from jaxdrb.nonlinear.stepper import rk4_scan
 
 
 def main() -> None:
@@ -41,6 +40,11 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--tmax", type=float, default=80.0)
     parser.add_argument("--save-stride", type=int, default=100)
+    parser.add_argument("--solver", type=str, default="tsit5")
+    parser.add_argument("--fixed-step", action="store_true")
+    parser.add_argument("--rtol", type=float, default=1e-5)
+    parser.add_argument("--atol", type=float, default=1e-8)
+    parser.add_argument("--progress", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=str, default="out_hw2d_movie")
     args = parser.parse_args()
@@ -65,37 +69,46 @@ def main() -> None:
 
     y = hw2d_random_ic(jax.random.key(args.seed), grid, amp=1e-3, include_neutrals=False)
     dt = float(args.dt)
-    nsteps = int(jnp.ceil(float(args.tmax) / dt))
     save_stride = int(args.save_stride)
-    nframes = max(1, nsteps // save_stride)
+    frame_dt = dt * save_stride
+    save_ts = jnp.arange(frame_dt, float(args.tmax) + 1e-12, frame_dt)
+    nframes = int(save_ts.size)
 
     print(
-        f"[hw2d-movie] grid=({grid.nx},{grid.ny}) dt={dt} tmax={args.tmax} "
-        f"nsteps={nsteps} save_stride={save_stride} frames={nframes}"
+        f"[hw2d-movie] grid=({grid.nx},{grid.ny}) dt0={dt} tmax={args.tmax} "
+        f"save_stride={save_stride} frames={nframes} solver={args.solver} "
+        f"adaptive={not args.fixed_step} progress={args.progress}"
     )
 
-    def rhs(t, y_):
-        return model.rhs(t, y_)
+    sol = model.diffeqsolve(
+        y0=y,
+        t0=0.0,
+        t1=float(args.tmax),
+        dt0=dt,
+        save_ts=save_ts,
+        solver=args.solver,
+        adaptive=not args.fixed_step,
+        rtol=float(args.rtol),
+        atol=float(args.atol),
+        max_steps=300_000,
+        progress=bool(args.progress),
+    )
 
-    frames_n = []
-    ts = []
+    ts = [float(t) for t in np.asarray(save_ts)]
+    frames_n = [jax.device_get(sol.ys.n[i]) for i in range(nframes)]
+    y = sol.ys
+
     Es = []
     Zs = []
-
-    t = 0.0
     for k in range(nframes):
-        _, y = rk4_scan(y, t0=t, dt=dt, nsteps=save_stride, rhs=rhs)
-        t = t + dt * save_stride
-        diag = model.diagnostics(y)
+        diag = model.diagnostics(type(sol.ys)(n=sol.ys.n[k], omega=sol.ys.omega[k], N=None))
         if not jnp.isfinite(diag["E"]) or not jnp.isfinite(diag["Z"]):
             raise FloatingPointError(
-                f"Non-finite diagnostics at frame {k + 1}/{nframes}, t={t:.3f}: {diag}"
+                f"Non-finite diagnostics at frame {k + 1}/{nframes}, t={ts[k]:.3f}: {diag}"
             )
-        ts.append(float(t))
         Es.append(float(diag["E"]))
         Zs.append(float(diag["Z"]))
-        frames_n.append(jax.device_get(y.n))
-        print(f"[hw2d-movie] frame {k + 1}/{nframes} t={t:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
+        print(f"[hw2d-movie] frame {k + 1}/{nframes} t={ts[k]:.3f} E={Es[-1]:.3e} Z={Zs[-1]:.3e}")
 
     jnp.savez(out_dir / "timeseries.npz", t=jnp.array(ts), E=jnp.array(Es), Z=jnp.array(Zs))
 
@@ -130,7 +143,7 @@ def main() -> None:
     plt.close(fig)
 
     # Final summary panel.
-    phi = model.phi_from_omega(y.omega)
+    phi = model.phi_from_omega(sol.ys.omega[-1])
     fig = plt.figure(figsize=(12, 7))
     gs = fig.add_gridspec(2, 3, width_ratios=[1.1, 1.0, 1.0])
 
@@ -144,7 +157,7 @@ def main() -> None:
 
     for ax, (name, arr) in zip(
         [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
-        [("n", y.n), ("phi", phi), ("omega", y.omega)],
+        [("n", sol.ys.n[-1]), ("phi", phi), ("omega", sol.ys.omega[-1])],
     ):
         arr_np = np.asarray(arr)
         vmax = robust_symmetric_vlim(arr_np, q=0.995)
