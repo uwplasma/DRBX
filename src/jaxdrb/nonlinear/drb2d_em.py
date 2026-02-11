@@ -176,7 +176,9 @@ class DRB2DEMModel(eqx.Module):
         )
         coef = jnp.maximum(coef, 1e-12)
         psi_rhs_hat = term_hat / coef
-        return irfft2(psi_rhs_hat)
+        # For kpar>0 runs we evolve complex Fourier-mode amplitudes; preserve the complex
+        # inverse FFT in that case. For kpar=0 the state is expected to be real-valued.
+        return irfft2(psi_rhs_hat, real_output=(self.params.kpar == 0.0))
 
     def rhs_decomposed(self, t: float, y: DRB2DEMState) -> DRB2DEMDecomposition:
         _ = t

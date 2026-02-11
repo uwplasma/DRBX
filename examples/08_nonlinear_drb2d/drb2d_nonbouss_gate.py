@@ -17,11 +17,11 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpy as np
 
 from jaxdrb.analysis.plotting import save_json, set_mpl_style
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.stepper import rk4_step
 
 
 def main() -> None:
@@ -33,6 +33,12 @@ def main() -> None:
     p.add_argument("--ny", type=int, default=64)
     p.add_argument("--dt", type=float, default=0.02)
     p.add_argument("--tmax", type=float, default=10.0)
+    p.add_argument("--solver", type=str, default="dopri8")
+    p.add_argument("--fixed-step", action="store_true")
+    p.add_argument("--rtol", type=float, default=1e-5)
+    p.add_argument("--atol", type=float, default=1e-8)
+    p.add_argument("--max-steps", type=int, default=200_000)
+    p.add_argument("--progress", action="store_true")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", type=str, default="out_drb2d_nonbouss")
     args = p.parse_args()
@@ -118,16 +124,22 @@ def main() -> None:
     rel_E = abs(Eb - Enb) / max(abs(Eb), 1e-12)
 
     dt = float(args.dt)
-    nsteps = int(jnp.ceil(args.tmax / dt))
-    t = 0.0
-    Es = []
-    ts = []
-    ycur = y
-    for _ in range(nsteps):
-        ycur = rk4_step(ycur, t, dt, model_nb.rhs)
-        t += dt
-        ts.append(t)
-        Es.append(float(model_nb.energy(ycur)))
+    save_ts = jnp.arange(dt, float(args.tmax) + 1e-12, dt)
+    sol = model_nb.diffeqsolve(
+        y0=y,
+        t0=0.0,
+        t1=float(args.tmax),
+        dt0=dt,
+        save_ts=save_ts,
+        solver=str(args.solver),
+        adaptive=not bool(args.fixed_step),
+        rtol=float(args.rtol),
+        atol=float(args.atol),
+        max_steps=int(args.max_steps),
+        progress=bool(args.progress),
+    )
+    ts = np.asarray(jax.device_get(sol.ts))
+    Es = np.asarray(jax.device_get(jax.vmap(model_nb.energy)(sol.ys)))
 
     fig, ax = plt.subplots(1, 1, figsize=(6.0, 4.0))
     ax.plot(ts, Es, lw=2)
