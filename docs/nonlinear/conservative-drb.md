@@ -120,6 +120,26 @@ $$
 $$
 via `rhs_nonlinear_decomposed(...)` and the split toggles in `DRBParams`.
 
+### DRB2D curvature and drive terms
+
+The DRB2D testbed now includes a simple slab curvature operator and background-gradient drives:
+
+- Curvature operator:  $C(f) = -\omega_c\,\partial_y f$
+- Density/vorticity:  $\partial_t n \leftarrow \partial_t n + C(p) - C(\phi)$,
+  $\partial_t \Omega \leftarrow \partial_t \Omega + C(p)$
+- Temperature: $\partial_t T_e \leftarrow \partial_t T_e + \tfrac{2}{3} C(\tfrac{7}{2}T_e + n - \phi)$
+
+These terms match the structure of the field-line DRB model in slab curvature limits and provide
+an interchange-like drive in 2D. They are exposed in `DRB2DParams` via `curvature_on` and
+`curvature_coeff`.
+
+Example (linear-phase benchmark):
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py
+```
+
+
 ### 2) A conservation-respecting discretization (perpendicular + parallel)
 
 Perpendicular (in $(x,y)$ / $(\psi,\\alpha)$):
