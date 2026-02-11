@@ -67,9 +67,13 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 | --- | --- |
 | <img src="docs/assets/images/hw2d_turbulence.gif" width="420" height="320" /> | <img src="docs/assets/images/drb2d_turbulence.gif" width="420" height="320" /> |
 
-**DRB2D linear-phase benchmark (2D vs linear solver)**
+**DRB2D linear-phase benchmark (linearized vs linear solver)**
 
 ![DRB2D linear-phase growth](docs/assets/images/drb2d_linear_phase_growth.png)
+
+**DRB2D energy-budget closure (curvature + drives)**
+
+![DRB2D energy budget](docs/assets/images/drb2d_energy_budget.png)
 
 ## Quickstart
 

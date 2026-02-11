@@ -48,6 +48,32 @@ $$
 The source terms $S_\cdot$ include optional background-gradient drives and diffusion terms,
 controlled by `DRB2DParams`.
 
+## Energy budget
+
+For periodic domains with Boussinesq polarization, the discrete energy functional is
+
+$$
+E = \frac{1}{2}\left\langle |n|^2 + k_\perp^2|\phi|^2 + \hat m_e |v_{\parallel e}|^2 + |v_{\parallel i}|^2
+ + \frac{3}{2}\alpha_{Te}|T_e|^2 \right\rangle.
+$$
+
+Using the identity
+$$
+\frac{d}{dt}\left(\frac{1}{2}\langle k_\perp^2|\phi|^2\rangle\right)
+  = -\langle \phi\,\partial_t \Omega\rangle,
+$$
+the energy rate is evaluated as
+$$
+\dot E = \Re\left\langle n^*\,\partial_t n - \phi^*\,\partial_t \Omega
+ + \hat m_e v_{\parallel e}^*\,\partial_t v_{\parallel e}
+ + v_{\parallel i}^*\,\partial_t v_{\parallel i}
+ + \frac{3}{2}\alpha_{Te} T_e^*\,\partial_t T_e \right\rangle.
+$$
+
+`jaxdrb` computes a term-by-term budget (advection, parallel coupling, curvature, drives,
+dissipation) and validates closure against finite-difference $dE/dt$ in
+`tests/test_drb2d_energy_budget.py`.
+
 ## Notes
 
 - The conservative subset sets drives, curvature, and dissipation to zero.
