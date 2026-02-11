@@ -97,3 +97,64 @@ def test_inv_laplacian_cg_periodic_recovers_manufactured_solution():
 
     err = jnp.linalg.norm((phi_rec - phi).ravel()) / jnp.linalg.norm(phi.ravel())
     assert err < 1e-6
+
+
+def test_inv_laplacian_cg_neumann_recovers_manufactured_solution():
+    from jaxdrb.bc import bc2d_from_strings
+
+    nx = 32
+    ny = 28
+    Lx = 1.0
+    Ly = 1.0
+    dx = Lx / (nx - 1)
+    dy = Ly / (ny - 1)
+
+    # Manufactured phi with homogeneous Neumann BCs.
+    x = jnp.linspace(0.0, Lx, nx)[:, None]
+    y = jnp.linspace(0.0, Ly, ny)[None, :]
+    phi = jnp.cos(jnp.pi * x / Lx) * jnp.cos(jnp.pi * y / Ly)
+    phi = phi - jnp.mean(phi)
+
+    bc = bc2d_from_strings(bc_x="neumann", bc_y="neumann", grad_x=0.0, grad_y=0.0)
+    omega = laplacian_fd(phi, dx, dy, bc)
+    phi_rec = inv_laplacian_cg(omega, dx=dx, dy=dy, bc=bc, maxiter=800, tol=1e-12)
+    phi_rec = phi_rec - jnp.mean(phi_rec)
+
+    err = jnp.linalg.norm((phi_rec - phi).ravel()) / jnp.linalg.norm(phi.ravel())
+    assert err < 1e-6
+
+
+def test_drb2d_short_run_no_nans_cg_fd_poisson():
+    from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
+    from jaxdrb.nonlinear.stepper import rk4_scan
+
+    grid = Grid2D.make(nx=16, ny=16, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
+    model = DRB2DModel(
+        params=DRB2DParams(
+            omega_n=1.0,
+            omega_Te=0.25,
+            curvature_on=True,
+            curvature_coeff=0.5,
+            Dn=1e-3,
+            DOmega=1e-3,
+            DTe=1e-3,
+            bracket="arakawa",
+            poisson="cg_fd",
+            dealias_on=False,
+        ),
+        grid=grid,
+    )
+
+    key = jax.random.key(0)
+    kn, kw = jax.random.split(key, 2)
+    n0 = 1e-3 * jax.random.normal(kn, (grid.nx, grid.ny))
+    omega0 = 1e-3 * jax.random.normal(kw, (grid.nx, grid.ny))
+    z = jnp.zeros_like(n0)
+    y0 = DRB2DState(n=n0, omega=omega0, vpar_e=z, vpar_i=z, Te=z)
+
+    _, y_end = rk4_scan(y0, t0=0.0, dt=0.05, nsteps=5, rhs=model.rhs)
+    assert jnp.all(jnp.isfinite(y_end.n))
+    assert jnp.all(jnp.isfinite(y_end.omega))
+    assert jnp.all(jnp.isfinite(y_end.vpar_e))
+    assert jnp.all(jnp.isfinite(y_end.vpar_i))
+    assert jnp.all(jnp.isfinite(y_end.Te))
