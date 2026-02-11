@@ -1,8 +1,9 @@
 """Benchmark DRB2D linear-phase growth against the linear flux-tube solver.
 
-We seed a single Fourier mode in DRB2D, measure its early-time growth rate,
-then compare against a constant-geometry linear DRB calculation with the same
-(kx, ky, kpar) and parameters.
+We compare growth rates using a *linearized* DRB2D operator (via `jax.linearize`)
+and a constant-geometry linear DRB calculation with matching (kx, ky, kpar) and
+curvature/drive parameters. This avoids nonlinear transient effects and yields
+a strict quantitative comparison suitable for CI gating.
 """
 
 from __future__ import annotations
@@ -20,13 +21,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from jaxdrb.analysis.plotting import save_json, set_mpl_style
 from jaxdrb.geometry.slab import SlabGeometry
-from jaxdrb.linear.growthrate import estimate_growth_rate
+from jaxdrb.linear.growthrate import estimate_growth_rate_jax
 from jaxdrb.linear.matvec import linear_matvec
 from jaxdrb.models.cold_ion_drb import Equilibrium, State, rhs_nonlinear
 from jaxdrb.models.params import DRBParams
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
-from jaxdrb.nonlinear.stepper import rk4_scan
 
 
 @dataclass
@@ -54,14 +54,15 @@ def main() -> None:
 
     kx = 1.0
     ky = 1.0
-    kpar = 0.0
+    kpar = 0.4
+    curvature_coeff = 0.6
 
     drb_params = DRBParams(
         omega_n=0.8,
         omega_Te=0.3,
         eta=0.5,
         me_hat=0.2,
-        curvature_on=False,
+        curvature_on=True,
         Dn=0.0,
         DOmega=0.0,
         DTe=0.0,
@@ -71,12 +72,20 @@ def main() -> None:
     )
 
     # Linear solver (constant geometry, kpar=0).
-    geom = ConstantGeometry(kpar=kpar, kperp2_value=kx**2 + ky**2)
+    geom = ConstantGeometry(
+        kpar=kpar, kperp2_value=kx**2 + ky**2, curvature_coeff=curvature_coeff
+    )
     eq = Equilibrium.constant(1, n0=1.0, Te0=1.0)
     y0 = State.zeros(1)
     matvec = linear_matvec(y0, drb_params, geom, kx=kx, ky=ky, eq=eq)
-    v0 = State(n=jnp.asarray([1e-6 + 0j]), omega=jnp.asarray([1e-6 + 0j]), vpar_e=jnp.asarray([0.0 + 0j]), vpar_i=jnp.asarray([0.0 + 0j]), Te=jnp.asarray([1e-6 + 0j]))
-    lin_res = estimate_growth_rate(matvec, v0, tmax=20.0, dt0=0.02, nsave=120, fit_window=0.5)
+    v0 = State(
+        n=jnp.asarray([1e-6 + 0j]),
+        omega=jnp.asarray([1e-6 + 0j]),
+        vpar_e=jnp.asarray([0.0 + 0j]),
+        vpar_i=jnp.asarray([0.0 + 0j]),
+        Te=jnp.asarray([1e-6 + 0j]),
+    )
+    lin_res = estimate_growth_rate_jax(matvec, v0, tmax=20.0, dt0=0.02, nsave=120, fit_window=0.5)
     gamma_lin = float(lin_res.gamma)
 
     # DRB2D linear-phase growth.
@@ -90,7 +99,9 @@ def main() -> None:
         Dn=0.0,
         DOmega=0.0,
         DTe=0.0,
-        bracket="arakawa",
+        curvature_on=True,
+        curvature_coeff=curvature_coeff,
+        bracket="spectral",
         poisson="spectral",
         dealias_on=False,
         operator_split_on=False,
@@ -102,59 +113,30 @@ def main() -> None:
     X, Y = np.meshgrid(x, y, indexing="ij")
     phase = kx * X + ky * Y
     amp = 1e-6
-    n = amp * np.cos(phase)
-    omega = amp * np.cos(phase)
-    vpar_e = np.zeros_like(n)
-    vpar_i = np.zeros_like(n)
-    Te = amp * np.cos(phase)
-    y_state = DRB2DState(
-        n=jnp.asarray(n),
-        omega=jnp.asarray(omega),
-        vpar_e=jnp.asarray(vpar_e),
-        vpar_i=jnp.asarray(vpar_i),
-        Te=jnp.asarray(Te),
+    mode = np.exp(1j * phase)
+    y_mode = DRB2DState(
+        n=jnp.asarray(amp * mode),
+        omega=jnp.asarray(amp * mode),
+        vpar_e=jnp.zeros_like(jnp.asarray(mode)),
+        vpar_i=jnp.zeros_like(jnp.asarray(mode)),
+        Te=jnp.asarray(amp * mode),
     )
 
-    dt = 0.05
-    nsteps = 200
-    save_stride = 5
-    nframes = nsteps // save_stride
-    amps = []
-    ts = []
-    t = 0.0
-    for k in range(nframes):
-        _, y_state = rk4_scan(y_state, t0=t, dt=dt, nsteps=save_stride, rhs=model.rhs)
-        t = t + dt * save_stride
-        kx_idx = 1
-        ky_idx = 1
-        n_fft = np.fft.fft2(np.asarray(y_state.n))
-        w_fft = np.fft.fft2(np.asarray(y_state.omega))
-        ve_fft = np.fft.fft2(np.asarray(y_state.vpar_e))
-        vi_fft = np.fft.fft2(np.asarray(y_state.vpar_i))
-        Te_fft = np.fft.fft2(np.asarray(y_state.Te))
-        amp = np.sqrt(
-            np.abs(n_fft[kx_idx, ky_idx]) ** 2
-            + np.abs(w_fft[kx_idx, ky_idx]) ** 2
-            + np.abs(ve_fft[kx_idx, ky_idx]) ** 2
-            + np.abs(vi_fft[kx_idx, ky_idx]) ** 2
-            + np.abs(Te_fft[kx_idx, ky_idx]) ** 2
-        )
-        amps.append(amp)
-        ts.append(t)
+    zero = jnp.zeros((grid.nx, grid.ny), dtype=jnp.complex128)
+    y_zero = DRB2DState(n=zero, omega=zero, vpar_e=zero, vpar_i=zero, Te=zero)
+    _, jvp_fn = jax.linearize(lambda y: model.rhs(0.0, y), y_zero)
 
-    amps = np.asarray(amps)
-    ts = np.asarray(ts)
-    mask = ts <= (0.5 * ts[-1])
-    slope, _ = np.polyfit(ts[mask], np.log(np.maximum(amps[mask], 1e-30)), 1)
-    gamma_nl = float(slope)
+    drb_res = estimate_growth_rate_jax(jvp_fn, y_mode, tmax=20.0, dt0=0.02, nsave=120, fit_window=0.5)
+    gamma_nl = float(drb_res.gamma)
 
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(1, 1, figsize=(6.5, 4.0))
-    ax.plot(ts, np.log(np.maximum(amps, 1e-30)), lw=2.0, label="DRB2D")
+    ax.plot(np.asarray(lin_res.t), np.asarray(lin_res.log_norm), lw=2.0, label="linear solver")
+    ax.plot(np.asarray(drb_res.t), np.asarray(drb_res.log_norm), lw=2.0, label="DRB2D (linearized)")
     ax.set_xlabel("t")
     ax.set_ylabel(r"$\ln |\hat Y_{k_x,k_y}|$")
-    ax.set_title("DRB2D linear-phase growth")
+    ax.set_title("DRB2D linear-phase growth (strict benchmark)")
     ax.legend()
     ax.grid(alpha=0.3)
     fig.tight_layout()
