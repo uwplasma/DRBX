@@ -59,7 +59,7 @@ This section is generated from docstrings using `mkdocstrings`.
 
 ::: jaxdrb.nonlinear.spectral
 
-::: jaxdrb.nonlinear.stepper
+::: jaxdrb.nonlinear.integrate
 
 ## Operators
 

@@ -112,6 +112,12 @@ python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em
 The DRB2D testbed now supports a **non-Boussinesq** polarization closure,
 with a dedicated energy-rate consistency gate.
 
+Implementation notes:
+
+- The operator is solved in **variable-coefficient SPD form**: $-\nabla\cdot(n\nabla\phi)=\Omega$.
+- A matrix-free CG solve is used, with a spectral (circulant) preconditioner for periodic grids
+  and a Jacobi fallback for non-periodic BCs.
+
 Example:
 
 ```bash
@@ -119,6 +125,15 @@ python examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py
 ```
 
 ![DRB2D non-Boussinesq energy](../assets/images/drb2d_nonbouss_energy.png)
+
+### DRB2D neutrals exchange (new)
+
+The DRB2D testbed now accepts the same minimal neutral model used in HW2D:
+neutrals are advected by $E\times B$, diffuse, and exchange particles with the plasma
+via ionization/recombination. Dedicated tests verify that total particle number
+(plasma + neutrals) is conserved when sources/sinks are disabled.
+
+- test: `tests/test_drb2d_neutrals_exchange.py`
 
 
 ## What “conservative nonlinear DRB” requires

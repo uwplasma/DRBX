@@ -390,7 +390,7 @@ in tests and produces the figure below.
 - test: `tests/test_drb2d_conservative_gate_midpoint.py`
 
 ![DRB2D conservative energy time series](assets/images/drb2d_conservative_energy.png)
-The conservative gate uses an RK4 time step, so residual drift reflects time-discretization error.
+The conservative gate uses fixed-step Diffrax integration, so residual drift reflects time-discretization error.
 The midpoint test (`tests/test_drb2d_conservative_gate_midpoint.py`) enforces a tighter invariant
 gate for reviewer-grade conservation checks.
 
@@ -432,10 +432,26 @@ The non-Boussinesq DRB2D branch is enabled behind a toggle and validated via:
 
 Test + example:
 
-- test: `tests/test_drb2d_nonboussinesq_gate.py`
+- test: `tests/test_drb2d_nonbouss_gate.py`
 - example: `examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py`
 
 ![DRB2D non-Boussinesq energy](assets/images/drb2d_nonbouss_energy.png)
+
+### DRB2D neutrals exchange invariants
+
+The neutral exchange module now applies to DRB2D. We verify that ionization/recombination
+conserves total particles (plasma + neutrals) when isolated, and that source/sink terms
+recover the analytic equilibrium.
+
+- test: `tests/test_drb2d_neutrals_exchange.py`
+
+### DRB2D zonal-collapse regression gate
+
+Long-running 2D drift-wave systems can collapse into a purely zonal/banded state, which
+silently degrades the dynamics and resulting figures. We enforce a simple zonal RMS
+fraction gate to prevent regressions:
+
+- test: `tests/test_drb2d_zonal_collapse_gate.py`
 ### DRB2D limit checks (HW2D + curvature)
 
 Two additional checks anchor the DRB2D testbed to known limits:
@@ -494,7 +510,7 @@ avoid nonlinear transient effects.
 
 CI enforces a conservative core-kernel throughput gate on Ubuntu/Python 3.12:
 
-- nonlinear HW2D RK4 stepping throughput (steps/s),
+- nonlinear HW2D fixed-step Diffrax throughput (steps/s),
 - linear matrix-free matvec throughput (matvec/s).
 
 Gate script:

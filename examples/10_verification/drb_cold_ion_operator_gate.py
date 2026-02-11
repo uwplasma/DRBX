@@ -33,7 +33,7 @@ from jaxdrb.geometry.slab import SlabGeometry
 from jaxdrb.models.cold_ion_drb import Equilibrium, State, rhs_nonlinear
 from jaxdrb.models.invariants import cold_ion_invariant_rates_from_rhs, cold_ion_invariants
 from jaxdrb.models.params import DRBParams
-from jaxdrb.nonlinear.stepper import rk4_step
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 @dataclass(frozen=True)
@@ -105,25 +105,31 @@ def main() -> None:
     def rhs_local(t, y):
         return rhs_nonlinear(t, y, params, geom, kx=0.0, ky=cfg.ky_time, eq=eq)
 
-    @jax.jit
     def evolve(y_init):
         inv0 = cold_ion_invariants(y_init, params=params, geom=geom, kx=0.0, ky=cfg.ky_time, eq=eq)
         vec0 = jnp.asarray([inv0[k] for k in keys], dtype=jnp.float64)
 
-        def step(carry, _):
-            t, y = carry
-            y_next = rk4_step(y, t, cfg.dt, rhs_local)
-            inv = cold_ion_invariants(
-                y_next, params=params, geom=geom, kx=0.0, ky=cfg.ky_time, eq=eq
-            )
-            vec = jnp.asarray([inv[k] for k in keys], dtype=jnp.float64)
-            return (t + cfg.dt, y_next), vec
-
-        (_, _), hist = jax.lax.scan(
-            step, (jnp.asarray(0.0, dtype=jnp.float64), y_init), xs=None, length=cfg.nsteps
+        ys, _ = diffeqsolve_fixed_steps(
+            rhs_local,
+            y0=y_init,
+            t0=0.0,
+            dt=cfg.dt,
+            nsteps=cfg.nsteps,
+            solver="dopri5",
         )
+        vecs = jax.vmap(
+            lambda y: jnp.asarray(
+                [
+                    cold_ion_invariants(y, params=params, geom=geom, kx=0.0, ky=cfg.ky_time, eq=eq)[
+                        k
+                    ]
+                    for k in keys
+                ],
+                dtype=jnp.float64,
+            )
+        )(ys)
         t = cfg.dt * jnp.arange(cfg.nsteps + 1, dtype=jnp.float64)
-        return t, jnp.vstack([vec0[None, :], hist])
+        return t, jnp.vstack([vec0[None, :], vecs])
 
     t, H = evolve(y0)
     t = np.asarray(t)

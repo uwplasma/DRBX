@@ -13,8 +13,17 @@ from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import biharmonic as biharmonic_fd
 from .fd import laplacian as laplacian_fd
-from .fd import enforce_bc_relaxation, inv_laplacian_cg
-from .spectral import biharmonic, dealias, ddy, inv_laplacian, laplacian, poisson_bracket_spectral
+from .fd import enforce_bc_relaxation, inv_div_n_grad_cg, inv_laplacian_cg
+from .spectral import (
+    biharmonic,
+    dealias,
+    ddx as ddx_spec,
+    ddy as ddy_spec,
+    inv_laplacian,
+    laplacian,
+    poisson_bracket_spectral,
+)
+from .neutrals import NeutralParams, rhs_neutral
 
 
 class DRB2DParams(eqx.Module):
@@ -75,6 +84,9 @@ class DRB2DParams(eqx.Module):
     operator_source_on: bool = True
     operator_dissipative_on: bool = True
 
+    # Optional neutral coupling (plasma-neutral exchange).
+    neutrals: NeutralParams = NeutralParams()
+
 
 class DRB2DState(eqx.Module):
     n: jnp.ndarray
@@ -82,6 +94,7 @@ class DRB2DState(eqx.Module):
     vpar_e: jnp.ndarray
     vpar_i: jnp.ndarray
     Te: jnp.ndarray
+    N: jnp.ndarray | None = None
 
 
 class DRB2DDecomposition(eqx.Module):
@@ -94,18 +107,28 @@ class DRB2DDecomposition(eqx.Module):
 
 
 def _state_add(a: DRB2DState, b: DRB2DState) -> DRB2DState:
+    if a.N is None and b.N is None:
+        N = None
+    elif a.N is None:
+        N = b.N
+    elif b.N is None:
+        N = a.N
+    else:
+        N = a.N + b.N
     return DRB2DState(
         n=a.n + b.n,
         omega=a.omega + b.omega,
         vpar_e=a.vpar_e + b.vpar_e,
         vpar_i=a.vpar_i + b.vpar_i,
         Te=a.Te + b.Te,
+        N=N,
     )
 
 
 def _state_zeros_like(y: DRB2DState) -> DRB2DState:
     z = jnp.zeros_like(y.n)
-    return DRB2DState(n=z, omega=z, vpar_e=z, vpar_i=z, Te=z)
+    N = None if y.N is None else jnp.zeros_like(y.N)
+    return DRB2DState(n=z, omega=z, vpar_e=z, vpar_i=z, Te=z, N=N)
 
 
 class DRB2DModel(eqx.Module):
@@ -113,28 +136,37 @@ class DRB2DModel(eqx.Module):
     grid: Grid2D
 
     def phi_from_omega(self, omega: jnp.ndarray, n: jnp.ndarray | None = None) -> jnp.ndarray:
-        if self.params.poisson == "spectral":
-            if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
-                raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
-            if self.params.boussinesq:
+        if self.params.boussinesq:
+            if self.params.poisson == "spectral":
+                if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
+                    raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
                 return inv_laplacian(omega, self.grid.k2, k2_min=self.params.k2_min)
-            if n is None:
-                raise ValueError("Non-Boussinesq polarization requires density n.")
-            n_eff = float(self.params.n0)
-            if self.params.non_boussinesq_perturbed_density_on:
-                n_eff = n_eff + jnp.real(jnp.asarray(n))
-            n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            k2 = jnp.maximum(self.grid.k2, self.params.k2_min)
-            return -omega / (k2 * n_eff)
-        if not self.params.boussinesq:
-            raise ValueError("Non-Boussinesq polarization currently requires spectral Poisson.")
-        return inv_laplacian_cg(
+            return inv_laplacian_cg(
+                omega,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self.grid.bc,
+                maxiter=300,
+                preconditioner="spectral" if self.grid.bc.kind_x == 0 else "jacobi",
+            )
+
+        if n is None:
+            raise ValueError("Non-Boussinesq polarization requires density n.")
+        n_eff = float(self.params.n0)
+        if self.params.non_boussinesq_perturbed_density_on:
+            n_eff = n_eff + jnp.real(jnp.asarray(n))
+        n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
+        precond = (
+            "spectral" if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0) else "jacobi"
+        )
+        return inv_div_n_grad_cg(
             omega,
+            n_coeff=n_eff,
             dx=self.grid.dx,
             dy=self.grid.dy,
             bc=self.grid.bc,
-            maxiter=300,
-            preconditioner="spectral",
+            maxiter=400,
+            preconditioner=precond,
         )
 
     def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
@@ -177,7 +209,7 @@ class DRB2DModel(eqx.Module):
             and self.grid.bc.kind_y == 0
             and self.params.poisson == "spectral"
         ):
-            df_dy = ddy(f, self.grid.ky)
+            df_dy = ddy_spec(f, self.grid.ky)
         else:
             df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
         return -float(self.params.curvature_coeff) * df_dy
@@ -263,6 +295,7 @@ class DRB2DModel(eqx.Module):
             * (vpar_e - vpar_i),
             vpar_i=jnp.zeros_like(vpar_i),
             Te=float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te,
+            N=None,
         )
 
         if self.params.bc_enforce_nu != 0.0:
@@ -304,6 +337,45 @@ class DRB2DModel(eqx.Module):
                         bc=self.grid.bc,
                         nu=self.params.bc_enforce_nu,
                     ),
+                    N=None,
+                ),
+            )
+
+        if y.N is not None and self.params.neutrals.enabled:
+            if (
+                self.grid.bc.kind_x == 0
+                and self.grid.bc.kind_y == 0
+                and self.params.poisson == "spectral"
+            ):
+                lap_N = laplacian(y.N, self.grid.k2)
+            else:
+                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, self.grid.bc)
+            adv_N = -self._bracket(phi, y.N)
+            dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
+                N=y.N,
+                n=n,
+                omega=omega,
+                dn0=self.params.neutrals,
+                adv_N=adv_N,
+                lap_N=lap_N,
+            )
+            if self.params.bc_enforce_nu != 0.0:
+                dN = dN + enforce_bc_relaxation(
+                    y.N,
+                    dx=self.grid.dx,
+                    dy=self.grid.dy,
+                    bc=self.grid.bc,
+                    nu=self.params.bc_enforce_nu,
+                )
+            source = _state_add(
+                source,
+                DRB2DState(
+                    n=dn_from_neutrals,
+                    omega=dw_from_neutrals,
+                    vpar_e=jnp.zeros_like(vpar_e),
+                    vpar_i=jnp.zeros_like(vpar_i),
+                    Te=jnp.zeros_like(Te),
+                    N=dN,
                 ),
             )
 
@@ -331,7 +403,20 @@ class DRB2DModel(eqx.Module):
             if self.params.non_boussinesq_perturbed_density_on:
                 n_eff = n_eff + jnp.real(jnp.asarray(y.n))
             n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2 * n_eff
+            if (
+                self.grid.bc.kind_x == 0
+                and self.grid.bc.kind_y == 0
+                and self.params.poisson == "spectral"
+            ):
+                gradphi_x = ddx_spec(phi, self.grid.kx)
+                gradphi_y = ddy_spec(phi, self.grid.ky)
+            else:
+                gradphi_x = ddx_fd(phi, self.grid.dx, self.grid.bc)
+                gradphi_y = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            phi_term = jnp.real(n_eff) * (
+                jnp.real(jnp.conj(gradphi_x) * gradphi_x)
+                + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
+            )
         else:
             phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2
         return 0.5 * jnp.mean(
@@ -517,12 +602,52 @@ class DRB2DModel(eqx.Module):
             "E_dot_drive": edot_drive,
             "E_dot_diss": edot_diss,
         }
+        if y.N is not None and self.params.neutrals.enabled:
+            if (
+                self.grid.bc.kind_x == 0
+                and self.grid.bc.kind_y == 0
+                and self.params.poisson == "spectral"
+            ):
+                lap_N = laplacian(y.N, self.grid.k2)
+            else:
+                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, self.grid.bc)
+            adv_N = -self._bracket(phi, y.N)
+            dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
+                N=y.N,
+                n=n,
+                omega=omega,
+                dn0=self.params.neutrals,
+                adv_N=adv_N,
+                lap_N=lap_N,
+            )
+            if self.params.bc_enforce_nu != 0.0:
+                dN = dN + enforce_bc_relaxation(
+                    y.N,
+                    dx=self.grid.dx,
+                    dy=self.grid.dy,
+                    bc=self.grid.bc,
+                    nu=self.params.bc_enforce_nu,
+                )
+            edot_neutrals = self.energy_rate(
+                y,
+                DRB2DState(
+                    n=dn_from_neutrals,
+                    omega=dw_from_neutrals,
+                    vpar_e=jnp.zeros_like(vpar_e),
+                    vpar_i=jnp.zeros_like(vpar_i),
+                    Te=jnp.zeros_like(Te),
+                    N=dN,
+                ),
+            )
+            out["E_dot_neutrals"] = edot_neutrals
+
         out["E_dot_total"] = (
             out["E_dot_adv"]
             + out["E_dot_parallel"]
             + out["E_dot_curvature"]
             + out["E_dot_drive"]
             + out["E_dot_diss"]
+            + out.get("E_dot_neutrals", 0.0)
         )
         return out
 
