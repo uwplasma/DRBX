@@ -135,6 +135,7 @@ python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em
 python examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py
 python examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py
+python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark_em_hot_ion.py
 python examples/08_nonlinear_drb2d/drb2d_movie.py
 python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py
 ```

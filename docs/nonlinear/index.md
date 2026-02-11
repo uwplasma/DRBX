@@ -45,6 +45,7 @@ python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em
 python examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py
 python examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py
+python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark_em_hot_ion.py
 python examples/08_nonlinear_drb2d/drb2d_linear_phase_benchmark.py
 
 python examples/08_nonlinear_drb2d/drb2d_conservative_gate.py
@@ -57,3 +58,5 @@ Both examples write results to small `out_*` folders with plots and `.npz` data.
 ![DRB2D hot-ion energy budget](../assets/images/drb2d_energy_budget_hot_ion.png)
 ![DRB2D EM energy budget](../assets/images/drb2d_energy_budget_em.png)
 ![DRB2D curvature benchmark](../assets/images/drb2d_curvature_benchmarks.png)
+![DRB2D hot-ion linear-phase benchmark](../assets/images/drb2d_linear_phase_hot_ion.png)
+![DRB2D EM linear-phase benchmark](../assets/images/drb2d_linear_phase_em.png)

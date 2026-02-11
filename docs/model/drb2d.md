@@ -48,6 +48,26 @@ $$
 The source terms $S_\cdot$ include optional background-gradient drives and diffusion terms,
 controlled by `DRB2DParams`.
 
+### Curvature-drive dispersion proxy (Tokam1D)
+
+For benchmarking curvature thresholds we compare against a published drift-wave /
+interchange dispersion proxy (Tokam1D, J. Plasma Phys.). In the simplified limit
+$\tau=0$, $C=0$, the proxy satisfies
+
+$$
+\bar\omega^2 - \bar\omega\,g k_y - \frac{g k_y}{k_\perp^2}\left(g k_y - \omega_* \right) = 0,
+$$
+
+with an instability threshold
+
+$$
+\omega_* > g k_y \left(1 + \frac{k_\perp^2}{4}\right).
+$$
+
+We use this proxy to set a **drive-threshold benchmark** for DRB2D growth rates
+in `examples/08_nonlinear_drb2d/drb2d_curvature_benchmarks.py`.
+See `docs/references.md` for the Tokam1D JPP citation.
+
 ### Hot-ion extension (2D)
 
 The hot-ion DRB2D extension adds an ion-temperature field $T_i$ and modifies the

@@ -47,6 +47,16 @@ geometry).
   **Physical Review Letters 50**, 682 (1983).
   [DOI: 10.1103/PhysRevLett.50.682](https://doi.org/10.1103/PhysRevLett.50.682)
 
+- M. Wakatani and A. Hasegawa,
+  *Collisional drift wave description of plasma edge turbulence*,
+  **Physics of Fluids 27**, 611 (1984).
+  [DOI: 10.1063/1.864660](https://doi.org/10.1063/1.864660)
+
+- O. Panico et al.,
+  *On the importance of flux-driven turbulence regime to address tokamak plasma edge dynamics*,
+  **Journal of Plasma Physics 91**, E26 (2025).
+  [DOI: 10.1017/S0022377824001624](https://doi.org/10.1017/S0022377824001624)
+
 - A. Arakawa,
   *Computational design for long-term numerical integration of the equations of fluid motion: Two-dimensional incompressible flow. Part I*,
   **Journal of Computational Physics 1**, 119–143 (1966).

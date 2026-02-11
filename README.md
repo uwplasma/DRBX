@@ -71,9 +71,23 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 
 ![DRB2D linear-phase growth](docs/assets/images/drb2d_linear_phase_growth.png)
 
+**DRB2D linear-phase benchmarks (hot-ion + EM)**
+
+![DRB2D hot-ion linear-phase growth](docs/assets/images/drb2d_linear_phase_hot_ion.png)
+![DRB2D EM linear-phase growth](docs/assets/images/drb2d_linear_phase_em.png)
+
 **DRB2D energy-budget closure (curvature + drives)**
 
 ![DRB2D energy budget](docs/assets/images/drb2d_energy_budget.png)
+
+**DRB2D energy budgets (hot-ion + EM)**
+
+![DRB2D hot-ion energy budget](docs/assets/images/drb2d_energy_budget_hot_ion.png)
+![DRB2D EM energy budget](docs/assets/images/drb2d_energy_budget_em.png)
+
+**DRB2D curvature-drive benchmark (proxy threshold)**
+
+![DRB2D curvature benchmark](docs/assets/images/drb2d_curvature_benchmarks.png)
 
 ## Quickstart
 
