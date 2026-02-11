@@ -67,6 +67,10 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 | --- | --- |
 | <img src="docs/assets/images/hw2d_turbulence.gif" width="420" height="320" /> | <img src="docs/assets/images/drb2d_turbulence.gif" width="420" height="320" /> |
 
+The DRB2D movie defaults include weak hyperdiffusion and a small zonal-vorticity drag to avoid
+long-time collapse into a purely banded/zonal state on coarse grids. These are numerical control
+knobs and should be reported explicitly when used.
+
 **DRB2D linear-phase benchmark (linearized vs linear solver)**
 
 ![DRB2D linear-phase growth](docs/assets/images/drb2d_linear_phase_growth.png)

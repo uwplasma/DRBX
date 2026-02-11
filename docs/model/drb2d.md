@@ -48,6 +48,22 @@ $$
 The source terms $S_\cdot$ include optional background-gradient drives and diffusion terms,
 controlled by `DRB2DParams`.
 
+### Dissipation and turbulence-control knobs
+
+In addition to Laplacian diffusion, DRB2D supports optional **hyperdiffusion**
+(biharmonic damping) and a simple **zonal-flow control** knob:
+
+- Laplacian diffusion: `Dn`, `DOmega`, `DTe`
+- Hyperdiffusion: `Dn4`, `DOmega4`, `DTe4` implemented as `-D4 * ∇⁴`
+- Zonal vorticity drag: `mu_zonal_omega` implemented as `-mu * <omega>_y`, where
+  `<omega>_y` is the y-mean (the `k_y=0` component)
+
+The hyperdiffusion coefficients are useful for regression movies: they damp small scales
+more strongly than Laplacian diffusion, which tends to preserve coherent large-scale
+structures. The zonal drag is a standard 2D turbulence “keep it turbulent” knob that
+reduces long-time condensation into a purely banded/zonal state; it should be reported
+explicitly when used.
+
 ### Curvature-drive dispersion proxy (Tokam1D)
 
 For benchmarking curvature thresholds we compare against a published drift-wave /
