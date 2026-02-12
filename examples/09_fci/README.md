@@ -17,3 +17,5 @@ Scripts:
   using an analytic constant-$B$ map.
 - `fci_hello_world.py`: simple visualization of the FCI map, centered parallel derivative, and line-integral
   mapping on a constant-$B$ slab.
+- `fci_curved_map_regression.py`: convergence check for a spatially varying in-plane field (Bx varies with y).
+- `fci_drb3d_sheath_budget.py`: minimal 3D DRB slab operator with sheath damping (energy/mass decay).

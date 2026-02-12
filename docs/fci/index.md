@@ -104,3 +104,15 @@ Hello-world demo (parallel derivative + line-integral mapping):
 - `examples/09_fci/fci_hello_world.py`
 
 ![FCI hello-world map + integral demo](../assets/images/fci_hello_world.png)
+
+Curved-map regression (spatially varying $B_x$):
+
+- `examples/09_fci/fci_curved_map_regression.py`
+
+![FCI curved-map convergence](../assets/images/fci_curved_map_convergence.png)
+
+Minimal 3D DRB slab + sheath damping:
+
+- `examples/09_fci/fci_drb3d_sheath_budget.py`
+
+![FCI DRB3D sheath budget](../assets/images/fci_drb3d_sheath_budget.png)
