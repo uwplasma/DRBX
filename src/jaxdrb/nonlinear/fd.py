@@ -394,6 +394,7 @@ def inv_div_n_grad_cg(
     preconditioner: str = "jacobi",
     gauge_epsilon: float | None = None,
     nan_guard: bool = True,
+    n_floor: float = 1e-12,
 ) -> jnp.ndarray:
     """Solve ``-∇·(n ∇u) = rhs`` with variable coefficient n using (P)CG.
 
@@ -403,7 +404,7 @@ def inv_div_n_grad_cg(
     nx, ny = rhs.shape
 
     n_eff = jnp.asarray(n_coeff)
-    n_eff = jnp.maximum(n_eff, jnp.asarray(0.0, dtype=rhs.dtype))
+    n_eff = jnp.maximum(n_eff, jnp.asarray(float(n_floor), dtype=rhs.dtype))
 
     if gauge_epsilon is None:
         gauge_epsilon = 1e-12
@@ -448,6 +449,19 @@ def inv_div_n_grad_cg(
             return M
         if preconditioner == "spectral":
             return _spectral_M(shape=shape, nbar=nbar, dx_eff=dx, dy_eff=dy)
+        if preconditioner == "spectral_jacobi":
+            # Symmetric SPD preconditioner:
+            #     M ≈ D^{-1/2} (nbar * -Δ)^{-1} D^{-1/2}
+            # where D is the diagonal of the variable-coefficient operator.
+            inv_sqrt_diag = 1.0 / jnp.sqrt(jnp.maximum(diag, 1e-14))
+            spectral = _spectral_M(shape=shape, nbar=nbar, dx_eff=dx, dy_eff=dy)
+
+            def M(v_flat):
+                v = inv_sqrt_diag.reshape((-1,)) * v_flat
+                u = spectral(v)
+                return inv_sqrt_diag.reshape((-1,)) * u
+
+            return M
         if preconditioner in ("none", "", None):
             return None
         raise ValueError(f"Unknown preconditioner: {preconditioner}")

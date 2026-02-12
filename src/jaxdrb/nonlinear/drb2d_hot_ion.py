@@ -146,7 +146,9 @@ class DRB2DHotIonModel(eqx.Module):
             n_eff = n_eff + jnp.real(jnp.asarray(n))
         n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
         precond = (
-            "spectral" if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0) else "jacobi"
+            "spectral_jacobi"
+            if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0)
+            else "jacobi"
         )
         return inv_div_n_grad_cg(
             omega,

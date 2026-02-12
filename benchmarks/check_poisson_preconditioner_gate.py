@@ -72,11 +72,16 @@ def main() -> None:
     jax.config.update("jax_enable_x64", False)
 
     time_j, res_j = _solve_stats("jacobi")
+    # Keep the legacy spectral preconditioner stats for visibility, but gate on the
+    # stronger SPD preconditioner `spectral_jacobi`, which is what we rely on for
+    # long-time non-Boussinesq stability.
     time_s, res_s = _solve_stats("spectral")
+    time_sj, res_sj = _solve_stats("spectral_jacobi")
 
     metrics = {
         "jacobi": {"time": time_j, "residual": res_j},
         "spectral": {"time": time_s, "residual": res_s},
+        "spectral_jacobi": {"time": time_sj, "residual": res_sj},
         "thresholds": {
             "max_time_jacobi": float(args.max_time_jacobi),
             "max_time_spectral": float(args.max_time_spectral),
@@ -88,7 +93,8 @@ def main() -> None:
     print(
         "[poisson-precond-gate] "
         f"jacobi time={time_j:.3f}s res={res_j:.3e} | "
-        f"spectral time={time_s:.3f}s res={res_s:.3e}"
+        f"spectral time={time_s:.3f}s res={res_s:.3e} | "
+        f"spectral_jacobi time={time_sj:.3f}s res={res_sj:.3e}"
     )
 
     if args.json_out is not None:
@@ -98,12 +104,12 @@ def main() -> None:
     failures = []
     if time_j > args.max_time_jacobi:
         failures.append(f"Jacobi time {time_j:.3f} > {args.max_time_jacobi:.3f}")
-    if time_s > args.max_time_spectral:
-        failures.append(f"Spectral time {time_s:.3f} > {args.max_time_spectral:.3f}")
+    if time_sj > args.max_time_spectral:
+        failures.append(f"Spectral-Jacobi time {time_sj:.3f} > {args.max_time_spectral:.3f}")
     if res_j > args.max_res_jacobi:
         failures.append(f"Jacobi residual {res_j:.3e} > {args.max_res_jacobi:.3e}")
-    if res_s > args.max_res_spectral:
-        failures.append(f"Spectral residual {res_s:.3e} > {args.max_res_spectral:.3e}")
+    if res_sj > args.max_res_spectral:
+        failures.append(f"Spectral-Jacobi residual {res_sj:.3e} > {args.max_res_spectral:.3e}")
     if failures:
         raise SystemExit(" | ".join(failures))
 
