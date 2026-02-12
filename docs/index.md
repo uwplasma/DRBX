@@ -82,6 +82,7 @@ This means you can swap geometry providers without modifying the model core.
 ## Quick links
 
 - Getting started: `getting-started.md`
+- Capabilities map (code + tests): `capabilities.md`
 - Inputs & outputs: `inputs-outputs.md`
 - Model equations: `model/equations.md`
 - Geometry interface and built-ins: `geometry/index.md`

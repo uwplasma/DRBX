@@ -76,7 +76,7 @@ $$
 
 the continuous system conserves quadratic invariants. For reviewer-proof nonlinear runs, `jaxdrb` uses **Arakawa's conservative Jacobian** (Arakawa, 1966) by default on periodic grids, and includes tests that verify invariant conservation over time.
 
-For additional qualitative turbulence diagnostics, the validation example also plots final-time isotropic spectra:
+For additional turbulence diagnostics, the validation example also plots final-time isotropic spectra:
 
 ![HW2D final-time spectra](assets/images/hw2d_camargo1995_spectrum.png)
 
@@ -117,7 +117,7 @@ The linear stability solvers are validated by internal consistency checks:
 
 - growth rates from initial-value evolution vs leading eigenvalues from Arnoldi,
 - Jacobian–vector products via `jax.linearize` / `jax.jvp` compared against finite-difference sanity checks,
-- known qualitative limits in slab/s–alpha geometries.
+- known limits in slab/s–alpha geometries.
 
 See:
 
@@ -148,7 +148,7 @@ Core implementation:
 
 ## Literature transition-boundary gates
 
-In addition to qualitative trend scans, `jaxdrb` enforces quantitative threshold checks where reduced
+In addition to trend scans, `jaxdrb` enforces quantitative threshold checks where reduced
 models are available:
 
 - Halpern (2013) ideal-ballooning threshold gate:

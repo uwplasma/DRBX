@@ -54,7 +54,7 @@ lacks beta/induction).
 When adding electromagnetic physics later, this example is a natural place to connect the workflow
 to a true $\beta$-scan.
 
-## s–alpha “ideal ballooning” map (qualitative)
+## s–alpha “ideal ballooning” map (Halpern 2013 Eq. 16)
 
 Halpern et al. (2013) present an ideal-ballooning s–alpha diagram obtained from a reduced
 Sturm–Liouville eigenproblem (their Eq. (16)). In `jaxdrb` this is implemented in:
@@ -70,4 +70,4 @@ python examples/06_literature_tokamak_sol/halpern2013_salpha_ideal_ballooning_ma
 This example scans $(\hat{s},\alpha)$ and plots the resulting $\hat{c}(\hat{s},\alpha)$ map, along
 with a coarse marginal stability curve $\alpha_{\mathrm{crit}}(\hat{s})$ extracted from the grid.
 
-![s–alpha growth-rate map (qualitative)](../assets/images/halpern2013_salpha_gamma_map.png)
+![s–alpha ideal-ballooning map (Halpern 2013 Eq. 16)](../assets/images/halpern2013_salpha_gamma_map.png)
