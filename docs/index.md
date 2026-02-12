@@ -119,6 +119,8 @@ preview of the workflows `jaxdrb` supports.
 ![DRB2D solver comparison](assets/images/drb2d_solver_comparison.png)
 ![Poisson preconditioner benchmark](assets/images/poisson_preconditioner_bench.png)
 ![FCI DRB3D full-model wall BC and turbulence diagnostics](assets/images/fci_drb3d_full_operator_wallbc_stats.png)
+![FCI DRB3D full-model multiphysics sheath-budget diagnostics](assets/images/fci_drb3d_full_multiphysics_sheath.png)
+![FCI DRB3D on ESSOS Biot-Savart local edge/SOL patch](assets/images/fci_drb3d_full_essos_biotsavart.png)
 
 ![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
 

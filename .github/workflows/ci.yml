@@ -81,6 +81,18 @@ jobs:
             --max-res-spectral 0.2 \
             --json-out out/ci/poisson_precond_gate.json
 
+      - name: Physics gate (FCI DRB3D full multiphysics target/sheath)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_fci_drb3d_full_multiphysics_gate.py \
+            --max-rel-energy-rate-mismatch 3.5e-2 \
+            --max-rel-particle-rate-mismatch 2.5e-2 \
+            --max-abs-advective-mean-rate 1e-12 \
+            --min-abs-parallel-particle-rate 1e-5 \
+            --max-abs-other-particle-rate 1e-9 \
+            --max-abs-split-energy-residual 5e-12 \
+            --json-out out/ci/fci_drb3d_full_multiphysics_gate.json
+
 
   build:
     name: Build (sdist/wheel)

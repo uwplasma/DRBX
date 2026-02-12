@@ -208,6 +208,18 @@ Full 3D slab DRB milestone diagnostics (FD/FV wall BCs + turbulence-statistics r
 python examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py --out out_fci_drb3d_full
 ```
 
+Full 3D slab DRB target/sheath budget coupling with hot-ion/EM/neutrals toggles:
+
+```bash
+python examples/09_fci/fci_drb3d_full_multiphysics_sheath.py --out out_fci_drb3d_full_multiphysics
+```
+
+Full 3D DRB workflow on ESSOS Biot-Savart toroidal-plane maps (local edge/SOL patch):
+
+```bash
+python examples/09_fci/fci_drb3d_full_essos_biotsavart.py --out out_fci_essos_biotsavart
+```
+
 ## Verification (elliptic solves)
 
 FD+CG Poisson solver verification (Dirichlet and Neumann cases):

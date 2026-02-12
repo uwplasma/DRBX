@@ -23,3 +23,7 @@ Scripts:
 - `fci_drb3d_sheath_budget.py`: minimal 3D DRB slab operator with sheath damping (energy/mass decay).
 - `fci_drb3d_full_operator_wallbc_stats.py`: full 3D DRB milestone diagnostics for FD/FV wall-BC behavior
   and long-time turbulence regression metrics (zonal fraction + fluctuation levels).
+- `fci_drb3d_full_multiphysics_sheath.py`: full DRB3D branch with target/sheath coupling plus hot-ion,
+  EM, and neutrals toggles; reports explicit sheath and particle-budget diagnostics.
+- `fci_drb3d_full_essos_biotsavart.py`: full DRB3D run on ESSOS Landreman-Paul QA coils using a local
+  toroidal-plane FCI map; includes a practical axis estimate, target-hit metadata, and edge/SOL patch diagnostics.
