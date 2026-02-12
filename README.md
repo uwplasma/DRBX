@@ -108,11 +108,11 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 
 | HW2D turbulence | DRB2D (cold-ion) | DRB2D (hot-ion) |
 | --- | --- | --- |
-| <img src="docs/assets/images/hw2d_turbulence.gif" width="360" height="270" /> | <img src="docs/assets/images/drb2d_turbulence.gif" width="360" height="270" /> | <img src="docs/assets/images/drb2d_hot_ion_turbulence.gif" width="360" height="270" /> |
+| <img src="examples/assets/readme/hw2d_turbulence.gif" width="360" height="270" /> | <img src="examples/assets/readme/drb2d_turbulence.gif" width="360" height="270" /> | <img src="examples/assets/readme/drb2d_hot_ion_turbulence.gif" width="360" height="270" /> |
 
 | FCI/DRB3D (periodic milestone) | FCI/DRB3D (target/sheath milestone) |
 | --- | --- |
-| <img src="docs/assets/images/fci_drb3d_periodic_turbulence.gif" width="360" height="270" /> | <img src="docs/assets/images/fci_drb3d_sheath_turbulence.gif" width="360" height="270" /> |
+| <img src="examples/assets/readme/fci_drb3d_periodic_turbulence.gif" width="360" height="270" /> | <img src="examples/assets/readme/fci_drb3d_sheath_turbulence.gif" width="360" height="270" /> |
 
 The DRB2D movie defaults include weak hyperdiffusion and a small zonal-vorticity drag to avoid
 long-time collapse into a purely banded/zonal state on coarse grids. These are numerical control
@@ -121,9 +121,7 @@ knobs and should be reported explicitly when used.
 To regenerate the README movies locally:
 
 ```bash
-python docs/assets/scripts/make_hw2d_readme_assets.py
-python docs/assets/scripts/make_drb2d_readme_assets.py
-python docs/assets/scripts/make_fci_drb3d_readme_assets.py
+python examples/assets/scripts/make_readme_movie_assets.py
 ```
 
 ## FCI/3D milestone diagnostics
