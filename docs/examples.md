@@ -184,6 +184,12 @@ Slab MMS-style convergence for an FCI parallel derivative (field-line map + inte
 python examples/09_fci/fci_slab_parallel_derivative_mms.py --out out_fci_mms
 ```
 
+Hello-world FCI demo (parallel derivative + line-integral mapping):
+
+```bash
+python examples/09_fci/fci_hello_world.py --out out_fci_hello_world
+```
+
 ## Verification (elliptic solves)
 
 FD+CG Poisson solver verification (Dirichlet and Neumann cases):

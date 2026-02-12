@@ -14,6 +14,8 @@ _install/
 
 out_*/
 out*/
+out_*.png
+out_*.gif
 
 site/
 _out_make_hw2d_assets/
