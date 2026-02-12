@@ -68,6 +68,17 @@ class DRB2DParams(eqx.Module):
     # prevent long-time condensation into a purely zonal/banded state.
     mu_zonal_omega: float = 0.0
 
+    # Optional linear damping terms, implemented as -mu * f.
+    #
+    # In 2D perpendicular-box testbeds there is no explicit parallel coordinate; these
+    # terms act as a simple surrogate for parallel losses / large-scale friction to help
+    # reach statistically steady turbulence in long-time runs.
+    mu_lin_n: float = 0.0
+    mu_lin_omega: float = 0.0
+    mu_lin_vpar_e: float = 0.0
+    mu_lin_vpar_i: float = 0.0
+    mu_lin_Te: float = 0.0
+
     # Numerical options.
     bracket: Literal["spectral", "arakawa", "centered"] = "arakawa"
     poisson: Literal["spectral", "cg_fd"] = "spectral"
@@ -287,14 +298,20 @@ class DRB2DModel(eqx.Module):
         omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
         dissipative = DRB2DState(
-            n=float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n,
+            n=float(self.params.Dn) * lap_n
+            - float(self.params.Dn4) * bih_n
+            - float(self.params.mu_lin_n) * n,
             omega=float(self.params.DOmega) * lap_w
             - float(self.params.DOmega4) * bih_w
-            - float(self.params.mu_zonal_omega) * omega_zonal,
+            - float(self.params.mu_zonal_omega) * omega_zonal
+            - float(self.params.mu_lin_omega) * omega,
             vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
-            * (vpar_e - vpar_i),
-            vpar_i=jnp.zeros_like(vpar_i),
-            Te=float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te,
+            * (vpar_e - vpar_i)
+            - float(self.params.mu_lin_vpar_e) * vpar_e,
+            vpar_i=-float(self.params.mu_lin_vpar_i) * vpar_i,
+            Te=float(self.params.DTe) * lap_Te
+            - float(self.params.DTe4) * bih_Te
+            - float(self.params.mu_lin_Te) * Te,
             N=None,
         )
 
