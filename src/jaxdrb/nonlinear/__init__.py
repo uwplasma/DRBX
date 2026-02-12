@@ -1,9 +1,7 @@
 """Nonlinear models and operators.
 
-This package contains a minimal 2D periodic nonlinear testbed (HW-like) used to:
-  - exercise JAX-native spectral operators (FFT Poisson solves, dealiasing),
-  - provide a clear path toward full nonlinear drift-reduced Braginskii (DRB),
-  - host optional additional physics (e.g. neutral interactions) as togglable modules.
+This package hosts both the HW2D testbed and the DRB2D nonlinear branches, including
+hot-ion and EM extensions, energy-budget checks, and solver comparisons.
 """
 
 from .grid import Grid2D
