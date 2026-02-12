@@ -83,7 +83,7 @@ Geometry enters only through:
 
 This makes it straightforward to swap between:
 
-- analytic slab and tokamak toy models,
+- analytic slab and tokamak benchmark geometries,
 - a tabulated field-line geometry loaded from a `.npz`,
 - (future) equilibria / field-line tracing outputs.
 

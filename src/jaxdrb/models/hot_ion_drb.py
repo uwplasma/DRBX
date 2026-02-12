@@ -325,7 +325,10 @@ def rhs_nonlinear(
     - including an ion pressure contribution in the ion parallel momentum,
     - including ion pressure in the curvature drive through the total pressure perturbation.
 
-    The implementation is intentionally minimal and primarily intended for qualitative trend studies.
+    The implementation is intentionally compact (to keep the core solver matrix-free and
+    differentiable) while providing a hot-ion branch that supports regression tests and
+    literature-aligned trend scans. For scope/roadmap items (e.g. additional closures in 3D),
+    see `docs/model/limitations.md`.
     """
     split = rhs_nonlinear_decomposed(t, y, params, geom, kx=kx, ky=ky, eq=eq)
     if not bool(getattr(params, "operator_split_on", False)):

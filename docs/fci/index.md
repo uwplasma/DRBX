@@ -70,6 +70,7 @@ The current scaffold lives in:
 See also:
 
 - [`docs/fci/maps.md`](maps.md) (map object + `.npz` format + builder usage)
+- [`docs/fci/drb3d.md`](drb3d.md) (DRB3D milestone equations + discretization + parameter links)
 
 ### 3) Parallel boundary conditions (sheath / target plates)
 

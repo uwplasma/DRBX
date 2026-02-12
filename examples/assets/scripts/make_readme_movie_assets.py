@@ -93,6 +93,16 @@ def main() -> None:
     dst_dir = repo_root / "examples/assets/readme"
     dst_dir.mkdir(parents=True, exist_ok=True)
 
+    # 0) Geometry overview schematic (static PNG for the top of the README).
+    _run(
+        [
+            sys.executable,
+            str(repo_root / "examples/assets/scripts/make_readme_geometry_overview.py"),
+        ],
+        cwd=repo_root,
+        env=env,
+    )
+
     # 1) HW2D
     hw_out = out_dir / "hw2d"
     _run(

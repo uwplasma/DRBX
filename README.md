@@ -5,7 +5,7 @@ covering **both linear and nonlinear workflows** in a single, end-to-end differe
 It combines fast field-line linear stability solvers with validated nonlinear 2D testbeds and FCI/3D scaffolding, while keeping the
 numerics reviewer-checkable through conservative gates and literature-aligned benchmarks.
 
-![Geometry conventions (1D/2D/3D)](docs/assets/images/geometry_overview.png)
+![Geometry conventions (1D/2D/3D)](examples/assets/readme/geometry_overview.png)
 
 **Coordinate conventions (quick reference)**:
 
@@ -16,7 +16,7 @@ numerics reviewer-checkable through conservative gates and literature-aligned be
 - **3D FCI milestone operators** evolve fields on a plane stack and construct parallel operators from field-line maps
   (open-field-line segments can hit plates/targets and activate sheath/plate budget channels).
 
-Full explanation (with boundary-condition meaning in each branch): [docs/geometry/conventions.md](docs/geometry/conventions.md).
+Full explanation (with boundary-condition meaning in each branch): [Geometry conventions (docs)](https://jax-drb.readthedocs.io/en/latest/geometry/conventions/).
 
 ## What this repository contains
 

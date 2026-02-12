@@ -55,6 +55,7 @@ nav:
   - FCI:
       - fci/index.md
       - fci/maps.md
+      - fci/drb3d.md
       - fci/requirements.md
   - Solvers:
       - solvers/index.md

@@ -69,12 +69,15 @@ The CI definition lives in:
 
 ## Philosophy and limitations
 
-`jaxdrb` is a reduced model intended for fast, exploratory linear studies. The tests focus on:
+`jaxdrb` is a reduced-model solver suite with **both linear and nonlinear** workflows. The tests focus on:
 
 - catching broken numerics and regressions,
 - enforcing “known-limit” behaviors where appropriate,
-- validating geometry pipelines and file I/O.
+- validating geometry pipelines and file I/O,
+- enforcing **conservation / budget closure** identities for conservative operator subsets,
+- preventing nonlinear-regime regressions via broad-band statistics gates.
 
-They do **not** claim quantitative agreement with any one published SOL closure set in all regimes.
-Where the implementation uses simplified closures (e.g. linearized MPSE BC enforcement), the docs
-and tests make this explicit and isolate those assumptions in dedicated gates/examples.
+The repository’s benchmark gates are designed to be reviewer-auditable. They still do **not** claim
+that any single closure set matches all SOL regimes across all devices; instead, the code keeps
+closures modular (toggleable), documents assumptions explicitly, and provides reproducible gates that
+quantify when identities/limits should hold.
