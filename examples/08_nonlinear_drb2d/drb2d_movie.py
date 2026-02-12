@@ -29,6 +29,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--x64",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Enable float64 in JAX (recommended for stable long-time nonlinear runs).",
+    )
+    parser.add_argument(
         "--field",
         type=str,
         default="omega",
@@ -123,6 +129,7 @@ def main() -> None:
         help="Linear damping on Te (parallel-loss surrogate).",
     )
     args = parser.parse_args()
+    jax.config.update("jax_enable_x64", bool(args.x64))
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
