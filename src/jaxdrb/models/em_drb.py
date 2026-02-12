@@ -308,8 +308,8 @@ def rhs_nonlinear(
 ) -> State:
     """Electromagnetic drift-reduced Braginskii-like RHS (flux-tube, single-(kx,ky)).
 
-    This is a minimal inductive extension intended to expose qualitative finite-beta trends while
-    preserving the matrix-free solver workflow. It uses:
+    This is a compact inductive extension intended to expose finite-beta effects while preserving
+    the matrix-free solver workflow. It uses:
 
     - Ampere closure: j_parallel = -∇_⊥^2 psi = +k_⊥^2 psi
     - Induction/Ohm-like equation: (beta/2 + m_hat_e k_⊥^2) ∂_t psi = -∇_||(phi - n - Te) - eta j_||

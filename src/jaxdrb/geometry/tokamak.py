@@ -9,8 +9,8 @@ from jaxdrb.operators.fd import d1_open_fv, d1_periodic
 class CircularTokamakGeometry(eqx.Module):
     """Large-aspect-ratio circular tokamak flux-tube geometry (field-line model).
 
-    This is a lightweight analytic geometry intended for qualitative linear studies and for
-    generating tabulated geometry files.
+    This is a lightweight analytic geometry intended for fast, reproducible benchmarks (linear
+    and nonlinear) and for generating tabulated geometry files.
 
     Conventions:
       - Parallel coordinate `l` is taken to be the poloidal angle `theta` in [-pi, pi) by default.
