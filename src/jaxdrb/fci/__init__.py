@@ -18,12 +18,16 @@ flux-surface coordinates in the perpendicular plane.
 """
 
 from .integrate import line_integral_mapped, line_integral_trapezoid, map_stack_to_reference
-from .map import FCIBilinearMap, make_slab_fci_map
+from .drb3d import FCIDRB3DModel, FCIDRB3DParams, FCIDRB3DState
+from .map import FCIBilinearMap, make_slab_fci_map, make_slab_fci_map_variable_B
 from .model import FCISlabModel, FCISlabParams, FCISlabState
 from .parallel import parallel_derivative_centered, parallel_derivative_centered_3d
 
 __all__ = [
     "FCIBilinearMap",
+    "FCIDRB3DModel",
+    "FCIDRB3DParams",
+    "FCIDRB3DState",
     "FCISlabModel",
     "FCISlabParams",
     "FCISlabState",
@@ -31,6 +35,7 @@ __all__ = [
     "line_integral_trapezoid",
     "map_stack_to_reference",
     "make_slab_fci_map",
+    "make_slab_fci_map_variable_B",
     "parallel_derivative_centered",
     "parallel_derivative_centered_3d",
 ]

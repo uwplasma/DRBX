@@ -150,6 +150,44 @@ def make_slab_fci_map(cfg: SlabFCIConfig) -> tuple[FCIBilinearMap, FCIBilinearMa
     return fwd, bwd
 
 
+def make_slab_fci_map_variable_B(
+    cfg: SlabFCIConfig, *, Bx: jnp.ndarray, By: jnp.ndarray, Bz: float
+) -> tuple[FCIBilinearMap, FCIBilinearMap]:
+    """Make slab FCI maps for spatially varying in-plane B(x,y) with constant Bz.
+
+    This supports analytic regression tests with non-constant field-line shifts while
+    keeping the map construction explicit and differentiable.
+    """
+
+    if Bz == 0.0:
+        raise ValueError("FCI slab map requires Bz != 0.")
+
+    xs = cfg.x0 + cfg.dx * jnp.arange(cfg.nx)
+    ys = cfg.y0 + cfg.dy * jnp.arange(cfg.ny)
+    X, Y = jnp.meshgrid(xs, ys, indexing="ij")
+    _ = X, Y
+
+    shift_x = (Bx / Bz) * cfg.dz
+    shift_y = (By / Bz) * cfg.dz
+
+    Xp = X + shift_x
+    Yp = Y + shift_y
+    Xm = X - shift_x
+    Ym = Y - shift_y
+
+    ixp, iyp, wp = _bilinear_weights_periodic(
+        x=Xp, y=Yp, x0=cfg.x0, y0=cfg.y0, dx=cfg.dx, dy=cfg.dy, nx=cfg.nx, ny=cfg.ny
+    )
+    ixm, iym, wm = _bilinear_weights_periodic(
+        x=Xm, y=Ym, x0=cfg.x0, y0=cfg.y0, dx=cfg.dx, dy=cfg.dy, nx=cfg.nx, ny=cfg.ny
+    )
+
+    dl = jnp.abs(cfg.dz) * jnp.sqrt(Bx**2 + By**2 + Bz**2) / jnp.abs(Bz)
+    fwd = FCIBilinearMap(ix=ixp, iy=iyp, w=wp, dl=dl)
+    bwd = FCIBilinearMap(ix=ixm, iy=iym, w=wm, dl=dl)
+    return fwd, bwd
+
+
 def apply_periodic_plane_shift(
     f: jnp.ndarray, *, shift_x: float, shift_y: float, dx: float, dy: float
 ) -> jnp.ndarray:
