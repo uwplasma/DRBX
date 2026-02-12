@@ -130,6 +130,10 @@ def main() -> None:
     omega_last = omega_last - jnp.mean(omega_last)
     zonal = zonal_fraction_y(omega_last)
 
+    # Use the vorticity spectrum as a regression metric, since it is the dynamically
+    # active field in the DRB2D operator and yields a robust inertial-range proxy on
+    # coarse grids. (Potential spectra can be substantially steeper and less stable as
+    # a CI gate when hyperdiffusion is used to control aliasing/cascade.)
     k, Pk = isotropic_power_spectrum_2d(omega_last, Lx=float(args.Lx), Ly=float(args.Ly), nbins=32)
     slope = spectrum_loglog_slope(
         k,
