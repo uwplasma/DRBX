@@ -128,10 +128,18 @@ $\hat m_e k_\perp^2 + \tfrac{1}{2}\beta$.
 The DRB2D testbed supports both Boussinesq and non-Boussinesq polarization:
 
 - Boussinesq: $\Omega = \nabla_\perp^2 \phi$
-- Non-Boussinesq (density-weighted): $\Omega = \nabla_\perp^2 (n_\mathrm{eff}\,\phi)$, with
-  $n_\mathrm{eff} = n_0$ or $n_0 + \Re[n]$ if `non_boussinesq_perturbed_density_on=True`.
+- Non-Boussinesq (variable-coefficient SPD elliptic): 
+  $$
+  -\nabla_\perp\cdot\!\left(n_\mathrm{eff}\,\nabla_\perp \phi\right) = \Omega,
+  $$
+  with $n_\mathrm{eff}=n_0$ or $n_0 + \Re[n]$ if `non_boussinesq_perturbed_density_on=True`,
+  floored to `n0_min` for SPD safety.
 
-Non-Boussinesq mode is currently supported for **spectral** Poisson solves on periodic grids.
+In `jaxdrb`, non-Boussinesq inversion is performed with **preconditioned conjugate gradients (PCG)**,
+using:
+
+- an FD discretization of $-\nabla\cdot(n\nabla\phi)$ and
+- a lightweight preconditioner (Jacobi or FFT/circulant depending on BCs).
 
 For non-periodic boundary conditions, `jaxdrb` uses an SPD finite-difference Laplacian with
 preconditioned conjugate gradients (PCG) in `jaxdrb.nonlinear.fd.inv_laplacian_cg`. The default

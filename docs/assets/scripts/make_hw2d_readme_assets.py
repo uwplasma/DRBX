@@ -7,6 +7,7 @@ Writes:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -75,6 +76,10 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     out_dir = repo_root / "_out_make_hw2d_assets"
     out_dir.mkdir(parents=True, exist_ok=True)
+    env = dict(**os.environ)
+    env["PYTHONPATH"] = str(repo_root / "src") + (
+        (":" + env["PYTHONPATH"]) if "PYTHONPATH" in env else ""
+    )
 
     cmd = [
         sys.executable,
@@ -96,7 +101,7 @@ def main() -> None:
         "0",
     ]
     print("[make_hw2d_readme_assets] running:", " ".join(cmd))
-    subprocess.run(cmd, cwd=repo_root, check=True)
+    subprocess.run(cmd, cwd=repo_root, check=True, env=env)
 
     src_gif = out_dir / "movie.gif"
     src_panel = out_dir / "panel.png"

@@ -1,17 +1,23 @@
-"""Regenerate DRB2D README assets (GIF + panel) reproducibly.
+"""Regenerate DRB2D README assets reproducibly.
 
 Writes:
   - docs/assets/images/drb2d_turbulence.gif
   - docs/assets/images/drb2d_turbulence_panel.png
+  - docs/assets/images/drb2d_hot_ion_turbulence.gif
+  - docs/assets/images/drb2d_hot_ion_turbulence_panel.png
 
 Notes
 -----
-- The DRB2D movie is curvature-driven and uses the conservative advection core.
-- We animate ``omega`` by default since it tends to show the most coherent 2D turbulence.
+- These movies are chosen to be stable and fast on CPU-only laptops.
+- Both cases use periodic BCs and the spectral Poisson solve to avoid CG/FD
+  variability in README assets.
+- For non-Boussinesq and curvature-proxy validation, see the dedicated tests
+  and figures in `docs/nonlinear/` and `examples/08_nonlinear_drb2d/`.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -79,38 +85,38 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     out_dir = repo_root / "_out_make_drb2d_assets"
     out_dir.mkdir(parents=True, exist_ok=True)
+    env = dict(**os.environ)
+    env["PYTHONPATH"] = str(repo_root / "src") + (
+        (":" + env["PYTHONPATH"]) if "PYTHONPATH" in env else ""
+    )
 
-    cmd = [
+    cmd_cold = [
         sys.executable,
         str(repo_root / "examples/08_nonlinear_drb2d/drb2d_movie.py"),
         "--out",
-        str(out_dir),
+        str(out_dir / "cold_ion"),
         "--nx",
-        "96",
+        "64",
         "--ny",
-        "96",
+        "64",
         "--dt",
         "0.02",
         "--tmax",
-        "20.0",
+        "30.0",
         "--save-stride",
-        "10",
+        "12",
         "--solver",
-        "tsit5",
-        "--rtol",
-        "1e-5",
-        "--atol",
-        "1e-8",
-        "--field",
-        "omega",
+        "dopri5",
+        "--fixed-step",
         "--seed",
         "0",
     ]
-    print("[make_drb2d_readme_assets] running:", " ".join(cmd))
-    subprocess.run(cmd, cwd=repo_root, check=True)
+    print("[make_drb2d_readme_assets] running:", " ".join(cmd_cold))
+    subprocess.run(cmd_cold, cwd=repo_root, check=True, env=env)
 
-    src_gif = out_dir / "movie.gif"
-    src_panel = out_dir / "panel.png"
+    cold_out = out_dir / "cold_ion"
+    src_gif = cold_out / "movie.gif"
+    src_panel = cold_out / "panel.png"
     if not src_gif.exists() or not src_panel.exists():
         raise FileNotFoundError(f"Expected {src_gif} and {src_panel} to exist.")
 
@@ -124,6 +130,43 @@ def main() -> None:
     _maybe_optimize_gif_with_ffmpeg(dst_gif)
     print(f"[make_drb2d_readme_assets] wrote {dst_gif}")
     print(f"[make_drb2d_readme_assets] wrote {dst_panel}")
+
+    cmd_hot = [
+        sys.executable,
+        str(repo_root / "examples/08_nonlinear_drb2d/drb2d_hot_ion_movie.py"),
+        "--out",
+        str(out_dir / "hot_ion"),
+        "--nx",
+        "64",
+        "--ny",
+        "64",
+        "--dt",
+        "0.015",
+        "--tmax",
+        "22.0",
+        "--save-stride",
+        "16",
+        "--solver",
+        "dopri5",
+        "--fixed-step",
+        "--seed",
+        "0",
+    ]
+    print("[make_drb2d_readme_assets] running:", " ".join(cmd_hot))
+    subprocess.run(cmd_hot, cwd=repo_root, check=True, env=env)
+
+    hot_out = out_dir / "hot_ion"
+    src_hot_gif = hot_out / "movie.gif"
+    src_hot_panel = hot_out / "panel.png"
+    if not src_hot_gif.exists() or not src_hot_panel.exists():
+        raise FileNotFoundError(f"Expected {src_hot_gif} and {src_hot_panel} to exist.")
+    dst_hot_gif = dst_dir / "drb2d_hot_ion_turbulence.gif"
+    dst_hot_panel = dst_dir / "drb2d_hot_ion_turbulence_panel.png"
+    shutil.copy2(src_hot_gif, dst_hot_gif)
+    shutil.copy2(src_hot_panel, dst_hot_panel)
+    _maybe_optimize_gif_with_ffmpeg(dst_hot_gif)
+    print(f"[make_drb2d_readme_assets] wrote {dst_hot_gif}")
+    print(f"[make_drb2d_readme_assets] wrote {dst_hot_panel}")
 
 
 if __name__ == "__main__":
