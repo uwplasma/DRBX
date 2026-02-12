@@ -30,6 +30,7 @@ numerics reviewer-checkable through conservative gates and literature-aligned be
 - Tabulated geometry from `.npz` (drop-in replacement).
 - Optional ESSOS-driven geometries (VMEC / near-axis / Biot–Savart).
 - A preparation milestone for **FCI (flux-coordinate independent)** operators (for X-points / islands): see `docs/fci/`.
+  - Map file format + builder notes: `docs/fci/maps.md`
 
 **Physics knobs / extensions**
 
@@ -237,6 +238,7 @@ explicit roadmap item. The status, milestones, and remaining steps are tracked h
 - [docs/roadmap.md](docs/roadmap.md)
   - `examples/10_verification/drb_cold_ion_operator_gate.py`
 - [docs/fci/requirements.md](docs/fci/requirements.md) (FCI/3D requirements + target benchmark gates)
+- [docs/fci/maps.md](docs/fci/maps.md) (FCI map file format + target-aware ∂|| milestone)
 - Operator splitting milestone (`RHS = conservative + source + dissipative`) is included in:
   - `src/jaxdrb/models/cold_ion_drb.py` (`rhs_nonlinear_decomposed`)
   - `tests/test_drb_operator_split.py`
