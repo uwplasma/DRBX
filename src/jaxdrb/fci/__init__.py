@@ -20,6 +20,7 @@ flux-surface coordinates in the perpendicular plane.
 from .integrate import line_integral_mapped, line_integral_trapezoid, map_stack_to_reference
 from .drb3d import FCIDRB3DModel, FCIDRB3DParams, FCIDRB3DState
 from .builder import ZPlaneFCIConfig, build_fci_maps_zplanes
+from .io import load_fci_maps_npz, save_fci_maps_npz
 from .map import FCIBilinearMap, make_slab_fci_map, make_slab_fci_map_variable_B
 from .model import FCISlabModel, FCISlabParams, FCISlabState
 from .parallel import (
@@ -40,10 +41,12 @@ __all__ = [
     "build_fci_maps_zplanes",
     "line_integral_mapped",
     "line_integral_trapezoid",
+    "load_fci_maps_npz",
     "map_stack_to_reference",
     "make_slab_fci_map",
     "make_slab_fci_map_variable_B",
     "parallel_derivative_centered",
     "parallel_derivative_centered_3d",
     "parallel_derivative_target_aware_3d",
+    "save_fci_maps_npz",
 ]
