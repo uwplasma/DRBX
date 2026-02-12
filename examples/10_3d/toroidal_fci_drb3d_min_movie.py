@@ -104,6 +104,20 @@ def main() -> None:
     p.add_argument("--DOmega", type=float, default=2e-3)
     p.add_argument("--sheath-nu", type=float, default=0.10)
 
+    p.add_argument(
+        "--rotate-camera",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Rotate the 3D camera during the animation to make the 3D geometry unambiguous.",
+    )
+    p.add_argument("--azim0", type=float, default=40.0, help="Initial camera azimuth (degrees).")
+    p.add_argument(
+        "--azim-span",
+        type=float,
+        default=140.0,
+        help="Total azimuth rotation over the full movie (degrees).",
+    )
+
     p.add_argument("--max-wall", type=float, default=45.0)
     args = p.parse_args()
 
@@ -223,7 +237,10 @@ def main() -> None:
     ax = fig.add_subplot(111, projection="3d")
     ax.set_title("FCI DRB3D (toroidal planes): normalized $\\Omega$ fluctuation")
     ax.set_axis_off()
-    ax.view_init(elev=18, azim=40)
+    elev = 18.0
+    axim0 = float(args.azim0)
+    axim_span = float(args.azim_span)
+    ax.view_init(elev=elev, azim=axim0)
     # Use per-plane small "quad patches" in 3D instead of point clouds. This makes the
     # toroidal geometry visually clear in the README and avoids the sparse look of a
     # scatter plot on coarse grids.
@@ -271,6 +288,9 @@ def main() -> None:
         Vi = frames[i].reshape((nphi, nx, ny))
         for k in range(nphi):
             surfs[k].set_facecolors(cmap(norm(Vi[k])).reshape((-1, 4)))
+        if bool(args.rotate_camera) and nframes > 1:
+            frac = float(i) / float(nframes - 1)
+            ax.view_init(elev=elev, azim=axim0 + axim_span * frac)
         txt.set_text(f"t={ts[i]:.2f}")
         return (*surfs, txt)
 
