@@ -3,10 +3,15 @@
 This page documents the *implemented* system in `jaxdrb`.
 
 > The model here is intentionally a “workhorse” drift-reduced Braginskii-like system used for
-> qualitative edge/SOL linear stability exploration. It is not a full SOL model (no full
-> sheath boundary-condition *set*, no neutral physics, no realistic sources/sinks, no gyroviscosity,
-> etc.). For open-field-line geometries, `jaxdrb` includes a simplified MPSE Bohm-sheath boundary
-> enforcement option and a lightweight volumetric end-loss proxy (see below).
+> edge/SOL linear stability workflows and reduced-model benchmarks. It is *not* yet the full 3D,
+> multiphysics SOL turbulence system (realistic diverted geometry + targets + full closures everywhere),
+> but `jaxdrb` does include quantitative verification gates (MMS, conservation/budget closure checks,
+> and literature-aligned proxy benchmarks) to keep the implementation auditable.
+>
+> For open-field-line field-line workflows, `jaxdrb` includes MPSE/sheath-entrance closures
+> (Bohm/Loizu-style) and optional heat/SEE knobs. For nonlinear preparation, `jaxdrb` also includes
+> minimal neutral-exchange milestones in 2D nonlinear models. See `docs/model/limitations.md` for the
+> current scope boundaries.
 
 ## Fields and closure
 
