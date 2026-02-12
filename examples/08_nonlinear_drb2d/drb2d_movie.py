@@ -56,6 +56,7 @@ def main() -> None:
     )
     parser.add_argument("--rtol", type=float, default=1e-5)
     parser.add_argument("--atol", type=float, default=1e-8)
+    parser.add_argument("--max-steps", type=int, default=400_000)
     parser.add_argument("--progress", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=45.0)
@@ -127,6 +128,18 @@ def main() -> None:
         type=float,
         default=0.12,
         help="Linear damping on Te (parallel-loss surrogate).",
+    )
+    parser.add_argument(
+        "--remove-zonal",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="If set, animate/plot the non-zonal component (subtract the y-mean).",
+    )
+    parser.add_argument(
+        "--panel-fluctuations",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Plot normalized fluctuations (not raw fields) in the summary panel.",
     )
     args = parser.parse_args()
     jax.config.update("jax_enable_x64", bool(args.x64))
@@ -200,7 +213,7 @@ def main() -> None:
         adaptive=not args.fixed_step,
         rtol=float(args.rtol),
         atol=float(args.atol),
-        max_steps=300_000,
+        max_steps=int(args.max_steps),
         progress=bool(args.progress),
     )
     wall = time.time() - t_start
@@ -218,6 +231,20 @@ def main() -> None:
     else:
         frames = [_plot_field(jax.device_get(sol.ys.Te[i])) for i in range(nframes)]
     ts = [float(t) for t in np.asarray(save_ts)]
+
+    # If a run ever produces non-finite frames, truncate the animation/diagnostics to
+    # the longest finite prefix. (Nonlinear movies should be robust and informative even
+    # when a user tweaks parameters into unstable territory.)
+    finite_mask = np.asarray([np.all(np.isfinite(f)) for f in frames], dtype=bool)
+    if not bool(np.all(finite_mask)):
+        last_ok = int(np.argmax(~finite_mask))
+        last_ok = max(last_ok, 1)
+        print(
+            f"[drb2d-movie] warning: non-finite values detected; truncating to {last_ok}/{nframes} frames"
+        )
+        frames = frames[:last_ok]
+        ts = ts[:last_ok]
+        nframes = last_ok
     rms = [float(np.sqrt(np.mean(np.asarray(fr) ** 2))) for fr in frames]
     for k in range(nframes):
         if k == 0 or (k + 1) % max(1, nframes // 10) == 0 or k == nframes - 1:
@@ -239,6 +266,8 @@ def main() -> None:
         "[drb2d-movie] zonal-rms ratio "
         f"min={ratio.min():.3f} max={ratio.max():.3f} final={ratio[-1]:.3f}"
     )
+    if bool(args.remove_zonal):
+        frames_fluct = frames_fluct - zonal
     frame_rms = np.sqrt(np.mean(frames_fluct**2, axis=(1, 2), keepdims=True))
     frames_plot = frames_fluct / (frame_rms + 1e-30)
     vmax = robust_symmetric_vlim(frames_plot, q=0.995)
@@ -290,21 +319,42 @@ def main() -> None:
     ax0.set_title("Diagnostics")
     ax0.legend()
 
+    n_f = np.asarray(jax.device_get(sol.ys.n[-1]))
+    omega_f = np.asarray(jax.device_get(sol.ys.omega[-1]))
     phi_f = np.asarray(jax.device_get(model.phi_from_omega(sol.ys.omega[-1], n=sol.ys.n[-1])))
+    if np.iscomplexobj(n_f):
+        n_f = np.real(n_f)
+    if np.iscomplexobj(omega_f):
+        omega_f = np.real(omega_f)
     if np.iscomplexobj(phi_f):
         phi_f = np.real(phi_f)
+
+    if bool(args.panel_fluctuations):
+
+        def _norm_fluct(a: np.ndarray) -> np.ndarray:
+            a = np.asarray(a)
+            a = a - np.mean(a)
+            if bool(args.remove_zonal):
+                a = a - np.mean(a, axis=1, keepdims=True)
+            rms = float(np.sqrt(np.mean(a**2)))
+            return a / (rms + 1e-30)
+
+        n_plot = _norm_fluct(n_f)
+        omega_plot = _norm_fluct(omega_f)
+        phi_plot = _norm_fluct(phi_f)
+    else:
+        n_plot, omega_plot, phi_plot = n_f, omega_f, phi_f
     for ax, (name, arr) in zip(
         [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
-        [("n", sol.ys.n[-1]), ("phi", phi_f), ("omega", sol.ys.omega[-1])],
+        [("n", n_plot), ("phi", phi_plot), ("omega", omega_plot)],
     ):
-        arr_np = np.asarray(jax.device_get(arr))
-        if np.iscomplexobj(arr_np):
-            arr_np = np.real(arr_np)
+        arr_np = np.asarray(arr)
+        arr_np = np.nan_to_num(arr_np, nan=0.0, posinf=0.0, neginf=0.0)
         vmax = robust_symmetric_vlim(arr_np, q=0.995)
         im = ax.imshow(
             arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
         )
-        ax.set_title(name)
+        ax.set_title(name + (" (fluct)" if bool(args.panel_fluctuations) else ""))
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         ax.set_xticks([])
         ax.set_yticks([])

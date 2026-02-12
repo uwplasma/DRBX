@@ -83,6 +83,8 @@ def main() -> None:
         default=0.2,
         help="Hard floor on the effective polarization coefficient n_eff = max(n0 + n, n0_min).",
     )
+    p.add_argument("--pol-cg-maxiter", type=int, default=220)
+    p.add_argument("--pol-cg-tol", type=float, default=5e-6)
 
     args = p.parse_args()
     jax.config.update("jax_enable_x64", bool(args.x64))
@@ -120,6 +122,8 @@ def main() -> None:
         operator_conservative_on=True,
         operator_source_on=True,
         operator_dissipative_on=True,
+        polarization_cg_maxiter=int(args.pol_cg_maxiter),
+        polarization_cg_tol=float(args.pol_cg_tol),
     )
     model = DRB2DModel(params=params, grid=grid)
 
