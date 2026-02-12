@@ -7,6 +7,13 @@ in `jaxdrb`, targeting nonlinear SOL simulations in geometries with **X-points**
 FCI is a widely used strategy in modern edge/SOL turbulence codes because it avoids flux-surface coordinates
 in the perpendicular plane, while still exploiting strong parallel anisotropy.
 
+## Requirements checklist (3D energy-conserving DRB)
+
+For a living checklist of what is required to reach a **fully nonlinear 3D, energy-conserving, multiphysics
+DRB** solver on the FCI track (and which items are already benchmarked in CI), see:
+
+- [Requirements checklist](requirements.md)
+
 ## References (in `drb_literature/fci_approach/`)
 
 - F. Hariri et al. (2014), *The flux-coordinate independent approach applied to X-point geometries*,

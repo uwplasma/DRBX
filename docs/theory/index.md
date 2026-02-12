@@ -4,28 +4,33 @@ This section collects the high-level theoretical context behind `jaxdrb`:
 
 - what model we solve (cold-ion drift-reduced Braginskii-like 5-field system),
 - what approximations are made to enable a fast, geometry-pluggable, matrix-free solver,
-- what “known limits” and qualitative trends we expect to recover.
+- what “known limits” and verification checks we expect to recover.
 
 ## What `jaxdrb` is (and is not)
 
-`jaxdrb` is a **linear stability tool** for local (field-line / flux-tube) edge/SOL modes.
-It targets workflows common in the SOL literature:
+`jaxdrb` includes a **linear stability tool** for local (field-line / flux-tube) edge/SOL modes,
+*and* nonlinear 2D milestone models used for verification and algorithm development.
+
+The linear tool targets workflows common in the SOL literature:
 
 - compute leading eigenvalues $\lambda = \gamma + i\omega$ as functions of $(k_x, k_y)$,
 - separate “branches” by varying resistivity and inertia parameters,
 - compute the transport proxy $\max(\gamma, 0)/k_y$ and estimate $L_p$ via fixed-point rules
   used in gradient-removal saturation models.
 
-It is **not** a full SOL turbulence code:
+The repository also includes nonlinear 2D milestones (HW2D and DRB2D) with conservative gates and
+energy-budget diagnostics, and an FCI/3D preparation track (maps + parallel operators + minimal 3D
+slab operators with budget gates).
 
-- no *full* sheath / line-tied boundary-condition implementation (a lightweight sheath-loss closure exists for open field lines),
-- no sources/sinks, no open-field-line connection to divertor plates,
-- the default model is electrostatic (an electromagnetic extension model exists, but is still
-  intentionally simplified),
-- 1D along the field line (perpendicular dependence is Fourier).
+It is **not yet** a full 3D SOL turbulence code with realistic diverted geometry and targets:
+
+- 3D diverted targets and full sheath closure sets are not yet implemented end-to-end in 3D,
+- realistic sources/sinks and higher-fidelity closures remain roadmap items,
+- the FCI/3D stack is currently a validated preparation milestone (not a full turbulence model),
+- the linear field-line representation is 1D along the field line (perpendicular dependence is Fourier).
 
 Those features are common in SOL codes (GBS/BOUT++/TOKAM3X/etc.) but are intentionally outside
-the current scope so we can iterate quickly and keep the solver matrix-free.
+the current scope so we can iterate quickly, keep kernels auditable, and maintain differentiability.
 
 ## Coordinate and spectral representation
 

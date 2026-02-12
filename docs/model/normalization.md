@@ -1,8 +1,11 @@
 # Normalization and parameters
 
-The implementation is intentionally lightweight and uses a generic “drift-reduced SOL” style
-normalization, where all coefficients are **dimensionless knobs**. This keeps the system usable
-for qualitative stability studies without committing to a specific experimental mapping.
+`jaxdrb` uses a generic drift-reduced edge/SOL-style normalization in which most coefficients are
+**dimensionless parameters**. This is deliberate: it makes it straightforward to reproduce reduced-model
+literature scans, to run large parameter studies, and to enforce quantitative regression gates in CI.
+
+Mapping a particular run to a specific experiment is possible, but requires choosing reference scales
+and consistently translating gradients/collisionality/geometry into the normalized parameters.
 
 The model parameters live in [`src/jaxdrb/models/params.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/models/params.py) (`DRBParams`).
 
@@ -105,7 +108,7 @@ with $\rho_{s0}=c_{s0}/\Omega_{ci}$.
 
 ### Interpreting “knobs”
 
-Some parameters (notably `eta` and `me_hat`) are designed to expose qualitative branch structure
+Some parameters (notably `eta` and `me_hat`) are designed to expose branch structure
 (resistive-like vs inertial-like). Mapping them to a single experimental collisionality is
 non-trivial and depends on the specific reduced model and normalization used in the target paper.
 For quantitative studies, treat these as parameters to calibrate against the specific reference

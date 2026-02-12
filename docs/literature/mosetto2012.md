@@ -7,9 +7,11 @@ scrape-off layer and identify distinct regimes:
 - ballooning-mode branches (resistive vs inertial, and an ideal branch at finite beta).
 
 The default `jaxdrb` model is electrostatic, so it does not reproduce the ideal electromagnetic
-branch quantitatively. An electromagnetic extension model is available (`--model em`), but it is
-still intended for qualitative trends and methodology. `jaxdrb` can reproduce the **workflow** of
-branch separation and scanning.
+branch quantitatively. An electromagnetic extension model is available (`--model em`) and is covered
+by unit tests and 2D milestone benchmarks. Quantitative paper-to-paper agreement still requires
+matching the paper’s normalization, closure set, and boundary conditions; `jaxdrb` provides a
+transparent, reproducible workflow for branch separation and scanning, plus calibrated gates for
+the reduced transition formulas used in Mosetto (2012).
 
 ## What `jaxdrb` maps to in the paper
 
@@ -68,8 +70,8 @@ In this demo, we label:
 - **RDW-like**: small electron inertia (`me_hat` small) and finite resistivity (`eta` moderate),
 - **IDW-like**: finite inertia (`me_hat` larger) and weak resistivity (`eta` small).
 
-This matches the *qualitative* idea in Mosetto (2012) that different closures dominate depending on
-collisionality/inertia ordering.
+This matches the branch-separation picture emphasized in Mosetto (2012), where different closures
+dominate depending on collisionality/inertia ordering.
 
 ## Ballooning-like scan (curvature on)
 
@@ -85,7 +87,7 @@ This script:
 - varies magnetic shear (`shat`) in a simple slab model,
 - compares a resistive-like vs inertial-like ballooning branch.
 
-The results show the qualitative trend that increasing shear can reduce growth in curvature-driven
+The results show the trend that increasing shear can reduce growth in curvature-driven
 modes (depending on parameter choices), consistent with many ballooning discussions.
 
 ## Notes on quantitative comparisons

@@ -28,6 +28,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Capabilities: capabilities.md
   - Getting Started: getting-started.md
   - Inputs & Outputs: inputs-outputs.md
   - Testing: testing.md
@@ -52,6 +53,7 @@ nav:
       - geometry/tabulated.md
   - FCI:
       - fci/index.md
+      - fci/requirements.md
   - Solvers:
       - solvers/index.md
       - solvers/initial-value.md

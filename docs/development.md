@@ -8,7 +8,7 @@ Source code lives in [`src/jaxdrb/`](https://github.com/uwplasma/jax_drb/tree/ma
 - `models/`: the drift-reduced model RHS and parameter definitions
 - `linear/`: matrix-free linearization, Arnoldi, growth-rate estimation
 - `cli/`: command-line entry point
-- `operators/`: small numerical operators (finite differences, placeholders)
+- `operators/`: small numerical operators (finite differences, conservative brackets)
 
 ## Local workflow
 

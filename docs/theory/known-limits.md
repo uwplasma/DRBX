@@ -1,8 +1,11 @@
-# Known limits and qualitative checks
+# Known limits and verification checks
 
-This page documents **qualitative** limits and trends that `jaxdrb` is designed to recover.
-These checks are intended to answer “are we solving the equations consistently?” rather than to
-claim quantitative agreement with any particular code or experiment.
+This page documents limiting cases and verification checks that `jaxdrb` is designed to recover.
+Some items are strict equalities (e.g. model-reduction limits), while others are monotonic/trend
+checks that help catch sign and normalization errors.
+
+For quantitative regression gates, reproduced literature workflows, and CI benchmark scripts, see
+`docs/validation.md`.
 
 ## 1) No-drive limit: neutral stability
 
