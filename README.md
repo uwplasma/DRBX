@@ -101,6 +101,23 @@ The DRB2D movie defaults include weak hyperdiffusion and a small zonal-vorticity
 long-time collapse into a purely banded/zonal state on coarse grids. These are numerical control
 knobs and should be reported explicitly when used.
 
+## FCI/3D milestone diagnostics
+
+`jaxdrb` now includes a 3D FCI slab milestone branch with:
+
+- target-aware parallel derivative (Appendix-B style B/C/X handling),
+- ESSOS toroidal-plane map builder with target-intersection metadata,
+- full 5-field DRB milestone operator (`n, \Omega, v_{\parallel e}, v_{\parallel i}, T_e`) with split API,
+- FD/FV perpendicular wall-BC scaffolding and turbulence-statistics regression gates.
+
+Example script:
+
+```bash
+python examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py --out out_fci_drb3d_full
+```
+
+![FCI DRB3D full-model wall BC and turbulence diagnostics](docs/assets/images/fci_drb3d_full_operator_wallbc_stats.png)
+
 **DRB2D linear-phase benchmark (linearized vs linear solver)**
 
 ![DRB2D linear-phase growth](docs/assets/images/drb2d_linear_phase_growth.png)

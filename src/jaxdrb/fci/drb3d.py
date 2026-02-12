@@ -99,20 +99,21 @@ class FCIDRB3DModel(eqx.Module):
 
     @property
     def _kx(self) -> jnp.ndarray:
-        kx = 2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.nx, d=self.grid.dx)
-        return jnp.asarray(kx)
+        kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.nx, d=self.grid.dx))
+        ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.ny, d=self.grid.dy))
+        kx, _ = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+        return kx
 
     @property
     def _ky(self) -> jnp.ndarray:
-        ky = 2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.ny, d=self.grid.dy)
-        return jnp.asarray(ky)
+        kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.nx, d=self.grid.dx))
+        ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.ny, d=self.grid.dy))
+        _, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+        return ky
 
     @property
     def _k2(self) -> jnp.ndarray:
-        kx = self._kx
-        ky = self._ky
-        kx2, ky2 = jnp.meshgrid(kx, ky, indexing="ij")
-        return kx2**2 + ky2**2
+        return self._kx**2 + self._ky**2
 
     def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
         if self.params.bracket == "arakawa":

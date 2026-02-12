@@ -19,11 +19,18 @@ flux-surface coordinates in the perpendicular plane.
 
 from .integrate import line_integral_mapped, line_integral_trapezoid, map_stack_to_reference
 from .drb3d import FCIDRB3DModel, FCIDRB3DParams, FCIDRB3DState
-from .builder import ZPlaneFCIConfig, build_fci_maps_zplanes
+from .drb3d_full import FCIDRB3DFullModel, FCIDRB3DFullParams, FCIDRB3DFullSplit, FCIDRB3DFullState
+from .builder import (
+    EssosToroidalFCIConfig,
+    ZPlaneFCIConfig,
+    build_fci_maps_essos_toroidal_planes,
+    build_fci_maps_zplanes,
+)
 from .io import load_fci_maps_npz, save_fci_maps_npz
 from .map import FCIBilinearMap, make_slab_fci_map, make_slab_fci_map_variable_B
 from .model import FCISlabModel, FCISlabParams, FCISlabState
 from .parallel import (
+    classify_target_point_kind,
     parallel_derivative_centered,
     parallel_derivative_centered_3d,
     parallel_derivative_target_aware_3d,
@@ -34,11 +41,18 @@ __all__ = [
     "FCIDRB3DModel",
     "FCIDRB3DParams",
     "FCIDRB3DState",
+    "FCIDRB3DFullModel",
+    "FCIDRB3DFullParams",
+    "FCIDRB3DFullSplit",
+    "FCIDRB3DFullState",
+    "EssosToroidalFCIConfig",
     "FCISlabModel",
     "FCISlabParams",
     "FCISlabState",
     "ZPlaneFCIConfig",
+    "build_fci_maps_essos_toroidal_planes",
     "build_fci_maps_zplanes",
+    "classify_target_point_kind",
     "line_integral_mapped",
     "line_integral_trapezoid",
     "load_fci_maps_npz",

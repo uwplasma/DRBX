@@ -7,7 +7,11 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC1D
 from jaxdrb.fci.grid import FCISlabGrid
-from jaxdrb.fci.parallel import parallel_derivative_target_aware_3d
+from jaxdrb.fci.map import FCIBilinearMap
+from jaxdrb.fci.parallel import (
+    classify_target_point_kind,
+    parallel_derivative_target_aware_3d,
+)
 
 
 def _rel_l2(a: jnp.ndarray, b: jnp.ndarray) -> float:
@@ -16,7 +20,7 @@ def _rel_l2(a: jnp.ndarray, b: jnp.ndarray) -> float:
     return float(err / ref)
 
 
-def _target_aware_error(*, nz: int) -> float:
+def _target_aware_error(*, nz: int, dirichlet_target_mode: str = "interpolate") -> float:
     nx = 40
     ny = 44
     Lx = 2 * math.pi
@@ -60,6 +64,8 @@ def _target_aware_error(*, nz: int) -> float:
         map_bwd=grid.map_bwd,
         open_field_line=True,
         bc=bc,
+        target_scheme="appendix_b",
+        dirichlet_target_mode=dirichlet_target_mode,
     )
     dpar_exact = sin_xy[None, :, :] * (jnp.pi / float(Lz)) * cos_z[:, None, None]
     return _rel_l2(dpar_num, dpar_exact)
@@ -69,6 +75,12 @@ def test_fci_parallel_derivative_target_bc_converges() -> None:
     err_coarse = _target_aware_error(nz=24)
     err_fine = _target_aware_error(nz=48)
     assert err_fine < 0.35 * err_coarse
+
+
+def test_fci_parallel_derivative_target_bc_extrapolation_mode_converges() -> None:
+    err_coarse = _target_aware_error(nz=24, dirichlet_target_mode="extrapolate")
+    err_fine = _target_aware_error(nz=48, dirichlet_target_mode="extrapolate")
+    assert err_fine < 0.8 * err_coarse
 
 
 def test_fci_parallel_derivative_target_bc_is_differentiable() -> None:
@@ -101,8 +113,44 @@ def test_fci_parallel_derivative_target_bc_is_differentiable() -> None:
             map_bwd=grid.map_bwd,
             open_field_line=True,
             bc=bc,
+            target_scheme="appendix_b",
         )
         return jnp.mean(dpar**2)
 
     g = jax.grad(loss)(1.0)
     assert bool(jnp.isfinite(g))
+
+
+def test_fci_target_point_kind_classification_has_c_points() -> None:
+    grid = FCISlabGrid.make(
+        nx=8,
+        ny=9,
+        nz=10,
+        Lx=2 * math.pi,
+        Ly=2 * math.pi,
+        Lz=3.0,
+        Bx=0.0,
+        By=0.0,
+        Bz=1.0,
+        open_field_line=True,
+        cell_centered=True,
+    )
+    kinds = classify_target_point_kind(map_fwd=grid.map_fwd, map_bwd=grid.map_bwd)
+    unique = set(int(v) for v in jnp.unique(kinds))
+    assert 0 in unique
+    assert 1 in unique or 2 in unique
+
+
+def test_fci_target_point_kind_classification_detects_x_points() -> None:
+    nz, nx, ny = 3, 2, 2
+    ix = jnp.zeros((nz, nx, ny, 4), dtype=jnp.int32)
+    iy = jnp.zeros((nz, nx, ny, 4), dtype=jnp.int32)
+    w = jnp.zeros((nz, nx, ny, 4), dtype=jnp.float64).at[..., 0].set(1.0)
+    dl = jnp.ones((nz, nx, ny), dtype=jnp.float64)
+    hit = jnp.zeros((nz, nx, ny), dtype=bool)
+    hit = hit.at[1].set(True)
+
+    map_fwd = FCIBilinearMap(ix=ix, iy=iy, w=w, dl=dl, hit=hit, dl_hit=0.5 * dl)
+    map_bwd = FCIBilinearMap(ix=ix, iy=iy, w=w, dl=dl, hit=hit, dl_hit=0.5 * dl)
+    kinds = classify_target_point_kind(map_fwd=map_fwd, map_bwd=map_bwd)
+    assert int(jnp.max(kinds)) == 3

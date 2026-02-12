@@ -21,10 +21,14 @@ Checkboxes are interpreted as:
 - [x] Curved-map regression with spatially varying in-plane shifts (non-constant mapping)
   - example: `examples/09_fci/fci_curved_map_regression.py`
   - test: `tests/test_fci_curved_map_regression.py`
-- [ ] Map generation from realistic equilibria (VMEC / coils / near-axis) into an FCI map format
+- [x] ESSOS field-line map generation on toroidal planes with target-intersection metadata
+  - code: `src/jaxdrb/fci/builder.py` (`build_fci_maps_essos_toroidal_planes`)
+  - tests: `tests/test_fci_essos_toroidal_builder.py`
+- [ ] Map generation from full production equilibria (VMEC / coils / near-axis) into a validated FCI map set
   - target: offline map build + runtime load (indices, weights, $\Delta l$, masks)
   - related infrastructure: `src/jaxdrb/geometry/essos.py`, `examples/07_essos_geometries/`
-- [ ] Open-field-line termination detection (target plates, limiters) and target metadata in the map
+- [x] Open-field-line termination detection and target metadata in the map (milestone)
+  - maps now carry `hit`, `dl_hit`, `hit_R`, `hit_Z`, `hit_phi`, `hit_target`
   - required to impose sheath closures consistently near plates and to apply one-sided parallel stencils
 
 ## B. Interpolation and map-error controls
@@ -43,8 +47,9 @@ Checkboxes are interpreted as:
   - example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
 - [x] Line-integral mapping utilities (needed for parallel closures and diagnostics)
   - example: `examples/09_fci/fci_hello_world.py`
-- [ ] One-sided parallel stencils near targets (required for SOL physics on open field lines)
-  - requirement: stability + monotonicity controls, and a benchmark gate tied to a known analytic solution
+- [x] One-sided/target-aware parallel stencils near targets (Appendix-B style B/C/X handling)
+  - code: `src/jaxdrb/fci/parallel.py` (`parallel_derivative_target_aware_3d`)
+  - tests: `tests/test_fci_parallel_target_bc.py` (MMS convergence + point classification)
 - [ ] Parallel boundary-condition framework for 3D DRB (sheath/targets, symmetry planes, etc.)
   - requirement: energy/particle budgets remain auditable and differentiable
 
@@ -58,7 +63,10 @@ What exists today is a verified 2D milestone:
 
 What is required for full 3D SOL turbulence:
 
-- [ ] A perpendicular operator suite compatible with FCI planes (FD/FV/DG) with:
+- [x] A first perpendicular operator suite compatible with FCI planes (FD/FV + periodic/spectral) with:
+  - code: `src/jaxdrb/fci/drb3d_full.py`, `src/jaxdrb/nonlinear/fd.py`, `src/jaxdrb/nonlinear/fv.py`
+  - tests: `tests/test_fci_drb3d_full_perp_bc.py`
+- [ ] Complete perpendicular operator suite (including DG) with:
   - conservative advection kernels,
   - controllable dissipation (hyperdiffusion, viscosity, slope limiting as needed),
   - non-periodic wall/plate boundary conditions.
@@ -120,7 +128,9 @@ Required for a full 3D solver:
   - energy functional implemented as a *first-class diagnostic*,
   - term-by-term budget closure checks,
   - hard regression gates (finite-time drift + instantaneous operator-rate residuals).
-- [ ] Long-time turbulence-statistics regression gates (so behavior does not silently degrade).
+- [x] Long-time turbulence-statistics regression gate for the FCI DRB3D full milestone branch
+  - test: `tests/test_fci_drb3d_full_turbulence_regression.py`
+- [ ] Full production-level long-time turbulence-statistics gate set (multi-geometry / multi-physics).
 
 ## H. Target benchmark gates (what should be in CI)
 
@@ -131,7 +141,8 @@ reviewer-proof set should include:
 - [x] Curved-map regression threshold gate (non-constant map)
 - [x] 3D slab conservative-rate gate (minimal operator)
 - [x] 3D slab sheath-budget gate (minimal closure)
-- [ ] One-sided $\partial_\parallel$ accuracy/stability gate near targets (analytic or manufactured solution)
+- [x] One-sided $\partial_\parallel$ accuracy gate near targets (manufactured solution)
+  - test: `tests/test_fci_parallel_target_bc.py`
 - [ ] Non-Boussinesq polarization residual + runtime gate (SPD solve + preconditioner)
 - [ ] 3D DRB energy/mass/charge/current/momentum drift gates for representative parameter sets
 - [ ] Published-proxy curvature/sheath benchmarks for EM/hot-ion branches (tight tolerances)
@@ -152,4 +163,3 @@ Modern SOL turbulence codes (e.g. GBS, BOUT++/Hermes-3, GRILLIX) typically empha
 
 - For the high-level project plan: `docs/roadmap.md`
 - For what is already benchmarked today: `docs/validation.md`
-
