@@ -106,6 +106,8 @@ preview of the workflows `jaxdrb` supports.
 ![DRB2D EM/hot-ion curvature proxy](assets/images/drb2d_curvature_benchmarks_em_hot.png)
 ![DRB2D hot-ion linear-phase benchmark](assets/images/drb2d_linear_phase_hot_ion.png)
 ![DRB2D EM linear-phase benchmark](assets/images/drb2d_linear_phase_em.png)
+![DRB2D solver comparison](assets/images/drb2d_solver_comparison.png)
+![Poisson preconditioner benchmark](assets/images/poisson_preconditioner_bench.png)
 
 ![Hot-ion DRB operator split diagnostics](assets/images/drb_operator_split_diagnostics_hot_ion.png)
 

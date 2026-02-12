@@ -71,6 +71,16 @@ jobs:
             --max-rel-end 5e-4 \
             --json-out out/ci/drb2d_gate.json
 
+      - name: Physics gate (Poisson preconditioner)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_poisson_preconditioner_gate.py \
+            --max-time-jacobi 0.2 \
+            --max-time-spectral 0.5 \
+            --max-res-jacobi 0.5 \
+            --max-res-spectral 0.2 \
+            --json-out out/ci/poisson_precond_gate.json
+
 
   build:
     name: Build (sdist/wheel)

@@ -12,8 +12,6 @@ from pathlib import Path
 import sys
 
 import jax
-import jax.numpy as jnp
-import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -99,13 +97,9 @@ def main() -> None:
 
     failures: list[str] = []
     if metrics["rel_span"] > float(args.max_rel_span):
-        failures.append(
-            f"rel_span={metrics['rel_span']:.3e} > {float(args.max_rel_span):.3e}"
-        )
+        failures.append(f"rel_span={metrics['rel_span']:.3e} > {float(args.max_rel_span):.3e}")
     if abs(metrics["rel_end"]) > float(args.max_rel_end):
-        failures.append(
-            f"rel_end={metrics['rel_end']:.3e} > {float(args.max_rel_end):.3e}"
-        )
+        failures.append(f"rel_end={metrics['rel_end']:.3e} > {float(args.max_rel_end):.3e}")
     if failures:
         raise SystemExit(" | ".join(failures))
 
