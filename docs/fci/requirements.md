@@ -50,8 +50,11 @@ Checkboxes are interpreted as:
 - [x] One-sided/target-aware parallel stencils near targets (Appendix-B style B/C/X handling)
   - code: `src/jaxdrb/fci/parallel.py` (`parallel_derivative_target_aware_3d`)
   - tests: `tests/test_fci_parallel_target_bc.py` (MMS convergence + point classification)
-- [ ] Parallel boundary-condition framework for 3D DRB (sheath/targets, symmetry planes, etc.)
-  - requirement: energy/particle budgets remain auditable and differentiable
+- [x] Parallel boundary-condition framework milestone for 3D slab DRB
+  - implementation: target-aware one-sided `\partial_\parallel` + sheath-budget channel diagnostics
+  - tests: `tests/test_fci_parallel_target_bc.py`, `tests/test_fci_drb3d_full_model.py`
+- [ ] Full production boundary-condition framework across realistic 3D geometries (divertor targets, symmetry planes, etc.)
+  - requirement: energy/particle budgets remain auditable and differentiable across map families
 
 ## D. Perpendicular operators (3D-ready discretization choices)
 
@@ -104,7 +107,12 @@ Verified 1D field-line closures:
 
 Required in 3D SOL turbulence:
 
-- [ ] Target handling in the FCI map (masking + distance-to-target + target geometry metadata)
+- [x] Target handling in the FCI map (masking + distance-to-target + target geometry metadata)
+  - implementation: map fields `hit`, `dl_hit`, `hit_R`, `hit_Z`, `hit_phi`, `hit_target`
+  - tests: `tests/test_fci_essos_toroidal_builder.py`, `tests/test_fci_map_io_roundtrip.py`
+- [x] Full-branch 3D slab DRB target/sheath budget coupling milestone with hot-ion/EM/neutrals toggles
+  - tests: `tests/test_fci_drb3d_full_model.py`, `tests/test_fci_drb3d_full_essos_biotsavart.py`
+  - CI gate: `benchmarks/check_fci_drb3d_full_multiphysics_gate.py`
 - [ ] Full sheath closure set in 3D (current closure + heat transmission, optional SEE) with:
   - energy-consistent discrete budget,
   - coupled EM/hot-ion closure consistency,
@@ -143,6 +151,8 @@ reviewer-proof set should include:
 - [x] 3D slab sheath-budget gate (minimal closure)
 - [x] One-sided $\partial_\parallel$ accuracy gate near targets (manufactured solution)
   - test: `tests/test_fci_parallel_target_bc.py`
+- [x] Full-branch 3D slab DRB target/sheath budget gate with hot-ion/EM/neutrals enabled
+  - benchmark: `benchmarks/check_fci_drb3d_full_multiphysics_gate.py`
 - [ ] Non-Boussinesq polarization residual + runtime gate (SPD solve + preconditioner)
 - [ ] 3D DRB energy/mass/charge/current/momentum drift gates for representative parameter sets
 - [ ] Published-proxy curvature/sheath benchmarks for EM/hot-ion branches (tight tolerances)

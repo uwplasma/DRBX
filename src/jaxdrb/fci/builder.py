@@ -317,6 +317,7 @@ def build_fci_maps_essos_toroidal_planes(
     field,
     nsub: int = 8,
     bphi_min: float = 1e-10,
+    dl_min: float = 1e-6,
 ) -> tuple[FCIBilinearMap, FCIBilinearMap, dict[str, float]]:
     """Build FCI maps by tracing ESSOS field lines between toroidal planes.
 
@@ -330,6 +331,9 @@ def build_fci_maps_essos_toroidal_planes(
         Number of midpoint substeps in toroidal-angle integration.
     bphi_min:
         Floor for ``|B_phi|`` in cylindrical-fieldline ratios.
+    dl_min:
+        Minimum positive map distance used for ``dl`` and ``dl_hit`` to avoid zero-distance
+        degeneracy at immediate target intersections.
     """
 
     if cfg.nphi <= 1:
@@ -471,6 +475,12 @@ def build_fci_maps_essos_toroidal_planes(
     Zhit_bwd = _stack(arrays_bwd, 6)
     phit_bwd = _stack(arrays_bwd, 7)
     tgt_bwd = _stack(arrays_bwd, 8)
+
+    dl_floor = float(dl_min)
+    dl_fwd = np.maximum(dl_fwd, dl_floor)
+    dl_bwd = np.maximum(dl_bwd, dl_floor)
+    dl_hit_fwd = np.where(np.isfinite(dl_hit_fwd), np.maximum(dl_hit_fwd, dl_floor), dl_hit_fwd)
+    dl_hit_bwd = np.where(np.isfinite(dl_hit_bwd), np.maximum(dl_hit_bwd, dl_floor), dl_hit_bwd)
 
     if cfg.periodic_R and cfg.periodic_Z:
         ix_fwd, iy_fwd, w_fwd = _bilinear_weights_periodic(

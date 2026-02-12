@@ -255,6 +255,8 @@ Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building
 - curved-map regression for spatially varying in-plane field-line shifts.
 - ESSOS toroidal-plane map metadata checks (target intersections + I/O roundtrip).
 - full 3D slab DRB milestone gates (5-field conservative/split parity + wall-BC + long-time regression).
+- full 3D slab DRB target/sheath budget coupling with hot-ion/EM/neutrals toggles.
+- ESSOS Biot-Savart toroidal-plane map workflow sanity checks for the full DRB3D branch.
 
 See:
 
@@ -271,6 +273,7 @@ See:
 - Tests: `tests/test_fci_drb3d_sheath_budget.py`
 - Tests: `tests/test_fci_drb3d_nonbouss_gate.py`
 - Tests: `tests/test_fci_drb3d_full_model.py`
+- Tests: `tests/test_fci_drb3d_full_essos_biotsavart.py`
 - Tests: `tests/test_fci_drb3d_full_perp_bc.py`
 - Tests: `tests/test_fci_drb3d_full_turbulence_regression.py`
 - Docs: `docs/fci/index.md`
@@ -281,10 +284,17 @@ See:
 - Example: `examples/09_fci/fci_curved_map_regression.py`
 - Example: `examples/09_fci/fci_drb3d_sheath_budget.py`
 - Example: `examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py`
+- Example: `examples/09_fci/fci_drb3d_full_multiphysics_sheath.py`
+- Example: `examples/09_fci/fci_drb3d_full_essos_biotsavart.py`
+- CI benchmark: `benchmarks/check_fci_drb3d_full_multiphysics_gate.py`
 
 Example output:
 
 ![FCI DRB3D full-model wall BC + turbulence regression diagnostics](assets/images/fci_drb3d_full_operator_wallbc_stats.png)
+
+![FCI DRB3D full-model multiphysics sheath-budget diagnostics](assets/images/fci_drb3d_full_multiphysics_sheath.png)
+
+![FCI DRB3D full-model on ESSOS Biot-Savart local edge/SOL patch](assets/images/fci_drb3d_full_essos_biotsavart.png)
 
 ## Neutral-model validation gates
 
