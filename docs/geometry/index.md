@@ -14,6 +14,10 @@ This makes it straightforward to:
 - load tabulated coefficients from external equilibrium tools,
 - later add VMEC/field-line tracer-derived coefficients without changing the model core.
 
+For coordinate conventions across 1D/2D/3D branches, see:
+
+- `geometry/conventions.md`
+
 ## Built-in geometries
 
 - **Shear slab**: `SlabGeometry` ([`src/jaxdrb/geometry/slab.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/geometry/slab.py))

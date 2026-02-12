@@ -2,10 +2,16 @@
 
 `jaxdrb` currently uses two different notions of “boundary conditions”, depending on the problem:
 
-1. **Field-line (flux-tube) linear models** are 1D in the parallel coordinate $l$ (with perpendicular directions treated in Fourier space).
-2. **Nonlinear milestone models** (HW2D) are 2D in $(x,y)$ on a rectangular domain.
+1. **Field-line (flux-tube) models** are 1D in the parallel coordinate $\ell$ (with perpendicular directions treated in Fourier space).
+2. **Nonlinear 2D testbeds** (HW2D/DRB2D) evolve fields on a perpendicular box $(x,y)$.
+3. **FCI/3D milestone models** evolve fields on a plane stack and impose plate/target interactions through
+   target-aware parallel operators.
 
 This page documents both the *physics-motivated* sheath/MPSE closures and the *numerical* BC hooks that are useful for benchmarking and for the nonlinear transition.
+
+For coordinate conventions (what “$x,y,\ell$” mean in each branch), see:
+
+- `geometry/conventions.md`
 
 ## Field-line (1D in $l$)
 
@@ -72,8 +78,12 @@ These user BCs are not meant to replace MPSE/sheath models; they are meant to ma
 
 ## Nonlinear (2D in $x,y$)
 
-The nonlinear HW2D milestone assumes periodicity by default (FFT operators and pseudo-spectral bracket).
-For experimentation and preparation work, it also supports Dirichlet/Neumann BCs in $(x,y)$ with a finite-difference Laplacian and a CG Poisson solve.
+The nonlinear 2D testbeds assume periodicity by default (FFT Poisson solve; spectral or Arakawa bracket).
+This is the fast path used in most regression gates and README movies.
+
+**Important:** in the 2D perpendicular-box models there is *no explicit parallel coordinate*, so physical
+sheath closures are not applied in 2D. The 2D systems are used to validate conservative operators and
+time stepping before turning on the full 3D open-field-line problem.
 
 Key points:
 
@@ -87,3 +97,24 @@ jaxdrb-hw2d --poisson cg_fd --bracket centered --bc-x dirichlet --bc-y dirichlet
 ```
 
 Because the non-periodic path is intended for development/benchmarking, it is currently more limited than the periodic path (and slower).
+
+## FCI / 3D (planes with targets/plates)
+
+In the FCI/3D milestone branch, the parallel direction is realized by **field-line maps** between planes.
+This enables open-field-line physics with **plate/target intersections**:
+
+- the parallel derivative becomes one-sided/non-uniform near targets,
+- sheath/plate closures become localized sink/source terms at hit points,
+- particle and energy budgets can be tracked explicitly as diagnostic channels.
+
+The FCI operator takes:
+
+- forward/backward maps (`map_fwd`, `map_bwd`),
+- a `BC1D` specification for the target model (Dirichlet/Neumann/Periodic),
+- optional target-handling modes (Appendix-B style B/C/X classification).
+
+See:
+
+- `fci/index.md` (concept + references)
+- `fci/maps.md` (map file format + metadata)
+- `src/jaxdrb/fci/parallel.py` (target-aware ∂|| implementation)

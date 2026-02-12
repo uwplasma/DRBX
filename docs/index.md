@@ -11,6 +11,8 @@ This documentation includes:
 - CLI usage and example workflows,
 - detailed equations, algorithms, and implementation notes.
 
+![Geometry conventions (1D/2D/3D)](assets/images/geometry_overview.png)
+
 ## What is implemented
 
 ### Linear field-line representation

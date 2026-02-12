@@ -111,6 +111,34 @@ This builder is useful for:
 - regression tests on curved maps in periodic boxes,
 - ESSOS Biot–Savart maps in a local Cartesian patch (stepping-stone toward full diverted geometries).
 
+#### Z-plane builder parameter reference
+
+The z-plane builder is configured by:
+
+- `ZPlaneFCIConfig` in [`src/jaxdrb/fci/builder.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/builder.py)
+- `build_fci_maps_zplanes(cfg, B, nsub=..., bz_min=...)`
+
+All parameters are **dimensionless** in the solver (your unit system is carried by the inputs).
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| `x0, y0` | float | Lower-left corner of the periodic (x,y) plane. |
+| `dx, dy` | float | Grid spacing in (x,y). Domain sizes are `Lx=dx*nx`, `Ly=dy*ny`. |
+| `nx, ny` | int | Number of points in (x,y). |
+| `z0` | float | First plane location in z. |
+| `dz` | float | Plane separation in z (the independent-variable step for the builder). |
+| `nz` | int | Number of planes. |
+| `periodic_z` | bool | If True, wraps z periodically when tracing between planes (closed topology). |
+| `open_field_line` | bool | If True, encodes “plate hits” at the end planes (simple slab plates). |
+| `cell_centered` | bool | If True with `open_field_line`, treats plates as half-step beyond the first/last plane. |
+| `nsub` | int | Builder integration substeps per plane-to-plane segment (midpoint method). |
+| `bz_min` | float | Safety floor on `|Bz|` used in `dx/dz=Bx/Bz`, `dy/dz=By/Bz`. |
+
+**Output metadata.** When `open_field_line=True` and `cell_centered=True`, the returned maps include:
+
+- `hit`: boolean mask identifying plate-hit points, and
+- `dl_hit`: distance-to-plate at hit points.
+
 ### B) ESSOS toroidal-plane builder (R–Z at fixed toroidal angle)
 
 For realistic magnetic fields exposed through ESSOS `field.B(xyz)`, `jaxdrb` now provides:
@@ -132,6 +160,44 @@ It records interpolation stencils plus open-field-line metadata:
 - `hit_target`
 
 where a rectangular limiter/target window can be configured for intersection detection.
+
+#### ESSOS toroidal-plane builder parameter reference
+
+The ESSOS toroidal-plane builder is configured by:
+
+- `EssosToroidalFCIConfig` in [`src/jaxdrb/fci/builder.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/builder.py)
+- `build_fci_maps_essos_toroidal_planes(cfg, field=..., nsub=..., bphi_min=...)`
+
+It assumes plane coordinates are cylindrical $(R,Z)$ at fixed toroidal angle $\phi$ and traces via:
+
+$$
+\\frac{dR}{d\\phi} = R\\,\\frac{B_R}{B_\\phi},\\qquad
+\\frac{dZ}{d\\phi} = R\\,\\frac{B_Z}{B_\\phi}.
+$$
+
+| Parameter | Type | Meaning |
+| --- | --- | --- |
+| `R0, Z0` | float | Lower-left corner of the `(R,Z)` plane grid. |
+| `dR, dZ` | float | Grid spacing in `(R,Z)`. |
+| `nR, nZ` | int | Number of points in `(R,Z)`. |
+| `phi0` | float | First toroidal plane angle. |
+| `dphi` | float | Toroidal plane separation. |
+| `nphi` | int | Number of toroidal planes. |
+| `periodic_R, periodic_Z` | bool | If True, wrap the in-plane coordinate periodically (mostly for controlled tests). |
+| `periodic_phi` | bool | If True, wrap toroidal planes periodically (closed field-line topology). |
+| `open_field_line` | bool | If True, enable target-intersection detection and carry hit metadata. |
+| `cell_centered` | bool | If True, interpret intersection distances in a cell-centered sense (plate at half-step). |
+| `R_min, R_max, Z_min, Z_max` | float or None | Rectangular window for “in-bounds”; leaving the box counts as a target hit. |
+
+**Intersection metadata.** When `open_field_line=True`, maps can additionally include:
+
+- `hit`: boolean mask,
+- `dl_hit`: distance-to-intersection along the traced segment,
+- `hit_R, hit_Z, hit_phi`: intersection coordinates,
+- `hit_target`: integer target ID (currently `1` for a generic wall/window hit).
+
+These arrays enable *target-aware* parallel stencils (one-sided near hits) and explicit plate/sheath
+budget channels in the DRB3D milestone operators.
 
 ### Example (build + save)
 

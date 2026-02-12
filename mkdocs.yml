@@ -48,6 +48,7 @@ nav:
       - model/limitations.md
   - Geometry:
       - geometry/index.md
+      - geometry/conventions.md
       - geometry/slab.md
       - geometry/tokamak.md
       - geometry/tabulated.md
