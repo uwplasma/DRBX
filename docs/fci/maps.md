@@ -78,11 +78,20 @@ Optional metadata:
 
 - `meta_json`: a JSON string with provenance information (source geometry, trace settings, etc.).
 
-The format includes `format_version=1` for forward compatibility.
+The format includes `format_version=2` for forward compatibility.
 
-## Map builder (current milestone)
+Version `2` adds optional target-intersection metadata:
 
-As an early-stage, JAX-native builder, `jaxdrb` includes a **z-plane** map construction routine:
+- `*_hit_R, *_hit_Z, *_hit_phi` (intersection coordinates)
+- `*_hit_target` (integer target ID mask)
+
+## Map builders (current milestones)
+
+`jaxdrb` currently includes two builder paths:
+
+### A) Cartesian z-plane builder (JAX-native)
+
+As an early-stage, JAX-native builder, `jaxdrb` provides a **z-plane** map construction routine:
 
 - [`src/jaxdrb/fci/builder.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/builder.py)
   (`build_fci_maps_zplanes`)
@@ -101,6 +110,28 @@ This builder is useful for:
 - MMS tests that isolate target handling and convergence,
 - regression tests on curved maps in periodic boxes,
 - ESSOS Biot–Savart maps in a local Cartesian patch (stepping-stone toward full diverted geometries).
+
+### B) ESSOS toroidal-plane builder (R–Z at fixed toroidal angle)
+
+For realistic magnetic fields exposed through ESSOS `field.B(xyz)`, `jaxdrb` now provides:
+
+- [`src/jaxdrb/fci/builder.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/builder.py)
+  (`build_fci_maps_essos_toroidal_planes`, `EssosToroidalFCIConfig`)
+
+This builder traces between toroidal planes `\phi_k -> \phi_{k+1}` using cylindrical field-line equations:
+
+$$
+\frac{dR}{d\phi} = R\,\frac{B_R}{B_\phi},\qquad
+\frac{dZ}{d\phi} = R\,\frac{B_Z}{B_\phi}.
+$$
+
+It records interpolation stencils plus open-field-line metadata:
+
+- `hit`, `dl_hit`
+- `hit_R`, `hit_Z`, `hit_phi`
+- `hit_target`
+
+where a rectangular limiter/target window can be configured for intersection detection.
 
 ### Example (build + save)
 
@@ -124,6 +155,10 @@ map_fwd, map_bwd = build_fci_maps_zplanes(cfg, B=B, nsub=8)
 save_fci_maps_npz("my_maps.npz", map_fwd=map_fwd, map_bwd=map_bwd, meta={"builder": "zplanes"})
 ```
 
+ESSOS toroidal-plane example (with target metadata) is covered by:
+
+- test: `tests/test_fci_essos_toroidal_builder.py`
+
 ## Next steps (toward diverted tokamaks / islands)
 
 The full FCI pipeline for X-point and island-divertor geometries requires:
@@ -138,4 +173,3 @@ See:
 - [`docs/fci/requirements.md`](requirements.md)
 - Hariri et al. (2014), DOI: [`10.1063/1.4892405`](https://doi.org/10.1063/1.4892405)
 - Stegmeir et al. (2018), DOI: [`10.1088/1361-6587/aaa373`](https://doi.org/10.1088/1361-6587/aaa373)
-

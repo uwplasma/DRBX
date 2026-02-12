@@ -31,6 +31,10 @@ class FCIBilinearMap(eqx.Module):
     dl_hit:
         Optional distance-to-target along the field line at points where
         ``hit=True``. Same shape rules as ``hit``.
+    hit_R, hit_Z, hit_phi:
+        Optional intersection coordinates (cylindrical) for hit points.
+    hit_target:
+        Optional integer target-id mask (0 = no target hit, >0 target class id).
     """
 
     ix: jnp.ndarray
@@ -39,6 +43,10 @@ class FCIBilinearMap(eqx.Module):
     dl: jnp.ndarray
     hit: jnp.ndarray | None = None
     dl_hit: jnp.ndarray | None = None
+    hit_R: jnp.ndarray | None = None
+    hit_Z: jnp.ndarray | None = None
+    hit_phi: jnp.ndarray | None = None
+    hit_target: jnp.ndarray | None = None
 
     def apply(self, f_plane: jnp.ndarray) -> jnp.ndarray:
         """Interpolate a scalar field defined on one plane or a stack of planes.

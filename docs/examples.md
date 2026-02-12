@@ -202,6 +202,12 @@ Minimal 3D DRB slab with sheath damping (energy/mass decay):
 python examples/09_fci/fci_drb3d_sheath_budget.py --out out_fci_drb3d_sheath
 ```
 
+Full 3D slab DRB milestone diagnostics (FD/FV wall BCs + turbulence-statistics regression metrics):
+
+```bash
+python examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py --out out_fci_drb3d_full
+```
+
 ## Verification (elliptic solves)
 
 FD+CG Poisson solver verification (Dirichlet and Neumann cases):

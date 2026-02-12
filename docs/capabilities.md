@@ -107,7 +107,7 @@ For the long-form narrative (equations, algorithms, and references), start at:
 - DRB2D movies + gates + budgets: [`examples/08_nonlinear_drb2d/`](https://github.com/uwplasma/jax_drb/tree/main/examples/08_nonlinear_drb2d)
 - Verification bundle: [`examples/10_verification/`](https://github.com/uwplasma/jax_drb/tree/main/examples/10_verification)
 
-## FCI / 3D preparation (maps + parallel operators + minimal 3D slab operators)
+## FCI / 3D preparation (maps + parallel operators + 3D slab DRB milestones)
 
 The FCI stack is a **preparation milestone**: it validates the geometry-agnostic building blocks needed
 for diverted tokamak and island-divertor geometries (where flux-surface coordinates break down).
@@ -115,18 +115,31 @@ for diverted tokamak and island-divertor geometries (where flux-surface coordina
 **Core code**
 
 - Map data structures: [`src/jaxdrb/fci/map.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/map.py)
+- Map IO format (`.npz`, format v2): [`src/jaxdrb/fci/io.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/io.py)
+- Map builders (z-plane + ESSOS toroidal plane): [`src/jaxdrb/fci/builder.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/builder.py)
 - Parallel derivative/integration operators: [`src/jaxdrb/fci/parallel.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/parallel.py)
 - Minimal 3D slab operator + budgets: [`src/jaxdrb/fci/drb3d.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/drb3d.py)
+- Full 3D slab DRB milestone (`n, Omega, vpar_e, vpar_i, Te` + split API + sheath budgets):
+  [`src/jaxdrb/fci/drb3d_full.py`](https://github.com/uwplasma/jax_drb/blob/main/src/jaxdrb/fci/drb3d_full.py)
 
 **Key tests (verification / gates)**
 
 - Parallel derivative + line-integral mapping tests:
   - [`tests/test_fci_parallel.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_parallel.py)
   - [`tests/test_fci_parallel_integral.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_parallel_integral.py)
+- Target-aware derivative (Appendix-B style B/C/X handling) + MMS:
+  - [`tests/test_fci_parallel_target_bc.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_parallel_target_bc.py)
+- ESSOS toroidal-plane builder + IO metadata roundtrip:
+  - [`tests/test_fci_essos_toroidal_builder.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_essos_toroidal_builder.py)
+  - [`tests/test_fci_map_io_roundtrip.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_map_io_roundtrip.py)
 - Curved-map interpolation regression: [`tests/test_fci_curved_map_regression.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_curved_map_regression.py)
 - Conservative + sheath budget gates on 3D slab milestone operators:
   - [`tests/test_fci_drb3d_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_conservative_gate.py)
   - [`tests/test_fci_drb3d_sheath_budget.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_sheath_budget.py)
+- Full 3D slab DRB milestone gates:
+  - [`tests/test_fci_drb3d_full_model.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_model.py)
+  - [`tests/test_fci_drb3d_full_perp_bc.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_perp_bc.py)
+  - [`tests/test_fci_drb3d_full_turbulence_regression.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_turbulence_regression.py)
 
 **Key examples**
 
@@ -150,4 +163,3 @@ for edge/SOL turbulence (sheath + closures + hot ions + EM + realistic geometry)
 
 - Project roadmap: [`docs/roadmap.md`](roadmap.md)
 - FCI/3D requirements checklist + benchmark gates: [`docs/fci/requirements.md`](fci/requirements.md)
-
