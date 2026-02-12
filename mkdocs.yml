@@ -1,5 +1,5 @@
 site_name: jaxdrb
-site_description: Cold-ion drift-reduced Braginskii linear stability solver in JAX
+site_description: JAX-native drift-reduced Braginskii solvers (linear + nonlinear edge/SOL workflows)
 repo_url: https://github.com/uwplasma/jax_drb
 repo_name: uwplasma/jax_drb
 edit_uri: edit/main/docs/

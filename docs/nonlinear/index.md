@@ -1,25 +1,27 @@
-# Nonlinear roadmap
+# Nonlinear capabilities
 
-`jaxdrb` started as a linear, field-line (flux-tube) drift-reduced Braginskii (DRB) solver. The next major capability is solving **nonlinear** systems efficiently in JAX while keeping the code modular and physics-aligned.
+`jaxdrb` includes a growing set of nonlinear models and validation gates designed to be
+auditable and differentiable. The nonlinear stack is no longer a placeholder: it is a
+first‑class capability that complements the linear field‑line solvers.
 
-This section introduces the first nonlinear milestone included in the codebase:
+The nonlinear subsystem includes:
 
-- A **2D periodic nonlinear drift-wave testbed** (Hasegawa–Wakatani-like), used to validate and benchmark:
-  - Poisson bracket implementations (conservative finite-difference and pseudo-spectral),
-  - FFT-based polarization (Poisson) solves,
-  - dealiasing,
-  - time stepping with JAX + Diffrax,
-  - optional coupling to a **neutral density** field.
-  - operator verification via the **method of manufactured solutions** (MMS).
+- **HW2D** (Hasegawa–Wakatani‑like) as a fast turbulence testbed for operator and solver validation,
+- **DRB2D** (cold‑ion) with conservative operator splitting, energy budgets, and curvature benchmarks,
+- **Hot‑ion** and **EM** DRB2D branches with parity tests and curvature‑drive comparisons,
+- **Neutral coupling** and MMS convergence tests,
+- **FCI preparation** with analytic slab maps, curved‑map regression, and minimal 3D slab operators
+  with conservative + sheath budget gates.
 
-The purpose is not to replace SOL-specific DRB models. Rather, it is a fast and controlled environment to:
+These models are used to:
 
 - test numerical kernels (operators and time stepping),
-- validate invariants (when applicable),
-- prepare the code structure for the eventual nonlinear DRB system (including open-field-line boundary conditions, sources/sinks, and additional closures).
+- validate invariants (where applicable),
+- benchmark performance and solver choices,
+- prepare the code structure for fully nonlinear 3D DRB with open‑field‑line physics.
 
-In addition, `jaxdrb` now includes a **periodic cold-ion DRB conservative gate** on the actual field-line
-branch (energy/mass/charge/current/momentum invariants), with both finite-time and operator-level checks:
+In addition, `jaxdrb` includes a **periodic cold‑ion DRB conservative gate** on the actual field‑line
+branch (energy/mass/charge/current/momentum invariants), with both finite‑time and operator‑level checks:
 
 - test: `tests/test_drb_nonlinear_conservative_gate.py`
 - test: `tests/test_drb_operator_rates.py`

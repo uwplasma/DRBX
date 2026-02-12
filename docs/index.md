@@ -1,9 +1,9 @@
 # jaxdrb
 
-`jaxdrb` is a JAX-based linear stability tool for cold-ion, drift-reduced Braginskii-like edge/SOL
-models in a **flux-tube / field-line** representation. The goal is to quickly compute unstable
-modes (drift-wave-like and ballooning-like branches; resistive and inertial behavior) across
-different geometries while keeping the model core independent of the geometry source.
+`jaxdrb` is a JAX-native research code for **drift-reduced Braginskii (DRB)** physics in the tokamak
+edge and SOL, with **both linear and nonlinear capabilities**. It combines fast field-line linear
+solvers with validated nonlinear 2D testbeds and FCI/3D scaffolding, while keeping the numerics
+reviewer-checkable through conservative gates and literature-aligned benchmarks.
 
 This documentation includes:
 
@@ -13,7 +13,7 @@ This documentation includes:
 
 ## What is implemented
 
-### Representation
+### Linear field-line representation
 
 We work in a field-line coordinate `l` (often `theta`) and assume perpendicular Fourier structure:
 
@@ -71,6 +71,14 @@ This means you can swap geometry providers without modifying the model core.
    renormalized formulation).
 2. **Eigenvalue** estimation with a matrix-free Arnoldi method using only `matvec(v)=J·v`.
 
+## Nonlinear capabilities (2D + preparation for 3D/FCI)
+
+- **HW2D + DRB2D** nonlinear systems with conservative advection kernels, energy budgets, and solver benchmarks.
+- Hot-ion and EM DRB2D branches, curvature-drive benchmarks, and non‑Boussinesq polarization gates.
+- Neutral coupling and MMS verification for nonlinear kernels.
+- **FCI preparation**: analytic slab maps, curved-map regression, and minimal 3D slab operators with
+  conservative + sheath budget gates.
+
 ## Quick links
 
 - Getting started: `getting-started.md`
@@ -81,6 +89,7 @@ This means you can swap geometry providers without modifying the model core.
 - CLI reference: `cli.md`
 - Examples: `examples.md`
 - Development and contributing: `development.md`
+- Roadmap (full 3D multiphysics DRB): `roadmap.md`
 
 ## Gallery (from built-in examples)
 

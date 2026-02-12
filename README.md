@@ -1,19 +1,27 @@
 # jaxdrb
 
-`jaxdrb` is a JAX-native research code for **drift-reduced Braginskii (DRB)** physics in the tokamak edge and scrape-off layer (SOL).
-It focuses on **fast linear stability workflows** along a magnetic field line (flux-tube / ballooning representation), and uses smaller
-nonlinear/verification milestones to make the numerics reviewer-checkable and end-to-end differentiable.
+`jaxdrb` is a JAX-native research code for **drift-reduced Braginskii (DRB)** physics in the tokamak edge and scrape-off layer (SOL),
+covering **both linear and nonlinear workflows** in a single, end-to-end differentiable codebase.
+It combines fast field-line linear stability solvers with validated nonlinear 2D testbeds and FCI/3D scaffolding, while keeping the
+numerics reviewer-checkable through conservative gates and literature-aligned benchmarks.
 
 ![Flux-tube reduction schematic](docs/assets/images/flux_tube_coordinates.png)
 
 ## What this repository contains
 
-**Core capability: linear stability along a field line**
+**Linear stability along a field line**
 
 - Computes growth rates/frequencies for drift waves and ballooning-like modes.
 - Solves the linearized system via:
   - initial-value time evolution (growth-rate estimation),
   - matrix-free Arnoldi eigenvalue solves (Ritz spectrum) with `J·v` from `jax.linearize`.
+
+**Nonlinear capabilities (2D + preparation for 3D/FCI)**
+
+- HW2D and DRB2D nonlinear systems with conservative gates, energy budgets, and solver comparisons.
+- Hot-ion and EM DRB2D branches, curvature-drive benchmarks, and non-Boussinesq polarization gates.
+- Neutral coupling, MMS tests, and regression metrics for stability of turbulence runs.
+- Minimal 3D slab operators (FCI scaffolding) with conservative and sheath budget tests.
 
 **Geometry is pluggable**
 
@@ -198,6 +206,14 @@ in increasingly realistic diverted geometries.
 - A strict operator-level conservative gate (`dy=rhs(y)` invariant-rate residuals) is included in:
   - `tests/test_drb_operator_rates.py`
   - `benchmarks/check_drb_conservative_gate.py` (wired in CI)
+
+## Roadmap to full 3D multiphysics DRB
+
+`jaxdrb` already covers linear field-line solvers and nonlinear 2D DRB testbeds, but a **fully nonlinear 3D,
+energy-conserving, multiphysics DRB solver** (sheath + closures + hot ions + EM + stellarator/X‑point) is an
+explicit roadmap item. The status, milestones, and remaining steps are tracked here:
+
+- [docs/roadmap.md](docs/roadmap.md)
   - `examples/10_verification/drb_cold_ion_operator_gate.py`
 - Operator splitting milestone (`RHS = conservative + source + dissipative`) is included in:
   - `src/jaxdrb/models/cold_ion_drb.py` (`rhs_nonlinear_decomposed`)
