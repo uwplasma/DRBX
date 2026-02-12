@@ -138,6 +138,7 @@ for diverted tokamak and island-divertor geometries (where flux-surface coordina
   - [`tests/test_fci_drb3d_sheath_budget.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_sheath_budget.py)
 - Full 3D slab DRB milestone gates:
   - [`tests/test_fci_drb3d_full_model.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_model.py)
+  - [`tests/test_fci_drb3d_full_essos_biotsavart.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_essos_biotsavart.py)
   - [`tests/test_fci_drb3d_full_perp_bc.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_perp_bc.py)
   - [`tests/test_fci_drb3d_full_turbulence_regression.py`](https://github.com/uwplasma/jax_drb/blob/main/tests/test_fci_drb3d_full_turbulence_regression.py)
 
@@ -155,6 +156,8 @@ For the “full 3D energy-conserving DRB” checklist and target benchmark gates
 - CI workflow: [`.github/workflows/ci.yml`](https://github.com/uwplasma/jax_drb/blob/main/.github/workflows/ci.yml)
 - Field-line conservative operator gate: [`benchmarks/check_drb_conservative_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/benchmarks/check_drb_conservative_gate.py)
 - Poisson preconditioner benchmark gate: [`benchmarks/check_poisson_preconditioner_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/benchmarks/check_poisson_preconditioner_gate.py)
+- FCI DRB3D full multiphysics target/sheath budget gate:
+  [`benchmarks/check_fci_drb3d_full_multiphysics_gate.py`](https://github.com/uwplasma/jax_drb/blob/main/benchmarks/check_fci_drb3d_full_multiphysics_gate.py)
 
 ## Next steps toward production 3D SOL turbulence
 

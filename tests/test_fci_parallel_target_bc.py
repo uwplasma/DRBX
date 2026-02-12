@@ -83,6 +83,60 @@ def test_fci_parallel_derivative_target_bc_extrapolation_mode_converges() -> Non
     assert err_fine < 0.8 * err_coarse
 
 
+def _target_aware_neumann_error(*, nz: int) -> float:
+    nx = 40
+    ny = 44
+    Lx = 2 * math.pi
+    Ly = 2 * math.pi
+    Lz = 5.0
+
+    grid = FCISlabGrid.make(
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        Lx=Lx,
+        Ly=Ly,
+        Lz=Lz,
+        Bx=0.0,
+        By=0.0,
+        Bz=1.0,
+        open_field_line=True,
+        cell_centered=True,
+    )
+    bc = BC1D.neumann(left=0.0, right=0.0, nu=0.0)
+
+    xs = grid.x0 + grid.dx * jnp.arange(grid.nx)
+    ys = grid.y0 + grid.dy * jnp.arange(grid.ny)
+    X, Y = jnp.meshgrid(xs, ys, indexing="ij")
+
+    kx = 2.0
+    ky = 3.0
+    z = grid.l
+    phase_xy = kx * X + ky * Y
+    sin_xy = jnp.sin(phase_xy)
+    # Zero-gradient at z=±Lz/2.
+    cos_z = jnp.cos(2.0 * jnp.pi * z / float(Lz))
+    sin_z = jnp.sin(2.0 * jnp.pi * z / float(Lz))
+    f = sin_xy[None, :, :] * cos_z[:, None, None]
+
+    dpar_num = parallel_derivative_target_aware_3d(
+        f,
+        map_fwd=grid.map_fwd,
+        map_bwd=grid.map_bwd,
+        open_field_line=True,
+        bc=bc,
+        target_scheme="appendix_b",
+    )
+    dpar_exact = -sin_xy[None, :, :] * (2.0 * jnp.pi / float(Lz)) * sin_z[:, None, None]
+    return _rel_l2(dpar_num, dpar_exact)
+
+
+def test_fci_parallel_derivative_target_bc_neumann_converges() -> None:
+    err_coarse = _target_aware_neumann_error(nz=24)
+    err_fine = _target_aware_neumann_error(nz=48)
+    assert err_fine < 0.35 * err_coarse
+
+
 def test_fci_parallel_derivative_target_bc_is_differentiable() -> None:
     nx = 16
     ny = 18

@@ -153,3 +153,18 @@ and FD/FV wall-BC scaffolding:
 - `examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py`
 
 ![FCI DRB3D full-model wall-BC and turbulence diagnostics](../assets/images/fci_drb3d_full_operator_wallbc_stats.png)
+
+Full 3D slab DRB branch with target/sheath budget decomposition and multiphysics toggles (`Ti`, `psi`, `N`):
+
+- `examples/09_fci/fci_drb3d_full_multiphysics_sheath.py`
+- `tests/test_fci_drb3d_full_model.py`
+- `benchmarks/check_fci_drb3d_full_multiphysics_gate.py` (CI hard gate)
+
+![FCI DRB3D full-model multiphysics sheath-budget diagnostics](../assets/images/fci_drb3d_full_multiphysics_sheath.png)
+
+ESSOS Biot-Savart local edge/SOL patch workflow (Landreman-Paul QA coils):
+
+- `examples/09_fci/fci_drb3d_full_essos_biotsavart.py`
+- `tests/test_fci_drb3d_full_essos_biotsavart.py`
+
+![FCI DRB3D on ESSOS Biot-Savart local edge/SOL patch](../assets/images/fci_drb3d_full_essos_biotsavart.png)
