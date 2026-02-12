@@ -23,6 +23,8 @@ def save_fci_maps_npz(
 
     - ``fwd_ix, fwd_iy, fwd_w, fwd_dl, fwd_hit, fwd_dl_hit``
     - ``bwd_ix, bwd_iy, bwd_w, bwd_dl, bwd_hit, bwd_dl_hit``
+    - optional target-intersection metadata:
+      ``*_hit_R, *_hit_Z, *_hit_phi, *_hit_target``
 
     where the optional ``*_hit`` and ``*_dl_hit`` arrays can be omitted.
     """
@@ -36,7 +38,7 @@ def save_fci_maps_npz(
         return np.asarray(a)
 
     arrays: dict[str, Any] = {
-        "format_version": np.asarray(1, dtype=np.int32),
+        "format_version": np.asarray(2, dtype=np.int32),
         "fwd_ix": np.asarray(map_fwd.ix),
         "fwd_iy": np.asarray(map_fwd.iy),
         "fwd_w": np.asarray(map_fwd.w),
@@ -50,10 +52,26 @@ def save_fci_maps_npz(
         arrays["fwd_hit"] = maybe(map_fwd.hit)
     if map_fwd.dl_hit is not None:
         arrays["fwd_dl_hit"] = maybe(map_fwd.dl_hit)
+    if map_fwd.hit_R is not None:
+        arrays["fwd_hit_R"] = maybe(map_fwd.hit_R)
+    if map_fwd.hit_Z is not None:
+        arrays["fwd_hit_Z"] = maybe(map_fwd.hit_Z)
+    if map_fwd.hit_phi is not None:
+        arrays["fwd_hit_phi"] = maybe(map_fwd.hit_phi)
+    if map_fwd.hit_target is not None:
+        arrays["fwd_hit_target"] = maybe(map_fwd.hit_target)
     if map_bwd.hit is not None:
         arrays["bwd_hit"] = maybe(map_bwd.hit)
     if map_bwd.dl_hit is not None:
         arrays["bwd_dl_hit"] = maybe(map_bwd.dl_hit)
+    if map_bwd.hit_R is not None:
+        arrays["bwd_hit_R"] = maybe(map_bwd.hit_R)
+    if map_bwd.hit_Z is not None:
+        arrays["bwd_hit_Z"] = maybe(map_bwd.hit_Z)
+    if map_bwd.hit_phi is not None:
+        arrays["bwd_hit_phi"] = maybe(map_bwd.hit_phi)
+    if map_bwd.hit_target is not None:
+        arrays["bwd_hit_target"] = maybe(map_bwd.hit_target)
 
     if meta is not None:
         arrays["meta_json"] = np.asarray(json.dumps(meta), dtype=object)
@@ -68,7 +86,7 @@ def load_fci_maps_npz(path: str | Path) -> tuple[FCIBilinearMap, FCIBilinearMap,
     path = Path(path)
     with np.load(path, allow_pickle=True) as data:
         version = int(data.get("format_version", 0))
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             raise ValueError(f"Unsupported FCI map format_version={version} in {path}")
 
         meta_json = data.get("meta_json", None)
@@ -86,6 +104,10 @@ def load_fci_maps_npz(path: str | Path) -> tuple[FCIBilinearMap, FCIBilinearMap,
             dl=data["fwd_dl"],
             hit=opt("fwd_hit"),
             dl_hit=opt("fwd_dl_hit"),
+            hit_R=opt("fwd_hit_R"),
+            hit_Z=opt("fwd_hit_Z"),
+            hit_phi=opt("fwd_hit_phi"),
+            hit_target=opt("fwd_hit_target"),
         )
         map_bwd = FCIBilinearMap(
             ix=data["bwd_ix"],
@@ -94,5 +116,9 @@ def load_fci_maps_npz(path: str | Path) -> tuple[FCIBilinearMap, FCIBilinearMap,
             dl=data["bwd_dl"],
             hit=opt("bwd_hit"),
             dl_hit=opt("bwd_dl_hit"),
+            hit_R=opt("bwd_hit_R"),
+            hit_Z=opt("bwd_hit_Z"),
+            hit_phi=opt("bwd_hit_phi"),
+            hit_target=opt("bwd_hit_target"),
         )
         return map_fwd, map_bwd, meta

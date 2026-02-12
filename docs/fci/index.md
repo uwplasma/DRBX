@@ -142,3 +142,14 @@ Target-aware parallel derivative near plates (cell-centered open field lines):
 Non-Boussinesq polarization on 3D slab planes (SPD CG):
 
 - `tests/test_fci_drb3d_nonbouss_gate.py`
+
+Full 3D FCI DRB milestone with operator split (`n,\Omega,v_{\parallel e},v_{\parallel i},T_e`), sheath source terms,
+and FD/FV wall-BC scaffolding:
+
+- `src/jaxdrb/fci/drb3d_full.py`
+- `tests/test_fci_drb3d_full_model.py`
+- `tests/test_fci_drb3d_full_perp_bc.py`
+- `tests/test_fci_drb3d_full_turbulence_regression.py`
+- `examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py`
+
+![FCI DRB3D full-model wall-BC and turbulence diagnostics](../assets/images/fci_drb3d_full_operator_wallbc_stats.png)

@@ -253,6 +253,8 @@ Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building
 - line-integral mapping and interpolation convergence checks,
 - conservative mean/energy rates and sheath budget sanity gates for minimal 3D slab operators,
 - curved-map regression for spatially varying in-plane field-line shifts.
+- ESSOS toroidal-plane map metadata checks (target intersections + I/O roundtrip).
+- full 3D slab DRB milestone gates (5-field conservative/split parity + wall-BC + long-time regression).
 
 See:
 
@@ -260,6 +262,7 @@ See:
 - Tests: `tests/test_fci_parallel_target_bc.py`
 - Tests: `tests/test_fci_parallel_integral.py`
 - Tests: `tests/test_fci_zplane_builder.py`
+- Tests: `tests/test_fci_essos_toroidal_builder.py`
 - Tests: `tests/test_fci_map_io_roundtrip.py`
 - Tests: `tests/test_fci_conservative_gate.py`
 - Tests: `tests/test_fci_sheath_budget_gate.py`
@@ -267,6 +270,9 @@ See:
 - Tests: `tests/test_fci_drb3d_conservative_gate.py`
 - Tests: `tests/test_fci_drb3d_sheath_budget.py`
 - Tests: `tests/test_fci_drb3d_nonbouss_gate.py`
+- Tests: `tests/test_fci_drb3d_full_model.py`
+- Tests: `tests/test_fci_drb3d_full_perp_bc.py`
+- Tests: `tests/test_fci_drb3d_full_turbulence_regression.py`
 - Docs: `docs/fci/index.md`
 - Docs: `docs/fci/maps.md`
 - Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
@@ -274,6 +280,11 @@ See:
 - Example: `examples/09_fci/fci_hello_world.py`
 - Example: `examples/09_fci/fci_curved_map_regression.py`
 - Example: `examples/09_fci/fci_drb3d_sheath_budget.py`
+- Example: `examples/09_fci/fci_drb3d_full_operator_wallbc_stats.py`
+
+Example output:
+
+![FCI DRB3D full-model wall BC + turbulence regression diagnostics](assets/images/fci_drb3d_full_operator_wallbc_stats.png)
 
 ## Neutral-model validation gates
 

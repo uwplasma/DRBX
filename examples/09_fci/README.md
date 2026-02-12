@@ -21,3 +21,5 @@ Scripts:
   mapping on a constant-$B$ slab.
 - `fci_curved_map_regression.py`: convergence check for a spatially varying in-plane field (Bx varies with y).
 - `fci_drb3d_sheath_budget.py`: minimal 3D DRB slab operator with sheath damping (energy/mass decay).
+- `fci_drb3d_full_operator_wallbc_stats.py`: full 3D DRB milestone diagnostics for FD/FV wall-BC behavior
+  and long-time turbulence regression metrics (zonal fraction + fluctuation levels).
