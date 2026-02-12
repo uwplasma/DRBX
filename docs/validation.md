@@ -257,14 +257,20 @@ Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building
 See:
 
 - Tests: `tests/test_fci_parallel.py`
+- Tests: `tests/test_fci_parallel_target_bc.py`
 - Tests: `tests/test_fci_parallel_integral.py`
+- Tests: `tests/test_fci_zplane_builder.py`
+- Tests: `tests/test_fci_map_io_roundtrip.py`
 - Tests: `tests/test_fci_conservative_gate.py`
 - Tests: `tests/test_fci_sheath_budget_gate.py`
 - Tests: `tests/test_fci_curved_map_regression.py`
 - Tests: `tests/test_fci_drb3d_conservative_gate.py`
 - Tests: `tests/test_fci_drb3d_sheath_budget.py`
+- Tests: `tests/test_fci_drb3d_nonbouss_gate.py`
 - Docs: `docs/fci/index.md`
+- Docs: `docs/fci/maps.md`
 - Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
+- Example: `examples/09_fci/fci_target_aware_parallel_derivative_mms.py`
 - Example: `examples/09_fci/fci_hello_world.py`
 - Example: `examples/09_fci/fci_curved_map_regression.py`
 - Example: `examples/09_fci/fci_drb3d_sheath_budget.py`
