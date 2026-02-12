@@ -70,6 +70,19 @@ jobs:
             --max-rel-span 5e-4 \
             --max-rel-end 5e-4 \
             --json-out out/ci/drb2d_gate.json
+      
+      - name: Physics gate (DRB2D turbulence statistics)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_turbulence_stats_gate.py \
+            --max-abs-tail-dlogE-dt 0.2 \
+            --min-zonal-frac 0.02 \
+            --max-zonal-frac 0.8 \
+            --min-slope -6.0 \
+            --max-slope -1.0 \
+            --slope-kmin 4.0 \
+            --slope-kmax 14.0 \
+            --json-out out/ci/drb2d_turbulence_gate.json
 
       - name: Physics gate (Poisson preconditioner)
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
