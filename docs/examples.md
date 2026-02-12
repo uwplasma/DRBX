@@ -190,6 +190,18 @@ Hello-world FCI demo (parallel derivative + line-integral mapping):
 python examples/09_fci/fci_hello_world.py --out out_fci_hello_world
 ```
 
+Curved-map regression (spatially varying Bx):
+
+```bash
+python examples/09_fci/fci_curved_map_regression.py --out out_fci_curved_map
+```
+
+Minimal 3D DRB slab with sheath damping (energy/mass decay):
+
+```bash
+python examples/09_fci/fci_drb3d_sheath_budget.py --out out_fci_drb3d_sheath
+```
+
 ## Verification (elliptic solves)
 
 FD+CG Poisson solver verification (Dirichlet and Neumann cases):

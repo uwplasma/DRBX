@@ -251,7 +251,8 @@ Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building
 - field-line maps + bilinear interpolation on structured planes,
 - centered parallel derivative operator and MMS-style convergence checks,
 - line-integral mapping and interpolation convergence checks,
-- conservative mean/energy rates and sheath budget sanity gates for a minimal 3D slab operator.
+- conservative mean/energy rates and sheath budget sanity gates for minimal 3D slab operators,
+- curved-map regression for spatially varying in-plane field-line shifts.
 
 See:
 
@@ -259,9 +260,14 @@ See:
 - Tests: `tests/test_fci_parallel_integral.py`
 - Tests: `tests/test_fci_conservative_gate.py`
 - Tests: `tests/test_fci_sheath_budget_gate.py`
+- Tests: `tests/test_fci_curved_map_regression.py`
+- Tests: `tests/test_fci_drb3d_conservative_gate.py`
+- Tests: `tests/test_fci_drb3d_sheath_budget.py`
 - Docs: `docs/fci/index.md`
 - Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
 - Example: `examples/09_fci/fci_hello_world.py`
+- Example: `examples/09_fci/fci_curved_map_regression.py`
+- Example: `examples/09_fci/fci_drb3d_sheath_budget.py`
 
 ## Neutral-model validation gates
 
