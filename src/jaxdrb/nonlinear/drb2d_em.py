@@ -75,6 +75,10 @@ class DRB2DEMParams(eqx.Module):
     dealias_on: bool = True
     k2_min: float = 1e-12
     bc_enforce_nu: float = 0.0
+    # Non-Boussinesq variable-coefficient polarization solve settings.
+    polarization_cg_maxiter: int = 400
+    polarization_cg_tol: float = 1e-8
+    polarization_cg_atol: float = 0.0
 
     # Thermal-force coefficient in Ohm's law.
     alpha_Te_ohm: float = 1.71
@@ -154,7 +158,9 @@ class DRB2DEMModel(eqx.Module):
             dx=self.grid.dx,
             dy=self.grid.dy,
             bc=self.grid.bc,
-            maxiter=400,
+            maxiter=int(self.params.polarization_cg_maxiter),
+            tol=float(self.params.polarization_cg_tol),
+            atol=float(self.params.polarization_cg_atol),
             preconditioner=precond,
         )
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 
 from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_centered
@@ -85,6 +86,10 @@ class DRB2DParams(eqx.Module):
     dealias_on: bool = True
     k2_min: float = 1e-12
     bc_enforce_nu: float = 0.0
+    # Non-Boussinesq variable-coefficient polarization solve settings.
+    polarization_cg_maxiter: int = 400
+    polarization_cg_tol: float = 1e-8
+    polarization_cg_atol: float = 0.0
 
     # Thermal-force coefficient in Ohm's law.
     alpha_Te_ohm: float = 1.71
@@ -178,7 +183,9 @@ class DRB2DModel(eqx.Module):
             dx=self.grid.dx,
             dy=self.grid.dy,
             bc=self.grid.bc,
-            maxiter=400,
+            maxiter=int(self.params.polarization_cg_maxiter),
+            tol=float(self.params.polarization_cg_tol),
+            atol=float(self.params.polarization_cg_atol),
             preconditioner=precond,
         )
 
@@ -458,24 +465,12 @@ class DRB2DModel(eqx.Module):
                 + c_T * jnp.real(jnp.conj(y.Te) * dy.Te)
             )
 
-        eps = jnp.asarray(1.0e-7, dtype=jnp.float64)
-        y_plus = DRB2DState(
-            n=y.n + eps * dy.n,
-            omega=y.omega + eps * dy.omega,
-            vpar_e=y.vpar_e + eps * dy.vpar_e,
-            vpar_i=y.vpar_i + eps * dy.vpar_i,
-            Te=y.Te + eps * dy.Te,
-        )
-        y_minus = DRB2DState(
-            n=y.n - eps * dy.n,
-            omega=y.omega - eps * dy.omega,
-            vpar_e=y.vpar_e - eps * dy.vpar_e,
-            vpar_i=y.vpar_i - eps * dy.vpar_i,
-            Te=y.Te - eps * dy.Te,
-        )
-        E_plus = self.energy(y_plus)
-        E_minus = self.energy(y_minus)
-        return (E_plus - E_minus) / (2.0 * eps)
+        # Non-Boussinesq polarization makes E(y) depend on y implicitly through
+        # the variable-coefficient SPD solve for phi. Use JVP to obtain a robust
+        # directional derivative dE/dt = <∂E/∂y, dy/dt> without tuning a finite
+        # difference step size.
+        _, edot = jax.jvp(self.energy, (y,), (dy,))
+        return edot
 
     def energy_budget(self, y: DRB2DState) -> dict[str, jnp.ndarray]:
         """Return a term-by-term energy budget for DRB2D.
