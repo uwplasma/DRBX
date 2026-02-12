@@ -6,6 +6,10 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from jaxdrb.bc import BC2D
+from jaxdrb.nonlinear.fd import ddx as ddx_fd
+from jaxdrb.nonlinear.fd import ddy as ddy_fd
+from jaxdrb.nonlinear.fd import inv_div_n_grad_cg, inv_laplacian_cg
 from jaxdrb.nonlinear.spectral import ddx as ddx_spec
 from jaxdrb.nonlinear.spectral import ddy as ddy_spec
 from jaxdrb.nonlinear.spectral import inv_laplacian, laplacian
@@ -27,6 +31,13 @@ class FCIDRB3DParams(eqx.Module):
 
     bracket: Literal["arakawa", "centered"] = "arakawa"
     poisson: Literal["spectral", "fd_cg"] = "spectral"
+    boussinesq: bool = True
+    non_boussinesq_perturbed_density_on: bool = True
+    n0: float = 1.0
+    n0_min: float = 1e-6
+    poisson_preconditioner: Literal["spectral", "jacobi", "none"] = "spectral"
+    poisson_maxiter: int = 400
+    poisson_tol: float = 1e-10
     dealias_on: bool = False
     k2_min: float = 1e-12
 
@@ -42,11 +53,49 @@ class FCIDRB3DModel(eqx.Module):
     params: FCIDRB3DParams
     grid: FCISlabGrid
 
-    def _phi_from_omega(self, omega: jnp.ndarray) -> jnp.ndarray:
-        if self.params.poisson != "spectral":
-            raise NotImplementedError("FCI DRB3D currently supports spectral Poisson only.")
-        k2 = self._k2
-        return inv_laplacian(omega, k2, k2_min=self.params.k2_min)
+    @property
+    def _bc_perp(self) -> BC2D:
+        return BC2D.periodic()
+
+    def _phi_from_omega(self, omega: jnp.ndarray, *, n: jnp.ndarray | None = None) -> jnp.ndarray:
+        if self.params.boussinesq:
+            if self.params.poisson == "spectral":
+                k2 = self._k2
+                return inv_laplacian(omega, k2, k2_min=self.params.k2_min)
+
+            def solve_plane(rhs):
+                return inv_laplacian_cg(
+                    rhs,
+                    dx=self.grid.dx,
+                    dy=self.grid.dy,
+                    bc=self._bc_perp,
+                    maxiter=int(self.params.poisson_maxiter),
+                    tol=float(self.params.poisson_tol),
+                    preconditioner=str(self.params.poisson_preconditioner),
+                )
+
+            return jax.vmap(solve_plane)(omega)
+
+        if n is None:
+            raise ValueError("Non-Boussinesq polarization requires density n.")
+        n_eff = jnp.asarray(float(self.params.n0), dtype=omega.dtype)
+        if self.params.non_boussinesq_perturbed_density_on:
+            n_eff = n_eff + jnp.asarray(n)
+        n_eff = jnp.maximum(n_eff, jnp.asarray(float(self.params.n0_min), dtype=omega.dtype))
+
+        def solve_plane(rhs, nc):
+            return inv_div_n_grad_cg(
+                rhs,
+                n_coeff=nc,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=self._bc_perp,
+                maxiter=int(self.params.poisson_maxiter),
+                tol=float(self.params.poisson_tol),
+                preconditioner=str(self.params.poisson_preconditioner),
+            )
+
+        return jax.vmap(solve_plane)(omega, n_eff)
 
     @property
     def _kx(self) -> jnp.ndarray:
@@ -72,13 +121,11 @@ class FCIDRB3DModel(eqx.Module):
 
     def rhs(self, t: float, y: FCIDRB3DState) -> FCIDRB3DState:
         _ = t
-        if self.params.poisson != "spectral":
-            raise NotImplementedError("FCI DRB3D currently supports spectral Poisson only.")
 
         n = y.n
         omega = y.omega
 
-        phi = self._phi_from_omega(omega)
+        phi = self._phi_from_omega(omega, n=n)
 
         def plane_bracket(plane_phi, plane_f):
             return self._bracket(plane_phi, plane_f)
@@ -122,18 +169,43 @@ class FCIDRB3DModel(eqx.Module):
         return FCIDRB3DState(n=dn, omega=dw)
 
     def energy(self, y: FCIDRB3DState) -> jnp.ndarray:
-        phi = self._phi_from_omega(y.omega)
-        gradx = ddx_spec(phi, self._kx)
-        grady = ddy_spec(phi, self._ky)
-        return 0.5 * jnp.mean(y.n**2 + gradx**2 + grady**2)
+        phi = self._phi_from_omega(y.omega, n=y.n)
+        if self.params.poisson == "spectral":
+            gradx = ddx_spec(phi, self._kx)
+            grady = ddy_spec(phi, self._ky)
+        else:
+            gradx = jax.vmap(lambda p: ddx_fd(p, self.grid.dx, self._bc_perp))(phi)
+            grady = jax.vmap(lambda p: ddy_fd(p, self.grid.dy, self._bc_perp))(phi)
+
+        if self.params.boussinesq:
+            phi_term = gradx**2 + grady**2
+        else:
+            n_eff = jnp.asarray(float(self.params.n0), dtype=y.n.dtype)
+            if self.params.non_boussinesq_perturbed_density_on:
+                n_eff = n_eff + jnp.asarray(y.n)
+            n_eff = jnp.maximum(n_eff, jnp.asarray(float(self.params.n0_min), dtype=y.n.dtype))
+            phi_term = n_eff * (gradx**2 + grady**2)
+        return 0.5 * jnp.mean(y.n**2 + phi_term)
 
     def energy_rate(self, y: FCIDRB3DState, dy: FCIDRB3DState) -> jnp.ndarray:
-        phi = self._phi_from_omega(y.omega)
-        dphi = self._phi_from_omega(dy.omega)
-        gradx = ddx_spec(phi, self._kx)
-        grady = ddy_spec(phi, self._ky)
-        dgradx = ddx_spec(dphi, self._kx)
-        dgrady = ddy_spec(dphi, self._ky)
+        if not self.params.boussinesq:
+            eps = jnp.asarray(1.0e-7, dtype=jnp.float64)
+            y_plus = FCIDRB3DState(n=y.n + eps * dy.n, omega=y.omega + eps * dy.omega)
+            y_minus = FCIDRB3DState(n=y.n - eps * dy.n, omega=y.omega - eps * dy.omega)
+            return (self.energy(y_plus) - self.energy(y_minus)) / (2.0 * eps)
+
+        phi = self._phi_from_omega(y.omega, n=y.n)
+        dphi = self._phi_from_omega(dy.omega, n=dy.n)
+        if self.params.poisson == "spectral":
+            gradx = ddx_spec(phi, self._kx)
+            grady = ddy_spec(phi, self._ky)
+            dgradx = ddx_spec(dphi, self._kx)
+            dgrady = ddy_spec(dphi, self._ky)
+        else:
+            gradx = jax.vmap(lambda p: ddx_fd(p, self.grid.dx, self._bc_perp))(phi)
+            grady = jax.vmap(lambda p: ddy_fd(p, self.grid.dy, self._bc_perp))(phi)
+            dgradx = jax.vmap(lambda p: ddx_fd(p, self.grid.dx, self._bc_perp))(dphi)
+            dgrady = jax.vmap(lambda p: ddy_fd(p, self.grid.dy, self._bc_perp))(dphi)
         return jnp.mean(y.n * dy.n + gradx * dgradx + grady * dgrady)
 
     def mass_rate(self, dy: FCIDRB3DState) -> jnp.ndarray:
