@@ -24,20 +24,51 @@ class FCIBilinearMap(eqx.Module):
         Corresponding bilinear weights with shape (..., 4).
     dl:
         Distance along the field line between the two planes (can be uniform).
+    hit:
+        Optional boolean mask indicating points whose field line hits a target
+        before reaching the next/previous plane. Shape can be (nz,nx,ny) for
+        a stack of planes, or (nx,ny) for a single plane.
+    dl_hit:
+        Optional distance-to-target along the field line at points where
+        ``hit=True``. Same shape rules as ``hit``.
     """
 
     ix: jnp.ndarray
     iy: jnp.ndarray
     w: jnp.ndarray
     dl: jnp.ndarray
+    hit: jnp.ndarray | None = None
+    dl_hit: jnp.ndarray | None = None
 
     def apply(self, f_plane: jnp.ndarray) -> jnp.ndarray:
-        """Interpolate a scalar field defined on a single perpendicular plane."""
+        """Interpolate a scalar field defined on one plane or a stack of planes.
 
-        # f_plane: (nx, ny)
-        # ix/iy: (..., 4)
-        vals = f_plane[self.ix, self.iy]
-        return jnp.sum(self.w * vals, axis=-1)
+        Parameters
+        ----------
+        f_plane:
+            - If shape is (nx, ny), apply the map once and return (nx, ny).
+            - If shape is (nz, nx, ny), apply the plane-dependent map to each
+              plane of the stack and return (nz, nx, ny).
+        """
+
+        if f_plane.ndim == 2:
+            vals = f_plane[self.ix, self.iy]
+            return jnp.sum(self.w * vals, axis=-1)
+        if f_plane.ndim != 3:
+            raise ValueError("FCIBilinearMap.apply expects (nx,ny) or (nz,nx,ny) input.")
+
+        nz = f_plane.shape[0]
+        ix = self.ix
+        iy = self.iy
+        w = self.w
+        if ix.ndim == 3:
+            ix = jnp.broadcast_to(ix, (nz,) + ix.shape)
+            iy = jnp.broadcast_to(iy, (nz,) + iy.shape)
+            w = jnp.broadcast_to(w, (nz,) + w.shape)
+
+        k = jnp.arange(nz, dtype=jnp.int32)[:, None, None, None]
+        vals = f_plane[k, ix, iy]
+        return jnp.sum(w * vals, axis=-1)
 
 
 def _bilinear_weights_periodic(
