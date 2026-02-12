@@ -53,6 +53,7 @@ nav:
       - geometry/tabulated.md
   - FCI:
       - fci/index.md
+      - fci/maps.md
       - fci/requirements.md
   - Solvers:
       - solvers/index.md

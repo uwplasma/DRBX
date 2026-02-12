@@ -64,6 +64,12 @@ The current scaffold lives in:
 
 - `src/jaxdrb/fci/map.py`
 - `src/jaxdrb/fci/parallel.py`
+- `src/jaxdrb/fci/io.py` (portable `.npz` map file format)
+- `src/jaxdrb/fci/builder.py` (early-stage JAX-native map builder in periodic boxes)
+
+See also:
+
+- [`docs/fci/maps.md`](maps.md) (map object + `.npz` format + builder usage)
 
 ### 3) Parallel boundary conditions (sheath / target plates)
 
@@ -123,3 +129,16 @@ Minimal 3D DRB slab + sheath damping:
 - `examples/09_fci/fci_drb3d_sheath_budget.py`
 
 ![FCI DRB3D sheath budget](../assets/images/fci_drb3d_sheath_budget.png)
+
+Target-aware parallel derivative near plates (cell-centered open field lines):
+
+- `tests/test_fci_parallel_target_bc.py`
+- `examples/09_fci/fci_target_aware_parallel_derivative_mms.py`
+
+![FCI target-aware parallel derivative convergence](../assets/images/fci_target_aware_parallel_derivative_convergence.png)
+
+![FCI target-aware observed order](../assets/images/fci_target_aware_parallel_derivative_order.png)
+
+Non-Boussinesq polarization on 3D slab planes (SPD CG):
+
+- `tests/test_fci_drb3d_nonbouss_gate.py`
