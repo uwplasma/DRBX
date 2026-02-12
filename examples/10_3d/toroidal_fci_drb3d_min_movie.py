@@ -85,7 +85,12 @@ def main() -> None:
     p.add_argument("--Z0", type=float, default=-0.18)
     p.add_argument("--dR", type=float, default=0.020)
     p.add_argument("--dZ", type=float, default=0.026)
-    p.add_argument("--open", action="store_true", default=True)
+    p.add_argument(
+        "--open-field-line",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Whether the FCI map is open (hits targets) or periodic in the parallel direction.",
+    )
     p.add_argument("--dl-min", type=float, default=2e-2)
 
     p.add_argument("--dt", type=float, default=0.01)
@@ -116,7 +121,7 @@ def main() -> None:
         phi0=0.0,
         dphi=float(args.dphi),
         nphi=int(args.nphi),
-        open_field_line=bool(args.open),
+        open_field_line=bool(args.open_field_line),
         cell_centered=True,
         periodic_R=False,
         periodic_Z=False,
@@ -141,7 +146,7 @@ def main() -> None:
         l=l,
         map_fwd=map_fwd,
         map_bwd=map_bwd,
-        open_field_line=bool(args.open),
+        open_field_line=bool(args.open_field_line),
         cell_centered=True,
     )
 
@@ -155,7 +160,7 @@ def main() -> None:
         poisson="spectral",
         boussinesq=True,
         dealias_on=False,
-        sheath_nu=float(args.sheath_nu) if bool(args.open) else 0.0,
+        sheath_nu=float(args.sheath_nu) if bool(args.open_field_line) else 0.0,
     )
     model = FCIDRB3DModel(params=params, grid=grid)
 
@@ -170,7 +175,7 @@ def main() -> None:
     print(
         "[toroidal-fci-drb3d-min-movie] "
         f"grid=(nphi={grid.nz},nR={grid.nx},nZ={grid.ny}) dt={args.dt} nsteps={args.nsteps} "
-        f"save_every={args.save_every} open={bool(args.open)}"
+        f"save_every={args.save_every} open={bool(args.open_field_line)}"
     )
     t0 = time.time()
     ys, _ = diffeqsolve_fixed_steps(
@@ -214,30 +219,60 @@ def main() -> None:
     nframes = int(frames.shape[0])
     ts = float(args.dt) * float(args.save_every) * np.arange(1, nframes + 1)
 
-    fig = plt.figure(figsize=(6.0, 4.8))
+    fig = plt.figure(figsize=(5.6, 4.8))
     ax = fig.add_subplot(111, projection="3d")
     ax.set_title("FCI DRB3D (toroidal planes): normalized $\\Omega$ fluctuation")
     ax.set_axis_off()
     ax.view_init(elev=18, azim=40)
-    sc = ax.scatter(
-        X,
-        Y,
-        Z,
-        c=frames[0],
-        cmap="coolwarm",
-        vmin=-vmax,
-        vmax=vmax,
-        s=9,
-        depthshade=False,
-    )
-    cb = fig.colorbar(sc, ax=ax, fraction=0.03, pad=0.02)
+    # Use per-plane small "quad patches" in 3D instead of point clouds. This makes the
+    # toroidal geometry visually clear in the README and avoids the sparse look of a
+    # scatter plot on coarse grids.
+    nphi = int(len(phis))
+    nx = int(cfg.nR)
+    ny = int(cfg.nZ)
+    Xg = np.stack(xs, axis=0)
+    Yg = np.stack(ys3, axis=0)
+    Zg = np.stack(zs, axis=0)
+    V0 = frames[0].reshape((nphi, nx, ny))
+    # Matplotlib expects facecolors for each quad; we approximate by per-cell coloring.
+    norm = plt.Normalize(vmin=-vmax, vmax=vmax)
+    cmap = plt.get_cmap("coolwarm")
+    surfs = []
+    for k in range(nphi):
+        colors = cmap(norm(V0[k]))  # (nx, ny, 4)
+        srf = ax.plot_surface(
+            Xg[k],
+            Yg[k],
+            Zg[k],
+            rstride=1,
+            cstride=1,
+            facecolors=colors,
+            linewidth=0.0,
+            antialiased=False,
+            shade=False,
+        )
+        surfs.append(srf)
+    mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    mappable.set_array([])
+    cb = fig.colorbar(mappable, ax=ax, fraction=0.03, pad=0.02)
     cb.set_label("normalized $\\Omega$")
     txt = ax.text2D(0.04, 0.02, f"t={ts[0]:.2f}", transform=ax.transAxes)
 
+    # Keep the content centered and visible by setting a cubic bounding box.
+    xc = 0.5 * (X.min() + X.max())
+    yc = 0.5 * (Y.min() + Y.max())
+    zc = 0.5 * (Z.min() + Z.max())
+    half = 0.55 * float(max(X.max() - X.min(), Y.max() - Y.min(), Z.max() - Z.min()))
+    ax.set_xlim(xc - half, xc + half)
+    ax.set_ylim(yc - half, yc + half)
+    ax.set_zlim(zc - half, zc + half)
+
     def update(i: int):
-        sc.set_array(frames[i])
+        Vi = frames[i].reshape((nphi, nx, ny))
+        for k in range(nphi):
+            surfs[k].set_facecolors(cmap(norm(Vi[k])).reshape((-1, 4)))
         txt.set_text(f"t={ts[i]:.2f}")
-        return (sc, txt)
+        return (*surfs, txt)
 
     ani = animation.FuncAnimation(fig, update, frames=nframes, interval=60, blit=False)
     gif_path = out_dir / "movie.gif"
