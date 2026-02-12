@@ -1,6 +1,6 @@
 """Make a short movie of a nonlinear DRB2D run (periodic).
 
-Designed to run in ~20-30 seconds on a laptop. If the wall time exceeds the
+Designed to run in ~10-30 seconds on a laptop. If the wall time exceeds the
 limit, the script stops early and still writes a movie from collected frames.
 """
 
@@ -14,8 +14,8 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import matplotlib.animation as animation
-from matplotlib.ticker import MaxNLocator
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 
 from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
@@ -35,13 +35,13 @@ def main() -> None:
         choices=["n", "omega", "Te"],
         help="Field to animate. Default is omega (usually most visually turbulent).",
     )
-    parser.add_argument("--nx", type=int, default=64)
-    parser.add_argument("--ny", type=int, default=64)
-    parser.add_argument("--dt", type=float, default=0.02)
-    parser.add_argument("--tmax", type=float, default=30.0)
-    parser.add_argument("--save-stride", type=int, default=12)
-    parser.add_argument("--solver", type=str, default="dopri5")
-    parser.add_argument("--fixed-step", action="store_true", default=True)
+    parser.add_argument("--nx", type=int, default=32)
+    parser.add_argument("--ny", type=int, default=32)
+    parser.add_argument("--dt", type=float, default=0.01)
+    parser.add_argument("--tmax", type=float, default=200.0)
+    parser.add_argument("--save-stride", type=int, default=500)
+    parser.add_argument("--solver", type=str, default="tsit5")
+    parser.add_argument("--fixed-step", action="store_true", default=False)
     parser.add_argument(
         "--adaptive",
         dest="fixed_step",
@@ -52,7 +52,7 @@ def main() -> None:
     parser.add_argument("--atol", type=float, default=1e-8)
     parser.add_argument("--progress", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--max-wall", type=float, default=30.0)
+    parser.add_argument("--max-wall", type=float, default=45.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
     parser.add_argument(
         "--omega-n", type=float, default=1.0, help="Background density-gradient drive."
@@ -61,26 +61,66 @@ def main() -> None:
         "--omega-Te", type=float, default=0.35, help="Background Te-gradient drive."
     )
     parser.add_argument(
+        "--kpar",
+        type=float,
+        default=0.0,
+        help=(
+            "Constant k_parallel for Fourier-parallel coupling. "
+            "Note: nonzero kpar implies complex-valued state evolution, which is not "
+            "recommended for nonlinear turbulence movies. Default disables parallel dynamics."
+        ),
+    )
+    parser.add_argument(
+        "--eta",
+        type=float,
+        default=0.25,
+        help="Parallel resistivity coefficient (only active when kpar!=0).",
+    )
+    parser.add_argument(
+        "--me-hat",
+        type=float,
+        default=0.2,
+        help="Electron inertia parameter used in the parallel momentum closure.",
+    )
+    parser.add_argument(
         "--curvature",
         type=float,
         default=0.7,
         help="Curvature coefficient (0 disables curvature drive).",
     )
-    parser.add_argument("--Dn", type=float, default=8e-4, help="Laplacian diffusion on n.")
-    parser.add_argument("--DOmega", type=float, default=8e-4, help="Laplacian diffusion on omega.")
-    parser.add_argument("--DTe", type=float, default=8e-4, help="Laplacian diffusion on Te.")
-    parser.add_argument("--Dn4", type=float, default=2e-5, help="Hyperdiffusion (-Dn4*∇^4) on n.")
+    parser.add_argument("--Dn", type=float, default=3e-3, help="Laplacian diffusion on n.")
+    parser.add_argument("--DOmega", type=float, default=3e-3, help="Laplacian diffusion on omega.")
+    parser.add_argument("--DTe", type=float, default=3e-3, help="Laplacian diffusion on Te.")
+    parser.add_argument("--Dn4", type=float, default=5e-5, help="Hyperdiffusion (-Dn4*∇^4) on n.")
     parser.add_argument(
-        "--DOmega4", type=float, default=2e-5, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
+        "--DOmega4", type=float, default=5e-5, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
     )
     parser.add_argument(
-        "--DTe4", type=float, default=2e-5, help="Hyperdiffusion (-DTe4*∇^4) on Te."
+        "--DTe4", type=float, default=5e-5, help="Hyperdiffusion (-DTe4*∇^4) on Te."
     )
     parser.add_argument(
         "--mu-zonal-omega",
         type=float,
-        default=0.08,
+        default=0.12,
         help="Drag coefficient on zonal (ky=0) omega component.",
+    )
+    parser.add_argument(
+        "--mu-lin-omega",
+        type=float,
+        default=0.35,
+        help="Linear damping on omega (large-scale friction / parallel-loss surrogate).",
+    )
+    parser.add_argument(
+        "--mu-lin-n",
+        type=float,
+        default=0.12,
+        help="Linear damping on n (parallel-loss surrogate).",
+    )
+    parser.add_argument(
+        "--mu-lin-Te",
+        type=float,
+        default=0.12,
+        help="Linear damping on Te (parallel-loss surrogate).",
     )
     args = parser.parse_args()
 
@@ -92,10 +132,10 @@ def main() -> None:
         # A curvature-driven case that rapidly develops nonlinear dynamics.
         omega_n=float(args.omega_n),
         omega_Te=float(args.omega_Te),
-        # Keep kpar=0 for a real-valued nonlinear turbulence movie (no Fourier-parallel coupling).
-        kpar=0.0,
-        eta=0.0,
-        me_hat=0.2,
+        # Use kpar>0 + resistivity by default to obtain drift-wave-like saturation.
+        kpar=float(args.kpar),
+        eta=float(args.eta),
+        me_hat=float(args.me_hat),
         curvature_on=(float(args.curvature) != 0.0),
         curvature_coeff=float(args.curvature),
         # Dissipation to control the cascade on coarse grids. Hyperdiffusion keeps the
@@ -107,6 +147,9 @@ def main() -> None:
         DOmega4=float(args.DOmega4),
         DTe4=float(args.DTe4),
         mu_zonal_omega=float(args.mu_zonal_omega),
+        mu_lin_n=float(args.mu_lin_n),
+        mu_lin_omega=float(args.mu_lin_omega),
+        mu_lin_Te=float(args.mu_lin_Te),
         bracket="arakawa",
         poisson="spectral",
         dealias_on=False,
@@ -157,12 +200,16 @@ def main() -> None:
     if wall > float(args.max_wall):
         print(f"[drb2d-movie] warning: wall time {wall:.1f}s exceeded max-wall={args.max_wall}s")
 
+    def _plot_field(arr):
+        arr = np.asarray(arr)
+        return np.real(arr) if np.iscomplexobj(arr) else arr
+
     if args.field == "n":
-        frames = [jax.device_get(sol.ys.n[i]) for i in range(nframes)]
+        frames = [_plot_field(jax.device_get(sol.ys.n[i])) for i in range(nframes)]
     elif args.field == "omega":
-        frames = [jax.device_get(sol.ys.omega[i]) for i in range(nframes)]
+        frames = [_plot_field(jax.device_get(sol.ys.omega[i])) for i in range(nframes)]
     else:
-        frames = [jax.device_get(sol.ys.Te[i]) for i in range(nframes)]
+        frames = [_plot_field(jax.device_get(sol.ys.Te[i])) for i in range(nframes)]
     ts = [float(t) for t in np.asarray(save_ts)]
     rms = [float(np.sqrt(np.mean(np.asarray(fr) ** 2))) for fr in frames]
     for k in range(nframes):
@@ -220,6 +267,10 @@ def main() -> None:
             jax.jit(lambda ys: jax.vmap(model.energy)(ys))(sol.ys),
         )
     )
+    E = np.real(E)
+    dlogE_dt = np.gradient(np.log(np.maximum(E, 1e-30)), np.asarray(ts))
+    tail = slice(int(2 * len(dlogE_dt) / 3), None)
+    print(f"[drb2d-movie] mean dlnE/dt over final third: {float(np.mean(dlogE_dt[tail])):.3e}")
     fig = plt.figure(figsize=(12, 7), constrained_layout=True)
     gs = fig.add_gridspec(2, 3, width_ratios=[1.1, 1.0, 1.0])
 
@@ -233,11 +284,15 @@ def main() -> None:
     ax0.legend()
 
     phi_f = np.asarray(jax.device_get(model.phi_from_omega(sol.ys.omega[-1], n=sol.ys.n[-1])))
+    if np.iscomplexobj(phi_f):
+        phi_f = np.real(phi_f)
     for ax, (name, arr) in zip(
         [fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 1])],
         [("n", sol.ys.n[-1]), ("phi", phi_f), ("omega", sol.ys.omega[-1])],
     ):
         arr_np = np.asarray(jax.device_get(arr))
+        if np.iscomplexobj(arr_np):
+            arr_np = np.real(arr_np)
         vmax = robust_symmetric_vlim(arr_np, q=0.995)
         im = ax.imshow(
             arr_np.T, origin="lower", aspect="auto", cmap="coolwarm", vmin=-vmax, vmax=vmax
