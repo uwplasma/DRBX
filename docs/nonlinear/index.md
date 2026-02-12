@@ -42,6 +42,7 @@ python examples/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
 python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 python examples/08_nonlinear_hw2d/hw2d_movie.py
 python examples/08_nonlinear_drb2d/drb2d_movie.py
+python examples/08_nonlinear_drb2d/drb2d_hot_ion_movie.py
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model em
@@ -77,3 +78,8 @@ parameters include:
 - a weak zonal vorticity drag (`mu_zonal_omega`)
 
 These are numerical control knobs and should be reported explicitly when used in studies.
+
+The hot-ion DRB2D movie (`examples/08_nonlinear_drb2d/drb2d_hot_ion_movie.py`) is a companion
+case that exercises the `Ti` extension while keeping the same conservative advection and Poisson
+inversion choices. Its defaults are tuned slightly more dissipative to avoid non-finite values on
+coarse grids.
