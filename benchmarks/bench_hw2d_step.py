@@ -60,9 +60,7 @@ def main() -> None:
         t1 = time.time()
 
         steps_per_s = nsteps / (t1 - t0)
-        print(
-            f"HW2D Diffrax {solver}: {steps_per_s:.1f} steps/s for {grid.nx}x{grid.ny}"
-        )
+        print(f"HW2D Diffrax {solver}: {steps_per_s:.1f} steps/s for {grid.nx}x{grid.ny}")
 
 
 if __name__ == "__main__":
