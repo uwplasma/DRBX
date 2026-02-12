@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
+
+from jaxdrb.bc import BC1D
 
 from .map import FCIBilinearMap
 
@@ -46,20 +47,118 @@ def parallel_derivative_centered_3d(
     map_bwd: FCIBilinearMap,
     open_field_line: bool,
 ) -> jnp.ndarray:
-    """Centered FCI parallel derivative for a full 3D stack (nz, nx, ny)."""
+    """Centered FCI parallel derivative for a full 3D stack (nz, nx, ny).
+
+    Notes
+    -----
+    ``map_fwd`` and ``map_bwd`` can encode either:
+      - a single (plane-independent) map with arrays shaped (nx, ny, ...), or
+      - a plane-dependent stack with leading dimension (nz, nx, ny, ...).
+    """
 
     nz = f.shape[0]
     idx = jnp.arange(nz)
     f_kp1 = f[(idx + 1) % nz]
     f_km1 = f[(idx - 1) % nz]
 
-    def dpar_plane(f_k, f_kp1, f_km1):
-        return parallel_derivative_centered(
-            f_k, f_kp1=f_kp1, f_km1=f_km1, map_fwd=map_fwd, map_bwd=map_bwd
-        )
+    fp = map_fwd.apply(f_kp1)
+    fm = map_bwd.apply(f_km1)
 
-    dpar = jax.vmap(dpar_plane, in_axes=(0, 0, 0))(f, f_kp1, f_km1)
+    dl = map_fwd.dl
+    if dl.ndim == 2:
+        dl = jnp.broadcast_to(dl, (nz,) + dl.shape)
+    dpar = (fp - fm) / (2.0 * dl)
     if open_field_line and nz >= 2:
         dpar = dpar.at[0].set(jnp.zeros_like(dpar[0]))
         dpar = dpar.at[-1].set(jnp.zeros_like(dpar[-1]))
     return dpar
+
+
+def _dpar_uneven_spacing(
+    f0: jnp.ndarray,
+    f_plus: jnp.ndarray,
+    f_minus: jnp.ndarray,
+    h_plus: jnp.ndarray,
+    h_minus: jnp.ndarray,
+    *,
+    eps: float = 1e-14,
+) -> jnp.ndarray:
+    """Second-order derivative at 0 from points at -h_minus and +h_plus.
+
+    Fits a quadratic through ( -h_minus, f_minus ), (0, f0), ( +h_plus, f_plus )
+    and returns the derivative at 0.
+    """
+
+    denom = h_plus * h_minus * (h_plus + h_minus)
+    denom = jnp.where(jnp.abs(denom) > eps, denom, jnp.asarray(eps, dtype=f0.dtype))
+    return (h_minus**2 * (f_plus - f0) + h_plus**2 * (f0 - f_minus)) / denom
+
+
+def parallel_derivative_target_aware_3d(
+    f: jnp.ndarray,
+    *,
+    map_fwd: FCIBilinearMap,
+    map_bwd: FCIBilinearMap,
+    open_field_line: bool,
+    bc: BC1D,
+) -> jnp.ndarray:
+    """Target-aware centered FCI parallel derivative on an (nz,nx,ny) stack.
+
+    This operator uses a centered FCI stencil in the interior and switches to a
+    *non-uniform* second-order stencil near targets when the map encodes
+    distance-to-target information via ``map_fwd.hit/map_fwd.dl_hit`` and
+    ``map_bwd.hit/map_bwd.dl_hit``.
+
+    Boundary model
+    --------------
+    - Dirichlet: uses the prescribed plate values on hit points.
+    - Neumann: approximates the plate values by linear extrapolation from the
+      interior plane using the prescribed boundary gradients.
+    - Periodic: ignores hit masks and returns the standard centered derivative.
+    """
+
+    nz = f.shape[0]
+    idx = jnp.arange(nz)
+    f_kp1 = f[(idx + 1) % nz]
+    f_km1 = f[(idx - 1) % nz]
+
+    fp = map_fwd.apply(f_kp1)
+    fm = map_bwd.apply(f_km1)
+
+    h_plus = map_fwd.dl
+    h_minus = map_bwd.dl
+    if h_plus.ndim == 2:
+        h_plus = jnp.broadcast_to(h_plus, (nz,) + h_plus.shape)
+    if h_minus.ndim == 2:
+        h_minus = jnp.broadcast_to(h_minus, (nz,) + h_minus.shape)
+
+    f_plus = fp
+    f_minus = fm
+
+    if open_field_line and bc.kind != 0:
+        hit_fwd = map_fwd.hit
+        hit_bwd = map_bwd.hit
+        if hit_fwd is None or hit_bwd is None:
+            raise ValueError(
+                "Target-aware FCI derivative requires map_fwd.hit and map_bwd.hit when open_field_line=True."
+            )
+        dl_hit_fwd = map_fwd.dl_hit
+        dl_hit_bwd = map_bwd.dl_hit
+        if dl_hit_fwd is None or dl_hit_bwd is None:
+            raise ValueError(
+                "Target-aware FCI derivative requires map_fwd.dl_hit and map_bwd.dl_hit when open_field_line=True."
+            )
+
+        if bc.kind == 1:
+            f_plus_bc = jnp.asarray(float(bc.right_value), dtype=f.dtype)
+            f_minus_bc = jnp.asarray(float(bc.left_value), dtype=f.dtype)
+        else:
+            f_plus_bc = f + dl_hit_fwd * jnp.asarray(float(bc.right_grad), dtype=f.dtype)
+            f_minus_bc = f - dl_hit_bwd * jnp.asarray(float(bc.left_grad), dtype=f.dtype)
+
+        f_plus = jnp.where(hit_fwd, f_plus_bc, f_plus)
+        f_minus = jnp.where(hit_bwd, f_minus_bc, f_minus)
+        h_plus = jnp.where(hit_fwd, dl_hit_fwd, h_plus)
+        h_minus = jnp.where(hit_bwd, dl_hit_bwd, h_minus)
+
+    return _dpar_uneven_spacing(f, f_plus, f_minus, h_plus, h_minus)
