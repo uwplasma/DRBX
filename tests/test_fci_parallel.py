@@ -151,3 +151,45 @@ def test_fci_operator_is_differentiable_wrt_field_values() -> None:
 
     g = jax.grad(loss)(1.0)
     assert bool(jnp.isfinite(g))
+
+
+def test_fci_map_error_decreases_with_refinement() -> None:
+    """Regression check: bilinear map error should decrease under grid refinement."""
+
+    def map_error(nx: int, ny: int) -> float:
+        Lx = 2 * math.pi
+        Ly = 2 * math.pi
+        dx = Lx / nx
+        dy = Ly / ny
+
+        cfg = SlabFCIConfig(
+            x0=0.0,
+            y0=0.0,
+            dx=dx,
+            dy=dy,
+            nx=nx,
+            ny=ny,
+            dz=0.2,
+            Bx=0.7,
+            By=-0.3,
+            Bz=1.0,
+        )
+        fwd, _ = make_slab_fci_map(cfg)
+
+        xs = cfg.x0 + cfg.dx * jnp.arange(cfg.nx)
+        ys = cfg.y0 + cfg.dy * jnp.arange(cfg.ny)
+        X, Y = jnp.meshgrid(xs, ys, indexing="ij")
+        f = jnp.sin(2.0 * X) + 0.3 * jnp.cos(3.0 * Y) + 0.2 * jnp.sin(X + 2.0 * Y)
+
+        shift_x = (cfg.Bx / cfg.Bz) * cfg.dz
+        shift_y = (cfg.By / cfg.Bz) * cfg.dz
+        Xs = jnp.mod(X + shift_x, Lx)
+        Ys = jnp.mod(Y + shift_y, Ly)
+        f_ref = jnp.sin(2.0 * Xs) + 0.3 * jnp.cos(3.0 * Ys) + 0.2 * jnp.sin(Xs + 2.0 * Ys)
+        f_bilin = fwd.apply(f)
+        err = jnp.sqrt(jnp.mean((f_bilin - f_ref) ** 2))
+        return float(err)
+
+    err_coarse = map_error(48, 48)
+    err_fine = map_error(96, 96)
+    assert err_fine < 0.4 * err_coarse

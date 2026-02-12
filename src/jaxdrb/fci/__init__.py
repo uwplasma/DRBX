@@ -17,7 +17,20 @@ The long-term goal is to support diverted tokamaks (X-points) and island diverto
 flux-surface coordinates in the perpendicular plane.
 """
 
+from .integrate import line_integral_mapped, line_integral_trapezoid, map_stack_to_reference
 from .map import FCIBilinearMap, make_slab_fci_map
-from .parallel import parallel_derivative_centered
+from .model import FCISlabModel, FCISlabParams, FCISlabState
+from .parallel import parallel_derivative_centered, parallel_derivative_centered_3d
 
-__all__ = ["FCIBilinearMap", "make_slab_fci_map", "parallel_derivative_centered"]
+__all__ = [
+    "FCIBilinearMap",
+    "FCISlabModel",
+    "FCISlabParams",
+    "FCISlabState",
+    "line_integral_mapped",
+    "line_integral_trapezoid",
+    "map_stack_to_reference",
+    "make_slab_fci_map",
+    "parallel_derivative_centered",
+    "parallel_derivative_centered_3d",
+]

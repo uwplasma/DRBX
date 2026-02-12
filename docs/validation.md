@@ -249,13 +249,19 @@ Implementation:
 Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building blocks are validated:
 
 - field-line maps + bilinear interpolation on structured planes,
-- centered parallel derivative operator and MMS-style convergence checks.
+- centered parallel derivative operator and MMS-style convergence checks,
+- line-integral mapping and interpolation convergence checks,
+- conservative mean/energy rates and sheath budget sanity gates for a minimal 3D slab operator.
 
 See:
 
 - Tests: `tests/test_fci_parallel.py`
+- Tests: `tests/test_fci_parallel_integral.py`
+- Tests: `tests/test_fci_conservative_gate.py`
+- Tests: `tests/test_fci_sheath_budget_gate.py`
 - Docs: `docs/fci/index.md`
 - Example: `examples/09_fci/fci_slab_parallel_derivative_mms.py`
+- Example: `examples/09_fci/fci_hello_world.py`
 
 ## Neutral-model validation gates
 

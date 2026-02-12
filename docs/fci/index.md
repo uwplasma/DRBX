@@ -98,3 +98,9 @@ generates a convergence plot for the centered FCI parallel derivative using an a
 ![FCI slab parallel derivative convergence](../assets/images/fci_slab_parallel_derivative_convergence.png)
 
 ![FCI slab observed order](../assets/images/fci_slab_parallel_derivative_order.png)
+
+Hello-world demo (parallel derivative + line-integral mapping):
+
+- `examples/09_fci/fci_hello_world.py`
+
+![FCI hello-world map + integral demo](../assets/images/fci_hello_world.png)

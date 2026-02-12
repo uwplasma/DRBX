@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 
 from .map import FCIBilinearMap
@@ -36,3 +37,29 @@ def parallel_derivative_centered(
     # dl can be (nx, ny) to allow spatially varying distance along B between planes.
     dl = map_fwd.dl
     return (fp - fm) / (2.0 * dl)
+
+
+def parallel_derivative_centered_3d(
+    f: jnp.ndarray,
+    *,
+    map_fwd: FCIBilinearMap,
+    map_bwd: FCIBilinearMap,
+    open_field_line: bool,
+) -> jnp.ndarray:
+    """Centered FCI parallel derivative for a full 3D stack (nz, nx, ny)."""
+
+    nz = f.shape[0]
+    idx = jnp.arange(nz)
+    f_kp1 = f[(idx + 1) % nz]
+    f_km1 = f[(idx - 1) % nz]
+
+    def dpar_plane(f_k, f_kp1, f_km1):
+        return parallel_derivative_centered(
+            f_k, f_kp1=f_kp1, f_km1=f_km1, map_fwd=map_fwd, map_bwd=map_bwd
+        )
+
+    dpar = jax.vmap(dpar_plane, in_axes=(0, 0, 0))(f, f_kp1, f_km1)
+    if open_field_line and nz >= 2:
+        dpar = dpar.at[0].set(jnp.zeros_like(dpar[0]))
+        dpar = dpar.at[-1].set(jnp.zeros_like(dpar[-1]))
+    return dpar
