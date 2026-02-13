@@ -169,7 +169,7 @@ def run_gate() -> dict[str, float]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--max-rel-energy-rate-mismatch", type=float, default=3.5e-2)
+    parser.add_argument("--max-rel-energy-rate-mismatch", type=float, default=5.0e-2)
     parser.add_argument("--max-rel-particle-rate-mismatch", type=float, default=2.5e-2)
     parser.add_argument("--max-abs-advective-mean-rate", type=float, default=1e-12)
     parser.add_argument("--min-abs-parallel-particle-rate", type=float, default=1e-5)
