@@ -117,6 +117,8 @@ Implementation notes:
 - The operator is solved in **variable-coefficient SPD form**: $-\nabla\cdot(n\nabla\phi)=\Omega$.
 - A matrix-free CG solve is used, with a spectral (circulant) preconditioner for periodic grids
   and a Jacobi fallback for non-periodic BCs.
+- The coefficient is floored via `n0_min` and can be capped with `n0_max` for long-time stability.
+- The SPD preconditioner can be strengthened with `polarization_precond_shift`.
 
 Example:
 
@@ -125,6 +127,24 @@ python examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py
 ```
 
 ![DRB2D non-Boussinesq energy](../assets/images/drb2d_nonbouss_energy.png)
+
+### DRB2D SOL closed→open radial setup (LCFS proxy)
+
+To emulate SOL-like physics in a 2D periodic box, `jaxdrb` adds a **closed→open radial mask**
+at a prescribed LCFS location $x=x_s$:
+
+- closed side ($x < x_s$): relax $(n, T_e)$ toward core values,
+- open side ($x > x_s$): relax toward SOL values and apply optional sinks,
+  mimicking parallel/sheath losses.
+
+These terms are controlled by the `sol_*` parameters in `DRB2DParams` and are used to
+generate outward blob motion and positive mean radial flux.
+
+Example:
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_sol_movie.py --out out_drb2d_sol
+```
 
 ### DRB2D neutrals exchange (new)
 

@@ -44,8 +44,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-every", type=float, default=5.0, help="Save cadence in simulation time.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--json-out", type=Path, default=None)
+    p.add_argument(
+        "--tail-frac",
+        type=float,
+        default=0.33,
+        help="Fraction of the run used for late-time statistics (e.g. last third).",
+    )
+    p.add_argument(
+        "--tail-max-frames",
+        type=int,
+        default=6,
+        help="Max number of frames used for late-time spectral/zonal statistics.",
+    )
 
     p.add_argument("--max-abs-tail-dlogE-dt", type=float, default=0.1)
+    p.add_argument("--max-rel-energy-rate-mismatch", type=float, default=0.35)
     p.add_argument("--min-zonal-frac", type=float, default=0.02)
     p.add_argument("--max-zonal-frac", type=float, default=0.8)
     p.add_argument("--min-slope", type=float, default=-6.0)
@@ -126,20 +139,57 @@ def main() -> None:
     tail = slice(int(2 * dlogE_dt.size / 3), None)
     tail_mean = jnp.mean(dlogE_dt[tail])
 
-    omega_last = jnp.real(omega_ts[-1])
-    omega_last = omega_last - jnp.mean(omega_last)
-    zonal = zonal_fraction_y(omega_last)
+    omega_ts = jnp.real(omega_ts)
+    nframes = int(omega_ts.shape[0])
+    tail_start = int((1.0 - float(args.tail_frac)) * nframes)
+    tail_start = max(0, min(tail_start, nframes - 1))
+    tail_idx = jnp.arange(tail_start, nframes)
+    if int(tail_idx.size) == 0:
+        tail_idx = jnp.asarray([nframes - 1])
+    # Subsample tail frames to keep the gate fast and stable.
+    max_frames = max(1, int(args.tail_max_frames))
+    if int(tail_idx.size) > max_frames:
+        pick = jnp.linspace(0, tail_idx.size - 1, max_frames)
+        tail_idx = tail_idx[jnp.round(pick).astype(int)]
 
-    # Use the vorticity spectrum as a regression metric, since it is the dynamically
-    # active field in the DRB2D operator and yields a robust inertial-range proxy on
-    # coarse grids. (Potential spectra can be substantially steeper and less stable as
-    # a CI gate when hyperdiffusion is used to control aliasing/cascade.)
-    k, Pk = isotropic_power_spectrum_2d(omega_last, Lx=float(args.Lx), Ly=float(args.Ly), nbins=32)
-    slope = spectrum_loglog_slope(
-        k,
-        Pk,
-        kmin=float(args.slope_kmin),
-        kmax=float(args.slope_kmax),
+    def _omega_fluct(idx):
+        w = omega_ts[idx]
+        return w - jnp.mean(w)
+
+    zonal_vals = jnp.asarray([zonal_fraction_y(_omega_fluct(i)) for i in tail_idx])
+
+    # Use the vorticity spectrum as the regression metric (robust on coarse grids).
+    slopes = []
+    for i in tail_idx:
+        w = _omega_fluct(i)
+        k, Pk = isotropic_power_spectrum_2d(w, Lx=float(args.Lx), Ly=float(args.Ly), nbins=32)
+        slopes.append(
+            spectrum_loglog_slope(
+                k,
+                Pk,
+                kmin=float(args.slope_kmin),
+                kmax=float(args.slope_kmax),
+            )
+        )
+    slope = jnp.mean(jnp.asarray(slopes))
+    zonal = jnp.mean(zonal_vals)
+
+    # Energy-rate closure over the tail frames.
+    dE_dt_fd = jnp.gradient(E, ts)
+    energy_rates = []
+    for i in tail_idx:
+        yi = DRB2DState(
+            n=sol.ys.n[i],
+            omega=sol.ys.omega[i],
+            vpar_e=sol.ys.vpar_e[i],
+            vpar_i=sol.ys.vpar_i[i],
+            Te=sol.ys.Te[i],
+        )
+        dyi = model.rhs(float(ts[i]), yi)
+        energy_rates.append(float(model.energy_rate(yi, dyi)))
+    energy_rates = jnp.asarray(energy_rates)
+    rel_energy_rate_mismatch = jnp.sqrt(jnp.mean((dE_dt_fd[tail_idx] - energy_rates) ** 2)) / (
+        jnp.sqrt(jnp.mean(energy_rates**2)) + 1e-12
     )
 
     metrics = {
@@ -147,6 +197,8 @@ def main() -> None:
         "tail_mean_dlogE_dt": float(tail_mean),
         "zonal_fraction": float(zonal),
         "spectrum_slope": float(slope),
+        "rel_energy_rate_mismatch": float(rel_energy_rate_mismatch),
+        "tail_frames": int(tail_idx.size),
     }
     print(
         "[drb2d-turbulence-gate] "
@@ -183,6 +235,11 @@ def main() -> None:
         failures.append(
             f"spectrum_slope={metrics['spectrum_slope']:.2f} not in "
             f"[{float(args.min_slope):.2f},{float(args.max_slope):.2f}]"
+        )
+    if metrics["rel_energy_rate_mismatch"] > float(args.max_rel_energy_rate_mismatch):
+        failures.append(
+            "rel_energy_rate_mismatch="
+            f"{metrics['rel_energy_rate_mismatch']:.3e} > {float(args.max_rel_energy_rate_mismatch):.3e}"
         )
     if failures:
         raise SystemExit(" | ".join(failures))

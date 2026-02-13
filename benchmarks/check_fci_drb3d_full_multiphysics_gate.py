@@ -85,16 +85,19 @@ def run_gate() -> dict[str, float]:
         bracket="arakawa",
     )
     model = FCIDRB3DFullModel(params=params, grid=grid)
+    dt = 0.002
+    nsteps = 600
+    save_every = 20
     ys, _ = diffeqsolve_fixed_steps(
         model.rhs,
         y0=y0,
         t0=0.0,
-        dt=0.002,
-        nsteps=140,
-        save_every=5,
+        dt=dt,
+        nsteps=nsteps,
+        save_every=save_every,
         solver="dopri5",
     )
-    ts = 0.002 * jnp.arange(5, 141, 5)
+    ts = dt * jnp.arange(save_every, nsteps + 1, save_every)
 
     energy = []
     total_particles = []

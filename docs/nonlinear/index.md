@@ -83,3 +83,6 @@ The hot-ion DRB2D movie (`examples/08_nonlinear_drb2d/drb2d_hot_ion_movie.py`) i
 case that exercises the `Ti` extension while keeping the same conservative advection and Poisson
 inversion choices. Its defaults are tuned slightly more dissipative to avoid non-finite values on
 coarse grids.
+
+The SOL proxy movie (`examples/08_nonlinear_drb2d/drb2d_sol_movie.py`) introduces a closed→open
+radial mask (LCFS at $x=x_s$) to emulate SOL-like transport and outward blob propagation.

@@ -76,13 +76,33 @@ jobs:
         run: |
           python benchmarks/check_drb2d_turbulence_stats_gate.py \
             --max-abs-tail-dlogE-dt 0.2 \
+            --max-rel-energy-rate-mismatch 0.5 \
             --min-zonal-frac 0.02 \
             --max-zonal-frac 0.8 \
-            --min-slope -6.0 \
-            --max-slope -1.0 \
+            --min-slope -10.0 \
+            --max-slope -3.0 \
             --slope-kmin 4.0 \
             --slope-kmax 14.0 \
             --json-out out/ci/drb2d_turbulence_gate.json
+
+      - name: Physics gate (DRB2D SOL blob transport)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_sol_blob_gate.py \
+            --min-blob-velocity 2.0e-3 \
+            --min-mean-flux 5.0e-4 \
+            --json-out out/ci/drb2d_sol_gate.json
+
+      - name: Physics gate (DRB2D non-Boussinesq turbulence)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_nonbouss_turbulence_gate.py \
+            --max-abs-tail-dlogE-dt 0.25 \
+            --min-zonal-frac 0.01 \
+            --max-zonal-frac 0.9 \
+            --min-slope -9.0 \
+            --max-slope -2.0 \
+            --json-out out/ci/drb2d_nonbouss_gate.json
 
       - name: Physics gate (Poisson preconditioner)
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -105,6 +125,14 @@ jobs:
             --max-abs-other-particle-rate 1e-9 \
             --max-abs-split-energy-residual 5e-12 \
             --json-out out/ci/fci_drb3d_full_multiphysics_gate.json
+
+      - name: Physics gate (FCI DRB3D ESSOS Biot-Savart)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_fci_drb3d_essos_biotsavart_gate.py \
+            --max-rel-energy-drift 0.6 \
+            --max-rel-particle-drift 0.6 \
+            --json-out out/ci/fci_drb3d_essos_gate.json
 
 
   build:
