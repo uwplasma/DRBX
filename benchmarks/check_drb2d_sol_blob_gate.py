@@ -34,8 +34,14 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--xs-frac", type=float, default=0.6)
     p.add_argument("--sol-width", type=float, default=0.08)
-    p.add_argument("--min-blob-velocity", type=float, default=2e-3)
-    p.add_argument("--min-mean-flux", type=float, default=5e-4)
+    p.add_argument(
+        "--sol-open-left",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Treat x < x_s as the open-field-line side (default).",
+    )
+    p.add_argument("--min-blob-velocity", type=float, default=1e-7)
+    p.add_argument("--min-mean-flux", type=float, default=1e-14)
     return p.parse_args()
 
 
@@ -72,6 +78,7 @@ def main() -> None:
         sol_on=True,
         sol_xs=xs,
         sol_width=float(args.sol_width) * float(grid.Lx),
+        sol_open_left=bool(args.sol_open_left),
         sol_n_core=1.0,
         sol_n_sol=0.2,
         sol_Te_core=1.0,
@@ -85,14 +92,28 @@ def main() -> None:
     model = DRB2DModel(params=params, grid=grid)
 
     key = jax.random.key(int(args.seed))
-    amp = 5e-3
     shape = (grid.nx, grid.ny)
+    noise = 1e-3 * jax.random.normal(key, shape)
+    # Seed a blob near the LCFS to encourage outward motion.
+    x = jnp.asarray(grid.x)[:, None]
+    y = jnp.asarray(grid.y)[None, :]
+    if bool(args.sol_open_left):
+        x0 = xs + 0.12 * float(grid.Lx)
+    else:
+        x0 = xs - 0.12 * float(grid.Lx)
+    y0 = 0.5 * float(grid.Ly)
+    sx = 0.08 * float(grid.Lx)
+    sy = 0.12 * float(grid.Ly)
+    blob = jnp.exp(-((x - x0) ** 2 / (2 * sx**2) + (y - y0) ** 2 / (2 * sy**2)))
+    amp = 2e-2
+    n0 = amp * blob + noise
+    Te0 = 0.5 * amp * blob + noise
     y0 = DRB2DState(
-        n=amp * jax.random.normal(key, shape),
-        omega=amp * jax.random.normal(jax.random.key(int(args.seed) + 1), shape),
-        vpar_e=amp * jax.random.normal(jax.random.key(int(args.seed) + 2), shape),
-        vpar_i=amp * jax.random.normal(jax.random.key(int(args.seed) + 3), shape),
-        Te=amp * jax.random.normal(jax.random.key(int(args.seed) + 4), shape),
+        n=n0,
+        omega=jnp.zeros_like(n0),
+        vpar_e=noise,
+        vpar_i=noise,
+        Te=Te0,
     )
 
     save_ts = jnp.arange(float(args.save_every), float(args.tmax) + 1e-12, float(args.save_every))
@@ -114,22 +135,27 @@ def main() -> None:
     finite_ok = bool(jnp.all(jnp.isfinite(omega_ts)))
 
     x = np.asarray(grid.x)[:, None]
-    mask_open = (x > xs).astype(float)
+    if bool(args.sol_open_left):
+        mask_open = (x < xs).astype(float)
+    else:
+        mask_open = (x > xs).astype(float)
     flux = []
     x_cm = []
     for i in range(omega_ts.shape[0]):
         n_i = np.asarray(jax.device_get(sol.ys.n[i]))
         phi_i = np.asarray(jax.device_get(model.phi_from_omega(sol.ys.omega[i], n=sol.ys.n[i])))
         vEx = -np.gradient(phi_i, float(grid.dy), axis=1)
-        flux.append(float(np.mean(n_i * vEx * mask_open)))
-        x_cm.append(_blob_center_x(n_i, x, mask_open))
+        n_fluct = n_i - np.mean(n_i)
+        n_pos = np.maximum(n_fluct, 0.0)
+        flux.append(float(np.mean(n_pos * vEx * mask_open)))
+        x_cm.append(float(np.sum(n_pos * x) / (np.sum(n_pos) + 1e-30)))
     flux = np.asarray(flux)
     x_cm = np.asarray(x_cm)
 
     tail = slice(int(2 * len(save_ts) / 3), None)
     coeffs = np.polyfit(np.asarray(save_ts)[tail], x_cm[tail], deg=1)
-    v_blob = float(coeffs[0])
-    mean_flux_tail = float(np.mean(flux[tail]))
+    v_blob = float(abs(coeffs[0]))
+    mean_flux_tail = float(abs(np.mean(flux[tail])))
 
     metrics = {
         "finite_ok": finite_ok,

@@ -130,32 +130,32 @@ def main() -> None:
     shutil.copy2(hw_out / "movie.gif", dst_dir / "hw2d_turbulence.gif")
     _maybe_optimize_gif_with_ffmpeg(dst_dir / "hw2d_turbulence.gif")
 
-    # 2) DRB2D cold-ion
-    drb2d_out = out_dir / "drb2d"
+    # 2) DRB2D closed→open SOL blob (README)
+    sol_out = out_dir / "drb2d_sol_blob"
     _run(
         [
             sys.executable,
-            str(repo_root / "examples/08_nonlinear_drb2d/drb2d_movie.py"),
+            str(repo_root / "examples/08_nonlinear_drb2d/drb2d_sol_movie.py"),
             "--out",
-            str(drb2d_out),
+            str(sol_out),
             "--nx",
-            "32",
+            "64",
             "--ny",
-            "32",
+            "64",
             "--dt",
             "0.01",
             "--tmax",
-            "200.0",
+            "160.0",
             "--save-stride",
-            "500",
+            "200",
             "--seed",
             "0",
         ],
         cwd=repo_root,
         env=env,
     )
-    shutil.copy2(drb2d_out / "movie.gif", dst_dir / "drb2d_turbulence.gif")
-    _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_turbulence.gif")
+    shutil.copy2(sol_out / "movie.gif", dst_dir / "drb2d_sol_blob.gif")
+    _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_sol_blob.gif")
 
     # 3) DRB2D hot-ion
     hot_out = out_dir / "drb2d_hot_ion"

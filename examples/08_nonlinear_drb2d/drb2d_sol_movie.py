@@ -20,7 +20,6 @@ import jax
 import jax.numpy as jnp
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 import numpy as np
 
 from jaxdrb.analysis.plotting import robust_symmetric_vlim, save_json, set_mpl_style
@@ -57,7 +56,15 @@ def main() -> None:
 
     # LCFS + SOL proxy parameters.
     p.add_argument("--xs-frac", type=float, default=0.6, help="LCFS location x_s / Lx.")
-    p.add_argument("--sol-width", type=float, default=0.08, help="LCFS transition width (in Lx units).")
+    p.add_argument(
+        "--sol-width", type=float, default=0.08, help="LCFS transition width (in Lx units)."
+    )
+    p.add_argument(
+        "--sol-open-left",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Treat x < x_s as the open-field-line side (default).",
+    )
     p.add_argument("--n-core", type=float, default=1.0)
     p.add_argument("--n-sol", type=float, default=0.2)
     p.add_argument("--Te-core", type=float, default=1.0)
@@ -119,6 +126,7 @@ def main() -> None:
         sol_on=True,
         sol_xs=xs,
         sol_width=float(args.sol_width) * float(grid.Lx),
+        sol_open_left=bool(args.sol_open_left),
         sol_n_core=float(args.n_core),
         sol_n_sol=float(args.n_sol),
         sol_Te_core=float(args.Te_core),
@@ -132,14 +140,27 @@ def main() -> None:
     model = DRB2DModel(params=params, grid=grid)
 
     key = jax.random.key(int(args.seed))
-    amp = 5e-3
     shape = (grid.nx, grid.ny)
+    noise = 1e-3 * jax.random.normal(key, shape)
+    x = jnp.asarray(grid.x)[:, None]
+    y = jnp.asarray(grid.y)[None, :]
+    if bool(args.sol_open_left):
+        x0 = xs + 0.12 * float(grid.Lx)
+    else:
+        x0 = xs - 0.12 * float(grid.Lx)
+    y0 = 0.5 * float(grid.Ly)
+    sx = 0.08 * float(grid.Lx)
+    sy = 0.12 * float(grid.Ly)
+    blob = jnp.exp(-((x - x0) ** 2 / (2 * sx**2) + (y - y0) ** 2 / (2 * sy**2)))
+    amp = 2e-2
+    n0 = amp * blob + noise
+    Te0 = 0.5 * amp * blob + noise
     y0 = DRB2DState(
-        n=amp * jax.random.normal(key, shape),
-        omega=amp * jax.random.normal(jax.random.key(int(args.seed) + 1), shape),
-        vpar_e=amp * jax.random.normal(jax.random.key(int(args.seed) + 2), shape),
-        vpar_i=amp * jax.random.normal(jax.random.key(int(args.seed) + 3), shape),
-        Te=amp * jax.random.normal(jax.random.key(int(args.seed) + 4), shape),
+        n=n0,
+        omega=jnp.zeros_like(n0),
+        vpar_e=noise,
+        vpar_i=noise,
+        Te=Te0,
     )
 
     dt = float(args.dt)
@@ -169,7 +190,9 @@ def main() -> None:
     )
     wall = time.time() - t_start
     if wall > float(args.max_wall):
-        print(f"[drb2d-sol-movie] warning: wall time {wall:.1f}s exceeded max-wall={args.max_wall}s")
+        print(
+            f"[drb2d-sol-movie] warning: wall time {wall:.1f}s exceeded max-wall={args.max_wall}s"
+        )
 
     frames = [np.asarray(jax.device_get(sol.ys.n[i])) for i in range(nframes)]
     frames = [np.real(f) if np.iscomplexobj(f) else f for f in frames]
@@ -209,7 +232,12 @@ def main() -> None:
 
     # Diagnostics: radial flux + blob center-of-mass velocity.
     x = np.asarray(grid.x)[:, None]
-    mask_open = (x > xs).astype(float)
+    if bool(args.sol_open_left):
+        mask_open = (x < xs).astype(float)
+        direction = -1.0
+    else:
+        mask_open = (x > xs).astype(float)
+        direction = 1.0
     flux = []
     x_cm = []
     for i in range(nframes):
@@ -217,15 +245,17 @@ def main() -> None:
         n_i = np.asarray(jax.device_get(yi.n[i]))
         phi_i = np.asarray(jax.device_get(model.phi_from_omega(yi.omega[i], n=yi.n[i])))
         vEx = -np.gradient(phi_i, float(grid.dy), axis=1)
-        flux.append(float(np.mean(n_i * vEx * mask_open)))
-        x_cm.append(_blob_center_x(n_i, x, mask_open))
+        n_fluct = n_i - np.mean(n_i)
+        n_pos = np.maximum(n_fluct, 0.0)
+        flux.append(float(direction * np.mean(n_pos * vEx * mask_open)))
+        x_cm.append(float(np.sum(n_pos * x) / (np.sum(n_pos) + 1e-30)))
     flux = np.asarray(flux)
     x_cm = np.asarray(x_cm)
 
     # Fit blob radial velocity over the final third.
     tail = slice(int(2 * len(ts) / 3), None)
     coeffs = np.polyfit(np.asarray(ts)[tail], x_cm[tail], deg=1)
-    v_blob = float(coeffs[0])
+    v_blob = float(direction * coeffs[0])
 
     fig = plt.figure(figsize=(10, 6), constrained_layout=True)
     gs = fig.add_gridspec(2, 2)
@@ -267,4 +297,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

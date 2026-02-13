@@ -110,6 +110,7 @@ class DRB2DParams(eqx.Module):
     sol_on: bool = False
     sol_xs: float = 0.0
     sol_width: float = 0.05
+    sol_open_left: bool = False
     sol_n_core: float = 1.0
     sol_n_sol: float = 0.2
     sol_Te_core: float = 1.0
@@ -265,7 +266,10 @@ class DRB2DModel(eqx.Module):
         xs = float(self.params.sol_xs)
         width = max(float(self.params.sol_width), 1e-6)
         x = self.grid.x[:, None]
-        mask_open = 0.5 * (1.0 + jnp.tanh((x - xs) / width))
+        if self.params.sol_open_left:
+            mask_open = 0.5 * (1.0 - jnp.tanh((x - xs) / width))
+        else:
+            mask_open = 0.5 * (1.0 + jnp.tanh((x - xs) / width))
         mask_closed = 1.0 - mask_open
         return mask_closed, mask_open
 
@@ -328,15 +332,18 @@ class DRB2DModel(eqx.Module):
         sol_sink_vpar = 0.0
         if self.params.sol_on:
             mask_closed, mask_open = self._sol_masks()
-            n_eq = float(self.params.sol_n_sol) + (
-                float(self.params.sol_n_core) - float(self.params.sol_n_sol)
-            ) * mask_closed
-            Te_eq = float(self.params.sol_Te_sol) + (
-                float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)
-            ) * mask_closed
-            relax = float(self.params.sol_relax_core) * mask_closed + float(
-                self.params.sol_relax_open
-            ) * mask_open
+            n_eq = (
+                float(self.params.sol_n_sol)
+                + (float(self.params.sol_n_core) - float(self.params.sol_n_sol)) * mask_closed
+            )
+            Te_eq = (
+                float(self.params.sol_Te_sol)
+                + (float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)) * mask_closed
+            )
+            relax = (
+                float(self.params.sol_relax_core) * mask_closed
+                + float(self.params.sol_relax_open) * mask_open
+            )
             sol_source_n = relax * (n_eq - n)
             sol_source_Te = relax * (Te_eq - Te)
             source = _state_add(
@@ -517,7 +524,19 @@ class DRB2DModel(eqx.Module):
                 + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
             )
         else:
-            phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2
+            if (
+                self.grid.bc.kind_x == 0
+                and self.grid.bc.kind_y == 0
+                and self.params.poisson == "spectral"
+            ):
+                gradphi_x = ddx_spec(phi, self.grid.kx)
+                gradphi_y = ddy_spec(phi, self.grid.ky)
+            else:
+                gradphi_x = ddx_fd(phi, self.grid.dx, self.grid.bc)
+                gradphi_y = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            phi_term = jnp.real(jnp.conj(gradphi_x) * gradphi_x) + jnp.real(
+                jnp.conj(gradphi_y) * gradphi_y
+            )
         return 0.5 * jnp.mean(
             jnp.real(jnp.conj(y.n) * y.n)
             + phi_term
@@ -596,15 +615,18 @@ class DRB2DModel(eqx.Module):
         sol_sink_vpar = 0.0
         if self.params.sol_on:
             mask_closed, mask_open = self._sol_masks()
-            n_eq = float(self.params.sol_n_sol) + (
-                float(self.params.sol_n_core) - float(self.params.sol_n_sol)
-            ) * mask_closed
-            Te_eq = float(self.params.sol_Te_sol) + (
-                float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)
-            ) * mask_closed
-            relax = float(self.params.sol_relax_core) * mask_closed + float(
-                self.params.sol_relax_open
-            ) * mask_open
+            n_eq = (
+                float(self.params.sol_n_sol)
+                + (float(self.params.sol_n_core) - float(self.params.sol_n_sol)) * mask_closed
+            )
+            Te_eq = (
+                float(self.params.sol_Te_sol)
+                + (float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)) * mask_closed
+            )
+            relax = (
+                float(self.params.sol_relax_core) * mask_closed
+                + float(self.params.sol_relax_open) * mask_open
+            )
             sol_source_n = relax * (n_eq - n)
             sol_source_Te = relax * (Te_eq - Te)
             sol_sink_n = -float(self.params.sol_sink_open_n) * mask_open * n
@@ -634,11 +656,7 @@ class DRB2DModel(eqx.Module):
 
         omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
-        diss_n = (
-            float(self.params.Dn) * lap_n
-            - float(self.params.Dn4) * bih_n
-            + sol_sink_n
-        )
+        diss_n = float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n + sol_sink_n
         diss_w = (
             float(self.params.DOmega) * lap_w
             - float(self.params.DOmega4) * bih_w
@@ -650,11 +668,7 @@ class DRB2DModel(eqx.Module):
         )
         diss_ve = diss_ve + sol_sink_vpar * vpar_e
         diss_vi = sol_sink_vpar * vpar_i
-        diss_Te = (
-            float(self.params.DTe) * lap_Te
-            - float(self.params.DTe4) * bih_Te
-            + sol_sink_Te
-        )
+        diss_Te = float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te + sol_sink_Te
 
         if self.params.bc_enforce_nu != 0.0:
             diss_n = diss_n + enforce_bc_relaxation(
