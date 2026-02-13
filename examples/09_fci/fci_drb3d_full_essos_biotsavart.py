@@ -237,9 +237,9 @@ def main() -> None:
     parser.add_argument("--vertical-halfwidth", type=float, default=0.14)
     parser.add_argument("--dl-min", type=float, default=5e-2)
     parser.add_argument("--sheath-model", choices=["simple", "loizu_linear"], default="simple")
-    parser.add_argument("--dt", type=float, default=0.0015)
-    parser.add_argument("--nsteps", type=int, default=160)
-    parser.add_argument("--save-every", type=int, default=8)
+    parser.add_argument("--dt", type=float, default=0.002)
+    parser.add_argument("--nsteps", type=int, default=600)
+    parser.add_argument("--save-every", type=int, default=20)
     args = parser.parse_args()
 
     coils_json = Path(args.coils_json) if args.coils_json else _default_coils_file()

@@ -1,36 +1,22 @@
-"""DRB2D long-time turbulence regression gate.
-
-This gate exists to prevent the DRB2D nonlinear movie/regression cases from silently
-degrading into:
-
-- zonal-collapse (nearly pure ky=0 banded state)
-- laminar/overdamped decay
-- runaway growth / NaNs
-
-The checks here intentionally use *broad bands* rather than a single sharp target,
-because nonlinear turbulence is sensitive to numerics, tolerances, and resolution.
-"""
+#!/usr/bin/env python3
+"""Non-Boussinesq DRB2D long-time turbulence regression gate."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-import sys
 
 import jax
 import jax.numpy as jnp
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-from jaxdrb.analysis.turbulence import (  # noqa: E402
+from jaxdrb.analysis.turbulence import (
     isotropic_power_spectrum_2d,
     spectrum_loglog_slope,
     zonal_fraction_y,
 )
-from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState  # noqa: E402
-from jaxdrb.nonlinear.grid import Grid2D  # noqa: E402
+from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
+from jaxdrb.nonlinear.grid import Grid2D
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,31 +26,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--Lx", type=float, default=2.0 * jnp.pi)
     p.add_argument("--Ly", type=float, default=2.0 * jnp.pi)
     p.add_argument("--dt", type=float, default=1.0e-2)
-    p.add_argument("--tmax", type=float, default=200.0)
-    p.add_argument("--save-every", type=float, default=5.0, help="Save cadence in simulation time.")
+    p.add_argument("--tmax", type=float, default=120.0)
+    p.add_argument("--save-every", type=float, default=4.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--json-out", type=Path, default=None)
-    p.add_argument(
-        "--tail-frac",
-        type=float,
-        default=0.33,
-        help="Fraction of the run used for late-time statistics (e.g. last third).",
-    )
-    p.add_argument(
-        "--tail-max-frames",
-        type=int,
-        default=6,
-        help="Max number of frames used for late-time spectral/zonal statistics.",
-    )
 
-    p.add_argument("--max-abs-tail-dlogE-dt", type=float, default=0.1)
-    p.add_argument("--max-rel-energy-rate-mismatch", type=float, default=0.35)
+    p.add_argument("--max-abs-tail-dlogE-dt", type=float, default=0.25)
     p.add_argument("--min-zonal-frac", type=float, default=0.02)
-    p.add_argument("--max-zonal-frac", type=float, default=0.8)
-    p.add_argument("--min-slope", type=float, default=-6.0)
+    p.add_argument("--max-zonal-frac", type=float, default=0.9)
+    p.add_argument("--min-slope", type=float, default=-7.0)
     p.add_argument("--max-slope", type=float, default=-1.0)
     p.add_argument("--slope-kmin", type=float, default=4.0)
     p.add_argument("--slope-kmax", type=float, default=14.0)
+    p.add_argument("--tail-frac", type=float, default=0.33)
+    p.add_argument("--tail-max-frames", type=int, default=6)
     return p.parse_args()
 
 
@@ -74,35 +49,44 @@ def main() -> None:
 
     grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=float(args.Lx), Ly=float(args.Ly), dealias=False)
     params = DRB2DParams(
-        omega_n=1.0,
-        omega_Te=0.35,
+        omega_n=0.6,
+        omega_Te=0.2,
         kpar=0.0,
         eta=0.0,
         me_hat=0.2,
         curvature_on=True,
-        curvature_coeff=0.7,
-        Dn=3e-3,
-        DOmega=3e-3,
-        DTe=3e-3,
-        Dn4=5e-5,
-        DOmega4=5e-5,
-        DTe4=5e-5,
+        curvature_coeff=0.6,
+        Dn=4e-3,
+        DOmega=4e-3,
+        DTe=4e-3,
+        Dn4=8e-5,
+        DOmega4=8e-5,
+        DTe4=8e-5,
         mu_zonal_omega=0.12,
-        mu_lin_n=0.12,
-        mu_lin_omega=0.35,
-        mu_lin_Te=0.12,
+        mu_lin_n=0.18,
+        mu_lin_omega=0.45,
+        mu_lin_Te=0.18,
+        boussinesq=False,
+        non_boussinesq_perturbed_density_on=True,
+        n0=1.0,
+        n0_min=0.2,
+        n0_max=2.0,
         bracket="arakawa",
-        poisson="spectral",
+        poisson="cg_fd",
         dealias_on=False,
         operator_split_on=True,
         operator_conservative_on=True,
         operator_source_on=True,
         operator_dissipative_on=True,
+        polarization_cg_maxiter=260,
+        polarization_cg_tol=5e-6,
+        polarization_preconditioner="spectral_jacobi",
+        polarization_precond_shift=1e-6,
     )
     model = DRB2DModel(params=params, grid=grid)
 
     key = jax.random.key(int(args.seed))
-    amp = 6e-3
+    amp = 4e-3
     shape = (grid.nx, grid.ny)
     y0 = DRB2DState(
         n=amp * jax.random.normal(key, shape),
@@ -128,9 +112,8 @@ def main() -> None:
         progress=False,
     )
 
-    # Basic NaN guard.
-    omega_ts = sol.ys.omega
-    finite_ok = bool(jnp.all(jnp.isfinite(jnp.real(omega_ts))))
+    omega_ts = jnp.real(sol.ys.omega)
+    finite_ok = bool(jnp.all(jnp.isfinite(omega_ts)))
 
     E = jax.vmap(model.energy)(sol.ys)
     E = jnp.real(E)
@@ -139,14 +122,12 @@ def main() -> None:
     tail = slice(int(2 * dlogE_dt.size / 3), None)
     tail_mean = jnp.mean(dlogE_dt[tail])
 
-    omega_ts = jnp.real(omega_ts)
     nframes = int(omega_ts.shape[0])
     tail_start = int((1.0 - float(args.tail_frac)) * nframes)
     tail_start = max(0, min(tail_start, nframes - 1))
     tail_idx = jnp.arange(tail_start, nframes)
     if int(tail_idx.size) == 0:
         tail_idx = jnp.asarray([nframes - 1])
-    # Subsample tail frames to keep the gate fast and stable.
     max_frames = max(1, int(args.tail_max_frames))
     if int(tail_idx.size) > max_frames:
         pick = jnp.linspace(0, tail_idx.size - 1, max_frames)
@@ -157,8 +138,6 @@ def main() -> None:
         return w - jnp.mean(w)
 
     zonal_vals = jnp.asarray([zonal_fraction_y(_omega_fluct(i)) for i in tail_idx])
-
-    # Use the vorticity spectrum as the regression metric (robust on coarse grids).
     slopes = []
     for i in tail_idx:
         w = _omega_fluct(i)
@@ -174,39 +153,19 @@ def main() -> None:
     slope = jnp.mean(jnp.asarray(slopes))
     zonal = jnp.mean(zonal_vals)
 
-    # Energy-rate closure over the tail frames.
-    dE_dt_fd = jnp.gradient(E, ts)
-    energy_rates = []
-    for i in tail_idx:
-        yi = DRB2DState(
-            n=sol.ys.n[i],
-            omega=sol.ys.omega[i],
-            vpar_e=sol.ys.vpar_e[i],
-            vpar_i=sol.ys.vpar_i[i],
-            Te=sol.ys.Te[i],
-        )
-        dyi = model.rhs(float(ts[i]), yi)
-        energy_rates.append(float(model.energy_rate(yi, dyi)))
-    energy_rates = jnp.asarray(energy_rates)
-    rel_energy_rate_mismatch = jnp.sqrt(jnp.mean((dE_dt_fd[tail_idx] - energy_rates) ** 2)) / (
-        jnp.sqrt(jnp.mean(energy_rates**2)) + 1e-12
-    )
-
     metrics = {
         "finite_ok": bool(finite_ok),
         "tail_mean_dlogE_dt": float(tail_mean),
         "zonal_fraction": float(zonal),
         "spectrum_slope": float(slope),
-        "rel_energy_rate_mismatch": float(rel_energy_rate_mismatch),
         "tail_frames": int(tail_idx.size),
     }
     print(
-        "[drb2d-turbulence-gate] "
+        "[drb2d-nonbouss-gate] "
         f"finite={metrics['finite_ok']} "
         f"tail_mean_dlogE_dt={metrics['tail_mean_dlogE_dt']:.3e} "
         f"zonal={metrics['zonal_fraction']:.3f} "
-        f"slope={metrics['spectrum_slope']:.2f}",
-        flush=True,
+        f"slope={metrics['spectrum_slope']:.2f}"
     )
 
     if args.json_out is not None:
@@ -236,14 +195,10 @@ def main() -> None:
             f"spectrum_slope={metrics['spectrum_slope']:.2f} not in "
             f"[{float(args.min_slope):.2f},{float(args.max_slope):.2f}]"
         )
-    if metrics["rel_energy_rate_mismatch"] > float(args.max_rel_energy_rate_mismatch):
-        failures.append(
-            "rel_energy_rate_mismatch="
-            f"{metrics['rel_energy_rate_mismatch']:.3e} > {float(args.max_rel_energy_rate_mismatch):.3e}"
-        )
     if failures:
         raise SystemExit(" | ".join(failures))
 
 
 if __name__ == "__main__":
     main()
+

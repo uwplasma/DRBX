@@ -51,6 +51,7 @@ class DRB2DParams(eqx.Module):
     boussinesq: bool = True
     n0: float = 1.0
     n0_min: float = 1e-6
+    n0_max: float | None = None
     non_boussinesq_perturbed_density_on: bool = False
 
     # Dissipation.
@@ -90,6 +91,8 @@ class DRB2DParams(eqx.Module):
     polarization_cg_maxiter: int = 400
     polarization_cg_tol: float = 1e-8
     polarization_cg_atol: float = 0.0
+    polarization_preconditioner: str = "auto"
+    polarization_precond_shift: float = 1e-12
 
     # Thermal-force coefficient in Ohm's law.
     alpha_Te_ohm: float = 1.71
@@ -102,6 +105,21 @@ class DRB2DParams(eqx.Module):
 
     # Optional neutral coupling (plasma-neutral exchange).
     neutrals: NeutralParams = NeutralParams()
+
+    # Optional SOL-like closed→open radial setup (LCFS at fixed x = x_s).
+    sol_on: bool = False
+    sol_xs: float = 0.0
+    sol_width: float = 0.05
+    sol_n_core: float = 1.0
+    sol_n_sol: float = 0.2
+    sol_Te_core: float = 1.0
+    sol_Te_sol: float = 0.2
+    sol_relax_core: float = 0.2
+    sol_relax_open: float = 0.6
+    sol_sink_open_n: float = 0.0
+    sol_sink_open_Te: float = 0.0
+    sol_sink_open_omega: float = 0.0
+    sol_sink_open_vpar: float = 0.0
 
 
 class DRB2DState(eqx.Module):
@@ -172,11 +190,16 @@ class DRB2DModel(eqx.Module):
         if self.params.non_boussinesq_perturbed_density_on:
             n_eff = n_eff + jnp.real(jnp.asarray(n))
         n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-        precond = (
-            "spectral_jacobi"
-            if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0)
-            else "jacobi"
-        )
+        if self.params.n0_max is not None:
+            n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
+        if self.params.polarization_preconditioner == "auto":
+            precond = (
+                "spectral_jacobi"
+                if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0)
+                else "jacobi"
+            )
+        else:
+            precond = self.params.polarization_preconditioner
         return inv_div_n_grad_cg(
             omega,
             n_coeff=n_eff,
@@ -187,6 +210,7 @@ class DRB2DModel(eqx.Module):
             tol=float(self.params.polarization_cg_tol),
             atol=float(self.params.polarization_cg_atol),
             preconditioner=precond,
+            preconditioner_shift=float(self.params.polarization_precond_shift),
         )
 
     def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
@@ -233,6 +257,17 @@ class DRB2DModel(eqx.Module):
         else:
             df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
         return -float(self.params.curvature_coeff) * df_dy
+
+    def _sol_masks(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+        if not self.params.sol_on:
+            z = jnp.zeros((self.grid.nx, self.grid.ny), dtype=self.grid.x.dtype)
+            return z, 1.0 - z
+        xs = float(self.params.sol_xs)
+        width = max(float(self.params.sol_width), 1e-6)
+        x = self.grid.x[:, None]
+        mask_open = 0.5 * (1.0 + jnp.tanh((x - xs) / width))
+        mask_closed = 1.0 - mask_open
+        return mask_closed, mask_open
 
     def rhs_decomposed(self, t: float, y: DRB2DState) -> DRB2DDecomposition:
         _ = t
@@ -285,6 +320,40 @@ class DRB2DModel(eqx.Module):
             Te=drive_Te + C_T,
         )
 
+        # Closed→open SOL setup: relax n, Te toward prescribed profiles and apply
+        # open-side damping terms. This provides a simple LCFS model in a periodic box.
+        sol_sink_n = 0.0
+        sol_sink_Te = 0.0
+        sol_sink_omega = 0.0
+        sol_sink_vpar = 0.0
+        if self.params.sol_on:
+            mask_closed, mask_open = self._sol_masks()
+            n_eq = float(self.params.sol_n_sol) + (
+                float(self.params.sol_n_core) - float(self.params.sol_n_sol)
+            ) * mask_closed
+            Te_eq = float(self.params.sol_Te_sol) + (
+                float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)
+            ) * mask_closed
+            relax = float(self.params.sol_relax_core) * mask_closed + float(
+                self.params.sol_relax_open
+            ) * mask_open
+            sol_source_n = relax * (n_eq - n)
+            sol_source_Te = relax * (Te_eq - Te)
+            source = _state_add(
+                source,
+                DRB2DState(
+                    n=sol_source_n,
+                    omega=jnp.zeros_like(omega),
+                    vpar_e=jnp.zeros_like(vpar_e),
+                    vpar_i=jnp.zeros_like(vpar_i),
+                    Te=sol_source_Te,
+                ),
+            )
+            sol_sink_n = -float(self.params.sol_sink_open_n) * mask_open * n
+            sol_sink_Te = -float(self.params.sol_sink_open_Te) * mask_open * Te
+            sol_sink_omega = -float(self.params.sol_sink_open_omega) * mask_open * omega
+            sol_sink_vpar = -float(self.params.sol_sink_open_vpar) * mask_open
+
         if (
             self.grid.bc.kind_x == 0
             and self.grid.bc.kind_y == 0
@@ -309,18 +378,22 @@ class DRB2DModel(eqx.Module):
         dissipative = DRB2DState(
             n=float(self.params.Dn) * lap_n
             - float(self.params.Dn4) * bih_n
-            - float(self.params.mu_lin_n) * n,
+            - float(self.params.mu_lin_n) * n
+            + sol_sink_n,
             omega=float(self.params.DOmega) * lap_w
             - float(self.params.DOmega4) * bih_w
             - float(self.params.mu_zonal_omega) * omega_zonal
-            - float(self.params.mu_lin_omega) * omega,
+            - float(self.params.mu_lin_omega) * omega
+            + sol_sink_omega,
             vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
             * (vpar_e - vpar_i)
-            - float(self.params.mu_lin_vpar_e) * vpar_e,
-            vpar_i=-float(self.params.mu_lin_vpar_i) * vpar_i,
+            - float(self.params.mu_lin_vpar_e) * vpar_e
+            + sol_sink_vpar * vpar_e,
+            vpar_i=-float(self.params.mu_lin_vpar_i) * vpar_i + sol_sink_vpar * vpar_i,
             Te=float(self.params.DTe) * lap_Te
             - float(self.params.DTe4) * bih_Te
-            - float(self.params.mu_lin_Te) * Te,
+            - float(self.params.mu_lin_Te) * Te
+            + sol_sink_Te,
             N=None,
         )
 
@@ -515,6 +588,30 @@ class DRB2DModel(eqx.Module):
             drive_n = -float(self.params.omega_n) * dphi_dy
             drive_Te = -float(self.params.omega_Te) * dphi_dy
 
+        sol_source_n = 0.0
+        sol_source_Te = 0.0
+        sol_sink_n = 0.0
+        sol_sink_Te = 0.0
+        sol_sink_omega = 0.0
+        sol_sink_vpar = 0.0
+        if self.params.sol_on:
+            mask_closed, mask_open = self._sol_masks()
+            n_eq = float(self.params.sol_n_sol) + (
+                float(self.params.sol_n_core) - float(self.params.sol_n_sol)
+            ) * mask_closed
+            Te_eq = float(self.params.sol_Te_sol) + (
+                float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)
+            ) * mask_closed
+            relax = float(self.params.sol_relax_core) * mask_closed + float(
+                self.params.sol_relax_open
+            ) * mask_open
+            sol_source_n = relax * (n_eq - n)
+            sol_source_Te = relax * (Te_eq - Te)
+            sol_sink_n = -float(self.params.sol_sink_open_n) * mask_open * n
+            sol_sink_Te = -float(self.params.sol_sink_open_Te) * mask_open * Te
+            sol_sink_omega = -float(self.params.sol_sink_open_omega) * mask_open * omega
+            sol_sink_vpar = -float(self.params.sol_sink_open_vpar) * mask_open
+
         # Dissipation.
         if (
             self.grid.bc.kind_x == 0
@@ -537,17 +634,27 @@ class DRB2DModel(eqx.Module):
 
         omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
-        diss_n = float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n
+        diss_n = (
+            float(self.params.Dn) * lap_n
+            - float(self.params.Dn4) * bih_n
+            + sol_sink_n
+        )
         diss_w = (
             float(self.params.DOmega) * lap_w
             - float(self.params.DOmega4) * bih_w
             - float(self.params.mu_zonal_omega) * omega_zonal
+            + sol_sink_omega
         )
         diss_ve = -(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12)) * (
             vpar_e - vpar_i
         )
-        diss_vi = jnp.zeros_like(vpar_i)
-        diss_Te = float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te
+        diss_ve = diss_ve + sol_sink_vpar * vpar_e
+        diss_vi = sol_sink_vpar * vpar_i
+        diss_Te = (
+            float(self.params.DTe) * lap_Te
+            - float(self.params.DTe4) * bih_Te
+            + sol_sink_Te
+        )
 
         if self.params.bc_enforce_nu != 0.0:
             diss_n = diss_n + enforce_bc_relaxation(
@@ -604,6 +711,27 @@ class DRB2DModel(eqx.Module):
                 Te=drive_Te,
             ),
         )
+        if self.params.sol_on:
+            edot_sol_relax = self.energy_rate(
+                y,
+                DRB2DState(
+                    n=sol_source_n,
+                    omega=jnp.zeros_like(omega),
+                    vpar_e=jnp.zeros_like(vpar_e),
+                    vpar_i=jnp.zeros_like(vpar_i),
+                    Te=sol_source_Te,
+                ),
+            )
+            edot_sol_sink = self.energy_rate(
+                y,
+                DRB2DState(
+                    n=sol_sink_n,
+                    omega=sol_sink_omega,
+                    vpar_e=sol_sink_vpar * vpar_e,
+                    vpar_i=sol_sink_vpar * vpar_i,
+                    Te=sol_sink_Te,
+                ),
+            )
         edot_diss = self.energy_rate(
             y,
             DRB2DState(n=diss_n, omega=diss_w, vpar_e=diss_ve, vpar_i=diss_vi, Te=diss_Te),
@@ -616,6 +744,9 @@ class DRB2DModel(eqx.Module):
             "E_dot_drive": edot_drive,
             "E_dot_diss": edot_diss,
         }
+        if self.params.sol_on:
+            out["E_dot_sol_relax"] = edot_sol_relax
+            out["E_dot_sol_sink"] = edot_sol_sink
         if y.N is not None and self.params.neutrals.enabled:
             if (
                 self.grid.bc.kind_x == 0
@@ -661,6 +792,8 @@ class DRB2DModel(eqx.Module):
             + out["E_dot_curvature"]
             + out["E_dot_drive"]
             + out["E_dot_diss"]
+            + out.get("E_dot_sol_relax", 0.0)
+            + out.get("E_dot_sol_sink", 0.0)
             + out.get("E_dot_neutrals", 0.0)
         )
         return out

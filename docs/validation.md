@@ -287,6 +287,7 @@ See:
 - Example: `examples/09_fci/fci_drb3d_full_multiphysics_sheath.py`
 - Example: `examples/09_fci/fci_drb3d_full_essos_biotsavart.py`
 - CI benchmark: `benchmarks/check_fci_drb3d_full_multiphysics_gate.py`
+- CI benchmark: `benchmarks/check_fci_drb3d_essos_biotsavart_gate.py`
 
 Example output:
 
@@ -462,6 +463,20 @@ their split/full RHS parity is enforced with energy-rate consistency checks:
 ![DRB2D hot-ion energy budget](assets/images/drb2d_energy_budget_hot_ion.png)
 ![DRB2D EM energy budget](assets/images/drb2d_energy_budget_em.png)
 
+### DRB2D long-time turbulence-statistics gate
+
+To prevent nonlinear regressions that only appear after the transient phase,
+`jaxdrb` includes a **late-time turbulence-statistics gate**. The gate enforces:
+
+- bounded late-time growth (mean $d\ln E/dt$ on a tail window),
+- nontrivial zonal fraction (avoids zonal-collapse),
+- spectral slope within a broad inertial-range band, and
+- energy-rate closure (RMS mismatch between $dE/dt$ and the budget RHS over tail frames).
+
+CI benchmark:
+
+- `benchmarks/check_drb2d_turbulence_stats_gate.py`
+
 ## DRB2D non-Boussinesq polarization gate
 
 The non-Boussinesq DRB2D branch is enabled behind a toggle and validated via:
@@ -473,6 +488,10 @@ Test + example:
 
 - test: `tests/test_drb2d_nonbouss_gate.py`
 - example: `examples/08_nonlinear_drb2d/drb2d_nonbouss_gate.py`
+
+Long-time regression gate:
+
+- `benchmarks/check_drb2d_nonbouss_turbulence_gate.py`
 
 ![DRB2D non-Boussinesq energy](assets/images/drb2d_nonbouss_energy.png)
 
@@ -491,6 +510,15 @@ silently degrades the dynamics and resulting figures. We enforce a simple zonal 
 fraction gate to prevent regressions:
 
 - test: `tests/test_drb2d_zonal_collapse_gate.py`
+
+### DRB2D SOL closed→open (LCFS) blob-transport gate
+
+A dedicated SOL proxy validates **closed→open radial transport** by imposing a fixed LCFS
+$x=x_s$, relaxing toward core profiles on the closed side, and applying sheath-like sinks
+on the open side. The gate verifies outward blob motion and positive mean radial flux:
+
+- example: `examples/08_nonlinear_drb2d/drb2d_sol_movie.py`
+- CI benchmark: `benchmarks/check_drb2d_sol_blob_gate.py`
 ### DRB2D limit checks (HW2D + curvature)
 
 Two additional checks anchor the DRB2D testbed to known limits:

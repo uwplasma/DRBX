@@ -37,7 +37,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--x64",
-        default=False,
+        default=True,
         action=argparse.BooleanOptionalAction,
         help="Enable float64 in JAX (slower but more robust).",
     )
@@ -85,6 +85,9 @@ def main() -> None:
     )
     p.add_argument("--pol-cg-maxiter", type=int, default=220)
     p.add_argument("--pol-cg-tol", type=float, default=5e-6)
+    p.add_argument("--pol-precond", type=str, default="spectral_jacobi")
+    p.add_argument("--pol-precond-shift", type=float, default=1e-6)
+    p.add_argument("--n0-max", type=float, default=2.0)
 
     args = p.parse_args()
     jax.config.update("jax_enable_x64", bool(args.x64))
@@ -115,6 +118,7 @@ def main() -> None:
         non_boussinesq_perturbed_density_on=True,
         n0=float(args.n0),
         n0_min=float(args.n0_min),
+        n0_max=None if args.n0_max is None else float(args.n0_max),
         bracket="arakawa",
         poisson="cg_fd",
         dealias_on=False,
@@ -124,6 +128,8 @@ def main() -> None:
         operator_dissipative_on=True,
         polarization_cg_maxiter=int(args.pol_cg_maxiter),
         polarization_cg_tol=float(args.pol_cg_tol),
+        polarization_preconditioner=str(args.pol_precond),
+        polarization_precond_shift=float(args.pol_precond_shift),
     )
     model = DRB2DModel(params=params, grid=grid)
 
