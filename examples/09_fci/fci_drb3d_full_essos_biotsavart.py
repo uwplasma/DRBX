@@ -28,6 +28,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 import matplotlib.pyplot as plt
 
 from jaxdrb.analysis.plotting import set_mpl_style
+from jaxdrb.bc import BC2D
 from jaxdrb.fci.builder import (
     EssosToroidalFCIConfig,
     build_fci_maps_essos_toroidal_planes,
@@ -100,6 +101,7 @@ def make_model_from_essos(
     vertical_halfwidth: float,
     dl_min: float,
     sheath_model: str,
+    stable_gate: bool = False,
 ) -> tuple[FCIDRB3DFullModel, FCIDRB3DFullState, dict[str, float]]:
     from essos.coils import Coils_from_json  # type: ignore
     from essos.fields import BiotSavart  # type: ignore
@@ -152,59 +154,98 @@ def make_model_from_essos(
         cell_centered=True,
     )
 
-    params = FCIDRB3DFullParams(
-        omega_n=0.06,
-        omega_Te=0.03,
-        omega_Ti=0.02,
-        kappa=0.08,
-        alpha=0.03,
-        eta_par=0.03,
-        me_hat=0.5,
-        Dn=1.2e-3,
-        DOmega=1.6e-3,
-        Dvpar=1.2e-3,
-        DTe=1.2e-3,
-        DTi=1.2e-3,
-        Dpsi=1.0e-3,
-        chi_par=1.2e-3,
-        hot_ion_on=True,
-        tau_i=0.6,
-        em_on=True,
-        beta=0.02,
-        neutrals_on=True,
-        neutrals=NeutralParams(
-            enabled=True,
-            Dn0=6e-4,
-            nu_ion=1.0e-3,
-            nu_rec=8.0e-4,
-            n_background=0.2,
-            nu_cx_omega=1.0e-3,
-        ),
-        sheath_on=True,
-        sheath_bc_model=sheath_model,
-        sheath_nu_mom=0.22,
-        sheath_nu_particle=0.08,
-        sheath_nu_energy=0.05,
-        sheath_gamma_e=3.2,
-        sheath_gamma_i=3.0,
-        bracket="arakawa",
-        perp_operator="fd",
-    )
+    if stable_gate:
+        params = FCIDRB3DFullParams(
+            omega_n=0.0,
+            omega_Te=0.0,
+            omega_Ti=0.0,
+            kappa=0.0,
+            alpha=0.0,
+            eta_par=0.0,
+            me_hat=0.5,
+            Dn=1.0e-2,
+            DOmega=1.0e-2,
+            Dvpar=1.0e-2,
+            DTe=1.0e-2,
+            DTi=1.0e-2,
+            Dpsi=1.0e-2,
+            chi_par=1.0e-2,
+            hot_ion_on=False,
+            tau_i=0.6,
+            em_on=False,
+            beta=0.0,
+            neutrals_on=False,
+            neutrals=NeutralParams(enabled=False),
+            sheath_on=True,
+            sheath_bc_model=sheath_model,
+            sheath_nu_mom=0.3,
+            sheath_nu_particle=0.12,
+            sheath_nu_energy=0.08,
+            sheath_gamma_e=3.2,
+            sheath_gamma_i=3.0,
+            bracket="arakawa",
+            perp_operator="fd",
+            perp_bc=BC2D.dirichlet(),
+            perp_bc_nu=0.1,
+        )
+        amp = 2.0e-5
+    else:
+        params = FCIDRB3DFullParams(
+            omega_n=0.06,
+            omega_Te=0.03,
+            omega_Ti=0.02,
+            kappa=0.08,
+            alpha=0.03,
+            eta_par=0.03,
+            me_hat=0.5,
+            Dn=1.2e-3,
+            DOmega=1.6e-3,
+            Dvpar=1.2e-3,
+            DTe=1.2e-3,
+            DTi=1.2e-3,
+            Dpsi=1.0e-3,
+            chi_par=1.2e-3,
+            hot_ion_on=True,
+            tau_i=0.6,
+            em_on=True,
+            beta=0.02,
+            neutrals_on=True,
+            neutrals=NeutralParams(
+                enabled=True,
+                Dn0=6e-4,
+                nu_ion=1.0e-3,
+                nu_rec=8.0e-4,
+                n_background=0.2,
+                nu_cx_omega=1.0e-3,
+            ),
+            sheath_on=True,
+            sheath_bc_model=sheath_model,
+            sheath_nu_mom=0.22,
+            sheath_nu_particle=0.08,
+            sheath_nu_energy=0.05,
+            sheath_gamma_e=3.2,
+            sheath_gamma_i=3.0,
+            bracket="arakawa",
+            perp_operator="fd",
+        )
+        amp = 4.0e-4
     model = FCIDRB3DFullModel(params=params, grid=grid)
 
     shape = (grid.nz, grid.nx, grid.ny)
     key = jax.random.key(503)
     k = jax.random.split(key, 8)
-    amp = 4e-4
+    hot_on = bool(params.hot_ion_on)
+    em_on = bool(params.em_on)
+    neut_on = bool(params.neutrals_on and params.neutrals.enabled)
     y0 = FCIDRB3DFullState(
         n=amp * jax.random.normal(k[0], shape),
         omega=amp * jax.random.normal(k[1], shape),
         vpar_e=amp * jax.random.normal(k[2], shape),
         vpar_i=amp * jax.random.normal(k[3], shape),
         Te=amp * jax.random.normal(k[4], shape),
-        Ti=amp * jax.random.normal(k[5], shape),
-        psi=amp * jax.random.normal(k[6], shape),
-        N=0.02 + amp * jax.random.normal(k[7], shape),
+        Ti=amp * jax.random.normal(k[5], shape) if hot_on else None,
+        psi=amp * jax.random.normal(k[6], shape) if em_on else None,
+        N=0.02 + amp * jax.random.normal(k[7], shape) if neut_on else None,
     )
     meta = {
         "R_axis_est": float(R_axis),
