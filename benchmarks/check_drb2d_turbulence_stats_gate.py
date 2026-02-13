@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--Ly", type=float, default=2.0 * jnp.pi)
     p.add_argument("--dt", type=float, default=1.0e-2)
     p.add_argument("--tmax", type=float, default=200.0)
-    p.add_argument("--save-every", type=float, default=5.0, help="Save cadence in simulation time.")
+    p.add_argument("--save-every", type=float, default=1.0, help="Save cadence in simulation time.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--json-out", type=Path, default=None)
     p.add_argument(

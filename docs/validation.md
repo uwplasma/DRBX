@@ -257,6 +257,7 @@ Before adopting a full FCI nonlinear SOL model, the *geometry-agnostic* building
 - full 3D slab DRB milestone gates (5-field conservative/split parity + wall-BC + long-time regression).
 - full 3D slab DRB target/sheath budget coupling with hot-ion/EM/neutrals toggles.
 - ESSOS Biot-Savart toroidal-plane map workflow sanity checks for the full DRB3D branch.
+- ESSOS Biot-Savart full-branch stability gate (finite RHS at $t=0$, bounded drift over $O(1)$ time).
 
 See:
 
@@ -477,6 +478,10 @@ CI benchmark:
 
 - `benchmarks/check_drb2d_turbulence_stats_gate.py`
 
+Notes:
+
+- The CI configuration uses `--save-every 1.0` to stabilize the energy-rate closure metric.
+
 ## DRB2D non-Boussinesq polarization gate
 
 The non-Boussinesq DRB2D branch is enabled behind a toggle and validated via:
@@ -492,6 +497,12 @@ Test + example:
 Long-time regression gate:
 
 - `benchmarks/check_drb2d_nonbouss_turbulence_gate.py`
+
+The gate enforces:
+
+- bounded late-time growth (mean $d\ln E/dt$ on a tail window),
+- nontrivial fluctuation level (tail-averaged RMS of $\Omega - \langle \Omega \rangle$),
+- bounded zonal fraction (avoids zonal-collapse in the non-Boussinesq branch).
 
 ![DRB2D non-Boussinesq energy](assets/images/drb2d_nonbouss_energy.png)
 
@@ -519,6 +530,10 @@ on the open side. The gate verifies outward blob motion and positive mean radial
 
 - example: `examples/08_nonlinear_drb2d/drb2d_sol_movie.py`
 - CI benchmark: `benchmarks/check_drb2d_sol_blob_gate.py`
+
+Notes:
+
+- The gate seeds a Gaussian blob near the LCFS to enforce measurable outward motion.
 ### DRB2D limit checks (HW2D + curvature)
 
 Two additional checks anchor the DRB2D testbed to known limits:
