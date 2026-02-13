@@ -477,8 +477,8 @@ def build_fci_maps_essos_toroidal_planes(
     tgt_bwd = _stack(arrays_bwd, 8)
 
     dl_floor = float(dl_min)
-    dl_fwd = np.maximum(dl_fwd, dl_floor)
-    dl_bwd = np.maximum(dl_bwd, dl_floor)
+    dl_fwd = np.where(np.isfinite(dl_fwd), np.maximum(dl_fwd, dl_floor), dl_floor)
+    dl_bwd = np.where(np.isfinite(dl_bwd), np.maximum(dl_bwd, dl_floor), dl_floor)
     dl_hit_fwd = np.where(np.isfinite(dl_hit_fwd), np.maximum(dl_hit_fwd, dl_floor), dl_hit_fwd)
     dl_hit_bwd = np.where(np.isfinite(dl_hit_bwd), np.maximum(dl_hit_bwd, dl_floor), dl_hit_bwd)
 
