@@ -392,6 +392,7 @@ def inv_div_n_grad_cg(
     tol: float = 1e-10,
     atol: float = 0.0,
     preconditioner: str = "jacobi",
+    preconditioner_shift: float = 1e-12,
     gauge_epsilon: float | None = None,
     nan_guard: bool = True,
     n_floor: float = 1e-12,
@@ -453,7 +454,7 @@ def inv_div_n_grad_cg(
             # Symmetric SPD preconditioner:
             #     M ≈ D^{-1/2} (nbar * -Δ)^{-1} D^{-1/2}
             # where D is the diagonal of the variable-coefficient operator.
-            inv_sqrt_diag = 1.0 / jnp.sqrt(jnp.maximum(diag, 1e-14))
+            inv_sqrt_diag = 1.0 / jnp.sqrt(jnp.maximum(diag + float(preconditioner_shift), 1e-14))
             spectral = _spectral_M(shape=shape, nbar=nbar, dx_eff=dx, dy_eff=dy)
 
             def M(v_flat):
