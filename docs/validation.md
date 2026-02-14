@@ -519,6 +519,22 @@ The analysis panel reports energy/enstrophy decay, spectra, and vorticity PDFs.
 
 ![DRB2D Kelvin–Helmholtz analysis panel](assets/images/drb2d_kh_analysis_panel.png)
 
+### DRB2D Hermes-2 blob2d proxy (open-field-line interchange)
+
+We anchor a 2D SOL proxy to the Hermes-2 `blob2d` example (`hermes-2/blob2d/BOUT.inp`),
+which evolves a Gaussian density/pressure blob on open field lines with curvature drive
+(`bxcvz = 1/R^2`, $R=1.5$ m). The DRB2D configuration reproduces the same normalized
+initial condition (Ne/Pe perturbation) and domain sizes ($L_{rad}=L_{pol}=0.3$ m). For
+fast, reproducible runs on reduced grids we use periodic boundaries with linear damping
+to emulate parallel losses, set the curvature sign so outward drift is $+x$, and track
+outward blob motion plus radial $n' v_{E\times B}$ flux.
+
+- test: `tests/test_hermes2_blob2d.py`
+- example: `examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py`
+- CI benchmark: `benchmarks/check_drb2d_hermes2_blob_gate.py`
+
+![DRB2D Hermes-2 blob2d panel](assets/images/drb2d_hermes2_blob2d_panel.png)
+
 ### DRB2D neutrals exchange invariants
 
 The neutral exchange module now applies to DRB2D. We verify that ionization/recombination

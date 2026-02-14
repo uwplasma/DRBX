@@ -111,6 +111,10 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 | --- | --- | --- |
 | <img src="examples/assets/readme/hw2d_turbulence.gif" width="360" height="270" /> | <img src="examples/assets/readme/drb2d_kh.gif" width="360" height="270" /> | <img src="examples/assets/readme/drb2d_hot_ion_turbulence.gif" width="360" height="270" /> |
 
+| DRB2D Hermes-2 blob2d proxy |
+| --- |
+| <img src="examples/assets/readme/drb2d_hermes2_blob.gif" width="360" height="270" /> |
+
 | FCI/DRB3D (periodic milestone) | FCI/DRB3D (target/sheath milestone) |
 | --- | --- |
 | <img src="examples/assets/readme/fci_drb3d_periodic_turbulence.gif" width="360" height="270" /> | <img src="examples/assets/readme/fci_drb3d_sheath_turbulence.gif" width="360" height="270" /> |
@@ -120,6 +124,9 @@ velocity profile (see `docs/references.md`). It demonstrates roll-up, vortex mer
 secondary instabilities in the 2D incompressible vorticity limit. The run uses periodic
 boundaries, a small viscosity, weak hyperdiffusion, and a low-amplitude stochastic
 vorticity forcing to maintain small-scale activity on a coarse grid.
+The Hermes-2 blob2d proxy mirrors the Hermes `blob2d` example (open field lines,
+Gaussian density/pressure blob, curvature drive) and is intended as a short,
+Hermes-anchored 2D SOL benchmark.
 
 To regenerate the README movies locally:
 
@@ -221,6 +228,12 @@ Make a short KH (Kelvin–Helmholtz) DRB2D movie (GIF):
 
 ```bash
 python examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py --gif --out out_drb2d_kh
+```
+
+Make a Hermes-2 blob2d proxy DRB2D movie (GIF):
+
+```bash
+python examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py --gif --out out_drb2d_hermes2_blob
 ```
 
 ## Model at a glance (linear flux-tube form)

@@ -94,6 +94,14 @@ jobs:
             --max-enstrophy-ratio 0.97 \
             --json-out out/ci/drb2d_kh_gate.json
 
+      - name: Physics gate (DRB2D Hermes-2 blob2d)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_hermes2_blob_gate.py \
+            --min-dx-cm 0.01 \
+            --min-mean-flux 1.0e-10 \
+            --json-out out/ci/drb2d_hermes2_blob_gate.json
+
       - name: Physics gate (DRB2D SOL blob transport)
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |

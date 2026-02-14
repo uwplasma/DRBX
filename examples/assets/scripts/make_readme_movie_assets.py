@@ -151,7 +151,28 @@ def main() -> None:
     shutil.copy2(kh_out / "kh_vorticity.gif", dst_dir / "drb2d_kh.gif")
     _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_kh.gif")
 
-    # 3) DRB2D hot-ion
+    # 3) DRB2D Hermes-2 blob2d proxy
+    hermes_out = out_dir / "drb2d_hermes2_blob"
+    _run(
+        [
+            sys.executable,
+            str(repo_root / "examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py"),
+            "--out",
+            str(hermes_out),
+            "--gif",
+            "--no-analysis",
+            "--tmax",
+            "12.0",
+            "--save-stride",
+            "16",
+        ],
+        cwd=repo_root,
+        env=env,
+    )
+    shutil.copy2(hermes_out / "hermes2_blob2d.gif", dst_dir / "drb2d_hermes2_blob.gif")
+    _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_hermes2_blob.gif")
+
+    # 4) DRB2D hot-ion
     hot_out = out_dir / "drb2d_hot_ion"
     _run(
         [
@@ -181,7 +202,7 @@ def main() -> None:
     shutil.copy2(hot_out / "movie.gif", dst_dir / "drb2d_hot_ion_turbulence.gif")
     _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_hot_ion_turbulence.gif")
 
-    # 4) FCI/DRB3D (true 3D toroidal geometry): periodic + open-field-line variants.
+    # 5) FCI/DRB3D (true 3D toroidal geometry): periodic + open-field-line variants.
     #
     # These are minimal (n, Omega) runs intended to demonstrate the toroidal-plane mapping
     # and 3D rendering in a short, robust example. For the full multiphysics DRB3D branch

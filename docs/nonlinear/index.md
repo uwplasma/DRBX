@@ -95,3 +95,12 @@ incompressible vorticity limit (curvature/parallel/drives disabled) and initiali
 double shear-layer profile with a small sinusoidal perturbation. The resulting movie shows
 KH roll-up, vortex merging, and secondary instabilities, providing a compact nonlinear
 advection benchmark for the conservative bracket and Poisson solve.
+
+## Hermes-2 blob2d proxy (open-field-line interchange)
+
+`examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py` reproduces the Hermes-2 `blob2d`
+configuration in a 2D DRB2D setting: Gaussian density/pressure blob and curvature drive
+(`bxcvz = 1/R^2`, $R=1.5$ m). The defaults normalize the domain so $L_{rad}=L_{pol}=0.3$ m
+maps to $L_x=L_y=1$ and use periodic boundaries with linear damping to emulate open-field-line
+losses on a reduced grid. The benchmark tracks outward blob motion and radial flux over a
+short, reproducible run.
