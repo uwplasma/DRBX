@@ -86,6 +86,14 @@ jobs:
             --slope-kmax 14.0 \
             --json-out out/ci/drb2d_turbulence_gate.json
 
+      - name: Physics gate (DRB2D Kelvin-Helmholtz)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_kh_gate.py \
+            --max-energy-ratio 0.99 \
+            --max-enstrophy-ratio 0.97 \
+            --json-out out/ci/drb2d_kh_gate.json
+
       - name: Physics gate (DRB2D SOL blob transport)
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |

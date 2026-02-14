@@ -78,6 +78,46 @@ def _energy_enstrophy(
     return energy, enstrophy
 
 
+def _spectrum_slope(k: np.ndarray, spec: np.ndarray, kmin: float, kmax: float) -> float:
+    mask = (k >= kmin) & (k <= kmax) & np.isfinite(spec) & (spec > 0.0)
+    if np.count_nonzero(mask) < 3:
+        return float("nan")
+    x = np.log10(k[mask])
+    y = np.log10(spec[mask])
+    slope, _ = np.polyfit(x, y, 1)
+    return float(slope)
+
+
+def _make_forcing_sequence(
+    key: jax.Array,
+    *,
+    nsteps: int,
+    nx: int,
+    ny: int,
+    kx: np.ndarray,
+    ky: np.ndarray,
+    kmax: float,
+    dt: float,
+    tau: float,
+) -> np.ndarray:
+    k_mag = np.sqrt(kx**2 + ky**2)
+    mask = (k_mag <= float(kmax)) & (k_mag > 0.0)
+    forcing = np.zeros((nsteps, nx, ny), dtype=np.float64)
+    alpha = float(np.exp(-dt / max(tau, 1e-12)))
+    prev = np.zeros((nx, ny), dtype=np.float64)
+    for i in range(nsteps):
+        key, sub = jax.random.split(key)
+        noise = jax.random.normal(sub, (nx, ny))
+        noise_hat = np.fft.fft2(np.asarray(noise))
+        noise_hat = noise_hat * mask
+        f = np.fft.ifft2(noise_hat).real
+        f = f - np.mean(f)
+        f = f / max(float(np.sqrt(np.mean(f**2))), 1e-12)
+        prev = alpha * prev + np.sqrt(1.0 - alpha**2) * f
+        forcing[i] = prev
+    return forcing
+
+
 def _isotropic_spectrum(
     field_hat: np.ndarray,
     *,
@@ -117,11 +157,14 @@ def main() -> None:
     parser.add_argument("--tmax", type=float, default=40.0)
     parser.add_argument("--save-stride", type=int, default=10)
     parser.add_argument("--u0", type=float, default=3.0)
-    parser.add_argument("--shear-width", type=float, default=0.12)
-    parser.add_argument("--pert-amp", type=float, default=0.1)
-    parser.add_argument("--pert-mode", type=int, default=6)
-    parser.add_argument("--nu", type=float, default=2e-4)
-    parser.add_argument("--nu4", type=float, default=1e-6)
+    parser.add_argument("--shear-width", type=float, default=0.1)
+    parser.add_argument("--pert-amp", type=float, default=0.12)
+    parser.add_argument("--pert-mode", type=int, default=8)
+    parser.add_argument("--nu", type=float, default=1.0e-4)
+    parser.add_argument("--nu4", type=float, default=5.0e-7)
+    parser.add_argument("--forcing-amp", type=float, default=2.0e-3)
+    parser.add_argument("--forcing-kmax", type=float, default=6.0)
+    parser.add_argument("--forcing-tau", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=str, default="out_drb2d_kh")
     parser.add_argument("--fps", type=int, default=12)
@@ -214,9 +257,40 @@ def main() -> None:
         f"nsteps={nsteps} save_every={save_every} frame_dt={frame_dt:.4g}"
     )
 
+    forcing_seq = None
+    if float(args.forcing_amp) > 0.0:
+        key = jax.random.key(int(args.seed))
+        forcing_seq = _make_forcing_sequence(
+            key,
+            nsteps=nsteps,
+            nx=grid.nx,
+            ny=grid.ny,
+            kx=np.asarray(grid.kx),
+            ky=np.asarray(grid.ky),
+            kmax=float(args.forcing_kmax),
+            dt=dt,
+            tau=float(args.forcing_tau),
+        )
+        forcing_seq = float(args.forcing_amp) * forcing_seq
+
+    def rhs_with_forcing(t, y):
+        dy = model.rhs(t, y)
+        if forcing_seq is None:
+            return dy
+        idx = jnp.clip(jnp.floor(t / dt).astype(jnp.int32), 0, forcing_seq.shape[0] - 1)
+        f = jnp.asarray(forcing_seq)[idx]
+        return DRB2DState(
+            n=dy.n,
+            omega=dy.omega + f,
+            vpar_e=dy.vpar_e,
+            vpar_i=dy.vpar_i,
+            Te=dy.Te,
+            N=dy.N,
+        )
+
     start = time.time()
     ys, y_end = diffeqsolve_fixed_steps(
-        model.rhs,
+        rhs_with_forcing,
         y0=y0,
         t0=0.0,
         dt=dt,
@@ -349,7 +423,7 @@ def main() -> None:
         hist, edges = np.histogram(omega_flat, bins=80, density=True)
         centers = 0.5 * (edges[:-1] + edges[1:])
 
-        fig2, axs = plt.subplots(2, 2, figsize=(9.0, 6.6), constrained_layout=True)
+        fig2, axs = plt.subplots(2, 3, figsize=(11.4, 6.6), constrained_layout=True)
         ax_ts = axs[0, 0]
         ax_ts.plot(t_a, energy, label="energy")
         ax_ts.plot(t_a, enstrophy, label="enstrophy")
@@ -361,22 +435,67 @@ def main() -> None:
         ax_spec = axs[0, 1]
         ax_spec.loglog(k_bins[1:], spec_energy[1:], label="E(k)")
         ax_spec.loglog(k_bins[1:], spec_enstrophy[1:], label="Z(k)")
+        slope_e = _spectrum_slope(k_bins, spec_energy, kmin=5.0, kmax=25.0)
+        slope_z = _spectrum_slope(k_bins, spec_enstrophy, kmin=5.0, kmax=25.0)
         ax_spec.set_title("Spectra (tail-avg)")
         ax_spec.set_xlabel("k")
         ax_spec.set_ylabel("spectrum")
         ax_spec.legend()
+        ax_spec.text(
+            0.02,
+            0.05,
+            f"slope E={slope_e:.2f}\\nslope Z={slope_z:.2f}",
+            transform=ax_spec.transAxes,
+            fontsize=9,
+            va="bottom",
+            ha="left",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+        )
 
-        ax_pdf = axs[1, 0]
+        ax_pdf = axs[0, 2]
         ax_pdf.semilogy(centers, hist + 1e-30)
+        omega_mean = float(np.mean(omega_flat))
+        omega_std = float(np.std(omega_flat))
+        skew = float(np.mean(((omega_flat - omega_mean) / (omega_std + 1e-12)) ** 3))
+        kurt = float(np.mean(((omega_flat - omega_mean) / (omega_std + 1e-12)) ** 4) - 3.0)
         ax_pdf.set_title("Vorticity PDF (tail)")
         ax_pdf.set_xlabel(r"$\omega'$")
         ax_pdf.set_ylabel("pdf")
+        ax_pdf.text(
+            0.02,
+            0.05,
+            f"skew={skew:.2f}\\nkurt={kurt:.2f}",
+            transform=ax_pdf.transAxes,
+            fontsize=9,
+            va="bottom",
+            ha="left",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+        )
 
-        ax_snap = axs[1, 1]
         snap_idx = int(np.argmin(np.abs(t_series - float(args.tmax))))
-        snap = omega_series[snap_idx]
+        snap_mid = int(np.argmin(np.abs(t_series - (0.6 * float(args.tmax)))))
+
+        ax_phi = axs[1, 0]
+        phi_snap = _spectral_phi_from_omega(omega_series[snap_mid], k2=k2, k2_min=1e-6)
+        vlim_phi = robust_symmetric_vlim(phi_snap)
+        im_phi = ax_phi.imshow(
+            phi_snap.T,
+            origin="lower",
+            cmap="coolwarm",
+            extent=[0, float(args.Lx), 0, float(args.Ly)],
+            vmin=-vlim_phi,
+            vmax=vlim_phi,
+            aspect="auto",
+        )
+        ax_phi.set_title(f"Streamfunction t={t_series[snap_mid]:.1f}")
+        ax_phi.set_xlabel("x")
+        ax_phi.set_ylabel("y")
+        fig2.colorbar(im_phi, ax=ax_phi, pad=0.02, label=r"$\phi$")
+
+        ax_omega_mid = axs[1, 1]
+        snap = omega_series[snap_mid]
         vlim = robust_symmetric_vlim(snap)
-        im = ax_snap.imshow(
+        im_mid = ax_omega_mid.imshow(
             snap.T,
             origin="lower",
             cmap="coolwarm",
@@ -385,10 +504,27 @@ def main() -> None:
             vmax=vlim,
             aspect="auto",
         )
-        ax_snap.set_title(f"Vorticity t={t_series[snap_idx]:.1f}")
-        ax_snap.set_xlabel("x")
-        ax_snap.set_ylabel("y")
-        fig2.colorbar(im, ax=ax_snap, pad=0.02, label=r"$\omega$")
+        ax_omega_mid.set_title(f"Vorticity t={t_series[snap_mid]:.1f}")
+        ax_omega_mid.set_xlabel("x")
+        ax_omega_mid.set_ylabel("y")
+        fig2.colorbar(im_mid, ax=ax_omega_mid, pad=0.02, label=r"$\omega$")
+
+        ax_omega = axs[1, 2]
+        snap = omega_series[snap_idx]
+        vlim = robust_symmetric_vlim(snap)
+        im = ax_omega.imshow(
+            snap.T,
+            origin="lower",
+            cmap="coolwarm",
+            extent=[0, float(args.Lx), 0, float(args.Ly)],
+            vmin=-vlim,
+            vmax=vlim,
+            aspect="auto",
+        )
+        ax_omega.set_title(f"Vorticity t={t_series[snap_idx]:.1f}")
+        ax_omega.set_xlabel("x")
+        ax_omega.set_ylabel("y")
+        fig2.colorbar(im, ax=ax_omega, pad=0.02, label=r"$\omega$")
 
         panel_path = out_dir / "kh_analysis_panel.png"
         fig2.savefig(panel_path, dpi=150)
