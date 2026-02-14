@@ -42,6 +42,7 @@ python examples/08_nonlinear_hw2d/hw2d_driftwave_turbulence.py
 python examples/08_nonlinear_hw2d/hw2d_neutrals_effect.py
 python examples/08_nonlinear_hw2d/hw2d_movie.py
 python examples/08_nonlinear_drb2d/drb2d_movie.py
+python examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py
 python examples/08_nonlinear_drb2d/drb2d_hot_ion_movie.py
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py
 python examples/08_nonlinear_drb2d/drb2d_energy_budget.py --model hot-ion
@@ -86,3 +87,11 @@ coarse grids.
 
 The SOL proxy movie (`examples/08_nonlinear_drb2d/drb2d_sol_movie.py`) introduces a closed→open
 radial mask (LCFS at $x=x_s$) to emulate SOL-like transport and outward blob propagation.
+
+## Kelvin–Helmholtz benchmark (2D vorticity limit)
+
+`examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py` runs the DRB2D solver in the
+incompressible vorticity limit (curvature/parallel/drives disabled) and initializes a
+double shear-layer profile with a small sinusoidal perturbation. The resulting movie shows
+KH roll-up, vortex merging, and secondary instabilities, providing a compact nonlinear
+advection benchmark for the conservative bracket and Poisson solve.
