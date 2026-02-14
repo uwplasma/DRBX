@@ -77,6 +77,13 @@ geometry).
   *Stratified Kelvin–Helmholtz turbulence of compressible shear flows*,
   **Nonlinear Processes in Geophysics 25**, 457–468 (2018).
 
+## Hermes-2 / SOL blob benchmarks
+
+- B. D. Dudson and J. Leddy,
+  *Hermes: global plasma edge fluid turbulence simulations*,
+  **Plasma Physics and Controlled Fusion 59**, 054010 (2017).
+  (Accepted version: `hermes-2/hermes_paper.pdf` in the local Hermes-2 checkout.)
+
 ## Plasma–neutral interactions (SOL context)
 
 - F. D. Halpern et al.,
