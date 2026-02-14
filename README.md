@@ -118,8 +118,8 @@ are meant to be short and reproducible. See the nonlinear docs for details and p
 The KH movie follows the classic double shear-layer benchmark with a hyperbolic-tangent
 velocity profile (see `docs/references.md`). It demonstrates roll-up, vortex merging, and
 secondary instabilities in the 2D incompressible vorticity limit. The run uses periodic
-boundaries and a small viscosity plus weak hyperdiffusion to keep small scales stable
-on a coarse grid.
+boundaries, a small viscosity, weak hyperdiffusion, and a low-amplitude stochastic
+vorticity forcing to maintain small-scale activity on a coarse grid.
 
 To regenerate the README movies locally:
 
