@@ -201,7 +201,8 @@ Each entry lists the file, how it is generated, and what it is meant to show.
 - copy `out_drb2d_kh/kh_analysis_panel.png` to `docs/assets/images/drb2d_kh_analysis_panel.png`
 
 **Purpose**:
-- Summarizes energy/enstrophy decay, spectra, and vorticity PDF for the KH benchmark.
+- Summarizes energy/enstrophy decay, spectra (with slope fits), vorticity PDF (skew/kurt),
+  and streamfunction/vorticity snapshots for the KH benchmark.
 
 ## DRB2D SOL blob movie
 
