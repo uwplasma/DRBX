@@ -67,6 +67,16 @@ geometry).
   **Journal of the Atmospheric Sciences 28**, 1074–1074 (1971).
   [DOI: 10.1175/1520-0469(1971)028<1074:OTEOAI>2.0.CO;2](https://doi.org/10.1175/1520-0469(1971)028%3C1074:OTEOAI%3E2.0.CO;2)
 
+## Kelvin–Helmholtz shear-layer benchmarks
+
+- A. Michalke,
+  *On the inviscid instability of the hyperbolic-tangent velocity profile*,
+  **Journal of Fluid Mechanics 19**, 543–556 (1964).
+
+- M. Frank, M. Jones, and W. Nowak,
+  *Stratified Kelvin–Helmholtz turbulence of compressible shear flows*,
+  **Nonlinear Processes in Geophysics 25**, 457–468 (2018).
+
 ## Plasma–neutral interactions (SOL context)
 
 - F. D. Halpern et al.,

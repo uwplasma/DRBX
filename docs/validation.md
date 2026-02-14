@@ -506,6 +506,19 @@ The gate enforces:
 
 ![DRB2D non-Boussinesq energy](assets/images/drb2d_nonbouss_energy.png)
 
+### DRB2D Kelvin–Helmholtz benchmark (2D vorticity limit)
+
+We validate the conservative advection and Poisson inversion in the incompressible
+vorticity limit using a Kelvin–Helmholtz double shear-layer benchmark (see
+the references in `docs/references.md` for the canonical hyperbolic-tangent shear profile):
+
+- test: `tests/test_kh2d.py` (energy/enstrophy decay with viscosity)
+- example: `examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py`
+
+The analysis panel reports energy/enstrophy decay, spectra, and vorticity PDFs.
+
+![DRB2D Kelvin–Helmholtz analysis panel](assets/images/drb2d_kh_analysis_panel.png)
+
 ### DRB2D neutrals exchange invariants
 
 The neutral exchange module now applies to DRB2D. We verify that ionization/recombination
@@ -534,6 +547,9 @@ on the open side. The gate verifies outward blob motion and positive mean radial
 Notes:
 
 - The gate seeds a Gaussian blob near the LCFS to enforce measurable outward motion.
+- The SOL movie example uses the 2D field-line-averaged GBS SOL parameters
+  (Ricci 2012; EPFL_TH6197) with Gaussian sources near x_s and Bohm-sheath
+  parallel loss closure (q = 4).
 ### DRB2D limit checks (HW2D + curvature)
 
 Two additional checks anchor the DRB2D testbed to known limits:

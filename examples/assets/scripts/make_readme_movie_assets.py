@@ -130,32 +130,22 @@ def main() -> None:
     shutil.copy2(hw_out / "movie.gif", dst_dir / "hw2d_turbulence.gif")
     _maybe_optimize_gif_with_ffmpeg(dst_dir / "hw2d_turbulence.gif")
 
-    # 2) DRB2D closed→open SOL blob (README)
-    sol_out = out_dir / "drb2d_sol_blob"
+    # 2) DRB2D Kelvin–Helmholtz (README)
+    kh_out = out_dir / "drb2d_kh"
     _run(
         [
             sys.executable,
-            str(repo_root / "examples/08_nonlinear_drb2d/drb2d_sol_movie.py"),
+            str(repo_root / "examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py"),
             "--out",
-            str(sol_out),
-            "--nx",
-            "64",
-            "--ny",
-            "64",
-            "--dt",
-            "0.01",
-            "--tmax",
-            "160.0",
-            "--save-stride",
-            "200",
-            "--seed",
-            "0",
+            str(kh_out),
+            "--gif",
+            "--no-analysis",
         ],
         cwd=repo_root,
         env=env,
     )
-    shutil.copy2(sol_out / "movie.gif", dst_dir / "drb2d_sol_blob.gif")
-    _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_sol_blob.gif")
+    shutil.copy2(kh_out / "kh_vorticity.gif", dst_dir / "drb2d_kh.gif")
+    _maybe_optimize_gif_with_ffmpeg(dst_dir / "drb2d_kh.gif")
 
     # 3) DRB2D hot-ion
     hot_out = out_dir / "drb2d_hot_ion"
