@@ -165,8 +165,8 @@ The DRB2D testbed is anchored to a set of reproducible benchmarks:
   Gaussian blob + curvature drive, tuned to Hermes‑2 `blob2d` parameters
   (`hermes-2/hermes_paper.pdf`). A weak stochastic vorticity forcing is available
   to keep short runs nonlinear and visually active on reduced grids. The README
-  movie uses Neumann $x$ + periodic $y$ with the mixed‑FFT Poisson solver, and an
-  optional initial $\phi$ dipole to strengthen radial propagation on short runs.
+  movie uses Neumann $x$ + periodic $y$ with the mixed‑FFT Poisson solver, and a
+  background gradient drive ($\omega_n$) to strengthen radial propagation on short runs.
 - **GBS SOL proxy** (`drb2d_sol_movie.py`):
   closed→open LCFS masks and Bohm‑sheath closures (`Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf`,
   `EPFL_TH6197.pdf`).
