@@ -27,3 +27,5 @@ Scripts:
   EM, and neutrals toggles; reports explicit sheath and particle-budget diagnostics.
 - `fci_drb3d_full_essos_biotsavart.py`: full DRB3D run on ESSOS Landreman-Paul QA coils using a local
   toroidal-plane FCI map; includes a practical axis estimate, target-hit metadata, and edge/SOL patch diagnostics.
+- `fci_drb3d_full_movie_open_closed.py`: open-field-line slab with a smooth LCFS mask that gates
+  sheath losses (open SOL vs closed core) to explore blob-like intermittency in 3D.
