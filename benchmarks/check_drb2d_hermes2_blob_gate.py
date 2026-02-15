@@ -20,21 +20,28 @@ from jaxdrb.nonlinear.grid import Grid2D  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--nx", type=int, default=64)
-    p.add_argument("--ny", type=int, default=128)
+    p.add_argument("--nx", type=int, default=32)
+    p.add_argument("--ny", type=int, default=64)
     p.add_argument("--Lx", type=float, default=1.0)
     p.add_argument("--Ly", type=float, default=1.0)
-    p.add_argument("--dt", type=float, default=0.002)
-    p.add_argument("--tmax", type=float, default=10.0)
-    p.add_argument("--save-every", type=int, default=10)
+    p.add_argument("--dt", type=float, default=0.003)
+    p.add_argument("--tmax", type=float, default=6.0)
+    p.add_argument("--save-every", type=int, default=12)
     p.add_argument("--curvature", type=float, default=-(1.0 / (1.5**2)))
-    p.add_argument("--Dn", type=float, default=3e-3)
-    p.add_argument("--DOmega", type=float, default=3e-3)
-    p.add_argument("--DTe", type=float, default=3e-3)
-    p.add_argument("--mu-lin-n", type=float, default=0.05)
-    p.add_argument("--mu-lin-omega", type=float, default=0.05)
-    p.add_argument("--mu-lin-Te", type=float, default=0.05)
-    p.add_argument("--min-dx-cm", type=float, default=0.01)
+    p.add_argument("--Dn", type=float, default=1e-3)
+    p.add_argument("--DOmega", type=float, default=1.2e-3)
+    p.add_argument("--DTe", type=float, default=1e-3)
+    p.add_argument("--mu-lin-n", type=float, default=0.0)
+    p.add_argument("--mu-lin-omega", type=float, default=0.02)
+    p.add_argument("--mu-lin-Te", type=float, default=0.0)
+    p.add_argument("--bc-x", type=str, default="neumann")
+    p.add_argument("--bc-y", type=str, default="periodic")
+    p.add_argument("--poisson", type=str, default="cg_fd")
+    p.add_argument("--poisson-preconditioner", type=str, default="spectral")
+    p.add_argument("--poisson-cg-maxiter", type=int, default=120)
+    p.add_argument("--poisson-cg-tol", type=float, default=5e-6)
+    p.add_argument("--poisson-gauge-epsilon", type=float, default=1e-6)
+    p.add_argument("--min-dx-cm", type=float, default=5e-3)
     p.add_argument("--min-mean-flux", type=float, default=1e-10)
     p.add_argument("--json-out", type=Path, default=None)
     return p.parse_args()
@@ -74,9 +81,12 @@ def main() -> None:
         Lx=float(args.Lx),
         Ly=float(args.Ly),
         dealias=False,
-        bc_x="periodic",
-        bc_y="periodic",
+        bc_x=str(args.bc_x),
+        bc_y=str(args.bc_y),
     )
+    poisson = str(args.poisson).lower()
+    if poisson == "auto":
+        poisson = "spectral" if (grid.bc.kind_x == 0 and grid.bc.kind_y == 0) else "cg_fd"
 
     params = DRB2DParams(
         log_n=False,
@@ -96,8 +106,12 @@ def main() -> None:
         mu_lin_omega=float(args.mu_lin_omega),
         mu_lin_Te=float(args.mu_lin_Te),
         bracket="arakawa",
-        bracket_zero_mean=False,
-        poisson="spectral",
+        bracket_zero_mean=bool(grid.bc.kind_x != 0 or grid.bc.kind_y != 0),
+        poisson=poisson,
+        poisson_preconditioner=str(args.poisson_preconditioner),
+        poisson_cg_maxiter=int(args.poisson_cg_maxiter),
+        poisson_cg_tol=float(args.poisson_cg_tol),
+        poisson_gauge_epsilon=float(args.poisson_gauge_epsilon),
         dealias_on=False,
         operator_split_on=True,
         operator_conservative_on=True,

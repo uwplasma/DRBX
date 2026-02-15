@@ -88,6 +88,11 @@ coarse grids.
 The SOL proxy movie (`examples/08_nonlinear_drb2d/drb2d_sol_movie.py`) introduces a closed→open
 radial mask (LCFS at $x=x_s$) to emulate SOL-like transport and outward blob propagation.
 
+## DRB2D equations and numerics
+
+See [`docs/nonlinear/drb2d.md`](drb2d.md) for the full 2D model equations, closures,
+boundary conditions, and references.
+
 ## Kelvin–Helmholtz benchmark (2D vorticity limit)
 
 `examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py` runs the DRB2D solver in the

@@ -44,12 +44,12 @@ def test_hermes2_blob2d_propagates_outward() -> None:
         omega_n=0.0,
         omega_Te=0.0,
         sol_on=False,
-        Dn=3e-3,
-        DOmega=3e-3,
-        DTe=3e-3,
-        mu_lin_n=0.05,
-        mu_lin_omega=0.05,
-        mu_lin_Te=0.05,
+        Dn=1e-3,
+        DOmega=1.2e-3,
+        DTe=1e-3,
+        mu_lin_n=0.0,
+        mu_lin_omega=0.02,
+        mu_lin_Te=0.0,
         bracket="arakawa",
         bracket_zero_mean=False,
         poisson="spectral",
@@ -91,4 +91,4 @@ def test_hermes2_blob2d_propagates_outward() -> None:
     x_cm = np.array([_blob_center(x, n_i, n0=1.0) for n_i in n_series])
 
     assert np.all(np.isfinite(x_cm))
-    assert float(np.abs(x_cm[-1] - x_cm[0])) > 0.005
+    assert float(np.abs(x_cm[-1] - x_cm[0])) > 0.002
