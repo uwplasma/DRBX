@@ -112,7 +112,9 @@ def _bilinear_interp_clipped(
     v10 = arr[ix + 1, iy]
     v01 = arr[ix, iy + 1]
     v11 = arr[ix + 1, iy + 1]
-    return float((1 - tx) * (1 - ty) * v00 + tx * (1 - ty) * v10 + (1 - tx) * ty * v01 + tx * ty * v11)
+    return float(
+        (1 - tx) * (1 - ty) * v00 + tx * (1 - ty) * v10 + (1 - tx) * ty * v01 + tx * ty * v11
+    )
 
 
 class _StegmeirField:
@@ -134,7 +136,9 @@ class _StegmeirField:
         self.Bphi = Bphi
 
     def _interp(self, R: float, Z: float, arr: np.ndarray) -> float:
-        return _bilinear_interp_clipped(R, Z, x0=self.R0, y0=self.Z0, dx=self.dR, dy=self.dZ, arr=arr)
+        return _bilinear_interp_clipped(
+            R, Z, x0=self.R0, y0=self.Z0, dx=self.dR, dy=self.dZ, arr=arr
+        )
 
     def B(self, xyz: np.ndarray) -> np.ndarray:
         x, y, z = float(xyz[0]), float(xyz[1]), float(xyz[2])
@@ -160,6 +164,12 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.0002)
     parser.add_argument("--tmax", type=float, default=1.2)
     parser.add_argument("--save-stride", type=int, default=10)
+    parser.add_argument(
+        "--save-last-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save only the final state to reduce memory use.",
+    )
     parser.add_argument("--solver", type=str, default="dopri5")
     parser.add_argument("--R0", type=float, default=1.0)
     parser.add_argument("--rmin", type=float, default=0.97)
@@ -299,8 +309,7 @@ def main() -> None:
     sol_mask_radial = (
         jnp.ones_like(r2)
         if bool(args.pure_sol)
-        else 0.5
-        * (1.0 + jnp.tanh((Rg - float(args.lcfs)) / max(float(args.lcfs_width), 1e-6)))
+        else 0.5 * (1.0 + jnp.tanh((Rg - float(args.lcfs)) / max(float(args.lcfs_width), 1e-6)))
     )
     if args.limiter_mode == "bottom":
         theta0 = -0.5 * jnp.pi
@@ -386,6 +395,8 @@ def main() -> None:
     dt = float(args.dt)
     nsteps = int(round(float(args.tmax) / dt))
     save_stride = int(args.save_stride)
+    if bool(args.save_last_only):
+        save_stride = max(save_stride, nsteps)
     forcing_seq = None
     if float(args.forcing_amp) > 0.0:
         forcing_seq = float(args.forcing_amp) * _make_forcing_sequence(
@@ -453,8 +464,7 @@ def main() -> None:
     ):
         arr_np = np.asarray(jax.device_get(arr))
         print(
-            f"[grillix-fig16] {name} min/max: "
-            f"{np.nanmin(arr_np):.3e}/{np.nanmax(arr_np):.3e}"
+            f"[grillix-fig16] {name} min/max: " f"{np.nanmin(arr_np):.3e}/{np.nanmax(arr_np):.3e}"
         )
         if not np.all(np.isfinite(arr_np)):
             print(f"[grillix-fig16] warning: non-finite values in {name}.")
@@ -476,8 +486,7 @@ def main() -> None:
     n_series = np.asarray(jax.device_get(ys.n))
     n0_saved = n_series[0]
     print(
-        f"[grillix-fig16] saved n0 min/max: "
-        f"{np.nanmin(n0_saved):.3e}/{np.nanmax(n0_saved):.3e}"
+        f"[grillix-fig16] saved n0 min/max: " f"{np.nanmin(n0_saved):.3e}/{np.nanmax(n0_saved):.3e}"
     )
     nan_steps = np.where(~np.isfinite(n_series.reshape(n_series.shape[0], -1)).all(axis=1))[0]
     if nan_steps.size:
@@ -492,9 +501,7 @@ def main() -> None:
     r_minor_np = np.sqrt(
         np.maximum(((RR / float(args.R0)) - 1.0) ** 2 + (ZZ / float(args.R0)) ** 2, 1e-12)
     )
-    annulus_mask = (r_minor_np >= float(args.r_minor_min)) & (
-        r_minor_np <= float(args.r_minor_max)
-    )
+    annulus_mask = (r_minor_np >= float(args.r_minor_min)) & (r_minor_np <= float(args.r_minor_max))
     n_plot = np.where(annulus_mask, n0_plane, np.nan)
     fig, ax = plt.subplots(figsize=(4.8, 4.8))
     im = ax.pcolormesh(RR, ZZ, n_plot, cmap="turbo", shading="auto")

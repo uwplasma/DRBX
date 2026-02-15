@@ -255,9 +255,9 @@ class FCIDRB3DFullModel(eqx.Module):
                     maxiter=int(self.params.poisson_maxiter),
                     tol=float(self.params.poisson_tol),
                     preconditioner=str(self.params.poisson_preconditioner),
-                    k2_precond=self._k2
-                    if str(self.params.poisson_preconditioner) == "spectral"
-                    else None,
+                    k2_precond=(
+                        self._k2 if str(self.params.poisson_preconditioner) == "spectral" else None
+                    ),
                 )
 
             return jax.vmap(solve_plane)(omega)
@@ -299,9 +299,9 @@ class FCIDRB3DFullModel(eqx.Module):
                 maxiter=int(self.params.poisson_maxiter),
                 tol=float(self.params.poisson_tol),
                 preconditioner=str(self.params.poisson_preconditioner),
-                k2_precond=self._k2
-                if str(self.params.poisson_preconditioner) == "spectral"
-                else None,
+                k2_precond=(
+                    self._k2 if str(self.params.poisson_preconditioner) == "spectral" else None
+                ),
             )
 
         return jax.vmap(solve_plane)(rhs)
