@@ -240,7 +240,7 @@ python examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py \
   --tmax 5 --save-stride 12 \
   --forcing-amp 3e-3 --mu-lin-omega 0.005 \
   --Dn 5e-4 --DOmega 8e-4 --DTe 5e-4 \
-  --curvature -1.0 --omega-n 0.6 \
+  --curvature -1.0 --omega-n 6.0 \
   --bc-x neumann --bc-y periodic --poisson mixed_fft
 ```
 

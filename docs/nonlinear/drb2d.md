@@ -96,8 +96,10 @@ $$
 $$
 
 with $n$ floored for SPD stability and solved by CG with a spectral/Jacobi
-preconditioner. This is documented in the non‑Boussinesq gate and is aligned with
-the conservative DRB formulation (`conserving_drb.pdf`).
+preconditioner. The CG iterations are warm‑started with a preconditioned guess
+to reduce solve time while remaining fully differentiable. This is documented in
+the non‑Boussinesq gate and is aligned with the conservative DRB formulation
+(`conserving_drb.pdf`).
 
 ## Curvature and gradient drives
 
@@ -138,7 +140,9 @@ short runs stable and reproducible while preserving conservative nonlinear dynam
 - **Neumann/Dirichlet** BCs in $x$ for open‑boundary SOL proxies.
 
 For non‑periodic Poisson solves, a small gauge‑lifting term removes the nullspace;
-this is controlled by `poisson_gauge_epsilon`. When the geometry is *Neumann in x*
+this is controlled by `poisson_gauge_epsilon`, and the CG solve is
+preconditioned with a periodic spectral operator and a warm‑started initial
+guess. When the geometry is *Neumann in x*
 and *periodic in y*, the solver can use a fast mixed FFT (DCT‑I in $x$ + FFT in $y$)
 that matches the discrete FD Laplacian spectrum and is substantially faster than
 iterative CG while remaining differentiable.
