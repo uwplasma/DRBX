@@ -298,6 +298,26 @@ Example output:
 
 ![FCI DRB3D full-model on ESSOS Biot-Savart local edge/SOL patch](assets/images/fci_drb3d_full_essos_biotsavart.png)
 
+## GRILLIX limiter-geometry proxy (Stegmeir 2018 Fig. 16)
+
+This workflow reproduces the analytic poloidal flux function used by Stegmeir et al. (2018)
+(their eq. 50), constructs toroidal-plane FCI maps, and evolves a short DRB3D run with limiter
+sinks to generate an annular snapshot. It is intended as a **geometry-consistency** check and
+as a staging point for turbulence tuning in limiter configurations.
+
+Example:
+
+- `examples/09_fci/fci_drb3d_full_grillix_fig16.py`
+
+Output:
+
+- `snapshot_fig16.png` (written into the output directory)
+
+Reference:
+
+- A. Stegmeir et al., *The GRILLIX code for the 3D simulation of drift wave turbulence in
+  magnetic fusion devices*, **Plasma Phys. Control. Fusion** 60 (2018) 035005.
+
 ## Neutral-model validation gates
 
 The neutral milestone model is validated with explicit particle-balance and source/sink checks:
