@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import numpy as np
 
-from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, save_animation_gif, set_mpl_style
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
 
@@ -57,7 +57,7 @@ def main() -> None:
     parser.add_argument("--rtol", type=float, default=1e-5)
     parser.add_argument("--atol", type=float, default=1e-8)
     parser.add_argument("--max-steps", type=int, default=400_000)
-    parser.add_argument("--progress", action="store_true")
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=45.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
@@ -294,7 +294,7 @@ def main() -> None:
 
     ani = animation.FuncAnimation(fig, update, frames=len(frames_arr), interval=40, blit=True)
     gif_path = out_dir / "movie.gif"
-    ani.save(gif_path, writer=animation.PillowWriter(fps=12))
+    save_animation_gif(ani, gif_path, fps=12, dpi=95)
     plt.close(fig)
 
     # Save a static summary panel (final-time snapshots + a simple timeseries).

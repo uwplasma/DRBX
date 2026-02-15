@@ -114,6 +114,109 @@ def save_json(path: str | Path, obj: dict) -> None:
     Path(path).write_text(json.dumps(to_jsonable(obj), indent=2, sort_keys=True) + "\n")
 
 
+def save_animation_gif(
+    ani,
+    gif_path: str | Path,
+    *,
+    fps: int = 12,
+    dpi: int | None = None,
+    use_ffmpeg: bool = True,
+    keep_mp4: bool = False,
+) -> Path:
+    """Save a Matplotlib animation to GIF using ffmpeg when available.
+
+    This is substantially faster than Pillow for large frame counts while
+    preserving frame count and visual quality. Falls back to PillowWriter
+    if ffmpeg is unavailable or disabled.
+    """
+
+    import shutil
+    import subprocess
+    import tempfile
+    from matplotlib import animation
+
+    gif_path = Path(gif_path)
+    if use_ffmpeg and shutil.which("ffmpeg"):
+        mp4_path = gif_path.with_suffix(".mp4")
+        writer = animation.FFMpegWriter(
+            fps=fps,
+            codec="libx264",
+            bitrate=1800,
+            extra_args=["-pix_fmt", "yuv420p"],
+        )
+        ani.save(mp4_path, writer=writer, dpi=dpi)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            palette = Path(tmp) / "palette.png"
+            scale = "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
+            vf = f"fps={fps},{scale}"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(mp4_path),
+                    "-vf",
+                    f"{vf},palettegen",
+                    str(palette),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(mp4_path),
+                    "-i",
+                    str(palette),
+                    "-lavfi",
+                    f"{vf}[x];[x][1:v]paletteuse=dither=bayer",
+                    str(gif_path),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        if not keep_mp4 and mp4_path.exists():
+            mp4_path.unlink()
+    else:
+        ani.save(gif_path, writer=animation.PillowWriter(fps=fps), dpi=dpi)
+    return gif_path
+
+
+def save_animation_mp4(
+    ani,
+    mp4_path: str | Path,
+    *,
+    fps: int = 12,
+    dpi: int | None = None,
+    bitrate: int = 1800,
+) -> Path:
+    """Save a Matplotlib animation to MP4 using ffmpeg.
+
+    This is typically much faster than GIF encoding for long sequences.
+    """
+
+    import shutil
+    from matplotlib import animation
+
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg not found; use save_animation_gif or install ffmpeg.")
+
+    mp4_path = Path(mp4_path)
+    writer = animation.FFMpegWriter(
+        fps=fps,
+        codec="libx264",
+        bitrate=bitrate,
+        extra_args=["-pix_fmt", "yuv420p"],
+    )
+    ani.save(mp4_path, writer=writer, dpi=dpi)
+    return mp4_path
+
+
 def save_scan_panels(
     out_dir: str | Path,
     *,
