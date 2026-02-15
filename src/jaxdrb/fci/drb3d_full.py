@@ -180,24 +180,29 @@ class FCIDRB3DFullModel(eqx.Module):
 
     params: FCIDRB3DFullParams
     grid: FCISlabGrid
+    _kx_cache: jnp.ndarray = eqx.field(init=False)
+    _ky_cache: jnp.ndarray = eqx.field(init=False)
+    _k2_cache: jnp.ndarray = eqx.field(init=False)
+
+    def __post_init__(self):
+        kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.nx, d=self.grid.dx))
+        ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.ny, d=self.grid.dy))
+        kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+        object.__setattr__(self, "_kx_cache", kx)
+        object.__setattr__(self, "_ky_cache", ky)
+        object.__setattr__(self, "_k2_cache", kx**2 + ky**2)
 
     @property
     def _kx(self) -> jnp.ndarray:
-        kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.nx, d=self.grid.dx))
-        ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.ny, d=self.grid.dy))
-        kx, _ = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
-        return kx
+        return self._kx_cache
 
     @property
     def _ky(self) -> jnp.ndarray:
-        kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.nx, d=self.grid.dx))
-        ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(self.grid.ny, d=self.grid.dy))
-        _, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
-        return ky
+        return self._ky_cache
 
     @property
     def _k2(self) -> jnp.ndarray:
-        return self._kx**2 + self._ky**2
+        return self._k2_cache
 
     def _ddx(self, f: jnp.ndarray) -> jnp.ndarray:
         if self.params.perp_operator == "spectral" and self.params.perp_bc.kind_x == 0:
@@ -250,6 +255,9 @@ class FCIDRB3DFullModel(eqx.Module):
                     maxiter=int(self.params.poisson_maxiter),
                     tol=float(self.params.poisson_tol),
                     preconditioner=str(self.params.poisson_preconditioner),
+                    k2_precond=self._k2
+                    if str(self.params.poisson_preconditioner) == "spectral"
+                    else None,
                 )
 
             return jax.vmap(solve_plane)(omega)
@@ -291,6 +299,9 @@ class FCIDRB3DFullModel(eqx.Module):
                 maxiter=int(self.params.poisson_maxiter),
                 tol=float(self.params.poisson_tol),
                 preconditioner=str(self.params.poisson_preconditioner),
+                k2_precond=self._k2
+                if str(self.params.poisson_preconditioner) == "spectral"
+                else None,
             )
 
         return jax.vmap(solve_plane)(rhs)
