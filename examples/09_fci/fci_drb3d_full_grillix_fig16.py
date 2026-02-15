@@ -277,7 +277,24 @@ def main() -> None:
         for name, value in tuning.items():
             if getattr(args, name) == defaults[name]:
                 setattr(args, name, value)
-        print("[grillix-fig16] using turbulence preset (override with explicit CLI args).")
+        if args.limiter_mode == "hfs":
+            hfs_tuning = {
+                "forcing_amp": 2.6e-3,
+                "noise_amp": 2.2e-3,
+                "sink_nu": 0.2,
+                "sink_Te_nu": 0.2,
+                "limiter_sink_nu": 0.65,
+                "limiter_sink_Te_nu": 0.65,
+            }
+            for name, value in hfs_tuning.items():
+                base = tuning.get(name, defaults[name])
+                if getattr(args, name) == base:
+                    setattr(args, name, value)
+            print(
+                "[grillix-fig16] using turbulence preset (HFS limiter tweaks; override with explicit CLI args)."
+            )
+        else:
+            print("[grillix-fig16] using turbulence preset (override with explicit CLI args).")
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
