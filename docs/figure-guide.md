@@ -214,7 +214,9 @@ Each entry lists the file, how it is generated, and what it is meant to show.
 
 **Purpose**:
 - Hermes-2 `blob2d`-anchored 2D SOL proxy with curvature-driven interchange dynamics.
-- Uses periodic boundaries and linear damping to emulate open-field-line losses on a reduced grid.
+- Uses weak stochastic vorticity forcing to sustain fluctuations in short runs.
+- Optional Neumann/Dirichlet open-boundary runs can be enabled with CG Poisson solves
+  and spectral preconditioning (`--bc-x neumann --poisson cg_fd --poisson-preconditioner spectral`).
 
 ## DRB2D Hermes-2 blob2d analysis panel
 
@@ -226,7 +228,8 @@ Each entry lists the file, how it is generated, and what it is meant to show.
 
 **Purpose**:
 - Summarizes blob center tracking, radial flux, probe PDF, radial profiles, and mid-time
-  snapshots of $n'$, $\omega$, and $\phi$ for the Hermes-2 proxy.
+  snapshots of $n'$, $\omega$, and $\phi$ for the Hermes-2 proxy, plus fluctuation RMS
+  and conditional averaging at a probe location.
 
 ## DRB2D SOL blob movie
 
