@@ -19,7 +19,12 @@ from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import biharmonic as biharmonic_fd
 from .fd import laplacian as laplacian_fd
-from .fd import enforce_bc_relaxation, inv_div_n_grad_cg, inv_laplacian_cg
+from .fd import (
+    enforce_bc_relaxation,
+    inv_div_n_grad_cg,
+    inv_laplacian_cg,
+    inv_laplacian_mixed_fft,
+)
 from .spectral import (
     biharmonic,
     dealias,
@@ -104,7 +109,7 @@ class DRB2DParams(eqx.Module):
     bracket_zero_mean: bool = False
     # Optional scaling for ExB advection terms (e.g., to match alternative normalizations).
     exb_scale: float = 1.0
-    poisson: Literal["spectral", "cg_fd"] = "spectral"
+    poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_preconditioner: str = "auto"
     poisson_cg_maxiter: int = 300
     poisson_cg_tol: float = 1e-8
@@ -256,6 +261,14 @@ class DRB2DModel(eqx.Module):
                 if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
                     raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
                 return inv_laplacian(omega, self.grid.k2, k2_min=self.params.k2_min)
+            if self.params.poisson == "mixed_fft":
+                return inv_laplacian_mixed_fft(
+                    omega,
+                    dx=self.grid.dx,
+                    dy=self.grid.dy,
+                    bc=self.grid.bc,
+                    gauge_epsilon=self.params.poisson_gauge_epsilon,
+                )
             precond = self.params.poisson_preconditioner
             if precond == "auto":
                 precond = (

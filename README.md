@@ -122,9 +122,10 @@ boundaries, a small viscosity, weak hyperdiffusion, and a low-amplitude stochast
 vorticity forcing to maintain small-scale activity on a coarse grid.
 The Hermes-2 blob2d proxy mirrors the Hermes `blob2d` example (Gaussian density/pressure
 blob, curvature drive) and uses weak stochastic vorticity forcing so the short movie
-stays nonlinear and visually active. Open-boundary (Neumann/Dirichlet) runs with
-CG Poisson solves and spectral preconditioning are available for closer Hermes-style
-SOL conditions.
+stays nonlinear and visually active. The README movie uses Neumann $x$ + periodic $y$
+with the fast mixed‑FFT Poisson solver (DCT‑I + FFT) and a small initial $\phi$ dipole
+to strengthen radial propagation. CG Poisson solves remain available for general
+non‑periodic boundary choices.
 
 To regenerate the README movies locally:
 
@@ -231,7 +232,13 @@ python examples/08_nonlinear_drb2d/drb2d_kelvin_helmholtz.py --gif --out out_drb
 Make a Hermes-2 blob2d proxy DRB2D movie (GIF):
 
 ```bash
-python examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py --gif --out out_drb2d_hermes2_blob
+python examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py \
+  --gif --out out_drb2d_hermes2_blob \
+  --tmax 10 --save-stride 16 \
+  --forcing-amp 3e-3 --mu-lin-omega 0.005 \
+  --Dn 5e-4 --DOmega 8e-4 --DTe 5e-4 \
+  --curvature -1.0 --phi-dipole 0.6 \
+  --bc-x neumann --bc-y periodic --poisson mixed_fft
 ```
 
 ## Model at a glance (linear flux-tube form)

@@ -525,19 +525,23 @@ We anchor a 2D SOL proxy to the Hermes-2 `blob2d` example (`hermes-2/blob2d/BOUT
 which evolves a Gaussian density/pressure blob on open field lines with curvature drive
 (`bxcvz = 1/R^2`, $R=1.5$ m). The DRB2D configuration reproduces the same normalized
 initial condition (Ne/Pe perturbation) and domain sizes ($L_{rad}=L_{pol}=0.3$ m). For
-fast, reproducible runs on reduced grids we use periodic boundaries with linear damping
-to emulate parallel losses, set the curvature sign so outward drift is $+x$, and track
-outward blob motion plus radial $n' v_{E\times B}$ flux. The README movie uses weak
-stochastic vorticity forcing to keep short runs nonlinear and visually active.
+fast, reproducible runs on reduced grids we use Neumann $x$ boundaries (open‑field proxy),
+periodic $y$, set the curvature sign so outward drift is $+x$, and track outward blob
+motion plus radial $n' v_{E\times B}$ flux. The README movie uses weak stochastic vorticity
+forcing to keep short runs nonlinear and visually active, plus a small initial $\phi$
+dipole to strengthen radial propagation over $t \le 10$.
 
-- test: `tests/test_hermes2_blob2d.py`
+- test: `tests/test_hermes2_blob2d.py` (includes open‑BC + $\phi$ dipole drift check)
 - example: `examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py`
 - CI benchmark: `benchmarks/check_drb2d_hermes2_blob_gate.py`
 
 Notes:
 
-- The CI gate uses **Neumann $x$ boundaries** with a matrix‑free CG Poisson solve and a
-  spectral (circulant) preconditioner to emulate open field lines while keeping the solve fast.
+- The CI gate uses **Neumann $x$ boundaries** with the mixed‑FFT Poisson solver
+  (DCT‑I in $x$ + FFT in $y$) for a fast, differentiable open‑boundary inversion.
+- The gate includes a small initial $\phi$ dipole to ensure measurable outward drift
+  on short runs.
+- Mixed‑FFT accuracy is validated in `tests/test_fd_poisson_mixed_fft.py`.
 
 ![DRB2D Hermes-2 blob2d panel](assets/images/drb2d_hermes2_blob2d_panel.png)
 

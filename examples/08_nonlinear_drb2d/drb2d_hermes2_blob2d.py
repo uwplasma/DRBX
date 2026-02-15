@@ -1,14 +1,15 @@
 """Hermes-2 blob2d proxy in DRB2D (open-field-line 2D SOL).
 
 This example mirrors the Hermes-2 `blob2d/BOUT.inp` setup:
-  - 2D open-field-line slab (ixseps=-1 in Hermes), approximated here with periodic x
-    and linear damping to mimic parallel losses on a reduced grid
+  - 2D open-field-line slab (ixseps=-1 in Hermes), approximated here with Neumann x
+    and periodic y on a reduced grid
   - Gaussian density/pressure perturbation (Ne:function, Pe/Pi ~ 1.2*(n-1))
   - Curvature-driven interchange dynamics (bxcvz = 1/R^2 with R=1.5 m)
   - Domain sizes matched to Lrad=Lpol=0.3 m (coordinates normalized so Lx=Ly=1 corresponds to 0.3 m)
 
 The run is intentionally small and fast; the goal is a reproducible 2D SOL
 benchmark anchored to Hermes-2 parameters rather than long-time intermittency.
+For open-boundary movies we use the mixed-FFT Poisson solver (DCT-I in x + FFT in y).
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from jaxdrb.analysis.plotting import (
     set_mpl_style,
 )
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
+from jaxdrb.nonlinear.fd import laplacian
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
@@ -45,6 +47,19 @@ def _hermes_blob_profile(x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float) 
     yn = y / Ly
     blob = np.exp(-(((xn - x0) / sigma) ** 2)) * np.exp(-(((yn - y0) / sigma) ** 2))
     return 1.0 + 0.27 * blob
+
+
+def _phi_dipole(
+    x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float, amp: float, sigma: float
+) -> np.ndarray:
+    if amp == 0.0:
+        return np.zeros_like(x)
+    x0 = 0.33
+    y0 = 0.5
+    xn = x / Lx
+    yn = y / Ly
+    blob = np.exp(-(((xn - x0) / sigma) ** 2)) * np.exp(-(((yn - y0) / sigma) ** 2))
+    return amp * ((yn - y0) / max(sigma, 1e-8)) * blob
 
 
 def _blob_center(x: np.ndarray, n: np.ndarray, *, n0: float) -> float:
@@ -107,6 +122,7 @@ def main() -> None:
     parser.add_argument("--save-stride", type=int, default=12)
     parser.add_argument("--curvature", type=float, default=-(1.0 / (1.5**2)))
     parser.add_argument("--exb-scale", type=float, default=1.0)
+    parser.add_argument("--phi-dipole", type=float, default=0.0)
     parser.add_argument("--Dn", type=float, default=1.0e-3)
     parser.add_argument("--DOmega", type=float, default=1.2e-3)
     parser.add_argument("--DTe", type=float, default=1.0e-3)
@@ -150,7 +166,10 @@ def main() -> None:
 
     poisson = str(args.poisson).lower()
     if poisson == "auto":
-        poisson = "spectral" if (grid.bc.kind_x == 0 and grid.bc.kind_y == 0) else "cg_fd"
+        if grid.bc.kind_x == 2 and grid.bc.kind_y == 0:
+            poisson = "mixed_fft"
+        else:
+            poisson = "spectral" if (grid.bc.kind_x == 0 and grid.bc.kind_y == 0) else "cg_fd"
     if poisson == "spectral" and (grid.bc.kind_x != 0 or grid.bc.kind_y != 0):
         raise ValueError("Spectral Poisson requires periodic BCs in x and y.")
 
@@ -189,9 +208,18 @@ def main() -> None:
 
     x = np.asarray(grid.x)[:, None]
     y = np.asarray(grid.y)[None, :]
+    sigma = 0.21 / 4.0
     n0 = _hermes_blob_profile(x, y, Lx=float(args.Lx), Ly=float(args.Ly))
     Te0 = 1.0 + 1.2 * (n0 - 1.0)
-    omega0 = np.zeros_like(n0)
+    phi0 = _phi_dipole(
+        x,
+        y,
+        Lx=float(args.Lx),
+        Ly=float(args.Ly),
+        amp=float(args.phi_dipole),
+        sigma=float(sigma),
+    )
+    omega0 = np.asarray(laplacian(jnp.asarray(phi0), float(grid.dx), float(grid.dy), grid.bc))
     v0 = np.zeros_like(n0)
 
     y0 = DRB2DState(

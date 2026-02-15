@@ -135,17 +135,22 @@ short runs stable and reproducible while preserving conservative nonlinear dynam
 `jaxdrb` supports:
 
 - **Periodic** BCs in $x,y$ for spectral inversions and conservative tests.
-- **Neumann/Dirichlet** BCs in $x$ for open‑boundary SOL proxies, solved with CG.
+- **Neumann/Dirichlet** BCs in $x$ for open‑boundary SOL proxies.
 
 For non‑periodic Poisson solves, a small gauge‑lifting term removes the nullspace;
-this is controlled by `poisson_gauge_epsilon`.
+this is controlled by `poisson_gauge_epsilon`. When the geometry is *Neumann in x*
+and *periodic in y*, the solver can use a fast mixed FFT (DCT‑I in $x$ + FFT in $y$)
+that matches the discrete FD Laplacian spectrum and is substantially faster than
+iterative CG while remaining differentiable.
 
 ## Numerics
 
 Key numerical choices:
 
 - **Poisson bracket**: Arakawa (default), centered, or spectral.
-- **Poisson/polarization**: spectral (periodic) or matrix‑free CG (non‑periodic).
+- **Poisson/polarization** (periodic): spectral.
+- **Poisson/polarization** (Neumann $x$ + periodic $y$): mixed FFT.
+- **Poisson/polarization** (general non‑periodic): matrix‑free CG.
 - **Time integration**: Diffrax fixed‑step for reproducibility and differentiability.
 
 See `docs/nonlinear/algorithms.md` for implementation details.
@@ -159,7 +164,9 @@ The DRB2D testbed is anchored to a set of reproducible benchmarks:
 - **Hermes‑2 blob2d proxy** (`drb2d_hermes2_blob2d.py`):
   Gaussian blob + curvature drive, tuned to Hermes‑2 `blob2d` parameters
   (`hermes-2/hermes_paper.pdf`). A weak stochastic vorticity forcing is available
-  to keep short runs nonlinear and visually active on reduced grids.
+  to keep short runs nonlinear and visually active on reduced grids. The README
+  movie uses Neumann $x$ + periodic $y$ with the mixed‑FFT Poisson solver, and an
+  optional initial $\phi$ dipole to strengthen radial propagation on short runs.
 - **GBS SOL proxy** (`drb2d_sol_movie.py`):
   closed→open LCFS masks and Bohm‑sheath closures (`Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf`,
   `EPFL_TH6197.pdf`).

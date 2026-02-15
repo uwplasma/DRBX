@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState  # noqa: E402
+from jaxdrb.nonlinear.fd import laplacian  # noqa: E402
 from jaxdrb.nonlinear.grid import Grid2D  # noqa: E402
 
 
@@ -34,14 +35,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mu-lin-n", type=float, default=0.0)
     p.add_argument("--mu-lin-omega", type=float, default=0.02)
     p.add_argument("--mu-lin-Te", type=float, default=0.0)
+    p.add_argument("--phi-dipole", type=float, default=0.4)
     p.add_argument("--bc-x", type=str, default="neumann")
     p.add_argument("--bc-y", type=str, default="periodic")
-    p.add_argument("--poisson", type=str, default="cg_fd")
+    p.add_argument("--poisson", type=str, default="mixed_fft")
     p.add_argument("--poisson-preconditioner", type=str, default="spectral")
     p.add_argument("--poisson-cg-maxiter", type=int, default=120)
     p.add_argument("--poisson-cg-tol", type=float, default=5e-6)
     p.add_argument("--poisson-gauge-epsilon", type=float, default=1e-6)
-    p.add_argument("--min-dx-cm", type=float, default=5e-3)
+    p.add_argument("--min-dx-cm", type=float, default=8e-3)
     p.add_argument("--min-mean-flux", type=float, default=1e-10)
     p.add_argument("--json-out", type=Path, default=None)
     return p.parse_args()
@@ -55,6 +57,18 @@ def hermes_blob_profile(x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float) -
     yn = y / Ly
     blob = np.exp(-(((xn - x0) / sigma) ** 2)) * np.exp(-(((yn - y0) / sigma) ** 2))
     return 1.0 + 0.27 * blob
+
+
+def phi_dipole(x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float, amp: float) -> np.ndarray:
+    if amp == 0.0:
+        return np.zeros_like(x)
+    sigma = 0.21 / 4.0
+    x0 = 0.33
+    y0 = 0.5
+    xn = x / Lx
+    yn = y / Ly
+    blob = np.exp(-(((xn - x0) / sigma) ** 2)) * np.exp(-(((yn - y0) / sigma) ** 2))
+    return amp * ((yn - y0) / sigma) * blob
 
 
 def blob_center(x: np.ndarray, n: np.ndarray, *, n0: float) -> float:
@@ -124,7 +138,8 @@ def main() -> None:
     y = np.asarray(grid.y)[None, :]
     n0 = hermes_blob_profile(x, y, Lx=float(args.Lx), Ly=float(args.Ly))
     Te0 = 1.0 + 1.2 * (n0 - 1.0)
-    omega0 = np.zeros_like(n0)
+    phi0 = phi_dipole(x, y, Lx=float(args.Lx), Ly=float(args.Ly), amp=float(args.phi_dipole))
+    omega0 = np.asarray(laplacian(jnp.asarray(phi0), grid.dx, grid.dy, grid.bc))
     v0 = np.zeros_like(n0)
     y0 = DRB2DState(
         n=jnp.asarray(n0),
