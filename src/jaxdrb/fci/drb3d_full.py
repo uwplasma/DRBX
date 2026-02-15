@@ -37,6 +37,8 @@ class FCIDRB3DFullParams(eqx.Module):
     omega_n: float = 0.0
     omega_Te: float = 0.0
     kappa: float = 0.0
+    kappa_profile: Literal["constant", "cosine"] = "constant"
+    kappa_theta0: float = 0.0
 
     alpha: float = 0.0
     eta_par: float = 0.0
@@ -322,6 +324,17 @@ class FCIDRB3DFullModel(eqx.Module):
             open_field_line=self.grid.open_field_line,
         )
 
+    def _kappa_profile(self) -> jnp.ndarray | float:
+        kappa = float(self.params.kappa)
+        mode = str(self.params.kappa_profile).lower()
+        if mode == "cosine":
+            Ly = float(self.grid.dy) * float(self.grid.ny)
+            y = self.grid.y0 + self.grid.dy * (jnp.arange(self.grid.ny) + 0.5)
+            theta = (2.0 * jnp.pi) * (y / max(Ly, 1e-8)) - jnp.pi
+            theta0 = float(self.params.kappa_theta0)
+            return kappa * jnp.cos(theta - theta0)[None, None, :]
+        return kappa
+
     def _sheath_mask_sign(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         if hasattr(self.grid, "sheath_mask") and hasattr(self.grid, "sheath_sign"):
             mask = jnp.asarray(self.grid.sheath_mask, dtype=jnp.float64)
@@ -570,9 +583,10 @@ class FCIDRB3DFullModel(eqx.Module):
         )
 
         p_tot = (1.0 + tau_i) * y.n + y.Te + tau_i * Ti
-        curv_n = self.params.kappa * self._ddy(p_tot)
-        curv_phi = self.params.kappa * self._ddy(phi)
-        curv_T = (2.0 / 3.0) * self.params.kappa * self._ddy(3.5 * y.Te + y.n - phi)
+        kappa = self._kappa_profile()
+        curv_n = kappa * self._ddy(p_tot)
+        curv_phi = kappa * self._ddy(phi)
+        curv_T = (2.0 / 3.0) * kappa * self._ddy(3.5 * y.Te + y.n - phi)
         source = FCIDRB3DFullState(
             n=-self.params.omega_n * self._ddy(phi) + curv_n - curv_phi,
             omega=curv_n,

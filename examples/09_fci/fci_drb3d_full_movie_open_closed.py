@@ -21,6 +21,7 @@ import numpy as np
 from jaxdrb.analysis.plotting import robust_symmetric_vlim, save_animation_gif, set_mpl_style
 from jaxdrb.fci.drb3d_full import FCIDRB3DFullModel, FCIDRB3DFullParams, FCIDRB3DFullState
 from jaxdrb.fci.grid import FCISlabGrid
+from jaxdrb.fci.map import FCIBilinearMap, SlabFCIConfig, make_slab_fci_map_variable_B
 from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
@@ -89,6 +90,12 @@ def main() -> None:
     parser.add_argument("--omega-n", type=float, default=1.6)
     parser.add_argument("--omega-Te", type=float, default=1.1)
     parser.add_argument("--kappa", type=float, default=0.7)
+    parser.add_argument(
+        "--kappa-profile", type=str, default="constant", choices=("constant", "cosine")
+    )
+    parser.add_argument("--kappa-theta0", type=float, default=0.0)
+    parser.add_argument("--By0", type=float, default=0.15)
+    parser.add_argument("--By-shear", type=float, default=0.0)
     parser.add_argument("--Dn", type=float, default=4e-4)
     parser.add_argument("--DOmega", type=float, default=4e-4)
     parser.add_argument("--Dvpar", type=float, default=4e-4)
@@ -136,11 +143,70 @@ def main() -> None:
         Ly=float(Ly),
         Lz=float(Lz),
         Bx=0.0,
-        By=0.15,
+        By=float(args.By0),
         Bz=1.0,
         open_field_line=True,
         cell_centered=True,
     )
+    if abs(float(args.By_shear)) > 0.0:
+        cfg = SlabFCIConfig(
+            x0=grid0.x0,
+            y0=grid0.y0,
+            dx=grid0.dx,
+            dy=grid0.dy,
+            nx=grid0.nx,
+            ny=grid0.ny,
+            dz=grid0.dz,
+            Bx=0.0,
+            By=float(args.By0),
+            Bz=float(grid0.Bz),
+        )
+        xs = cfg.x0 + cfg.dx * jnp.arange(cfg.nx)
+        shear = float(args.By_shear)
+        By = float(args.By0) * (1.0 + shear * (xs - 0.5 * float(Lx)) / max(float(Lx), 1e-8))
+        By = jnp.broadcast_to(By[:, None], (cfg.nx, cfg.ny))
+        Bx = jnp.zeros_like(By)
+        map_fwd, map_bwd = make_slab_fci_map_variable_B(cfg, Bx=Bx, By=By, Bz=float(grid0.Bz))
+        if grid0.open_field_line and grid0.cell_centered and grid0.nz >= 2:
+            hit_fwd = jnp.zeros((grid0.nz, grid0.nx, grid0.ny), dtype=bool)
+            hit_bwd = jnp.zeros((grid0.nz, grid0.nx, grid0.ny), dtype=bool)
+            hit_fwd = hit_fwd.at[-1].set(True)
+            hit_bwd = hit_bwd.at[0].set(True)
+
+            dl_step = map_fwd.dl
+            dl_half = 0.5 * jnp.broadcast_to(dl_step, (grid0.nz, grid0.nx, grid0.ny))
+            map_fwd = FCIBilinearMap(
+                ix=map_fwd.ix,
+                iy=map_fwd.iy,
+                w=map_fwd.w,
+                dl=map_fwd.dl,
+                hit=hit_fwd,
+                dl_hit=dl_half,
+            )
+            map_bwd = FCIBilinearMap(
+                ix=map_bwd.ix,
+                iy=map_bwd.iy,
+                w=map_bwd.w,
+                dl=map_bwd.dl,
+                hit=hit_bwd,
+                dl_hit=dl_half,
+            )
+        grid0 = FCISlabGrid.from_maps(
+            x0=grid0.x0,
+            y0=grid0.y0,
+            dx=grid0.dx,
+            dy=grid0.dy,
+            nx=grid0.nx,
+            ny=grid0.ny,
+            l=grid0.l,
+            map_fwd=map_fwd,
+            map_bwd=map_bwd,
+            open_field_line=grid0.open_field_line,
+            cell_centered=grid0.cell_centered,
+            Bx=0.0,
+            By=float(args.By0),
+            Bz=float(grid0.Bz),
+        )
 
     x = grid0.x0 + grid0.dx * (jnp.arange(grid0.nx) + 0.5)
     y = grid0.y0 + grid0.dy * (jnp.arange(grid0.ny) + 0.5)
@@ -189,6 +255,8 @@ def main() -> None:
         omega_n=float(args.omega_n),
         omega_Te=float(args.omega_Te),
         kappa=float(args.kappa),
+        kappa_profile=str(args.kappa_profile),
+        kappa_theta0=float(args.kappa_theta0),
         alpha=0.35,
         eta_par=0.04,
         Dn=float(args.Dn),
