@@ -9,7 +9,8 @@ This example mirrors the Hermes-2 `blob2d/BOUT.inp` setup:
 
 The run is intentionally small and fast; the goal is a reproducible 2D SOL
 benchmark anchored to Hermes-2 parameters rather than long-time intermittency.
-For open-boundary movies we use the mixed-FFT Poisson solver (DCT-I in x + FFT in y).
+For open-boundary movies we use the mixed-FFT Poisson solver (DCT-I in x + FFT in y)
+and optionally enable a background gradient drive (omega_n) to sustain activity.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ def _phi_dipole(
     x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float, amp: float, sigma: float
 ) -> np.ndarray:
     if amp == 0.0:
-        return np.zeros_like(x)
+        return np.zeros_like(x + y)
     x0 = 0.33
     y0 = 0.5
     xn = x / Lx
@@ -121,6 +122,8 @@ def main() -> None:
     parser.add_argument("--tmax", type=float, default=10.0)
     parser.add_argument("--save-stride", type=int, default=12)
     parser.add_argument("--curvature", type=float, default=-(1.0 / (1.5**2)))
+    parser.add_argument("--omega-n", type=float, default=0.0)
+    parser.add_argument("--omega-Te", type=float, default=0.0)
     parser.add_argument("--exb-scale", type=float, default=1.0)
     parser.add_argument("--phi-dipole", type=float, default=0.0)
     parser.add_argument("--Dn", type=float, default=1.0e-3)
@@ -181,8 +184,8 @@ def main() -> None:
         me_hat=1.0,
         curvature_on=True,
         curvature_coeff=float(args.curvature),
-        omega_n=0.0,
-        omega_Te=0.0,
+        omega_n=float(args.omega_n),
+        omega_Te=float(args.omega_Te),
         sol_on=False,
         Dn=float(args.Dn),
         DOmega=float(args.DOmega),
