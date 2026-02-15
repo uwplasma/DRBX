@@ -372,8 +372,8 @@ def inv_laplacian_cg(
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
-        x0 = jnp.zeros_like(b)
         M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0 = jnp.zeros_like(b) if M is None else M(b)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -390,8 +390,8 @@ def inv_laplacian_cg(
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
-        x0 = jnp.zeros_like(b)
         M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0 = jnp.zeros_like(b) if M is None else M(b)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -422,8 +422,8 @@ def inv_laplacian_cg(
             ) / dy**2
             return (-Lu).reshape((-1,))
 
-        x0 = jnp.zeros_like(b_int)
         M = make_M(size=b_int.size, shape=(nx - 2, ny - 2), dx_eff=dx, dy_eff=dy)
+        x0 = jnp.zeros_like(b_int) if M is None else M(b_int)
         x, _ = jax.scipy.sparse.linalg.cg(
             mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
@@ -459,8 +459,8 @@ def inv_laplacian_cg(
             return out.reshape((-1,))
 
         b = (-rhs_eff).reshape((-1,))
-        x0 = jnp.zeros_like(b)
         M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0 = jnp.zeros_like(b) if M is None else M(b)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -567,9 +567,9 @@ def inv_div_n_grad_cg(
             return out.reshape((-1,))
 
         b = rhs0.reshape((-1,))
-        x0 = jnp.zeros_like(b)
         nbar = jnp.mean(n_eff)
         M = make_M(shape=(nx, ny), nbar=nbar)
+        x0 = jnp.zeros_like(b) if M is None else M(b)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -595,9 +595,9 @@ def inv_div_n_grad_cg(
             Lu = div_n_grad(u, n_eff, dx, dy, bc)
             return (-Lu[1:-1, 1:-1]).reshape((-1,))
 
-        x0 = jnp.zeros_like(b_int)
         nbar = jnp.mean(n_eff)
         M = make_M(shape=(nx - 2, ny - 2), nbar=nbar)
+        x0 = jnp.zeros_like(b_int) if M is None else M(b_int)
         x, _ = jax.scipy.sparse.linalg.cg(
             mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
@@ -627,9 +627,9 @@ def inv_div_n_grad_cg(
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
-        x0 = jnp.zeros_like(b)
         nbar = jnp.mean(n_eff)
         M = make_M(shape=(nx, ny), nbar=nbar)
+        x0 = jnp.zeros_like(b) if M is None else M(b)
         x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
