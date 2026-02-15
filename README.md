@@ -180,6 +180,8 @@ python examples/09_fci/fci_drb3d_full_grillix_fig16.py \
 
 The script writes `snapshot_fig16.png` into the output directory for quick inspection
 of the annular limiter geometry and density structure.
+For longer, blob-rich tuning runs, add `--preset turbulence` (lower diffusion, mild forcing,
+longer integration, optional sheath damping).
 
 **DRB2D linear-phase benchmark (linearized vs linear solver)**
 
