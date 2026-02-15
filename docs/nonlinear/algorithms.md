@@ -47,7 +47,8 @@ The nonlinear milestone is implemented to remain compatible with JAX transformat
 
 - RHS functions are JAX-pure (no side effects, no Python data-dependent control flow in jitted regions).
 - Fixed-step stepping uses Diffrax with constant step sizes (still differentiable and XLA-friendly).
-- The non-periodic Poisson solve uses JAX's matrix-free CG, which is differentiable through the solver iterations.
+- Non-periodic Poisson solves use either matrix-free CG (general BCs) or the mixed-FFT
+  Neumann/periodic solver (DCT-I + FFT), both of which are differentiable.
 
 This enables end-to-end differentiation of scalar objectives that depend on simulation outputs, e.g.
 optimizing parameters of the drive/damping terms or (in future) geometry parameters.
