@@ -215,6 +215,75 @@ def _laplacian_homogeneous(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jn
     return d2x + d2y
 
 
+def _dct1_even(x: jnp.ndarray) -> jnp.ndarray:
+    """DCT-I along axis=0 via an even extension + FFT (unnormalized)."""
+
+    n = x.shape[0]
+    if n == 1:
+        return x
+    ext = jnp.concatenate([x, x[-2:0:-1, :]], axis=0)
+    coeffs = jnp.fft.fft(ext, axis=0)
+    return coeffs[:n, :].real
+
+
+def _idct1_even(x: jnp.ndarray) -> jnp.ndarray:
+    """Inverse DCT-I along axis=0 for the unnormalized convention in _dct1_even."""
+
+    n = x.shape[0]
+    if n == 1:
+        return x
+    return _dct1_even(x) / (2.0 * (n - 1))
+
+
+def inv_laplacian_mixed_fft(
+    rhs: jnp.ndarray,
+    *,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    gauge_epsilon: float | None = None,
+    nan_guard: bool = True,
+) -> jnp.ndarray:
+    """Fast mixed-BC Poisson solve using DCT-I (Neumann) in x and FFT in y.
+
+    Supported BCs:
+      - Neumann in x (zero gradient), periodic in y.
+
+    This matches the second-order FD Laplacian spectrum for these BCs.
+    """
+
+    if bc.kind_x != 2 or bc.kind_y != 0:
+        raise ValueError("inv_laplacian_mixed_fft supports Neumann x + periodic y only.")
+    if bc.x_grad != 0.0 or bc.y_grad != 0.0:
+        raise ValueError("inv_laplacian_mixed_fft assumes homogeneous Neumann/periodic BCs.")
+
+    if gauge_epsilon is None:
+        gauge_epsilon = 1e-12
+
+    nx, ny = rhs.shape
+    rhs0 = rhs - jnp.mean(rhs)
+
+    rhs_x = _dct1_even(rhs0)
+    rhs_hat = jnp.fft.fft(rhs_x, axis=1)
+
+    kx = jnp.arange(nx, dtype=rhs.dtype)
+    lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+    ky = jnp.arange(ny, dtype=rhs.dtype)
+    lam_y = 4.0 * jnp.sin(jnp.pi * ky / ny) ** 2 / dy**2
+    lam = lam_x[:, None] + lam_y[None, :]
+    lam = jnp.where(lam > 0.0, lam, float(gauge_epsilon))
+
+    u_hat = -rhs_hat / lam
+    u_hat = u_hat.at[0, 0].set(0.0)
+    u_x = jnp.fft.ifft(u_hat, axis=1)
+    if not jnp.iscomplexobj(rhs):
+        u_x = u_x.real
+    u = _idct1_even(u_x)
+    if nan_guard:
+        u = jnp.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
+    return u
+
+
 def inv_laplacian_cg(
     rhs: jnp.ndarray,
     *,

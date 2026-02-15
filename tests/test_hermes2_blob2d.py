@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
+from jaxdrb.nonlinear.fd import laplacian
 from jaxdrb.nonlinear.grid import Grid2D
 
 
@@ -24,6 +25,16 @@ def _blob_center(x: np.ndarray, n: np.ndarray, *, n0: float) -> float:
     pos = np.maximum(n_fluct, 0.0)
     denom = np.sum(pos) + 1e-12
     return float(np.sum(x * pos) / denom)
+
+
+def _phi_dipole(x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float, amp: float) -> np.ndarray:
+    sigma = 0.21 / 4.0
+    x0 = 0.33
+    y0 = 0.5
+    xn = x / Lx
+    yn = y / Ly
+    blob = np.exp(-(((xn - x0) / sigma) ** 2)) * np.exp(-(((yn - y0) / sigma) ** 2))
+    return amp * ((yn - y0) / sigma) * blob
 
 
 def test_hermes2_blob2d_propagates_outward() -> None:
@@ -92,3 +103,72 @@ def test_hermes2_blob2d_propagates_outward() -> None:
 
     assert np.all(np.isfinite(x_cm))
     assert float(np.abs(x_cm[-1] - x_cm[0])) > 0.002
+
+
+def test_hermes2_blob2d_open_bc_phi_dipole_drifts() -> None:
+    jax.config.update("jax_enable_x64", True)
+
+    nx, ny = 32, 64
+    Lx, Ly = 1.0, 1.0
+    grid = Grid2D.make(nx=nx, ny=ny, Lx=Lx, Ly=Ly, dealias=False, bc_x="neumann", bc_y="periodic")
+
+    params = DRB2DParams(
+        log_n=False,
+        log_Te=False,
+        kpar=0.0,
+        eta=0.0,
+        me_hat=1.0,
+        curvature_on=True,
+        curvature_coeff=-1.0,
+        omega_n=0.0,
+        omega_Te=0.0,
+        sol_on=False,
+        Dn=5e-4,
+        DOmega=8e-4,
+        DTe=5e-4,
+        mu_lin_n=0.0,
+        mu_lin_omega=0.005,
+        mu_lin_Te=0.0,
+        bracket="arakawa",
+        bracket_zero_mean=True,
+        poisson="mixed_fft",
+        dealias_on=False,
+        operator_split_on=True,
+        operator_conservative_on=True,
+        operator_source_on=True,
+        operator_dissipative_on=True,
+    )
+    model = DRB2DModel(params=params, grid=grid)
+
+    x = np.asarray(grid.x)[:, None]
+    y = np.asarray(grid.y)[None, :]
+    n0 = _hermes_blob_profile(x, y, Lx=Lx, Ly=Ly)
+    Te0 = 1.0 + 1.2 * (n0 - 1.0)
+    phi0 = _phi_dipole(x, y, Lx=Lx, Ly=Ly, amp=0.6)
+    omega0 = np.asarray(laplacian(jnp.asarray(phi0), grid.dx, grid.dy, grid.bc))
+    v0 = np.zeros_like(n0)
+    y0 = DRB2DState(
+        n=jnp.asarray(n0),
+        omega=jnp.asarray(omega0),
+        vpar_e=jnp.asarray(v0),
+        vpar_i=jnp.asarray(v0),
+        Te=jnp.asarray(Te0),
+    )
+
+    dt = 0.003
+    nsteps = int(np.ceil(1.2 / dt))
+    ys, _ = model.diffeqsolve_fixed_steps(
+        y0=y0,
+        t0=0.0,
+        dt=dt,
+        nsteps=nsteps,
+        solver="dopri5",
+        save_every=20,
+        progress=False,
+    )
+    n_series = np.asarray(ys.n)
+    n_series = np.concatenate([n0[None, ...], n_series], axis=0)
+    x_cm = np.array([_blob_center(x, n_i, n0=1.0) for n_i in n_series])
+
+    assert np.all(np.isfinite(x_cm))
+    assert float(x_cm[-1] - x_cm[0]) > 0.01
