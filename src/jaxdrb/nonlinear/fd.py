@@ -324,7 +324,7 @@ def inv_laplacian_cg(
         substantially for Dirichlet/Neumann problems.
         """
 
-        if k2_precond is None:
+        if k2_precond is None or k2_precond.shape != shape:
             npx, npy = shape
             kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npx, d=dx_eff)
             ky_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npy, d=dy_eff)
