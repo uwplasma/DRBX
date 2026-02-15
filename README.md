@@ -170,6 +170,17 @@ python examples/09_fci/fci_drb3d_full_essos_biotsavart.py --out out_fci_essos_bi
 
 ![FCI DRB3D full-model on ESSOS Biot-Savart field](docs/assets/images/fci_drb3d_full_essos_biotsavart.png)
 
+GRILLIX Fig-16 limiter proxy (Stegmeir 2018):
+
+```bash
+python examples/09_fci/fci_drb3d_full_grillix_fig16.py \
+  --out out_grillix_fig16_bottom \
+  --limiter-mode bottom
+```
+
+The script writes `snapshot_fig16.png` into the output directory for quick inspection
+of the annular limiter geometry and density structure.
+
 **DRB2D linear-phase benchmark (linearized vs linear solver)**
 
 ![DRB2D linear-phase growth](docs/assets/images/drb2d_linear_phase_growth.png)
