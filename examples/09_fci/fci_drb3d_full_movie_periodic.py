@@ -26,7 +26,7 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
-from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, save_animation_gif, set_mpl_style
 from jaxdrb.fci.drb3d_full import FCIDRB3DFullModel, FCIDRB3DFullParams, FCIDRB3DFullState
 from jaxdrb.fci.grid import FCISlabGrid
 from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
@@ -56,6 +56,7 @@ def main() -> None:
     parser.add_argument("--tmax", type=float, default=2.4)
     parser.add_argument("--save-stride", type=int, default=12)
     parser.add_argument("--solver", type=str, default="dopri5")
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=45.0)
     args = parser.parse_args()
@@ -111,7 +112,7 @@ def main() -> None:
         nsteps=nsteps,
         save_every=save_stride,
         solver=str(args.solver),
-        progress=False,
+        progress=bool(args.progress),
     )
     wall = time.time() - t0
     if wall > float(args.max_wall):
@@ -152,7 +153,7 @@ def main() -> None:
 
     ani = animation.FuncAnimation(fig, update, frames=len(frames_plot), interval=45, blit=True)
     gif_path = out_dir / "movie.gif"
-    ani.save(gif_path, writer=animation.PillowWriter(fps=12))
+    save_animation_gif(ani, gif_path, fps=12, dpi=95)
     plt.close(fig)
 
     print(f"[fci-drb3d-periodic-movie] wrote {gif_path}")

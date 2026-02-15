@@ -35,7 +35,7 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
-from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, save_animation_gif, set_mpl_style
 from jaxdrb.fci.builder import EssosToroidalFCIConfig, build_fci_maps_essos_toroidal_planes
 from jaxdrb.fci.drb3d import FCIDRB3DModel, FCIDRB3DParams, FCIDRB3DState
 from jaxdrb.fci.grid import FCISlabGrid
@@ -296,7 +296,7 @@ def main() -> None:
 
     ani = animation.FuncAnimation(fig, update, frames=nframes, interval=60, blit=False)
     gif_path = out_dir / "movie.gif"
-    ani.save(gif_path, writer=animation.PillowWriter(fps=12))
+    save_animation_gif(ani, gif_path, fps=12, dpi=95)
     plt.close(fig)
 
     print(f"[toroidal-fci-drb3d-min-movie] wrote {gif_path}")

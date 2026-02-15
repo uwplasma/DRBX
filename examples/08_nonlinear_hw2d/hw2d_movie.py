@@ -23,7 +23,7 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
-from jaxdrb.analysis.plotting import robust_symmetric_vlim, set_mpl_style
+from jaxdrb.analysis.plotting import robust_symmetric_vlim, save_animation_gif, set_mpl_style
 from jaxdrb.nonlinear.grid import Grid2D
 from jaxdrb.nonlinear.hw2d import HW2DModel, HW2DParams, hw2d_random_ic
 
@@ -44,7 +44,7 @@ def main() -> None:
     parser.add_argument("--fixed-step", action="store_true")
     parser.add_argument("--rtol", type=float, default=1e-5)
     parser.add_argument("--atol", type=float, default=1e-8)
-    parser.add_argument("--progress", action="store_true")
+    parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=str, default="out_hw2d_movie")
     args = parser.parse_args()
@@ -139,7 +139,7 @@ def main() -> None:
 
     ani = animation.FuncAnimation(fig, update, frames=len(frames_n), interval=40, blit=True)
     gif_path = out_dir / "movie.gif"
-    ani.save(gif_path, writer=animation.PillowWriter(fps=12))
+    save_animation_gif(ani, gif_path, fps=12, dpi=95)
     plt.close(fig)
 
     # Final summary panel.
