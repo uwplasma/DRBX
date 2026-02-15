@@ -106,6 +106,19 @@ def main() -> None:
     parser.add_argument("--analysis-tail", type=float, default=0.5)
     parser.add_argument("--probe-xs", type=str, default="")
     parser.add_argument("--probe-count", type=int, default=5)
+    parser.add_argument(
+        "--limiter-mode",
+        type=str,
+        default="none",
+        choices=("none", "bottom", "hfs"),
+        help="Poloidal limiter location for open-field mask (bottom or high-field side).",
+    )
+    parser.add_argument("--limiter-width", type=float, default=0.6, help="Limiter width (radians).")
+    parser.add_argument("--annulus", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--annulus-rmin", type=float, default=0.98)
+    parser.add_argument("--annulus-rmax", type=float, default=1.02)
+    parser.add_argument("--annulus-R0", type=float, default=1.0)
+    parser.add_argument("--snapshot-field", type=str, default="nprime", choices=("n", "nprime"))
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -135,6 +148,19 @@ def main() -> None:
 
     sol_mask = _smooth_lcfs_mask(x, x_lcfs=float(args.lcfs), width=float(args.lcfs_width))
     sol_mask = jnp.broadcast_to(sol_mask[None, :, None], (grid0.nz, grid0.nx, grid0.ny))
+    if args.limiter_mode != "none":
+        theta = (y / float(Ly)) * (2.0 * jnp.pi) - jnp.pi
+        if args.limiter_mode == "bottom":
+            theta0 = -0.5 * jnp.pi
+        else:
+            theta0 = jnp.pi
+        width = max(float(args.limiter_width), 1e-3)
+        dtheta = jnp.arctan2(jnp.sin(theta - theta0), jnp.cos(theta - theta0))
+        limiter_mask_2d = jnp.exp(-0.5 * (dtheta / width) ** 2)
+        limiter_mask = jnp.broadcast_to(
+            limiter_mask_2d[None, None, :], (grid0.nz, grid0.nx, grid0.ny)
+        )
+        sol_mask = sol_mask * limiter_mask
     core_mask = 1.0 - sol_mask
 
     sheath_mask = jnp.asarray(grid0.sheath_mask) * sol_mask
@@ -311,6 +337,44 @@ def main() -> None:
 
     if args.gif:
         print(f"[fci-drb3d-open-closed] wrote {gif_path}")
+
+    if args.annulus:
+        n_end = n_series[-1, kz]
+        if args.snapshot_field == "nprime":
+            field = n_end - 1.0
+        else:
+            field = n_end
+        rmin = float(args.annulus_rmin)
+        rmax = float(args.annulus_rmax)
+        R0 = float(args.annulus_R0)
+        r = rmin + (x / float(Lx)) * (rmax - rmin)
+        theta = (y / float(Ly)) * (2.0 * np.pi) - np.pi
+        R = R0 + np.outer(r, np.cos(theta))
+        Z = np.outer(r, np.sin(theta))
+
+        fig, ax = plt.subplots(figsize=(4.8, 4.8))
+        im = ax.pcolormesh(R, Z, field, cmap="turbo", shading="auto")
+        if args.limiter_mode != "none":
+            if args.limiter_mode == "bottom":
+                theta0 = -0.5 * np.pi
+            else:
+                theta0 = np.pi
+            ax.plot(
+                R0 + r * np.cos(theta0),
+                r * np.sin(theta0),
+                color="white",
+                lw=4.0,
+                solid_capstyle="round",
+            )
+        ax.set_aspect("equal")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, pad=0.02)
+        fig.tight_layout()
+        snap_path = out_dir / "snapshot_annulus.png"
+        fig.savefig(snap_path, dpi=160)
+        plt.close(fig)
+        print(f"[fci-drb3d-open-closed] wrote {snap_path}")
 
     if args.analysis:
         import matplotlib.gridspec as gridspec
