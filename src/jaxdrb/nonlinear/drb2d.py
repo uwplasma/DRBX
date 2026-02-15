@@ -271,11 +271,7 @@ class DRB2DModel(eqx.Module):
                 )
             precond = self.params.poisson_preconditioner
             if precond == "auto":
-                precond = (
-                    "spectral"
-                    if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0)
-                    else "jacobi"
-                )
+                precond = "spectral"
             return inv_laplacian_cg(
                 omega,
                 dx=self.grid.dx,
@@ -298,11 +294,7 @@ class DRB2DModel(eqx.Module):
         if self.params.n0_max is not None:
             n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
         if self.params.polarization_preconditioner == "auto":
-            precond = (
-                "spectral_jacobi"
-                if (self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0)
-                else "jacobi"
-            )
+            precond = "spectral_jacobi"
         else:
             precond = self.params.polarization_preconditioner
         return inv_div_n_grad_cg(

@@ -528,10 +528,10 @@ initial condition (Ne/Pe perturbation) and domain sizes ($L_{rad}=L_{pol}=0.3$ m
 fast, reproducible runs on reduced grids we use Neumann $x$ boundaries (open‑field proxy),
 periodic $y$, set the curvature sign so outward drift is $+x$, and track outward blob
 motion plus radial $n' v_{E\times B}$ flux. The README movie uses weak stochastic vorticity
-forcing plus a background gradient drive ($\omega_n$) to keep short runs nonlinear and
-visually active over $t \le 5$.
+forcing plus a stronger background gradient drive (currently $\omega_n=6$) to keep short
+runs nonlinear and visually active over $t \le 5$.
 
-- test: `tests/test_hermes2_blob2d.py` (includes open‑BC + $\phi$ dipole drift check)
+- test: `tests/test_hermes2_blob2d.py` (includes open‑BC + background‑gradient drift check)
 - example: `examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py`
 - CI benchmark: `benchmarks/check_drb2d_hermes2_blob_gate.py`
 

@@ -178,7 +178,7 @@ def main() -> None:
             "--curvature",
             "-1.0",
             "--omega-n",
-            "0.6",
+            "6.0",
             "--bc-x",
             "neumann",
             "--bc-y",
