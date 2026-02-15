@@ -104,6 +104,8 @@ def main() -> None:
     parser.add_argument("--source-Te-amp", type=float, default=0.0)
     parser.add_argument("--analysis", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--analysis-tail", type=float, default=0.5)
+    parser.add_argument("--probe-xs", type=str, default="")
+    parser.add_argument("--probe-count", type=int, default=5)
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -342,26 +344,40 @@ def main() -> None:
 
         x = grid.x0 + grid.dx * (np.arange(grid.nx) + 0.5)
         y = grid.y0 + grid.dy * (np.arange(grid.ny) + 0.5)
-        x_probe = min(float(args.lcfs) + 0.6, float(x[-1]))
         y_probe = float(y[len(y) // 2])
-        ix = int(np.argmin(np.abs(x - x_probe)))
-        iy = int(np.argmin(np.abs(y - y_probe)))
-        probe = n_fluct[:, ix, iy]
-        probe_tail = probe[-tail:]
-        probe_mean = probe_tail.mean()
-        probe_std = probe_tail.std()
-        thresh = 2.5 * probe_std
-        event_idx = np.where(np.abs(probe_tail - probe_mean) > thresh)[0]
+        if args.probe_xs.strip():
+            probe_xs = [float(v) for v in args.probe_xs.split(",") if v.strip()]
+        else:
+            x_min = float(args.lcfs) + 0.2
+            x_max = float(x[-1]) - 0.2
+            count = max(int(args.probe_count), 1)
+            probe_xs = np.linspace(x_min, x_max, count).tolist()
+
+        best_events = -1
+        best_probe = None
+        for xp in probe_xs:
+            ix = int(np.argmin(np.abs(x - xp)))
+            iy = int(np.argmin(np.abs(y - y_probe)))
+            probe = n_fluct[:, ix, iy]
+            probe_tail = probe[-tail:]
+            probe_mean = probe_tail.mean()
+            probe_std = probe_tail.std()
+            thresh = 2.0 * probe_std
+            event_idx = np.where(np.abs(probe_tail - probe_mean) > thresh)[0]
+            print(
+                "[fci-drb3d-open-closed] probe x="
+                f"{x[ix]:.2f} events={event_idx.size} "
+                f"|n'-mean|> {thresh:.3e} mean/std={probe_mean:.3e}/{probe_std:.3e}"
+            )
+            if event_idx.size > best_events:
+                best_events = int(event_idx.size)
+                best_probe = (ix, iy, probe_mean, probe_std, event_idx)
+
         max_tail = np.max(n_tail, axis=(1, 2))
         max_mean = max_tail.mean()
         max_std = max_tail.std()
         max_thresh = max_mean + 2.0 * max_std
         event_idx_max = np.where(max_tail > max_thresh)[0]
-        print(
-            "[fci-drb3d-open-closed] probe events="
-            f"{event_idx.size} |n'-mean|> {thresh:.3e} "
-            f"probe mean/std={probe_mean:.3e}/{probe_std:.3e}"
-        )
         print(
             "[fci-drb3d-open-closed] max-n' events="
             f"{event_idx_max.size} max_thresh={max_thresh:.3e} "
@@ -369,8 +385,8 @@ def main() -> None:
         )
         if event_idx_max.size > 0:
             cond_avg = n_tail[event_idx_max].mean(axis=0)
-        elif event_idx.size > 0:
-            cond_avg = n_tail[event_idx].mean(axis=0)
+        elif best_probe is not None and best_probe[4].size > 0:
+            cond_avg = n_tail[best_probe[4]].mean(axis=0)
         else:
             cond_avg = n_tail.mean(axis=0)
 
