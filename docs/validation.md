@@ -527,11 +527,17 @@ which evolves a Gaussian density/pressure blob on open field lines with curvatur
 initial condition (Ne/Pe perturbation) and domain sizes ($L_{rad}=L_{pol}=0.3$ m). For
 fast, reproducible runs on reduced grids we use periodic boundaries with linear damping
 to emulate parallel losses, set the curvature sign so outward drift is $+x$, and track
-outward blob motion plus radial $n' v_{E\times B}$ flux.
+outward blob motion plus radial $n' v_{E\times B}$ flux. The README movie uses weak
+stochastic vorticity forcing to keep short runs nonlinear and visually active.
 
 - test: `tests/test_hermes2_blob2d.py`
 - example: `examples/08_nonlinear_drb2d/drb2d_hermes2_blob2d.py`
 - CI benchmark: `benchmarks/check_drb2d_hermes2_blob_gate.py`
+
+Notes:
+
+- The CI gate uses **Neumann $x$ boundaries** with a matrix‑free CG Poisson solve and a
+  spectral (circulant) preconditioner to emulate open field lines while keeping the solve fast.
 
 ![DRB2D Hermes-2 blob2d panel](assets/images/drb2d_hermes2_blob2d_panel.png)
 

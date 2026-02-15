@@ -21,6 +21,15 @@ geometry).
   **Physics of Plasmas 23**, 102511 (2016).
   [DOI: 10.1063/1.4964783](https://doi.org/10.1063/1.4964783)
 
+- P. Ricci et al.,
+  *Simulation of plasma turbulence in scrape-off layer conditions*,
+  **Plasma Physics and Controlled Fusion 54**, 124047 (2012).
+  (See `Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf` in `drb_literature/`.)
+
+- P. Ricci,
+  *Turbulence in the scrape-off layer of tokamaks* (EPFL thesis, 2011),
+  (See `EPFL_TH6197.pdf` in `drb_literature/`.)
+
 ## Near-axis stellarator geometry
 
 - R. Jorge and M. Landreman,
@@ -76,6 +85,13 @@ geometry).
 - M. Frank, M. Jones, and W. Nowak,
   *Stratified Kelvin–Helmholtz turbulence of compressible shear flows*,
   **Nonlinear Processes in Geophysics 25**, 457–468 (2018).
+
+## 2D drift-wave / HW turbulence
+
+- J. A. Camargo, H. Biskamp, and B. Scott,
+  *Turbulent transport in the Hasegawa–Wakatani model*,
+  **Physics of Plasmas 2**, 48–62 (1995).
+  (See `camargo_biskamp_scott95.pdf` in `drb_literature/`.)
 
 ## Hermes-2 / SOL blob benchmarks
 

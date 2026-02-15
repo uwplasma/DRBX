@@ -32,6 +32,7 @@ from jaxdrb.analysis.plotting import (
 )
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
 from jaxdrb.nonlinear.grid import Grid2D
+from jaxdrb.nonlinear.integrate import diffeqsolve_fixed_steps
 
 
 def _hermes_blob_profile(x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float) -> np.ndarray:
@@ -53,6 +54,36 @@ def _blob_center(x: np.ndarray, n: np.ndarray, *, n0: float) -> float:
     return float(np.sum(x * pos) / denom)
 
 
+def _make_forcing_sequence(
+    key: jax.Array,
+    *,
+    nsteps: int,
+    nx: int,
+    ny: int,
+    kx: np.ndarray,
+    ky: np.ndarray,
+    kmax: float,
+    dt: float,
+    tau: float,
+) -> np.ndarray:
+    k_mag = np.sqrt(kx**2 + ky**2)
+    mask = (k_mag <= float(kmax)) & (k_mag > 0.0)
+    forcing = np.zeros((nsteps, nx, ny), dtype=np.float64)
+    alpha = float(np.exp(-dt / max(tau, 1e-12)))
+    prev = np.zeros((nx, ny), dtype=np.float64)
+    for i in range(nsteps):
+        key, sub = jax.random.split(key)
+        noise = jax.random.normal(sub, (nx, ny))
+        noise_hat = np.fft.fft2(np.asarray(noise))
+        noise_hat = noise_hat * mask
+        f = np.fft.ifft2(noise_hat).real
+        f = f - np.mean(f)
+        f = f / max(float(np.sqrt(np.mean(f**2))), 1e-12)
+        prev = alpha * prev + np.sqrt(1.0 - alpha**2) * f
+        forcing[i] = prev
+    return forcing
+
+
 def _radial_flux(n: np.ndarray, phi: np.ndarray, *, dy: float, n0: float) -> float:
     # vEx = -dphi/dy, mean of n' vEx
     dphi_dy = (np.roll(phi, -1, axis=1) - np.roll(phi, 1, axis=1)) / (2.0 * dy)
@@ -72,15 +103,25 @@ def main() -> None:
     parser.add_argument("--Lx", type=float, default=1.0)
     parser.add_argument("--Ly", type=float, default=1.0)
     parser.add_argument("--dt", type=float, default=0.002)
-    parser.add_argument("--tmax", type=float, default=16.0)
+    parser.add_argument("--tmax", type=float, default=10.0)
     parser.add_argument("--save-stride", type=int, default=12)
     parser.add_argument("--curvature", type=float, default=-(1.0 / (1.5**2)))
-    parser.add_argument("--Dn", type=float, default=3e-3)
-    parser.add_argument("--DOmega", type=float, default=3e-3)
-    parser.add_argument("--DTe", type=float, default=3e-3)
-    parser.add_argument("--mu-lin-n", type=float, default=0.05)
-    parser.add_argument("--mu-lin-omega", type=float, default=0.05)
-    parser.add_argument("--mu-lin-Te", type=float, default=0.05)
+    parser.add_argument("--Dn", type=float, default=1.0e-3)
+    parser.add_argument("--DOmega", type=float, default=1.2e-3)
+    parser.add_argument("--DTe", type=float, default=1.0e-3)
+    parser.add_argument("--mu-lin-n", type=float, default=0.0)
+    parser.add_argument("--mu-lin-omega", type=float, default=0.02)
+    parser.add_argument("--mu-lin-Te", type=float, default=0.0)
+    parser.add_argument("--forcing-amp", type=float, default=5.0e-4)
+    parser.add_argument("--forcing-kmax", type=float, default=4.0)
+    parser.add_argument("--forcing-tau", type=float, default=0.5)
+    parser.add_argument("--bc-x", type=str, default="periodic")
+    parser.add_argument("--bc-y", type=str, default="periodic")
+    parser.add_argument("--poisson", type=str, default="auto")
+    parser.add_argument("--poisson-preconditioner", type=str, default="auto")
+    parser.add_argument("--poisson-cg-maxiter", type=int, default=200)
+    parser.add_argument("--poisson-cg-tol", type=float, default=1e-6)
+    parser.add_argument("--poisson-gauge-epsilon", type=float, default=1e-6)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=str, default="out_drb2d_hermes2_blob")
     parser.add_argument("--fps", type=int, default=12)
@@ -102,9 +143,15 @@ def main() -> None:
         Lx=float(args.Lx),
         Ly=float(args.Ly),
         dealias=False,
-        bc_x="periodic",
-        bc_y="periodic",
+        bc_x=str(args.bc_x),
+        bc_y=str(args.bc_y),
     )
+
+    poisson = str(args.poisson).lower()
+    if poisson == "auto":
+        poisson = "spectral" if (grid.bc.kind_x == 0 and grid.bc.kind_y == 0) else "cg_fd"
+    if poisson == "spectral" and (grid.bc.kind_x != 0 or grid.bc.kind_y != 0):
+        raise ValueError("Spectral Poisson requires periodic BCs in x and y.")
 
     params = DRB2DParams(
         log_n=False,
@@ -124,8 +171,12 @@ def main() -> None:
         mu_lin_omega=float(args.mu_lin_omega),
         mu_lin_Te=float(args.mu_lin_Te),
         bracket="arakawa",
-        bracket_zero_mean=False,
-        poisson="spectral",
+        bracket_zero_mean=bool(grid.bc.kind_x != 0 or grid.bc.kind_y != 0),
+        poisson=poisson,
+        poisson_preconditioner=str(args.poisson_preconditioner),
+        poisson_cg_maxiter=int(args.poisson_cg_maxiter),
+        poisson_cg_tol=float(args.poisson_cg_tol),
+        poisson_gauge_epsilon=float(args.poisson_gauge_epsilon),
         dealias_on=False,
         operator_split_on=True,
         operator_conservative_on=True,
@@ -158,8 +209,40 @@ def main() -> None:
         f"nsteps={nsteps} save_every={save_every} frame_dt={frame_dt:.4g}"
     )
 
+    forcing_seq = None
+    if float(args.forcing_amp) > 0.0:
+        key = jax.random.key(int(args.seed))
+        forcing_seq = _make_forcing_sequence(
+            key,
+            nsteps=nsteps,
+            nx=grid.nx,
+            ny=grid.ny,
+            kx=np.asarray(grid.kx),
+            ky=np.asarray(grid.ky),
+            kmax=float(args.forcing_kmax),
+            dt=dt,
+            tau=float(args.forcing_tau),
+        )
+        forcing_seq = float(args.forcing_amp) * forcing_seq
+
+    def rhs_with_forcing(t, y):
+        dy = model.rhs(t, y)
+        if forcing_seq is None:
+            return dy
+        idx = jnp.clip(jnp.floor(t / dt).astype(jnp.int32), 0, forcing_seq.shape[0] - 1)
+        f = jnp.asarray(forcing_seq)[idx]
+        return DRB2DState(
+            n=dy.n,
+            omega=dy.omega + f,
+            vpar_e=dy.vpar_e,
+            vpar_i=dy.vpar_i,
+            Te=dy.Te,
+            N=dy.N,
+        )
+
     start = time.time()
-    ys, _ = model.diffeqsolve_fixed_steps(
+    ys, _ = diffeqsolve_fixed_steps(
+        rhs_with_forcing,
         y0=y0,
         t0=0.0,
         dt=dt,
@@ -167,6 +250,7 @@ def main() -> None:
         solver="dopri5",
         save_every=save_every,
         progress=bool(args.progress),
+        max_steps=int(nsteps * 3 + 100),
     )
     wall = time.time() - start
     print(f"[hermes2-blob2d] runtime {wall:.2f}s")
@@ -240,48 +324,101 @@ def main() -> None:
         omega_a = omega_series[::stride]
         t_a = t_series[::stride]
         x_cm = []
+        y_cm = []
         flux = []
         for n_i, w_i in zip(n_a, omega_a, strict=False):
             phi_i = np.asarray(model.phi_from_omega(jnp.asarray(w_i)))
             x_cm.append(_blob_center(x, n_i, n0=1.0))
+            y_cm.append(_blob_center(y, n_i, n0=1.0))
             flux.append(_radial_flux(n_i, phi_i, dy=float(grid.dy), n0=1.0))
         x_cm = np.asarray(x_cm)
+        y_cm = np.asarray(y_cm)
         flux = np.asarray(flux)
 
         n_mean = np.mean(n_a, axis=2)
         n_rms = np.sqrt(np.mean((n_a - n_mean[:, :, None]) ** 2, axis=2))
         y_probe = int(0.5 * (grid.ny - 1))
+        x_probe = int(0.6 * (grid.nx - 1))
         probe = n_a[:, :, y_probe] - 1.0
         hist, edges = np.histogram(probe.reshape(-1), bins=60, density=True)
         centers = 0.5 * (edges[:-1] + edges[1:])
+        rms_n = np.sqrt(np.mean((n_a - 1.0) ** 2, axis=(1, 2)))
+        rms_omega = np.sqrt(np.mean(omega_a**2, axis=(1, 2)))
+        tail_slice = slice(int(0.6 * len(rms_n)), None)
+        print(
+            "[hermes2-blob2d] rms_n tail mean "
+            f"{float(np.mean(rms_n[tail_slice])):.3e}, "
+            "rms_omega tail mean "
+            f"{float(np.mean(rms_omega[tail_slice])):.3e}"
+        )
 
-        fig2, axs = plt.subplots(2, 3, figsize=(11.4, 6.6), constrained_layout=True)
+        tail_idx = int(0.6 * len(probe))
+        probe_tail = probe[tail_idx:, x_probe].reshape(-1)
+        probe_mean = float(np.mean(probe_tail))
+        probe_std = float(np.std(probe_tail))
+        threshold = probe_mean + 2.0 * probe_std
+        events = np.where(probe[:, x_probe] > threshold)[0]
+        if events.size > 0:
+            cond_n = np.mean(n_a[events] - 1.0, axis=0)
+        else:
+            cond_n = np.zeros_like(n_a[0] - 1.0)
+
+        fig2, axs = plt.subplots(3, 3, figsize=(12.6, 9.0), constrained_layout=True)
         ax_ts = axs[0, 0]
-        ax_ts.plot(t_a, x_cm, label="x_cm")
-        ax_ts.plot(t_a, flux, label="mean flux")
-        ax_ts.set_title("Blob center + flux")
+        ax_ts.plot(t_a, rms_n, label="rms n'")
+        ax_ts.plot(t_a, rms_omega, label="rms omega")
+        ax_ts.set_title("Fluctuation RMS")
         ax_ts.set_xlabel("t")
         ax_ts.legend()
 
-        ax_pdf = axs[0, 1]
+        ax_ts2 = axs[0, 1]
+        ax_ts2.plot(t_a, x_cm, label="x_cm")
+        ax_ts2.plot(t_a, y_cm, label="y_cm")
+        ax_ts2.plot(t_a, flux, label="mean flux")
+        ax_ts2.set_title("Blob center + flux")
+        ax_ts2.set_xlabel("t")
+        ax_ts2.legend()
+
+        ax_pdf = axs[0, 2]
         ax_pdf.semilogy(centers, hist + 1e-30)
         ax_pdf.set_title("Probe n' PDF")
         ax_pdf.set_xlabel("n'")
         ax_pdf.set_ylabel("pdf")
 
-        ax_prof = axs[0, 2]
+        ax_prof = axs[1, 0]
         ax_prof.plot(np.asarray(grid.x), np.mean(n_mean, axis=0), label="mean n")
         ax_prof.plot(np.asarray(grid.x), np.mean(n_rms, axis=0), label="rms n")
         ax_prof.set_title("Radial profiles (tail)")
         ax_prof.set_xlabel("x")
         ax_prof.legend()
 
+        ax_cond = axs[1, 1]
+        vlim = robust_symmetric_vlim(cond_n)
+        im_cond = ax_cond.imshow(
+            cond_n.T,
+            origin="lower",
+            cmap="coolwarm",
+            extent=[0, float(args.Lx), 0, float(args.Ly)],
+            vmin=-vlim,
+            vmax=vlim,
+            aspect="auto",
+        )
+        ax_cond.set_title("Conditional avg n'")
+        fig2.colorbar(im_cond, ax=ax_cond, pad=0.02, label="n'")
+
+        ax_probe = axs[1, 2]
+        ax_probe.plot(t_a, probe[:, x_probe], label="probe n'")
+        ax_probe.axhline(threshold, color="red", lw=1.0, label="threshold")
+        ax_probe.set_title("Probe n' + threshold")
+        ax_probe.set_xlabel("t")
+        ax_probe.legend()
+
         snap_mid = int(np.argmin(np.abs(t_series - 0.6 * float(args.tmax))))
         n_snap = n_series[snap_mid] - 1.0
         w_snap = omega_series[snap_mid]
         phi_snap = np.asarray(model.phi_from_omega(jnp.asarray(w_snap)))
 
-        ax_n = axs[1, 0]
+        ax_n = axs[2, 0]
         vlim = robust_symmetric_vlim(n_snap)
         im_n = ax_n.imshow(
             n_snap.T,
@@ -295,7 +432,7 @@ def main() -> None:
         ax_n.set_title(f"n' t={t_series[snap_mid]:.1f}")
         fig2.colorbar(im_n, ax=ax_n, pad=0.02, label="n'")
 
-        ax_w = axs[1, 1]
+        ax_w = axs[2, 1]
         vlim = robust_symmetric_vlim(w_snap)
         im_w = ax_w.imshow(
             w_snap.T,
@@ -309,7 +446,7 @@ def main() -> None:
         ax_w.set_title(f"omega t={t_series[snap_mid]:.1f}")
         fig2.colorbar(im_w, ax=ax_w, pad=0.02, label=r"$\omega$")
 
-        ax_phi = axs[1, 2]
+        ax_phi = axs[2, 2]
         vlim = robust_symmetric_vlim(phi_snap)
         im_phi = ax_phi.imshow(
             phi_snap.T,
