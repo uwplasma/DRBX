@@ -106,6 +106,7 @@ def main() -> None:
     parser.add_argument("--tmax", type=float, default=10.0)
     parser.add_argument("--save-stride", type=int, default=12)
     parser.add_argument("--curvature", type=float, default=-(1.0 / (1.5**2)))
+    parser.add_argument("--exb-scale", type=float, default=1.0)
     parser.add_argument("--Dn", type=float, default=1.0e-3)
     parser.add_argument("--DOmega", type=float, default=1.2e-3)
     parser.add_argument("--DTe", type=float, default=1.0e-3)
@@ -172,6 +173,7 @@ def main() -> None:
         mu_lin_Te=float(args.mu_lin_Te),
         bracket="arakawa",
         bracket_zero_mean=bool(grid.bc.kind_x != 0 or grid.bc.kind_y != 0),
+        exb_scale=float(args.exb_scale),
         poisson=poisson,
         poisson_preconditioner=str(args.poisson_preconditioner),
         poisson_cg_maxiter=int(args.poisson_cg_maxiter),
@@ -340,20 +342,58 @@ def main() -> None:
         y_probe = int(0.5 * (grid.ny - 1))
         x_probe = int(0.6 * (grid.nx - 1))
         probe = n_a[:, :, y_probe] - 1.0
-        hist, edges = np.histogram(probe.reshape(-1), bins=60, density=True)
-        centers = 0.5 * (edges[:-1] + edges[1:])
+        probe_vals = probe.reshape(-1)
+        finite_mask = np.isfinite(probe_vals)
+        if not np.all(finite_mask):
+            n_bad = int(np.sum(~finite_mask))
+            print(f"[hermes2-blob2d] warning: {n_bad} non-finite probe samples")
+        probe_vals = probe_vals[finite_mask]
+        if probe_vals.size == 0:
+            centers = np.linspace(-1.0, 1.0, 60)
+            hist = np.zeros_like(centers)
+        else:
+            hist, edges = np.histogram(probe_vals, bins=60, density=True)
+            centers = 0.5 * (edges[:-1] + edges[1:])
         rms_n = np.sqrt(np.mean((n_a - 1.0) ** 2, axis=(1, 2)))
         rms_omega = np.sqrt(np.mean(omega_a**2, axis=(1, 2)))
         tail_slice = slice(int(0.6 * len(rms_n)), None)
+        rms_n_min = float(np.min(rms_n))
+        rms_n_max = float(np.max(rms_n))
+        rms_omega_min = float(np.min(rms_omega))
+        rms_omega_max = float(np.max(rms_omega))
+        rms_n_tail = float(np.mean(rms_n[tail_slice]))
+        rms_omega_tail = float(np.mean(rms_omega[tail_slice]))
+        rms_n_ratio = rms_n_tail / max(rms_n_max, 1e-12)
+        rms_omega_ratio = rms_omega_tail / max(rms_omega_max, 1e-12)
+        x_min = float(np.min(x_cm))
+        x_max = float(np.max(x_cm))
+        y_min = float(np.min(y_cm))
+        y_max = float(np.max(y_cm))
+        flux_mean = float(np.mean(flux))
+        flux_tail = float(np.mean(flux[tail_slice]))
         print(
             "[hermes2-blob2d] rms_n tail mean "
-            f"{float(np.mean(rms_n[tail_slice])):.3e}, "
+            f"{rms_n_tail:.3e}, "
             "rms_omega tail mean "
-            f"{float(np.mean(rms_omega[tail_slice])):.3e}"
+            f"{rms_omega_tail:.3e}"
+        )
+        print(
+            "[hermes2-blob2d] rms_n min/max "
+            f"{rms_n_min:.3e}/{rms_n_max:.3e} (tail/peak={rms_n_ratio:.2f}) "
+            f"rms_omega min/max {rms_omega_min:.3e}/{rms_omega_max:.3e} "
+            f"(tail/peak={rms_omega_ratio:.2f})"
+        )
+        print(
+            "[hermes2-blob2d] x_cm range "
+            f"{x_min:.3f}..{x_max:.3f} (dx={x_max - x_min:.3f}), "
+            "y_cm range "
+            f"{y_min:.3f}..{y_max:.3f} (dy={y_max - y_min:.3f}), "
+            f"mean flux={flux_mean:.3e}, tail flux={flux_tail:.3e}"
         )
 
         tail_idx = int(0.6 * len(probe))
         probe_tail = probe[tail_idx:, x_probe].reshape(-1)
+        probe_tail = probe_tail[np.isfinite(probe_tail)]
         probe_mean = float(np.mean(probe_tail))
         probe_std = float(np.std(probe_tail))
         threshold = probe_mean + 2.0 * probe_std
