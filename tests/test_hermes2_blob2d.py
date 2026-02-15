@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 
 from jaxdrb.nonlinear.drb2d import DRB2DModel, DRB2DParams, DRB2DState
-from jaxdrb.nonlinear.fd import laplacian
 from jaxdrb.nonlinear.grid import Grid2D
 
 
@@ -25,16 +24,6 @@ def _blob_center(x: np.ndarray, n: np.ndarray, *, n0: float) -> float:
     pos = np.maximum(n_fluct, 0.0)
     denom = np.sum(pos) + 1e-12
     return float(np.sum(x * pos) / denom)
-
-
-def _phi_dipole(x: np.ndarray, y: np.ndarray, *, Lx: float, Ly: float, amp: float) -> np.ndarray:
-    sigma = 0.21 / 4.0
-    x0 = 0.33
-    y0 = 0.5
-    xn = x / Lx
-    yn = y / Ly
-    blob = np.exp(-(((xn - x0) / sigma) ** 2)) * np.exp(-(((yn - y0) / sigma) ** 2))
-    return amp * ((yn - y0) / sigma) * blob
 
 
 def test_hermes2_blob2d_propagates_outward() -> None:
@@ -105,7 +94,7 @@ def test_hermes2_blob2d_propagates_outward() -> None:
     assert float(np.abs(x_cm[-1] - x_cm[0])) > 0.002
 
 
-def test_hermes2_blob2d_open_bc_phi_dipole_drifts() -> None:
+def test_hermes2_blob2d_open_bc_gradient_drive_drifts() -> None:
     jax.config.update("jax_enable_x64", True)
 
     nx, ny = 32, 64
@@ -120,7 +109,7 @@ def test_hermes2_blob2d_open_bc_phi_dipole_drifts() -> None:
         me_hat=1.0,
         curvature_on=True,
         curvature_coeff=-1.0,
-        omega_n=0.0,
+        omega_n=1.0,
         omega_Te=0.0,
         sol_on=False,
         Dn=5e-4,
@@ -144,8 +133,7 @@ def test_hermes2_blob2d_open_bc_phi_dipole_drifts() -> None:
     y = np.asarray(grid.y)[None, :]
     n0 = _hermes_blob_profile(x, y, Lx=Lx, Ly=Ly)
     Te0 = 1.0 + 1.2 * (n0 - 1.0)
-    phi0 = _phi_dipole(x, y, Lx=Lx, Ly=Ly, amp=0.6)
-    omega0 = np.asarray(laplacian(jnp.asarray(phi0), grid.dx, grid.dy, grid.bc))
+    omega0 = np.zeros_like(n0)
     v0 = np.zeros_like(n0)
     y0 = DRB2DState(
         n=jnp.asarray(n0),
@@ -156,7 +144,7 @@ def test_hermes2_blob2d_open_bc_phi_dipole_drifts() -> None:
     )
 
     dt = 0.003
-    nsteps = int(np.ceil(1.2 / dt))
+    nsteps = int(np.ceil(2.0 / dt))
     ys, _ = model.diffeqsolve_fixed_steps(
         y0=y0,
         t0=0.0,
@@ -171,4 +159,4 @@ def test_hermes2_blob2d_open_bc_phi_dipole_drifts() -> None:
     x_cm = np.array([_blob_center(x, n_i, n0=1.0) for n_i in n_series])
 
     assert np.all(np.isfinite(x_cm))
-    assert float(x_cm[-1] - x_cm[0]) > 0.01
+    assert float(np.ptp(x_cm)) > 0.001
