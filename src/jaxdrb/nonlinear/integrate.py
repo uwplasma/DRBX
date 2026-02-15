@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Callable, Literal
 
+import os
+
 import diffrax as dfx
 import jax
 import jax.numpy as jnp
@@ -47,6 +49,11 @@ def solver_from_name(name: DiffraxSolverName) -> dfx.AbstractSolver:
     raise ValueError(f"Unknown Diffrax solver: {name}")
 
 
+def _default_progress() -> bool:
+    flag = os.environ.get("JAXDRB_PROGRESS", "1").strip().lower()
+    return flag not in {"0", "false", "no", "off"}
+
+
 def diffeqsolve(
     rhs: Callable[[float, object], object],
     *,
@@ -60,7 +67,7 @@ def diffeqsolve(
     rtol: float = 1e-5,
     atol: float = 1e-8,
     max_steps: int = 200_000,
-    progress: bool = False,
+    progress: bool | None = None,
 ) -> dfx.Solution:
     """Integrate an ODE using Diffrax.
 
@@ -76,6 +83,9 @@ def diffeqsolve(
     save_ts:
         If provided, return the solution sampled at these times (useful for movies/plots).
     """
+
+    if progress is None:
+        progress = _default_progress()
 
     term = dfx.ODETerm(lambda t, y, args: rhs(t, y))
     solver_obj = solver_from_name(solver)
@@ -107,7 +117,7 @@ def diffeqsolve_fixed_steps(
     solver: DiffraxSolverName = "dopri5",
     save_every: int = 1,
     max_steps: int | None = None,
-    progress: bool = False,
+    progress: bool | None = None,
 ) -> tuple[jnp.ndarray, object]:
     """Fixed-step integration using Diffrax.
 

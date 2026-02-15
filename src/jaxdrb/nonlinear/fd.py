@@ -225,6 +225,7 @@ def inv_laplacian_cg(
     tol: float = 1e-10,
     atol: float = 0.0,
     preconditioner: str = "jacobi",
+    k2_precond: jnp.ndarray | None = None,
     gauge_epsilon: float | None = None,
     nan_guard: bool = True,
 ) -> jnp.ndarray:
@@ -254,11 +255,14 @@ def inv_laplacian_cg(
         substantially for Dirichlet/Neumann problems.
         """
 
-        npx, npy = shape
-        kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npx, d=dx_eff)
-        ky_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npy, d=dy_eff)
-        kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
-        k2 = kx**2 + ky**2
+        if k2_precond is None:
+            npx, npy = shape
+            kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npx, d=dx_eff)
+            ky_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npy, d=dy_eff)
+            kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+            k2 = kx**2 + ky**2
+        else:
+            k2 = k2_precond
         denom = jnp.where(k2 > 0.0, k2, float(gauge_epsilon))
 
         def M(v_flat):
@@ -295,6 +299,24 @@ def inv_laplacian_cg(
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
             # SPD lift: add eps * mean(v) to eliminate the constant nullspace.
+            out = -laplacian(v, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(v)
+            return out.reshape((-1,))
+
+        b = (-rhs0).reshape((-1,))
+        x0 = jnp.zeros_like(b)
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        return u - jnp.mean(u)
+
+    if (bc.kind_x == 0 and bc.kind_y != 0) or (bc.kind_x != 0 and bc.kind_y == 0):
+        # Mixed periodic/non-periodic: apply gauge-fixing on the full grid.
+        rhs0 = rhs - jnp.mean(rhs)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
             out = -laplacian(v, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(v)
             return out.reshape((-1,))
 

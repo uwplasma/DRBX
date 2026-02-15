@@ -93,7 +93,7 @@ def main() -> None:
     p.add_argument("--rtol", type=float, default=1e-5)
     p.add_argument("--atol", type=float, default=1e-8)
     p.add_argument("--max-steps", type=int, default=250_000)
-    p.add_argument("--progress", action="store_true")
+    p.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--model", type=str, default="cold", choices=["cold", "hot-ion", "em"])
     p.add_argument("--out", type=str, default="out_drb2d_budget")

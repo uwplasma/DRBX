@@ -587,7 +587,7 @@ class DRB2DEMModel(eqx.Module):
         rtol: float = 1e-5,
         atol: float = 1e-8,
         max_steps: int = 200_000,
-        progress: bool = False,
+        progress: bool | None = None,
     ):
         return diffeqsolve_ode(
             self.rhs,
