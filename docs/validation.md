@@ -309,6 +309,9 @@ Example:
 
 - `examples/09_fci/fci_drb3d_full_grillix_fig16.py`
 
+For longer turbulence tuning runs, use `--preset turbulence` (lower diffusion, mild forcing,
+longer integration, optional sheath damping).
+
 Output:
 
 - `snapshot_fig16.png` (written into the output directory)

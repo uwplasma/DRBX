@@ -157,6 +157,13 @@ def main() -> None:
     os.environ.setdefault("MPLBACKEND", "Agg")
 
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--preset",
+        type=str,
+        default="quick",
+        choices=("quick", "turbulence"),
+        help="Parameter preset for quick checks vs longer turbulence tuning.",
+    )
     parser.add_argument("--out", type=str, default="out_grillix_fig16_bottom")
     parser.add_argument("--nx", type=int, default=40)
     parser.add_argument("--ny", type=int, default=40)
@@ -229,6 +236,48 @@ def main() -> None:
     parser.add_argument("--buffer-nu", type=float, default=2e-3)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
+
+    defaults = {
+        "dt": 0.0002,
+        "tmax": 1.2,
+        "save_stride": 10,
+        "Dn": 1.5e-4,
+        "DOmega": 1.5e-4,
+        "Dvpar": 4e-4,
+        "DTe": 1.5e-4,
+        "chi_par": 3e-4,
+        "forcing_amp": 3e-3,
+        "noise_amp": 3e-3,
+        "sink_nu": 0.4,
+        "sink_Te_nu": 0.4,
+        "limiter_sink_nu": 0.6,
+        "limiter_sink_Te_nu": 0.6,
+        "buffer_nu": 2e-3,
+        "sheath_on": False,
+    }
+    if args.preset == "turbulence":
+        tuning = {
+            "dt": 1.5e-4,
+            "tmax": 3.0,
+            "save_stride": 20,
+            "Dn": 8e-5,
+            "DOmega": 8e-5,
+            "Dvpar": 2.5e-4,
+            "DTe": 8e-5,
+            "chi_par": 2e-4,
+            "forcing_amp": 2e-3,
+            "noise_amp": 2e-3,
+            "sink_nu": 0.25,
+            "sink_Te_nu": 0.25,
+            "limiter_sink_nu": 0.8,
+            "limiter_sink_Te_nu": 0.8,
+            "buffer_nu": 1e-3,
+            "sheath_on": True,
+        }
+        for name, value in tuning.items():
+            if getattr(args, name) == defaults[name]:
+                setattr(args, name, value)
+        print("[grillix-fig16] using turbulence preset (override with explicit CLI args).")
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
