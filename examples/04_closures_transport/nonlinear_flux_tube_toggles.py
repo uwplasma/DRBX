@@ -93,7 +93,7 @@ def integrate_case(
         ts.append(t)
         Es.append(energy_proxy(y))
         print(
-            f"[nonlinear-toggles] {name:>20s} chunk {k+1:02d}/{nchunks} "
+            f"[nonlinear-toggles] {name:>20s} chunk {k + 1:02d}/{nchunks} "
             f"t={t:6.3f} Eproxy={Es[-1]:9.3e}",
             flush=True,
         )

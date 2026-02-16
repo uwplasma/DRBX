@@ -466,9 +466,9 @@ def main() -> None:
         peak_rms_omega = float(np.max(rms_omega))
         print(
             "[fci-drb3d-open-closed] rms_n tail/peak="
-            f"{tail_rms_n:.3e}/{peak_rms_n:.3e} (ratio={tail_rms_n / max(peak_rms_n,1e-30):.2f}), "
+            f"{tail_rms_n:.3e}/{peak_rms_n:.3e} (ratio={tail_rms_n / max(peak_rms_n, 1e-30):.2f}), "
             "rms_omega tail/peak="
-            f"{tail_rms_omega:.3e}/{peak_rms_omega:.3e} (ratio={tail_rms_omega / max(peak_rms_omega,1e-30):.2f})"
+            f"{tail_rms_omega:.3e}/{peak_rms_omega:.3e} (ratio={tail_rms_omega / max(peak_rms_omega, 1e-30):.2f})"
         )
 
         mean_n = n_tail.mean(axis=(0, 2))

@@ -312,7 +312,7 @@ def main() -> None:
         vmin=-vlim,
         vmax=vlim,
         aspect="auto",
-        interpolation='hanning'
+        interpolation="hanning",
     )
     ax.set_title("Hermes-2 blob2d proxy: n'")
     ax.set_xlabel("x")
