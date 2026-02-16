@@ -62,7 +62,9 @@ def main() -> None:
 
     # LCFS + SOL proxy parameters.
     p.add_argument("--xs-frac", type=float, default=0.3, help="LCFS location x_s / Lx.")
-    p.add_argument("--sol-width", type=float, default=0.1, help="LCFS transition width (in Lx units).")
+    p.add_argument(
+        "--sol-width", type=float, default=0.1, help="LCFS transition width (in Lx units)."
+    )
     p.add_argument(
         "--sol-open-left",
         default=False,
@@ -100,8 +102,15 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=args.Lx, Ly=args.Ly,
-                       dealias=False, bc_x=str(args.bc_x), bc_y=str(args.bc_y))
+    grid = Grid2D.make(
+        nx=args.nx,
+        ny=args.ny,
+        Lx=args.Lx,
+        Ly=args.Ly,
+        dealias=False,
+        bc_x=str(args.bc_x),
+        bc_y=str(args.bc_y),
+    )
     xs = float(args.xs_frac) * float(grid.Lx)
     params = DRB2DParams(
         omega_n=float(args.omega_n),
@@ -218,7 +227,7 @@ def main() -> None:
         vmin=-vmax,
         vmax=vmax,
         animated=True,
-        interpolation='hanning'
+        interpolation="hanning",
     )
     ax.axvline(xs / float(grid.Lx) * (grid.nx - 1), color="k", lw=1.0, alpha=0.6)
     ax.set_title("DRB2D SOL: normalized n fluctuation")

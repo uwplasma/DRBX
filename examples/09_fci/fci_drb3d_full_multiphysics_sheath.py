@@ -281,9 +281,9 @@ def main() -> None:
     print(f"[fci-multiphysics] wrote {out_png}")
     print(
         "[fci-multiphysics] final diagnostics:",
-        f"energy_drift={float((energy[-1]-energy[0])/jnp.maximum(jnp.abs(energy[0]),1e-14)):.3e}",
-        f"plasma_particle_drift={float(particle_plasma[-1]-particle_plasma[0]):.3e}",
-        f"total_particle_drift={float(particle_total[-1]-particle_total[0]):.3e}",
+        f"energy_drift={float((energy[-1] - energy[0]) / jnp.maximum(jnp.abs(energy[0]), 1e-14)):.3e}",
+        f"plasma_particle_drift={float(particle_plasma[-1] - particle_plasma[0]):.3e}",
+        f"total_particle_drift={float(particle_total[-1] - particle_total[0]):.3e}",
     )
 
 

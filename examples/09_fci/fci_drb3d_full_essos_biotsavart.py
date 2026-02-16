@@ -286,8 +286,7 @@ def main() -> None:
     coils_json = Path(args.coils_json) if args.coils_json else _default_coils_file()
     if coils_json is None or not coils_json.exists():
         raise FileNotFoundError(
-            "Could not locate ESSOS_biot_savart_LandremanPaulQA.json. "
-            "Set --coils-json explicitly."
+            "Could not locate ESSOS_biot_savart_LandremanPaulQA.json. Set --coils-json explicitly."
         )
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -460,7 +459,7 @@ def main() -> None:
             f"Z patch: [{map_meta['Z_patch_min']:.3f}, {map_meta['Z_patch_max']:.3f}]",
             f"hit count fwd: {int(map_meta.get('n_hit_fwd', 0.0))}",
             f"hit count bwd: {int(map_meta.get('n_hit_bwd', 0.0))}",
-            f"final rel energy drift: {float((energy[-1]-energy[0])/e_norm):.3e}",
+            f"final rel energy drift: {float((energy[-1] - energy[0]) / e_norm):.3e}",
             f"final n rms: {float(n_rms[-1]):.3e}",
         ]
     )
