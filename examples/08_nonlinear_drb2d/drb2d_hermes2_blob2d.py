@@ -118,17 +118,17 @@ def main() -> None:
     parser.add_argument("--ny", type=int, default=128)
     parser.add_argument("--Lx", type=float, default=1.0)
     parser.add_argument("--Ly", type=float, default=1.0)
-    parser.add_argument("--dt", type=float, default=0.002)
-    parser.add_argument("--tmax", type=float, default=10.0)
-    parser.add_argument("--save-stride", type=int, default=12)
-    parser.add_argument("--curvature", type=float, default=-(1.0 / (1.5**2)))
-    parser.add_argument("--omega-n", type=float, default=0.0)
-    parser.add_argument("--omega-Te", type=float, default=0.0)
-    parser.add_argument("--exb-scale", type=float, default=1.0)
-    parser.add_argument("--phi-dipole", type=float, default=0.0)
-    parser.add_argument("--Dn", type=float, default=1.0e-3)
-    parser.add_argument("--DOmega", type=float, default=1.2e-3)
-    parser.add_argument("--DTe", type=float, default=1.0e-3)
+    parser.add_argument("--dt", type=float, default=0.01)
+    parser.add_argument("--tmax", type=float, default=9.0)
+    parser.add_argument("--save-stride", type=int, default=3)
+    parser.add_argument("--curvature", type=float, default=-(2.0 / (1.5**2)))
+    parser.add_argument("--omega-n", type=float, default=0.1)
+    parser.add_argument("--omega-Te", type=float, default=0.1)
+    parser.add_argument("--exb-scale", type=float, default=0.3)
+    parser.add_argument("--phi-dipole", type=float, default=0.1)
+    parser.add_argument("--Dn", type=float, default=1.0e-5)
+    parser.add_argument("--DOmega", type=float, default=1.0e-5)
+    parser.add_argument("--DTe", type=float, default=1.0e-5)
     parser.add_argument("--mu-lin-n", type=float, default=0.0)
     parser.add_argument("--mu-lin-omega", type=float, default=0.02)
     parser.add_argument("--mu-lin-Te", type=float, default=0.0)
@@ -280,7 +280,7 @@ def main() -> None:
         t0=0.0,
         dt=dt,
         nsteps=nsteps,
-        solver="dopri5",
+        solver="dopri8",
         save_every=save_every,
         progress=bool(args.progress),
         max_steps=int(nsteps * 3 + 100),
@@ -298,17 +298,21 @@ def main() -> None:
     t_series = np.concatenate([np.array([0.0]), t_series], axis=0)
 
     # Movie of density fluctuations.
+    # Compute global vlim for the animation (over all frames)
+    n_fluct_all = n_series - 1.0
+    vlim = robust_symmetric_vlim(n_fluct_all)
+
     fig, ax = plt.subplots(figsize=(6.4, 4.8), constrained_layout=True)
     n_fluct0 = n_series[0] - 1.0
-    vlim = robust_symmetric_vlim(n_fluct0)
     img = ax.imshow(
         n_fluct0.T,
         origin="lower",
-        cmap="coolwarm",
+        cmap="jet",
         extent=[0, float(args.Lx), 0, float(args.Ly)],
         vmin=-vlim,
         vmax=vlim,
         aspect="auto",
+        interpolation='hanning'
     )
     ax.set_title("Hermes-2 blob2d proxy: n'")
     ax.set_xlabel("x")
@@ -329,9 +333,9 @@ def main() -> None:
 
     def update(frame: int):
         data = n_series[frame] - 1.0
-        vlim = robust_symmetric_vlim(data)
+        # vlim = robust_symmetric_vlim(data)
         img.set_data(data.T)
-        img.set_clim(-vlim, vlim)
+        # img.set_clim(-vlim, vlim)
         t_text.set_text(f"t = {t_series[frame]:.2f}")
         return (img, t_text)
 
