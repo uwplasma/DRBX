@@ -235,6 +235,27 @@ def _idct1_even(x: jnp.ndarray) -> jnp.ndarray:
     return _dct1_even(x) / (2.0 * (n - 1))
 
 
+def _dst1_odd(x: jnp.ndarray) -> jnp.ndarray:
+    """DST-I along axis=0 via an odd extension + FFT (unnormalized)."""
+
+    n = x.shape[0]
+    if n == 1:
+        return x
+    zeros = jnp.zeros((1, *x.shape[1:]), dtype=x.dtype)
+    ext = jnp.concatenate([zeros, x, zeros, -x[::-1, ...]], axis=0)
+    coeffs = jnp.fft.fft(ext, axis=0)
+    return -coeffs.imag[1 : n + 1]
+
+
+def _idst1_odd(x: jnp.ndarray) -> jnp.ndarray:
+    """Inverse DST-I along axis=0 for the unnormalized convention in _dst1_odd."""
+
+    n = x.shape[0]
+    if n == 1:
+        return x
+    return _dst1_odd(x) / (2.0 * (n + 1))
+
+
 def inv_laplacian_mixed_fft(
     rhs: jnp.ndarray,
     *,
@@ -282,6 +303,169 @@ def inv_laplacian_mixed_fft(
     if nan_guard:
         u = jnp.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
     return u
+
+
+def inv_laplacian_fd_fft(
+    rhs: jnp.ndarray,
+    *,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    gauge_epsilon: float | None = None,
+    nan_guard: bool = True,
+) -> jnp.ndarray:
+    """Fast FD Poisson solve using FFT/DCT/DST for periodic/Dirichlet/Neumann BCs.
+
+    Supported BCs:
+      - periodic, dirichlet (value), neumann (gradient)
+      - mixed periodic/dirichlet/neumann (homogeneous or constant boundary data)
+
+    For non-homogeneous Dirichlet data the solver subtracts a boundary field before
+    solving a homogeneous problem. Non-homogeneous Neumann gradients are supported
+    only when they do not conflict with Dirichlet boundaries.
+    """
+
+    nx, ny = rhs.shape
+    if nx < 3 and bc.kind_x == 1:
+        raise ValueError("Dirichlet BCs in x require nx >= 3.")
+    if ny < 3 and bc.kind_y == 1:
+        raise ValueError("Dirichlet BCs in y require ny >= 3.")
+
+    has_dirichlet = bc.kind_x == 1 or bc.kind_y == 1
+    has_neumann = bc.kind_x == 2 or bc.kind_y == 2
+    has_nullspace = (bc.kind_x != 1) and (bc.kind_y != 1)
+
+    if (bc.kind_x == 1 and bc.kind_y == 2 and bc.y_grad != 0.0) or (
+        bc.kind_x == 2 and bc.kind_y == 1 and bc.x_grad != 0.0
+    ):
+        raise ValueError("Mixed Dirichlet/Neumann with nonzero gradients not supported.")
+
+    if has_neumann and (
+        (bc.kind_x == 2 and bc.x_grad != 0.0) or (bc.kind_y == 2 and bc.y_grad != 0.0)
+    ):
+        if (
+            (bc.kind_x == 2 and bc.kind_y == 0)
+            or (bc.kind_y == 2 and bc.kind_x == 0)
+            or (bc.kind_x == 2 and bc.kind_y == 2)
+        ):
+            pass
+        else:
+            raise ValueError(
+                "Nonzero Neumann gradients only supported with periodic/Neumann in the other direction."
+            )
+
+    if gauge_epsilon is None:
+        diag = 2.0 / dx**2 + 2.0 / dy**2
+        gauge_epsilon = 1e-12 * float(diag)
+
+    u_bc = None
+    rhs_eff = rhs
+
+    if has_dirichlet:
+        u_bc = jnp.zeros_like(rhs)
+        if bc.kind_x == 1:
+            u_bc = u_bc.at[0, :].set(float(bc.x_value))
+            u_bc = u_bc.at[-1, :].set(float(bc.x_value))
+        if bc.kind_y == 1:
+            u_bc = u_bc.at[:, 0].set(float(bc.y_value))
+            u_bc = u_bc.at[:, -1].set(float(bc.y_value))
+        if bc.kind_x == 1 and bc.kind_y == 1:
+            corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+            u_bc = u_bc.at[0, 0].set(corner)
+            u_bc = u_bc.at[0, -1].set(corner)
+            u_bc = u_bc.at[-1, 0].set(corner)
+            u_bc = u_bc.at[-1, -1].set(corner)
+        rhs_eff = rhs_eff - laplacian(u_bc, dx, dy, bc)
+
+    if has_neumann and (bc.x_grad != 0.0 or bc.y_grad != 0.0):
+        x = jnp.linspace(0.0, dx * (nx - 1), nx)[:, None]
+        y = jnp.linspace(0.0, dy * (ny - 1), ny)[None, :]
+        u_grad = float(bc.x_grad) * x + float(bc.y_grad) * y
+        u_bc = u_grad if u_bc is None else u_bc + u_grad
+
+    rhs_work = rhs_eff
+    if bc.kind_x == 1:
+        rhs_work = rhs_work[1:-1, :]
+    if bc.kind_y == 1:
+        rhs_work = rhs_work[:, 1:-1]
+    if has_nullspace:
+        rhs_work = rhs_work - jnp.mean(rhs_work)
+
+    if bc.kind_x == 0:
+        rhs_work = jnp.fft.fft(rhs_work, axis=0)
+    elif bc.kind_x == 2:
+        rhs_work = _dct1_even(rhs_work)
+    else:
+        rhs_work = _dst1_odd(rhs_work)
+
+    if bc.kind_y == 0:
+        rhs_work = jnp.fft.fft(rhs_work, axis=1)
+    elif bc.kind_y == 2:
+        rhs_work = _dct1_even(rhs_work.T).T
+    else:
+        rhs_work = _dst1_odd(rhs_work.T).T
+
+    if bc.kind_x == 0:
+        kx = jnp.arange(nx, dtype=rhs.dtype)
+        lam_x = 4.0 * jnp.sin(jnp.pi * kx / nx) ** 2 / dx**2
+    elif bc.kind_x == 2:
+        kx = jnp.arange(nx, dtype=rhs.dtype)
+        lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+    else:
+        kx = jnp.arange(1, nx - 1, dtype=rhs.dtype)
+        lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+
+    if bc.kind_y == 0:
+        ky = jnp.arange(ny, dtype=rhs.dtype)
+        lam_y = 4.0 * jnp.sin(jnp.pi * ky / ny) ** 2 / dy**2
+    elif bc.kind_y == 2:
+        ky = jnp.arange(ny, dtype=rhs.dtype)
+        lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+    else:
+        ky = jnp.arange(1, ny - 1, dtype=rhs.dtype)
+        lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+
+    lam = lam_x[:, None] + lam_y[None, :]
+
+    lam = jnp.where(lam > 0.0, lam, float(gauge_epsilon))
+
+    u_hat = -rhs_work / lam
+    if has_nullspace:
+        u_hat = u_hat.at[0, 0].set(0.0)
+
+    if bc.kind_y == 0:
+        u_work = jnp.fft.ifft(u_hat, axis=1)
+    elif bc.kind_y == 2:
+        u_work = _idct1_even(u_hat.T).T
+    else:
+        u_work = _idst1_odd(u_hat.T).T
+
+    if bc.kind_x == 0:
+        u_work = jnp.fft.ifft(u_work, axis=0)
+    elif bc.kind_x == 2:
+        u_work = _idct1_even(u_work)
+    else:
+        u_work = _idst1_odd(u_work)
+
+    if bc.kind_x == 1 or bc.kind_y == 1:
+        u_full = jnp.zeros((nx, ny), dtype=u_work.dtype)
+        xs = slice(1, -1) if bc.kind_x == 1 else slice(None)
+        ys = slice(1, -1) if bc.kind_y == 1 else slice(None)
+        u_full = u_full.at[xs, ys].set(u_work)
+        u_work = u_full
+
+    if u_bc is not None:
+        u_work = u_work + u_bc
+
+    if has_nullspace:
+        u_work = u_work - jnp.mean(u_work)
+
+    if not jnp.iscomplexobj(rhs):
+        u_work = u_work.real
+
+    if nan_guard:
+        u_work = jnp.nan_to_num(u_work, nan=0.0, posinf=0.0, neginf=0.0)
+    return u_work
 
 
 def inv_laplacian_cg(

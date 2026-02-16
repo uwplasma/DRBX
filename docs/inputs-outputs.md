@@ -244,6 +244,11 @@ Tabulated geometries use `.npz` files with keys `l`, `gxx`, `gxy`, `gyy` and opt
 | `bc_grad_x` | `0.0` | Neumann gradient x |
 | `bc_grad_y` | `0.0` | Neumann gradient y |
 
+Per-field overrides: many 2D models accept optional `bc_*` parameters (type `BC2D`) to override
+the `Grid2D` boundary condition for specific fields. When `bc_*` is `None`, the model uses
+`Grid2D.bc`. Homogeneous/constant-value BCs use the fast FFT/DCT/DST Poisson solve when
+`poisson="cg_fd"`; unsupported combinations fall back to CG.
+
 ### Diffrax integrators
 
 `diffeqsolve(rhs, y0, t0, t1, dt0, save_ts, solver, adaptive, rtol, atol, max_steps, progress)`
@@ -307,6 +312,9 @@ Tabulated geometries use `.npz` files with keys `l`, `gxx`, `gxy`, `gyy` and opt
 | `dealias_on` | `True` | Dealiasing for spectral bracket |
 | `k2_min` | `1e-12` | Poisson k2 floor |
 | `bc_enforce_nu` | `0.0` | Boundary relaxation rate |
+| `bc_n` | `None` | Optional BC override for `n` (BC2D) |
+| `bc_omega` | `None` | Optional BC override for `omega` (BC2D) |
+| `bc_phi` | `None` | Optional BC override for `phi` (BC2D) |
 | `alpha_nonzonal_only` | `False` | Apply coupling only to ky≠0 |
 | `neutrals` | `NeutralParams()` | Neutral coupling parameters |
 
@@ -358,6 +366,12 @@ Tabulated geometries use `.npz` files with keys `l`, `gxx`, `gxy`, `gyy` and opt
 | `dealias_on` | `True` | Dealiasing for spectral bracket |
 | `k2_min` | `1e-12` | Poisson k2 floor |
 | `bc_enforce_nu` | `0.0` | Boundary relaxation rate |
+| `bc_n` | `None` | Optional BC override for `n` (BC2D) |
+| `bc_omega` | `None` | Optional BC override for `omega` (BC2D) |
+| `bc_vpar_e` | `None` | Optional BC override for `vpar_e` (BC2D) |
+| `bc_vpar_i` | `None` | Optional BC override for `vpar_i` (BC2D) |
+| `bc_Te` | `None` | Optional BC override for `Te` (BC2D) |
+| `bc_phi` | `None` | Optional BC override for `phi` (BC2D) |
 | `polarization_cg_maxiter` | `400` | Non-Bouss CG max iterations |
 | `polarization_cg_tol` | `1e-8` | Non-Bouss CG tol |
 | `polarization_cg_atol` | `0.0` | Non-Bouss CG atol |
@@ -462,6 +476,13 @@ Tabulated geometries use `.npz` files with keys `l`, `gxx`, `gxy`, `gyy` and opt
 | `dealias_on` | `True` | Dealiasing |
 | `k2_min` | `1e-12` | Poisson k2 floor |
 | `bc_enforce_nu` | `0.0` | Boundary relaxation rate |
+| `bc_n` | `None` | Optional BC override for `n` (BC2D) |
+| `bc_omega` | `None` | Optional BC override for `omega` (BC2D) |
+| `bc_vpar_e` | `None` | Optional BC override for `vpar_e` (BC2D) |
+| `bc_vpar_i` | `None` | Optional BC override for `vpar_i` (BC2D) |
+| `bc_Te` | `None` | Optional BC override for `Te` (BC2D) |
+| `bc_Ti` | `None` | Optional BC override for `Ti` (BC2D) |
+| `bc_phi` | `None` | Optional BC override for `phi` (BC2D) |
 | `polarization_cg_maxiter` | `400` | Non-Bouss CG max iterations |
 | `polarization_cg_tol` | `1e-8` | Non-Bouss CG tol |
 | `polarization_cg_atol` | `0.0` | Non-Bouss CG atol |
@@ -500,6 +521,12 @@ Tabulated geometries use `.npz` files with keys `l`, `gxx`, `gxy`, `gyy` and opt
 | `dealias_on` | `True` | Dealiasing |
 | `k2_min` | `1e-12` | Poisson k2 floor |
 | `bc_enforce_nu` | `0.0` | Boundary relaxation rate |
+| `bc_n` | `None` | Optional BC override for `n` (BC2D) |
+| `bc_omega` | `None` | Optional BC override for `omega` (BC2D) |
+| `bc_vpar_i` | `None` | Optional BC override for `vpar_i` (BC2D) |
+| `bc_Te` | `None` | Optional BC override for `Te` (BC2D) |
+| `bc_psi` | `None` | Optional BC override for `psi` (BC2D) |
+| `bc_phi` | `None` | Optional BC override for `phi` (BC2D) |
 | `polarization_cg_maxiter` | `400` | Non-Bouss CG max iterations |
 | `polarization_cg_tol` | `1e-8` | Non-Bouss CG tol |
 | `polarization_cg_atol` | `0.0` | Non-Bouss CG atol |

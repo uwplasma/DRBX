@@ -61,7 +61,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=45.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
-    parser.add_argument("--omega-n", type=float, default=1.0, help="Background density-gradient drive.")
+    parser.add_argument(
+        "--omega-n", type=float, default=1.0, help="Background density-gradient drive."
+    )
     parser.add_argument("--omega-Te", type=float, default=0.1, help="Background Te-gradient drive.")
     parser.add_argument(
         "--kpar",
@@ -277,7 +279,7 @@ def main() -> None:
         vmin=-vmax,
         vmax=vmax,
         animated=True,
-        interpolation='hanning'
+        interpolation="hanning",
     )
     ax.set_title(f"DRB2D: normalized {args.field} fluctuation ({args.field}-<{args.field}>)/rms")
     ax.set_xticks([])

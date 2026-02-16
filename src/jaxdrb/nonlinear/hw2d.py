@@ -6,7 +6,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from jaxdrb.operators.brackets import poisson_bracket_arakawa, poisson_bracket_centered
+from jaxdrb.bc import BC2D
+from jaxdrb.operators.brackets import (
+    poisson_bracket_arakawa,
+    poisson_bracket_arakawa_fd,
+    poisson_bracket_centered,
+)
 
 from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .grid import Grid2D
@@ -15,7 +20,7 @@ from .fd import biharmonic as biharmonic_fd
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import laplacian as laplacian_fd
-from .fd import enforce_bc_relaxation, inv_laplacian_cg
+from .fd import enforce_bc_relaxation, inv_laplacian_cg, inv_laplacian_fd_fft
 from .spectral import biharmonic, ddy, dealias, inv_laplacian, laplacian, poisson_bracket_spectral
 
 
@@ -40,6 +45,10 @@ class HW2DParams(eqx.Module):
     dealias_on: bool = True
     k2_min: float = 1e-12
     bc_enforce_nu: float = 0.0  # boundary relaxation rate for non-periodic BCs
+    # Optional per-field BC overrides (None -> use Grid2D bc).
+    bc_n: BC2D | None = None
+    bc_omega: BC2D | None = None
+    bc_phi: BC2D | None = None
 
     # Optional "modified HW" coupling: apply α(φ-n) only to non-zonal components (ky≠0),
     # avoiding unphysical damping of zonal flows.
@@ -59,23 +68,55 @@ class HW2DModel(eqx.Module):
     params: HW2DParams
     grid: Grid2D
 
+    def _bc_or(self, bc: BC2D | None, fallback: BC2D | None = None) -> BC2D:
+        if bc is not None:
+            return bc
+        if fallback is not None:
+            return fallback
+        return self.grid.bc
+
+    def _bc_phi(self) -> BC2D:
+        return self._bc_or(self.params.bc_phi, self._bc_or(self.params.bc_omega, self.grid.bc))
+
+    def _is_periodic_bc(self, bc: BC2D) -> bool:
+        return (
+            bc.kind_x == 0
+            and bc.kind_y == 0
+            and self.grid.bc.kind_x == 0
+            and self.grid.bc.kind_y == 0
+        )
+
     def phi_from_omega(self, omega: jnp.ndarray) -> jnp.ndarray:
+        bc_phi = self._bc_phi()
         if self.params.poisson == "spectral":
-            if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
+            if not self._is_periodic_bc(bc_phi):
                 raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
             return inv_laplacian(omega, self.grid.k2, k2_min=self.params.k2_min)
+        if self.params.poisson == "cg_fd":
+            try:
+                return inv_laplacian_fd_fft(
+                    omega,
+                    dx=self.grid.dx,
+                    dy=self.grid.dy,
+                    bc=bc_phi,
+                )
+            except ValueError:
+                pass
         return inv_laplacian_cg(
             omega,
             dx=self.grid.dx,
             dy=self.grid.dy,
-            bc=self.grid.bc,
+            bc=bc_phi,
             maxiter=300,
-            preconditioner="spectral",
+            preconditioner="spectral" if self._is_periodic_bc(bc_phi) else "jacobi",
         )
 
-    def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
+    def _bracket(
+        self, phi: jnp.ndarray, f: jnp.ndarray, *, bc_phi: BC2D, bc_f: BC2D
+    ) -> jnp.ndarray:
+        periodic_pair = self._is_periodic_bc(bc_phi) and self._is_periodic_bc(bc_f)
         if self.params.bracket == "spectral":
-            if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
+            if not periodic_pair:
                 raise ValueError("Spectral bracket requires periodic BCs in x and y.")
             return poisson_bracket_spectral(
                 phi,
@@ -85,21 +126,21 @@ class HW2DModel(eqx.Module):
                 dealias_mask=self.grid.dealias_mask if self.params.dealias_on else None,
             )
         if self.params.bracket == "arakawa":
-            if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
-                raise ValueError("Arakawa bracket implementation currently assumes periodic BCs.")
-            # Arakawa's Jacobian is designed to conserve quadratic invariants on periodic grids.
-            # Applying an FFT filter to it can break these conservation properties, so we return it
-            # as-is.
-            return poisson_bracket_arakawa(phi, f, self.grid.dx, self.grid.dy)
-        if self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+            if periodic_pair:
+                # Arakawa's Jacobian is designed to conserve quadratic invariants on periodic grids.
+                # Applying an FFT filter to it can break these conservation properties, so we return it
+                # as-is.
+                return poisson_bracket_arakawa(phi, f, self.grid.dx, self.grid.dy)
+            return poisson_bracket_arakawa_fd(phi, f, self.grid.dx, self.grid.dy, bc_phi, bc_f)
+        if periodic_pair:
             j = poisson_bracket_centered(phi, f, self.grid.dx, self.grid.dy)
         else:
-            dphi_dx = ddx_fd(phi, self.grid.dx, self.grid.bc)
-            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
-            df_dx = ddx_fd(f, self.grid.dx, self.grid.bc)
-            df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
+            dphi_dx = ddx_fd(phi, self.grid.dx, bc_phi)
+            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
+            df_dx = ddx_fd(f, self.grid.dx, bc_f)
+            df_dy = ddy_fd(f, self.grid.dy, bc_f)
             j = dphi_dx * df_dy - dphi_dy * df_dx
-        if self.params.dealias_on and self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+        if self.params.dealias_on and periodic_pair:
             return dealias(j, self.grid.dealias_mask)
         return j
 
@@ -107,25 +148,28 @@ class HW2DModel(eqx.Module):
         _ = t
         n = y.n
         omega = y.omega
+        bc_n = self._bc_or(self.params.bc_n)
+        bc_omega = self._bc_or(self.params.bc_omega)
+        bc_phi = self._bc_phi()
 
         phi = self.phi_from_omega(omega)
 
         # Main nonlinear advection.
-        adv_n = self._bracket(phi, n)
-        adv_w = self._bracket(phi, omega)
+        adv_n = self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n)
+        adv_w = self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega)
 
         # Background-gradient drive (E×B drift across background gradient).
         # Standard HW form uses -kappa ∂y phi in the density equation.
         if (
             self.params.bracket == "spectral"
-            and self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
+            and self._is_periodic_bc(bc_phi)
+            and self._is_periodic_bc(bc_n)
         ):
             dphi_dy = ddy(phi, self.grid.ky)
             dn_dy = ddy(n, self.grid.ky)
         else:
-            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
-            dn_dy = ddy_fd(n, self.grid.dy, self.grid.bc)
+            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
+            dn_dy = ddy_fd(n, self.grid.dy, bc_n)
 
         drive_n = -self.params.kappa * dphi_dy
         drive_w = -self.params.kappa * dn_dy
@@ -135,16 +179,14 @@ class HW2DModel(eqx.Module):
         if self.params.alpha_nonzonal_only:
             couple = couple - jnp.mean(couple, axis=1, keepdims=True)
 
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
             lap_n = laplacian(n, self.grid.k2)
+        else:
+            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
+        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
             lap_w = laplacian(omega, self.grid.k2)
         else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
 
         dn = -adv_n + drive_n + couple + self.params.Dn * lap_n
         dw = -adv_w + drive_w + couple + self.params.DOmega * lap_w
@@ -153,30 +195,28 @@ class HW2DModel(eqx.Module):
         # the enstrophy cascade with minimal impact on large scales.
         if self.params.nu4_n != 0.0 or self.params.nu4_omega != 0.0:
             if (
-                self.grid.bc.kind_x == 0
-                and self.grid.bc.kind_y == 0
+                self._is_periodic_bc(bc_n)
+                and self._is_periodic_bc(bc_omega)
                 and self.params.poisson == "spectral"
             ):
                 dn = dn - self.params.nu4_n * biharmonic(n, self.grid.k2)
                 dw = dw - self.params.nu4_omega * biharmonic(omega, self.grid.k2)
             else:
-                dn = dn - self.params.nu4_n * biharmonic_fd(
-                    n, self.grid.dx, self.grid.dy, self.grid.bc
-                )
+                dn = dn - self.params.nu4_n * biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
                 dw = dw - self.params.nu4_omega * biharmonic_fd(
-                    omega, self.grid.dx, self.grid.dy, self.grid.bc
+                    omega, self.grid.dx, self.grid.dy, bc_omega
                 )
 
         # Optional boundary enforcement (useful for non-periodic BC experiments).
         if self.params.bc_enforce_nu != 0.0:
             dn = dn + enforce_bc_relaxation(
-                n, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+                n, dx=self.grid.dx, dy=self.grid.dy, bc=bc_n, nu=self.params.bc_enforce_nu
             )
             dw = dw + enforce_bc_relaxation(
                 omega,
                 dx=self.grid.dx,
                 dy=self.grid.dy,
-                bc=self.grid.bc,
+                bc=bc_omega,
                 nu=self.params.bc_enforce_nu,
             )
 
@@ -184,15 +224,11 @@ class HW2DModel(eqx.Module):
             return HW2DState(n=dn, omega=dw, N=None)
 
         # Neutral coupling (optional).
-        adv_N = self._bracket(phi, y.N)
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        adv_N = self._bracket(phi, y.N, bc_phi=bc_phi, bc_f=bc_n)
+        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
             lap_N = laplacian(y.N, self.grid.k2)
         else:
-            lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, bc_n)
         dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
             N=y.N,
             n=n,
@@ -203,7 +239,7 @@ class HW2DModel(eqx.Module):
         )
         if self.params.bc_enforce_nu != 0.0:
             dN = dN + enforce_bc_relaxation(
-                y.N, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+                y.N, dx=self.grid.dx, dy=self.grid.dy, bc=bc_n, nu=self.params.bc_enforce_nu
             )
         return HW2DState(n=dn + dn_from_neutrals, omega=dw + dw_from_neutrals, N=dN)
 
@@ -241,21 +277,18 @@ class HW2DModel(eqx.Module):
         """Compute basic integral diagnostics."""
 
         phi = self.phi_from_omega(y.omega)
+        bc_phi = self._bc_phi()
 
         # Energy-like quantity: 0.5 ∫ (n^2 + |∇phi|^2) dA
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        if self._is_periodic_bc(bc_phi) and self.params.poisson == "spectral":
             from .spectral import ddx as ddx_spec
             from .spectral import ddy as ddy_spec
 
             gradphi_x = ddx_spec(phi, self.grid.kx)
             gradphi_y = ddy_spec(phi, self.grid.ky)
         else:
-            gradphi_x = ddx_fd(phi, self.grid.dx, self.grid.bc)
-            gradphi_y = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            gradphi_x = ddx_fd(phi, self.grid.dx, bc_phi)
+            gradphi_y = ddy_fd(phi, self.grid.dy, bc_phi)
         E = 0.5 * jnp.mean(y.n**2 + gradphi_x**2 + gradphi_y**2)
 
         Z = 0.5 * jnp.mean(y.omega**2)  # enstrophy-like
@@ -286,20 +319,23 @@ class HW2DModel(eqx.Module):
         n = y.n
         omega = y.omega
         phi = self.phi_from_omega(omega)
+        bc_n = self._bc_or(self.params.bc_n)
+        bc_omega = self._bc_or(self.params.bc_omega)
+        bc_phi = self._bc_phi()
 
-        adv_n = self._bracket(phi, n)
-        adv_w = self._bracket(phi, omega)
+        adv_n = self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n)
+        adv_w = self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega)
 
         if (
             self.params.bracket == "spectral"
-            and self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
+            and self._is_periodic_bc(bc_phi)
+            and self._is_periodic_bc(bc_n)
         ):
             dphi_dy = ddy(phi, self.grid.ky)
             dn_dy = ddy(n, self.grid.ky)
         else:
-            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
-            dn_dy = ddy_fd(n, self.grid.dy, self.grid.bc)
+            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
+            dn_dy = ddy_fd(n, self.grid.dy, bc_n)
 
         drive_n = -self.params.kappa * dphi_dy
         drive_w = -self.params.kappa * dn_dy
@@ -308,20 +344,18 @@ class HW2DModel(eqx.Module):
         if self.params.alpha_nonzonal_only:
             couple = couple - jnp.mean(couple, axis=1, keepdims=True)
 
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
             lap_n = laplacian(n, self.grid.k2)
-            lap_w = laplacian(omega, self.grid.k2)
             bih_n = biharmonic(n, self.grid.k2)
+        else:
+            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
+        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
+            lap_w = laplacian(omega, self.grid.k2)
             bih_w = biharmonic(omega, self.grid.k2)
         else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
 
         dn_adv = -adv_n
         dw_adv = -adv_w

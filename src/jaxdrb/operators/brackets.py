@@ -53,14 +53,25 @@ def _pad_y_bc(u: jnp.ndarray, dy: float, bc: BC2D) -> jnp.ndarray:
 
 
 def poisson_bracket_arakawa_fd(
-    phi: jnp.ndarray, f: jnp.ndarray, dx: float, dy: float, bc: BC2D
+    phi: jnp.ndarray, f: jnp.ndarray, dx: float, dy: float, bc: BC2D, bc_f: BC2D | None = None
 ) -> jnp.ndarray:
-    """Arakawa bracket using ghost-cell padding for non-periodic BCs."""
+    """Arakawa bracket using ghost-cell padding for non-periodic BCs.
+
+    Parameters
+    ----------
+    bc : BC2D
+        Boundary conditions applied to ``phi``.
+    bc_f : BC2D | None
+        Optional boundary conditions applied to ``f``. When omitted, uses ``bc``.
+    """
+
+    if bc_f is None:
+        bc_f = bc
 
     p = _pad_x_bc(phi, dx, bc)
     p = _pad_y_bc(p, dy, bc)
-    g = _pad_x_bc(f, dx, bc)
-    g = _pad_y_bc(g, dy, bc)
+    g = _pad_x_bc(f, dx, bc_f)
+    g = _pad_y_bc(g, dy, bc_f)
 
     p_ip = p[2:, 1:-1]
     p_im = p[:-2, 1:-1]

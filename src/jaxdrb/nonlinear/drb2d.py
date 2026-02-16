@@ -23,6 +23,7 @@ from .fd import (
     enforce_bc_relaxation,
     inv_div_n_grad_cg,
     inv_laplacian_cg,
+    inv_laplacian_fd_fft,
     inv_laplacian_mixed_fft,
 )
 from .spectral import (
@@ -119,6 +120,13 @@ class DRB2DParams(eqx.Module):
     dealias_on: bool = True
     k2_min: float = 1e-12
     bc_enforce_nu: float = 0.0
+    # Optional per-field BC overrides (None -> use Grid2D bc).
+    bc_n: BC2D | None = None
+    bc_omega: BC2D | None = None
+    bc_vpar_e: BC2D | None = None
+    bc_vpar_i: BC2D | None = None
+    bc_Te: BC2D | None = None
+    bc_phi: BC2D | None = None
     # Non-Boussinesq variable-coefficient polarization solve settings.
     polarization_cg_maxiter: int = 400
     polarization_cg_tol: float = 1e-8
@@ -255,10 +263,32 @@ class DRB2DModel(eqx.Module):
     params: DRB2DParams
     grid: Grid2D
 
+    def _bc_or(self, bc: BC2D | None, fallback: BC2D | None = None) -> BC2D:
+        if bc is not None:
+            return bc
+        if fallback is not None:
+            return fallback
+        return self.grid.bc
+
+    def _bc_phi(self) -> BC2D:
+        return self._bc_or(self.params.bc_phi, self._bc_or(self.params.bc_omega, self.grid.bc))
+
+    def _is_periodic_bc(self, bc: BC2D) -> bool:
+        return (
+            bc.kind_x == 0
+            and bc.kind_y == 0
+            and self.grid.bc.kind_x == 0
+            and self.grid.bc.kind_y == 0
+        )
+
+    def _is_periodic_pair(self, bc_a: BC2D, bc_b: BC2D) -> bool:
+        return self._is_periodic_bc(bc_a) and self._is_periodic_bc(bc_b)
+
     def phi_from_omega(self, omega: jnp.ndarray, n: jnp.ndarray | None = None) -> jnp.ndarray:
+        bc_phi = self._bc_phi()
         if self.params.boussinesq:
             if self.params.poisson == "spectral":
-                if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
+                if not self._is_periodic_bc(bc_phi):
                     raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
                 return inv_laplacian(omega, self.grid.k2, k2_min=self.params.k2_min)
             if self.params.poisson == "mixed_fft":
@@ -266,17 +296,30 @@ class DRB2DModel(eqx.Module):
                     omega,
                     dx=self.grid.dx,
                     dy=self.grid.dy,
-                    bc=self.grid.bc,
+                    bc=bc_phi,
                     gauge_epsilon=self.params.poisson_gauge_epsilon,
                 )
             precond = self.params.poisson_preconditioner
             if precond == "auto":
                 precond = "spectral"
+            if precond == "spectral" and not self._is_periodic_bc(bc_phi):
+                precond = "jacobi"
+            if self.params.poisson == "cg_fd":
+                try:
+                    return inv_laplacian_fd_fft(
+                        omega,
+                        dx=self.grid.dx,
+                        dy=self.grid.dy,
+                        bc=bc_phi,
+                        gauge_epsilon=self.params.poisson_gauge_epsilon,
+                    )
+                except ValueError:
+                    pass
             return inv_laplacian_cg(
                 omega,
                 dx=self.grid.dx,
                 dy=self.grid.dy,
-                bc=self.grid.bc,
+                bc=bc_phi,
                 maxiter=int(self.params.poisson_cg_maxiter),
                 tol=float(self.params.poisson_cg_tol),
                 atol=float(self.params.poisson_cg_atol),
@@ -302,7 +345,7 @@ class DRB2DModel(eqx.Module):
             n_coeff=n_eff,
             dx=self.grid.dx,
             dy=self.grid.dy,
-            bc=self.grid.bc,
+            bc=bc_phi,
             maxiter=int(self.params.polarization_cg_maxiter),
             tol=float(self.params.polarization_cg_tol),
             atol=float(self.params.polarization_cg_atol),
@@ -310,10 +353,13 @@ class DRB2DModel(eqx.Module):
             preconditioner_shift=float(self.params.polarization_precond_shift),
         )
 
-    def _bracket(self, phi: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
+    def _bracket(
+        self, phi: jnp.ndarray, f: jnp.ndarray, *, bc_phi: BC2D, bc_f: BC2D
+    ) -> jnp.ndarray:
         scale = float(self.params.exb_scale)
+        periodic_pair = self._is_periodic_pair(bc_phi, bc_f)
         if self.params.bracket == "spectral":
-            if self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0:
+            if not periodic_pair:
                 raise ValueError("Spectral bracket requires periodic BCs in x and y.")
             return poisson_bracket_spectral(
                 phi,
@@ -323,27 +369,25 @@ class DRB2DModel(eqx.Module):
                 dealias_mask=self.grid.dealias_mask if self.params.dealias_on else None,
             )
         if self.params.bracket == "arakawa":
-            if self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+            if periodic_pair:
                 return poisson_bracket_arakawa(phi, f, self.grid.dx, self.grid.dy)
-            j = poisson_bracket_arakawa_fd(phi, f, self.grid.dx, self.grid.dy, self.grid.bc)
-            if self.params.bracket_zero_mean and (
-                self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0
-            ):
+            j = poisson_bracket_arakawa_fd(phi, f, self.grid.dx, self.grid.dy, bc_phi, bc_f)
+            if self.params.bracket_zero_mean:
                 j = j - jnp.mean(j)
-            if self.params.dealias_on and self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+            if self.params.dealias_on and periodic_pair:
                 return scale * dealias(j, self.grid.dealias_mask)
             return scale * j
-        if self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+        if periodic_pair:
             j = poisson_bracket_centered(phi, f, self.grid.dx, self.grid.dy)
         else:
-            dphi_dx = ddx_fd(phi, self.grid.dx, self.grid.bc)
-            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
-            df_dx = ddx_fd(f, self.grid.dx, self.grid.bc)
-            df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
+            dphi_dx = ddx_fd(phi, self.grid.dx, bc_phi)
+            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
+            df_dx = ddx_fd(f, self.grid.dx, bc_f)
+            df_dy = ddy_fd(f, self.grid.dy, bc_f)
             j = dphi_dx * df_dy - dphi_dy * df_dx
-        if self.params.bracket_zero_mean and (self.grid.bc.kind_x != 0 or self.grid.bc.kind_y != 0):
+        if self.params.bracket_zero_mean and not periodic_pair:
             j = j - jnp.mean(j)
-        if self.params.dealias_on and self.grid.bc.kind_x == 0 and self.grid.bc.kind_y == 0:
+        if self.params.dealias_on and periodic_pair:
             return scale * dealias(j, self.grid.dealias_mask)
         return scale * j
 
@@ -352,7 +396,7 @@ class DRB2DModel(eqx.Module):
             return jnp.zeros_like(f)
         return 1j * float(self.params.kpar) * f
 
-    def _curvature(self, f: jnp.ndarray) -> jnp.ndarray:
+    def _curvature(self, f: jnp.ndarray, bc_f: BC2D) -> jnp.ndarray:
         if not self.params.curvature_on or self.params.curvature_coeff == 0.0:
             return jnp.zeros_like(f)
         coeff = float(self.params.curvature_coeff)
@@ -362,18 +406,14 @@ class DRB2DModel(eqx.Module):
             if theta_scale is None or float(theta_scale) <= 0.0:
                 theta_scale = float(self.grid.Ly) / (2.0 * jnp.pi)
             theta = self.grid.y[None, :] / float(theta_scale)
-            df_dx = ddx_fd(f, self.grid.dx, self.grid.bc)
-            df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
+            df_dx = ddx_fd(f, self.grid.dx, bc_f)
+            df_dy = ddy_fd(f, self.grid.dy, bc_f)
             curv = jnp.sin(theta) * df_dx + jnp.cos(theta) * df_dy
         else:
-            if (
-                self.grid.bc.kind_x == 0
-                and self.grid.bc.kind_y == 0
-                and self.params.poisson == "spectral"
-            ):
+            if self._is_periodic_bc(bc_f) and self.params.poisson == "spectral":
                 df_dy = ddy_spec(f, self.grid.ky)
             else:
-                df_dy = ddy_fd(f, self.grid.dy, self.grid.bc)
+                df_dy = ddy_fd(f, self.grid.dy, bc_f)
             curv = df_dy
         curv = -coeff * curv
         scale = self.params.curvature_scale
@@ -526,12 +566,16 @@ class DRB2DModel(eqx.Module):
         vpar_e = y.vpar_e
         vpar_i = y.vpar_i
         Te = y.Te
+        bc_n = self._bc_or(self.params.bc_n)
+        bc_omega = self._bc_or(self.params.bc_omega)
+        bc_Te = self._bc_or(self.params.bc_Te)
+        bc_phi = self._bc_phi()
 
         n_phys = self._phys_n(n)
         Te_phys = self._phys_Te(Te)
 
         phi = self.phi_from_omega(omega, n=n_phys)
-        if self.params.sol_on and self.params.sol_phi_bc_on and self.grid.bc.kind_x != 0:
+        if self.params.sol_on and self.params.sol_phi_bc_on and bc_phi.kind_x != 0:
             phi_bc = float(self.params.sol_phi_bc_lambda) * Te_phys
             if self.params.sol_open_left:
                 phi = phi.at[0, :].set(phi_bc[0, :])
@@ -545,9 +589,9 @@ class DRB2DModel(eqx.Module):
                 nonlinear_scale = (
                     mask_closed + float(self.params.sol_nonlinear_open_scale) * mask_open
                 )
-        adv_w = -self._bracket(phi, omega) * nonlinear_scale
+        adv_w = -self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega) * nonlinear_scale
         par_w = self._dpar(vpar_i - vpar_e)
-        C_p = self._curvature(n_phys + Te_phys)
+        C_p = self._curvature(n_phys, bc_n) + self._curvature(Te_phys, bc_Te)
 
         mask_closed = None
         mask_open = None
@@ -558,16 +602,12 @@ class DRB2DModel(eqx.Module):
         if self.params.sol_on and mask_open is not None:
             sol_sink_omega = self._sol_sink_open_omega(omega, mask_open)
 
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
             lap_w = laplacian(omega, self.grid.k2)
             bih_w = biharmonic(omega, self.grid.k2)
         else:
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
 
         omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
         diss_diff = float(self.params.DOmega) * lap_w
@@ -695,6 +735,12 @@ class DRB2DModel(eqx.Module):
         vpar_e = y.vpar_e
         vpar_i = y.vpar_i
         Te = y.Te
+        bc_n = self._bc_or(self.params.bc_n)
+        bc_omega = self._bc_or(self.params.bc_omega)
+        bc_vpar_e = self._bc_or(self.params.bc_vpar_e)
+        bc_vpar_i = self._bc_or(self.params.bc_vpar_i)
+        bc_Te = self._bc_or(self.params.bc_Te)
+        bc_phi = self._bc_phi()
 
         n_phys = self._phys_n(n)
         Te_phys = self._phys_Te(Te)
@@ -702,7 +748,7 @@ class DRB2DModel(eqx.Module):
         Te_floor = float(self.params.sol_Te_floor)
 
         phi = self.phi_from_omega(omega, n=n_phys)
-        if self.params.sol_on and self.params.sol_phi_bc_on and self.grid.bc.kind_x != 0:
+        if self.params.sol_on and self.params.sol_phi_bc_on and bc_phi.kind_x != 0:
             phi_bc = float(self.params.sol_phi_bc_lambda) * Te_phys
             if self.params.sol_open_left:
                 phi = phi.at[0, :].set(phi_bc[0, :])
@@ -720,19 +766,21 @@ class DRB2DModel(eqx.Module):
                 )
 
         # Nonlinear ExB advection (conservative on periodic grids with Arakawa bracket).
-        adv_n_phys = -self._bracket(phi, n_phys) * nonlinear_scale
-        adv_w = -self._bracket(phi, omega) * nonlinear_scale
-        adv_ve = -self._bracket(phi, vpar_e) * nonlinear_scale
-        adv_vi = -self._bracket(phi, vpar_i) * nonlinear_scale
-        adv_Te_phys = -self._bracket(phi, Te_phys) * nonlinear_scale
+        adv_n_phys = -self._bracket(phi, n_phys, bc_phi=bc_phi, bc_f=bc_n) * nonlinear_scale
+        adv_w = -self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega) * nonlinear_scale
+        adv_ve = -self._bracket(phi, vpar_e, bc_phi=bc_phi, bc_f=bc_vpar_e) * nonlinear_scale
+        adv_vi = -self._bracket(phi, vpar_i, bc_phi=bc_phi, bc_f=bc_vpar_i) * nonlinear_scale
+        adv_Te_phys = -self._bracket(phi, Te_phys, bc_phi=bc_phi, bc_f=bc_Te) * nonlinear_scale
 
         # Parallel couplings (modeled by k_par).
         grad_par_phi_pe = self._dpar(phi - n_phys - float(self.params.alpha_Te_ohm) * Te_phys)
         jpar = vpar_i - vpar_e
 
-        C_phi = self._curvature(phi)
-        C_p = self._curvature(n_phys + Te_phys)
-        C_T = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te_phys + n_phys - phi)
+        C_phi = self._curvature(phi, bc_phi)
+        C_n = self._curvature(n_phys, bc_n)
+        C_Te = self._curvature(Te_phys, bc_Te)
+        C_p = C_n + C_Te
+        C_T = (2.0 / 3.0) * ((7.0 / 2.0) * C_Te + C_n - C_phi)
 
         dn_cons_phys = adv_n_phys - self._dpar(vpar_e)
         dTe_cons_phys = adv_Te_phys - (2.0 / 3.0) * self._dpar(vpar_e)
@@ -748,9 +796,9 @@ class DRB2DModel(eqx.Module):
         drive_n_phys = 0.0
         drive_Te_phys = 0.0
         if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0:
-            if self.grid.bc.kind_y != 0:
+            if self.grid.bc.kind_y != 0 or bc_phi.kind_y != 0:
                 raise ValueError("Drive terms assume periodic y for spectral ky representation.")
-            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
             drive_mask = 1.0
             if self.params.sol_on and mask_open is not None:
                 mode = str(self.params.omega_drive_mask).lower()
@@ -839,24 +887,24 @@ class DRB2DModel(eqx.Module):
 
         n_diff = n_phys if self.params.log_n else n
         Te_diff = Te_phys if self.params.log_Te else Te
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
             lap_n = laplacian(n_diff, self.grid.k2)
-            lap_w = laplacian(omega, self.grid.k2)
-            lap_Te = laplacian(Te_diff, self.grid.k2)
             bih_n = biharmonic(n_diff, self.grid.k2)
+        else:
+            lap_n = laplacian_fd(n_diff, self.grid.dx, self.grid.dy, bc_n)
+            bih_n = biharmonic_fd(n_diff, self.grid.dx, self.grid.dy, bc_n)
+        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
+            lap_w = laplacian(omega, self.grid.k2)
             bih_w = biharmonic(omega, self.grid.k2)
+        else:
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
+        if self._is_periodic_bc(bc_Te) and self.params.poisson == "spectral":
+            lap_Te = laplacian(Te_diff, self.grid.k2)
             bih_Te = biharmonic(Te_diff, self.grid.k2)
         else:
-            lap_n = laplacian_fd(n_diff, self.grid.dx, self.grid.dy, self.grid.bc)
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
-            lap_Te = laplacian_fd(Te_diff, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_n = biharmonic_fd(n_diff, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_Te = biharmonic_fd(Te_diff, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_Te = laplacian_fd(Te_diff, self.grid.dx, self.grid.dy, bc_Te)
+            bih_Te = biharmonic_fd(Te_diff, self.grid.dx, self.grid.dy, bc_Te)
 
         omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
@@ -968,35 +1016,35 @@ class DRB2DModel(eqx.Module):
                         n,
                         dx=self.grid.dx,
                         dy=self.grid.dy,
-                        bc=self.grid.bc,
+                        bc=bc_n,
                         nu=self.params.bc_enforce_nu,
                     ),
                     omega=enforce_bc_relaxation(
                         omega,
                         dx=self.grid.dx,
                         dy=self.grid.dy,
-                        bc=self.grid.bc,
+                        bc=bc_omega,
                         nu=self.params.bc_enforce_nu,
                     ),
                     vpar_e=enforce_bc_relaxation(
                         vpar_e,
                         dx=self.grid.dx,
                         dy=self.grid.dy,
-                        bc=self.grid.bc,
+                        bc=bc_vpar_e,
                         nu=self.params.bc_enforce_nu,
                     ),
                     vpar_i=enforce_bc_relaxation(
                         vpar_i,
                         dx=self.grid.dx,
                         dy=self.grid.dy,
-                        bc=self.grid.bc,
+                        bc=bc_vpar_i,
                         nu=self.params.bc_enforce_nu,
                     ),
                     Te=enforce_bc_relaxation(
                         Te,
                         dx=self.grid.dx,
                         dy=self.grid.dy,
-                        bc=self.grid.bc,
+                        bc=bc_Te,
                         nu=self.params.bc_enforce_nu,
                     ),
                     N=None,
@@ -1048,15 +1096,11 @@ class DRB2DModel(eqx.Module):
             )
 
         if y.N is not None and self.params.neutrals.enabled:
-            if (
-                self.grid.bc.kind_x == 0
-                and self.grid.bc.kind_y == 0
-                and self.params.poisson == "spectral"
-            ):
+            if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
                 lap_N = laplacian(y.N, self.grid.k2)
             else:
-                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, self.grid.bc)
-            adv_N = -self._bracket(phi, y.N)
+                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, bc_n)
+            adv_N = -self._bracket(phi, y.N, bc_phi=bc_phi, bc_f=bc_n)
             dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
                 N=y.N,
                 n=n,
@@ -1070,7 +1114,7 @@ class DRB2DModel(eqx.Module):
                     y.N,
                     dx=self.grid.dx,
                     dy=self.grid.dy,
-                    bc=self.grid.bc,
+                    bc=bc_n,
                     nu=self.params.bc_enforce_nu,
                 )
             source = _state_add(
@@ -1105,37 +1149,30 @@ class DRB2DModel(eqx.Module):
         n = self._phys_n(y.n)
         Te = self._phys_Te(y.Te)
         phi = self.phi_from_omega(y.omega, n=n)
+        bc_phi = self._bc_phi()
         c_T = 1.5 * float(self.params.alpha_Te_ohm)
         if not self.params.boussinesq:
             n_eff = float(self.params.n0)
             if self.params.non_boussinesq_perturbed_density_on:
                 n_eff = n_eff + jnp.real(jnp.asarray(n))
             n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            if (
-                self.grid.bc.kind_x == 0
-                and self.grid.bc.kind_y == 0
-                and self.params.poisson == "spectral"
-            ):
+            if self._is_periodic_bc(bc_phi) and self.params.poisson == "spectral":
                 gradphi_x = ddx_spec(phi, self.grid.kx)
                 gradphi_y = ddy_spec(phi, self.grid.ky)
             else:
-                gradphi_x = ddx_fd(phi, self.grid.dx, self.grid.bc)
-                gradphi_y = ddy_fd(phi, self.grid.dy, self.grid.bc)
+                gradphi_x = ddx_fd(phi, self.grid.dx, bc_phi)
+                gradphi_y = ddy_fd(phi, self.grid.dy, bc_phi)
             phi_term = jnp.real(n_eff) * (
                 jnp.real(jnp.conj(gradphi_x) * gradphi_x)
                 + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
             )
         else:
-            if (
-                self.grid.bc.kind_x == 0
-                and self.grid.bc.kind_y == 0
-                and self.params.poisson == "spectral"
-            ):
+            if self._is_periodic_bc(bc_phi) and self.params.poisson == "spectral":
                 gradphi_x = ddx_spec(phi, self.grid.kx)
                 gradphi_y = ddy_spec(phi, self.grid.ky)
             else:
-                gradphi_x = ddx_fd(phi, self.grid.dx, self.grid.bc)
-                gradphi_y = ddy_fd(phi, self.grid.dy, self.grid.bc)
+                gradphi_x = ddx_fd(phi, self.grid.dx, bc_phi)
+                gradphi_y = ddy_fd(phi, self.grid.dy, bc_phi)
             phi_term = jnp.real(jnp.conj(gradphi_x) * gradphi_x) + jnp.real(
                 jnp.conj(gradphi_y) * gradphi_y
             )
@@ -1180,6 +1217,12 @@ class DRB2DModel(eqx.Module):
         vpar_e = y.vpar_e
         vpar_i = y.vpar_i
         Te = self._phys_Te(y.Te)
+        bc_n = self._bc_or(self.params.bc_n)
+        bc_omega = self._bc_or(self.params.bc_omega)
+        bc_vpar_e = self._bc_or(self.params.bc_vpar_e)
+        bc_vpar_i = self._bc_or(self.params.bc_vpar_i)
+        bc_Te = self._bc_or(self.params.bc_Te)
+        bc_phi = self._bc_phi()
         n_floor = float(self.params.sol_n_floor)
         Te_floor = float(self.params.sol_Te_floor)
 
@@ -1196,13 +1239,19 @@ class DRB2DModel(eqx.Module):
 
         # Nonlinear ExB advection.
         adv_n = self._log_rhs(
-            -self._bracket(phi, n) * nonlinear_scale, n, n_floor, self.params.log_n
+            -self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n) * nonlinear_scale,
+            n,
+            n_floor,
+            self.params.log_n,
         )
-        adv_w = -self._bracket(phi, omega) * nonlinear_scale
-        adv_ve = -self._bracket(phi, vpar_e) * nonlinear_scale
-        adv_vi = -self._bracket(phi, vpar_i) * nonlinear_scale
+        adv_w = -self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega) * nonlinear_scale
+        adv_ve = -self._bracket(phi, vpar_e, bc_phi=bc_phi, bc_f=bc_vpar_e) * nonlinear_scale
+        adv_vi = -self._bracket(phi, vpar_i, bc_phi=bc_phi, bc_f=bc_vpar_i) * nonlinear_scale
         adv_Te = self._log_rhs(
-            -self._bracket(phi, Te) * nonlinear_scale, Te, Te_floor, self.params.log_Te
+            -self._bracket(phi, Te, bc_phi=bc_phi, bc_f=bc_Te) * nonlinear_scale,
+            Te,
+            Te_floor,
+            self.params.log_Te,
         )
 
         # Parallel couplings (k_par model).
@@ -1215,14 +1264,16 @@ class DRB2DModel(eqx.Module):
         par_Te = self._log_rhs(-(2.0 / 3.0) * self._dpar(vpar_e), Te, Te_floor, self.params.log_Te)
 
         # Curvature and drives.
-        C_phi = self._curvature(phi)
-        C_p = self._curvature(n + Te)
-        C_T = (2.0 / 3.0) * self._curvature((7.0 / 2.0) * Te + n - phi)
+        C_phi = self._curvature(phi, bc_phi)
+        C_n = self._curvature(n, bc_n)
+        C_Te = self._curvature(Te, bc_Te)
+        C_p = C_n + C_Te
+        C_T = (2.0 / 3.0) * ((7.0 / 2.0) * C_Te + C_n - C_phi)
 
         drive_n = 0.0
         drive_Te = 0.0
         if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0:
-            dphi_dy = ddy_fd(phi, self.grid.dy, self.grid.bc)
+            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
             drive_n = self._log_rhs(
                 -float(self.params.omega_n) * dphi_dy, n, n_floor, self.params.log_n
             )
@@ -1297,24 +1348,24 @@ class DRB2DModel(eqx.Module):
             sol_sheath_omega = self._sol_sheath_omega_sink(omega, mask_open)
 
         # Dissipation.
-        if (
-            self.grid.bc.kind_x == 0
-            and self.grid.bc.kind_y == 0
-            and self.params.poisson == "spectral"
-        ):
+        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
             lap_n = laplacian(n, self.grid.k2)
-            lap_w = laplacian(omega, self.grid.k2)
-            lap_Te = laplacian(Te, self.grid.k2)
             bih_n = biharmonic(n, self.grid.k2)
+        else:
+            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
+            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
+        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
+            lap_w = laplacian(omega, self.grid.k2)
             bih_w = biharmonic(omega, self.grid.k2)
+        else:
+            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
+            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
+        if self._is_periodic_bc(bc_Te) and self.params.poisson == "spectral":
+            lap_Te = laplacian(Te, self.grid.k2)
             bih_Te = biharmonic(Te, self.grid.k2)
         else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
-            lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, self.grid.bc)
-            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, self.grid.bc)
+            lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, bc_Te)
+            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, bc_Te)
 
         omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
 
@@ -1350,31 +1401,31 @@ class DRB2DModel(eqx.Module):
 
         if self.params.bc_enforce_nu != 0.0:
             diss_n = diss_n + enforce_bc_relaxation(
-                n, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+                n, dx=self.grid.dx, dy=self.grid.dy, bc=bc_n, nu=self.params.bc_enforce_nu
             )
             diss_w = diss_w + enforce_bc_relaxation(
                 omega,
                 dx=self.grid.dx,
                 dy=self.grid.dy,
-                bc=self.grid.bc,
+                bc=bc_omega,
                 nu=self.params.bc_enforce_nu,
             )
             diss_ve = diss_ve + enforce_bc_relaxation(
                 vpar_e,
                 dx=self.grid.dx,
                 dy=self.grid.dy,
-                bc=self.grid.bc,
+                bc=bc_vpar_e,
                 nu=self.params.bc_enforce_nu,
             )
             diss_vi = diss_vi + enforce_bc_relaxation(
                 vpar_i,
                 dx=self.grid.dx,
                 dy=self.grid.dy,
-                bc=self.grid.bc,
+                bc=bc_vpar_i,
                 nu=self.params.bc_enforce_nu,
             )
             diss_Te = diss_Te + enforce_bc_relaxation(
-                Te, dx=self.grid.dx, dy=self.grid.dy, bc=self.grid.bc, nu=self.params.bc_enforce_nu
+                Te, dx=self.grid.dx, dy=self.grid.dy, bc=bc_Te, nu=self.params.bc_enforce_nu
             )
 
         edot_adv = self.energy_rate(
@@ -1514,15 +1565,11 @@ class DRB2DModel(eqx.Module):
                 )
                 out["E_dot_sol_vpar_bc"] = edot_sol_vpar_bc
         if y.N is not None and self.params.neutrals.enabled:
-            if (
-                self.grid.bc.kind_x == 0
-                and self.grid.bc.kind_y == 0
-                and self.params.poisson == "spectral"
-            ):
+            if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
                 lap_N = laplacian(y.N, self.grid.k2)
             else:
-                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, self.grid.bc)
-            adv_N = -self._bracket(phi, y.N)
+                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, bc_n)
+            adv_N = -self._bracket(phi, y.N, bc_phi=bc_phi, bc_f=bc_n)
             dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
                 N=y.N,
                 n=n,
@@ -1536,7 +1583,7 @@ class DRB2DModel(eqx.Module):
                     y.N,
                     dx=self.grid.dx,
                     dy=self.grid.dy,
-                    bc=self.grid.bc,
+                    bc=bc_n,
                     nu=self.params.bc_enforce_nu,
                 )
             edot_neutrals = self.energy_rate(

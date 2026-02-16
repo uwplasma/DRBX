@@ -529,9 +529,7 @@ def main() -> None:
         ("rhs_Te0", dy0.Te),
     ):
         arr_np = np.asarray(jax.device_get(arr))
-        print(
-            f"[grillix-fig16] {name} min/max: " f"{np.nanmin(arr_np):.3e}/{np.nanmax(arr_np):.3e}"
-        )
+        print(f"[grillix-fig16] {name} min/max: {np.nanmin(arr_np):.3e}/{np.nanmax(arr_np):.3e}")
         if not np.all(np.isfinite(arr_np)):
             print(f"[grillix-fig16] warning: non-finite values in {name}.")
 
@@ -551,9 +549,7 @@ def main() -> None:
 
     n_series = np.asarray(jax.device_get(ys.n))
     n0_saved = n_series[0]
-    print(
-        f"[grillix-fig16] saved n0 min/max: " f"{np.nanmin(n0_saved):.3e}/{np.nanmax(n0_saved):.3e}"
-    )
+    print(f"[grillix-fig16] saved n0 min/max: {np.nanmin(n0_saved):.3e}/{np.nanmax(n0_saved):.3e}")
     nan_steps = np.where(~np.isfinite(n_series.reshape(n_series.shape[0], -1)).all(axis=1))[0]
     if nan_steps.size:
         print(f"[grillix-fig16] first NaN step index: {int(nan_steps[0])}")
