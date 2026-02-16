@@ -41,12 +41,12 @@ def main() -> None:
         choices=["n", "omega", "Te"],
         help="Field to animate. Default is omega (usually most visually turbulent).",
     )
-    parser.add_argument("--nx", type=int, default=32)
-    parser.add_argument("--ny", type=int, default=32)
-    parser.add_argument("--dt", type=float, default=0.01)
-    parser.add_argument("--tmax", type=float, default=200.0)
-    parser.add_argument("--save-stride", type=int, default=500)
-    parser.add_argument("--solver", type=str, default="tsit5")
+    parser.add_argument("--nx", type=int, default=42)
+    parser.add_argument("--ny", type=int, default=42)
+    parser.add_argument("--dt", type=float, default=0.025)
+    parser.add_argument("--tmax", type=float, default=150.0)
+    parser.add_argument("--save-stride", type=int, default=20)
+    parser.add_argument("--solver", type=str, default="dopri8")
     parser.add_argument("--fixed-step", action="store_true", default=False)
     parser.add_argument(
         "--adaptive",
@@ -54,19 +54,15 @@ def main() -> None:
         action="store_false",
         help="Use adaptive time stepping (overrides fixed-step default).",
     )
-    parser.add_argument("--rtol", type=float, default=1e-5)
-    parser.add_argument("--atol", type=float, default=1e-8)
+    parser.add_argument("--rtol", type=float, default=1e-4)
+    parser.add_argument("--atol", type=float, default=1e-7)
     parser.add_argument("--max-steps", type=int, default=400_000)
     parser.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-wall", type=float, default=45.0)
     parser.add_argument("--out", type=str, default="out_drb2d_movie")
-    parser.add_argument(
-        "--omega-n", type=float, default=1.0, help="Background density-gradient drive."
-    )
-    parser.add_argument(
-        "--omega-Te", type=float, default=0.35, help="Background Te-gradient drive."
-    )
+    parser.add_argument("--omega-n", type=float, default=1.0, help="Background density-gradient drive.")
+    parser.add_argument("--omega-Te", type=float, default=0.1, help="Background Te-gradient drive.")
     parser.add_argument(
         "--kpar",
         type=float,
@@ -95,15 +91,15 @@ def main() -> None:
         default=0.7,
         help="Curvature coefficient (0 disables curvature drive).",
     )
-    parser.add_argument("--Dn", type=float, default=3e-3, help="Laplacian diffusion on n.")
-    parser.add_argument("--DOmega", type=float, default=3e-3, help="Laplacian diffusion on omega.")
-    parser.add_argument("--DTe", type=float, default=3e-3, help="Laplacian diffusion on Te.")
-    parser.add_argument("--Dn4", type=float, default=5e-5, help="Hyperdiffusion (-Dn4*∇^4) on n.")
+    parser.add_argument("--Dn", type=float, default=1e-5, help="Laplacian diffusion on n.")
+    parser.add_argument("--DOmega", type=float, default=1e-5, help="Laplacian diffusion on omega.")
+    parser.add_argument("--DTe", type=float, default=1e-5, help="Laplacian diffusion on Te.")
+    parser.add_argument("--Dn4", type=float, default=1e-5, help="Hyperdiffusion (-Dn4*∇^4) on n.")
     parser.add_argument(
-        "--DOmega4", type=float, default=5e-5, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
+        "--DOmega4", type=float, default=1e-5, help="Hyperdiffusion (-DOmega4*∇^4) on omega."
     )
     parser.add_argument(
-        "--DTe4", type=float, default=5e-5, help="Hyperdiffusion (-DTe4*∇^4) on Te."
+        "--DTe4", type=float, default=1e-5, help="Hyperdiffusion (-DTe4*∇^4) on Te."
     )
     parser.add_argument(
         "--mu-zonal-omega",
@@ -182,7 +178,7 @@ def main() -> None:
 
     key = jax.random.key(args.seed)
     shape = (grid.nx, grid.ny)
-    amp = 6e-3
+    amp = 1e-2
     n = amp * jax.random.normal(key, shape)
     omega = amp * jax.random.normal(jax.random.key(args.seed + 1), shape)
     vpar_e = amp * jax.random.normal(jax.random.key(args.seed + 2), shape)
@@ -277,11 +273,11 @@ def main() -> None:
     im = ax.imshow(
         frames_plot[0].T,
         origin="lower",
-        cmap="coolwarm",
+        cmap="jet",
         vmin=-vmax,
         vmax=vmax,
         animated=True,
-        interpolation="nearest",
+        interpolation='hanning'
     )
     ax.set_title(f"DRB2D: normalized {args.field} fluctuation ({args.field}-<{args.field}>)/rms")
     ax.set_xticks([])
