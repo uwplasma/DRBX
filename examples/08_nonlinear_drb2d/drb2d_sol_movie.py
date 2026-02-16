@@ -39,29 +39,33 @@ def main() -> None:
     set_mpl_style()
 
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--nx", type=int, default=64)
-    p.add_argument("--ny", type=int, default=64)
-    p.add_argument("--dt", type=float, default=0.01)
-    p.add_argument("--tmax", type=float, default=160.0)
-    p.add_argument("--save-stride", type=int, default=200)
-    p.add_argument("--solver", type=str, default="tsit5")
+
+    p.add_argument("--bc-x", type=str, default="periodic")
+    p.add_argument("--bc-y", type=str, default="periodic")
+
+    p.add_argument("--nx", type=int, default=56)
+    p.add_argument("--ny", type=int, default=56)
+    p.add_argument("--dt", type=float, default=0.025)
+    p.add_argument("--tmax", type=float, default=250.0)
+    p.add_argument("--save-stride", type=int, default=50)
+    p.add_argument("--solver", type=str, default="dopri8")
     p.add_argument("--fixed-step", action="store_true", default=False)
-    p.add_argument("--rtol", type=float, default=1e-5)
-    p.add_argument("--atol", type=float, default=1e-8)
+    p.add_argument("--rtol", type=float, default=1e-4)
+    p.add_argument("--atol", type=float, default=1e-7)
     p.add_argument("--max-steps", type=int, default=400_000)
-    p.add_argument("--progress", action="store_true")
+    p.add_argument("--progress", action="store_true", default=True)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-wall", type=float, default=45.0)
     p.add_argument("--out", type=str, default="out_drb2d_sol_movie")
+    p.add_argument("--Lx", type=float, default=200.0)
+    p.add_argument("--Ly", type=float, default=250.0)
 
     # LCFS + SOL proxy parameters.
-    p.add_argument("--xs-frac", type=float, default=0.6, help="LCFS location x_s / Lx.")
-    p.add_argument(
-        "--sol-width", type=float, default=0.08, help="LCFS transition width (in Lx units)."
-    )
+    p.add_argument("--xs-frac", type=float, default=0.3, help="LCFS location x_s / Lx.")
+    p.add_argument("--sol-width", type=float, default=0.1, help="LCFS transition width (in Lx units).")
     p.add_argument(
         "--sol-open-left",
-        default=True,
+        default=False,
         action=argparse.BooleanOptionalAction,
         help="Treat x < x_s as the open-field-line side (default).",
     )
@@ -69,22 +73,22 @@ def main() -> None:
     p.add_argument("--n-sol", type=float, default=0.2)
     p.add_argument("--Te-core", type=float, default=1.0)
     p.add_argument("--Te-sol", type=float, default=0.25)
-    p.add_argument("--relax-core", type=float, default=0.08)
-    p.add_argument("--relax-open", type=float, default=0.25)
-    p.add_argument("--sink-open-n", type=float, default=0.08)
-    p.add_argument("--sink-open-Te", type=float, default=0.05)
-    p.add_argument("--sink-open-omega", type=float, default=0.02)
+    p.add_argument("--relax-core", type=float, default=0.02)
+    p.add_argument("--relax-open", type=float, default=0.02)
+    p.add_argument("--sink-open-n", type=float, default=0.1)
+    p.add_argument("--sink-open-Te", type=float, default=0.1)
+    p.add_argument("--sink-open-omega", type=float, default=0.05)
 
     # Turbulence knobs.
-    p.add_argument("--omega-n", type=float, default=0.8)
-    p.add_argument("--omega-Te", type=float, default=0.25)
+    p.add_argument("--omega-n", type=float, default=1.0)
+    p.add_argument("--omega-Te", type=float, default=0.1)
     p.add_argument("--curvature", type=float, default=0.7)
-    p.add_argument("--Dn", type=float, default=3e-3)
-    p.add_argument("--DOmega", type=float, default=3e-3)
-    p.add_argument("--DTe", type=float, default=3e-3)
-    p.add_argument("--Dn4", type=float, default=6e-5)
-    p.add_argument("--DOmega4", type=float, default=6e-5)
-    p.add_argument("--DTe4", type=float, default=6e-5)
+    p.add_argument("--Dn", type=float, default=1e-5)
+    p.add_argument("--DOmega", type=float, default=1e-5)
+    p.add_argument("--DTe", type=float, default=1e-5)
+    p.add_argument("--Dn4", type=float, default=1e-5)
+    p.add_argument("--DOmega4", type=float, default=1e-5)
+    p.add_argument("--DTe4", type=float, default=1e-5)
     p.add_argument("--mu-zonal-omega", type=float, default=0.08)
     p.add_argument("--mu-lin-omega", type=float, default=0.25)
     p.add_argument("--mu-lin-n", type=float, default=0.1)
@@ -96,7 +100,8 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=2 * jnp.pi, Ly=2 * jnp.pi, dealias=False)
+    grid = Grid2D.make(nx=args.nx, ny=args.ny, Lx=args.Lx, Ly=args.Ly,
+                       dealias=False, bc_x=str(args.bc_x), bc_y=str(args.bc_y))
     xs = float(args.xs_frac) * float(grid.Lx)
     params = DRB2DParams(
         omega_n=float(args.omega_n),
@@ -117,7 +122,7 @@ def main() -> None:
         mu_lin_omega=float(args.mu_lin_omega),
         mu_lin_Te=float(args.mu_lin_Te),
         bracket="arakawa",
-        poisson="spectral",
+        poisson="auto",
         dealias_on=False,
         operator_split_on=True,
         operator_conservative_on=True,
@@ -141,7 +146,7 @@ def main() -> None:
 
     key = jax.random.key(int(args.seed))
     shape = (grid.nx, grid.ny)
-    noise = 1e-3 * jax.random.normal(key, shape)
+    noise = 1e-2 * jax.random.normal(key, shape)
     x = jnp.asarray(grid.x)[:, None]
     y = jnp.asarray(grid.y)[None, :]
     if bool(args.sol_open_left):
@@ -209,11 +214,11 @@ def main() -> None:
     im = ax.imshow(
         frames_plot[0].T,
         origin="lower",
-        cmap="coolwarm",
+        cmap="jet",
         vmin=-vmax,
         vmax=vmax,
         animated=True,
-        interpolation="nearest",
+        interpolation='hanning'
     )
     ax.axvline(xs / float(grid.Lx) * (grid.nx - 1), color="k", lw=1.0, alpha=0.6)
     ax.set_title("DRB2D SOL: normalized n fluctuation")
