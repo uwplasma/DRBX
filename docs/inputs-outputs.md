@@ -228,6 +228,40 @@ This page documents the Python parameter classes that those examples use.
 Tabulated geometries use `.npz` files with keys `l`, `gxx`, `gxy`, `gyy` and optional `curv_x`, `curv_y`,
 `dpar_factor`, `B`.
 
+### `BC1D`
+
+| Name | Default | Notes |
+| --- | --- | --- |
+| `kind` | required | `0` periodic, `1` dirichlet, `2` neumann |
+| `left_value` | `0.0` | Dirichlet value at left boundary |
+| `right_value` | `0.0` | Dirichlet value at right boundary |
+| `left_grad` | `0.0` | Neumann gradient at left boundary |
+| `right_grad` | `0.0` | Neumann gradient at right boundary |
+| `nu` | `0.0` | Weak enforcement rate (0 disables) |
+
+Helper constructors:
+
+- `BC1D.periodic()`
+- `BC1D.dirichlet(left=..., right=..., nu=...)`
+- `BC1D.neumann(left=..., right=..., nu=...)`
+
+### `BC2D`
+
+| Name | Default | Notes |
+| --- | --- | --- |
+| `kind_x` | required | `0` periodic, `1` dirichlet, `2` neumann |
+| `kind_y` | required | `0` periodic, `1` dirichlet, `2` neumann |
+| `x_value` | `0.0` | Dirichlet value in x |
+| `y_value` | `0.0` | Dirichlet value in y |
+| `x_grad` | `0.0` | Neumann gradient in x |
+| `y_grad` | `0.0` | Neumann gradient in y |
+
+Helper constructors:
+
+- `BC2D.periodic()`
+- `BC2D.dirichlet(x=..., y=...)`
+- `BC2D.neumann(x=..., y=...)`
+
 ### `Grid2D.make`
 
 | Name | Default | Notes |
