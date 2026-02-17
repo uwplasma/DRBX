@@ -18,22 +18,16 @@ from jaxdrb.bc import BC2D
 from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
-from .fd import biharmonic as biharmonic_fd
 from .fd import (
-    enforce_bc_relaxation,
     inv_div_n_grad_cg,
     inv_laplacian_cg,
     inv_laplacian_fd_fft,
-    laplacian as laplacian_fd,
 )
 from .grid import Grid2D
 from .spectral import (
-    biharmonic,
     dealias,
-    ddx as ddx_spec,
     ddy as ddy_spec,
     inv_laplacian,
-    laplacian,
     poisson_bracket_spectral,
 )
 
@@ -308,228 +302,13 @@ class DRB2DHotIonModel(eqx.Module):
         return out
 
     def energy(self, y: DRB2DHotIonState) -> jnp.ndarray:
-        phi = self.phi_from_omega(y.omega, n=y.n)
-        bc_phi = self._bc_phi()
-        c_Te = 1.5 * float(self.params.alpha_Te_ohm)
-        c_Ti = 1.5 * float(self.params.alpha_Ti)
-        if (
-            self.params.boussinesq
-            and self._is_periodic_bc(bc_phi)
-            and self.params.poisson == "spectral"
-        ):
-            phi_term = jnp.real(jnp.conj(phi) * phi) * self.grid.k2
-        else:
-            n_eff = 1.0
-            if not self.params.boussinesq:
-                n_eff = float(self.params.n0)
-                if self.params.non_boussinesq_perturbed_density_on:
-                    n_eff = n_eff + jnp.real(jnp.asarray(y.n))
-                n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            if self._is_periodic_bc(bc_phi) and self.params.poisson == "spectral":
-                gradphi_x = ddx_spec(phi, self.grid.kx)
-                gradphi_y = ddy_spec(phi, self.grid.ky)
-            else:
-                gradphi_x = ddx_fd(phi, self.grid.dx, bc_phi)
-                gradphi_y = ddy_fd(phi, self.grid.dy, bc_phi)
-            phi_term = jnp.real(n_eff) * (
-                jnp.real(jnp.conj(gradphi_x) * gradphi_x)
-                + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
-            )
-        return 0.5 * jnp.mean(
-            jnp.real(jnp.conj(y.n) * y.n)
-            + phi_term
-            + float(self.params.me_hat) * jnp.real(jnp.conj(y.vpar_e) * y.vpar_e)
-            + jnp.real(jnp.conj(y.vpar_i) * y.vpar_i)
-            + c_Te * jnp.real(jnp.conj(y.Te) * y.Te)
-            + c_Ti * jnp.real(jnp.conj(y.Ti) * y.Ti)
-        )
+        return self._core.energy(_to_core_state(y))
 
     def energy_rate(self, y: DRB2DHotIonState, dy: DRB2DHotIonState) -> jnp.ndarray:
-        if self.params.boussinesq:
-            phi = self.phi_from_omega(y.omega, n=y.n)
-            c_Te = 1.5 * float(self.params.alpha_Te_ohm)
-            c_Ti = 1.5 * float(self.params.alpha_Ti)
-            return jnp.mean(
-                jnp.real(jnp.conj(y.n) * dy.n)
-                - jnp.real(jnp.conj(phi) * dy.omega)
-                + float(self.params.me_hat) * jnp.real(jnp.conj(y.vpar_e) * dy.vpar_e)
-                + jnp.real(jnp.conj(y.vpar_i) * dy.vpar_i)
-                + c_Te * jnp.real(jnp.conj(y.Te) * dy.Te)
-                + c_Ti * jnp.real(jnp.conj(y.Ti) * dy.Ti)
-            )
-
-        eps = jnp.asarray(1.0e-7, dtype=jnp.float64)
-        y_plus = DRB2DHotIonState(
-            n=y.n + eps * dy.n,
-            omega=y.omega + eps * dy.omega,
-            vpar_e=y.vpar_e + eps * dy.vpar_e,
-            vpar_i=y.vpar_i + eps * dy.vpar_i,
-            Te=y.Te + eps * dy.Te,
-            Ti=y.Ti + eps * dy.Ti,
-        )
-        y_minus = DRB2DHotIonState(
-            n=y.n - eps * dy.n,
-            omega=y.omega - eps * dy.omega,
-            vpar_e=y.vpar_e - eps * dy.vpar_e,
-            vpar_i=y.vpar_i - eps * dy.vpar_i,
-            Te=y.Te - eps * dy.Te,
-            Ti=y.Ti - eps * dy.Ti,
-        )
-        E_plus = self.energy(y_plus)
-        E_minus = self.energy(y_minus)
-        return (E_plus - E_minus) / (2.0 * eps)
+        return self._core.energy_rate(_to_core_state(y), _to_core_state(dy))
 
     def energy_budget(self, y: DRB2DHotIonState) -> dict[str, jnp.ndarray]:
-        """Return a term-by-term energy budget for hot-ion DRB2D."""
-
-        n = y.n
-        omega = y.omega
-        vpar_e = y.vpar_e
-        vpar_i = y.vpar_i
-        Te = y.Te
-        Ti = y.Ti
-        phi = self.phi_from_omega(omega, n=n)
-        bc_n = self._bc_or(self.params.bc_n)
-        bc_omega = self._bc_or(self.params.bc_omega)
-        bc_vpar_e = self._bc_or(self.params.bc_vpar_e)
-        bc_vpar_i = self._bc_or(self.params.bc_vpar_i)
-        bc_Te = self._bc_or(self.params.bc_Te)
-        bc_Ti = self._bc_or(self.params.bc_Ti)
-        bc_phi = self._bc_phi()
-
-        adv_n = -self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n)
-        adv_w = -self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega)
-        adv_ve = -self._bracket(phi, vpar_e, bc_phi=bc_phi, bc_f=bc_vpar_e)
-        adv_vi = -self._bracket(phi, vpar_i, bc_phi=bc_phi, bc_f=bc_vpar_i)
-        adv_Te = -self._bracket(phi, Te, bc_phi=bc_phi, bc_f=bc_Te)
-        adv_Ti = -self._bracket(phi, Ti, bc_phi=bc_phi, bc_f=bc_Ti)
-
-        grad_par_phi_pe = self._dpar(phi - n - float(self.params.alpha_Te_ohm) * Te)
-        jpar = vpar_i - vpar_e
-        tau_i = float(self.params.tau_i)
-        par_n = -self._dpar(vpar_e)
-        par_w = self._dpar(jpar)
-        par_ve = grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12)
-        par_vi = -self._dpar(phi + tau_i * (n + Ti))
-        par_Te = -(2.0 / 3.0) * self._dpar(vpar_e)
-        par_Ti = -(2.0 / 3.0) * self._dpar(vpar_i)
-
-        C_phi = self._curvature(phi, bc_phi)
-        C_n = self._curvature(n, bc_n)
-        C_Te = self._curvature(Te, bc_Te)
-        C_Ti = self._curvature(Ti, bc_Ti)
-        C_p = (1.0 + tau_i) * C_n + C_Te + tau_i * C_Ti
-        C_Te = (2.0 / 3.0) * ((7.0 / 2.0) * C_Te + C_n - C_phi)
-
-        drive_n = 0.0
-        drive_Te = 0.0
-        drive_Ti = 0.0
-        if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0 or self.params.omega_Ti != 0.0:
-            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
-            drive_n = -float(self.params.omega_n) * dphi_dy
-            drive_Te = -float(self.params.omega_Te) * dphi_dy
-            drive_Ti = -float(self.params.omega_Ti) * dphi_dy
-
-        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-            lap_n = laplacian(n, self.grid.k2)
-            bih_n = biharmonic(n, self.grid.k2)
-        else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
-            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
-        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
-            lap_w = laplacian(omega, self.grid.k2)
-            bih_w = biharmonic(omega, self.grid.k2)
-        else:
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-        if self._is_periodic_bc(bc_Te) and self.params.poisson == "spectral":
-            lap_Te = laplacian(Te, self.grid.k2)
-            bih_Te = biharmonic(Te, self.grid.k2)
-        else:
-            lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, bc_Te)
-            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, bc_Te)
-        if self._is_periodic_bc(bc_Ti) and self.params.poisson == "spectral":
-            lap_Ti = laplacian(Ti, self.grid.k2)
-            bih_Ti = biharmonic(Ti, self.grid.k2)
-        else:
-            lap_Ti = laplacian_fd(Ti, self.grid.dx, self.grid.dy, bc_Ti)
-            bih_Ti = biharmonic_fd(Ti, self.grid.dx, self.grid.dy, bc_Ti)
-
-        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
-
-        diss_n = float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n
-        diss_w = (
-            float(self.params.DOmega) * lap_w
-            - float(self.params.DOmega4) * bih_w
-            - float(self.params.mu_zonal_omega) * omega_zonal
-        )
-        diss_ve = -(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12)) * (
-            vpar_e - vpar_i
-        )
-        diss_vi = jnp.zeros_like(vpar_i)
-        diss_Te = float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te
-        diss_Ti = float(self.params.DTi) * lap_Ti - float(self.params.DTi4) * bih_Ti
-
-        if self.params.bc_enforce_nu != 0.0:
-            diss_n = diss_n + enforce_bc_relaxation(
-                n, dx=self.grid.dx, dy=self.grid.dy, bc=bc_n, nu=self.params.bc_enforce_nu
-            )
-            diss_w = diss_w + enforce_bc_relaxation(
-                omega,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=bc_omega,
-                nu=self.params.bc_enforce_nu,
-            )
-            diss_ve = diss_ve + enforce_bc_relaxation(
-                vpar_e,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=bc_vpar_e,
-                nu=self.params.bc_enforce_nu,
-            )
-            diss_vi = diss_vi + enforce_bc_relaxation(
-                vpar_i,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=bc_vpar_i,
-                nu=self.params.bc_enforce_nu,
-            )
-            diss_Te = diss_Te + enforce_bc_relaxation(
-                Te, dx=self.grid.dx, dy=self.grid.dy, bc=bc_Te, nu=self.params.bc_enforce_nu
-            )
-            diss_Ti = diss_Ti + enforce_bc_relaxation(
-                Ti, dx=self.grid.dx, dy=self.grid.dy, bc=bc_Ti, nu=self.params.bc_enforce_nu
-            )
-
-        c_Te = 1.5 * float(self.params.alpha_Te_ohm)
-        c_Ti = 1.5 * float(self.params.alpha_Ti)
-
-        def edot(n_term, w_term, ve_term, vi_term, Te_term, Ti_term):
-            return jnp.mean(
-                jnp.real(jnp.conj(n) * n_term)
-                - jnp.real(jnp.conj(phi) * w_term)
-                + float(self.params.me_hat) * jnp.real(jnp.conj(vpar_e) * ve_term)
-                + jnp.real(jnp.conj(vpar_i) * vi_term)
-                + c_Te * jnp.real(jnp.conj(Te) * Te_term)
-                + c_Ti * jnp.real(jnp.conj(Ti) * Ti_term)
-            )
-
-        E_dot_adv = edot(adv_n, adv_w, adv_ve, adv_vi, adv_Te, adv_Ti)
-        E_dot_parallel = edot(par_n, par_w, par_ve, par_vi, par_Te, par_Ti)
-        E_dot_curvature = edot(C_p - C_phi, C_p, 0.0, 0.0, C_Te, 0.0)
-        E_dot_drive = edot(drive_n, 0.0, 0.0, 0.0, drive_Te, drive_Ti)
-        E_dot_diss = edot(diss_n, diss_w, diss_ve, diss_vi, diss_Te, diss_Ti)
-        E_dot_total = E_dot_adv + E_dot_parallel + E_dot_curvature + E_dot_drive + E_dot_diss
-
-        return {
-            "E_dot_adv": E_dot_adv,
-            "E_dot_parallel": E_dot_parallel,
-            "E_dot_curvature": E_dot_curvature,
-            "E_dot_drive": E_dot_drive,
-            "E_dot_diss": E_dot_diss,
-            "E_dot_total": E_dot_total,
-        }
+        return self._core.energy_budget(_to_core_state(y))
 
     def diffeqsolve(
         self,

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Literal
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 
 from jaxdrb.core.nonlinear2d import Core2DModel, coerce_core2d_params
@@ -19,12 +18,10 @@ from jaxdrb.operators.brackets import (
 from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .grid import Grid2D
 from .neutrals import NeutralParams
-from .fd import biharmonic as biharmonic_fd
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
-from .fd import laplacian as laplacian_fd
 from .fd import inv_laplacian_cg, inv_laplacian_fd_fft
-from .spectral import biharmonic, ddy, dealias, inv_laplacian, laplacian, poisson_bracket_spectral
+from .spectral import dealias, inv_laplacian, poisson_bracket_spectral
 
 
 class HW2DParams(eqx.Module):
@@ -211,125 +208,7 @@ class HW2DModel(eqx.Module):
         )
 
     def diagnostics(self, y: HW2DState) -> dict[str, jnp.ndarray]:
-        """Compute basic integral diagnostics."""
-
-        phi = self.phi_from_omega(y.omega)
-        bc_phi = self._bc_phi()
-
-        # Energy-like quantity: 0.5 ∫ (n^2 + |∇phi|^2) dA
-        if self._is_periodic_bc(bc_phi) and self.params.poisson == "spectral":
-            from .spectral import ddx as ddx_spec
-            from .spectral import ddy as ddy_spec
-
-            gradphi_x = ddx_spec(phi, self.grid.kx)
-            gradphi_y = ddy_spec(phi, self.grid.ky)
-        else:
-            gradphi_x = ddx_fd(phi, self.grid.dx, bc_phi)
-            gradphi_y = ddy_fd(phi, self.grid.dy, bc_phi)
-        E = 0.5 * jnp.mean(y.n**2 + gradphi_x**2 + gradphi_y**2)
-
-        Z = 0.5 * jnp.mean(y.omega**2)  # enstrophy-like
-        out = {"E": E, "Z": Z}
-        if y.N is not None:
-            out["Nbar"] = jnp.mean(y.N)
-        return out
+        return self._core.diagnostics(_to_core_state(y))
 
     def energy_budget(self, y: HW2DState) -> dict[str, jnp.ndarray]:
-        """Compute a discrete energy budget for HW2D.
-
-        We use the standard energy functional (Camargo et al. 1995):
-
-          E = 1/2 ⟨ n^2 + |∇φ|^2 ⟩
-
-        and the periodic-domain identity:
-
-          d/dt (1/2⟨|∇φ|^2⟩) = -⟨ φ ∂t ω ⟩,
-
-        so that:
-
-          Ė = ⟨ n ∂t n - φ ∂t ω ⟩.
-
-        This lets us attribute contributions from each term in the RHS. In the continuous system,
-        the Poisson-bracket advection terms are energy-conserving; this is a useful numerical check.
-        """
-
-        n = y.n
-        omega = y.omega
-        phi = self.phi_from_omega(omega)
-        bc_n = self._bc_or(self.params.bc_n)
-        bc_omega = self._bc_or(self.params.bc_omega)
-        bc_phi = self._bc_phi()
-
-        adv_n = self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n)
-        adv_w = self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega)
-
-        if (
-            self.params.bracket == "spectral"
-            and self._is_periodic_bc(bc_phi)
-            and self._is_periodic_bc(bc_n)
-        ):
-            dphi_dy = ddy(phi, self.grid.ky)
-            dn_dy = ddy(n, self.grid.ky)
-        else:
-            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
-            dn_dy = ddy_fd(n, self.grid.dy, bc_n)
-
-        drive_n = -self.params.kappa * dphi_dy
-        drive_w = -self.params.kappa * dn_dy
-
-        couple = self.params.alpha * (phi - n)
-        if self.params.alpha_nonzonal_only:
-            couple = couple - jnp.mean(couple, axis=1, keepdims=True)
-
-        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-            lap_n = laplacian(n, self.grid.k2)
-            bih_n = biharmonic(n, self.grid.k2)
-        else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
-            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
-        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
-            lap_w = laplacian(omega, self.grid.k2)
-            bih_w = biharmonic(omega, self.grid.k2)
-        else:
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-
-        dn_adv = -adv_n
-        dw_adv = -adv_w
-        dn_drive = drive_n
-        dw_drive = drive_w
-        dn_couple = couple
-        dw_couple = couple
-        dn_diff = self.params.Dn * lap_n
-        dw_diff = self.params.DOmega * lap_w
-        dn_hyper = -self.params.nu4_n * bih_n
-        dw_hyper = -self.params.nu4_omega * bih_w
-
-        def edot(dn_term, dw_term):
-            return jnp.mean(n * dn_term - phi * dw_term)
-
-        out = {
-            "E_dot_adv": edot(dn_adv, dw_adv),
-            "E_dot_drive": edot(dn_drive, dw_drive),
-            "E_dot_couple": edot(dn_couple, dw_couple),
-            "E_dot_diff": edot(dn_diff, dw_diff),
-            "E_dot_hyper": edot(dn_hyper, dw_hyper),
-        }
-        out["E_dot_total"] = (
-            out["E_dot_adv"]
-            + out["E_dot_drive"]
-            + out["E_dot_couple"]
-            + out["E_dot_diff"]
-            + out["E_dot_hyper"]
-        )
-        return out
-
-
-@eqx.filter_jit
-def hw2d_random_ic(key, grid: Grid2D, *, amp: float = 1e-2, include_neutrals: bool = False):
-    n0 = amp * jax.random.normal(key, (grid.nx, grid.ny))
-    omega0 = amp * jax.random.normal(jax.random.split(key, 2)[1], (grid.nx, grid.ny))
-    N0 = None
-    if include_neutrals:
-        N0 = jnp.ones((grid.nx, grid.ny))
-    return HW2DState(n=n0, omega=omega0, N=N0)
+        return self._core.energy_budget(_to_core_state(y))
