@@ -18,6 +18,7 @@ numerics reviewer-checkable through conservative gates and literature-aligned be
 
 Full explanation (with boundary-condition meaning in each branch): [Geometry conventions (docs)](https://jax-drb.readthedocs.io/en/latest/geometry/conventions/).
 Boundary-condition details: [Boundary conditions (docs)](docs/model/boundary-conditions.md).
+Full argument reference (CLI + Python): [Inputs & outputs](docs/inputs-outputs.md).
 
 ## What this repository contains
 
