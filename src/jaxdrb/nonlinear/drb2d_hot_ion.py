@@ -5,6 +5,9 @@ from typing import Literal
 import equinox as eqx
 import jax.numpy as jnp
 
+from jaxdrb.core.nonlinear2d import Core2DModel, coerce_core2d_params
+from jaxdrb.core.state import CoreState
+
 from jaxdrb.operators.brackets import (
     poisson_bracket_arakawa,
     poisson_bracket_arakawa_fd,
@@ -138,9 +141,41 @@ def _state_zeros_like(y: DRB2DHotIonState) -> DRB2DHotIonState:
     return DRB2DHotIonState(n=z, omega=z, vpar_e=z, vpar_i=z, Te=z, Ti=z)
 
 
+def _to_core_state(y: DRB2DHotIonState) -> CoreState:
+    return CoreState.from_optional(
+        n=y.n,
+        omega=y.omega,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+        Te=y.Te,
+        Ti=y.Ti,
+    )
+
+
+def _from_core_state(y: CoreState) -> DRB2DHotIonState:
+    return DRB2DHotIonState(
+        n=y.n,
+        omega=y.omega,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+        Te=y.Te,
+        Ti=y.Ti,
+    )
+
+
 class DRB2DHotIonModel(eqx.Module):
     params: DRB2DHotIonParams
     grid: Grid2D
+    _core: Core2DModel = eqx.field(init=False, repr=False)
+
+    def __post_init__(self):
+        core_params = coerce_core2d_params(
+            self.params,
+            model_kind="drb",
+            hot_ion_on=True,
+            em_on=False,
+        )
+        object.__setattr__(self, "_core", Core2DModel(params=core_params, grid=self.grid))
 
     def _bc_or(self, bc: BC2D | None, fallback: BC2D | None = None) -> BC2D:
         if bc is not None:
@@ -250,160 +285,12 @@ class DRB2DHotIonModel(eqx.Module):
         return -float(self.params.curvature_coeff) * df_dy
 
     def rhs_decomposed(self, t: float, y: DRB2DHotIonState) -> DRB2DHotIonDecomposition:
-        _ = t
-        n = y.n
-        omega = y.omega
-        vpar_e = y.vpar_e
-        vpar_i = y.vpar_i
-        Te = y.Te
-        Ti = y.Ti
-        bc_n = self._bc_or(self.params.bc_n)
-        bc_omega = self._bc_or(self.params.bc_omega)
-        bc_vpar_e = self._bc_or(self.params.bc_vpar_e)
-        bc_vpar_i = self._bc_or(self.params.bc_vpar_i)
-        bc_Te = self._bc_or(self.params.bc_Te)
-        bc_Ti = self._bc_or(self.params.bc_Ti)
-        bc_phi = self._bc_phi()
-
-        phi = self.phi_from_omega(omega, n=n)
-
-        adv_n = -self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n)
-        adv_w = -self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega)
-        adv_ve = -self._bracket(phi, vpar_e, bc_phi=bc_phi, bc_f=bc_vpar_e)
-        adv_vi = -self._bracket(phi, vpar_i, bc_phi=bc_phi, bc_f=bc_vpar_i)
-        adv_Te = -self._bracket(phi, Te, bc_phi=bc_phi, bc_f=bc_Te)
-        adv_Ti = -self._bracket(phi, Ti, bc_phi=bc_phi, bc_f=bc_Ti)
-
-        grad_par_phi_pe = self._dpar(phi - n - float(self.params.alpha_Te_ohm) * Te)
-        jpar = vpar_i - vpar_e
-        tau_i = float(self.params.tau_i)
-
-        C_phi = self._curvature(phi, bc_phi)
-        C_n = self._curvature(n, bc_n)
-        C_Te = self._curvature(Te, bc_Te)
-        C_Ti = self._curvature(Ti, bc_Ti)
-        C_p = (1.0 + tau_i) * C_n + C_Te + tau_i * C_Ti
-        C_Te = (2.0 / 3.0) * ((7.0 / 2.0) * C_Te + C_n - C_phi)
-
-        conservative = DRB2DHotIonState(
-            n=adv_n - self._dpar(vpar_e),
-            omega=adv_w + self._dpar(jpar),
-            vpar_e=adv_ve + grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12),
-            vpar_i=adv_vi - self._dpar(phi + tau_i * (n + Ti)),
-            Te=adv_Te - (2.0 / 3.0) * self._dpar(vpar_e),
-            Ti=adv_Ti - (2.0 / 3.0) * self._dpar(vpar_i),
-        )
-
-        drive_n = 0.0
-        drive_Te = 0.0
-        drive_Ti = 0.0
-        if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0 or self.params.omega_Ti != 0.0:
-            if self.grid.bc.kind_y != 0 or bc_phi.kind_y != 0:
-                raise ValueError("Drive terms assume periodic y for spectral ky representation.")
-            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
-            drive_n = -float(self.params.omega_n) * dphi_dy
-            drive_Te = -float(self.params.omega_Te) * dphi_dy
-            drive_Ti = -float(self.params.omega_Ti) * dphi_dy
-
-        source = DRB2DHotIonState(
-            n=drive_n + (C_p - C_phi),
-            omega=C_p,
-            vpar_e=jnp.zeros_like(vpar_e),
-            vpar_i=jnp.zeros_like(vpar_i),
-            Te=drive_Te + C_Te,
-            Ti=drive_Ti,
-        )
-
-        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-            lap_n = laplacian(n, self.grid.k2)
-            bih_n = biharmonic(n, self.grid.k2)
-        else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
-            bih_n = biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
-        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
-            lap_w = laplacian(omega, self.grid.k2)
-            bih_w = biharmonic(omega, self.grid.k2)
-        else:
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-        if self._is_periodic_bc(bc_Te) and self.params.poisson == "spectral":
-            lap_Te = laplacian(Te, self.grid.k2)
-            bih_Te = biharmonic(Te, self.grid.k2)
-        else:
-            lap_Te = laplacian_fd(Te, self.grid.dx, self.grid.dy, bc_Te)
-            bih_Te = biharmonic_fd(Te, self.grid.dx, self.grid.dy, bc_Te)
-        if self._is_periodic_bc(bc_Ti) and self.params.poisson == "spectral":
-            lap_Ti = laplacian(Ti, self.grid.k2)
-            bih_Ti = biharmonic(Ti, self.grid.k2)
-        else:
-            lap_Ti = laplacian_fd(Ti, self.grid.dx, self.grid.dy, bc_Ti)
-            bih_Ti = biharmonic_fd(Ti, self.grid.dx, self.grid.dy, bc_Ti)
-
-        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
-
-        dissipative = DRB2DHotIonState(
-            n=float(self.params.Dn) * lap_n - float(self.params.Dn4) * bih_n,
-            omega=float(self.params.DOmega) * lap_w
-            - float(self.params.DOmega4) * bih_w
-            - float(self.params.mu_zonal_omega) * omega_zonal,
-            vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
-            * (vpar_e - vpar_i),
-            vpar_i=jnp.zeros_like(vpar_i),
-            Te=float(self.params.DTe) * lap_Te - float(self.params.DTe4) * bih_Te,
-            Ti=float(self.params.DTi) * lap_Ti - float(self.params.DTi4) * bih_Ti,
-        )
-
-        if self.params.bc_enforce_nu != 0.0:
-            dissipative = _state_add(
-                dissipative,
-                DRB2DHotIonState(
-                    n=enforce_bc_relaxation(
-                        n,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_n,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    omega=enforce_bc_relaxation(
-                        omega,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_omega,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    vpar_e=enforce_bc_relaxation(
-                        vpar_e,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_vpar_e,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    vpar_i=enforce_bc_relaxation(
-                        vpar_i,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_vpar_i,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    Te=enforce_bc_relaxation(
-                        Te,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_Te,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    Ti=enforce_bc_relaxation(
-                        Ti,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_Ti,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                ),
-            )
-
+        core_state = _to_core_state(y)
+        split = self._core.rhs_decomposed(t, core_state)
         return DRB2DHotIonDecomposition(
-            conservative=conservative, source=source, dissipative=dissipative
+            conservative=_from_core_state(split.conservative),
+            source=_from_core_state(split.source),
+            dissipative=_from_core_state(split.dissipative),
         )
 
     def rhs(self, t: float, y: DRB2DHotIonState) -> DRB2DHotIonState:

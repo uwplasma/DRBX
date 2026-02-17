@@ -6,6 +6,8 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from jaxdrb.core.nonlinear2d import Core2DModel, coerce_core2d_params
+from jaxdrb.core.state import CoreState
 from jaxdrb.operators.brackets import (
     poisson_bracket_arakawa,
     poisson_bracket_arakawa_fd,
@@ -259,9 +261,37 @@ def _state_zeros_like(y: DRB2DState) -> DRB2DState:
     return DRB2DState(n=z, omega=z, vpar_e=z, vpar_i=z, Te=z, N=N)
 
 
+def _to_core_state(y: DRB2DState) -> CoreState:
+    return CoreState.from_optional(
+        n=y.n,
+        omega=y.omega,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+        Te=y.Te,
+        N=y.N,
+    )
+
+
+def _from_core_state(y: CoreState, *, template: DRB2DState | None = None) -> DRB2DState:
+    N = y.N
+    if template is not None and template.N is None:
+        N = None
+    return DRB2DState(n=y.n, omega=y.omega, vpar_e=y.vpar_e, vpar_i=y.vpar_i, Te=y.Te, N=N)
+
+
 class DRB2DModel(eqx.Module):
     params: DRB2DParams
     grid: Grid2D
+    _core: Core2DModel = eqx.field(init=False, repr=False)
+
+    def __post_init__(self):
+        core_params = coerce_core2d_params(
+            self.params,
+            model_kind="drb",
+            hot_ion_on=False,
+            em_on=False,
+        )
+        object.__setattr__(self, "_core", Core2DModel(params=core_params, grid=self.grid))
 
     def _bc_or(self, bc: BC2D | None, fallback: BC2D | None = None) -> BC2D:
         if bc is not None:
@@ -729,407 +759,13 @@ class DRB2DModel(eqx.Module):
         return -gamma * mask_open * (omega - omega_avg)
 
     def rhs_decomposed(self, t: float, y: DRB2DState) -> DRB2DDecomposition:
-        _ = t
-        n = y.n
-        omega = y.omega
-        vpar_e = y.vpar_e
-        vpar_i = y.vpar_i
-        Te = y.Te
-        bc_n = self._bc_or(self.params.bc_n)
-        bc_omega = self._bc_or(self.params.bc_omega)
-        bc_vpar_e = self._bc_or(self.params.bc_vpar_e)
-        bc_vpar_i = self._bc_or(self.params.bc_vpar_i)
-        bc_Te = self._bc_or(self.params.bc_Te)
-        bc_phi = self._bc_phi()
-
-        n_phys = self._phys_n(n)
-        Te_phys = self._phys_Te(Te)
-        n_floor = float(self.params.sol_n_floor)
-        Te_floor = float(self.params.sol_Te_floor)
-
-        phi = self.phi_from_omega(omega, n=n_phys)
-        if self.params.sol_on and self.params.sol_phi_bc_on and bc_phi.kind_x != 0:
-            phi_bc = float(self.params.sol_phi_bc_lambda) * Te_phys
-            if self.params.sol_open_left:
-                phi = phi.at[0, :].set(phi_bc[0, :])
-            else:
-                phi = phi.at[-1, :].set(phi_bc[-1, :])
-
-        mask_closed = None
-        mask_open = None
-        nonlinear_scale = 1.0
-        if self.params.sol_on:
-            mask_closed, mask_open = self._sol_masks()
-            if mask_open is not None:
-                nonlinear_scale = (
-                    mask_closed + float(self.params.sol_nonlinear_open_scale) * mask_open
-                )
-
-        # Nonlinear ExB advection (conservative on periodic grids with Arakawa bracket).
-        adv_n_phys = -self._bracket(phi, n_phys, bc_phi=bc_phi, bc_f=bc_n) * nonlinear_scale
-        adv_w = -self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega) * nonlinear_scale
-        adv_ve = -self._bracket(phi, vpar_e, bc_phi=bc_phi, bc_f=bc_vpar_e) * nonlinear_scale
-        adv_vi = -self._bracket(phi, vpar_i, bc_phi=bc_phi, bc_f=bc_vpar_i) * nonlinear_scale
-        adv_Te_phys = -self._bracket(phi, Te_phys, bc_phi=bc_phi, bc_f=bc_Te) * nonlinear_scale
-
-        # Parallel couplings (modeled by k_par).
-        grad_par_phi_pe = self._dpar(phi - n_phys - float(self.params.alpha_Te_ohm) * Te_phys)
-        jpar = vpar_i - vpar_e
-
-        C_phi = self._curvature(phi, bc_phi)
-        C_n = self._curvature(n_phys, bc_n)
-        C_Te = self._curvature(Te_phys, bc_Te)
-        C_p = C_n + C_Te
-        C_T = (2.0 / 3.0) * ((7.0 / 2.0) * C_Te + C_n - C_phi)
-
-        dn_cons_phys = adv_n_phys - self._dpar(vpar_e)
-        dTe_cons_phys = adv_Te_phys - (2.0 / 3.0) * self._dpar(vpar_e)
-        conservative = DRB2DState(
-            n=self._log_rhs(dn_cons_phys, n_phys, n_floor, self.params.log_n),
-            omega=adv_w + self._dpar(jpar),
-            vpar_e=adv_ve + grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12),
-            vpar_i=adv_vi - self._dpar(phi),
-            Te=self._log_rhs(dTe_cons_phys, Te_phys, Te_floor, self.params.log_Te),
+        core_state = _to_core_state(y)
+        split = self._core.rhs_decomposed(t, core_state)
+        return DRB2DDecomposition(
+            conservative=_from_core_state(split.conservative, template=y),
+            source=_from_core_state(split.source, template=y),
+            dissipative=_from_core_state(split.dissipative, template=y),
         )
-
-        # Background drives (simple -ky omega_n phi, -ky omega_Te phi in Fourier-y).
-        drive_n_phys = 0.0
-        drive_Te_phys = 0.0
-        if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0:
-            if self.grid.bc.kind_y != 0 or bc_phi.kind_y != 0:
-                raise ValueError("Drive terms assume periodic y for spectral ky representation.")
-            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
-            drive_mask = 1.0
-            if self.params.sol_on and mask_open is not None:
-                mode = str(self.params.omega_drive_mask).lower()
-                if mode == "closed":
-                    drive_mask = mask_closed
-                elif mode == "open":
-                    drive_mask = mask_open
-            drive_n_phys = -float(self.params.omega_n) * dphi_dy * drive_mask
-            drive_Te_phys = -float(self.params.omega_Te) * dphi_dy * drive_mask
-
-        source = DRB2DState(
-            n=self._log_rhs(drive_n_phys + (C_p - C_phi), n_phys, n_floor, self.params.log_n),
-            omega=C_p,
-            vpar_e=jnp.zeros_like(vpar_e),
-            vpar_i=jnp.zeros_like(vpar_i),
-            Te=self._log_rhs(drive_Te_phys + C_T, Te_phys, Te_floor, self.params.log_Te),
-        )
-
-        # Closed→open SOL setup: relax n, Te toward prescribed profiles, apply optional
-        # Gaussian sources, and add open-side damping terms. This provides a simple
-        # LCFS model in a 2D box.
-        sol_sink_n = 0.0
-        sol_sink_Te = 0.0
-        sol_sink_omega = 0.0
-        sol_sink_vpar = 0.0
-        if self.params.sol_on and mask_open is not None:
-            n_eq = (
-                float(self.params.sol_n_sol)
-                + (float(self.params.sol_n_core) - float(self.params.sol_n_sol)) * mask_closed
-            )
-            Te_eq = (
-                float(self.params.sol_Te_sol)
-                + (float(self.params.sol_Te_core) - float(self.params.sol_Te_sol)) * mask_closed
-            )
-            relax = (
-                float(self.params.sol_relax_core) * mask_closed
-                + float(self.params.sol_relax_open) * mask_open
-            )
-            sol_source_n = relax * (n_eq - n_phys)
-            sol_source_Te = relax * (Te_eq - Te_phys)
-            if (self.params.sol_source_n0 != 0.0) or (self.params.sol_source_Te0 != 0.0):
-                xs = float(self.params.sol_source_xs)
-                src_mask = 1.0
-                mode = str(self.params.sol_source_mask).lower()
-                if mode == "closed":
-                    src_mask = mask_closed
-                elif mode == "open":
-                    src_mask = mask_open
-                y_taper = self._sol_y_taper(float(self.params.sol_source_y_taper))
-                profile = self._sol_source_profile(
-                    xs=xs,
-                    width=float(self.params.sol_source_width),
-                    src_mask=src_mask,
-                    y_taper=y_taper,
-                )
-                sol_source_n = sol_source_n + float(self.params.sol_source_n0) * profile
-                sol_source_Te = sol_source_Te + float(self.params.sol_source_Te0) * profile
-                if (self.params.sol_source2_n0 != 0.0) or (self.params.sol_source2_Te0 != 0.0):
-                    xs2 = float(self.params.sol_source2_xs)
-                    profile2 = self._sol_source_profile(
-                        xs=xs2,
-                        width=float(self.params.sol_source2_width),
-                        src_mask=src_mask,
-                        y_taper=y_taper,
-                    )
-                    sol_source_n = sol_source_n + float(self.params.sol_source2_n0) * profile2
-                    sol_source_Te = sol_source_Te + float(self.params.sol_source2_Te0) * profile2
-            sol_source_n = self._log_rhs(sol_source_n, n_phys, n_floor, self.params.log_n)
-            sol_source_Te = self._log_rhs(sol_source_Te, Te_phys, Te_floor, self.params.log_Te)
-            source = _state_add(
-                source,
-                DRB2DState(
-                    n=sol_source_n,
-                    omega=jnp.zeros_like(omega),
-                    vpar_e=jnp.zeros_like(vpar_e),
-                    vpar_i=jnp.zeros_like(vpar_i),
-                    Te=sol_source_Te,
-                ),
-            )
-            n_pos = jnp.maximum(n_phys, n_floor)
-            Te_pos = jnp.maximum(Te_phys, Te_floor)
-            sol_sink_n = -float(self.params.sol_sink_open_n) * mask_open * n_pos
-            sol_sink_Te = -float(self.params.sol_sink_open_Te) * mask_open * Te_pos
-            sol_sink_omega = self._sol_sink_open_omega(omega, mask_open)
-            sol_sink_vpar = -float(self.params.sol_sink_open_vpar) * mask_open
-
-        n_diff = n_phys if self.params.log_n else n
-        Te_diff = Te_phys if self.params.log_Te else Te
-        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-            lap_n = laplacian(n_diff, self.grid.k2)
-            bih_n = biharmonic(n_diff, self.grid.k2)
-        else:
-            lap_n = laplacian_fd(n_diff, self.grid.dx, self.grid.dy, bc_n)
-            bih_n = biharmonic_fd(n_diff, self.grid.dx, self.grid.dy, bc_n)
-        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
-            lap_w = laplacian(omega, self.grid.k2)
-            bih_w = biharmonic(omega, self.grid.k2)
-        else:
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-            bih_w = biharmonic_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-        if self._is_periodic_bc(bc_Te) and self.params.poisson == "spectral":
-            lap_Te = laplacian(Te_diff, self.grid.k2)
-            bih_Te = biharmonic(Te_diff, self.grid.k2)
-        else:
-            lap_Te = laplacian_fd(Te_diff, self.grid.dx, self.grid.dy, bc_Te)
-            bih_Te = biharmonic_fd(Te_diff, self.grid.dx, self.grid.dy, bc_Te)
-
-        omega_zonal = jnp.mean(omega, axis=1, keepdims=True) + jnp.zeros_like(omega)
-
-        diss_n_phys = (
-            float(self.params.Dn) * lap_n
-            - float(self.params.Dn4) * bih_n
-            - float(self.params.mu_lin_n) * n_phys
-            + sol_sink_n
-        )
-        diss_Te_phys = (
-            float(self.params.DTe) * lap_Te
-            - float(self.params.DTe4) * bih_Te
-            - float(self.params.mu_lin_Te) * Te_phys
-            + sol_sink_Te
-        )
-        dissipative = DRB2DState(
-            n=self._log_rhs(diss_n_phys, jnp.maximum(n_phys, n_floor), n_floor, self.params.log_n),
-            omega=float(self.params.DOmega) * lap_w
-            - float(self.params.DOmega4) * bih_w
-            - float(self.params.mu_zonal_omega) * omega_zonal
-            - float(self.params.mu_lin_omega) * omega
-            + sol_sink_omega,
-            vpar_e=-(float(self.params.eta) / jnp.maximum(float(self.params.me_hat), 1e-12))
-            * (vpar_e - vpar_i)
-            - float(self.params.mu_lin_vpar_e) * vpar_e
-            + sol_sink_vpar * vpar_e,
-            vpar_i=-float(self.params.mu_lin_vpar_i) * vpar_i + sol_sink_vpar * vpar_i,
-            Te=self._log_rhs(
-                diss_Te_phys, jnp.maximum(Te_phys, Te_floor), Te_floor, self.params.log_Te
-            ),
-            N=None,
-        )
-
-        sol_par_loss = None
-        sol_sheath_phi = None
-        sol_sheath_omega = None
-        if self.params.sol_on and self.params.sol_parallel_loss_on and mask_open is not None:
-            sol_par_loss = self._sol_parallel_loss(y, phi, mask_open)
-            dissipative = _state_add(dissipative, sol_par_loss)
-        if self.params.sol_on and self.params.sol_sheath_phi_on and mask_open is not None:
-            sol_sheath_phi = self._sol_sheath_phi_term(y, phi, mask_open)
-            dissipative = _state_add(dissipative, sol_sheath_phi)
-        if self.params.sol_on and self.params.sol_sheath_omega_on and mask_open is not None:
-            sol_sheath_omega = self._sol_sheath_omega_sink(omega, mask_open)
-            dissipative = _state_add(
-                dissipative,
-                DRB2DState(
-                    n=jnp.zeros_like(n),
-                    omega=sol_sheath_omega,
-                    vpar_e=jnp.zeros_like(vpar_e),
-                    vpar_i=jnp.zeros_like(vpar_i),
-                    Te=jnp.zeros_like(Te),
-                ),
-            )
-
-        if self.params.sol_on and self.params.sol_omega_bc_dirichlet_on:
-            bc_omega = BC2D(
-                kind_x=1,
-                kind_y=1 if self.params.sol_omega_bc_apply_y else self.grid.bc.kind_y,
-                x_value=float(self.params.sol_omega_bc_value),
-                y_value=float(self.grid.bc.y_value),
-            )
-            omega_bc = enforce_bc_relaxation(
-                omega,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=bc_omega,
-                nu=float(self.params.sol_omega_bc_nu),
-            )
-            dissipative = _state_add(
-                dissipative,
-                DRB2DState(
-                    n=jnp.zeros_like(n),
-                    omega=omega_bc,
-                    vpar_e=jnp.zeros_like(vpar_e),
-                    vpar_i=jnp.zeros_like(vpar_i),
-                    Te=jnp.zeros_like(Te),
-                ),
-            )
-
-        if self.params.sol_on and self.params.sol_vpar_bc_dirichlet_on:
-            nu_bc = float(self.params.sol_vpar_bc_nu)
-            vpar_val = float(self.params.sol_vpar_bc_value)
-            ny = vpar_e.shape[1]
-            mask_bottom = (jnp.arange(ny) == 0).astype(vpar_e.dtype)[None, :]
-            mask_top = (jnp.arange(ny) == (ny - 1)).astype(vpar_e.dtype)[None, :]
-            vpar_e_bc = -nu_bc * (
-                mask_bottom * (vpar_e - (-vpar_val)) + mask_top * (vpar_e - vpar_val)
-            )
-            vpar_i_bc = -nu_bc * (
-                mask_bottom * (vpar_i - (-vpar_val)) + mask_top * (vpar_i - vpar_val)
-            )
-            dissipative = _state_add(
-                dissipative,
-                DRB2DState(
-                    n=jnp.zeros_like(n),
-                    omega=jnp.zeros_like(omega),
-                    vpar_e=vpar_e_bc,
-                    vpar_i=vpar_i_bc,
-                    Te=jnp.zeros_like(Te),
-                ),
-            )
-
-        if self.params.bc_enforce_nu != 0.0:
-            dissipative = _state_add(
-                dissipative,
-                DRB2DState(
-                    n=enforce_bc_relaxation(
-                        n,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_n,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    omega=enforce_bc_relaxation(
-                        omega,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_omega,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    vpar_e=enforce_bc_relaxation(
-                        vpar_e,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_vpar_e,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    vpar_i=enforce_bc_relaxation(
-                        vpar_i,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_vpar_i,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    Te=enforce_bc_relaxation(
-                        Te,
-                        dx=self.grid.dx,
-                        dy=self.grid.dy,
-                        bc=bc_Te,
-                        nu=self.params.bc_enforce_nu,
-                    ),
-                    N=None,
-                ),
-            )
-
-        if self.params.sol_on and self.params.sol_gbs_bc_on and self.params.sol_gbs_bc_nu != 0.0:
-            nu_bc = float(self.params.sol_gbs_bc_nu)
-            n_floor = float(self.params.sol_n_floor)
-            Te_floor = float(self.params.sol_Te_floor)
-            n_right = float(self.params.sol_gbs_n_right)
-            Te_right = float(self.params.sol_gbs_Te_right)
-            if self.params.log_n:
-                n_right = jnp.log(jnp.maximum(n_right, n_floor))
-            if self.params.log_Te:
-                Te_right = jnp.log(jnp.maximum(Te_right, Te_floor))
-
-            nx, ny = n.shape
-            mask_left = (jnp.arange(nx) == 0).astype(n.dtype)[:, None]
-            mask_right = (jnp.arange(nx) == (nx - 1)).astype(n.dtype)[:, None]
-            mask_bottom = (jnp.arange(ny) == 0).astype(n.dtype)[None, :]
-            mask_top = (jnp.arange(ny) == (ny - 1)).astype(n.dtype)[None, :]
-
-            n_left_target = n[1, :]
-            Te_left_target = Te[1, :]
-            n_right_target = jnp.full_like(n[0, :], n_right)
-            Te_right_target = jnp.full_like(Te[0, :], Te_right)
-
-            n_bc = -nu_bc * (mask_left * (n - n_left_target) + mask_right * (n - n_right_target))
-            Te_bc = -nu_bc * (
-                mask_left * (Te - Te_left_target) + mask_right * (Te - Te_right_target)
-            )
-            if self.params.sol_gbs_apply_y:
-                n_bc = n_bc - nu_bc * (mask_bottom * (n - n[:, [1]]) + mask_top * (n - n[:, [-2]]))
-                Te_bc = Te_bc - nu_bc * (
-                    mask_bottom * (Te - Te[:, [1]]) + mask_top * (Te - Te[:, [-2]])
-                )
-
-            dissipative = _state_add(
-                dissipative,
-                DRB2DState(
-                    n=n_bc,
-                    omega=jnp.zeros_like(omega),
-                    vpar_e=jnp.zeros_like(vpar_e),
-                    vpar_i=jnp.zeros_like(vpar_i),
-                    Te=Te_bc,
-                    N=None,
-                ),
-            )
-
-        if y.N is not None and self.params.neutrals.enabled:
-            if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-                lap_N = laplacian(y.N, self.grid.k2)
-            else:
-                lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, bc_n)
-            adv_N = -self._bracket(phi, y.N, bc_phi=bc_phi, bc_f=bc_n)
-            dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
-                N=y.N,
-                n=n,
-                omega=omega,
-                dn0=self.params.neutrals,
-                adv_N=adv_N,
-                lap_N=lap_N,
-            )
-            if self.params.bc_enforce_nu != 0.0:
-                dN = dN + enforce_bc_relaxation(
-                    y.N,
-                    dx=self.grid.dx,
-                    dy=self.grid.dy,
-                    bc=bc_n,
-                    nu=self.params.bc_enforce_nu,
-                )
-            source = _state_add(
-                source,
-                DRB2DState(
-                    n=dn_from_neutrals,
-                    omega=dw_from_neutrals,
-                    vpar_e=jnp.zeros_like(vpar_e),
-                    vpar_i=jnp.zeros_like(vpar_i),
-                    Te=jnp.zeros_like(Te),
-                    N=dN,
-                ),
-            )
-
-        return DRB2DDecomposition(conservative=conservative, source=source, dissipative=dissipative)
 
     def rhs(self, t: float, y: DRB2DState) -> DRB2DState:
         split = self.rhs_decomposed(t, y)

@@ -6,6 +6,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from jaxdrb.core.nonlinear2d import Core2DModel, coerce_core2d_params
+from jaxdrb.core.state import CoreState
+
 from jaxdrb.bc import BC2D
 from jaxdrb.operators.brackets import (
     poisson_bracket_arakawa,
@@ -15,12 +18,12 @@ from jaxdrb.operators.brackets import (
 
 from .integrate import DiffraxSolverName, diffeqsolve as diffeqsolve_ode
 from .grid import Grid2D
-from .neutrals import NeutralParams, rhs_neutral
+from .neutrals import NeutralParams
 from .fd import biharmonic as biharmonic_fd
 from .fd import ddx as ddx_fd
 from .fd import ddy as ddy_fd
 from .fd import laplacian as laplacian_fd
-from .fd import enforce_bc_relaxation, inv_laplacian_cg, inv_laplacian_fd_fft
+from .fd import inv_laplacian_cg, inv_laplacian_fd_fft
 from .spectral import biharmonic, ddy, dealias, inv_laplacian, laplacian, poisson_bracket_spectral
 
 
@@ -64,9 +67,37 @@ class HW2DState(eqx.Module):
     N: jnp.ndarray | None = None
 
 
+def _to_core_state(y: HW2DState) -> CoreState:
+    return CoreState.from_optional(
+        n=y.n,
+        omega=y.omega,
+        vpar_e=jnp.zeros_like(y.n),
+        vpar_i=jnp.zeros_like(y.n),
+        Te=jnp.zeros_like(y.n),
+        N=y.N,
+    )
+
+
+def _from_core_state(y: CoreState, *, template: HW2DState | None = None) -> HW2DState:
+    N = y.N
+    if template is not None and template.N is None:
+        N = None
+    return HW2DState(n=y.n, omega=y.omega, N=N)
+
+
 class HW2DModel(eqx.Module):
     params: HW2DParams
     grid: Grid2D
+    _core: Core2DModel = eqx.field(init=False, repr=False)
+
+    def __post_init__(self):
+        core_params = coerce_core2d_params(
+            self.params,
+            model_kind="hw",
+            hot_ion_on=False,
+            em_on=False,
+        )
+        object.__setattr__(self, "_core", Core2DModel(params=core_params, grid=self.grid))
 
     def _bc_or(self, bc: BC2D | None, fallback: BC2D | None = None) -> BC2D:
         if bc is not None:
@@ -145,103 +176,9 @@ class HW2DModel(eqx.Module):
         return j
 
     def rhs(self, t: float, y: HW2DState) -> HW2DState:
-        _ = t
-        n = y.n
-        omega = y.omega
-        bc_n = self._bc_or(self.params.bc_n)
-        bc_omega = self._bc_or(self.params.bc_omega)
-        bc_phi = self._bc_phi()
-
-        phi = self.phi_from_omega(omega)
-
-        # Main nonlinear advection.
-        adv_n = self._bracket(phi, n, bc_phi=bc_phi, bc_f=bc_n)
-        adv_w = self._bracket(phi, omega, bc_phi=bc_phi, bc_f=bc_omega)
-
-        # Background-gradient drive (E×B drift across background gradient).
-        # Standard HW form uses -kappa ∂y phi in the density equation.
-        if (
-            self.params.bracket == "spectral"
-            and self._is_periodic_bc(bc_phi)
-            and self._is_periodic_bc(bc_n)
-        ):
-            dphi_dy = ddy(phi, self.grid.ky)
-            dn_dy = ddy(n, self.grid.ky)
-        else:
-            dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
-            dn_dy = ddy_fd(n, self.grid.dy, bc_n)
-
-        drive_n = -self.params.kappa * dphi_dy
-        drive_w = -self.params.kappa * dn_dy
-
-        # Resistive/adiabatic coupling.
-        couple = self.params.alpha * (phi - n)
-        if self.params.alpha_nonzonal_only:
-            couple = couple - jnp.mean(couple, axis=1, keepdims=True)
-
-        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-            lap_n = laplacian(n, self.grid.k2)
-        else:
-            lap_n = laplacian_fd(n, self.grid.dx, self.grid.dy, bc_n)
-        if self._is_periodic_bc(bc_omega) and self.params.poisson == "spectral":
-            lap_w = laplacian(omega, self.grid.k2)
-        else:
-            lap_w = laplacian_fd(omega, self.grid.dx, self.grid.dy, bc_omega)
-
-        dn = -adv_n + drive_n + couple + self.params.Dn * lap_n
-        dw = -adv_w + drive_w + couple + self.params.DOmega * lap_w
-
-        # Optional hyperdiffusion (biharmonic). This is commonly used in HW studies to control
-        # the enstrophy cascade with minimal impact on large scales.
-        if self.params.nu4_n != 0.0 or self.params.nu4_omega != 0.0:
-            if (
-                self._is_periodic_bc(bc_n)
-                and self._is_periodic_bc(bc_omega)
-                and self.params.poisson == "spectral"
-            ):
-                dn = dn - self.params.nu4_n * biharmonic(n, self.grid.k2)
-                dw = dw - self.params.nu4_omega * biharmonic(omega, self.grid.k2)
-            else:
-                dn = dn - self.params.nu4_n * biharmonic_fd(n, self.grid.dx, self.grid.dy, bc_n)
-                dw = dw - self.params.nu4_omega * biharmonic_fd(
-                    omega, self.grid.dx, self.grid.dy, bc_omega
-                )
-
-        # Optional boundary enforcement (useful for non-periodic BC experiments).
-        if self.params.bc_enforce_nu != 0.0:
-            dn = dn + enforce_bc_relaxation(
-                n, dx=self.grid.dx, dy=self.grid.dy, bc=bc_n, nu=self.params.bc_enforce_nu
-            )
-            dw = dw + enforce_bc_relaxation(
-                omega,
-                dx=self.grid.dx,
-                dy=self.grid.dy,
-                bc=bc_omega,
-                nu=self.params.bc_enforce_nu,
-            )
-
-        if y.N is None:
-            return HW2DState(n=dn, omega=dw, N=None)
-
-        # Neutral coupling (optional).
-        adv_N = self._bracket(phi, y.N, bc_phi=bc_phi, bc_f=bc_n)
-        if self._is_periodic_bc(bc_n) and self.params.poisson == "spectral":
-            lap_N = laplacian(y.N, self.grid.k2)
-        else:
-            lap_N = laplacian_fd(y.N, self.grid.dx, self.grid.dy, bc_n)
-        dN, dn_from_neutrals, dw_from_neutrals = rhs_neutral(
-            N=y.N,
-            n=n,
-            omega=omega,
-            dn0=self.params.neutrals,
-            adv_N=adv_N,
-            lap_N=lap_N,
-        )
-        if self.params.bc_enforce_nu != 0.0:
-            dN = dN + enforce_bc_relaxation(
-                y.N, dx=self.grid.dx, dy=self.grid.dy, bc=bc_n, nu=self.params.bc_enforce_nu
-            )
-        return HW2DState(n=dn + dn_from_neutrals, omega=dw + dw_from_neutrals, N=dN)
+        core_state = _to_core_state(y)
+        core_rhs = self._core.rhs(t, core_state)
+        return _from_core_state(core_rhs, template=y)
 
     def diffeqsolve(
         self,
