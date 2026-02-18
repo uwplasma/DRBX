@@ -23,6 +23,19 @@ Key options:
 - `--curv-sign-x`, `--curv-sign-y`: sign flips for alternative conventions
 - `--use-metric`: include `gxx/gxy/gyy` metric scaling
 
+### Benchmark Alignment (Hermes-style s-alpha)
+For quick analytic-vs-grid checks that match Hermes-style s-alpha parameters, use:
+
+```
+--config /Users/rogerio/local/jax_drb/configs/benchmarks/salpha_hermes_gridmatch_small.toml
+--mapping canonical
+```
+
+Expected axis conventions:
+- `x`: minor radial coordinate
+- `y`: binormal (poloidal) direction
+- `z`: field-aligned (ballooning) coordinate
+
 ## GBS equilibrium files
 
 ```
