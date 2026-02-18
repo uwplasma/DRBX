@@ -7,6 +7,12 @@ import pytest
 
 
 TOLERANCES = {
+    "jaxdrb": {
+        "B": 1e-12,
+        "dpar_factor": 1e-12,
+        "curv_x": 1e-12,
+        "curv_y": 1e-12,
+    },
     "hermes": {
         "B": 0.05,
         "dpar_factor": 0.05,
