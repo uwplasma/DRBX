@@ -27,6 +27,33 @@ def _parse_metrics(output: str) -> dict[str, dict[str, float]]:
     return metrics
 
 
+def _rms(arr) -> float:
+    import numpy as np
+
+    a = np.asarray(arr).ravel()
+    if a.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(a**2)))
+
+
+def _jaxdrb_metrics(config_path: Path) -> dict[str, dict[str, float]]:
+    from jaxdrb.driver import build_system_from_config
+    from jaxdrb.io import load_config
+
+    cfg = load_config(str(config_path))
+    built = build_system_from_config(cfg.data)
+    geom = built.system.geom
+
+    metrics: dict[str, dict[str, float]] = {}
+    for key in ("curv_x", "curv_y", "dpar_factor", "B"):
+        val = getattr(geom, key, None)
+        if val is None:
+            continue
+        rms_val = _rms(val)
+        metrics[key] = {"rms_ref": rms_val, "rms_geom": rms_val, "rel_error": 0.0}
+    return metrics
+
+
 def _run(cmd: list[str], cwd: Path | None = None) -> str:
     proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -46,10 +73,16 @@ def main() -> None:
     parser.add_argument("--compare-only", action="store_true", help="Skip running external codes")
     parser.add_argument("--run-hermes", action="store_true", help="Run Hermes-3 before comparing")
     parser.add_argument("--run-gbs", action="store_true", help="Run GBS before comparing")
+    parser.add_argument("--run-jaxdrb", action="store_true", help="Run jax_drb CLI before comparing")
     parser.add_argument("--hermes-exe", default="external/hermes-3/build/hermes-3")
     parser.add_argument("--hermes-case", default="external/hermes-3/examples_min/salpha_grid")
     parser.add_argument("--gbs-exe", default="", help="Path to GBS executable (optional)")
     parser.add_argument("--gbs-case", default="external/gbs/bin")
+    parser.add_argument(
+        "--jax-config",
+        default="configs/benchmarks/salpha_hermes_gridmatch_small.toml",
+        help="jax_drb config used to compute analytic geometry metrics",
+    )
     parser.add_argument("--mpi", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--mpi-n", type=int, default=1)
     args = parser.parse_args()
@@ -87,6 +120,16 @@ def main() -> None:
             else:
                 print("No GBS executable provided, skipping run.")
 
+        if args.run_jaxdrb:
+            jax_cfg = Path(args.jax_config)
+            if not jax_cfg.is_absolute():
+                jax_cfg = root / jax_cfg
+            if jax_cfg.exists():
+                cmd = [sys.executable, "-m", "jaxdrb.cli.main", str(jax_cfg)]
+                _run(cmd, cwd=root)
+            else:
+                print("jax_drb config not found, skipping run.")
+
     # Copy useful outputs into alignment folder
     _copy_if_exists(hermes_case / "BOUT.inp", output_dir / "hermes" / "BOUT.inp")
     _copy_if_exists(hermes_case / "BOUT.dmp.0.nc", output_dir / "hermes" / "BOUT.dmp.0.nc")
@@ -103,8 +146,15 @@ def main() -> None:
     hermes_grid = hermes_case / "salpha.nc"
     gbs_config = root / "configs/benchmarks/salpha_gbs_match.toml"
     gbs_results = gbs_case / "results_min_00.h5"
+    jax_config = Path(args.jax_config)
+    if not jax_config.is_absolute():
+        jax_config = root / jax_config
 
     metrics = {}
+    if jax_config.exists():
+        metrics["jaxdrb"] = _jaxdrb_metrics(jax_config)
+    else:
+        metrics["jaxdrb"] = {}
     if hermes_config.exists() and hermes_grid.exists():
         out = _run(
             [

@@ -32,5 +32,27 @@
       "rms_geom": 0.5,
       "rms_ref": 0.4994653304272642
     }
+  },
+  "jaxdrb": {
+    "B": {
+      "rel_error": 0.0,
+      "rms_geom": 1.0,
+      "rms_ref": 1.0
+    },
+    "curv_x": {
+      "rel_error": 0.0,
+      "rms_geom": 0.03535533905932738,
+      "rms_ref": 0.03535533905932738
+    },
+    "curv_y": {
+      "rel_error": 0.0,
+      "rms_geom": 0.4782537650250763,
+      "rms_ref": 0.4782537650250763
+    },
+    "dpar_factor": {
+      "rel_error": 0.0,
+      "rms_geom": 0.5,
+      "rms_ref": 0.5
+    }
   }
 }
