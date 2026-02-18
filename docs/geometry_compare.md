@@ -36,6 +36,12 @@ Expected axis conventions:
 - `y`: binormal (poloidal) direction
 - `z`: field-aligned (ballooning) coordinate
 
+You can also run the alignment helper to bundle outputs and write a summary JSON:
+
+```
+python /Users/rogerio/local/jax_drb/benchmarks/run_alignment.py --compare-only
+```
+
 ## GBS equilibrium files
 
 ```

@@ -16,6 +16,7 @@ out_*/
 out*/
 out_*.png
 out_*.gif
+benchmarks/alignment_outputs/
 
 site/
 _out_make_*/
@@ -25,6 +26,39 @@ _tmp_*/
 *.egg-info/
 build/
 dist/
+
+# BOUT++ / Hermes outputs
+BOUT.dmp.*
+BOUT.restart.*
+BOUT.log.*
+BOUT.settings
+BOUT.inp.bak
+BOUT.inp~
+
+# GBS outputs
+results_*.h5
+restart_*.h5
+shaping.h5
+
+# NetCDF/HDF outputs (generated runs)
+*.nc~ 
+
+# Fortran/CMake build artifacts
+*.o
+*.mod
+*.a
+*.so
+*.dylib
+*.exe
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Misc run outputs
+*.out
+*.log
+*.dat
+*.vtk
 
 # Matplotlib + cache dirs created by CLI/examples
 .mplcache/
