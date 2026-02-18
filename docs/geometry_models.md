@@ -108,6 +108,35 @@ This is the recommended default for s-alpha + log-B comparisons.
 
 ---
 
+**Metric-Derived Curvature and Parallel Factor**
+
+When comparing against metric-derived grids (e.g., Hermes/BOUT-style files), the curvature and
+parallel derivative factor used in the comparison tools follow:
+
+\[
+\kappa_x = -B\,\partial_z \log B,\quad \kappa_y = B\,\partial_x \log B
+\]
+
+with optional perpendicular metric scaling:
+
+\[
+\kappa_x \leftarrow -B\,\sqrt{g_\perp}\,\partial_z \log B,\quad
+\kappa_y \leftarrow B\,\sqrt{g_{xx}}\,\partial_x \log B
+\]
+
+where \(g_\perp = g_{yy} - g_{xy}^2 / g_{xx}\). The parallel derivative factor is derived from
+metric data as:
+
+\[
+\mathrm{dpar\_factor} = \frac{B_{p}}{B\,h_\theta}
+\]
+
+These definitions align the analytic coefficients with metric outputs used in
+GBS/Hermes-style grids. See the local references below for geometry conventions and
+ballooning coordinate context.
+
+---
+
 **Design Decisions**
 
 - Analytic models are **pure coefficient generators**: once coefficients are built, the unified DRB
