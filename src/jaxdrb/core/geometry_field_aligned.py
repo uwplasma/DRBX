@@ -13,7 +13,14 @@ from jaxdrb.core.geometry_logb import salpha_logb_coefficients
 from jaxdrb.core.operators import PerpOperatorBundle, build_perp_operator_bundle
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.geometry.plane import Grid2D
-from jaxdrb.operators.fd2d import enforce_bc_relaxation, inv_div_n_grad_cg, inv_laplacian_cg
+from jaxdrb.operators.fd2d import (
+    enforce_bc_relaxation,
+    build_div_n_grad_preconditioner,
+    build_laplacian_preconditioner,
+    inv_div_n_grad_cg,
+    inv_laplacian_cg,
+    inv_laplacian_fd_fft,
+)
 from jaxdrb.operators.spectral2d import inv_laplacian as inv_laplacian_spec
 
 
@@ -146,6 +153,8 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     dpar_factor: jnp.ndarray
     B: jnp.ndarray
     perp_ops: PerpOperatorBundle = eqx.field(init=False)
+    poisson_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
+    polarization_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
 
     name: ClassVar[str] = "field_aligned"
     ndim: ClassVar[int] = 3
@@ -163,6 +172,46 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             bc=self.grid.perp.bc,
         )
         object.__setattr__(self, "perp_ops", ops)
+
+        bc = self.grid.perp.bc
+        precond = self.params.poisson_preconditioner
+        if precond == "auto":
+            precond = "spectral"
+        if precond == "spectral" and not (bc.kind_x == 0 and bc.kind_y == 0):
+            precond = "jacobi"
+        shape = (self.grid.perp.nx, self.grid.perp.ny)
+        if bc.kind_x == 1 and bc.kind_y == 1:
+            shape = (self.grid.perp.nx - 2, self.grid.perp.ny - 2)
+        poisson_precond = build_laplacian_preconditioner(
+            shape=shape,
+            dx=self.grid.perp.dx,
+            dy=self.grid.perp.dy,
+            preconditioner=str(precond),
+            k2_precond=self.perp_ops.k2 if str(precond) == "spectral" else None,
+            gauge_epsilon=self.params.poisson_gauge_epsilon,
+        )
+        object.__setattr__(self, "poisson_preconditioner_fn", poisson_precond)
+
+        pol_precond = None
+        if not bool(self.params.non_boussinesq_perturbed_density_on):
+            pol = self.params.polarization_preconditioner
+            if pol == "auto":
+                pol = "spectral_jacobi"
+            n_eff = max(float(self.params.n0), float(self.params.n0_min))
+            if bc.kind_x == 1 and bc.kind_y == 1:
+                n_coeff = jnp.full((self.grid.perp.nx - 2, self.grid.perp.ny - 2), n_eff)
+            else:
+                n_coeff = jnp.full((self.grid.perp.nx, self.grid.perp.ny), n_eff)
+            pol_precond = build_div_n_grad_preconditioner(
+                n_coeff=n_coeff,
+                dx=self.grid.perp.dx,
+                dy=self.grid.perp.dy,
+                bc=bc,
+                preconditioner=str(pol),
+                preconditioner_shift=float(self.params.polarization_precond_shift),
+                n_floor=float(self.params.n0_min),
+            )
+        object.__setattr__(self, "polarization_preconditioner_fn", pol_precond)
 
         z = self.grid.z
 
@@ -349,6 +398,24 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             precond = self.params.poisson_preconditioner
             if precond == "auto":
                 precond = "spectral"
+            poisson = self.params.poisson
+            if (
+                self.params.poisson_force_fd_fft_when_nonperiodic
+                and poisson == "spectral"
+                and not (self.grid.perp.bc.kind_x == 0 and self.grid.perp.bc.kind_y == 0)
+            ):
+                poisson = "cg_fd"
+            if poisson == "cg_fd":
+                try:
+                    return inv_laplacian_fd_fft(
+                        rhs,
+                        dx=self.grid.perp.dx,
+                        dy=self.grid.perp.dy,
+                        bc=self.grid.perp.bc,
+                        gauge_epsilon=self.params.poisson_gauge_epsilon,
+                    )
+                except ValueError:
+                    pass
             return inv_laplacian_cg(
                 rhs,
                 dx=self.grid.perp.dx,
@@ -360,6 +427,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 k2_precond=(
                     self.perp_ops.k2 if str(precond) == "spectral" else None
                 ),
+                preconditioner_fn=self.poisson_preconditioner_fn,
             )
 
         return self._vmap_plane(solve, f)
@@ -378,6 +446,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 maxiter=int(self.params.poisson_maxiter),
                 tol=float(self.params.poisson_tol),
                 preconditioner=str(precond),
+                preconditioner_fn=self.polarization_preconditioner_fn,
             )
 
         return jax.vmap(solve)(f, n_eff)

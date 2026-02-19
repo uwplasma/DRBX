@@ -229,6 +229,7 @@ class NumericsParams(eqx.Module):
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_force_spectral_when_periodic: bool = True
+    poisson_force_fd_fft_when_nonperiodic: bool = True
     poisson_preconditioner: str = "auto"
     poisson_cg_maxiter: int = 300
     poisson_cg_tol: float = 1e-8

@@ -77,6 +77,12 @@ def phi_from_omega(
         poisson = params.poisson
         if params.poisson_force_spectral_when_periodic and is_periodic_bc(bc_phi, geom):
             poisson = "spectral"
+        if (
+            params.poisson_force_fd_fft_when_nonperiodic
+            and not is_periodic_bc(bc_phi, geom)
+            and poisson == "spectral"
+        ):
+            poisson = "cg_fd"
         if poisson == "spectral":
             if not is_periodic_bc(bc_phi, geom):
                 raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
@@ -105,6 +111,7 @@ def phi_from_omega(
                 )
             except ValueError:
                 pass
+        precond_fn = getattr(geom, "poisson_preconditioner_fn", None)
         return inv_laplacian_cg(
             omega,
             dx=grid.dx,
@@ -116,6 +123,7 @@ def phi_from_omega(
             preconditioner=str(precond),
             k2_precond=grid.k2 if str(precond) == "spectral" else None,
             gauge_epsilon=params.poisson_gauge_epsilon,
+            preconditioner_fn=precond_fn,
         )
 
     n_eff = _n_eff(params, n_phys)
@@ -133,4 +141,5 @@ def phi_from_omega(
         atol=float(params.polarization_cg_atol),
         preconditioner=precond,
         preconditioner_shift=float(params.polarization_precond_shift),
+        preconditioner_fn=getattr(geom, "polarization_preconditioner_fn", None),
     )
