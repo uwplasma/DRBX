@@ -170,3 +170,45 @@ These are all fixable, but must be aligned before comparing quantitative growth 
 - [Ricci 2012, PPCF (GBS geometry and s-alpha)](/Users/rogerio/local/tests/drb_literature/Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf)
 - [Halpern 2013, Nuclear Fusion (ballooning / s-alpha context)](/Users/rogerio/local/tests/drb_literature/Halpern_2013_Nucl._Fusion_53_122001.pdf)
 - [Hermes-3 paper 2303.12131v2](/Users/rogerio/local/tests/drb_literature/2303.12131v2.pdf)
+
+---
+
+## Next Steps: SOL Turbulence Benchmark Plan
+
+The goal is a **scrape‑off‑layer turbulence** benchmark that is **physically aligned**
+across Hermes‑3, GBS, and jax_drb. The immediate next steps are:
+
+1. **Boundary conditions alignment**
+   - Match sheath / target boundary conditions (including linearized vs nonlinear sheath).
+   - Align region‑policy BCs (core vs SOL vs divertor legs), using Hermes‑style relaxation
+     and GBS Dirichlet/Neumann patterns.
+
+2. **Source & sink alignment**
+   - Decide a single density/temperature source model (e.g., a localized Gaussian source),
+     and implement it consistently.
+   - Match dissipation coefficients (diffusion / hyper‑diffusion / damping).
+
+3. **Normalization & geometry**
+   - Use a single normalization map (length/time/temperature) and confirm with the
+     normalization tests.
+   - Verify curvature (`curv_x`, `curv_y`) and `dpar_factor` alignment against a reference
+     grid using `tools/compare_geometry_metrics.py`.
+
+4. **Linear phase validation**
+   - Ensure linear growth rates agree to within expected error bars before comparing
+     saturation levels.
+   - For Hermes, confirm that the linearization option is enabled (if applicable),
+     or replicate its nonlinear baseline in jax_drb/GBS.
+
+5. **Nonlinear saturation metrics**
+   - Compare: RMS time series, k_y spectra, particle flux profiles, mean profiles,
+     and cross‑phase (n–phi).
+   - Produce side‑by‑side snapshots at matched times.
+
+6. **Open/closed field‑line mixes**
+   - Use a geometry that includes both regions so that SOL fluxes and core confinement
+     can be compared on the same grid.
+
+These steps define the minimal bar to claim a **SOL turbulence alignment** across
+codes. Once these are met, we can freeze a “reference SOL case” for regression
+tests in jax_drb and long‑term benchmarking against Hermes‑3 and GBS.
