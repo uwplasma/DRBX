@@ -65,13 +65,14 @@ def phi_from_omega(
     omega: jnp.ndarray,
     n_phys: jnp.ndarray,
     bc_phi: BC2D,
+    phi_guess: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     grid = grid_of(geom)
     if grid is None:
         if params.boussinesq:
-            return geom.inv_laplacian(omega)
+            return geom.inv_laplacian(omega, x0=phi_guess)
         n_eff = _n_eff(params, n_phys)
-        return geom.inv_div_n_grad(n_eff, omega)
+        return geom.inv_div_n_grad(n_eff, omega, x0=phi_guess)
 
     if params.boussinesq:
         poisson = params.poisson
@@ -102,12 +103,16 @@ def phi_from_omega(
             precond = "jacobi"
         if poisson == "cg_fd":
             try:
+                eigs = getattr(geom, "poisson_fd_fft_eigs", None)
+                lam_x, lam_y = eigs if eigs is not None else (None, None)
                 return inv_laplacian_fd_fft(
                     omega,
                     dx=grid.dx,
                     dy=grid.dy,
                     bc=bc_phi,
                     gauge_epsilon=params.poisson_gauge_epsilon,
+                    lam_x=lam_x,
+                    lam_y=lam_y,
                 )
             except ValueError:
                 pass
@@ -124,6 +129,7 @@ def phi_from_omega(
             k2_precond=grid.k2 if str(precond) == "spectral" else None,
             gauge_epsilon=params.poisson_gauge_epsilon,
             preconditioner_fn=precond_fn,
+            x0=phi_guess,
         )
 
     n_eff = _n_eff(params, n_phys)
@@ -142,4 +148,5 @@ def phi_from_omega(
         preconditioner=precond,
         preconditioner_shift=float(params.polarization_precond_shift),
         preconditioner_fn=getattr(geom, "polarization_preconditioner_fn", None),
+        x0=phi_guess,
     )

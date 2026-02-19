@@ -150,6 +150,23 @@ class DRBSystem(eqx.Module):
             out = _state_add(out, split.dissipative)
         return out
 
+    def rhs_with_phi(
+        self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
+    ) -> tuple[DRBSystemState, jnp.ndarray]:
+        _ = t
+        ctx = build_context(self.params, self.geom, y, phi_guess=phi_guess)
+        split = self.scheduler.run(ctx, y)
+        if not self.params.operator_split_on:
+            return split.total(), ctx.phi
+        out = _state_zeros_like(y)
+        if self.params.operator_conservative_on:
+            out = _state_add(out, split.conservative)
+        if self.params.operator_source_on:
+            out = _state_add(out, split.source)
+        if self.params.operator_dissipative_on:
+            out = _state_add(out, split.dissipative)
+        return out, ctx.phi
+
     def _state_from(self, y: DRBSystemState, **kwargs) -> DRBSystemState:
         return DRBSystemState(
             n=kwargs.get("n", jnp.zeros_like(y.n)),
@@ -343,19 +360,21 @@ class DRBSystem(eqx.Module):
             out[f"E_dot_{name}"] = self.energy_rate(y, term)
         return out
 
-    def _phi_from_omega(self, omega: jnp.ndarray, n: jnp.ndarray) -> jnp.ndarray:
+    def _phi_from_omega(
+        self, omega: jnp.ndarray, n: jnp.ndarray, *, phi_guess: jnp.ndarray | None = None
+    ) -> jnp.ndarray:
         grid = self._grid()
         bc_phi = self._bc_phi()
         if grid is None:
             if self.params.boussinesq:
-                return self.geom.inv_laplacian(omega)
+                return self.geom.inv_laplacian(omega, x0=phi_guess)
             n_eff = float(self.params.n0)
             if self.params.non_boussinesq_perturbed_density_on:
                 n_eff = n_eff + jnp.real(jnp.asarray(n))
             n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
             if self.params.n0_max is not None:
                 n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
-            return self.geom.inv_div_n_grad(n_eff, omega)
+            return self.geom.inv_div_n_grad(n_eff, omega, x0=phi_guess)
 
         if self.params.boussinesq:
             poisson = self.params.poisson
@@ -386,12 +405,16 @@ class DRBSystem(eqx.Module):
                 precond = "jacobi"
             if poisson == "cg_fd":
                 try:
+                    eigs = getattr(self.geom, "poisson_fd_fft_eigs", None)
+                    lam_x, lam_y = eigs if eigs is not None else (None, None)
                     return inv_laplacian_fd_fft(
                         omega,
                         dx=grid.dx,
                         dy=grid.dy,
                         bc=bc_phi,
                         gauge_epsilon=self.params.poisson_gauge_epsilon,
+                        lam_x=lam_x,
+                        lam_y=lam_y,
                     )
                 except ValueError:
                     pass
@@ -408,6 +431,7 @@ class DRBSystem(eqx.Module):
                 k2_precond=grid.k2 if str(precond) == "spectral" else None,
                 gauge_epsilon=self.params.poisson_gauge_epsilon,
                 preconditioner_fn=precond_fn,
+                x0=phi_guess,
             )
 
         n_eff = float(self.params.n0)
@@ -432,4 +456,5 @@ class DRBSystem(eqx.Module):
             preconditioner=precond,
             preconditioner_shift=float(self.params.polarization_precond_shift),
             preconditioner_fn=getattr(self.geom, "polarization_preconditioner_fn", None),
+            x0=phi_guess,
         )
