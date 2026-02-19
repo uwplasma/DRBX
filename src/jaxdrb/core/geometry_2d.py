@@ -13,6 +13,7 @@ from jaxdrb.operators.fd2d import (
     ddx as ddx_fd,
     ddy as ddy_fd,
     enforce_bc_relaxation,
+    build_fd_fft_eigs,
     build_div_n_grad_preconditioner,
     build_laplacian_preconditioner,
     inv_div_n_grad_cg,
@@ -46,6 +47,9 @@ class Geometry2DAdapter(GeometryBase):
     _scheme: Literal["spectral", "fd"] = eqx.field(init=False)
     poisson_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
     polarization_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
+    poisson_fd_fft_eigs: tuple[jnp.ndarray, jnp.ndarray] | None = eqx.field(
+        init=False, default=None
+    )
 
     def __post_init__(self):
         scheme = self.params.perp_operator
@@ -105,6 +109,19 @@ class Geometry2DAdapter(GeometryBase):
             )
         object.__setattr__(self, "polarization_preconditioner_fn", pol_precond)
 
+        try:
+            eigs = build_fd_fft_eigs(
+                nx=self.grid.nx,
+                ny=self.grid.ny,
+                dx=self.grid.dx,
+                dy=self.grid.dy,
+                bc=bc,
+                dtype=jnp.float64,
+            )
+        except Exception:
+            eigs = None
+        object.__setattr__(self, "poisson_fd_fft_eigs", eigs)
+
     def shape(self) -> tuple[int, int]:
         return int(self.grid.nx), int(self.grid.ny)
 
@@ -123,7 +140,7 @@ class Geometry2DAdapter(GeometryBase):
     def biharmonic(self, f: jnp.ndarray) -> jnp.ndarray:
         return self.perp_ops.biharmonic(f)
 
-    def inv_laplacian(self, f: jnp.ndarray) -> jnp.ndarray:
+    def inv_laplacian(self, f: jnp.ndarray, *, x0: jnp.ndarray | None = None) -> jnp.ndarray:
         bc_phi = self.grid.bc
         poisson = self.params.poisson
         if (
@@ -151,12 +168,17 @@ class Geometry2DAdapter(GeometryBase):
             precond = "jacobi"
         if poisson == "cg_fd":
             try:
+                lam_x, lam_y = (None, None)
+                if self.poisson_fd_fft_eigs is not None:
+                    lam_x, lam_y = self.poisson_fd_fft_eigs
                 return inv_laplacian_fd_fft(
                     f,
                     dx=self.grid.dx,
                     dy=self.grid.dy,
                     bc=bc_phi,
                     gauge_epsilon=self.params.poisson_gauge_epsilon,
+                    lam_x=lam_x,
+                    lam_y=lam_y,
                 )
             except ValueError:
                 pass
@@ -172,9 +194,12 @@ class Geometry2DAdapter(GeometryBase):
             k2_precond=self.perp_ops.k2 if str(precond) == "spectral" else None,
             gauge_epsilon=self.params.poisson_gauge_epsilon,
             preconditioner_fn=self.poisson_preconditioner_fn,
+            x0=x0,
         )
 
-    def inv_div_n_grad(self, n_eff: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
+    def inv_div_n_grad(
+        self, n_eff: jnp.ndarray, f: jnp.ndarray, *, x0: jnp.ndarray | None = None
+    ) -> jnp.ndarray:
         bc_phi = self.grid.bc
         precond = self.params.polarization_preconditioner
         if precond == "auto":
@@ -191,6 +216,7 @@ class Geometry2DAdapter(GeometryBase):
             preconditioner=precond,
             preconditioner_shift=float(self.params.polarization_precond_shift),
             preconditioner_fn=self.polarization_preconditioner_fn,
+            x0=x0,
         )
 
     def bracket(

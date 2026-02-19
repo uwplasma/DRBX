@@ -12,7 +12,7 @@ from jaxdrb.core.geometry_registry import build_geometry
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.system import DRBSystem
-from jaxdrb.integrators import build_rk4_scan
+from jaxdrb.integrators import build_rk4_scan, build_rk4_scan_cached
 from jaxdrb.normalization import NormalizationInfo, apply_normalization
 
 
@@ -94,6 +94,8 @@ def _diagnostic_fn(
     point_idx: tuple[int, int, int],
     *,
     mode: str = "full",
+    phi_every: int = 1,
+    dt_save: float = 1.0,
 ) -> Callable[[float, DRBSystemState], tuple]:
     def diag(t, y, args=None):
         _ = args
@@ -112,16 +114,32 @@ def _diagnostic_fn(
                 Te_phys[z0, x0, y0],
                 zero,
             )
-        phi = system._phi_from_omega(y.omega, n=n_phys)
+        if phi_every <= 1:
+            phi = system._phi_from_omega(y.omega, n=n_phys)
+            rms_phi = jnp.sqrt(jnp.mean(phi ** 2))
+            point_phi = phi[z0, x0, y0]
+        else:
+            idx = jnp.round(t / dt_save).astype(jnp.int32)
+            use_phi = (idx % phi_every) == 0
+
+            def _compute(_):
+                phi = system._phi_from_omega(y.omega, n=n_phys)
+                return jnp.sqrt(jnp.mean(phi ** 2)), phi[z0, x0, y0]
+
+            def _skip(_):
+                zero = jnp.asarray(0.0)
+                return zero, zero
+
+            rms_phi, point_phi = jax.lax.cond(use_phi, _compute, _skip, operand=None)
         return (
             jnp.asarray(t),
             jnp.sqrt(jnp.mean(n_phys ** 2)),
             jnp.sqrt(jnp.mean(Te_phys ** 2)),
             jnp.sqrt(jnp.mean(y.omega ** 2)),
-            jnp.sqrt(jnp.mean(phi ** 2)),
+            rms_phi,
             n_phys[z0, x0, y0],
             Te_phys[z0, x0, y0],
-            phi[z0, x0, y0],
+            point_phi,
         )
 
     return diag
@@ -156,19 +174,28 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     progress = bool(time_cfg.get("progress", True))
     remat = bool(time_cfg.get("remat", False))
     diag_mode = str(time_cfg.get("diag_mode", "full")).lower()
+    diag_phi_every = int(time_cfg.get("diag_phi_every", 1))
+    warm_start = bool(time_cfg.get("poisson_warm_start", True))
     return_numpy = bool(time_cfg.get("return_numpy", False))
 
     nz, nx, ny = state.n.shape
     point_idx = tuple(time_cfg.get("point_idx", (nz // 2, nx // 2, ny // 2)))
 
-    diag_fn = _diagnostic_fn(system, point_idx, mode=diag_mode)
-    if remat:
-        diag_fn = jax.checkpoint(diag_fn)
-
     if method in ("rk4", "rk4_scan", "fixed"):
-        runner, nsave, rem = build_rk4_scan(
-            system.rhs, dt, nsteps, save_every, diag_fn, rhs_remat=remat
+        dt_save = float(dt * save_every) if save_every > 0 else float(dt)
+        diag_fn = _diagnostic_fn(
+            system, point_idx, mode=diag_mode, phi_every=diag_phi_every, dt_save=dt_save
         )
+        if remat:
+            diag_fn = jax.checkpoint(diag_fn)
+        if warm_start:
+            runner, nsave, rem = build_rk4_scan_cached(
+                system.rhs_with_phi, dt, nsteps, save_every, diag_fn, rhs_remat=remat
+            )
+        else:
+            runner, nsave, rem = build_rk4_scan(
+                system.rhs, dt, nsteps, save_every, diag_fn, rhs_remat=remat
+            )
         final_state, diag_series = runner(state)
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
         if rem > 0:
@@ -192,6 +219,13 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
             save_every = 1
         nsave = int(np.floor((t_end / dt) / save_every)) + 1
         times = jnp.asarray(np.linspace(0.0, float(t_end), nsave))
+
+        dt_save = float(times[1] - times[0]) if nsave > 1 else float(dt)
+        diag_fn = _diagnostic_fn(
+            system, point_idx, mode=diag_mode, phi_every=diag_phi_every, dt_save=dt_save
+        )
+        if remat:
+            diag_fn = jax.checkpoint(diag_fn)
 
         saveat = dfx.SaveAt(
             subs={

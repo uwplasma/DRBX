@@ -15,6 +15,7 @@ from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.geometry.plane import Grid2D
 from jaxdrb.operators.fd2d import (
     enforce_bc_relaxation,
+    build_fd_fft_eigs,
     build_div_n_grad_preconditioner,
     build_laplacian_preconditioner,
     inv_div_n_grad_cg,
@@ -155,6 +156,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     perp_ops: PerpOperatorBundle = eqx.field(init=False)
     poisson_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
     polarization_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
+    poisson_fd_fft_eigs: tuple[jnp.ndarray, jnp.ndarray] | None = eqx.field(
+        init=False, default=None
+    )
 
     name: ClassVar[str] = "field_aligned"
     ndim: ClassVar[int] = 3
@@ -212,6 +216,19 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 n_floor=float(self.params.n0_min),
             )
         object.__setattr__(self, "polarization_preconditioner_fn", pol_precond)
+
+        try:
+            eigs = build_fd_fft_eigs(
+                nx=self.grid.perp.nx,
+                ny=self.grid.perp.ny,
+                dx=self.grid.perp.dx,
+                dy=self.grid.perp.dy,
+                bc=bc,
+                dtype=jnp.float64,
+            )
+        except Exception:
+            eigs = None
+        object.__setattr__(self, "poisson_fd_fft_eigs", eigs)
 
         z = self.grid.z
 
@@ -383,7 +400,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     def biharmonic(self, f: jnp.ndarray) -> jnp.ndarray:
         return self._vmap_plane(self.perp_ops.biharmonic, f)
 
-    def inv_laplacian(self, f: jnp.ndarray) -> jnp.ndarray:
+    def inv_laplacian(self, f: jnp.ndarray, *, x0: jnp.ndarray | None = None) -> jnp.ndarray:
         if (
             self.params.perp_operator == "spectral"
             and self.grid.perp.bc.kind_x == 0
@@ -394,7 +411,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 f,
             )
 
-        def solve(rhs):
+        def solve(rhs, guess=None):
             precond = self.params.poisson_preconditioner
             if precond == "auto":
                 precond = "spectral"
@@ -407,12 +424,17 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 poisson = "cg_fd"
             if poisson == "cg_fd":
                 try:
+                    lam_x, lam_y = (None, None)
+                    if self.poisson_fd_fft_eigs is not None:
+                        lam_x, lam_y = self.poisson_fd_fft_eigs
                     return inv_laplacian_fd_fft(
                         rhs,
                         dx=self.grid.perp.dx,
                         dy=self.grid.perp.dy,
                         bc=self.grid.perp.bc,
                         gauge_epsilon=self.params.poisson_gauge_epsilon,
+                        lam_x=lam_x,
+                        lam_y=lam_y,
                     )
                 except ValueError:
                     pass
@@ -428,12 +450,17 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                     self.perp_ops.k2 if str(precond) == "spectral" else None
                 ),
                 preconditioner_fn=self.poisson_preconditioner_fn,
+                x0=guess,
             )
 
-        return self._vmap_plane(solve, f)
+        if x0 is None:
+            return self._vmap_plane(lambda rhs: solve(rhs, None), f)
+        return jax.vmap(solve)(f, x0)
 
-    def inv_div_n_grad(self, n_eff: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
-        def solve(rhs, nc):
+    def inv_div_n_grad(
+        self, n_eff: jnp.ndarray, f: jnp.ndarray, *, x0: jnp.ndarray | None = None
+    ) -> jnp.ndarray:
+        def solve(rhs, nc, guess=None):
             precond = self.params.poisson_preconditioner
             if precond == "auto":
                 precond = "spectral"
@@ -447,9 +474,12 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 tol=float(self.params.poisson_tol),
                 preconditioner=str(precond),
                 preconditioner_fn=self.polarization_preconditioner_fn,
+                x0=guess,
             )
 
-        return jax.vmap(solve)(f, n_eff)
+        if x0 is None:
+            return jax.vmap(lambda rhs, nc: solve(rhs, nc, None))(f, n_eff)
+        return jax.vmap(solve)(f, n_eff, x0)
 
     def bracket(
         self,

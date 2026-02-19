@@ -312,6 +312,8 @@ def inv_laplacian_fd_fft(
     dy: float,
     bc: BC2D,
     gauge_epsilon: float | None = None,
+    lam_x: jnp.ndarray | None = None,
+    lam_y: jnp.ndarray | None = None,
     nan_guard: bool = True,
 ) -> jnp.ndarray:
     """Fast FD Poisson solve using FFT/DCT/DST for periodic/Dirichlet/Neumann BCs.
@@ -405,25 +407,27 @@ def inv_laplacian_fd_fft(
     else:
         rhs_work = _dst1_odd(rhs_work.T).T
 
-    if bc.kind_x == 0:
-        kx = jnp.arange(nx, dtype=rhs.dtype)
-        lam_x = 4.0 * jnp.sin(jnp.pi * kx / nx) ** 2 / dx**2
-    elif bc.kind_x == 2:
-        kx = jnp.arange(nx, dtype=rhs.dtype)
-        lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
-    else:
-        kx = jnp.arange(1, nx - 1, dtype=rhs.dtype)
-        lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+    if lam_x is None:
+        if bc.kind_x == 0:
+            kx = jnp.arange(nx, dtype=rhs.dtype)
+            lam_x = 4.0 * jnp.sin(jnp.pi * kx / nx) ** 2 / dx**2
+        elif bc.kind_x == 2:
+            kx = jnp.arange(nx, dtype=rhs.dtype)
+            lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+        else:
+            kx = jnp.arange(1, nx - 1, dtype=rhs.dtype)
+            lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
 
-    if bc.kind_y == 0:
-        ky = jnp.arange(ny, dtype=rhs.dtype)
-        lam_y = 4.0 * jnp.sin(jnp.pi * ky / ny) ** 2 / dy**2
-    elif bc.kind_y == 2:
-        ky = jnp.arange(ny, dtype=rhs.dtype)
-        lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
-    else:
-        ky = jnp.arange(1, ny - 1, dtype=rhs.dtype)
-        lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+    if lam_y is None:
+        if bc.kind_y == 0:
+            ky = jnp.arange(ny, dtype=rhs.dtype)
+            lam_y = 4.0 * jnp.sin(jnp.pi * ky / ny) ** 2 / dy**2
+        elif bc.kind_y == 2:
+            ky = jnp.arange(ny, dtype=rhs.dtype)
+            lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+        else:
+            ky = jnp.arange(1, ny - 1, dtype=rhs.dtype)
+            lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
 
     lam = lam_x[:, None] + lam_y[None, :]
 
@@ -466,6 +470,40 @@ def inv_laplacian_fd_fft(
     if nan_guard:
         u_work = jnp.nan_to_num(u_work, nan=0.0, posinf=0.0, neginf=0.0)
     return u_work
+
+
+def build_fd_fft_eigs(
+    *,
+    nx: int,
+    ny: int,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    dtype=jnp.float64,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Precompute FD-FFT eigenvalues for Poisson solves with fixed BCs."""
+
+    if bc.kind_x == 0:
+        kx = jnp.arange(nx, dtype=dtype)
+        lam_x = 4.0 * jnp.sin(jnp.pi * kx / nx) ** 2 / dx**2
+    elif bc.kind_x == 2:
+        kx = jnp.arange(nx, dtype=dtype)
+        lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+    else:
+        kx = jnp.arange(1, nx - 1, dtype=dtype)
+        lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+
+    if bc.kind_y == 0:
+        ky = jnp.arange(ny, dtype=dtype)
+        lam_y = 4.0 * jnp.sin(jnp.pi * ky / ny) ** 2 / dy**2
+    elif bc.kind_y == 2:
+        ky = jnp.arange(ny, dtype=dtype)
+        lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+    else:
+        ky = jnp.arange(1, ny - 1, dtype=dtype)
+        lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+
+    return lam_x, lam_y
 
 
 def build_laplacian_preconditioner(
@@ -533,6 +571,7 @@ def inv_laplacian_cg(
     k2_precond: jnp.ndarray | None = None,
     gauge_epsilon: float | None = None,
     preconditioner_fn=None,
+    x0: jnp.ndarray | None = None,
     nan_guard: bool = True,
 ) -> jnp.ndarray:
     """Solve ``∇² u = rhs`` with an SPD(-ish) FD Laplacian using (P)CG.
@@ -601,6 +640,20 @@ def inv_laplacian_cg(
             return None
         raise ValueError(f"Unknown preconditioner: {preconditioner}")
 
+    def _prep_x0_full(x0_val: jnp.ndarray | None, *, has_null: bool) -> jnp.ndarray | None:
+        if x0_val is None:
+            return None
+        x0_full = jnp.asarray(x0_val)
+        if has_null:
+            x0_full = x0_full - jnp.mean(x0_full)
+        return x0_full.reshape((-1,))
+
+    def _prep_x0_dirichlet(x0_val: jnp.ndarray | None) -> jnp.ndarray | None:
+        if x0_val is None:
+            return None
+        x0_full = jnp.asarray(x0_val)
+        return x0_full[1:-1, 1:-1].reshape((-1,))
+
     if bc.kind_x == 0 and bc.kind_y == 0:
         # Periodic: solve full system (nullspace fixed by zero-mean gauge).
         rhs0 = rhs - jnp.mean(rhs)
@@ -613,8 +666,12 @@ def inv_laplacian_cg(
 
         b = (-rhs0).reshape((-1,))
         M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
-        x0 = jnp.zeros_like(b) if M is None else M(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny))
@@ -631,8 +688,12 @@ def inv_laplacian_cg(
 
         b = (-rhs0).reshape((-1,))
         M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
-        x0 = jnp.zeros_like(b) if M is None else M(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny))
@@ -663,9 +724,11 @@ def inv_laplacian_cg(
             return (-Lu).reshape((-1,))
 
         M = make_M(size=b_int.size, shape=(nx - 2, ny - 2), dx_eff=dx, dy_eff=dy)
-        x0 = jnp.zeros_like(b_int) if M is None else M(b_int)
+        x0_vec = _prep_x0_dirichlet(x0)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b_int) if M is None else M(b_int)
         x, _ = jax.scipy.sparse.linalg.cg(
-            mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
+            mv, b_int, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -700,8 +763,12 @@ def inv_laplacian_cg(
 
         b = (-rhs_eff).reshape((-1,))
         M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
-        x0 = jnp.zeros_like(b) if M is None else M(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny)) + u_bc
@@ -808,6 +875,7 @@ def inv_div_n_grad_cg(
     preconditioner_shift: float = 1e-12,
     gauge_epsilon: float | None = None,
     preconditioner_fn=None,
+    x0: jnp.ndarray | None = None,
     nan_guard: bool = True,
     n_floor: float = 1e-12,
 ) -> jnp.ndarray:
@@ -884,6 +952,20 @@ def inv_div_n_grad_cg(
             return None
         raise ValueError(f"Unknown preconditioner: {preconditioner}")
 
+    def _prep_x0_full(x0_val: jnp.ndarray | None, *, has_null: bool) -> jnp.ndarray | None:
+        if x0_val is None:
+            return None
+        x0_full = jnp.asarray(x0_val)
+        if has_null:
+            x0_full = x0_full - jnp.mean(x0_full)
+        return x0_full.reshape((-1,))
+
+    def _prep_x0_dirichlet(x0_val: jnp.ndarray | None) -> jnp.ndarray | None:
+        if x0_val is None:
+            return None
+        x0_full = jnp.asarray(x0_val)
+        return x0_full[1:-1, 1:-1].reshape((-1,))
+
     if bc.kind_x == 0 and bc.kind_y == 0:
         rhs0 = rhs - jnp.mean(rhs)
 
@@ -895,8 +977,12 @@ def inv_div_n_grad_cg(
         b = rhs0.reshape((-1,))
         nbar = jnp.mean(n_eff)
         M = make_M(shape=(nx, ny), nbar=nbar)
-        x0 = jnp.zeros_like(b) if M is None else M(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny))
@@ -923,9 +1009,11 @@ def inv_div_n_grad_cg(
 
         nbar = jnp.mean(n_eff)
         M = make_M(shape=(nx - 2, ny - 2), nbar=nbar)
-        x0 = jnp.zeros_like(b_int) if M is None else M(b_int)
+        x0_vec = _prep_x0_dirichlet(x0)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b_int) if M is None else M(b_int)
         x, _ = jax.scipy.sparse.linalg.cg(
-            mv, b_int, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M
+            mv, b_int, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
         )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
@@ -955,8 +1043,12 @@ def inv_div_n_grad_cg(
         b = (-rhs0).reshape((-1,))
         nbar = jnp.mean(n_eff)
         M = make_M(shape=(nx, ny), nbar=nbar)
-        x0 = jnp.zeros_like(b) if M is None else M(b)
-        x, _ = jax.scipy.sparse.linalg.cg(mv, b, x0=x0, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, _ = jax.scipy.sparse.linalg.cg(
+            mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+        )
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny))
