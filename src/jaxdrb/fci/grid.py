@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import jax.numpy as jnp
+import numpy as np
 
 from .map import FCIBilinearMap, SlabFCIConfig, make_slab_fci_map
 
@@ -112,6 +113,114 @@ class FCISlabGrid:
             sheath_sign=sheath_sign,
             open_field_line=bool(open_field_line),
             cell_centered=bool(cell_centered),
+        )
+
+    @classmethod
+    def from_npz(
+        cls,
+        *,
+        path: str,
+        open_field_line: bool | None = None,
+        cell_centered: bool | None = None,
+        Bx: float | None = None,
+        By: float | None = None,
+        Bz: float | None = None,
+    ) -> "FCISlabGrid":
+        data = np.load(path)
+
+        def get_required(name: str):
+            if name not in data:
+                raise KeyError(f"Missing '{name}' in FCI map file.")
+            return np.asarray(data[name])
+
+        def get_optional(name: str, default=None):
+            if name in data:
+                return np.asarray(data[name])
+            return default
+
+        def to_scalar(arr, name: str) -> float:
+            arr = np.asarray(arr)
+            if arr.ndim == 0:
+                return float(arr)
+            if arr.size == 1:
+                return float(arr.ravel()[0])
+            raise ValueError(f"Expected scalar for {name}, got shape {arr.shape}.")
+
+        x0 = to_scalar(get_required("x0"), "x0")
+        y0 = to_scalar(get_required("y0"), "y0")
+        dx = to_scalar(get_required("dx"), "dx")
+        dy = to_scalar(get_required("dy"), "dy")
+        nx = int(to_scalar(get_required("nx"), "nx"))
+        ny = int(to_scalar(get_required("ny"), "ny"))
+
+        l = get_optional("l", None)
+        if l is None:
+            l = get_optional("z", None)
+        if l is None:
+            raise KeyError("Missing 'l' or 'z' coordinate in FCI map file.")
+        l = np.asarray(l)
+
+        open_field_line = bool(open_field_line) if open_field_line is not None else bool(
+            to_scalar(get_optional("open_field_line", 0.0), "open_field_line")
+        )
+        cell_centered = bool(cell_centered) if cell_centered is not None else bool(
+            to_scalar(get_optional("cell_centered", 0.0), "cell_centered")
+        )
+
+        if Bx is None:
+            Bx = float(to_scalar(get_optional("Bx", 0.0), "Bx"))
+        if By is None:
+            By = float(to_scalar(get_optional("By", 0.0), "By"))
+        if Bz is None:
+            Bz = float(to_scalar(get_optional("Bz", 1.0), "Bz"))
+
+        def map_from_prefix(prefix: str) -> FCIBilinearMap:
+            ix = get_required(f"{prefix}_ix").astype(np.int32)
+            iy = get_required(f"{prefix}_iy").astype(np.int32)
+            w = get_required(f"{prefix}_w")
+            dl = get_required(f"{prefix}_dl")
+            hit = get_optional(f"{prefix}_hit", None)
+            dl_hit = get_optional(f"{prefix}_dl_hit", None)
+            hit_R = get_optional(f"{prefix}_hit_R", None)
+            hit_Z = get_optional(f"{prefix}_hit_Z", None)
+            hit_phi = get_optional(f"{prefix}_hit_phi", None)
+            hit_target = get_optional(f"{prefix}_hit_target", None)
+            return FCIBilinearMap(
+                ix=jnp.asarray(ix),
+                iy=jnp.asarray(iy),
+                w=jnp.asarray(w),
+                dl=jnp.asarray(dl),
+                hit=None if hit is None else jnp.asarray(hit),
+                dl_hit=None if dl_hit is None else jnp.asarray(dl_hit),
+                hit_R=None if hit_R is None else jnp.asarray(hit_R),
+                hit_Z=None if hit_Z is None else jnp.asarray(hit_Z),
+                hit_phi=None if hit_phi is None else jnp.asarray(hit_phi),
+                hit_target=None if hit_target is None else jnp.asarray(hit_target),
+            )
+
+        map_fwd = map_from_prefix("map_fwd")
+        map_bwd = map_from_prefix("map_bwd")
+
+        sheath_mask = get_optional("sheath_mask", None)
+        sheath_sign = get_optional("sheath_sign", None)
+
+        return cls.from_maps(
+            x0=x0,
+            y0=y0,
+            dx=dx,
+            dy=dy,
+            nx=nx,
+            ny=ny,
+            l=jnp.asarray(l),
+            map_fwd=map_fwd,
+            map_bwd=map_bwd,
+            open_field_line=open_field_line,
+            cell_centered=cell_centered,
+            Bx=Bx,
+            By=By,
+            Bz=Bz,
+            sheath_mask=None if sheath_mask is None else jnp.asarray(sheath_mask),
+            sheath_sign=None if sheath_sign is None else jnp.asarray(sheath_sign),
         )
 
     @classmethod

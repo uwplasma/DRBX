@@ -12,10 +12,9 @@ dependencies = [
   "jax>=0.4.30",
   "equinox>=0.11.0",
   "diffrax>=0.6.0",
-  "optax>=0.2.0",
-  "jaxopt>=0.8.0",
   "numpy>=1.24",
   "matplotlib>=3.7",
+  "tomli>=2.0.1",
 ]
 
 [project.optional-dependencies]
@@ -37,9 +36,7 @@ essos = [
 ]
 
 [project.scripts]
-jaxdrb-scan = "jaxdrb.cli.main:main"
-jaxdrb-scan2d = "jaxdrb.cli.scan2d:main"
-jaxdrb-hw2d = "jaxdrb.cli.hw2d:main"
+jaxdrb = "jaxdrb.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

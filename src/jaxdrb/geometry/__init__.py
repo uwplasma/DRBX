@@ -1,5 +1,6 @@
 from .base import Geometry
 from .slab import OpenSlabGeometry, SlabGeometry
+from .plane import Grid2D
 from .tabulated import TabulatedGeometry
 from .tokamak import (
     CircularTokamakGeometry,
@@ -18,6 +19,7 @@ __all__ = [
     "Geometry",
     "SlabGeometry",
     "OpenSlabGeometry",
+    "Grid2D",
     "TabulatedGeometry",
     "CircularTokamakGeometry",
     "SAlphaGeometry",
