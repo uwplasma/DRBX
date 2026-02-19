@@ -17,6 +17,16 @@ out*/
 out_*.png
 out_*.gif
 benchmarks/alignment_outputs/
+benchmarks/full_benchmark/*.h5
+benchmarks/full_benchmark/*.nc
+benchmarks/full_benchmark/*.npz
+benchmarks/cases/hermes_salpha_*/*.nc
+benchmarks/cases/hermes_salpha_*/*.pid*
+benchmarks/cases/gbs_salpha/results_*.h5
+benchmarks/cases/gbs_salpha/restart_*.h5
+benchmarks/cases/gbs_salpha/fort.*
+benchmarks/cases/gbs_salpha/myjob
+benchmarks/cases/gbs_salpha/crash_*
 
 site/
 _out_make_*/
