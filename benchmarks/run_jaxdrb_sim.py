@@ -12,6 +12,7 @@ import numpy as np
 
 from jaxdrb.driver import build_system_from_config
 from jaxdrb.io import load_config
+from jaxdrb.integrators import build_rk4_scan
 
 
 @dataclass
@@ -35,26 +36,6 @@ def _rms(arr: jnp.ndarray) -> jnp.ndarray:
     return jnp.sqrt(jnp.mean(jnp.asarray(arr) ** 2))
 
 
-def _tree_add(y, dy, scale: float = 1.0):
-    def add(a, b):
-        if a is None or b is None:
-            return None
-        return a + scale * b
-
-    return jax.tree_util.tree_map(add, y, dy, is_leaf=lambda x: x is None)
-
-
-def _rk4_step(rhs, t, y, dt):
-    k1 = rhs(t, y)
-    k2 = rhs(t + 0.5 * dt, _tree_add(y, k1, 0.5 * dt))
-    k3 = rhs(t + 0.5 * dt, _tree_add(y, k2, 0.5 * dt))
-    k4 = rhs(t + dt, _tree_add(y, k3, dt))
-    acc = _tree_add(k1, k2, 2.0)
-    acc = _tree_add(acc, k3, 2.0)
-    acc = _tree_add(acc, k4, 1.0)
-    return _tree_add(y, acc, dt / 6.0)
-
-
 def run_sim(
     config_path: Path,
     dt: float,
@@ -67,62 +48,55 @@ def run_sim(
     system = built.system
     state = built.state
 
-    rhs = system.rhs
-
-    steps = list(range(0, nsteps + 1, save_every))
-    times = np.zeros(len(steps))
-    rms_n = np.zeros(len(steps))
-    rms_Te = np.zeros(len(steps))
-    rms_omega = np.zeros(len(steps))
-    rms_phi = np.zeros(len(steps))
-    point_n = np.zeros(len(steps))
-    point_Te = np.zeros(len(steps))
-    point_phi = np.zeros(len(steps))
-
     if point_idx is None:
         nz, nx, ny = state.n.shape
         point_idx = (nz // 2, nx // 2, ny // 2)
 
-    t = 0.0
-    idx = 0
-    for step in range(nsteps + 1):
-        if step % save_every == 0:
-            times[idx] = t
-            n_phys = system._phys_n(state.n)
-            Te_phys = system._phys_Te(state.Te)
-            phi = system._phi_from_omega(state.omega, n=n_phys)
-            rms_n[idx] = float(_rms(n_phys))
-            rms_Te[idx] = float(_rms(Te_phys))
-            rms_omega[idx] = float(_rms(state.omega))
-            rms_phi[idx] = float(_rms(phi))
-            z0, x0, y0 = point_idx
-            point_n[idx] = float(n_phys[z0, x0, y0])
-            point_Te[idx] = float(Te_phys[z0, x0, y0])
-            point_phi[idx] = float(phi[z0, x0, y0])
-            idx += 1
-        if step == nsteps:
-            break
-        state = _rk4_step(rhs, t, state, dt)
-        t += dt
+    def diag_fn(t, y):
+        n_phys = system._phys_n(y.n)
+        Te_phys = system._phys_Te(y.Te)
+        phi = system._phi_from_omega(y.omega, n=n_phys)
+        z0, x0, y0 = point_idx
+        return (
+            _rms(n_phys),
+            _rms(Te_phys),
+            _rms(y.omega),
+            _rms(phi),
+            n_phys[z0, x0, y0],
+            Te_phys[z0, x0, y0],
+            phi[z0, x0, y0],
+        )
 
-    snapshot_n = np.asarray(system._phys_n(state.n))
-    snapshot_Te = np.asarray(system._phys_Te(state.Te))
-    snapshot_omega = np.asarray(state.omega)
-    snapshot_phi = np.asarray(system._phi_from_omega(state.omega, n=system._phys_n(state.n)))
+    runner, nsave, rem = build_rk4_scan(system.rhs, dt, nsteps, save_every, diag_fn)
+    final_state, diag_series = runner(state)
+    rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+
+    base_times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
+    if rem > 0:
+        base_times[-1] = nsteps * dt
+    times = base_times
+
+    n_phys = system._phys_n(final_state.n)
+    Te_phys = system._phys_Te(final_state.Te)
+    phi = system._phi_from_omega(final_state.omega, n=n_phys)
+    snapshot_n = np.asarray(jax.device_get(n_phys))
+    snapshot_Te = np.asarray(jax.device_get(Te_phys))
+    snapshot_omega = np.asarray(jax.device_get(final_state.omega))
+    snapshot_phi = np.asarray(jax.device_get(phi))
 
     return SimOutput(
-        times=times,
-        rms_n=rms_n,
-        rms_Te=rms_Te,
-        rms_omega=rms_omega,
-        rms_phi=rms_phi,
+        times=np.asarray(times),
+        rms_n=np.asarray(jax.device_get(rms_n)),
+        rms_Te=np.asarray(jax.device_get(rms_Te)),
+        rms_omega=np.asarray(jax.device_get(rms_omega)),
+        rms_phi=np.asarray(jax.device_get(rms_phi)),
         snapshot_n=snapshot_n,
         snapshot_Te=snapshot_Te,
         snapshot_omega=snapshot_omega,
         snapshot_phi=snapshot_phi,
-        point_n=point_n,
-        point_Te=point_Te,
-        point_phi=point_phi,
+        point_n=np.asarray(jax.device_get(point_n)),
+        point_Te=np.asarray(jax.device_get(point_Te)),
+        point_phi=np.asarray(jax.device_get(point_phi)),
         point_idx=point_idx,
     )
 
