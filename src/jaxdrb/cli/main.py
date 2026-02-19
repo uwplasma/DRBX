@@ -24,6 +24,12 @@ def main() -> None:
         help="List available geometry kinds and exit.",
     )
     parser.add_argument(
+        "--compile-cache",
+        type=str,
+        default="~/.cache/jaxdrb/compilation",
+        help="Directory for JAX persistent compilation cache (use 'off' to disable).",
+    )
+    parser.add_argument(
         "--run",
         action="store_true",
         help="Run a time integration defined by the config (JIT/diffrax).",
@@ -50,6 +56,16 @@ def main() -> None:
             aliases = ", ".join(spec.aliases) if spec.aliases else "-"
             print(f"{spec.kind}: required=[{req}] optional=[{opt}] aliases=[{aliases}]")
         return
+
+    cache_opt = str(args.compile_cache).strip()
+    if cache_opt and cache_opt.lower() not in ("off", "false", "0", "none"):
+        import os
+        from jax.experimental import compilation_cache
+
+        cache_dir = os.path.expanduser(cache_opt)
+        os.makedirs(cache_dir, exist_ok=True)
+        compilation_cache.compilation_cache.set_cache_dir(cache_dir)
+        compilation_cache.compilation_cache.initialize_cache(cache_dir)
 
     if args.config is None:
         parser.error("config is required unless --list-terms is used")

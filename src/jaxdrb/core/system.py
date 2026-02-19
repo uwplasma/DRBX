@@ -361,6 +361,12 @@ class DRBSystem(eqx.Module):
             poisson = self.params.poisson
             if self.params.poisson_force_spectral_when_periodic and self._is_periodic_bc(bc_phi):
                 poisson = "spectral"
+            if (
+                self.params.poisson_force_fd_fft_when_nonperiodic
+                and not self._is_periodic_bc(bc_phi)
+                and poisson == "spectral"
+            ):
+                poisson = "cg_fd"
             if poisson == "spectral":
                 if not self._is_periodic_bc(bc_phi):
                     raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
@@ -389,6 +395,7 @@ class DRBSystem(eqx.Module):
                     )
                 except ValueError:
                     pass
+            precond_fn = getattr(self.geom, "poisson_preconditioner_fn", None)
             return inv_laplacian_cg(
                 omega,
                 dx=grid.dx,
@@ -400,6 +407,7 @@ class DRBSystem(eqx.Module):
                 preconditioner=str(precond),
                 k2_precond=grid.k2 if str(precond) == "spectral" else None,
                 gauge_epsilon=self.params.poisson_gauge_epsilon,
+                preconditioner_fn=precond_fn,
             )
 
         n_eff = float(self.params.n0)
@@ -423,4 +431,5 @@ class DRBSystem(eqx.Module):
             atol=float(self.params.polarization_cg_atol),
             preconditioner=precond,
             preconditioner_shift=float(self.params.polarization_precond_shift),
+            preconditioner_fn=getattr(self.geom, "polarization_preconditioner_fn", None),
         )

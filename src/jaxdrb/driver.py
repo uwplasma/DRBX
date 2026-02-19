@@ -89,13 +89,30 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     return BuiltSystem(system=system, state=state, normalization=norm_info)
 
 
-def _diagnostic_fn(system: DRBSystem, point_idx: tuple[int, int, int]) -> Callable[[float, DRBSystemState], tuple]:
+def _diagnostic_fn(
+    system: DRBSystem,
+    point_idx: tuple[int, int, int],
+    *,
+    mode: str = "full",
+) -> Callable[[float, DRBSystemState], tuple]:
     def diag(t, y, args=None):
         _ = args
         n_phys = system._phys_n(y.n)
         Te_phys = system._phys_Te(y.Te)
-        phi = system._phi_from_omega(y.omega, n=n_phys)
         z0, x0, y0 = point_idx
+        if mode == "basic":
+            zero = jnp.asarray(0.0)
+            return (
+                jnp.asarray(t),
+                jnp.sqrt(jnp.mean(n_phys ** 2)),
+                jnp.sqrt(jnp.mean(Te_phys ** 2)),
+                jnp.sqrt(jnp.mean(y.omega ** 2)),
+                zero,
+                n_phys[z0, x0, y0],
+                Te_phys[z0, x0, y0],
+                zero,
+            )
+        phi = system._phi_from_omega(y.omega, n=n_phys)
         return (
             jnp.asarray(t),
             jnp.sqrt(jnp.mean(n_phys ** 2)),
@@ -138,12 +155,13 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     solver_name = str(time_cfg.get("solver", "dopri8")).lower()
     progress = bool(time_cfg.get("progress", True))
     remat = bool(time_cfg.get("remat", False))
+    diag_mode = str(time_cfg.get("diag_mode", "full")).lower()
     return_numpy = bool(time_cfg.get("return_numpy", False))
 
     nz, nx, ny = state.n.shape
     point_idx = tuple(time_cfg.get("point_idx", (nz // 2, nx // 2, ny // 2)))
 
-    diag_fn = _diagnostic_fn(system, point_idx)
+    diag_fn = _diagnostic_fn(system, point_idx, mode=diag_mode)
     if remat:
         diag_fn = jax.checkpoint(diag_fn)
 
