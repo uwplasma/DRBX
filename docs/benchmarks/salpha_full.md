@@ -161,6 +161,14 @@ python /Users/rogerio/local/jax_drb/benchmarks/run_full_benchmark.py \
   --mpi --mpi-n 1
 ```
 
+SOL benchmark runner (open-field-line + Gaussian source):
+
+```
+python /Users/rogerio/local/jax_drb/benchmarks/run_sol_benchmark.py \
+  --output-dir benchmarks/sol_benchmark \
+  --mpi --mpi-n 1
+```
+
 Key input files:
 - Hermes linear: `/Users/rogerio/local/jax_drb/benchmarks/cases/hermes_salpha_linear/BOUT.inp`
 - Hermes nonlinear: `/Users/rogerio/local/jax_drb/benchmarks/cases/hermes_salpha_nonlinear/BOUT.inp`
