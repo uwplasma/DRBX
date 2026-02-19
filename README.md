@@ -5,10 +5,17 @@ All physics variants (ES/EM, hot/cold ions, sheath/no-sheath, Boussinesq/non-Bou
 are controlled **only by toggles and geometry adapters**. There are no separate model branches.
 
 ## Quick Start
+Run details (JIT vs Diffrax, options, save behavior):
+`/Users/rogerio/local/jax_drb/docs/run.md`.
 
 ### Run via TOML
 ```bash
 jaxdrb path/to/input.toml
+```
+
+### Run + Save Outputs
+```bash
+jaxdrb path/to/input.toml --run --output /tmp/jaxdrb_out.npz
 ```
 
 ### Example TOML
@@ -32,6 +39,12 @@ poisson = "spectral"
 
 [closures]
 sheath_on = false
+
+[time]
+method = "rk4_scan" # rk4_scan | diffrax
+dt = 1e-3
+nsteps = 1000
+save_every = 10
 ```
 
 ## Normalization (Physical Inputs)
@@ -64,7 +77,7 @@ omega_n = 20.0
 
 ### CLI Example (Normalization Enabled)
 ```bash
-jaxdrb /path/to/salpha_physical.toml
+jaxdrb /path/to/salpha_physical.toml --run --output /tmp/salpha_physical_out.npz
 ```
 
 ```toml
@@ -99,6 +112,16 @@ omega_n = 15.0
 
 [transport_physical]
 Dn = 0.3
+
+[time]
+method = "diffrax"
+solver = "dopri8"
+adaptive = true
+rtol = 1e-5
+atol = 1e-7
+progress = true
+jit = false         # enable JIT for diffrax; disables progress meter
+return_numpy = true # only needed when saving
 ```
 
 ## Status
@@ -124,6 +147,5 @@ Kernel + XLA + memory profiling:
 
 ## Next Steps
 - Full config schema & validation
-- Diffrax integration driver
 - Unified diagnostics + plotting helpers
 - New tests and benchmarks from scratch
