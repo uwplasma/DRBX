@@ -453,6 +453,25 @@ def main() -> None:
         profile_n = snap_n.mean(axis=(0, 2))
         lp_n = _fit_lp(ds.x, profile_n)
         metrics[f"{ds.name}_Lp_n"] = lp_n
+        ky_n, spec_n = _spectrum_ky(snap_n, ds.Ly)
+        if ky_n.size > 1:
+            idx_n = int(np.argmax(spec_n[1:])) + 1
+            metrics[f"{ds.name}_ky_peak_n"] = float(ky_n[idx_n])
+            metrics[f"{ds.name}_spec_peak_n"] = float(spec_n[idx_n])
+        if ds.phi is not None:
+            ky_p, spec_p = _spectrum_ky(ds.phi[-1], ds.Ly)
+            if ky_p.size > 1:
+                idx_p = int(np.argmax(spec_p[1:])) + 1
+                metrics[f"{ds.name}_ky_peak_phi"] = float(ky_p[idx_p])
+                metrics[f"{ds.name}_spec_peak_phi"] = float(spec_p[idx_p])
+            ky_cp, phase_cp, coh_cp = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly)
+            if ky_cp.size > 1:
+                idx_cp = int(np.argmax(spec_n[1:])) + 1 if spec_n.size == ky_cp.size else int(np.argmax(coh_cp[1:])) + 1
+                metrics[f"{ds.name}_phase_ky_peak"] = float(phase_cp[idx_cp])
+                metrics[f"{ds.name}_coh_ky_peak"] = float(coh_cp[idx_cp])
+            flux = _particle_flux(ds.n[-1], ds.phi[-1], ds.Ly)
+            metrics[f"{ds.name}_flux_mean"] = float(np.mean(flux))
+            metrics[f"{ds.name}_flux_peak_abs"] = float(np.max(np.abs(flux)))
 
     (outdir / "metrics.json").write_text(json.dumps(metrics, indent=2, sort_keys=True))
 
