@@ -27,6 +27,8 @@ benchmarks/cases/gbs_salpha/restart_*.h5
 benchmarks/cases/gbs_salpha/fort.*
 benchmarks/cases/gbs_salpha/myjob
 benchmarks/cases/gbs_salpha/crash_*
+benchmarks/profiles/
+profiles/
 
 site/
 _out_make_*/

@@ -114,6 +114,14 @@ Use the helper scripts in `tools/` to compare analytic geometry against external
 Analytic geometry models (s-alpha, Miller, X-point) and curvature definitions are documented here:
 `/Users/rogerio/local/jax_drb/docs/geometry_models.md`.
 
+## Benchmarks
+Full s-alpha benchmark (Hermes-3 vs GBS vs jax_drb):
+`/Users/rogerio/local/jax_drb/docs/benchmarks/salpha_full.md`.
+
+## Profiling
+Kernel + XLA + memory profiling:
+`/Users/rogerio/local/jax_drb/docs/profiling.md`.
+
 ## Next Steps
 - Full config schema & validation
 - Diffrax integration driver
