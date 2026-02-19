@@ -295,7 +295,7 @@ def _default_index(size: int) -> int:
 def slice_2d(data_zxy: np.ndarray, cut: Literal["pol", "tor", "rad"], index: int | None = None) -> np.ndarray:
     nz, nx, ny = data_zxy.shape
     if cut == "pol":
-        iz = _default_index(nz) if index is None else int(index)
+        iz = 0 if index is None else int(index)
         return data_zxy[iz, :, :].T
     if cut == "tor":
         ix = _default_index(nx) if index is None else int(index)
@@ -324,10 +324,9 @@ def plot_snapshot(
     data2d = slice_2d(data[0], cut=cut, index=index)
 
     fig, ax = plt.subplots(figsize=(6, 4), dpi=150)
-    im = ax.imshow(
+    im = ax.pcolormesh(
         data2d,
-        origin="lower",
-        aspect="auto",
+        shading="auto",
         cmap=cmap,
         vmin=vmin,
         vmax=vmax,
@@ -368,7 +367,9 @@ def plot_poloidal(
     theta_window: float = 0.0,
 ):
     data = load_gbs_field(h5_path, field, step=step, axes=axes)
-    data2d = slice_2d(data[0], cut="pol", index=None)
+    nz = int(data.shape[1]) if data.shape[1] > 0 else 1
+    iz_mid = max(nz // 2 - 1, 0)
+    data2d = slice_2d(data[0], cut="pol", index=iz_mid)
 
     text = read_gbs_stdin_text(h5_path) or ""
     params = parse_gbs_input_text(text)
@@ -376,6 +377,11 @@ def plot_poloidal(
     Lx = grid.Lx if grid is not None else 1.0
     Ly = grid.Ly if grid is not None else 1.0
 
+    width = width_factor * Lx
+    ixs = int(np.floor(data2d.shape[1] * (Lx - width) / Lx))
+    if ixs < 0:
+        ixs = 0
+    data2d = data2d[:, ixs:]
     xp, yp = _poloidal_coords(data2d.shape[0], data2d.shape[1], Lx=Lx, Ly=Ly, width_factor=width_factor, theta_window=theta_window)
 
     fig, ax = plt.subplots(figsize=(6, 6), dpi=150)
@@ -405,16 +411,24 @@ def power_spectrum_1d(
     axis: int,
     length: float,
     backend: Literal["numpy", "jax"] = "numpy",
+    double_sided: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     xp = _fft_backend(backend)
     arr = xp.asarray(data)
-    spec = xp.abs(xp.fft.rfft(arr, axis=axis)) ** 2
+    n = arr.shape[axis]
+    nuq = int(np.ceil((n + 1) / 2))
+    fftd = xp.fft.fft(arr, axis=axis)
+    slc = [slice(None)] * fftd.ndim
+    slc[axis] = slice(0, nuq)
+    fftc = fftd[tuple(slc)]
+    spec = xp.abs(fftc) / length
+    spec = spec**2
+    if double_sided:
+        spec = 2.0 * spec
     axes = tuple(i for i in range(spec.ndim) if i != axis)
     spec = spec.mean(axis=axes)
-    n = arr.shape[axis]
-    k = 2.0 * np.pi * np.fft.rfftfreq(n, d=length / n)
-    spec = np.asarray(spec)
-    return k, spec
+    k = 2.0 * np.pi * np.arange(nuq) / length
+    return np.asarray(k), np.asarray(spec)
 
 
 def plot_power_spectrum(
@@ -444,7 +458,8 @@ def plot_power_spectrum(
     ax = axis_map[axis]
     length = {"x": Lx, "y": Ly, "z": Lz}[axis]
 
-    k, spec = power_spectrum_1d(snapshot, axis=ax, length=length, backend=backend)
+    double_sided = axis in ("x", "y")
+    k, spec = power_spectrum_1d(snapshot, axis=ax, length=length, backend=backend, double_sided=double_sided)
 
     fig, axp = plt.subplots(figsize=(5, 4), dpi=150)
     axp.loglog(k[1:], spec[1:] + 1e-30)
@@ -491,12 +506,22 @@ def make_movie_rect(
     fig, ax = plt.subplots(figsize=(6, 4), dpi=150)
     writer = _get_writer(output, fps=fps)
 
+    if vmin is None or vmax is None:
+        first = load_gbs_field(h5_path, field, step=steps[0], axes=axes)
+        frame0 = slice_2d(first[0], cut=cut, index=index)
+        ll = np.max(np.abs(frame0))
+        mm = np.min(np.abs(frame0))
+        if vmin is None:
+            vmin = mm
+        if vmax is None:
+            vmax = ll
+
     with writer.saving(fig, str(output), dpi=150):
         for step in steps:
             data = load_gbs_field(h5_path, field, step=step, axes=axes)
             frame = slice_2d(data[0], cut=cut, index=index)
             ax.clear()
-            im = ax.imshow(frame, origin="lower", aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+            im = ax.pcolormesh(frame, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
             ax.set_title(f"{field} {cut} step {step}")
             fig.colorbar(im, ax=ax, shrink=0.8)
             writer.grab_frame()
@@ -536,7 +561,14 @@ def make_movie_poloidal(
     with writer.saving(fig, str(output), dpi=150):
         for step in steps:
             data = load_gbs_field(h5_path, field, step=step, axes=axes)
-            frame = slice_2d(data[0], cut="pol", index=None)
+            nz = int(data.shape[1]) if data.shape[1] > 0 else 1
+            iz_mid = max(nz // 2 - 1, 0)
+            frame = slice_2d(data[0], cut="pol", index=iz_mid)
+            width = width_factor * Lx
+            ixs = int(np.floor(frame.shape[1] * (Lx - width) / Lx))
+            if ixs < 0:
+                ixs = 0
+            frame = frame[:, ixs:]
             xp, yp = _poloidal_coords(frame.shape[0], frame.shape[1], Lx=Lx, Ly=Ly, width_factor=width_factor, theta_window=theta_window)
             ax.clear()
             surf = ax.pcolormesh(xp, yp, frame, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
