@@ -1,0 +1,24 @@
+[geometry]
+kind = "fci_xpoint_analytic"
+
+nx = 32
+ny = 32
+nz = 8
+R_min = 80.0
+R_max = 120.0
+Z_min = -60.0
+Z_max = 20.0
+Lz = 6.283185307179586
+
+I0 = 40.0
+sigma0 = 6.25
+R0 = 100.0
+R1 = 100.0
+Z1 = 0.0
+Z2 = -40.0
+rho_s0 = 1.0
+B0 = 1.0
+
+open_field_line = true
+
+[physics]

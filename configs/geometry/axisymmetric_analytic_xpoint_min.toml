@@ -1,0 +1,25 @@
+[geometry]
+kind = "axisymmetric_analytic"
+model = "xpoint_psi76"
+
+nx = 16
+ny = 16
+nz = 33
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+Lz = 6.283185307179586
+open_field_line = false
+
+R0 = 100.0
+r_minor = 1.0
+q = 1.4
+
+I0 = 40.0
+sigma0 = 6.25
+R1 = 100.0
+Z1 = 0.0
+Z2 = -40.0
+rho_s0 = 1.0
+B0 = 1.0
+
+[physics]

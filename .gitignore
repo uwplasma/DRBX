@@ -12,6 +12,10 @@ Thumbs.db
 .venv_sys/
 _install/
 
+# Local copies of external codes (kept out of git due to size/licensing).
+external/**
+!external/README.md
+
 out_*/
 out*/
 out_*.png

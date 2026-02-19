@@ -1,0 +1,20 @@
+[geometry]
+kind = "axisymmetric_analytic"
+model = "miller"
+
+nx = 16
+ny = 16
+nz = 16
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+Lz = 6.283185307179586
+open_field_line = false
+
+R0 = 1.0
+r_minor = 0.2
+q = 1.4
+kappa = 1.2
+delta = 0.2
+
+[physics]
+# keep defaults; override in experiment configs
