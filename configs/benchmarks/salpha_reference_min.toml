@@ -1,0 +1,41 @@
+# s-alpha benchmark aligned with a minimal reference run (short, low-res)
+
+[geometry]
+kind = "salpha"
+# Match reference sizes (NX=16, NY=8, NZ=4) and domain lengths (0..1)
+nx = 16
+ny = 8
+nz = 4
+Lx = 1.0
+Ly = 1.0
+Lz = 1.0
+bc_x = "periodic"
+bc_y = "periodic"
+open_field_line = false
+
+# Reference shaping parameters
+shat = 1.0
+q = 2.0
+epsilon = 0.3
+R0 = 1.0
+alpha = 0.0
+curvature0 = 0.3
+curvature_model = "vector_xy"
+
+[physics]
+nonlinear_on = true
+hot_ion_on = false
+em_on = false
+neutrals_on = false
+boussinesq = true
+curvature_on = true
+curvature_coeff = 1.0
+
+[numerics]
+perp_operator = "spectral"
+bracket = "arakawa"
+poisson = "spectral"
+
+[initial]
+amplitude = 1e-6
+seed = 133

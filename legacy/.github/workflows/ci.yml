@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (py${{ matrix.python-version }} • ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[dev]"
+          git clone --depth 1 https://github.com/uwplasma/essos.git
+          python -m pip install -e essos
+
+      - name: Lint
+        run: |
+          ruff check src tests examples
+          black --check src tests examples
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Performance gate (core kernels)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_core_kernels.py \
+            --min-hw2d-steps-s 8 \
+            --min-matvec-s 120 \
+            --json-out out/ci/perf_metrics.json
+
+      - name: Physics gate (cold-ion DRB conservative operator)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb_conservative_gate.py \
+            --max-abs-denergy-dt 5e-8 \
+            --max-abs-dmean-dt 1e-11 \
+            --max-rel-energy-span 3e-4 \
+            --max-rel-energy-end 3e-4 \
+            --max-abs-mean-drift 5e-10 \
+            --json-out out/ci/drb_conservative_metrics.json
+
+      - name: Physics gate (hot-ion/EM DRB mean invariants)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb_hot_em_split_gate.py \
+            --max-abs-mean-dt 1e-11 \
+            --json-out out/ci/drb_hot_em_gate.json
+
+      - name: Physics gate (DRB2D conservative energy)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_conservative_gate.py \
+            --max-rel-span 5e-4 \
+            --max-rel-end 5e-4 \
+            --json-out out/ci/drb2d_gate.json
+      
+      - name: Physics gate (DRB2D turbulence statistics)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_turbulence_stats_gate.py \
+            --save-every 1.0 \
+            --max-abs-tail-dlogE-dt 0.2 \
+            --max-rel-energy-rate-mismatch 0.5 \
+            --min-zonal-frac 0.02 \
+            --max-zonal-frac 0.8 \
+            --min-slope -10.0 \
+            --max-slope -3.0 \
+            --slope-kmin 4.0 \
+            --slope-kmax 14.0 \
+            --json-out out/ci/drb2d_turbulence_gate.json
+
+      - name: Physics gate (DRB2D Kelvin-Helmholtz)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_kh_gate.py \
+            --max-energy-ratio 0.99 \
+            --max-enstrophy-ratio 0.97 \
+            --json-out out/ci/drb2d_kh_gate.json
+
+      - name: Physics gate (DRB2D Hermes-2 blob2d)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_hermes2_blob_gate.py \
+            --min-dx-cm 5e-3 \
+            --min-mean-flux 1.0e-10 \
+            --json-out out/ci/drb2d_hermes2_blob_gate.json
+
+      - name: Physics gate (DRB2D SOL blob transport)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_sol_blob_gate.py \
+            --min-blob-velocity 1.0e-7 \
+            --min-mean-flux 1.0e-14 \
+            --json-out out/ci/drb2d_sol_gate.json
+
+      - name: Physics gate (DRB2D non-Boussinesq turbulence)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_drb2d_nonbouss_turbulence_gate.py \
+            --max-abs-tail-dlogE-dt 0.25 \
+            --min-zonal-frac 0.0 \
+            --max-zonal-frac 0.9 \
+            --min-rms 5.0e-7 \
+            --json-out out/ci/drb2d_nonbouss_gate.json
+
+      - name: Physics gate (Poisson preconditioner)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_poisson_preconditioner_gate.py \
+            --max-time-jacobi 0.2 \
+            --max-time-spectral 0.5 \
+            --max-res-jacobi 0.5 \
+            --max-res-spectral 0.2 \
+            --json-out out/ci/poisson_precond_gate.json
+
+      - name: Physics gate (FCI DRB3D full multiphysics target/sheath)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_fci_drb3d_full_multiphysics_gate.py \
+            --max-rel-energy-rate-mismatch 5.0e-2 \
+            --max-rel-particle-rate-mismatch 2.5e-2 \
+            --max-abs-advective-mean-rate 1e-12 \
+            --min-abs-parallel-particle-rate 1e-5 \
+            --max-abs-other-particle-rate 1e-9 \
+            --max-abs-split-energy-residual 5e-12 \
+            --json-out out/ci/fci_drb3d_full_multiphysics_gate.json
+
+      - name: Physics gate (FCI DRB3D ESSOS Biot-Savart)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python benchmarks/check_fci_drb3d_essos_biotsavart_gate.py \
+            --max-rel-energy-drift 1.0 \
+            --max-rel-particle-drift 1.0 \
+            --json-out out/ci/fci_drb3d_essos_gate.json
+
+
+  build:
+    name: Build (sdist/wheel)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build
+        run: |
+          python -m pip install -U pip build
+          python -m build
+
+  docs:
+    name: Docs (mkdocs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build docs
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[docs]"
+          mkdocs build --strict
