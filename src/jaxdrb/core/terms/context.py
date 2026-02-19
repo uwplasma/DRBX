@@ -33,6 +33,7 @@ class TermContext(eqx.Module):
     mask_closed: jnp.ndarray | None = None
     mask_open: jnp.ndarray | None = None
     nonlinear_scale: jnp.ndarray | float = 1.0
+    phi_iters: jnp.ndarray | None = None
 
 
 def build_context(
@@ -41,6 +42,7 @@ def build_context(
     y: DRBSystemState,
     *,
     phi_guess: jnp.ndarray | None = None,
+    return_phi_iters: bool = False,
 ) -> TermContext:
     hot_on = bool(params.hot_ion_on) and (y.Ti is not None)
     em_on = bool(params.em_on) and (y.psi is not None)
@@ -56,7 +58,21 @@ def build_context(
     n_floor = float(params.sol_n_floor)
     Te_floor = float(params.sol_Te_floor)
 
-    phi = phi_from_omega(params, geom, y.omega, n_phys, bcs.phi, phi_guess=phi_guess)
+    if return_phi_iters:
+        phi, phi_iters = phi_from_omega(
+            params,
+            geom,
+            y.omega,
+            n_phys,
+            bcs.phi,
+            phi_guess=phi_guess,
+            return_iters=True,
+        )
+    else:
+        phi = phi_from_omega(
+            params, geom, y.omega, n_phys, bcs.phi, phi_guess=phi_guess
+        )
+        phi_iters = None
     if params.sol_on and params.sol_phi_bc_on:
         phi = apply_sol_phi_bc(params, geom, phi, Te_phys, bcs.phi)
 
@@ -75,6 +91,7 @@ def build_context(
         Ti=Ti,
         psi=psi,
         phi=phi,
+        phi_iters=phi_iters,
         n_floor=n_floor,
         Te_floor=Te_floor,
         hot_on=hot_on,

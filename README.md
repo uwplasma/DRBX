@@ -42,13 +42,17 @@ poisson = "spectral"
 sheath_on = false
 
 [time]
-method = "rk4_scan" # rk4_scan | diffrax
+method = "diffrax"  # rk4_scan | diffrax
 dt = 1e-3
 nsteps = 1000
 save_every = 10
 diag_mode = "full" # full | basic (basic skips Poisson in diagnostics)
 diag_phi_every = 1
 poisson_warm_start = true
+poisson_track_iters = false # adds mean/max CG iteration stats per saved frame (RK4 scan only)
+adaptive = true
+solver = "dopri8"
+progress = true
 ```
 
 ## Normalization (Physical Inputs)
