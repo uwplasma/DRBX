@@ -123,8 +123,17 @@ def main() -> None:
     parser.add_argument("--run-jaxdrb", action="store_true", help="Run jax_drb CLI before comparing")
     parser.add_argument("--hermes-exe", default="external/hermes-3/build/hermes-3")
     parser.add_argument("--hermes-case", default="external/hermes-3/examples_min/salpha_grid")
-    parser.add_argument("--gbs-exe", default="", help="Path to GBS executable (optional)")
+    parser.add_argument(
+        "--gbs-exe",
+        default="external/gbs/bin/skel",
+        help="Path to GBS executable (defaults to external/gbs/bin/skel)",
+    )
     parser.add_argument("--gbs-case", default="external/gbs/bin")
+    parser.add_argument(
+        "--gbs-dims",
+        default="1,1",
+        help="MPI topology dims for GBS (ncz,ncx) when using mpirun",
+    )
     parser.add_argument(
         "--jax-config",
         default="configs/benchmarks/salpha_hermes_min_run.toml",
@@ -147,25 +156,30 @@ def main() -> None:
             if not hermes_exe.is_absolute():
                 hermes_exe = root / hermes_exe
             if hermes_exe.exists():
-                cmd = [str(hermes_exe), "-d", str(hermes_case)]
+                cmd = [str(hermes_exe), "-d", "."]
                 if args.mpi and shutil.which("mpirun"):
                     cmd = ["mpirun", "-np", str(max(args.mpi_n, 1))] + cmd
-                _run(cmd, cwd=root)
+                _run(cmd, cwd=hermes_case)
             else:
                 print("Hermes-3 executable not found, skipping run.")
 
         if args.run_gbs:
-            if args.gbs_exe:
-                gbs_exe = Path(args.gbs_exe)
-                if not gbs_exe.is_absolute():
-                    gbs_exe = root / gbs_exe
-                if gbs_exe.exists():
-                    cmd = [str(gbs_exe), str(gbs_case / "in_min")]
-                    _run(cmd, cwd=gbs_case)
-                else:
-                    print("GBS executable not found, skipping run.")
+            gbs_exe = Path(args.gbs_exe)
+            if not gbs_exe.is_absolute():
+                gbs_exe = root / gbs_exe
+            if gbs_exe.exists():
+                dims = [d.strip() for d in str(args.gbs_dims).split(",") if d.strip()]
+                if len(dims) != 2:
+                    dims = ["1", "1"]
+                cmd = [str(gbs_exe)] + dims
+                if args.mpi and shutil.which("mpirun"):
+                    cmd = ["mpirun", "-np", str(max(args.mpi_n, 1))] + cmd
+                with open(gbs_case / "in_min", "rb") as f:
+                    proc = subprocess.run(cmd, cwd=str(gbs_case), stdin=f, capture_output=True, text=True)
+                if proc.returncode != 0:
+                    raise RuntimeError(f"GBS run failed: {proc.stderr}")
             else:
-                print("No GBS executable provided, skipping run.")
+                print("GBS executable not found, skipping run.")
 
         if args.run_jaxdrb:
             jax_cfg = Path(args.jax_config)
