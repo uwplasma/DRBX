@@ -161,6 +161,17 @@ python /Users/rogerio/local/jax_drb/tools/profile_jaxdrb.py \
   --outdir /Users/rogerio/local/jax_drb/benchmarks/profiles/salpha_linear
 ```
 
+## Validation Tests
+- Analytic proxies: Mosetto regime map + Halpern ideal ballooning
+  (`/Users/rogerio/local/jax_drb/tests/test_mosetto_regime.py`,
+  `/Users/rogerio/local/jax_drb/tests/test_ideal_ballooning.py`).
+- Curvature energy budget closure (`/Users/rogerio/local/jax_drb/tests/test_curvature_energy_budget.py`).
+- Poisson warm‑start iteration regression
+  (`/Users/rogerio/local/jax_drb/tests/test_poisson_iter_stats_regression.py`).
+- Region + field BC enforcement
+  (`/Users/rogerio/local/jax_drb/tests/test_region_bc.py`,
+  `/Users/rogerio/local/jax_drb/tests/test_bc_relaxation.py`).
+
 ## Next Steps
 - Full config schema & validation
 - Unified diagnostics + plotting helpers
