@@ -14,7 +14,32 @@ from .ops import is_2d, grid_of
 def field_bc_relaxation(
     params: DRBSystemParams, geom: GeometryAdapter, y: DRBSystemState, bcs: FieldBCs
 ) -> DRBSystemState:
-    if params.bc_enforce_nu == 0.0 or not is_2d(geom):
+    def _nu(val: float | None) -> float:
+        base = float(params.bc_enforce_nu)
+        if val is None:
+            return base
+        return float(val)
+
+    nu_n = _nu(params.bc_enforce_nu_n)
+    nu_omega = _nu(params.bc_enforce_nu_omega)
+    if (params.bc_enforce_nu_omega is None) and (params.bc_enforce_nu_phi is not None):
+        nu_omega = float(params.bc_enforce_nu_phi)
+    nu_vpar_e = _nu(params.bc_enforce_nu_vpar_e)
+    nu_vpar_i = _nu(params.bc_enforce_nu_vpar_i)
+    nu_Te = _nu(params.bc_enforce_nu_Te)
+    nu_Ti = _nu(params.bc_enforce_nu_Ti)
+    nu_psi = _nu(params.bc_enforce_nu_psi)
+
+    if (
+        (nu_n == 0.0)
+        and (nu_omega == 0.0)
+        and (nu_vpar_e == 0.0)
+        and (nu_vpar_i == 0.0)
+        and (nu_Te == 0.0)
+        and (nu_Ti == 0.0)
+        and (nu_psi == 0.0)
+        and (params.bc_enforce_nu_phi is None or float(params.bc_enforce_nu_phi) == 0.0)
+    ) or not is_2d(geom):
         z = jnp.zeros_like(y.n)
         return DRBSystemState(
             n=z,
@@ -41,14 +66,14 @@ def field_bc_relaxation(
             N=None if y.N is None else jnp.zeros_like(y.N),
         )
 
-    nu = float(params.bc_enforce_nu)
+    nu_phi = _nu(params.bc_enforce_nu_phi)
     return DRBSystemState(
-        n=enforce_bc_relaxation(y.n, dx=grid.dx, dy=grid.dy, bc=bcs.n, nu=nu),
-        omega=enforce_bc_relaxation(y.omega, dx=grid.dx, dy=grid.dy, bc=bcs.omega, nu=nu),
-        vpar_e=enforce_bc_relaxation(y.vpar_e, dx=grid.dx, dy=grid.dy, bc=bcs.vpar_e, nu=nu),
-        vpar_i=enforce_bc_relaxation(y.vpar_i, dx=grid.dx, dy=grid.dy, bc=bcs.vpar_i, nu=nu),
-        Te=enforce_bc_relaxation(y.Te, dx=grid.dx, dy=grid.dy, bc=bcs.Te, nu=nu),
-        Ti=None if y.Ti is None else enforce_bc_relaxation(y.Ti, dx=grid.dx, dy=grid.dy, bc=bcs.Ti, nu=nu),
-        psi=None if y.psi is None else enforce_bc_relaxation(y.psi, dx=grid.dx, dy=grid.dy, bc=bcs.psi, nu=nu),
+        n=enforce_bc_relaxation(y.n, dx=grid.dx, dy=grid.dy, bc=bcs.n, nu=nu_n),
+        omega=enforce_bc_relaxation(y.omega, dx=grid.dx, dy=grid.dy, bc=bcs.omega, nu=nu_omega),
+        vpar_e=enforce_bc_relaxation(y.vpar_e, dx=grid.dx, dy=grid.dy, bc=bcs.vpar_e, nu=nu_vpar_e),
+        vpar_i=enforce_bc_relaxation(y.vpar_i, dx=grid.dx, dy=grid.dy, bc=bcs.vpar_i, nu=nu_vpar_i),
+        Te=enforce_bc_relaxation(y.Te, dx=grid.dx, dy=grid.dy, bc=bcs.Te, nu=nu_Te),
+        Ti=None if y.Ti is None else enforce_bc_relaxation(y.Ti, dx=grid.dx, dy=grid.dy, bc=bcs.Ti, nu=nu_Ti),
+        psi=None if y.psi is None else enforce_bc_relaxation(y.psi, dx=grid.dx, dy=grid.dy, bc=bcs.psi, nu=nu_psi),
         N=None if y.N is None else jnp.zeros_like(y.N),
     )

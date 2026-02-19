@@ -1,5 +1,28 @@
 # Aligned jax_drb s-alpha run (GBS/Hermes baseline alignment)
 
+[normalization]
+enabled = true
+mode = "physics"
+Te0_eV = 1.0     # Hermes/GBS Tnorm
+Ti0_eV = 1.0
+n0 = 1.0e18      # Hermes Nnorm
+B0 = 1.0         # Hermes Bnorm
+m_i_amu = 2.0
+Z_i = 1
+length_unit = "lref"
+Lref_m = 1.0
+
+[geometry_physical]
+Lx = 1.0
+Ly = 1.0
+Lz = 1.0
+R0 = 2.0
+r0 = 0.2
+B0 = 1.0
+
+[physics_physical]
+omega_n = 1.0
+
 [geometry]
 kind = "axisymmetric_analytic"
 model = "salpha"
@@ -61,7 +84,8 @@ poisson = "cg_fd"
 bracket = "arakawa"
 
 [bc]
-bc_enforce_nu = 1.0
+bc_enforce_nu = 0.0
+bc_enforce_nu_phi = 1.5e2
 
 [bc.n]
 bc_x = "neumann"
