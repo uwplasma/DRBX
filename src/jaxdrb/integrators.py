@@ -34,6 +34,8 @@ def build_rk4_scan(
     steps: int,
     save_every: int,
     diag_fn: Callable[[float, PyTree], PyTree],
+    *,
+    rhs_remat: bool = False,
 ) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
     """Return a JIT-compiled runner and output counts.
 
@@ -53,9 +55,11 @@ def build_rk4_scan(
     rem = steps % save_every
     nsave = nblocks + 1 + (1 if rem > 0 else 0)
 
+    rhs_fn = jax.checkpoint(rhs) if rhs_remat else rhs
+
     def inner(carry, _):
         t, y = carry
-        y = rk4_step(rhs, t, y, dt)
+        y = rk4_step(rhs_fn, t, y, dt)
         return (t + dt, y), None
 
     def block(carry, _):
