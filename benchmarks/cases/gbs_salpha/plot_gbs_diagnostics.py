@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from jaxdrb.plot import plot_0d_time_traces
+from gbs_io import plot_0d_time_traces
 
 
 def main() -> None:

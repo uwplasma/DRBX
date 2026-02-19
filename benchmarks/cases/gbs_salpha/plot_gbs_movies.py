@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from jaxdrb.plot import make_movie_rect, make_movie_poloidal
+from gbs_io import make_movie_rect, make_movie_poloidal
 
 
 def main() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from jaxdrb.plot import plot_snapshot, plot_poloidal
+from gbs_io import plot_snapshot, plot_poloidal
 
 
 def main() -> None:
