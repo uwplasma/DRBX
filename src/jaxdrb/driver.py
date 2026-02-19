@@ -12,7 +12,11 @@ from jaxdrb.core.geometry_registry import build_geometry
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.system import DRBSystem
-from jaxdrb.integrators import build_rk4_scan, build_rk4_scan_cached
+from jaxdrb.integrators import (
+    build_rk4_scan,
+    build_rk4_scan_cached,
+    build_rk4_scan_cached_iters,
+)
 from jaxdrb.normalization import NormalizationInfo, apply_normalization
 
 
@@ -162,12 +166,12 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     if isinstance(integrator_cfg, dict):
         time_cfg = {**time_cfg, **integrator_cfg}
 
-    method = str(time_cfg.get("method", "rk4_scan")).lower()
+    method = str(time_cfg.get("method", "diffrax")).lower()
     dt = float(time_cfg.get("dt", 1e-3))
     nsteps = int(time_cfg.get("nsteps", 1000))
     save_every = int(time_cfg.get("save_every", 10))
     t_end = time_cfg.get("t_end", None)
-    adaptive = bool(time_cfg.get("adaptive", False))
+    adaptive = bool(time_cfg.get("adaptive", True))
     rtol = float(time_cfg.get("rtol", 1e-5))
     atol = float(time_cfg.get("atol", 1e-7))
     solver_name = str(time_cfg.get("solver", "dopri8")).lower()
@@ -176,6 +180,7 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     diag_mode = str(time_cfg.get("diag_mode", "full")).lower()
     diag_phi_every = int(time_cfg.get("diag_phi_every", 1))
     warm_start = bool(time_cfg.get("poisson_warm_start", True))
+    track_iters = bool(time_cfg.get("poisson_track_iters", False))
     return_numpy = bool(time_cfg.get("return_numpy", False))
 
     nz, nx, ny = state.n.shape
@@ -188,7 +193,17 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
-        if warm_start:
+        if track_iters:
+            runner, nsave, rem = build_rk4_scan_cached_iters(
+                system.rhs_with_phi_iters,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                rhs_remat=remat,
+                warm_start=warm_start,
+            )
+        elif warm_start:
             runner, nsave, rem = build_rk4_scan_cached(
                 system.rhs_with_phi, dt, nsteps, save_every, diag_fn, rhs_remat=remat
             )
@@ -200,9 +215,25 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
         if rem > 0:
             times[-1] = nsteps * dt
-        t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+        if track_iters:
+            (
+                t,
+                rms_n,
+                rms_Te,
+                rms_omega,
+                rms_phi,
+                point_n,
+                point_Te,
+                point_phi,
+                iters_mean,
+                iters_max,
+            ) = diag_series
+        else:
+            t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
     elif method in ("diffrax", "dopri8", "tsit5"):
         import diffrax as dfx
+        if track_iters:
+            track_iters = False
 
         solver_map = {
             "dopri8": dfx.Dopri8,
@@ -284,6 +315,11 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         "point_phi": point_phi,
         "times": times,
     }
+    if track_iters:
+        diagnostics["poisson_iters_mean"] = iters_mean
+        diagnostics["poisson_iters_max"] = iters_max
+        diagnostics["poisson_iters_mean_all"] = jnp.mean(iters_mean)
+        diagnostics["poisson_iters_max_all"] = jnp.max(iters_max)
 
     if return_numpy:
         diagnostics = {k: np.asarray(jax.device_get(v)) for k, v in diagnostics.items()}

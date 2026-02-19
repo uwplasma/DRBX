@@ -6,9 +6,11 @@ the CLI `jaxdrb --run`. It supports a **JIT‑compiled fixed‑step scan** as we
 
 ## `[time]` Configuration
 
+Defaults: `method="diffrax"`, `solver="dopri8"`, `adaptive=true`, `progress=true`.
+
 ```toml
 [time]
-method = "rk4_scan"   # rk4_scan | diffrax
+method = "diffrax"    # rk4_scan | diffrax
 dt = 1e-3
 nsteps = 1000
 save_every = 10
@@ -22,6 +24,8 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `diag_mode`: `full` (default) or `basic` (skip Poisson and only compute RMS(n, Te, omega)).
 - `diag_phi_every`: compute `phi` diagnostics only every N saved frames (default: 1).
 - `poisson_warm_start`: reuse the previous `phi` as CG initial guess (RK4 scan only).
+- `poisson_track_iters`: record mean/max CG iteration stats per saved frame
+  (averaged over the RK4 steps since the last save; RK4 scan only).
 
 ## JIT Fixed‑Step (RK4 Scan)
 

@@ -45,3 +45,7 @@ For low‑level timeline inspection, you can also open the trace in Chrome:
 - If `memory_profile.pb` is missing, your JAX build may not support memory profiling.
 - For GPU runs, ensure the correct backend is active before profiling.
 - `--warm-start` enables Poisson warm‑start caching (default).
+- Use `time.poisson_track_iters = true` in configs to record per‑saved‑frame CG
+  iteration stats (mean/max over the RK4 steps since the last save).
+- Kernel traces now include named scopes for `poisson_solve`, `bracket_terms`,
+  `curvature`, and `parallel_*` blocks to simplify attribution.

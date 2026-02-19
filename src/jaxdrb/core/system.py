@@ -167,6 +167,26 @@ class DRBSystem(eqx.Module):
             out = _state_add(out, split.dissipative)
         return out, ctx.phi
 
+    def rhs_with_phi_iters(
+        self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
+    ) -> tuple[DRBSystemState, jnp.ndarray, jnp.ndarray]:
+        _ = t
+        ctx = build_context(
+            self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True
+        )
+        split = self.scheduler.run(ctx, y)
+        if not self.params.operator_split_on:
+            return split.total(), ctx.phi, ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
+        out = _state_zeros_like(y)
+        if self.params.operator_conservative_on:
+            out = _state_add(out, split.conservative)
+        if self.params.operator_source_on:
+            out = _state_add(out, split.source)
+        if self.params.operator_dissipative_on:
+            out = _state_add(out, split.dissipative)
+        iters = ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
+        return out, ctx.phi, iters
+
     def _state_from(self, y: DRBSystemState, **kwargs) -> DRBSystemState:
         return DRBSystemState(
             n=kwargs.get("n", jnp.zeros_like(y.n)),
