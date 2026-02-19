@@ -44,7 +44,9 @@ def main() -> None:
     def diag_fn(t, y):
         return jnp.asarray(t)
 
-    runner, nsave, rem = build_rk4_scan(system.rhs, args.dt, args.steps, max(args.steps, 1), diag_fn)
+    runner, nsave, rem = build_rk4_scan(
+        system.rhs, args.dt, args.steps, max(args.steps, 1), diag_fn, rhs_remat=False
+    )
     lowered = runner.lower(state)
     if args.hlo:
         save_hlo(lowered, outdir, name="jaxdrb_scan")
