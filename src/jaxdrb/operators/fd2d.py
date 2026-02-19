@@ -952,6 +952,8 @@ def inv_div_n_grad_cg(
     nx, ny = rhs.shape
 
     n_eff = jnp.asarray(n_coeff)
+    if n_eff.ndim == 0:
+        n_eff = jnp.full(rhs.shape, n_eff, dtype=rhs.dtype)
     n_eff = jnp.maximum(n_eff, jnp.asarray(float(n_floor), dtype=rhs.dtype))
 
     if gauge_epsilon is None:

@@ -95,7 +95,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
 
 def _diagnostic_fn(
     system: DRBSystem,
-    point_idx: tuple[int, int, int],
+    point_idx: tuple[int, ...],
     *,
     mode: str = "full",
     phi_every: int = 1,
@@ -105,7 +105,14 @@ def _diagnostic_fn(
         _ = args
         n_phys = system._phys_n(y.n)
         Te_phys = system._phys_Te(y.Te)
-        z0, x0, y0 = point_idx
+        if n_phys.ndim == 2:
+            x0, y0 = point_idx
+            point_n = n_phys[x0, y0]
+            point_Te = Te_phys[x0, y0]
+        else:
+            z0, x0, y0 = point_idx
+            point_n = n_phys[z0, x0, y0]
+            point_Te = Te_phys[z0, x0, y0]
         if mode == "basic":
             zero = jnp.asarray(0.0)
             return (
@@ -114,20 +121,22 @@ def _diagnostic_fn(
                 jnp.sqrt(jnp.mean(Te_phys ** 2)),
                 jnp.sqrt(jnp.mean(y.omega ** 2)),
                 zero,
-                n_phys[z0, x0, y0],
-                Te_phys[z0, x0, y0],
+                point_n,
+                point_Te,
                 zero,
             )
         if phi_every <= 1:
             phi = system._phi_from_omega(y.omega, n=n_phys)
             rms_phi = jnp.sqrt(jnp.mean(phi ** 2))
-            point_phi = phi[z0, x0, y0]
+            point_phi = phi[x0, y0] if n_phys.ndim == 2 else phi[z0, x0, y0]
         else:
             idx = jnp.round(t / dt_save).astype(jnp.int32)
             use_phi = (idx % phi_every) == 0
 
             def _compute(_):
                 phi = system._phi_from_omega(y.omega, n=n_phys)
+                if n_phys.ndim == 2:
+                    return jnp.sqrt(jnp.mean(phi ** 2)), phi[x0, y0]
                 return jnp.sqrt(jnp.mean(phi ** 2)), phi[z0, x0, y0]
 
             def _skip(_):
@@ -141,8 +150,8 @@ def _diagnostic_fn(
             jnp.sqrt(jnp.mean(Te_phys ** 2)),
             jnp.sqrt(jnp.mean(y.omega ** 2)),
             rms_phi,
-            n_phys[z0, x0, y0],
-            Te_phys[z0, x0, y0],
+            point_n,
+            point_Te,
             point_phi,
         )
 
@@ -183,8 +192,13 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     track_iters = bool(time_cfg.get("poisson_track_iters", False))
     return_numpy = bool(time_cfg.get("return_numpy", False))
 
-    nz, nx, ny = state.n.shape
-    point_idx = tuple(time_cfg.get("point_idx", (nz // 2, nx // 2, ny // 2)))
+    shape = state.n.shape
+    if len(shape) == 2:
+        nx, ny = shape
+        point_idx = tuple(time_cfg.get("point_idx", (nx // 2, ny // 2)))
+    else:
+        nz, nx, ny = shape
+        point_idx = tuple(time_cfg.get("point_idx", (nz // 2, nx // 2, ny // 2)))
 
     if method in ("rk4", "rk4_scan", "fixed"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
