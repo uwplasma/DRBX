@@ -197,11 +197,18 @@ def build_axisymmetric_field_aligned_adapter(
             name = str(region.get("name", "")).strip()
             if not name:
                 continue
-            window = region.get("theta") or region.get("theta_window")
-            if window is None:
+            windows = None
+            if "theta" in region:
+                windows = [region["theta"]]
+            elif "theta_window" in region:
+                windows = [region["theta_window"]]
+            elif "theta_windows" in region:
+                windows = region["theta_windows"]
+            if not windows:
                 continue
-            theta_min, theta_max = window
-            mask = (z >= float(theta_min)) & (z <= float(theta_max))
+            mask = np.zeros_like(z, dtype=bool)
+            for theta_min, theta_max in windows:
+                mask |= (z >= float(theta_min)) & (z <= float(theta_max))
             masks[name] = mask.astype(float)
         region_masks = masks if masks else None
         if region_masks:

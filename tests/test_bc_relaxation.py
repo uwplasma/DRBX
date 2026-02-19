@@ -24,7 +24,7 @@ def _build_geom(
     params = update_params_from_dict(
         DRBSystemParams(),
         {
-            "numerics": {"bc_enforce_nu": 2.0},
+            "bcs": {"bc_enforce_nu": 2.0},
         },
     )
     grid = Grid2D.make(

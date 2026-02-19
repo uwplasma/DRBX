@@ -84,6 +84,71 @@ Geometry comparisons use the canonical mapping defined in
 
 All runs use small grids for alignment and quick iteration.
 
+### Normalization Alignment
+
+For the s‑alpha baseline, jax_drb now includes a normalization block that mirrors
+Hermes/GBS norms:
+
+- `Nnorm = 1e18`
+- `Tnorm = 1`
+- `Bnorm = 1`
+- `Lref = 1` (length unit)
+
+This keeps the *dimensionless* grids and coefficients unchanged while ensuring
+that any **physical-unit overlays** can be mapped consistently.
+
+### Phi Boundary Relax Mapping
+
+Hermes applies a **fast phi boundary relaxation** (e.g., `phi_boundary_timescale = 1e-6`).
+In jax_drb, phi is not evolved directly; it is obtained from the Poisson solve.
+To mirror Hermes’ fast boundary clamp in the vorticity formulation, we map:
+
+\[
+\nu_{\phi} \approx \frac{1}{\tau_{\phi}}
+\]
+
+and apply this as a **boundary relaxation rate for \(\omega\)**, via
+`bc_enforce_nu_phi` (which overrides the omega boundary relaxation when set).
+
+With the current normalization (`Te0 = 1 eV`, `B0 = 1 T`, `Lref = 1 m`),
+the time unit is \(t_0 = L_\mathrm{ref}/c_s \approx 1.4\times 10^{-4}\,\mathrm{s}\).
+Thus, a Hermes value `phi_boundary_timescale = 1e-6` corresponds to:
+
+\[
+\nu_{\phi,\mathrm{norm}} \approx \frac{t_0}{\tau_\phi} \approx 1.5\times 10^{2}.
+\]
+
+### SOL Source Alignment (Preparation)
+
+For SOL turbulence benchmarking, a **shared Gaussian density source** is now
+defined across the three codes:
+
+- Center: `x0 = 0.2`
+- Width: `sigma = 0.1`
+- Amplitude: `S0 = 0.1`
+
+Files:
+- Hermes: `/Users/rogerio/local/jax_drb/benchmarks/cases/hermes_salpha_sol/BOUT.inp`
+- GBS: `/Users/rogerio/local/jax_drb/benchmarks/cases/gbs_salpha/in_sol`
+- jax_drb: `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/salpha_sol.toml`
+
+The amplitude is in each code’s **native normalized units**; additional scaling
+may be required once we lock a shared physical normalization.
+
+### Open/Closed Field-Line Mix (Preparation)
+
+The SOL config uses `open_field_line = true` and a boundary policy with explicit
+region masks:
+
+- `closed`: \(\theta \in [-\pi/2, \pi/2]\)
+- `leg`: two windows \(\theta \in [-\pi, -\pi/2]\) and \(\theta \in [\pi/2, \pi]\)
+
+This provides a minimal **core vs SOL‑leg** split for source/transport terms and
+will be refined to match Hermes/GBS divertor‑leg behavior.
+
+The SOL config also enables the **sheath closure** (`sheath_on = true`) so that
+open‑field‑line end losses are present during SOL turbulence runs.
+
 ---
 
 ## How to Run

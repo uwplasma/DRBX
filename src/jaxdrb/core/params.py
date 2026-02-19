@@ -238,7 +238,6 @@ class NumericsParams(eqx.Module):
     poisson_maxiter: int = 400
     poisson_tol: float = 1e-10
     dealias_on: bool = True
-    bc_enforce_nu: float = 0.0
 
     # Non-Boussinesq variable-coefficient polarization solve settings.
     polarization_cg_maxiter: int = 400
@@ -266,6 +265,17 @@ class BCParams(eqx.Module):
 
     # Region-policy BC enforcement (from boundary_policy regions).
     region_bc_on: bool = True
+
+    # Global BC relaxation rate (applies when per-field overrides are None).
+    bc_enforce_nu: float = 0.0
+    bc_enforce_nu_n: float | None = None
+    bc_enforce_nu_omega: float | None = None
+    bc_enforce_nu_vpar_e: float | None = None
+    bc_enforce_nu_vpar_i: float | None = None
+    bc_enforce_nu_Te: float | None = None
+    bc_enforce_nu_Ti: float | None = None
+    bc_enforce_nu_psi: float | None = None
+    bc_enforce_nu_phi: float | None = None
 
     # BC overrides for 2D fields (None -> use geometry default).
     bc_n: BC2D | None = None

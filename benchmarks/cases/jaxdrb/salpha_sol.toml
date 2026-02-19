@@ -1,27 +1,16 @@
-# Aligned jax_drb s-alpha run (GBS/Hermes baseline alignment)
+# s-alpha SOL alignment case (open-field-line + Gaussian source)
 
 [normalization]
 enabled = true
 mode = "physics"
-Te0_eV = 1.0     # Hermes/GBS Tnorm
+Te0_eV = 1.0
 Ti0_eV = 1.0
-n0 = 1.0e18      # Hermes Nnorm
-B0 = 1.0         # Hermes Bnorm
+n0 = 1.0e18
+B0 = 1.0
 m_i_amu = 2.0
 Z_i = 1
 length_unit = "lref"
 Lref_m = 1.0
-
-[geometry_physical]
-Lx = 1.0
-Ly = 1.0
-Lz = 1.0
-R0 = 2.0
-r0 = 0.2
-B0 = 1.0
-
-[physics_physical]
-omega_n = 1.0
 
 [geometry]
 kind = "axisymmetric_analytic"
@@ -29,7 +18,7 @@ model = "salpha"
 
 nx = 16
 ny = 8
-nz = 4
+nz = 16
 
 Lx = 1.0
 Ly = 1.0
@@ -47,7 +36,7 @@ epsilon_x_grad = 0.5
 theta_ballooning_on = true
 linear_shear_on = true
 theta_scale = 2.0
-open_field_line = false
+open_field_line = true
 
 bc_x = "neumann"
 bc_y = "neumann"
@@ -60,7 +49,6 @@ bc_grad_y = 0.0
 omega_n = 1.0
 log_n = true
 log_Te = true
-# Approximate baseline physics (isothermal + vorticity)
 nonlinear_on = true
 em_on = false
 hot_ion_on = false
@@ -75,13 +63,32 @@ DOmega = 1.0e-2
 DTe = 1.0e-2
 Dvpar = 1.0e-2
 
-[initial]
-amplitude = 1e-6
-seed = 1
+[closures.sol]
+sol_on = true
+sol_relax_core = 0.0
+sol_relax_open = 0.0
+sol_source_n0 = 0.1
+sol_source_Te0 = 0.0
+sol_source_xs = 0.2
+sol_source_width = 0.1
+sol_source_mask = "all"
+sol_source_y_taper = 0.0
 
-[numerics]
-poisson = "cg_fd"
-bracket = "arakawa"
+[closures.sheath]
+sheath_on = true
+sheath_bc_on = true
+sheath_bc_model = "simple"
+
+[boundary_policy]
+default_nu = 1.0
+
+[[boundary_policy.regions]]
+name = "closed"
+theta_window = [-1.57079632679, 1.57079632679]
+
+[[boundary_policy.regions]]
+name = "leg"
+theta_windows = [[-3.14159265359, -1.57079632679], [1.57079632679, 3.14159265359]]
 
 [bc]
 bc_enforce_nu = 0.0
@@ -111,10 +118,14 @@ bc_y = "neumann"
 bc_x = "neumann"
 bc_y = "neumann"
 
+[initial]
+amplitude = 1e-6
+seed = 1
+
 [time]
 method = "rk4_scan"
 dt = 1.0e-4
-nsteps = 1000
-save_every = 10
+nsteps = 2000
+save_every = 20
 diag_mode = "basic"
 poisson_warm_start = true
