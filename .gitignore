@@ -32,6 +32,11 @@ benchmarks/cases/gbs_salpha/restart_*.h5
 benchmarks/cases/gbs_salpha/fort.*
 benchmarks/cases/gbs_salpha/myjob
 benchmarks/cases/gbs_salpha/crash_*
+benchmarks/cases/gbs_salpha/skel
+benchmarks/cases/gbs_salpha/*.png
+benchmarks/cases/gbs_salpha/*.gif
+benchmarks/cases/gbs_salpha/*.mp4
+benchmarks/cases/gbs_salpha/gbs_plots*/
 benchmarks/profiles/
 profiles/
 
