@@ -409,7 +409,7 @@ class DRBSystem(eqx.Module):
             if poisson == "spectral":
                 if not self._is_periodic_bc(bc_phi):
                     raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
-                return inv_laplacian(omega, grid.k2, k2_min=self.params.k2_min)
+                return inv_laplacian_spec(omega, grid.k2, k2_min=self.params.k2_min)
             if poisson == "mixed_fft":
                 return inv_laplacian_mixed_fft(
                     omega,
