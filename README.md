@@ -12,6 +12,7 @@ Run details (JIT vs Diffrax, options, save behavior):
 ```bash
 jaxdrb path/to/input.toml
 ```
+The CLI uses a persistent JAX compilation cache by default. Disable with `--compile-cache off`.
 
 ### Run + Save Outputs
 ```bash
@@ -45,6 +46,7 @@ method = "rk4_scan" # rk4_scan | diffrax
 dt = 1e-3
 nsteps = 1000
 save_every = 10
+diag_mode = "full" # full | basic (basic skips Poisson in diagnostics)
 ```
 
 ## Normalization (Physical Inputs)

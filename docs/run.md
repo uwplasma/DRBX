@@ -19,6 +19,7 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `save_every`: save diagnostics every N steps.
 - `remat`: `true` enables checkpointing for lower memory in long runs.
 - `return_numpy`: `true` transfers diagnostics to host memory (needed when saving).
+- `diag_mode`: `full` (default) or `basic` (skip Poisson and only compute RMS(n, Te, omega)).
 
 ## JIT Fixed‑Step (RK4 Scan)
 
@@ -53,6 +54,9 @@ Notes:
 - `remat = true` uses a checkpointing adjoint (`RecursiveCheckpointAdjoint`).
 - If `bc_x/bc_y` are periodic, Poisson inversion defaults to spectral for speed
   (`numerics.poisson_force_spectral_when_periodic = true`).
+- For non‑periodic BCs, Poisson inversion defaults to the FD‑FFT solver when
+  `numerics.poisson_force_fd_fft_when_nonperiodic = true` (significantly faster
+  than CG for Dirichlet/Neumann).
 
 ## CLI Example
 
@@ -62,3 +66,13 @@ jaxdrb /path/to/input.toml --run --output /tmp/jaxdrb_out.npz
 
 When `--output` is provided, the CLI forces `return_numpy = true` so diagnostics
 are transferred to the host before saving.
+
+## Compilation Cache
+
+The CLI enables JAX’s persistent compilation cache by default. You can override
+the directory or disable it:
+
+```bash
+jaxdrb /path/to/input.toml --compile-cache ~/.cache/jaxdrb/compilation
+jaxdrb /path/to/input.toml --compile-cache off
+```
