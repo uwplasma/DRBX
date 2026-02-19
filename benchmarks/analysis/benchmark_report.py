@@ -190,8 +190,14 @@ def _load_hermes(path: Path, axes: str = "xyz") -> Dataset:
         if n is None:
             raise ValueError("Hermes Ne not found")
         Te = load_var("Te")
+        if Te is None:
+            Pe = load_var("Pe")
+            if Pe is not None:
+                Te = Pe / np.maximum(n, 1e-12)
         phi = load_var("phi")
         omega = load_var("omega")
+        if omega is None:
+            omega = load_var("Vort")
 
         dy = ds.variables["dy"][:] if "dy" in ds.variables else None
         dz = ds.variables["dz"][:] if "dz" in ds.variables else None

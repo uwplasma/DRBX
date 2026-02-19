@@ -21,6 +21,7 @@ out*/
 out_*.png
 out_*.gif
 benchmarks/alignment_outputs/
+benchmarks/sol_benchmark/
 benchmarks/full_benchmark/*.h5
 benchmarks/full_benchmark/*.nc
 benchmarks/full_benchmark/*.npz
