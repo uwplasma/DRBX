@@ -146,6 +146,20 @@ ballooning coordinate context.
 - Ballooning and linear-shear corrections are optional toggles; turning them on/off produces
   physically meaningful subsets without branching the model equations.
 
+---
+
+**Boundary Policy Windows (Region Masks)**
+
+Analytic axisymmetric geometries support **region masks** based on the field-line angle
+\(\theta\), which are used to tag core/SOL/divertor legs without splitting the equations.
+Regions can specify either a single window or multiple windows:
+
+- `theta_window = [theta_min, theta_max]`
+- `theta_windows = [[theta_min, theta_max], [theta_min2, theta_max2], ...]`
+
+These masks are consumed by the SOL source/sink logic and by region‑policy BCs, enabling
+open/closed‑field‑line mixes in a single simulation.
+
 **Numerics & Performance**
 
 - All coefficient builders are written in JAX and operate on full arrays; they are JIT-safe

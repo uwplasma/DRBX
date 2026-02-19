@@ -83,15 +83,20 @@ def _region_masks_from_policy(theta: jnp.ndarray, policy: dict[str, Any]) -> dic
         name = str(region.get("name", "")).strip()
         if not name:
             continue
+        windows = None
         if "theta" in region:
-            theta_min, theta_max = region["theta"]
+            windows = [region["theta"]]
         elif "theta_window" in region:
-            theta_min, theta_max = region["theta_window"]
-        else:
+            windows = [region["theta_window"]]
+        elif "theta_windows" in region:
+            windows = region["theta_windows"]
+        if not windows:
             continue
-        theta_min = float(theta_min)
-        theta_max = float(theta_max)
-        mask = (theta >= theta_min) & (theta <= theta_max)
+        mask = jnp.zeros_like(theta, dtype=jnp.bool_)
+        for theta_min, theta_max in windows:
+            theta_min = float(theta_min)
+            theta_max = float(theta_max)
+            mask = mask | ((theta >= theta_min) & (theta <= theta_max))
         masks[name] = mask.astype(jnp.float64)
     return masks
 
