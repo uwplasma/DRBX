@@ -11,8 +11,18 @@ from jaxdrb.operators.fd2d import enforce_bc_relaxation
 from .ops import grid_of, is_2d, region_mask
 
 
-def _sol_y_taper(geom: GeometryAdapter, width: float) -> jnp.ndarray | None:
+def _perp_grid(geom: GeometryAdapter):
     grid = grid_of(geom)
+    if grid is not None:
+        return grid
+    grid = getattr(geom, "grid", None)
+    if grid is None:
+        return None
+    return getattr(grid, "perp", grid)
+
+
+def _sol_y_taper(geom: GeometryAdapter, width: float) -> jnp.ndarray | None:
+    grid = _perp_grid(geom)
     if grid is None or width <= 0.0:
         return None
     y = grid.y[None, :]
@@ -30,7 +40,7 @@ def _sol_source_profile(
     src_mask: jnp.ndarray,
     y_taper: jnp.ndarray | None,
 ) -> jnp.ndarray:
-    grid = grid_of(geom)
+    grid = _perp_grid(geom)
     if grid is None:
         return jnp.zeros_like(src_mask)
     width = max(width, 1e-8)
@@ -68,7 +78,7 @@ def sol_masks(
         return mask_closed, mask_open, nonlinear_scale
 
     # Fall back to 2D SOL masks if no region masks are available.
-    grid = grid_of(geom)
+    grid = _perp_grid(geom)
     if grid is None:
         return None, None, 1.0
     xs = float(params.sol_xs)

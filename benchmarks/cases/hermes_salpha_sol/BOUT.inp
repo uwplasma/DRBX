@@ -1,9 +1,11 @@
-# Minimal Hermes-3 run using a generated s-alpha grid
+# Hermes-3 s-alpha SOL benchmark (minimal turbulence)
 
-nout = 1000
-timestep = 1
+nout = 200
 
-MZ = 16
+timestep = 1e-3
+
+MZ = 8
+zperiod = 1
 
 [mesh]
 file = "salpha.nc"
@@ -13,27 +15,39 @@ type = identity
 
 [solver]
 mxstep = 2000
+cvode_max_order = 3
+use_precon = true
 
 [hermes]
 components = (e, d+, sound_speed, vorticity,
-              sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange)
+              sheath_boundary, diamagnetic_drift, polarisation_drift)
 
-Nnorm = 1e18
+Nnorm = 1
 Bnorm = 1
 Tnorm = 1
 
 recalculate_metric = true
 
+[polarisation_drift]
+advection = false
+diamagnetic_polarisation = true
+average_atomic_mass = vorticity:average_atomic_mass
+
+[diamagnetic_drift]
+diamag_form = x * (1 - x)
+
 [vorticity]
 
-diamagnetic = false
-diamagnetic_polarisation = false
+exb_advection_simplified = false
+diamagnetic = true
+diamagnetic_polarisation = true
 average_atomic_mass = `d+`:AA
-poloidal_flows = false
+poloidal_flows = true
 split_n0 = false
 
 vort_dissipation = false
 phi_dissipation = true
+phi_sheath_dissipation = true
 
 phi_boundary_relax = true
 phi_boundary_timescale = 1e-6
@@ -50,25 +64,27 @@ outer_boundary_flags = 16
 
 type = evolve_density, evolve_momentum, isothermal
 
-AA = 60 / 1836
+AA = 1 / 1836
 charge = -1
 
-temperature = 5
+temperature = 1.0
 
-poloidal_flows = false
+poloidal_flows = true
+low_n_diffuse_perp = true
 
 [Ne]
 bndry_all = neumann
 
-function = 1e-1 * exp(-x^2) + 1e-5*(mixmode(z) + mixmode(4*z - x))
+function = 1.0 - 0.9*x + 1e-3*mixmode(x - z)
 
-source = 0.1*exp(-((x-0.2)/0.1)^2)
+source = 5e-2*exp(-((x-0.2)/0.1)^2)
+source_only_in_core = false
 
 ################################################################
 # Deuterium ions
 
 [d+]
-# Set ion density from quasineutrality, evolve parallel flow
+# Set ion density from quasineutrality, evolve parallel flow, isothermal
 
 type = quasineutral, evolve_momentum, isothermal
 
@@ -77,4 +93,5 @@ charge = 1
 
 temperature = 0.1
 
-poloidal_flows = false
+poloidal_flows = true
+low_n_diffuse_perp = true
