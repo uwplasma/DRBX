@@ -36,6 +36,49 @@ def _rms(arr) -> float:
     return float(np.sqrt(np.mean(a**2)))
 
 
+def _extract_hermes_field_rms(path: Path) -> dict[str, float]:
+    try:
+        import netCDF4  # type: ignore
+        import numpy as np
+    except Exception:
+        return {}
+    if not path.exists():
+        return {}
+    with netCDF4.Dataset(path) as ds:
+        for name in ("Te", "Ne", "Vort"):
+            if name in ds.variables:
+                arr = np.asarray(ds.variables[name][:])
+                if arr.ndim >= 4:
+                    arr = arr[-1]
+                return {name: _rms(arr)}
+    return {}
+
+
+def _extract_gbs_field_rms(path: Path) -> dict[str, float]:
+    try:
+        import h5py  # type: ignore
+        import numpy as np
+    except Exception:
+        return {}
+    if not path.exists():
+        return {}
+    with h5py.File(path, "r") as f:
+        for base in ("data/var3d/temperature", "data/var3d/temperaturi", "data/var2d/temperaturixy"):
+            if base in f:
+                grp = f[base]
+                steps = [k for k in grp.keys() if k.isdigit()]
+                if not steps:
+                    continue
+                latest = sorted(steps)[-1]
+                arr = np.asarray(grp[latest][...])
+                return {base.split("/")[-1]: _rms(arr)}
+        if "data/var0d/globtemperature" in f:
+            arr = np.asarray(f["data/var0d/globtemperature"][...])
+            if arr.size:
+                return {"globtemperature": float(arr[-1])}
+    return {}
+
+
 def _jaxdrb_metrics(config_path: Path) -> dict[str, dict[str, float]]:
     from jaxdrb.driver import build_system_from_config
     from jaxdrb.io import load_config
@@ -51,6 +94,10 @@ def _jaxdrb_metrics(config_path: Path) -> dict[str, dict[str, float]]:
             continue
         rms_val = _rms(val)
         metrics[key] = {"rms_ref": rms_val, "rms_geom": rms_val, "rel_error": 0.0}
+    metrics["field_rms"] = {
+        "n": _rms(built.state.n),
+        "Te": _rms(built.state.Te),
+    }
     return metrics
 
 
@@ -80,7 +127,7 @@ def main() -> None:
     parser.add_argument("--gbs-case", default="external/gbs/bin")
     parser.add_argument(
         "--jax-config",
-        default="configs/benchmarks/salpha_hermes_gridmatch_small.toml",
+        default="configs/benchmarks/salpha_hermes_min_run.toml",
         help="jax_drb config used to compute analytic geometry metrics",
     )
     parser.add_argument("--mpi", action=argparse.BooleanOptionalAction, default=False)
@@ -173,6 +220,10 @@ def main() -> None:
         metrics["hermes"] = _parse_metrics(out)
     else:
         metrics["hermes"] = {}
+    hermes_dmp = hermes_case / "BOUT.dmp.0.nc"
+    hermes_fields = _extract_hermes_field_rms(hermes_dmp)
+    if hermes_fields:
+        metrics.setdefault("hermes", {})["field_rms"] = hermes_fields
 
     if gbs_config.exists() and gbs_results.exists():
         out = _run(
@@ -190,6 +241,9 @@ def main() -> None:
         metrics["gbs"] = _parse_metrics(out)
     else:
         metrics["gbs"] = {}
+    gbs_fields = _extract_gbs_field_rms(gbs_results)
+    if gbs_fields:
+        metrics.setdefault("gbs", {})["field_rms"] = gbs_fields
 
     metrics_file = output_dir / "alignment_metrics.json"
     metrics_file.write_text(json.dumps(metrics, indent=2, sort_keys=True))
