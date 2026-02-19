@@ -10,42 +10,8 @@ import jax.numpy as jnp
 
 from jaxdrb.driver import build_system_from_config
 from jaxdrb.io import load_config
+from jaxdrb.integrators import build_rk4_scan
 from jaxdrb.profiling import jax_trace, save_device_memory_profile, save_hlo, save_compile_stats
-
-
-def _tree_add(y, dy, scale: float = 1.0):
-    def add(a, b):
-        if a is None or b is None:
-            return None
-        return a + scale * b
-
-    return jax.tree_util.tree_map(add, y, dy, is_leaf=lambda x: x is None)
-
-
-def _rk4_step(rhs, t, y, dt):
-    k1 = rhs(t, y)
-    k2 = rhs(t + 0.5 * dt, _tree_add(y, k1, 0.5 * dt))
-    k3 = rhs(t + 0.5 * dt, _tree_add(y, k2, 0.5 * dt))
-    k4 = rhs(t + dt, _tree_add(y, k3, dt))
-    acc = _tree_add(k1, k2, 2.0)
-    acc = _tree_add(acc, k3, 2.0)
-    acc = _tree_add(acc, k4, 1.0)
-    return _tree_add(y, acc, dt / 6.0)
-
-
-def build_runner(rhs, dt: float, steps: int):
-    dt = float(dt)
-
-    def body(carry, _):
-        t, y = carry
-        y = _rk4_step(rhs, t, y, dt)
-        return (t + dt, y), None
-
-    def run(state):
-        (t, y), _ = jax.lax.scan(body, (0.0, state), None, length=int(steps))
-        return t, y
-
-    return jax.jit(run)
 
 
 def _block_until_ready(tree):
@@ -75,8 +41,10 @@ def main() -> None:
     system = built.system
     state = built.state
 
-    runner = build_runner(system.rhs, args.dt, args.steps)
+    def diag_fn(t, y):
+        return jnp.asarray(t)
 
+    runner, nsave, rem = build_rk4_scan(system.rhs, args.dt, args.steps, max(args.steps, 1), diag_fn)
     lowered = runner.lower(state)
     if args.hlo:
         save_hlo(lowered, outdir, name="jaxdrb_scan")
