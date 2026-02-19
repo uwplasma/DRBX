@@ -5,8 +5,8 @@ min
 -
 &BASIC
   job_time=60.0, extra_time=0.0,
-  nrun=5000,
-  dt=1.e-4,
+  nrun=4000,
+  dt=5.e-5,
   nlres=f,
   nlbalance=f,
 /
@@ -92,12 +92,12 @@ min
   rstfile0='restart_min'
 /
 &MODEL_PAR
-  diff_theta= 1D-2
-  diff_tempe= 1D-2
-  diff_omega= 1D-2
-  diff_vpare= 1D-2
-  diff_vpari= 1D-2
-  SEC_theta= 1D-1
+  diff_theta= 1D-3
+  diff_tempe= 1D-3
+  diff_omega= 1D-3
+  diff_vpare= 1D-3
+  diff_vpari= 1D-3
+  SEC_theta= 1D-2
   SUH_theta= 0D0
   SEC_tempe= 0D0
   SUH_tempe= 0D0
@@ -117,7 +117,7 @@ min
   x0_UH_tempi= 2D-1
   iy_startsource=0
   rorho_s=200D-0
-  lambda=3.
+  lambda=10.
   miome=20.
   nu=1.
   eta0_e=1.
@@ -135,9 +135,9 @@ min
   initback_vpare=0D-0
   initback_vpari=0D-0
   initback_strmf=0D-0
-  initnoise_theta=1D-6
-  initnoise_tempe=1D-6
-  initnoise_omega=0D-6
+  initnoise_theta=1D-4
+  initnoise_tempe=1D-4
+  initnoise_omega=1D-4
   initnoise_vpare=0D-0
   initnoise_vpari=0D-0
   initnoise_strmf=0D-0

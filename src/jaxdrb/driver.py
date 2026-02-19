@@ -135,8 +135,9 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
 
     amp = float(init.get("amplitude", 0.0))
     if amp != 0.0:
-        rng = jnp.asarray(init.get("seed", 0))
-        noise = amp * jnp.sin(jnp.linspace(0.0, 2.0 * jnp.pi, num=state.n.size)).reshape(state.n.shape)
+        seed = int(init.get("seed", 0))
+        key = jax.random.PRNGKey(seed)
+        noise = amp * jax.random.normal(key, shape=state.n.shape, dtype=state.n.dtype)
         state = DRBSystemState(
             n=noise,
             omega=noise,

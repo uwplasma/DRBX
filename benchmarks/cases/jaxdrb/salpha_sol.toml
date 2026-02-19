@@ -5,7 +5,7 @@ enabled = true
 mode = "physics"
 Te0_eV = 1.0
 Ti0_eV = 1.0
-n0 = 1.0e18
+n0 = 1.0
 B0 = 1.0
 m_i_amu = 2.0
 Z_i = 1
@@ -37,16 +37,18 @@ theta_ballooning_on = true
 linear_shear_on = true
 theta_scale = 2.0
 open_field_line = true
+sheath_windows = [[-3.14159265359, -1.57079632679], [1.57079632679, 3.14159265359]]
+sheath_sign = [-1.0, 1.0]
 
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 bc_value_x = 0.0
 bc_value_y = 0.0
 bc_grad_x = 0.0
 bc_grad_y = 0.0
 
 [physics]
-omega_n = 1.0
+omega_n = 5.0
 log_n = true
 log_Te = true
 nonlinear_on = true
@@ -55,23 +57,30 @@ hot_ion_on = false
 neutrals_on = false
 boussinesq = true
 curvature_on = true
-curvature_coeff = 1.0
+curvature_coeff = 2.0
 
 [transport]
-Dn = 1.0e-2
-DOmega = 1.0e-2
-DTe = 1.0e-2
-Dvpar = 1.0e-2
+Dn = 1.0e-3
+DOmega = 1.0e-3
+DTe = 1.0e-3
+Dvpar = 1.0e-3
 
 [closures.sol]
 sol_on = true
-sol_relax_core = 0.0
-sol_relax_open = 0.0
-sol_source_n0 = 0.1
-sol_source_Te0 = 0.0
+sol_xs = 0.5
+sol_width = 0.05
+sol_open_left = false
+sol_n_core = 1.0
+sol_n_sol = 0.2
+sol_Te_core = 1.0
+sol_Te_sol = 0.2
+sol_relax_core = 0.2
+sol_relax_open = 0.6
+sol_source_n0 = 1.0e-2
+sol_source_Te0 = 1.0e-2
 sol_source_xs = 0.2
 sol_source_width = 0.1
-sol_source_mask = "all"
+sol_source_mask = "closed"
 sol_source_y_taper = 0.0
 
 [closures.sheath]
@@ -79,53 +88,42 @@ sheath_on = true
 sheath_bc_on = true
 sheath_bc_model = "simple"
 
-[boundary_policy]
-default_nu = 1.0
-
-[[boundary_policy.regions]]
-name = "closed"
-theta_window = [-1.57079632679, 1.57079632679]
-
-[[boundary_policy.regions]]
-name = "leg"
-theta_windows = [[-3.14159265359, -1.57079632679], [1.57079632679, 3.14159265359]]
-
 [bc]
 bc_enforce_nu = 0.0
 bc_enforce_nu_phi = 1.5e2
 
 [bc.n]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [bc.Te]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [bc.omega]
 bc_x = "dirichlet"
-bc_y = "dirichlet"
+bc_y = "periodic"
 
 [bc.phi]
 bc_x = "dirichlet"
-bc_y = "dirichlet"
+bc_y = "periodic"
 
 [bc.vpar_e]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [bc.vpar_i]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [initial]
-amplitude = 1e-6
+amplitude = 1e-3
 seed = 1
 
 [time]
 method = "rk4_scan"
-dt = 1.0e-4
-nsteps = 2000
+dt = 5.0e-5
+nsteps = 4000
 save_every = 20
 diag_mode = "basic"
 poisson_warm_start = true

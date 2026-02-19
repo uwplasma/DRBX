@@ -33,7 +33,7 @@ def main() -> None:
     p.add_argument("--mpi", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--mpi-n", type=int, default=1)
     p.add_argument("--gbs-dims", default="1,1")
-    p.add_argument("--hermes-axes", default="xyz")
+    p.add_argument("--hermes-axes", default="xzy")
     p.add_argument("--gbs-axes", default="zxy")
     p.add_argument("--jaxdrb-axes", default="zxy")
     args = p.parse_args()
@@ -85,9 +85,9 @@ def main() -> None:
             "--config",
             str(root / "benchmarks/cases/jaxdrb/salpha_sol.toml"),
             "--dt",
-            "1e-4",
+            "5e-5",
             "--nsteps",
-            "2000",
+            "4000",
             "--save-every",
             "20",
             "--output",
