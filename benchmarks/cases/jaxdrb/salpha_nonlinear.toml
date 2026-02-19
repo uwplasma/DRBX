@@ -1,21 +1,21 @@
-# Minimal jax_drb run mirroring Hermes-3 s-alpha (isothermal + vorticity)
+# Aligned jax_drb s-alpha run (GBS/Hermes baseline alignment)
 
 [geometry]
 kind = "axisymmetric_analytic"
 model = "salpha"
 
-nx = 32
-ny = 32
-nz = 16
+nx = 16
+ny = 8
+nz = 4
 
 Lx = 1.0
 Ly = 1.0
-Lz = 6.283185307179586
+Lz = 1.0
 
 q = 2.0
 R0 = 2.0
 r0 = 0.2
-epsilon = 0.1
+epsilon = 0.3
 shat = 1.0
 alpha = 0.0
 curvature_model = "logB"
@@ -26,12 +26,18 @@ linear_shear_on = true
 theta_scale = 2.0
 open_field_line = false
 
-bc_x = "periodic"
-bc_y = "periodic"
+bc_x = "neumann"
+bc_y = "neumann"
+bc_value_x = 0.0
+bc_value_y = 0.0
+bc_grad_x = 0.0
+bc_grad_y = 0.0
 
 [physics]
 omega_n = 1.0
-# Approximate Hermes minimal physics (isothermal + vorticity)
+log_n = true
+log_Te = true
+# Approximate baseline physics (isothermal + vorticity)
 nonlinear_on = true
 em_on = false
 hot_ion_on = false
@@ -41,10 +47,50 @@ curvature_on = true
 curvature_coeff = 1.0
 
 [transport]
-Dn = 0.0
-DOmega = 0.0
-DTe = 0.0
+Dn = 1.0e-2
+DOmega = 1.0e-2
+DTe = 1.0e-2
+Dvpar = 1.0e-2
 
 [initial]
 amplitude = 1e-6
 seed = 1
+
+[numerics]
+poisson = "cg_fd"
+bracket = "arakawa"
+
+[bc]
+bc_enforce_nu = 1.0
+
+[bc.n]
+bc_x = "neumann"
+bc_y = "neumann"
+
+[bc.Te]
+bc_x = "neumann"
+bc_y = "neumann"
+
+[bc.omega]
+bc_x = "dirichlet"
+bc_y = "dirichlet"
+
+[bc.phi]
+bc_x = "dirichlet"
+bc_y = "dirichlet"
+
+[bc.vpar_e]
+bc_x = "neumann"
+bc_y = "neumann"
+
+[bc.vpar_i]
+bc_x = "neumann"
+bc_y = "neumann"
+
+[time]
+method = "rk4_scan"
+dt = 1.0e-4
+nsteps = 1000
+save_every = 10
+diag_mode = "basic"
+poisson_warm_start = true

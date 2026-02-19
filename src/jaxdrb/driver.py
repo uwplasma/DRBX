@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 
+from jaxdrb.bc import BC2D, bc2d_from_strings
 from jaxdrb.core.compat import coerce_system_params
 from jaxdrb.core.geometry_registry import build_geometry
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
@@ -41,6 +42,61 @@ def _merge_params(*sections: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _parse_bc_value(val: Any) -> BC2D | None:
+    if val is None or isinstance(val, BC2D):
+        return val
+    if isinstance(val, str):
+        return bc2d_from_strings(bc_x=val, bc_y=val)
+    if isinstance(val, dict):
+        bc_x = str(val.get("bc_x", val.get("x", val.get("bc", "periodic"))))
+        bc_y = str(val.get("bc_y", val.get("y", val.get("bc", bc_x))))
+        value_x = float(val.get("value_x", val.get("x_value", val.get("value", 0.0))))
+        value_y = float(val.get("value_y", val.get("y_value", val.get("value", value_x))))
+        grad_x = float(val.get("grad_x", val.get("x_grad", val.get("grad", 0.0))))
+        grad_y = float(val.get("grad_y", val.get("y_grad", val.get("grad", grad_x))))
+        return bc2d_from_strings(
+            bc_x=bc_x,
+            bc_y=bc_y,
+            value_x=value_x,
+            value_y=value_y,
+            grad_x=grad_x,
+            grad_y=grad_y,
+        )
+    raise TypeError(f"Unsupported BC value type: {type(val)}")
+
+
+def _parse_bc_section(bc: dict[str, Any]) -> dict[str, Any]:
+    mapping = {
+        "n": "bc_n",
+        "omega": "bc_omega",
+        "vpar_e": "bc_vpar_e",
+        "vpar_i": "bc_vpar_i",
+        "Te": "bc_Te",
+        "Ti": "bc_Ti",
+        "psi": "bc_psi",
+        "phi": "bc_phi",
+        "perp": "perp_bc",
+    }
+    out: dict[str, Any] = {}
+    for key, val in bc.items():
+        tgt = mapping.get(key, key)
+        if tgt in (
+            "bc_n",
+            "bc_omega",
+            "bc_vpar_e",
+            "bc_vpar_i",
+            "bc_Te",
+            "bc_Ti",
+            "bc_psi",
+            "bc_phi",
+            "perp_bc",
+        ):
+            out[tgt] = _parse_bc_value(val)
+        else:
+            out[tgt] = val
+    return out
+
+
 def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     cfg, norm_info = apply_normalization(cfg)
 
@@ -52,6 +108,8 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
         terms = dict(terms)
         terms["term_schedule"] = terms.pop("schedule")
     bc = cfg.get("bc", {})
+    if isinstance(bc, dict) and bc:
+        bc = _parse_bc_section(bc)
     geometry = cfg.get("geometry", {})
     boundary_policy = cfg.get("boundary_policy", {})
     if isinstance(boundary_policy, dict) and boundary_policy:
