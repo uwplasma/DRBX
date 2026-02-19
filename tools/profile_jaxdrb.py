@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 from jaxdrb.driver import build_system_from_config
 from jaxdrb.io import load_config
-from jaxdrb.integrators import build_rk4_scan
+from jaxdrb.integrators import build_rk4_scan, build_rk4_scan_cached
 from jaxdrb.profiling import jax_trace, save_device_memory_profile, save_hlo, save_compile_stats
 
 
@@ -31,6 +31,7 @@ def main() -> None:
     p.add_argument("--trace", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--memory", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--hlo", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--warm-start", action=argparse.BooleanOptionalAction, default=True)
     args = p.parse_args()
 
     outdir = Path(args.outdir)
@@ -44,9 +45,19 @@ def main() -> None:
     def diag_fn(t, y):
         return jnp.asarray(t)
 
-    runner, nsave, rem = build_rk4_scan(
-        system.rhs, args.dt, args.steps, max(args.steps, 1), diag_fn, rhs_remat=False
-    )
+    if args.warm_start:
+        runner, nsave, rem = build_rk4_scan_cached(
+            system.rhs_with_phi,
+            args.dt,
+            args.steps,
+            max(args.steps, 1),
+            diag_fn,
+            rhs_remat=False,
+        )
+    else:
+        runner, nsave, rem = build_rk4_scan(
+            system.rhs, args.dt, args.steps, max(args.steps, 1), diag_fn, rhs_remat=False
+        )
     lowered = runner.lower(state)
     if args.hlo:
         save_hlo(lowered, outdir, name="jaxdrb_scan")

@@ -44,3 +44,4 @@ For low‑level timeline inspection, you can also open the trace in Chrome:
 - Use **small step counts** for profiling; the goal is kernel inspection, not long dynamics.
 - If `memory_profile.pb` is missing, your JAX build may not support memory profiling.
 - For GPU runs, ensure the correct backend is active before profiling.
+- `--warm-start` enables Poisson warm‑start caching (default).

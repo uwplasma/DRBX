@@ -47,6 +47,8 @@ dt = 1e-3
 nsteps = 1000
 save_every = 10
 diag_mode = "full" # full | basic (basic skips Poisson in diagnostics)
+diag_phi_every = 1
+poisson_warm_start = true
 ```
 
 ## Normalization (Physical Inputs)
@@ -146,6 +148,14 @@ Full s-alpha benchmark (Hermes-3 vs GBS vs jax_drb):
 ## Profiling
 Kernel + XLA + memory profiling:
 `/Users/rogerio/local/jax_drb/docs/profiling.md`.
+Quick example:
+```bash
+python /Users/rogerio/local/jax_drb/tools/profile_jaxdrb.py \
+  --config /Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/salpha_linear.toml \
+  --steps 200 \
+  --dt 1e-3 \
+  --outdir /Users/rogerio/local/jax_drb/benchmarks/profiles/salpha_linear
+```
 
 ## Next Steps
 - Full config schema & validation

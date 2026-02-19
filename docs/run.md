@@ -20,6 +20,8 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `remat`: `true` enables checkpointing for lower memory in long runs.
 - `return_numpy`: `true` transfers diagnostics to host memory (needed when saving).
 - `diag_mode`: `full` (default) or `basic` (skip Poisson and only compute RMS(n, Te, omega)).
+- `diag_phi_every`: compute `phi` diagnostics only every N saved frames (default: 1).
+- `poisson_warm_start`: reuse the previous `phi` as CG initial guess (RK4 scan only).
 
 ## JIT Fixed‑Step (RK4 Scan)
 
