@@ -1,0 +1,42 @@
+[geometry]
+kind = "salpha"
+# Tiny grid for smoke test
+nx = 8
+ny = 8
+nz = 8
+Lx = 1.0
+Ly = 1.0
+Lz = 1.0
+bc_x = "periodic"
+bc_y = "periodic"
+open_field_line = false
+shat = 0.796
+alpha = 0.0
+q = 1.4
+R0 = 1.0
+epsilon = 0.18
+curvature0 = 0.18
+curvature_model = "vector_xy"
+
+[physics]
+nonlinear_on = true
+hot_ion_on = false
+em_on = false
+neutrals_on = false
+boussinesq = true
+curvature_on = true
+curvature_coeff = 1.0
+# For later extensions:
+# log_Te = true
+# hot_ion_on = true
+# em_on = true
+# neutrals_on = true
+
+[numerics]
+perp_operator = "spectral"
+bracket = "arakawa"
+poisson = "spectral"
+
+[initial]
+amplitude = 1e-6
+seed = 0
