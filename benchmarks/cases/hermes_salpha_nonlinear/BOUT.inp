@@ -62,7 +62,7 @@ bndry_all = neumann
 
 function = 1e-1 * exp(-x^2) + 1e-5*(mixmode(z) + mixmode(4*z - x))
 
-source = 5e21*exp(-(x/0.3)^2)
+source = 0
 
 ################################################################
 # Deuterium ions
