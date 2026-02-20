@@ -40,7 +40,8 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `term_schedule_preset`: one of `benchmark_linear`, `benchmark_nonlinear`, `benchmark_min`
   to use a predefined minimal RHS schedule for fast benchmarks.
 - `numerics.poisson_preconditioner = "fd_fft"` accelerates non‑periodic CG solves by
-  using an FFT‑based Poisson preconditioner. `auto` selects it for non‑periodic BCs.
+  using an FFT‑based Poisson preconditioner. `auto` keeps `jacobi` for small grids;
+  use `fd_fft` explicitly when it wins.
 - Spectral brackets now reuse `∂x phi`/`∂y phi` across multiple fields in the
   ExB advection term (kernel fusion), reducing FFT traffic.
 

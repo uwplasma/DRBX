@@ -103,7 +103,7 @@ set:
 poisson_preconditioner = "fd_fft"
 ```
 
-(`auto` chooses `fd_fft` for non‑periodic BCs.)
+(`auto` keeps `jacobi` for non‑periodic BCs; use `fd_fft` explicitly when it wins.)
 
 ## Non‑Boussinesq CG Benchmark (fd_fft vs jacobi)
 
