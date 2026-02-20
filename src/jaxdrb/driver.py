@@ -272,7 +272,7 @@ def _apply_parallel_implicit(
         B = jnp.stack([B0, B1, B2], axis=-1)
 
         A = A[:, None, None, :, :]
-        U_new = jnp.linalg.solve(A, B)
+        U_new = jnp.linalg.solve(A, B[..., None])[..., 0]
 
         n_new = jnp.fft.ifft(U_new[..., 0], axis=0).real
         Te_new = jnp.fft.ifft(U_new[..., 1], axis=0).real
@@ -294,7 +294,7 @@ def _apply_parallel_implicit(
             B2_1 = v_i_hat + dt * (-D * phi_hat - tau_i * D * n_hat_new)
             B2 = jnp.stack([B2_0, B2_1], axis=-1)
             A2 = A2[:, None, None, :, :]
-            U2_new = jnp.linalg.solve(A2, B2)
+            U2_new = jnp.linalg.solve(A2, B2[..., None])[..., 0]
             Ti_new = jnp.fft.ifft(U2_new[..., 0], axis=0).real
             v_i_new = jnp.fft.ifft(U2_new[..., 1], axis=0).real
         else:
