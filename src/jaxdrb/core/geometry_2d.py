@@ -73,9 +73,9 @@ class Geometry2DAdapter(GeometryBase):
         bc = self.grid.bc
         precond = self.params.poisson_preconditioner
         if precond == "auto":
-            precond = "spectral" if self._is_periodic(bc) else "fd_fft"
+            precond = "spectral" if self._is_periodic(bc) else "jacobi"
         if precond == "spectral" and not self._is_periodic(bc):
-            precond = "fd_fft"
+            precond = "jacobi"
         shape = (self.grid.nx, self.grid.ny)
         if bc.kind_x == 1 and bc.kind_y == 1:
             shape = (self.grid.nx - 2, self.grid.ny - 2)
