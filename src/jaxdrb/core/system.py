@@ -97,11 +97,11 @@ class DRBSystem(eqx.Module):
     def _poisson_precond_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
         precond = self.params.poisson_preconditioner
         if precond == "auto":
-            precond = "spectral" if self._is_periodic_bc(bc) else "fd_fft"
+            precond = "spectral" if self._is_periodic_bc(bc) else "jacobi"
         if precond in ("none", "", None):
             return None
         if precond == "spectral" and not self._is_periodic_bc(bc):
-            precond = "fd_fft"
+            precond = "jacobi"
         shape = (nx, ny)
         if bc.kind_x == 1 and bc.kind_y == 1:
             shape = (nx - 2, ny - 2)
@@ -136,7 +136,7 @@ class DRBSystem(eqx.Module):
 
     def _polarization_precond_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
         if self.params.polarization_preconditioner == "auto":
-            precond = "spectral_jacobi" if self._is_periodic_bc(bc) else "fd_fft"
+            precond = "spectral_jacobi" if self._is_periodic_bc(bc) else "jacobi"
         else:
             precond = self.params.polarization_preconditioner
         if precond in ("none", "", None):
