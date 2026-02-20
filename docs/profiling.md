@@ -104,3 +104,11 @@ poisson_preconditioner = "fd_fft"
 ```
 
 (`auto` chooses `fd_fft` for non‑periodic BCs.)
+
+## Non‑Boussinesq CG Benchmark (fd_fft vs jacobi)
+
+Two configs are provided to quantify the fd‑FFT preconditioner win on the
+variable‑coefficient polarization solve:
+
+- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet_nonbouss_fdfft.toml`
+- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet_nonbouss_jacobi.toml`
