@@ -10,7 +10,7 @@ Defaults: `method="diffrax"`, `solver="dopri8"`, `adaptive=true`, `progress=true
 
 ```toml
 [time]
-method = "diffrax"    # rk4_scan | diffrax
+method = "diffrax"    # rk4_scan | rk4_imex | rk4_imex_strang | diffrax
 dt = 1e-3
 nsteps = 1000
 save_every = 10
@@ -39,6 +39,10 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
   cost of extra overhead for 3D field-aligned grids.
 - `term_schedule_preset`: one of `benchmark_linear`, `benchmark_nonlinear`, `benchmark_min`
   to use a predefined minimal RHS schedule for fast benchmarks.
+- `numerics.poisson_preconditioner = "fd_fft"` accelerates non‑periodic CG solves by
+  using an FFT‑based Poisson preconditioner. `auto` selects it for non‑periodic BCs.
+- Spectral brackets now reuse `∂x phi`/`∂y phi` across multiple fields in the
+  ExB advection term (kernel fusion), reducing FFT traffic.
 
 ## JIT Fixed‑Step (RK4 Scan)
 
@@ -53,6 +57,19 @@ remat = false
 
 The RK4 scan path is **JIT‑compiled by default** and is optimized for throughput.
 It is fully differentiable and can optionally use `remat = true` for memory savings.
+
+## IMEX Strang Split (Larger dt)
+
+```toml
+[time]
+method = "rk4_imex_strang"
+dt = 5e-3
+nsteps = 400
+save_every = 20
+```
+
+This applies a half‑step implicit update of diffusion/parallel terms before and after
+the explicit RK4 step, improving stability at larger `dt` for stiff runs.
 
 ## Diffrax (Adaptive / High‑Order)
 

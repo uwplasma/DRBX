@@ -36,6 +36,7 @@ class PerpOperatorBundle(eqx.Module):
     kx: jnp.ndarray | None = None
     ky: jnp.ndarray | None = None
     k2: jnp.ndarray | None = None
+    dealias_mask: jnp.ndarray | None = None
 
     def ddx(self, f: jnp.ndarray) -> jnp.ndarray:
         if self.scheme == "spectral":
@@ -102,7 +103,11 @@ class PerpOperatorBundle(eqx.Module):
             if self.scheme != "spectral":
                 raise ValueError("Spectral bracket requires spectral perp operators.")
             return spec_ops.poisson_bracket_spectral(
-                phi, f, kx=self.kx, ky=self.ky, dealias_on=self.dealias_on
+                phi,
+                f,
+                kx=self.kx,
+                ky=self.ky,
+                dealias_mask=self.dealias_mask if self.dealias_on else None,
             )
 
         if self.bracket == "arakawa":
@@ -116,12 +121,52 @@ class PerpOperatorBundle(eqx.Module):
             j = j - j.mean()
         return j
 
+    def bracket_many(
+        self,
+        phi: jnp.ndarray,
+        fields: jnp.ndarray,
+        *,
+        bc_phi: BC2D | None = None,
+        bc_f: list[BC2D | None] | None = None,
+    ) -> jnp.ndarray:
+        """Compute [phi, f_i] for a stack of fields (nfields, nx, ny)."""
+
+        if self.bracket == "spectral":
+            if self.scheme != "spectral":
+                raise ValueError("Spectral bracket requires spectral perp operators.")
+            return spec_ops.poisson_bracket_spectral_multi(
+                phi,
+                fields,
+                kx=self.kx,
+                ky=self.ky,
+                dealias_mask=self.dealias_mask if self.dealias_on else None,
+            )
+
+        # Fallback: compute per-field bracket (no fusion).
+        if bc_f is None:
+            bc_f = [None] * fields.shape[0]
+        out = []
+        for i in range(fields.shape[0]):
+            out.append(self.bracket_op(phi, fields[i], bc_phi=bc_phi, bc_f=bc_f[i]))
+        return jnp.stack(out)
+
 
 def _spec_kgrid(nx: int, ny: int, dx: float, dy: float) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=dx))
     ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=dy))
     kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
     return kx, ky, kx**2 + ky**2
+
+
+def _spec_dealias_mask(nx: int, ny: int) -> jnp.ndarray:
+    """Return a 2/3-rule dealias mask for a spectral grid."""
+    kx = jnp.fft.fftfreq(nx) * nx
+    ky = jnp.fft.fftfreq(ny) * ny
+    kxg, kyg = jnp.meshgrid(kx, ky, indexing="ij")
+    kx_max = (2.0 / 3.0) * (nx // 2)
+    ky_max = (2.0 / 3.0) * (ny // 2)
+    mask = (jnp.abs(kxg) <= kx_max) & (jnp.abs(kyg) <= ky_max)
+    return mask.astype(jnp.float32)
 
 
 def build_perp_operator_bundle(
@@ -140,8 +185,10 @@ def build_perp_operator_bundle(
 
     if scheme == "spectral":
         kx, ky, k2 = _spec_kgrid(nx, ny, dx, dy)
+        dealias_mask = _spec_dealias_mask(nx, ny)
     else:
         kx = ky = k2 = None
+        dealias_mask = None
     return PerpOperatorBundle(
         scheme=scheme,
         bracket=bracket,
@@ -153,4 +200,5 @@ def build_perp_operator_bundle(
         kx=kx,
         ky=ky,
         k2=k2,
+        dealias_mask=dealias_mask,
     )

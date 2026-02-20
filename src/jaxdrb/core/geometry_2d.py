@@ -28,6 +28,7 @@ from jaxdrb.operators.spectral2d import (
     dealias,
     inv_laplacian,
     poisson_bracket_spectral,
+    poisson_bracket_spectral_multi,
 )
 from jaxdrb.operators.brackets import (
     poisson_bracket_arakawa,
@@ -72,9 +73,9 @@ class Geometry2DAdapter(GeometryBase):
         bc = self.grid.bc
         precond = self.params.poisson_preconditioner
         if precond == "auto":
-            precond = "spectral"
+            precond = "spectral" if self._is_periodic(bc) else "fd_fft"
         if precond == "spectral" and not self._is_periodic(bc):
-            precond = "jacobi"
+            precond = "fd_fft"
         shape = (self.grid.nx, self.grid.ny)
         if bc.kind_x == 1 and bc.kind_y == 1:
             shape = (self.grid.nx - 2, self.grid.ny - 2)
@@ -82,6 +83,7 @@ class Geometry2DAdapter(GeometryBase):
             shape=shape,
             dx=self.grid.dx,
             dy=self.grid.dy,
+            bc=self.grid.bc,
             preconditioner=str(precond),
             k2_precond=self.perp_ops.k2 if str(precond) == "spectral" else None,
             gauge_epsilon=self.params.poisson_gauge_epsilon,
@@ -270,6 +272,37 @@ class Geometry2DAdapter(GeometryBase):
         if self.params.dealias_on and periodic_pair:
             return scale * dealias(j, self.grid.dealias_mask)
         return scale * j
+
+    def bracket_many(
+        self,
+        phi: jnp.ndarray,
+        fields: jnp.ndarray,
+        *,
+        bc_phi: BC2D | None = None,
+        bc_f: list[BC2D | None] | None = None,
+    ) -> jnp.ndarray:
+        if bc_phi is None:
+            bc_phi = self.grid.bc
+        if bc_f is None:
+            bc_f = [self.grid.bc] * fields.shape[0]
+
+        periodic_pair = self._is_periodic(bc_phi)
+        if self.params.bracket == "spectral":
+            if not periodic_pair:
+                raise ValueError("Spectral bracket requires periodic BCs in x and y.")
+            out = poisson_bracket_spectral_multi(
+                phi,
+                fields,
+                kx=self.perp_ops.kx,
+                ky=self.perp_ops.ky,
+                dealias_mask=self.grid.dealias_mask if self.params.dealias_on else None,
+            )
+            return float(self.params.exb_scale) * out
+
+        out = []
+        for i in range(fields.shape[0]):
+            out.append(self.bracket(phi, fields[i], bc_phi=bc_phi, bc_f=bc_f[i]))
+        return jnp.stack(out)
 
     def dpar(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         if self.params.kpar == 0.0:

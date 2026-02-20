@@ -94,3 +94,13 @@ python tools/profile_jaxdrb.py \
 ```
 
 Compare with `--no-warm-start` runs to quantify CG warm‑start impact.
+
+If you want to stress the new FFT‑based preconditioner for non‑periodic CG solves,
+set:
+
+```toml
+[numerics]
+poisson_preconditioner = "fd_fft"
+```
+
+(`auto` chooses `fd_fft` for non‑periodic BCs.)
