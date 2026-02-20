@@ -28,6 +28,8 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `diag_phi_use_guess`: reuse `phi` carried by the integrator state for diagnostics.
 - `diag_phi_use_guess_only`: if `true`, **never** solve Poisson in diagnostics. If `phi`
   is not available, `phi` diagnostics are zeroed.
+- `carry_phi`: if `true`, carry `phi` in the RK4 integrator state even when
+  `poisson_warm_start = false` (avoids extra diagnostic Poisson solves).
 - `poisson_warm_start`: reuse the previous `phi` as CG initial guess (RK4 scan only).
 - `poisson_track_iters`: record mean/max CG iteration stats per saved frame
   (averaged over the RK4 steps since the last save; RK4 scan only).

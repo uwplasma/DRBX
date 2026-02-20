@@ -49,3 +49,26 @@ For low‑level timeline inspection, you can also open the trace in Chrome:
   iteration stats (mean/max over the RK4 steps since the last save).
 - Kernel traces now include named scopes for `poisson_solve`, `bracket_terms`,
   `curvature`, and `parallel_*` blocks to simplify attribution.
+
+## Comparing Warm‑Start vs Cold‑Start
+
+For a quick A/B run, use the tiny preset config:
+
+```
+python tools/profile_jaxdrb.py \
+  --config benchmarks/cases/jaxdrb/benchmark_preset_linear.toml \
+  --steps 50 \
+  --dt 1e-3 \
+  --outdir benchmarks/profiles/preset_linear_warm \
+  --warm-start
+
+python tools/profile_jaxdrb.py \
+  --config benchmarks/cases/jaxdrb/benchmark_preset_linear.toml \
+  --steps 50 \
+  --dt 1e-3 \
+  --outdir benchmarks/profiles/preset_linear_cold \
+  --no-warm-start
+```
+
+This will produce two `timing.txt` files plus HLO/trace artifacts to compare the
+impact of Poisson warm‑start and the new preconditioner caches.
