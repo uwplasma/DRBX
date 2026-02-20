@@ -27,3 +27,8 @@ See:
 
 This config uses a tiny `s-alpha` grid with `term_schedule_preset = "benchmark_linear"`
 and `diag_mode = "basic"` to keep runtime and memory minimal.
+
+Additional preset configs:
+- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_nonlinear.toml`
+- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet.toml`
+- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_linear_neumann.toml`
