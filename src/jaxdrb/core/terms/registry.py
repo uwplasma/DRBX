@@ -344,15 +344,72 @@ DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
     "line_bcs",
 )
 
+STIFF_TERM_SCHEDULE: tuple[str, ...] = (
+    "diffusion",
+    "sol_sinks",
+    "sol_omega_bc",
+    "sol_vpar_bc",
+    "sol_edge_relax",
+    "region_bc_relax",
+    "field_bc_relax",
+    "perp_bc_relax",
+    "line_bcs",
+)
+
+PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
+    # Minimal linear physics for fast benchmarks (no nonlinear advection).
+    "benchmark_linear": (
+        "parallel",
+        "curvature",
+        "drive",
+        "diffusion",
+    ),
+    # Minimal nonlinear set for fast benchmarks (adds ExB advection).
+    "benchmark_nonlinear": (
+        "advection",
+        "parallel",
+        "curvature",
+        "drive",
+        "diffusion",
+    ),
+    # Very small quick-check set (no drive; useful for stability/perf).
+    "benchmark_min": (
+        "advection",
+        "parallel",
+        "curvature",
+        "diffusion",
+    ),
+}
+
+
+def _resolve_term_schedule(params: DRBSystemParams) -> tuple[str, ...]:
+    if params.term_schedule is not None:
+        return tuple(params.term_schedule)
+    preset = getattr(params, "term_schedule_preset", None)
+    if preset:
+        key = str(preset)
+        if key not in PRESET_TERM_SCHEDULES:
+            raise ValueError(f"Unknown term_schedule_preset: {key}")
+        return PRESET_TERM_SCHEDULES[key]
+    return DEFAULT_TERM_SCHEDULE
+
 
 def build_scheduler(params: DRBSystemParams) -> TermScheduler:
-    schedule = params.term_schedule
-    if schedule is None:
-        names = DEFAULT_TERM_SCHEDULE
-    else:
-        names = tuple(schedule)
+    names = _resolve_term_schedule(params)
     terms = tuple(TERM_REGISTRY[name] for name in names)
     return TermScheduler(terms=terms)
+
+
+def build_scheduler_from_names(names: Sequence[str]) -> TermScheduler:
+    terms = tuple(TERM_REGISTRY[name] for name in names)
+    return TermScheduler(terms=terms)
+
+
+def split_term_schedule(params: DRBSystemParams) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    names = _resolve_term_schedule(params)
+    stiff = tuple(name for name in names if name in STIFF_TERM_SCHEDULE)
+    explicit = tuple(name for name in names if name not in STIFF_TERM_SCHEDULE)
+    return explicit, stiff
 
 
 def available_terms() -> tuple[str, ...]:

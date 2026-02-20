@@ -12,6 +12,9 @@ from jaxdrb.core.terms import build_context
 from jaxdrb.operators.fd2d import (
     ddx as ddx_fd,
     ddy as ddy_fd,
+    build_div_n_grad_preconditioner,
+    build_fd_fft_eigs,
+    build_laplacian_preconditioner,
     inv_div_n_grad_cg,
     inv_laplacian_cg,
     inv_laplacian_fd_fft,
@@ -37,11 +40,23 @@ class DRBSystem(eqx.Module):
     params: DRBSystemParams
     geom: GeometryAdapter
     scheduler: object = eqx.field(init=False, static=True)
+    scheduler_explicit: object = eqx.field(init=False, static=True, default=None)
+    scheduler_stiff: object = eqx.field(init=False, static=True, default=None)
+    poisson_precond_cache: dict = eqx.field(init=False, static=True, default_factory=dict)
+    polarization_precond_cache: dict = eqx.field(init=False, static=True, default_factory=dict)
+    poisson_fdfft_cache: dict = eqx.field(init=False, static=True, default_factory=dict)
 
     def __post_init__(self):
-        from jaxdrb.core.terms.registry import build_scheduler
+        from jaxdrb.core.terms.registry import (
+            build_scheduler,
+            build_scheduler_from_names,
+            split_term_schedule,
+        )
 
         object.__setattr__(self, "scheduler", build_scheduler(self.params))
+        explicit_names, stiff_names = split_term_schedule(self.params)
+        object.__setattr__(self, "scheduler_explicit", build_scheduler_from_names(explicit_names))
+        object.__setattr__(self, "scheduler_stiff", build_scheduler_from_names(stiff_names))
 
     def _grid(self):
         grid = getattr(self.geom, "grid", None)
@@ -78,6 +93,80 @@ class DRBSystem(eqx.Module):
 
     def _is_periodic_pair(self, bc_a: BC2D, bc_b: BC2D) -> bool:
         return self._is_periodic_bc(bc_a) and self._is_periodic_bc(bc_b)
+
+    def _poisson_precond_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
+        precond = self.params.poisson_preconditioner
+        if precond == "auto":
+            precond = "spectral"
+        if precond in ("none", "", None):
+            return None
+        if precond == "spectral" and not self._is_periodic_bc(bc):
+            precond = "jacobi"
+        shape = (nx, ny)
+        if bc.kind_x == 1 and bc.kind_y == 1:
+            shape = (nx - 2, ny - 2)
+        key = (
+            shape,
+            bc.kind_x,
+            bc.kind_y,
+            float(dx),
+            float(dy),
+            str(precond),
+            self.params.poisson_gauge_epsilon,
+        )
+        cached = self.poisson_precond_cache.get(key)
+        if cached is not None:
+            return cached
+        k2_precond = None
+        if str(precond) == "spectral" and self._is_periodic_bc(bc):
+            grid = self._grid()
+            if grid is not None:
+                k2_precond = grid.k2
+        precond_fn = build_laplacian_preconditioner(
+            shape=shape,
+            dx=dx,
+            dy=dy,
+            preconditioner=str(precond),
+            k2_precond=k2_precond,
+            gauge_epsilon=self.params.poisson_gauge_epsilon,
+        )
+        self.poisson_precond_cache[key] = precond_fn
+        return precond_fn
+
+    def _polarization_precond_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
+        if self.params.polarization_preconditioner == "auto":
+            precond = "spectral_jacobi"
+        else:
+            precond = self.params.polarization_preconditioner
+        if precond in ("none", "", None):
+            return None
+        n_eff = max(float(self.params.n0), float(self.params.n0_min))
+        key = (nx, ny, bc.kind_x, bc.kind_y, float(dx), float(dy), str(precond), float(n_eff))
+        cached = self.polarization_precond_cache.get(key)
+        if cached is not None:
+            return cached
+        n_coeff = jnp.full((nx, ny), n_eff, dtype=jnp.float64)
+        precond_fn = build_div_n_grad_preconditioner(
+            n_coeff=n_coeff,
+            dx=dx,
+            dy=dy,
+            bc=bc,
+            preconditioner=str(precond),
+            preconditioner_shift=float(self.params.polarization_precond_shift),
+            gauge_epsilon=self.params.poisson_gauge_epsilon,
+            n_floor=float(self.params.n0_min),
+        )
+        self.polarization_precond_cache[key] = precond_fn
+        return precond_fn
+
+    def _poisson_fdfft_eigs_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
+        key = (nx, ny, bc.kind_x, bc.kind_y, float(dx), float(dy))
+        cached = self.poisson_fdfft_cache.get(key)
+        if cached is not None:
+            return cached
+        eigs = build_fd_fft_eigs(nx=nx, ny=ny, dx=dx, dy=dy, bc=bc, dtype=jnp.float64)
+        self.poisson_fdfft_cache[key] = eigs
+        return eigs
 
     def _phys_n(self, n: jnp.ndarray) -> jnp.ndarray:
         if not self.params.log_n:
@@ -134,11 +223,7 @@ class DRBSystem(eqx.Module):
         ctx = build_context(self.params, self.geom, y)
         return self.scheduler.run(ctx, y)
 
-    def rhs_split(self, t: float, y: DRBSystemState) -> DRBSystemSplit:
-        return self._rhs_drb_split(t, y)
-
-    def rhs(self, t: float, y: DRBSystemState) -> DRBSystemState:
-        split = self.rhs_split(t, y)
+    def _apply_split(self, split: DRBSystemSplit, y: DRBSystemState) -> DRBSystemState:
         if not self.params.operator_split_on:
             return split.total()
         out = _state_zeros_like(y)
@@ -150,22 +235,32 @@ class DRBSystem(eqx.Module):
             out = _state_add(out, split.dissipative)
         return out
 
+    def rhs_split(self, t: float, y: DRBSystemState) -> DRBSystemSplit:
+        return self._rhs_drb_split(t, y)
+
+    def rhs(self, t: float, y: DRBSystemState) -> DRBSystemState:
+        split = self.rhs_split(t, y)
+        return self._apply_split(split, y)
+
+    def rhs_explicit(self, t: float, y: DRBSystemState) -> DRBSystemState:
+        _ = t
+        ctx = build_context(self.params, self.geom, y)
+        split = self.scheduler_explicit.run(ctx, y)
+        return self._apply_split(split, y)
+
+    def rhs_stiff(self, t: float, y: DRBSystemState) -> DRBSystemState:
+        _ = t
+        ctx = build_context(self.params, self.geom, y, skip_phi=True)
+        split = self.scheduler_stiff.run(ctx, y)
+        return self._apply_split(split, y)
+
     def rhs_with_phi(
         self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
     ) -> tuple[DRBSystemState, jnp.ndarray]:
         _ = t
         ctx = build_context(self.params, self.geom, y, phi_guess=phi_guess)
         split = self.scheduler.run(ctx, y)
-        if not self.params.operator_split_on:
-            return split.total(), ctx.phi
-        out = _state_zeros_like(y)
-        if self.params.operator_conservative_on:
-            out = _state_add(out, split.conservative)
-        if self.params.operator_source_on:
-            out = _state_add(out, split.source)
-        if self.params.operator_dissipative_on:
-            out = _state_add(out, split.dissipative)
-        return out, ctx.phi
+        return self._apply_split(split, y), ctx.phi
 
     def rhs_with_phi_iters(
         self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
@@ -175,17 +270,27 @@ class DRBSystem(eqx.Module):
             self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True
         )
         split = self.scheduler.run(ctx, y)
-        if not self.params.operator_split_on:
-            return split.total(), ctx.phi, ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
-        out = _state_zeros_like(y)
-        if self.params.operator_conservative_on:
-            out = _state_add(out, split.conservative)
-        if self.params.operator_source_on:
-            out = _state_add(out, split.source)
-        if self.params.operator_dissipative_on:
-            out = _state_add(out, split.dissipative)
         iters = ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
-        return out, ctx.phi, iters
+        return self._apply_split(split, y), ctx.phi, iters
+
+    def rhs_explicit_with_phi(
+        self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
+    ) -> tuple[DRBSystemState, jnp.ndarray]:
+        _ = t
+        ctx = build_context(self.params, self.geom, y, phi_guess=phi_guess)
+        split = self.scheduler_explicit.run(ctx, y)
+        return self._apply_split(split, y), ctx.phi
+
+    def rhs_explicit_with_phi_iters(
+        self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
+    ) -> tuple[DRBSystemState, jnp.ndarray, jnp.ndarray]:
+        _ = t
+        ctx = build_context(
+            self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True
+        )
+        split = self.scheduler_explicit.run(ctx, y)
+        iters = ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
+        return self._apply_split(split, y), ctx.phi, iters
 
     def _state_from(self, y: DRBSystemState, **kwargs) -> DRBSystemState:
         return DRBSystemState(
@@ -426,6 +531,10 @@ class DRBSystem(eqx.Module):
             if poisson == "cg_fd":
                 try:
                     eigs = getattr(self.geom, "poisson_fd_fft_eigs", None)
+                    if eigs is None:
+                        eigs = self._poisson_fdfft_eigs_cached(
+                            bc=bc_phi, nx=grid.nx, ny=grid.ny, dx=grid.dx, dy=grid.dy
+                        )
                     lam_x, lam_y = eigs if eigs is not None else (None, None)
                     return inv_laplacian_fd_fft(
                         omega,
@@ -439,6 +548,10 @@ class DRBSystem(eqx.Module):
                 except ValueError:
                     pass
             precond_fn = getattr(self.geom, "poisson_preconditioner_fn", None)
+            if precond_fn is None:
+                precond_fn = self._poisson_precond_cached(
+                    bc=bc_phi, nx=grid.nx, ny=grid.ny, dx=grid.dx, dy=grid.dy
+                )
             return inv_laplacian_cg(
                 omega,
                 dx=grid.dx,
@@ -464,6 +577,11 @@ class DRBSystem(eqx.Module):
             precond = "spectral_jacobi"
         else:
             precond = self.params.polarization_preconditioner
+        precond_fn = getattr(self.geom, "polarization_preconditioner_fn", None)
+        if precond_fn is None and not self.params.non_boussinesq_perturbed_density_on:
+            precond_fn = self._polarization_precond_cached(
+                bc=bc_phi, nx=grid.nx, ny=grid.ny, dx=grid.dx, dy=grid.dy
+            )
         return inv_div_n_grad_cg(
             omega,
             n_coeff=n_eff,
@@ -475,6 +593,6 @@ class DRBSystem(eqx.Module):
             atol=float(self.params.polarization_cg_atol),
             preconditioner=precond,
             preconditioner_shift=float(self.params.polarization_precond_shift),
-            preconditioner_fn=getattr(self.geom, "polarization_preconditioner_fn", None),
+            preconditioner_fn=precond_fn,
             x0=phi_guess,
         )

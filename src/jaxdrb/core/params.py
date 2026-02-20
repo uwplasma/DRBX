@@ -227,6 +227,7 @@ class NumericsParams(eqx.Module):
     bracket_zero_mean: bool = False
     exb_scale: float = 1.0
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
+    parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_force_spectral_when_periodic: bool = True
     poisson_force_fd_fft_when_nonperiodic: bool = True
@@ -258,6 +259,7 @@ class NumericsParams(eqx.Module):
 
     # Optional term schedule override (list of term names).
     term_schedule: tuple[str, ...] | None = eqx.field(static=True, default=None)
+    term_schedule_preset: str | None = eqx.field(static=True, default=None)
 
 
 class BCParams(eqx.Module):
