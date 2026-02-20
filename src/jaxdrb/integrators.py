@@ -69,14 +69,257 @@ def rk4_step_with_phi_iters(
     return tree_add(y, acc, dt / 6.0), phi_next, it_mean, it_max
 
 
+def build_rk4_scan_split(
+    rhs: Callable[[float, PyTree], PyTree],
+    dt: float,
+    steps: int,
+    save_every: int,
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
+    bc_fn: Callable[[PyTree, float, PyTree | None], PyTree],
+    *,
+    rhs_remat: bool = False,
+    scan_remat: bool = False,
+) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
+    """RK4 with operator-split implicit BC update after each step."""
+
+    dt = float(dt)
+    steps = int(steps)
+    save_every = int(save_every)
+    if save_every <= 0:
+        raise ValueError("save_every must be > 0")
+    if steps < 0:
+        raise ValueError("steps must be >= 0")
+
+    nblocks = steps // save_every
+    rem = steps % save_every
+    nsave = nblocks + 1 + (1 if rem > 0 else 0)
+
+    rhs_fn = jax.checkpoint(rhs) if rhs_remat else rhs
+
+    def inner(carry, _):
+        t, y = carry
+        y = rk4_step(rhs_fn, t, y, dt)
+        y = bc_fn(y, dt, None)
+        return (t + dt, y), None
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
+
+    def block(carry, _):
+        t, y = carry
+        (t, y), _ = jax.lax.scan(inner_fn, (t, y), None, length=save_every)
+        diag = diag_fn(t, y, phi_guess=None)
+        return (t, y), diag
+
+    def _concat_diag(diag0, diags):
+        return jax.tree_util.tree_map(
+            lambda d0, ds: jnp.concatenate([d0[jnp.newaxis, ...], ds], axis=0),
+            diag0,
+            diags,
+        )
+
+    def _append_diag(diags, diag_last):
+        return jax.tree_util.tree_map(
+            lambda ds, dl: jnp.concatenate([ds, dl[jnp.newaxis, ...]], axis=0),
+            diags,
+            diag_last,
+        )
+
+    def run(state: PyTree):
+        t0 = jnp.asarray(0.0)
+        diag0 = diag_fn(t0, state, phi_guess=None)
+        if nblocks > 0:
+            (t, y), diags = jax.lax.scan(block, (t0, state), None, length=nblocks)
+            diags = _concat_diag(diag0, diags)
+        else:
+            t, y = t0, state
+            diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
+        if rem > 0:
+            (t, y), _ = jax.lax.scan(inner_fn, (t, y), None, length=rem)
+            diag_last = diag_fn(t, y, phi_guess=None)
+            diags = _append_diag(diags, diag_last)
+        return y, diags
+
+    return jax.jit(run), nsave, rem
+
+
+def build_rk4_scan_cached_split(
+    rhs_with_phi: Callable[[float, PyTree, PyTree | None], tuple[PyTree, PyTree]],
+    dt: float,
+    steps: int,
+    save_every: int,
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
+    bc_fn: Callable[[PyTree, float, PyTree | None], PyTree],
+    *,
+    rhs_remat: bool = False,
+    scan_remat: bool = False,
+) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
+    """RK4 with Poisson warm-start caching and BC split."""
+
+    dt = float(dt)
+    steps = int(steps)
+    save_every = int(save_every)
+    if save_every <= 0:
+        raise ValueError("save_every must be > 0")
+    if steps < 0:
+        raise ValueError("steps must be >= 0")
+
+    nblocks = steps // save_every
+    rem = steps % save_every
+    nsave = nblocks + 1 + (1 if rem > 0 else 0)
+
+    rhs_fn = jax.checkpoint(rhs_with_phi) if rhs_remat else rhs_with_phi
+
+    def inner(carry, _):
+        t, y, phi_guess = carry
+        y, phi_guess = rk4_step_with_phi(rhs_fn, t, y, dt, phi_guess)
+        y = bc_fn(y, dt, phi_guess)
+        return (t + dt, y, phi_guess), None
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
+
+    def block(carry, _):
+        t, y, phi_guess = carry
+        (t, y, phi_guess), _ = jax.lax.scan(
+            inner_fn, (t, y, phi_guess), None, length=save_every
+        )
+        diag = diag_fn(t, y, phi_guess=phi_guess)
+        return (t, y, phi_guess), diag
+
+    def _concat_diag(diag0, diags):
+        return jax.tree_util.tree_map(
+            lambda d0, ds: jnp.concatenate([d0[jnp.newaxis, ...], ds], axis=0),
+            diag0,
+            diags,
+        )
+
+    def _append_diag(diags, diag_last):
+        return jax.tree_util.tree_map(
+            lambda ds, dl: jnp.concatenate([ds, dl[jnp.newaxis, ...]], axis=0),
+            diags,
+            diag_last,
+        )
+
+    def run(state: PyTree):
+        t0 = jnp.asarray(0.0)
+        phi_guess0 = jnp.zeros_like(state.omega)
+        diag0 = diag_fn(t0, state, phi_guess=phi_guess0)
+        if nblocks > 0:
+            (t, y, phi_guess), diags = jax.lax.scan(
+                block, (t0, state, phi_guess0), None, length=nblocks
+            )
+            diags = _concat_diag(diag0, diags)
+        else:
+            t, y, phi_guess = t0, state, phi_guess0
+            diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
+        if rem > 0:
+            (t, y, phi_guess), _ = jax.lax.scan(
+                inner_fn, (t, y, phi_guess), None, length=rem
+            )
+            diag_last = diag_fn(t, y, phi_guess=phi_guess)
+            diags = _append_diag(diags, diag_last)
+        return y, diags
+
+    return jax.jit(run), nsave, rem
+
+
+def build_rk4_scan_cached_iters_split(
+    rhs_with_phi_iters: Callable[[float, PyTree, PyTree | None], tuple[PyTree, PyTree, PyTree]],
+    dt: float,
+    steps: int,
+    save_every: int,
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
+    bc_fn: Callable[[PyTree, float, PyTree | None], PyTree],
+    *,
+    rhs_remat: bool = False,
+    scan_remat: bool = False,
+) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
+    """RK4 with Poisson warm-start + iter tracking and BC split."""
+
+    dt = float(dt)
+    steps = int(steps)
+    save_every = int(save_every)
+    if save_every <= 0:
+        raise ValueError("save_every must be > 0")
+    if steps < 0:
+        raise ValueError("steps must be >= 0")
+
+    nblocks = steps // save_every
+    rem = steps % save_every
+    nsave = nblocks + 1 + (1 if rem > 0 else 0)
+
+    rhs_fn = jax.checkpoint(rhs_with_phi_iters) if rhs_remat else rhs_with_phi_iters
+
+    def inner(carry, _):
+        t, y, phi_guess, it_sum, it_max = carry
+        y, phi_guess, it_mean, it_step_max = rk4_step_with_phi_iters(
+            rhs_fn, t, y, dt, phi_guess, warm_start=True
+        )
+        y = bc_fn(y, dt, phi_guess)
+        it_sum = it_sum + it_mean
+        it_max = jnp.maximum(it_max, it_step_max)
+        return (t + dt, y, phi_guess, it_sum, it_max), None
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
+
+    def block(carry, _):
+        t, y, phi_guess = carry
+        it_sum0 = jnp.asarray(0.0)
+        it_max0 = jnp.asarray(0.0)
+        (t, y, phi_guess, it_sum, it_max), _ = jax.lax.scan(
+            inner_fn, (t, y, phi_guess, it_sum0, it_max0), None, length=save_every
+        )
+        it_mean = it_sum / jnp.asarray(float(save_every))
+        diag = diag_fn(t, y, phi_guess=phi_guess)
+        diag = diag + (it_mean, it_max)
+        return (t, y, phi_guess), diag
+
+    def _concat_diag(diag0, diags):
+        return jax.tree_util.tree_map(
+            lambda d0, ds: jnp.concatenate([d0[jnp.newaxis, ...], ds], axis=0),
+            diag0,
+            diags,
+        )
+
+    def _append_diag(diags, diag_last):
+        return jax.tree_util.tree_map(
+            lambda ds, dl: jnp.concatenate([ds, dl[jnp.newaxis, ...]], axis=0),
+            diags,
+            diag_last,
+        )
+
+    def run(state: PyTree):
+        t0 = jnp.asarray(0.0)
+        phi_guess0 = jnp.zeros_like(state.omega)
+        it0 = jnp.asarray(0.0)
+        diag0 = diag_fn(t0, state, phi_guess=phi_guess0) + (it0, it0)
+        if nblocks > 0:
+            (t, y, phi_guess), diags = jax.lax.scan(
+                block, (t0, state, phi_guess0), None, length=nblocks
+            )
+            diags = _concat_diag(diag0, diags)
+        else:
+            t, y, phi_guess = t0, state, phi_guess0
+            diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
+        if rem > 0:
+            it_sum0 = jnp.asarray(0.0)
+            it_max0 = jnp.asarray(0.0)
+            (t, y, phi_guess, it_sum, it_max), _ = jax.lax.scan(
+                inner_fn, (t, y, phi_guess, it_sum0, it_max0), None, length=rem
+            )
+            it_mean = it_sum / jnp.asarray(float(rem))
+            diag_last = diag_fn(t, y, phi_guess=phi_guess) + (it_mean, it_max)
+            diags = _append_diag(diags, diag_last)
+        return y, diags
+
+    return jax.jit(run), nsave, rem
+
+
 def build_rk4_scan(
     rhs: Callable[[float, PyTree], PyTree],
     dt: float,
     steps: int,
     save_every: int,
-    diag_fn: Callable[[float, PyTree], PyTree],
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
     *,
     rhs_remat: bool = False,
+    scan_remat: bool = False,
 ) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
     """Return a JIT-compiled runner and output counts.
 
@@ -102,11 +345,12 @@ def build_rk4_scan(
         t, y = carry
         y = rk4_step(rhs_fn, t, y, dt)
         return (t + dt, y), None
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
         t, y = carry
-        (t, y), _ = jax.lax.scan(inner, (t, y), None, length=save_every)
-        diag = diag_fn(t, y)
+        (t, y), _ = jax.lax.scan(inner_fn, (t, y), None, length=save_every)
+        diag = diag_fn(t, y, phi_guess=None)
         return (t, y), diag
 
     def _concat_diag(diag0, diags):
@@ -125,7 +369,7 @@ def build_rk4_scan(
 
     def run(state: PyTree):
         t0 = jnp.asarray(0.0)
-        diag0 = diag_fn(t0, state)
+        diag0 = diag_fn(t0, state, phi_guess=None)
         if nblocks > 0:
             (t, y), diags = jax.lax.scan(block, (t0, state), None, length=nblocks)
             diags = _concat_diag(diag0, diags)
@@ -133,8 +377,8 @@ def build_rk4_scan(
             t, y = t0, state
             diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
         if rem > 0:
-            (t, y), _ = jax.lax.scan(inner, (t, y), None, length=rem)
-            diag_last = diag_fn(t, y)
+            (t, y), _ = jax.lax.scan(inner_fn, (t, y), None, length=rem)
+            diag_last = diag_fn(t, y, phi_guess=None)
             diags = _append_diag(diags, diag_last)
         return y, diags
 
@@ -146,9 +390,10 @@ def build_rk4_scan_cached(
     dt: float,
     steps: int,
     save_every: int,
-    diag_fn: Callable[[float, PyTree], PyTree],
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
     *,
     rhs_remat: bool = False,
+    scan_remat: bool = False,
 ) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
     """Return a JIT-compiled runner with Poisson warm-start caching."""
 
@@ -170,11 +415,14 @@ def build_rk4_scan_cached(
         t, y, phi_guess = carry
         y, phi_guess = rk4_step_with_phi(rhs_fn, t, y, dt, phi_guess)
         return (t + dt, y, phi_guess), None
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
         t, y, phi_guess = carry
-        (t, y, phi_guess), _ = jax.lax.scan(inner, (t, y, phi_guess), None, length=save_every)
-        diag = diag_fn(t, y)
+        (t, y, phi_guess), _ = jax.lax.scan(
+            inner_fn, (t, y, phi_guess), None, length=save_every
+        )
+        diag = diag_fn(t, y, phi_guess=phi_guess)
         return (t, y, phi_guess), diag
 
     def _concat_diag(diag0, diags):
@@ -194,7 +442,7 @@ def build_rk4_scan_cached(
     def run(state: PyTree):
         t0 = jnp.asarray(0.0)
         phi_guess0 = jnp.zeros_like(state.omega)
-        diag0 = diag_fn(t0, state)
+        diag0 = diag_fn(t0, state, phi_guess=phi_guess0)
         if nblocks > 0:
             (t, y, phi_guess), diags = jax.lax.scan(
                 block, (t0, state, phi_guess0), None, length=nblocks
@@ -204,8 +452,10 @@ def build_rk4_scan_cached(
             t, y, phi_guess = t0, state, phi_guess0
             diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
         if rem > 0:
-            (t, y, phi_guess), _ = jax.lax.scan(inner, (t, y, phi_guess), None, length=rem)
-            diag_last = diag_fn(t, y)
+            (t, y, phi_guess), _ = jax.lax.scan(
+                inner_fn, (t, y, phi_guess), None, length=rem
+            )
+            diag_last = diag_fn(t, y, phi_guess=phi_guess)
             diags = _append_diag(diags, diag_last)
         return y, diags
 
@@ -217,10 +467,11 @@ def build_rk4_scan_cached_iters(
     dt: float,
     steps: int,
     save_every: int,
-    diag_fn: Callable[[float, PyTree], PyTree],
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
     *,
     rhs_remat: bool = False,
     warm_start: bool = True,
+    scan_remat: bool = False,
 ) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
     """Return a JIT-compiled runner with Poisson warm-start + CG iteration stats."""
 
@@ -246,16 +497,17 @@ def build_rk4_scan_cached_iters(
         it_sum = it_sum + it_mean
         it_max = jnp.maximum(it_max, it_step_max)
         return (t + dt, y, phi_guess, it_sum, it_max), None
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
         t, y, phi_guess = carry
         it_sum0 = jnp.asarray(0.0)
         it_max0 = jnp.asarray(0.0)
         (t, y, phi_guess, it_sum, it_max), _ = jax.lax.scan(
-            inner, (t, y, phi_guess, it_sum0, it_max0), None, length=save_every
+            inner_fn, (t, y, phi_guess, it_sum0, it_max0), None, length=save_every
         )
         it_mean = it_sum / jnp.asarray(float(save_every))
-        diag = diag_fn(t, y)
+        diag = diag_fn(t, y, phi_guess=phi_guess)
         diag = diag + (it_mean, it_max)
         return (t, y, phi_guess), diag
 
@@ -277,7 +529,7 @@ def build_rk4_scan_cached_iters(
         t0 = jnp.asarray(0.0)
         phi_guess0 = jnp.zeros_like(state.omega) if warm_start else None
         it0 = jnp.asarray(0.0)
-        diag0 = diag_fn(t0, state) + (it0, it0)
+        diag0 = diag_fn(t0, state, phi_guess=phi_guess0) + (it0, it0)
         if nblocks > 0:
             (t, y, phi_guess), diags = jax.lax.scan(
                 block, (t0, state, phi_guess0), None, length=nblocks
@@ -290,10 +542,10 @@ def build_rk4_scan_cached_iters(
             it_sum0 = jnp.asarray(0.0)
             it_max0 = jnp.asarray(0.0)
             (t, y, phi_guess, it_sum, it_max), _ = jax.lax.scan(
-                inner, (t, y, phi_guess, it_sum0, it_max0), None, length=rem
+                inner_fn, (t, y, phi_guess, it_sum0, it_max0), None, length=rem
             )
             it_mean = it_sum / jnp.asarray(float(rem))
-            diag_last = diag_fn(t, y) + (it_mean, it_max)
+            diag_last = diag_fn(t, y, phi_guess=phi_guess) + (it_mean, it_max)
             diags = _append_diag(diags, diag_last)
         return y, diags
 

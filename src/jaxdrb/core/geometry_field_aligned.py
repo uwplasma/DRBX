@@ -153,6 +153,8 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     curv_y: jnp.ndarray
     dpar_factor: jnp.ndarray
     B: jnp.ndarray
+    dpar_factor_const: bool = eqx.field(init=False, static=True, default=False)
+    dpar_factor_scalar: float | None = eqx.field(init=False, static=True, default=None)
     perp_ops: PerpOperatorBundle = eqx.field(init=False)
     poisson_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
     polarization_preconditioner_fn: object = eqx.field(init=False, static=True, default=None)
@@ -244,6 +246,12 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         object.__setattr__(self, "curv_y", _broadcast(self.curv_y, "curv_y"))
         object.__setattr__(self, "dpar_factor", _broadcast(self.dpar_factor, "dpar_factor"))
         object.__setattr__(self, "B", _broadcast(self.B, "B"))
+
+        dpar_arr = np.asarray(self.dpar_factor)
+        dpar_const = bool(np.max(dpar_arr) - np.min(dpar_arr) <= 1e-12)
+        dpar_scalar = float(dpar_arr.flat[0]) if dpar_const else None
+        object.__setattr__(self, "dpar_factor_const", dpar_const)
+        object.__setattr__(self, "dpar_factor_scalar", dpar_scalar)
 
     @classmethod
     def from_coefficients(
@@ -386,6 +394,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         return int(self.grid.z.size), int(self.grid.perp.nx), int(self.grid.perp.ny)
 
     def _vmap_plane(self, op, f: jnp.ndarray) -> jnp.ndarray:
+        mode = str(getattr(self.params, "parallel_z_mode", "vmap")).lower()
+        if mode == "scan":
+            return jax.lax.map(op, f)
         return jax.vmap(op)(f)
 
     def ddx(self, f: jnp.ndarray) -> jnp.ndarray:
@@ -460,6 +471,10 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     def inv_div_n_grad(
         self, n_eff: jnp.ndarray, f: jnp.ndarray, *, x0: jnp.ndarray | None = None
     ) -> jnp.ndarray:
+        # Fast path when n_eff is constant -> scaled Laplacian solve.
+        if jnp.ndim(n_eff) == 0:
+            return self.inv_laplacian(f / n_eff, x0=None if x0 is None else x0 / n_eff)
+
         def solve(rhs, nc, guess=None):
             precond = self.params.poisson_preconditioner
             if precond == "auto":
@@ -477,9 +492,29 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 x0=guess,
             )
 
-        if x0 is None:
-            return jax.vmap(lambda rhs, nc: solve(rhs, nc, None))(f, n_eff)
-        return jax.vmap(solve)(f, n_eff, x0)
+        def _is_constant(arr: jnp.ndarray) -> jnp.ndarray:
+            return jnp.max(arr) - jnp.min(arr) < 1e-12
+
+        is_const = _is_constant(jnp.asarray(n_eff))
+
+        def _solve_const(args):
+            rhs, nc, guess = args
+            n0 = jnp.asarray(nc)[0, 0, 0] if nc.ndim == 3 else jnp.asarray(nc)[0, 0]
+            guess = None if guess is None else guess / n0
+            return self.inv_laplacian(rhs / n0, x0=guess)
+
+        def _solve_var(args):
+            rhs, nc, guess = args
+            if guess is None:
+                return jax.vmap(lambda rhs_i, nc_i: solve(rhs_i, nc_i, None))(rhs, nc)
+            return jax.vmap(solve)(rhs, nc, guess)
+
+        return jax.lax.cond(
+            is_const,
+            _solve_const,
+            _solve_var,
+            (f, n_eff, x0),
+        )
 
     def bracket(
         self,

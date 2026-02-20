@@ -11,14 +11,19 @@ from jaxdrb.bc import BC2D, bc2d_from_strings
 from jaxdrb.core.compat import coerce_system_params
 from jaxdrb.core.geometry_registry import build_geometry
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
-from jaxdrb.core.state import DRBSystemState
+from jaxdrb.core.state import DRBSystemState, _state_add
 from jaxdrb.core.system import DRBSystem
+from jaxdrb.core.terms.bcs import resolve_bcs
 from jaxdrb.integrators import (
     build_rk4_scan,
+    build_rk4_scan_cached_iters_split,
+    build_rk4_scan_cached_split,
     build_rk4_scan_cached,
     build_rk4_scan_cached_iters,
+    build_rk4_scan_split,
 )
 from jaxdrb.normalization import NormalizationInfo, apply_normalization
+from jaxdrb.operators.fd2d import enforce_bc_relaxation_implicit, implicit_diffusion_fd_fft
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,312 @@ def _merge_params(*sections: dict[str, Any]) -> dict[str, Any]:
     for sec in sections:
         out.update(sec)
     return out
+
+
+def _apply_bc_relaxation_implicit(
+    system: DRBSystem, y: DRBSystemState, dt: float, phi_guess: jnp.ndarray | None = None
+) -> DRBSystemState:
+    """Implicit operator-split update for stiff BC relaxation terms."""
+
+    params = system.params
+    geom = system.geom
+    grid = getattr(geom, "grid", None)
+    if grid is None or getattr(geom, "ndim", None) != 2:
+        return y
+
+    def _nu(val: float | None) -> float:
+        base = float(params.bc_enforce_nu)
+        if val is None:
+            return base
+        return float(val)
+
+    nu_n = _nu(params.bc_enforce_nu_n)
+    nu_omega = _nu(params.bc_enforce_nu_omega)
+    if (params.bc_enforce_nu_omega is None) and (params.bc_enforce_nu_phi is not None):
+        nu_omega = float(params.bc_enforce_nu_phi)
+    nu_vpar_e = _nu(params.bc_enforce_nu_vpar_e)
+    nu_vpar_i = _nu(params.bc_enforce_nu_vpar_i)
+    nu_Te = _nu(params.bc_enforce_nu_Te)
+    nu_Ti = _nu(params.bc_enforce_nu_Ti)
+    nu_psi = _nu(params.bc_enforce_nu_psi)
+
+    if (
+        (nu_n == 0.0)
+        and (nu_omega == 0.0)
+        and (nu_vpar_e == 0.0)
+        and (nu_vpar_i == 0.0)
+        and (nu_Te == 0.0)
+        and (nu_Ti == 0.0)
+        and (nu_psi == 0.0)
+        and (params.bc_enforce_nu_phi is None or float(params.bc_enforce_nu_phi) == 0.0)
+    ):
+        return y
+
+    bcs = resolve_bcs(params, geom)
+    dt = float(dt)
+    dx = float(grid.dx)
+    dy = float(grid.dy)
+
+    n = enforce_bc_relaxation_implicit(y.n, dx=dx, dy=dy, bc=bcs.n, nu=nu_n, dt=dt)
+    omega = enforce_bc_relaxation_implicit(
+        y.omega, dx=dx, dy=dy, bc=bcs.omega, nu=nu_omega, dt=dt
+    )
+    vpar_e = enforce_bc_relaxation_implicit(
+        y.vpar_e, dx=dx, dy=dy, bc=bcs.vpar_e, nu=nu_vpar_e, dt=dt
+    )
+    vpar_i = enforce_bc_relaxation_implicit(
+        y.vpar_i, dx=dx, dy=dy, bc=bcs.vpar_i, nu=nu_vpar_i, dt=dt
+    )
+    Te = enforce_bc_relaxation_implicit(y.Te, dx=dx, dy=dy, bc=bcs.Te, nu=nu_Te, dt=dt)
+    Ti = (
+        None
+        if y.Ti is None
+        else enforce_bc_relaxation_implicit(y.Ti, dx=dx, dy=dy, bc=bcs.Ti, nu=nu_Ti, dt=dt)
+    )
+    psi = (
+        None
+        if y.psi is None
+        else enforce_bc_relaxation_implicit(y.psi, dx=dx, dy=dy, bc=bcs.psi, nu=nu_psi, dt=dt)
+    )
+
+    return DRBSystemState(
+        n=n,
+        omega=omega,
+        vpar_e=vpar_e,
+        vpar_i=vpar_i,
+        Te=Te,
+        Ti=Ti,
+        psi=psi,
+        N=y.N,
+    )
+
+
+def _apply_diffusion_implicit(
+    system: DRBSystem, y: DRBSystemState, dt: float
+) -> DRBSystemState:
+    """Implicit update for perpendicular diffusion/biharmonic and linear drags."""
+
+    params = system.params
+    geom = system.geom
+
+    grid = getattr(geom, "grid", None)
+    if grid is None:
+        return y
+    perp = getattr(grid, "perp", grid)
+    if not hasattr(perp, "dx") or not hasattr(perp, "dy"):
+        return y
+
+    bcs = resolve_bcs(params, geom)
+    dx = float(perp.dx)
+    dy = float(perp.dy)
+    dt = float(dt)
+
+    eigs = getattr(geom, "poisson_fd_fft_eigs", None)
+    lam_x = None
+    lam_y = None
+    if eigs is not None and len(eigs) == 2:
+        lam_x, lam_y = eigs
+
+    def solve_plane(u, bc, D, D4, mu):
+        return implicit_diffusion_fd_fft(
+            u,
+            dx=dx,
+            dy=dy,
+            bc=bc,
+            dt=dt,
+            D=D,
+            D4=D4,
+            mu=mu,
+            lam_x=lam_x,
+            lam_y=lam_y,
+        )
+
+    def solve_field(u, bc, D, D4, mu):
+        if u is None:
+            return None
+        if u.ndim == 2:
+            return solve_plane(u, bc, D, D4, mu)
+        return jax.vmap(lambda p: solve_plane(p, bc, D, D4, mu))(u)
+
+    n = solve_field(y.n, bcs.n, params.Dn, params.Dn4, params.mu_lin_n)
+    omega = solve_field(y.omega, bcs.omega, params.DOmega, params.DOmega4, params.mu_lin_omega)
+    Te = solve_field(y.Te, bcs.Te, params.DTe, params.DTe4, params.mu_lin_Te)
+    Ti = solve_field(y.Ti, bcs.Ti, params.DTi, params.DTi4, 0.0) if y.Ti is not None else None
+    psi = solve_field(y.psi, bcs.psi, params.Dpsi, params.Dpsi4, 0.0) if y.psi is not None else None
+
+    # Linear vpar drags and collisional coupling (local 2x2 implicit solve).
+    vpar_e = y.vpar_e
+    vpar_i = y.vpar_i
+    mu_e = float(params.mu_lin_vpar_e)
+    mu_i = float(params.mu_lin_vpar_i)
+    eta_eff = params.eta_par if params.eta_par != 0.0 else params.eta
+    me = max(float(params.me_hat), 1e-12)
+    nu_ei = float(eta_eff) / me if float(eta_eff) != 0.0 else 0.0
+    if (mu_e != 0.0) or (mu_i != 0.0) or (nu_ei != 0.0):
+        denom_i = 1.0 + dt * mu_i
+        vpar_i = vpar_i / denom_i
+        denom_e = 1.0 + dt * (mu_e + nu_ei)
+        vpar_e = (vpar_e + dt * nu_ei * vpar_i) / denom_e
+
+    return DRBSystemState(
+        n=n,
+        omega=omega,
+        vpar_e=vpar_e,
+        vpar_i=vpar_i,
+        Te=Te,
+        Ti=Ti,
+        psi=psi,
+        N=y.N,
+    )
+
+
+def _apply_parallel_implicit(
+    system: DRBSystem,
+    y: DRBSystemState,
+    dt: float,
+    phi_guess: jnp.ndarray | None = None,
+) -> DRBSystemState:
+    with jax.named_scope("parallel_implicit"):
+        params = system.params
+        geom = system.geom
+        shape = y.n.shape
+        if len(shape) != 3:
+            return y
+        if params.log_n or params.log_Te:
+            return y
+        grid = getattr(geom, "grid", None)
+        if grid is None or getattr(grid, "open_field_line", False):
+            return y
+        if not bool(getattr(geom, "dpar_factor_const", False)):
+            return y
+        dpar_scalar = getattr(geom, "dpar_factor_scalar", None)
+        if dpar_scalar is None:
+            return y
+        if phi_guess is None:
+            return y
+
+        nz = int(shape[0])
+        dz = float(getattr(grid, "dz", 1.0))
+        k = 2.0 * jnp.pi * jnp.fft.fftfreq(nz, d=dz)
+        D = 1j * k * float(dpar_scalar)
+        D = D[:, None, None]
+        dt = float(dt)
+
+        n_hat = jnp.fft.fft(y.n, axis=0)
+        Te_hat = jnp.fft.fft(y.Te, axis=0)
+        v_hat = jnp.fft.fft(y.vpar_e, axis=0)
+        phi_hat = jnp.fft.fft(phi_guess, axis=0)
+        psi_hat = None
+        if params.em_on and y.psi is not None:
+            psi_hat = jnp.fft.fft(y.psi, axis=0)
+
+        inv_me = 1.0 / max(float(params.me_hat), 1e-12)
+        a = -inv_me
+        b = -float(params.alpha_Te_ohm) * inv_me
+        s = inv_me
+
+        A = jnp.zeros((nz, 3, 3), dtype=n_hat.dtype)
+        A = A.at[:, 0, 0].set(1.0)
+        A = A.at[:, 1, 1].set(1.0)
+        A = A.at[:, 2, 2].set(1.0)
+        A = A.at[:, 0, 2].set(dt * D[:, 0, 0])
+        A = A.at[:, 1, 2].set(dt * (2.0 / 3.0) * D[:, 0, 0])
+        A = A.at[:, 2, 0].set(-dt * a * D[:, 0, 0])
+        A = A.at[:, 2, 1].set(-dt * b * D[:, 0, 0])
+
+        B0 = n_hat
+        B1 = Te_hat
+        source = dt * s * D * phi_hat
+        if psi_hat is not None:
+            source = source - dt * D * psi_hat
+        B2 = v_hat + source
+        B = jnp.stack([B0, B1, B2], axis=-1)
+
+        A = A[:, None, None, :, :]
+        U_new = jnp.linalg.solve(A, B)
+
+        n_new = jnp.fft.ifft(U_new[..., 0], axis=0).real
+        Te_new = jnp.fft.ifft(U_new[..., 1], axis=0).real
+        v_new = jnp.fft.ifft(U_new[..., 2], axis=0).real
+
+        v_i_new = y.vpar_i
+        Ti_new = y.Ti
+        if params.hot_ion_on and y.Ti is not None:
+            Ti_hat = jnp.fft.fft(y.Ti, axis=0)
+            v_i_hat = jnp.fft.fft(y.vpar_i, axis=0)
+            tau_i = float(params.tau_i)
+            A2 = jnp.zeros((nz, 2, 2), dtype=Ti_hat.dtype)
+            A2 = A2.at[:, 0, 0].set(1.0)
+            A2 = A2.at[:, 1, 1].set(1.0)
+            A2 = A2.at[:, 0, 1].set(dt * (2.0 / 3.0) * D[:, 0, 0])
+            A2 = A2.at[:, 1, 0].set(dt * tau_i * D[:, 0, 0])
+            n_hat_new = jnp.fft.fft(n_new, axis=0)
+            B2_0 = Ti_hat
+            B2_1 = v_i_hat + dt * (-D * phi_hat - tau_i * D * n_hat_new)
+            B2 = jnp.stack([B2_0, B2_1], axis=-1)
+            A2 = A2[:, None, None, :, :]
+            U2_new = jnp.linalg.solve(A2, B2)
+            Ti_new = jnp.fft.ifft(U2_new[..., 0], axis=0).real
+            v_i_new = jnp.fft.ifft(U2_new[..., 1], axis=0).real
+        else:
+            v_i_hat = jnp.fft.fft(y.vpar_i, axis=0)
+            v_i_hat = v_i_hat - dt * D * phi_hat
+            v_i_new = jnp.fft.ifft(v_i_hat, axis=0).real
+
+        omega_hat = jnp.fft.fft(y.omega, axis=0)
+        omega_hat = omega_hat + dt * D * (
+            jnp.fft.fft(v_i_new, axis=0) - jnp.fft.fft(v_new, axis=0)
+        )
+        omega_new = jnp.fft.ifft(omega_hat, axis=0).real
+
+        return DRBSystemState(
+            n=n_new,
+            omega=omega_new,
+            vpar_e=v_new,
+            vpar_i=v_i_new,
+            Te=Te_new,
+            Ti=Ti_new,
+            psi=y.psi,
+            N=y.N,
+        )
+
+
+def _apply_stiff_implicit(
+    system: DRBSystem, y: DRBSystemState, dt: float, phi_guess: jnp.ndarray | None = None
+) -> DRBSystemState:
+    y = _apply_diffusion_implicit(system, y, dt)
+    y = _apply_parallel_implicit(system, y, dt, phi_guess)
+    y = _apply_bc_relaxation_implicit(system, y, dt, phi_guess)
+    return y
+
+
+def _mixmode_phases(seed: float) -> np.ndarray:
+    """Match BOUT++ mixmode phase generation."""
+
+    def gen_rand(val: float) -> float:
+        if val < 0.0:
+            val = -val
+        niter = 11 + (23 + int(round(val))) % 79
+        a = 0.01
+        b = 1.23456789
+        x = (a + (val % b)) / (b + 2.0 * a)
+        for _ in range(niter):
+            x = 3.99 * x * (1.0 - x)
+        return float(x)
+
+    phases = np.zeros(14, dtype=np.float64)
+    for i in range(14):
+        phases[i] = np.pi * (2.0 * gen_rand(seed + float(i)) - 1.0)
+    return phases
+
+
+def _mixmode(x: jnp.ndarray, seed: float) -> jnp.ndarray:
+    phases = jnp.asarray(_mixmode_phases(seed), dtype=x.dtype)
+    result = jnp.zeros_like(x)
+    for i in range(14):
+        weight = 1.0 / (1.0 + abs(i - 4.0)) ** 2
+        result = result + weight * jnp.cos(float(i) * x + phases[i])
+    return result
 
 
 def _parse_bc_value(val: Any) -> BC2D | None:
@@ -133,21 +444,179 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
         neutrals=bool(sys_params.neutrals_on),
     )
 
-    amp = float(init.get("amplitude", 0.0))
-    if amp != 0.0:
+    def _perp_xy(
+        *, centered: bool = False, x_mode: str = "grid"
+    ) -> tuple[jnp.ndarray | None, jnp.ndarray | None]:
+        grid = getattr(geom, "grid", None)
+        if grid is None:
+            return None, None
+        if hasattr(grid, "perp"):
+            x_arr = jnp.asarray(grid.perp.x)
+            y_arr = jnp.asarray(grid.perp.y)
+            bc = grid.perp.bc
+            nx = int(grid.perp.nx)
+        elif hasattr(grid, "x") and hasattr(grid, "y"):
+            x_arr = jnp.asarray(grid.x)
+            y_arr = jnp.asarray(grid.y)
+            bc = getattr(grid, "bc", None)
+            nx = int(getattr(grid, "nx", x_arr.size))
+        elif hasattr(grid, "nx") and hasattr(grid, "ny"):
+            x_arr = jnp.asarray(grid.x0) + jnp.asarray(grid.dx) * jnp.arange(grid.nx)
+            y_arr = jnp.asarray(grid.y0) + jnp.asarray(grid.dy) * jnp.arange(grid.ny)
+            bc = getattr(grid, "bc", None)
+            nx = int(grid.nx)
+        else:
+            return None, None
+        if str(x_mode).lower() in ("bout", "index"):
+            endpoint = True
+            if bc is not None and getattr(bc, "kind_x", 0) == 0:
+                endpoint = False
+            x_arr = jnp.linspace(0.0, 1.0, nx, endpoint=endpoint)
+        if centered:
+            x_center = 0.5 * (x_arr[0] + x_arr[-1])
+            x_arr = x_arr - x_center
+        if len(shape) == 2:
+            return x_arr[:, None], y_arr[None, :]
+        return x_arr[None, :, None], y_arr[None, None, :]
+
+    def _par_z(mode: str = "grid") -> jnp.ndarray | None:
+        mode = str(mode).lower()
+        if len(shape) != 3:
+            return None
+        if mode in ("bout", "index"):
+            nz = int(shape[0])
+            z_arr = jnp.linspace(0.0, 2.0 * jnp.pi, nz, endpoint=False)
+        else:
+            grid = getattr(geom, "grid", None)
+            if grid is None or not hasattr(grid, "z"):
+                return None
+            z_arr = jnp.asarray(grid.z)
+        return z_arr[:, None, None]
+
+    n0 = float(init.get("n0", init.get("n_base", 0.0)))
+    Te0 = float(init.get("Te0", init.get("Te_base", 0.0)))
+    omega0 = float(init.get("omega0", 0.0))
+    vpar_e0 = float(init.get("vpar_e0", 0.0))
+    vpar_i0 = float(init.get("vpar_i0", 0.0))
+
+    n_phys = jnp.full_like(state.n, n0)
+    Te_phys = jnp.full_like(state.n, Te0)
+
+    x_centered = bool(init.get("x_centered", init.get("perp_centered", False)))
+    x_mode = str(init.get("x_mode", "grid")).lower()
+    z_mode = str(init.get("z_mode", "grid")).lower()
+
+    n_profile = str(init.get("n_profile", init.get("profile_n", ""))).lower()
+    if n_profile in ("gaussian_x", "gauss_x", "gaussian"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        if xg is not None:
+            amp = float(init.get("n_profile_amp", init.get("n_profile_amplitude", 0.0)))
+            width = float(init.get("n_profile_width", 1.0))
+            x0 = float(init.get("n_profile_x0", 0.0))
+            if width <= 0.0:
+                width = 1.0
+            n_phys = n_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
+    elif n_profile in ("gaussian_mixmode", "gaussian_mixmode_z", "gaussian_mixmode_hermes"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        zg = _par_z(z_mode)
+        if xg is not None:
+            amp = float(init.get("n_profile_amp", init.get("n_profile_amplitude", 0.0)))
+            width = float(init.get("n_profile_width", 1.0))
+            x0 = float(init.get("n_profile_x0", 0.0))
+            if width <= 0.0:
+                width = 1.0
+            n_phys = n_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
+        if zg is not None and xg is not None:
+            mix_amp = float(init.get("mixmode_amp", 0.0))
+            mix_seed = float(init.get("mixmode_seed", 0.5))
+            terms = init.get("mixmode_terms", ["z", "4z-x"])
+            if isinstance(terms, str):
+                terms = [terms]
+            mix = jnp.zeros_like(n_phys)
+            for term in terms:
+                key = str(term).replace(" ", "").lower()
+                if key in ("z",):
+                    arg = zg
+                elif key in ("x",):
+                    arg = xg
+                elif key in ("4z-x", "4*z-x"):
+                    arg = 4.0 * zg - xg
+                else:
+                    continue
+                mix = mix + _mixmode(arg, seed=mix_seed)
+            n_phys = n_phys + mix_amp * mix
+
+    Te_profile = str(init.get("Te_profile", init.get("profile_Te", ""))).lower()
+    if Te_profile in ("gaussian_x", "gauss_x", "gaussian"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        if xg is not None:
+            amp = float(init.get("Te_profile_amp", init.get("Te_profile_amplitude", 0.0)))
+            width = float(init.get("Te_profile_width", 1.0))
+            x0 = float(init.get("Te_profile_x0", 0.0))
+            if width <= 0.0:
+                width = 1.0
+            Te_phys = Te_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
+
+    noise_amp = float(init.get("amplitude", init.get("noise_amplitude", 0.0)))
+    noise_mode = str(init.get("noise_mode", "state")).lower()
+    noise_fields = init.get("noise_fields", ["n", "omega", "Te"])
+    if isinstance(noise_fields, str):
+        noise_fields = [noise_fields]
+
+    if noise_amp != 0.0:
         seed = int(init.get("seed", 0))
         key = jax.random.PRNGKey(seed)
-        noise = amp * jax.random.normal(key, shape=state.n.shape, dtype=state.n.dtype)
-        state = DRBSystemState(
-            n=noise,
-            omega=noise,
-            vpar_e=jnp.zeros_like(state.n),
-            vpar_i=jnp.zeros_like(state.n),
-            Te=jnp.zeros_like(state.n),
-            Ti=state.Ti,
-            psi=state.psi,
-            N=state.N,
-        )
+        noise = noise_amp * jax.random.normal(key, shape=state.n.shape, dtype=state.n.dtype)
+        if "n" in noise_fields:
+            if noise_mode == "physical":
+                n_phys = n_phys + noise
+            else:
+                n_phys = n_phys + 0.0
+        if "Te" in noise_fields:
+            if noise_mode == "physical":
+                Te_phys = Te_phys + noise
+            else:
+                Te_phys = Te_phys + 0.0
+
+    n_floor = max(float(sys_params.n0_min), 1e-12)
+    Te_floor = max(float(sys_params.sol_Te_floor), 1e-12)
+
+    if sys_params.log_n:
+        n_state = jnp.log(jnp.maximum(n_phys, n_floor))
+    else:
+        n_state = n_phys
+    if sys_params.log_Te:
+        Te_state = jnp.log(jnp.maximum(Te_phys, Te_floor))
+    else:
+        Te_state = Te_phys
+
+    omega_state = jnp.full_like(state.n, omega0)
+    vpar_e_state = jnp.full_like(state.n, vpar_e0)
+    vpar_i_state = jnp.full_like(state.n, vpar_i0)
+
+    if noise_amp != 0.0:
+        if noise_mode != "physical":
+            if "n" in noise_fields:
+                n_state = n_state + noise
+            if "Te" in noise_fields:
+                Te_state = Te_state + noise
+        if "omega" in noise_fields:
+            omega_state = omega_state + noise
+        if "vpar_e" in noise_fields:
+            vpar_e_state = vpar_e_state + noise
+        if "vpar_i" in noise_fields:
+            vpar_i_state = vpar_i_state + noise
+
+    state = DRBSystemState(
+        n=n_state,
+        omega=omega_state,
+        vpar_e=vpar_e_state,
+        vpar_i=vpar_i_state,
+        Te=Te_state,
+        Ti=state.Ti,
+        psi=state.psi,
+        N=state.N,
+    )
 
     return BuiltSystem(system=system, state=state, normalization=norm_info)
 
@@ -159,8 +628,10 @@ def _diagnostic_fn(
     mode: str = "full",
     phi_every: int = 1,
     dt_save: float = 1.0,
+    use_phi_guess: bool = True,
+    use_phi_guess_only: bool = False,
 ) -> Callable[[float, DRBSystemState], tuple]:
-    def diag(t, y, args=None):
+    def diag(t, y, args=None, *, phi_guess=None):
         _ = args
         n_phys = system._phys_n(y.n)
         Te_phys = system._phys_Te(y.Te)
@@ -172,7 +643,7 @@ def _diagnostic_fn(
             z0, x0, y0 = point_idx
             point_n = n_phys[z0, x0, y0]
             point_Te = Te_phys[z0, x0, y0]
-        if mode == "basic":
+        if mode in ("basic", "no_phi", "rms_only", "light") or phi_every <= 0:
             zero = jnp.asarray(0.0)
             return (
                 jnp.asarray(t),
@@ -184,25 +655,29 @@ def _diagnostic_fn(
                 point_Te,
                 zero,
             )
-        if phi_every <= 1:
-            phi = system._phi_from_omega(y.omega, n=n_phys)
-            rms_phi = jnp.sqrt(jnp.mean(phi ** 2))
-            point_phi = phi[x0, y0] if n_phys.ndim == 2 else phi[z0, x0, y0]
-        else:
+        idx = jnp.asarray(0)
+        use_phi = jnp.asarray(True)
+        if phi_every > 1:
             idx = jnp.round(t / dt_save).astype(jnp.int32)
             use_phi = (idx % phi_every) == 0
 
-            def _compute(_):
-                phi = system._phi_from_omega(y.omega, n=n_phys)
-                if n_phys.ndim == 2:
-                    return jnp.sqrt(jnp.mean(phi ** 2)), phi[x0, y0]
-                return jnp.sqrt(jnp.mean(phi ** 2)), phi[z0, x0, y0]
+        def _compute_phi(_):
+            if use_phi_guess and phi_guess is not None:
+                phi_local = phi_guess
+            else:
+                if use_phi_guess_only:
+                    zero = jnp.asarray(0.0)
+                    return zero, zero
+                phi_local = system._phi_from_omega(y.omega, n=n_phys, phi_guess=phi_guess)
+            if n_phys.ndim == 2:
+                return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[x0, y0]
+            return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[z0, x0, y0]
 
-            def _skip(_):
-                zero = jnp.asarray(0.0)
-                return zero, zero
+        def _skip_phi(_):
+            zero = jnp.asarray(0.0)
+            return zero, zero
 
-            rms_phi, point_phi = jax.lax.cond(use_phi, _compute, _skip, operand=None)
+        rms_phi, point_phi = jax.lax.cond(use_phi, _compute_phi, _skip_phi, operand=None)
         return (
             jnp.asarray(t),
             jnp.sqrt(jnp.mean(n_phys ** 2)),
@@ -245,8 +720,11 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     solver_name = str(time_cfg.get("solver", "dopri8")).lower()
     progress = bool(time_cfg.get("progress", True))
     remat = bool(time_cfg.get("remat", False))
+    scan_remat = bool(time_cfg.get("scan_remat", False))
     diag_mode = str(time_cfg.get("diag_mode", "full")).lower()
     diag_phi_every = int(time_cfg.get("diag_phi_every", 1))
+    diag_phi_use_guess = bool(time_cfg.get("diag_phi_use_guess", True))
+    diag_phi_use_guess_only = bool(time_cfg.get("diag_phi_use_guess_only", False))
     warm_start = bool(time_cfg.get("poisson_warm_start", True))
     track_iters = bool(time_cfg.get("poisson_track_iters", False))
     return_numpy = bool(time_cfg.get("return_numpy", False))
@@ -262,7 +740,13 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     if method in ("rk4", "rk4_scan", "fixed"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
         diag_fn = _diagnostic_fn(
-            system, point_idx, mode=diag_mode, phi_every=diag_phi_every, dt_save=dt_save
+            system,
+            point_idx,
+            mode=diag_mode,
+            phi_every=diag_phi_every,
+            dt_save=dt_save,
+            use_phi_guess=diag_phi_use_guess,
+            use_phi_guess_only=diag_phi_use_guess_only,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -275,14 +759,167 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 diag_fn,
                 rhs_remat=remat,
                 warm_start=warm_start,
+                scan_remat=scan_remat,
             )
         elif warm_start:
             runner, nsave, rem = build_rk4_scan_cached(
-                system.rhs_with_phi, dt, nsteps, save_every, diag_fn, rhs_remat=remat
+                system.rhs_with_phi,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
             )
         else:
             runner, nsave, rem = build_rk4_scan(
-                system.rhs, dt, nsteps, save_every, diag_fn, rhs_remat=remat
+                system.rhs, dt, nsteps, save_every, diag_fn, rhs_remat=remat, scan_remat=scan_remat
+            )
+        final_state, diag_series = runner(state)
+        times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
+        if rem > 0:
+            times[-1] = nsteps * dt
+        if track_iters:
+            (
+                t,
+                rms_n,
+                rms_Te,
+                rms_omega,
+                rms_phi,
+                point_n,
+                point_Te,
+                point_phi,
+                iters_mean,
+                iters_max,
+            ) = diag_series
+        else:
+            t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+    elif method in ("rk4_split_bc", "split_bc", "rk4_bc"):
+        dt_save = float(dt * save_every) if save_every > 0 else float(dt)
+        diag_fn = _diagnostic_fn(
+            system,
+            point_idx,
+            mode=diag_mode,
+            phi_every=diag_phi_every,
+            dt_save=dt_save,
+            use_phi_guess=diag_phi_use_guess,
+            use_phi_guess_only=diag_phi_use_guess_only,
+        )
+        if remat:
+            diag_fn = jax.checkpoint(diag_fn)
+
+        bc_fn = lambda y, dt_step, phi_guess: _apply_bc_relaxation_implicit(
+            system, y, dt_step, phi_guess
+        )
+        if track_iters:
+            runner, nsave, rem = build_rk4_scan_cached_iters_split(
+                system.rhs_explicit_with_phi_iters,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+            )
+        elif warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_split(
+                system.rhs_explicit_with_phi,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+            )
+        else:
+            runner, nsave, rem = build_rk4_scan_split(
+                system.rhs_explicit,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+            )
+        final_state, diag_series = runner(state)
+        times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
+        if rem > 0:
+            times[-1] = nsteps * dt
+        if track_iters:
+            (
+                t,
+                rms_n,
+                rms_Te,
+                rms_omega,
+                rms_phi,
+                point_n,
+                point_Te,
+                point_phi,
+                iters_mean,
+                iters_max,
+            ) = diag_series
+        else:
+            t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+    elif method in ("rk4_imex", "rk4_imex_diffusion", "imex_diffusion"):
+        dt_save = float(dt * save_every) if save_every > 0 else float(dt)
+        diag_fn = _diagnostic_fn(
+            system,
+            point_idx,
+            mode=diag_mode,
+            phi_every=diag_phi_every,
+            dt_save=dt_save,
+            use_phi_guess=diag_phi_use_guess,
+            use_phi_guess_only=diag_phi_use_guess_only,
+        )
+        if remat:
+            diag_fn = jax.checkpoint(diag_fn)
+
+        parallel_implicit = bool(time_cfg.get("parallel_implicit", True))
+        if parallel_implicit:
+            from jaxdrb.core.terms.registry import build_scheduler_from_names, split_term_schedule
+
+            explicit_names, _ = split_term_schedule(system.params)
+            explicit_names = tuple(name for name in explicit_names if name != "parallel")
+            object.__setattr__(system, "scheduler_explicit", build_scheduler_from_names(explicit_names))
+            if not warm_start:
+                warm_start = True
+
+        bc_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(system, y, dt_step, phi_guess)
+        if track_iters:
+            runner, nsave, rem = build_rk4_scan_cached_iters_split(
+                system.rhs_explicit_with_phi_iters,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+            )
+        elif warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_split(
+                system.rhs_explicit_with_phi,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+            )
+        else:
+            runner, nsave, rem = build_rk4_scan_split(
+                system.rhs_explicit,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
             )
         final_state, diag_series = runner(state)
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
@@ -313,9 +950,49 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
             "dopri5": dfx.Dopri5,
             "tsit5": dfx.Tsit5,
             "euler": dfx.Euler,
+            "implicit_euler": dfx.ImplicitEuler,
+            "kvaerno3": dfx.Kvaerno3,
+            "kvaerno4": dfx.Kvaerno4,
+            "kvaerno5": dfx.Kvaerno5,
+            "kencarp3": dfx.KenCarp3,
+            "kencarp4": dfx.KenCarp4,
+            "kencarp5": dfx.KenCarp5,
         }
         solver_cls = solver_map.get(solver_name, dfx.Dopri8)
-        solver = solver_cls()
+        solver_kwargs = {}
+        if solver_name in ("kencarp3", "kencarp4", "kencarp5"):
+            import lineax as lx
+
+            linear_kind = str(time_cfg.get("imex_linear_solver", "auto")).lower()
+            linear_max_steps = time_cfg.get("imex_linear_max_steps", 50)
+            linear_rtol = time_cfg.get("imex_linear_rtol", rtol)
+            linear_atol = time_cfg.get("imex_linear_atol", atol)
+            if linear_kind in ("auto", "default"):
+                linear_solver = lx.AutoLinearSolver(well_posed=None)
+            elif linear_kind in ("lu", "dense"):
+                linear_solver = lx.LU()
+            elif linear_kind in ("cholesky", "chol"):
+                linear_solver = lx.Cholesky()
+            elif linear_kind in ("gmres", "bicgstab", "cg"):
+                raise ValueError(
+                    "Iterative IMEX linear solvers are not yet supported with "
+                    "diffrax.VeryChord (non-JAX linear state). Use imex_linear_solver='auto' "
+                    "or a direct solver."
+                )
+            else:
+                raise ValueError(f"Unknown imex_linear_solver: {linear_kind}")
+
+            root_rtol = time_cfg.get("imex_root_rtol", rtol)
+            root_atol = time_cfg.get("imex_root_atol", atol)
+            root_finder = dfx.VeryChord(
+                rtol=float(root_rtol),
+                atol=float(root_atol),
+                linear_solver=linear_solver,
+            )
+            solver_kwargs["root_finder"] = root_finder
+            solver_kwargs["root_find_max_steps"] = int(time_cfg.get("imex_root_max_steps", 10))
+
+        solver = solver_cls(**solver_kwargs)
 
         if t_end is None:
             t_end = nsteps * dt
@@ -326,7 +1003,13 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
 
         dt_save = float(times[1] - times[0]) if nsave > 1 else float(dt)
         diag_fn = _diagnostic_fn(
-            system, point_idx, mode=diag_mode, phi_every=diag_phi_every, dt_save=dt_save
+            system,
+            point_idx,
+            mode=diag_mode,
+            phi_every=diag_phi_every,
+            dt_save=dt_save,
+            use_phi_guess=diag_phi_use_guess,
+            use_phi_guess_only=diag_phi_use_guess_only,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -344,15 +1027,29 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
             _ = args
             return system.rhs(t, y)
 
-        term = dfx.ODETerm(vf)
+        term: dfx.AbstractTerm
+        if solver_name in ("kencarp3", "kencarp4", "kencarp5"):
+            def vf_explicit(t, y, args):
+                _ = args
+                return system.rhs_explicit(t, y)
+
+            def vf_implicit(t, y, args):
+                _ = args
+                return system.rhs_stiff(t, y)
+
+            term = dfx.MultiTerm(dfx.ODETerm(vf_explicit), dfx.ODETerm(vf_implicit))
+        else:
+            term = dfx.ODETerm(vf)
         adjoint = dfx.DirectAdjoint()
         adjoint_mode = str(time_cfg.get("adjoint", "")).lower()
         if remat or adjoint_mode in ("checkpoint", "recursive_checkpoint"):
             adjoint = dfx.RecursiveCheckpointAdjoint()
         jit = bool(time_cfg.get("jit", False))
-        progress_meter = (
-            dfx.ProgressMeter() if (progress and not jit) else dfx.NoProgressMeter()
-        )
+        progress_meter = dfx.NoProgressMeter()
+        if progress and not jit:
+            progress_cls = getattr(dfx, "ProgressMeter", None)
+            if progress_cls is not None:
+                progress_meter = progress_cls()
 
         def _solve():
             return dfx.diffeqsolve(
