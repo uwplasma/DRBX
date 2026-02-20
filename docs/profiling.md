@@ -72,3 +72,25 @@ python tools/profile_jaxdrb.py \
 
 This will produce two `timing.txt` files plus HLO/trace artifacts to compare the
 impact of Poisson warm‑start and the new preconditioner caches.
+
+## Non‑periodic Poisson (Dirichlet/Neumann)
+
+To stress CG + preconditioner caching, use the non‑periodic presets:
+
+```
+python tools/profile_jaxdrb.py \
+  --config benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet.toml \
+  --steps 50 \
+  --dt 1e-3 \
+  --outdir benchmarks/profiles/preset_linear_dirichlet_warm \
+  --warm-start
+
+python tools/profile_jaxdrb.py \
+  --config benchmarks/cases/jaxdrb/benchmark_preset_linear_neumann.toml \
+  --steps 50 \
+  --dt 1e-3 \
+  --outdir benchmarks/profiles/preset_linear_neumann_warm \
+  --warm-start
+```
+
+Compare with `--no-warm-start` runs to quantify CG warm‑start impact.
