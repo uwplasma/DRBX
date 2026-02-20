@@ -39,6 +39,9 @@ and compares common diagnostics (linear growth and early nonlinear saturation).
 The table below maps each code’s minimal configuration to common DRB terms.
 This is the *explicit* term alignment used in the current benchmark (no proxies).
 
+For lightweight performance checks that use predefined term schedules, see:
+`/Users/rogerio/local/jax_drb/docs/benchmarks/presets.md`.
+
 | Feature / Term | Hermes‑3 (2303.12131v2) | GBS (Ricci 2012; SOL_es_mshear) | jax_drb (conserving_drb) | Notes |
 |---|---|---|---|---|
 | Evolved n | `Ne` (evolve_density) | `theta = log(n)` | `n` | GBS log variable exponentiated for diagnostics |

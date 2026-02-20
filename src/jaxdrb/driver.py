@@ -16,8 +16,12 @@ from jaxdrb.core.system import DRBSystem
 from jaxdrb.core.terms.bcs import resolve_bcs
 from jaxdrb.integrators import (
     build_rk4_scan,
+    build_rk4_scan_cached_iters_phi,
+    build_rk4_scan_cached_iters_split_phi,
     build_rk4_scan_cached_iters_split,
     build_rk4_scan_cached_split,
+    build_rk4_scan_cached_phi,
+    build_rk4_scan_cached_split_phi,
     build_rk4_scan_cached,
     build_rk4_scan_cached_iters,
     build_rk4_scan_split,
@@ -726,6 +730,7 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     diag_phi_use_guess = bool(time_cfg.get("diag_phi_use_guess", True))
     diag_phi_use_guess_only = bool(time_cfg.get("diag_phi_use_guess_only", False))
     warm_start = bool(time_cfg.get("poisson_warm_start", True))
+    carry_phi = bool(time_cfg.get("carry_phi", False))
     track_iters = bool(time_cfg.get("poisson_track_iters", False))
     return_numpy = bool(time_cfg.get("return_numpy", False))
 
@@ -750,7 +755,18 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
-        if track_iters:
+        if track_iters and carry_phi and not warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_iters_phi(
+                system.rhs_with_phi_iters,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+                warm_start=False,
+            )
+        elif track_iters:
             runner, nsave, rem = build_rk4_scan_cached_iters(
                 system.rhs_with_phi_iters,
                 dt,
@@ -760,6 +776,17 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 rhs_remat=remat,
                 warm_start=warm_start,
                 scan_remat=scan_remat,
+            )
+        elif carry_phi and not warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_phi(
+                system.rhs_with_phi,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+                warm_start=False,
             )
         elif warm_start:
             runner, nsave, rem = build_rk4_scan_cached(
@@ -811,7 +838,19 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         bc_fn = lambda y, dt_step, phi_guess: _apply_bc_relaxation_implicit(
             system, y, dt_step, phi_guess
         )
-        if track_iters:
+        if track_iters and carry_phi and not warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
+                system.rhs_explicit_with_phi_iters,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+                warm_start=False,
+            )
+        elif track_iters:
             runner, nsave, rem = build_rk4_scan_cached_iters_split(
                 system.rhs_explicit_with_phi_iters,
                 dt,
@@ -821,6 +860,18 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 bc_fn,
                 rhs_remat=remat,
                 scan_remat=scan_remat,
+            )
+        elif carry_phi and not warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_split_phi(
+                system.rhs_explicit_with_phi,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+                warm_start=False,
             )
         elif warm_start:
             runner, nsave, rem = build_rk4_scan_cached_split(
@@ -888,7 +939,19 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 warm_start = True
 
         bc_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(system, y, dt_step, phi_guess)
-        if track_iters:
+        if track_iters and carry_phi and not warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
+                system.rhs_explicit_with_phi_iters,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+                warm_start=False,
+            )
+        elif track_iters:
             runner, nsave, rem = build_rk4_scan_cached_iters_split(
                 system.rhs_explicit_with_phi_iters,
                 dt,
@@ -898,6 +961,18 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 bc_fn,
                 rhs_remat=remat,
                 scan_remat=scan_remat,
+            )
+        elif carry_phi and not warm_start:
+            runner, nsave, rem = build_rk4_scan_cached_split_phi(
+                system.rhs_explicit_with_phi,
+                dt,
+                nsteps,
+                save_every,
+                diag_fn,
+                bc_fn,
+                rhs_remat=remat,
+                scan_remat=scan_remat,
+                warm_start=False,
             )
         elif warm_start:
             runner, nsave, rem = build_rk4_scan_cached_split(

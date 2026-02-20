@@ -42,7 +42,8 @@ def main() -> None:
     system = built.system
     state = built.state
 
-    def diag_fn(t, y):
+    def diag_fn(t, y, *, phi_guess=None, args=None):
+        _ = (phi_guess, args)
         return jnp.asarray(t)
 
     if args.warm_start:
