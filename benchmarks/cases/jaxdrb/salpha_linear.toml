@@ -12,55 +12,29 @@ Z_i = 1
 length_unit = "lref"
 Lref_m = 1.0
 
-[geometry_physical]
-Lx = 1.0
-Ly = 1.0
-Lz = 1.0
-R0 = 2.0
-r0 = 0.2
-B0 = 1.0
-
-[physics_physical]
-omega_n = 1.0
-
 [geometry]
-kind = "axisymmetric_analytic"
-model = "salpha"
+kind = "axisymmetric"
+coeff_path = "benchmarks/cases/jaxdrb/hermes_salpha_coeffs.npz"
 
-nx = 16
-ny = 8
-nz = 4
+nx = 32
+ny = 32
+nz = 16
 
-Lx = 1.0
-Ly = 1.0
-Lz = 1.0
-
-q = 2.0
-R0 = 2.0
-r0 = 0.2
-epsilon = 0.3
-shat = 1.0
-alpha = 0.0
-curvature_model = "logB"
-B0 = 1.0
-epsilon_x_grad = 0.5
-theta_ballooning_on = true
-linear_shear_on = true
-theta_scale = 2.0
 open_field_line = false
-
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 bc_value_x = 0.0
 bc_value_y = 0.0
 bc_grad_x = 0.0
 bc_grad_y = 0.0
 
 [physics]
-omega_n = 1.0
-log_n = true
-log_Te = true
-# Approximate baseline physics (isothermal + vorticity)
+omega_n = 0.0
+log_n = false
+log_Te = false
+alpha_Te_ohm = 0.0
+alpha_Ti_ohm = 0.0
+# Approximate Hermes minimal physics (isothermal + vorticity)
 nonlinear_on = false
 em_on = false
 hot_ion_on = false
@@ -70,13 +44,26 @@ curvature_on = true
 curvature_coeff = 1.0
 
 [transport]
-Dn = 1.0e-2
-DOmega = 1.0e-2
-DTe = 1.0e-2
-Dvpar = 1.0e-2
+Dn = 2.0e-2
+DOmega = 2.0e-2
+DTe = 2.0e-2
+Dvpar = 2.0e-2
 
 [initial]
-amplitude = 1e-6
+n_profile = "gaussian_mixmode"
+n_profile_amp = 1.0e-1
+n_profile_width = 1.0
+n_profile_x0 = 0.0
+mixmode_amp = 1.0e-5
+mixmode_seed = 0.5
+mixmode_terms = ["z", "4z-x"]
+x_mode = "bout"
+x_centered = false
+z_mode = "bout"
+Te0 = 5.0
+amplitude = 0.0
+noise_mode = "physical"
+noise_fields = ["n"]
 seed = 1
 
 [numerics]
@@ -85,36 +72,38 @@ bracket = "arakawa"
 
 [bc]
 bc_enforce_nu = 0.0
-bc_enforce_nu_phi = 1.5e2
+bc_enforce_nu_phi = 1.0e6
 
 [bc.n]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [bc.Te]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [bc.omega]
-bc_x = "dirichlet"
-bc_y = "dirichlet"
+bc_x = "neumann"
+bc_y = "periodic"
 
 [bc.phi]
-bc_x = "dirichlet"
-bc_y = "dirichlet"
+bc_x = "neumann"
+bc_y = "periodic"
 
 [bc.vpar_e]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [bc.vpar_i]
 bc_x = "neumann"
-bc_y = "neumann"
+bc_y = "periodic"
 
 [time]
-method = "rk4_scan"
-dt = 1.0e-4
-nsteps = 1000
+method = "rk4_imex_strang"
+dt = 1.0e-3
+t_end = 20.0
+nsteps = 20000
 save_every = 10
+progress = false
 diag_mode = "basic"
 poisson_warm_start = true
