@@ -20,12 +20,23 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 ### Common Options
 - `save_every`: save diagnostics every N steps.
 - `remat`: `true` enables checkpointing for lower memory in long runs.
+- `scan_remat`: `true` checkpoints the RK4 scan body for even lower memory usage
+  (recomputes per-step state during backprop).
 - `return_numpy`: `true` transfers diagnostics to host memory (needed when saving).
 - `diag_mode`: `full` (default) or `basic` (skip Poisson and only compute RMS(n, Te, omega)).
 - `diag_phi_every`: compute `phi` diagnostics only every N saved frames (default: 1).
+- `diag_phi_use_guess`: reuse `phi` carried by the integrator state for diagnostics.
+- `diag_phi_use_guess_only`: if `true`, **never** solve Poisson in diagnostics. If `phi`
+  is not available, `phi` diagnostics are zeroed.
 - `poisson_warm_start`: reuse the previous `phi` as CG initial guess (RK4 scan only).
 - `poisson_track_iters`: record mean/max CG iteration stats per saved frame
   (averaged over the RK4 steps since the last save; RK4 scan only).
+
+### Performance Knobs
+- `numerics.parallel_z_mode`: `vmap` (default) or `scan`. `scan` reduces memory at the
+  cost of extra overhead for 3D field-aligned grids.
+- `term_schedule_preset`: one of `benchmark_linear`, `benchmark_nonlinear`, `benchmark_min`
+  to use a predefined minimal RHS schedule for fast benchmarks.
 
 ## JIT Fixed‑Step (RK4 Scan)
 
