@@ -1,0 +1,36 @@
+[geometry]
+kind = "salpha"
+nx = 16
+ny = 16
+nz = 8
+Lx = 1.0
+Ly = 1.0
+Lz = 6.283185307179586
+bc_x = "dirichlet"
+bc_y = "dirichlet"
+open_field_line = false
+curvature_model = "vector_xy"
+
+[physics]
+em_on = false
+hot_ion_on = false
+boussinesq = true
+
+[numerics]
+perp_operator = "fd"
+poisson = "cg_fd"
+term_schedule_preset = "benchmark_linear"
+
+[initial]
+noise_amplitude = 0.02
+noise_fields = ["omega"]
+
+[time]
+method = "rk4_scan"
+dt = 1e-3
+nsteps = 200
+save_every = 20
+diag_mode = "basic"
+carry_phi = true
+poisson_warm_start = false
+progress = false
