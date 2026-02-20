@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 
 
@@ -104,3 +105,33 @@ def poisson_bracket_spectral(
     if dealias_mask is None:
         return bracket
     return dealias(bracket, dealias_mask)
+
+
+def poisson_bracket_spectral_multi(
+    phi: jnp.ndarray,
+    fields: jnp.ndarray,
+    *,
+    kx: jnp.ndarray,
+    ky: jnp.ndarray,
+    dealias_mask: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Compute Poisson brackets [phi, f_i] for a stack of fields.
+
+    This reuses dphi/dx and dphi/dy across all fields to reduce work.
+    """
+
+    dphi_dx = ddx(phi, kx)
+    dphi_dy = ddy(phi, ky)
+    u_x = -dphi_dy
+    u_y = dphi_dx
+
+    df_dx = jax.vmap(lambda f: ddx(f, kx))(fields)
+    df_dy = jax.vmap(lambda f: ddy(f, ky))(fields)
+    adv = u_x * df_dx + u_y * df_dy
+
+    flux = jax.vmap(lambda f: ddx(u_x * f, kx) + ddy(u_y * f, ky))(fields)
+    bracket = 0.5 * (adv + flux)
+
+    if dealias_mask is None:
+        return bracket
+    return jax.vmap(lambda b: dealias(b, dealias_mask))(bracket)

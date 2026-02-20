@@ -182,9 +182,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         bc = self.grid.perp.bc
         precond = self.params.poisson_preconditioner
         if precond == "auto":
-            precond = "spectral"
+            precond = "spectral" if (bc.kind_x == 0 and bc.kind_y == 0) else "fd_fft"
         if precond == "spectral" and not (bc.kind_x == 0 and bc.kind_y == 0):
-            precond = "jacobi"
+            precond = "fd_fft"
         shape = (self.grid.perp.nx, self.grid.perp.ny)
         if bc.kind_x == 1 and bc.kind_y == 1:
             shape = (self.grid.perp.nx - 2, self.grid.perp.ny - 2)
@@ -192,6 +192,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             shape=shape,
             dx=self.grid.perp.dx,
             dy=self.grid.perp.dy,
+            bc=bc,
             preconditioner=str(precond),
             k2_precond=self.perp_ops.k2 if str(precond) == "spectral" else None,
             gauge_epsilon=self.params.poisson_gauge_epsilon,
@@ -527,6 +528,22 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         return jax.vmap(lambda p, g: self.perp_ops.bracket_op(p, g, bc_phi=bc_phi, bc_f=bc_f))(
             phi, f
         )
+
+    def bracket_many(
+        self,
+        phi: jnp.ndarray,
+        fields: jnp.ndarray,
+        *,
+        bc_phi: BC2D | None = None,
+        bc_f: list[BC2D | None] | None = None,
+    ) -> jnp.ndarray:
+        if bc_f is None:
+            bc_f = [None] * fields.shape[0]
+
+        def _plane(phi_plane, field_plane):
+            return self.perp_ops.bracket_many(phi_plane, field_plane, bc_phi=bc_phi, bc_f=bc_f)
+
+        return jax.vmap(_plane, in_axes=(0, 1), out_axes=1)(phi, fields)
 
     def _dpar_periodic(self, f: jnp.ndarray) -> jnp.ndarray:
         return (jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)) / (2.0 * self.grid.dz)

@@ -908,3 +908,90 @@ def build_rk4_scan_cached_iters_phi(
         return y, diags
 
     return jax.jit(run), nsave, rem
+
+
+def build_rk4_scan_imex_strang(
+    rhs_with_phi: Callable[[float, PyTree, PyTree | None], tuple[PyTree, PyTree]],
+    stiff_fn: Callable[[PyTree, float, PyTree | None], PyTree],
+    dt: float,
+    steps: int,
+    save_every: int,
+    diag_fn: Callable[[float, PyTree, PyTree | None], PyTree],
+    *,
+    rhs_remat: bool = False,
+    scan_remat: bool = False,
+    warm_start: bool = True,
+    carry_phi: bool = False,
+) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
+    """Strang-split IMEX: half implicit, full explicit RK4, half implicit."""
+
+    dt = float(dt)
+    steps = int(steps)
+    save_every = int(save_every)
+    if save_every <= 0:
+        raise ValueError("save_every must be > 0")
+    if steps < 0:
+        raise ValueError("steps must be >= 0")
+
+    nblocks = steps // save_every
+    rem = steps % save_every
+    nsave = nblocks + 1 + (1 if rem > 0 else 0)
+
+    rhs_fn = jax.checkpoint(rhs_with_phi) if rhs_remat else rhs_with_phi
+
+    def inner(carry, _):
+        t, y, phi_guess, phi_diag = carry
+        y = stiff_fn(y, 0.5 * dt, phi_guess)
+        y, phi_next = rk4_step_with_phi(rhs_fn, t, y, dt, phi_guess)
+        y = stiff_fn(y, 0.5 * dt, phi_next)
+        phi_diag = phi_next if (carry_phi or warm_start) else None
+        phi_guess = phi_next if warm_start else None
+        return (t + dt, y, phi_guess, phi_diag), None
+
+    inner_fn = jax.checkpoint(inner) if scan_remat else inner
+
+    def block(carry, _):
+        t, y, phi_guess, phi_diag = carry
+        (t, y, phi_guess, phi_diag), _ = jax.lax.scan(
+            inner_fn, (t, y, phi_guess, phi_diag), None, length=save_every
+        )
+        diag = diag_fn(t, y, phi_guess=phi_diag)
+        return (t, y, phi_guess, phi_diag), diag
+
+    def _concat_diag(diag0, diags):
+        return jax.tree_util.tree_map(
+            lambda d0, ds: jnp.concatenate([d0[jnp.newaxis, ...], ds], axis=0),
+            diag0,
+            diags,
+        )
+
+    def _append_diag(diags, diag_last):
+        return jax.tree_util.tree_map(
+            lambda ds, dl: jnp.concatenate([ds, dl[jnp.newaxis, ...]], axis=0),
+            diags,
+            diag_last,
+        )
+
+    def run(state: PyTree):
+        t0 = jnp.asarray(0.0)
+        _, phi0 = rhs_fn(t0, state, None)
+        phi_diag0 = phi0 if (carry_phi or warm_start) else None
+        phi_guess0 = phi0 if warm_start else None
+        diag0 = diag_fn(t0, state, phi_guess=phi_diag0)
+        if nblocks > 0:
+            (t, y, phi_guess, phi_diag), diags = jax.lax.scan(
+                block, (t0, state, phi_guess0, phi_diag0), None, length=nblocks
+            )
+            diags = _concat_diag(diag0, diags)
+        else:
+            t, y, phi_guess, phi_diag = t0, state, phi_guess0, phi_diag0
+            diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
+        if rem > 0:
+            (t, y, phi_guess, phi_diag), _ = jax.lax.scan(
+                inner_fn, (t, y, phi_guess, phi_diag), None, length=rem
+            )
+            diag_last = diag_fn(t, y, phi_guess=phi_diag)
+            diags = _append_diag(diags, diag_last)
+        return y, diags
+
+    return jax.jit(run), nsave, rem

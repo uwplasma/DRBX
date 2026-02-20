@@ -27,19 +27,49 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
     bc = ctx.bcs
     scale = ctx.nonlinear_scale
     phi = ctx.phi
+    fields = [
+        ctx.n_phys,
+        y.omega,
+        y.vpar_e,
+        y.vpar_i,
+        ctx.Te_phys,
+    ]
+    bc_fields = [bc.n, bc.omega, bc.vpar_e, bc.vpar_i, bc.Te]
+    if ctx.hot_on:
+        fields.append(ctx.Ti)
+        bc_fields.append(bc.Ti)
+    if y.psi is not None:
+        fields.append(ctx.psi)
+        bc_fields.append(bc.psi)
 
     with jax.named_scope("bracket_terms"):
-        adv_n = -ctx.geom.bracket(phi, ctx.n_phys, bc_phi=bc.phi, bc_f=bc.n) * scale
-        adv_w = -ctx.geom.bracket(phi, y.omega, bc_phi=bc.phi, bc_f=bc.omega) * scale
-        adv_ve = -ctx.geom.bracket(phi, y.vpar_e, bc_phi=bc.phi, bc_f=bc.vpar_e) * scale
-        adv_vi = -ctx.geom.bracket(phi, y.vpar_i, bc_phi=bc.phi, bc_f=bc.vpar_i) * scale
-        adv_Te = -ctx.geom.bracket(phi, ctx.Te_phys, bc_phi=bc.phi, bc_f=bc.Te) * scale
-        adv_Ti = (
-            -ctx.geom.bracket(phi, ctx.Ti, bc_phi=bc.phi, bc_f=bc.Ti) * scale
-            if ctx.hot_on
-            else jnp.zeros_like(ctx.Ti)
-        )
-        adv_psi = -ctx.geom.bracket(phi, ctx.psi, bc_phi=bc.phi, bc_f=bc.psi) * scale
+        if hasattr(ctx.geom, "bracket_many"):
+            brackets = ctx.geom.bracket_many(phi, jnp.stack(fields), bc_phi=bc.phi, bc_f=bc_fields)
+        else:
+            brackets = jnp.stack(
+                [ctx.geom.bracket(phi, f, bc_phi=bc.phi, bc_f=b) for f, b in zip(fields, bc_fields)]
+            )
+
+    idx = 0
+    adv_n = -brackets[idx] * scale
+    idx += 1
+    adv_w = -brackets[idx] * scale
+    idx += 1
+    adv_ve = -brackets[idx] * scale
+    idx += 1
+    adv_vi = -brackets[idx] * scale
+    idx += 1
+    adv_Te = -brackets[idx] * scale
+    idx += 1
+    if ctx.hot_on:
+        adv_Ti = -brackets[idx] * scale
+        idx += 1
+    else:
+        adv_Ti = jnp.zeros_like(ctx.Ti)
+    if y.psi is not None:
+        adv_psi = -brackets[idx] * scale
+    else:
+        adv_psi = jnp.zeros_like(ctx.psi)
 
     adv_N = None
     if ctx.neut_on and y.N is not None:
