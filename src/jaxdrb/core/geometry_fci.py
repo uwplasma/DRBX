@@ -58,9 +58,9 @@ class FCIGeometryAdapter(GeometryBase):
         bc = self.params.perp_bc
         precond = self.params.poisson_preconditioner
         if precond == "auto":
-            precond = "spectral"
+            precond = "spectral" if (bc.kind_x == 0 and bc.kind_y == 0) else "fd_fft"
         if precond == "spectral" and not (bc.kind_x == 0 and bc.kind_y == 0):
-            precond = "jacobi"
+            precond = "fd_fft"
         shape = (self.grid.nx, self.grid.ny)
         if bc.kind_x == 1 and bc.kind_y == 1:
             shape = (self.grid.nx - 2, self.grid.ny - 2)
@@ -68,6 +68,7 @@ class FCIGeometryAdapter(GeometryBase):
             shape=shape,
             dx=self.grid.dx,
             dy=self.grid.dy,
+            bc=bc,
             preconditioner=str(precond),
             k2_precond=self.perp_ops.k2 if str(precond) == "spectral" else None,
             gauge_epsilon=self.params.poisson_gauge_epsilon,

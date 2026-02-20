@@ -24,6 +24,7 @@ from jaxdrb.integrators import (
     build_rk4_scan_cached_split_phi,
     build_rk4_scan_cached,
     build_rk4_scan_cached_iters,
+    build_rk4_scan_imex_strang,
     build_rk4_scan_split,
 )
 from jaxdrb.normalization import NormalizationInfo, apply_normalization
@@ -1015,6 +1016,53 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
             ) = diag_series
         else:
             t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+    elif method in ("rk4_imex_strang", "imex_strang"):
+        dt_save = float(dt * save_every) if save_every > 0 else float(dt)
+        diag_fn = _diagnostic_fn(
+            system,
+            point_idx,
+            mode=diag_mode,
+            phi_every=diag_phi_every,
+            dt_save=dt_save,
+            use_phi_guess=diag_phi_use_guess,
+            use_phi_guess_only=diag_phi_use_guess_only,
+        )
+        if remat:
+            diag_fn = jax.checkpoint(diag_fn)
+
+        parallel_implicit = bool(time_cfg.get("parallel_implicit", True))
+        if parallel_implicit:
+            from jaxdrb.core.terms.registry import build_scheduler_from_names, split_term_schedule
+
+            explicit_names, _ = split_term_schedule(system.params)
+            explicit_names = tuple(name for name in explicit_names if name != "parallel")
+            object.__setattr__(system, "scheduler_explicit", build_scheduler_from_names(explicit_names))
+            if not warm_start:
+                warm_start = True
+
+        if track_iters:
+            track_iters = False
+
+        stiff_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(
+            system, y, dt_step, phi_guess
+        )
+        runner, nsave, rem = build_rk4_scan_imex_strang(
+            system.rhs_explicit_with_phi,
+            stiff_fn,
+            dt,
+            nsteps,
+            save_every,
+            diag_fn,
+            rhs_remat=remat,
+            scan_remat=scan_remat,
+            warm_start=warm_start,
+            carry_phi=carry_phi,
+        )
+        final_state, diag_series = runner(state)
+        times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
+        if rem > 0:
+            times[-1] = nsteps * dt
+        t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
     elif method in ("diffrax", "dopri8", "tsit5"):
         import diffrax as dfx
         if track_iters:

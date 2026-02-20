@@ -97,11 +97,11 @@ class DRBSystem(eqx.Module):
     def _poisson_precond_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
         precond = self.params.poisson_preconditioner
         if precond == "auto":
-            precond = "spectral"
+            precond = "spectral" if self._is_periodic_bc(bc) else "fd_fft"
         if precond in ("none", "", None):
             return None
         if precond == "spectral" and not self._is_periodic_bc(bc):
-            precond = "jacobi"
+            precond = "fd_fft"
         shape = (nx, ny)
         if bc.kind_x == 1 and bc.kind_y == 1:
             shape = (nx - 2, ny - 2)
@@ -126,6 +126,7 @@ class DRBSystem(eqx.Module):
             shape=shape,
             dx=dx,
             dy=dy,
+            bc=bc,
             preconditioner=str(precond),
             k2_precond=k2_precond,
             gauge_epsilon=self.params.poisson_gauge_epsilon,
@@ -135,7 +136,7 @@ class DRBSystem(eqx.Module):
 
     def _polarization_precond_cached(self, *, bc: BC2D, nx: int, ny: int, dx: float, dy: float):
         if self.params.polarization_preconditioner == "auto":
-            precond = "spectral_jacobi"
+            precond = "spectral_jacobi" if self._is_periodic_bc(bc) else "fd_fft"
         else:
             precond = self.params.polarization_preconditioner
         if precond in ("none", "", None):
@@ -573,6 +574,18 @@ class DRBSystem(eqx.Module):
         n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
         if self.params.n0_max is not None:
             n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
+        # Fast path: constant n_eff -> scaled Laplacian solve.
+        if not self.params.non_boussinesq_perturbed_density_on:
+            if self._is_periodic_bc(bc_phi):
+                return inv_laplacian_spec(omega / n_eff, grid.k2, k2_min=self.params.k2_min)
+            if self.params.poisson_force_fd_fft_when_nonperiodic:
+                return inv_laplacian_fd_fft(
+                    omega / n_eff,
+                    dx=grid.dx,
+                    dy=grid.dy,
+                    bc=bc_phi,
+                    gauge_epsilon=self.params.poisson_gauge_epsilon,
+                )
         if self.params.polarization_preconditioner == "auto":
             precond = "spectral_jacobi"
         else:

@@ -174,6 +174,156 @@ def enforce_bc_relaxation(
     return -nu * mask * (u - target)
 
 
+def enforce_bc_relaxation_implicit(
+    u: jnp.ndarray,
+    *,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    nu: float,
+    dt: float,
+) -> jnp.ndarray:
+    """Implicit (single-step) update for boundary relaxation terms.
+
+    Solves: u_{n+1} = u_n - dt * nu * mask * (u_{n+1} - target(u_n))
+    with target frozen from u_n (Dirichlet/Neumann implied value).
+    """
+
+    if nu == 0.0 or (bc.kind_x == 0 and bc.kind_y == 0):
+        return u
+
+    nx, ny = u.shape
+    mask = boundary_mask(nx, ny, bc=bc).astype(u.dtype)
+
+    target = u
+
+    if bc.kind_x == 1:
+        target = target.at[0, :].set(bc.x_value)
+        target = target.at[-1, :].set(bc.x_value)
+    elif bc.kind_x == 2:
+        target = target.at[0, :].set(u[1, :] - dx * bc.x_grad)
+        target = target.at[-1, :].set(u[-2, :] + dx * bc.x_grad)
+
+    if bc.kind_y == 1:
+        target = target.at[:, 0].set(bc.y_value)
+        target = target.at[:, -1].set(bc.y_value)
+    elif bc.kind_y == 2:
+        target = target.at[:, 0].set(u[:, 1] - dy * bc.y_grad)
+        target = target.at[:, -1].set(u[:, -2] + dy * bc.y_grad)
+
+    denom = 1.0 + dt * nu * mask
+    return (u + dt * nu * mask * target) / denom
+
+
+def implicit_diffusion_fd_fft(
+    u: jnp.ndarray,
+    *,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    dt: float,
+    D: float,
+    D4: float,
+    mu: float,
+    lam_x: jnp.ndarray | None = None,
+    lam_y: jnp.ndarray | None = None,
+    nan_guard: bool = True,
+) -> jnp.ndarray:
+    """Implicit update for (D*laplacian - D4*biharmonic - mu) terms.
+
+    Solves: (I - dt * (D*L - D4*L^2 - mu)) u_{n+1} = u_n
+    with homogeneous BCs; boundaries are preserved from the input.
+    """
+
+    D = float(D)
+    D4 = float(D4)
+    mu = float(mu)
+    if (D == 0.0) and (D4 == 0.0) and (mu == 0.0):
+        return u
+
+    nx, ny = u.shape
+    if nx < 3 and bc.kind_x == 1:
+        raise ValueError("Dirichlet BCs in x require nx >= 3.")
+    if ny < 3 and bc.kind_y == 1:
+        raise ValueError("Dirichlet BCs in y require ny >= 3.")
+
+    u_full = u
+    u_work = u
+    if bc.kind_x == 1:
+        u_work = u_work[1:-1, :]
+    if bc.kind_y == 1:
+        u_work = u_work[:, 1:-1]
+
+    if bc.kind_x == 0:
+        u_work = jnp.fft.fft(u_work, axis=0)
+    elif bc.kind_x == 2:
+        u_work = _dct1_even(u_work)
+    else:
+        u_work = _dst1_odd(u_work)
+
+    if bc.kind_y == 0:
+        u_work = jnp.fft.fft(u_work, axis=1)
+    elif bc.kind_y == 2:
+        u_work = _dct1_even(u_work.T).T
+    else:
+        u_work = _dst1_odd(u_work.T).T
+
+    if lam_x is None:
+        if bc.kind_x == 0:
+            kx = jnp.arange(nx, dtype=u.dtype)
+            lam_x = 4.0 * jnp.sin(jnp.pi * kx / nx) ** 2 / dx**2
+        elif bc.kind_x == 2:
+            kx = jnp.arange(nx, dtype=u.dtype)
+            lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+        else:
+            kx = jnp.arange(1, nx - 1, dtype=u.dtype)
+            lam_x = 4.0 * jnp.sin(0.5 * jnp.pi * kx / (nx - 1)) ** 2 / dx**2
+
+    if lam_y is None:
+        if bc.kind_y == 0:
+            ky = jnp.arange(ny, dtype=u.dtype)
+            lam_y = 4.0 * jnp.sin(jnp.pi * ky / ny) ** 2 / dy**2
+        elif bc.kind_y == 2:
+            ky = jnp.arange(ny, dtype=u.dtype)
+            lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+        else:
+            ky = jnp.arange(1, ny - 1, dtype=u.dtype)
+            lam_y = 4.0 * jnp.sin(0.5 * jnp.pi * ky / (ny - 1)) ** 2 / dy**2
+
+    lam = lam_x[:, None] + lam_y[None, :]
+    factor = 1.0 + dt * (D * lam + D4 * (lam**2) + mu)
+    u_hat = u_work / factor
+
+    if bc.kind_y == 0:
+        u_work = jnp.fft.ifft(u_hat, axis=1)
+    elif bc.kind_y == 2:
+        u_work = _idct1_even(u_hat.T).T
+    else:
+        u_work = _idst1_odd(u_hat.T).T
+
+    if bc.kind_x == 0:
+        u_work = jnp.fft.ifft(u_work, axis=0)
+    elif bc.kind_x == 2:
+        u_work = _idct1_even(u_work)
+    else:
+        u_work = _idst1_odd(u_work)
+
+    if not jnp.iscomplexobj(u):
+        u_work = u_work.real
+
+    if bc.kind_x == 1 or bc.kind_y == 1:
+        u_out = u_full
+        xs = slice(1, -1) if bc.kind_x == 1 else slice(None)
+        ys = slice(1, -1) if bc.kind_y == 1 else slice(None)
+        u_out = u_out.at[xs, ys].set(u_work)
+    else:
+        u_out = u_work
+
+    if nan_guard:
+        u_out = jnp.nan_to_num(u_out, nan=0.0, posinf=0.0, neginf=0.0)
+    return u_out
+
+
 def _laplacian_homogeneous(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
     """Linear Laplacian with homogeneous BCs.
 
@@ -559,6 +709,7 @@ def build_laplacian_preconditioner(
     shape: tuple[int, int],
     dx: float,
     dy: float,
+    bc: BC2D | None,
     preconditioner: str,
     k2_precond: jnp.ndarray | None = None,
     gauge_epsilon: float | None = None,
@@ -596,6 +747,23 @@ def build_laplacian_preconditioner(
             u = jnp.fft.ifft2(u_hat)
             if not jnp.iscomplexobj(v):
                 u = u.real
+            return u.reshape((-1,))
+
+        return M
+
+    if preconditioner == "fd_fft":
+        if bc is None:
+            raise ValueError("fd_fft preconditioner requires BC2D.")
+
+        def M(v_flat):
+            v = v_flat.reshape(shape)
+            u = inv_laplacian_fd_fft(
+                v,
+                dx=dx,
+                dy=dy,
+                bc=bc,
+                gauge_epsilon=gauge_epsilon,
+            )
             return u.reshape((-1,))
 
         return M
@@ -685,6 +853,23 @@ def inv_laplacian_cg(
         if preconditioner == "spectral":
             _ = (size,)
             return _spectral_M(shape=shape, dx_eff=dx_eff, dy_eff=dy_eff)
+        if preconditioner == "fd_fft":
+            if bc is None:
+                raise ValueError("fd_fft preconditioner requires BC2D.")
+
+            def M(v_flat):
+                _ = (size, shape, dx_eff, dy_eff)
+                v = v_flat.reshape(shape)
+                u = inv_laplacian_fd_fft(
+                    v,
+                    dx=dx_eff,
+                    dy=dy_eff,
+                    bc=bc,
+                    gauge_epsilon=gauge_epsilon,
+                )
+                return u.reshape((-1,))
+
+            return M
         if preconditioner in ("none", "", None):
             return None
         raise ValueError(f"Unknown preconditioner: {preconditioner}")
@@ -907,6 +1092,24 @@ def build_div_n_grad_preconditioner(
         nbar = jnp.mean(n_eff)
         return _spectral_M(shape=n_eff.shape, nbar=nbar)
 
+    if preconditioner == "fd_fft":
+        if bc is None:
+            raise ValueError("fd_fft preconditioner requires BC2D.")
+        nbar = jnp.mean(n_eff)
+
+        def M(v_flat):
+            v = v_flat.reshape(n_eff.shape)
+            u = inv_laplacian_fd_fft(
+                v / nbar,
+                dx=dx,
+                dy=dy,
+                bc=bc,
+                gauge_epsilon=gauge_epsilon,
+            )
+            return u.reshape((-1,))
+
+        return M
+
     if preconditioner == "spectral_jacobi":
         nbar = jnp.mean(n_eff)
         inv_sqrt_diag = 1.0 / jnp.sqrt(jnp.maximum(diag + float(preconditioner_shift), 1e-14))
@@ -1013,6 +1216,22 @@ def inv_div_n_grad_cg(
                 v = inv_sqrt_diag.reshape((-1,)) * v_flat
                 u = spectral(v)
                 return inv_sqrt_diag.reshape((-1,)) * u
+
+            return M
+        if preconditioner == "fd_fft":
+            if bc is None:
+                raise ValueError("fd_fft preconditioner requires BC2D.")
+
+            def M(v_flat):
+                v = v_flat.reshape(shape)
+                u = inv_laplacian_fd_fft(
+                    v / nbar,
+                    dx=dx,
+                    dy=dy,
+                    bc=bc,
+                    gauge_epsilon=gauge_epsilon,
+                )
+                return u.reshape((-1,))
 
             return M
         if preconditioner in ("none", "", None):
