@@ -69,13 +69,29 @@ def _parse_gbs_input(path: Path) -> dict[str, float]:
     return out
 
 
-def _spectrum_ky(snapshot: np.ndarray, Ly: float) -> tuple[np.ndarray, np.ndarray]:
+def _parse_time_log(path: Path | None) -> tuple[float, float] | None:
+    if path is None or not path.exists():
+        return None
+    text = path.read_text()
+    real_match = re.search(r"^\s*([0-9.]+)\s+real", text, re.MULTILINE)
+    mem_match = re.search(r"^\s*([0-9]+)\s+maximum resident set size", text, re.MULTILINE)
+    if real_match is None and mem_match is None:
+        return None
+    runtime = float(real_match.group(1)) if real_match else float("nan")
+    mem_bytes = float(mem_match.group(1)) if mem_match else float("nan")
+    mem_mb = mem_bytes / (1024.0 ** 2) if mem_bytes == mem_bytes else float("nan")
+    return runtime, mem_mb
+
+
+def _spectrum_ky(
+    snapshot: np.ndarray, Ly: float, ky_scale: float = 1.0
+) -> tuple[np.ndarray, np.ndarray]:
     # snapshot shape (z, x, y)
     spec = np.abs(np.fft.rfft(snapshot, axis=2)) ** 2
     spec = spec.mean(axis=(0, 1))
     ny = snapshot.shape[2]
     ky = 2.0 * np.pi * np.fft.rfftfreq(ny, d=Ly / ny)
-    return ky, spec
+    return ky * ky_scale, spec
 
 
 def _spectrum_kx(snapshot: np.ndarray, Lx: float) -> tuple[np.ndarray, np.ndarray]:
@@ -100,7 +116,9 @@ def _freq_spectrum(series: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.nd
     return freq, spec
 
 
-def _cross_phase_ky(n: np.ndarray, phi: np.ndarray, Ly: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _cross_phase_ky(
+    n: np.ndarray, phi: np.ndarray, Ly: float, ky_scale: float = 1.0
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     n_hat = np.fft.rfft(n, axis=2)
     phi_hat = np.fft.rfft(phi, axis=2)
     cross = (n_hat * np.conj(phi_hat)).mean(axis=(0, 1))
@@ -110,7 +128,7 @@ def _cross_phase_ky(n: np.ndarray, phi: np.ndarray, Ly: float) -> tuple[np.ndarr
     phase = np.angle(cross)
     ny = n.shape[2]
     ky = 2.0 * np.pi * np.fft.rfftfreq(ny, d=Ly / ny)
-    return ky, phase, coh
+    return ky * ky_scale, phase, coh
 
 
 def _particle_flux(n: np.ndarray, phi: np.ndarray, Ly: float) -> np.ndarray:
@@ -152,6 +170,7 @@ class Dataset:
     y: np.ndarray
     z: np.ndarray
     point_idx: tuple[int, int, int]
+    ky_scale: float = 1.0
     rms_n_series: np.ndarray | None = None
     rms_phi_series: np.ndarray | None = None
     rms_Te_series: np.ndarray | None = None
@@ -160,7 +179,12 @@ class Dataset:
     point_Te_series: np.ndarray | None = None
 
 
-def _load_hermes(path: Path, axes: str = "xyz") -> Dataset:
+def _load_hermes(
+    path: Path,
+    axes: str = "xyz",
+    hermes_grid: Path | None = None,
+    ky_scale_mode: str = "metric_shift",
+) -> Dataset:
     import netCDF4  # type: ignore
 
     with netCDF4.Dataset(path) as ds:
@@ -225,6 +249,46 @@ def _load_hermes(path: Path, axes: str = "xyz") -> Dataset:
     else:
         Lx = float(nx)
 
+    ky_scale = 1.0
+    if hermes_grid is not None and hermes_grid.exists():
+        try:
+            with netCDF4.Dataset(str(hermes_grid)) as gds:
+                mode = str(ky_scale_mode).lower()
+                use_metric = mode in ("metric", "metric_shift")
+                use_shift = mode in ("metric_shift", "shift", "shiftangle")
+
+                if "dy" in gds.variables:
+                    dy_g = np.asarray(gds.variables["dy"][:])
+                    if dy_g.ndim == 2:
+                        dy_g = _trim_guard(dy_g, 0, mxg)
+                        dy_g = _trim_guard(dy_g, 1, myg)
+                    dy_mean = float(np.mean(dy_g))
+                    if "hthe" in gds.variables:
+                        hthe = np.asarray(gds.variables["hthe"][:])
+                        if hthe.ndim == 2:
+                            hthe = _trim_guard(hthe, 0, mxg)
+                            hthe = _trim_guard(hthe, 1, myg)
+                        Ly = float(np.mean(hthe)) * dy_mean * ny
+                    else:
+                        Ly = dy_mean * ny
+                if use_metric:
+                    gyy_name = "gyy_ballooning" if "gyy_ballooning" in gds.variables else "gyy"
+                    if gyy_name in gds.variables:
+                        gyy = np.asarray(gds.variables[gyy_name][:])
+                        if gyy.ndim == 2:
+                            gyy = _trim_guard(gyy, 0, mxg)
+                            gyy = _trim_guard(gyy, 1, myg)
+                        gyy_mean = float(np.mean(gyy))
+                        if gyy_mean > 0:
+                            ky_scale *= float(np.sqrt(gyy_mean))
+                if use_shift and "ShiftAngle" in gds.variables:
+                    shift = np.asarray(gds.variables["ShiftAngle"][:])
+                    if shift.size:
+                        shift_mean = float(np.mean(shift))
+                        ky_scale *= float(abs(np.cos(shift_mean)))
+        except Exception:
+            pass
+
     x = np.linspace(0.0, Lx, nx, endpoint=False)
     y = np.linspace(0.0, Ly, ny, endpoint=False)
     z = np.linspace(0.0, Lz, nz, endpoint=False)
@@ -243,6 +307,7 @@ def _load_hermes(path: Path, axes: str = "xyz") -> Dataset:
         y=y,
         z=z,
         point_idx=point_idx,
+        ky_scale=ky_scale,
     )
 
 
@@ -413,33 +478,49 @@ def _series_from_dataset(ds: Dataset) -> dict[str, np.ndarray]:
 def main() -> None:
     p = argparse.ArgumentParser(description="Generate benchmark plots for Hermes/GBS/jax_drb.")
     p.add_argument("--hermes", required=True, help="Path to Hermes BOUT.dmp.0.nc")
-    p.add_argument("--gbs", required=True, help="Path to GBS results_*.h5")
+    p.add_argument("--gbs", default=None, help="Path to GBS results_*.h5 (optional)")
     p.add_argument("--jaxdrb", required=True, help="Path to jax_drb .npz output")
     p.add_argument("--output", required=True, help="Output directory")
     p.add_argument("--gbs-input", default=None, help="GBS input file for geometry lengths")
     p.add_argument("--jaxdrb-config", default=None, help="jax_drb TOML config for geometry lengths")
+    p.add_argument("--hermes-grid", default=None, help="Optional Hermes grid file (salpha.nc)")
     p.add_argument("--hermes-axes", default="xyz", help="Hermes spatial axis order in file (default xyz)")
+    p.add_argument(
+        "--hermes-ky-scale",
+        default="metric_shift",
+        choices=("none", "metric", "metric_shift"),
+        help="Hermes ky scaling: none, metric (gyy), or metric_shift (gyy + ShiftAngle).",
+    )
     p.add_argument("--gbs-axes", default="zxy", help="GBS spatial axis order in file (default zxy)")
     p.add_argument("--jaxdrb-axes", default="zxy", help="jax_drb spatial axis order in file (default zxy)")
     p.add_argument("--growth-frac", type=float, default=0.3)
+    p.add_argument("--hermes-time", default=None, help="Optional /usr/bin/time -l log for Hermes")
+    p.add_argument("--jaxdrb-time", default=None, help="Optional /usr/bin/time -l log for jax_drb")
+    p.add_argument("--gbs-time", default=None, help="Optional /usr/bin/time -l log for GBS")
     args = p.parse_args()
 
     outdir = Path(args.output)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    hermes = _load_hermes(Path(args.hermes), axes=args.hermes_axes)
-    gbs = _load_gbs(
-        Path(args.gbs),
-        Path(args.gbs_input) if args.gbs_input else None,
-        axes=args.gbs_axes,
+    hermes = _load_hermes(
+        Path(args.hermes),
+        axes=args.hermes_axes,
+        hermes_grid=Path(args.hermes_grid) if args.hermes_grid else None,
+        ky_scale_mode=args.hermes_ky_scale,
     )
     jaxdrb = _load_jaxdrb(
         Path(args.jaxdrb),
         Path(args.jaxdrb_config) if args.jaxdrb_config else None,
         axes=args.jaxdrb_axes,
     )
-
-    datasets = [hermes, gbs, jaxdrb]
+    datasets = [hermes, jaxdrb]
+    if args.gbs:
+        gbs = _load_gbs(
+            Path(args.gbs),
+            Path(args.gbs_input) if args.gbs_input else None,
+            axes=args.gbs_axes,
+        )
+        datasets = [hermes, gbs, jaxdrb]
 
     series = {ds.name: _series_from_dataset(ds) for ds in datasets}
 
@@ -453,24 +534,36 @@ def main() -> None:
         if s["rms_phi"] is not None:
             metrics[f"{ds.name}_rms_phi_final"] = float(s["rms_phi"][-1])
 
+    time_logs = {
+        "Hermes": _parse_time_log(Path(args.hermes_time)) if args.hermes_time else None,
+        "jax_drb": _parse_time_log(Path(args.jaxdrb_time)) if args.jaxdrb_time else None,
+        "GBS": _parse_time_log(Path(args.gbs_time)) if args.gbs_time else None,
+    }
+    for name, stats in time_logs.items():
+        if stats is None:
+            continue
+        runtime_s, mem_mb = stats
+        metrics[f"{name}_runtime_s"] = float(runtime_s)
+        metrics[f"{name}_mem_mb"] = float(mem_mb)
+
     # Snapshot-based metrics
     for ds in datasets:
         snap_n = ds.n[-1]
         profile_n = snap_n.mean(axis=(0, 2))
         lp_n = _fit_lp(ds.x, profile_n)
         metrics[f"{ds.name}_Lp_n"] = lp_n
-        ky_n, spec_n = _spectrum_ky(snap_n, ds.Ly)
+        ky_n, spec_n = _spectrum_ky(snap_n, ds.Ly, ds.ky_scale)
         if ky_n.size > 1:
             idx_n = int(np.argmax(spec_n[1:])) + 1
             metrics[f"{ds.name}_ky_peak_n"] = float(ky_n[idx_n])
             metrics[f"{ds.name}_spec_peak_n"] = float(spec_n[idx_n])
         if ds.phi is not None:
-            ky_p, spec_p = _spectrum_ky(ds.phi[-1], ds.Ly)
+            ky_p, spec_p = _spectrum_ky(ds.phi[-1], ds.Ly, ds.ky_scale)
             if ky_p.size > 1:
                 idx_p = int(np.argmax(spec_p[1:])) + 1
                 metrics[f"{ds.name}_ky_peak_phi"] = float(ky_p[idx_p])
                 metrics[f"{ds.name}_spec_peak_phi"] = float(spec_p[idx_p])
-            ky_cp, phase_cp, coh_cp = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly)
+            ky_cp, phase_cp, coh_cp = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly, ds.ky_scale)
             if ky_cp.size > 1:
                 idx_cp = int(np.argmax(spec_n[1:])) + 1 if spec_n.size == ky_cp.size else int(np.argmax(coh_cp[1:])) + 1
                 metrics[f"{ds.name}_phase_ky_peak"] = float(phase_cp[idx_cp])
@@ -524,7 +617,7 @@ def main() -> None:
     # ky spectra
     fig, ax = plt.subplots(figsize=(8, 4))
     for ds in datasets:
-        ky, spec = _spectrum_ky(ds.n[-1], ds.Ly)
+        ky, spec = _spectrum_ky(ds.n[-1], ds.Ly, ds.ky_scale)
         ax.plot(ky, spec + 1e-30, label=ds.name)
     ax.set_xlabel("k_y")
     ax.set_ylabel("Spectrum(n)")
@@ -537,7 +630,7 @@ def main() -> None:
     if all(ds.phi is not None for ds in datasets):
         fig, ax = plt.subplots(figsize=(8, 4))
         for ds in datasets:
-            ky, spec = _spectrum_ky(ds.phi[-1], ds.Ly)  # type: ignore[arg-type]
+            ky, spec = _spectrum_ky(ds.phi[-1], ds.Ly, ds.ky_scale)  # type: ignore[arg-type]
             ax.plot(ky, spec + 1e-30, label=ds.name)
         ax.set_xlabel("k_y")
         ax.set_ylabel("Spectrum(phi)")
@@ -576,7 +669,7 @@ def main() -> None:
     if all(ds.phi is not None for ds in datasets):
         fig, ax = plt.subplots(figsize=(8, 4))
         for ds in datasets:
-            ky, phase, _ = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly)  # type: ignore[arg-type]
+            ky, phase, _ = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly, ds.ky_scale)  # type: ignore[arg-type]
             ax.plot(ky, phase, label=ds.name)
         ax.set_xlabel("k_y")
         ax.set_ylabel("Phase(n,phi)")
@@ -587,7 +680,7 @@ def main() -> None:
 
         fig, ax = plt.subplots(figsize=(8, 4))
         for ds in datasets:
-            ky, _, coh = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly)  # type: ignore[arg-type]
+            ky, _, coh = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly, ds.ky_scale)  # type: ignore[arg-type]
             ax.plot(ky, coh, label=ds.name)
         ax.set_xlabel("k_y")
         ax.set_ylabel("Coherence(n,phi)")

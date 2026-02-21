@@ -368,10 +368,16 @@ def _apply_parallel_implicit(
 
 
 def _apply_stiff_implicit(
-    system: DRBSystem, y: DRBSystemState, dt: float, phi_guess: jnp.ndarray | None = None
+    system: DRBSystem,
+    y: DRBSystemState,
+    dt: float,
+    phi_guess: jnp.ndarray | None = None,
+    *,
+    parallel_implicit: bool = True,
 ) -> DRBSystemState:
     y = _apply_diffusion_implicit(system, y, dt)
-    y = _apply_parallel_implicit(system, y, dt, phi_guess)
+    if parallel_implicit:
+        y = _apply_parallel_implicit(system, y, dt, phi_guess)
     y = _apply_bc_relaxation_implicit(system, y, dt, phi_guess)
     y = _apply_phi_boundary_relaxation_implicit(system, y, dt, phi_guess)
     return y
@@ -465,6 +471,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     cfg, norm_info = apply_normalization(cfg)
 
     physics = cfg.get("physics", {})
+    transport = cfg.get("transport", {})
     closures = cfg.get("closures", {})
     numerics = cfg.get("numerics", {})
     terms = cfg.get("terms", {})
@@ -482,7 +489,9 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     init = cfg.get("initial", {})
 
     params = DRBSystemParams()
-    params = update_params_from_dict(params, _merge_params(physics, closures, numerics, terms, bc))
+    params = update_params_from_dict(
+        params, _merge_params(physics, transport, closures, numerics, terms, bc)
+    )
 
     geom = build_geometry(params, geometry)
 
@@ -538,7 +547,12 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             return None
         if mode in ("bout", "index"):
             nz = int(shape[0])
-            z_arr = jnp.linspace(0.0, 2.0 * jnp.pi, nz, endpoint=False)
+            grid = getattr(geom, "grid", None)
+            endpoint = False
+            if grid is not None and getattr(grid, "open_field_line", False):
+                endpoint = True
+            # BOUT++ mixmode uses normalized z in [0, 1)
+            z_arr = jnp.linspace(0.0, 1.0, nz, endpoint=endpoint)
         else:
             grid = getattr(geom, "grid", None)
             if grid is None or not hasattr(grid, "z"):
@@ -755,7 +769,7 @@ def _diagnostic_fn(
     return diag
 
 
-def run_simulation(cfg: dict[str, Any]) -> RunResult:
+def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunResult:
     """Run a production jax_drb simulation with JIT scan or Diffrax.
 
     Config sections:
@@ -791,7 +805,10 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
     warm_start = bool(time_cfg.get("poisson_warm_start", True))
     carry_phi = bool(time_cfg.get("carry_phi", False))
     track_iters = bool(time_cfg.get("poisson_track_iters", False))
-    return_numpy = bool(time_cfg.get("return_numpy", False))
+    if as_numpy is None:
+        return_numpy = bool(time_cfg.get("return_numpy", False))
+    else:
+        return_numpy = bool(as_numpy)
 
     shape = state.n.shape
     if len(shape) == 2:
@@ -993,11 +1010,19 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
 
             explicit_names, _ = split_term_schedule(system.params)
             explicit_names = tuple(name for name in explicit_names if name != "parallel")
+            if (
+                not bool(system.params.phi_relax_in_rhs)
+                and (float(system.params.phi_par_dissipation) != 0.0 or float(system.params.vort_par_dissipation) != 0.0)
+                and "extra_dissipation" not in explicit_names
+            ):
+                explicit_names = tuple(list(explicit_names) + ["extra_dissipation"])
             object.__setattr__(system, "scheduler_explicit", build_scheduler_from_names(explicit_names))
             if not warm_start:
                 warm_start = True
 
-        bc_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(system, y, dt_step, phi_guess)
+        bc_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(
+            system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
+        )
         if track_iters and carry_phi and not warm_start:
             runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
                 system.rhs_explicit_with_phi_iters,
@@ -1102,7 +1127,7 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
             track_iters = False
 
         stiff_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(
-            system, y, dt_step, phi_guess
+            system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
         )
         runner, nsave, rem = build_rk4_scan_imex_strang(
             system.rhs_explicit_with_phi,
