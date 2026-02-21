@@ -210,6 +210,12 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
                 "n0": density,
                 "n0_min": density,
                 "n0_max": density,
+                "source_n0": time_scale * density,
+                "source_Te0": time_scale * temperature,
+                "source_x0": length,
+                "source_y0": length,
+                "source_width_x": length,
+                "source_width_y": length,
             },
         )
         physics.update(converted)
@@ -263,6 +269,10 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
             sol_converted = _scale_section(
                 sol_phys,
                 {
+                    "sol_n_core": density,
+                    "sol_n_sol": density,
+                    "sol_Te_core": temperature,
+                    "sol_Te_sol": temperature,
                     "sol_xs": length,
                     "sol_width": length,
                     "sol_source_xs": length,
@@ -271,6 +281,10 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
                     "sol_source2_width": length,
                     "sol_source_y_taper": length,
                     "sol_mask_y_taper": length,
+                    "sol_source_n0": time_scale * density,
+                    "sol_source_Te0": time_scale * temperature,
+                    "sol_source2_n0": time_scale * density,
+                    "sol_source2_Te0": time_scale * temperature,
                     "sol_relax_core": rate,
                     "sol_relax_open": rate,
                     "sol_sink_open_n": rate,
@@ -305,5 +319,38 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
         init.update(converted)
         out["initial"] = init
         out.pop("initial_physical", None)
+
+    # BC physical inputs (timescales -> normalized rates).
+    bc_phys = cfg.get("bc_physical", None)
+    if isinstance(bc_phys, dict):
+        bc = dict(cfg.get("bc", {}))
+
+        def _set_rate(timescale_key: str, rate_key: str) -> None:
+            if rate_key in bc:
+                return
+            if timescale_key not in bc_phys:
+                return
+            tau = _as_float(bc_phys.get(timescale_key), 0.0)
+            if tau <= 0.0:
+                return
+            bc[rate_key] = time_scale / tau
+
+        # Global and phi-specific relaxation timescales.
+        _set_rate("bc_enforce_timescale", "bc_enforce_nu")
+        _set_rate("bc_enforce_timescale_phi", "bc_enforce_nu_phi")
+        _set_rate("phi_boundary_timescale", "bc_enforce_nu_phi")
+
+        out["bc"] = bc
+        out.pop("bc_physical", None)
+
+    # Numerics defaults (Poisson scaling).
+    # If lengths are normalized by Lref, the normalized vorticity satisfies
+    #   omega ~ (rho_s / Lref)^2 * ∇⊥^2 phi
+    # so we set poisson_scale accordingly unless the user overrides it.
+    numerics = dict(cfg.get("numerics", {}))
+    if "poisson_scale" not in numerics:
+        poisson_scale = (info.rho_s / max(info.length, 1e-30)) ** 2
+        numerics["poisson_scale"] = float(poisson_scale)
+    out["numerics"] = numerics
 
     return out, info

@@ -1,0 +1,119 @@
+# Hermes alignment benchmark (s-alpha, minimal physics)
+
+[normalization]
+enabled = true
+mode = "physics"
+Te0_eV = 1.0
+Ti0_eV = 1.0
+n0 = 1.0e18
+B0 = 1.0
+m_i_amu = 2.0
+Z_i = 1
+length_unit = "lref"
+Lref_m = 1.0
+
+[geometry]
+kind = "axisymmetric"
+coeff_path = "benchmarks/cases/jaxdrb/hermes_salpha_coeffs.npz"
+nx = 32
+ny = 32
+nz = 16
+Lx = 0.057142857142857106
+Ly = 6.283185307179586
+open_field_line = false
+bc_x = "neumann"
+bc_y = "periodic"
+
+[physics]
+nonlinear_on = false
+em_on = false
+hot_ion_on = false
+neutrals_on = false
+boussinesq = true
+curvature_on = false
+curvature_coeff = 0.0
+me_hat = 0.01635
+
+[transport]
+Dn = 0.0
+DOmega = 0.0
+DTe = 0.0
+Dvpar = 0.0
+# Hermes-style extra dissipation
+phi_par_dissipation = 1.0
+vort_par_dissipation = 0.0
+
+[numerics]
+poisson_metric_on = true
+
+[initial]
+n_profile = "gaussian_mixmode"
+n_profile_amp = 1.0e-1
+n_profile_width = 1.0
+n_profile_x0 = 0.0
+mixmode_amp = 1.0e-5
+mixmode_seed = 0.5
+mixmode_terms = ["z", "4z-x"]
+mixmode_mode = "jax"
+x_mode = "bout"
+z_mode = "bout"
+Te0 = 5.0
+noise_mode = "physical"
+noise_fields = ["n"]
+seed = 1
+
+[closures]
+sol_on = false
+sol_source_mask = "all"
+sol_source_xs = 0.0
+sol_source_width = 0.3
+sol_source_y_taper = 0.0
+
+[closures_physical.sol]
+# Matches Hermes Ne.source = 5e21*exp(-(x/0.3)^2)
+sol_source_n0 = 0.0
+sol_source_xs = 0.0
+sol_source_width = 0.3
+sol_source_y_taper = 0.0
+
+[bc]
+bc_enforce_nu = 0.0
+
+[bc_physical]
+# Hermes phi_boundary_timescale = 1e-3 s
+phi_boundary_timescale = 1.0e-3
+
+[bc.n]
+bc_x = "neumann"
+bc_y = "periodic"
+
+[bc.Te]
+bc_x = "neumann"
+bc_y = "periodic"
+
+[bc.omega]
+bc_x = "neumann"
+bc_y = "periodic"
+
+[bc.phi]
+bc_x = "neumann"
+bc_y = "periodic"
+
+[bc.vpar_e]
+bc_x = "neumann"
+bc_y = "periodic"
+
+[bc.vpar_i]
+bc_x = "neumann"
+bc_y = "periodic"
+
+[time]
+method = "rk4_imex_strang"
+dt = 1.0e-4
+t_end = 20.0
+nsteps = 200000
+save_every = 10
+progress = false
+diag_mode = "full"
+poisson_warm_start = true
+parallel_implicit = false

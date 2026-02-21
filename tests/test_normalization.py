@@ -58,6 +58,11 @@ def test_normalization_scales_geometry_and_transport():
     # tau_i should be set when not supplied
     assert np.isclose(physics["tau_i"], info.Ti0_eV / info.Te0_eV, rtol=1e-6)
 
+    # poisson_scale defaults to (rho_s / Lref)^2 when normalization is enabled
+    numerics = converted.get("numerics", {})
+    expected_poisson_scale = (info.rho_s / info.length) ** 2
+    assert np.isclose(numerics["poisson_scale"], expected_poisson_scale, rtol=1e-6)
+
 
 def test_normalization_manual_mode():
     cfg = {
@@ -85,3 +90,27 @@ def test_normalization_manual_mode():
     assert np.isclose(converted["physics"]["omega_n"], 4.0, rtol=1e-6)
     expected_Dn = 1.0 * (info.time / (info.length ** 2))
     assert np.isclose(converted["transport"]["Dn"], expected_Dn, rtol=1e-6)
+
+
+def test_normalization_bc_phi_timescale():
+    cfg = {
+        "normalization": {
+            "enabled": True,
+            "mode": "manual",
+            "length": 2.0,
+            "time": 0.5,
+            "density": 1.0,
+            "temperature": 1.0,
+            "potential": 1.0,
+            "velocity": 1.0,
+            "B0": 1.0,
+            "n0": 1.0,
+        },
+        "bc_physical": {"phi_boundary_timescale": 2.0},
+    }
+
+    converted, info = apply_normalization(cfg)
+    assert info is not None
+    bc = converted.get("bc", {})
+    expected = info.time / 2.0
+    assert np.isclose(bc["bc_enforce_nu_phi"], expected, rtol=1e-6)
