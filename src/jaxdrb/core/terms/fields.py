@@ -7,6 +7,7 @@ from jaxdrb.bc import BC2D
 from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.operators.fd2d import (
+    div_n_grad,
     inv_div_n_grad_cg,
     inv_laplacian_cg,
     inv_laplacian_fd_fft,
@@ -14,7 +15,7 @@ from jaxdrb.operators.fd2d import (
 )
 from jaxdrb.operators.spectral2d import inv_laplacian as inv_laplacian_spec
 
-from .ops import grid_of, is_periodic_bc
+from .ops import grid_of, is_periodic_bc, laplacian
 
 
 def phys_n(params: DRBSystemParams, n: jnp.ndarray) -> jnp.ndarray:
@@ -70,6 +71,8 @@ def phi_from_omega(
     return_iters: bool = False,
 ) -> jnp.ndarray:
     grid = grid_of(geom)
+    scale = float(params.poisson_scale)
+    omega = omega / scale if scale != 1.0 else omega
     if grid is None:
         if params.boussinesq:
             phi = geom.inv_laplacian(omega, x0=phi_guess)
@@ -83,6 +86,13 @@ def phi_from_omega(
 
     with jax.named_scope("poisson_solve"):
         if params.boussinesq:
+            if params.poisson_metric_on and hasattr(geom, "inv_laplacian_metric"):
+                metric_ok = True
+                if hasattr(geom, "metric_available"):
+                    metric_ok = bool(geom.metric_available())
+                if metric_ok:
+                    phi = geom.inv_laplacian_metric(omega, x0=phi_guess)
+                    return (phi, jnp.asarray(0)) if return_iters else phi
             poisson = params.poisson
             if params.poisson_force_spectral_when_periodic and is_periodic_bc(bc_phi, geom):
                 poisson = "spectral"
@@ -168,3 +178,42 @@ def phi_from_omega(
             return_iters=return_iters,
         )
         return phi if return_iters else phi
+
+
+def omega_from_phi(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    phi: jnp.ndarray,
+    n_phys: jnp.ndarray,
+    bc_phi: BC2D,
+) -> jnp.ndarray:
+    """Forward operator for Poisson/polarization: omega = ∇² phi (or div(n ∇ phi))."""
+
+    scale = float(params.poisson_scale)
+
+    if params.boussinesq:
+        if params.poisson_metric_on and hasattr(geom, "laplacian_metric"):
+            metric_ok = True
+            if hasattr(geom, "metric_available"):
+                metric_ok = bool(geom.metric_available())
+            if metric_ok:
+                omega_metric = geom.laplacian_metric(phi)
+                return omega_metric * scale if scale != 1.0 else omega_metric
+
+        omega = laplacian(params, geom, phi, bc_phi)
+        return omega * scale if scale != 1.0 else omega
+
+    n_eff = _n_eff(params, n_phys)
+    grid = grid_of(geom)
+    if grid is None:
+        omega = geom.laplacian(phi)
+        return omega * scale if scale != 1.0 else omega
+
+    if phi.ndim == 2:
+        omega = div_n_grad(phi, n_eff, dx=grid.dx, dy=grid.dy, bc=bc_phi)
+        return omega * scale if scale != 1.0 else omega
+
+    omega = jax.vmap(lambda p, nloc: div_n_grad(p, nloc, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
+        phi, n_eff
+    )
+    return omega * scale if scale != 1.0 else omega

@@ -15,6 +15,7 @@ from jaxdrb.operators.fd2d import (
     build_div_n_grad_preconditioner,
     build_fd_fft_eigs,
     build_laplacian_preconditioner,
+    div_n_grad,
     inv_div_n_grad_cg,
     inv_laplacian_cg,
     inv_laplacian_fd_fft,
@@ -251,7 +252,8 @@ class DRBSystem(eqx.Module):
 
     def rhs_stiff(self, t: float, y: DRBSystemState) -> DRBSystemState:
         _ = t
-        ctx = build_context(self.params, self.geom, y, skip_phi=True)
+        need_phi = bool(self.params.phi_relax_in_rhs) or float(self.params.phi_par_dissipation) != 0.0
+        ctx = build_context(self.params, self.geom, y, skip_phi=not need_phi)
         split = self.scheduler_stiff.run(ctx, y)
         return self._apply_split(split, y)
 
@@ -491,6 +493,8 @@ class DRBSystem(eqx.Module):
     ) -> jnp.ndarray:
         grid = self._grid()
         bc_phi = self._bc_phi()
+        scale = float(self.params.poisson_scale)
+        omega = omega / scale if scale != 1.0 else omega
         if grid is None:
             if self.params.boussinesq:
                 return self.geom.inv_laplacian(omega, x0=phi_guess)
@@ -503,6 +507,12 @@ class DRBSystem(eqx.Module):
             return self.geom.inv_div_n_grad(n_eff, omega, x0=phi_guess)
 
         if self.params.boussinesq:
+            if self.params.poisson_metric_on and hasattr(self.geom, "inv_laplacian_metric"):
+                metric_ok = True
+                if hasattr(self.geom, "metric_available"):
+                    metric_ok = bool(self.geom.metric_available())
+                if metric_ok:
+                    return self.geom.inv_laplacian_metric(omega, x0=phi_guess)
             poisson = self.params.poisson
             if self.params.poisson_force_spectral_when_periodic and self._is_periodic_bc(bc_phi):
                 poisson = "spectral"
@@ -609,3 +619,60 @@ class DRBSystem(eqx.Module):
             preconditioner_fn=precond_fn,
             x0=phi_guess,
         )
+
+    def _omega_from_phi(self, phi: jnp.ndarray, n: jnp.ndarray) -> jnp.ndarray:
+        """Forward operator for Poisson/polarization: omega = ∇² phi (or div(n ∇ phi))."""
+
+        grid = self._grid()
+        bc_phi = self._bc_phi()
+        scale = float(self.params.poisson_scale)
+
+        if self.params.boussinesq:
+            if self.params.poisson_metric_on and hasattr(self.geom, "laplacian_metric"):
+                metric_ok = True
+                if hasattr(self.geom, "metric_available"):
+                    metric_ok = bool(self.geom.metric_available())
+                if metric_ok:
+                    omega = self.geom.laplacian_metric(phi)
+                    return omega * scale if scale != 1.0 else omega
+            poisson = self.params.poisson
+            if self.params.poisson_force_spectral_when_periodic and self._is_periodic_bc(bc_phi):
+                poisson = "spectral"
+            if poisson == "spectral":
+                if not self._is_periodic_bc(bc_phi):
+                    raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
+                if grid is None:
+                    return self.geom.laplacian(phi)
+                omega = laplacian(phi, grid.k2)
+            else:
+                if self.params.poisson_metric_on and hasattr(self.geom, "laplacian_metric"):
+                    metric_ok = True
+                    if hasattr(self.geom, "metric_available"):
+                        metric_ok = bool(self.geom.metric_available())
+                    if metric_ok:
+                        omega = self.geom.laplacian_metric(phi)
+                    else:
+                        omega = self.geom.laplacian(phi)
+                else:
+                    omega = self.geom.laplacian(phi)
+            return omega * scale if scale != 1.0 else omega
+
+        n_eff = float(self.params.n0)
+        if self.params.non_boussinesq_perturbed_density_on:
+            n_eff = n_eff + jnp.real(jnp.asarray(n))
+        n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
+        if self.params.n0_max is not None:
+            n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
+
+        if grid is None:
+            omega = self.geom.laplacian(phi)
+            return omega * scale if scale != 1.0 else omega
+
+        if phi.ndim == 2:
+            omega = div_n_grad(phi, n_eff, dx=grid.dx, dy=grid.dy, bc=bc_phi)
+            return omega * scale if scale != 1.0 else omega
+
+        omega = jax.vmap(lambda p, nloc: div_n_grad(p, nloc, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
+            phi, n_eff
+        )
+        return omega * scale if scale != 1.0 else omega
