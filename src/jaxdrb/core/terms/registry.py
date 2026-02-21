@@ -16,6 +16,7 @@ from .context import TermContext
 from .curvature import curvature_terms
 from .diffusion import diffusion_terms
 from .drive import drive_terms
+from .extra_dissipation import extra_dissipation_terms
 from .fields import log_rhs
 from .line_bcs import line_bc_terms
 from .neutrals import neutrals_terms
@@ -198,6 +199,13 @@ def _term_diffusion(ctx: TermContext, y: DRBSystemState, work: dict[str, object]
     )
 
 
+def _term_extra_dissipation(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    _ = work
+    return extra_dissipation_terms(ctx, y)
+
+
 def _term_sol_sinks(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
     term = sol_sinks(
         ctx.params,
@@ -308,6 +316,7 @@ TERM_REGISTRY: dict[str, TermSpec] = {
     "sol_sources": TermSpec("sol_sources", "source", _term_sol_sources),
     "neutrals": TermSpec("neutrals", "source", _term_neutrals),
     "diffusion": TermSpec("diffusion", "dissipative", _term_diffusion),
+    "extra_dissipation": TermSpec("extra_dissipation", "dissipative", _term_extra_dissipation),
     "sol_sinks": TermSpec("sol_sinks", "dissipative", _term_sol_sinks),
     "sol_parallel_loss": TermSpec("sol_parallel_loss", "dissipative", _term_sol_parallel_loss),
     "sol_sheath_phi": TermSpec("sol_sheath_phi", "dissipative", _term_sol_sheath_phi),
@@ -330,6 +339,7 @@ DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
     "sol_sources",
     "neutrals",
     "diffusion",
+    "extra_dissipation",
     "sol_sinks",
     "sol_parallel_loss",
     "sol_sheath_phi",
@@ -346,6 +356,7 @@ DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
 
 STIFF_TERM_SCHEDULE: tuple[str, ...] = (
     "diffusion",
+    "extra_dissipation",
     "sol_sinks",
     "sol_omega_bc",
     "sol_vpar_bc",

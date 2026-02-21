@@ -71,8 +71,6 @@ def _apply_bc_relaxation_implicit(
 
     nu_n = _nu(params.bc_enforce_nu_n)
     nu_omega = _nu(params.bc_enforce_nu_omega)
-    if (params.bc_enforce_nu_omega is None) and (params.bc_enforce_nu_phi is not None):
-        nu_omega = float(params.bc_enforce_nu_phi)
     nu_vpar_e = _nu(params.bc_enforce_nu_vpar_e)
     nu_vpar_i = _nu(params.bc_enforce_nu_vpar_i)
     nu_Te = _nu(params.bc_enforce_nu_Te)
@@ -126,6 +124,55 @@ def _apply_bc_relaxation_implicit(
         Te=Te,
         Ti=Ti,
         psi=psi,
+        N=y.N,
+    )
+
+
+def _apply_phi_boundary_relaxation_implicit(
+    system: DRBSystem, y: DRBSystemState, dt: float, phi_guess: jnp.ndarray | None = None
+) -> DRBSystemState:
+    """Implicit operator-split update that relaxes phi on the boundaries."""
+
+    params = system.params
+    if bool(params.phi_relax_in_rhs):
+        return y
+    nu_phi = params.bc_enforce_nu if params.bc_enforce_nu_phi is None else params.bc_enforce_nu_phi
+    if nu_phi is None or float(nu_phi) == 0.0:
+        return y
+
+    geom = system.geom
+    grid = getattr(geom, "grid", None)
+    if grid is None or getattr(geom, "ndim", None) != 2:
+        return y
+
+    bcs = resolve_bcs(params, geom)
+    dt = float(dt)
+    dx = float(grid.dx)
+    dy = float(grid.dy)
+
+    phi = system._phi_from_omega(y.omega, n=y.n, phi_guess=phi_guess)
+
+    if phi.ndim == 2:
+        phi_rel = enforce_bc_relaxation_implicit(
+            phi, dx=dx, dy=dy, bc=bcs.phi, nu=float(nu_phi), dt=dt
+        )
+    else:
+        phi_rel = jax.vmap(
+            lambda p: enforce_bc_relaxation_implicit(
+                p, dx=dx, dy=dy, bc=bcs.phi, nu=float(nu_phi), dt=dt
+            )
+        )(phi)
+
+    omega = system._omega_from_phi(phi_rel, n=y.n)
+
+    return DRBSystemState(
+        n=y.n,
+        omega=omega,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+        Te=y.Te,
+        Ti=y.Ti,
+        psi=y.psi,
         N=y.N,
     )
 
@@ -326,6 +373,7 @@ def _apply_stiff_implicit(
     y = _apply_diffusion_implicit(system, y, dt)
     y = _apply_parallel_implicit(system, y, dt, phi_guess)
     y = _apply_bc_relaxation_implicit(system, y, dt, phi_guess)
+    y = _apply_phi_boundary_relaxation_implicit(system, y, dt, phi_guess)
     return y
 
 
@@ -522,7 +570,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
                 width = 1.0
             n_phys = n_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
     elif n_profile in ("gaussian_mixmode", "gaussian_mixmode_z", "gaussian_mixmode_hermes"):
-        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        xg, yg = _perp_xy(centered=x_centered, x_mode=x_mode)
         zg = _par_z(z_mode)
         if xg is not None:
             amp = float(init.get("n_profile_amp", init.get("n_profile_amplitude", 0.0)))
@@ -531,21 +579,31 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             if width <= 0.0:
                 width = 1.0
             n_phys = n_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
-        if zg is not None and xg is not None:
+        if xg is not None and (zg is not None or yg is not None):
             mix_amp = float(init.get("mixmode_amp", 0.0))
             mix_seed = float(init.get("mixmode_seed", 0.5))
             terms = init.get("mixmode_terms", ["z", "4z-x"])
             if isinstance(terms, str):
                 terms = [terms]
+            mixmode_mode = str(init.get("mixmode_mode", "jax")).lower()
+            z_arg = zg
+            y_arg = yg
+            if mixmode_mode in ("hermes", "bout", "boutpp"):
+                z_arg = yg
+                y_arg = zg
             mix = jnp.zeros_like(n_phys)
             for term in terms:
                 key = str(term).replace(" ", "").lower()
-                if key in ("z",):
-                    arg = zg
+                if key in ("z",) and z_arg is not None:
+                    arg = z_arg
                 elif key in ("x",):
                     arg = xg
-                elif key in ("4z-x", "4*z-x"):
-                    arg = 4.0 * zg - xg
+                elif key in ("4z-x", "4*z-x") and z_arg is not None:
+                    arg = 4.0 * z_arg - xg
+                elif key in ("y",) and y_arg is not None:
+                    arg = y_arg
+                elif key in ("4y-x", "4*y-x") and y_arg is not None:
+                    arg = 4.0 * y_arg - xg
                 else:
                     continue
                 mix = mix + _mixmode(arg, seed=mix_seed)
@@ -1083,8 +1141,18 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         }
         solver_cls = solver_map.get(solver_name, dfx.Dopri8)
         solver_kwargs = {}
-        if solver_name in ("kencarp3", "kencarp4", "kencarp5"):
+        implicit_solvers = {
+            "implicit_euler",
+            "kvaerno3",
+            "kvaerno4",
+            "kvaerno5",
+            "kencarp3",
+            "kencarp4",
+            "kencarp5",
+        }
+        if solver_name in implicit_solvers:
             import lineax as lx
+            import optimistix as optx
 
             linear_kind = str(time_cfg.get("imex_linear_solver", "auto")).lower()
             linear_max_steps = time_cfg.get("imex_linear_max_steps", 50)
@@ -1096,22 +1164,46 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 linear_solver = lx.LU()
             elif linear_kind in ("cholesky", "chol"):
                 linear_solver = lx.Cholesky()
-            elif linear_kind in ("gmres", "bicgstab", "cg"):
-                raise ValueError(
-                    "Iterative IMEX linear solvers are not yet supported with "
-                    "diffrax.VeryChord (non-JAX linear state). Use imex_linear_solver='auto' "
-                    "or a direct solver."
+            elif linear_kind == "gmres":
+                linear_solver = lx.GMRES(
+                    rtol=float(linear_rtol),
+                    atol=float(linear_atol),
+                    max_steps=None if linear_max_steps is None else int(linear_max_steps),
+                    restart=int(time_cfg.get("imex_linear_restart", 20)),
+                    stagnation_iters=int(time_cfg.get("imex_linear_stagnation_iters", 20)),
+                )
+            elif linear_kind in ("bicgstab", "bicg"):
+                linear_solver = lx.BiCGStab(
+                    rtol=float(linear_rtol),
+                    atol=float(linear_atol),
+                    max_steps=None if linear_max_steps is None else int(linear_max_steps),
+                )
+            elif linear_kind in ("cg", "pcg"):
+                linear_solver = lx.CG(
+                    rtol=float(linear_rtol),
+                    atol=float(linear_atol),
+                    max_steps=None if linear_max_steps is None else int(linear_max_steps),
                 )
             else:
                 raise ValueError(f"Unknown imex_linear_solver: {linear_kind}")
 
             root_rtol = time_cfg.get("imex_root_rtol", rtol)
             root_atol = time_cfg.get("imex_root_atol", atol)
-            root_finder = dfx.VeryChord(
-                rtol=float(root_rtol),
-                atol=float(root_atol),
-                linear_solver=linear_solver,
-            )
+            root_kind = str(time_cfg.get("imex_root_solver", "verychord")).lower()
+            if root_kind in ("newton", "optimistix_newton"):
+                root_finder = optx.Newton(
+                    rtol=float(root_rtol),
+                    atol=float(root_atol),
+                    linear_solver=linear_solver,
+                    kappa=float(time_cfg.get("imex_root_kappa", 0.01)),
+                    cauchy_termination=bool(time_cfg.get("imex_root_cauchy_termination", True)),
+                )
+            else:
+                root_finder = dfx.VeryChord(
+                    rtol=float(root_rtol),
+                    atol=float(root_atol),
+                    linear_solver=linear_solver,
+                )
             solver_kwargs["root_finder"] = root_finder
             solver_kwargs["root_find_max_steps"] = int(time_cfg.get("imex_root_max_steps", 10))
 
@@ -1145,6 +1237,8 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
         )
 
         controller = dfx.PIDController(rtol=rtol, atol=atol) if adaptive else dfx.ConstantStepSize()
+        max_steps = time_cfg.get("max_steps", None)
+        max_steps = int(max_steps) if max_steps is not None else None
 
         def vf(t, y, args):
             _ = args
@@ -1184,6 +1278,7 @@ def run_simulation(cfg: dict[str, Any]) -> RunResult:
                 y0=state,
                 saveat=saveat,
                 stepsize_controller=controller,
+                max_steps=max_steps,
                 adjoint=adjoint,
                 progress_meter=progress_meter,
                 args=None,
