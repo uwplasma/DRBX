@@ -284,7 +284,10 @@ def _apply_parallel_implicit(
         nz = int(shape[0])
         dz = float(getattr(grid, "dz", 1.0))
         k = 2.0 * jnp.pi * jnp.fft.fftfreq(nz, d=dz)
-        D = 1j * k * float(dpar_scalar)
+        # Match the centered-difference stencil used by geom.dpar:
+        # d/dz -> i * sin(k*dz) / dz for periodic grids.
+        D = 1j * jnp.sin(k * dz) / max(dz, 1e-12)
+        D = D * float(dpar_scalar)
         D = D[:, None, None]
         dt = float(dt)
 
@@ -707,6 +710,8 @@ def _diagnostic_fn(
     dt_save: float = 1.0,
     use_phi_guess: bool = True,
     use_phi_guess_only: bool = False,
+    trace_stats: bool = False,
+    trace_enstrophy: bool = False,
 ) -> Callable[[float, DRBSystemState], tuple]:
     def diag(t, y, args=None, *, phi_guess=None):
         _ = args
@@ -720,9 +725,29 @@ def _diagnostic_fn(
             z0, x0, y0 = point_idx
             point_n = n_phys[z0, x0, y0]
             point_Te = Te_phys[z0, x0, y0]
-        if mode in ("basic", "no_phi", "rms_only", "light") or phi_every <= 0:
+        def _abs_stats(arr):
+            return jnp.mean(jnp.abs(arr)), jnp.max(jnp.abs(arr))
+
+        use_phi_rms = not (mode in ("basic", "no_phi", "rms_only", "light") or phi_every <= 0)
+        idx = jnp.asarray(0)
+        use_phi = jnp.asarray(True)
+        if use_phi_rms and phi_every > 1:
+            idx = jnp.round(t / dt_save).astype(jnp.int32)
+            use_phi = (idx % phi_every) == 0
+
+        need_phi = trace_stats or use_phi_rms
+        phi_local = None
+        if need_phi:
+            if use_phi_guess and phi_guess is not None:
+                phi_local = phi_guess
+            elif use_phi_guess_only:
+                phi_local = jnp.zeros_like(y.omega)
+            else:
+                phi_local = system._phi_from_omega(y.omega, n=n_phys, phi_guess=phi_guess)
+
+        if not use_phi_rms:
             zero = jnp.asarray(0.0)
-            return (
+            base = (
                 jnp.asarray(t),
                 jnp.sqrt(jnp.mean(n_phys ** 2)),
                 jnp.sqrt(jnp.mean(Te_phys ** 2)),
@@ -732,39 +757,61 @@ def _diagnostic_fn(
                 point_Te,
                 zero,
             )
-        idx = jnp.asarray(0)
-        use_phi = jnp.asarray(True)
-        if phi_every > 1:
-            idx = jnp.round(t / dt_save).astype(jnp.int32)
-            use_phi = (idx % phi_every) == 0
-
-        def _compute_phi(_):
-            if use_phi_guess and phi_guess is not None:
-                phi_local = phi_guess
-            else:
-                if use_phi_guess_only:
+        else:
+            def _compute_phi(_):
+                if phi_local is None:
                     zero = jnp.asarray(0.0)
                     return zero, zero
-                phi_local = system._phi_from_omega(y.omega, n=n_phys, phi_guess=phi_guess)
-            if n_phys.ndim == 2:
-                return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[x0, y0]
-            return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[z0, x0, y0]
+                if n_phys.ndim == 2:
+                    return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[x0, y0]
+                return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[z0, x0, y0]
 
-        def _skip_phi(_):
-            zero = jnp.asarray(0.0)
-            return zero, zero
+            def _skip_phi(_):
+                zero = jnp.asarray(0.0)
+                return zero, zero
 
-        rms_phi, point_phi = jax.lax.cond(use_phi, _compute_phi, _skip_phi, operand=None)
-        return (
-            jnp.asarray(t),
-            jnp.sqrt(jnp.mean(n_phys ** 2)),
-            jnp.sqrt(jnp.mean(Te_phys ** 2)),
-            jnp.sqrt(jnp.mean(y.omega ** 2)),
-            rms_phi,
-            point_n,
-            point_Te,
-            point_phi,
+            rms_phi, point_phi = jax.lax.cond(use_phi, _compute_phi, _skip_phi, operand=None)
+            base = (
+                jnp.asarray(t),
+                jnp.sqrt(jnp.mean(n_phys ** 2)),
+                jnp.sqrt(jnp.mean(Te_phys ** 2)),
+                jnp.sqrt(jnp.mean(y.omega ** 2)),
+                rms_phi,
+                point_n,
+                point_Te,
+                point_phi,
+            )
+
+        if not trace_stats:
+            return base
+
+        if phi_local is None:
+            phi_local = jnp.zeros_like(y.omega)
+
+        n_mean, n_max = _abs_stats(n_phys)
+        Te_mean, Te_max = _abs_stats(Te_phys)
+        ve_mean, ve_max = _abs_stats(y.vpar_e)
+        vi_mean, vi_max = _abs_stats(y.vpar_i)
+        om_mean, om_max = _abs_stats(y.omega)
+        phi_mean, phi_max = _abs_stats(phi_local)
+        extras = (
+            n_mean,
+            n_max,
+            Te_mean,
+            Te_max,
+            ve_mean,
+            ve_max,
+            vi_mean,
+            vi_max,
+            om_mean,
+            om_max,
+            phi_mean,
+            phi_max,
         )
+        if trace_enstrophy:
+            enstrophy = 0.5 * jnp.mean(y.omega ** 2)
+            extras = extras + (enstrophy,)
+        return base + extras
 
     return diag
 
@@ -802,6 +849,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
     diag_phi_every = int(time_cfg.get("diag_phi_every", 1))
     diag_phi_use_guess = bool(time_cfg.get("diag_phi_use_guess", True))
     diag_phi_use_guess_only = bool(time_cfg.get("diag_phi_use_guess_only", False))
+    trace_stats = bool(time_cfg.get("trace_stats", False) or time_cfg.get("blowup_trace", False))
+    trace_enstrophy = bool(time_cfg.get("trace_enstrophy", False))
     warm_start = bool(time_cfg.get("poisson_warm_start", True))
     carry_phi = bool(time_cfg.get("carry_phi", False))
     track_iters = bool(time_cfg.get("poisson_track_iters", False))
@@ -811,6 +860,38 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         return_numpy = bool(as_numpy)
 
     shape = state.n.shape
+    trace_stats_out: dict[str, Any] = {}
+
+    def _unpack_diag(diag_series):
+        items = list(diag_series)
+        it_mean = None
+        it_max = None
+        if track_iters:
+            it_max = items.pop()
+            it_mean = items.pop()
+        t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = items[:8]
+        extra = items[8:]
+        trace = {}
+        if trace_stats:
+            keys = [
+                "trace_mean_abs_n",
+                "trace_max_abs_n",
+                "trace_mean_abs_Te",
+                "trace_max_abs_Te",
+                "trace_mean_abs_vpar_e",
+                "trace_max_abs_vpar_e",
+                "trace_mean_abs_vpar_i",
+                "trace_max_abs_vpar_i",
+                "trace_mean_abs_omega",
+                "trace_max_abs_omega",
+                "trace_mean_abs_phi",
+                "trace_max_abs_phi",
+            ]
+            if trace_enstrophy:
+                keys.append("trace_enstrophy")
+            for key, val in zip(keys, extra):
+                trace[key] = val
+        return t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi, it_mean, it_max, trace
     if len(shape) == 2:
         nx, ny = shape
         point_idx = tuple(time_cfg.get("point_idx", (nx // 2, ny // 2)))
@@ -828,6 +909,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             dt_save=dt_save,
             use_phi_guess=diag_phi_use_guess,
             use_phi_guess_only=diag_phi_use_guess_only,
+            trace_stats=trace_stats,
+            trace_enstrophy=trace_enstrophy,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -882,21 +965,19 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
         if rem > 0:
             times[-1] = nsteps * dt
-        if track_iters:
-            (
-                t,
-                rms_n,
-                rms_Te,
-                rms_omega,
-                rms_phi,
-                point_n,
-                point_Te,
-                point_phi,
-                iters_mean,
-                iters_max,
-            ) = diag_series
-        else:
-            t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+        (
+            t,
+            rms_n,
+            rms_Te,
+            rms_omega,
+            rms_phi,
+            point_n,
+            point_Te,
+            point_phi,
+            iters_mean,
+            iters_max,
+            trace_stats_out,
+        ) = _unpack_diag(diag_series)
     elif method in ("rk4_split_bc", "split_bc", "rk4_bc"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
         diag_fn = _diagnostic_fn(
@@ -907,6 +988,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             dt_save=dt_save,
             use_phi_guess=diag_phi_use_guess,
             use_phi_guess_only=diag_phi_use_guess_only,
+            trace_stats=trace_stats,
+            trace_enstrophy=trace_enstrophy,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -975,21 +1058,19 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
         if rem > 0:
             times[-1] = nsteps * dt
-        if track_iters:
-            (
-                t,
-                rms_n,
-                rms_Te,
-                rms_omega,
-                rms_phi,
-                point_n,
-                point_Te,
-                point_phi,
-                iters_mean,
-                iters_max,
-            ) = diag_series
-        else:
-            t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+        (
+            t,
+            rms_n,
+            rms_Te,
+            rms_omega,
+            rms_phi,
+            point_n,
+            point_Te,
+            point_phi,
+            iters_mean,
+            iters_max,
+            trace_stats_out,
+        ) = _unpack_diag(diag_series)
     elif method in ("rk4_imex", "rk4_imex_diffusion", "imex_diffusion"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
         diag_fn = _diagnostic_fn(
@@ -1000,6 +1081,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             dt_save=dt_save,
             use_phi_guess=diag_phi_use_guess,
             use_phi_guess_only=diag_phi_use_guess_only,
+            trace_stats=trace_stats,
+            trace_enstrophy=trace_enstrophy,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1084,21 +1167,19 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
         if rem > 0:
             times[-1] = nsteps * dt
-        if track_iters:
-            (
-                t,
-                rms_n,
-                rms_Te,
-                rms_omega,
-                rms_phi,
-                point_n,
-                point_Te,
-                point_phi,
-                iters_mean,
-                iters_max,
-            ) = diag_series
-        else:
-            t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+        (
+            t,
+            rms_n,
+            rms_Te,
+            rms_omega,
+            rms_phi,
+            point_n,
+            point_Te,
+            point_phi,
+            iters_mean,
+            iters_max,
+            trace_stats_out,
+        ) = _unpack_diag(diag_series)
     elif method in ("rk4_imex_strang", "imex_strang"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
         diag_fn = _diagnostic_fn(
@@ -1109,6 +1190,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             dt_save=dt_save,
             use_phi_guess=diag_phi_use_guess,
             use_phi_guess_only=diag_phi_use_guess_only,
+            trace_stats=trace_stats,
+            trace_enstrophy=trace_enstrophy,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1145,7 +1228,19 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)
         if rem > 0:
             times[-1] = nsteps * dt
-        t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+        (
+            t,
+            rms_n,
+            rms_Te,
+            rms_omega,
+            rms_phi,
+            point_n,
+            point_Te,
+            point_phi,
+            iters_mean,
+            iters_max,
+            trace_stats_out,
+        ) = _unpack_diag(diag_series)
     elif method in ("diffrax", "dopri8", "tsit5"):
         import diffrax as dfx
         if track_iters:
@@ -1250,6 +1345,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             dt_save=dt_save,
             use_phi_guess=diag_phi_use_guess,
             use_phi_guess_only=diag_phi_use_guess_only,
+            trace_stats=trace_stats,
+            trace_enstrophy=trace_enstrophy,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1313,7 +1410,19 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         sol = solve_fn()
         diag_series = sol.ys["diag"]
         final_state = sol.ys["state"]
-        t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi = diag_series
+        (
+            t,
+            rms_n,
+            rms_Te,
+            rms_omega,
+            rms_phi,
+            point_n,
+            point_Te,
+            point_phi,
+            iters_mean,
+            iters_max,
+            trace_stats_out,
+        ) = _unpack_diag(diag_series)
     else:
         raise ValueError(f"Unknown integrator method: {method}")
 
@@ -1328,6 +1437,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         "point_phi": point_phi,
         "times": times,
     }
+    if trace_stats_out:
+        diagnostics.update(trace_stats_out)
     if track_iters:
         diagnostics["poisson_iters_mean"] = iters_mean
         diagnostics["poisson_iters_max"] = iters_max
