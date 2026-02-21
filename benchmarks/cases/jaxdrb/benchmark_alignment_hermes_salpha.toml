@@ -9,7 +9,7 @@ n0 = 1.0e18
 B0 = 1.0
 m_i_amu = 2.0
 Z_i = 1
-length_unit = "lref"
+length_unit = "rho_s"
 Lref_m = 1.0
 
 [geometry]
@@ -39,8 +39,12 @@ Dn = 0.0
 DOmega = 0.0
 DTe = 0.0
 Dvpar = 0.0
+# Linear damping to match Hermes implicit dissipation and stabilize long runs.
+mu_lin_vpar_e = 1.0
+mu_lin_vpar_i = 1.0
+eta_par = 0.1
 # Hermes-style extra dissipation
-phi_par_dissipation = 1.0
+phi_par_dissipation = 5.0
 vort_par_dissipation = 0.0
 
 [numerics]
@@ -109,11 +113,12 @@ bc_y = "periodic"
 
 [time]
 method = "rk4_imex_strang"
-dt = 1.0e-4
+dt = 5.0e-5
 t_end = 20.0
-nsteps = 200000
+nsteps = 400000
 save_every = 10
 progress = false
 diag_mode = "full"
 poisson_warm_start = true
-parallel_implicit = false
+parallel_implicit = true
+trace_stats = true
