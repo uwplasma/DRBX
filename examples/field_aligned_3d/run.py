@@ -117,6 +117,8 @@ def main() -> None:
         else Path(args.figdir)
     )
     figdir.mkdir(parents=True, exist_ok=True)
+    geom_cfg = cfg.data.get("geometry", {})
+    sep = float(geom_cfg.get("r_minor", geom_cfg.get("Lx", 1.0)))
 
     if args.make_figures:
         slices = figdir / "three_d_toroidal.png"
@@ -140,9 +142,13 @@ def main() -> None:
                 "--field-scale",
                 "3.2",
                 "--interp-grid",
-                "260",
+                "320",
                 "--toroidal-mode",
                 "polar",
+                "--separatrix",
+                str(sep),
+                "--toroidal-theta",
+                "0.0",
             ],
             check=True,
             cwd=repo_root,
@@ -183,9 +189,13 @@ def main() -> None:
                 "--range-scale",
                 "0.4",
                 "--interp-grid",
-                "260",
+                "320",
                 "--toroidal-mode",
                 "polar",
+                "--separatrix",
+                str(sep),
+                "--toroidal-theta",
+                "0.0",
             ],
             check=True,
             cwd=repo_root,

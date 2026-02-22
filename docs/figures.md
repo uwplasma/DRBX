@@ -81,6 +81,24 @@ closed‑field structure.
 
 ![Open field-line movie](figures/open_field_movie.gif)
 
+### Poloidal + Toroidal Conventions
+
+Tokamak diagnostics are commonly shown in the **poloidal \((R,Z)\) plane**, where
+a vertical slice through the torus exposes the magnetic cross‑section and flux
+surfaces. The toroidal angle \(\phi\) is the azimuthal coordinate around the
+symmetry axis. We follow this convention by:
+
+- Rendering poloidal cuts in \((R,Z)\), and
+- Plotting toroidal cuts as annuli in \((R,\phi)\) so the “donut hole” remains
+  visible.
+
+The last closed flux surface (LCFS / separatrix) is overlaid as a **dashed
+circle**, consistent with common presentation in edge‑turbulence literature. See
+the coordinate definitions and poloidal cross‑section convention in
+[ASCOT5’s coordinate notes](https://ascot4fusion.github.io/ascot5/main/theory/coordinates.html),
+and example separatrix overlays in tokamak edge turbulence figures (e.g.
+[Pan et al. 2018, Entropy](https://www.mdpi.com/1099-4300/20/4/227)).
+
 ## Field‑Aligned 3D Example
 
 ![3D toroidal cuts](figures/three_d_toroidal.png)

@@ -108,7 +108,7 @@ def main() -> None:
     parser.add_argument(
         "--interp-grid",
         type=int,
-        default=200,
+        default=320,
         help="Interpolation grid resolution for smoother poloidal plots (0 to disable).",
     )
     args = parser.parse_args()

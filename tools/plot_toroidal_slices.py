@@ -34,6 +34,18 @@ def main() -> None:
     parser.add_argument("--y-index", type=int, default=None, help="Toroidal index")
     parser.add_argument("--z-index", type=int, default=None, help="Poloidal index")
     parser.add_argument(
+        "--toroidal-theta",
+        type=float,
+        default=None,
+        help="Poloidal angle (radians) to select for the toroidal cut.",
+    )
+    parser.add_argument(
+        "--separatrix",
+        type=float,
+        default=None,
+        help="Optional separatrix radius (same units as Lx).",
+    )
+    parser.add_argument(
         "--lowpass",
         type=float,
         default=None,
@@ -59,7 +71,7 @@ def main() -> None:
     parser.add_argument(
         "--interp-grid",
         type=int,
-        default=200,
+        default=320,
         help="Interpolation grid resolution for smoother poloidal plots (0 to disable).",
     )
     parser.add_argument(
@@ -111,8 +123,11 @@ def main() -> None:
     else:
         y_idx = int(args.y_index)
     if args.z_index is None:
-        z_var = np.var(field, axis=(1, 2))
-        z_idx = int(np.argmax(z_var))
+        if args.toroidal_theta is not None:
+            z_idx = int(np.argmin(np.abs(theta - float(args.toroidal_theta))))
+        else:
+            z_var = np.var(field, axis=(1, 2))
+            z_idx = int(np.argmax(z_var))
     else:
         z_idx = int(args.z_index)
     # pick time of max energy if a time axis exists
@@ -172,6 +187,9 @@ def main() -> None:
     ax0.set_xlabel("R")
     ax0.set_ylabel("Z")
     ax0.set_aspect("equal")
+    if args.separatrix is not None:
+        sep = float(args.separatrix)
+        ax0.plot(R0 + sep * np.cos(theta), sep * np.sin(theta), color="white", lw=1.2, ls="--")
 
     if args.toroidal_mode == "polar":
         ax1 = fig.add_subplot(1, 2, 2, projection="polar")
@@ -185,8 +203,12 @@ def main() -> None:
             vmax=vmax,
         )
         ax1.set_title("toroidal cut")
-        ax1.set_rmin(float(R_tor.min()))
-        ax1.set_rmax(float(R_tor.max()))
+        rmin = float(R0 - r_minor)
+        rmax = float(R0 + r_minor)
+        ax1.set_rmin(rmin)
+        ax1.set_rmax(rmax)
+        ax1.set_ylim(rmin, rmax)
+        ax1.set_facecolor("white")
         ax1.set_yticklabels([])
         ax1.grid(alpha=0.3)
     else:
@@ -197,6 +219,7 @@ def main() -> None:
         ax1.set_title("toroidal cut")
         ax1.set_xlabel("toroidal angle")
         ax1.set_ylabel("R")
+        ax1.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
 
     fig.colorbar(im0, ax=[ax0, ax1], fraction=0.03, pad=0.02)
 
