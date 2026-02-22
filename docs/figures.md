@@ -30,6 +30,12 @@ The RMS traces highlight transient growth and saturation behavior. Use these to
 validate stability windows, time‑stepping, and dissipation choices. The same
 example command above regenerates them.
 
+## Energy Conservation
+
+![Energy error](figures/energy_error.png)
+
+Relative energy error for an advection‑only conservation check (`examples/conservation_check/`).
+
 ## Zonal Profiles
 
 ![Zonal profiles](figures/nonlinear_zonal_profile.png)
@@ -77,10 +83,11 @@ closed‑field structure.
 
 ## Field‑Aligned 3D Example
 
-![3D slices](figures/three_d_slices.png)
+![3D toroidal cuts](figures/three_d_toroidal.png)
 
-3D slice views (xy/xz/yz) from a field‑aligned s‑alpha example.
+Poloidal + toroidal cuts (mapped onto a circular cross‑section) from a
+field‑aligned s‑alpha example.
 
-![3D movie](figures/three_d_movie.gif)
+![3D movie](figures/three_d_toroidal_movie.gif)
 
 ![3D RMS](figures/three_d_rms_timeseries.png)

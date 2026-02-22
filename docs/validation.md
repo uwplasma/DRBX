@@ -37,6 +37,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_normalization.py` | Physical → normalized scaling | Normalization scheme |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
 | Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
+| Physics | `tests/test_energy_conservation.py` | Energy conservation (advection-only) | conserving_drb |
 | Regression | `tests/test_poisson_iter_stats_regression.py` | Warm-start reduces CG iterations | Numerical solver stability |
 | Regression | `tests/test_performance_regression.py` | Max time/step on 16×16 slab | Runtime guardrail |
 | Physics | `tests/test_ideal_ballooning.py` | Ideal ballooning proxy check | Halpern 2013 |

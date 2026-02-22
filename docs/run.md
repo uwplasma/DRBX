@@ -134,6 +134,12 @@ An open‑field‑line example with sheath losses and a poloidal‑plane plot:
 python examples/open_field_line/run.py --make-figures --make-movies
 ```
 
+Energy conservation check:
+
+```bash
+python examples/conservation_check/run.py
+```
+
 When `--output` is provided, the CLI forces `return_numpy = true` so diagnostics
 are transferred to the host before saving.
 
