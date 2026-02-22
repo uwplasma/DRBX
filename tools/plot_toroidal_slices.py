@@ -40,6 +40,12 @@ def main() -> None:
         help="Poloidal angle (radians) to select for the toroidal cut.",
     )
     parser.add_argument(
+        "--toroidal-theta2",
+        type=float,
+        default=None,
+        help="Optional second poloidal angle (radians) for an inboard/outboard comparison.",
+    )
+    parser.add_argument(
         "--separatrix",
         type=float,
         default=None,
@@ -130,9 +136,13 @@ def main() -> None:
             z_idx = int(np.argmax(z_var))
     else:
         z_idx = int(args.z_index)
+    z_idx2 = None
+    if args.toroidal_theta2 is not None:
+        z_idx2 = int(np.argmin(np.abs(theta - float(args.toroidal_theta2))))
     # pick time of max energy if a time axis exists
     poloidal_slice = field[:, :, y_idx]
     toroidal_slice = field[z_idx]
+    toroidal_slice2 = field[z_idx2] if z_idx2 is not None else None
 
     poloidal_slice = maybe_lowpass(poloidal_slice, args.lowpass)
     toroidal_slice = maybe_lowpass(toroidal_slice, args.lowpass)
@@ -160,15 +170,22 @@ def main() -> None:
     R_tor = R0 + r * np.cos(theta0)
     Phi, Rg = np.meshgrid(phi, R_tor, indexing="xy")
 
-    concat = np.concatenate([poloidal_slice.ravel(), toroidal_slice.ravel()])
+    slices = [poloidal_slice.ravel(), toroidal_slice.ravel()]
+    if toroidal_slice2 is not None:
+        slices.append(toroidal_slice2.ravel())
+    concat = np.concatenate(slices)
     vmin, vmax = np.percentile(concat, [2.0, 98.0])
     if args.symmetric:
         vmax = float(max(abs(vmin), abs(vmax)))
         vmin = -vmax
     cmap = "coolwarm" if args.symmetric else "viridis"
 
-    fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
-    ax0 = fig.add_subplot(1, 2, 1)
+    if toroidal_slice2 is None:
+        fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
+        ax0 = fig.add_subplot(1, 2, 1)
+    else:
+        fig = plt.figure(figsize=(16.0, 5.0), constrained_layout=True)
+        ax0 = fig.add_subplot(1, 3, 1)
     if interp_grid > 0:
         im0 = ax0.imshow(
             poloidal_interp,
@@ -192,7 +209,7 @@ def main() -> None:
         ax0.plot(R0 + sep * np.cos(theta), sep * np.sin(theta), color="white", lw=1.2, ls="--")
 
     if args.toroidal_mode == "polar":
-        ax1 = fig.add_subplot(1, 2, 2, projection="polar")
+        ax1 = fig.add_subplot(1, 2 if toroidal_slice2 is None else 3, 2, projection="polar")
         im1 = ax1.pcolormesh(
             Phi,
             Rg,
@@ -202,7 +219,7 @@ def main() -> None:
             vmin=vmin,
             vmax=vmax,
         )
-        ax1.set_title("toroidal cut")
+        ax1.set_title("toroidal cut (outboard)")
         rmin = float(R0 - r_minor)
         rmax = float(R0 + r_minor)
         ax1.set_rmin(rmin)
@@ -211,17 +228,53 @@ def main() -> None:
         ax1.set_facecolor("white")
         ax1.set_yticklabels([])
         ax1.grid(alpha=0.3)
+        ax2 = None
+        if toroidal_slice2 is not None:
+            theta2 = theta[z_idx2]
+            R_tor2 = R0 + r * np.cos(theta2)
+            Phi2, Rg2 = np.meshgrid(phi, R_tor2, indexing="xy")
+            ax2 = fig.add_subplot(1, 3, 3, projection="polar")
+            ax2.pcolormesh(
+                Phi2,
+                Rg2,
+                toroidal_slice2,
+                shading="auto",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            ax2.set_title("toroidal cut (inboard)")
+            ax2.set_rmin(rmin)
+            ax2.set_rmax(rmax)
+            ax2.set_ylim(rmin, rmax)
+            ax2.set_facecolor("white")
+            ax2.set_yticklabels([])
+            ax2.grid(alpha=0.3)
     else:
-        ax1 = fig.add_subplot(1, 2, 2)
+        ax1 = fig.add_subplot(1, 2 if toroidal_slice2 is None else 3, 2)
         im1 = ax1.pcolormesh(
             Phi, Rg, toroidal_slice, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax
         )
-        ax1.set_title("toroidal cut")
+        ax1.set_title("toroidal cut (outboard)")
         ax1.set_xlabel("toroidal angle")
         ax1.set_ylabel("R")
         ax1.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
+        ax2 = None
+        if toroidal_slice2 is not None:
+            theta2 = theta[z_idx2]
+            R_tor2 = R0 + r * np.cos(theta2)
+            Phi2, Rg2 = np.meshgrid(phi, R_tor2, indexing="xy")
+            ax2 = fig.add_subplot(1, 3, 3)
+            ax2.pcolormesh(
+                Phi2, Rg2, toroidal_slice2, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax
+            )
+            ax2.set_title("toroidal cut (inboard)")
+            ax2.set_xlabel("toroidal angle")
+            ax2.set_ylabel("R")
+            ax2.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
 
-    fig.colorbar(im0, ax=[ax0, ax1], fraction=0.03, pad=0.02)
+    axes = [ax0, ax1] if ax2 is None else [ax0, ax1, ax2]
+    fig.colorbar(im0, ax=axes, fraction=0.03, pad=0.02)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

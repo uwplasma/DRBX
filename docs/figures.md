@@ -104,8 +104,9 @@ and example separatrix overlays in tokamak edge turbulence figures (e.g.
 ![3D toroidal cuts](figures/three_d_toroidal.png)
 
 Poloidal + toroidal cuts (mapped onto a circular cross‑section for the poloidal
-plane, and a **polar annulus** for the toroidal cut) from a field‑aligned s‑alpha
-example.
+plane, and **polar annuli** for the toroidal cuts) from a field‑aligned s‑alpha
+example. We show **outboard** and **inboard** toroidal cuts side‑by‑side to
+highlight ballooning‑like asymmetry.
 
 ![3D movie](figures/three_d_toroidal_movie.gif)
 

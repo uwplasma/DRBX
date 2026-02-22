@@ -50,7 +50,7 @@ def main() -> None:
             time_cfg = {}
         time_cfg = dict(time_cfg)
         time_cfg["save_fields"] = True
-        time_cfg["snapshot_fields"] = ["n", "omega", "Te", "phi"]
+        time_cfg["snapshot_fields"] = ["n"]
         cfg.data["time"] = time_cfg
     result = run_simulation(cfg.data, as_numpy=True)
 
@@ -149,6 +149,8 @@ def main() -> None:
                 str(sep),
                 "--toroidal-theta",
                 "0.0",
+                "--toroidal-theta2",
+                "3.141592653589793",
             ],
             check=True,
             cwd=repo_root,
@@ -173,13 +175,13 @@ def main() -> None:
                 "--out",
                 str(movie_path),
                 "--stride",
-                "2",
+                "3",
                 "--fluct",
                 "mean",
                 "--lowpass",
                 "0.2",
                 "--skip-fraction",
-                "0.4",
+                "0.35",
                 "--symmetric",
                 "--range-tail",
                 "--tail-fraction",
@@ -196,6 +198,8 @@ def main() -> None:
                 str(sep),
                 "--toroidal-theta",
                 "0.0",
+                "--toroidal-theta2",
+                "3.141592653589793",
             ],
             check=True,
             cwd=repo_root,
