@@ -36,9 +36,22 @@ def main() -> None:
         action="store_true",
         help="Generate panel + RMS figures after the run.",
     )
+    parser.add_argument(
+        "--make-movies",
+        action="store_true",
+        help="Generate a blob movie GIF after the run.",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.make_figures or args.make_movies:
+        time_cfg = cfg.data.get("time", {})
+        if not isinstance(time_cfg, dict):
+            time_cfg = {}
+        time_cfg = dict(time_cfg)
+        time_cfg["save_fields"] = True
+        time_cfg["snapshot_fields"] = ["n", "omega", "Te", "phi"]
+        cfg.data["time"] = time_cfg
     result = run_simulation(cfg.data, as_numpy=True)
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -58,20 +71,53 @@ def main() -> None:
     state = result.final_state
     n_phys = built.system._phys_n(state.n)
     phi = built.system._phi_from_omega(state.omega, n=n_phys)
+    snapshots_n = payload.get("snapshots_n", None)
+    snapshots_omega = payload.get("snapshots_omega", None)
+    snapshots_Te = payload.get("snapshots_Te", None)
+    snapshots_phi = payload.get("snapshots_phi", None)
+
+    def _last_finite(arr: np.ndarray | None) -> np.ndarray | None:
+        if arr is None:
+            return None
+        arr = np.asarray(arr)
+        if arr.ndim < 1:
+            return arr
+        finite = np.isfinite(arr.reshape(arr.shape[0], -1)).all(axis=1)
+        if not np.any(finite):
+            return arr[-1]
+        idx = int(np.where(finite)[0][-1])
+        return arr[idx]
+
     payload.update(
         {
-            "snapshot_n": np.asarray(state.n),
-            "snapshot_omega": np.asarray(state.omega),
-            "snapshot_Te": np.asarray(state.Te),
+            "snapshot_n": np.asarray(_last_finite(snapshots_n))
+            if snapshots_n is not None
+            else np.asarray(state.n),
+            "snapshot_omega": np.asarray(_last_finite(snapshots_omega))
+            if snapshots_omega is not None
+            else np.asarray(state.omega),
+            "snapshot_Te": np.asarray(_last_finite(snapshots_Te))
+            if snapshots_Te is not None
+            else np.asarray(state.Te),
             "snapshot_vpar_e": np.asarray(state.vpar_e),
             "snapshot_vpar_i": np.asarray(state.vpar_i),
-            "snapshot_phi": np.asarray(phi),
+            "snapshot_phi": np.asarray(_last_finite(snapshots_phi))
+            if snapshots_phi is not None
+            else np.asarray(phi),
             "snapshot_Ti": np.asarray(state.Ti) if state.Ti is not None else None,
             "snapshot_psi": np.asarray(state.psi) if state.psi is not None else None,
             "snapshot_N": np.asarray(state.N) if state.N is not None else None,
         }
     )
     np.savez(out_path, **payload)
+
+    geom_cfg = cfg.data.get("geometry", {})
+    Lx = float(geom_cfg.get("Lx", 1.0))
+    Ly = float(geom_cfg.get("Ly", 1.0))
+    nx = int(geom_cfg.get("nx", 1))
+    ny = int(geom_cfg.get("ny", 1))
+    dx = Lx / max(nx, 1)
+    dy = Ly / max(ny, 1)
 
     if args.make_figures:
         figdir = (
@@ -82,14 +128,102 @@ def main() -> None:
         figdir.mkdir(parents=True, exist_ok=True)
         panel = figdir / "nonlinear_panel.png"
         rms = figdir / "nonlinear_rms_timeseries.png"
+        zonal = figdir / "nonlinear_zonal_profile.png"
+        zonal_flow = figdir / "nonlinear_zonal_flow.png"
+        spectra = figdir / "nonlinear_spectrum.png"
+        pdfs = figdir / "nonlinear_pdfs.png"
 
         subprocess.run(
-            [sys.executable, "tools/plot_nonlinear_panel.py", str(out_path), "--out", str(panel)],
+            [
+                sys.executable,
+                "tools/plot_nonlinear_panel.py",
+                str(out_path),
+                "--out",
+                str(panel),
+                "--fluct",
+                "zonal",
+                "--lowpass",
+                "0.35",
+            ],
             check=True,
             cwd=repo_root,
         )
         subprocess.run(
             [sys.executable, "tools/plot_rms_timeseries.py", str(out_path), "--out", str(rms)],
+            check=True,
+            cwd=repo_root,
+        )
+        subprocess.run(
+            [sys.executable, "tools/plot_zonal_profile.py", str(out_path), "--out", str(zonal)],
+            check=True,
+            cwd=repo_root,
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "tools/plot_zonal_flow.py",
+                str(out_path),
+                "--config",
+                str(Path(args.config).resolve()),
+                "--out",
+                str(zonal_flow),
+            ],
+            check=True,
+            cwd=repo_root,
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "tools/plot_spectra.py",
+                str(out_path),
+                "--out",
+                str(spectra),
+                "--dx",
+                str(dx),
+                "--dy",
+                str(dy),
+            ],
+            check=True,
+            cwd=repo_root,
+        )
+        subprocess.run(
+            [sys.executable, "tools/plot_pdf.py", str(out_path), "--out", str(pdfs)],
+            check=True,
+            cwd=repo_root,
+        )
+
+    if args.make_movies:
+        figdir = (
+            (repo_root / args.figdir).resolve()
+            if not Path(args.figdir).is_absolute()
+            else Path(args.figdir)
+        )
+        figdir.mkdir(parents=True, exist_ok=True)
+        movie_path = figdir / "blob_movie.gif"
+        subprocess.run(
+            [
+                sys.executable,
+                "tools/make_movie.py",
+                str(out_path),
+                "--field",
+                "snapshots_n",
+                "--out",
+                str(movie_path),
+                "--stride",
+                "2",
+                "--fluct",
+                "zonal",
+                "--lowpass",
+                "0.35",
+                "--skip-fraction",
+                "0.6",
+                "--symmetric",
+                "--range-tail",
+                "--vmin",
+                "-200",
+                "--vmax",
+                "200",
+            ],
             check=True,
             cwd=repo_root,
         )

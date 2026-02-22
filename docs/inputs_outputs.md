@@ -42,6 +42,8 @@ a NumPy archive. Common keys include:
 - `t`: final time (float).
 - `snapshot_n`, `snapshot_Te`, `snapshot_Ti`, `snapshot_omega`, `snapshot_phi`,
   `snapshot_vpar_e`, `snapshot_vpar_i`, `snapshot_psi`: final‑time snapshots.
+- `snapshots_*`: time series of saved fields when `time.save_fields = true` and
+  `time.snapshot_fields` lists the field. These arrays are shaped `(nsave, ...)`.
 - `rms_n`, `rms_Te`, `rms_omega`, `rms_phi`: RMS time series for scalar diagnostics.
 - `point_n`, `point_Te`, `point_phi`: time series at a fixed probe index.
 

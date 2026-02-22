@@ -5,6 +5,10 @@ All variants (ES/EM, hot/cold ions, sheath/no‑sheath, Boussinesq/non‑Boussin
 1D/2D/3D, linear/nonlinear) are **toggles** on the same core RHS.
 
 ![Nonlinear DRB panel](docs/figures/nonlinear_panel.png)
+![Blob movie](docs/figures/blob_movie.gif)
+![Zonal flow](docs/figures/nonlinear_zonal_flow.png)
+![Open field-line poloidal plane](docs/figures/open_field_poloidal_eq.png)
+![Field-aligned 3D slices](docs/figures/three_d_slices.png)
 
 ## Quick Start
 ```
@@ -21,3 +25,4 @@ jaxdrb path/to/input.toml
 - Validation & tests: `docs/validation.md`
 - Profiling: `docs/profiling.md`
 - Figures & diagnostics: `docs/figures.md`
+- Diagnostics utilities: `docs/diagnostics.md`
