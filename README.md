@@ -7,8 +7,11 @@ All variants (ES/EM, hot/cold ions, sheath/no‑sheath, Boussinesq/non‑Boussin
 ![Nonlinear DRB panel](docs/figures/nonlinear_panel.png)
 ![Blob movie](docs/figures/blob_movie.gif)
 ![Zonal flow](docs/figures/nonlinear_zonal_flow.png)
-![Open field-line poloidal plane](docs/figures/open_field_poloidal_eq.png)
-![Field-aligned 3D slices](docs/figures/three_d_slices.png)
+![Energy conservation](docs/figures/energy_error.png)
+![Open field-line poloidal plane](docs/figures/open_field_poloidal_fluct.png)
+![Open field-line movie](docs/figures/open_field_movie.gif)
+![Field-aligned toroidal cuts](docs/figures/three_d_toroidal.png)
+![Field-aligned toroidal movie](docs/figures/three_d_toroidal_movie.gif)
 
 ## Quick Start
 ```
