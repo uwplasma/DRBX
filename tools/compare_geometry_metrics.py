@@ -87,10 +87,10 @@ def _mapping_defaults(name: str) -> dict[str, object]:
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Compare analytic geometry to BOUT++ metric-derived coefficients"
+        description="Compare analytic geometry to metric-derived coefficients in a grid file"
     )
     p.add_argument("--config", required=True, help="jax_drb TOML config (analytic geometry)")
-    p.add_argument("--bout-grid", required=True, help="BOUT++ grid file (.nc)")
+    p.add_argument("--metric-grid", required=True, help="Metric grid file (.nc)")
     p.add_argument(
         "--mapping",
         default="default",
@@ -105,7 +105,7 @@ def main() -> None:
         "--radial-coordinate",
         choices=("flux", "physical"),
         default=None,
-        help="Use BOUT flux coordinate or physical minor radius for x-derivative",
+        help="Use flux coordinate or physical minor radius for x-derivative",
     )
     p.add_argument(
         "--radial-from",
@@ -117,13 +117,13 @@ def main() -> None:
         "--curv-x-axis",
         choices=("x", "y", "z"),
         default=None,
-        help="Which BOUT axis derivative defines curv_x",
+        help="Which grid axis derivative defines curv_x",
     )
     p.add_argument(
         "--curv-y-axis",
         choices=("x", "y", "z"),
         default=None,
-        help="Which BOUT axis derivative defines curv_y",
+        help="Which grid axis derivative defines curv_y",
     )
     p.add_argument("--curv-sign-x", type=float, default=None, help="Optional sign flip for curv_x")
     p.add_argument("--curv-sign-y", type=float, default=None, help="Optional sign flip for curv_y")
@@ -156,11 +156,11 @@ def main() -> None:
     try:
         import netCDF4  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise ModuleNotFoundError("netCDF4 is required for BOUT++ grid comparison") from exc
+        raise ModuleNotFoundError("netCDF4 is required for metric grid comparison") from exc
 
-    with netCDF4.Dataset(str(Path(args.bout_grid)), "r") as ds:
+    with netCDF4.Dataset(str(Path(args.metric_grid)), "r") as ds:
         if args.logb_var not in ds.variables:
-            raise ValueError("logB variable missing in BOUT grid")
+            raise ValueError("logB variable missing in grid file")
         logB_raw = np.asarray(ds.variables[args.logb_var][:])
         logB_slice = _slice_var(logB_raw, args.x_index)
         logB_z, dlogB_dz = _reconstruct_logB(logB_slice, args.zeta)

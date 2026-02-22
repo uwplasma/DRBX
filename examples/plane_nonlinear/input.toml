@@ -1,0 +1,55 @@
+[geometry]
+kind = "plane"
+nx = 128
+ny = 128
+Lx = 20.0
+Ly = 20.0
+bc_x = "periodic"
+bc_y = "periodic"
+
+[physics]
+omega_n = 8.0
+omega_Te = 4.0
+nonlinear_on = true
+em_on = false
+hot_ion_on = false
+neutrals_on = false
+boussinesq = true
+curvature_on = true
+curvature_coeff = 1.0
+curvature_model = "tokamak"
+curvature_theta_scale = 3.183098861
+
+[closures]
+sheath_on = false
+sheath_bc_on = false
+
+[transport]
+Dn = 4.0e-3
+DOmega = 4.0e-3
+DTe = 4.0e-3
+Dn4 = 1.0e-5
+DOmega4 = 1.0e-5
+DTe4 = 1.0e-5
+mu_lin_n = 2.0e-2
+mu_lin_omega = 1.0e-2
+mu_lin_Te = 2.0e-2
+
+[numerics]
+poisson = "spectral"
+bracket = "arakawa"
+
+[initial]
+amplitude = 5.0e-3
+seed = 0
+noise_mode = "state"
+noise_fields = ["n", "omega", "Te"]
+
+[time]
+method = "rk4_scan"
+dt = 2.0e-3
+nsteps = 5000
+save_every = 30
+diag_mode = "full"
+poisson_warm_start = true
+return_numpy = true
