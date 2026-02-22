@@ -72,7 +72,9 @@ class TermScheduler(eqx.Module):
             else:
                 dissipative = _state_add(dissipative, term)
 
-        return DRBSystemSplit(conservative=conservative, source=source, dissipative=dissipative), term_map
+        return DRBSystemSplit(
+            conservative=conservative, source=source, dissipative=dissipative
+        ), term_map
 
 
 def _get_par(work: dict[str, object], ctx: TermContext, y: DRBSystemState):
@@ -175,7 +177,9 @@ def _term_volume_source(
     )
 
 
-def _term_sol_sources(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_sources(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     term = sol_sources(
         ctx.params,
         ctx.geom,
@@ -245,7 +249,9 @@ def _term_sol_sinks(ctx: TermContext, y: DRBSystemState, work: dict[str, object]
     return term
 
 
-def _term_sol_parallel_loss(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_parallel_loss(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     term = sol_parallel_loss(
         ctx.params,
         y,
@@ -267,7 +273,9 @@ def _term_sol_parallel_loss(ctx: TermContext, y: DRBSystemState, work: dict[str,
     return term
 
 
-def _term_sol_sheath_phi(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_sheath_phi(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     return sol_sheath_phi_term(
         ctx.params,
         y,
@@ -278,7 +286,9 @@ def _term_sol_sheath_phi(ctx: TermContext, y: DRBSystemState, work: dict[str, ob
     )
 
 
-def _term_sol_sheath_omega(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_sheath_omega(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     if not ctx.params.sol_sheath_omega_on or ctx.mask_open is None:
         return _state_zeros_like(y)
     sol_omega = sol_sheath_omega_sink(ctx.params, y.omega, ctx.mask_open)
@@ -294,15 +304,21 @@ def _term_sol_sheath_omega(ctx: TermContext, y: DRBSystemState, work: dict[str, 
     )
 
 
-def _term_sol_omega_bc(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_omega_bc(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     return sol_omega_bc_dirichlet(ctx.params, ctx.geom, y, bc_omega=ctx.bcs.omega)
 
 
-def _term_sol_vpar_bc(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_vpar_bc(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     return sol_vpar_bc_dirichlet(ctx.params, ctx.geom, y)
 
 
-def _term_sol_edge_relax(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
+def _term_sol_edge_relax(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
     return sol_edge_relaxation(ctx.params, ctx.geom, y)
 
 
@@ -388,15 +404,15 @@ STIFF_TERM_SCHEDULE: tuple[str, ...] = (
 )
 
 PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
-    # Minimal linear physics for fast benchmarks (no nonlinear advection).
-    "benchmark_linear": (
+    # Minimal linear physics for quick runs (no nonlinear advection).
+    "preset_linear": (
         "parallel",
         "curvature",
         "drive",
         "diffusion",
     ),
-    # Minimal nonlinear set for fast benchmarks (adds ExB advection).
-    "benchmark_nonlinear": (
+    # Minimal nonlinear set for quick runs (adds ExB advection).
+    "preset_nonlinear": (
         "advection",
         "parallel",
         "curvature",
@@ -404,7 +420,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
         "diffusion",
     ),
     # Very small quick-check set (no drive; useful for stability/perf).
-    "benchmark_min": (
+    "preset_min": (
         "advection",
         "parallel",
         "curvature",

@@ -26,7 +26,9 @@ def drive_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
             N=None if y.N is None else jnp.zeros_like(y.N),
         )
 
-    dphi_dy = ddy(ctx.params, ctx.geom, ctx.phi, ctx.bcs.phi) if ctx.is_2d else ctx.geom.ddy(ctx.phi)
+    dphi_dy = (
+        ddy(ctx.params, ctx.geom, ctx.phi, ctx.bcs.phi) if ctx.is_2d else ctx.geom.ddy(ctx.phi)
+    )
 
     drive_mask = 1.0
     if ctx.params.sol_on and ctx.mask_open is not None:

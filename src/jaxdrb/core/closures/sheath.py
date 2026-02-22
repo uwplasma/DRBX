@@ -214,7 +214,9 @@ def apply_loizu2012_mpse_full_linear_bc(
     cos2 = float(getattr(params, "sheath_cos2", 1.0))
     delta = float(getattr(params, "sheath_delta", 0.0))
 
-    k2 = jnp.maximum(jnp.asarray(kperp2, dtype=jnp.float64), float(getattr(params, "kperp2_min", 1e-6)))
+    k2 = jnp.maximum(
+        jnp.asarray(kperp2, dtype=jnp.float64), float(getattr(params, "kperp2_min", 1e-6))
+    )
 
     # Velocity BC targets (linearized Bohm/MPSE).
     vpar_i_target = sign * (1.0 - delta) * 0.5 * Te
@@ -248,9 +250,7 @@ def apply_loizu2012_mpse_full_linear_bc(
         dl = float(getattr(geom, "dl", float(geom.l[1] - geom.l[0])))
         target_left = -omega[0] / (cos2 * cs0[0] + 1e-12)
         target_right = -omega[-1] / (cos2 * cs0[-1] + 1e-12)
-        v1_target = _one_sided_d2_target(
-            vpar_i[0], vpar_i[2], vpar_i[3], dl=dl, target=target_left
-        )
+        v1_target = _one_sided_d2_target(vpar_i[0], vpar_i[2], vpar_i[3], dl=dl, target=target_left)
         vNm1_target = _one_sided_d2_target(
             vpar_i[-1], vpar_i[-3], vpar_i[-4], dl=dl, target=target_right
         )

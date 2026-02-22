@@ -23,7 +23,9 @@ def _parse_metrics(output: str) -> dict[str, dict[str, float]]:
         except Exception:
             continue
         if isinstance(stats, dict):
-            metrics[key] = {str(k): float(v) for k, v in stats.items() if isinstance(v, (int, float))}
+            metrics[key] = {
+                str(k): float(v) for k, v in stats.items() if isinstance(v, (int, float))
+            }
     return metrics
 
 
@@ -63,7 +65,11 @@ def _extract_gbs_field_rms(path: Path) -> dict[str, float]:
     if not path.exists():
         return {}
     with h5py.File(path, "r") as f:
-        for base in ("data/var3d/temperature", "data/var3d/temperaturi", "data/var2d/temperaturixy"):
+        for base in (
+            "data/var3d/temperature",
+            "data/var3d/temperaturi",
+            "data/var2d/temperaturixy",
+        ):
             if base in f:
                 grp = f[base]
                 steps = [k for k in grp.keys() if k.isdigit()]
@@ -115,12 +121,18 @@ def _copy_if_exists(src: Path, dst: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run alignment comparisons for Hermes/GBS/JAX-DRB.")
-    parser.add_argument("--output-dir", default="benchmarks/alignment_outputs", help="Output directory")
+    parser = argparse.ArgumentParser(
+        description="Run alignment comparisons for Hermes/GBS/JAX-DRB."
+    )
+    parser.add_argument(
+        "--output-dir", default="benchmarks/alignment_outputs", help="Output directory"
+    )
     parser.add_argument("--compare-only", action="store_true", help="Skip running external codes")
     parser.add_argument("--run-hermes", action="store_true", help="Run Hermes-3 before comparing")
     parser.add_argument("--run-gbs", action="store_true", help="Run GBS before comparing")
-    parser.add_argument("--run-jaxdrb", action="store_true", help="Run jax_drb CLI before comparing")
+    parser.add_argument(
+        "--run-jaxdrb", action="store_true", help="Run jax_drb CLI before comparing"
+    )
     parser.add_argument("--hermes-exe", default="external/hermes-3/build/hermes-3")
     parser.add_argument("--hermes-case", default="external/hermes-3/examples_min/salpha_grid")
     parser.add_argument(
@@ -175,7 +187,9 @@ def main() -> None:
                 if args.mpi and shutil.which("mpirun"):
                     cmd = ["mpirun", "-np", str(max(args.mpi_n, 1))] + cmd
                 with open(gbs_case / "in_min", "rb") as f:
-                    proc = subprocess.run(cmd, cwd=str(gbs_case), stdin=f, capture_output=True, text=True)
+                    proc = subprocess.run(
+                        cmd, cwd=str(gbs_case), stdin=f, capture_output=True, text=True
+                    )
                 if proc.returncode != 0:
                     raise RuntimeError(f"GBS run failed: {proc.stderr}")
             else:

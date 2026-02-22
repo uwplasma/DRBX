@@ -89,7 +89,9 @@ class DRBSystem(eqx.Module):
         clip_val = float(clip)
         return jnp.exp(jnp.clip(Te, a_min=-clip_val, a_max=clip_val))
 
-    def _log_rhs(self, rhs: jnp.ndarray, phys: jnp.ndarray, floor: float, log_on: bool) -> jnp.ndarray:
+    def _log_rhs(
+        self, rhs: jnp.ndarray, phys: jnp.ndarray, floor: float, log_on: bool
+    ) -> jnp.ndarray:
         if not log_on:
             return rhs
         denom = jnp.maximum(phys, float(floor))
@@ -193,7 +195,9 @@ class DRBSystem(eqx.Module):
             return _state_zeros_like(y)
         coeff = float(self.params.sol_parallel_loss_coeff) / (2.0 * jnp.pi * q)
         model = str(self.params.sol_parallel_loss_model).lower()
-        Te_floor = max(float(self.params.sol_parallel_loss_Te_floor), float(self.params.sol_Te_floor))
+        Te_floor = max(
+            float(self.params.sol_parallel_loss_Te_floor), float(self.params.sol_Te_floor)
+        )
         Te_eff = jnp.maximum(self._phys_Te(y.Te), Te_floor)
         n_floor = float(self.params.sol_n_floor)
         n_pos = jnp.maximum(self._phys_n(y.n), n_floor)
@@ -383,7 +387,9 @@ class DRBSystem(eqx.Module):
         _ = t
         hot_on = bool(self.params.hot_ion_on) and (y.Ti is not None)
         em_on = bool(self.params.em_on) and (y.psi is not None)
-        neut_on = bool(self.params.neutrals_on) and (y.N is not None) and self.params.neutrals.enabled
+        neut_on = (
+            bool(self.params.neutrals_on) and (y.N is not None) and self.params.neutrals.enabled
+        )
 
         Ti = y.Ti if hot_on and y.Ti is not None else jnp.zeros_like(y.Te)
         psi = y.psi if em_on and y.psi is not None else jnp.zeros_like(y.Te)
@@ -404,7 +410,12 @@ class DRBSystem(eqx.Module):
 
         phi = self._phi_from_omega(y.omega, n_phys)
 
-        if self.params.sol_on and self.params.sol_phi_bc_on and bc_phi.kind_x != 0 and self._is_2d():
+        if (
+            self.params.sol_on
+            and self.params.sol_phi_bc_on
+            and bc_phi.kind_x != 0
+            and self._is_2d()
+        ):
             phi_bc = float(self.params.sol_phi_bc_lambda) * Te_phys
             if self.params.sol_open_left:
                 phi = phi.at[0, :].set(phi_bc[0, :])
@@ -417,7 +428,9 @@ class DRBSystem(eqx.Module):
         if self.params.sol_on and self._is_2d():
             mask_closed, mask_open = self._sol_masks()
             if mask_open is not None:
-                nonlinear_scale = mask_closed + float(self.params.sol_nonlinear_open_scale) * mask_open
+                nonlinear_scale = (
+                    mask_closed + float(self.params.sol_nonlinear_open_scale) * mask_open
+                )
 
         adv_n_phys = -self.geom.bracket(phi, n_phys, bc_phi=bc_phi, bc_f=bc_n) * nonlinear_scale
         adv_w = -self.geom.bracket(phi, y.omega, bc_phi=bc_phi, bc_f=bc_omega) * nonlinear_scale
@@ -457,11 +470,15 @@ class DRBSystem(eqx.Module):
         conservative = DRBSystemState(
             n=self._log_rhs(dn_cons_phys, n_phys, n_floor, self.params.log_n),
             omega=adv_w + dpar_j,
-            vpar_e=adv_ve + grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12) - dpar_psi,
+            vpar_e=adv_ve
+            + grad_par_phi_pe / jnp.maximum(float(self.params.me_hat), 1e-12)
+            - dpar_psi,
             vpar_i=adv_vi - self.geom.dpar(vi_par_pressure, bc_kind="dirichlet"),
             Te=self._log_rhs(dTe_cons_phys, Te_phys, Te_floor, self.params.log_Te),
             Ti=(Ti_conservative if hot_on else jnp.zeros_like(y.Ti)) if y.Ti is not None else None,
-            psi=(psi_conservative if em_on else jnp.zeros_like(y.psi)) if y.psi is not None else None,
+            psi=(psi_conservative if em_on else jnp.zeros_like(y.psi))
+            if y.psi is not None
+            else None,
             N=None if y.N is None else jnp.zeros_like(y.N),
         )
 
@@ -633,9 +650,7 @@ class DRBSystem(eqx.Module):
         )
 
         dissipative = DRBSystemState(
-            n=self._log_rhs(
-                diss_n_phys, jnp.maximum(n_phys, n_floor), n_floor, self.params.log_n
-            ),
+            n=self._log_rhs(diss_n_phys, jnp.maximum(n_phys, n_floor), n_floor, self.params.log_n),
             omega=diss_w,
             vpar_e=diss_ve,
             vpar_i=diss_vi,
@@ -774,7 +789,12 @@ class DRBSystem(eqx.Module):
                 ),
             )
 
-        if self.params.sol_on and self.params.sol_gbs_bc_on and self.params.sol_gbs_bc_nu != 0.0 and self._is_2d():
+        if (
+            self.params.sol_on
+            and self.params.sol_gbs_bc_on
+            and self.params.sol_gbs_bc_nu != 0.0
+            and self._is_2d()
+        ):
             nu_bc = float(self.params.sol_gbs_bc_nu)
             n_floor = float(self.params.sol_n_floor)
             Te_floor = float(self.params.sol_Te_floor)
@@ -796,7 +816,9 @@ class DRBSystem(eqx.Module):
             n_right_target = jnp.full_like(y.n[0, :], n_right)
             Te_right_target = jnp.full_like(y.Te[0, :], Te_right)
 
-            n_bc = -nu_bc * (mask_left * (y.n - n_left_target) + mask_right * (y.n - n_right_target))
+            n_bc = -nu_bc * (
+                mask_left * (y.n - n_left_target) + mask_right * (y.n - n_right_target)
+            )
             Te_bc = -nu_bc * (
                 mask_left * (y.Te - Te_left_target) + mask_right * (y.Te - Te_right_target)
             )
@@ -899,15 +921,9 @@ class DRBSystem(eqx.Module):
             vpar_e=kwargs.get("vpar_e", jnp.zeros_like(y.vpar_e)),
             vpar_i=kwargs.get("vpar_i", jnp.zeros_like(y.vpar_i)),
             Te=kwargs.get("Te", jnp.zeros_like(y.Te)),
-            Ti=None
-            if y.Ti is None
-            else kwargs.get("Ti", jnp.zeros_like(y.Ti)),
-            psi=None
-            if y.psi is None
-            else kwargs.get("psi", jnp.zeros_like(y.psi)),
-            N=None
-            if y.N is None
-            else kwargs.get("N", jnp.zeros_like(y.N)),
+            Ti=None if y.Ti is None else kwargs.get("Ti", jnp.zeros_like(y.Ti)),
+            psi=None if y.psi is None else kwargs.get("psi", jnp.zeros_like(y.psi)),
+            N=None if y.N is None else kwargs.get("N", jnp.zeros_like(y.N)),
         )
 
     def energy(self, y: DRBSystemState) -> jnp.ndarray:
@@ -927,7 +943,9 @@ class DRBSystem(eqx.Module):
         bc_phi = self._bc_phi()
         gradphi_x = self._ddx(phi, bc_phi)
         gradphi_y = self._ddy(phi, bc_phi)
-        return 0.5 * jnp.mean(y.n**2 + jnp.real(gradphi_x.conj() * gradphi_x) + jnp.real(gradphi_y.conj() * gradphi_y))
+        return 0.5 * jnp.mean(
+            y.n**2 + jnp.real(gradphi_x.conj() * gradphi_x) + jnp.real(gradphi_y.conj() * gradphi_y)
+        )
 
     def _energy_drb(self, y: DRBSystemState) -> jnp.ndarray:
         n = self._phys_n(y.n)
@@ -976,8 +994,7 @@ class DRBSystem(eqx.Module):
             if self.params.n0_max is not None:
                 n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
         phi_term = jnp.real(n_eff) * (
-            jnp.real(jnp.conj(gradphi_x) * gradphi_x)
-            + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
+            jnp.real(jnp.conj(gradphi_x) * gradphi_x) + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
         )
         return 0.5 * jnp.mean(
             jnp.real(jnp.conj(y.n) * y.n)
@@ -1004,8 +1021,7 @@ class DRBSystem(eqx.Module):
             if self.params.n0_max is not None:
                 n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
         phi_term = jnp.real(n_eff) * (
-            jnp.real(jnp.conj(gradphi_x) * gradphi_x)
-            + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
+            jnp.real(jnp.conj(gradphi_x) * gradphi_x) + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
         )
         psi_term = float(self.params.beta) * jnp.real(jnp.conj(y.psi) * jpar)
         return 0.5 * jnp.mean(
@@ -1145,9 +1161,7 @@ class DRBSystem(eqx.Module):
         dw_hyper = -float(self.params.nu4_omega) * bih_w
 
         def edot(dn_term, dw_term):
-            return jnp.mean(
-                jnp.real(jnp.conj(n) * dn_term) - jnp.real(jnp.conj(phi) * dw_term)
-            )
+            return jnp.mean(jnp.real(jnp.conj(n) * dn_term) - jnp.real(jnp.conj(phi) * dw_term))
 
         out = {
             "E_dot_adv": edot(dn_adv, dw_adv),
@@ -1392,15 +1406,11 @@ class DRBSystem(eqx.Module):
 
         edot_adv = self.energy_rate(
             y,
-            self._state_from(
-                y, n=adv_n, omega=adv_w, vpar_e=adv_ve, vpar_i=adv_vi, Te=adv_Te
-            ),
+            self._state_from(y, n=adv_n, omega=adv_w, vpar_e=adv_ve, vpar_i=adv_vi, Te=adv_Te),
         )
         edot_par = self.energy_rate(
             y,
-            self._state_from(
-                y, n=par_n, omega=par_w, vpar_e=par_ve, vpar_i=par_vi, Te=par_Te
-            ),
+            self._state_from(y, n=par_n, omega=par_w, vpar_e=par_ve, vpar_i=par_vi, Te=par_Te),
         )
         edot_curv = self.energy_rate(
             y,
@@ -1469,9 +1479,7 @@ class DRBSystem(eqx.Module):
                 )
         edot_diss = self.energy_rate(
             y,
-            self._state_from(
-                y, n=diss_n, omega=diss_w, vpar_e=diss_ve, vpar_i=diss_vi, Te=diss_Te
-            ),
+            self._state_from(y, n=diss_n, omega=diss_w, vpar_e=diss_ve, vpar_i=diss_vi, Te=diss_Te),
         )
 
         out = {
@@ -1596,11 +1604,7 @@ class DRBSystem(eqx.Module):
         drive_n = 0.0
         drive_Te = 0.0
         drive_Ti = 0.0
-        if (
-            self.params.omega_n != 0.0
-            or self.params.omega_Te != 0.0
-            or self.params.omega_Ti != 0.0
-        ):
+        if self.params.omega_n != 0.0 or self.params.omega_Te != 0.0 or self.params.omega_Ti != 0.0:
             dphi_dy = self._ddy(phi, bc_phi)
             drive_n = -float(self.params.omega_n) * dphi_dy
             drive_Te = -float(self.params.omega_Te) * dphi_dy
@@ -2125,9 +2129,7 @@ class DRBSystem(eqx.Module):
         v2_target_l = -omega_bc_l / (cos2 * cs0)
         v2_target_r = -omega_bc_r / (cos2 * cs0)
         vi_adj_l = (2.0 * vi_bc_l + 4.0 * y.vpar_i[2] - y.vpar_i[3] - dl2 * v2_target_l) / 5.0
-        vi_adj_r = (
-            2.0 * vi_bc_r + 4.0 * y.vpar_i[-3] - y.vpar_i[-4] - dl2 * v2_target_r
-        ) / 5.0
+        vi_adj_r = (2.0 * vi_bc_r + 4.0 * y.vpar_i[-3] - y.vpar_i[-4] - dl2 * v2_target_r) / 5.0
 
         if nu_m != 0.0:
             dvi = dvi.at[left].add(-nu_m * mask_l * (y.vpar_i[left] - vi_bc_l))

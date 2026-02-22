@@ -95,6 +95,7 @@ def _from_system_split(split, *, template: HW2DState | None = None) -> HW2DDecom
         dissipative=_from_system_state(split.dissipative, template=template),
     )
 
+
 class HW2DModel(eqx.Module):
     params: HW2DParams
     grid: Grid2D

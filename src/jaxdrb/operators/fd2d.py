@@ -89,6 +89,33 @@ def laplacian(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
     return d2x + d2y
 
 
+def metric_laplacian(
+    u: jnp.ndarray,
+    gxx: jnp.ndarray,
+    gxy: jnp.ndarray,
+    gyy: jnp.ndarray,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+) -> jnp.ndarray:
+    """Return ∇·(G ∇u) with metric tensor components gxx/gxy/gyy.
+
+    This uses centered finite differences on the flux form:
+        flux_x = gxx * du/dx + gxy * du/dy
+        flux_y = gxy * du/dx + gyy * du/dy
+        L(u)   = d(flux_x)/dx + d(flux_y)/dy
+    """
+
+    gxx = jnp.asarray(gxx)
+    gxy = jnp.asarray(gxy)
+    gyy = jnp.asarray(gyy)
+    dudx = ddx(u, dx, bc)
+    dudy = ddy(u, dy, bc)
+    flux_x = gxx * dudx + gxy * dudy
+    flux_y = gxy * dudx + gyy * dudy
+    return ddx(flux_x, dx, bc) + ddy(flux_y, dy, bc)
+
+
 def biharmonic(u: jnp.ndarray, dx: float, dy: float, bc: BC2D) -> jnp.ndarray:
     """Return ∇⁴(u) using two applications of the FD Laplacian."""
 
@@ -802,6 +829,49 @@ def inv_laplacian_cg(
     - This routine is end-to-end differentiable through JAX's ``cg`` implementation.
     """
 
+    if rhs.ndim == 3:
+        if x0 is None:
+
+            def solve_plane(r):
+                return inv_laplacian_cg(
+                    r,
+                    dx=dx,
+                    dy=dy,
+                    bc=bc,
+                    maxiter=maxiter,
+                    tol=tol,
+                    atol=atol,
+                    preconditioner=preconditioner,
+                    k2_precond=k2_precond,
+                    gauge_epsilon=gauge_epsilon,
+                    preconditioner_fn=preconditioner_fn,
+                    x0=None,
+                    return_iters=return_iters,
+                    nan_guard=nan_guard,
+                )
+
+            return jax.vmap(solve_plane)(rhs)
+
+        def solve_plane(r, g):
+            return inv_laplacian_cg(
+                r,
+                dx=dx,
+                dy=dy,
+                bc=bc,
+                maxiter=maxiter,
+                tol=tol,
+                atol=atol,
+                preconditioner=preconditioner,
+                k2_precond=k2_precond,
+                gauge_epsilon=gauge_epsilon,
+                preconditioner_fn=preconditioner_fn,
+                x0=g,
+                return_iters=return_iters,
+                nan_guard=nan_guard,
+            )
+
+        return jax.vmap(solve_plane)(rhs, x0)
+
     nx, ny = rhs.shape
     diag = 2.0 / dx**2 + 2.0 / dy**2
 
@@ -1028,6 +1098,230 @@ def inv_laplacian_cg(
     )
 
 
+def inv_metric_laplacian_cg(
+    rhs: jnp.ndarray,
+    *,
+    gxx: jnp.ndarray,
+    gxy: jnp.ndarray,
+    gyy: jnp.ndarray,
+    dx: float,
+    dy: float,
+    bc: BC2D,
+    maxiter: int = 200,
+    tol: float = 1e-10,
+    atol: float = 0.0,
+    preconditioner: str = "jacobi",
+    k2_precond: jnp.ndarray | None = None,
+    gauge_epsilon: float | None = None,
+    preconditioner_fn=None,
+    x0: jnp.ndarray | None = None,
+    return_iters: bool = False,
+    nan_guard: bool = True,
+) -> jnp.ndarray:
+    """Solve ``∇·(G ∇u) = rhs`` using metric coefficients (gxx/gxy/gyy).
+
+    This uses CG on the symmetric operator ``-∇·(G ∇u)`` with gauge fixing for
+    periodic/Neumann cases.
+    """
+
+    nx, ny = rhs.shape
+    gxx = jnp.asarray(gxx)
+    gxy = jnp.asarray(gxy)
+    gyy = jnp.asarray(gyy)
+
+    diag_est = (jnp.mean(gxx) / dx**2) + (jnp.mean(gyy) / dy**2)
+    if gauge_epsilon is None:
+        gauge_epsilon = 1e-12 * float(diag_est)
+
+    def _spectral_M(*, shape: tuple[int, int], dx_eff: float, dy_eff: float):
+        if k2_precond is None or k2_precond.shape != shape:
+            npx, npy = shape
+            kx_1d = 2.0 * jnp.pi * jnp.fft.fftfreq(npx, d=dx_eff)
+            ky_1d = 2.0 * jnp.fft.fftfreq(npy, d=dy_eff)
+            kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")
+            k2 = kx**2 + ky**2
+        else:
+            k2 = k2_precond
+        denom = jnp.where(k2 > 0.0, k2, float(gauge_epsilon))
+
+        def M(v_flat):
+            v = v_flat.reshape(shape)
+            v_hat = jnp.fft.fft2(v)
+            u_hat = v_hat / denom
+            u = jnp.fft.ifft2(u_hat)
+            if not jnp.iscomplexobj(v):
+                u = u.real
+            return u.reshape((-1,))
+
+        return M
+
+    def make_M(*, size: int, shape: tuple[int, int], dx_eff: float, dy_eff: float):
+        if preconditioner_fn is not None:
+            _ = (size, shape, dx_eff, dy_eff)
+            return preconditioner_fn
+        if preconditioner == "jacobi":
+            inv_diag = 1.0 / jnp.asarray(diag_est, dtype=rhs.dtype)
+
+            def M(v_flat):
+                _ = (size, shape, dx_eff, dy_eff)
+                return inv_diag * v_flat
+
+            return M
+        if preconditioner == "spectral":
+            _ = (size,)
+            return _spectral_M(shape=shape, dx_eff=dx_eff, dy_eff=dy_eff)
+        if preconditioner in ("none", "", None):
+            return None
+        raise ValueError(f"Unknown preconditioner: {preconditioner}")
+
+    def _prep_x0_full(x0_val: jnp.ndarray | None, *, has_null: bool) -> jnp.ndarray | None:
+        if x0_val is None:
+            return None
+        x0_full = jnp.asarray(x0_val)
+        if has_null:
+            x0_full = x0_full - jnp.mean(x0_full)
+        return x0_full.reshape((-1,))
+
+    def _prep_x0_dirichlet(x0_val: jnp.ndarray | None) -> jnp.ndarray | None:
+        if x0_val is None:
+            return None
+        x0_full = jnp.asarray(x0_val)
+        return x0_full[1:-1, 1:-1].reshape((-1,))
+
+    if bc.kind_x == 0 and bc.kind_y == 0:
+        rhs0 = rhs - jnp.mean(rhs)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(
+                v
+            )
+            return out.reshape((-1,))
+
+        b = (-rhs0).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        if return_iters:
+            x, iters = _cg_solve(mv, b, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        else:
+            x, _ = jax.scipy.sparse.linalg.cg(
+                mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+            )
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        out = u - jnp.mean(u)
+        return (out, iters) if return_iters else out
+
+    if (bc.kind_x == 0 and bc.kind_y != 0) or (bc.kind_x != 0 and bc.kind_y == 0):
+        rhs0 = rhs - jnp.mean(rhs)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(
+                v
+            )
+            return out.reshape((-1,))
+
+        b = (-rhs0).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        if return_iters:
+            x, iters = _cg_solve(mv, b, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        else:
+            x, _ = jax.scipy.sparse.linalg.cg(
+                mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+            )
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        out = u - jnp.mean(u)
+        return (out, iters) if return_iters else out
+
+    if bc.kind_x == 1 and bc.kind_y == 1:
+        b_int = (-rhs[1:-1, 1:-1]).reshape((-1,))
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx - 2, ny - 2))
+            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+            u = u.at[0, :].set(float(bc.x_value))
+            u = u.at[-1, :].set(float(bc.x_value))
+            u = u.at[:, 0].set(float(bc.y_value))
+            u = u.at[:, -1].set(float(bc.y_value))
+            corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+            u = u.at[0, 0].set(corner)
+            u = u.at[0, -1].set(corner)
+            u = u.at[-1, 0].set(corner)
+            u = u.at[-1, -1].set(corner)
+            u = u.at[1:-1, 1:-1].set(v)
+            Lu = metric_laplacian(u, gxx, gxy, gyy, dx, dy, bc)
+            return (-Lu[1:-1, 1:-1]).reshape((-1,))
+
+        M = make_M(size=b_int.size, shape=(nx - 2, ny - 2), dx_eff=dx, dy_eff=dy)
+        x0_vec = _prep_x0_dirichlet(x0)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b_int) if M is None else M(b_int)
+        if return_iters:
+            x, iters = _cg_solve(mv, b_int, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        else:
+            x, _ = jax.scipy.sparse.linalg.cg(
+                mv, b_int, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+            )
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+        u = u.at[0, :].set(float(bc.x_value))
+        u = u.at[-1, :].set(float(bc.x_value))
+        u = u.at[:, 0].set(float(bc.y_value))
+        u = u.at[:, -1].set(float(bc.y_value))
+        corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
+        u = u.at[0, 0].set(corner)
+        u = u.at[0, -1].set(corner)
+        u = u.at[-1, 0].set(corner)
+        u = u.at[-1, -1].set(corner)
+        u = u.at[1:-1, 1:-1].set(x.reshape((nx - 2, ny - 2)))
+        return (u, iters) if return_iters else u
+
+    if bc.kind_x == 2 and bc.kind_y == 2:
+        rhs0 = rhs - jnp.mean(rhs)
+        x = jnp.linspace(0.0, dx * (nx - 1), nx)[:, None]
+        y = jnp.linspace(0.0, dy * (ny - 1), ny)[None, :]
+        u_bc = bc.x_grad * x + bc.y_grad * y
+        rhs_eff = rhs0 - metric_laplacian(u_bc, gxx, gxy, gyy, dx, dy, bc)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(
+                v
+            )
+            return out.reshape((-1,))
+
+        b = (-rhs_eff).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        if return_iters:
+            x, iters = _cg_solve(mv, b, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
+        else:
+            x, _ = jax.scipy.sparse.linalg.cg(
+                mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
+            )
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny)) + u_bc
+        out = u - jnp.mean(u)
+        return (out, iters) if return_iters else out
+
+    raise ValueError(
+        "inv_metric_laplacian_cg supports periodic, dirichlet/dirichlet, or neumann/neumann BCs."
+    )
+
+
 def build_div_n_grad_preconditioner(
     *,
     n_coeff: jnp.ndarray,
@@ -1151,6 +1445,53 @@ def inv_div_n_grad_cg(
 
     This is the non-Boussinesq polarization solve needed in 2D DRB models.
     """
+
+    if rhs.ndim == 3:
+        if x0 is None:
+
+            def solve_plane(r, nc):
+                return inv_div_n_grad_cg(
+                    r,
+                    n_coeff=nc,
+                    dx=dx,
+                    dy=dy,
+                    bc=bc,
+                    maxiter=maxiter,
+                    tol=tol,
+                    atol=atol,
+                    preconditioner=preconditioner,
+                    preconditioner_shift=preconditioner_shift,
+                    gauge_epsilon=gauge_epsilon,
+                    preconditioner_fn=preconditioner_fn,
+                    x0=None,
+                    return_iters=return_iters,
+                    nan_guard=nan_guard,
+                    n_floor=n_floor,
+                )
+
+            return jax.vmap(solve_plane)(rhs, n_coeff)
+
+        def solve_plane(r, nc, g):
+            return inv_div_n_grad_cg(
+                r,
+                n_coeff=nc,
+                dx=dx,
+                dy=dy,
+                bc=bc,
+                maxiter=maxiter,
+                tol=tol,
+                atol=atol,
+                preconditioner=preconditioner,
+                preconditioner_shift=preconditioner_shift,
+                gauge_epsilon=gauge_epsilon,
+                preconditioner_fn=preconditioner_fn,
+                x0=g,
+                return_iters=return_iters,
+                nan_guard=nan_guard,
+                n_floor=n_floor,
+            )
+
+        return jax.vmap(solve_plane)(rhs, n_coeff, x0)
 
     nx, ny = rhs.shape
 

@@ -252,7 +252,9 @@ class DRBSystem(eqx.Module):
 
     def rhs_stiff(self, t: float, y: DRBSystemState) -> DRBSystemState:
         _ = t
-        need_phi = bool(self.params.phi_relax_in_rhs) or float(self.params.phi_par_dissipation) != 0.0
+        need_phi = (
+            bool(self.params.phi_relax_in_rhs) or float(self.params.phi_par_dissipation) != 0.0
+        )
         ctx = build_context(self.params, self.geom, y, skip_phi=not need_phi)
         split = self.scheduler_stiff.run(ctx, y)
         return self._apply_split(split, y)
@@ -269,9 +271,7 @@ class DRBSystem(eqx.Module):
         self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
     ) -> tuple[DRBSystemState, jnp.ndarray, jnp.ndarray]:
         _ = t
-        ctx = build_context(
-            self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True
-        )
+        ctx = build_context(self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True)
         split = self.scheduler.run(ctx, y)
         iters = ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
         return self._apply_split(split, y), ctx.phi, iters
@@ -288,9 +288,7 @@ class DRBSystem(eqx.Module):
         self, t: float, y: DRBSystemState, phi_guess: jnp.ndarray | None = None
     ) -> tuple[DRBSystemState, jnp.ndarray, jnp.ndarray]:
         _ = t
-        ctx = build_context(
-            self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True
-        )
+        ctx = build_context(self.params, self.geom, y, phi_guess=phi_guess, return_phi_iters=True)
         split = self.scheduler_explicit.run(ctx, y)
         iters = ctx.phi_iters if ctx.phi_iters is not None else jnp.asarray(0)
         return self._apply_split(split, y), ctx.phi, iters
@@ -302,15 +300,9 @@ class DRBSystem(eqx.Module):
             vpar_e=kwargs.get("vpar_e", jnp.zeros_like(y.vpar_e)),
             vpar_i=kwargs.get("vpar_i", jnp.zeros_like(y.vpar_i)),
             Te=kwargs.get("Te", jnp.zeros_like(y.Te)),
-            Ti=None
-            if y.Ti is None
-            else kwargs.get("Ti", jnp.zeros_like(y.Ti)),
-            psi=None
-            if y.psi is None
-            else kwargs.get("psi", jnp.zeros_like(y.psi)),
-            N=None
-            if y.N is None
-            else kwargs.get("N", jnp.zeros_like(y.N)),
+            Ti=None if y.Ti is None else kwargs.get("Ti", jnp.zeros_like(y.Ti)),
+            psi=None if y.psi is None else kwargs.get("psi", jnp.zeros_like(y.psi)),
+            N=None if y.N is None else kwargs.get("N", jnp.zeros_like(y.N)),
         )
 
     def energy(self, y: DRBSystemState) -> jnp.ndarray:
@@ -370,8 +362,7 @@ class DRBSystem(eqx.Module):
             if self.params.n0_max is not None:
                 n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
         phi_term = jnp.real(n_eff) * (
-            jnp.real(jnp.conj(gradphi_x) * gradphi_x)
-            + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
+            jnp.real(jnp.conj(gradphi_x) * gradphi_x) + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
         )
         return 0.5 * jnp.mean(
             jnp.real(jnp.conj(y.n) * y.n)
@@ -398,8 +389,7 @@ class DRBSystem(eqx.Module):
             if self.params.n0_max is not None:
                 n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
         phi_term = jnp.real(n_eff) * (
-            jnp.real(jnp.conj(gradphi_x) * gradphi_x)
-            + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
+            jnp.real(jnp.conj(gradphi_x) * gradphi_x) + jnp.real(jnp.conj(gradphi_y) * gradphi_y)
         )
         psi_term = float(self.params.beta) * jnp.real(jnp.conj(y.psi) * jpar)
         return 0.5 * jnp.mean(

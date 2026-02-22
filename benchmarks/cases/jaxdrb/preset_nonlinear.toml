@@ -19,7 +19,7 @@ boussinesq = true
 [numerics]
 perp_operator = "spectral"
 poisson = "spectral"
-term_schedule_preset = "benchmark_nonlinear"
+term_schedule_preset = "preset_nonlinear"
 
 [initial]
 noise_amplitude = 0.02

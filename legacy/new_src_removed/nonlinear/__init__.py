@@ -33,11 +33,17 @@ def __getattr__(name: str):
     if name in {"DRB2DModel", "DRB2DParams", "DRB2DState"}:
         from .drb2d import DRB2DModel, DRB2DParams, DRB2DState
 
-        return {"DRB2DModel": DRB2DModel, "DRB2DParams": DRB2DParams, "DRB2DState": DRB2DState}[name]
+        return {"DRB2DModel": DRB2DModel, "DRB2DParams": DRB2DParams, "DRB2DState": DRB2DState}[
+            name
+        ]
     if name in {"DRB2DEMModel", "DRB2DEMParams", "DRB2DEMState"}:
         from .drb2d_em import DRB2DEMModel, DRB2DEMParams, DRB2DEMState
 
-        return {"DRB2DEMModel": DRB2DEMModel, "DRB2DEMParams": DRB2DEMParams, "DRB2DEMState": DRB2DEMState}[name]
+        return {
+            "DRB2DEMModel": DRB2DEMModel,
+            "DRB2DEMParams": DRB2DEMParams,
+            "DRB2DEMState": DRB2DEMState,
+        }[name]
     if name in {"DRB2DHotIonModel", "DRB2DHotIonParams", "DRB2DHotIonState"}:
         from .drb2d_hot_ion import DRB2DHotIonModel, DRB2DHotIonParams, DRB2DHotIonState
 

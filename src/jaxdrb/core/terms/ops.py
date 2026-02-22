@@ -62,7 +62,9 @@ def ddy(params: DRBSystemParams, geom: GeometryAdapter, f: jnp.ndarray, bc: BC2D
     return ddy_fd(f, grid.dy, bc)
 
 
-def laplacian(params: DRBSystemParams, geom: GeometryAdapter, f: jnp.ndarray, bc: BC2D) -> jnp.ndarray:
+def laplacian(
+    params: DRBSystemParams, geom: GeometryAdapter, f: jnp.ndarray, bc: BC2D
+) -> jnp.ndarray:
     grid = grid_of(geom)
     if grid is None:
         return geom.laplacian(f)

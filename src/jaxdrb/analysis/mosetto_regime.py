@@ -136,8 +136,6 @@ def classify_grid(
         "d_proxy": d_arr,
         "rln_proxy": rln_arr,
         "rln_threshold": rln_thr_arr,
-        "d_threshold": np.full_like(
-            d_arr, threshold_d_resistive_inertial(shat, cal), dtype=float
-        ),
+        "d_threshold": np.full_like(d_arr, threshold_d_resistive_inertial(shat, cal), dtype=float),
     }
     return labels, extras

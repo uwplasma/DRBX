@@ -128,9 +128,7 @@ def _to_system_state(y: DRB2DEMState) -> DRBSystemState:
     )
 
 
-def _from_system_state(
-    y: DRBSystemState, *, template: DRB2DEMState | None = None
-) -> DRB2DEMState:
+def _from_system_state(y: DRBSystemState, *, template: DRB2DEMState | None = None) -> DRB2DEMState:
     _ = template
     return DRB2DEMState(
         n=y.n,
@@ -142,14 +140,13 @@ def _from_system_state(
     )
 
 
-def _from_system_split(
-    split, *, template: DRB2DEMState | None = None
-) -> DRB2DEMDecomposition:
+def _from_system_split(split, *, template: DRB2DEMState | None = None) -> DRB2DEMDecomposition:
     return DRB2DEMDecomposition(
         conservative=_from_system_state(split.conservative, template=template),
         source=_from_system_state(split.source, template=template),
         dissipative=_from_system_state(split.dissipative, template=template),
     )
+
 
 class DRB2DEMModel(eqx.Module):
     params: DRB2DEMParams

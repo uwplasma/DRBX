@@ -1,6 +1,6 @@
 # Minimal Hermes-3 run using a generated s-alpha grid
 
-nout = 1000
+nout = 200
 timestep = 1
 
 MZ = 16
@@ -15,8 +15,7 @@ type = identity
 mxstep = 2000
 
 [hermes]
-components = (e, d+, sound_speed, vorticity,
-              sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange)
+components = (e, d+, sound_speed, vorticity)
 
 Nnorm = 1e18
 Bnorm = 1
@@ -26,8 +25,8 @@ recalculate_metric = true
 
 [vorticity]
 
-diamagnetic = false
-diamagnetic_polarisation = false
+diamagnetic = true
+diamagnetic_polarisation = true
 average_atomic_mass = `d+`:AA
 poloidal_flows = false
 split_n0 = false
@@ -36,7 +35,7 @@ vort_dissipation = false
 phi_dissipation = true
 
 phi_boundary_relax = true
-phi_boundary_timescale = 1e-6
+phi_boundary_timescale = 1e-3
 
 [vorticity:laplacian]
 inner_boundary_flags = 16
@@ -62,7 +61,7 @@ bndry_all = neumann
 
 function = 1e-1 * exp(-x^2) + 1e-5*(mixmode(z) + mixmode(4*z - x))
 
-source = 0
+source = 5e21*exp(-(x/0.3)^2)
 
 ################################################################
 # Deuterium ions

@@ -70,7 +70,11 @@ def field_bc_relaxation(
         vpar_e=enforce_bc_relaxation(y.vpar_e, dx=grid.dx, dy=grid.dy, bc=bcs.vpar_e, nu=nu_vpar_e),
         vpar_i=enforce_bc_relaxation(y.vpar_i, dx=grid.dx, dy=grid.dy, bc=bcs.vpar_i, nu=nu_vpar_i),
         Te=enforce_bc_relaxation(y.Te, dx=grid.dx, dy=grid.dy, bc=bcs.Te, nu=nu_Te),
-        Ti=None if y.Ti is None else enforce_bc_relaxation(y.Ti, dx=grid.dx, dy=grid.dy, bc=bcs.Ti, nu=nu_Ti),
-        psi=None if y.psi is None else enforce_bc_relaxation(y.psi, dx=grid.dx, dy=grid.dy, bc=bcs.psi, nu=nu_psi),
+        Ti=None
+        if y.Ti is None
+        else enforce_bc_relaxation(y.Ti, dx=grid.dx, dy=grid.dy, bc=bcs.Ti, nu=nu_Ti),
+        psi=None
+        if y.psi is None
+        else enforce_bc_relaxation(y.psi, dx=grid.dx, dy=grid.dy, bc=bcs.psi, nu=nu_psi),
         N=None if y.N is None else jnp.zeros_like(y.N),
     )

@@ -14,7 +14,7 @@ def main() -> None:
     p.add_argument("--cut", default="pol", choices=["pol", "tor", "rad"])
     p.add_argument("--axes", default="zxy", help="Axis order in HDF5 (default: zxy)")
     p.add_argument("--output-dir", default="gbs_plots")
-    p.add_argument("--poloidal", action="store_true", help="Also make poloidal plots")
+    p.add_argument("--poloidal", action="store_true", default=True, help="Also make poloidal plots")
     args = p.parse_args()
 
     h5_path = Path(args.h5)

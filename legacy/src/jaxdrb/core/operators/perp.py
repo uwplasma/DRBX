@@ -117,7 +117,9 @@ class PerpOperatorBundle(eqx.Module):
         return j
 
 
-def _spec_kgrid(nx: int, ny: int, dx: float, dy: float) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def _spec_kgrid(
+    nx: int, ny: int, dx: float, dy: float
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     kx_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=dx))
     ky_1d = jnp.asarray(2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=dy))
     kx, ky = jnp.meshgrid(kx_1d, ky_1d, indexing="ij")

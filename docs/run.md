@@ -40,8 +40,8 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 ### Performance Knobs
 - `numerics.parallel_z_mode`: `vmap` (default) or `scan`. `scan` reduces memory at the
   cost of extra overhead for 3D field-aligned grids.
-- `term_schedule_preset`: one of `benchmark_linear`, `benchmark_nonlinear`, `benchmark_min`
-  to use a predefined minimal RHS schedule for fast benchmarks.
+- `term_schedule_preset`: one of `preset_linear`, `preset_nonlinear`, `preset_min`
+  to use a predefined minimal RHS schedule for quick runs.
 - `numerics.poisson_preconditioner = "fd_fft"` accelerates non‑periodic CG solves by
   using an FFT‑based Poisson preconditioner. `auto` keeps `jacobi` for small grids;
   use `fd_fft` explicitly when it wins.

@@ -149,6 +149,7 @@ def _from_system_split(split) -> DRB2DHotIonDecomposition:
         dissipative=_from_system_state(split.dissipative),
     )
 
+
 class DRB2DHotIonModel(eqx.Module):
     params: DRB2DHotIonParams
     grid: Grid2D
@@ -156,7 +157,9 @@ class DRB2DHotIonModel(eqx.Module):
 
     def __post_init__(self):
         if not self.params.use_unified_core:
-            raise ValueError("DRB2DHotIonModel now requires use_unified_core=True (unified DRBSystem).")
+            raise ValueError(
+                "DRB2DHotIonModel now requires use_unified_core=True (unified DRBSystem)."
+            )
         sys_params = coerce_system_params(self.params, hot_ion_on=True)
         geom = Geometry2DAdapter(grid=self.grid, params=sys_params)
         system = DRBSystem(params=sys_params, geom=geom)

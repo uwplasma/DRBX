@@ -101,7 +101,9 @@ def main() -> None:
 
         result = run_simulation(
             cfg.data,
-            as_numpy=(False if (args.no_host_transfer or args.output_minimal) else bool(args.output)),
+            as_numpy=(
+                False if (args.no_host_transfer or args.output_minimal) else bool(args.output)
+            ),
         )
         print("Run complete.")
         if args.output:
@@ -116,9 +118,7 @@ def main() -> None:
             if args.output_minimal and diagnostics:
                 keep = {"t", "rms_n", "rms_Te", "rms_omega", "rms_phi", "times"}
                 diagnostics = {
-                    k: np.asarray(jax.device_get(v))
-                    for k, v in diagnostics.items()
-                    if k in keep
+                    k: np.asarray(jax.device_get(v)) for k, v in diagnostics.items() if k in keep
                 }
             else:
                 diagnostics = {k: np.asarray(jax.device_get(v)) for k, v in diagnostics.items()}
@@ -145,6 +145,7 @@ def main() -> None:
 
     def norm(arr):
         return float(jnp.sqrt(jnp.mean(jnp.abs(arr) ** 2)))
+
     print("DRBSystem initialized.")
     print(
         {

@@ -258,6 +258,7 @@ def _from_system_split(split, *, template: DRB2DState | None = None) -> DRB2DDec
         dissipative=_from_system_state(split.dissipative, template=template),
     )
 
+
 class DRB2DModel(eqx.Module):
     params: DRB2DParams
     grid: Grid2D

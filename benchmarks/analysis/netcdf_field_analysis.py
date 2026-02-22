@@ -55,7 +55,7 @@ def main():
 
         stats = {
             "mean": float(np.mean(last)),
-            "rms": float(np.sqrt(np.mean(last ** 2))),
+            "rms": float(np.sqrt(np.mean(last**2))),
             "min": float(np.min(last)),
             "max": float(np.max(last)),
         }

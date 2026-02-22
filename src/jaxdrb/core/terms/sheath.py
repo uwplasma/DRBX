@@ -79,9 +79,7 @@ def _sheath_simple(
         tau_i = float(params.tau_i) if hot_on else 0.0
         cs0 = jnp.sqrt(1.0 + tau_i)
         dcs = (
-            0.5
-            * (y.Te + (y.Ti if hot_on and y.Ti is not None else 0.0))
-            / jnp.maximum(cs0, 1e-12)
+            0.5 * (y.Te + (y.Ti if hot_on and y.Ti is not None else 0.0)) / jnp.maximum(cs0, 1e-12)
         )
         vpar_i_target = sign * (1.0 - float(params.sheath_delta)) * dcs
         vpar_e_target = sign * (dcs - phi)
@@ -184,9 +182,7 @@ def _sheath_loizu_linear(
     v2_target_l = -omega_bc_l / (cos2 * cs0)
     v2_target_r = -omega_bc_r / (cos2 * cs0)
     vi_adj_l = (2.0 * vi_bc_l + 4.0 * y.vpar_i[2] - y.vpar_i[3] - dl2 * v2_target_l) / 5.0
-    vi_adj_r = (
-        2.0 * vi_bc_r + 4.0 * y.vpar_i[-3] - y.vpar_i[-4] - dl2 * v2_target_r
-    ) / 5.0
+    vi_adj_r = (2.0 * vi_bc_r + 4.0 * y.vpar_i[-3] - y.vpar_i[-4] - dl2 * v2_target_r) / 5.0
 
     if nu_m != 0.0:
         dvi = dvi.at[left].add(-nu_m * mask_l * (y.vpar_i[left] - vi_bc_l))

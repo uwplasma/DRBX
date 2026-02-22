@@ -32,11 +32,13 @@ def main() -> None:
 
     mask = jnp.asarray(geom.sheath_mask, dtype=bool)
     print("MPSE BC boundary RHS norms:")
-    print({
-        "n": float(jnp.max(jnp.abs(dy.n[mask]))),
-        "omega": float(jnp.max(jnp.abs(dy.omega[mask]))),
-        "vpar_i": float(jnp.max(jnp.abs(dy.vpar_i[mask]))),
-    })
+    print(
+        {
+            "n": float(jnp.max(jnp.abs(dy.n[mask]))),
+            "omega": float(jnp.max(jnp.abs(dy.omega[mask]))),
+            "vpar_i": float(jnp.max(jnp.abs(dy.vpar_i[mask]))),
+        }
+    )
 
 
 if __name__ == "__main__":

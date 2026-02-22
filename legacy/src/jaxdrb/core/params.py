@@ -320,7 +320,9 @@ class DRBSystemParams(eqx.Module):
                         if isinstance(sub, eqx.Module) and hasattr(sub, key):
                             new_sub = eqx.tree_at(lambda g: getattr(g, key), sub, val)
                             new_group = eqx.tree_at(lambda g: getattr(g, field), group, new_sub)
-                            params = eqx.tree_at(lambda p: getattr(p, group_name), params, new_group)
+                            params = eqx.tree_at(
+                                lambda p: getattr(p, group_name), params, new_group
+                            )
                             updated = True
                             break
                     if updated:

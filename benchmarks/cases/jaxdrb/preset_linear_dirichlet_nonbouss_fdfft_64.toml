@@ -1,7 +1,7 @@
 [geometry]
 kind = "salpha"
-nx = 24
-ny = 24
+nx = 64
+ny = 64
 nz = 8
 Lx = 1.0
 Ly = 1.0
@@ -22,8 +22,8 @@ curvature_on = true
 [numerics]
 perp_operator = "fd"
 poisson = "cg_fd"
-polarization_preconditioner = "jacobi"
-term_schedule_preset = "benchmark_linear"
+polarization_preconditioner = "fd_fft"
+term_schedule_preset = "preset_linear"
 
 [initial]
 n0 = 1.0

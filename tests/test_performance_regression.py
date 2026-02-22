@@ -61,12 +61,13 @@ def test_perf_regression_16x16() -> None:
     system = built.system
     state = built.state
 
-    dt = 1e-3
-    steps = 30
-    save_every = 30
+    # Short-window explicit gate (t_end = 20)
+    dt = 0.1
+    steps = 200
+    save_every = 200
 
-    def diag_fn(t, y):
-        _ = (t, y)
+    def diag_fn(t, y, *, phi_guess=None):
+        _ = (t, y, phi_guess)
         return jnp.asarray(0.0)
 
     runner, _, _ = build_rk4_scan(system.rhs, dt, steps, save_every, diag_fn)
