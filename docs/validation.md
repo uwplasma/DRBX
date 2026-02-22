@@ -121,5 +121,5 @@ For profiling, see `docs/profiling.md`.
 ## Scope
 
 The public validation surface focuses on **internal consistency, conservation,
-and physics‑anchored checks** of the unified DRB system. Broader inter‑code
-comparisons can be added in downstream validation studies as needed.
+and physics‑anchored checks** of the unified DRB system. Validation is kept
+self‑contained and reproducible within `jax_drb`.

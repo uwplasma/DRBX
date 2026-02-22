@@ -12,7 +12,7 @@ from jaxdrb.io import load_config
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Nonlinear plane example run")
+    parser = argparse.ArgumentParser(description="Field-aligned 3D example run")
     parser.add_argument(
         "--config",
         type=str,
@@ -34,12 +34,12 @@ def main() -> None:
     parser.add_argument(
         "--make-figures",
         action="store_true",
-        help="Generate panel + RMS figures after the run.",
+        help="Generate 3D slice + RMS figures after the run.",
     )
     parser.add_argument(
         "--make-movies",
         action="store_true",
-        help="Generate a blob movie GIF after the run.",
+        help="Generate a midplane movie GIF after the run.",
     )
     args = parser.parse_args()
 
@@ -111,39 +111,30 @@ def main() -> None:
     )
     np.savez(out_path, **payload)
 
-    geom_cfg = cfg.data.get("geometry", {})
-    Lx = float(geom_cfg.get("Lx", 1.0))
-    Ly = float(geom_cfg.get("Ly", 1.0))
-    nx = int(geom_cfg.get("nx", 1))
-    ny = int(geom_cfg.get("ny", 1))
-    dx = Lx / max(nx, 1)
-    dy = Ly / max(ny, 1)
+    figdir = (
+        (repo_root / args.figdir).resolve()
+        if not Path(args.figdir).is_absolute()
+        else Path(args.figdir)
+    )
+    figdir.mkdir(parents=True, exist_ok=True)
 
     if args.make_figures:
-        figdir = (
-            (repo_root / args.figdir).resolve()
-            if not Path(args.figdir).is_absolute()
-            else Path(args.figdir)
-        )
-        figdir.mkdir(parents=True, exist_ok=True)
-        panel = figdir / "nonlinear_panel.png"
-        rms = figdir / "nonlinear_rms_timeseries.png"
-        zonal = figdir / "nonlinear_zonal_profile.png"
-        zonal_flow = figdir / "nonlinear_zonal_flow.png"
-        spectra = figdir / "nonlinear_spectrum.png"
-        pdfs = figdir / "nonlinear_pdfs.png"
-
+        slices = figdir / "three_d_slices.png"
+        rms = figdir / "three_d_rms_timeseries.png"
         subprocess.run(
             [
                 sys.executable,
-                "tools/plot_nonlinear_panel.py",
+                "tools/plot_3d_slices.py",
                 str(out_path),
+                "--field",
+                "n",
                 "--out",
-                str(panel),
-                "--fluct",
-                "zonal",
+                str(slices),
                 "--lowpass",
                 "0.35",
+                "--fluct",
+                "mean",
+                "--symmetric",
             ],
             check=True,
             cwd=repo_root,
@@ -153,53 +144,9 @@ def main() -> None:
             check=True,
             cwd=repo_root,
         )
-        subprocess.run(
-            [sys.executable, "tools/plot_zonal_profile.py", str(out_path), "--out", str(zonal)],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                "tools/plot_zonal_flow.py",
-                str(out_path),
-                "--config",
-                str(Path(args.config).resolve()),
-                "--out",
-                str(zonal_flow),
-            ],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                "tools/plot_spectra.py",
-                str(out_path),
-                "--out",
-                str(spectra),
-                "--dx",
-                str(dx),
-                "--dy",
-                str(dy),
-            ],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [sys.executable, "tools/plot_pdf.py", str(out_path), "--out", str(pdfs)],
-            check=True,
-            cwd=repo_root,
-        )
 
     if args.make_movies:
-        figdir = (
-            (repo_root / args.figdir).resolve()
-            if not Path(args.figdir).is_absolute()
-            else Path(args.figdir)
-        )
-        figdir.mkdir(parents=True, exist_ok=True)
-        movie_path = figdir / "blob_movie.gif"
+        movie_path = figdir / "three_d_movie.gif"
         subprocess.run(
             [
                 sys.executable,
@@ -211,6 +158,8 @@ def main() -> None:
                 str(movie_path),
                 "--stride",
                 "2",
+                "--z-index",
+                "0",
                 "--fluct",
                 "zonal",
                 "--lowpass",
@@ -219,10 +168,6 @@ def main() -> None:
                 "0.6",
                 "--symmetric",
                 "--range-tail",
-                "--vmin",
-                "-200",
-                "--vmax",
-                "200",
             ],
             check=True,
             cwd=repo_root,

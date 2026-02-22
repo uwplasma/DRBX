@@ -6,6 +6,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from plot_utils import maybe_lowpass
+
 
 def _slice_midplane(arr: np.ndarray) -> np.ndarray:
     if arr.ndim == 2:
@@ -63,6 +65,12 @@ def main() -> None:
         choices=("auto", "none", "mean", "zonal"),
         help="Subtract mean or zonal mean before plotting.",
     )
+    parser.add_argument(
+        "--lowpass",
+        type=float,
+        default=None,
+        help="Optional low-pass fraction (0-1) for smoother visuals.",
+    )
     args = parser.parse_args()
 
     data = np.load(args.input)
@@ -89,7 +97,9 @@ def main() -> None:
             ax.axis("off")
             continue
         field = _slice_midplane(data[key])
+        field = np.nan_to_num(field, nan=0.0, posinf=0.0, neginf=0.0)
         field = _fluctuation(field, args.fluct, key)
+        field = maybe_lowpass(field, args.lowpass)
         cmap = "viridis" if key in ("snapshot_n", "snapshot_Te") else "coolwarm"
         symmetric = key in ("snapshot_phi", "snapshot_omega")
         label = f"{title}'" if args.fluct != "none" else title

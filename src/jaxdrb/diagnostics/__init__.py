@@ -1,10 +1,14 @@
-from .basic import rms, poloidal_average, poloidal_profile
-from .spectra import fft_power2d, radial_spectrum
+"""Diagnostics helpers for spectra, PDFs, and zonal averages."""
+
+from .pdfs import joint_pdf, pdf_1d
+from .spectra import isotropic_spectrum, kxky_spectrum, power_spectrum_2d
+from .zonal import zonal_mean
 
 __all__ = [
-    "rms",
-    "poloidal_average",
-    "poloidal_profile",
-    "fft_power2d",
-    "radial_spectrum",
+    "joint_pdf",
+    "pdf_1d",
+    "isotropic_spectrum",
+    "kxky_spectrum",
+    "power_spectrum_2d",
+    "zonal_mean",
 ]
