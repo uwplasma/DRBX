@@ -72,6 +72,12 @@ def main() -> None:
         help="Poloidal angle (radians) to select for the toroidal cut.",
     )
     parser.add_argument(
+        "--toroidal-theta2",
+        type=float,
+        default=None,
+        help="Optional second poloidal angle (radians) for an inboard/outboard comparison.",
+    )
+    parser.add_argument(
         "--separatrix",
         type=float,
         default=None,
@@ -211,8 +217,12 @@ def main() -> None:
     else:
         z_var = np.var(range_frames, axis=(0, 2, 3))
         z_idx = int(np.argmax(z_var))
+    z_idx2 = None
+    if args.toroidal_theta2 is not None:
+        z_idx2 = int(np.argmin(np.abs(theta - float(args.toroidal_theta2))))
     pol_samples = range_frames[:, :, :, y_idx]
     tor_samples = range_frames[:, z_idx]
+    tor_samples2 = range_frames[:, z_idx2] if z_idx2 is not None else None
     if args.lowpass:
         pol_samples = np.stack(
             [_lowpass_2d(frame, float(args.lowpass)) for frame in pol_samples], axis=0
@@ -220,7 +230,14 @@ def main() -> None:
         tor_samples = np.stack(
             [_lowpass_2d(frame, float(args.lowpass)) for frame in tor_samples], axis=0
         )
-    sample = np.concatenate([pol_samples.ravel(), tor_samples.ravel()])
+        if tor_samples2 is not None:
+            tor_samples2 = np.stack(
+                [_lowpass_2d(frame, float(args.lowpass)) for frame in tor_samples2], axis=0
+            )
+    sample_parts = [pol_samples.ravel(), tor_samples.ravel()]
+    if tor_samples2 is not None:
+        sample_parts.append(tor_samples2.ravel())
+    sample = np.concatenate(sample_parts)
     vmin, vmax = np.percentile(sample, [2.0, 98.0])
     if args.symmetric:
         vmax = float(max(abs(vmin), abs(vmax)))
@@ -233,14 +250,21 @@ def main() -> None:
     theta0 = theta[z_idx]
     R_tor = R0 + r * np.cos(theta0)
     Phi, Rg = np.meshgrid(phi, R_tor, indexing="xy")
+    toroidal_slice2 = frames[0, z_idx2] if z_idx2 is not None else None
 
-    fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
-    ax0 = fig.add_subplot(1, 2, 1)
+    if toroidal_slice2 is None:
+        fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
+        ax0 = fig.add_subplot(1, 2, 1)
+    else:
+        fig = plt.figure(figsize=(16.0, 5.0), constrained_layout=True)
+        ax0 = fig.add_subplot(1, 3, 1)
     poloidal = frames[0, :, :, y_idx]
     toroidal = frames[0, z_idx]
     if args.lowpass:
         poloidal = _lowpass_2d(poloidal, float(args.lowpass))
         toroidal = _lowpass_2d(toroidal, float(args.lowpass))
+        if toroidal_slice2 is not None:
+            toroidal_slice2 = _lowpass_2d(toroidal_slice2, float(args.lowpass))
     if interp_grid > 0:
         interp = mtri.LinearTriInterpolator(tri, poloidal.ravel())
         vals = interp(Rg_pol, Zg_pol)
@@ -267,9 +291,9 @@ def main() -> None:
         ax0.plot(R0 + sep * np.cos(theta), sep * np.sin(theta), color="white", lw=1.2, ls="--")
 
     if args.toroidal_mode == "polar":
-        ax1 = fig.add_subplot(1, 2, 2, projection="polar")
+        ax1 = fig.add_subplot(1, 2 if toroidal_slice2 is None else 3, 2, projection="polar")
         im1 = ax1.pcolormesh(Phi, Rg, toroidal, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
-        ax1.set_title("toroidal cut")
+        ax1.set_title("toroidal cut (outboard)")
         rmin = float(R0 - r_minor)
         rmax = float(R0 + r_minor)
         ax1.set_rmin(rmin)
@@ -278,14 +302,50 @@ def main() -> None:
         ax1.set_facecolor("white")
         ax1.set_yticklabels([])
         ax1.grid(alpha=0.3)
+        ax2 = None
+        if toroidal_slice2 is not None:
+            theta2 = theta[z_idx2]
+            R_tor2 = R0 + r * np.cos(theta2)
+            Phi2, Rg2 = np.meshgrid(phi, R_tor2, indexing="xy")
+            ax2 = fig.add_subplot(1, 3, 3, projection="polar")
+            im2 = ax2.pcolormesh(
+                Phi2,
+                Rg2,
+                toroidal_slice2,
+                shading="auto",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            ax2.set_title("toroidal cut (inboard)")
+            ax2.set_rmin(rmin)
+            ax2.set_rmax(rmax)
+            ax2.set_ylim(rmin, rmax)
+            ax2.set_facecolor("white")
+            ax2.set_yticklabels([])
+            ax2.grid(alpha=0.3)
     else:
-        ax1 = fig.add_subplot(1, 2, 2)
+        ax1 = fig.add_subplot(1, 2 if toroidal_slice2 is None else 3, 2)
         im1 = ax1.pcolormesh(Phi, Rg, toroidal, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
-        ax1.set_title("toroidal cut")
+        ax1.set_title("toroidal cut (outboard)")
         ax1.set_xlabel("toroidal angle")
         ax1.set_ylabel("R")
         ax1.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
-    fig.colorbar(im0, ax=[ax0, ax1], fraction=0.03, pad=0.02)
+        ax2 = None
+        if toroidal_slice2 is not None:
+            theta2 = theta[z_idx2]
+            R_tor2 = R0 + r * np.cos(theta2)
+            Phi2, Rg2 = np.meshgrid(phi, R_tor2, indexing="xy")
+            ax2 = fig.add_subplot(1, 3, 3)
+            im2 = ax2.pcolormesh(
+                Phi2, Rg2, toroidal_slice2, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax
+            )
+            ax2.set_title("toroidal cut (inboard)")
+            ax2.set_xlabel("toroidal angle")
+            ax2.set_ylabel("R")
+            ax2.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
+    axes = [ax0, ax1] if ax2 is None else [ax0, ax1, ax2]
+    fig.colorbar(im0, ax=axes, fraction=0.03, pad=0.02)
 
     try:
         from matplotlib import animation
@@ -293,9 +353,12 @@ def main() -> None:
         def update(i):
             pol = frames[i, :, :, y_idx]
             tor = frames[i, z_idx]
+            tor2 = frames[i, z_idx2] if z_idx2 is not None else None
             if args.lowpass:
                 pol = _lowpass_2d(pol, float(args.lowpass))
                 tor = _lowpass_2d(tor, float(args.lowpass))
+                if tor2 is not None:
+                    tor2 = _lowpass_2d(tor2, float(args.lowpass))
             if interp_grid > 0:
                 interp = mtri.LinearTriInterpolator(tri, pol.ravel())
                 vals = interp(Rg_pol, Zg_pol)
@@ -304,7 +367,11 @@ def main() -> None:
             else:
                 im0.set_array(pol.ravel())
             im1.set_array(tor.ravel())
-            return (im0, im1)
+            artists = [im0, im1]
+            if tor2 is not None and ax2 is not None:
+                im2.set_array(tor2.ravel())
+                artists.append(im2)
+            return tuple(artists)
 
         anim = animation.FuncAnimation(fig, update, frames=frames.shape[0], blit=True)
         out = Path(args.out)

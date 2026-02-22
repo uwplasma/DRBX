@@ -50,7 +50,7 @@ def main() -> None:
             time_cfg = {}
         time_cfg = dict(time_cfg)
         time_cfg["save_fields"] = True
-        time_cfg["snapshot_fields"] = ["n", "omega", "Te", "phi"]
+        time_cfg["snapshot_fields"] = ["n"]
         time_cfg["diag_phi_use_guess"] = False
         cfg.data["time"] = time_cfg
     result = run_simulation(cfg.data, as_numpy=True)
@@ -191,13 +191,13 @@ def main() -> None:
                 "--out",
                 str(movie_path),
                 "--stride",
-                "2",
+                "3",
                 "--fluct",
                 "zonal",
                 "--lowpass",
                 "0.25",
                 "--skip-fraction",
-                "0.4",
+                "0.35",
                 "--symmetric",
                 "--range-tail",
                 "--field-scale",
