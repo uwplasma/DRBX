@@ -26,9 +26,7 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
         dpar_ve = ctx.geom.dpar(y.vpar_e, bc_kind="dirichlet")
         dpar_vi = ctx.geom.dpar(y.vpar_i, bc_kind="dirichlet")
         dpar_Te = ctx.geom.dpar(y.Te, bc_kind="neumann")
-        dpar_Ti = (
-            ctx.geom.dpar(ctx.Ti, bc_kind="neumann") if ctx.hot_on else jnp.zeros_like(ctx.Ti)
-        )
+        dpar_Ti = ctx.geom.dpar(ctx.Ti, bc_kind="neumann") if ctx.hot_on else jnp.zeros_like(ctx.Ti)
 
     jpar_fluid = y.vpar_i - y.vpar_e
     jpar_em = (

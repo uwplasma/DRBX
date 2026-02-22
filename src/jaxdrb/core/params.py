@@ -69,7 +69,7 @@ class PhysicsParams(eqx.Module):
     log_n_clip: float | None = 50.0
     log_Te_clip: float | None = 50.0
 
-    # Generic volumetric sources (Hermes-style Gaussian sources).
+    # Generic volumetric sources (Gaussian sources).
     source_on: bool = False
     source_profile: Literal["gaussian_x", "gaussian_xy"] = "gaussian_x"
     source_n0: float = 0.0
@@ -116,7 +116,7 @@ class TransportParams(eqx.Module):
     mu_lin_vpar_i: float = 0.0
     mu_lin_Te: float = 0.0
 
-    # Hermes-style parallel dissipation toggles (Div_par terms).
+    # Parallel dissipation toggles (Div_par terms).
     vort_par_dissipation: float = 0.0
     phi_par_dissipation: float = 0.0
 

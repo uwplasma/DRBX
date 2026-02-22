@@ -19,6 +19,8 @@ coeff_path = "benchmarks/cases/jaxdrb/hermes_salpha_coeffs.npz"
 nx = 32
 ny = 32
 nz = 16
+Lx = 0.057142857142857106
+Ly = 6.283185307179586
 
 open_field_line = false
 bc_x = "neumann"
@@ -56,7 +58,7 @@ n_profile_width = 1.0
 n_profile_x0 = 0.0
 mixmode_amp = 1.0e-5
 mixmode_seed = 0.5
-mixmode_terms = ["z", "4z-x"]
+mixmode_terms = ["y", "4y-x"]
 x_mode = "bout"
 x_centered = false
 z_mode = "bout"
@@ -72,7 +74,7 @@ bracket = "arakawa"
 
 [bc]
 bc_enforce_nu = 0.0
-bc_enforce_nu_phi = 1.0e6
+bc_enforce_nu_phi = 0.14
 
 [bc.n]
 bc_x = "neumann"
@@ -105,5 +107,5 @@ t_end = 20.0
 nsteps = 20000
 save_every = 10
 progress = false
-diag_mode = "basic"
+diag_mode = "full"
 poisson_warm_start = true

@@ -1,7 +1,7 @@
 [geometry]
 kind = "salpha"
-nx = 16
-ny = 16
+nx = 128
+ny = 128
 nz = 8
 Lx = 1.0
 Ly = 1.0
@@ -14,16 +14,21 @@ curvature_model = "vector_xy"
 [physics]
 em_on = false
 hot_ion_on = false
-boussinesq = true
+nonlinear_on = false
+boussinesq = false
+non_boussinesq_perturbed_density_on = true
+curvature_on = true
 
 [numerics]
 perp_operator = "fd"
 poisson = "cg_fd"
-term_schedule_preset = "benchmark_linear"
+polarization_preconditioner = "fd_fft"
+term_schedule_preset = "preset_linear"
 
 [initial]
-noise_amplitude = 0.02
-noise_fields = ["omega"]
+n0 = 1.0
+noise_amplitude = 0.1
+noise_fields = ["n"]
 
 [time]
 method = "rk4_scan"
@@ -32,5 +37,5 @@ nsteps = 200
 save_every = 20
 diag_mode = "basic"
 carry_phi = true
-poisson_warm_start = false
+poisson_warm_start = true
 progress = false

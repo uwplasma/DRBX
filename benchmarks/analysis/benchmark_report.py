@@ -79,7 +79,7 @@ def _parse_time_log(path: Path | None) -> tuple[float, float] | None:
         return None
     runtime = float(real_match.group(1)) if real_match else float("nan")
     mem_bytes = float(mem_match.group(1)) if mem_match else float("nan")
-    mem_mb = mem_bytes / (1024.0 ** 2) if mem_bytes == mem_bytes else float("nan")
+    mem_mb = mem_bytes / (1024.0**2) if mem_bytes == mem_bytes else float("nan")
     return runtime, mem_mb
 
 
@@ -188,7 +188,11 @@ def _load_hermes(
     import netCDF4  # type: ignore
 
     with netCDF4.Dataset(path) as ds:
-        t = np.asarray(ds.variables["t"][:]) if "t" in ds.variables else np.arange(ds.dimensions["t"].size)
+        t = (
+            np.asarray(ds.variables["t"][:])
+            if "t" in ds.variables
+            else np.arange(ds.dimensions["t"].size)
+        )
         mxg = int(ds.variables["MXG"][:]) if "MXG" in ds.variables else 0
         myg = int(ds.variables["MYG"][:]) if "MYG" in ds.variables else 0
         mzg = int(ds.variables["MZG"][:]) if "MZG" in ds.variables else 0
@@ -315,6 +319,7 @@ def _load_gbs(path: Path, gbs_input: Path | None = None, axes: str = "zxy") -> D
     import h5py  # type: ignore
 
     with h5py.File(path, "r") as f:
+
         def load_var(name: str) -> np.ndarray | None:
             if f"data/var3d/{name}" not in f:
                 return None
@@ -484,7 +489,9 @@ def main() -> None:
     p.add_argument("--gbs-input", default=None, help="GBS input file for geometry lengths")
     p.add_argument("--jaxdrb-config", default=None, help="jax_drb TOML config for geometry lengths")
     p.add_argument("--hermes-grid", default=None, help="Optional Hermes grid file (salpha.nc)")
-    p.add_argument("--hermes-axes", default="xyz", help="Hermes spatial axis order in file (default xyz)")
+    p.add_argument(
+        "--hermes-axes", default="xyz", help="Hermes spatial axis order in file (default xyz)"
+    )
     p.add_argument(
         "--hermes-ky-scale",
         default="metric_shift",
@@ -492,7 +499,9 @@ def main() -> None:
         help="Hermes ky scaling: none, metric (gyy), or metric_shift (gyy + ShiftAngle).",
     )
     p.add_argument("--gbs-axes", default="zxy", help="GBS spatial axis order in file (default zxy)")
-    p.add_argument("--jaxdrb-axes", default="zxy", help="jax_drb spatial axis order in file (default zxy)")
+    p.add_argument(
+        "--jaxdrb-axes", default="zxy", help="jax_drb spatial axis order in file (default zxy)"
+    )
     p.add_argument("--growth-frac", type=float, default=0.3)
     p.add_argument("--hermes-time", default=None, help="Optional /usr/bin/time -l log for Hermes")
     p.add_argument("--jaxdrb-time", default=None, help="Optional /usr/bin/time -l log for jax_drb")
@@ -529,7 +538,9 @@ def main() -> None:
         s = series[ds.name]
         metrics[f"{ds.name}_growth_n"] = _fit_growth_rate(ds.t, s["rms_n"], frac=args.growth_frac)
         if s["rms_phi"] is not None:
-            metrics[f"{ds.name}_growth_phi"] = _fit_growth_rate(ds.t, s["rms_phi"], frac=args.growth_frac)
+            metrics[f"{ds.name}_growth_phi"] = _fit_growth_rate(
+                ds.t, s["rms_phi"], frac=args.growth_frac
+            )
         metrics[f"{ds.name}_rms_n_final"] = float(s["rms_n"][-1])
         if s["rms_phi"] is not None:
             metrics[f"{ds.name}_rms_phi_final"] = float(s["rms_phi"][-1])
@@ -565,7 +576,11 @@ def main() -> None:
                 metrics[f"{ds.name}_spec_peak_phi"] = float(spec_p[idx_p])
             ky_cp, phase_cp, coh_cp = _cross_phase_ky(ds.n[-1], ds.phi[-1], ds.Ly, ds.ky_scale)
             if ky_cp.size > 1:
-                idx_cp = int(np.argmax(spec_n[1:])) + 1 if spec_n.size == ky_cp.size else int(np.argmax(coh_cp[1:])) + 1
+                idx_cp = (
+                    int(np.argmax(spec_n[1:])) + 1
+                    if spec_n.size == ky_cp.size
+                    else int(np.argmax(coh_cp[1:])) + 1
+                )
                 metrics[f"{ds.name}_phase_ky_peak"] = float(phase_cp[idx_cp])
                 metrics[f"{ds.name}_coh_ky_peak"] = float(coh_cp[idx_cp])
             flux = _particle_flux(ds.n[-1], ds.phi[-1], ds.Ly)

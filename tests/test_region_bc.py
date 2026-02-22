@@ -150,9 +150,7 @@ def test_region_bc_dirichlet_log_Te():
     ctx = build_context(params, geom, y)
     rhs = region_bc_relaxation(ctx, y)
 
-    expected = -1.5 * mask.reshape(shape) * (Te_phys.reshape(shape) - 2.5) / Te_phys.reshape(
-        shape
-    )
+    expected = -1.5 * mask.reshape(shape) * (Te_phys.reshape(shape) - 2.5) / Te_phys.reshape(shape)
     np.testing.assert_allclose(rhs.Te, expected, rtol=1e-6, atol=1e-6)
 
 

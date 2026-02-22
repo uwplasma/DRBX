@@ -5,21 +5,21 @@ turb
 -
 &BASIC
   job_time=3600.0, extra_time=0.0,
-  nrun=150,
-  dt=2.e-5,
-  nlres=f,
+  nrun=10000,
+  dt=1.e-4,
+  nlres=t,
   nlbalance=f,
 /
 &GRID
   nx=64
-  ny=64
-  nz=16
+  ny=96
+  nz=26
   xmin=0D0
-  xmax=1D0
+  xmax=50
   ymin=0D0
-  ymax=1D0
+  ymax=100
   zmin=0D0
-  zmax=1D0
+  zmax=12.5
 /
 &BOUNDARY_CON
   bc_theta_lopt='Neu'
@@ -71,10 +71,10 @@ turb
   dz_out_3d=1
   z_out=1
   write_out_nstep=.false.
-  dt_out_0d=5.D-4
-  dt_out_1d=5.D-4
-  dt_out_2d=5.D-4
-  dt_out_3d=5.D-4
+  dt_out_0d=1.D-3
+  dt_out_1d=1.D-3
+  dt_out_2d=1.D-3
+  dt_out_3d=1.D-3
   nsave_0d=1
   nsave_1d=1
   nsave_2d=1
@@ -132,17 +132,17 @@ turb
   esnonlinear=.true.
 /
 &INITIAL_CON
-  initback_theta=0D-0
-  initback_tempe=0D-0
-  initback_omega=0D-0
-  initback_vpare=0D-0
-  initback_vpari=0D-0
+  initback_theta=1D-3
+  initback_tempe=1D-3
+  initback_omega=1D-3
+  initback_vpare=1D-3
+  initback_vpari=1D-3
   initback_strmf=0D-0
-  initnoise_theta=1D-3
-  initnoise_tempe=1D-3
-  initnoise_omega=1D-3
-  initnoise_vpare=0D-0
-  initnoise_vpari=0D-0
+  initnoise_theta=1D-2
+  initnoise_tempe=1D-2
+  initnoise_omega=1D-2
+  initnoise_vpare=1D-2
+  initnoise_vpari=1D-2
   initnoise_strmf=0D-0
 /
 &TIME_INTEGRATION_PAR

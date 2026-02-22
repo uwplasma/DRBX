@@ -56,8 +56,12 @@ def rk4_step_with_phi_iters(
 ) -> tuple[PyTree, PyTree | None, PyTree, PyTree]:
     guess = phi_guess if warm_start else None
     k1, phi1, it1 = rhs_with_phi_iters(t, y, guess)
-    k2, phi2, it2 = rhs_with_phi_iters(t + 0.5 * dt, tree_add(y, k1, 0.5 * dt), phi1 if warm_start else None)
-    k3, phi3, it3 = rhs_with_phi_iters(t + 0.5 * dt, tree_add(y, k2, 0.5 * dt), phi2 if warm_start else None)
+    k2, phi2, it2 = rhs_with_phi_iters(
+        t + 0.5 * dt, tree_add(y, k1, 0.5 * dt), phi1 if warm_start else None
+    )
+    k3, phi3, it3 = rhs_with_phi_iters(
+        t + 0.5 * dt, tree_add(y, k2, 0.5 * dt), phi2 if warm_start else None
+    )
     k4, phi4, it4 = rhs_with_phi_iters(t + dt, tree_add(y, k3, dt), phi3 if warm_start else None)
     acc = tree_add(k1, k2, 2.0)
     acc = tree_add(acc, k3, 2.0)
@@ -101,6 +105,7 @@ def build_rk4_scan_split(
         y = rk4_step(rhs_fn, t, y, dt)
         y = bc_fn(y, dt, None)
         return (t + dt, y), None
+
     inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
@@ -173,13 +178,12 @@ def build_rk4_scan_cached_split(
         y, phi_guess = rk4_step_with_phi(rhs_fn, t, y, dt, phi_guess)
         y = bc_fn(y, dt, phi_guess)
         return (t + dt, y, phi_guess), None
+
     inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
         t, y, phi_guess = carry
-        (t, y, phi_guess), _ = jax.lax.scan(
-            inner_fn, (t, y, phi_guess), None, length=save_every
-        )
+        (t, y, phi_guess), _ = jax.lax.scan(inner_fn, (t, y, phi_guess), None, length=save_every)
         diag = diag_fn(t, y, phi_guess=phi_guess)
         return (t, y, phi_guess), diag
 
@@ -210,9 +214,7 @@ def build_rk4_scan_cached_split(
             t, y, phi_guess = t0, state, phi_guess0
             diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
         if rem > 0:
-            (t, y, phi_guess), _ = jax.lax.scan(
-                inner_fn, (t, y, phi_guess), None, length=rem
-            )
+            (t, y, phi_guess), _ = jax.lax.scan(inner_fn, (t, y, phi_guess), None, length=rem)
             diag_last = diag_fn(t, y, phi_guess=phi_guess)
             diags = _append_diag(diags, diag_last)
         return y, diags
@@ -341,6 +343,7 @@ def build_rk4_scan_cached_iters_split(
         it_sum = it_sum + it_mean
         it_max = jnp.maximum(it_max, it_step_max)
         return (t + dt, y, phi_guess, it_sum, it_max), None
+
     inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
@@ -526,6 +529,7 @@ def build_rk4_scan(
         t, y = carry
         y = rk4_step(rhs_fn, t, y, dt)
         return (t + dt, y), None
+
     inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
@@ -596,13 +600,12 @@ def build_rk4_scan_cached(
         t, y, phi_guess = carry
         y, phi_guess = rk4_step_with_phi(rhs_fn, t, y, dt, phi_guess)
         return (t + dt, y, phi_guess), None
+
     inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):
         t, y, phi_guess = carry
-        (t, y, phi_guess), _ = jax.lax.scan(
-            inner_fn, (t, y, phi_guess), None, length=save_every
-        )
+        (t, y, phi_guess), _ = jax.lax.scan(inner_fn, (t, y, phi_guess), None, length=save_every)
         diag = diag_fn(t, y, phi_guess=phi_guess)
         return (t, y, phi_guess), diag
 
@@ -633,9 +636,7 @@ def build_rk4_scan_cached(
             t, y, phi_guess = t0, state, phi_guess0
             diags = jax.tree_util.tree_map(lambda d0: d0[jnp.newaxis, ...], diag0)
         if rem > 0:
-            (t, y, phi_guess), _ = jax.lax.scan(
-                inner_fn, (t, y, phi_guess), None, length=rem
-            )
+            (t, y, phi_guess), _ = jax.lax.scan(inner_fn, (t, y, phi_guess), None, length=rem)
             diag_last = diag_fn(t, y, phi_guess=phi_guess)
             diags = _append_diag(diags, diag_last)
         return y, diags
@@ -761,6 +762,7 @@ def build_rk4_scan_cached_iters(
         it_sum = it_sum + it_mean
         it_max = jnp.maximum(it_max, it_step_max)
         return (t + dt, y, phi_guess, it_sum, it_max), None
+
     inner_fn = jax.checkpoint(inner) if scan_remat else inner
 
     def block(carry, _):

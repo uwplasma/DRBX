@@ -27,7 +27,7 @@ def main() -> None:
     p.add_argument("--dt", type=float, default=1e-3)
     p.add_argument("--steps", type=int, default=200)
     p.add_argument("--warmup", type=int, default=1)
-    p.add_argument("--outdir", default="benchmarks/profiles/jaxdrb")
+    p.add_argument("--outdir", default="profiles/jaxdrb")
     p.add_argument("--trace", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--memory", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--hlo", action=argparse.BooleanOptionalAction, default=True)

@@ -23,26 +23,12 @@ Key options:
 - `--curv-sign-x`, `--curv-sign-y`: sign flips for alternative conventions
 - `--use-metric`: include `gxx/gxy/gyy` metric scaling
 
-### Benchmark Alignment (Hermes-style s-alpha)
-For quick analytic-vs-grid checks that match Hermes-style s-alpha parameters, use:
-
-```
---config /Users/rogerio/local/jax_drb/configs/benchmarks/salpha_hermes_gridmatch_small.toml
---mapping canonical
-```
-
 Expected axis conventions:
 - `x`: minor radial coordinate
 - `y`: binormal (poloidal) direction
 - `z`: field-aligned (ballooning) coordinate
 
-You can also run the alignment helper to bundle outputs and write a summary JSON:
-
-```
-python /Users/rogerio/local/jax_drb/benchmarks/run_alignment.py --compare-only
-```
-
-## GBS equilibrium files
+## External equilibrium files
 
 ```
 python /Users/rogerio/local/jax_drb/tools/compare_geometry_gbs.py \
@@ -54,6 +40,6 @@ python /Users/rogerio/local/jax_drb/tools/compare_geometry_gbs.py \
 
 Key options:
 - `--mapping canonical`: canonical s-alpha log-B mapping (no swap, positive signs)
-- `--theta-range "min,max"`: theta range for the GBS curvature arrays
+- `--theta-range "min,max"`: theta range for the curvature arrays
 - `--normalize`: compare shape (RMS-normalized) rather than absolute magnitude
 - `--swap-xy`, `--curv-sign-x`, `--curv-sign-y`: axis/sign convention adjustments

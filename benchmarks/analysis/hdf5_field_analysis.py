@@ -64,7 +64,7 @@ def main():
 
         stats = {
             "mean": float(np.mean(data3d)),
-            "rms": float(np.sqrt(np.mean(data3d ** 2))),
+            "rms": float(np.sqrt(np.mean(data3d**2))),
             "min": float(np.min(data3d)),
             "max": float(np.max(data3d)),
         }

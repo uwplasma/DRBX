@@ -67,14 +67,20 @@ def _maybe_salpha_coeffs(ds, x_index: int | None) -> dict[str, np.ndarray] | Non
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert BOUT++ grid to axisymmetric coefficients (.npz)")
+    parser = argparse.ArgumentParser(
+        description="Convert BOUT++ grid to axisymmetric coefficients (.npz)"
+    )
     parser.add_argument("--grid", required=True, type=str, help="Path to BOUT++ grid (.nc)")
     parser.add_argument("--out", required=True, type=str, help="Output .npz path")
     parser.add_argument("--curv-x-var", default="curv_x", help="Variable name for curv_x")
     parser.add_argument("--curv-y-var", default="curv_y", help="Variable name for curv_y")
-    parser.add_argument("--dpar-factor-var", default="dpar_factor", help="Variable name for dpar_factor")
+    parser.add_argument(
+        "--dpar-factor-var", default="dpar_factor", help="Variable name for dpar_factor"
+    )
     parser.add_argument("--b-var", default="Bxy", help="Variable name for B magnitude")
-    parser.add_argument("--z-var", default=None, help="Variable name for parallel coordinate (e.g., y, theta)")
+    parser.add_argument(
+        "--z-var", default=None, help="Variable name for parallel coordinate (e.g., y, theta)"
+    )
     parser.add_argument("--x-index", type=int, default=0, help="Radial index to extract")
     parser.add_argument("--z-index", type=int, default=0, help="Toroidal index to extract if 3D")
     args = parser.parse_args()

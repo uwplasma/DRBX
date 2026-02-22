@@ -14,7 +14,12 @@ def main() -> None:
     p.add_argument("--cut", default="pol", choices=["pol", "tor", "rad"])
     p.add_argument("--axes", default="zxy", help="Axis order in HDF5 (default: zxy)")
     p.add_argument("--output", default=None)
-    p.add_argument("--poloidal", action="store_true")
+    p.add_argument(
+        "--poloidal",
+        action="store_true",
+        default=True,
+        help="Make a poloidal movie instead of a rectangular cut",
+    )
     p.add_argument("--fps", type=int, default=15)
     args = p.parse_args()
 
@@ -24,7 +29,9 @@ def main() -> None:
         make_movie_poloidal(h5_path, args.field, axes=args.axes, output=output, fps=args.fps)
     else:
         output = Path(args.output) if args.output else Path(f"movie_{args.field}_{args.cut}.gif")
-        make_movie_rect(h5_path, args.field, cut=args.cut, axes=args.axes, output=output, fps=args.fps)
+        make_movie_rect(
+            h5_path, args.field, cut=args.cut, axes=args.axes, output=output, fps=args.fps
+        )
 
 
 if __name__ == "__main__":

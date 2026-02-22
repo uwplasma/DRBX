@@ -95,9 +95,7 @@ def _apply_bc_relaxation_implicit(
     dy = float(grid.dy)
 
     n = enforce_bc_relaxation_implicit(y.n, dx=dx, dy=dy, bc=bcs.n, nu=nu_n, dt=dt)
-    omega = enforce_bc_relaxation_implicit(
-        y.omega, dx=dx, dy=dy, bc=bcs.omega, nu=nu_omega, dt=dt
-    )
+    omega = enforce_bc_relaxation_implicit(y.omega, dx=dx, dy=dy, bc=bcs.omega, nu=nu_omega, dt=dt)
     vpar_e = enforce_bc_relaxation_implicit(
         y.vpar_e, dx=dx, dy=dy, bc=bcs.vpar_e, nu=nu_vpar_e, dt=dt
     )
@@ -177,9 +175,7 @@ def _apply_phi_boundary_relaxation_implicit(
     )
 
 
-def _apply_diffusion_implicit(
-    system: DRBSystem, y: DRBSystemState, dt: float
-) -> DRBSystemState:
+def _apply_diffusion_implicit(system: DRBSystem, y: DRBSystemState, dt: float) -> DRBSystemState:
     """Implicit update for perpendicular diffusion/biharmonic and linear drags."""
 
     params = system.params
@@ -353,9 +349,7 @@ def _apply_parallel_implicit(
             v_i_new = jnp.fft.ifft(v_i_hat, axis=0).real
 
         omega_hat = jnp.fft.fft(y.omega, axis=0)
-        omega_hat = omega_hat + dt * D * (
-            jnp.fft.fft(v_i_new, axis=0) - jnp.fft.fft(v_new, axis=0)
-        )
+        omega_hat = omega_hat + dt * D * (jnp.fft.fft(v_i_new, axis=0) - jnp.fft.fft(v_new, axis=0))
         omega_new = jnp.fft.ifft(omega_hat, axis=0).real
 
         return DRBSystemState(
@@ -585,8 +579,8 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             x0 = float(init.get("n_profile_x0", 0.0))
             if width <= 0.0:
                 width = 1.0
-            n_phys = n_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
-    elif n_profile in ("gaussian_mixmode", "gaussian_mixmode_z", "gaussian_mixmode_hermes"):
+            n_phys = n_phys + amp * jnp.exp(-(((xg - x0) / width) ** 2))
+    elif n_profile in ("gaussian_mixmode", "gaussian_mixmode_z", "gaussian_mixmode_reference"):
         xg, yg = _perp_xy(centered=x_centered, x_mode=x_mode)
         zg = _par_z(z_mode)
         if xg is not None:
@@ -595,7 +589,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             x0 = float(init.get("n_profile_x0", 0.0))
             if width <= 0.0:
                 width = 1.0
-            n_phys = n_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
+            n_phys = n_phys + amp * jnp.exp(-(((xg - x0) / width) ** 2))
         if xg is not None and (zg is not None or yg is not None):
             mix_amp = float(init.get("mixmode_amp", 0.0))
             mix_seed = float(init.get("mixmode_seed", 0.5))
@@ -605,7 +599,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             mixmode_mode = str(init.get("mixmode_mode", "jax")).lower()
             z_arg = zg
             y_arg = yg
-            if mixmode_mode in ("hermes", "bout", "boutpp"):
+            if mixmode_mode in ("reference", "bout", "boutpp"):
                 z_arg = yg
                 y_arg = zg
             mix = jnp.zeros_like(n_phys)
@@ -635,7 +629,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             x0 = float(init.get("Te_profile_x0", 0.0))
             if width <= 0.0:
                 width = 1.0
-            Te_phys = Te_phys + amp * jnp.exp(-((xg - x0) / width) ** 2)
+            Te_phys = Te_phys + amp * jnp.exp(-(((xg - x0) / width) ** 2))
 
     noise_amp = float(init.get("amplitude", init.get("noise_amplitude", 0.0)))
     noise_mode = str(init.get("noise_mode", "state")).lower()
@@ -725,6 +719,7 @@ def _diagnostic_fn(
             z0, x0, y0 = point_idx
             point_n = n_phys[z0, x0, y0]
             point_Te = Te_phys[z0, x0, y0]
+
         def _abs_stats(arr):
             return jnp.mean(jnp.abs(arr)), jnp.max(jnp.abs(arr))
 
@@ -749,22 +744,23 @@ def _diagnostic_fn(
             zero = jnp.asarray(0.0)
             base = (
                 jnp.asarray(t),
-                jnp.sqrt(jnp.mean(n_phys ** 2)),
-                jnp.sqrt(jnp.mean(Te_phys ** 2)),
-                jnp.sqrt(jnp.mean(y.omega ** 2)),
+                jnp.sqrt(jnp.mean(n_phys**2)),
+                jnp.sqrt(jnp.mean(Te_phys**2)),
+                jnp.sqrt(jnp.mean(y.omega**2)),
                 zero,
                 point_n,
                 point_Te,
                 zero,
             )
         else:
+
             def _compute_phi(_):
                 if phi_local is None:
                     zero = jnp.asarray(0.0)
                     return zero, zero
                 if n_phys.ndim == 2:
-                    return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[x0, y0]
-                return jnp.sqrt(jnp.mean(phi_local ** 2)), phi_local[z0, x0, y0]
+                    return jnp.sqrt(jnp.mean(phi_local**2)), phi_local[x0, y0]
+                return jnp.sqrt(jnp.mean(phi_local**2)), phi_local[z0, x0, y0]
 
             def _skip_phi(_):
                 zero = jnp.asarray(0.0)
@@ -773,9 +769,9 @@ def _diagnostic_fn(
             rms_phi, point_phi = jax.lax.cond(use_phi, _compute_phi, _skip_phi, operand=None)
             base = (
                 jnp.asarray(t),
-                jnp.sqrt(jnp.mean(n_phys ** 2)),
-                jnp.sqrt(jnp.mean(Te_phys ** 2)),
-                jnp.sqrt(jnp.mean(y.omega ** 2)),
+                jnp.sqrt(jnp.mean(n_phys**2)),
+                jnp.sqrt(jnp.mean(Te_phys**2)),
+                jnp.sqrt(jnp.mean(y.omega**2)),
                 rms_phi,
                 point_n,
                 point_Te,
@@ -809,7 +805,7 @@ def _diagnostic_fn(
             phi_max,
         )
         if trace_enstrophy:
-            enstrophy = 0.5 * jnp.mean(y.omega ** 2)
+            enstrophy = 0.5 * jnp.mean(y.omega**2)
             extras = extras + (enstrophy,)
         return base + extras
 
@@ -891,7 +887,20 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
                 keys.append("trace_enstrophy")
             for key, val in zip(keys, extra):
                 trace[key] = val
-        return t, rms_n, rms_Te, rms_omega, rms_phi, point_n, point_Te, point_phi, it_mean, it_max, trace
+        return (
+            t,
+            rms_n,
+            rms_Te,
+            rms_omega,
+            rms_phi,
+            point_n,
+            point_Te,
+            point_phi,
+            it_mean,
+            it_max,
+            trace,
+        )
+
     if len(shape) == 2:
         nx, ny = shape
         point_idx = tuple(time_cfg.get("point_idx", (nx // 2, ny // 2)))
@@ -996,6 +1005,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
 
         def bc_fn(y, dt_step, phi_guess):
             return _apply_bc_relaxation_implicit(system, y, dt_step, phi_guess)
+
         if track_iters and carry_phi and not warm_start:
             runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
                 system.rhs_explicit_with_phi_iters,
@@ -1094,11 +1104,16 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             explicit_names = tuple(name for name in explicit_names if name != "parallel")
             if (
                 not bool(system.params.phi_relax_in_rhs)
-                and (float(system.params.phi_par_dissipation) != 0.0 or float(system.params.vort_par_dissipation) != 0.0)
+                and (
+                    float(system.params.phi_par_dissipation) != 0.0
+                    or float(system.params.vort_par_dissipation) != 0.0
+                )
                 and "extra_dissipation" not in explicit_names
             ):
                 explicit_names = tuple(list(explicit_names) + ["extra_dissipation"])
-            object.__setattr__(system, "scheduler_explicit", build_scheduler_from_names(explicit_names))
+            object.__setattr__(
+                system, "scheduler_explicit", build_scheduler_from_names(explicit_names)
+            )
             if not warm_start:
                 warm_start = True
 
@@ -1106,6 +1121,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             return _apply_stiff_implicit(
                 system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
             )
+
         if track_iters and carry_phi and not warm_start:
             runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
                 system.rhs_explicit_with_phi_iters,
@@ -1202,7 +1218,9 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
 
             explicit_names, _ = split_term_schedule(system.params)
             explicit_names = tuple(name for name in explicit_names if name != "parallel")
-            object.__setattr__(system, "scheduler_explicit", build_scheduler_from_names(explicit_names))
+            object.__setattr__(
+                system, "scheduler_explicit", build_scheduler_from_names(explicit_names)
+            )
             if not warm_start:
                 warm_start = True
 
@@ -1213,6 +1231,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             return _apply_stiff_implicit(
                 system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
             )
+
         runner, nsave, rem = build_rk4_scan_imex_strang(
             system.rhs_explicit_with_phi,
             stiff_fn,
@@ -1244,6 +1263,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         ) = _unpack_diag(diag_series)
     elif method in ("diffrax", "dopri8", "tsit5"):
         import diffrax as dfx
+
         if track_iters:
             track_iters = False
 
@@ -1369,6 +1389,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
 
         term: dfx.AbstractTerm
         if solver_name in ("kencarp3", "kencarp4", "kencarp5"):
+
             def vf_explicit(t, y, args):
                 _ = args
                 return system.rhs_explicit(t, y)

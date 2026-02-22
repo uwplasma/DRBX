@@ -24,8 +24,7 @@ summarizes the current validation surface and literature anchors.
 - Conserving DRB formulation: [conserving_drb.pdf](/Users/rogerio/local/tests/drb_literature/conserving_drb.pdf)
 - Ballooning / s‑alpha context: [Halpern 2013](/Users/rogerio/local/tests/drb_literature/Halpern_2013_Nucl._Fusion_53_122001.pdf)
 - DW/BM regime map: [Mosetto 2012](/Users/rogerio/local/tests/drb_literature/mosetto_2012.pdf)
-- GBS s‑alpha geometry context: [Ricci 2012](/Users/rogerio/local/tests/drb_literature/Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf)
-- Hermes‑3 model reference: [2303.12131v2](/Users/rogerio/local/tests/drb_literature/2303.12131v2.pdf)
+- s‑alpha geometry context: [Ricci 2012](/Users/rogerio/local/tests/drb_literature/Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf)
 
 ---
 
@@ -57,7 +56,7 @@ analytic proxies to a PDE‑level signal. We define the growth rate as:
 The test (`tests/test_linear_growth_salpha.py`) runs a small field‑aligned
 s‑alpha case with curvature + density‑gradient drive and asserts a positive
 growth rate in a mid‑time window. This ties the analytic linear proxies directly
-to the **PDE solver** and is the first anchor for later Hermes/GBS comparisons.
+to the **PDE solver** and anchors later multi‑code comparisons.
 
 ---
 
@@ -85,8 +84,8 @@ conserving DRB formulation.
 
 Region‑policy BCs are tested for **log vs linear variables**, as well as
 Neumann/Dirichlet relax targets (see `tests/test_bc_relaxation.py`). This is
-critical for matching Hermes/GBS open‑field‑line setups where boundary behavior
-controls SOL transport and sheath losses.
+critical for matching open‑field‑line setups where boundary behavior controls
+SOL transport and sheath losses.
 
 ---
 
@@ -117,7 +116,8 @@ For profiling, see `/Users/rogerio/local/jax_drb/docs/profiling.md`.
 
 ---
 
-## Benchmark Link
+## External Comparisons
 
-Full Hermes‑3 vs GBS vs jax_drb s‑alpha benchmark notes and plots live in:
-`/Users/rogerio/local/jax_drb/docs/benchmarks/salpha_full.md`.
+Cross‑code comparisons are kept outside the public documentation so the core
+validation narrative remains focused on the unified DRB system and its
+physics‑anchored tests.

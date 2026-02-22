@@ -7,7 +7,7 @@ from jaxdrb.operators.fd import d1_open_fv, d1_periodic
 
 
 class SlabGeometry(eqx.Module):
-    """Simple shear-slab / s-alpha-like geometry for benchmarking.
+    """Simple shear-slab / s-alpha-like geometry for quick tests.
 
     Coordinate choice:
       - l ~ theta in [-pi, pi)

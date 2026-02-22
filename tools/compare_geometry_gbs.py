@@ -11,7 +11,7 @@ from jaxdrb.io import load_config
 
 
 def _rms(a: np.ndarray) -> float:
-    return float(np.sqrt(np.mean(a ** 2))) if a.size else 0.0
+    return float(np.sqrt(np.mean(a**2))) if a.size else 0.0
 
 
 def _rel_error(a: np.ndarray, b: np.ndarray) -> float:
@@ -23,7 +23,9 @@ def _theta_grid(n: int, theta_min: float, theta_max: float) -> np.ndarray:
     return np.linspace(theta_min, theta_max, n, endpoint=False)
 
 
-def _interp_periodic(theta_src: np.ndarray, values: np.ndarray, theta_tgt: np.ndarray) -> np.ndarray:
+def _interp_periodic(
+    theta_src: np.ndarray, values: np.ndarray, theta_tgt: np.ndarray
+) -> np.ndarray:
     # Ensure periodic coverage by duplicating endpoints
     order = np.argsort(theta_src)
     theta_src = theta_src[order]
@@ -36,7 +38,13 @@ def _interp_periodic(theta_src: np.ndarray, values: np.ndarray, theta_tgt: np.nd
 
 def _mapping_defaults(name: str) -> dict[str, object]:
     name = name.lower()
-    if name in ("canonical", "canonical_salpha", "canonical_salpha_logb", "salpha_logb", "logb_salpha"):
+    if name in (
+        "canonical",
+        "canonical_salpha",
+        "canonical_salpha_logb",
+        "salpha_logb",
+        "logb_salpha",
+    ):
         return {
             "theta_range": "0,6.283185307179586",
             "swap_xy": False,
@@ -48,10 +56,14 @@ def _mapping_defaults(name: str) -> dict[str, object]:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Compare analytic geometry to GBS equilibrium curvature arrays")
+    p = argparse.ArgumentParser(
+        description="Compare analytic geometry to GBS equilibrium curvature arrays"
+    )
     p.add_argument("--config", required=True, help="jax_drb TOML config (analytic geometry)")
     p.add_argument("--gbs-file", required=True, help="GBS output HDF5 file (results_*.h5)")
-    p.add_argument("--equil-group", default="equil/00", help="HDF5 group containing curvature arrays")
+    p.add_argument(
+        "--equil-group", default="equil/00", help="HDF5 group containing curvature arrays"
+    )
     p.add_argument("--curx-var", default="cur_x")
     p.add_argument("--cury-var", default="cur_y")
     p.add_argument(
@@ -84,10 +96,24 @@ def main() -> None:
     mapping = _mapping_defaults(str(args.mapping))
 
     theta_range = args.theta_range or mapping.get("theta_range", "0,6.283185307179586")
-    swap_xy = bool(args.swap_xy) if args.swap_xy is not None else bool(mapping.get("swap_xy", False))
-    curv_sign_x = float(args.curv_sign_x) if args.curv_sign_x is not None else float(mapping.get("curv_sign_x", 1.0))
-    curv_sign_y = float(args.curv_sign_y) if args.curv_sign_y is not None else float(mapping.get("curv_sign_y", 1.0))
-    normalize = bool(args.normalize) if args.normalize is not None else bool(mapping.get("normalize", False))
+    swap_xy = (
+        bool(args.swap_xy) if args.swap_xy is not None else bool(mapping.get("swap_xy", False))
+    )
+    curv_sign_x = (
+        float(args.curv_sign_x)
+        if args.curv_sign_x is not None
+        else float(mapping.get("curv_sign_x", 1.0))
+    )
+    curv_sign_y = (
+        float(args.curv_sign_y)
+        if args.curv_sign_y is not None
+        else float(mapping.get("curv_sign_y", 1.0))
+    )
+    normalize = (
+        bool(args.normalize)
+        if args.normalize is not None
+        else bool(mapping.get("normalize", False))
+    )
 
     with h5py.File(str(Path(args.gbs_file)), "r") as f:
         group = f[args.equil_group]

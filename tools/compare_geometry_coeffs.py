@@ -21,7 +21,9 @@ def _rel_error(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Compare geometry coefficients against a reference file")
+    p = argparse.ArgumentParser(
+        description="Compare geometry coefficients against a reference file"
+    )
     p.add_argument("--config", required=True, help="jax_drb TOML config")
     p.add_argument("--coeff", required=True, help="Reference coeffs (.npz or .nc)")
     args = p.parse_args()
