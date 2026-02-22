@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import jax.numpy as jnp
-
 from jaxdrb.core.bcs import bc_relaxation_1d
 from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams

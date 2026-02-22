@@ -11,7 +11,7 @@ from jaxdrb.bc import BC2D, bc2d_from_strings
 from jaxdrb.core.compat import coerce_system_params
 from jaxdrb.core.geometry_registry import build_geometry
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
-from jaxdrb.core.state import DRBSystemState, _state_add
+from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.system import DRBSystem
 from jaxdrb.core.terms.bcs import resolve_bcs
 from jaxdrb.integrators import (
@@ -994,9 +994,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
 
-        bc_fn = lambda y, dt_step, phi_guess: _apply_bc_relaxation_implicit(
-            system, y, dt_step, phi_guess
-        )
+        def bc_fn(y, dt_step, phi_guess):
+            return _apply_bc_relaxation_implicit(system, y, dt_step, phi_guess)
         if track_iters and carry_phi and not warm_start:
             runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
                 system.rhs_explicit_with_phi_iters,
@@ -1103,9 +1102,10 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             if not warm_start:
                 warm_start = True
 
-        bc_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(
-            system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
-        )
+        def bc_fn(y, dt_step, phi_guess):
+            return _apply_stiff_implicit(
+                system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
+            )
         if track_iters and carry_phi and not warm_start:
             runner, nsave, rem = build_rk4_scan_cached_iters_split_phi(
                 system.rhs_explicit_with_phi_iters,
@@ -1209,9 +1209,10 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         if track_iters:
             track_iters = False
 
-        stiff_fn = lambda y, dt_step, phi_guess: _apply_stiff_implicit(
-            system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
-        )
+        def stiff_fn(y, dt_step, phi_guess):
+            return _apply_stiff_implicit(
+                system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
+            )
         runner, nsave, rem = build_rk4_scan_imex_strang(
             system.rhs_explicit_with_phi,
             stiff_fn,

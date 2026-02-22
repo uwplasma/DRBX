@@ -33,6 +33,9 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `poisson_warm_start`: reuse the previous `phi` as CG initial guess (RK4 scan only).
 - `poisson_track_iters`: record mean/max CG iteration stats per saved frame
   (averaged over the RK4 steps since the last save; RK4 scan only).
+- `trace_stats`: record per‑frame mean/max |field| for `n, Te, vpar_e, vpar_i, omega, phi`.
+  Use this to pinpoint which field diverges first in unstable runs.
+- `trace_enstrophy`: additionally record enstrophy `0.5 ⟨omega^2⟩` when `trace_stats` is on.
 
 ### Performance Knobs
 - `numerics.parallel_z_mode`: `vmap` (default) or `scan`. `scan` reduces memory at the
@@ -71,6 +74,11 @@ save_every = 20
 
 This applies a half‑step implicit update of diffusion/parallel terms before and after
 the explicit RK4 step, improving stability at larger `dt` for stiff runs.
+
+Parallel implicit details:
+- When `parallel_implicit = true`, the implicit solve uses the **same centered‑difference
+  stencil** as `geom.dpar` (via the Fourier symbol `i sin(k dz)/dz`). This keeps the
+  implicit update consistent with the explicit RHS and avoids artificial energy injection.
 
 ## Diffrax (Adaptive / High‑Order)
 

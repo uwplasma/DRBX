@@ -10,7 +10,6 @@ from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state_zeros_like
 
 from .advection import exb_advection_terms
-from .bcs import FieldBCs
 from .bc_relaxation import field_bc_relaxation
 from .context import TermContext
 from .curvature import curvature_terms
@@ -34,6 +33,7 @@ from .sol import (
     sol_sources,
     sol_vpar_bc_dirichlet,
 )
+from .volume_source import volume_source_terms
 
 Category = Literal["conservative", "source", "dissipative"]
 TermFn = Callable[[TermContext, DRBSystemState, dict[str, object]], DRBSystemState]
@@ -144,6 +144,24 @@ def _term_curvature(ctx: TermContext, y: DRBSystemState, work: dict[str, object]
 
 def _term_drive(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
     term = drive_terms(ctx, y)
+    term = _log_term_nTe(ctx, term)
+    return DRBSystemState(
+        n=term.n,
+        omega=term.omega,
+        vpar_e=term.vpar_e,
+        vpar_i=term.vpar_i,
+        Te=term.Te,
+        Ti=term.Ti if y.Ti is not None else None,
+        psi=term.psi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
+def _term_volume_source(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    _ = work
+    term = volume_source_terms(ctx, y)
     term = _log_term_nTe(ctx, term)
     return DRBSystemState(
         n=term.n,
@@ -313,6 +331,7 @@ TERM_REGISTRY: dict[str, TermSpec] = {
     "parallel": TermSpec("parallel", "conservative", _term_parallel),
     "curvature": TermSpec("curvature", "source", _term_curvature),
     "drive": TermSpec("drive", "source", _term_drive),
+    "volume_source": TermSpec("volume_source", "source", _term_volume_source),
     "sol_sources": TermSpec("sol_sources", "source", _term_sol_sources),
     "neutrals": TermSpec("neutrals", "source", _term_neutrals),
     "diffusion": TermSpec("diffusion", "dissipative", _term_diffusion),
@@ -336,6 +355,7 @@ DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
     "parallel",
     "curvature",
     "drive",
+    "volume_source",
     "sol_sources",
     "neutrals",
     "diffusion",

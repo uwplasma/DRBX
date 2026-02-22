@@ -40,6 +40,16 @@ def main() -> None:
         default=None,
         help="Path to save npz outputs when using --run.",
     )
+    parser.add_argument(
+        "--output-minimal",
+        action="store_true",
+        help="Save minimal diagnostics (t + RMS) to avoid large host transfers.",
+    )
+    parser.add_argument(
+        "--no-host-transfer",
+        action="store_true",
+        help="Skip host transfer of diagnostics (useful for quick runs).",
+    )
     args = parser.parse_args()
 
     if args.list_terms:
@@ -79,30 +89,62 @@ def main() -> None:
             time_cfg = dict(time_cfg)
             time_cfg["return_numpy"] = True
             cfg.data["time"] = time_cfg
-        result = run_simulation(cfg.data)
+        # Avoid large host transfers unless explicitly requested.
+        if args.output and args.output_minimal:
+            time_cfg = cfg.data.get("time", {})
+            if not isinstance(time_cfg, dict):
+                time_cfg = {}
+            time_cfg = dict(time_cfg)
+            time_cfg["diag_mode"] = "rms_only"
+            time_cfg["diag_phi_every"] = 0
+            cfg.data["time"] = time_cfg
+
+        result = run_simulation(
+            cfg.data,
+            as_numpy=(False if (args.no_host_transfer or args.output_minimal) else bool(args.output)),
+        )
         print("Run complete.")
         if args.output:
             import numpy as np
             import jax
 
             state = jax.device_get(result.final_state)
+            built = build_system_from_config(cfg.data)
+            n_phys = built.system._phys_n(jnp.asarray(state.n))
+            phi = built.system._phi_from_omega(jnp.asarray(state.omega), n=n_phys)
+            diagnostics = result.diagnostics
+            if args.output_minimal and diagnostics:
+                keep = {"t", "rms_n", "rms_Te", "rms_omega", "rms_phi", "times"}
+                diagnostics = {
+                    k: np.asarray(jax.device_get(v))
+                    for k, v in diagnostics.items()
+                    if k in keep
+                }
+            else:
+                diagnostics = {k: np.asarray(jax.device_get(v)) for k, v in diagnostics.items()}
+
             np.savez(
                 args.output,
-                **result.diagnostics,
+                **diagnostics,
                 snapshot_n=np.asarray(state.n),
                 snapshot_omega=np.asarray(state.omega),
                 snapshot_Te=np.asarray(state.Te),
                 snapshot_vpar_e=np.asarray(state.vpar_e),
                 snapshot_vpar_i=np.asarray(state.vpar_i),
+                snapshot_phi=np.asarray(jax.device_get(phi)),
                 snapshot_Ti=np.asarray(state.Ti) if state.Ti is not None else None,
                 snapshot_psi=np.asarray(state.psi) if state.psi is not None else None,
                 snapshot_N=np.asarray(state.N) if state.N is not None else None,
             )
+        if args.no_host_transfer:
+            return
         return
 
     built = build_system_from_config(cfg.data)
     dy = built.system.rhs(0.0, built.state)
-    norm = lambda a: float(jnp.sqrt(jnp.mean(jnp.abs(a) ** 2)))
+
+    def norm(arr):
+        return float(jnp.sqrt(jnp.mean(jnp.abs(arr) ** 2)))
     print("DRBSystem initialized.")
     print(
         {

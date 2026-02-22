@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-import equinox as eqx
 import jax.numpy as jnp
 
 from jaxdrb.core.geometry import GeometryBase
