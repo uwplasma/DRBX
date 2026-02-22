@@ -77,3 +77,16 @@ The following optional sections are recognized and converted when
   it is set to `(rho_s / length_unit)^2`, i.e. `((c_s/omega_ci) / Lref)^2` for
   `length_unit = "lref"`. Override `numerics.poisson_scale` explicitly if you
   need a different omega–phi normalization.
+
+### Hermes Alignment (s‑alpha)
+
+Hermes uses normalized potential units with `conversion = Tnorm`. For the s‑alpha
+alignment case we set:
+
+- `length_unit = "rho_s"`
+- `numerics.poisson_scale = 1` (implicitly via normalization)
+
+This avoids an extremely small Poisson scale that would otherwise occur if lengths
+were normalized by `Lref` on a rho_s‑scaled grid. When using `length_unit = "lref"`,
+verify that `numerics.poisson_scale` matches your intended omega–phi normalization
+and use `trace_stats = true` during initial runs to catch instability early.

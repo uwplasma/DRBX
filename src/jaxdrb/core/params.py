@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Literal
 
 import equinox as eqx
@@ -69,6 +69,16 @@ class PhysicsParams(eqx.Module):
     log_n_clip: float | None = 50.0
     log_Te_clip: float | None = 50.0
 
+    # Generic volumetric sources (Hermes-style Gaussian sources).
+    source_on: bool = False
+    source_profile: Literal["gaussian_x", "gaussian_xy"] = "gaussian_x"
+    source_n0: float = 0.0
+    source_Te0: float = 0.0
+    source_x0: float = 0.0
+    source_y0: float = 0.0
+    source_width_x: float = 1.0
+    source_width_y: float = 1.0
+
 
 class TransportParams(eqx.Module):
     """Transport/dissipation controls (diffusion, hyperdiffusion, damping)."""
@@ -105,6 +115,10 @@ class TransportParams(eqx.Module):
     mu_lin_vpar_e: float = 0.0
     mu_lin_vpar_i: float = 0.0
     mu_lin_Te: float = 0.0
+
+    # Hermes-style parallel dissipation toggles (Div_par terms).
+    vort_par_dissipation: float = 0.0
+    phi_par_dissipation: float = 0.0
 
     # Braginskii coefficient scalings.
     braginskii_on: bool = False
@@ -228,6 +242,8 @@ class NumericsParams(eqx.Module):
     exb_scale: float = 1.0
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
+    poisson_scale: float = 1.0
+    poisson_metric_on: bool = False
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_force_spectral_when_periodic: bool = True
     poisson_force_fd_fft_when_nonperiodic: bool = True
@@ -260,6 +276,9 @@ class NumericsParams(eqx.Module):
     # Optional term schedule override (list of term names).
     term_schedule: tuple[str, ...] | None = eqx.field(static=True, default=None)
     term_schedule_preset: str | None = eqx.field(static=True, default=None)
+
+    # Include phi boundary relaxation as an RHS term (for implicit solvers).
+    phi_relax_in_rhs: bool = False
 
 
 class BCParams(eqx.Module):
@@ -385,6 +404,16 @@ def update_params_from_dict(params: DRBSystemParams, data: dict) -> DRBSystemPar
                 out = replace(out, **{group_name: new_group})
                 updated = True
                 break
+        if not updated:
+            closure = getattr(out, "closure")
+            for sub_name in ("sol", "sheath", "neutrals", "line_bcs"):
+                sub_group = getattr(closure, sub_name)
+                if hasattr(sub_group, k):
+                    new_sub = _update_group(sub_group, {k: v})
+                    new_closure = replace(closure, **{sub_name: new_sub})
+                    out = replace(out, closure=new_closure)
+                    updated = True
+                    break
         if not updated:
             raise AttributeError(f"Unknown parameter: {k}")
     return out
