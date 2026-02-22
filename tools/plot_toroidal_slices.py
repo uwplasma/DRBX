@@ -56,6 +56,18 @@ def main() -> None:
         default=1.0,
         help="Multiply the plotted field by this factor.",
     )
+    parser.add_argument(
+        "--interp-grid",
+        type=int,
+        default=200,
+        help="Interpolation grid resolution for smoother poloidal plots (0 to disable).",
+    )
+    parser.add_argument(
+        "--toroidal-mode",
+        choices=("polar", "rphi"),
+        default="polar",
+        help="Display toroidal cut in polar (annulus) or R-phi plane.",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -114,6 +126,20 @@ def main() -> None:
     R = R0 + r[None, :] * np.cos(theta[:, None])
     Z = r[None, :] * np.sin(theta[:, None])
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
+    interp_grid = int(args.interp_grid)
+    if interp_grid > 0:
+        r_lin = np.linspace(R.min(), R.max(), interp_grid)
+        z_lin = np.linspace(Z.min(), Z.max(), interp_grid)
+        Rg_pol, Zg_pol = np.meshgrid(r_lin, z_lin)
+        interp = mtri.LinearTriInterpolator(tri, poloidal_slice.ravel())
+        poloidal_interp = interp(Rg_pol, Zg_pol)
+        poloidal_interp = np.ma.masked_invalid(poloidal_interp)
+    else:
+        r_lin = None
+        z_lin = None
+        Rg_pol = None
+        Zg_pol = None
+        poloidal_interp = None
 
     theta0 = theta[z_idx]
     R_tor = R0 + r * np.cos(theta0)
@@ -126,21 +152,50 @@ def main() -> None:
         vmin = -vmax
     cmap = "coolwarm" if args.symmetric else "viridis"
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.0, 5.0), constrained_layout=True)
-    im0 = axes[0].tripcolor(
-        tri, poloidal_slice.ravel(), shading="flat", cmap=cmap, vmin=vmin, vmax=vmax
-    )
-    axes[0].set_title("poloidal cut")
-    axes[0].set_xlabel("R")
-    axes[0].set_ylabel("Z")
-    axes[0].set_aspect("equal")
+    fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
+    ax0 = fig.add_subplot(1, 2, 1)
+    if interp_grid > 0:
+        im0 = ax0.imshow(
+            poloidal_interp,
+            origin="lower",
+            extent=(r_lin.min(), r_lin.max(), z_lin.min(), z_lin.max()),
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+        )
+    else:
+        im0 = ax0.tripcolor(
+            tri, poloidal_slice.ravel(), shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
+        )
+    ax0.set_title("poloidal cut")
+    ax0.set_xlabel("R")
+    ax0.set_ylabel("Z")
+    ax0.set_aspect("equal")
 
-    axes[1].pcolormesh(Phi, Rg, toroidal_slice, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
-    axes[1].set_title("toroidal cut")
-    axes[1].set_xlabel("toroidal angle")
-    axes[1].set_ylabel("R")
+    if args.toroidal_mode == "polar":
+        ax1 = fig.add_subplot(1, 2, 2, projection="polar")
+        im1 = ax1.pcolormesh(
+            Phi,
+            Rg,
+            toroidal_slice,
+            shading="auto",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax1.set_title("toroidal cut")
+        ax1.set_yticklabels([])
+    else:
+        ax1 = fig.add_subplot(1, 2, 2)
+        im1 = ax1.pcolormesh(
+            Phi, Rg, toroidal_slice, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax
+        )
+        ax1.set_title("toroidal cut")
+        ax1.set_xlabel("toroidal angle")
+        ax1.set_ylabel("R")
 
-    fig.colorbar(im0, ax=axes, fraction=0.03, pad=0.02)
+    fig.colorbar(im0, ax=[ax0, ax1], fraction=0.03, pad=0.02)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
