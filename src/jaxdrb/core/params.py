@@ -209,6 +209,12 @@ class SOLParams(eqx.Module):
     sol_sheath_phi_coeff: float = 1.0
     sol_sheath_phi_Te_floor: float = 1e-6
     sol_sheath_phi_clip: float = 10.0
+    sol_sheath_phi_implicit: bool = False
+    sol_sheath_phi_implicit_solver: str = "gmres"
+    sol_sheath_phi_implicit_rtol: float = 1e-6
+    sol_sheath_phi_implicit_atol: float = 1e-8
+    sol_sheath_phi_implicit_maxiter: int = 100
+    sol_sheath_phi_implicit_restart: int = 30
     sol_edge_relax_on: bool = False
     sol_edge_relax_nu: float = 0.0
     sol_edge_n_right: float = 0.1

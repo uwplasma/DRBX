@@ -32,6 +32,12 @@ def main() -> None:
     parser.add_argument("--stride", type=int, default=1, help="Frame stride")
     parser.add_argument("--y-index", type=int, default=None, help="Toroidal index for 3D fields")
     parser.add_argument(
+        "--separatrix",
+        type=float,
+        default=None,
+        help="Optional separatrix radius (same units as Lx).",
+    )
+    parser.add_argument(
         "--fluct",
         default="none",
         choices=("none", "mean", "zonal"),
@@ -80,7 +86,7 @@ def main() -> None:
     parser.add_argument(
         "--interp-grid",
         type=int,
-        default=200,
+        default=320,
         help="Interpolation grid resolution for smoother poloidal movies (0 to disable).",
     )
     args = parser.parse_args()
@@ -185,6 +191,9 @@ def main() -> None:
     ax.set_xlabel("R")
     ax.set_ylabel("Z")
     ax.set_aspect("equal")
+    if args.separatrix is not None:
+        sep = float(args.separatrix)
+        ax.plot(R0 + sep * np.cos(theta), sep * np.sin(theta), color="white", lw=1.2, ls="--")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     try:
