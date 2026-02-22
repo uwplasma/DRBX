@@ -36,6 +36,8 @@ t_end = 1.0           # optional; overrides nsteps*dt for diffrax
 - `trace_stats`: record per‑frame mean/max |field| for `n, Te, vpar_e, vpar_i, omega, phi`.
   Use this to pinpoint which field diverges first in unstable runs.
 - `trace_enstrophy`: additionally record enstrophy `0.5 ⟨omega^2⟩` when `trace_stats` is on.
+- `save_fields`: store field snapshots for movies/diagnostics (`false` by default).
+- `snapshot_fields`: list of fields to save, e.g. `["n", "omega", "Te", "phi"]`.
 
 ### Performance Knobs
 - `numerics.parallel_z_mode`: `vmap` (default) or `scan`. `scan` reduces memory at the
@@ -114,11 +116,23 @@ jaxdrb /path/to/input.toml --run --output /path/to/jaxdrb_out.npz
 A ready‑to‑run nonlinear plane example is provided:
 
 ```bash
-python examples/plane_nonlinear/run.py --make-figures
+python examples/plane_nonlinear/run.py --make-figures --make-movies
 ```
 
 By default the example writes figures into `docs/figures/` so the documentation
 images stay in sync.
+
+Field‑aligned 3D example:
+
+```bash
+python examples/field_aligned_3d/run.py --make-figures --make-movies
+```
+
+An open‑field‑line example with sheath losses and a poloidal‑plane plot:
+
+```bash
+python examples/open_field_line/run.py --make-figures --make-movies
+```
 
 When `--output` is provided, the CLI forces `return_numpy = true` so diagnostics
 are transferred to the host before saving.

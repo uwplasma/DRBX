@@ -1,15 +1,26 @@
 [geometry]
-kind = "plane"
-nx = 128
-ny = 128
-Lx = 20.0
-Ly = 20.0
+kind = "salpha"
+nx = 64
+ny = 64
+nz = 16
+Lx = 12.0
+Ly = 12.0
+Lz = 6.283185307179586
 bc_x = "periodic"
 bc_y = "periodic"
+open_field_line = false
+shat = 0.8
+alpha = 0.0
+q = 1.4
+R0 = 3.0
+epsilon = 0.18
+curvature0 = 0.18
+curvature_model = "vector_xy"
+theta_scale = 1.0
 
 [physics]
-omega_n = 6.0
-omega_Te = 3.0
+omega_n = 9.0
+omega_Te = 4.5
 nonlinear_on = true
 em_on = false
 hot_ion_on = false
@@ -17,46 +28,44 @@ neutrals_on = false
 boussinesq = true
 curvature_on = true
 curvature_coeff = 1.0
-curvature_model = "tokamak"
-curvature_theta_scale = 3.183098861
 source_on = true
 source_profile = "gaussian_xy"
-source_n0 = 1.2
-source_Te0 = 0.4
-source_x0 = 6.0
-source_y0 = 10.0
+source_n0 = 2.0
+source_Te0 = 0.8
+source_x0 = 4.0
+source_y0 = 6.0
 source_width_x = 2.0
-source_width_y = 4.0
+source_width_y = 3.5
 
 [closures]
 sheath_on = false
 sheath_bc_on = false
 
 [transport]
-Dn = 2.5e-3
-DOmega = 2.5e-3
-DTe = 2.5e-3
-Dn4 = 5.0e-6
-DOmega4 = 5.0e-6
-DTe4 = 5.0e-6
-mu_lin_n = 1.2e-2
-mu_lin_omega = 6.0e-3
-mu_lin_Te = 1.2e-2
+Dn = 1.2e-3
+DOmega = 1.2e-3
+DTe = 1.2e-3
+Dn4 = 3.0e-6
+DOmega4 = 3.0e-6
+DTe4 = 3.0e-6
+mu_lin_n = 4.0e-3
+mu_lin_omega = 2.0e-3
+mu_lin_Te = 4.0e-3
 
 [numerics]
 poisson = "spectral"
 bracket = "arakawa"
 
 [initial]
-amplitude = 2.5e-3
-seed = 0
+amplitude = 6.0e-3
+seed = 2
 noise_mode = "state"
 noise_fields = ["n", "omega", "Te"]
 
 [time]
 method = "rk4_scan"
-dt = 2.0e-3
-nsteps = 5000
+dt = 1.2e-3
+nsteps = 4200
 save_every = 30
 diag_mode = "full"
 poisson_warm_start = true

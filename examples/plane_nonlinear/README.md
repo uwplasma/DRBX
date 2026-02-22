@@ -6,10 +6,15 @@ RMS plots used in the documentation.
 ## Run
 
 ```bash
-python examples/plane_nonlinear/run.py --make-figures
+python examples/plane_nonlinear/run.py --make-figures --make-movies
 ```
 
 Outputs:
 - `examples/plane_nonlinear/output.npz`
 - `docs/figures/nonlinear_panel.png`
 - `docs/figures/nonlinear_rms_timeseries.png`
+- `docs/figures/nonlinear_zonal_profile.png`
+- `docs/figures/nonlinear_zonal_flow.png`
+- `docs/figures/nonlinear_spectrum.png`
+- `docs/figures/nonlinear_pdfs.png`
+- `docs/figures/blob_movie.gif`

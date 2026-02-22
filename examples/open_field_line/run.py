@@ -12,7 +12,7 @@ from jaxdrb.io import load_config
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Nonlinear plane example run")
+    parser = argparse.ArgumentParser(description="Open-field-line example run")
     parser.add_argument(
         "--config",
         type=str,
@@ -34,12 +34,12 @@ def main() -> None:
     parser.add_argument(
         "--make-figures",
         action="store_true",
-        help="Generate panel + RMS figures after the run.",
+        help="Generate poloidal + 3D slice figures after the run.",
     )
     parser.add_argument(
         "--make-movies",
         action="store_true",
-        help="Generate a blob movie GIF after the run.",
+        help="Generate a midplane movie GIF after the run.",
     )
     args = parser.parse_args()
 
@@ -51,6 +51,7 @@ def main() -> None:
         time_cfg = dict(time_cfg)
         time_cfg["save_fields"] = True
         time_cfg["snapshot_fields"] = ["n", "omega", "Te", "phi"]
+        time_cfg["diag_phi_use_guess"] = False
         cfg.data["time"] = time_cfg
     result = run_simulation(cfg.data, as_numpy=True)
 
@@ -111,95 +112,86 @@ def main() -> None:
     )
     np.savez(out_path, **payload)
 
-    geom_cfg = cfg.data.get("geometry", {})
-    Lx = float(geom_cfg.get("Lx", 1.0))
-    Ly = float(geom_cfg.get("Ly", 1.0))
-    nx = int(geom_cfg.get("nx", 1))
-    ny = int(geom_cfg.get("ny", 1))
-    dx = Lx / max(nx, 1)
-    dy = Ly / max(ny, 1)
+    figdir = (
+        (repo_root / args.figdir).resolve()
+        if not Path(args.figdir).is_absolute()
+        else Path(args.figdir)
+    )
+    figdir.mkdir(parents=True, exist_ok=True)
 
     if args.make_figures:
-        figdir = (
-            (repo_root / args.figdir).resolve()
-            if not Path(args.figdir).is_absolute()
-            else Path(args.figdir)
-        )
-        figdir.mkdir(parents=True, exist_ok=True)
-        panel = figdir / "nonlinear_panel.png"
-        rms = figdir / "nonlinear_rms_timeseries.png"
-        zonal = figdir / "nonlinear_zonal_profile.png"
-        zonal_flow = figdir / "nonlinear_zonal_flow.png"
-        spectra = figdir / "nonlinear_spectrum.png"
-        pdfs = figdir / "nonlinear_pdfs.png"
-
+        poloidal_eq = figdir / "open_field_poloidal_eq.png"
+        poloidal_fluct = figdir / "open_field_poloidal_fluct.png"
+        slices = figdir / "open_field_3d_slices.png"
+        sol_cfg = cfg.data.get("physics", {})
+        sep = float(sol_cfg.get("sol_xs", 0.7))
         subprocess.run(
             [
                 sys.executable,
-                "tools/plot_nonlinear_panel.py",
+                "tools/plot_poloidal_plane.py",
                 str(out_path),
+                "--config",
+                str(Path(args.config).resolve()),
+                "--field",
+                "n",
                 "--out",
-                str(panel),
+                str(poloidal_eq),
+                "--separatrix",
+                str(sep),
+                "--equilibrium",
+                "only",
+                "--overlay-mask",
+            ],
+            check=True,
+            cwd=repo_root,
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "tools/plot_poloidal_plane.py",
+                str(out_path),
+                "--config",
+                str(Path(args.config).resolve()),
+                "--field",
+                "n",
+                "--out",
+                str(poloidal_fluct),
+                "--separatrix",
+                str(sep),
+                "--equilibrium",
+                "none",
+                "--overlay-mask",
                 "--fluct",
                 "zonal",
                 "--lowpass",
                 "0.35",
+                "--field-scale",
+                "5.0",
+                "--cmap",
+                "coolwarm",
+                "--symmetric",
             ],
             check=True,
             cwd=repo_root,
         )
-        subprocess.run(
-            [sys.executable, "tools/plot_rms_timeseries.py", str(out_path), "--out", str(rms)],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [sys.executable, "tools/plot_zonal_profile.py", str(out_path), "--out", str(zonal)],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                "tools/plot_zonal_flow.py",
-                str(out_path),
-                "--config",
-                str(Path(args.config).resolve()),
-                "--out",
-                str(zonal_flow),
-            ],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                "tools/plot_spectra.py",
-                str(out_path),
-                "--out",
-                str(spectra),
-                "--dx",
-                str(dx),
-                "--dy",
-                str(dy),
-            ],
-            check=True,
-            cwd=repo_root,
-        )
-        subprocess.run(
-            [sys.executable, "tools/plot_pdf.py", str(out_path), "--out", str(pdfs)],
-            check=True,
-            cwd=repo_root,
-        )
+        geom_kind = str(cfg.data.get("geometry", {}).get("kind", "plane")).lower()
+        if geom_kind != "plane":
+            subprocess.run(
+                [
+                    sys.executable,
+                    "tools/plot_3d_slices.py",
+                    str(out_path),
+                    "--field",
+                    "n",
+                    "--out",
+                    str(slices),
+                ],
+                check=True,
+                cwd=repo_root,
+            )
 
     if args.make_movies:
-        figdir = (
-            (repo_root / args.figdir).resolve()
-            if not Path(args.figdir).is_absolute()
-            else Path(args.figdir)
-        )
-        figdir.mkdir(parents=True, exist_ok=True)
-        movie_path = figdir / "blob_movie.gif"
+        movie_path = figdir / "open_field_movie.gif"
         subprocess.run(
             [
                 sys.executable,
@@ -219,10 +211,6 @@ def main() -> None:
                 "0.6",
                 "--symmetric",
                 "--range-tail",
-                "--vmin",
-                "-200",
-                "--vmax",
-                "200",
             ],
             check=True,
             cwd=repo_root,

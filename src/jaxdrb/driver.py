@@ -706,6 +706,8 @@ def _diagnostic_fn(
     use_phi_guess_only: bool = False,
     trace_stats: bool = False,
     trace_enstrophy: bool = False,
+    save_fields: bool = False,
+    snapshot_fields: tuple[str, ...] = (),
 ) -> Callable[[float, DRBSystemState], tuple]:
     def diag(t, y, args=None, *, phi_guess=None):
         _ = args
@@ -730,7 +732,7 @@ def _diagnostic_fn(
             idx = jnp.round(t / dt_save).astype(jnp.int32)
             use_phi = (idx % phi_every) == 0
 
-        need_phi = trace_stats or use_phi_rms
+        need_phi = trace_stats or use_phi_rms or ("phi" in snapshot_fields)
         phi_local = None
         if need_phi:
             if use_phi_guess and phi_guess is not None:
@@ -779,35 +781,54 @@ def _diagnostic_fn(
             )
 
         if not trace_stats:
-            return base
+            extras = ()
+        else:
+            if phi_local is None:
+                phi_local = jnp.zeros_like(y.omega)
 
-        if phi_local is None:
-            phi_local = jnp.zeros_like(y.omega)
+            n_mean, n_max = _abs_stats(n_phys)
+            Te_mean, Te_max = _abs_stats(Te_phys)
+            ve_mean, ve_max = _abs_stats(y.vpar_e)
+            vi_mean, vi_max = _abs_stats(y.vpar_i)
+            om_mean, om_max = _abs_stats(y.omega)
+            phi_mean, phi_max = _abs_stats(phi_local)
+            extras = (
+                n_mean,
+                n_max,
+                Te_mean,
+                Te_max,
+                ve_mean,
+                ve_max,
+                vi_mean,
+                vi_max,
+                om_mean,
+                om_max,
+                phi_mean,
+                phi_max,
+            )
+            if trace_enstrophy:
+                enstrophy = 0.5 * jnp.mean(y.omega**2)
+                extras = extras + (enstrophy,)
 
-        n_mean, n_max = _abs_stats(n_phys)
-        Te_mean, Te_max = _abs_stats(Te_phys)
-        ve_mean, ve_max = _abs_stats(y.vpar_e)
-        vi_mean, vi_max = _abs_stats(y.vpar_i)
-        om_mean, om_max = _abs_stats(y.omega)
-        phi_mean, phi_max = _abs_stats(phi_local)
-        extras = (
-            n_mean,
-            n_max,
-            Te_mean,
-            Te_max,
-            ve_mean,
-            ve_max,
-            vi_mean,
-            vi_max,
-            om_mean,
-            om_max,
-            phi_mean,
-            phi_max,
-        )
-        if trace_enstrophy:
-            enstrophy = 0.5 * jnp.mean(y.omega**2)
-            extras = extras + (enstrophy,)
-        return base + extras
+        snapshots: tuple = ()
+        if save_fields:
+            field_map = {
+                "n": n_phys,
+                "Te": Te_phys,
+                "omega": y.omega,
+                "vpar_e": y.vpar_e,
+                "vpar_i": y.vpar_i,
+                "Ti": y.Ti if y.Ti is not None else jnp.zeros_like(y.omega),
+                "psi": y.psi if y.psi is not None else jnp.zeros_like(y.omega),
+                "N": y.N if y.N is not None else jnp.zeros_like(y.omega),
+            }
+            if "phi" in snapshot_fields:
+                if phi_local is None:
+                    phi_local = system._phi_from_omega(y.omega, n=n_phys, phi_guess=phi_guess)
+                field_map["phi"] = phi_local
+            snapshots = tuple(field_map[name] for name in snapshot_fields if name in field_map)
+
+        return base + extras + snapshots
 
     return diag
 
@@ -847,6 +868,12 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
     diag_phi_use_guess_only = bool(time_cfg.get("diag_phi_use_guess_only", False))
     trace_stats = bool(time_cfg.get("trace_stats", False) or time_cfg.get("blowup_trace", False))
     trace_enstrophy = bool(time_cfg.get("trace_enstrophy", False))
+    save_fields = bool(time_cfg.get("save_fields", False))
+    snapshot_fields_cfg = time_cfg.get("snapshot_fields", ("n", "omega", "Te", "phi"))
+    if isinstance(snapshot_fields_cfg, (list, tuple)):
+        snapshot_fields = tuple(str(item) for item in snapshot_fields_cfg)
+    else:
+        snapshot_fields = (str(snapshot_fields_cfg),)
     warm_start = bool(time_cfg.get("poisson_warm_start", True))
     carry_phi = bool(time_cfg.get("carry_phi", False))
     track_iters = bool(time_cfg.get("poisson_track_iters", False))
@@ -887,6 +914,13 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
                 keys.append("trace_enstrophy")
             for key, val in zip(keys, extra):
                 trace[key] = val
+            extra = extra[len(keys) :]
+        snapshots: dict[str, Any] = {}
+        if save_fields and snapshot_fields:
+            for name in snapshot_fields:
+                if not extra:
+                    break
+                snapshots[f"snapshots_{name}"] = extra.pop(0)
         return (
             t,
             rms_n,
@@ -899,6 +933,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             it_mean,
             it_max,
             trace,
+            snapshots,
         )
 
     if len(shape) == 2:
@@ -920,6 +955,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             use_phi_guess_only=diag_phi_use_guess_only,
             trace_stats=trace_stats,
             trace_enstrophy=trace_enstrophy,
+            save_fields=save_fields,
+            snapshot_fields=snapshot_fields,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -986,6 +1023,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             iters_mean,
             iters_max,
             trace_stats_out,
+            snapshots_out,
         ) = _unpack_diag(diag_series)
     elif method in ("rk4_split_bc", "split_bc", "rk4_bc"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
@@ -999,6 +1037,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             use_phi_guess_only=diag_phi_use_guess_only,
             trace_stats=trace_stats,
             trace_enstrophy=trace_enstrophy,
+            save_fields=save_fields,
+            snapshot_fields=snapshot_fields,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1079,6 +1119,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             iters_mean,
             iters_max,
             trace_stats_out,
+            snapshots_out,
         ) = _unpack_diag(diag_series)
     elif method in ("rk4_imex", "rk4_imex_diffusion", "imex_diffusion"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
@@ -1092,6 +1133,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             use_phi_guess_only=diag_phi_use_guess_only,
             trace_stats=trace_stats,
             trace_enstrophy=trace_enstrophy,
+            save_fields=save_fields,
+            snapshot_fields=snapshot_fields,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1195,6 +1238,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             iters_mean,
             iters_max,
             trace_stats_out,
+            snapshots_out,
         ) = _unpack_diag(diag_series)
     elif method in ("rk4_imex_strang", "imex_strang"):
         dt_save = float(dt * save_every) if save_every > 0 else float(dt)
@@ -1208,6 +1252,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             use_phi_guess_only=diag_phi_use_guess_only,
             trace_stats=trace_stats,
             trace_enstrophy=trace_enstrophy,
+            save_fields=save_fields,
+            snapshot_fields=snapshot_fields,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1260,6 +1306,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             iters_mean,
             iters_max,
             trace_stats_out,
+            snapshots_out,
         ) = _unpack_diag(diag_series)
     elif method in ("diffrax", "dopri8", "tsit5"):
         import diffrax as dfx
@@ -1368,6 +1415,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             use_phi_guess_only=diag_phi_use_guess_only,
             trace_stats=trace_stats,
             trace_enstrophy=trace_enstrophy,
+            save_fields=save_fields,
+            snapshot_fields=snapshot_fields,
         )
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
@@ -1444,6 +1493,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             iters_mean,
             iters_max,
             trace_stats_out,
+            snapshots_out,
         ) = _unpack_diag(diag_series)
     else:
         raise ValueError(f"Unknown integrator method: {method}")
@@ -1461,6 +1511,8 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
     }
     if trace_stats_out:
         diagnostics.update(trace_stats_out)
+    if snapshots_out:
+        diagnostics.update(snapshots_out)
     if track_iters:
         diagnostics["poisson_iters_mean"] = iters_mean
         diagnostics["poisson_iters_max"] = iters_max
