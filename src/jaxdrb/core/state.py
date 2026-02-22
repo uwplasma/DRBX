@@ -67,7 +67,7 @@ class CoreState(eqx.Module):
 
 
 class CoreSplit(eqx.Module):
-    """Split of a RHS into conservative/source/dissipative parts (legacy)."""
+    """Split of a RHS into conservative/source/dissipative parts (compat)."""
 
     conservative: CoreState
     source: CoreState

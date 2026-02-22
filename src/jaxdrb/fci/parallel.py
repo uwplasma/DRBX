@@ -184,7 +184,7 @@ def parallel_derivative_target_aware_3d(
                 "Target-aware FCI derivative requires map_fwd.dl_hit and map_bwd.dl_hit when open_field_line=True."
             )
 
-        if target_scheme not in ("appendix_b", "legacy"):
+        if target_scheme not in ("appendix_b", "compat"):
             raise ValueError(f"Unknown target_scheme: {target_scheme}")
 
         if bc.kind == 1:

@@ -6,7 +6,7 @@ It stays fully differentiable and uses only JAX built‑ins.
 ## Quick Start
 
 ```
-python /Users/rogerio/local/jax_drb/tools/profile_jaxdrb.py \
+python tools/profile_jaxdrb.py \
   --config /path/to/salpha_linear.toml \
   --steps 200 \
   --dt 1e-3 \
@@ -56,14 +56,14 @@ For a quick A/B run, use the tiny preset config:
 
 ```
 python tools/profile_jaxdrb.py \
-  --config /path/to/preset_linear.toml \
+  --config configs/presets/preset_linear.toml \
   --steps 50 \
   --dt 1e-3 \
   --outdir /path/to/profiles/preset_linear_warm \
   --warm-start
 
 python tools/profile_jaxdrb.py \
-  --config /path/to/preset_linear.toml \
+  --config configs/presets/preset_linear.toml \
   --steps 50 \
   --dt 1e-3 \
   --outdir /path/to/profiles/preset_linear_cold \
@@ -79,14 +79,14 @@ To stress CG + preconditioner caching, use the non‑periodic presets:
 
 ```
 python tools/profile_jaxdrb.py \
-  --config /path/to/preset_linear_dirichlet.toml \
+  --config configs/presets/preset_linear_dirichlet.toml \
   --steps 50 \
   --dt 1e-3 \
   --outdir /path/to/profiles/preset_linear_dirichlet_warm \
   --warm-start
 
 python tools/profile_jaxdrb.py \
-  --config /path/to/preset_linear_neumann.toml \
+  --config configs/presets/preset_linear_neumann.toml \
   --steps 50 \
   --dt 1e-3 \
   --outdir /path/to/profiles/preset_linear_neumann_warm \
@@ -105,10 +105,10 @@ poisson_preconditioner = "fd_fft"
 
 (`auto` keeps `jacobi` for non‑periodic BCs; use `fd_fft` explicitly when it wins.)
 
-## Non‑Boussinesq CG Benchmark (fd_fft vs jacobi)
+## Non‑Boussinesq CG Comparison (fd_fft vs jacobi)
 
 Two configs are provided to quantify the fd‑FFT preconditioner win on the
 variable‑coefficient polarization solve:
 
-- `/path/to/preset_linear_dirichlet_nonbouss_fdfft.toml`
-- `/path/to/preset_linear_dirichlet_nonbouss_jacobi.toml`
+- `configs/presets/preset_linear_dirichlet_nonbouss_fdfft.toml`
+- `configs/presets/preset_linear_dirichlet_nonbouss_jacobi.toml`

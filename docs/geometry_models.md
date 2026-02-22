@@ -8,11 +8,11 @@ The guiding principle is **no proxy physics**: the analytic models implement the
 and parallel-derivative structure used by the unified DRB system and are compatible with
 metric-derived coefficients from external grid tools.
 
-**Source code (clickable)**
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/core/geometry_axisymmetric_analytic.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/core/geometry_field_aligned.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/core/geometry_logb.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/core/geometry_registry.py`
+**Source code**
+- `src/jaxdrb/core/geometry_axisymmetric_analytic.py`
+- `src/jaxdrb/core/geometry_field_aligned.py`
+- `src/jaxdrb/core/geometry_logb.py`
+- `src/jaxdrb/core/geometry_registry.py`
 
 **Model List**
 - `salpha` (analytic s-alpha, with optional log-B curvature)
@@ -176,8 +176,8 @@ open/closed‑field‑line mixes in a single simulation.
 
 ---
 
-**References (Local PDFs)**
-- [Ricci 2012, PPCF (GBS geometry and s-alpha)](/Users/rogerio/local/tests/drb_literature/Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf)
-- [Halpern 2013, Nuclear Fusion (ballooning / s-alpha context)](/Users/rogerio/local/tests/drb_literature/Halpern_2013_Nucl._Fusion_53_122001.pdf)
-- [Stegmeir 2018, PPCF (FCI / limiter context)](/Users/rogerio/local/tests/drb_literature/Stegmeir_2018_Plasma_Phys._Control._Fusion_60_035005.pdf)
-- [2112.03573v1 (analytic X-point flux function, Eq. 76)](/Users/rogerio/local/tests/drb_literature/2112.03573v1.pdf)
+**References**
+- Ricci 2012, PPCF (s‑alpha geometry context)
+- Halpern 2013, Nuclear Fusion (ballooning / s‑alpha context)
+- Stegmeir 2018, PPCF (FCI / limiter context)
+- 2112.03573v1 (analytic X‑point flux function, Eq. 76)

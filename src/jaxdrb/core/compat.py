@@ -22,7 +22,7 @@ def _maybe_get(obj: Any, name: str) -> Any:
 
 
 def coerce_system_params(params: DRBSystemParams | eqx.Module, **overrides) -> DRBSystemParams:
-    """Return a DRBSystemParams instance populated from legacy params objects."""
+    """Return a DRBSystemParams instance populated from compatibility params objects."""
 
     if isinstance(params, DRBSystemParams) and not overrides:
         return params
@@ -30,7 +30,7 @@ def coerce_system_params(params: DRBSystemParams | eqx.Module, **overrides) -> D
     out = DRBSystemParams()
     data: dict[str, object] = {}
 
-    # Collect any attributes on the legacy params that exist on the new params.
+    # Collect any attributes on the compatibility params that exist on the new params.
     for name in dir(params):
         if name.startswith("_"):
             continue
@@ -49,7 +49,7 @@ def coerce_system_params(params: DRBSystemParams | eqx.Module, **overrides) -> D
                 data[target] = getattr(params, alias)
                 break
 
-    # If legacy params expose `eta` but not `eta_par`, mirror the value for consistency.
+    # If compatibility params expose `eta` but not `eta_par`, mirror the value for consistency.
     if "eta" not in data and hasattr(params, "eta_par"):
         data["eta"] = getattr(params, "eta_par")
     if "eta_par" not in data and hasattr(params, "eta"):
