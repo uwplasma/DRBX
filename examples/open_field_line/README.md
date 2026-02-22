@@ -1,7 +1,7 @@
 # Open Field-Line Example
 
-This example runs a plane configuration with an open/closed SOL mask and
-poloidal-plane visualizations that highlight the separatrix structure.
+This example runs a field‑aligned s‑alpha configuration with an open/closed SOL
+mask and poloidal‑plane visualizations that highlight the separatrix structure.
 
 ## Run
 

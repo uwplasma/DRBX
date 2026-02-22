@@ -169,11 +169,26 @@ def main() -> None:
     R = R0 + r[None, :] * np.cos(theta[:, None])
     Z = r[None, :] * np.sin(theta[:, None])
 
+    # Ensure field orientation matches (theta, x) grid.
+    if field.shape != R.shape:
+        if field.shape == (R.shape[1], R.shape[0]):
+            field = field.T
+        else:
+            raise ValueError(
+                f"Field shape {field.shape} does not match grid {R.shape} and cannot be reconciled."
+            )
+
     fig, ax = plt.subplots(figsize=(6.5, 6.0))
-    vmin, vmax = np.nanpercentile(field, [2.0, 98.0])
     if args.symmetric:
-        vmax = float(max(abs(vmin), abs(vmax)))
-        vmin = -vmax
+        amp = float(np.nanpercentile(np.abs(field), 98.0))
+        if amp <= 0.0:
+            amp = 1.0
+        vmin, vmax = -amp, amp
+    else:
+        vmin, vmax = np.nanpercentile(field, [2.0, 98.0])
+        if np.isclose(vmin, vmax):
+            span = float(max(abs(vmin), 1.0))
+            vmin, vmax = -span, span
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
     im = ax.tripcolor(
         tri,

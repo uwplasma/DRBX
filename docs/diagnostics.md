@@ -47,6 +47,9 @@ The public examples call these utilities via the following scripts:
 - `tools/plot_poloidal_plane.py`
 - `tools/plot_3d_slices.py`
 - `tools/make_movie.py`
+- `tools/make_poloidal_movie.py`
+- `tools/plot_toroidal_slices.py`
+- `tools/make_toroidal_movie.py`
 
 These scripts read `.npz` output and generate the figures included in the
 documentation.

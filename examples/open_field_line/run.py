@@ -122,7 +122,6 @@ def main() -> None:
     if args.make_figures:
         poloidal_eq = figdir / "open_field_poloidal_eq.png"
         poloidal_fluct = figdir / "open_field_poloidal_fluct.png"
-        slices = figdir / "open_field_3d_slices.png"
         sol_cfg = cfg.data.get("physics", {})
         sep = float(sol_cfg.get("sol_xs", 0.7))
         subprocess.run(
@@ -164,9 +163,9 @@ def main() -> None:
                 "--fluct",
                 "zonal",
                 "--lowpass",
-                "0.35",
+                "0.25",
                 "--field-scale",
-                "5.0",
+                "8.0",
                 "--cmap",
                 "coolwarm",
                 "--symmetric",
@@ -174,29 +173,15 @@ def main() -> None:
             check=True,
             cwd=repo_root,
         )
-        geom_kind = str(cfg.data.get("geometry", {}).get("kind", "plane")).lower()
-        if geom_kind != "plane":
-            subprocess.run(
-                [
-                    sys.executable,
-                    "tools/plot_3d_slices.py",
-                    str(out_path),
-                    "--field",
-                    "n",
-                    "--out",
-                    str(slices),
-                ],
-                check=True,
-                cwd=repo_root,
-            )
-
     if args.make_movies:
         movie_path = figdir / "open_field_movie.gif"
         subprocess.run(
             [
                 sys.executable,
-                "tools/make_movie.py",
+                "tools/make_poloidal_movie.py",
                 str(out_path),
+                "--config",
+                str(Path(args.config).resolve()),
                 "--field",
                 "snapshots_n",
                 "--out",
@@ -206,11 +191,15 @@ def main() -> None:
                 "--fluct",
                 "zonal",
                 "--lowpass",
-                "0.35",
+                "0.25",
                 "--skip-fraction",
                 "0.6",
                 "--symmetric",
                 "--range-tail",
+                "--field-scale",
+                "6.0",
+                "--range-scale",
+                "0.6",
             ],
             check=True,
             cwd=repo_root,

@@ -11,6 +11,6 @@ python examples/field_aligned_3d/run.py --make-figures --make-movies
 
 Outputs:
 - `examples/field_aligned_3d/output.npz`
-- `docs/figures/three_d_slices.png`
+- `docs/figures/three_d_toroidal.png`
 - `docs/figures/three_d_rms_timeseries.png`
-- `docs/figures/three_d_movie.gif`
+- `docs/figures/three_d_toroidal_movie.gif`

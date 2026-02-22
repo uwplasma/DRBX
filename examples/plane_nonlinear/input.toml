@@ -8,8 +8,8 @@ bc_x = "periodic"
 bc_y = "periodic"
 
 [physics]
-omega_n = 6.0
-omega_Te = 3.0
+omega_n = 8.0
+omega_Te = 4.0
 nonlinear_on = true
 em_on = false
 hot_ion_on = false
@@ -21,34 +21,34 @@ curvature_model = "tokamak"
 curvature_theta_scale = 3.183098861
 source_on = true
 source_profile = "gaussian_xy"
-source_n0 = 1.2
-source_Te0 = 0.4
+source_n0 = 2.0
+source_Te0 = 0.7
 source_x0 = 6.0
 source_y0 = 10.0
-source_width_x = 2.0
-source_width_y = 4.0
+source_width_x = 1.6
+source_width_y = 3.0
 
 [closures]
 sheath_on = false
 sheath_bc_on = false
 
 [transport]
-Dn = 2.5e-3
-DOmega = 2.5e-3
-DTe = 2.5e-3
-Dn4 = 5.0e-6
-DOmega4 = 5.0e-6
-DTe4 = 5.0e-6
-mu_lin_n = 1.2e-2
-mu_lin_omega = 6.0e-3
-mu_lin_Te = 1.2e-2
+Dn = 1.2e-3
+DOmega = 1.2e-3
+DTe = 1.2e-3
+Dn4 = 2.5e-6
+DOmega4 = 2.5e-6
+DTe4 = 2.5e-6
+mu_lin_n = 4.0e-3
+mu_lin_omega = 2.0e-3
+mu_lin_Te = 4.0e-3
 
 [numerics]
 poisson = "spectral"
 bracket = "arakawa"
 
 [initial]
-amplitude = 2.5e-3
+amplitude = 3.0e-3
 seed = 0
 noise_mode = "state"
 noise_fields = ["n", "omega", "Te"]

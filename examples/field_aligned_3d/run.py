@@ -119,22 +119,26 @@ def main() -> None:
     figdir.mkdir(parents=True, exist_ok=True)
 
     if args.make_figures:
-        slices = figdir / "three_d_slices.png"
+        slices = figdir / "three_d_toroidal.png"
         rms = figdir / "three_d_rms_timeseries.png"
         subprocess.run(
             [
                 sys.executable,
-                "tools/plot_3d_slices.py",
+                "tools/plot_toroidal_slices.py",
                 str(out_path),
+                "--config",
+                str(Path(args.config).resolve()),
                 "--field",
                 "n",
                 "--out",
                 str(slices),
                 "--lowpass",
-                "0.35",
+                "0.2",
                 "--fluct",
                 "mean",
                 "--symmetric",
+                "--field-scale",
+                "3.0",
             ],
             check=True,
             cwd=repo_root,
@@ -146,28 +150,34 @@ def main() -> None:
         )
 
     if args.make_movies:
-        movie_path = figdir / "three_d_movie.gif"
+        movie_path = figdir / "three_d_toroidal_movie.gif"
         subprocess.run(
             [
                 sys.executable,
-                "tools/make_movie.py",
+                "tools/make_toroidal_movie.py",
                 str(out_path),
+                "--config",
+                str(Path(args.config).resolve()),
                 "--field",
                 "snapshots_n",
                 "--out",
                 str(movie_path),
                 "--stride",
                 "2",
-                "--z-index",
-                "0",
                 "--fluct",
-                "zonal",
+                "mean",
                 "--lowpass",
-                "0.35",
+                "0.2",
                 "--skip-fraction",
                 "0.6",
                 "--symmetric",
                 "--range-tail",
+                "--tail-fraction",
+                "0.4",
+                "--field-scale",
+                "2.5",
+                "--range-scale",
+                "0.6",
             ],
             check=True,
             cwd=repo_root,
