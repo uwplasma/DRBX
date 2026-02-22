@@ -85,8 +85,9 @@ closed‑field structure.
 
 ![3D toroidal cuts](figures/three_d_toroidal.png)
 
-Poloidal + toroidal cuts (mapped onto a circular cross‑section) from a
-field‑aligned s‑alpha example.
+Poloidal + toroidal cuts (mapped onto a circular cross‑section for the poloidal
+plane, and a **polar annulus** for the toroidal cut) from a field‑aligned s‑alpha
+example.
 
 ![3D movie](figures/three_d_toroidal_movie.gif)
 

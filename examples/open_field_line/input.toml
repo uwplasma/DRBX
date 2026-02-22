@@ -50,7 +50,12 @@ sol_parallel_loss_on = true
 sol_parallel_loss_model = "bohm_exp"
 sol_parallel_loss_coeff = 0.5
 sol_sheath_phi_on = false
+sol_sheath_phi_model = "exp"
+sol_sheath_phi_lambda = 3.0
+sol_sheath_phi_coeff = 0.0
+sol_sheath_phi_clip = 10.0
 sol_sheath_omega_on = false
+sol_sheath_omega_coeff = 0.0
 
 # Volumetric source to seed blobs in the core region.
 source_on = true

@@ -2,6 +2,7 @@
 
 This example runs a field‑aligned s‑alpha configuration with an open/closed SOL
 mask and poloidal‑plane visualizations that highlight the separatrix structure.
+The SOL uses a **Bohm sheath‑loss closure** via `sol_parallel_loss_on=true`.
 
 ## Run
 
