@@ -16,6 +16,21 @@ the unified DRB system. All options are designed to be **subsets of the same cor
 
 ---
 
+## SOL & Sheath Closures (`[physics]`)
+
+- `sol_on`: enable SOL masks and open/closed field‑line logic.
+- `sol_parallel_loss_on`: enable Bohm‑like parallel loss sink terms.
+- `sol_sheath_phi_on`: enable sheath‑current damping in the vorticity equation.
+- `sol_sheath_phi_model`: `linear` or `exp` (linear is recommended for implicit updates).
+- `sol_sheath_phi_implicit`: operator‑split implicit update for sheath current (robust for long runs).
+- `sol_sheath_phi_implicit_solver`: `gmres` (default) or `cg`.
+- `sol_sheath_phi_implicit_rtol/atol/maxiter/restart`: linear solve tolerances.
+
+When `sol_sheath_phi_implicit=true`, the explicit term is disabled and the
+implicit update is applied by IMEX time integrators (e.g. `rk4_imex_strang`).
+
+---
+
 ## Geometry Options
 
 Geometry is selected via `[geometry]` + a geometry‑specific block.

@@ -53,8 +53,14 @@ sol_sheath_phi_on = true
 sol_sheath_phi_model = "linear"
 sol_sheath_phi_lambda = 3.0
 sol_sheath_phi_coeff = 0.1
-sol_sheath_phi_clip = 1.5
+sol_sheath_phi_clip = 0.0
 sol_sheath_phi_Te_floor = 1.0e-2
+sol_sheath_phi_implicit = true
+sol_sheath_phi_implicit_solver = "gmres"
+sol_sheath_phi_implicit_rtol = 1.0e-6
+sol_sheath_phi_implicit_atol = 1.0e-8
+sol_sheath_phi_implicit_maxiter = 80
+sol_sheath_phi_implicit_restart = 30
 sol_sheath_omega_on = false
 sol_sheath_omega_coeff = 0.0
 sol_Te_floor = 1.0e-2
@@ -97,7 +103,7 @@ noise_mode = "state"
 noise_fields = ["n", "omega", "Te"]
 
 [time]
-method = "rk4_scan"
+method = "rk4_imex_strang"
 dt = 5.0e-4
 nsteps = 3600
 save_every = 20

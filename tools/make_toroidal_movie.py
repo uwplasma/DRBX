@@ -66,6 +66,18 @@ def main() -> None:
     parser.add_argument("--y-index", type=int, default=None, help="Toroidal index")
     parser.add_argument("--z-index", type=int, default=None, help="Poloidal index")
     parser.add_argument(
+        "--toroidal-theta",
+        type=float,
+        default=None,
+        help="Poloidal angle (radians) to select for the toroidal cut.",
+    )
+    parser.add_argument(
+        "--separatrix",
+        type=float,
+        default=None,
+        help="Optional separatrix radius (same units as Lx).",
+    )
+    parser.add_argument(
         "--fluct",
         default="none",
         choices=("none", "mean", "zonal"),
@@ -114,7 +126,7 @@ def main() -> None:
     parser.add_argument(
         "--interp-grid",
         type=int,
-        default=200,
+        default=320,
         help="Interpolation grid resolution for smoother poloidal plots (0 to disable).",
     )
     parser.add_argument(
@@ -180,11 +192,6 @@ def main() -> None:
         Rg_pol = None
         Zg_pol = None
 
-    z_idx = args.z_index if args.z_index is not None else nz // 2
-    theta0 = theta[z_idx]
-    R_tor = R0 + r * np.cos(theta0)
-    Phi, Rg = np.meshgrid(phi, R_tor, indexing="xy")
-
     range_frames = frames
     if args.range_tail and frames.shape[0] > 1:
         frac = min(max(float(args.tail_fraction), 0.05), 1.0)
@@ -197,8 +204,13 @@ def main() -> None:
     # Estimate range from representative poloidal+toroidal cuts with max variance.
     y_var = np.var(range_frames, axis=(0, 1, 2))
     y_idx = int(np.argmax(y_var)) if args.y_index is None else int(args.y_index)
-    z_var = np.var(range_frames, axis=(0, 2, 3))
-    z_idx = int(np.argmax(z_var)) if args.z_index is None else int(args.z_index)
+    if args.z_index is not None:
+        z_idx = int(args.z_index)
+    elif args.toroidal_theta is not None:
+        z_idx = int(np.argmin(np.abs(theta - float(args.toroidal_theta))))
+    else:
+        z_var = np.var(range_frames, axis=(0, 2, 3))
+        z_idx = int(np.argmax(z_var))
     pol_samples = range_frames[:, :, :, y_idx]
     tor_samples = range_frames[:, z_idx]
     if args.lowpass:
@@ -217,6 +229,10 @@ def main() -> None:
     scale = float(args.range_scale)
     vmin = vmin * scale
     vmax = vmax * scale
+
+    theta0 = theta[z_idx]
+    R_tor = R0 + r * np.cos(theta0)
+    Phi, Rg = np.meshgrid(phi, R_tor, indexing="xy")
 
     fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
     ax0 = fig.add_subplot(1, 2, 1)
@@ -246,13 +262,20 @@ def main() -> None:
     ax0.set_xlabel("R")
     ax0.set_ylabel("Z")
     ax0.set_aspect("equal")
+    if args.separatrix is not None:
+        sep = float(args.separatrix)
+        ax0.plot(R0 + sep * np.cos(theta), sep * np.sin(theta), color="white", lw=1.2, ls="--")
 
     if args.toroidal_mode == "polar":
         ax1 = fig.add_subplot(1, 2, 2, projection="polar")
         im1 = ax1.pcolormesh(Phi, Rg, toroidal, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
         ax1.set_title("toroidal cut")
-        ax1.set_rmin(float(R_tor.min()))
-        ax1.set_rmax(float(R_tor.max()))
+        rmin = float(R0 - r_minor)
+        rmax = float(R0 + r_minor)
+        ax1.set_rmin(rmin)
+        ax1.set_rmax(rmax)
+        ax1.set_ylim(rmin, rmax)
+        ax1.set_facecolor("white")
         ax1.set_yticklabels([])
         ax1.grid(alpha=0.3)
     else:
@@ -261,6 +284,7 @@ def main() -> None:
         ax1.set_title("toroidal cut")
         ax1.set_xlabel("toroidal angle")
         ax1.set_ylabel("R")
+        ax1.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
     fig.colorbar(im0, ax=[ax0, ax1], fraction=0.03, pad=0.02)
 
     try:

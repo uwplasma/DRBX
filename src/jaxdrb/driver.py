@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
+import jax.scipy.sparse.linalg as jspl
 import numpy as np
 
 from jaxdrb.bc import BC2D, bc2d_from_strings
@@ -13,6 +14,8 @@ from jaxdrb.core.geometry_registry import build_geometry
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.system import DRBSystem
+from jaxdrb.core.terms.fields import phys_Te, phys_n
+from jaxdrb.core.terms.sol import sol_masks
 from jaxdrb.core.terms.bcs import resolve_bcs
 from jaxdrb.integrators import (
     build_rk4_scan,
@@ -166,6 +169,75 @@ def _apply_phi_boundary_relaxation_implicit(
     return DRBSystemState(
         n=y.n,
         omega=omega,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+        Te=y.Te,
+        Ti=y.Ti,
+        psi=y.psi,
+        N=y.N,
+    )
+
+
+def _apply_sol_sheath_phi_implicit(
+    system: DRBSystem, y: DRBSystemState, dt: float, phi_guess: jnp.ndarray | None = None
+) -> DRBSystemState:
+    params = system.params
+    if not (params.sol_sheath_phi_on and params.sol_sheath_phi_implicit):
+        return y
+    if float(params.sol_parallel_loss_q) <= 0.0:
+        return y
+    model = str(params.sol_sheath_phi_model).lower()
+    if model not in ("linear", "lin"):
+        return y
+
+    _, mask_open, _ = sol_masks(params, system.geom)
+    if mask_open is None:
+        return y
+
+    n_phys = phys_n(params, y.n)
+    Te_phys = phys_Te(params, y.Te)
+    Te_floor = max(float(params.sol_sheath_phi_Te_floor), float(params.sol_Te_floor))
+    Te_eff = jnp.maximum(Te_phys, Te_floor)
+    n_pos = jnp.maximum(n_phys, float(params.sol_n_floor))
+    cs = jnp.sqrt(Te_eff)
+    gamma = float(params.sol_sheath_phi_coeff) / (2.0 * jnp.pi * float(params.sol_parallel_loss_q))
+    lam = float(params.sol_sheath_phi_lambda)
+
+    A = gamma * mask_open * n_pos * cs / Te_eff
+    const = gamma * mask_open * n_pos * cs * lam
+
+    dt = float(dt)
+    if phi_guess is None:
+        phi_guess = system._phi_from_omega(y.omega, n=n_phys)
+
+    b = y.omega + dt * const
+
+    def matvec(phi):
+        return system._omega_from_phi(phi, n=n_phys) + dt * A * phi
+
+    solver = str(params.sol_sheath_phi_implicit_solver).lower()
+    tol = float(params.sol_sheath_phi_implicit_rtol)
+    atol = float(params.sol_sheath_phi_implicit_atol)
+    maxiter = int(params.sol_sheath_phi_implicit_maxiter)
+    if solver == "cg":
+        phi_new, _ = jspl.cg(matvec, b, x0=phi_guess, tol=tol, atol=atol, maxiter=maxiter)
+    else:
+        restart = int(params.sol_sheath_phi_implicit_restart)
+        phi_new, _ = jspl.gmres(
+            matvec,
+            b,
+            x0=phi_guess,
+            tol=tol,
+            atol=atol,
+            restart=restart,
+            maxiter=maxiter,
+        )
+
+    omega_new = system._omega_from_phi(phi_new, n=n_phys)
+
+    return DRBSystemState(
+        n=y.n,
+        omega=omega_new,
         vpar_e=y.vpar_e,
         vpar_i=y.vpar_i,
         Te=y.Te,
@@ -376,6 +448,7 @@ def _apply_stiff_implicit(
     if parallel_implicit:
         y = _apply_parallel_implicit(system, y, dt, phi_guess)
     y = _apply_bc_relaxation_implicit(system, y, dt, phi_guess)
+    y = _apply_sol_sheath_phi_implicit(system, y, dt, phi_guess)
     y = _apply_phi_boundary_relaxation_implicit(system, y, dt, phi_guess)
     return y
 
