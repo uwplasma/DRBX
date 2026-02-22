@@ -65,7 +65,7 @@ noise_fields = ["n", "omega", "Te"]
 [time]
 method = "rk4_scan"
 dt = 1.0e-3
-nsteps = 4800
+nsteps = 6400
 save_every = 30
 diag_mode = "full"
 poisson_warm_start = true

@@ -111,6 +111,18 @@ def main() -> None:
         default=0.7,
         help="Scale factor applied to vmin/vmax for contrast.",
     )
+    parser.add_argument(
+        "--interp-grid",
+        type=int,
+        default=200,
+        help="Interpolation grid resolution for smoother poloidal plots (0 to disable).",
+    )
+    parser.add_argument(
+        "--toroidal-mode",
+        choices=("polar", "rphi"),
+        default="polar",
+        help="Display toroidal cut in polar (annulus) or R-phi plane.",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -157,6 +169,16 @@ def main() -> None:
     R = R0 + r[None, :] * np.cos(theta[:, None])
     Z = r[None, :] * np.sin(theta[:, None])
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
+    interp_grid = int(args.interp_grid)
+    if interp_grid > 0:
+        r_lin = np.linspace(R.min(), R.max(), interp_grid)
+        z_lin = np.linspace(Z.min(), Z.max(), interp_grid)
+        Rg_pol, Zg_pol = np.meshgrid(r_lin, z_lin)
+    else:
+        r_lin = None
+        z_lin = None
+        Rg_pol = None
+        Zg_pol = None
 
     z_idx = args.z_index if args.z_index is not None else nz // 2
     theta0 = theta[z_idx]
@@ -196,22 +218,47 @@ def main() -> None:
     vmin = vmin * scale
     vmax = vmax * scale
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.0, 5.0), constrained_layout=True)
+    fig = plt.figure(figsize=(12.0, 5.0), constrained_layout=True)
+    ax0 = fig.add_subplot(1, 2, 1)
     poloidal = frames[0, :, :, y_idx]
     toroidal = frames[0, z_idx]
     if args.lowpass:
         poloidal = _lowpass_2d(poloidal, float(args.lowpass))
         toroidal = _lowpass_2d(toroidal, float(args.lowpass))
-    im0 = axes[0].tripcolor(tri, poloidal.ravel(), shading="flat", cmap=cmap, vmin=vmin, vmax=vmax)
-    im1 = axes[1].pcolormesh(Phi, Rg, toroidal, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
-    axes[0].set_title("poloidal cut")
-    axes[0].set_xlabel("R")
-    axes[0].set_ylabel("Z")
-    axes[0].set_aspect("equal")
-    axes[1].set_title("toroidal cut")
-    axes[1].set_xlabel("toroidal angle")
-    axes[1].set_ylabel("R")
-    fig.colorbar(im0, ax=axes, fraction=0.03, pad=0.02)
+    if interp_grid > 0:
+        interp = mtri.LinearTriInterpolator(tri, poloidal.ravel())
+        vals = interp(Rg_pol, Zg_pol)
+        vals = np.ma.masked_invalid(vals)
+        im0 = ax0.imshow(
+            vals,
+            origin="lower",
+            extent=(r_lin.min(), r_lin.max(), z_lin.min(), z_lin.max()),
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+        )
+    else:
+        im0 = ax0.tripcolor(
+            tri, poloidal.ravel(), shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
+        )
+    ax0.set_title("poloidal cut")
+    ax0.set_xlabel("R")
+    ax0.set_ylabel("Z")
+    ax0.set_aspect("equal")
+
+    if args.toroidal_mode == "polar":
+        ax1 = fig.add_subplot(1, 2, 2, projection="polar")
+        im1 = ax1.pcolormesh(Phi, Rg, toroidal, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+        ax1.set_title("toroidal cut")
+        ax1.set_yticklabels([])
+    else:
+        ax1 = fig.add_subplot(1, 2, 2)
+        im1 = ax1.pcolormesh(Phi, Rg, toroidal, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+        ax1.set_title("toroidal cut")
+        ax1.set_xlabel("toroidal angle")
+        ax1.set_ylabel("R")
+    fig.colorbar(im0, ax=[ax0, ax1], fraction=0.03, pad=0.02)
 
     try:
         from matplotlib import animation
@@ -222,7 +269,13 @@ def main() -> None:
             if args.lowpass:
                 pol = _lowpass_2d(pol, float(args.lowpass))
                 tor = _lowpass_2d(tor, float(args.lowpass))
-            im0.set_array(pol.ravel())
+            if interp_grid > 0:
+                interp = mtri.LinearTriInterpolator(tri, pol.ravel())
+                vals = interp(Rg_pol, Zg_pol)
+                vals = np.ma.masked_invalid(vals)
+                im0.set_data(vals)
+            else:
+                im0.set_array(pol.ravel())
             im1.set_array(tor.ravel())
             return (im0, im1)
 

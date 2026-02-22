@@ -105,6 +105,12 @@ def main() -> None:
         action="store_true",
         help="Use symmetric color limits about zero.",
     )
+    parser.add_argument(
+        "--interp-grid",
+        type=int,
+        default=200,
+        help="Interpolation grid resolution for smoother poloidal plots (0 to disable).",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -190,14 +196,32 @@ def main() -> None:
             span = float(max(abs(vmin), 1.0))
             vmin, vmax = -span, span
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
-    im = ax.tripcolor(
-        tri,
-        field.ravel(),
-        shading="flat",
-        cmap=str(args.cmap),
-        vmin=vmin,
-        vmax=vmax,
-    )
+    interp_grid = int(args.interp_grid)
+    if interp_grid > 0:
+        r_lin = np.linspace(R.min(), R.max(), interp_grid)
+        z_lin = np.linspace(Z.min(), Z.max(), interp_grid)
+        Rg, Zg = np.meshgrid(r_lin, z_lin)
+        interp = mtri.LinearTriInterpolator(tri, field.ravel())
+        vals = interp(Rg, Zg)
+        vals = np.ma.masked_invalid(vals)
+        im = ax.imshow(
+            vals,
+            origin="lower",
+            extent=(r_lin.min(), r_lin.max(), z_lin.min(), z_lin.max()),
+            cmap=str(args.cmap),
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+        )
+    else:
+        im = ax.tripcolor(
+            tri,
+            field.ravel(),
+            shading="gouraud",
+            cmap=str(args.cmap),
+            vmin=vmin,
+            vmax=vmax,
+        )
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     ax.set_title(f"Poloidal {args.field}")
     ax.set_xlabel("R")

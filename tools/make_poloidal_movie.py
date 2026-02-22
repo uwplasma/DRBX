@@ -77,6 +77,12 @@ def main() -> None:
         default=0.7,
         help="Scale factor applied to vmin/vmax for contrast.",
     )
+    parser.add_argument(
+        "--interp-grid",
+        type=int,
+        default=200,
+        help="Interpolation grid resolution for smoother poloidal movies (0 to disable).",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -128,6 +134,16 @@ def main() -> None:
     R = R0 + r[None, :] * np.cos(theta[:, None])
     Z = r[None, :] * np.sin(theta[:, None])
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
+    interp_grid = int(args.interp_grid)
+    if interp_grid > 0:
+        r_lin = np.linspace(R.min(), R.max(), interp_grid)
+        z_lin = np.linspace(Z.min(), Z.max(), interp_grid)
+        Rg, Zg = np.meshgrid(r_lin, z_lin)
+    else:
+        r_lin = None
+        z_lin = None
+        Rg = None
+        Zg = None
 
     range_frames = frames
     if args.range_tail and frames.shape[0] > 1:
@@ -143,7 +159,28 @@ def main() -> None:
     vmax = vmax * scale
 
     fig, ax = plt.subplots(figsize=(6.5, 6.0))
-    im = ax.tripcolor(tri, frames[0].ravel(), shading="flat", cmap="coolwarm", vmin=vmin, vmax=vmax)
+    if interp_grid > 0:
+        interp = mtri.LinearTriInterpolator(tri, frames[0].ravel())
+        vals = interp(Rg, Zg)
+        vals = np.ma.masked_invalid(vals)
+        im = ax.imshow(
+            vals,
+            origin="lower",
+            extent=(r_lin.min(), r_lin.max(), z_lin.min(), z_lin.max()),
+            cmap="coolwarm",
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="bilinear",
+        )
+    else:
+        im = ax.tripcolor(
+            tri,
+            frames[0].ravel(),
+            shading="gouraud",
+            cmap="coolwarm",
+            vmin=vmin,
+            vmax=vmax,
+        )
     ax.set_title(args.field.replace("snapshots_", ""))
     ax.set_xlabel("R")
     ax.set_ylabel("Z")
@@ -154,7 +191,13 @@ def main() -> None:
         from matplotlib import animation
 
         def update(i):
-            im.set_array(frames[i].ravel())
+            if interp_grid > 0:
+                interp = mtri.LinearTriInterpolator(tri, frames[i].ravel())
+                vals = interp(Rg, Zg)
+                vals = np.ma.masked_invalid(vals)
+                im.set_data(vals)
+            else:
+                im.set_array(frames[i].ravel())
             return (im,)
 
         anim = animation.FuncAnimation(fig, update, frames=frames.shape[0], blit=True)
