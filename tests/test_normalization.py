@@ -52,7 +52,7 @@ def test_normalization_scales_geometry_and_transport():
     assert np.isclose(physics["omega_n"], expected_omega_n, rtol=1e-6)
 
     transport = converted["transport"]
-    expected_Dn = 0.5 * (info.time / (info.length ** 2))
+    expected_Dn = 0.5 * (info.time / (info.length**2))
     assert np.isclose(transport["Dn"], expected_Dn, rtol=1e-6)
 
     # tau_i should be set when not supplied
@@ -88,7 +88,7 @@ def test_normalization_manual_mode():
 
     assert np.isclose(converted["geometry"]["Lx"], 1.0, rtol=1e-6)
     assert np.isclose(converted["physics"]["omega_n"], 4.0, rtol=1e-6)
-    expected_Dn = 1.0 * (info.time / (info.length ** 2))
+    expected_Dn = 1.0 * (info.time / (info.length**2))
     assert np.isclose(converted["transport"]["Dn"], expected_Dn, rtol=1e-6)
 
 

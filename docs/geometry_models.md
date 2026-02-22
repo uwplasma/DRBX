@@ -110,8 +110,8 @@ This is the recommended default for s-alpha + log-B comparisons.
 
 **Metric-Derived Curvature and Parallel Factor**
 
-When comparing against metric-derived grids (e.g., Hermes/BOUT-style files), the curvature and
-parallel derivative factor used in the comparison tools follow:
+When comparing against metric-derived grids (e.g., external axisymmetric metric files), the
+curvature and parallel derivative factor used in the comparison tools follow:
 
 \[
 \kappa_x = -B\,\partial_z \log B,\quad \kappa_y = B\,\partial_x \log B
@@ -131,8 +131,8 @@ metric data as:
 \mathrm{dpar\_factor} = \frac{B_{p}}{B\,h_\theta}
 \]
 
-These definitions align the analytic coefficients with metric outputs used in
-GBS/Hermes-style grids. See the local references below for geometry conventions and
+These definitions align the analytic coefficients with metric outputs used in external
+axisymmetric grids. See the local references below for geometry conventions and
 ballooning coordinate context.
 
 ---

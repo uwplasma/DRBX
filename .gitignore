@@ -22,11 +22,15 @@ out_*.png
 out_*.gif
 benchmarks/alignment_outputs/
 benchmarks/sol_benchmark/
+benchmarks/full_benchmark/
+benchmarks/hj_benchmark/
 benchmarks/full_benchmark/*.h5
 benchmarks/full_benchmark/*.nc
 benchmarks/full_benchmark/*.npz
 benchmarks/cases/hermes_salpha_*/*.nc
 benchmarks/cases/hermes_salpha_*/*.pid*
+benchmarks/cases/hermes_salpha_*/*.txt
+benchmarks/cases/hermes_salpha_*/data/
 benchmarks/cases/gbs_salpha/results_*.h5
 benchmarks/cases/gbs_salpha/restart_*.h5
 benchmarks/cases/gbs_salpha/fort.*
@@ -37,6 +41,26 @@ benchmarks/cases/gbs_salpha/*.png
 benchmarks/cases/gbs_salpha/*.gif
 benchmarks/cases/gbs_salpha/*.mp4
 benchmarks/cases/gbs_salpha/gbs_plots*/
+benchmarks/cases/gbs_salpha/mat_*.mat
+benchmarks/cases/gbs_salpha/mat_*.png
+benchmarks/cases/gbs_salpha/mat_*.gif
+benchmarks/cases/gbs_salpha/mat_*.mp4
+
+# JAX-DRB benchmark outputs
+benchmarks/cases/jaxdrb/*_out.npz
+benchmarks/cases/jaxdrb/*.npz
+benchmarks/cases/jaxdrb/*_time.txt
+benchmarks/cases/jaxdrb/*_time*.txt
+benchmarks/cases/jaxdrb/*_out.h5
+benchmarks/cases/jaxdrb/*_out.nc
+benchmarks/cases/jaxdrb/*.png
+benchmarks/cases/jaxdrb/*.gif
+benchmarks/cases/jaxdrb/*.mp4
+benchmarks/cases/jaxdrb/benchmark_alignment_hermes_salpha_imex_strang_dissip*.toml
+benchmarks/cases/jaxdrb/benchmark_alignment_hermes_salpha_kencarp_*_short.toml
+benchmarks/cases/jaxdrb/benchmark_alignment_hermes_salpha_kencarp_*_smoke.toml
+benchmarks/cases/jaxdrb/benchmark_alignment_hermes_salpha_kencarp_short.toml
+benchmarks/cases/jaxdrb/benchmark_alignment_hermes_salpha_kencarp_smoke.toml
 benchmarks/profiles/
 profiles/
 
@@ -81,6 +105,14 @@ cmake_install.cmake
 *.log
 *.dat
 *.vtk
+
+# Benchmark analysis outputs
+benchmarks/analysis/__pycache__/
+benchmarks/analysis/hermes_vs_jaxdrb_*/
+benchmarks/analysis/out_reference/
+benchmarks/analysis/panels/
+benchmarks/analysis/*.npz
+benchmarks/analysis/*.h5
 
 # Matplotlib + cache dirs created by CLI/examples
 .mplcache/

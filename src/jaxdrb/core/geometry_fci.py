@@ -173,9 +173,7 @@ class FCIGeometryAdapter(GeometryBase):
                 maxiter=int(self.params.poisson_maxiter),
                 tol=float(self.params.poisson_tol),
                 preconditioner=str(precond),
-                k2_precond=(
-                    self.perp_ops.k2 if str(precond) == "spectral" else None
-                ),
+                k2_precond=(self.perp_ops.k2 if str(precond) == "spectral" else None),
                 preconditioner_fn=self.poisson_preconditioner_fn,
                 x0=guess,
             )

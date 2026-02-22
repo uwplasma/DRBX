@@ -9,7 +9,7 @@ n0 = 1.0e18
 B0 = 1.0
 m_i_amu = 2.0
 Z_i = 1
-length_unit = "lref"
+length_unit = "rho_s"
 Lref_m = 1.0
 
 [geometry]

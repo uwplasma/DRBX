@@ -11,7 +11,7 @@ from jaxdrb.io import load_config
 
 
 def _rms(a: np.ndarray) -> float:
-    return float(np.sqrt(np.mean(a ** 2))) if a.size else 0.0
+    return float(np.sqrt(np.mean(a**2))) if a.size else 0.0
 
 
 def _rel_error(a: np.ndarray, b: np.ndarray) -> float:
@@ -86,7 +86,9 @@ def _mapping_defaults(name: str) -> dict[str, object]:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Compare analytic geometry to BOUT++ metric-derived coefficients")
+    p = argparse.ArgumentParser(
+        description="Compare analytic geometry to BOUT++ metric-derived coefficients"
+    )
     p.add_argument("--config", required=True, help="jax_drb TOML config (analytic geometry)")
     p.add_argument("--bout-grid", required=True, help="BOUT++ grid file (.nc)")
     p.add_argument(
@@ -95,7 +97,9 @@ def main() -> None:
         help="Canonical mapping preset (canonical, canonical_salpha_logb, salpha_logb)",
     )
     p.add_argument("--x-index", type=int, default=0, help="Radial index to extract")
-    p.add_argument("--zeta", type=float, default=0.0, help="Toroidal angle for logB Fourier reconstruction")
+    p.add_argument(
+        "--zeta", type=float, default=0.0, help="Toroidal angle for logB Fourier reconstruction"
+    )
     p.add_argument("--use-metric", action="store_true", help="Use gxx/gxy/gyy for scaling")
     p.add_argument(
         "--radial-coordinate",
@@ -141,8 +145,12 @@ def main() -> None:
     radial_from = args.radial_from or mapping.get("radial_from", "auto")
     curv_x_axis = args.curv_x_axis or mapping.get("curv_x_axis", "z")
     curv_y_axis = args.curv_y_axis or mapping.get("curv_y_axis", "x")
-    curv_sign_x = args.curv_sign_x if args.curv_sign_x is not None else mapping.get("curv_sign_x", 1.0)
-    curv_sign_y = args.curv_sign_y if args.curv_sign_y is not None else mapping.get("curv_sign_y", 1.0)
+    curv_sign_x = (
+        args.curv_sign_x if args.curv_sign_x is not None else mapping.get("curv_sign_x", 1.0)
+    )
+    curv_sign_y = (
+        args.curv_sign_y if args.curv_sign_y is not None else mapping.get("curv_sign_y", 1.0)
+    )
     use_metric = args.use_metric or bool(mapping.get("use_metric", False))
 
     try:
@@ -222,7 +230,7 @@ def main() -> None:
                 else:
                     gxy = np.zeros_like(gxx)
                 gxx = np.maximum(gxx, 1e-12)
-                gperp = np.maximum(gyy - (gxy ** 2) / gxx, 1e-12)
+                gperp = np.maximum(gyy - (gxy**2) / gxx, 1e-12)
                 scale_x = np.sqrt(gxx)
                 scale_y = np.sqrt(gperp)
 

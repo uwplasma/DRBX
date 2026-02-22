@@ -7,7 +7,9 @@ from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemState
 
 
-def perp_bc_relaxation(params: DRBSystemParams, geom: GeometryAdapter, y: DRBSystemState) -> DRBSystemState:
+def perp_bc_relaxation(
+    params: DRBSystemParams, geom: GeometryAdapter, y: DRBSystemState
+) -> DRBSystemState:
     if params.perp_bc_nu == 0.0 or not hasattr(geom, "enforce_bc_relaxation"):
         z = jnp.zeros_like(y.n)
         return DRBSystemState(

@@ -258,9 +258,7 @@ def validate_geometry_config(cfg: dict[str, Any]) -> GeometrySpec:
         if not any(key in cfg for key in group):
             missing.append(" or ".join(group))
     if missing:
-        raise ValueError(
-            f"Geometry '{spec.kind}' missing required keys: {', '.join(missing)}."
-        )
+        raise ValueError(f"Geometry '{spec.kind}' missing required keys: {', '.join(missing)}.")
     return spec
 
 

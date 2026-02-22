@@ -71,9 +71,7 @@ def ideal_ballooning_gamma_hat(
 
     # In this normalization, the generalized eigenvalues correspond to -gamma_hat^2.
     # Instability requires the most negative eigenvalue of S.
-    lam_min = jsp_la.eigh_tridiagonal(
-        dS, eS, eigvals_only=True, select="i", select_range=(0, 0)
-    )[0]
+    lam_min = jsp_la.eigh_tridiagonal(dS, eS, eigvals_only=True, select="i", select_range=(0, 0))[0]
     gamma2 = jnp.maximum(-lam_min, 0.0)
     return jnp.sqrt(gamma2)
 

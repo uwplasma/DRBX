@@ -160,11 +160,15 @@ class FCISlabGrid:
             raise KeyError("Missing 'l' or 'z' coordinate in FCI map file.")
         l = np.asarray(l)
 
-        open_field_line = bool(open_field_line) if open_field_line is not None else bool(
-            to_scalar(get_optional("open_field_line", 0.0), "open_field_line")
+        open_field_line = (
+            bool(open_field_line)
+            if open_field_line is not None
+            else bool(to_scalar(get_optional("open_field_line", 0.0), "open_field_line"))
         )
-        cell_centered = bool(cell_centered) if cell_centered is not None else bool(
-            to_scalar(get_optional("cell_centered", 0.0), "cell_centered")
+        cell_centered = (
+            bool(cell_centered)
+            if cell_centered is not None
+            else bool(to_scalar(get_optional("cell_centered", 0.0), "cell_centered"))
         )
 
         if Bx is None:

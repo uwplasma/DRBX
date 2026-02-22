@@ -31,25 +31,17 @@ def test_calibrated_classifier_produces_all_four_regimes() -> None:
     me_hat = 0.05
 
     # Inertial + DW => InDW (d=0.6, R/Ln=80)
-    label, _ = classify_regime(
-        eta=0.03, omega_n=2.0, me_hat=me_hat, shat=shat, calibration=cal
-    )
+    label, _ = classify_regime(eta=0.03, omega_n=2.0, me_hat=me_hat, shat=shat, calibration=cal)
     assert label == "InDW"
 
     # Resistive + DW => RDW (d=10, R/Ln=80)
-    label, _ = classify_regime(
-        eta=0.5, omega_n=2.0, me_hat=me_hat, shat=shat, calibration=cal
-    )
+    label, _ = classify_regime(eta=0.5, omega_n=2.0, me_hat=me_hat, shat=shat, calibration=cal)
     assert label == "RDW"
 
     # Inertial + BM => InBM (d=0.6, R/Ln=8)
-    label, _ = classify_regime(
-        eta=0.03, omega_n=0.2, me_hat=me_hat, shat=shat, calibration=cal
-    )
+    label, _ = classify_regime(eta=0.03, omega_n=0.2, me_hat=me_hat, shat=shat, calibration=cal)
     assert label == "InBM"
 
     # Resistive + BM => RBM (d=10, R/Ln=8)
-    label, _ = classify_regime(
-        eta=0.5, omega_n=0.2, me_hat=me_hat, shat=shat, calibration=cal
-    )
+    label, _ = classify_regime(eta=0.5, omega_n=0.2, me_hat=me_hat, shat=shat, calibration=cal)
     assert label == "RBM"

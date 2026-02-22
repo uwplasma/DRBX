@@ -50,7 +50,7 @@ def main():
 
     stats = {
         "mean": float(np.mean(field)),
-        "rms": float(np.sqrt(np.mean(field ** 2))),
+        "rms": float(np.sqrt(np.mean(field**2))),
         "min": float(np.min(field)),
         "max": float(np.max(field)),
     }

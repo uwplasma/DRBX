@@ -419,14 +419,18 @@ def build_axisymmetric_analytic_adapter(
             Z2=float(cfg.get("Z2", -40.0)),
             rho_s0=float(cfg.get("rho_s0", 1.0)),
             B0=float(cfg.get("B0", 1.0)),
-            R_start=float(cfg.get("R_start", float(cfg.get("R0", 100.0)) + float(cfg.get("r_minor", 1.0)))),
+            R_start=float(
+                cfg.get("R_start", float(cfg.get("R0", 100.0)) + float(cfg.get("r_minor", 1.0)))
+            ),
             Z_start=float(cfg.get("Z_start", 0.0)),
         )
         theta_for_sheath = theta_geom
     else:
         raise ValueError(f"Unknown axisymmetric analytic model '{model}'.")
 
-    policy = cfg.get("boundary_policy", {}) if isinstance(cfg.get("boundary_policy", {}), dict) else {}
+    policy = (
+        cfg.get("boundary_policy", {}) if isinstance(cfg.get("boundary_policy", {}), dict) else {}
+    )
     if "sheath_windows" not in cfg and "sheath_windows" in policy:
         cfg = dict(cfg)
         cfg["sheath_windows"] = policy["sheath_windows"]

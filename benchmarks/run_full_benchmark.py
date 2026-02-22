@@ -12,7 +12,9 @@ def _run(cmd: list[str], cwd: Path | None = None, stdin_path: Path | None = None
         proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True)
     else:
         with open(stdin_path, "rb") as f:
-            proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, stdin=f, capture_output=True, text=True)
+            proc = subprocess.run(
+                cmd, cwd=str(cwd) if cwd else None, stdin=f, capture_output=True, text=True
+            )
     if proc.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}\n{proc.stderr}")
 

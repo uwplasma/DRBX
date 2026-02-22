@@ -12,7 +12,7 @@ class LineBCs(eqx.Module):
     These BCs are enforced weakly (SAT/relaxation) as extra RHS terms localized to the
     boundary nodes. This is intended for:
 
-    - benchmarking alternative end conditions (Dirichlet/Neumann) against MPSE/sheath models,
+    - comparing alternative end conditions (Dirichlet/Neumann) against MPSE/sheath models,
     - early nonlinear preparation work where boundary behavior matters.
 
     By default, `jaxdrb` uses:

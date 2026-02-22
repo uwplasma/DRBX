@@ -136,8 +136,13 @@ def sol_sources(
             N=None,
         )
 
-    n_eq = float(params.sol_n_sol) + (float(params.sol_n_core) - float(params.sol_n_sol)) * mask_closed
-    Te_eq = float(params.sol_Te_sol) + (float(params.sol_Te_core) - float(params.sol_Te_sol)) * mask_closed
+    n_eq = (
+        float(params.sol_n_sol) + (float(params.sol_n_core) - float(params.sol_n_sol)) * mask_closed
+    )
+    Te_eq = (
+        float(params.sol_Te_sol)
+        + (float(params.sol_Te_core) - float(params.sol_Te_sol)) * mask_closed
+    )
     relax = float(params.sol_relax_core) * mask_closed + float(params.sol_relax_open) * mask_open
     sol_source_n = relax * (n_eq - n_phys)
     sol_source_Te = relax * (Te_eq - Te_phys)
@@ -315,7 +320,11 @@ def sol_sheath_phi_term(
     Te_phys: jnp.ndarray,
     mask_open: jnp.ndarray | None,
 ) -> DRBSystemState:
-    if not params.sol_sheath_phi_on or mask_open is None or float(params.sol_parallel_loss_q) <= 0.0:
+    if (
+        not params.sol_sheath_phi_on
+        or mask_open is None
+        or float(params.sol_parallel_loss_q) <= 0.0
+    ):
         return DRBSystemState(
             n=jnp.zeros_like(y.n),
             omega=jnp.zeros_like(y.omega),
@@ -331,9 +340,7 @@ def sol_sheath_phi_term(
     Te_eff = jnp.maximum(Te_phys, Te_floor)
     n_pos = jnp.maximum(n_phys, float(params.sol_n_floor))
     cs = jnp.sqrt(Te_eff)
-    gamma = float(params.sol_sheath_phi_coeff) / (
-        2.0 * jnp.pi * float(params.sol_parallel_loss_q)
-    )
+    gamma = float(params.sol_sheath_phi_coeff) / (2.0 * jnp.pi * float(params.sol_parallel_loss_q))
     model = str(params.sol_sheath_phi_model).lower()
     if model in ("linear", "lin"):
         delta = phi / Te_eff - float(params.sol_sheath_phi_lambda)
@@ -362,7 +369,11 @@ def sol_sheath_phi_term(
 def sol_sheath_omega_sink(
     params: DRBSystemParams, omega: jnp.ndarray, mask_open: jnp.ndarray | None
 ) -> jnp.ndarray:
-    if not params.sol_sheath_omega_on or mask_open is None or float(params.sol_parallel_loss_q) <= 0.0:
+    if (
+        not params.sol_sheath_omega_on
+        or mask_open is None
+        or float(params.sol_parallel_loss_q) <= 0.0
+    ):
         return jnp.zeros_like(omega)
     gamma = float(params.sol_sheath_omega_coeff) / (
         2.0 * jnp.pi * float(params.sol_parallel_loss_q)
@@ -450,12 +461,8 @@ def sol_vpar_bc_dirichlet(
     ny = y.vpar_e.shape[1]
     mask_bottom = (jnp.arange(ny) == 0).astype(y.vpar_e.dtype)[None, :]
     mask_top = (jnp.arange(ny) == (ny - 1)).astype(y.vpar_e.dtype)[None, :]
-    vpar_e_bc = -nu_bc * (
-        mask_bottom * (y.vpar_e - (-vpar_val)) + mask_top * (y.vpar_e - vpar_val)
-    )
-    vpar_i_bc = -nu_bc * (
-        mask_bottom * (y.vpar_i - (-vpar_val)) + mask_top * (y.vpar_i - vpar_val)
-    )
+    vpar_e_bc = -nu_bc * (mask_bottom * (y.vpar_e - (-vpar_val)) + mask_top * (y.vpar_e - vpar_val))
+    vpar_i_bc = -nu_bc * (mask_bottom * (y.vpar_i - (-vpar_val)) + mask_top * (y.vpar_i - vpar_val))
     return DRBSystemState(
         n=jnp.zeros_like(y.n),
         omega=jnp.zeros_like(y.omega),
@@ -505,13 +512,9 @@ def sol_edge_relaxation(
     Te_right_target = jnp.full_like(y.Te[0, :], Te_right)
 
     n_bc = -nu_bc * (mask_left * (y.n - n_left_target) + mask_right * (y.n - n_right_target))
-    Te_bc = -nu_bc * (
-        mask_left * (y.Te - Te_left_target) + mask_right * (y.Te - Te_right_target)
-    )
+    Te_bc = -nu_bc * (mask_left * (y.Te - Te_left_target) + mask_right * (y.Te - Te_right_target))
     if params.sol_edge_relax_apply_y:
-        n_bc = n_bc - nu_bc * (
-            mask_bottom * (y.n - y.n[:, [1]]) + mask_top * (y.n - y.n[:, [-2]])
-        )
+        n_bc = n_bc - nu_bc * (mask_bottom * (y.n - y.n[:, [1]]) + mask_top * (y.n - y.n[:, [-2]]))
         Te_bc = Te_bc - nu_bc * (
             mask_bottom * (y.Te - y.Te[:, [1]]) + mask_top * (y.Te - y.Te[:, [-2]])
         )

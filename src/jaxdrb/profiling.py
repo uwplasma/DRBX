@@ -58,7 +58,9 @@ def save_hlo(lowered: Any, outdir: str | Path, name: str = "compiled") -> dict[s
     return written
 
 
-def save_compile_stats(lowered: Any, outdir: str | Path, name: str = "compile_stats.json") -> Path | None:
+def save_compile_stats(
+    lowered: Any, outdir: str | Path, name: str = "compile_stats.json"
+) -> Path | None:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     try:

@@ -9,7 +9,7 @@ from jaxdrb.operators.fd import d1_open_fv, d1_periodic
 class CircularTokamakGeometry(eqx.Module):
     """Large-aspect-ratio circular tokamak flux-tube geometry (field-line model).
 
-    This is a lightweight analytic geometry intended for fast, reproducible benchmarks (linear
+    This is a lightweight analytic geometry intended for fast, reproducible test runs (linear
     and nonlinear) and for generating tabulated geometry files.
 
     Conventions:
@@ -107,7 +107,7 @@ class CircularTokamakGeometry(eqx.Module):
 class SAlphaGeometry(eqx.Module):
     """s-alpha tokamak flux-tube geometry (ballooning representation).
 
-    This is a standard analytic model used in many gyrokinetic/ballooning benchmarks. In this
+    This is a standard analytic model used in many gyrokinetic/ballooning studies. In this
     implementation, the primary effect of `alpha` is to modify the local radial wavevector
     along the field line through the metric cross term:
 

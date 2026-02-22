@@ -7,10 +7,10 @@ It stays fully differentiable and uses only JAX built‑ins.
 
 ```
 python /Users/rogerio/local/jax_drb/tools/profile_jaxdrb.py \
-  --config /Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/salpha_linear.toml \
+  --config /path/to/salpha_linear.toml \
   --steps 200 \
   --dt 1e-3 \
-  --outdir /Users/rogerio/local/jax_drb/benchmarks/profiles/salpha_linear
+  --outdir /path/to/profiles/salpha_linear
 ```
 
 ## Outputs
@@ -33,7 +33,7 @@ The output directory contains:
 Run TensorBoard and open the “Profile” tab:
 
 ```
-tensorboard --logdir /Users/rogerio/local/jax_drb/benchmarks/profiles/salpha_linear
+tensorboard --logdir /path/to/profiles/salpha_linear
 ```
 
 For low‑level timeline inspection, you can also open the trace in Chrome:
@@ -56,17 +56,17 @@ For a quick A/B run, use the tiny preset config:
 
 ```
 python tools/profile_jaxdrb.py \
-  --config benchmarks/cases/jaxdrb/benchmark_preset_linear.toml \
+  --config /path/to/preset_linear.toml \
   --steps 50 \
   --dt 1e-3 \
-  --outdir benchmarks/profiles/preset_linear_warm \
+  --outdir /path/to/profiles/preset_linear_warm \
   --warm-start
 
 python tools/profile_jaxdrb.py \
-  --config benchmarks/cases/jaxdrb/benchmark_preset_linear.toml \
+  --config /path/to/preset_linear.toml \
   --steps 50 \
   --dt 1e-3 \
-  --outdir benchmarks/profiles/preset_linear_cold \
+  --outdir /path/to/profiles/preset_linear_cold \
   --no-warm-start
 ```
 
@@ -79,17 +79,17 @@ To stress CG + preconditioner caching, use the non‑periodic presets:
 
 ```
 python tools/profile_jaxdrb.py \
-  --config benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet.toml \
+  --config /path/to/preset_linear_dirichlet.toml \
   --steps 50 \
   --dt 1e-3 \
-  --outdir benchmarks/profiles/preset_linear_dirichlet_warm \
+  --outdir /path/to/profiles/preset_linear_dirichlet_warm \
   --warm-start
 
 python tools/profile_jaxdrb.py \
-  --config benchmarks/cases/jaxdrb/benchmark_preset_linear_neumann.toml \
+  --config /path/to/preset_linear_neumann.toml \
   --steps 50 \
   --dt 1e-3 \
-  --outdir benchmarks/profiles/preset_linear_neumann_warm \
+  --outdir /path/to/profiles/preset_linear_neumann_warm \
   --warm-start
 ```
 
@@ -110,5 +110,5 @@ poisson_preconditioner = "fd_fft"
 Two configs are provided to quantify the fd‑FFT preconditioner win on the
 variable‑coefficient polarization solve:
 
-- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet_nonbouss_fdfft.toml`
-- `/Users/rogerio/local/jax_drb/benchmarks/cases/jaxdrb/benchmark_preset_linear_dirichlet_nonbouss_jacobi.toml`
+- `/path/to/preset_linear_dirichlet_nonbouss_fdfft.toml`
+- `/path/to/preset_linear_dirichlet_nonbouss_jacobi.toml`

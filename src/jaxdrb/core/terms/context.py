@@ -43,6 +43,7 @@ def build_context(
     *,
     phi_guess: jnp.ndarray | None = None,
     return_phi_iters: bool = False,
+    skip_phi: bool = False,
 ) -> TermContext:
     hot_on = bool(params.hot_ion_on) and (y.Ti is not None)
     em_on = bool(params.em_on) and (y.psi is not None)
@@ -58,23 +59,25 @@ def build_context(
     n_floor = float(params.sol_n_floor)
     Te_floor = float(params.sol_Te_floor)
 
-    if return_phi_iters:
-        phi, phi_iters = phi_from_omega(
-            params,
-            geom,
-            y.omega,
-            n_phys,
-            bcs.phi,
-            phi_guess=phi_guess,
-            return_iters=True,
-        )
-    else:
-        phi = phi_from_omega(
-            params, geom, y.omega, n_phys, bcs.phi, phi_guess=phi_guess
-        )
+    if skip_phi:
+        phi = jnp.zeros_like(y.omega)
         phi_iters = None
-    if params.sol_on and params.sol_phi_bc_on:
-        phi = apply_sol_phi_bc(params, geom, phi, Te_phys, bcs.phi)
+    else:
+        if return_phi_iters:
+            phi, phi_iters = phi_from_omega(
+                params,
+                geom,
+                y.omega,
+                n_phys,
+                bcs.phi,
+                phi_guess=phi_guess,
+                return_iters=True,
+            )
+        else:
+            phi = phi_from_omega(params, geom, y.omega, n_phys, bcs.phi, phi_guess=phi_guess)
+            phi_iters = None
+        if params.sol_on and params.sol_phi_bc_on:
+            phi = apply_sol_phi_bc(params, geom, phi, Te_phys, bcs.phi)
 
     mask_closed = None
     mask_open = None

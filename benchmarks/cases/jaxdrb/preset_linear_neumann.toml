@@ -6,8 +6,8 @@ nz = 8
 Lx = 1.0
 Ly = 1.0
 Lz = 6.283185307179586
-bc_x = "periodic"
-bc_y = "periodic"
+bc_x = "neumann"
+bc_y = "neumann"
 open_field_line = false
 curvature_model = "vector_xy"
 
@@ -17,9 +17,13 @@ hot_ion_on = false
 boussinesq = true
 
 [numerics]
-perp_operator = "spectral"
-poisson = "spectral"
-term_schedule_preset = "benchmark_linear"
+perp_operator = "fd"
+poisson = "cg_fd"
+term_schedule_preset = "preset_linear"
+
+[initial]
+noise_amplitude = 0.02
+noise_fields = ["omega"]
 
 [time]
 method = "rk4_scan"

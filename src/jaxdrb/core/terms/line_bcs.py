@@ -6,7 +6,9 @@ from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemState, _state_zeros_like
 
 
-def line_bc_terms(params: DRBSystemParams, geom: GeometryAdapter, y: DRBSystemState) -> DRBSystemState:
+def line_bc_terms(
+    params: DRBSystemParams, geom: GeometryAdapter, y: DRBSystemState
+) -> DRBSystemState:
     if not params.line_bcs.enabled:
         return _state_zeros_like(y)
 
