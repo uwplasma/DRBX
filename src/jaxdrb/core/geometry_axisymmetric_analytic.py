@@ -168,8 +168,6 @@ def analytic_miller_coefficients(
     # Miller surface parameterization.
     theta_m = theta + delta * jnp.sin(theta)
     R = R0 + r_minor * jnp.cos(theta_m)
-    Z = kappa * r_minor * jnp.sin(theta)
-
     dR_dtheta = -r_minor * jnp.sin(theta_m) * (1.0 + delta * jnp.cos(theta))
     dZ_dtheta = kappa * r_minor * jnp.cos(theta)
     ds_p = jnp.maximum(jnp.sqrt(dR_dtheta**2 + dZ_dtheta**2), 1e-8)

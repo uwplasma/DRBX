@@ -22,8 +22,6 @@ def field_bc_relaxation(
 
     nu_n = _nu(params.bc_enforce_nu_n)
     nu_omega = _nu(params.bc_enforce_nu_omega)
-    if (params.bc_enforce_nu_omega is None) and (params.bc_enforce_nu_phi is not None):
-        nu_omega = float(params.bc_enforce_nu_phi)
     nu_vpar_e = _nu(params.bc_enforce_nu_vpar_e)
     nu_vpar_i = _nu(params.bc_enforce_nu_vpar_i)
     nu_Te = _nu(params.bc_enforce_nu_Te)
@@ -66,7 +64,6 @@ def field_bc_relaxation(
             N=None if y.N is None else jnp.zeros_like(y.N),
         )
 
-    nu_phi = _nu(params.bc_enforce_nu_phi)
     return DRBSystemState(
         n=enforce_bc_relaxation(y.n, dx=grid.dx, dy=grid.dy, bc=bcs.n, nu=nu_n),
         omega=enforce_bc_relaxation(y.omega, dx=grid.dx, dy=grid.dy, bc=bcs.omega, nu=nu_omega),

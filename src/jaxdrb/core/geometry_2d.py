@@ -23,7 +23,6 @@ from jaxdrb.operators.fd2d import (
 )
 from jaxdrb.geometry.plane import Grid2D
 from jaxdrb.operators.spectral2d import (
-    ddx as ddx_spec,
     ddy as ddy_spec,
     dealias,
     inv_laplacian,

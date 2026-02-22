@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Literal
+from typing import Literal
 
 import equinox as eqx
 import jax.numpy as jnp
