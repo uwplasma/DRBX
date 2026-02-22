@@ -12,12 +12,12 @@ jaxdrb path/to/input.toml
 ```
 
 ## Documentation
-- Run + CLI: `/Users/rogerio/local/jax_drb/docs/run.md`
-- Inputs & outputs: `/Users/rogerio/local/jax_drb/docs/inputs_outputs.md`
-- Options & toggles: `/Users/rogerio/local/jax_drb/docs/options.md`
-- Normalization: `/Users/rogerio/local/jax_drb/docs/normalization.md`
-- Geometry models: `/Users/rogerio/local/jax_drb/docs/geometry_models.md`
-- Geometry comparison: `/Users/rogerio/local/jax_drb/docs/geometry_compare.md`
-- Validation & tests: `/Users/rogerio/local/jax_drb/docs/validation.md`
-- Profiling: `/Users/rogerio/local/jax_drb/docs/profiling.md`
-- Figures & diagnostics: `/Users/rogerio/local/jax_drb/docs/figures.md`
+- Run + CLI: `docs/run.md`
+- Inputs & outputs: `docs/inputs_outputs.md`
+- Options & toggles: `docs/options.md`
+- Normalization: `docs/normalization.md`
+- Geometry models: `docs/geometry_models.md`
+- Geometry consistency checks: `docs/geometry_compare.md`
+- Validation & tests: `docs/validation.md`
+- Profiling: `docs/profiling.md`
+- Figures & diagnostics: `docs/figures.md`

@@ -19,12 +19,12 @@ summarizes the current validation surface and literature anchors.
 
 ---
 
-## Physics Anchors (Local PDFs)
+## Physics Anchors
 
-- Conserving DRB formulation: [conserving_drb.pdf](/Users/rogerio/local/tests/drb_literature/conserving_drb.pdf)
-- Ballooning / s‑alpha context: [Halpern 2013](/Users/rogerio/local/tests/drb_literature/Halpern_2013_Nucl._Fusion_53_122001.pdf)
-- DW/BM regime map: [Mosetto 2012](/Users/rogerio/local/tests/drb_literature/mosetto_2012.pdf)
-- s‑alpha geometry context: [Ricci 2012](/Users/rogerio/local/tests/drb_literature/Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf)
+- Conserving DRB formulation (local note/paper)
+- Ballooning / s‑alpha context: Halpern 2013
+- DW/BM regime map: Mosetto 2012
+- s‑alpha geometry context: Ricci 2012
 
 ---
 
@@ -35,6 +35,8 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_region_bc.py` | Region masks + BC policy application | Boundary-conditions design |
 | Unit | `tests/test_bc_relaxation.py` | Log vs linear variables, Neumann/Dirichlet relax targets | Boundary-conditions design |
 | Unit | `tests/test_normalization.py` | Physical → normalized scaling | Normalization scheme |
+| Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
+| Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
 | Regression | `tests/test_poisson_iter_stats_regression.py` | Warm-start reduces CG iterations | Numerical solver stability |
 | Regression | `tests/test_performance_regression.py` | Max time/step on 16×16 slab | Runtime guardrail |
 | Physics | `tests/test_ideal_ballooning.py` | Ideal ballooning proxy check | Halpern 2013 |
@@ -109,15 +111,15 @@ extra Poisson solves, or Python‑side loops).
 ## How to Run
 
 ```
-pytest -q /Users/rogerio/local/jax_drb/tests
+pytest -q tests
 ```
 
-For profiling, see `/Users/rogerio/local/jax_drb/docs/profiling.md`.
+For profiling, see `docs/profiling.md`.
 
 ---
 
-## External Comparisons
+## Scope
 
-Cross‑code comparisons are kept outside the public documentation so the core
-validation narrative remains focused on the unified DRB system and its
-physics‑anchored tests.
+The public validation surface focuses on **internal consistency, conservation,
+and physics‑anchored checks** of the unified DRB system. Broader inter‑code
+comparisons can be added in downstream validation studies as needed.

@@ -106,8 +106,19 @@ Notes:
 ## CLI Example
 
 ```bash
-jaxdrb /path/to/input.toml --run --output /tmp/jaxdrb_out.npz
+jaxdrb /path/to/input.toml --run --output /path/to/jaxdrb_out.npz
 ```
+
+## Example Workflow
+
+A ready‑to‑run nonlinear plane example is provided:
+
+```bash
+python examples/plane_nonlinear/run.py --make-figures
+```
+
+By default the example writes figures into `docs/figures/` so the documentation
+images stay in sync.
 
 When `--output` is provided, the CLI forces `return_numpy = true` so diagnostics
 are transferred to the host before saving.
