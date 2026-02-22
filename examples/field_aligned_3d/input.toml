@@ -19,8 +19,8 @@ curvature_model = "vector_xy"
 theta_scale = 1.0
 
 [physics]
-omega_n = 10.0
-omega_Te = 5.0
+omega_n = 11.0
+omega_Te = 5.5
 nonlinear_on = true
 em_on = false
 hot_ion_on = false
@@ -30,8 +30,8 @@ curvature_on = true
 curvature_coeff = 1.0
 source_on = true
 source_profile = "gaussian_xy"
-source_n0 = 2.5
-source_Te0 = 1.0
+source_n0 = 2.8
+source_Te0 = 1.1
 source_x0 = 4.0
 source_y0 = 6.0
 source_width_x = 2.0
@@ -42,22 +42,22 @@ sheath_on = false
 sheath_bc_on = false
 
 [transport]
-Dn = 6.0e-4
-DOmega = 6.0e-4
-DTe = 6.0e-4
-Dn4 = 1.5e-6
-DOmega4 = 1.5e-6
-DTe4 = 1.5e-6
-mu_lin_n = 1.5e-3
-mu_lin_omega = 8.0e-4
-mu_lin_Te = 1.5e-3
+Dn = 5.0e-4
+DOmega = 5.0e-4
+DTe = 5.0e-4
+Dn4 = 1.2e-6
+DOmega4 = 1.2e-6
+DTe4 = 1.2e-6
+mu_lin_n = 1.2e-3
+mu_lin_omega = 6.0e-4
+mu_lin_Te = 1.2e-3
 
 [numerics]
 poisson = "spectral"
 bracket = "arakawa"
 
 [initial]
-amplitude = 1.0e-2
+amplitude = 1.2e-2
 seed = 2
 noise_mode = "state"
 noise_fields = ["n", "omega", "Te"]

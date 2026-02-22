@@ -2,7 +2,7 @@
 kind = "salpha"
 nx = 64
 ny = 64
-nz = 48
+nz = 32
 Lx = 1.0
 Ly = 6.283185307179586
 Lz = 6.283185307179586
@@ -21,8 +21,8 @@ theta_scale = 1.0
 dealias = true
 
 [physics]
-omega_n = 8.0
-omega_Te = 4.0
+omega_n = 6.5
+omega_Te = 3.2
 nonlinear_on = true
 em_on = false
 hot_ion_on = false
@@ -36,44 +36,46 @@ curvature_theta_scale = 1.0
 # SOL-like open/closed mask and parallel losses.
 sol_on = true
 sol_xs = 0.7
-sol_width = 0.04
+sol_width = 0.035
 sol_open_left = false
 sol_n_core = 1.0
-sol_n_sol = 0.1
+sol_n_sol = 0.08
 sol_Te_core = 1.0
-sol_Te_sol = 0.1
+sol_Te_sol = 0.08
 sol_relax_core = 0.3
 sol_relax_open = 1.2
 sol_sink_open_n = 0.1
 sol_sink_open_Te = 0.1
-sol_parallel_loss_on = false
+sol_parallel_loss_on = true
+sol_parallel_loss_model = "bohm_exp"
+sol_parallel_loss_coeff = 0.5
 sol_sheath_phi_on = false
 sol_sheath_omega_on = false
 
 # Volumetric source to seed blobs in the core region.
 source_on = true
 source_profile = "gaussian_xy"
-source_n0 = 2.2
-source_Te0 = 0.8
-source_x0 = 0.4
+source_n0 = 1.8
+source_Te0 = 0.6
+source_x0 = 0.48
 source_y0 = 1.57
-source_width_x = 0.2
-source_width_y = 0.6
+source_width_x = 0.25
+source_width_y = 0.7
 
 [closures]
 sheath_on = false
 sheath_bc_on = false
 
 [transport]
-Dn = 1.0e-3
-DOmega = 1.0e-3
-DTe = 1.0e-3
-Dn4 = 2.0e-6
-DOmega4 = 2.0e-6
-DTe4 = 2.0e-6
-mu_lin_n = 2.5e-3
-mu_lin_omega = 1.2e-3
-mu_lin_Te = 2.5e-3
+Dn = 1.5e-3
+DOmega = 1.5e-3
+DTe = 1.5e-3
+Dn4 = 3.0e-6
+DOmega4 = 3.0e-6
+DTe4 = 3.0e-6
+mu_lin_n = 3.0e-3
+mu_lin_omega = 1.5e-3
+mu_lin_Te = 3.0e-3
 
 [numerics]
 poisson = "spectral"
@@ -82,15 +84,15 @@ bracket = "arakawa"
 [initial]
 n0 = 1.0
 Te0 = 1.0
-amplitude = 6.0e-3
+amplitude = 4.0e-3
 seed = 1
 noise_mode = "state"
 noise_fields = ["n", "omega", "Te"]
 
 [time]
 method = "rk4_scan"
-dt = 1.5e-3
-nsteps = 2800
+dt = 5.0e-4
+nsteps = 3600
 save_every = 20
 diag_mode = "full"
 poisson_warm_start = true
