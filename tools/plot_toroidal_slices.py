@@ -185,7 +185,10 @@ def main() -> None:
             vmax=vmax,
         )
         ax1.set_title("toroidal cut")
+        ax1.set_rmin(float(R_tor.min()))
+        ax1.set_rmax(float(R_tor.max()))
         ax1.set_yticklabels([])
+        ax1.grid(alpha=0.3)
     else:
         ax1 = fig.add_subplot(1, 2, 2)
         im1 = ax1.pcolormesh(
