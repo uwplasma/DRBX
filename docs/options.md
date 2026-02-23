@@ -29,6 +29,28 @@ the unified DRB system. All options are designed to be **subsets of the same cor
 When `sol_sheath_phi_implicit=true`, the explicit term is disabled and the
 implicit update is applied by IMEX time integrators (e.g. `rk4_imex_strang`).
 
+### Sheath Boundary Models (`[closures].sheath`)
+
+The core sheath closure is configured via `sheath_bc_on=true` and
+`sheath_bc_model`. Available models include:
+
+- `simple`: linearized Bohm-style relaxation with optional particle/energy damping.
+- `loizu_linear`: Loizu-style linearized sheath model (target-aware).
+- `bohm_current`: Bohm condition with current-balance relaxation **without**
+  direct particle damping (density loss occurs via parallel fluxes). This
+  mirrors common SOL implementations where the sheath sets flow and potential,
+  rather than imposing a direct sink.
+
+The target values for the ion and electron flows follow Bohm-style conditions:
+
+```
+v_i >= c_s,  v_e ~ c_s - phi
+```
+
+where `c_s = sqrt(1 + tau_i)` in normalized units. Energy sinks are controlled
+via `sheath_gamma_e` and `sheath_gamma_i`, and direct particle damping can be
+enabled with `sheath_loss_on=true`.
+
 ---
 
 ## Geometry Options
@@ -76,6 +98,10 @@ for minimal preset schedules:
 - `poisson_warm_start`: reuse previous `phi` as CG initial guess.
 - `poisson_track_iters`: record CG iteration stats.
 - `parallel_z_mode`: `vmap` (fast, more memory) or `scan` (lower memory).
+- `exb_y_scale`: scale the poloidal (`y`) component of ExB advection
+  (`exb_y_scale=0` disables y-advection to mimic `poloidal_flows=false` in BOUT++).
+- `parallel_limiter`: slope limiter applied to open-field parallel derivatives
+  (`none`, `minmod`, `mc`).
 
 ---
 

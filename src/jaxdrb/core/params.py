@@ -72,6 +72,7 @@ class PhysicsParams(eqx.Module):
     # Generic volumetric sources (Gaussian sources).
     source_on: bool = False
     source_profile: Literal["gaussian_x", "gaussian_xy"] = "gaussian_x"
+    source_x_mode: Literal["grid", "bout"] = "grid"
     source_n0: float = 0.0
     source_Te0: float = 0.0
     source_x0: float = 0.0
@@ -246,8 +247,10 @@ class NumericsParams(eqx.Module):
     bracket: Literal["spectral", "arakawa", "centered"] = "arakawa"
     bracket_zero_mean: bool = False
     exb_scale: float = 1.0
+    exb_y_scale: float = 1.0
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
+    parallel_limiter: Literal["none", "minmod", "mc"] = "none"
     poisson_scale: float = 1.0
     poisson_metric_on: bool = False
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"

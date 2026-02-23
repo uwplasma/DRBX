@@ -201,6 +201,8 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
     phys_phys = cfg.get("physics_physical", None)
     if isinstance(phys_phys, dict):
         physics = dict(cfg.get("physics", {}))
+        source_x_mode = phys_phys.get("source_x_mode", physics.get("source_x_mode", "grid"))
+        source_x_scale = 1.0 if str(source_x_mode).lower() == "bout" else length
         converted = _scale_section(
             phys_phys,
             {
@@ -212,9 +214,9 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
                 "n0_max": density,
                 "source_n0": time_scale * density,
                 "source_Te0": time_scale * temperature,
-                "source_x0": length,
+                "source_x0": source_x_scale,
                 "source_y0": length,
-                "source_width_x": length,
+                "source_width_x": source_x_scale,
                 "source_width_y": length,
             },
         )

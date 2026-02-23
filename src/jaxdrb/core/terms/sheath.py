@@ -58,6 +58,8 @@ def sheath_terms(
         model = "loizu_linear" if int(model) == 1 else "simple"
     if model in {"loizu_linear", "loizu2012", "loizu"}:
         return _sheath_loizu_linear(params, geom, y, phi)
+    if model in {"bohm_current", "bohm", "stangeby"}:
+        return _sheath_bohm_current(params, geom, y, phi)
     return _sheath_simple(params, geom, y, phi)
 
 
@@ -87,6 +89,58 @@ def _sheath_simple(
         dve = dve - nu_m * mask * (y.vpar_e - vpar_e_target)
 
     if nu_p != 0.0:
+        dn = dn - nu_p * mask * y.n
+        domega = domega - nu_p * mask * y.omega
+
+    if nu_e != 0.0:
+        dTe = dTe - nu_e * params.sheath_gamma_e * mask * y.Te
+        if dTi is not None:
+            dTi = dTi - nu_e * params.sheath_gamma_i * mask * y.Ti
+
+    if dpsi is not None and params.em_on:
+        dj_sh = dvi - dve
+        dpsi = _psi_from_current(geom, dj_sh)
+
+    return DRBSystemState(
+        n=dn,
+        omega=domega,
+        vpar_e=dve,
+        vpar_i=dvi,
+        Te=dTe,
+        Ti=dTi,
+        psi=dpsi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
+def _sheath_bohm_current(
+    params: DRBSystemParams, geom: GeometryAdapter, y: DRBSystemState, phi: jnp.ndarray
+) -> DRBSystemState:
+    """Bohm + current-balance sheath without direct particle damping."""
+
+    mask, sign = geom.sheath_mask_sign()
+    dve = jnp.zeros_like(y.vpar_e)
+    dvi = jnp.zeros_like(y.vpar_i)
+    dn = jnp.zeros_like(y.n)
+    domega = jnp.zeros_like(y.omega)
+    dTe = jnp.zeros_like(y.Te)
+    dTi = None if y.Ti is None else jnp.zeros_like(y.Ti)
+    dpsi = None if y.psi is None else jnp.zeros_like(y.psi)
+
+    nu_m, nu_p, nu_e = _sheath_nu(params, geom)
+    if nu_m != 0.0:
+        hot_on = bool(params.hot_ion_on) and (y.Ti is not None)
+        tau_i = float(params.tau_i) if hot_on else 0.0
+        cs0 = jnp.sqrt(1.0 + tau_i)
+        dcs = (
+            0.5 * (y.Te + (y.Ti if hot_on and y.Ti is not None else 0.0)) / jnp.maximum(cs0, 1e-12)
+        )
+        vpar_i_target = sign * (1.0 - float(params.sheath_delta)) * dcs
+        vpar_e_target = sign * (dcs - phi)
+        dvi = dvi - nu_m * mask * (y.vpar_i - vpar_i_target)
+        dve = dve - nu_m * mask * (y.vpar_e - vpar_e_target)
+
+    if nu_p != 0.0 and bool(params.sheath_loss_on):
         dn = dn - nu_p * mask * y.n
         domega = domega - nu_p * mask * y.omega
 

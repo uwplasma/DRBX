@@ -52,6 +52,10 @@ def _load_axisymmetric_npz(path: str | Path, *, keys: dict[str, str]) -> dict[st
                 break
     z = get_required(z_key)
 
+    mask_fields = {
+        key[len("mask_") :]: np.asarray(data[key]) for key in data.files if key.startswith("mask_")
+    }
+
     return {
         "z": z,
         "curv_x": get_required(keys.get("curv_x", "curv_x")),
@@ -69,6 +73,7 @@ def _load_axisymmetric_npz(path: str | Path, *, keys: dict[str, str]) -> dict[st
         "Ly": data.get("Ly"),
         "x": data.get("x"),
         "y": data.get("y"),
+        "mask_fields": mask_fields,
     }
 
 
@@ -113,6 +118,12 @@ def _load_axisymmetric_netcdf(path: str | Path, *, keys: dict[str, str]) -> dict
             return arr
         return None
 
+    mask_fields = {
+        key[len("mask_") :]: np.asarray(ds.variables[key][:])
+        for key in ds.variables
+        if key.startswith("mask_")
+    }
+
     return {
         "z": z,
         "curv_x": get_required(keys.get("curv_x", "curv_x")),
@@ -130,6 +141,7 @@ def _load_axisymmetric_netcdf(path: str | Path, *, keys: dict[str, str]) -> dict
         "Ly": get_scalar("Ly"),
         "x": get_optional("x", default=None),
         "y": get_optional("y", default=None),
+        "mask_fields": mask_fields,
     }
 
 
@@ -196,6 +208,9 @@ def build_axisymmetric_field_aligned_adapter(
     policy = boundary_policy or {}
     region_masks = None
     region_bcs = None
+    file_masks = coeffs.get("mask_fields") or {}
+    if file_masks:
+        region_masks = {str(k): np.asarray(v, dtype=float) for k, v in file_masks.items()}
     regions = policy.get("regions", None)
     if regions:
         masks = {}
@@ -216,9 +231,12 @@ def build_axisymmetric_field_aligned_adapter(
             for theta_min, theta_max in windows:
                 mask |= (z >= float(theta_min)) & (z <= float(theta_max))
             masks[name] = mask.astype(float)
-        region_masks = masks if masks else None
-        if region_masks:
-            region_bcs = parse_region_bcs(policy, region_masks)
+        if masks:
+            if region_masks is None:
+                region_masks = {}
+            region_masks.update(masks)
+    if region_masks:
+        region_bcs = parse_region_bcs(policy, region_masks)
 
     sheath_mask = coeffs.get("sheath_mask")
     sheath_sign = coeffs.get("sheath_sign")
