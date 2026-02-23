@@ -70,6 +70,25 @@ def _scalar(ds, name: str, default: float) -> float:
     return float(default)
 
 
+def _build_region_masks(ds, *, nx: int, ny: int) -> dict[str, np.ndarray]:
+    mask_fields: dict[str, np.ndarray] = {}
+    if "ixseps1" in ds.variables:
+        ix1 = int(np.asarray(ds.variables["ixseps1"][:]).ravel()[0])
+        ix2 = ix1
+        if "ixseps2" in ds.variables:
+            ix2 = int(np.asarray(ds.variables["ixseps2"][:]).ravel()[0])
+        ixsep = int(round(0.5 * (ix1 + ix2)))
+        ixsep = max(min(ixsep, nx - 1), 0)
+        x_index = np.arange(nx, dtype=int)[:, None]
+        mask_open = (x_index >= ixsep).astype(float)
+        mask_closed = 1.0 - mask_open
+        mask_fields["open"] = np.broadcast_to(mask_open, (nx, ny))
+        mask_fields["closed"] = np.broadcast_to(mask_closed, (nx, ny))
+        mask_fields["core"] = np.broadcast_to(mask_closed, (nx, ny))
+        mask_fields["sol"] = np.broadcast_to(mask_open, (nx, ny))
+    return mask_fields
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Convert BOUT++ metric grid to axisymmetric coefficients (.npz)"
@@ -219,6 +238,8 @@ def main() -> None:
     nx = int(_scalar(ds, "nx", curv_x.shape[-1]))
     ny = int(_scalar(ds, "ny", curv_x.shape[-1]))
 
+    mask_fields = _build_region_masks(ds, nx=nx, ny=ny)
+
     out = {
         "z": np.asarray(z).reshape(-1),
         "curv_x": np.asarray(curv_x).reshape(-1),
@@ -237,6 +258,8 @@ def main() -> None:
         out["gxy"] = np.asarray(gxy)
     if gyy is not None:
         out["gyy"] = np.asarray(gyy)
+    for name, mask in mask_fields.items():
+        out[f"mask_{name}"] = np.asarray(mask)
 
     np.savez(Path(args.out), **out)
     print(f"Wrote {args.out}")

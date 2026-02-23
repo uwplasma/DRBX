@@ -98,7 +98,21 @@ class PerpOperatorBundle(eqx.Module):
         *,
         bc_phi: BC2D | None = None,
         bc_f: BC2D | None = None,
+        exb_y_scale: float = 1.0,
     ) -> jnp.ndarray:
+        exb_y_scale = float(exb_y_scale)
+        if exb_y_scale != 1.0:
+            dphi_dx = self.ddx(phi)
+            dphi_dy = self.ddy(phi)
+            df_dx = self.ddx(f)
+            df_dy = self.ddy(f)
+            j = exb_y_scale * dphi_dx * df_dy - dphi_dy * df_dx
+            if self.bracket_zero_mean:
+                j = j - jnp.mean(j)
+            if self.dealias_on and self.scheme == "spectral":
+                j = spec_ops.dealias(j, self.dealias_mask)
+            return j
+
         if self.bracket == "spectral":
             if self.scheme != "spectral":
                 raise ValueError("Spectral bracket requires spectral perp operators.")
@@ -128,8 +142,22 @@ class PerpOperatorBundle(eqx.Module):
         *,
         bc_phi: BC2D | None = None,
         bc_f: list[BC2D | None] | None = None,
+        exb_y_scale: float = 1.0,
     ) -> jnp.ndarray:
         """Compute [phi, f_i] for a stack of fields (nfields, nx, ny)."""
+
+        exb_y_scale = float(exb_y_scale)
+        if exb_y_scale != 1.0:
+            if bc_f is None:
+                bc_f = [None] * fields.shape[0]
+            out = []
+            for i in range(fields.shape[0]):
+                out.append(
+                    self.bracket_op(
+                        phi, fields[i], bc_phi=bc_phi, bc_f=bc_f[i], exb_y_scale=exb_y_scale
+                    )
+                )
+            return jnp.stack(out)
 
         if self.bracket == "spectral":
             if self.scheme != "spectral":
