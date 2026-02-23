@@ -45,7 +45,16 @@ def volume_source_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
     wx = max(float(ctx.params.source_width_x), 1e-12)
     wy = max(float(ctx.params.source_width_y), 1e-12)
 
-    gx = jnp.exp(-(((x - x0) / wx) ** 2))
+    mode = str(ctx.params.source_x_mode).lower()
+    if mode == "bout":
+        x_min = jnp.min(x)
+        x_max = jnp.max(x)
+        denom = jnp.where((x_max - x_min) > 0.0, x_max - x_min, 1.0)
+        x_use = (x - x_min) / denom
+    else:
+        x_use = x
+
+    gx = jnp.exp(-(((x_use - x0) / wx) ** 2))
     profile = gx[:, None]
     if str(ctx.params.source_profile).lower() in ("gaussian_xy", "gaussian2d"):
         gy = jnp.exp(-(((ycoord - y0) / wy) ** 2))

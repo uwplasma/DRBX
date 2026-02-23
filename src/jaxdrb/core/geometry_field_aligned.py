@@ -681,9 +681,12 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         bc_phi: BC2D | None = None,
         bc_f: BC2D | None = None,
     ) -> jnp.ndarray:
-        return jax.vmap(lambda p, g: self.perp_ops.bracket_op(p, g, bc_phi=bc_phi, bc_f=bc_f))(
-            phi, f
-        )
+        exb_y_scale = float(self.params.exb_y_scale)
+        return jax.vmap(
+            lambda p, g: self.perp_ops.bracket_op(
+                p, g, bc_phi=bc_phi, bc_f=bc_f, exb_y_scale=exb_y_scale
+            )
+        )(phi, f)
 
     def bracket_many(
         self,
@@ -697,7 +700,13 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             bc_f = [None] * fields.shape[0]
 
         def _plane(phi_plane, field_plane):
-            return self.perp_ops.bracket_many(phi_plane, field_plane, bc_phi=bc_phi, bc_f=bc_f)
+            return self.perp_ops.bracket_many(
+                phi_plane,
+                field_plane,
+                bc_phi=bc_phi,
+                bc_f=bc_f,
+                exb_y_scale=self.params.exb_y_scale,
+            )
 
         return jax.vmap(_plane, in_axes=(0, 1), out_axes=1)(phi, fields)
 
@@ -712,9 +721,33 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         df = df.at[-1].set((f[-1] - face[-1]) / self.grid.dz)
         return df
 
+    def _dpar_limited(self, f: jnp.ndarray, limiter: str) -> jnp.ndarray:
+        df = f[1:] - f[:-1]
+        df_b = df[:-1]
+        df_f = df[1:]
+
+        def _minmod(a, b):
+            s = 0.5 * (jnp.sign(a) + jnp.sign(b))
+            return s * jnp.minimum(jnp.abs(a), jnp.abs(b))
+
+        if limiter == "mc":
+            slope = _minmod(_minmod(2.0 * df_b, 2.0 * df_f), 0.5 * (df_b + df_f))
+        else:
+            slope = _minmod(df_b, df_f)
+
+        slope_full = jnp.zeros_like(f)
+        slope_full = slope_full.at[1:-1].set(slope)
+        slope_full = slope_full.at[0].set(df[0])
+        slope_full = slope_full.at[-1].set(df[-1])
+        return slope_full / self.grid.dz
+
     def dpar(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         _ = bc_kind
-        df = self._dpar_open(f) if self.grid.open_field_line else self._dpar_periodic(f)
+        limiter = str(self.params.parallel_limiter).lower()
+        if limiter != "none" and self.grid.open_field_line:
+            df = self._dpar_limited(f, limiter)
+        else:
+            df = self._dpar_open(f) if self.grid.open_field_line else self._dpar_periodic(f)
         return df * self.dpar_factor[:, None, None]
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:

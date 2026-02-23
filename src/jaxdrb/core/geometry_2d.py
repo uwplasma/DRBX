@@ -23,6 +23,7 @@ from jaxdrb.operators.fd2d import (
 )
 from jaxdrb.geometry.plane import Grid2D
 from jaxdrb.operators.spectral2d import (
+    ddx as ddx_spec,
     ddy as ddy_spec,
     dealias,
     inv_laplacian,
@@ -235,6 +236,25 @@ class Geometry2DAdapter(GeometryBase):
 
         periodic_pair = self._is_periodic(bc_phi) and self._is_periodic(bc_f)
         scale = float(self.params.exb_scale)
+        exb_y_scale = float(self.params.exb_y_scale)
+
+        if exb_y_scale != 1.0:
+            if periodic_pair and self.params.poisson == "spectral":
+                dphi_dx = ddx_spec(phi, self.perp_ops.kx)
+                dphi_dy = ddy_spec(phi, self.perp_ops.ky)
+                df_dx = ddx_spec(f, self.perp_ops.kx)
+                df_dy = ddy_spec(f, self.perp_ops.ky)
+            else:
+                dphi_dx = ddx_fd(phi, self.grid.dx, bc_phi)
+                dphi_dy = ddy_fd(phi, self.grid.dy, bc_phi)
+                df_dx = ddx_fd(f, self.grid.dx, bc_f)
+                df_dy = ddy_fd(f, self.grid.dy, bc_f)
+            j = exb_y_scale * dphi_dx * df_dy - dphi_dy * df_dx
+            if self.params.bracket_zero_mean and not periodic_pair:
+                j = j - jnp.mean(j)
+            if self.params.dealias_on and periodic_pair:
+                return scale * dealias(j, self.grid.dealias_mask)
+            return scale * j
 
         if self.params.bracket == "spectral":
             if not periodic_pair:
@@ -284,6 +304,12 @@ class Geometry2DAdapter(GeometryBase):
             bc_phi = self.grid.bc
         if bc_f is None:
             bc_f = [self.grid.bc] * fields.shape[0]
+
+        if float(self.params.exb_y_scale) != 1.0:
+            out = []
+            for i in range(fields.shape[0]):
+                out.append(self.bracket(phi, fields[i], bc_phi=bc_phi, bc_f=bc_f[i]))
+            return jnp.stack(out)
 
         periodic_pair = self._is_periodic(bc_phi)
         if self.params.bracket == "spectral":

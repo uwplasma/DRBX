@@ -30,6 +30,9 @@ B0 = 2.0
 
 [physics_physical]
 omega_n = 20.0             # 1/m
+source_x_mode = "bout"     # use BOUT++ normalized x in [0,1]
+source_x0 = 0.0
+source_width_x = 0.3
 
 [transport_physical]
 Dn = 0.5                   # m^2/s
@@ -69,6 +72,9 @@ The following optional sections are recognized and converted when
 - `tau_i` is set automatically from `Ti0_eV/Te0_eV` if not explicitly provided.
 - `bc_physical.phi_boundary_timescale` is converted into a normalized
   `bc_enforce_nu_phi = t_ref / tau_phi`, where `t_ref = L_ref / c_s`.
+- When `physics.source_x_mode = "bout"`, the volumetric source interprets
+  `source_x0` and `source_width_x` in **normalized BOUT++ x** (0..1) rather
+  than physical length units. This makes it easy to match Hermes/GBS inputs.
 - If `normalization.enabled = false` or the block is omitted, inputs are assumed
   to already be normalized.
 - Use `mode = "manual"` if you want to provide explicit unit scales instead of
