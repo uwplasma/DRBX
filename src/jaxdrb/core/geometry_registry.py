@@ -17,7 +17,6 @@ from jaxdrb.fci.grid import FCISlabGrid
 from jaxdrb.fci.axisymmetric_maps import XPointPsi76Config, build_xpoint_psi76_fci_grid
 from jaxdrb.geometry import Grid2D, OpenSlabGeometry, SlabGeometry
 
-
 Builder = Callable[[DRBSystemParams, dict[str, Any]], GeometryAdapter]
 
 

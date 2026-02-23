@@ -251,6 +251,7 @@ class NumericsParams(eqx.Module):
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     parallel_limiter: Literal["none", "minmod", "mc"] = "none"
+    parallel_flux_conservative: bool = False
     poisson_scale: float = 1.0
     poisson_metric_on: bool = False
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"

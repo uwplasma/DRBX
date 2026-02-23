@@ -102,6 +102,22 @@ for minimal preset schedules:
   (`exb_y_scale=0` disables y-advection to mimic `poloidal_flows=false` in BOUT++).
 - `parallel_limiter`: slope limiter applied to open-field parallel derivatives
   (`none`, `minmod`, `mc`).
+- `parallel_flux_conservative`: use conservative parallel fluxes for `n` and `p`
+  (e.g., `-∂‖(n v‖)` and `-∂‖(p v‖)`), with limiter/Lax flux when open-field.
+
+### Parallel Flux Scheme (Open-Field)
+
+When `parallel_flux_conservative=true` and `open_field_line=true`, the solver
+uses a **finite-volume Lax flux** with slope-limited reconstruction along the
+parallel coordinate:
+
+```
+F_{i+1/2} = 0.5 (f_L v_L + f_R v_R) + 0.5 a_max (f_L - f_R)
+```
+
+where `a_max = max(|v_L|, |v_R|)` and `f_L`, `f_R` are limited states obtained
+with `parallel_limiter = "minmod"` or `"mc"`. The divergence is then
+`(F_{i+1/2} - F_{i-1/2}) / Δz`.
 
 ---
 
