@@ -72,9 +72,10 @@ class TermScheduler(eqx.Module):
             else:
                 dissipative = _state_add(dissipative, term)
 
-        return DRBSystemSplit(
-            conservative=conservative, source=source, dissipative=dissipative
-        ), term_map
+        return (
+            DRBSystemSplit(conservative=conservative, source=source, dissipative=dissipative),
+            term_map,
+        )
 
 
 def _get_par(work: dict[str, object], ctx: TermContext, y: DRBSystemState):

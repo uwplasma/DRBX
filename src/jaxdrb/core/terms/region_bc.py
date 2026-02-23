@@ -72,12 +72,16 @@ def region_bc_relaxation(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
             vpar_e=out.vpar_e + _apply_field_bc(geom, y.vpar_e, region.vpar_e, mask, use_dpar=True),
             vpar_i=out.vpar_i + _apply_field_bc(geom, y.vpar_i, region.vpar_i, mask, use_dpar=True),
             Te=out.Te + log_rhs(params, Te_term, ctx.Te_phys, ctx.Te_floor, params.log_Te),
-            Ti=out.Ti
-            if y.Ti is None
-            else out.Ti + _apply_field_bc(geom, y.Ti, region.Ti, mask, use_dpar=True),
-            psi=out.psi
-            if y.psi is None
-            else out.psi + _apply_field_bc(geom, y.psi, region.psi, mask, use_dpar=True),
+            Ti=(
+                out.Ti
+                if y.Ti is None
+                else out.Ti + _apply_field_bc(geom, y.Ti, region.Ti, mask, use_dpar=True)
+            ),
+            psi=(
+                out.psi
+                if y.psi is None
+                else out.psi + _apply_field_bc(geom, y.psi, region.psi, mask, use_dpar=True)
+            ),
             N=out.N if y.N is None else out.N + jnp.zeros_like(y.N),
         )
 

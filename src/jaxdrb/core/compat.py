@@ -6,7 +6,6 @@ import equinox as eqx
 
 from .params import DRBSystemParams, update_params_from_dict
 
-
 _ALIASES: dict[str, tuple[str, ...]] = {
     "eta_par": ("eta",),
     "poisson_cg_maxiter": ("poisson_maxiter",),
