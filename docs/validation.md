@@ -35,6 +35,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_region_bc.py` | Region masks + BC policy application | Boundary-conditions design |
 | Unit | `tests/test_bc_relaxation.py` | Log vs linear variables, Neumann/Dirichlet relax targets | Boundary-conditions design |
 | Unit | `tests/test_normalization.py` | Physical → normalized scaling | Normalization scheme |
+| Unit | `tests/test_fluctuation_diagnostics.py` | `rms_*_fluct` and `equilibrium_*` consistency | Fluctuation diagnostics |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
 | Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
 | Physics | `tests/test_energy_conservation.py` | Energy conservation (advection-only) | conserving_drb |

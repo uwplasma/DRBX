@@ -10,8 +10,6 @@ All variants (ES/EM, hot/cold ions, sheath/no‑sheath, Boussinesq/non‑Boussin
 ![Energy conservation](docs/figures/energy_error.png)
 ![Open field-line poloidal plane](docs/figures/open_field_poloidal_fluct.png)
 ![Open field-line movie](docs/figures/open_field_movie.gif)
-![Field-aligned toroidal cuts](docs/figures/three_d_toroidal.png)
-![Field-aligned toroidal movie](docs/figures/three_d_toroidal_movie.gif)
 
 ## Quick Start
 ```
@@ -26,6 +24,7 @@ jaxdrb path/to/input.toml
 - Geometry models: `docs/geometry_models.md`
 - Geometry consistency checks: `docs/geometry_compare.md`
 - Validation & tests: `docs/validation.md`
+- Benchmark workflow: `docs/benchmarks/open_field_alignment.md`
 - Profiling: `docs/profiling.md`
 - Figures & diagnostics: `docs/figures.md`
 - Diagnostics utilities: `docs/diagnostics.md`

@@ -120,6 +120,14 @@ def main() -> None:
     r_minor = float(geom.get("r_minor", geom.get("Lx", 1.0)))
     Lx = float(geom.get("Lx", r_minor))
 
+    coeff_path = geom.get("coeff_path") or geom.get("coefficients")
+    coeffs = None
+    if kind.startswith("axisymmetric") and coeff_path is not None:
+        try:
+            coeffs = np.load(coeff_path)
+        except OSError:
+            coeffs = None
+
     if kind == "plane":
         nx = int(geom.get("nx", 64))
         ny = int(geom.get("ny", 64))
@@ -132,7 +140,11 @@ def main() -> None:
         theta_scale = float(geom.get("theta_scale", 1.0))
         Lz = float(geom.get("Lz", 2.0 * np.pi * theta_scale))
         x = np.linspace(0.0, Lx, nx, endpoint=True)
-        z = np.linspace(-0.5 * Lz, 0.5 * Lz, nz, endpoint=True)
+        if coeffs is not None and "z" in coeffs:
+            z = np.asarray(coeffs["z"]).reshape(-1)
+            nz = int(z.size)
+        else:
+            z = np.linspace(-0.5 * Lz, 0.5 * Lz, nz, endpoint=True)
         theta = z / max(theta_scale, 1e-8)
 
     data = np.load(args.input)
@@ -171,9 +183,13 @@ def main() -> None:
         else:
             field = eq_field + float(args.fluct_scale) * field
 
-    r = x * (r_minor / max(Lx, 1e-8))
-    R = R0 + r[None, :] * np.cos(theta[:, None])
-    Z = r[None, :] * np.sin(theta[:, None])
+    if coeffs is not None and ("Rxy" in coeffs) and ("Zxy" in coeffs):
+        R = np.asarray(coeffs["Rxy"]).T
+        Z = np.asarray(coeffs["Zxy"]).T
+    else:
+        r = x * (r_minor / max(Lx, 1e-8))
+        R = R0 + r[None, :] * np.cos(theta[:, None])
+        Z = r[None, :] * np.sin(theta[:, None])
 
     # Ensure field orientation matches (theta, x) grid.
     if field.shape != R.shape:
@@ -214,23 +230,30 @@ def main() -> None:
             interpolation="bilinear",
         )
     else:
-        im = ax.tripcolor(
-            tri,
-            field.ravel(),
-            shading="gouraud",
-            cmap=str(args.cmap),
-            vmin=vmin,
-            vmax=vmax,
+        im = ax.pcolormesh(
+            R, Z, field, shading="gouraud", cmap=str(args.cmap), vmin=vmin, vmax=vmax
         )
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(args.field)
     ax.set_title(f"Poloidal {args.field}")
     ax.set_xlabel("R")
     ax.set_ylabel("Z")
     ax.set_aspect("equal")
-    if args.separatrix is not None:
+    if args.overlay_mask and coeffs is not None and "mask_open" in coeffs:
+        mask_open = np.asarray(coeffs["mask_open"]).T
+        ax.contour(
+            R,
+            Z,
+            mask_open,
+            levels=[0.5],
+            colors="white",
+            linewidths=1.0,
+            linestyles=":",
+        )
+    elif args.separatrix is not None:
         sep = float(args.separatrix)
         ax.plot(R0 + sep * np.cos(theta), sep * np.sin(theta), color="white", lw=1.2, ls="--")
-    if args.overlay_mask and sol_on:
+    elif args.overlay_mask and sol_on:
         xs = float(sol_cfg.get("sol_xs", 0.7))
         width = float(sol_cfg.get("sol_width", 0.05))
         open_left = bool(sol_cfg.get("sol_open_left", False))

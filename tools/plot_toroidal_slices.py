@@ -97,6 +97,14 @@ def main() -> None:
     R0 = float(geom.get("R0", 3.0))
     r_minor = float(geom.get("r_minor", geom.get("Lx", 1.0)))
     Lx = float(geom.get("Lx", r_minor))
+
+    coeff_path = geom.get("coeff_path") or geom.get("coefficients")
+    coeffs = None
+    if kind.startswith("axisymmetric") and coeff_path is not None:
+        try:
+            coeffs = np.load(coeff_path)
+        except OSError:
+            coeffs = None
     nx = int(geom.get("nx", 64))
     ny = int(geom.get("ny", 64))
     nz = int(geom.get("nz", 64))
@@ -106,7 +114,11 @@ def main() -> None:
 
     x = np.linspace(0.0, Lx, nx, endpoint=True)
     y = np.linspace(0.0, Ly, ny, endpoint=False)
-    z = np.linspace(-0.5 * Lz, 0.5 * Lz, nz, endpoint=True)
+    if coeffs is not None and "z" in coeffs:
+        z = np.asarray(coeffs["z"]).reshape(-1)
+        nz = int(z.size)
+    else:
+        z = np.linspace(-0.5 * Lz, 0.5 * Lz, nz, endpoint=True)
     theta = z / max(theta_scale, 1e-8)
     phi = y * (2.0 * np.pi / max(Ly, 1e-8))
 
@@ -131,6 +143,9 @@ def main() -> None:
     if args.z_index is None:
         if args.toroidal_theta is not None:
             z_idx = int(np.argmin(np.abs(theta - float(args.toroidal_theta))))
+        elif coeffs is not None and ("Rxy" in coeffs):
+            r_mean = np.mean(np.asarray(coeffs["Rxy"]).T, axis=1)
+            z_idx = int(np.argmax(r_mean))
         else:
             z_var = np.var(field, axis=(1, 2))
             z_idx = int(np.argmax(z_var))
@@ -139,6 +154,9 @@ def main() -> None:
     z_idx2 = None
     if args.toroidal_theta2 is not None:
         z_idx2 = int(np.argmin(np.abs(theta - float(args.toroidal_theta2))))
+    elif coeffs is not None and ("Rxy" in coeffs):
+        r_mean = np.mean(np.asarray(coeffs["Rxy"]).T, axis=1)
+        z_idx2 = int(np.argmin(r_mean))
     # pick time of max energy if a time axis exists
     poloidal_slice = field[:, :, y_idx]
     toroidal_slice = field[z_idx]
@@ -147,9 +165,13 @@ def main() -> None:
     poloidal_slice = maybe_lowpass(poloidal_slice, args.lowpass)
     toroidal_slice = maybe_lowpass(toroidal_slice, args.lowpass)
 
-    r = x * (r_minor / max(Lx, 1e-8))
-    R = R0 + r[None, :] * np.cos(theta[:, None])
-    Z = r[None, :] * np.sin(theta[:, None])
+    if coeffs is not None and ("Rxy" in coeffs) and ("Zxy" in coeffs):
+        R = np.asarray(coeffs["Rxy"]).T
+        Z = np.asarray(coeffs["Zxy"]).T
+    else:
+        r = x * (r_minor / max(Lx, 1e-8))
+        R = R0 + r[None, :] * np.cos(theta[:, None])
+        Z = r[None, :] * np.sin(theta[:, None])
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
     interp_grid = int(args.interp_grid)
     if interp_grid > 0:
@@ -167,8 +189,22 @@ def main() -> None:
         poloidal_interp = None
 
     theta0 = theta[z_idx]
-    R_tor = R0 + r * np.cos(theta0)
+    if coeffs is not None and ("Rxy" in coeffs):
+        R_tor = R[z_idx, :]
+    else:
+        r = x * (r_minor / max(Lx, 1e-8))
+        R_tor = R0 + r * np.cos(theta0)
     Phi, Rg = np.meshgrid(phi, R_tor, indexing="xy")
+    rmin = float(np.min(R_tor))
+    rmax = float(np.max(R_tor))
+    if z_idx2 is not None:
+        if coeffs is not None and ("Rxy" in coeffs):
+            R_tor2_preview = R[z_idx2, :]
+        else:
+            r = x * (r_minor / max(Lx, 1e-8))
+            R_tor2_preview = R0 + r * np.cos(theta[z_idx2])
+        rmin = float(min(rmin, np.min(R_tor2_preview)))
+        rmax = float(max(rmax, np.max(R_tor2_preview)))
 
     slices = [poloidal_slice.ravel(), toroidal_slice.ravel()]
     if toroidal_slice2 is not None:
@@ -197,10 +233,10 @@ def main() -> None:
             interpolation="bilinear",
         )
     else:
-        im0 = ax0.tripcolor(
-            tri, poloidal_slice.ravel(), shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
+        im0 = ax0.pcolormesh(
+            R, Z, poloidal_slice, shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
         )
-    ax0.set_title("poloidal cut")
+    ax0.set_title(f"poloidal cut ({args.field})")
     ax0.set_xlabel("R")
     ax0.set_ylabel("Z")
     ax0.set_aspect("equal")
@@ -210,7 +246,7 @@ def main() -> None:
 
     if args.toroidal_mode == "polar":
         ax1 = fig.add_subplot(1, 2 if toroidal_slice2 is None else 3, 2, projection="polar")
-        im1 = ax1.pcolormesh(
+        ax1.pcolormesh(
             Phi,
             Rg,
             toroidal_slice,
@@ -220,8 +256,6 @@ def main() -> None:
             vmax=vmax,
         )
         ax1.set_title("toroidal cut (outboard)")
-        rmin = float(R0 - r_minor)
-        rmax = float(R0 + r_minor)
         ax1.set_rmin(rmin)
         ax1.set_rmax(rmax)
         ax1.set_ylim(rmin, rmax)
@@ -231,7 +265,11 @@ def main() -> None:
         ax2 = None
         if toroidal_slice2 is not None:
             theta2 = theta[z_idx2]
-            R_tor2 = R0 + r * np.cos(theta2)
+            if coeffs is not None and ("Rxy" in coeffs):
+                R_tor2 = R[z_idx2, :]
+            else:
+                r = x * (r_minor / max(Lx, 1e-8))
+                R_tor2 = R0 + r * np.cos(theta2)
             Phi2, Rg2 = np.meshgrid(phi, R_tor2, indexing="xy")
             ax2 = fig.add_subplot(1, 3, 3, projection="polar")
             ax2.pcolormesh(
@@ -252,17 +290,19 @@ def main() -> None:
             ax2.grid(alpha=0.3)
     else:
         ax1 = fig.add_subplot(1, 2 if toroidal_slice2 is None else 3, 2)
-        im1 = ax1.pcolormesh(
-            Phi, Rg, toroidal_slice, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax
-        )
+        ax1.pcolormesh(Phi, Rg, toroidal_slice, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
         ax1.set_title("toroidal cut (outboard)")
         ax1.set_xlabel("toroidal angle")
         ax1.set_ylabel("R")
-        ax1.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
+        ax1.set_ylim(rmin, rmax)
         ax2 = None
         if toroidal_slice2 is not None:
             theta2 = theta[z_idx2]
-            R_tor2 = R0 + r * np.cos(theta2)
+            if coeffs is not None and ("Rxy" in coeffs):
+                R_tor2 = R[z_idx2, :]
+            else:
+                r = x * (r_minor / max(Lx, 1e-8))
+                R_tor2 = R0 + r * np.cos(theta2)
             Phi2, Rg2 = np.meshgrid(phi, R_tor2, indexing="xy")
             ax2 = fig.add_subplot(1, 3, 3)
             ax2.pcolormesh(
@@ -271,10 +311,11 @@ def main() -> None:
             ax2.set_title("toroidal cut (inboard)")
             ax2.set_xlabel("toroidal angle")
             ax2.set_ylabel("R")
-            ax2.set_ylim(float(R0 - r_minor), float(R0 + r_minor))
+            ax2.set_ylim(rmin, rmax)
 
     axes = [ax0, ax1] if ax2 is None else [ax0, ax1, ax2]
-    fig.colorbar(im0, ax=axes, fraction=0.03, pad=0.02)
+    cbar = fig.colorbar(im0, ax=axes, fraction=0.03, pad=0.02)
+    cbar.set_label(args.field)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
