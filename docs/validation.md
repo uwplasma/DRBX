@@ -36,9 +36,15 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_bc_relaxation.py` | Log vs linear variables, Neumann/Dirichlet relax targets | Boundary-conditions design |
 | Unit | `tests/test_normalization.py` | Physical → normalized scaling | Normalization scheme |
 | Unit | `tests/test_fluctuation_diagnostics.py` | `rms_*_fluct` and `equilibrium_*` consistency | Fluctuation diagnostics |
+| Unit | `tests/test_benchmark_schema.py` | Benchmark bundle schema round-trip (normalized + SI) | Cross-code reproducibility |
+| Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes parity diagnostics |
+| Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
+| Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
 | Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
 | Physics | `tests/test_energy_conservation.py` | Energy conservation (advection-only) | conserving_drb |
+| Physics | `tests/test_sheath_flux_sanity.py` | Open-field Bohm-current target flux sanity (finite, positive) | sheath/open-field validation |
+| Physics | `tests/test_nonlinear_stats_window.py` | Finite nonlinear stats window gate on unified RHS | SOL turbulence sanity |
 | Regression | `tests/test_poisson_iter_stats_regression.py` | Warm-start reduces CG iterations | Numerical solver stability |
 | Regression | `tests/test_performance_regression.py` | Max time/step on 16×16 slab | Runtime guardrail |
 | Physics | `tests/test_ideal_ballooning.py` | Ideal ballooning proxy check | Halpern 2013 |
@@ -125,3 +131,16 @@ For profiling, see `docs/profiling.md`.
 The public validation surface focuses on **internal consistency, conservation,
 and physics‑anchored checks** of the unified DRB system. Validation is kept
 self‑contained and reproducible within `jax_drb`.
+
+## Benchmark Gating (Hermes Parity Workflow)
+
+The staged benchmark workflow applies finite-run gating at every stage:
+
+1. short linear window
+2. onset window
+3. saturated window
+
+Each stage is rejected if any RMS fluctuation channel is non-finite or exceeds
+growth/peak thresholds. See:
+- `tools/run_staged_benchmark.py`
+- `tools/build_benchmark_bundle.py`
