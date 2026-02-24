@@ -5,6 +5,8 @@ using the same normalization convention and fluctuation diagnostics.
 
 Base alignment config:
 - `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment.toml`
+- Calibrated short-window config:
+  `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_calibrated.toml`
 
 ## 1) Run staged windows with finite-run gating
 
@@ -67,6 +69,11 @@ PYTHONPATH=src python tools/scan_poisson_scale.py \
 
 Only finite, non-spiking candidates should be used for `t > 1.0` runs.
 
+Latest short-loop scan (calibrated config) selected:
+- `poisson_scale = 2e-4`
+- score `1.348` (fluctuation RMS mismatch score)
+- finite gate: passed (`growth=2.01`, `peak=0.295`)
+
 ## Notes on Physics Alignment
 
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
@@ -74,6 +81,10 @@ Only finite, non-spiking candidates should be used for `t > 1.0` runs.
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
   `parallel_limiter="mc"`).
 - Fluctuation diagnostics are computed against equilibrium (`t0`) in both code paths.
+- Short-loop calibration that reduced mismatch used:
+  - radial BC: `bc_x = neumann` (geometry + perpendicular BC policy)
+  - normalization-enabled physical inputs for drives/sources
+  - reduced transport (`Dn=1e-3`, `DOmega=1e-4`, `DTe=1e-3`)
 
 ## Related docs
 
