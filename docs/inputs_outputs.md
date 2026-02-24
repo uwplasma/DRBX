@@ -31,6 +31,16 @@ The CLI expects a single TOML file:
 jaxdrb /path/to/input.toml --run --output /path/to/output.npz
 ```
 
+### Initial mixmode keys
+
+`[initial]` supports two mixmode paths:
+
+- `n_profile = "gaussian_mixmode"` with `mixmode_amp`, `mixmode_terms`, `mixmode_mode`
+  to build a deterministic density perturbation from the selected profile.
+- `n_mixmode_amp`, `n_mixmode_terms`, `n_mixmode_mode`, `n_mixmode_seed` to overlay
+  deterministic mixmode perturbations on top of any base density profile (for example,
+  a linear equilibrium profile plus a Hermes-style `x-z` perturbation).
+
 ---
 
 ## Output File (`.npz`)

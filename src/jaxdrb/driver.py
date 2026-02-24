@@ -702,14 +702,64 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
                     arg = xg
                 elif key in ("4z-x", "4*z-x") and z_arg is not None:
                     arg = 4.0 * z_arg - xg
+                elif key in ("x-z", "x-zed") and z_arg is not None:
+                    arg = xg - z_arg
+                elif key in ("z-x",) and z_arg is not None:
+                    arg = z_arg - xg
                 elif key in ("y",) and y_arg is not None:
                     arg = y_arg
                 elif key in ("4y-x", "4*y-x") and y_arg is not None:
                     arg = 4.0 * y_arg - xg
+                elif key in ("x-y",) and y_arg is not None:
+                    arg = xg - y_arg
+                elif key in ("y-x",) and y_arg is not None:
+                    arg = y_arg - xg
                 else:
                     continue
                 mix = mix + _mixmode(arg, seed=mix_seed)
             n_phys = n_phys + mix_amp * mix
+
+    # Optional deterministic mixmode perturbation over any base profile.
+    n_mix_amp = float(init.get("n_mixmode_amp", init.get("mixmode_amp_global", 0.0)))
+    if n_mix_amp != 0.0:
+        xg, yg = _perp_xy(centered=x_centered, x_mode=x_mode)
+        zg = _par_z(z_mode)
+        if xg is not None and (zg is not None or yg is not None):
+            mix_seed = float(init.get("n_mixmode_seed", init.get("mixmode_seed", 0.5)))
+            terms = init.get("n_mixmode_terms", ["x-z"])
+            if isinstance(terms, str):
+                terms = [terms]
+            mixmode_mode = str(init.get("n_mixmode_mode", init.get("mixmode_mode", "jax"))).lower()
+            z_arg = zg
+            y_arg = yg
+            if mixmode_mode in ("reference", "bout", "boutpp"):
+                z_arg = yg
+                y_arg = zg
+            mix = jnp.zeros_like(n_phys)
+            for term in terms:
+                key = str(term).replace(" ", "").lower()
+                if key in ("z",) and z_arg is not None:
+                    arg = z_arg
+                elif key in ("x",):
+                    arg = xg
+                elif key in ("4z-x", "4*z-x") and z_arg is not None:
+                    arg = 4.0 * z_arg - xg
+                elif key in ("x-z", "x-zed") and z_arg is not None:
+                    arg = xg - z_arg
+                elif key in ("z-x",) and z_arg is not None:
+                    arg = z_arg - xg
+                elif key in ("y",) and y_arg is not None:
+                    arg = y_arg
+                elif key in ("4y-x", "4*y-x") and y_arg is not None:
+                    arg = 4.0 * y_arg - xg
+                elif key in ("x-y",) and y_arg is not None:
+                    arg = xg - y_arg
+                elif key in ("y-x",) and y_arg is not None:
+                    arg = y_arg - xg
+                else:
+                    continue
+                mix = mix + _mixmode(arg, seed=mix_seed)
+            n_phys = n_phys + n_mix_amp * mix
 
     Te_profile = str(init.get("Te_profile", init.get("profile_Te", ""))).lower()
     if Te_profile in ("linear_x", "affine_x", "linear"):
@@ -760,6 +810,11 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
                 Te_phys = Te_phys + noise
             else:
                 Te_phys = Te_phys + 0.0
+
+    # Keep all state channels shape-consistent even when profiles are x-only
+    # and only a subset of fields receives perturbations.
+    n_phys = jnp.broadcast_to(n_phys, state.n.shape)
+    Te_phys = jnp.broadcast_to(Te_phys, state.n.shape)
 
     n_floor = max(float(sys_params.n0_min), 1e-12)
     Te_floor = max(float(sys_params.sol_Te_floor), 1e-12)
