@@ -66,3 +66,31 @@ false rejections from channels that start at exactly zero by construction.
 
 This short-window gate must pass before extending to longer nonlinear
 open-field runs.
+
+## 5) Long-Window Extension (`t=1.0`)
+
+```bash
+cd <repo-root>
+PYTHONPATH=src python -m jaxdrb.cli.main \
+  examples/open_field_line/input_tokamak_bxcv_t1_align_norm.toml \
+  --run \
+  --output <run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align_norm.npz
+```
+
+If comparing against historical outputs produced before fluctuation channels
+were exported directly, append `*_fluct` diagnostics with:
+
+```bash
+python - <<'PY'
+import numpy as np
+src = np.load("<run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align.npz", allow_pickle=True)
+obj = {k: src[k] for k in src.files}
+for fld in ("n", "Te", "omega", "phi"):
+    s = np.asarray(obj[f"snapshots_{fld}"])
+    eq = s[0]
+    d = s - eq[None, ...]
+    obj[f"equilibrium_{fld}"] = eq
+    obj[f"rms_{fld}_fluct"] = np.sqrt(np.mean(d * d, axis=tuple(range(1, d.ndim))))
+np.savez("<run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align_with_fluct.npz", **obj)
+PY
+```
