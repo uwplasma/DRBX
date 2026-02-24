@@ -4,11 +4,9 @@ Research‑grade **drift‑reduced Braginskii** solver centered on a **single un
 All variants (ES/EM, hot/cold ions, sheath/no‑sheath, Boussinesq/non‑Boussinesq,
 1D/2D/3D, linear/nonlinear) are **toggles** on the same core RHS.
 
-![Tokamak SOL equilibrium (poloidal cut)](docs/figures/tokamak_sol_poloidal_eq.png)
-![Tokamak SOL turbulence (poloidal fluctuation)](docs/figures/tokamak_sol_poloidal_fluct.png)
-![Tokamak SOL 3D slices](docs/figures/tokamak_sol_3d_slices.png)
 ![Tokamak SOL benchmark fluctuation RMS](docs/figures/tokamak_sol_benchmark_fluct_rms.png)
 ![Tokamak SOL movie](docs/figures/tokamak_sol_movie.gif)
+![Tokamak SOL 3D cut movie](docs/figures/tokamak_sol_3d_movie.gif)
 
 ## Quick Start
 ```
