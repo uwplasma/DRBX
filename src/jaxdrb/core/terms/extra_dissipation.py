@@ -34,7 +34,9 @@ def extra_dissipation_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemSta
 
     omega = jnp.zeros_like(y.omega)
 
-    nu_phi_par = float(ctx.params.phi_par_dissipation)
+    nu_phi_par = (
+        float(ctx.params.phi_par_dissipation) if bool(ctx.params.phi_dissipation_on) else 0.0
+    )
     if nu_phi_par != 0.0:
         with jax.named_scope("phi_par_dissipation"):
             # d2par < 0 for Fourier modes, so +nu*d2par damps.

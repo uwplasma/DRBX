@@ -322,6 +322,7 @@ def sol_sheath_phi_term(
 ) -> DRBSystemState:
     if (
         not params.sol_sheath_phi_on
+        or not params.sol_sheath_phi_dissipation_on
         or bool(params.sol_sheath_phi_implicit)
         or mask_open is None
         or float(params.sol_parallel_loss_q) <= 0.0

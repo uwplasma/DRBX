@@ -41,6 +41,17 @@ jaxdrb /path/to/input.toml --run --output /path/to/output.npz
   deterministic mixmode perturbations on top of any base density profile (for example,
   a linear equilibrium profile plus a Hermes-style `x-z` perturbation).
 
+### Pressure-consistent temperature initialization
+
+For Hermes-equivalent initialization, you can define density and pressure profiles
+independently and derive temperature from `Te = p / n`:
+
+- `p_profile`: pressure profile (`linear_x`, `parabolic_x`, `gaussian_x`).
+- `p_profile_*`: coefficients (`offset/slope/xref`, `a0/a1/a2/xref`, or `amp/width/x0`).
+- `Te_profile = "from_pressure"` (or `Te_pressure_consistent = true`): force
+  temperature initialization to use `p_profile / n_profile`, including deterministic
+  mixmode perturbations applied to `n`.
+
 ---
 
 ## Output File (`.npz`)
