@@ -54,3 +54,15 @@ extend runs beyond `t=1.0`.
 
 Growth gating uses the second saved sample as the reference level to avoid
 false rejections from channels that start at exactly zero by construction.
+
+## Current Short-Window Status
+
+- Constrained scan in the current aligned setup selects `poisson_scale = 1e-3`
+  as the best finite candidate under short-window gates.
+- Comparison metric is fluctuation RMS (`*_fluct`) rather than total RMS.
+- The benchmark figure is tracked in:
+  - `docs/figures/tokamak_sol_benchmark_fluct_rms.png`
+  - `docs/figures/tokamak_sol_benchmark_fluct_rms.csv`
+
+This short-window gate must pass before extending to longer nonlinear
+open-field runs.
