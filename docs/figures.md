@@ -7,21 +7,23 @@ The plotting scripts in `tools/` call internal diagnostics utilities under
 `jaxdrb.diagnostics` (spectra, PDFs, and zonal averages) so all figures remain
 fully reproducible without external code.
 
-## Tokamak SOL Turbulence (Long-Window Surface)
+## Tokamak SOL Benchmark Panel
 
-![Tokamak SOL fluctuation RMS benchmark](figures/tokamak_sol_benchmark_fluct_rms.png)
+![Tokamak SOL canonical benchmark panel](figures/tokamak_sol_benchmark_panel.png)
 ![Tokamak SOL poloidal movie](figures/tokamak_sol_movie.gif)
 ![Tokamak SOL 3D cut movie](figures/tokamak_sol_3d_movie.gif)
 
-Regenerate from a long-window aligned run output:
+Generate canonical Hermes-vs-jax_drb panel:
 
 ```bash
-python tools/compare_short_rms.py \
-  --hermes <run-dir>/hermes_tokamak_turb_t1_rms.npz \
-  --jax <run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align_with_fluct.npz \
-  --metric fluct \
-  --out-plot docs/figures/tokamak_sol_benchmark_fluct_rms.png \
-  --out-csv docs/figures/tokamak_sol_benchmark_fluct_rms.csv
+python tools/plot_benchmark_panel.py \
+  --hermes <run-dir>/bundle_hermes_short.npz \
+  --jax <run-dir>/bundle_jax_short.npz \
+  --out docs/figures/tokamak_sol_benchmark_panel.png \
+  --summary-csv docs/figures/tokamak_sol_benchmark_panel.csv
+```
+
+Generate long-window aligned movies:
 
 python tools/make_poloidal_movie.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align_with_fluct.npz \
   --config examples/open_field_line/input_tokamak_bxcv_t1_align.toml \

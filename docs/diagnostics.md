@@ -1,68 +1,135 @@
 # Diagnostics
 
-`jax_drb` ships **built‑in diagnostics** for spectra, PDFs, and zonal averages.
-These are used by the plotting scripts in `tools/` and are fully reproducible.
+`jax_drb` now includes a shared benchmark diagnostics layer used for both
+`jax_drb` outputs and Hermes dump outputs.
 
-When `time.save_fields = true`, the driver also exports fluctuation channels
-computed from snapshots relative to the first saved state:
+Code paths:
+- `src/jaxdrb/benchmarking/schema.py`
+- `src/jaxdrb/benchmarking/diagnostics.py`
+- `tools/build_benchmark_bundle.py`
+- `tools/plot_benchmark_panel.py`
 
-- `equilibrium_n`, `equilibrium_Te`, `equilibrium_omega`, `equilibrium_phi`
-- `rms_n_fluct`, `rms_Te_fluct`, `rms_omega_fluct`, `rms_phi_fluct`
+## Shared Schema (Normalized + SI)
 
-## Spectra
+A benchmark bundle stores:
+- normalized time (`times_norm`)
+- SI time (`times_si`)
+- normalization constants (`Nnorm`, `Tnorm_eV`, `Bnorm_T`, `m_i_amu`, `Z_i`)
+- diagnostics channels
+- last snapshots / fluctuation snapshots
 
-The 2D power spectrum uses FFTs with optional detrending and windowing. For
-isotropic spectra we bin in |k| shells.
+Normalization-derived reference scales:
 
-Python:
+\[
+ c_{s0} = \sqrt{\frac{e T_{e0}}{m_i}}, \qquad
+ \Omega_{ci} = \frac{Z_i e B_0}{m_i}, \qquad
+ \rho_{s0} = \frac{c_{s0}}{\Omega_{ci}}.
+\]
 
-```python
-from jaxdrb.diagnostics import isotropic_spectrum
+These are encoded in `BenchmarkNormalization` for explicit parity checks.
 
-spec = isotropic_spectrum(field, dx=dx, dy=dy)
+## Implemented Shared Diagnostics
+
+All diagnostics are available from `src/jaxdrb/benchmarking/diagnostics.py`.
+
+### Fluctuation RMS
+
+For equilibrium field `f_eq` (default first snapshot):
+
+\[
+ f' = f - f_{eq}, \qquad
+ \mathrm{RMS}(f') = \sqrt{\langle (f')^2 \rangle}.
+\]
+
+APIs:
+- `compute_fluctuation_rms`
+
+### Spectra
+
+- Frequency spectrum from Welch-like windowed FFT of probe traces:
+  `compute_frequency_psd`
+- Binormal spectrum from FFT along the chosen `y` axis:
+  `compute_ky_psd`
+
+### PDFs
+
+- Histogram-based PDFs of fluctuation fields:
+  `compute_pdf`
+
+### Cross-Coherence and Phase
+
+From cross-spectrum `S_xy(f)`:
+
+\[
+ C_{xy}(f) = \frac{|S_{xy}|^2}{S_{xx}S_{yy}}, \qquad
+ \phi_{xy}(f) = \arg(S_{xy}).
+\]
+
+API:
+- `compute_cross_coherence_phase`
+
+### Radial Flux and Target Fluxes
+
+- Particle flux profile using
+  \(\Gamma_r = \langle n v_{E,r}\rangle\),
+  \(v_{E,r} = -\partial_y\phi / B\):
+  `compute_radial_particle_flux_profile`
+- Target particle/heat flux proxies:
+  `compute_target_fluxes`
+
+### Finite-Run Gate
+
+Shared finite-run gate used by scanning/staging workflows:
+- finite checks for all RMS channels
+- growth-factor gate
+- absolute-peak gate
+
+API:
+- `finite_run_gate`
+
+## Hermes-Compatible Workflow
+
+1. Build Hermes bundle:
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/build_benchmark_bundle.py \
+  --code hermes \
+  --input <hermes-data-dir> \
+  --output <run-dir>/bundle_hermes_short.npz \
+  --geometry tokamak_open_field
 ```
 
-## PDFs
+2. Build jax_drb bundle:
 
-PDFs are computed from mean‑subtracted fluctuations:
-
-```python
-from jaxdrb.diagnostics import pdf_1d
-
-centers, hist = pdf_1d(field - field.mean(), bins=80)
+```bash
+cd <repo>
+PYTHONPATH=src python tools/build_benchmark_bundle.py \
+  --code jax \
+  --input <run-dir>/jax_short.npz \
+  --config examples/open_field_line/input_tokamak_bxcv_benchmark_alignment.toml \
+  --output <run-dir>/bundle_jax_short.npz \
+  --geometry tokamak_open_field
 ```
 
-## Zonal Averages
+3. Generate canonical side-by-side panel:
 
-Zonal means are defined by averaging over the binormal axis:
-
-```python
-from jaxdrb.diagnostics import zonal_mean
-
-zonal = zonal_mean(field, axis=1)
+```bash
+cd <repo>
+PYTHONPATH=src python tools/plot_benchmark_panel.py \
+  --hermes <run-dir>/bundle_hermes_short.npz \
+  --jax <run-dir>/bundle_jax_short.npz \
+  --out docs/figures/tokamak_sol_benchmark_panel.png \
+  --summary-csv docs/figures/tokamak_sol_benchmark_panel.csv
 ```
 
-## Plotting Scripts
+## Literature Anchors
 
-The public examples call these utilities via the following scripts:
-
-- `tools/plot_spectra.py`
-- `tools/plot_pdf.py`
-- `tools/plot_zonal_profile.py`
-- `tools/plot_zonal_flow.py`
-- `tools/plot_poloidal_plane.py`
-- `tools/plot_3d_slices.py`
-- `tools/make_movie.py`
-- `tools/make_poloidal_movie.py`
-- `tools/extract_hermes_rms.py`
-- `tools/compare_short_rms.py`
-- `tools/scan_poisson_scale.py`
-
-These scripts read `.npz` output and generate the figures included in the
-documentation.
-
-`tools/scan_poisson_scale.py` applies finite/spike gates before scoring:
-
-- finite checks on all fluctuation RMS channels,
-- spike limits via `--max-growth-factor` and `--max-rms-abs`,
-- optional short-window runtime controls via `--dt` and `--nsteps`.
+- Hermes numerics and BC docs:
+  `external/hermes-3/docs/sphinx/solver_numerics.rst`,
+  `external/hermes-3/docs/sphinx/boundary_conditions.rst`,
+  `external/hermes-3/docs/sphinx/equations.rst`
+- SOL turbulence and diagnostics references:
+  `2303.12131v2.pdf`,
+  `Ricci_2012_Plasma_Phys._Control._Fusion_54_124047.pdf`,
+  `Stegmeir_2018_Plasma_Phys._Control._Fusion_60_035005.pdf`
