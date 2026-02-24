@@ -1,0 +1,121 @@
+# Benchmark-alignment base case (ES/cold/Bouss/open-field with Bohm-current sheath).
+# Uses normalization-enabled physical source/drive inputs for cross-code parity workflows.
+
+[normalization]
+enabled = true
+mode = "physics"
+Te0_eV = 50.0
+Ti0_eV = 50.0
+n0 = 1.0e19
+B0 = 1.0
+m_i_amu = 2.0
+Z_i = 1.0
+length_unit = "rho_s"
+
+[geometry]
+kind = "axisymmetric"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv.npz"
+bc_x = "dirichlet"
+bc_y = "periodic"
+open_field_line = true
+dealias = true
+nx = 36
+ny = 48
+nz = 48
+Lx = 0.054697793193735585
+Ly = 9.424777960769383
+Lz = 9.22842842
+theta_scale = 1.0
+R0 = 1.5
+r_minor = 0.054697793193735585
+
+[physics]
+nonlinear_on = true
+em_on = false
+hot_ion_on = false
+neutrals_on = false
+boussinesq = true
+curvature_on = true
+curvature_coeff = 1.0
+curvature_model = "vector_xy"
+sol_on = false
+sol_relax_core = 0.001
+sol_relax_open = 0.005
+sol_n_core = 1.82
+sol_n_sol = 1.2
+sol_Te_core = 0.61
+sol_Te_sol = 0.4
+sol_sink_open_n = 0.0
+sol_sink_open_Te = 0.0
+sol_parallel_loss_on = true
+sol_parallel_loss_model = "bohm_exp"
+sol_parallel_loss_coeff = 0.35
+sol_Te_floor = 0.05
+source_on = true
+source_profile = "gaussian_xy"
+source_x_mode = "bout"
+source_x0 = 0.05
+source_y0 = 0.0
+source_width_x = 0.05
+source_width_y = 99.0
+
+[physics_physical]
+omega_n = 2936.145405178237
+omega_Te = 1468.0727025891185
+source_n0 = 2.3947082889859093e25
+source_Te0 = 4.789416577971819e7
+
+[closures]
+sheath_on = true
+sheath_bc_on = true
+sheath_bc_model = "bohm_current"
+sheath_nu_factor = 1.0
+
+[transport]
+Dn = 0.01
+DOmega = 0.01
+DTe = 0.01
+Dn4 = 5e-07
+DOmega4 = 5e-07
+DTe4 = 5e-07
+mu_lin_n = 0.001
+mu_lin_omega = 0.001
+mu_lin_Te = 0.001
+
+[numerics]
+poisson = "cg_fd"
+bracket = "arakawa"
+parallel_flux_conservative = true
+parallel_limiter = "mc"
+exb_y_scale = 0.0
+poisson_scale = 1.0e-3
+
+[initial]
+n0 = 0.0
+Te0 = 0.0
+n_profile = "linear_x"
+n_profile_offset = 3.0
+n_profile_slope = -2.7
+n_profile_xref = 0.0
+Te_profile = "linear_x"
+Te_profile_offset = 1.0
+Te_profile_slope = -0.9
+Te_profile_xref = 0.0
+amplitude = 0.0005
+seed = 1
+noise_mode = "physical"
+noise_fields = ["n", "omega", "Te"]
+
+[time]
+method = "rk4_imex_strang"
+dt = 0.00005
+nsteps = 4000
+save_every = 10
+diag_mode = "full"
+save_fields = true
+snapshot_fields = ["n", "omega", "Te", "phi"]
+poisson_warm_start = true
+return_numpy = true
+
+[bc]
+perp = { bc_x = "dirichlet", bc_y = "periodic" }
