@@ -9,6 +9,8 @@ Base alignment config:
   `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_calibrated.toml`
 - Hermes-like initial-perturbation variant:
   `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_hermes_init.toml`
+- Hermes-equivalent exact IC variant (`n` mixmode + pressure-consistent `Te`):
+  `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_hermes_exact_ic.toml`
 
 ## 1) Run staged windows with finite-run gating
 
@@ -84,15 +86,19 @@ Use the calibration loop for staged, finite-gated scans and an explicit
 ```bash
 cd <repo>
 PYTHONPATH=src python tools/calibrate_parity_loop.py \
-  --config examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_calibrated.toml \
+  --config examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_hermes_exact_ic.toml \
   --hermes-rms <hermes-rms>.npz \
-  --t-end 0.1 \
-  --grid-override 24,32,24 \
+  --stages 0.1,0.5,1.0 \
+  --grid-short 24,32,24 \
   --omega-mults 1.0,1.1 \
   --source-mults 1.0,1.2 \
   --dn-mults 1.0 \
   --domega-mults 0.8 \
   --poisson-scales 2e-4 \
+  --phi-dissipation-on 0,1 \
+  --phi-sheath-dissipation-on 0,1 \
+  --core-vorticity-damping-on 0,1 \
+  --promote-top-k 8 \
   --rtol-target 1e-1 \
   --out-csv runs/staged_open_field/parity_scan_t01.csv
 ```

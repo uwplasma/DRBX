@@ -45,11 +45,16 @@ def diffusion_terms(
     )
     diss_Ti = float(ctx.params.DTi) * lap_Ti - float(ctx.params.DTi4) * bih_Ti
 
+    mu_zonal = (
+        float(ctx.params.mu_zonal_omega) if bool(ctx.params.core_vorticity_damping_on) else 0.0
+    )
+    mu_lin = float(ctx.params.mu_lin_omega) if bool(ctx.params.core_vorticity_damping_on) else 0.0
+
     diss_w = (
         float(ctx.params.DOmega) * lap_w
         - float(ctx.params.DOmega4) * bih_w
-        - float(ctx.params.mu_zonal_omega) * omega_zonal
-        - float(ctx.params.mu_lin_omega) * y.omega
+        - mu_zonal * omega_zonal
+        - mu_lin * y.omega
     )
 
     eta_eff = ctx.params.eta_par if ctx.params.eta_par != 0.0 else ctx.params.eta

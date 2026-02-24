@@ -21,6 +21,8 @@ the unified DRB system. All options are designed to be **subsets of the same cor
 - `sol_on`: enable SOL masks and open/closed field‑line logic.
 - `sol_parallel_loss_on`: enable Bohm‑like parallel loss sink terms.
 - `sol_sheath_phi_on`: enable sheath‑current damping in the vorticity equation.
+- `sol_sheath_phi_dissipation_on`: parity switch for the explicit/implicit
+  sheath-current vorticity dissipation path.
 - `sol_sheath_phi_model`: `linear` or `exp` (linear is recommended for implicit updates).
 - `sol_sheath_phi_implicit`: operator‑split implicit update for sheath current (robust for long runs).
 - `sol_sheath_phi_implicit_solver`: `gmres` (default) or `cg`.
@@ -104,6 +106,9 @@ for minimal preset schedules:
   (`none`, `minmod`, `mc`).
 - `parallel_flux_conservative`: use conservative parallel fluxes for `n` and `p`
   (e.g., `-∂‖(n v‖)` and `-∂‖(p v‖)`), with limiter/Lax flux when open-field.
+- `phi_dissipation_on`: parity switch for `phi_par_dissipation` in vorticity.
+- `core_vorticity_damping_on`: parity switch for core vorticity damping
+  equivalents (`mu_lin_omega`, `mu_zonal_omega`).
 
 ### Parallel Flux Scheme (Open-Field)
 

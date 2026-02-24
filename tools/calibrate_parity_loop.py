@@ -25,11 +25,17 @@ class Candidate:
     dn_mult: float
     domega_mult: float
     poisson_scale: float
+    phi_dissipation_on: bool
+    phi_sheath_dissipation_on: bool
+    core_vorticity_damping_on: bool
 
     def key(self) -> str:
         return (
             f"om={self.omega_mult:g}|src={self.source_mult:g}|"
-            f"dn={self.dn_mult:g}|dw={self.domega_mult:g}|ps={self.poisson_scale:g}"
+            f"dn={self.dn_mult:g}|dw={self.domega_mult:g}|ps={self.poisson_scale:g}|"
+            f"phi_diss={int(self.phi_dissipation_on)}|"
+            f"phi_sheath={int(self.phi_sheath_dissipation_on)}|"
+            f"core_omega_damp={int(self.core_vorticity_damping_on)}"
         )
 
 
@@ -49,6 +55,23 @@ def _parse_grid(text: str) -> tuple[int, int, int]:
     if len(vals) != 3:
         raise ValueError("grid override must be 'nx,ny,nz'")
     return int(vals[0]), int(vals[1]), int(vals[2])
+
+
+def _parse_bool_list(text: str) -> list[bool]:
+    vals: list[bool] = []
+    for token in text.split(","):
+        key = token.strip().lower()
+        if not key:
+            continue
+        if key in ("1", "true", "t", "yes", "y", "on"):
+            vals.append(True)
+        elif key in ("0", "false", "f", "no", "n", "off"):
+            vals.append(False)
+        else:
+            raise ValueError(f"Invalid boolean token '{token}'")
+    if not vals:
+        raise ValueError(f"Expected at least one boolean in '{text}'")
+    return vals
 
 
 def _load_hermes_rms(path: Path) -> dict[str, np.ndarray]:
@@ -91,7 +114,13 @@ def _make_cfg(
     transport = dict(cfg.get("transport", {}))
     transport["Dn"] = float(transport["Dn"]) * c.dn_mult
     transport["DOmega"] = float(transport["DOmega"]) * c.domega_mult
+    transport["phi_dissipation_on"] = bool(c.phi_dissipation_on)
+    transport["core_vorticity_damping_on"] = bool(c.core_vorticity_damping_on)
     cfg["transport"] = transport
+
+    closures = dict(cfg.get("closures", {}))
+    closures["sol_sheath_phi_dissipation_on"] = bool(c.phi_sheath_dissipation_on)
+    cfg["closures"] = closures
 
     numerics = dict(cfg.get("numerics", {}))
     numerics["poisson_scale"] = float(c.poisson_scale)
@@ -223,10 +252,27 @@ def main() -> None:
         help="Comma-separated absolute values for numerics.poisson_scale.",
     )
     parser.add_argument(
-        "--t-end",
-        type=float,
-        default=0.1,
-        help="End time for calibration window.",
+        "--phi-dissipation-on",
+        default="1",
+        help="Comma-separated booleans for transport.phi_dissipation_on.",
+    )
+    parser.add_argument(
+        "--phi-sheath-dissipation-on",
+        default="1",
+        help="Comma-separated booleans for closures.sol_sheath_phi_dissipation_on.",
+    )
+    parser.add_argument(
+        "--core-vorticity-damping-on",
+        default="1",
+        help="Comma-separated booleans for transport.core_vorticity_damping_on.",
+    )
+    parser.add_argument(
+        "--stages",
+        default="0.1,0.5,1.0",
+        help=(
+            "Comma-separated end times for staged promotion (e.g. 0.1,0.5,1.0). "
+            "Only finite-gated candidates are promoted."
+        ),
     )
     parser.add_argument(
         "--rtol-target",
@@ -247,9 +293,18 @@ def main() -> None:
         help="Finite-run gate absolute RMS threshold.",
     )
     parser.add_argument(
-        "--grid-override",
+        "--grid-short", default="", help="Reduced-grid override for stage-1: nx,ny,nz."
+    )
+    parser.add_argument(
+        "--grid-long",
         default="",
-        help="Optional reduced grid override 'nx,ny,nz' for fast calibration.",
+        help="Grid override for stage>=2: nx,ny,nz (default: base config grid).",
+    )
+    parser.add_argument(
+        "--promote-top-k",
+        type=int,
+        default=12,
+        help="Promote at most top-k finite candidates at each stage.",
     )
     parser.add_argument(
         "--max-candidates",
@@ -274,48 +329,89 @@ def main() -> None:
     dn_mults = _parse_list(args.dn_mults, float)
     domega_mults = _parse_list(args.domega_mults, float)
     poisson_scales = _parse_list(args.poisson_scales, float)
-    grid_override = _parse_grid(args.grid_override) if args.grid_override else None
+    phi_dissipation_on = _parse_bool_list(args.phi_dissipation_on)
+    phi_sheath_dissipation_on = _parse_bool_list(args.phi_sheath_dissipation_on)
+    core_vorticity_damping_on = _parse_bool_list(args.core_vorticity_damping_on)
+    stages = _parse_list(args.stages, float)
+    if any(t <= 0.0 for t in stages):
+        raise ValueError("All stage end times must be > 0.")
+    short_grid = _parse_grid(args.grid_short) if args.grid_short else None
+    long_grid = _parse_grid(args.grid_long) if args.grid_long else None
 
     candidates = [
-        Candidate(om, src, dn, dw, ps)
-        for om, src, dn, dw, ps in product(
-            omega_mults, source_mults, dn_mults, domega_mults, poisson_scales
+        Candidate(om, src, dn, dw, ps, phi_diss, phi_sheath, core_damp)
+        for om, src, dn, dw, ps, phi_diss, phi_sheath, core_damp in product(
+            omega_mults,
+            source_mults,
+            dn_mults,
+            domega_mults,
+            poisson_scales,
+            phi_dissipation_on,
+            phi_sheath_dissipation_on,
+            core_vorticity_damping_on,
         )
     ]
     if args.max_candidates > 0:
         candidates = candidates[: args.max_candidates]
 
     rows: list[dict[str, float | int | str]] = []
-    for i, c in enumerate(candidates, start=1):
-        print(f"[{i}/{len(candidates)}] {c.key()}")
-        try:
-            row = _evaluate_candidate(
-                base_cfg=base_cfg,
-                c=c,
-                hermes=hermes,
-                t_end=float(args.t_end),
-                max_growth_factor=float(args.max_growth_factor),
-                max_rms_abs=float(args.max_rms_abs),
-                grid_override=grid_override,
+    active: list[Candidate] = candidates
+    for stage_idx, t_end in enumerate(stages, start=1):
+        if not active:
+            print(f"[stage {stage_idx}] no active candidates, stopping.")
+            break
+        grid_override = short_grid if stage_idx == 1 else long_grid
+        stage_rows: list[tuple[Candidate, dict[str, float | int | str]]] = []
+        print(
+            f"[stage {stage_idx}] t_end={t_end:g} "
+            f"candidates={len(active)} grid={grid_override if grid_override else 'base'}"
+        )
+        for i, c in enumerate(active, start=1):
+            print(f"  [{i}/{len(active)}] {c.key()}")
+            try:
+                row = _evaluate_candidate(
+                    base_cfg=base_cfg,
+                    c=c,
+                    hermes=hermes,
+                    t_end=float(t_end),
+                    max_growth_factor=float(args.max_growth_factor),
+                    max_rms_abs=float(args.max_rms_abs),
+                    grid_override=grid_override,
+                )
+            except Exception as exc:  # noqa: BLE001
+                row = {
+                    "candidate": c.key(),
+                    "passed": 0,
+                    "reason": f"exception:{type(exc).__name__}",
+                    "score": math.inf,
+                    "mean_rel": math.inf,
+                    "max_rel": math.inf,
+                    "growth": math.inf,
+                    "peak": math.inf,
+                }
+            row["stage"] = stage_idx
+            row["t_end"] = float(t_end)
+            row["grid"] = (
+                "base"
+                if grid_override is None
+                else f"{grid_override[0]}x{grid_override[1]}x{grid_override[2]}"
             )
-        except Exception as exc:  # noqa: BLE001
-            row = {
-                "candidate": c.key(),
-                "passed": 0,
-                "reason": f"exception:{type(exc).__name__}",
-                "score": math.inf,
-                "mean_rel": math.inf,
-                "max_rel": math.inf,
-                "growth": math.inf,
-                "peak": math.inf,
-            }
-        row["rtol_target"] = float(args.rtol_target)
-        row["meets_rtol"] = 1 if row.get("max_rel", math.inf) <= float(args.rtol_target) else 0
-        rows.append(row)
+            row["rtol_target"] = float(args.rtol_target)
+            row["meets_rtol"] = 1 if row.get("max_rel", math.inf) <= float(args.rtol_target) else 0
+            stage_rows.append((c, row))
+            rows.append(row)
+
+        passing = [(cand, row) for cand, row in stage_rows if int(row.get("passed", 0)) == 1]
+        passing.sort(key=lambda cr: float(cr[1]["score"]))
+        active = [cand for cand, _ in passing[: max(1, int(args.promote_top_k))]]
+        print(f"[stage {stage_idx}] passing={len(passing)} " f"promoted={len(active)}")
 
     out_csv = Path(args.out_csv).resolve()
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     columns = [
+        "stage",
+        "t_end",
+        "grid",
         "candidate",
         "passed",
         "reason",
