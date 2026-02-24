@@ -644,7 +644,25 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     z_mode = str(init.get("z_mode", "grid")).lower()
 
     n_profile = str(init.get("n_profile", init.get("profile_n", ""))).lower()
-    if n_profile in ("gaussian_x", "gauss_x", "gaussian"):
+    if n_profile in ("linear_x", "affine_x", "linear"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        if xg is not None:
+            # n(x) = offset + slope * (x - x_ref)
+            offset = float(init.get("n_profile_offset", n0))
+            slope = float(init.get("n_profile_slope", 0.0))
+            x_ref = float(init.get("n_profile_xref", 0.0))
+            n_phys = offset + slope * (xg - x_ref)
+    elif n_profile in ("parabolic_x", "quadratic_x"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        if xg is not None:
+            # n(x) = a0 + a1 * (x - x_ref) + a2 * (x - x_ref)^2
+            a0 = float(init.get("n_profile_a0", n0))
+            a1 = float(init.get("n_profile_a1", 0.0))
+            a2 = float(init.get("n_profile_a2", 0.0))
+            x_ref = float(init.get("n_profile_xref", 0.0))
+            xr = xg - x_ref
+            n_phys = a0 + a1 * xr + a2 * xr * xr
+    elif n_profile in ("gaussian_x", "gauss_x", "gaussian"):
         xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
         if xg is not None:
             amp = float(init.get("n_profile_amp", init.get("n_profile_amplitude", 0.0)))
@@ -694,7 +712,25 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             n_phys = n_phys + mix_amp * mix
 
     Te_profile = str(init.get("Te_profile", init.get("profile_Te", ""))).lower()
-    if Te_profile in ("gaussian_x", "gauss_x", "gaussian"):
+    if Te_profile in ("linear_x", "affine_x", "linear"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        if xg is not None:
+            # Te(x) = offset + slope * (x - x_ref)
+            offset = float(init.get("Te_profile_offset", Te0))
+            slope = float(init.get("Te_profile_slope", 0.0))
+            x_ref = float(init.get("Te_profile_xref", 0.0))
+            Te_phys = offset + slope * (xg - x_ref)
+    elif Te_profile in ("parabolic_x", "quadratic_x"):
+        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+        if xg is not None:
+            # Te(x) = a0 + a1 * (x - x_ref) + a2 * (x - x_ref)^2
+            a0 = float(init.get("Te_profile_a0", Te0))
+            a1 = float(init.get("Te_profile_a1", 0.0))
+            a2 = float(init.get("Te_profile_a2", 0.0))
+            x_ref = float(init.get("Te_profile_xref", 0.0))
+            xr = xg - x_ref
+            Te_phys = a0 + a1 * xr + a2 * xr * xr
+    elif Te_profile in ("gaussian_x", "gauss_x", "gaussian"):
         xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
         if xg is not None:
             amp = float(init.get("Te_profile_amp", init.get("Te_profile_amplitude", 0.0)))
@@ -1591,6 +1627,21 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         diagnostics["poisson_iters_max"] = iters_max
         diagnostics["poisson_iters_mean_all"] = jnp.mean(iters_mean)
         diagnostics["poisson_iters_max_all"] = jnp.max(iters_max)
+
+    # If field snapshots are available, expose fluctuation diagnostics
+    # relative to the saved equilibrium (first snapshot).
+    for field in ("n", "Te", "omega", "phi"):
+        key = f"snapshots_{field}"
+        if key not in diagnostics:
+            continue
+        snaps = jnp.asarray(diagnostics[key])
+        if snaps.ndim < 2 or int(snaps.shape[0]) < 1:
+            continue
+        eq = snaps[0]
+        delta = snaps - eq[None, ...]
+        axes = tuple(range(1, snaps.ndim))
+        diagnostics[f"equilibrium_{field}"] = eq
+        diagnostics[f"rms_{field}_fluct"] = jnp.sqrt(jnp.mean(delta**2, axis=axes))
 
     if return_numpy:
         diagnostics = {k: np.asarray(jax.device_get(v)) for k, v in diagnostics.items()}

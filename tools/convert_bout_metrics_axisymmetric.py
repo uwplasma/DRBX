@@ -130,6 +130,32 @@ def main() -> None:
     p.add_argument("--gxy-var", default="gxy_ballooning")
     p.add_argument("--gyy-var", default="gyy_ballooning")
     p.add_argument("--logb-var", default="logB")
+    p.add_argument("--bxcv-var-x", default="bxcvx", help="BOUT++ bxcv x-component")
+    p.add_argument("--bxcv-var-y", default="bxcvy", help="BOUT++ bxcv y-component")
+    p.add_argument("--bxcv-var-z", default="bxcvz", help="BOUT++ bxcv z-component")
+    p.add_argument(
+        "--bxcv-curv-x",
+        choices=("x", "y", "z"),
+        default="x",
+        help="Which bxcv component maps to curv_x",
+    )
+    p.add_argument(
+        "--bxcv-curv-y",
+        choices=("x", "y", "z"),
+        default="y",
+        help="Which bxcv component maps to curv_y",
+    )
+    p.add_argument(
+        "--bxcv-use-2overB",
+        action="store_true",
+        help="Scale bxcv by 2/Bxy to match common drift-reduced curvature conventions",
+    )
+    p.add_argument(
+        "--bxcv-scale",
+        type=float,
+        default=1.0,
+        help="Additional multiplicative scale for bxcv curvature coefficients",
+    )
     p.add_argument("--hthe-var", default="hthe")
     p.add_argument("--bxy-var", default="Bxy")
     p.add_argument("--bpxy-var", default="Bpxy")
@@ -142,12 +168,23 @@ def main() -> None:
     netcdf4 = _require("netCDF4")
     ds = netcdf4.Dataset(str(Path(args.grid)), "r")
 
-    if args.logb_var not in ds.variables:
-        raise ValueError("logB variable missing in BOUT grid")
+    use_logb = args.logb_var in ds.variables
+    use_bxcv = (
+        args.bxcv_var_x in ds.variables
+        and args.bxcv_var_y in ds.variables
+        and args.bxcv_var_z in ds.variables
+    )
+    if not use_logb and not use_bxcv:
+        raise ValueError("Missing logB and bxcv variables in BOUT grid.")
 
-    logB_raw = np.asarray(ds.variables[args.logb_var][:])
-    logB_slice = _slice_var(logB_raw, args.x_index)
-    logB_z, dlogB_dz = _reconstruct_logB(logB_slice, args.zeta)
+    logB_raw = None
+    logB_slice = None
+    logB_z = None
+    dlogB_dz = None
+    if use_logb:
+        logB_raw = np.asarray(ds.variables[args.logb_var][:])
+        logB_slice = _slice_var(logB_raw, args.x_index)
+        logB_z, dlogB_dz = _reconstruct_logB(logB_slice, args.zeta)
 
     dx = np.asarray(ds.variables[args.dx_var][:])
     dy = np.asarray(ds.variables[args.dy_var][:]) if args.dy_var in ds.variables else None
@@ -155,6 +192,7 @@ def main() -> None:
     Bxy_full = np.asarray(ds.variables[args.bxy_var][:])
     Bpxy_full = np.asarray(ds.variables[args.bpxy_var][:])
     Rxy_full = np.asarray(ds.variables["Rxy"][:]) if "Rxy" in ds.variables else None
+    Zxy_full = np.asarray(ds.variables["Zxy"][:]) if "Zxy" in ds.variables else None
 
     # Build x-coordinate for derivative.
     if args.radial_coordinate == "flux":
@@ -180,28 +218,40 @@ def main() -> None:
         else:
             x_coord = _coord_from_spacing(dx, axis=0)
 
-    logB_xy = logB_raw
-    if logB_xy.ndim >= 3 and logB_xy.shape[-1] >= 3:
-        logB_xy = (
-            logB_xy[..., 0]
-            + logB_xy[..., 1] * np.cos(args.zeta)
-            + logB_xy[..., 2] * np.sin(args.zeta)
-        )
+    if use_logb:
+        logB_xy = logB_raw
+        if logB_xy.ndim >= 3 and logB_xy.shape[-1] >= 3:
+            logB_xy = (
+                logB_xy[..., 0]
+                + logB_xy[..., 1] * np.cos(args.zeta)
+                + logB_xy[..., 2] * np.sin(args.zeta)
+            )
 
-    dlogB_dx_full = np.gradient(logB_xy, x_coord, axis=0, edge_order=2)
-    dlogB_dx = _slice_var(dlogB_dx_full, args.x_index)
+        dlogB_dx_full = np.gradient(logB_xy, x_coord, axis=0, edge_order=2)
+        dlogB_dx = _slice_var(dlogB_dx_full, args.x_index)
 
-    if dy is not None:
-        y_coord = _coord_from_spacing(dy, axis=1)
-        dlogB_dy_full = np.gradient(logB_xy, y_coord, axis=1, edge_order=2)
-        dlogB_dy = _slice_var(dlogB_dy_full, args.x_index)
+        if dy is not None:
+            y_coord = _coord_from_spacing(dy, axis=1)
+            dlogB_dy_full = np.gradient(logB_xy, y_coord, axis=1, edge_order=2)
+            dlogB_dy = _slice_var(dlogB_dy_full, args.x_index)
+        else:
+            y_coord = np.arange(logB_z.shape[-1])
+            dlogB_dy = np.zeros_like(dlogB_dx)
     else:
-        y_coord = np.arange(logB_z.shape[-1])
-        dlogB_dy = np.zeros_like(dlogB_dx)
+        if dy is not None:
+            y_coord = _coord_from_spacing(dy, axis=1)
+        else:
+            y_coord = None
 
     Bxy = _slice_var(Bxy_full, args.x_index)
     Bpxy = _slice_var(Bpxy_full, args.x_index)
     hthe = _slice_var(np.asarray(ds.variables[args.hthe_var][:]), args.x_index)
+    Rxy = None
+    Zxy = None
+    if Rxy_full is not None:
+        Rxy = np.asarray(Rxy_full)
+    if Zxy_full is not None:
+        Zxy = np.asarray(Zxy_full)
 
     scale_x = 1.0
     scale_y = 1.0
@@ -221,15 +271,30 @@ def main() -> None:
             scale_x = np.sqrt(gxx_safe)
             scale_y = np.sqrt(gperp)
 
-    derivs = {"x": dlogB_dx, "y": dlogB_dy, "z": dlogB_dz}
-    curv_x = -Bxy * scale_y * derivs[args.curv_x_axis] * float(args.curv_sign_x)
-    curv_y = Bxy * scale_x * derivs[args.curv_y_axis] * float(args.curv_sign_y)
+    if use_logb:
+        derivs = {"x": dlogB_dx, "y": dlogB_dy, "z": dlogB_dz}
+        curv_x = -Bxy * scale_y * derivs[args.curv_x_axis] * float(args.curv_sign_x)
+        curv_y = Bxy * scale_x * derivs[args.curv_y_axis] * float(args.curv_sign_y)
+    else:
+        bxcv_x = _slice_var(np.asarray(ds.variables[args.bxcv_var_x][:]), args.x_index)
+        bxcv_y = _slice_var(np.asarray(ds.variables[args.bxcv_var_y][:]), args.x_index)
+        bxcv_z = _slice_var(np.asarray(ds.variables[args.bxcv_var_z][:]), args.x_index)
+        comp = {"x": bxcv_x, "y": bxcv_y, "z": bxcv_z}
+        curv_x = comp[args.bxcv_curv_x]
+        curv_y = comp[args.bxcv_curv_y]
+        if args.bxcv_use_2overB:
+            curv_x = 2.0 * curv_x / np.maximum(Bxy, 1e-12)
+            curv_y = 2.0 * curv_y / np.maximum(Bxy, 1e-12)
+        curv_x = curv_x * float(args.bxcv_scale) * float(args.curv_sign_x)
+        curv_y = curv_y * float(args.bxcv_scale) * float(args.curv_sign_y)
     dpar_factor = Bpxy / np.maximum(Bxy * hthe, 1e-12)
 
     # z (field-aligned coordinate)
     if args.theta_var in ds.variables:
         z = _slice_var(np.asarray(ds.variables[args.theta_var][:]), args.x_index)
     else:
+        if y_coord is None:
+            y_coord = np.arange(curv_x.shape[-1])
         z = _slice_var(y_coord, args.x_index)
 
     # Lengths
@@ -251,6 +316,10 @@ def main() -> None:
         "nx": nx,
         "ny": ny,
     }
+    if Rxy is not None:
+        out["Rxy"] = np.asarray(Rxy)
+    if Zxy is not None:
+        out["Zxy"] = np.asarray(Zxy)
 
     if gxx is not None:
         out["gxx"] = np.asarray(gxx)
