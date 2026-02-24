@@ -1,0 +1,98 @@
+[geometry]
+kind = "axisymmetric"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv.npz"
+bc_x = "dirichlet"
+bc_y = "periodic"
+open_field_line = true
+dealias = true
+nx = 36
+ny = 48
+nz = 48
+Lx = 0.054697793193735585
+Ly = 9.424777960769383
+Lz = 9.22842842
+theta_scale = 1.0
+R0 = 1.5
+r_minor = 0.054697793193735585
+
+[physics]
+omega_n = 6.5
+omega_Te = 3.2
+nonlinear_on = true
+em_on = false
+hot_ion_on = false
+neutrals_on = false
+boussinesq = true
+curvature_on = true
+curvature_coeff = 1.0
+curvature_model = "vector_xy"
+
+# SOL-like open/closed mask and parallel losses.
+sol_on = true
+sol_relax_core = 0.3
+sol_relax_open = 1.2
+sol_n_core = 1.0
+sol_n_sol = 0.08
+sol_Te_core = 1.0
+sol_Te_sol = 0.08
+sol_sink_open_n = 0.1
+sol_sink_open_Te = 0.1
+sol_parallel_loss_on = true
+sol_parallel_loss_model = "bohm_exp"
+sol_parallel_loss_coeff = 0.5
+sol_Te_floor = 1.0e-2
+
+# Volumetric source to seed blobs in the core region.
+source_on = true
+source_profile = "gaussian_xy"
+source_x_mode = "bout"
+source_n0 = 1.8
+source_Te0 = 0.6
+source_x0 = 0.48
+source_y0 = 1.57
+source_width_x = 0.25
+source_width_y = 0.7
+
+[closures]
+sheath_on = true
+sheath_bc_on = true
+sheath_bc_model = "bohm_current"
+sheath_nu_factor = 1.0
+
+[transport]
+Dn = 1.5e-3
+DOmega = 1.5e-3
+DTe = 1.5e-3
+Dn4 = 3.0e-6
+DOmega4 = 3.0e-6
+DTe4 = 3.0e-6
+mu_lin_n = 3.0e-3
+mu_lin_omega = 1.5e-3
+mu_lin_Te = 3.0e-3
+
+[numerics]
+poisson = "spectral"
+bracket = "arakawa"
+parallel_flux_conservative = true
+parallel_limiter = "mc"
+exb_y_scale = 0.0
+
+[initial]
+n0 = 1.0
+Te0 = 1.0
+amplitude = 4.0e-3
+seed = 1
+noise_mode = "state"
+noise_fields = ["n", "omega", "Te"]
+
+[time]
+method = "rk4_imex_strang"
+dt = 1.0e-3
+nsteps = 3000
+save_every = 30
+diag_mode = "light"
+poisson_warm_start = true
+return_numpy = true
+
+[bc]
+perp = { bc_x = "dirichlet", bc_y = "periodic" }

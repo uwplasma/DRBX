@@ -3,6 +3,12 @@
 `jax_drb` ships **built‑in diagnostics** for spectra, PDFs, and zonal averages.
 These are used by the plotting scripts in `tools/` and are fully reproducible.
 
+When `time.save_fields = true`, the driver also exports fluctuation channels
+computed from snapshots relative to the first saved state:
+
+- `equilibrium_n`, `equilibrium_Te`, `equilibrium_omega`, `equilibrium_phi`
+- `rms_n_fluct`, `rms_Te_fluct`, `rms_omega_fluct`, `rms_phi_fluct`
+
 ## Spectra
 
 The 2D power spectrum uses FFTs with optional detrending and windowing. For
@@ -48,8 +54,15 @@ The public examples call these utilities via the following scripts:
 - `tools/plot_3d_slices.py`
 - `tools/make_movie.py`
 - `tools/make_poloidal_movie.py`
-- `tools/plot_toroidal_slices.py`
-- `tools/make_toroidal_movie.py`
+- `tools/extract_hermes_rms.py`
+- `tools/compare_short_rms.py`
+- `tools/scan_poisson_scale.py`
 
 These scripts read `.npz` output and generate the figures included in the
 documentation.
+
+`tools/scan_poisson_scale.py` applies finite/spike gates before scoring:
+
+- finite checks on all fluctuation RMS channels,
+- spike limits via `--max-growth-factor` and `--max-rms-abs`,
+- optional short-window runtime controls via `--dt` and `--nsteps`.

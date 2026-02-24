@@ -83,3 +83,12 @@ The following optional sections are recognized and converted when
   it is set to `(rho_s / length_unit)^2`, i.e. `((c_s/omega_ci) / Lref)^2` for
   `length_unit = "lref"`. Override `numerics.poisson_scale` explicitly if you
   need a different omega–phi normalization.
+
+## Hermes-Unit Alignment Example
+
+Use [`examples/open_field_line/input_tokamak_bxcv_short_align_norm.toml`](../examples/open_field_line/input_tokamak_bxcv_short_align_norm.toml)
+for a normalization-enabled open-field benchmark with:
+
+- `Tnorm = 50 eV`, `Nnorm = 1e19 m^-3`, `Bnorm = 1 T`
+- source amplitudes set through `[physics_physical]` in physical units
+- the same sheath/geometry toggles used in the short-window alignment run
