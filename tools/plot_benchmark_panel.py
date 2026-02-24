@@ -42,6 +42,26 @@ def _shared_symmetric_range(a: np.ndarray, b: np.ndarray, q: float = 99.5) -> tu
     return -s, s
 
 
+def _resample2d(field: np.ndarray, out_shape: tuple[int, int]) -> np.ndarray:
+    """Bilinear-like resampling with two 1D interpolations (no scipy dependency)."""
+
+    src = np.asarray(field, dtype=np.float64)
+    nx_out, ny_out = out_shape
+    x_src = np.linspace(0.0, 1.0, src.shape[0])
+    y_src = np.linspace(0.0, 1.0, src.shape[1])
+    x_out = np.linspace(0.0, 1.0, nx_out)
+    y_out = np.linspace(0.0, 1.0, ny_out)
+
+    tmp = np.empty((nx_out, src.shape[1]), dtype=np.float64)
+    for j in range(src.shape[1]):
+        tmp[:, j] = np.interp(x_out, x_src, src[:, j])
+
+    out = np.empty((nx_out, ny_out), dtype=np.float64)
+    for i in range(nx_out):
+        out[i, :] = np.interp(y_out, y_src, tmp[i, :])
+    return out
+
+
 def _line(ax, t: np.ndarray, y: np.ndarray, label: str, style: str, color: str) -> None:
     if t.size == 0 or y.size == 0:
         return
@@ -112,22 +132,21 @@ def main() -> None:
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     ax = fig.add_subplot(gs[0, 2])
-    if h_snap.shape == j_snap.shape:
-        diff = j_snap - h_snap
-        dvmin, dvmax = _shared_symmetric_range(diff, diff)
-        im = ax.imshow(
-            diff.T,
-            origin="lower",
-            cmap="coolwarm",
-            vmin=dvmin,
-            vmax=dvmax,
-            aspect="auto",
-        )
-        ax.set_title("jax_drb - Hermes")
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    else:
-        ax.axis("off")
-        ax.set_title("difference unavailable\n(shape mismatch)")
+    j_for_diff = j_snap if h_snap.shape == j_snap.shape else _resample2d(j_snap, h_snap.shape)
+    diff = j_for_diff - h_snap
+    dvmin, dvmax = _shared_symmetric_range(diff, diff)
+    im = ax.imshow(
+        diff.T,
+        origin="lower",
+        cmap="coolwarm",
+        vmin=dvmin,
+        vmax=dvmax,
+        aspect="auto",
+    )
+    ax.set_title("jax_drb - Hermes")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     # Row 2: RMS fluct, ky PSD, f PSD
     ax = fig.add_subplot(gs[1, 0])
