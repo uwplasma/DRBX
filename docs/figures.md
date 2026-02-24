@@ -13,7 +13,7 @@ fully reproducible without external code.
 ![Tokamak SOL poloidal movie](figures/tokamak_sol_movie.gif)
 ![Tokamak SOL 3D cut movie](figures/tokamak_sol_3d_movie.gif)
 
-Generate canonical Hermes-vs-jax_drb panel:
+Generate canonical Hermes-vs-jax_drb panel (latest calibrated short window):
 
 ```bash
 python tools/plot_benchmark_panel.py \
@@ -21,6 +21,14 @@ python tools/plot_benchmark_panel.py \
   --jax <run-dir>/bundle_jax_short.npz \
   --out docs/figures/tokamak_sol_benchmark_panel.png \
   --summary-csv docs/figures/tokamak_sol_benchmark_panel.csv
+
+# staged short window from calibrated benchmark config
+python tools/run_staged_benchmark.py \
+  --config examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_calibrated.toml \
+  --stages short:0.1 \
+  --max-growth-factor 400 \
+  --max-rms-abs 50 \
+  --out-dir <run-dir>
 ```
 
 Generate long-window aligned movies:
