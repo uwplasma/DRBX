@@ -7,6 +7,46 @@ The plotting scripts in `tools/` call internal diagnostics utilities under
 `jaxdrb.diagnostics` (spectra, PDFs, and zonal averages) so all figures remain
 fully reproducible without external code.
 
+## Tokamak SOL Turbulence (Current Benchmark Surface)
+
+![Tokamak SOL equilibrium](figures/tokamak_sol_poloidal_eq.png)
+![Tokamak SOL fluctuation](figures/tokamak_sol_poloidal_fluct.png)
+![Tokamak SOL 3D slices](figures/tokamak_sol_3d_slices.png)
+![Tokamak SOL fluctuation RMS benchmark](figures/tokamak_sol_benchmark_fluct_rms.png)
+![Tokamak SOL movie](figures/tokamak_sol_movie.gif)
+
+Regenerate from a short aligned run output:
+
+```bash
+python tools/plot_poloidal_plane.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_short_align_norm.npz \
+  --config examples/open_field_line/input_tokamak_bxcv_short_align_norm.toml \
+  --field n --equilibrium only --overlay-mask \
+  --out docs/figures/tokamak_sol_poloidal_eq.png --interp-grid 420 --cmap viridis
+
+python tools/plot_poloidal_plane.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_short_align_norm.npz \
+  --config examples/open_field_line/input_tokamak_bxcv_short_align_norm.toml \
+  --field n --fluct zonal --overlay-mask --symmetric --lowpass 0.08 \
+  --out docs/figures/tokamak_sol_poloidal_fluct.png --interp-grid 420 --cmap coolwarm
+
+python tools/plot_3d_slices.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_short_align_norm.npz \
+  --field n --fluct zonal --lowpass 0.08 --symmetric \
+  --out docs/figures/tokamak_sol_3d_slices.png
+
+python tools/compare_short_rms.py \
+  --hermes <run-dir>/hermes_tokamak_turb_short_rms.npz \
+  --jax <run-dir>/jaxdrb_open_field_tokamak_bxcv_short_align_norm.npz \
+  --metric fluct \
+  --out-plot docs/figures/tokamak_sol_benchmark_fluct_rms.png \
+  --out-csv docs/figures/tokamak_sol_benchmark_fluct_rms.csv
+
+python tools/make_poloidal_movie.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_short_align_norm.npz \
+  --config examples/open_field_line/input_tokamak_bxcv_short_align_norm.toml \
+  --field snapshots_n --fluct zonal --lowpass 0.06 --symmetric \
+  --stride 8 --skip-fraction 0.25 --range-tail --tail-fraction 0.35 \
+  --range-scale 0.9 --interp-grid 320 \
+  --out docs/figures/tokamak_sol_movie.gif
+```
+
 ## Nonlinear Snapshot Panel
 
 ![Nonlinear DRB panel](figures/nonlinear_panel.png)
