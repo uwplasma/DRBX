@@ -182,7 +182,11 @@ def _apply_sol_sheath_phi_implicit(
     system: DRBSystem, y: DRBSystemState, dt: float, phi_guess: jnp.ndarray | None = None
 ) -> DRBSystemState:
     params = system.params
-    if not (params.sol_sheath_phi_on and params.sol_sheath_phi_implicit):
+    if not (
+        params.sol_sheath_phi_on
+        and params.sol_sheath_phi_dissipation_on
+        and params.sol_sheath_phi_implicit
+    ):
         return y
     if float(params.sol_parallel_loss_q) <= 0.0:
         return y
@@ -293,7 +297,8 @@ def _apply_diffusion_implicit(system: DRBSystem, y: DRBSystemState, dt: float) -
         return jax.vmap(lambda p: solve_plane(p, bc, D, D4, mu))(u)
 
     n = solve_field(y.n, bcs.n, params.Dn, params.Dn4, params.mu_lin_n)
-    omega = solve_field(y.omega, bcs.omega, params.DOmega, params.DOmega4, params.mu_lin_omega)
+    mu_lin_omega = params.mu_lin_omega if bool(params.core_vorticity_damping_on) else 0.0
+    omega = solve_field(y.omega, bcs.omega, params.DOmega, params.DOmega4, mu_lin_omega)
     Te = solve_field(y.Te, bcs.Te, params.DTe, params.DTe4, params.mu_lin_Te)
     Ti = solve_field(y.Ti, bcs.Ti, params.DTi, params.DTi4, 0.0) if y.Ti is not None else None
     psi = solve_field(y.psi, bcs.psi, params.Dpsi, params.Dpsi4, 0.0) if y.psi is not None else None
@@ -630,6 +635,34 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             z_arr = jnp.asarray(grid.z)
         return z_arr[:, None, None]
 
+    def _apply_x_profile(
+        field: jnp.ndarray,
+        *,
+        profile: str,
+        prefix: str,
+        xg: jnp.ndarray | None,
+    ) -> jnp.ndarray:
+        if xg is None:
+            return field
+        if profile in ("linear_x", "affine_x", "linear"):
+            offset = float(init.get(f"{prefix}_offset", float(jnp.mean(field))))
+            slope = float(init.get(f"{prefix}_slope", 0.0))
+            x_ref = float(init.get(f"{prefix}_xref", 0.0))
+            return offset + slope * (xg - x_ref)
+        if profile in ("parabolic_x", "quadratic_x"):
+            a0 = float(init.get(f"{prefix}_a0", float(jnp.mean(field))))
+            a1 = float(init.get(f"{prefix}_a1", 0.0))
+            a2 = float(init.get(f"{prefix}_a2", 0.0))
+            x_ref = float(init.get(f"{prefix}_xref", 0.0))
+            xr = xg - x_ref
+            return a0 + a1 * xr + a2 * xr * xr
+        if profile in ("gaussian_x", "gauss_x", "gaussian"):
+            amp = float(init.get(f"{prefix}_amp", init.get(f"{prefix}_amplitude", 0.0)))
+            width = max(float(init.get(f"{prefix}_width", 1.0)), 1e-12)
+            x0 = float(init.get(f"{prefix}_x0", 0.0))
+            return field + amp * jnp.exp(-(((xg - x0) / width) ** 2))
+        return field
+
     n0 = float(init.get("n0", init.get("n_base", 0.0)))
     Te0 = float(init.get("Te0", init.get("Te_base", 0.0)))
     omega0 = float(init.get("omega0", 0.0))
@@ -646,31 +679,13 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     n_profile = str(init.get("n_profile", init.get("profile_n", ""))).lower()
     if n_profile in ("linear_x", "affine_x", "linear"):
         xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
-        if xg is not None:
-            # n(x) = offset + slope * (x - x_ref)
-            offset = float(init.get("n_profile_offset", n0))
-            slope = float(init.get("n_profile_slope", 0.0))
-            x_ref = float(init.get("n_profile_xref", 0.0))
-            n_phys = offset + slope * (xg - x_ref)
+        n_phys = _apply_x_profile(n_phys, profile=n_profile, prefix="n_profile", xg=xg)
     elif n_profile in ("parabolic_x", "quadratic_x"):
         xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
-        if xg is not None:
-            # n(x) = a0 + a1 * (x - x_ref) + a2 * (x - x_ref)^2
-            a0 = float(init.get("n_profile_a0", n0))
-            a1 = float(init.get("n_profile_a1", 0.0))
-            a2 = float(init.get("n_profile_a2", 0.0))
-            x_ref = float(init.get("n_profile_xref", 0.0))
-            xr = xg - x_ref
-            n_phys = a0 + a1 * xr + a2 * xr * xr
+        n_phys = _apply_x_profile(n_phys, profile=n_profile, prefix="n_profile", xg=xg)
     elif n_profile in ("gaussian_x", "gauss_x", "gaussian"):
         xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
-        if xg is not None:
-            amp = float(init.get("n_profile_amp", init.get("n_profile_amplitude", 0.0)))
-            width = float(init.get("n_profile_width", 1.0))
-            x0 = float(init.get("n_profile_x0", 0.0))
-            if width <= 0.0:
-                width = 1.0
-            n_phys = n_phys + amp * jnp.exp(-(((xg - x0) / width) ** 2))
+        n_phys = _apply_x_profile(n_phys, profile=n_profile, prefix="n_profile", xg=xg)
     elif n_profile in ("gaussian_mixmode", "gaussian_mixmode_z", "gaussian_mixmode_reference"):
         xg, yg = _perp_xy(centered=x_centered, x_mode=x_mode)
         zg = _par_z(z_mode)
@@ -761,34 +776,27 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
                 mix = mix + _mixmode(arg, seed=mix_seed)
             n_phys = n_phys + n_mix_amp * mix
 
+    xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+    p_profile = str(
+        init.get("p_profile", init.get("profile_p", init.get("pressure_profile", "")))
+    ).lower()
+    p_phys = None
+    if p_profile:
+        p_base = jnp.asarray(n_phys * Te_phys)
+        p_phys = _apply_x_profile(p_base, profile=p_profile, prefix="p_profile", xg=xg)
+
     Te_profile = str(init.get("Te_profile", init.get("profile_Te", ""))).lower()
-    if Te_profile in ("linear_x", "affine_x", "linear"):
-        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
-        if xg is not None:
-            # Te(x) = offset + slope * (x - x_ref)
-            offset = float(init.get("Te_profile_offset", Te0))
-            slope = float(init.get("Te_profile_slope", 0.0))
-            x_ref = float(init.get("Te_profile_xref", 0.0))
-            Te_phys = offset + slope * (xg - x_ref)
-    elif Te_profile in ("parabolic_x", "quadratic_x"):
-        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
-        if xg is not None:
-            # Te(x) = a0 + a1 * (x - x_ref) + a2 * (x - x_ref)^2
-            a0 = float(init.get("Te_profile_a0", Te0))
-            a1 = float(init.get("Te_profile_a1", 0.0))
-            a2 = float(init.get("Te_profile_a2", 0.0))
-            x_ref = float(init.get("Te_profile_xref", 0.0))
-            xr = xg - x_ref
-            Te_phys = a0 + a1 * xr + a2 * xr * xr
-    elif Te_profile in ("gaussian_x", "gauss_x", "gaussian"):
-        xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
-        if xg is not None:
-            amp = float(init.get("Te_profile_amp", init.get("Te_profile_amplitude", 0.0)))
-            width = float(init.get("Te_profile_width", 1.0))
-            x0 = float(init.get("Te_profile_x0", 0.0))
-            if width <= 0.0:
-                width = 1.0
-            Te_phys = Te_phys + amp * jnp.exp(-(((xg - x0) / width) ** 2))
+    Te_from_pressure = bool(init.get("Te_pressure_consistent", False)) or Te_profile in (
+        "from_pressure",
+        "pressure_consistent",
+        "pressure_over_n",
+    )
+    if Te_from_pressure:
+        if p_phys is None:
+            p_phys = jnp.asarray(n_phys * Te_phys)
+        Te_phys = p_phys / jnp.maximum(n_phys, 1e-12)
+    elif Te_profile:
+        Te_phys = _apply_x_profile(Te_phys, profile=Te_profile, prefix="Te_profile", xg=xg)
 
     noise_amp = float(init.get("amplitude", init.get("noise_amplitude", 0.0)))
     noise_mode = str(init.get("noise_mode", "state")).lower()
@@ -807,9 +815,15 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
                 n_phys = n_phys + 0.0
         if "Te" in noise_fields:
             if noise_mode == "physical":
-                Te_phys = Te_phys + noise
+                if not Te_from_pressure:
+                    Te_phys = Te_phys + noise
             else:
                 Te_phys = Te_phys + 0.0
+
+    if Te_from_pressure:
+        if p_phys is None:
+            p_phys = jnp.asarray(n_phys * Te_phys)
+        Te_phys = p_phys / jnp.maximum(n_phys, 1e-12)
 
     # Keep all state channels shape-consistent even when profiles are x-only
     # and only a subset of fields receives perturbations.

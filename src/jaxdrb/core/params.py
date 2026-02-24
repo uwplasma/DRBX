@@ -120,6 +120,8 @@ class TransportParams(eqx.Module):
     # Parallel dissipation toggles (Div_par terms).
     vort_par_dissipation: float = 0.0
     phi_par_dissipation: float = 0.0
+    phi_dissipation_on: bool = True
+    core_vorticity_damping_on: bool = True
 
     # Braginskii coefficient scalings.
     braginskii_on: bool = False
@@ -208,6 +210,7 @@ class SOLParams(eqx.Module):
     sol_sheath_phi_model: str = "exp"
     sol_sheath_phi_lambda: float = 3.0
     sol_sheath_phi_coeff: float = 1.0
+    sol_sheath_phi_dissipation_on: bool = True
     sol_sheath_phi_Te_floor: float = 1e-6
     sol_sheath_phi_clip: float = 10.0
     sol_sheath_phi_implicit: bool = False
