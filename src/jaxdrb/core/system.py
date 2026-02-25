@@ -477,6 +477,21 @@ class DRBSystem(eqx.Module):
         }
         for name, term in term_map.items():
             out[f"E_dot_{name}"] = self.energy_rate(y, term)
+        if getattr(self.params, "diamagnetic_polarisation_on", False):
+            omega_pol = _diamagnetic_polarisation_term(
+                self.params, self.geom, ctx.n_phys, ctx.Ti, self._bc_phi()
+            )
+            pol_term = DRBSystemState(
+                n=jnp.zeros_like(y.n),
+                omega=omega_pol,
+                vpar_e=jnp.zeros_like(y.vpar_e),
+                vpar_i=jnp.zeros_like(y.vpar_i),
+                Te=jnp.zeros_like(y.Te),
+                Ti=None if y.Ti is None else jnp.zeros_like(y.Ti),
+                psi=None if y.psi is None else jnp.zeros_like(y.psi),
+                N=None if y.N is None else jnp.zeros_like(y.N),
+            )
+            out["E_dot_diamagnetic_polarisation"] = self.energy_rate(y, pol_term)
         return out
 
     def _phi_from_omega(

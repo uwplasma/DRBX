@@ -211,6 +211,23 @@ def build_axisymmetric_field_aligned_adapter(
     file_masks = coeffs.get("mask_fields") or {}
     if file_masks:
         region_masks = {str(k): np.asarray(v, dtype=float) for k, v in file_masks.items()}
+
+    def _match_mask_shape(mask: np.ndarray) -> np.ndarray:
+        if mask.ndim != 2:
+            return mask
+        if mask.shape == (perp.nx, perp.ny):
+            return mask
+        if mask.shape == (perp.ny, perp.nx):
+            return mask.T
+        if mask.shape[0] == perp.nx:
+            # Collapse along the second axis and broadcast to binormal size.
+            collapsed = np.mean(mask, axis=1)
+            collapsed = (collapsed > 0.5).astype(float)[:, None]
+            return np.broadcast_to(collapsed, (perp.nx, perp.ny))
+        return mask
+
+    if region_masks:
+        region_masks = {name: _match_mask_shape(mask) for name, mask in region_masks.items()}
     regions = policy.get("regions", None)
     if regions:
         masks = {}
@@ -264,7 +281,7 @@ def build_axisymmetric_field_aligned_adapter(
         curv_y=coeffs["curv_y"],
         dpar_factor=coeffs["dpar_factor"],
         B=coeffs.get("B", 1.0),
-        gxx=coeffs.get("gxx"),
-        gxy=coeffs.get("gxy"),
-        gyy=coeffs.get("gyy"),
+        gxx=coeffs.get("gxx") if params.poisson_metric_on else None,
+        gxy=coeffs.get("gxy") if params.poisson_metric_on else None,
+        gyy=coeffs.get("gyy") if params.poisson_metric_on else None,
     )

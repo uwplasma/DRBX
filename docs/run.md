@@ -149,6 +149,6 @@ The CLI enables JAX’s persistent compilation cache by default. You can overrid
 the directory or disable it:
 
 ```bash
-jaxdrb /path/to/input.toml --compile-cache ~/.cache/jaxdrb/compilation
+jaxdrb /path/to/input.toml --compile-cache $HOME/.cache/jaxdrb/compilation
 jaxdrb /path/to/input.toml --compile-cache off
 ```

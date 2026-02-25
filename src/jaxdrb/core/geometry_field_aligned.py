@@ -238,20 +238,38 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             eigs = None
         object.__setattr__(self, "poisson_fd_fft_eigs", eigs)
 
-        z = self.grid.z
+        nz = int(self.grid.z.size)
+        nx = int(self.grid.perp.nx)
+        ny = int(self.grid.perp.ny)
+        full_shape = (nz, nx, ny)
 
-        def _broadcast(arr, name: str) -> jnp.ndarray:
+        def _as_field3(arr, name: str) -> jnp.ndarray:
             arr = jnp.asarray(arr, dtype=jnp.float64)
             if arr.ndim == 0:
-                return jnp.full_like(z, arr)
-            if arr.shape != z.shape:
-                raise ValueError(f"{name} must be scalar or have shape {z.shape}.")
-            return arr
+                return jnp.full(full_shape, arr, dtype=jnp.float64)
+            if arr.ndim == 1:
+                if arr.shape[0] != nz:
+                    raise ValueError(f"{name} 1D input must have shape ({nz},).")
+                return jnp.broadcast_to(arr[:, None, None], full_shape)
+            if arr.ndim == 2:
+                if arr.shape == (nx, ny):
+                    return jnp.broadcast_to(arr[None, :, :], full_shape)
+                if arr.shape == (nz, nx):
+                    return jnp.broadcast_to(arr[:, :, None], full_shape)
+                if arr.shape == (nx, nz):
+                    return jnp.broadcast_to(jnp.swapaxes(arr, 0, 1)[:, :, None], full_shape)
+                raise ValueError(
+                    f"{name} 2D input must be one of (nx, ny)={(nx, ny)}, "
+                    f"(nz, nx)={(nz, nx)}, or (nx, nz)={(nx, nz)}."
+                )
+            if arr.ndim == 3 and arr.shape == full_shape:
+                return arr
+            raise ValueError(f"{name} has unsupported shape {arr.shape}; expected {full_shape}.")
 
-        object.__setattr__(self, "curv_x", _broadcast(self.curv_x, "curv_x"))
-        object.__setattr__(self, "curv_y", _broadcast(self.curv_y, "curv_y"))
-        object.__setattr__(self, "dpar_factor", _broadcast(self.dpar_factor, "dpar_factor"))
-        object.__setattr__(self, "B", _broadcast(self.B, "B"))
+        object.__setattr__(self, "curv_x", _as_field3(self.curv_x, "curv_x"))
+        object.__setattr__(self, "curv_y", _as_field3(self.curv_y, "curv_y"))
+        object.__setattr__(self, "dpar_factor", _as_field3(self.dpar_factor, "dpar_factor"))
+        object.__setattr__(self, "B", _as_field3(self.B, "B"))
 
         gxx = self.gxx
         gxy = self.gxy
@@ -748,7 +766,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             df = self._dpar_limited(f, limiter)
         else:
             df = self._dpar_open(f) if self.grid.open_field_line else self._dpar_periodic(f)
-        return df * self.dpar_factor[:, None, None]
+        return df * self.dpar_factor
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         return self.dpar(self.dpar(f, bc_kind=bc_kind), bc_kind=bc_kind)
@@ -756,9 +774,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     def curvature(self, f: jnp.ndarray) -> jnp.ndarray:
         if not self.params.curvature_on or self.params.curvature_coeff == 0.0:
             return jnp.zeros_like(f)
-        curv = (self.curv_x[:, None, None] * self.ddx(f)) + (
-            self.curv_y[:, None, None] * self.ddy(f)
-        )
+        curv = (self.curv_x * self.ddx(f)) + (self.curv_y * self.ddy(f))
         coeff = float(self.params.curvature_coeff)
         if coeff != 1.0:
             curv = curv * coeff

@@ -294,7 +294,7 @@ def _term_classical_diffusion(
         vpar_i=term.vpar_i,
         Te=term.Te,
         Ti=term.Ti if y.Ti is not None else None,
-        psi=term.psi if y.psi is not None else jnp.zeros_like(y.psi),
+        psi=term.psi if y.psi is not None else None,
         N=None if y.N is None else jnp.zeros_like(y.N),
     )
 

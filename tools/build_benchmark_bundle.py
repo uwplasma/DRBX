@@ -326,16 +326,23 @@ def _bundle_from_hermes(
                 return np.zeros((nt, nx, ny, nz), dtype=np.float64)
             return np.zeros((nt, nx, ny), dtype=np.float64)
 
-    for required in ("Ne", "Te", "Vort", "phi"):
-        if required not in var_names:
-            raise KeyError(f"Hermes dump missing required variable '{required}'")
+    if "Ne" not in var_names or "Vort" not in var_names or "phi" not in var_names:
+        missing = [k for k in ("Ne", "Vort", "phi") if k not in var_names]
+        raise KeyError(f"Hermes dump missing required variables {missing}")
+    has_te = "Te" in var_names
+    has_pe = "Pe" in var_names
+    if not has_te and not has_pe:
+        raise KeyError("Hermes dump missing required variable 'Te' (or 'Pe' for Te reconstruction)")
 
     fields_global: dict[str, np.ndarray] = {
         "n": alloc("Ne"),
-        "Te": alloc("Te"),
         "omega": alloc("Vort"),
         "phi": alloc("phi"),
     }
+    if has_te:
+        fields_global["Te"] = alloc("Te")
+    else:
+        fields_global["_Pe"] = alloc("Pe")
 
     ion_density = None
     ion_momentum = None
@@ -363,9 +370,14 @@ def _bundle_from_hermes(
             fields_global["n"][:, x0:x1, y0:y1, ...] = _read_var_interior(
                 ds, "Ne", mxg, myg, mxsub, mysub
             )
-            fields_global["Te"][:, x0:x1, y0:y1, ...] = _read_var_interior(
-                ds, "Te", mxg, myg, mxsub, mysub
-            )
+            if "Te" in fields_global:
+                fields_global["Te"][:, x0:x1, y0:y1, ...] = _read_var_interior(
+                    ds, "Te", mxg, myg, mxsub, mysub
+                )
+            else:
+                fields_global["_Pe"][:, x0:x1, y0:y1, ...] = _read_var_interior(
+                    ds, "Pe", mxg, myg, mxsub, mysub
+                )
             fields_global["omega"][:, x0:x1, y0:y1, ...] = _read_var_interior(
                 ds, "Vort", mxg, myg, mxsub, mysub
             )
@@ -379,6 +391,10 @@ def _bundle_from_hermes(
                 fields_global["_ion_n"][:, x0:x1, y0:y1, ...] = _read_var_interior(
                     ds, ion_density, mxg, myg, mxsub, mysub
                 )
+
+    if "Te" not in fields_global:
+        fields_global["Te"] = fields_global["_Pe"] / np.maximum(fields_global["n"], 1e-12)
+        fields_global.pop("_Pe", None)
 
     if "vpar_i" in fields_global:
         fields_global["vpar_i"] = fields_global["vpar_i"] / np.maximum(
