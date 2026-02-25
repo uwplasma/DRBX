@@ -70,11 +70,12 @@ def build_context(
                 y.omega,
                 n_phys,
                 bcs.phi,
+                Ti=Ti,
                 phi_guess=phi_guess,
                 return_iters=True,
             )
         else:
-            phi = phi_from_omega(params, geom, y.omega, n_phys, bcs.phi, phi_guess=phi_guess)
+            phi = phi_from_omega(params, geom, y.omega, n_phys, bcs.phi, Ti=Ti, phi_guess=phi_guess)
             phi_iters = None
         if params.sol_on and params.sol_phi_bc_on:
             phi = apply_sol_phi_bc(params, geom, phi, Te_phys, bcs.phi)

@@ -64,8 +64,18 @@ def diffusion_terms(
     diss_vi = -float(ctx.params.mu_lin_vpar_i) * y.vpar_i
     # vpar sinks handled as dedicated SOL sink terms
 
+    chi_Te = (
+        float(ctx.params.chi_par_Te) if ctx.params.chi_par_Te != 0.0 else float(ctx.params.chi_par)
+    )
+    if chi_Te != 0.0:
+        dpar_Te = ctx.geom.dpar(Te_diff, bc_kind="neumann")
+        diss_Te = diss_Te + chi_Te * ctx.geom.dpar(dpar_Te, bc_kind="neumann")
+
+    chi_Ti = (
+        float(ctx.params.chi_par_Ti) if ctx.params.chi_par_Ti != 0.0 else float(ctx.params.chi_par)
+    )
     Ti_diss = (
-        diss_Ti + ctx.params.chi_par * ctx.geom.dpar(par.dpar_Ti, bc_kind="neumann")
+        diss_Ti + chi_Ti * ctx.geom.dpar(par.dpar_Ti, bc_kind="neumann")
         if ctx.hot_on
         else jnp.zeros_like(ctx.Ti)
     )

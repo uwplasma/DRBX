@@ -38,6 +38,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_fluctuation_diagnostics.py` | `rms_*_fluct` and `equilibrium_*` consistency | Fluctuation diagnostics |
 | Unit | `tests/test_benchmark_schema.py` | Benchmark bundle schema round-trip (normalized + SI) | Cross-code reproducibility |
 | Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes parity diagnostics |
+| Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
 | Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
 | Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
@@ -87,6 +88,24 @@ system exposes an energy budget:
 The curvature‑only test (`tests/test_curvature_energy_budget.py`) asserts that
 the discrete budget closes to numerical precision, consistent with the
 conserving DRB formulation.
+
+---
+
+## Diamagnetic Drift Validation
+
+The Hermes‑style diamagnetic drift is validated through a dedicated unit test
+(`tests/test_diamagnetic_terms.py`) that checks:
+
+1. **Form mixing**: divergence form vs gradient form, with spatially varying
+   curvature.
+2. **Pressure→temperature conversion**: verifies that
+
+\[
+\dot{T}_e = \frac{\dot{p}_e - T_e \dot{n}}{n}
+\]
+
+is enforced for the diamagnetic energy flux. This guarantees the temperature
+update is consistent with the pressure form used in the conservative DRB model.
 
 ---
 
