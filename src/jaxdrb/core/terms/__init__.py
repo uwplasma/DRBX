@@ -4,6 +4,12 @@ from .bcs import FieldBCs, resolve_bcs
 from .context import TermContext, build_context
 from .fields import log_rhs, phys_n, phys_Te, phi_from_omega
 from .advection import exb_advection_terms
+from .diamagnetic import diamagnetic_terms
+from .braginskii import (
+    braginskii_heat_exchange_terms,
+    braginskii_friction_terms,
+    classical_diffusion_terms,
+)
 from .parallel import ParallelVars, parallel_vars, parallel_conservative_terms
 from .curvature import curvature_terms
 from .drive import drive_terms
@@ -45,6 +51,10 @@ __all__ = [
     "phys_Te",
     "phi_from_omega",
     "exb_advection_terms",
+    "diamagnetic_terms",
+    "braginskii_heat_exchange_terms",
+    "braginskii_friction_terms",
+    "classical_diffusion_terms",
     "ParallelVars",
     "parallel_vars",
     "parallel_conservative_terms",

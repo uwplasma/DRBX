@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from jaxdrb.core.state import DRBSystemState
 
 from .context import TermContext
+from .ops import region_mask
 
 
 def volume_source_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
@@ -65,6 +66,26 @@ def volume_source_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
 
     src_n = float(ctx.params.source_n0) * profile
     src_Te = float(ctx.params.source_Te0) * profile
+
+    if (
+        bool(getattr(ctx.params, "source_Te_is_pressure", False))
+        and float(ctx.params.source_Te0) != 0.0
+    ):
+        n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
+        Te_eff = ctx.Te_phys
+        # Convert pressure source to Te source: dT = (S_P - T S_n) / n
+        src_Te = (src_Te - Te_eff * src_n) / n_eff
+
+    if bool(getattr(ctx.params, "source_only_in_core", False)):
+        mask = None
+        for name in ("core", "closed", "mask_core"):
+            candidate = region_mask(ctx.geom, name, y.n.shape)
+            if candidate is not None:
+                mask = candidate
+                break
+        if mask is not None:
+            src_n = src_n * mask
+            src_Te = src_Te * mask
 
     return DRBSystemState(
         n=src_n,
