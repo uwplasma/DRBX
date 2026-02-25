@@ -151,6 +151,9 @@ def classical_diffusion_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemS
     else:
         Dn = p_total * float(ctx.params.me_hat) * nu_e / jnp.maximum(n_eff, 1e-12)
         Dn = Dn * invB2
+    Dn = jnp.asarray(Dn)
+    if Dn.ndim == 0:
+        Dn = jnp.broadcast_to(Dn, ctx.n_phys.shape)
 
     grid = getattr(ctx.geom, "grid", None)
     if grid is None:
@@ -183,6 +186,12 @@ def classical_diffusion_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemS
         kappa_i = jnp.asarray(custom_ki, dtype=jnp.float64)
     else:
         kappa_i = 2.0 * p_i * nu_i * invB2
+    kappa_e = jnp.asarray(kappa_e)
+    kappa_i = jnp.asarray(kappa_i)
+    if kappa_e.ndim == 0:
+        kappa_e = jnp.broadcast_to(kappa_e, ctx.n_phys.shape)
+    if kappa_i.ndim == 0:
+        kappa_i = jnp.broadcast_to(kappa_i, ctx.n_phys.shape)
 
     if grid is None:
         dTe = kappa_e * ctx.geom.laplacian(ctx.Te_phys) / jnp.maximum(n_eff, 1e-12)

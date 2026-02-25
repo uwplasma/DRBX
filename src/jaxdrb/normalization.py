@@ -161,6 +161,8 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
     diffusivity = time_scale / (length_scale**2)
     diffusivity4 = time_scale / (length_scale**4)
     magnetic = 1.0 / B_scale
+    source_n_scale = time_scale / density_scale
+    source_T_scale = time_scale / temperature_scale
 
     out = dict(cfg)
 
@@ -206,14 +208,16 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
         converted = _scale_section(
             phys_phys,
             {
+                # Profile-gradient drives are entered in physical 1/m and normalized by rho_s.
+                # omega_*_norm = omega_*_phys * rho_s
                 "omega_n": inv_length,
                 "omega_Te": inv_length,
                 "omega_Ti": inv_length,
                 "n0": density,
                 "n0_min": density,
                 "n0_max": density,
-                "source_n0": time_scale * density,
-                "source_Te0": time_scale * temperature,
+                "source_n0": source_n_scale,
+                "source_Te0": source_T_scale,
                 "source_x0": source_x_scale,
                 "source_y0": length,
                 "source_width_x": source_x_scale,
@@ -283,10 +287,10 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
                     "sol_source2_width": length,
                     "sol_source_y_taper": length,
                     "sol_mask_y_taper": length,
-                    "sol_source_n0": time_scale * density,
-                    "sol_source_Te0": time_scale * temperature,
-                    "sol_source2_n0": time_scale * density,
-                    "sol_source2_Te0": time_scale * temperature,
+                    "sol_source_n0": source_n_scale,
+                    "sol_source_Te0": source_T_scale,
+                    "sol_source2_n0": source_n_scale,
+                    "sol_source2_Te0": source_T_scale,
                     "sol_relax_core": rate,
                     "sol_relax_open": rate,
                     "sol_sink_open_n": rate,

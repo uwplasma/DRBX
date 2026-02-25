@@ -104,6 +104,7 @@ def _make_cfg(
     nsteps: int,
     save_every: int,
     grid_override: tuple[int, int, int] | None,
+    coeff_path_override: str | None,
 ) -> dict[str, Any]:
     cfg = copy.deepcopy(base_cfg)
     physics_physical = dict(cfg.get("physics_physical", {}))
@@ -135,13 +136,15 @@ def _make_cfg(
     time_cfg["diag_mode"] = "full"
     cfg["time"] = time_cfg
 
+    geom = dict(cfg.get("geometry", {}))
     if grid_override is not None:
         nx, ny, nz = grid_override
-        geom = dict(cfg.get("geometry", {}))
         geom["nx"] = int(nx)
         geom["ny"] = int(ny)
         geom["nz"] = int(nz)
-        cfg["geometry"] = geom
+    if coeff_path_override:
+        geom["coeff_path"] = str(coeff_path_override)
+    cfg["geometry"] = geom
 
     return cfg
 
@@ -154,6 +157,7 @@ def _evaluate_candidate(
     max_growth_factor: float,
     max_rms_abs: float,
     grid_override: tuple[int, int, int] | None,
+    coeff_path_override: str | None,
 ) -> dict[str, float | int | str]:
     time_cfg = base_cfg.get("time", {})
     dt = float(time_cfg.get("dt", 0.0))
@@ -161,7 +165,14 @@ def _evaluate_candidate(
         raise ValueError("Config must contain [time].dt > 0")
     nsteps = int(max(1, math.ceil(t_end / dt)))
     save_every = max(1, nsteps // 20)
-    cfg = _make_cfg(base_cfg, c, nsteps, save_every, grid_override)
+    cfg = _make_cfg(
+        base_cfg,
+        c,
+        nsteps,
+        save_every,
+        grid_override,
+        coeff_path_override,
+    )
     result = run_simulation(cfg, as_numpy=True)
     diag = dict(result.diagnostics)
 
@@ -301,6 +312,16 @@ def main() -> None:
         help="Grid override for stage>=2: nx,ny,nz (default: base config grid).",
     )
     parser.add_argument(
+        "--coeff-path-short",
+        default="",
+        help="Optional stage-1 geometry coeff_path override (reduced-grid coefficients).",
+    )
+    parser.add_argument(
+        "--coeff-path-long",
+        default="",
+        help="Optional stage>=2 geometry coeff_path override.",
+    )
+    parser.add_argument(
         "--promote-top-k",
         type=int,
         default=12,
@@ -337,6 +358,8 @@ def main() -> None:
         raise ValueError("All stage end times must be > 0.")
     short_grid = _parse_grid(args.grid_short) if args.grid_short else None
     long_grid = _parse_grid(args.grid_long) if args.grid_long else None
+    short_coeff = str(Path(args.coeff_path_short).resolve()) if args.coeff_path_short else None
+    long_coeff = str(Path(args.coeff_path_long).resolve()) if args.coeff_path_long else None
 
     candidates = [
         Candidate(om, src, dn, dw, ps, phi_diss, phi_sheath, core_damp)
@@ -361,10 +384,12 @@ def main() -> None:
             print(f"[stage {stage_idx}] no active candidates, stopping.")
             break
         grid_override = short_grid if stage_idx == 1 else long_grid
+        coeff_path_override = short_coeff if stage_idx == 1 else long_coeff
         stage_rows: list[tuple[Candidate, dict[str, float | int | str]]] = []
         print(
             f"[stage {stage_idx}] t_end={t_end:g} "
-            f"candidates={len(active)} grid={grid_override if grid_override else 'base'}"
+            f"candidates={len(active)} grid={grid_override if grid_override else 'base'} "
+            f"coeff={coeff_path_override if coeff_path_override else 'base'}"
         )
         for i, c in enumerate(active, start=1):
             print(f"  [{i}/{len(active)}] {c.key()}")
@@ -377,12 +402,13 @@ def main() -> None:
                     max_growth_factor=float(args.max_growth_factor),
                     max_rms_abs=float(args.max_rms_abs),
                     grid_override=grid_override,
+                    coeff_path_override=coeff_path_override,
                 )
             except Exception as exc:  # noqa: BLE001
                 row = {
                     "candidate": c.key(),
                     "passed": 0,
-                    "reason": f"exception:{type(exc).__name__}",
+                    "reason": f"exception:{type(exc).__name__}:{exc}",
                     "score": math.inf,
                     "mean_rel": math.inf,
                     "max_rel": math.inf,

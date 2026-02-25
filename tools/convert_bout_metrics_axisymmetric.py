@@ -6,6 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
+E_CHARGE = 1.602176634e-19
+M_PROTON = 1.67262192369e-27
+
 
 def _require(module: str):
     try:
@@ -70,6 +73,19 @@ def _scalar(ds, name: str, default: float) -> float:
     return float(default)
 
 
+def _compute_rho_s0(
+    *,
+    Te0_eV: float,
+    B0_T: float,
+    m_i_amu: float,
+    Z_i: float,
+) -> float:
+    m_i = max(float(m_i_amu), 1e-30) * M_PROTON
+    cs = np.sqrt(max(float(Te0_eV), 1e-30) * E_CHARGE / m_i)
+    omega_ci = max(float(Z_i), 1e-30) * E_CHARGE * max(float(B0_T), 1e-30) / m_i
+    return float(cs / max(omega_ci, 1e-30))
+
+
 def _build_region_masks(ds, *, nx: int, ny: int) -> dict[str, np.ndarray]:
     mask_fields: dict[str, np.ndarray] = {}
     if "ixseps1" in ds.variables:
@@ -95,7 +111,12 @@ def main() -> None:
     )
     p.add_argument("--grid", required=True, type=str, help="Path to BOUT++ grid (.nc)")
     p.add_argument("--out", required=True, type=str, help="Output .npz path")
-    p.add_argument("--x-index", type=int, default=0, help="Radial index to extract")
+    p.add_argument(
+        "--x-index",
+        type=int,
+        default=0,
+        help="Radial index to extract (set to -1 to keep full 2D fields).",
+    )
     p.add_argument(
         "--zeta", type=float, default=0.0, help="Toroidal angle for logB Fourier reconstruction"
     )
@@ -151,6 +172,63 @@ def main() -> None:
         help="Scale bxcv by 2/Bxy to match common drift-reduced curvature conventions",
     )
     p.add_argument(
+        "--bxcv-normalization",
+        choices=("none", "hermes"),
+        default="none",
+        help=(
+            "Apply a normalization convention before mapping bxcv components. "
+            "'hermes' uses x/Bnorm, y*Lnorm^2, z*Lnorm^2, then 2/B."
+        ),
+    )
+    p.add_argument(
+        "--norm-Te0-eV",
+        type=float,
+        default=50.0,
+        help="Reference Te [eV] used to compute rho_s0 when --bxcv-normalization=hermes.",
+    )
+    p.add_argument(
+        "--norm-B0-T",
+        type=float,
+        default=1.0,
+        help="Reference B [T] used for Hermes-style bxcv normalization.",
+    )
+    p.add_argument(
+        "--norm-mi-amu",
+        type=float,
+        default=2.0,
+        help="Ion mass [amu] used to compute rho_s0 for Hermes-style bxcv normalization.",
+    )
+    p.add_argument(
+        "--norm-Zi",
+        type=float,
+        default=1.0,
+        help="Ion charge state used to compute rho_s0 for Hermes-style bxcv normalization.",
+    )
+    p.add_argument(
+        "--norm-rho-s0",
+        type=float,
+        default=None,
+        help=(
+            "Explicit rho_s0 [m] for Hermes-style bxcv normalization. "
+            "If omitted, computed from Te0/B0/mi/Zi."
+        ),
+    )
+    p.add_argument(
+        "--bxcv-shifted-sinty",
+        action="store_true",
+        help=(
+            "Apply shifted-metric correction bxcv_z <- bxcv_z + sinty*bxcv_x before normalization."
+        ),
+    )
+    p.add_argument(
+        "--parallel-from-y",
+        action="store_true",
+        help=(
+            "Treat BOUT++ y (poloidal) as the parallel coordinate: transpose"
+            " curvature/dpar/B/metric arrays to (ny, nx) so they vary along z."
+        ),
+    )
+    p.add_argument(
         "--bxcv-scale",
         type=float,
         default=1.0,
@@ -168,6 +246,18 @@ def main() -> None:
     netcdf4 = _require("netCDF4")
     ds = netcdf4.Dataset(str(Path(args.grid)), "r")
 
+    x_index = int(args.x_index)
+    if x_index < 0:
+        x_index = None
+
+    gxx_var = args.gxx_var
+    gxy_var = args.gxy_var
+    gyy_var = args.gyy_var
+    if gxx_var not in ds.variables and "g11" in ds.variables:
+        gxx_var = "g11"
+        gxy_var = "g12" if "g12" in ds.variables else gxy_var
+        gyy_var = "g22" if "g22" in ds.variables else gyy_var
+
     use_logb = args.logb_var in ds.variables
     use_bxcv = (
         args.bxcv_var_x in ds.variables
@@ -183,7 +273,7 @@ def main() -> None:
     dlogB_dz = None
     if use_logb:
         logB_raw = np.asarray(ds.variables[args.logb_var][:])
-        logB_slice = _slice_var(logB_raw, args.x_index)
+        logB_slice = _slice_var(logB_raw, x_index)
         logB_z, dlogB_dz = _reconstruct_logB(logB_slice, args.zeta)
 
     dx = np.asarray(ds.variables[args.dx_var][:])
@@ -228,12 +318,12 @@ def main() -> None:
             )
 
         dlogB_dx_full = np.gradient(logB_xy, x_coord, axis=0, edge_order=2)
-        dlogB_dx = _slice_var(dlogB_dx_full, args.x_index)
+        dlogB_dx = _slice_var(dlogB_dx_full, x_index)
 
         if dy is not None:
             y_coord = _coord_from_spacing(dy, axis=1)
             dlogB_dy_full = np.gradient(logB_xy, y_coord, axis=1, edge_order=2)
-            dlogB_dy = _slice_var(dlogB_dy_full, args.x_index)
+            dlogB_dy = _slice_var(dlogB_dy_full, x_index)
         else:
             y_coord = np.arange(logB_z.shape[-1])
             dlogB_dy = np.zeros_like(dlogB_dx)
@@ -243,9 +333,9 @@ def main() -> None:
         else:
             y_coord = None
 
-    Bxy = _slice_var(Bxy_full, args.x_index)
-    Bpxy = _slice_var(Bpxy_full, args.x_index)
-    hthe = _slice_var(np.asarray(ds.variables[args.hthe_var][:]), args.x_index)
+    Bxy = _slice_var(Bxy_full, x_index)
+    Bpxy = _slice_var(Bpxy_full, x_index)
+    hthe = _slice_var(np.asarray(ds.variables[args.hthe_var][:]), x_index)
     Rxy = None
     Zxy = None
     if Rxy_full is not None:
@@ -258,11 +348,11 @@ def main() -> None:
     gxx = None
     gxy = None
     gyy = None
-    if (args.gxx_var in ds.variables) and (args.gyy_var in ds.variables):
-        gxx = _slice_var(np.asarray(ds.variables[args.gxx_var][:]), args.x_index)
-        gyy = _slice_var(np.asarray(ds.variables[args.gyy_var][:]), args.x_index)
-        if args.gxy_var in ds.variables:
-            gxy = _slice_var(np.asarray(ds.variables[args.gxy_var][:]), args.x_index)
+    if (gxx_var in ds.variables) and (gyy_var in ds.variables):
+        gxx = _slice_var(np.asarray(ds.variables[gxx_var][:]), x_index)
+        gyy = _slice_var(np.asarray(ds.variables[gyy_var][:]), x_index)
+        if gxy_var in ds.variables:
+            gxy = _slice_var(np.asarray(ds.variables[gxy_var][:]), x_index)
         else:
             gxy = np.zeros_like(gxx)
         if args.use_metric:
@@ -276,41 +366,91 @@ def main() -> None:
         curv_x = -Bxy * scale_y * derivs[args.curv_x_axis] * float(args.curv_sign_x)
         curv_y = Bxy * scale_x * derivs[args.curv_y_axis] * float(args.curv_sign_y)
     else:
-        bxcv_x = _slice_var(np.asarray(ds.variables[args.bxcv_var_x][:]), args.x_index)
-        bxcv_y = _slice_var(np.asarray(ds.variables[args.bxcv_var_y][:]), args.x_index)
-        bxcv_z = _slice_var(np.asarray(ds.variables[args.bxcv_var_z][:]), args.x_index)
+        bxcv_x = _slice_var(np.asarray(ds.variables[args.bxcv_var_x][:]), x_index)
+        bxcv_y = _slice_var(np.asarray(ds.variables[args.bxcv_var_y][:]), x_index)
+        bxcv_z = _slice_var(np.asarray(ds.variables[args.bxcv_var_z][:]), x_index)
+        if args.bxcv_shifted_sinty and "sinty" in ds.variables:
+            sinty = _slice_var(np.asarray(ds.variables["sinty"][:]), x_index)
+            bxcv_z = bxcv_z + sinty * bxcv_x
+
+        if args.bxcv_normalization == "hermes":
+            rho_s0 = (
+                float(args.norm_rho_s0)
+                if args.norm_rho_s0 is not None
+                else _compute_rho_s0(
+                    Te0_eV=float(args.norm_Te0_eV),
+                    B0_T=float(args.norm_B0_T),
+                    m_i_amu=float(args.norm_mi_amu),
+                    Z_i=float(args.norm_Zi),
+                )
+            )
+            Bnorm = max(float(args.norm_B0_T), 1e-30)
+            bxcv_x = bxcv_x / Bnorm
+            bxcv_y = bxcv_y * (rho_s0**2)
+            bxcv_z = bxcv_z * (rho_s0**2)
+            bxcv_x = 2.0 * bxcv_x / np.maximum(Bxy, 1e-12)
+            bxcv_y = 2.0 * bxcv_y / np.maximum(Bxy, 1e-12)
+            bxcv_z = 2.0 * bxcv_z / np.maximum(Bxy, 1e-12)
+
         comp = {"x": bxcv_x, "y": bxcv_y, "z": bxcv_z}
         curv_x = comp[args.bxcv_curv_x]
         curv_y = comp[args.bxcv_curv_y]
-        if args.bxcv_use_2overB:
+        if args.bxcv_use_2overB and args.bxcv_normalization != "hermes":
             curv_x = 2.0 * curv_x / np.maximum(Bxy, 1e-12)
             curv_y = 2.0 * curv_y / np.maximum(Bxy, 1e-12)
         curv_x = curv_x * float(args.bxcv_scale) * float(args.curv_sign_x)
         curv_y = curv_y * float(args.bxcv_scale) * float(args.curv_sign_y)
     dpar_factor = Bpxy / np.maximum(Bxy * hthe, 1e-12)
 
+    def _maybe_transpose(arr: np.ndarray | None) -> np.ndarray | None:
+        if arr is None:
+            return None
+        if args.parallel_from_y and arr.ndim >= 2:
+            return np.swapaxes(arr, 0, 1)
+        return arr
+
+    curv_x = _maybe_transpose(curv_x)
+    curv_y = _maybe_transpose(curv_y)
+    dpar_factor = _maybe_transpose(dpar_factor)
+    Bxy = _maybe_transpose(Bxy)
+    gxx = _maybe_transpose(gxx)
+    gxy = _maybe_transpose(gxy)
+    gyy = _maybe_transpose(gyy)
+
     # z (field-aligned coordinate)
     if args.theta_var in ds.variables:
-        z = _slice_var(np.asarray(ds.variables[args.theta_var][:]), args.x_index)
+        theta_full = np.asarray(ds.variables[args.theta_var][:])
+        if theta_full.ndim >= 2:
+            if x_index is None:
+                mid = int(theta_full.shape[0] // 2)
+                z = np.asarray(theta_full[mid, :])
+            else:
+                z = np.asarray(theta_full[x_index, :])
+        else:
+            z = np.asarray(theta_full).reshape(-1)
     else:
         if y_coord is None:
             y_coord = np.arange(curv_x.shape[-1])
-        z = _slice_var(y_coord, args.x_index)
+        z = np.asarray(y_coord).reshape(-1)
 
     # Lengths
     Lx = float(x_coord[-1] - x_coord[0] + (x_coord[1] - x_coord[0]) if x_coord.size > 1 else 1.0)
     Ly = float(y_coord[-1] - y_coord[0] + (y_coord[1] - y_coord[0]) if y_coord.size > 1 else 1.0)
-    nx = int(_scalar(ds, "nx", curv_x.shape[-1]))
-    ny = int(_scalar(ds, "ny", curv_x.shape[-1]))
+    if curv_x.ndim >= 2:
+        nx_guess, ny_guess = curv_x.shape[:2]
+    else:
+        nx_guess, ny_guess = curv_x.shape[-1], curv_x.shape[-1]
+    nx = int(_scalar(ds, "nx", nx_guess))
+    ny = int(_scalar(ds, "ny", ny_guess))
 
     mask_fields = _build_region_masks(ds, nx=nx, ny=ny)
 
     out = {
         "z": np.asarray(z).reshape(-1),
-        "curv_x": np.asarray(curv_x).reshape(-1),
-        "curv_y": np.asarray(curv_y).reshape(-1),
-        "dpar_factor": np.asarray(dpar_factor).reshape(-1),
-        "B": np.asarray(Bxy).reshape(-1),
+        "curv_x": np.asarray(curv_x),
+        "curv_y": np.asarray(curv_y),
+        "dpar_factor": np.asarray(dpar_factor),
+        "B": np.asarray(Bxy),
         "Lx": Lx,
         "Ly": Ly,
         "nx": nx,

@@ -54,6 +54,7 @@ sol_Te_floor = 0.05
 source_on = true
 source_profile = "gaussian_xy"
 source_x_mode = "bout"
+source_only_in_core = true
 source_x0 = 0.05
 source_y0 = 0.0
 source_width_x = 0.05

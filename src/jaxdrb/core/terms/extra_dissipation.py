@@ -55,7 +55,7 @@ def extra_dissipation_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemSta
             with jax.named_scope("phi_bc_relaxation"):
                 phi_rhs = _phi_boundary_relaxation_term(ctx, ctx.phi, nu_phi)
                 omega = omega + omega_from_phi(
-                    ctx.params, ctx.geom, phi_rhs, ctx.n_phys, ctx.bcs.phi
+                    ctx.params, ctx.geom, phi_rhs, ctx.n_phys, ctx.bcs.phi, Ti=ctx.Ti
                 )
 
     return DRBSystemState(
