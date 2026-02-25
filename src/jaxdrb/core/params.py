@@ -27,6 +27,11 @@ class PhysicsParams(eqx.Module):
     omega_Te: float = 0.0
     omega_Ti: float = 0.0
     omega_drive_mask: Literal["all", "closed", "open"] = "all"
+    drive_from_equilibrium_on: bool = False
+    drive_equilibrium_mode: Literal["auto", "sol", "constant"] = "auto"
+    drive_equilibrium_n0: float | None = None
+    drive_equilibrium_Te0: float | None = None
+    drive_equilibrium_Ti0: float | None = None
 
     # HW-like coupling (retained for compatibility).
     kappa: float = 0.0
@@ -57,6 +62,18 @@ class PhysicsParams(eqx.Module):
     curvature_model: str = "slab"
     curvature_theta_scale: float | None = None
     curvature_scale: float | None = None
+    curvature_Te_coeff: float | None = None
+
+    # Diamagnetic drift (Hermes-style) using Curl(b/B) from bxcv/curvature vectors.
+    diamagnetic_on: bool = False
+    diamag_form: float = 1.0
+    diamag_form_profile: str | None = None
+    diamag_density_model: Literal["electron", "ion", "none"] = "electron"
+    diamag_bndry_flux: bool = True
+
+    # Diamagnetic polarisation current (adds div((1/B^2) grad p_i) to omega operator).
+    diamagnetic_polarisation_on: bool = False
+    diamagnetic_polarisation_scale: float = 1.0
 
     # Polarization closure.
     n0: float = 1.0
@@ -73,8 +90,10 @@ class PhysicsParams(eqx.Module):
     source_on: bool = False
     source_profile: Literal["gaussian_x", "gaussian_xy"] = "gaussian_x"
     source_x_mode: Literal["grid", "bout"] = "grid"
+    source_only_in_core: bool = False
     source_n0: float = 0.0
     source_Te0: float = 0.0
+    source_Te_is_pressure: bool = False
     source_x0: float = 0.0
     source_y0: float = 0.0
     source_width_x: float = 1.0
@@ -134,6 +153,21 @@ class TransportParams(eqx.Module):
     braginskii_Tref: float = 1.0
     braginskii_T_floor: float = 1e-3
     braginskii_T_smooth: float = 1e-3
+
+    # Braginskii collision-driven closures.
+    braginskii_heat_exchange_on: bool = False
+    braginskii_friction_on: bool = False
+    braginskii_frictional_heating_on: bool = True
+    classical_diffusion_on: bool = False
+
+    braginskii_nu_ei: float = 0.0
+    braginskii_nu_ii: float = 0.0
+    braginskii_nu_floor: float = 1e-12
+    braginskii_friction_coeff: float = 0.51
+
+    classical_diffusion_custom_D: float = -1.0
+    classical_diffusion_custom_kappa_e: float = -1.0
+    classical_diffusion_custom_kappa_i: float = -1.0
 
 
 class SheathParams(eqx.Module):

@@ -15,7 +15,65 @@ from jaxdrb.operators.fd2d import (
 )
 from jaxdrb.operators.spectral2d import inv_laplacian as inv_laplacian_spec
 
-from .ops import grid_of, is_periodic_bc, laplacian
+from .ops import ddx, ddy, grid_of, is_periodic_bc, laplacian
+
+
+def _broadcast_to_shape(arr: jnp.ndarray, shape: tuple[int, ...]) -> jnp.ndarray:
+    if arr.shape == shape:
+        return arr
+    if arr.ndim == 1:
+        if len(shape) == 3 and arr.shape[0] == shape[0]:
+            arr = arr[:, None, None]
+        elif len(shape) == 2 and arr.shape[0] == shape[0]:
+            arr = arr[:, None]
+        elif len(shape) == 2 and arr.shape[0] == shape[1]:
+            arr = arr[None, :]
+    elif arr.ndim == 2 and len(shape) == 3 and arr.shape == shape[1:]:
+        arr = arr[None, :, :]
+    return jnp.broadcast_to(arr, shape)
+
+
+def _diamagnetic_polarisation_term(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    n_phys: jnp.ndarray,
+    Ti: jnp.ndarray | None,
+    bc_phi: BC2D,
+) -> jnp.ndarray:
+    if not bool(getattr(params, "diamagnetic_polarisation_on", False)):
+        return jnp.zeros_like(n_phys)
+
+    tau_i = float(getattr(params, "tau_i", 0.0))
+    Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+    p_i = tau_i * (n_phys + Ti_eff)
+
+    B = getattr(geom, "B", None)
+    if B is None:
+        invB2 = 1.0
+    else:
+        invB2 = 1.0 / jnp.maximum(jnp.asarray(B), 1e-12) ** 2
+        invB2 = _broadcast_to_shape(invB2, n_phys.shape)
+
+    scale = float(getattr(params, "diamagnetic_polarisation_scale", 1.0))
+    grid = grid_of(geom)
+
+    if grid is None:
+        if isinstance(invB2, jnp.ndarray):
+            term = ddx(params, geom, invB2 * ddx(params, geom, p_i, bc_phi), bc_phi) + ddy(
+                params, geom, invB2 * ddy(params, geom, p_i, bc_phi), bc_phi
+            )
+        else:
+            term = geom.laplacian(p_i)
+        return term * scale
+
+    if p_i.ndim == 2:
+        term = div_n_grad(p_i, invB2, dx=grid.dx, dy=grid.dy, bc=bc_phi)
+        return term * scale
+
+    term = jax.vmap(lambda p, coeff: div_n_grad(p, coeff, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
+        p_i, invB2
+    )
+    return term * scale
 
 
 def phys_n(params: DRBSystemParams, n: jnp.ndarray) -> jnp.ndarray:
@@ -67,12 +125,14 @@ def phi_from_omega(
     omega: jnp.ndarray,
     n_phys: jnp.ndarray,
     bc_phi: BC2D,
+    Ti: jnp.ndarray | None = None,
     phi_guess: jnp.ndarray | None = None,
     return_iters: bool = False,
 ) -> jnp.ndarray:
     grid = grid_of(geom)
     scale = float(params.poisson_scale)
     omega = omega / scale if scale != 1.0 else omega
+    omega = omega - _diamagnetic_polarisation_term(params, geom, n_phys, Ti, bc_phi)
     if grid is None:
         if params.boussinesq:
             phi = geom.inv_laplacian(omega, x0=phi_guess)
@@ -186,6 +246,7 @@ def omega_from_phi(
     phi: jnp.ndarray,
     n_phys: jnp.ndarray,
     bc_phi: BC2D,
+    Ti: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Forward operator for Poisson/polarization: omega = ∇² phi (or div(n ∇ phi))."""
 
@@ -198,9 +259,13 @@ def omega_from_phi(
                 metric_ok = bool(geom.metric_available())
             if metric_ok:
                 omega_metric = geom.laplacian_metric(phi)
+                omega_metric = omega_metric + _diamagnetic_polarisation_term(
+                    params, geom, n_phys, Ti, bc_phi
+                )
                 return omega_metric * scale if scale != 1.0 else omega_metric
 
         omega = laplacian(params, geom, phi, bc_phi)
+        omega = omega + _diamagnetic_polarisation_term(params, geom, n_phys, Ti, bc_phi)
         return omega * scale if scale != 1.0 else omega
 
     n_eff = _n_eff(params, n_phys)
@@ -211,9 +276,11 @@ def omega_from_phi(
 
     if phi.ndim == 2:
         omega = div_n_grad(phi, n_eff, dx=grid.dx, dy=grid.dy, bc=bc_phi)
+        omega = omega + _diamagnetic_polarisation_term(params, geom, n_phys, Ti, bc_phi)
         return omega * scale if scale != 1.0 else omega
 
     omega = jax.vmap(lambda p, nloc: div_n_grad(p, nloc, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
         phi, n_eff
     )
+    omega = omega + _diamagnetic_polarisation_term(params, geom, n_phys, Ti, bc_phi)
     return omega * scale if scale != 1.0 else omega

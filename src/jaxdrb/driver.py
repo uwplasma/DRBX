@@ -151,7 +151,7 @@ def _apply_phi_boundary_relaxation_implicit(
     dx = float(grid.dx)
     dy = float(grid.dy)
 
-    phi = system._phi_from_omega(y.omega, n=y.n, phi_guess=phi_guess)
+    phi = system._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, phi_guess=phi_guess)
 
     if phi.ndim == 2:
         phi_rel = enforce_bc_relaxation_implicit(
@@ -164,7 +164,7 @@ def _apply_phi_boundary_relaxation_implicit(
             )
         )(phi)
 
-    omega = system._omega_from_phi(phi_rel, n=y.n)
+    omega = system._omega_from_phi(phi_rel, n=y.n, Ti=y.Ti)
 
     return DRBSystemState(
         n=y.n,
@@ -212,12 +212,12 @@ def _apply_sol_sheath_phi_implicit(
 
     dt = float(dt)
     if phi_guess is None:
-        phi_guess = system._phi_from_omega(y.omega, n=n_phys)
+        phi_guess = system._phi_from_omega(y.omega, n=n_phys, Ti=y.Ti)
 
     b = y.omega + dt * const
 
     def matvec(phi):
-        return system._omega_from_phi(phi, n=n_phys) + dt * A * phi
+        return system._omega_from_phi(phi, n=n_phys, Ti=y.Ti) + dt * A * phi
 
     solver = str(params.sol_sheath_phi_implicit_solver).lower()
     tol = float(params.sol_sheath_phi_implicit_rtol)
@@ -237,7 +237,7 @@ def _apply_sol_sheath_phi_implicit(
             maxiter=maxiter,
         )
 
-    omega_new = system._omega_from_phi(phi_new, n=n_phys)
+    omega_new = system._omega_from_phi(phi_new, n=n_phys, Ti=y.Ti)
 
     return DRBSystemState(
         n=y.n,
@@ -918,7 +918,7 @@ def _diagnostic_fn(
             elif use_phi_guess_only:
                 phi_local = jnp.zeros_like(y.omega)
             else:
-                phi_local = system._phi_from_omega(y.omega, n=n_phys, phi_guess=phi_guess)
+                phi_local = system._phi_from_omega(y.omega, n=n_phys, Ti=y.Ti, phi_guess=phi_guess)
 
         if not use_phi_rms:
             zero = jnp.asarray(0.0)
@@ -1002,7 +1002,9 @@ def _diagnostic_fn(
             }
             if "phi" in snapshot_fields:
                 if phi_local is None:
-                    phi_local = system._phi_from_omega(y.omega, n=n_phys, phi_guess=phi_guess)
+                    phi_local = system._phi_from_omega(
+                        y.omega, n=n_phys, Ti=y.Ti, phi_guess=phi_guess
+                    )
                 field_map["phi"] = phi_local
             snapshots = tuple(field_map[name] for name in snapshot_fields if name in field_map)
 

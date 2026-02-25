@@ -12,7 +12,13 @@ from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state
 from .advection import exb_advection_terms
 from .bc_relaxation import field_bc_relaxation
 from .context import TermContext
+from .braginskii import (
+    braginskii_friction_terms,
+    braginskii_heat_exchange_terms,
+    classical_diffusion_terms,
+)
 from .curvature import curvature_terms
+from .diamagnetic import diamagnetic_terms
 from .diffusion import diffusion_terms
 from .drive import drive_terms
 from .extra_dissipation import extra_dissipation_terms
@@ -145,6 +151,23 @@ def _term_curvature(ctx: TermContext, y: DRBSystemState, work: dict[str, object]
     )
 
 
+def _term_diamagnetic(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    term = diamagnetic_terms(ctx, y)
+    term = _log_term_nTe(ctx, term)
+    return DRBSystemState(
+        n=term.n,
+        omega=term.omega,
+        vpar_e=term.vpar_e,
+        vpar_i=term.vpar_i,
+        Te=term.Te,
+        Ti=term.Ti if y.Ti is not None else None,
+        psi=term.psi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
 def _term_drive(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
     term = drive_terms(ctx, y)
     term = _log_term_nTe(ctx, term)
@@ -218,6 +241,60 @@ def _term_diffusion(ctx: TermContext, y: DRBSystemState, work: dict[str, object]
         Te=term.Te,
         Ti=term.Ti if y.Ti is not None else None,
         psi=term.psi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
+def _term_braginskii_heat_exchange(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    _ = work
+    term = braginskii_heat_exchange_terms(ctx, y)
+    term = _log_term_nTe(ctx, term)
+    return DRBSystemState(
+        n=term.n,
+        omega=term.omega,
+        vpar_e=term.vpar_e,
+        vpar_i=term.vpar_i,
+        Te=term.Te,
+        Ti=term.Ti if y.Ti is not None else None,
+        psi=term.psi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
+def _term_braginskii_friction(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    _ = work
+    term = braginskii_friction_terms(ctx, y)
+    term = _log_term_nTe(ctx, term)
+    return DRBSystemState(
+        n=term.n,
+        omega=term.omega,
+        vpar_e=term.vpar_e,
+        vpar_i=term.vpar_i,
+        Te=term.Te,
+        Ti=term.Ti if y.Ti is not None else None,
+        psi=term.psi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
+def _term_classical_diffusion(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    _ = work
+    term = classical_diffusion_terms(ctx, y)
+    term = _log_term_nTe(ctx, term)
+    return DRBSystemState(
+        n=term.n,
+        omega=term.omega,
+        vpar_e=term.vpar_e,
+        vpar_i=term.vpar_i,
+        Te=term.Te,
+        Ti=term.Ti if y.Ti is not None else None,
+        psi=term.psi if y.psi is not None else jnp.zeros_like(y.psi),
         N=None if y.N is None else jnp.zeros_like(y.N),
     )
 
@@ -345,6 +422,7 @@ def _term_line_bcs(ctx: TermContext, y: DRBSystemState, work: dict[str, object])
 
 TERM_REGISTRY: dict[str, TermSpec] = {
     "advection": TermSpec("advection", "conservative", _term_advection),
+    "diamagnetic": TermSpec("diamagnetic", "conservative", _term_diamagnetic),
     "parallel": TermSpec("parallel", "conservative", _term_parallel),
     "curvature": TermSpec("curvature", "source", _term_curvature),
     "drive": TermSpec("drive", "source", _term_drive),
@@ -352,6 +430,15 @@ TERM_REGISTRY: dict[str, TermSpec] = {
     "sol_sources": TermSpec("sol_sources", "source", _term_sol_sources),
     "neutrals": TermSpec("neutrals", "source", _term_neutrals),
     "diffusion": TermSpec("diffusion", "dissipative", _term_diffusion),
+    "classical_diffusion": TermSpec(
+        "classical_diffusion", "dissipative", _term_classical_diffusion
+    ),
+    "braginskii_friction": TermSpec(
+        "braginskii_friction", "dissipative", _term_braginskii_friction
+    ),
+    "braginskii_heat_exchange": TermSpec(
+        "braginskii_heat_exchange", "dissipative", _term_braginskii_heat_exchange
+    ),
     "extra_dissipation": TermSpec("extra_dissipation", "dissipative", _term_extra_dissipation),
     "sol_sinks": TermSpec("sol_sinks", "dissipative", _term_sol_sinks),
     "sol_parallel_loss": TermSpec("sol_parallel_loss", "dissipative", _term_sol_parallel_loss),
@@ -369,6 +456,7 @@ TERM_REGISTRY: dict[str, TermSpec] = {
 
 DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
     "advection",
+    "diamagnetic",
     "parallel",
     "curvature",
     "drive",
@@ -376,6 +464,9 @@ DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
     "sol_sources",
     "neutrals",
     "diffusion",
+    "classical_diffusion",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
     "extra_dissipation",
     "sol_sinks",
     "sol_parallel_loss",
@@ -393,6 +484,9 @@ DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
 
 STIFF_TERM_SCHEDULE: tuple[str, ...] = (
     "diffusion",
+    "classical_diffusion",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
     "extra_dissipation",
     "sol_sinks",
     "sol_omega_bc",
@@ -408,6 +502,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
     # Minimal linear physics for quick runs (no nonlinear advection).
     "preset_linear": (
         "parallel",
+        "diamagnetic",
         "curvature",
         "drive",
         "diffusion",
@@ -415,6 +510,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
     # Minimal nonlinear set for quick runs (adds ExB advection).
     "preset_nonlinear": (
         "advection",
+        "diamagnetic",
         "parallel",
         "curvature",
         "drive",
@@ -423,6 +519,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
     # Very small quick-check set (no drive; useful for stability/perf).
     "preset_min": (
         "advection",
+        "diamagnetic",
         "parallel",
         "curvature",
         "diffusion",

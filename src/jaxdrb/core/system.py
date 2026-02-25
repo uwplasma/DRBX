@@ -9,6 +9,7 @@ from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state_zeros_like
 from jaxdrb.core.terms import build_context
+from jaxdrb.core.terms.fields import _diamagnetic_polarisation_term
 from jaxdrb.operators.fd2d import (
     ddx as ddx_fd,
     ddy as ddy_fd,
@@ -318,7 +319,7 @@ class DRBSystem(eqx.Module):
     def _energy_drb(self, y: DRBSystemState) -> jnp.ndarray:
         n = self._phys_n(y.n)
         Te = self._phys_Te(y.Te)
-        phi = self._phi_from_omega(y.omega, n=n)
+        phi = self._phi_from_omega(y.omega, n=n, Ti=y.Ti)
         bc_phi = self._bc_phi()
         c_T = 1.5 * float(self.params.alpha_Te_ohm)
         gradphi_x = self._ddx(phi, bc_phi)
@@ -347,7 +348,7 @@ class DRBSystem(eqx.Module):
         )
 
     def _energy_hot(self, y: DRBSystemState) -> jnp.ndarray:
-        phi = self._phi_from_omega(y.omega, n=y.n)
+        phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
         bc_phi = self._bc_phi()
         c_Te = 1.5 * float(self.params.alpha_Te_ohm)
         c_Ti = 1.5 * float(self.params.alpha_Ti)
@@ -374,7 +375,7 @@ class DRBSystem(eqx.Module):
         )
 
     def _energy_em(self, y: DRBSystemState) -> jnp.ndarray:
-        phi = self._phi_from_omega(y.omega, n=y.n)
+        phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
         bc_phi = self._bc_phi()
         c_T = 1.5 * float(self.params.alpha_Te_ohm)
         jpar = -self._laplacian(y.psi, self._bc_or(self.params.bc_psi))
@@ -412,7 +413,7 @@ class DRBSystem(eqx.Module):
         if self.params.boussinesq and not (self.params.log_n or self.params.log_Te):
             n = self._phys_n(y.n)
             Te = self._phys_Te(y.Te)
-            phi = self._phi_from_omega(y.omega, n=n)
+            phi = self._phi_from_omega(y.omega, n=n, Ti=y.Ti)
             c_T = 1.5 * float(self.params.alpha_Te_ohm)
             return jnp.mean(
                 jnp.real(jnp.conj(n) * dy.n)
@@ -427,7 +428,7 @@ class DRBSystem(eqx.Module):
 
     def _energy_rate_hot(self, y: DRBSystemState, dy: DRBSystemState) -> jnp.ndarray:
         if self.params.boussinesq and not (self.params.log_n or self.params.log_Te):
-            phi = self._phi_from_omega(y.omega, n=y.n)
+            phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
             c_Te = 1.5 * float(self.params.alpha_Te_ohm)
             c_Ti = 1.5 * float(self.params.alpha_Ti)
             return jnp.mean(
@@ -444,7 +445,7 @@ class DRBSystem(eqx.Module):
 
     def _energy_rate_em(self, y: DRBSystemState, dy: DRBSystemState) -> jnp.ndarray:
         if self.params.boussinesq and not (self.params.log_n or self.params.log_Te):
-            phi = self._phi_from_omega(y.omega, n=y.n)
+            phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
             c_T = 1.5 * float(self.params.alpha_Te_ohm)
             jpar = -self._laplacian(y.psi, self._bc_or(self.params.bc_psi))
             return jnp.mean(
@@ -479,12 +480,18 @@ class DRBSystem(eqx.Module):
         return out
 
     def _phi_from_omega(
-        self, omega: jnp.ndarray, n: jnp.ndarray, *, phi_guess: jnp.ndarray | None = None
+        self,
+        omega: jnp.ndarray,
+        n: jnp.ndarray,
+        *,
+        Ti: jnp.ndarray | None = None,
+        phi_guess: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         grid = self._grid()
         bc_phi = self._bc_phi()
         scale = float(self.params.poisson_scale)
         omega = omega / scale if scale != 1.0 else omega
+        omega = omega - _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
         if grid is None:
             if self.params.boussinesq:
                 return self.geom.inv_laplacian(omega, x0=phi_guess)
@@ -610,7 +617,9 @@ class DRBSystem(eqx.Module):
             x0=phi_guess,
         )
 
-    def _omega_from_phi(self, phi: jnp.ndarray, n: jnp.ndarray) -> jnp.ndarray:
+    def _omega_from_phi(
+        self, phi: jnp.ndarray, n: jnp.ndarray, *, Ti: jnp.ndarray | None = None
+    ) -> jnp.ndarray:
         """Forward operator for Poisson/polarization: omega = ∇² phi (or div(n ∇ phi))."""
 
         grid = self._grid()
@@ -624,6 +633,9 @@ class DRBSystem(eqx.Module):
                     metric_ok = bool(self.geom.metric_available())
                 if metric_ok:
                     omega = self.geom.laplacian_metric(phi)
+                    omega = omega + _diamagnetic_polarisation_term(
+                        self.params, self.geom, n, Ti, bc_phi
+                    )
                     return omega * scale if scale != 1.0 else omega
             poisson = self.params.poisson
             if self.params.poisson_force_spectral_when_periodic and self._is_periodic_bc(bc_phi):
@@ -645,6 +657,7 @@ class DRBSystem(eqx.Module):
                         omega = self.geom.laplacian(phi)
                 else:
                     omega = self.geom.laplacian(phi)
+            omega = omega + _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
             return omega * scale if scale != 1.0 else omega
 
         n_eff = float(self.params.n0)
@@ -656,6 +669,7 @@ class DRBSystem(eqx.Module):
 
         if grid is None:
             omega = self.geom.laplacian(phi)
+            omega = omega + _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
             return omega * scale if scale != 1.0 else omega
 
         if phi.ndim == 2:
@@ -665,4 +679,5 @@ class DRBSystem(eqx.Module):
         omega = jax.vmap(lambda p, nloc: div_n_grad(p, nloc, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
             phi, n_eff
         )
+        omega = omega + _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
         return omega * scale if scale != 1.0 else omega

@@ -13,6 +13,49 @@ the unified DRB system. All options are designed to be **subsets of the same cor
 - `sheath_on`: enable sheath boundary closures.
 - `neutrals_on`: enable neutral interaction terms.
 - `linear_on`: drop nonlinear ExB advection terms (linearized dynamics).
+- `diamagnetic_on`: enable Hermes‑style diamagnetic drift terms.
+- `diamagnetic_polarisation_on`: add ion pressure contribution to polarization operator.
+- `drive_from_equilibrium_on`: compute background‑gradient drive from equilibrium profiles.
+
+### Diamagnetic Drift (`[physics]`)
+
+The diamagnetic drift uses the curvature vector (Curl(b/B)) from `curv_x/curv_y`
+and adds drift terms to density, pressure/temperature, and parallel momentum:
+
+- `diamag_form`: blend factor between divergence form (1) and gradient form (0).
+- `diamag_form_profile`: optional profile (`x`, `1-x`, `x*(1-x)`).
+- `diamag_density_model`: which species density to use (`electron`, `ion`, `none`).
+- `diamag_bndry_flux`: allow diamagnetic flux through boundaries.
+
+The diamagnetic polarization correction adds an ion‑pressure term to the
+vorticity operator:
+
+```
+ω = ∇·(n ∇φ) + ∇·(B^{-2} ∇p_i)
+```
+
+Enable with `diamagnetic_polarisation_on=true` and scale with
+`diamagnetic_polarisation_scale`.
+
+### Equilibrium-Profile Drives (`[physics]`)
+
+When `drive_from_equilibrium_on=true`, the density and temperature drives are
+derived from equilibrium profiles instead of prescribed constants:
+
+```
+ω_n(x)  = -∂_x ln n_0(x)
+ω_T(x)  = -∂_x ln T_0(x)
+```
+
+The drive terms are then `-ω_n ∂_y φ` and `-ω_T ∂_y φ`, optionally masked by
+open/closed field regions. For SOL runs, the equilibrium profiles are derived
+from `sol_n_core/sol_n_sol` and `sol_Te_core/sol_Te_sol`.
+
+Additional controls:
+
+- `drive_equilibrium_mode`: `auto`, `sol`, or `constant`.
+- `drive_equilibrium_n0/Te0/Ti0`: constant equilibrium values (used when
+  `drive_equilibrium_mode="constant"`).
 
 ---
 
@@ -52,6 +95,25 @@ v_i >= c_s,  v_e ~ c_s - phi
 where `c_s = sqrt(1 + tau_i)` in normalized units. Energy sinks are controlled
 via `sheath_gamma_e` and `sheath_gamma_i`, and direct particle damping can be
 enabled with `sheath_loss_on=true`.
+
+---
+
+## Braginskii Closures (`[transport]`)
+
+Enable Braginskii collision terms for heat exchange, friction, and classical
+cross‑field diffusion:
+
+- `braginskii_heat_exchange_on`: electron‑ion heat exchange.
+- `braginskii_friction_on`: parallel friction between species.
+- `braginskii_frictional_heating_on`: add frictional heating contributions.
+- `classical_diffusion_on`: classical diffusion (density, momentum, temperature).
+- `braginskii_nu_ei`, `braginskii_nu_ii`: collision frequencies (normalized).
+- `braginskii_friction_coeff`: friction coefficient (default 0.51).
+- `classical_diffusion_custom_D`, `classical_diffusion_custom_kappa_e/i`: override
+  classical diffusivities; set to a non‑negative value to force a constant.
+
+These terms are included in the default term schedule and are treated as stiff
+updates for IMEX splitting.
 
 ---
 
