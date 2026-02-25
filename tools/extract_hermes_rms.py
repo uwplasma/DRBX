@@ -50,7 +50,22 @@ def main() -> None:
     baseline: dict[tuple[Path, str], np.ndarray] = {}
     for fp in files:
         with Dataset(str(fp)) as ds:
+            has_Te = "Te" in ds.variables
+            has_Pe = "Pe" in ds.variables
+            if not has_Te and not has_Pe:
+                raise KeyError("Hermes dump missing Te and Pe; cannot reconstruct Te.")
             for name in names:
+                if name == "Te" and not has_Te:
+                    pe0 = np.asarray(
+                        ds.variables["Pe"][0, mxg : mxg + mxs, myg : myg + mys, :],
+                        dtype=np.float64,
+                    )
+                    ne0 = np.asarray(
+                        ds.variables["Ne"][0, mxg : mxg + mxs, myg : myg + mys, :],
+                        dtype=np.float64,
+                    )
+                    baseline[(fp, name)] = pe0 / np.maximum(ne0, 1e-12)
+                    continue
                 baseline[(fp, name)] = np.asarray(
                     ds.variables[name][0, mxg : mxg + mxs, myg : myg + mys, :], dtype=np.float64
                 )
@@ -61,11 +76,24 @@ def main() -> None:
         count = 0
         for fp in files:
             with Dataset(str(fp)) as ds:
+                has_Te = "Te" in ds.variables
+                has_Pe = "Pe" in ds.variables
                 for name in names:
-                    arr = np.asarray(
-                        ds.variables[name][ti, mxg : mxg + mxs, myg : myg + mys, :],
-                        dtype=np.float64,
-                    )
+                    if name == "Te" and not has_Te:
+                        pe = np.asarray(
+                            ds.variables["Pe"][ti, mxg : mxg + mxs, myg : myg + mys, :],
+                            dtype=np.float64,
+                        )
+                        ne = np.asarray(
+                            ds.variables["Ne"][ti, mxg : mxg + mxs, myg : myg + mys, :],
+                            dtype=np.float64,
+                        )
+                        arr = pe / np.maximum(ne, 1e-12)
+                    else:
+                        arr = np.asarray(
+                            ds.variables[name][ti, mxg : mxg + mxs, myg : myg + mys, :],
+                            dtype=np.float64,
+                        )
                     delta = arr - baseline[(fp, name)]
                     sums_total[name] += float(np.sum(arr * arr))
                     sums_fluct[name] += float(np.sum(delta * delta))

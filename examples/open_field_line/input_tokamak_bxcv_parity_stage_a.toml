@@ -1,7 +1,8 @@
-# Open-field ES/cold/Bouss benchmark with Hermes-equivalent initial condition:
-#   n(x,z) = 3.0 - 2.7*x + 1e-3*mixmode(x-z)
-#   p(x)   = 3.0*(1-0.9*x)^2
-#   Te     = p / n
+# Stage-A Hermes parity baseline:
+# - Exact Hermes-like initial condition (Ne and pressure-derived Te)
+# - Open-field sheath, ES/cold/Bouss
+# - Curvature from bxcv-converted coefficients
+# - Reduced perpendicular transport to avoid non-Hermes baseline diffusion
 
 [normalization]
 enabled = true
@@ -16,18 +17,22 @@ length_unit = "rho_s"
 
 [geometry]
 kind = "axisymmetric"
-coeff_path = "examples/open_field_line/axisym_tokamak_bxcv.npz"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm.npz"
 bc_x = "neumann"
 bc_y = "periodic"
 open_field_line = true
 dealias = true
 nx = 36
-ny = 48
+# Match Hermes toroidal resolution (MZ) and zperiod for binormal length.
+ny = 81
 nz = 48
-Lx = 0.054697793193735585
-Ly = 9.424777960769383
-Lz = 9.22842842
 theta_scale = 1.0
+
+[geometry_physical]
+Lx = 0.054697793193735585
+# Torodial extent = 2π / zperiod (zperiod = 5).
+Ly = 1.2566370614359172
+Lz = 9.22842842
 R0 = 1.5
 r_minor = 0.054697793193735585
 
@@ -38,8 +43,9 @@ hot_ion_on = false
 neutrals_on = false
 boussinesq = true
 curvature_on = true
-curvature_coeff = 1.0
+curvature_coeff = 0.45
 curvature_model = "vector_xy"
+curvature_Te_coeff = 0.2
 sol_on = false
 sol_parallel_loss_on = true
 sol_parallel_loss_model = "bohm_exp"
@@ -53,12 +59,13 @@ source_x0 = 0.05
 source_y0 = 0.0
 source_width_x = 0.05
 source_width_y = 99.0
+source_Te_is_pressure = true
 
 [physics_physical]
-omega_n = 1957.4302701188247
-omega_Te = 978.7151350594124
-source_n0 = 1.4368249733915457e24
-source_Te0 = 2.8736499467830916e6
+omega_n = 0.0
+omega_Te = 0.0
+source_n0 = 3.018304651245823e21
+source_Te0 = 2.5098599999999997e4
 
 [closures]
 sheath_on = true
@@ -68,15 +75,16 @@ sheath_nu_factor = 1.0
 sol_sheath_phi_dissipation_on = true
 
 [transport]
-Dn = 0.001
-DOmega = 0.0001
-DTe = 0.001
-Dn4 = 5e-08
-DOmega4 = 1e-08
-DTe4 = 5e-08
-mu_lin_n = 0.001
-mu_lin_omega = 0.001
-mu_lin_Te = 0.001
+Dn = 0.0
+DOmega = 0.0
+DTe = 0.05
+chi_par_Te = 0.0
+Dn4 = 0.0
+DOmega4 = 0.0
+DTe4 = 0.0
+mu_lin_n = 0.0
+mu_lin_omega = 0.0
+mu_lin_Te = 0.0
 phi_dissipation_on = true
 core_vorticity_damping_on = true
 
@@ -86,7 +94,7 @@ bracket = "arakawa"
 parallel_flux_conservative = true
 parallel_limiter = "mc"
 exb_y_scale = 0.0
-poisson_scale = 2.0e-4
+poisson_scale = 1.4e-2
 
 [initial]
 n0 = 0.0
@@ -98,7 +106,7 @@ n_profile_offset = 3.0
 n_profile_slope = -2.7
 n_profile_xref = 0.0
 n_mixmode_amp = 0.001
-n_mixmode_terms = ["x-z"]
+n_mixmode_terms = ["x-y"]
 n_mixmode_mode = "bout"
 n_mixmode_seed = 0.5
 p_profile = "parabolic_x"
@@ -115,9 +123,9 @@ noise_fields = ["n"]
 
 [time]
 method = "rk4_imex_strang"
-dt = 0.00005
+dt = 0.00002
 nsteps = 4000
-save_every = 10
+save_every = 20
 diag_mode = "full"
 save_fields = true
 snapshot_fields = ["n", "omega", "Te", "phi"]
@@ -126,3 +134,6 @@ return_numpy = true
 
 [bc]
 perp = { bc_x = "neumann", bc_y = "periodic" }
+
+[bc_physical]
+phi_boundary_timescale = 1e-6

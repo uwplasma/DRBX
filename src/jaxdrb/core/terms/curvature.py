@@ -31,6 +31,9 @@ def curvature_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
         C_Ti = ctx.geom.curvature(ctx.Ti) if ctx.hot_on else jnp.zeros_like(ctx.Ti)
     C_p = (1.0 + tau_i) * C_n + C_Te + tau_i * C_Ti
     C_T = (2.0 / 3.0) * ((7.0 / 2.0) * C_Te + C_n - C_phi)
+    Te_coeff = ctx.params.curvature_Te_coeff
+    if Te_coeff is not None:
+        C_T = float(Te_coeff) * C_T
 
     return DRBSystemState(
         n=C_p - C_phi,

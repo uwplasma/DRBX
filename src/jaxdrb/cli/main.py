@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument(
         "--compile-cache",
         type=str,
-        default="~/.cache/jaxdrb/compilation",
+        default="$HOME/.cache/jaxdrb/compilation",
         help="Directory for JAX persistent compilation cache (use 'off' to disable).",
     )
     parser.add_argument(
@@ -72,7 +72,7 @@ def main() -> None:
         import os
         from jax.experimental import compilation_cache
 
-        cache_dir = os.path.expanduser(cache_opt)
+        cache_dir = os.path.expandvars(os.path.expanduser(cache_opt))
         os.makedirs(cache_dir, exist_ok=True)
         compilation_cache.compilation_cache.set_cache_dir(cache_dir)
         compilation_cache.compilation_cache.initialize_cache(cache_dir)

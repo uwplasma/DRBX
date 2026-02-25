@@ -39,6 +39,9 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_benchmark_schema.py` | Benchmark bundle schema round-trip (normalized + SI) | Cross-code reproducibility |
 | Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes parity diagnostics |
 | Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
+| Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
+| Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
+| Unit | `tests/test_energy_budget_new_terms.py` | Energy-budget entries for diamag polarisation + Braginskii | Energy diagnostics completeness |
 | Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
 | Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |

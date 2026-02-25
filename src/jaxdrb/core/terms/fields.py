@@ -49,10 +49,10 @@ def _diamagnetic_polarisation_term(
 
     B = getattr(geom, "B", None)
     if B is None:
-        invB2 = 1.0
+        invB2 = jnp.asarray(1.0)
     else:
         invB2 = 1.0 / jnp.maximum(jnp.asarray(B), 1e-12) ** 2
-        invB2 = _broadcast_to_shape(invB2, n_phys.shape)
+    invB2 = _broadcast_to_shape(jnp.asarray(invB2), n_phys.shape)
 
     scale = float(getattr(params, "diamagnetic_polarisation_scale", 1.0))
     grid = grid_of(geom)
