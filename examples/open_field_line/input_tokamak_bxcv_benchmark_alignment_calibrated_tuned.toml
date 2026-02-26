@@ -37,6 +37,7 @@ neutrals_on = false
 boussinesq = true
 curvature_on = true
 curvature_coeff = 2.5e-5
+curvature_Te_coeff = 0.216
 curvature_model = "vector_xy"
 sol_on = false
 sol_relax_core = 0.001
