@@ -23,6 +23,7 @@ out_*.gif
 profiles/
 examples/**/output.npz
 examples/**/figures/
+runs/
 
 site/
 _out_make_*/
