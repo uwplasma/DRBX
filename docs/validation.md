@@ -42,7 +42,9 @@ summarizes the current validation surface and literature anchors.
 | Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
 | Unit | `tests/test_energy_budget_new_terms.py` | Energy-budget entries for diamag polarisation + Braginskii | Energy diagnostics completeness |
+| Unit | `tests/test_energy_budget_remaining_terms.py` | Energy-budget entries for remaining dissipative/closure terms | Energy diagnostics completeness |
 | Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
+| Unit/Physics | `tests/test_mms_diamag_braginskii.py` | MMS convergence for diamag polarisation + Braginskii diffusion | Hermes/GRILLIX verification practice |
 | Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
 | Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
@@ -94,6 +96,44 @@ conserving DRB formulation.
 
 ---
 
+## Term Provenance (Equations)
+
+Each term in the unified RHS is anchored to a physical operator or closure. The
+equation references below correspond to the bundled literature PDFs
+(e.g., `conserving_drb.pdf`, `Loizu_2013...pdf`, `Ricci_2012...pdf`,
+`Stegmeir_2018...pdf`) and the Hermes documentation that codifies numerical
+fluxes.
+
+| Term | Physics/Operator | Provenance |
+|---|---|---|
+| `advection` | E×B bracket (Arakawa) | conserving_drb |
+| `diamagnetic` | ∇·(p/B×∇) form + gradient form mixing | Hermes drift‑reduced model |
+| `parallel` | ∇∥ transport (conservative flux form) | Braginskii + Hermes numerics |
+| `curvature` | C(f) curvature drive | Ricci 2012, Halpern 2013 |
+| `drive` | background gradient drive from equilibrium profiles | SOL gradient physics |
+| `volume_source` | explicit volumetric sources | SOL/turbulence practice |
+| `sol_sources` | SOL‑localized particle/heat sources | Ricci 2012, SOL models |
+| `neutrals` | neutral coupling source terms | edge‑plasma closures |
+| `diffusion` | perpendicular diffusion / hyper‑diffusion | standard turbulence models |
+| `classical_diffusion` | Braginskii classical diffusion | Braginskii closures |
+| `braginskii_friction` | e–i frictional momentum exchange | Braginskii |
+| `braginskii_heat_exchange` | e–i heat exchange | Braginskii |
+| `extra_dissipation` | numerical φ/ω damping + φ BC relaxation | numerical stabilization |
+| `sol_sinks` | SOL sinks (n, Te, ω) | SOL transport models |
+| `sol_parallel_loss` | Bohm/parallel loss model | SOL sheath losses |
+| `sol_sheath_phi` | sheath‑current φ damping | Bohm/Loizu sheath |
+| `sol_sheath_omega` | ω damping in open field | SOL sheath closures |
+| `sol_omega_bc` | ω boundary relaxation | SOL boundary physics |
+| `sol_vpar_bc` | v∥ boundary relaxation | SOL boundary physics |
+| `sol_edge_relax` | edge relaxation (n, Te) | SOL boundary physics |
+| `region_bc_relax` | region‑policy BCs | boundary‑condition design |
+| `field_bc_relax` | per‑field BC relaxation | boundary‑condition design |
+| `perp_bc_relax` | perpendicular BC relaxation | boundary‑condition design |
+| `sheath` | Bohm/Loizu sheath closure | Loizu 2013 + Hermes docs |
+| `line_bcs` | 1D line BC relax | flux‑tube line models |
+
+---
+
 ## Diamagnetic Drift Validation
 
 The Hermes‑style diamagnetic drift is validated through a dedicated unit test
@@ -118,6 +158,24 @@ Region‑policy BCs are tested for **log vs linear variables**, as well as
 Neumann/Dirichlet relax targets (see `tests/test_bc_relaxation.py`). This is
 critical for matching open‑field‑line setups where boundary behavior controls
 SOL transport and sheath losses.
+
+---
+
+## Reproducing Physics Gates
+
+Each physics gate has a direct pytest entry point. Examples:
+
+- `tests/test_energy_conservation.py`: `pytest -q tests/test_energy_conservation.py`
+- `tests/test_curvature_energy_budget.py`: `pytest -q tests/test_curvature_energy_budget.py`
+- `tests/test_diamagnetic_terms.py`: `pytest -q tests/test_diamagnetic_terms.py`
+- `tests/test_mms_diamag_braginskii.py`: `pytest -q tests/test_mms_diamag_braginskii.py`
+- `tests/test_equilibrium_drive.py`: `pytest -q tests/test_equilibrium_drive.py`
+- `tests/test_braginskii_terms.py`: `pytest -q tests/test_braginskii_terms.py`
+- `tests/test_sheath_flux_sanity.py`: `pytest -q tests/test_sheath_flux_sanity.py`
+- `tests/test_nonlinear_stats_window.py`: `pytest -q tests/test_nonlinear_stats_window.py`
+- `tests/test_ideal_ballooning.py`: `pytest -q tests/test_ideal_ballooning.py`
+- `tests/test_mosetto_regime.py`: `pytest -q tests/test_mosetto_regime.py`
+- `tests/test_linear_growth_salpha.py`: `pytest -q tests/test_linear_growth_salpha.py`
 
 ---
 
