@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import jax.numpy as jnp
+import pytest
 
 from jaxdrb.core.closures.neutrals import NeutralParams, rhs_neutral
 from jaxdrb.core.geometry_2d import Geometry2DAdapter
@@ -119,3 +120,63 @@ def test_neutrals_terms_enabled_produces_exchange() -> None:
     assert jnp.any(term.omega != 0.0)
     assert jnp.allclose(term.Te, 0.0)
     assert term.Ti is None
+
+
+def test_neutral_energy_exchange_placeholder() -> None:
+    """Skip until neutral energy exchange physics is added."""
+
+    annotations = getattr(NeutralParams, "__annotations__", {})
+    has_exchange = any(
+        key in annotations
+        for key in (
+            "energy_exchange_on",
+            "nu_energy",
+            "nu_cx_energy",
+            "nu_cx_Te",
+            "nu_cx_Ti",
+        )
+    )
+    if not has_exchange:
+        pytest.skip("Neutral energy exchange not implemented yet.")
+
+    params_dict = {
+        "physics": {"neutrals_on": True},
+        "closure": {"neutrals": {"enabled": True}},
+    }
+    neut_kwargs = params_dict["closure"]["neutrals"]
+    if "energy_exchange_on" in annotations:
+        neut_kwargs["energy_exchange_on"] = True
+    if "nu_energy" in annotations:
+        neut_kwargs["nu_energy"] = 0.1
+    if "nu_cx_energy" in annotations:
+        neut_kwargs["nu_cx_energy"] = 0.1
+    if "nu_cx_Te" in annotations:
+        neut_kwargs["nu_cx_Te"] = 0.1
+    if "nu_cx_Ti" in annotations:
+        neut_kwargs["nu_cx_Ti"] = 0.1
+
+    params = update_params_from_dict(DRBSystemParams(), params_dict)
+    grid = Grid2D.make(
+        nx=8,
+        ny=8,
+        Lx=2 * np.pi,
+        Ly=2 * np.pi,
+        dealias=False,
+        bc_x="periodic",
+        bc_y="periodic",
+    )
+    geom = Geometry2DAdapter(grid=grid, params=params)
+    state = DRBSystemState(
+        n=jnp.ones((8, 8)),
+        omega=jnp.zeros((8, 8)),
+        vpar_e=jnp.zeros((8, 8)),
+        vpar_i=jnp.zeros((8, 8)),
+        Te=jnp.ones((8, 8)),
+        Ti=None,
+        psi=None,
+        N=jnp.ones((8, 8)),
+    )
+    ctx = build_context(params, geom, state)
+    term = neutrals_terms(ctx, state)
+
+    assert jnp.any(term.Te != 0.0) or (term.Ti is not None and jnp.any(term.Ti != 0.0))
