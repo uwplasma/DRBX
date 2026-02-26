@@ -117,3 +117,5 @@ def test_neutrals_terms_enabled_produces_exchange() -> None:
     assert jnp.any(term.n != 0.0)
     assert jnp.any(term.N != 0.0)
     assert jnp.any(term.omega != 0.0)
+    assert jnp.allclose(term.Te, 0.0)
+    assert term.Ti is None
