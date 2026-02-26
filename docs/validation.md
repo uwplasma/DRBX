@@ -43,8 +43,12 @@ summarizes the current validation surface and literature anchors.
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
 | Unit | `tests/test_energy_budget_new_terms.py` | Energy-budget entries for diamag polarisation + Braginskii | Energy diagnostics completeness |
 | Unit | `tests/test_energy_budget_remaining_terms.py` | Energy-budget entries for remaining dissipative/closure terms | Energy diagnostics completeness |
+| Unit | `tests/test_em_energy_budget.py` | EM ψ energy contribution in energy-rate | EM coupling consistency |
 | Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
 | Unit/Physics | `tests/test_mms_diamag_braginskii.py` | MMS convergence for diamag polarisation + Braginskii diffusion | Hermes/GRILLIX verification practice |
+| Unit/Physics | `tests/test_parallel_limiter_mms.py` | Open-field parallel limiter MMS convergence | Hermes parallel numerics |
+| Unit/Physics | `tests/test_neutrals_terms.py` | Neutral ionization/recombination + drag terms | SOL neutral closures |
+| Physics/Regression | `tests/test_sheath_sol_parity_gate.py` | Sheath flux + SOL parallel loss gate | Open-field SOL parity |
 | Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
 | Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
@@ -171,7 +175,11 @@ Each physics gate has a direct pytest entry point. Examples:
 - `tests/test_mms_diamag_braginskii.py`: `pytest -q tests/test_mms_diamag_braginskii.py`
 - `tests/test_equilibrium_drive.py`: `pytest -q tests/test_equilibrium_drive.py`
 - `tests/test_braginskii_terms.py`: `pytest -q tests/test_braginskii_terms.py`
+- `tests/test_em_energy_budget.py`: `pytest -q tests/test_em_energy_budget.py`
+- `tests/test_parallel_limiter_mms.py`: `pytest -q tests/test_parallel_limiter_mms.py`
+- `tests/test_neutrals_terms.py`: `pytest -q tests/test_neutrals_terms.py`
 - `tests/test_sheath_flux_sanity.py`: `pytest -q tests/test_sheath_flux_sanity.py`
+- `tests/test_sheath_sol_parity_gate.py`: `pytest -q tests/test_sheath_sol_parity_gate.py`
 - `tests/test_nonlinear_stats_window.py`: `pytest -q tests/test_nonlinear_stats_window.py`
 - `tests/test_ideal_ballooning.py`: `pytest -q tests/test_ideal_ballooning.py`
 - `tests/test_mosetto_regime.py`: `pytest -q tests/test_mosetto_regime.py`

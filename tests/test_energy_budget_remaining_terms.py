@@ -261,3 +261,37 @@ def test_energy_budget_line_bcs_term() -> None:
     y = _make_state((8,), hot_ion=True)
     budget = system.energy_budget(y)
     assert "E_dot_line_bcs" in budget
+
+
+def test_energy_budget_neutrals_term() -> None:
+    params = update_params_from_dict(
+        DRBSystemParams(),
+        {
+            "physics": {"neutrals_on": True},
+            "closure": {"neutrals": {"enabled": True, "nu_ion": 1.0}},
+            "numerics": {"term_schedule": ["neutrals"], "poisson": "spectral"},
+        },
+    )
+    grid = Grid2D.make(
+        nx=8,
+        ny=8,
+        Lx=2 * np.pi,
+        Ly=2 * np.pi,
+        dealias=False,
+        bc_x="periodic",
+        bc_y="periodic",
+    )
+    geom = Geometry2DAdapter(grid=grid, params=params)
+    system = DRBSystem(params=params, geom=geom)
+    y = DRBSystemState(
+        n=jnp.ones((8, 8)),
+        omega=jnp.zeros((8, 8)),
+        vpar_e=jnp.zeros((8, 8)),
+        vpar_i=jnp.zeros((8, 8)),
+        Te=jnp.ones((8, 8)),
+        Ti=None,
+        psi=None,
+        N=jnp.ones((8, 8)),
+    )
+    budget = system.energy_budget(y)
+    assert "E_dot_neutrals" in budget
