@@ -44,6 +44,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_energy_budget_new_terms.py` | Energy-budget entries for diamag polarisation + Braginskii | Energy diagnostics completeness |
 | Unit | `tests/test_energy_budget_remaining_terms.py` | Energy-budget entries for remaining dissipative/closure terms | Energy diagnostics completeness |
 | Unit | `tests/test_em_energy_budget.py` | EM ψ energy contribution in energy-rate | EM coupling consistency |
+| Unit | `tests/test_em_psi_dissipation.py` | EM ψ diffusion/resistive dissipation is energy‑dissipative | EM energy-budget closure |
 | Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
 | Unit/Physics | `tests/test_mms_diamag_braginskii.py` | MMS convergence for diamag polarisation + Braginskii diffusion | Hermes/GRILLIX verification practice |
 | Unit/Physics | `tests/test_parallel_limiter_mms.py` | Open-field parallel limiter MMS convergence | Hermes parallel numerics |
@@ -176,6 +177,7 @@ Each physics gate has a direct pytest entry point. Examples:
 - `tests/test_equilibrium_drive.py`: `pytest -q tests/test_equilibrium_drive.py`
 - `tests/test_braginskii_terms.py`: `pytest -q tests/test_braginskii_terms.py`
 - `tests/test_em_energy_budget.py`: `pytest -q tests/test_em_energy_budget.py`
+- `tests/test_em_psi_dissipation.py`: `pytest -q tests/test_em_psi_dissipation.py`
 - `tests/test_parallel_limiter_mms.py`: `pytest -q tests/test_parallel_limiter_mms.py`
 - `tests/test_neutrals_terms.py`: `pytest -q tests/test_neutrals_terms.py`
 - `tests/test_sheath_flux_sanity.py`: `pytest -q tests/test_sheath_flux_sanity.py`
