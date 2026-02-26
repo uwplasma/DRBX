@@ -48,7 +48,8 @@ summarizes the current validation surface and literature anchors.
 | Unit/Physics | `tests/test_operator_mms_convergence.py` | FD operator MMS-style convergence (`O(Δx²)`) | Hermes/GRILLIX verification practice |
 | Unit/Physics | `tests/test_mms_diamag_braginskii.py` | MMS convergence for diamag polarisation + Braginskii diffusion | Hermes/GRILLIX verification practice |
 | Unit/Physics | `tests/test_parallel_limiter_mms.py` | Open-field parallel limiter MMS convergence | Hermes parallel numerics |
-| Unit/Physics | `tests/test_neutrals_terms.py` | Neutral ionization/recombination + drag terms | SOL neutral closures |
+| Unit/Physics | `tests/test_neutrals_terms.py` | Neutral ionization/recombination + drag terms (energy-exchange placeholder skips until available) | SOL neutral closures |
+| Regression | `tests/test_full_stack_em_hot_neutrals.py` | Short-run regression with EM + hot-ions + neutrals enabled together | full-stack toggle validation |
 | Physics/Regression | `tests/test_sheath_sol_parity_gate.py` | Sheath flux + SOL parallel loss gate | Open-field SOL parity |
 | Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
