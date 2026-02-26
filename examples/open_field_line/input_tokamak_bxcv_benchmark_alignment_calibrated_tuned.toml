@@ -14,20 +14,20 @@ length_unit = "rho_s"
 
 [geometry]
 kind = "axisymmetric"
-coeff_path = "examples/open_field_line/axisym_tokamak_bxcv.npz"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_xy_32x48.npz"
 bc_x = "neumann"
 bc_y = "periodic"
 open_field_line = true
 dealias = true
-nx = 36
+nx = 32
 ny = 48
 nz = 48
-Lx = 0.054697793193735585
+Lx = 0.002961682975075158
 Ly = 9.424777960769383
 Lz = 9.22842842
 theta_scale = 1.0
 R0 = 1.5
-r_minor = 0.054697793193735585
+r_minor = 0.002961682975075158
 
 [physics]
 nonlinear_on = true
