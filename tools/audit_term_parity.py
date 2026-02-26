@@ -317,6 +317,31 @@ def _align_hermes_fields(
     return aligned, mapping
 
 
+def _override_geometry_from_hermes(cfg: dict[str, object], grid_path: Path) -> dict[str, object]:
+    try:
+        from netCDF4 import Dataset
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("netCDF4 is required to read Hermes grid files.") from exc
+
+    with Dataset(str(grid_path)) as ds:
+        dx = np.asarray(ds.variables["dx"][:], dtype=np.float64)
+        dy = np.asarray(ds.variables["dy"][:], dtype=np.float64)
+        nx = int(ds.dimensions["x"].size)
+        ny = int(ds.dimensions["y"].size)
+    Lx = float(dx.mean() * nx)
+    Ly = float(dy.mean() * ny)
+
+    geom = dict(cfg.get("geometry", {}))
+    geom["nx"] = nx
+    geom["ny"] = ny
+    geom["Lx"] = Lx
+    geom["Ly"] = Ly
+    if "r_minor" in geom:
+        geom["r_minor"] = Lx
+    cfg["geometry"] = geom
+    return cfg
+
+
 def _crop_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if a.shape == b.shape:
         return a, b
@@ -359,10 +384,37 @@ def main() -> None:
         default="",
         help="Optional Hermes BOUT.inp for normalization metadata.",
     )
+    parser.add_argument(
+        "--hermes-grid",
+        default="",
+        help="Optional Hermes grid file (.nc) for Lx/Ly/nx/ny override.",
+    )
+    parser.add_argument(
+        "--strict-axis",
+        action="store_true",
+        help="Fail if Hermes/JAX spatial shapes do not match after axis mapping.",
+    )
+    parser.add_argument(
+        "--dump-term-arrays",
+        action="store_true",
+        help="Dump per-term arrays (npz) for each audited step.",
+    )
+    parser.add_argument(
+        "--dump-terms",
+        default="all",
+        help="Comma-separated term list for array dumps (default: all terms).",
+    )
+    parser.add_argument(
+        "--dump-fields",
+        default="n,omega,Te,phi",
+        help="Comma-separated fields to dump (default: n,omega,Te,phi).",
+    )
     args = parser.parse_args()
 
     cfg_path = Path(args.jax_config)
     cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+    if args.hermes_grid:
+        cfg = _override_geometry_from_hermes(cfg, Path(args.hermes_grid))
 
     hermes_dir = Path(args.hermes_data_dir)
     hermes_times, hermes_fields, hermes_meta = _load_hermes_fields(
@@ -406,6 +458,8 @@ def main() -> None:
     hermes_fields_aligned, axis_map = _align_hermes_fields(
         hermes_fields, snapshots["n"].shape[1:]
     )
+    if args.strict_axis and axis_map.endswith("unmatched"):
+        raise ValueError(f"Axis mapping failed with strict axis mode: {axis_map}")
     hermes_ddt = _compute_hermes_ddt(hermes_times, hermes_fields_aligned, args.nsteps)
     field_map = {"n": "Ne", "Te": "Te", "omega": "Vort", "phi": "phi"}
 
@@ -417,7 +471,14 @@ def main() -> None:
         for ti in range(min(args.nsteps, len(jax_list))):
             hermes_arr = hermes_ddt[hermes_name][ti]
             hermes_rms = float(np.sqrt(np.mean(hermes_arr * hermes_arr)))
-            jax_arr = jax_list[ti]
+        jax_arr = jax_list[ti]
+        if args.strict_axis:
+            if jax_arr.shape != hermes_arr.shape:
+                raise ValueError(
+                    f"Strict axis mismatch for field {field_name}: "
+                    f"jax {jax_arr.shape} vs hermes {hermes_arr.shape}"
+                )
+        else:
             try:
                 jax_arr, hermes_arr = _crop_pair(jax_arr, hermes_arr)
             except ValueError:
@@ -493,6 +554,48 @@ def main() -> None:
     (out_dir / "audit_summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
     )
+
+    if args.dump_term_arrays:
+        dump_dir = out_dir / "term_arrays"
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        term_filter = [t.strip() for t in str(args.dump_terms).split(",") if t.strip()]
+        dump_all_terms = len(term_filter) == 1 and term_filter[0].lower() == "all"
+        field_filter = [f.strip() for f in str(args.dump_fields).split(",") if f.strip()]
+        for ti in range(min(args.nsteps, snapshots["n"].shape[0])):
+            y = snapshots
+            data: dict[str, np.ndarray] = {}
+            from jaxdrb.core.state import DRBSystemState
+            from jaxdrb.core.terms import build_context
+
+            state = DRBSystemState(
+                n=y["n"][ti],
+                omega=y["omega"][ti],
+                vpar_e=y["vpar_e"][ti],
+                vpar_i=y["vpar_i"][ti],
+                Te=y["Te"][ti],
+                Ti=None if "Ti" not in y else y["Ti"][ti],
+                psi=None if "psi" not in y else y["psi"][ti],
+                N=None if "N" not in y else y["N"][ti],
+            )
+            ctx = build_context(built.system.params, built.system.geom, state)
+            split, term_map = built.system.scheduler.run_with_terms(ctx, state)
+            total = split.total()
+            data["phi"] = np.asarray(ctx.phi)
+
+            for field in field_filter:
+                arr = getattr(total, field, None)
+                if arr is not None:
+                    data[f"total_{field}"] = np.asarray(arr)
+
+            for name, term in term_map.items():
+                if (not dump_all_terms) and (name not in term_filter):
+                    continue
+                for field in field_filter:
+                    arr = getattr(term, field, None)
+                    if arr is not None:
+                        data[f"{name}_{field}"] = np.asarray(arr)
+            np.savez(dump_dir / f"step_{ti:04d}.npz", **data)
+
     print(f"Wrote audit outputs to {out_dir}")
 
 
