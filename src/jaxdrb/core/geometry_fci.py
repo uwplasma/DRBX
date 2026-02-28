@@ -228,7 +228,7 @@ class FCIGeometryAdapter(GeometryBase):
                 bc = BC1D.dirichlet(left=0.0, right=0.0, nu=0.0)
             else:
                 bc = BC1D.neumann(left=0.0, right=0.0, nu=0.0)
-            return parallel_derivative_target_aware_3d(
+            out = parallel_derivative_target_aware_3d(
                 f,
                 map_fwd=self.grid.map_fwd,
                 map_bwd=self.grid.map_bwd,
@@ -236,12 +236,14 @@ class FCIGeometryAdapter(GeometryBase):
                 bc=bc,
                 target_scheme=self.params.target_scheme,
             )
-        return parallel_derivative_centered_3d(
+            return out * float(self.params.parallel_sign)
+        out = parallel_derivative_centered_3d(
             f,
             map_fwd=self.grid.map_fwd,
             map_bwd=self.grid.map_bwd,
             open_field_line=self.grid.open_field_line,
         )
+        return out * float(self.params.parallel_sign)
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         return self.dpar(self.dpar(f, bc_kind=bc_kind), bc_kind=bc_kind)

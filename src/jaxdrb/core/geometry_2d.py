@@ -332,7 +332,7 @@ class Geometry2DAdapter(GeometryBase):
     def dpar(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         if self.params.kpar == 0.0:
             return jnp.zeros_like(f)
-        return 1j * float(self.params.kpar) * f
+        return 1j * float(self.params.kpar) * float(self.params.parallel_sign) * f
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         return self.dpar(self.dpar(f, bc_kind=bc_kind), bc_kind=bc_kind)

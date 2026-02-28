@@ -178,6 +178,56 @@ class PerpOperatorBundle(eqx.Module):
             out.append(self.bracket_op(phi, fields[i], bc_phi=bc_phi, bc_f=bc_f[i]))
         return jnp.stack(out)
 
+    def exb_flux_divergence_centered(
+        self,
+        phi: jnp.ndarray,
+        adv: jnp.ndarray,
+        *,
+        dx: float,
+        dy: float,
+        jacobian: jnp.ndarray,
+        bc_phi: BC2D,
+        bc_adv: BC2D,
+        exb_y_scale: float = 1.0,
+        eps: float = 1e-12,
+    ) -> jnp.ndarray:
+        return exb_flux_divergence_centered(
+            phi,
+            adv,
+            dx=dx,
+            dy=dy,
+            jacobian=jacobian,
+            bc_phi=bc_phi,
+            bc_adv=bc_adv,
+            exb_y_scale=exb_y_scale,
+            eps=eps,
+        )
+
+
+def exb_flux_divergence_centered(
+    phi: jnp.ndarray,
+    adv: jnp.ndarray,
+    *,
+    dx: float,
+    dy: float,
+    jacobian: jnp.ndarray,
+    bc_phi: BC2D,
+    bc_adv: BC2D,
+    exb_y_scale: float = 1.0,
+    eps: float = 1e-12,
+) -> jnp.ndarray:
+    """Conservative ExB flux divergence using centered derivatives and Jacobian J."""
+
+    dphi_dx = fv_ops.ddx(phi, dx, bc_phi)
+    dphi_dy = fv_ops.ddy(phi, dy, bc_phi)
+    J = jacobian
+    v_x = -J * dphi_dy
+    v_y = float(exb_y_scale) * J * dphi_dx
+    flux_x = v_x * adv
+    flux_y = v_y * adv
+    div_flux = fv_ops.ddx(flux_x, dx, bc_adv) + fv_ops.ddy(flux_y, dy, bc_adv)
+    return div_flux / jnp.maximum(J, eps)
+
 
 def _spec_kgrid(
     nx: int, ny: int, dx: float, dy: float

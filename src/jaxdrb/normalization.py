@@ -216,6 +216,7 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
                 "n0": density,
                 "n0_min": density,
                 "n0_max": density,
+                "temperature_floor": temperature,
                 "source_n0": source_n_scale,
                 "source_Te0": source_T_scale,
                 "source_x0": source_x_scale,
