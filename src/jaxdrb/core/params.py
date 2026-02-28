@@ -65,6 +65,7 @@ class PhysicsParams(eqx.Module):
     curvature_theta_scale: float | None = None
     curvature_scale: float | None = None
     curvature_Te_coeff: float | None = None
+    curvature_n_coeff: float = 1.0
 
     # Diamagnetic drift (Hermes-style) using Curl(b/B) from bxcv/curvature vectors.
     diamagnetic_on: bool = False
