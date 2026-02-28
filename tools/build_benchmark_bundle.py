@@ -40,6 +40,22 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--bins", type=int, default=120)
     p.add_argument("--max-growth-factor", type=float, default=None)
     p.add_argument("--max-rms-abs", type=float, default=None)
+    p.add_argument("--crop-x", type=int, default=0, help="Crop cells from radial x on both sides.")
+    p.add_argument(
+        "--crop-y", type=int, default=0, help="Crop cells from binormal y on both sides."
+    )
+    p.add_argument(
+        "--probe-x-mode",
+        choices=("frac", "max_rms"),
+        default="frac",
+        help="Probe radial location: fixed fraction or max RMS of n'.",
+    )
+    p.add_argument(
+        "--probe-x-frac",
+        type=float,
+        default=0.75,
+        help="Radial fraction (0-1) if probe-x-mode=frac.",
+    )
     return p.parse_args()
 
 
@@ -81,30 +97,70 @@ def _to_time_series(a: np.ndarray, nt: int) -> np.ndarray:
     return np.repeat(arr[-1:, ...], nt, axis=0)
 
 
-def _pick_probe_series(a_t: np.ndarray) -> np.ndarray:
+def _pick_probe_index(
+    n_fluct: np.ndarray,
+    axis_x: int = 1,
+    mode: str = "frac",
+    x_frac: float = 0.75,
+) -> tuple[int, ...]:
+    arr = np.asarray(n_fluct, dtype=np.float64)
+    if arr.ndim == 1:
+        return (0,)
+    if mode == "max_rms":
+        rms = np.sqrt(np.mean(arr**2, axis=0))
+        return tuple(int(i) for i in np.unravel_index(np.argmax(rms), rms.shape))
+    idx = [max(0, d // 2) for d in arr.shape[1:]]
+    axis_x_local = max(0, min(len(idx) - 1, axis_x - 1))
+    idx[axis_x_local] = int(max(0.0, min(1.0, x_frac)) * (arr.shape[axis_x] - 1))
+    return tuple(idx)
+
+
+def _pick_probe_series(a_t: np.ndarray, probe_idx: tuple[int, ...]) -> np.ndarray:
     arr = np.asarray(a_t, dtype=np.float64)
     if arr.ndim == 1:
         return arr
-    idx = []
-    for d in arr.shape[1:]:
-        idx.append(max(0, d // 2))
-    # bias probe toward outboard side in radial index if available
-    if len(idx) >= 1:
-        idx[-2 if len(idx) >= 2 else 0] = (
-            int(0.75 * (arr.shape[-2] - 1)) if len(idx) >= 2 else idx[0]
-        )
-    return arr[(slice(None), *idx)]
+    return arr[(slice(None), *probe_idx)]
 
 
 def _pick_plane(a_t: np.ndarray) -> np.ndarray:
     arr = np.asarray(a_t, dtype=np.float64)
     if arr.ndim == 3:
-        return arr[-1]
+        return arr[:, :, arr.shape[-1] // 2]
     if arr.ndim == 4:
-        return arr[-1, arr.shape[1] // 2]
+        return arr[-1, :, :, arr.shape[-1] // 2]
     if arr.ndim == 2:
         return arr
     raise ValueError(f"Unsupported field rank for plane extraction: {arr.ndim}")
+
+
+def _canonicalize_jax(arr: np.ndarray) -> np.ndarray:
+    data = np.asarray(arr, dtype=np.float64)
+    if data.ndim == 4:
+        # jax_drb fields are (t, z, x, y) -> canonical (t, x, y, z)
+        return np.transpose(data, (0, 2, 3, 1))
+    return data
+
+
+def _canonicalize_hermes(arr: np.ndarray) -> np.ndarray:
+    data = np.asarray(arr, dtype=np.float64)
+    if data.ndim == 4:
+        # Hermes fields are (t, x, y_parallel, z_binormal) -> canonical (t, x, y_binormal, z_parallel)
+        return np.transpose(data, (0, 1, 3, 2))
+    return data
+
+
+def _crop_xy(arr: np.ndarray, crop_x: int, crop_y: int) -> np.ndarray:
+    if arr.ndim < 2:
+        return arr
+    xs = slice(crop_x, -crop_x if crop_x > 0 else None)
+    ys = slice(crop_y, -crop_y if crop_y > 0 else None)
+    if arr.ndim == 2:
+        return arr[xs, ys]
+    if arr.ndim == 3:
+        return arr[:, xs, ys]
+    if arr.ndim == 4:
+        return arr[:, xs, ys, :]
+    return arr
 
 
 def _gate(diagnostics: dict[str, np.ndarray], args: argparse.Namespace) -> None:
@@ -139,6 +195,11 @@ def _bundle_from_jax(
         elif key_snapshot in raw:
             fields[name] = _to_time_series(np.asarray(raw[key_snapshot])[None, ...], nt)
 
+    for name, arr in list(fields.items()):
+        arr = _canonicalize_jax(arr)
+        arr = _crop_xy(arr, args.crop_x, args.crop_y)
+        fields[name] = arr
+
     diagnostics: dict[str, np.ndarray] = {}
     snapshots: dict[str, np.ndarray] = {}
 
@@ -156,13 +217,16 @@ def _bundle_from_jax(
     if "n" in fields:
         n_eq = snapshots["n_equilibrium"]
         n_fluct = fields["n"] - n_eq[None, ...]
-        probe_n = _pick_probe_series(n_fluct)
+        probe_idx = _pick_probe_index(
+            n_fluct, axis_x=1, mode=args.probe_x_mode, x_frac=args.probe_x_frac
+        )
+        probe_n = _pick_probe_series(n_fluct, probe_idx)
         dt = float(np.median(np.diff(times_si))) if nt > 1 else 1.0
         f, p = compute_frequency_psd(probe_n, dt=dt, nperseg=args.nperseg)
         diagnostics["freq_hz"] = f
         diagnostics["psd_n_f"] = p
         cfg_geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
-        ny = int(cfg_geom.get("ny", _pick_plane(n_fluct).shape[-1]))
+        ny = int(fields["n"].shape[2] if fields["n"].ndim == 4 else _pick_plane(n_fluct).shape[-1])
         Ly = float(cfg_geom.get("Ly", 1.0))
         dy = Ly / max(ny, 1)
         ky, pky = compute_ky_psd(_pick_plane(n_fluct), dy=dy, axis_y=-1)
@@ -182,8 +246,12 @@ def _bundle_from_jax(
     if "n" in fields and "phi" in fields:
         n_eq = snapshots["n_equilibrium"]
         phi_eq = snapshots["phi_equilibrium"]
-        n_probe = _pick_probe_series(fields["n"] - n_eq[None, ...])
-        phi_probe = _pick_probe_series(fields["phi"] - phi_eq[None, ...])
+        n_fluct = fields["n"] - n_eq[None, ...]
+        probe_idx = _pick_probe_index(
+            n_fluct, axis_x=1, mode=args.probe_x_mode, x_frac=args.probe_x_frac
+        )
+        n_probe = _pick_probe_series(n_fluct, probe_idx)
+        phi_probe = _pick_probe_series(fields["phi"] - phi_eq[None, ...], probe_idx)
         dt = float(np.median(np.diff(times_si))) if nt > 1 else 1.0
         f, coh, phase = compute_cross_coherence_phase(
             n_probe, phi_probe, dt=dt, nperseg=args.nperseg
@@ -194,7 +262,7 @@ def _bundle_from_jax(
 
     if "n" in fields and "phi" in fields:
         cfg_geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
-        ny = int(cfg_geom.get("ny", _pick_plane(fields["n"]).shape[-1]))
+        ny = int(fields["n"].shape[2] if fields["n"].ndim == 4 else _pick_plane(fields["n"]).shape[-1])
         Ly = float(cfg_geom.get("Ly", 1.0))
         dy = Ly / max(ny, 1)
         gamma_r = compute_radial_particle_flux_profile(
@@ -218,7 +286,7 @@ def _bundle_from_jax(
             fields["vpar_i"],
             fields["Te"],
             Ti=ti_field,
-            axis_par=1,
+            axis_par=3,
         )
         diagnostics["target_particle_flux"] = gamma_t
         diagnostics["target_heat_flux_e"] = qe_t
@@ -293,6 +361,11 @@ def _bundle_from_hermes(
             float(np.nanmedian(np.asarray(ds0.variables["dy"][:])))
             if "dy" in ds0.variables
             else 1.0
+        )
+        dz_med = (
+            float(np.nanmedian(np.asarray(ds0.variables["dz"][:])))
+            if "dz" in ds0.variables
+            else dy_med
         )
         var_names = set(ds0.variables.keys())
 
@@ -392,6 +465,18 @@ def _bundle_from_hermes(
                     ds, ion_density, mxg, myg, mxsub, mysub
                 )
 
+    for name, arr in list(fields_global.items()):
+        arr = _canonicalize_hermes(arr)
+        arr = _crop_xy(arr, args.crop_x, args.crop_y)
+        fields_global[name] = arr
+
+    if "n" in fields_global:
+        shape = fields_global["n"].shape
+        if len(shape) >= 4:
+            nx, ny, nz = int(shape[1]), int(shape[2]), int(shape[3])
+        elif len(shape) == 3:
+            nx, ny, nz = int(shape[1]), int(shape[2]), 1
+
     if "Te" not in fields_global:
         fields_global["Te"] = fields_global["_Pe"] / np.maximum(fields_global["n"], 1e-12)
         fields_global.pop("_Pe", None)
@@ -415,12 +500,15 @@ def _bundle_from_hermes(
         snapshots[f"{name}_fluct_last"] = fields_global[name][-1] - eq
 
     n_fluct = fields_global["n"] - snapshots["n_equilibrium"][None, ...]
-    probe_n = _pick_probe_series(n_fluct)
+    probe_idx = _pick_probe_index(
+        n_fluct, axis_x=1, mode=args.probe_x_mode, x_frac=args.probe_x_frac
+    )
+    probe_n = _pick_probe_series(n_fluct, probe_idx)
     dt = float(np.median(np.diff(times_si))) if nt > 1 else 1.0
     f, p = compute_frequency_psd(probe_n, dt=dt, nperseg=args.nperseg)
     diagnostics["freq_hz"] = f
     diagnostics["psd_n_f"] = p
-    ky, pky = compute_ky_psd(_pick_plane(n_fluct), dy=dy_med, axis_y=-1)
+    ky, pky = compute_ky_psd(_pick_plane(n_fluct), dy=dz_med, axis_y=-1)
     diagnostics["ky_m-1"] = ky
     diagnostics["psd_n_ky"] = pky
     pdf_x, pdf_y = compute_pdf(_pick_plane(n_fluct), bins=args.bins)
@@ -430,8 +518,10 @@ def _bundle_from_hermes(
     pdf_x, pdf_y = compute_pdf(_pick_plane(Te_fluct), bins=args.bins)
     diagnostics["pdf_Te_x"] = pdf_x
     diagnostics["pdf_Te_y"] = pdf_y
-    n_probe = _pick_probe_series(n_fluct)
-    phi_probe = _pick_probe_series(fields_global["phi"] - snapshots["phi_equilibrium"][None, ...])
+    n_probe = _pick_probe_series(n_fluct, probe_idx)
+    phi_probe = _pick_probe_series(
+        fields_global["phi"] - snapshots["phi_equilibrium"][None, ...], probe_idx
+    )
     f, coh, phase = compute_cross_coherence_phase(n_probe, phi_probe, dt=dt, nperseg=args.nperseg)
     diagnostics["coh_freq_hz"] = f
     diagnostics["coh_n_phi"] = coh
@@ -439,7 +529,7 @@ def _bundle_from_hermes(
     diagnostics["gamma_r_profile"] = compute_radial_particle_flux_profile(
         _pick_plane(fields_global["n"]),
         _pick_plane(fields_global["phi"]),
-        dy=dy_med,
+        dy=dz_med,
         B0=norm.Bnorm_T,
     )
     if "vpar_i" in fields_global:
