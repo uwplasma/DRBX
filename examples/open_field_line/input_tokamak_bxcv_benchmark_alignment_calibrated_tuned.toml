@@ -1,12 +1,9 @@
-# Benchmark-alignment base case (ES/cold/Bouss/open-field with Bohm-current sheath).
-# Uses normalization-enabled physical source/drive inputs for cross-code parity workflows.
-
 [normalization]
 enabled = true
 mode = "physics"
 Te0_eV = 50.0
 Ti0_eV = 50.0
-n0 = 1.0e19
+n0 = 1e+19
 B0 = 1.0
 m_i_amu = 2.0
 Z_i = 1.0
@@ -14,31 +11,40 @@ length_unit = "rho_s"
 
 [geometry]
 kind = "axisymmetric"
-coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_xy_32x48.npz"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv.npz"
 bc_x = "neumann"
 bc_y = "periodic"
 open_field_line = true
 dealias = true
 nx = 32
-ny = 48
+ny = 81
 nz = 48
-Lx = 0.002961682975075158
-Ly = 9.424777960769383
-Lz = 9.22842842
 theta_scale = 1.0
+
+[geometry_physical]
+Lx = 0.054697793193735585
+Ly = 1.2566370614359172
+Lz = 9.22842842
 R0 = 1.5
-r_minor = 0.002961682975075158
+r_minor = 0.054697793193735585
 
 [physics]
 nonlinear_on = true
 em_on = false
-hot_ion_on = false
+hot_ion_on = true
 neutrals_on = false
 boussinesq = true
 curvature_on = true
-curvature_coeff = 2.5e-5
+curvature_coeff = 0.023
 curvature_Te_coeff = 0.216
 curvature_model = "vector_xy"
+diamagnetic_on = true
+diamagnetic_current_on = true
+diamagnetic_current_scale = 1.0
+diamagnetic_polarisation_on = true
+diamagnetic_polarisation_scale = 0.002
+diamag_form_profile = "x*(1-x)"
+diamag_density_model = "electron"
 sol_on = false
 sol_relax_core = 0.001
 sol_relax_open = 0.005
@@ -60,12 +66,13 @@ source_x0 = 0.05
 source_y0 = 0.0
 source_width_x = 0.05
 source_width_y = 99.0
+source_Te_is_pressure = true
 
 [physics_physical]
-omega_n = 1859.5587566128834
-omega_Te = 978.7151350594124
-source_n0 = 1.3649837247219685e24
-source_Te0 = 2.8736499467830916e6
+omega_n = 0.0
+omega_Te = 0.0
+source_n0 = 5.459934898887874e+25
+source_Te0 = 1.1494599787132366e+08
 
 [closures]
 sheath_on = true
@@ -86,11 +93,15 @@ mu_lin_Te = 0.001
 
 [numerics]
 poisson = "cg_fd"
+poisson_metric_on = true
 bracket = "arakawa"
 parallel_flux_conservative = true
 parallel_limiter = "mc"
-exb_y_scale = 0.0
-poisson_scale = 2.0e-4
+parallel_momentum_model = "conservative"
+exb_advection_form = "flux"
+exb_advect_conservative = true
+exb_y_scale = 1.0
+poisson_scale = -0.00065
 
 [initial]
 n0 = 0.0
@@ -99,27 +110,36 @@ n_profile = "linear_x"
 n_profile_offset = 3.0
 n_profile_slope = -2.7
 n_profile_xref = 0.0
-Te_profile = "linear_x"
-Te_profile_offset = 1.0
-Te_profile_slope = -0.9
-Te_profile_xref = 0.0
+p_profile = "parabolic_x"
+p_profile_a0 = 3.0
+p_profile_a1 = -5.4
+p_profile_a2 = 2.43
+p_profile_xref = 0.0
+Te_pressure_consistent = true
 x_mode = "bout"
 z_mode = "bout"
-amplitude = 0.001
-seed = 1
-noise_mode = "physical"
-noise_fields = ["n", "Te"]
+n_mixmode_amp = 0.001
+n_mixmode_terms = ["x-z"]
+n_mixmode_mode = "bout"
+n_mixmode_seed = 0.5
+amplitude = 0.0
 
 [time]
 method = "rk4_imex_strang"
-dt = 0.00005
+dt = 5e-05
 nsteps = 4000
 save_every = 10
 diag_mode = "full"
 save_fields = true
-snapshot_fields = ["n", "omega", "Te", "phi"]
+snapshot_fields = [
+    "n",
+    "omega",
+    "Te",
+    "phi",
+]
 poisson_warm_start = true
 return_numpy = true
 
-[bc]
-perp = { bc_x = "neumann", bc_y = "periodic" }
+[bc.perp]
+bc_x = "neumann"
+bc_y = "periodic"

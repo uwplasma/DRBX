@@ -281,6 +281,7 @@ def main() -> None:
 
     Bxy_full = np.asarray(ds.variables[args.bxy_var][:])
     Bpxy_full = np.asarray(ds.variables[args.bpxy_var][:])
+    J_full = np.asarray(ds.variables["J"][:]) if "J" in ds.variables else None
     Rxy_full = np.asarray(ds.variables["Rxy"][:]) if "Rxy" in ds.variables else None
     Zxy_full = np.asarray(ds.variables["Zxy"][:]) if "Zxy" in ds.variables else None
 
@@ -335,6 +336,9 @@ def main() -> None:
 
     Bxy = _slice_var(Bxy_full, x_index)
     Bpxy = _slice_var(Bpxy_full, x_index)
+    J = _slice_var(J_full, x_index) if J_full is not None else None
+    dx_slice = _slice_var(dx, x_index)
+    dy_slice = _slice_var(dy, x_index) if dy is not None else None
     hthe = _slice_var(np.asarray(ds.variables[args.hthe_var][:]), x_index)
     Rxy = None
     Zxy = None
@@ -416,6 +420,9 @@ def main() -> None:
     gxx = _maybe_transpose(gxx)
     gxy = _maybe_transpose(gxy)
     gyy = _maybe_transpose(gyy)
+    J = _maybe_transpose(J)
+    dx_slice = _maybe_transpose(dx_slice)
+    dy_slice = _maybe_transpose(dy_slice)
 
     # z (field-aligned coordinate)
     if args.theta_var in ds.variables:
@@ -456,6 +463,12 @@ def main() -> None:
         "nx": nx,
         "ny": ny,
     }
+    if J is not None:
+        out["J"] = np.asarray(J)
+    if dx_slice is not None:
+        out["dx"] = np.asarray(dx_slice)
+    if dy_slice is not None:
+        out["dy"] = np.asarray(dy_slice)
     if Rxy is not None:
         out["Rxy"] = np.asarray(Rxy)
     if Zxy is not None:

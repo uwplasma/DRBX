@@ -35,8 +35,12 @@ def curvature_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
     if Te_coeff is not None:
         C_T = float(Te_coeff) * C_T
 
+    n_term = C_p - C_phi
+    n_coeff = float(ctx.params.curvature_n_coeff)
+    n_term = n_coeff * n_term
+
     return DRBSystemState(
-        n=C_p - C_phi,
+        n=n_term,
         omega=C_p,
         vpar_e=jnp.zeros_like(y.vpar_e),
         vpar_i=jnp.zeros_like(y.vpar_i),
