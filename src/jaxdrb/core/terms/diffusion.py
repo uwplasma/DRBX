@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.operators.fd2d import div_n_grad
 
 from .context import TermContext
 from .ops import laplacian, biharmonic
@@ -87,6 +89,29 @@ def diffusion_terms(
         if ctx.em_on
         else jnp.zeros_like(ctx.psi)
     )
+
+    if bool(ctx.params.low_n_diffuse_perp_on):
+        grid = getattr(ctx.geom, "grid", None)
+        if grid is not None and hasattr(grid, "perp"):
+            n_floor = max(float(ctx.params.n0_min), 1e-30)
+            coeff = float(ctx.params.low_n_diffuse_perp_coeff)
+            coeff = coeff * n_floor / jnp.maximum(ctx.n_phys, 1e-3 * n_floor)
+            n_eff = ctx.n_phys
+            p_eff = ctx.n_phys * ctx.Te_phys
+
+            if ctx.is_2d:
+                dn_low = div_n_grad(n_eff, coeff, dx=grid.perp.dx, dy=grid.perp.dy, bc=ctx.bcs.n)
+                dp_low = div_n_grad(p_eff, coeff, dx=grid.perp.dx, dy=grid.perp.dy, bc=ctx.bcs.Te)
+            else:
+                dn_low = jax.vmap(
+                    lambda f, c: div_n_grad(f, c, dx=grid.perp.dx, dy=grid.perp.dy, bc=ctx.bcs.n)
+                )(n_eff, coeff)
+                dp_low = jax.vmap(
+                    lambda f, c: div_n_grad(f, c, dx=grid.perp.dx, dy=grid.perp.dy, bc=ctx.bcs.Te)
+                )(p_eff, coeff)
+
+            diss_n = diss_n + dn_low
+            diss_Te = diss_Te + (dp_low - ctx.Te_phys * dn_low) / jnp.maximum(ctx.n_phys, n_floor)
 
     return DRBSystemState(
         n=diss_n,

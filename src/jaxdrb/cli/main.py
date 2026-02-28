@@ -113,8 +113,12 @@ def main() -> None:
             state = jax.device_get(result.final_state)
             built = build_system_from_config(cfg.data)
             n_phys = built.system._phys_n(jnp.asarray(state.n))
+            Te_phys = built.system._phys_Te(jnp.asarray(state.Te))
             phi = built.system._phi_from_omega(
-                jnp.asarray(state.omega), n=n_phys, Ti=getattr(state, "Ti", None)
+                jnp.asarray(state.omega),
+                n=n_phys,
+                Ti=getattr(state, "Ti", None),
+                Te=Te_phys,
             )
             diagnostics = result.diagnostics
             if args.output_minimal and diagnostics:

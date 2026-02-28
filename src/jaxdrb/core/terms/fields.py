@@ -12,6 +12,8 @@ from jaxdrb.operators.fd2d import (
     inv_laplacian_cg,
     inv_laplacian_fd_fft,
     inv_laplacian_mixed_fft,
+    metric_laplacian,
+    inv_metric_laplacian_cg,
 )
 from jaxdrb.operators.spectral2d import inv_laplacian as inv_laplacian_spec
 
@@ -28,9 +30,344 @@ def _broadcast_to_shape(arr: jnp.ndarray, shape: tuple[int, ...]) -> jnp.ndarray
             arr = arr[:, None]
         elif len(shape) == 2 and arr.shape[0] == shape[1]:
             arr = arr[None, :]
-    elif arr.ndim == 2 and len(shape) == 3 and arr.shape == shape[1:]:
-        arr = arr[None, :, :]
+    elif arr.ndim == 2 and len(shape) == 3:
+        if arr.shape == shape[1:]:
+            arr = arr[None, :, :]
+        elif arr.shape == shape[:2]:
+            arr = arr[:, :, None]
+        elif arr.shape == (shape[0], shape[2]):
+            arr = arr[:, None, :]
     return jnp.broadcast_to(arr, shape)
+
+
+def _metric_to_3d(arr: jnp.ndarray, *, nz: int, nx: int, ny: int, name: str) -> jnp.ndarray:
+    """Broadcast metric/Jacobian data to (nz, nx, ny)."""
+
+    arr = jnp.asarray(arr)
+    if arr.ndim == 0:
+        return jnp.broadcast_to(arr, (nz, nx, ny))
+    if arr.ndim == 1:
+        if arr.shape[0] == nz:
+            return jnp.broadcast_to(arr[:, None, None], (nz, nx, ny))
+        if arr.shape[0] == nx:
+            return jnp.broadcast_to(arr[None, :, None], (nz, nx, ny))
+        if arr.shape[0] == ny:
+            return jnp.broadcast_to(arr[None, None, :], (nz, nx, ny))
+        raise ValueError(f"{name} 1D shape {arr.shape} is incompatible with (nz, nx, ny).")
+    if arr.ndim == 2:
+        if arr.shape == (nx, ny):
+            return jnp.broadcast_to(arr[None, :, :], (nz, nx, ny))
+        if arr.shape == (nz, nx):
+            return jnp.broadcast_to(arr[:, :, None], (nz, nx, ny))
+        if arr.shape == (nx, nz):
+            return jnp.broadcast_to(jnp.swapaxes(arr, 0, 1)[:, :, None], (nz, nx, ny))
+        if arr.shape == (nz, ny):
+            return jnp.broadcast_to(arr[:, None, :], (nz, nx, ny))
+        if arr.shape == (ny, nx):
+            return jnp.broadcast_to(arr.T[None, :, :], (nz, nx, ny))
+        raise ValueError(f"{name} 2D shape {arr.shape} is incompatible with (nz, nx, ny).")
+    if arr.ndim == 3 and arr.shape == (nz, nx, ny):
+        return arr
+    raise ValueError(f"{name} has unsupported shape {arr.shape}; expected (nz, nx, ny).")
+
+
+def _metric_to_xy(arr: jnp.ndarray, *, nx: int, nz: int, name: str) -> jnp.ndarray:
+    """Coerce metric arrays to (nx, nz) for LaplaceXY (x-parallel) solves."""
+
+    arr = jnp.asarray(arr)
+    if arr.ndim == 1:
+        if arr.shape[0] == nx:
+            return jnp.broadcast_to(arr[:, None], (nx, nz))
+        if arr.shape[0] == nz:
+            return jnp.broadcast_to(arr[None, :], (nx, nz))
+    if arr.ndim == 2:
+        if arr.shape == (nx, nz):
+            return arr
+        if arr.shape == (nz, nx):
+            return arr.T
+    if arr.ndim == 3:
+        if arr.shape[0] == nz and arr.shape[1] == nx:
+            return arr.mean(axis=2).T
+        if arr.shape[0] == nx and arr.shape[1] == nz:
+            return arr.mean(axis=2)
+    raise ValueError(f"{name} has unsupported shape {arr.shape}; expected (nx, nz).")
+
+
+def _metric_solve_xy(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    rhs_xy: jnp.ndarray,
+    coeff_xy: jnp.ndarray,
+    bc_xy: BC2D,
+    *,
+    x0: jnp.ndarray | None = None,
+    return_iters: bool = False,
+) -> jnp.ndarray:
+    """Solve LaplaceXY-style div(coeff * G_xy ∇phi) = rhs for k_y=0 mode."""
+
+    grid = grid_of(geom)
+    if grid is None:
+        return geom.inv_laplacian(rhs_xy, x0=x0)
+
+    gxx = getattr(geom, "gxx", None)
+    g23 = getattr(geom, "g23", None)
+    g_23 = getattr(geom, "g_23", None)
+    g_22 = getattr(geom, "g_22", None)
+    jac = getattr(geom, "jacobian", None)
+    if gxx is None or g23 is None or g_23 is None or g_22 is None:
+        return geom.inv_laplacian(rhs_xy, x0=x0)
+
+    nz = int(grid.z.size)
+    nx = int(grid.perp.nx)
+    gxx_xy = _metric_to_xy(jnp.asarray(gxx), nx=nx, nz=nz, name="gxx_xy")
+    g23_xy = _metric_to_xy(jnp.asarray(g23), nx=nx, nz=nz, name="g23_xy")
+    g_23_xy = _metric_to_xy(jnp.asarray(g_23), nx=nx, nz=nz, name="g_23_xy")
+    g_22_xy = _metric_to_xy(jnp.asarray(g_22), nx=nx, nz=nz, name="g_22_xy")
+    jac_xy = None
+    if jac is not None:
+        jac_xy = _metric_to_xy(jnp.asarray(jac), nx=nx, nz=nz, name="J_xy")
+
+    coeff_y = -(g23_xy * g_23_xy) / jnp.maximum(g_22_xy, 1e-30)
+    gxx_eff = gxx_xy * coeff_xy
+    gyy_eff = coeff_y * coeff_xy
+
+    precond = params.poisson_preconditioner
+    if precond == "auto":
+        precond = "jacobi"
+    return inv_metric_laplacian_cg(
+        rhs_xy,
+        gxx=gxx_eff,
+        gxy=jnp.zeros_like(gxx_eff),
+        gyy=gyy_eff,
+        jacobian=jac_xy,
+        dx=grid.perp.dx,
+        dy=grid.dz,
+        bc=bc_xy,
+        maxiter=int(params.poisson_maxiter),
+        tol=float(params.poisson_tol),
+        atol=float(params.poisson_cg_atol),
+        preconditioner=str(precond),
+        k2_precond=None,
+        gauge_epsilon=params.poisson_gauge_epsilon,
+        preconditioner_fn=None,
+        x0=x0,
+        return_iters=return_iters,
+    )
+
+
+def _metric_div_xy(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    field_xy: jnp.ndarray,
+    coeff_xy: jnp.ndarray,
+    bc_xy: BC2D,
+) -> jnp.ndarray:
+    """Forward LaplaceXY operator: div(coeff * G_xy ∇field)."""
+
+    grid = grid_of(geom)
+    if grid is None:
+        return geom.laplacian(field_xy)
+
+    gxx = getattr(geom, "gxx", None)
+    g23 = getattr(geom, "g23", None)
+    g_23 = getattr(geom, "g_23", None)
+    g_22 = getattr(geom, "g_22", None)
+    jac = getattr(geom, "jacobian", None)
+    if gxx is None or g23 is None or g_23 is None or g_22 is None:
+        return geom.laplacian(field_xy)
+
+    nz = int(grid.z.size)
+    nx = int(grid.perp.nx)
+    gxx_xy = _metric_to_xy(jnp.asarray(gxx), nx=nx, nz=nz, name="gxx_xy")
+    g23_xy = _metric_to_xy(jnp.asarray(g23), nx=nx, nz=nz, name="g23_xy")
+    g_23_xy = _metric_to_xy(jnp.asarray(g_23), nx=nx, nz=nz, name="g_23_xy")
+    g_22_xy = _metric_to_xy(jnp.asarray(g_22), nx=nx, nz=nz, name="g_22_xy")
+    jac_xy = None
+    if jac is not None:
+        jac_xy = _metric_to_xy(jnp.asarray(jac), nx=nx, nz=nz, name="J_xy")
+
+    coeff_y = -(g23_xy * g_23_xy) / jnp.maximum(g_22_xy, 1e-30)
+    gxx_eff = gxx_xy * coeff_xy
+    gyy_eff = coeff_y * coeff_xy
+    return metric_laplacian(
+        field_xy,
+        gxx_eff,
+        jnp.zeros_like(gxx_eff),
+        gyy_eff,
+        grid.perp.dx,
+        grid.dz,
+        bc_xy,
+        jacobian=jac_xy,
+    )
+
+
+def _poisson_coeff_b(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    n_phys: jnp.ndarray,
+) -> jnp.ndarray:
+    """Return coeff = n_eff / B^2 for B-weighted vorticity definitions."""
+
+    n_eff = _n_eff(params, n_phys)
+    Abar = float(getattr(params, "average_atomic_mass", 1.0))
+    B = getattr(geom, "B", None)
+    if B is None:
+        invB2 = jnp.asarray(1.0)
+    else:
+        invB2 = 1.0 / jnp.maximum(jnp.asarray(B), 1e-12) ** 2
+    invB2 = _broadcast_to_shape(jnp.asarray(invB2), n_phys.shape)
+    coeff = n_eff * invB2
+    if str(getattr(params, "poisson_b_weighted_mode", "scaled")).lower() == "hermes":
+        coeff = coeff * Abar
+    return jnp.maximum(coeff, jnp.asarray(float(params.n0_min), dtype=coeff.dtype) * invB2)
+
+
+def _metric_div_coeff(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    field: jnp.ndarray,
+    coeff: jnp.ndarray,
+    bc_phi: BC2D,
+) -> jnp.ndarray:
+    """Compute div(coeff * G ∇field) using metric coefficients when available."""
+
+    grid = grid_of(geom)
+    if grid is None:
+        return geom.laplacian(field)
+
+    if not getattr(params, "poisson_metric_on", False):
+        if field.ndim == 2:
+            return div_n_grad(field, coeff, dx=grid.dx, dy=grid.dy, bc=bc_phi)
+        return jax.vmap(lambda f, c: div_n_grad(f, c, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
+            field, coeff
+        )
+
+    if not (hasattr(geom, "metric_available") and geom.metric_available()):
+        if field.ndim == 2:
+            return div_n_grad(field, coeff, dx=grid.dx, dy=grid.dy, bc=bc_phi)
+        return jax.vmap(lambda f, c: div_n_grad(f, c, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
+            field, coeff
+        )
+
+    gxx = jnp.asarray(getattr(geom, "gxx"))
+    gxy = jnp.asarray(getattr(geom, "gxy"))
+    gyy = jnp.asarray(getattr(geom, "gyy"))
+    jac = None if getattr(geom, "jacobian", None) is None else jnp.asarray(geom.jacobian)
+    nx = grid.nx
+    ny = grid.ny
+
+    def _plane(field_plane, coeff_plane, gxx_plane, gxy_plane, gyy_plane, j_plane):
+        gxx_plane = gxx_plane * coeff_plane
+        gxy_plane = gxy_plane * coeff_plane
+        gyy_plane = gyy_plane * coeff_plane
+        return metric_laplacian(
+            field_plane,
+            gxx_plane,
+            gxy_plane,
+            gyy_plane,
+            grid.dx,
+            grid.dy,
+            bc_phi,
+            jacobian=j_plane,
+        )
+
+    if field.ndim == 2:
+        gxx2 = _metric_to_3d(gxx, nz=1, nx=nx, ny=ny, name="gxx")[0]
+        gxy2 = _metric_to_3d(gxy, nz=1, nx=nx, ny=ny, name="gxy")[0]
+        gyy2 = _metric_to_3d(gyy, nz=1, nx=nx, ny=ny, name="gyy")[0]
+        j2 = None if jac is None else _metric_to_3d(jac, nz=1, nx=nx, ny=ny, name="J")[0]
+        return _plane(field, coeff, gxx2, gxy2, gyy2, j2)
+
+    nz = int(field.shape[0])
+    gxx3 = _metric_to_3d(gxx, nz=nz, nx=nx, ny=ny, name="gxx")
+    gxy3 = _metric_to_3d(gxy, nz=nz, nx=nx, ny=ny, name="gxy")
+    gyy3 = _metric_to_3d(gyy, nz=nz, nx=nx, ny=ny, name="gyy")
+    if jac is None:
+        return jax.vmap(lambda f, c, gx, gxy_loc, gy: _plane(f, c, gx, gxy_loc, gy, None))(
+            field, coeff, gxx3, gxy3, gyy3
+        )
+    jac3 = _metric_to_3d(jac, nz=nz, nx=nx, ny=ny, name="J")
+    return jax.vmap(_plane)(field, coeff, gxx3, gxy3, gyy3, jac3)
+
+
+def _metric_solve_coeff(
+    params: DRBSystemParams,
+    geom: GeometryAdapter,
+    rhs: jnp.ndarray,
+    coeff: jnp.ndarray,
+    bc_phi: BC2D,
+    *,
+    x0: jnp.ndarray | None = None,
+    return_iters: bool = False,
+) -> jnp.ndarray:
+    """Solve div(coeff * G ∇phi) = rhs using metric coefficients."""
+
+    grid = grid_of(geom)
+    if grid is None:
+        return geom.inv_laplacian(rhs, x0=x0)
+
+    gxx = jnp.asarray(getattr(geom, "gxx"))
+    gxy = jnp.asarray(getattr(geom, "gxy"))
+    gyy = jnp.asarray(getattr(geom, "gyy"))
+    jac = None if getattr(geom, "jacobian", None) is None else jnp.asarray(geom.jacobian)
+    nx = grid.nx
+    ny = grid.ny
+
+    def _plane(rhs_plane, coeff_plane, gxx_plane, gxy_plane, gyy_plane, j_plane, guess=None):
+        gxx_plane = gxx_plane * coeff_plane
+        gxy_plane = gxy_plane * coeff_plane
+        gyy_plane = gyy_plane * coeff_plane
+        precond = params.poisson_preconditioner
+        if precond == "auto":
+            precond = "spectral"
+        k2_precond = None
+        ops = getattr(geom, "perp_ops", None)
+        if ops is not None and str(precond) == "spectral":
+            k2_precond = ops.k2
+        return inv_metric_laplacian_cg(
+            rhs_plane,
+            gxx=gxx_plane,
+            gxy=gxy_plane,
+            gyy=gyy_plane,
+            jacobian=j_plane,
+            dx=grid.dx,
+            dy=grid.dy,
+            bc=bc_phi,
+            maxiter=int(params.poisson_maxiter),
+            tol=float(params.poisson_tol),
+            atol=float(params.poisson_cg_atol),
+            preconditioner=str(precond),
+            k2_precond=k2_precond,
+            gauge_epsilon=params.poisson_gauge_epsilon,
+            preconditioner_fn=getattr(geom, "poisson_preconditioner_fn", None),
+            x0=guess,
+            return_iters=return_iters,
+        )
+
+    if rhs.ndim == 2:
+        gxx2 = _metric_to_3d(gxx, nz=1, nx=nx, ny=ny, name="gxx")[0]
+        gxy2 = _metric_to_3d(gxy, nz=1, nx=nx, ny=ny, name="gxy")[0]
+        gyy2 = _metric_to_3d(gyy, nz=1, nx=nx, ny=ny, name="gyy")[0]
+        j2 = None if jac is None else _metric_to_3d(jac, nz=1, nx=nx, ny=ny, name="J")[0]
+        return _plane(rhs, coeff, gxx2, gxy2, gyy2, j2, x0)
+
+    nz = int(rhs.shape[0])
+    gxx3 = _metric_to_3d(gxx, nz=nz, nx=nx, ny=ny, name="gxx")
+    gxy3 = _metric_to_3d(gxy, nz=nz, nx=nx, ny=ny, name="gxy")
+    gyy3 = _metric_to_3d(gyy, nz=nz, nx=nx, ny=ny, name="gyy")
+    if jac is None:
+        if x0 is None:
+            return jax.vmap(
+                lambda r, c, gx, gxy_loc, gy: _plane(r, c, gx, gxy_loc, gy, None, None)
+            )(rhs, coeff, gxx3, gxy3, gyy3)
+        return jax.vmap(
+            lambda r, c, gx, gxy_loc, gy, guess: _plane(r, c, gx, gxy_loc, gy, None, guess)
+        )(rhs, coeff, gxx3, gxy3, gyy3, x0)
+
+    j3 = _metric_to_3d(jac, nz=nz, nx=nx, ny=ny, name="J")
+    if x0 is None:
+        return jax.vmap(_plane)(rhs, coeff, gxx3, gxy3, gyy3, j3)
+    return jax.vmap(_plane)(rhs, coeff, gxx3, gxy3, gyy3, j3, x0)
 
 
 def _diamagnetic_polarisation_term(
@@ -45,7 +382,7 @@ def _diamagnetic_polarisation_term(
 
     tau_i = float(getattr(params, "tau_i", 0.0))
     Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
-    p_i = tau_i * (n_phys + Ti_eff)
+    p_i = tau_i * (n_phys * Ti_eff)
 
     B = getattr(geom, "B", None)
     if B is None:
@@ -88,12 +425,20 @@ def phys_n(params: DRBSystemParams, n: jnp.ndarray) -> jnp.ndarray:
 
 def phys_Te(params: DRBSystemParams, Te: jnp.ndarray) -> jnp.ndarray:
     if not params.log_Te:
-        return Te
+        Te_phys = Te
+        if float(params.temperature_floor) > 0.0:
+            floor_val = float(params.temperature_floor)
+            Te_phys = 0.5 * (Te_phys + jnp.sqrt(Te_phys * Te_phys + floor_val * floor_val))
+        return Te_phys
     clip = params.log_Te_clip
     if clip is None:
-        return jnp.exp(Te)
+        Te_phys = jnp.exp(Te)
     clip_val = float(clip)
-    return jnp.exp(jnp.clip(Te, a_min=-clip_val, a_max=clip_val))
+    Te_phys = jnp.exp(jnp.clip(Te, a_min=-clip_val, a_max=clip_val))
+    if float(params.temperature_floor) > 0.0:
+        floor_val = float(params.temperature_floor)
+        Te_phys = 0.5 * (Te_phys + jnp.sqrt(Te_phys * Te_phys + floor_val * floor_val))
+    return Te_phys
 
 
 def log_rhs(
@@ -126,12 +471,158 @@ def phi_from_omega(
     n_phys: jnp.ndarray,
     bc_phi: BC2D,
     Ti: jnp.ndarray | None = None,
+    Te: jnp.ndarray | None = None,
     phi_guess: jnp.ndarray | None = None,
     return_iters: bool = False,
 ) -> jnp.ndarray:
     grid = grid_of(geom)
     scale = float(params.poisson_scale)
     omega = omega / scale if scale != 1.0 else omega
+    if params.poisson_b_weighted:
+        mode = str(getattr(params, "poisson_b_weighted_mode", "scaled")).lower()
+        if mode == "hermes":
+            Abar = float(getattr(params, "average_atomic_mass", 1.0))
+            B = getattr(geom, "B", None)
+            if B is None:
+                invB2 = jnp.asarray(1.0)
+            else:
+                invB2 = 1.0 / jnp.maximum(jnp.asarray(B), 1e-12) ** 2
+            coeff = _broadcast_to_shape(jnp.asarray(Abar) * invB2, n_phys.shape)
+            rhs = omega
+            if bool(getattr(params, "diamagnetic_polarisation_on", False)):
+                Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+                Te_eff = jnp.zeros_like(n_phys) if Te is None else Te
+                me_hat = float(getattr(params, "me_hat", 0.0))
+                p_hat = Ti_eff * n_phys - (me_hat / max(Abar, 1e-12)) * (n_phys * Te_eff)
+                rhs = rhs - _metric_div_coeff(params, geom, p_hat, coeff, bc_phi)
+            if grid is None:
+                phi = geom.inv_laplacian(rhs, x0=phi_guess)
+                return (phi, jnp.asarray(0)) if return_iters else phi
+            if (
+                params.poisson_metric_on
+                and hasattr(geom, "metric_available")
+                and geom.metric_available()
+            ):
+                split_n0 = bool(getattr(params, "poisson_split_n0", False))
+                if split_n0 and rhs.ndim == 3:
+                    rhs0 = rhs.mean(axis=2)
+                    rhs1 = rhs - rhs0[..., None]
+                    coeff0 = coeff.mean(axis=2)
+                    phi_guess0 = None
+                    phi_guess1 = None
+                    if phi_guess is not None:
+                        phi_guess0 = phi_guess.mean(axis=2)
+                        phi_guess1 = phi_guess - phi_guess0[..., None]
+                    phi1 = _metric_solve_coeff(
+                        params,
+                        geom,
+                        rhs1,
+                        coeff,
+                        bc_phi,
+                        x0=phi_guess1,
+                        return_iters=return_iters,
+                    )
+                    if return_iters:
+                        phi1, iters1 = phi1
+                    phi1 = phi1 - phi1.mean(axis=2, keepdims=True)
+                    bc_xy = BC2D(
+                        kind_x=bc_phi.kind_x,
+                        kind_y=2 if getattr(grid, "open_field_line", False) else bc_phi.kind_y,
+                        x_value=bc_phi.x_value,
+                        y_value=0.0,
+                        x_grad=bc_phi.x_grad,
+                        y_grad=0.0,
+                    )
+                    phi0_xy = _metric_solve_xy(
+                        params,
+                        geom,
+                        jnp.swapaxes(rhs0, 0, 1),
+                        jnp.swapaxes(coeff0, 0, 1),
+                        bc_xy,
+                        x0=None if phi_guess0 is None else jnp.swapaxes(phi_guess0, 0, 1),
+                        return_iters=return_iters,
+                    )
+                    if return_iters:
+                        phi0_xy, iters0 = phi0_xy
+                    phi0 = jnp.swapaxes(phi0_xy, 0, 1)
+                    phi = phi0[..., None] + phi1
+                    if return_iters:
+                        iters = jnp.maximum(jnp.asarray(iters0), jnp.asarray(iters1))
+                        return phi, iters
+                    return phi
+
+                return _metric_solve_coeff(
+                    params,
+                    geom,
+                    rhs,
+                    coeff,
+                    bc_phi,
+                    x0=phi_guess,
+                    return_iters=return_iters,
+                )
+            precond = params.polarization_preconditioner
+            if precond == "auto":
+                precond = "spectral_jacobi"
+            return inv_div_n_grad_cg(
+                rhs,
+                n_coeff=coeff,
+                dx=grid.dx,
+                dy=grid.dy,
+                bc=bc_phi,
+                maxiter=int(params.polarization_cg_maxiter),
+                tol=float(params.polarization_cg_tol),
+                atol=float(params.polarization_cg_atol),
+                preconditioner=precond,
+                preconditioner_shift=float(params.polarization_precond_shift),
+                preconditioner_fn=getattr(geom, "polarization_preconditioner_fn", None),
+                x0=phi_guess,
+                return_iters=return_iters,
+            )
+
+        coeff = _poisson_coeff_b(params, geom, n_phys)
+        rhs = omega * coeff if mode == "scaled" else omega
+        if bool(getattr(params, "diamagnetic_polarisation_on", False)):
+            tau_i = float(getattr(params, "tau_i", 0.0))
+            Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+            p_i = tau_i * (n_phys * Ti_eff)
+            rhs = rhs - _metric_div_coeff(params, geom, p_i, coeff, bc_phi)
+        if grid is None:
+            phi = geom.inv_laplacian(rhs, x0=phi_guess)
+            return (phi, jnp.asarray(0)) if return_iters else phi
+        if (
+            params.poisson_metric_on
+            and hasattr(geom, "metric_available")
+            and geom.metric_available()
+        ):
+            return _metric_solve_coeff(
+                params,
+                geom,
+                rhs,
+                coeff,
+                bc_phi,
+                x0=phi_guess,
+                return_iters=return_iters,
+            )
+        precond = params.polarization_preconditioner
+        if precond == "auto":
+            precond = "spectral_jacobi"
+        phi_guess_eff = None if params.non_boussinesq_perturbed_density_on else phi_guess
+        return inv_div_n_grad_cg(
+            rhs,
+            n_coeff=coeff,
+            dx=grid.dx,
+            dy=grid.dy,
+            bc=bc_phi,
+            maxiter=int(params.polarization_cg_maxiter),
+            tol=float(params.polarization_cg_tol),
+            atol=float(params.polarization_cg_atol),
+            preconditioner=precond,
+            preconditioner_shift=float(params.polarization_precond_shift),
+            preconditioner_fn=getattr(geom, "polarization_preconditioner_fn", None),
+            x0=phi_guess_eff,
+            return_iters=return_iters,
+        )
+
     omega = omega - _diamagnetic_polarisation_term(params, geom, n_phys, Ti, bc_phi)
     if grid is None:
         if params.boussinesq:
@@ -247,12 +738,105 @@ def omega_from_phi(
     n_phys: jnp.ndarray,
     bc_phi: BC2D,
     Ti: jnp.ndarray | None = None,
+    Te: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Forward operator for Poisson/polarization: omega = ∇² phi (or div(n ∇ phi))."""
 
     scale = float(params.poisson_scale)
+    grid = grid_of(geom)
 
     if params.boussinesq:
+        if params.poisson_b_weighted:
+            coeff = _poisson_coeff_b(params, geom, n_phys)
+            mode = str(getattr(params, "poisson_b_weighted_mode", "scaled")).lower()
+            if mode == "hermes":
+                Abar = float(getattr(params, "average_atomic_mass", 1.0))
+                B = getattr(geom, "B", None)
+                if B is None:
+                    invB2 = jnp.asarray(1.0)
+                else:
+                    invB2 = 1.0 / jnp.maximum(jnp.asarray(B), 1e-12) ** 2
+                coeff = _broadcast_to_shape(jnp.asarray(Abar) * invB2, n_phys.shape)
+            omega_base = _metric_div_coeff(params, geom, phi, coeff, bc_phi)
+            if mode == "hermes":
+                split_n0 = bool(getattr(params, "poisson_split_n0", False))
+                if (
+                    split_n0
+                    and phi.ndim == 3
+                    and params.poisson_metric_on
+                    and hasattr(geom, "metric_available")
+                    and geom.metric_available()
+                ):
+                    phi0 = phi.mean(axis=2)
+                    phi1 = phi - phi0[..., None]
+                    coeff0 = coeff.mean(axis=2)
+                    omega1 = _metric_div_coeff(params, geom, phi1, coeff, bc_phi)
+                    bc_xy = BC2D(
+                        kind_x=bc_phi.kind_x,
+                        kind_y=2 if getattr(grid, "open_field_line", False) else bc_phi.kind_y,
+                        x_value=bc_phi.x_value,
+                        y_value=0.0,
+                        x_grad=bc_phi.x_grad,
+                        y_grad=0.0,
+                    )
+                    omega0_xy = _metric_div_xy(
+                        params,
+                        geom,
+                        jnp.swapaxes(phi0, 0, 1),
+                        jnp.swapaxes(coeff0, 0, 1),
+                        bc_xy,
+                    )
+                    omega0 = jnp.swapaxes(omega0_xy, 0, 1)
+                    omega_base = omega1 + omega0[..., None]
+            if bool(getattr(params, "diamagnetic_polarisation_on", False)):
+                if mode == "hermes":
+                    Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+                    Te_eff = jnp.zeros_like(n_phys) if Te is None else Te
+                    me_hat = float(getattr(params, "me_hat", 0.0))
+                    p_hat = Ti_eff * n_phys - (me_hat / max(Abar, 1e-12)) * (n_phys * Te_eff)
+                    n_eff = _n_eff(params, n_phys)
+                    coeff_pi = coeff / jnp.maximum(n_eff, float(params.n0_min))
+                    split_n0 = bool(getattr(params, "poisson_split_n0", False))
+                    if (
+                        split_n0
+                        and p_hat.ndim == 3
+                        and params.poisson_metric_on
+                        and hasattr(geom, "metric_available")
+                        and geom.metric_available()
+                    ):
+                        p0 = p_hat.mean(axis=2)
+                        p1 = p_hat - p0[..., None]
+                        coeff0 = coeff_pi.mean(axis=2)
+                        term1 = _metric_div_coeff(params, geom, p1, coeff_pi, bc_phi)
+                        bc_xy = BC2D(
+                            kind_x=bc_phi.kind_x,
+                            kind_y=2 if getattr(grid, "open_field_line", False) else bc_phi.kind_y,
+                            x_value=bc_phi.x_value,
+                            y_value=0.0,
+                            x_grad=bc_phi.x_grad,
+                            y_grad=0.0,
+                        )
+                        term0_xy = _metric_div_xy(
+                            params,
+                            geom,
+                            jnp.swapaxes(p0, 0, 1),
+                            jnp.swapaxes(coeff0, 0, 1),
+                            bc_xy,
+                        )
+                        term0 = jnp.swapaxes(term0_xy, 0, 1)
+                        omega_base = omega_base + term1 + term0[..., None]
+                    else:
+                        omega_base = omega_base + _metric_div_coeff(
+                            params, geom, p_hat, coeff_pi, bc_phi
+                        )
+                else:
+                    tau_i = float(getattr(params, "tau_i", 0.0))
+                    Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+                    p_i = tau_i * (n_phys * Ti_eff)
+                    omega_base = omega_base + _metric_div_coeff(params, geom, p_i, coeff, bc_phi)
+            omega = omega_base if mode == "hermes" else omega_base / coeff
+            return omega * scale if scale != 1.0 else omega
+
         if params.poisson_metric_on and hasattr(geom, "laplacian_metric"):
             metric_ok = True
             if hasattr(geom, "metric_available"):
@@ -269,9 +853,30 @@ def omega_from_phi(
         return omega * scale if scale != 1.0 else omega
 
     n_eff = _n_eff(params, n_phys)
-    grid = grid_of(geom)
     if grid is None:
         omega = geom.laplacian(phi)
+        return omega * scale if scale != 1.0 else omega
+
+    if params.poisson_b_weighted:
+        coeff = _poisson_coeff_b(params, geom, n_phys)
+        mode = str(getattr(params, "poisson_b_weighted_mode", "scaled")).lower()
+        omega_base = _metric_div_coeff(params, geom, phi, coeff, bc_phi)
+        if bool(getattr(params, "diamagnetic_polarisation_on", False)):
+            if mode == "hermes":
+                Abar = float(getattr(params, "average_atomic_mass", 1.0))
+                Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+                Te_eff = jnp.zeros_like(n_phys) if Te is None else Te
+                me_hat = float(getattr(params, "me_hat", 0.0))
+                p_hat = Ti_eff * n_phys - (me_hat / max(Abar, 1e-12)) * (n_phys * Te_eff)
+                n_eff = _n_eff(params, n_phys)
+                coeff_pi = coeff / jnp.maximum(n_eff, float(params.n0_min))
+                omega_base = omega_base + _metric_div_coeff(params, geom, p_hat, coeff_pi, bc_phi)
+            else:
+                tau_i = float(getattr(params, "tau_i", 0.0))
+                Ti_eff = jnp.zeros_like(n_phys) if Ti is None else Ti
+                p_i = tau_i * (n_phys * Ti_eff)
+                omega_base = omega_base + _metric_div_coeff(params, geom, p_i, coeff, bc_phi)
+        omega = omega_base if mode == "hermes" else omega_base / coeff
         return omega * scale if scale != 1.0 else omega
 
     if phi.ndim == 2:

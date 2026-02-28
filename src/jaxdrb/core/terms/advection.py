@@ -27,6 +27,8 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
     bc = ctx.bcs
     scale = ctx.nonlinear_scale
     phi = ctx.phi
+    use_flux = str(ctx.params.exb_advection_form).lower() == "flux"
+    use_flux = use_flux and getattr(ctx.geom, "jacobian", None) is not None
     fields = [
         ctx.n_phys,
         y.omega,
@@ -42,34 +44,121 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
         fields.append(ctx.psi)
         bc_fields.append(bc.psi)
 
-    with jax.named_scope("bracket_terms"):
-        if hasattr(ctx.geom, "bracket_many"):
-            brackets = ctx.geom.bracket_many(phi, jnp.stack(fields), bc_phi=bc.phi, bc_f=bc_fields)
-        else:
-            brackets = jnp.stack(
-                [ctx.geom.bracket(phi, f, bc_phi=bc.phi, bc_f=b) for f, b in zip(fields, bc_fields)]
+    if use_flux:
+        with jax.named_scope("exb_flux_terms"):
+            adv_n = (
+                -ctx.geom.exb_flux_divergence(phi, ctx.n_phys, bc_phi=bc.phi, bc_adv=bc_fields[0])
+                * scale
             )
+            adv_w = (
+                -ctx.geom.exb_flux_divergence(phi, y.omega, bc_phi=bc.phi, bc_adv=bc_fields[1])
+                * scale
+            )
+            use_cons = bool(ctx.params.exb_advect_conservative)
+            n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
+            if use_cons:
+                dNV_e = (
+                    -ctx.geom.exb_flux_divergence(
+                        phi, ctx.n_phys * y.vpar_e, bc_phi=bc.phi, bc_adv=bc_fields[2]
+                    )
+                    * scale
+                )
+                adv_ve = (dNV_e - y.vpar_e * adv_n) / n_eff
+                dNV_i = (
+                    -ctx.geom.exb_flux_divergence(
+                        phi, ctx.n_phys * y.vpar_i, bc_phi=bc.phi, bc_adv=bc_fields[3]
+                    )
+                    * scale
+                )
+                adv_vi = (dNV_i - y.vpar_i * adv_n) / n_eff
+                dP_e = (
+                    -ctx.geom.exb_flux_divergence(
+                        phi, ctx.n_phys * ctx.Te_phys, bc_phi=bc.phi, bc_adv=bc_fields[4]
+                    )
+                    * scale
+                )
+                adv_Te = (dP_e - ctx.Te_phys * adv_n) / n_eff
+                if ctx.hot_on:
+                    dP_i = (
+                        -ctx.geom.exb_flux_divergence(
+                            phi, ctx.n_phys * ctx.Ti, bc_phi=bc.phi, bc_adv=bc_fields[5]
+                        )
+                        * scale
+                    )
+                    adv_Ti = (dP_i - ctx.Ti * adv_n) / n_eff
+                    idx = 6
+                else:
+                    adv_Ti = jnp.zeros_like(ctx.Ti)
+                    idx = 5
+            else:
+                adv_ve = (
+                    -ctx.geom.exb_flux_divergence(phi, y.vpar_e, bc_phi=bc.phi, bc_adv=bc_fields[2])
+                    * scale
+                )
+                adv_vi = (
+                    -ctx.geom.exb_flux_divergence(phi, y.vpar_i, bc_phi=bc.phi, bc_adv=bc_fields[3])
+                    * scale
+                )
+                adv_Te = (
+                    -ctx.geom.exb_flux_divergence(
+                        phi, ctx.Te_phys, bc_phi=bc.phi, bc_adv=bc_fields[4]
+                    )
+                    * scale
+                )
+                if ctx.hot_on:
+                    adv_Ti = (
+                        -ctx.geom.exb_flux_divergence(
+                            phi, ctx.Ti, bc_phi=bc.phi, bc_adv=bc_fields[5]
+                        )
+                        * scale
+                    )
+                    idx = 6
+                else:
+                    adv_Ti = jnp.zeros_like(ctx.Ti)
+                    idx = 5
+            if y.psi is not None:
+                adv_psi = (
+                    -ctx.geom.exb_flux_divergence(
+                        phi, ctx.psi, bc_phi=bc.phi, bc_adv=bc_fields[idx]
+                    )
+                    * scale
+                )
+            else:
+                adv_psi = jnp.zeros_like(ctx.psi)
+    else:
+        with jax.named_scope("bracket_terms"):
+            if hasattr(ctx.geom, "bracket_many"):
+                brackets = ctx.geom.bracket_many(
+                    phi, jnp.stack(fields), bc_phi=bc.phi, bc_f=bc_fields
+                )
+            else:
+                brackets = jnp.stack(
+                    [
+                        ctx.geom.bracket(phi, f, bc_phi=bc.phi, bc_f=b)
+                        for f, b in zip(fields, bc_fields)
+                    ]
+                )
 
-    idx = 0
-    adv_n = -brackets[idx] * scale
-    idx += 1
-    adv_w = -brackets[idx] * scale
-    idx += 1
-    adv_ve = -brackets[idx] * scale
-    idx += 1
-    adv_vi = -brackets[idx] * scale
-    idx += 1
-    adv_Te = -brackets[idx] * scale
-    idx += 1
-    if ctx.hot_on:
-        adv_Ti = -brackets[idx] * scale
+        idx = 0
+        adv_n = -brackets[idx] * scale
         idx += 1
-    else:
-        adv_Ti = jnp.zeros_like(ctx.Ti)
-    if y.psi is not None:
-        adv_psi = -brackets[idx] * scale
-    else:
-        adv_psi = jnp.zeros_like(ctx.psi)
+        adv_w = -brackets[idx] * scale
+        idx += 1
+        adv_ve = -brackets[idx] * scale
+        idx += 1
+        adv_vi = -brackets[idx] * scale
+        idx += 1
+        adv_Te = -brackets[idx] * scale
+        idx += 1
+        if ctx.hot_on:
+            adv_Ti = -brackets[idx] * scale
+            idx += 1
+        else:
+            adv_Ti = jnp.zeros_like(ctx.Ti)
+        if y.psi is not None:
+            adv_psi = -brackets[idx] * scale
+        else:
+            adv_psi = jnp.zeros_like(ctx.psi)
 
     adv_N = None
     if ctx.neut_on and y.N is not None:

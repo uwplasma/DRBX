@@ -97,6 +97,8 @@ def metric_laplacian(
     dx: float,
     dy: float,
     bc: BC2D,
+    *,
+    jacobian: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Return ∇·(G ∇u) with metric tensor components gxx/gxy/gyy.
 
@@ -104,6 +106,10 @@ def metric_laplacian(
         flux_x = gxx * du/dx + gxy * du/dy
         flux_y = gxy * du/dx + gyy * du/dy
         L(u)   = d(flux_x)/dx + d(flux_y)/dy
+
+    If a Jacobian ``J`` is provided, compute the conservative form
+        L(u) = (1/J) ∇·(J G ∇u)
+    which matches BOUT++/Hermes metric normalization.
     """
 
     gxx = jnp.asarray(gxx)
@@ -113,6 +119,11 @@ def metric_laplacian(
     dudy = ddy(u, dy, bc)
     flux_x = gxx * dudx + gxy * dudy
     flux_y = gxy * dudx + gyy * dudy
+    if jacobian is not None:
+        J = jnp.asarray(jacobian)
+        flux_x = flux_x * J
+        flux_y = flux_y * J
+        return (ddx(flux_x, dx, bc) + ddy(flux_y, dy, bc)) / jnp.maximum(J, 1e-30)
     return ddx(flux_x, dx, bc) + ddy(flux_y, dy, bc)
 
 
@@ -1104,6 +1115,7 @@ def inv_metric_laplacian_cg(
     gxx: jnp.ndarray,
     gxy: jnp.ndarray,
     gyy: jnp.ndarray,
+    jacobian: jnp.ndarray | None = None,
     dx: float,
     dy: float,
     bc: BC2D,
@@ -1128,6 +1140,7 @@ def inv_metric_laplacian_cg(
     gxx = jnp.asarray(gxx)
     gxy = jnp.asarray(gxy)
     gyy = jnp.asarray(gyy)
+    jacobian = None if jacobian is None else jnp.asarray(jacobian)
 
     diag_est = (jnp.mean(gxx) / dx**2) + (jnp.mean(gyy) / dy**2)
     if gauge_epsilon is None:
@@ -1193,9 +1206,9 @@ def inv_metric_laplacian_cg(
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(
-                v
-            )
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + float(
+                gauge_epsilon
+            ) * jnp.mean(v)
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
@@ -1220,9 +1233,9 @@ def inv_metric_laplacian_cg(
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(
-                v
-            )
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + float(
+                gauge_epsilon
+            ) * jnp.mean(v)
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
@@ -1258,7 +1271,7 @@ def inv_metric_laplacian_cg(
             u = u.at[-1, 0].set(corner)
             u = u.at[-1, -1].set(corner)
             u = u.at[1:-1, 1:-1].set(v)
-            Lu = metric_laplacian(u, gxx, gxy, gyy, dx, dy, bc)
+            Lu = metric_laplacian(u, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian)
             return (-Lu[1:-1, 1:-1]).reshape((-1,))
 
         M = make_M(size=b_int.size, shape=(nx - 2, ny - 2), dx_eff=dx, dy_eff=dy)
@@ -1291,13 +1304,13 @@ def inv_metric_laplacian_cg(
         x = jnp.linspace(0.0, dx * (nx - 1), nx)[:, None]
         y = jnp.linspace(0.0, dy * (ny - 1), ny)[None, :]
         u_bc = bc.x_grad * x + bc.y_grad * y
-        rhs_eff = rhs0 - metric_laplacian(u_bc, gxx, gxy, gyy, dx, dy, bc)
+        rhs_eff = rhs0 - metric_laplacian(u_bc, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian)
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc) + float(gauge_epsilon) * jnp.mean(
-                v
-            )
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + float(
+                gauge_epsilon
+            ) * jnp.mean(v)
             return out.reshape((-1,))
 
         b = (-rhs_eff).reshape((-1,))

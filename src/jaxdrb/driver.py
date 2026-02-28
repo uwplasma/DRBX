@@ -151,7 +151,7 @@ def _apply_phi_boundary_relaxation_implicit(
     dx = float(grid.dx)
     dy = float(grid.dy)
 
-    phi = system._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, phi_guess=phi_guess)
+    phi = system._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, Te=y.Te, phi_guess=phi_guess)
 
     if phi.ndim == 2:
         phi_rel = enforce_bc_relaxation_implicit(
@@ -164,7 +164,7 @@ def _apply_phi_boundary_relaxation_implicit(
             )
         )(phi)
 
-    omega = system._omega_from_phi(phi_rel, n=y.n, Ti=y.Ti)
+    omega = system._omega_from_phi(phi_rel, n=y.n, Ti=y.Ti, Te=y.Te)
 
     return DRBSystemState(
         n=y.n,
@@ -212,12 +212,12 @@ def _apply_sol_sheath_phi_implicit(
 
     dt = float(dt)
     if phi_guess is None:
-        phi_guess = system._phi_from_omega(y.omega, n=n_phys, Ti=y.Ti)
+        phi_guess = system._phi_from_omega(y.omega, n=n_phys, Ti=y.Ti, Te=Te_phys)
 
     b = y.omega + dt * const
 
     def matvec(phi):
-        return system._omega_from_phi(phi, n=n_phys, Ti=y.Ti) + dt * A * phi
+        return system._omega_from_phi(phi, n=n_phys, Ti=y.Ti, Te=Te_phys) + dt * A * phi
 
     solver = str(params.sol_sheath_phi_implicit_solver).lower()
     tol = float(params.sol_sheath_phi_implicit_rtol)
@@ -237,7 +237,7 @@ def _apply_sol_sheath_phi_implicit(
             maxiter=maxiter,
         )
 
-    omega_new = system._omega_from_phi(phi_new, n=n_phys, Ti=y.Ti)
+    omega_new = system._omega_from_phi(phi_new, n=n_phys, Ti=y.Ti, Te=Te_phys)
 
     return DRBSystemState(
         n=y.n,
@@ -825,10 +825,34 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
             p_phys = jnp.asarray(n_phys * Te_phys)
         Te_phys = p_phys / jnp.maximum(n_phys, 1e-12)
 
+    Ti_phys = None
+    if sys_params.hot_ion_on and state.Ti is not None:
+        Ti0 = float(init.get("Ti0", init.get("Ti_base", Te0)))
+        Ti_phys = jnp.full_like(state.n, Ti0)
+        Ti_profile = str(init.get("Ti_profile", "")).lower()
+        if Ti_profile in ("from_te", "te", "match_te", "same"):
+            Ti_phys = Te_phys
+        elif Ti_profile in (
+            "from_pressure",
+            "pressure_consistent",
+            "pressure_over_n",
+        ):
+            if p_phys is None:
+                p_phys = jnp.asarray(n_phys * Te_phys)
+            Ti_phys = p_phys / jnp.maximum(n_phys, 1e-12)
+        elif Ti_profile:
+            xg, _ = _perp_xy(centered=x_centered, x_mode=x_mode)
+            Ti_phys = _apply_x_profile(Ti_phys, profile=Ti_profile, prefix="Ti_profile", xg=xg)
+        else:
+            if bool(init.get("Ti_from_Te", True)):
+                Ti_phys = Te_phys
+
     # Keep all state channels shape-consistent even when profiles are x-only
     # and only a subset of fields receives perturbations.
     n_phys = jnp.broadcast_to(n_phys, state.n.shape)
     Te_phys = jnp.broadcast_to(Te_phys, state.n.shape)
+    if Ti_phys is not None:
+        Ti_phys = jnp.broadcast_to(Ti_phys, state.n.shape)
 
     n_floor = max(float(sys_params.n0_min), 1e-12)
     Te_floor = max(float(sys_params.sol_Te_floor), 1e-12)
@@ -845,6 +869,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     omega_state = jnp.full_like(state.n, omega0)
     vpar_e_state = jnp.full_like(state.n, vpar_e0)
     vpar_i_state = jnp.full_like(state.n, vpar_i0)
+    Ti_state = Ti_phys if Ti_phys is not None else None
 
     if noise_amp != 0.0:
         if noise_mode != "physical":
@@ -865,7 +890,7 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
         vpar_e=vpar_e_state,
         vpar_i=vpar_i_state,
         Te=Te_state,
-        Ti=state.Ti,
+        Ti=Ti_state,
         psi=state.psi,
         N=state.N,
     )
@@ -918,7 +943,9 @@ def _diagnostic_fn(
             elif use_phi_guess_only:
                 phi_local = jnp.zeros_like(y.omega)
             else:
-                phi_local = system._phi_from_omega(y.omega, n=n_phys, Ti=y.Ti, phi_guess=phi_guess)
+                phi_local = system._phi_from_omega(
+                    y.omega, n=n_phys, Ti=y.Ti, Te=Te_phys, phi_guess=phi_guess
+                )
 
         if not use_phi_rms:
             zero = jnp.asarray(0.0)
@@ -1003,7 +1030,7 @@ def _diagnostic_fn(
             if "phi" in snapshot_fields:
                 if phi_local is None:
                     phi_local = system._phi_from_omega(
-                        y.omega, n=n_phys, Ti=y.Ti, phi_guess=phi_guess
+                        y.omega, n=n_phys, Ti=y.Ti, Te=Te_phys, phi_guess=phi_guess
                     )
                 field_map["phi"] = phi_local
             snapshots = tuple(field_map[name] for name in snapshot_fields if name in field_map)

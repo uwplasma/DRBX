@@ -61,10 +61,11 @@ class LineGeometryAdapter(GeometryBase):
 
     def dpar(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         _ = bc_kind
-        return self.geom.dpar(f)
+        return float(self.params.parallel_sign) * self.geom.dpar(f)
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
-        return self.geom.dpar(self.geom.dpar(f))
+        sign = float(self.params.parallel_sign)
+        return sign * self.geom.dpar(sign * self.geom.dpar(f))
 
     def curvature(self, f: jnp.ndarray) -> jnp.ndarray:
         return self.geom.curvature(float(self.kx), float(self.ky), f)
