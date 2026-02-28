@@ -280,7 +280,9 @@ def _build_snapshot_fields(state) -> list[str]:
     return fields
 
 
-def _compute_term_metrics(system, snapshots: dict[str, np.ndarray], times: np.ndarray):
+def _compute_term_metrics(
+    system, snapshots: dict[str, np.ndarray], times: np.ndarray, *, start_index: int, nsteps: int
+):
     from jaxdrb.core.state import DRBSystemState
     from jaxdrb.core.terms import build_context
 
@@ -288,18 +290,19 @@ def _compute_term_metrics(system, snapshots: dict[str, np.ndarray], times: np.nd
     total_rows: list[dict[str, object]] = []
     total_fields: dict[str, list[np.ndarray]] = {}
     phi_rows: list[dict[str, object]] = []
-    nsteps = snapshots["n"].shape[0]
+    nsteps = int(max(0, min(nsteps, snapshots["n"].shape[0] - start_index)))
 
     for ti in range(nsteps):
+        idx = int(start_index + ti)
         y = DRBSystemState(
-            n=snapshots["n"][ti],
-            omega=snapshots["omega"][ti],
-            vpar_e=snapshots["vpar_e"][ti],
-            vpar_i=snapshots["vpar_i"][ti],
-            Te=snapshots["Te"][ti],
-            Ti=None if "Ti" not in snapshots else snapshots["Ti"][ti],
-            psi=None if "psi" not in snapshots else snapshots["psi"][ti],
-            N=None if "N" not in snapshots else snapshots["N"][ti],
+            n=snapshots["n"][idx],
+            omega=snapshots["omega"][idx],
+            vpar_e=snapshots["vpar_e"][idx],
+            vpar_i=snapshots["vpar_i"][idx],
+            Te=snapshots["Te"][idx],
+            Ti=None if "Ti" not in snapshots else snapshots["Ti"][idx],
+            psi=None if "psi" not in snapshots else snapshots["psi"][idx],
+            N=None if "N" not in snapshots else snapshots["N"][idx],
         )
         ctx = build_context(system.params, system.geom, y, return_phi_iters=True)
         split, term_map = system.scheduler.run_with_terms(ctx, y)
@@ -307,7 +310,7 @@ def _compute_term_metrics(system, snapshots: dict[str, np.ndarray], times: np.nd
         phi = np.asarray(ctx.phi)
         phi_rows.append(
             {
-                "t": float(times[ti]),
+                "t": float(times[idx]),
                 "phi_rms": float(np.sqrt(np.mean(phi * phi))),
                 "phi_maxabs": float(np.max(np.abs(phi))),
                 "phi_iters": None if ctx.phi_iters is None else float(np.asarray(ctx.phi_iters)),
@@ -329,7 +332,7 @@ def _compute_term_metrics(system, snapshots: dict[str, np.ndarray], times: np.nd
             a = np.asarray(arr)
             total_rows.append(
                 {
-                    "t": float(times[ti]),
+                    "t": float(times[idx]),
                     "field": field_name,
                     "rhs_rms": float(np.sqrt(np.mean(a * a))),
                     "rhs_maxabs": float(np.max(np.abs(a))),
@@ -351,7 +354,7 @@ def _compute_term_metrics(system, snapshots: dict[str, np.ndarray], times: np.nd
                 a = np.asarray(arr)
                 out_rows.append(
                     {
-                        "t": float(times[ti]),
+                        "t": float(times[idx]),
                         "term": name,
                         "field": field_name,
                         "rms": float(np.sqrt(np.mean(a * a))),
@@ -364,12 +367,16 @@ def _compute_term_metrics(system, snapshots: dict[str, np.ndarray], times: np.nd
 
 
 def _compute_hermes_ddt(
-    times: np.ndarray, fields: dict[str, np.ndarray], nsteps: int
+    times: np.ndarray,
+    fields: dict[str, np.ndarray],
+    nsteps: int,
+    *,
+    start_index: int,
 ) -> dict[str, np.ndarray]:
     ddt: dict[str, np.ndarray] = {}
 
     def _slice_steps(arr: np.ndarray) -> np.ndarray:
-        return arr[:nsteps]
+        return arr[start_index : start_index + nsteps]
 
     # Prefer direct ddt variables if present (interior values are already extracted).
     if "ddt(Ne)" in fields:
@@ -390,7 +397,7 @@ def _compute_hermes_ddt(
         ddt["Vort"] = _slice_steps(fields["ddt(Vort)"])
 
     # Fallback to finite differences for missing fields.
-    dt = np.diff(times[: nsteps + 1])
+    dt = np.diff(times[start_index : start_index + nsteps + 1])
     dt = dt.reshape(-1, *([1] * (fields[next(iter(fields))].ndim - 1)))
     for name in ("Ne", "Te", "Vort", "phi"):
         if name in ddt:
@@ -398,9 +405,12 @@ def _compute_hermes_ddt(
         if name not in fields:
             continue
         arr = fields[name]
-        if arr.shape[0] < nsteps + 1:
+        if arr.shape[0] < start_index + nsteps + 1:
             raise ValueError(f"Need at least {nsteps + 1} Hermes frames for {name}.")
-        ddt[name] = (arr[1 : nsteps + 1] - arr[:nsteps]) / dt
+        ddt[name] = (
+            arr[start_index + 1 : start_index + nsteps + 1]
+            - arr[start_index : start_index + nsteps]
+        ) / dt
     return ddt
 
 
@@ -717,6 +727,18 @@ def main() -> None:
         help="Evaluate JAX RHS directly on Hermes snapshots (skip JAX time integration).",
     )
     parser.add_argument(
+        "--start-index",
+        type=int,
+        default=0,
+        help="Start index into the time series for the audit window.",
+    )
+    parser.add_argument(
+        "--time-target",
+        type=float,
+        default=None,
+        help="Target time (Hermes t units) to anchor the audit window.",
+    )
+    parser.add_argument(
         "--no-time-scale",
         action="store_true",
         help="Disable scaling Hermes ddt into JAX time units.",
@@ -776,11 +798,19 @@ def main() -> None:
             hermes_dx_mean=hermes_dx_mean,
             hermes_dy_mean=hermes_dy_mean,
         )
-    dt_hermes = float(np.mean(np.diff(hermes_times[: max(2, args.nsteps + 1)])))
+    start_index = int(max(0, args.start_index))
+    if args.time_target is not None:
+        start_index = int(np.argmin(np.abs(hermes_times - float(args.time_target))))
+
+    dt_slice = hermes_times[start_index : start_index + max(2, args.nsteps + 1)]
+    if dt_slice.size < 2:
+        raise ValueError("Not enough Hermes frames to determine dt at requested time.")
+    dt_hermes = float(np.mean(np.diff(dt_slice)))
 
     time_cfg = cfg.get("time", {})
     time_cfg = dict(time_cfg)
-    time_cfg["nsteps"] = int(args.nsteps)
+    nsteps_total = int(start_index + args.nsteps)
+    time_cfg["nsteps"] = int(nsteps_total)
     time_cfg["save_every"] = 1
     time_cfg["save_fields"] = True
     time_cfg["return_numpy"] = True
@@ -914,9 +944,18 @@ def main() -> None:
             raise ValueError(f"Axis mapping failed with strict axis mode: {axis_map}")
 
     term_rows, total_rows, total_fields, phi_rows = _compute_term_metrics(
-        built.system, snapshots, times
+        built.system,
+        snapshots,
+        times,
+        start_index=start_index,
+        nsteps=int(args.nsteps),
     )
-    hermes_ddt = _compute_hermes_ddt(hermes_times, hermes_fields_aligned, args.nsteps)
+    hermes_ddt = _compute_hermes_ddt(
+        hermes_times,
+        hermes_fields_aligned,
+        int(args.nsteps),
+        start_index=start_index,
+    )
     hermes_time_unit = _hermes_time_unit(hermes_sections)
     jax_time_unit = None if built.normalization is None else float(built.normalization.time)
     ddt_scale = 1.0
@@ -952,7 +991,7 @@ def main() -> None:
             denom = max(1e-12, 0.1 * hermes_rms)
             mismatch_rows.append(
                 {
-                    "t": float(times[ti]),
+                    "t": float(times[start_index + ti]),
                     "field": field_name,
                     "jax_rhs_rms": jax_rms,
                     "hermes_ddt_rms": hermes_rms,
@@ -987,6 +1026,8 @@ def main() -> None:
         "jax_geometry": _jax_geom_stats(built.system),
         "jax_shape": list(built.system.geom.shape()),
         "jax_snapshot_shape": list(snapshots["n"].shape),
+        "audit_start_index": int(start_index),
+        "audit_time_target": None if args.time_target is None else float(args.time_target),
         "hermes_time_unit": None if hermes_time_unit is None else float(hermes_time_unit),
         "jax_time_unit": None if jax_time_unit is None else float(jax_time_unit),
         "hermes_ddt_scale": float(ddt_scale),
