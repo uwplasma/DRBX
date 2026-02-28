@@ -18,7 +18,7 @@ from .braginskii import (
     classical_diffusion_terms,
 )
 from .curvature import curvature_terms
-from .diamagnetic import diamagnetic_terms
+from .diamagnetic import diamagnetic_current_terms, diamagnetic_terms
 from .diffusion import diffusion_terms
 from .drive import drive_terms
 from .extra_dissipation import extra_dissipation_terms
@@ -155,6 +155,23 @@ def _term_diamagnetic(
     ctx: TermContext, y: DRBSystemState, work: dict[str, object]
 ) -> DRBSystemState:
     term = diamagnetic_terms(ctx, y)
+    term = _log_term_nTe(ctx, term)
+    return DRBSystemState(
+        n=term.n,
+        omega=term.omega,
+        vpar_e=term.vpar_e,
+        vpar_i=term.vpar_i,
+        Te=term.Te,
+        Ti=term.Ti if y.Ti is not None else None,
+        psi=term.psi if y.psi is not None else None,
+        N=None if y.N is None else jnp.zeros_like(y.N),
+    )
+
+
+def _term_diamagnetic_current(
+    ctx: TermContext, y: DRBSystemState, work: dict[str, object]
+) -> DRBSystemState:
+    term = diamagnetic_current_terms(ctx, y)
     term = _log_term_nTe(ctx, term)
     return DRBSystemState(
         n=term.n,
@@ -423,6 +440,7 @@ def _term_line_bcs(ctx: TermContext, y: DRBSystemState, work: dict[str, object])
 TERM_REGISTRY: dict[str, TermSpec] = {
     "advection": TermSpec("advection", "conservative", _term_advection),
     "diamagnetic": TermSpec("diamagnetic", "conservative", _term_diamagnetic),
+    "diamagnetic_current": TermSpec("diamagnetic_current", "source", _term_diamagnetic_current),
     "parallel": TermSpec("parallel", "conservative", _term_parallel),
     "curvature": TermSpec("curvature", "source", _term_curvature),
     "drive": TermSpec("drive", "source", _term_drive),
@@ -457,6 +475,7 @@ TERM_REGISTRY: dict[str, TermSpec] = {
 DEFAULT_TERM_SCHEDULE: tuple[str, ...] = (
     "advection",
     "diamagnetic",
+    "diamagnetic_current",
     "parallel",
     "curvature",
     "drive",
@@ -503,6 +522,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
     "preset_linear": (
         "parallel",
         "diamagnetic",
+        "diamagnetic_current",
         "curvature",
         "drive",
         "diffusion",
@@ -511,6 +531,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
     "preset_nonlinear": (
         "advection",
         "diamagnetic",
+        "diamagnetic_current",
         "parallel",
         "curvature",
         "drive",
@@ -520,6 +541,7 @@ PRESET_TERM_SCHEDULES: dict[str, tuple[str, ...]] = {
     "preset_min": (
         "advection",
         "diamagnetic",
+        "diamagnetic_current",
         "parallel",
         "curvature",
         "diffusion",

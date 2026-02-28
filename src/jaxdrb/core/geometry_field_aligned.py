@@ -155,9 +155,17 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     curv_y: jnp.ndarray
     dpar_factor: jnp.ndarray
     B: jnp.ndarray
+    z_shift: jnp.ndarray | None = None
+    curv_par: jnp.ndarray | None = None
+    jacobian: jnp.ndarray | None = None
+    gpar: jnp.ndarray | None = None
     gxx: jnp.ndarray | None = None
     gxy: jnp.ndarray | None = None
     gyy: jnp.ndarray | None = None
+    g23: jnp.ndarray | None = None
+    g_22: jnp.ndarray | None = None
+    g_23: jnp.ndarray | None = None
+    shift_idx: jnp.ndarray | None = eqx.field(init=False, default=None)
     dpar_factor_const: bool = eqx.field(init=False, static=True, default=False)
     dpar_factor_scalar: float | None = eqx.field(init=False, static=True, default=None)
     perp_ops: PerpOperatorBundle = eqx.field(init=False)
@@ -268,8 +276,17 @@ class FieldAlignedGeometryAdapter(GeometryBase):
 
         object.__setattr__(self, "curv_x", _as_field3(self.curv_x, "curv_x"))
         object.__setattr__(self, "curv_y", _as_field3(self.curv_y, "curv_y"))
-        object.__setattr__(self, "dpar_factor", _as_field3(self.dpar_factor, "dpar_factor"))
+        if self.curv_par is not None:
+            object.__setattr__(self, "curv_par", _as_field3(self.curv_par, "curv_par"))
+        dpar_scaled = _as_field3(self.dpar_factor, "dpar_factor") * float(
+            self.params.dpar_factor_scale
+        )
+        object.__setattr__(self, "dpar_factor", dpar_scaled)
         object.__setattr__(self, "B", _as_field3(self.B, "B"))
+        if self.jacobian is not None:
+            object.__setattr__(self, "jacobian", _as_field3(self.jacobian, "jacobian"))
+        if self.gpar is not None:
+            object.__setattr__(self, "gpar", _as_field3(self.gpar, "gpar"))
 
         gxx = self.gxx
         gxy = self.gxy
@@ -280,27 +297,89 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 raise ValueError("gxx must be scalar, 1D (nz), or 2D (nx, ny).")
             if gxx.ndim == 1 and gxx.shape[0] != self.grid.z.size:
                 raise ValueError("gxx 1D metric must have length nz.")
-            if gxx.ndim == 2 and gxx.shape != (self.grid.perp.nx, self.grid.perp.ny):
-                raise ValueError("gxx must have shape (nx, ny) to use metric Poisson.")
+            if gxx.ndim == 2:
+                nz = int(self.grid.z.size)
+                nx = int(self.grid.perp.nx)
+                ny = int(self.grid.perp.ny)
+                if gxx.shape == (nx, ny):
+                    pass
+                elif gxx.shape == (nz, nx):
+                    pass
+                elif gxx.shape == (nx, nz):
+                    gxx = jnp.swapaxes(gxx, 0, 1)
+                else:
+                    raise ValueError(
+                        "gxx must have shape (nx, ny), (nz, nx), or (nx, nz) to use metric Poisson."
+                    )
         if gxy is not None:
             gxy = jnp.asarray(gxy, dtype=jnp.float64)
             if gxy.ndim not in (0, 1, 2):
                 raise ValueError("gxy must be scalar, 1D (nz), or 2D (nx, ny).")
             if gxy.ndim == 1 and gxy.shape[0] != self.grid.z.size:
                 raise ValueError("gxy 1D metric must have length nz.")
-            if gxy.ndim == 2 and gxy.shape != (self.grid.perp.nx, self.grid.perp.ny):
-                raise ValueError("gxy must have shape (nx, ny) to use metric Poisson.")
+            if gxy.ndim == 2:
+                nz = int(self.grid.z.size)
+                nx = int(self.grid.perp.nx)
+                ny = int(self.grid.perp.ny)
+                if gxy.shape == (nx, ny):
+                    pass
+                elif gxy.shape == (nz, nx):
+                    pass
+                elif gxy.shape == (nx, nz):
+                    gxy = jnp.swapaxes(gxy, 0, 1)
+                else:
+                    raise ValueError(
+                        "gxy must have shape (nx, ny), (nz, nx), or (nx, nz) to use metric Poisson."
+                    )
         if gyy is not None:
             gyy = jnp.asarray(gyy, dtype=jnp.float64)
             if gyy.ndim not in (0, 1, 2):
                 raise ValueError("gyy must be scalar, 1D (nz), or 2D (nx, ny).")
             if gyy.ndim == 1 and gyy.shape[0] != self.grid.z.size:
                 raise ValueError("gyy 1D metric must have length nz.")
-            if gyy.ndim == 2 and gyy.shape != (self.grid.perp.nx, self.grid.perp.ny):
-                raise ValueError("gyy must have shape (nx, ny) to use metric Poisson.")
+            if gyy.ndim == 2:
+                nz = int(self.grid.z.size)
+                nx = int(self.grid.perp.nx)
+                ny = int(self.grid.perp.ny)
+                if gyy.shape == (nx, ny):
+                    pass
+                elif gyy.shape == (nz, nx):
+                    pass
+                elif gyy.shape == (nx, nz):
+                    gyy = jnp.swapaxes(gyy, 0, 1)
+                else:
+                    raise ValueError(
+                        "gyy must have shape (nx, ny), (nz, nx), or (nx, nz) to use metric Poisson."
+                    )
         object.__setattr__(self, "gxx", gxx)
         object.__setattr__(self, "gxy", gxy)
         object.__setattr__(self, "gyy", gyy)
+
+        shift_idx = None
+        if self.z_shift is not None:
+            z_shift = jnp.asarray(self.z_shift, dtype=jnp.float64)
+            nz = int(self.grid.z.size)
+            nx = int(self.grid.perp.nx)
+            if z_shift.ndim == 0:
+                z_shift = jnp.full((nz, nx), z_shift, dtype=jnp.float64)
+            elif z_shift.ndim == 1:
+                if z_shift.shape[0] == nz:
+                    z_shift = jnp.broadcast_to(z_shift[:, None], (nz, nx))
+                elif z_shift.shape[0] == nx:
+                    z_shift = jnp.broadcast_to(z_shift[None, :], (nz, nx))
+                else:
+                    raise ValueError("z_shift 1D input must have length nz or nx.")
+            elif z_shift.ndim == 2:
+                if z_shift.shape == (nz, nx):
+                    pass
+                elif z_shift.shape == (nx, nz):
+                    z_shift = jnp.swapaxes(z_shift, 0, 1)
+                else:
+                    raise ValueError("z_shift 2D input must have shape (nz, nx) or (nx, nz).")
+            else:
+                raise ValueError("z_shift must be scalar, 1D, or 2D.")
+            shift_idx = z_shift / float(self.grid.perp.dy)
+        object.__setattr__(self, "shift_idx", shift_idx)
 
         dpar_arr = np.asarray(self.dpar_factor)
         dpar_const = bool(np.max(dpar_arr) - np.min(dpar_arr) <= 1e-12)
@@ -316,22 +395,36 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         grid: FieldAlignedGrid,
         curv_x: jnp.ndarray | float,
         curv_y: jnp.ndarray | float,
+        curv_par: jnp.ndarray | float | None = None,
         dpar_factor: jnp.ndarray | float,
         B: jnp.ndarray | float = 1.0,
+        z_shift: jnp.ndarray | float | None = None,
+        jacobian: jnp.ndarray | None = None,
+        gpar: jnp.ndarray | None = None,
         gxx: jnp.ndarray | None = None,
         gxy: jnp.ndarray | None = None,
         gyy: jnp.ndarray | None = None,
+        g23: jnp.ndarray | None = None,
+        g_22: jnp.ndarray | None = None,
+        g_23: jnp.ndarray | None = None,
     ) -> "FieldAlignedGeometryAdapter":
         return cls(
             grid=grid,
             params=params,
             curv_x=jnp.asarray(curv_x),
             curv_y=jnp.asarray(curv_y),
+            curv_par=None if curv_par is None else jnp.asarray(curv_par),
             dpar_factor=jnp.asarray(dpar_factor),
             B=jnp.asarray(B),
+            z_shift=None if z_shift is None else jnp.asarray(z_shift),
+            jacobian=jacobian,
+            gpar=gpar,
             gxx=gxx,
             gxy=gxy,
             gyy=gyy,
+            g23=g23,
+            g_22=g_22,
+            g_23=g_23,
         )
 
     @classmethod
@@ -345,21 +438,35 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         data = np.load(path)
         curv_x = data["curv_x"]
         curv_y = data["curv_y"]
+        curv_par = data["curv_par"] if "curv_par" in data else None
         dpar_factor = data["dpar_factor"]
         B = data["B"] if "B" in data else 1.0
+        z_shift = data["z_shift"] if "z_shift" in data else None
+        jacobian = data["J"] if "J" in data else None
+        gpar = data["gpar"] if "gpar" in data else None
         gxx = data["gxx"] if "gxx" in data else None
         gxy = data["gxy"] if "gxy" in data else None
         gyy = data["gyy"] if "gyy" in data else None
+        g23 = data["g23"] if "g23" in data else None
+        g_22 = data["g_22"] if "g_22" in data else None
+        g_23 = data["g_23"] if "g_23" in data else None
         return cls.from_coefficients(
             params=params,
             grid=grid,
             curv_x=curv_x,
             curv_y=curv_y,
+            curv_par=curv_par,
             dpar_factor=dpar_factor,
             B=B,
+            z_shift=z_shift,
+            jacobian=jacobian,
+            gpar=gpar,
             gxx=gxx,
             gxy=gxy,
             gyy=gyy,
+            g23=g23,
+            g_22=g_22,
+            g_23=g_23,
         )
 
     @classmethod
@@ -484,13 +591,18 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         gxx = jnp.asarray(self.gxx)
         gxy = jnp.asarray(self.gxy)
         gyy = jnp.asarray(self.gyy)
+        jac = None if self.jacobian is None else jnp.asarray(self.jacobian)
         nx = self.grid.perp.nx
         ny = self.grid.perp.ny
+        nz = int(self.grid.z.size)
 
-        def _plane_metric(u, gx, gxy_loc, gy):
+        def _plane_metric(u, gx, gxy_loc, gy, jloc):
             gxx_plane = gx if gx.ndim == 2 else jnp.full((nx, ny), gx)
             gxy_plane = gxy_loc if gxy_loc.ndim == 2 else jnp.full((nx, ny), gxy_loc)
             gyy_plane = gy if gy.ndim == 2 else jnp.full((nx, ny), gy)
+            j_plane = None
+            if jloc is not None:
+                j_plane = jloc if jloc.ndim == 2 else jnp.full((nx, ny), jloc)
             return metric_laplacian(
                 u,
                 gxx_plane,
@@ -499,13 +611,50 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 self.grid.perp.dx,
                 self.grid.perp.dy,
                 self.grid.perp.bc,
+                jacobian=j_plane,
             )
 
         if gxx.ndim == 1:
             gxy_arr = gxy if gxy.ndim == 1 else jnp.full_like(gxx, gxy)
             gyy_arr = gyy if gyy.ndim == 1 else jnp.full_like(gxx, gyy)
-            return jax.vmap(_plane_metric)(f, gxx, gxy_arr, gyy_arr)
-        return self._vmap_plane(lambda u: _plane_metric(u, gxx, gxy, gyy), f)
+            jac_arr = None
+            if jac is not None:
+                if jac.ndim in (1, 3):
+                    jac_arr = jac
+                else:
+                    jac_arr = jnp.full_like(gxx, jac)
+            else:
+                jac_arr = jnp.full_like(gxx, jnp.nan)
+            return jax.vmap(_plane_metric)(f, gxx, gxy_arr, gyy_arr, jac_arr)
+
+        if gxx.ndim == 2 and gxx.shape == (nz, nx):
+
+            def _plane_zx(u, gx, gxy_loc, gy, jloc):
+                gxx_plane = jnp.broadcast_to(gx[:, None], (nx, ny))
+                gxy_plane = jnp.broadcast_to(gxy_loc[:, None], (nx, ny))
+                gyy_plane = jnp.broadcast_to(gy[:, None], (nx, ny))
+                j_plane = None
+                if jloc is not None:
+                    j_plane = jloc if jloc.ndim == 2 else jnp.full((nx, ny), jloc)
+                return metric_laplacian(
+                    u,
+                    gxx_plane,
+                    gxy_plane,
+                    gyy_plane,
+                    self.grid.perp.dx,
+                    self.grid.perp.dy,
+                    self.grid.perp.bc,
+                    jacobian=j_plane,
+                )
+
+            gxy_arr = gxy if gxy.ndim == 2 else jnp.full_like(gxx, gxy)
+            gyy_arr = gyy if gyy.ndim == 2 else jnp.full_like(gxx, gyy)
+            jac_arr = jac
+            return jax.vmap(_plane_zx)(f, gxx, gxy_arr, gyy_arr, jac_arr)
+
+        if jac is not None and jac.ndim == 3:
+            return jax.vmap(lambda u, jloc: _plane_metric(u, gxx, gxy, gyy, jloc))(f, jac)
+        return self._vmap_plane(lambda u: _plane_metric(u, gxx, gxy, gyy, jac), f)
 
     def inv_laplacian_metric(self, f: jnp.ndarray, *, x0: jnp.ndarray | None = None) -> jnp.ndarray:
         if not self.metric_available():
@@ -514,25 +663,31 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         gxx = jnp.asarray(self.gxx)
         gxy = jnp.asarray(self.gxy)
         gyy = jnp.asarray(self.gyy)
+        jac = None if self.jacobian is None else jnp.asarray(self.jacobian)
         nx = self.grid.perp.nx
         ny = self.grid.perp.ny
+        nz = int(self.grid.z.size)
 
-        def _plane_metric(u, gx, gxy_loc, gy):
+        def _plane_metric(u, gx, gxy_loc, gy, jloc):
             gxx_plane = gx if gx.ndim == 2 else jnp.full((nx, ny), gx)
             gxy_plane = gxy_loc if gxy_loc.ndim == 2 else jnp.full((nx, ny), gxy_loc)
             gyy_plane = gy if gy.ndim == 2 else jnp.full((nx, ny), gy)
-            return gxx_plane, gxy_plane, gyy_plane
+            j_plane = None
+            if jloc is not None:
+                j_plane = jloc if jloc.ndim == 2 else jnp.full((nx, ny), jloc)
+            return gxx_plane, gxy_plane, gyy_plane, j_plane
 
         def solve(rhs, guess=None):
             precond = self.params.poisson_preconditioner
             if precond == "auto":
                 precond = "spectral"
-            gxx_plane, gxy_plane, gyy_plane = _plane_metric(rhs, gxx, gxy, gyy)
+            gxx_plane, gxy_plane, gyy_plane, j_plane = _plane_metric(rhs, gxx, gxy, gyy, jac)
             return inv_metric_laplacian_cg(
                 rhs,
                 gxx=gxx_plane,
                 gxy=gxy_plane,
                 gyy=gyy_plane,
+                jacobian=j_plane,
                 dx=self.grid.perp.dx,
                 dy=self.grid.perp.dy,
                 bc=self.grid.perp.bc,
@@ -548,10 +703,13 @@ class FieldAlignedGeometryAdapter(GeometryBase):
 
         if gxx.ndim == 1:
 
-            def solve_z(rhs, gx, gxy_loc, gy, guess=None):
+            def solve_z(rhs, gx, gxy_loc, gy, jloc, guess=None):
                 gxx_plane = jnp.full((nx, ny), gx)
                 gxy_plane = jnp.full((nx, ny), gxy_loc)
                 gyy_plane = jnp.full((nx, ny), gy)
+                j_plane = None
+                if jloc is not None:
+                    j_plane = jloc if getattr(jloc, "ndim", 0) == 2 else jnp.full((nx, ny), jloc)
                 precond = self.params.poisson_preconditioner
                 if precond == "auto":
                     precond = "spectral"
@@ -560,6 +718,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                     gxx=gxx_plane,
                     gxy=gxy_plane,
                     gyy=gyy_plane,
+                    jacobian=j_plane,
                     dx=self.grid.perp.dx,
                     dy=self.grid.perp.dy,
                     bc=self.grid.perp.bc,
@@ -575,11 +734,57 @@ class FieldAlignedGeometryAdapter(GeometryBase):
 
             gxy_arr = gxy if gxy.ndim == 1 else jnp.full_like(gxx, gxy)
             gyy_arr = gyy if gyy.ndim == 1 else jnp.full_like(gxx, gyy)
+            if jac is not None:
+                if jac.ndim in (1, 3):
+                    jac_arr = jac
+                else:
+                    jac_arr = jnp.full_like(gxx, jac)
+            else:
+                jac_arr = jnp.full_like(gxx, jnp.nan)
             if x0 is None:
-                return jax.vmap(lambda rhs, gx, gxy_loc, gy: solve_z(rhs, gx, gxy_loc, gy, None))(
-                    f, gxx, gxy_arr, gyy_arr
+                return jax.vmap(
+                    lambda rhs, gx, gxy_loc, gy, jloc: solve_z(rhs, gx, gxy_loc, gy, jloc, None)
+                )(f, gxx, gxy_arr, gyy_arr, jac_arr)
+            return jax.vmap(solve_z)(f, gxx, gxy_arr, gyy_arr, jac_arr, x0)
+
+        if gxx.ndim == 2 and gxx.shape == (nz, nx):
+
+            def solve_zx(rhs, gx, gxy_loc, gy, jloc, guess=None):
+                gxx_plane = jnp.broadcast_to(gx[:, None], (nx, ny))
+                gxy_plane = jnp.broadcast_to(gxy_loc[:, None], (nx, ny))
+                gyy_plane = jnp.broadcast_to(gy[:, None], (nx, ny))
+                j_plane = None
+                if jloc is not None:
+                    j_plane = jloc if getattr(jloc, "ndim", 0) == 2 else jnp.full((nx, ny), jloc)
+                precond = self.params.poisson_preconditioner
+                if precond == "auto":
+                    precond = "spectral"
+                return inv_metric_laplacian_cg(
+                    rhs,
+                    gxx=gxx_plane,
+                    gxy=gxy_plane,
+                    gyy=gyy_plane,
+                    jacobian=j_plane,
+                    dx=self.grid.perp.dx,
+                    dy=self.grid.perp.dy,
+                    bc=self.grid.perp.bc,
+                    maxiter=int(self.params.poisson_maxiter),
+                    tol=float(self.params.poisson_tol),
+                    atol=float(self.params.poisson_cg_atol),
+                    preconditioner=str(precond),
+                    k2_precond=self.perp_ops.k2 if str(precond) == "spectral" else None,
+                    gauge_epsilon=self.params.poisson_gauge_epsilon,
+                    preconditioner_fn=self.poisson_preconditioner_fn,
+                    x0=guess,
                 )
-            return jax.vmap(solve_z)(f, gxx, gxy_arr, gyy_arr, x0)
+
+            gxy_arr = gxy if gxy.ndim == 2 else jnp.full_like(gxx, gxy)
+            gyy_arr = gyy if gyy.ndim == 2 else jnp.full_like(gxx, gyy)
+            if x0 is None:
+                return jax.vmap(
+                    lambda rhs, gx, gxy_loc, gy, jloc: solve_zx(rhs, gx, gxy_loc, gy, jloc, None)
+                )(f, gxx, gxy_arr, gyy_arr, jac)
+            return jax.vmap(solve_zx)(f, gxx, gxy_arr, gyy_arr, jac, x0)
 
         if x0 is None:
             return self._vmap_plane(lambda rhs: solve(rhs, None), f)
@@ -728,6 +933,34 @@ class FieldAlignedGeometryAdapter(GeometryBase):
 
         return jax.vmap(_plane, in_axes=(0, 1), out_axes=1)(phi, fields)
 
+    def exb_flux_divergence(
+        self,
+        phi: jnp.ndarray,
+        adv: jnp.ndarray,
+        *,
+        bc_phi: BC2D | None = None,
+        bc_adv: BC2D | None = None,
+    ) -> jnp.ndarray:
+        if self.jacobian is None:
+            raise ValueError("ExB flux divergence requires jacobian data.")
+        bc_phi = self.grid.perp.bc if bc_phi is None else bc_phi
+        bc_adv = self.grid.perp.bc if bc_adv is None else bc_adv
+        exb_y_scale = float(self.params.exb_y_scale)
+
+        def _plane(phi_plane, adv_plane, jac_plane):
+            return self.perp_ops.exb_flux_divergence_centered(
+                phi_plane,
+                adv_plane,
+                dx=self.grid.perp.dx,
+                dy=self.grid.perp.dy,
+                jacobian=jac_plane,
+                bc_phi=bc_phi,
+                bc_adv=bc_adv,
+                exb_y_scale=exb_y_scale,
+            )
+
+        return jax.vmap(_plane)(phi, adv, self.jacobian)
+
     def _dpar_periodic(self, f: jnp.ndarray) -> jnp.ndarray:
         return (jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)) / (2.0 * self.grid.dz)
 
@@ -762,11 +995,63 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     def dpar(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         _ = bc_kind
         limiter = str(self.params.parallel_limiter).lower()
+        if self.params.parallel_transform == "shifted" and self.shift_idx is not None:
+            f = self.to_field_aligned(f)
         if limiter != "none" and self.grid.open_field_line:
             df = self._dpar_limited(f, limiter)
         else:
             df = self._dpar_open(f) if self.grid.open_field_line else self._dpar_periodic(f)
-        return df * self.dpar_factor
+        if self.params.parallel_transform == "shifted" and self.shift_idx is not None:
+            df = self.from_field_aligned(df)
+        return df * self.dpar_factor * float(self.params.parallel_sign)
+
+    def div_par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
+        """Conservative parallel divergence: (1/J) d/dz (J f)."""
+        _ = bc_kind
+        if self.jacobian is None:
+            return self.dpar(f, bc_kind=bc_kind)
+        use_shift = self.params.parallel_transform == "shifted" and self.shift_idx is not None
+        if use_shift:
+            f = self.to_field_aligned(f)
+        J = jnp.asarray(self.jacobian)
+        if J.ndim == 1:
+            J = J[:, None, None]
+        elif J.ndim == 2:
+            J = J[None, :, :]
+        limiter = str(self.params.parallel_limiter).lower()
+        flux = f * J
+        if limiter != "none" and self.grid.open_field_line:
+            df = self._dpar_limited(flux, limiter)
+        else:
+            df = self._dpar_open(flux) if self.grid.open_field_line else self._dpar_periodic(flux)
+        out = (df * self.dpar_factor * float(self.params.parallel_sign)) / jnp.maximum(J, 1e-30)
+        if use_shift:
+            out = self.from_field_aligned(out)
+        return out
+
+    def _shift_binormal(self, f: jnp.ndarray, sign: float) -> jnp.ndarray:
+        if self.shift_idx is None:
+            return f
+        ny = f.shape[-1]
+        y = jnp.arange(ny, dtype=jnp.float64)
+        shift = float(sign) * self.shift_idx
+        y_src = (y[None, None, :] + shift[..., None]) % float(ny)
+        y0 = jnp.floor(y_src).astype(jnp.int32)
+        y1 = (y0 + 1) % ny
+        frac = y_src - y0
+        f0 = jnp.take_along_axis(f, y0, axis=-1)
+        f1 = jnp.take_along_axis(f, y1, axis=-1)
+        return (1.0 - frac) * f0 + frac * f1
+
+    def to_field_aligned(self, f: jnp.ndarray) -> jnp.ndarray:
+        if self.shift_idx is None:
+            return f
+        return self._shift_binormal(f, 1.0)
+
+    def from_field_aligned(self, f: jnp.ndarray) -> jnp.ndarray:
+        if self.shift_idx is None:
+            return f
+        return self._shift_binormal(f, -1.0)
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         return self.dpar(self.dpar(f, bc_kind=bc_kind), bc_kind=bc_kind)

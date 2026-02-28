@@ -55,6 +55,8 @@ class PhysicsParams(eqx.Module):
 
     # Hot-ion parameters.
     tau_i: float = 1.0
+    # Average ion atomic mass (Hermes-style vorticity coefficient).
+    average_atomic_mass: float = 1.0
 
     # Curvature drive.
     curvature_on: bool = False
@@ -70,6 +72,14 @@ class PhysicsParams(eqx.Module):
     diamag_form_profile: str | None = None
     diamag_density_model: Literal["electron", "ion", "none"] = "electron"
     diamag_bndry_flux: bool = True
+    diamagnetic_flux_scheme: Literal["fd", "fv"] = "fd"
+    diamagnetic_use_jacobian: bool = False
+
+    # Diamagnetic current (DivJdia) contribution in vorticity equation.
+    diamagnetic_current_on: bool = False
+    diamagnetic_current_scale: float = 1.0
+    diamagnetic_current_bndry_flux: bool = True
+    diamagnetic_current_energy_on: bool = True
 
     # Diamagnetic polarisation current (adds div((1/B^2) grad p_i) to omega operator).
     diamagnetic_polarisation_on: bool = False
@@ -81,6 +91,9 @@ class PhysicsParams(eqx.Module):
     n0_max: float | None = None
     k2_min: float = 1e-12
     kperp2_min: float = 1e-6
+
+    # Floors (Hermes-style temperature floor used in sound speed / low-n diffusion).
+    temperature_floor: float = 0.0
 
     # Log-form state variables.
     log_n_clip: float | None = 50.0
@@ -136,11 +149,18 @@ class TransportParams(eqx.Module):
     mu_lin_vpar_i: float = 0.0
     mu_lin_Te: float = 0.0
 
+    # Low-density perpendicular diffusion (Hermes-style).
+    low_n_diffuse_perp_on: bool = False
+    low_n_diffuse_perp_coeff: float = 1.0
+
     # Parallel dissipation toggles (Div_par terms).
     vort_par_dissipation: float = 0.0
     phi_par_dissipation: float = 0.0
+    phi_par_dissipation_model: Literal["laplacian", "lax_fv"] = "laplacian"
     phi_dissipation_on: bool = True
+    phi_sheath_dissipation_on: bool = False
     core_vorticity_damping_on: bool = True
+    core_vorticity_damping_coeff: float = 0.0
 
     # Braginskii coefficient scalings.
     braginskii_on: bool = False
@@ -285,11 +305,29 @@ class NumericsParams(eqx.Module):
     bracket_zero_mean: bool = False
     exb_scale: float = 1.0
     exb_y_scale: float = 1.0
+    # ExB advection form: "bracket" (default) or "flux" (Hermes-style conservative form).
+    exb_advection_form: Literal["bracket", "flux"] = "bracket"
+    # When using flux-form ExB advection, advect conservative variables (n, n*v, p).
+    exb_advect_conservative: bool = False
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     parallel_limiter: Literal["none", "minmod", "mc"] = "none"
+    parallel_flux_scheme: Literal["rusanov", "lax"] = "rusanov"
+    parallel_fixflux: bool = True
     parallel_flux_conservative: bool = False
+    parallel_momentum_model: Literal["reduced", "conservative"] = "reduced"
+    parallel_transform: Literal["none", "shifted"] = "none"
+    dpar_factor_scale: float = 1.0
+    use_gpar_flux: bool = False
     poisson_scale: float = 1.0
+    # Use B^2-weighted vorticity definition: omega = (B^2/n) div((n/B^2) grad phi)
+    poisson_b_weighted: bool = False
+    # For B-weighted vorticity, choose omega definition:
+    # "scaled" => omega = (B^2/n) div((n/B^2) grad phi)
+    # "hermes" => omega = div((Abar*n0/B^2) grad phi) (+ diamag pol)
+    poisson_b_weighted_mode: Literal["scaled", "hermes"] = "scaled"
+    # Hermes-style split of k_y=0 component (LaplaceXY) vs k_y!=0 (Laplacian).
+    poisson_split_n0: bool = False
     poisson_metric_on: bool = False
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_force_spectral_when_periodic: bool = True
@@ -312,6 +350,7 @@ class NumericsParams(eqx.Module):
 
     # FCI parallel-operator knobs.
     use_target_aware_dpar: bool = True
+    parallel_sign: float = 1.0
     target_scheme: str = "appendix_b"
 
     # Operator split toggles (conservative/source/dissipative).

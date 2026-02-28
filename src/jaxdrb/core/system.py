@@ -9,25 +9,23 @@ from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state_zeros_like
 from jaxdrb.core.terms import build_context
-from jaxdrb.core.terms.fields import _diamagnetic_polarisation_term
+from jaxdrb.core.terms.fields import (
+    _diamagnetic_polarisation_term,
+    omega_from_phi as omega_from_phi_fn,
+    phi_from_omega as phi_from_omega_fn,
+)
 from jaxdrb.operators.fd2d import (
     ddx as ddx_fd,
     ddy as ddy_fd,
     build_div_n_grad_preconditioner,
     build_fd_fft_eigs,
     build_laplacian_preconditioner,
-    div_n_grad,
-    inv_div_n_grad_cg,
-    inv_laplacian_cg,
-    inv_laplacian_fd_fft,
-    inv_laplacian_mixed_fft,
     laplacian as laplacian_fd,
     biharmonic as biharmonic_fd,
 )
 from jaxdrb.operators.spectral2d import (
     ddx as ddx_spec,
     ddy as ddy_spec,
-    inv_laplacian as inv_laplacian_spec,
     laplacian,
     biharmonic,
 )
@@ -182,12 +180,24 @@ class DRBSystem(eqx.Module):
 
     def _phys_Te(self, Te: jnp.ndarray) -> jnp.ndarray:
         if not self.params.log_Te:
-            return Te
+            Te_phys = Te
+            if float(self.params.temperature_floor) > 0.0:
+                floor_val = float(self.params.temperature_floor)
+                Te_phys = 0.5 * (Te_phys + jnp.sqrt(Te_phys * Te_phys + floor_val * floor_val))
+            return Te_phys
         clip = self.params.log_Te_clip
         if clip is None:
-            return jnp.exp(Te)
+            Te_phys = jnp.exp(Te)
+            if float(self.params.temperature_floor) > 0.0:
+                floor_val = float(self.params.temperature_floor)
+                Te_phys = 0.5 * (Te_phys + jnp.sqrt(Te_phys * Te_phys + floor_val * floor_val))
+            return Te_phys
         clip_val = float(clip)
-        return jnp.exp(jnp.clip(Te, a_min=-clip_val, a_max=clip_val))
+        Te_phys = jnp.exp(jnp.clip(Te, a_min=-clip_val, a_max=clip_val))
+        if float(self.params.temperature_floor) > 0.0:
+            floor_val = float(self.params.temperature_floor)
+            Te_phys = 0.5 * (Te_phys + jnp.sqrt(Te_phys * Te_phys + floor_val * floor_val))
+        return Te_phys
 
     def _ddx(self, f: jnp.ndarray, bc: BC2D) -> jnp.ndarray:
         grid = self._grid()
@@ -319,7 +329,7 @@ class DRBSystem(eqx.Module):
     def _energy_drb(self, y: DRBSystemState) -> jnp.ndarray:
         n = self._phys_n(y.n)
         Te = self._phys_Te(y.Te)
-        phi = self._phi_from_omega(y.omega, n=n, Ti=y.Ti)
+        phi = self._phi_from_omega(y.omega, n=n, Ti=y.Ti, Te=Te)
         bc_phi = self._bc_phi()
         c_T = 1.5 * float(self.params.alpha_Te_ohm)
         gradphi_x = self._ddx(phi, bc_phi)
@@ -348,7 +358,7 @@ class DRBSystem(eqx.Module):
         )
 
     def _energy_hot(self, y: DRBSystemState) -> jnp.ndarray:
-        phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
+        phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, Te=y.Te)
         bc_phi = self._bc_phi()
         c_Te = 1.5 * float(self.params.alpha_Te_ohm)
         c_Ti = 1.5 * float(self.params.alpha_Ti)
@@ -375,7 +385,7 @@ class DRBSystem(eqx.Module):
         )
 
     def _energy_em(self, y: DRBSystemState) -> jnp.ndarray:
-        phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
+        phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, Te=y.Te)
         bc_phi = self._bc_phi()
         c_T = 1.5 * float(self.params.alpha_Te_ohm)
         jpar = -self._laplacian(y.psi, self._bc_or(self.params.bc_psi))
@@ -413,7 +423,7 @@ class DRBSystem(eqx.Module):
         if self.params.boussinesq and not (self.params.log_n or self.params.log_Te):
             n = self._phys_n(y.n)
             Te = self._phys_Te(y.Te)
-            phi = self._phi_from_omega(y.omega, n=n, Ti=y.Ti)
+            phi = self._phi_from_omega(y.omega, n=n, Ti=y.Ti, Te=Te)
             c_T = 1.5 * float(self.params.alpha_Te_ohm)
             return jnp.mean(
                 jnp.real(jnp.conj(n) * dy.n)
@@ -428,7 +438,7 @@ class DRBSystem(eqx.Module):
 
     def _energy_rate_hot(self, y: DRBSystemState, dy: DRBSystemState) -> jnp.ndarray:
         if self.params.boussinesq and not (self.params.log_n or self.params.log_Te):
-            phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
+            phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, Te=y.Te)
             c_Te = 1.5 * float(self.params.alpha_Te_ohm)
             c_Ti = 1.5 * float(self.params.alpha_Ti)
             return jnp.mean(
@@ -445,7 +455,7 @@ class DRBSystem(eqx.Module):
 
     def _energy_rate_em(self, y: DRBSystemState, dy: DRBSystemState) -> jnp.ndarray:
         if self.params.boussinesq and not (self.params.log_n or self.params.log_Te):
-            phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti)
+            phi = self._phi_from_omega(y.omega, n=y.n, Ti=y.Ti, Te=y.Te)
             c_T = 1.5 * float(self.params.alpha_Te_ohm)
             jpar = -self._laplacian(y.psi, self._bc_or(self.params.bc_psi))
             return jnp.mean(
@@ -500,199 +510,29 @@ class DRBSystem(eqx.Module):
         n: jnp.ndarray,
         *,
         Ti: jnp.ndarray | None = None,
+        Te: jnp.ndarray | None = None,
         phi_guess: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        grid = self._grid()
         bc_phi = self._bc_phi()
-        scale = float(self.params.poisson_scale)
-        omega = omega / scale if scale != 1.0 else omega
-        omega = omega - _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
-        if grid is None:
-            if self.params.boussinesq:
-                return self.geom.inv_laplacian(omega, x0=phi_guess)
-            n_eff = float(self.params.n0)
-            if self.params.non_boussinesq_perturbed_density_on:
-                n_eff = n_eff + jnp.real(jnp.asarray(n))
-            n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-            if self.params.n0_max is not None:
-                n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
-            return self.geom.inv_div_n_grad(n_eff, omega, x0=phi_guess)
-
-        if self.params.boussinesq:
-            if self.params.poisson_metric_on and hasattr(self.geom, "inv_laplacian_metric"):
-                metric_ok = True
-                if hasattr(self.geom, "metric_available"):
-                    metric_ok = bool(self.geom.metric_available())
-                if metric_ok:
-                    return self.geom.inv_laplacian_metric(omega, x0=phi_guess)
-            poisson = self.params.poisson
-            if self.params.poisson_force_spectral_when_periodic and self._is_periodic_bc(bc_phi):
-                poisson = "spectral"
-            if (
-                self.params.poisson_force_fd_fft_when_nonperiodic
-                and not self._is_periodic_bc(bc_phi)
-                and poisson == "spectral"
-            ):
-                poisson = "cg_fd"
-            if poisson == "spectral":
-                if not self._is_periodic_bc(bc_phi):
-                    raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
-                return inv_laplacian_spec(omega, grid.k2, k2_min=self.params.k2_min)
-            if poisson == "mixed_fft":
-                return inv_laplacian_mixed_fft(
-                    omega,
-                    dx=grid.dx,
-                    dy=grid.dy,
-                    bc=bc_phi,
-                    gauge_epsilon=self.params.poisson_gauge_epsilon,
-                )
-            precond = self.params.poisson_preconditioner
-            if precond == "auto":
-                precond = "spectral"
-            if precond == "spectral" and not self._is_periodic_bc(bc_phi):
-                precond = "jacobi"
-            if poisson == "cg_fd":
-                try:
-                    eigs = getattr(self.geom, "poisson_fd_fft_eigs", None)
-                    if eigs is None:
-                        eigs = self._poisson_fdfft_eigs_cached(
-                            bc=bc_phi, nx=grid.nx, ny=grid.ny, dx=grid.dx, dy=grid.dy
-                        )
-                    lam_x, lam_y = eigs if eigs is not None else (None, None)
-                    return inv_laplacian_fd_fft(
-                        omega,
-                        dx=grid.dx,
-                        dy=grid.dy,
-                        bc=bc_phi,
-                        gauge_epsilon=self.params.poisson_gauge_epsilon,
-                        lam_x=lam_x,
-                        lam_y=lam_y,
-                    )
-                except ValueError:
-                    pass
-            precond_fn = getattr(self.geom, "poisson_preconditioner_fn", None)
-            if precond_fn is None:
-                precond_fn = self._poisson_precond_cached(
-                    bc=bc_phi, nx=grid.nx, ny=grid.ny, dx=grid.dx, dy=grid.dy
-                )
-            return inv_laplacian_cg(
-                omega,
-                dx=grid.dx,
-                dy=grid.dy,
-                bc=bc_phi,
-                maxiter=int(self.params.poisson_cg_maxiter),
-                tol=float(self.params.poisson_cg_tol),
-                atol=float(self.params.poisson_cg_atol),
-                preconditioner=str(precond),
-                k2_precond=grid.k2 if str(precond) == "spectral" else None,
-                gauge_epsilon=self.params.poisson_gauge_epsilon,
-                preconditioner_fn=precond_fn,
-                x0=phi_guess,
-            )
-
-        n_eff = float(self.params.n0)
-        if self.params.non_boussinesq_perturbed_density_on:
-            n_eff = n_eff + jnp.real(jnp.asarray(n))
-        n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-        if self.params.n0_max is not None:
-            n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
-        # Fast path: constant n_eff -> scaled Laplacian solve.
-        if not self.params.non_boussinesq_perturbed_density_on:
-            if self._is_periodic_bc(bc_phi):
-                return inv_laplacian_spec(omega / n_eff, grid.k2, k2_min=self.params.k2_min)
-            if self.params.poisson_force_fd_fft_when_nonperiodic:
-                return inv_laplacian_fd_fft(
-                    omega / n_eff,
-                    dx=grid.dx,
-                    dy=grid.dy,
-                    bc=bc_phi,
-                    gauge_epsilon=self.params.poisson_gauge_epsilon,
-                )
-        if self.params.polarization_preconditioner == "auto":
-            precond = "spectral_jacobi"
-        else:
-            precond = self.params.polarization_preconditioner
-        precond_fn = getattr(self.geom, "polarization_preconditioner_fn", None)
-        if precond_fn is None and not self.params.non_boussinesq_perturbed_density_on:
-            precond_fn = self._polarization_precond_cached(
-                bc=bc_phi, nx=grid.nx, ny=grid.ny, dx=grid.dx, dy=grid.dy
-            )
-        return inv_div_n_grad_cg(
+        return phi_from_omega_fn(
+            self.params,
+            self.geom,
             omega,
-            n_coeff=n_eff,
-            dx=grid.dx,
-            dy=grid.dy,
-            bc=bc_phi,
-            maxiter=int(self.params.polarization_cg_maxiter),
-            tol=float(self.params.polarization_cg_tol),
-            atol=float(self.params.polarization_cg_atol),
-            preconditioner=precond,
-            preconditioner_shift=float(self.params.polarization_precond_shift),
-            preconditioner_fn=precond_fn,
-            x0=phi_guess,
+            n,
+            bc_phi,
+            Ti=Ti,
+            Te=Te,
+            phi_guess=phi_guess,
         )
 
     def _omega_from_phi(
-        self, phi: jnp.ndarray, n: jnp.ndarray, *, Ti: jnp.ndarray | None = None
+        self,
+        phi: jnp.ndarray,
+        n: jnp.ndarray,
+        *,
+        Ti: jnp.ndarray | None = None,
+        Te: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Forward operator for Poisson/polarization: omega = ∇² phi (or div(n ∇ phi))."""
-
-        grid = self._grid()
         bc_phi = self._bc_phi()
-        scale = float(self.params.poisson_scale)
-
-        if self.params.boussinesq:
-            if self.params.poisson_metric_on and hasattr(self.geom, "laplacian_metric"):
-                metric_ok = True
-                if hasattr(self.geom, "metric_available"):
-                    metric_ok = bool(self.geom.metric_available())
-                if metric_ok:
-                    omega = self.geom.laplacian_metric(phi)
-                    omega = omega + _diamagnetic_polarisation_term(
-                        self.params, self.geom, n, Ti, bc_phi
-                    )
-                    return omega * scale if scale != 1.0 else omega
-            poisson = self.params.poisson
-            if self.params.poisson_force_spectral_when_periodic and self._is_periodic_bc(bc_phi):
-                poisson = "spectral"
-            if poisson == "spectral":
-                if not self._is_periodic_bc(bc_phi):
-                    raise ValueError("Spectral Poisson solve requires periodic BCs in x and y.")
-                if grid is None:
-                    return self.geom.laplacian(phi)
-                omega = laplacian(phi, grid.k2)
-            else:
-                if self.params.poisson_metric_on and hasattr(self.geom, "laplacian_metric"):
-                    metric_ok = True
-                    if hasattr(self.geom, "metric_available"):
-                        metric_ok = bool(self.geom.metric_available())
-                    if metric_ok:
-                        omega = self.geom.laplacian_metric(phi)
-                    else:
-                        omega = self.geom.laplacian(phi)
-                else:
-                    omega = self.geom.laplacian(phi)
-            omega = omega + _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
-            return omega * scale if scale != 1.0 else omega
-
-        n_eff = float(self.params.n0)
-        if self.params.non_boussinesq_perturbed_density_on:
-            n_eff = n_eff + jnp.real(jnp.asarray(n))
-        n_eff = jnp.maximum(jnp.asarray(n_eff), float(self.params.n0_min))
-        if self.params.n0_max is not None:
-            n_eff = jnp.minimum(n_eff, float(self.params.n0_max))
-
-        if grid is None:
-            omega = self.geom.laplacian(phi)
-            omega = omega + _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
-            return omega * scale if scale != 1.0 else omega
-
-        if phi.ndim == 2:
-            omega = div_n_grad(phi, n_eff, dx=grid.dx, dy=grid.dy, bc=bc_phi)
-            return omega * scale if scale != 1.0 else omega
-
-        omega = jax.vmap(lambda p, nloc: div_n_grad(p, nloc, dx=grid.dx, dy=grid.dy, bc=bc_phi))(
-            phi, n_eff
-        )
-        omega = omega + _diamagnetic_polarisation_term(self.params, self.geom, n, Ti, bc_phi)
-        return omega * scale if scale != 1.0 else omega
+        return omega_from_phi_fn(self.params, self.geom, phi, n, bc_phi, Ti=Ti, Te=Te)
