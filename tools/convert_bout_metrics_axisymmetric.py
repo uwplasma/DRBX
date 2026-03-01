@@ -352,6 +352,9 @@ def main() -> None:
     gxx = None
     gxy = None
     gyy = None
+    g23 = None
+    g_22 = None
+    g_23 = None
     if (gxx_var in ds.variables) and (gyy_var in ds.variables):
         gxx = _slice_var(np.asarray(ds.variables[gxx_var][:]), x_index)
         gyy = _slice_var(np.asarray(ds.variables[gyy_var][:]), x_index)
@@ -359,6 +362,12 @@ def main() -> None:
             gxy = _slice_var(np.asarray(ds.variables[gxy_var][:]), x_index)
         else:
             gxy = np.zeros_like(gxx)
+        if "g23" in ds.variables:
+            g23 = _slice_var(np.asarray(ds.variables["g23"][:]), x_index)
+        if "g_22" in ds.variables:
+            g_22 = _slice_var(np.asarray(ds.variables["g_22"][:]), x_index)
+        if "g_23" in ds.variables:
+            g_23 = _slice_var(np.asarray(ds.variables["g_23"][:]), x_index)
         if args.use_metric:
             gxx_safe = np.maximum(gxx, 1e-12)
             gperp = np.maximum(gyy - (gxy**2) / gxx_safe, 1e-12)
@@ -420,6 +429,9 @@ def main() -> None:
     gxx = _maybe_transpose(gxx)
     gxy = _maybe_transpose(gxy)
     gyy = _maybe_transpose(gyy)
+    g23 = _maybe_transpose(g23)
+    g_22 = _maybe_transpose(g_22)
+    g_23 = _maybe_transpose(g_23)
     J = _maybe_transpose(J)
     dx_slice = _maybe_transpose(dx_slice)
     dy_slice = _maybe_transpose(dy_slice)
@@ -480,6 +492,12 @@ def main() -> None:
         out["gxy"] = np.asarray(gxy)
     if gyy is not None:
         out["gyy"] = np.asarray(gyy)
+    if g23 is not None:
+        out["g23"] = np.asarray(g23)
+    if g_22 is not None:
+        out["g_22"] = np.asarray(g_22)
+    if g_23 is not None:
+        out["g_23"] = np.asarray(g_23)
     for name, mask in mask_fields.items():
         out[f"mask_{name}"] = np.asarray(mask)
 
