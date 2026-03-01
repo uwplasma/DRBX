@@ -69,6 +69,8 @@ def _load_hermes_fields(
             if name == "Ve" and name not in ds.variables and "NVe" in ds.variables:
                 continue
             if name not in ds.variables:
+                if name.startswith("term_"):
+                    continue
                 raise KeyError(f"Hermes variable '{name}' not found in dump.")
             shape = _read_var_interior(ds, name, mxg, myg, mxsub, mysub).shape
             fields[name] = np.zeros((nt, nx, ny, *shape[3:]), dtype=np.float64)
@@ -91,6 +93,10 @@ def _load_hermes_fields(
                     continue
                 if name == "Ve" and name not in ds.variables and "NVe" in ds.variables:
                     continue
+                if name not in ds.variables:
+                    if name.startswith("term_"):
+                        continue
+                    raise KeyError(f"Hermes variable '{name}' not found in dump.")
                 sub = _read_var_interior(ds, name, mxg, myg, mxsub, mysub)
                 fields[name][:, x0:x1, y0:y1, ...] = sub
             if "Te" not in ds.variables and "Pe" in ds.variables:
@@ -327,9 +333,26 @@ def _compute_term_metrics(
         ctx = build_context(system.params, system.geom, y, return_phi_iters=True)
         split, term_map = system.scheduler.run_with_terms(ctx, y)
         total = split.total()
+        pe_adv_override = None
+        adv_form = str(getattr(system.params, "exb_advection_form", "flux")).lower()
+        if adv_form == "flux" and hasattr(ctx.geom, "exb_flux_divergence"):
+            try:
+                pe_adv_override = -ctx.geom.exb_flux_divergence(
+                    ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_adv=ctx.bcs.Te
+                )
+            except Exception:
+                pe_adv_override = None
+        elif hasattr(ctx.geom, "bracket"):
+            try:
+                pe_adv_override = -ctx.geom.bracket(
+                    ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_f=ctx.bcs.Te
+                )
+            except Exception:
+                pe_adv_override = None
         phi = np.asarray(ctx.phi)
         phi_rows.append(
             {
+                "step": int(ti),
                 "t": float(times[idx]),
                 "phi_rms": float(np.sqrt(np.mean(phi * phi))),
                 "phi_maxabs": float(np.max(np.abs(phi))),
@@ -352,6 +375,7 @@ def _compute_term_metrics(
             a = np.asarray(arr)
             total_rows.append(
                 {
+                    "step": int(ti),
                     "t": float(times[idx]),
                     "field": field_name,
                     "rhs_rms": float(np.sqrt(np.mean(a * a))),
@@ -359,6 +383,14 @@ def _compute_term_metrics(
                 }
             )
         for name, term in term_map.items():
+            # Derived pressure contribution (Pe = n * Te) for parity with Hermes pressure equation.
+            pe_term = None
+            if "n" in snapshots and "Te" in snapshots:
+                n_snap = snapshots["n"][idx]
+                Te_snap = snapshots["Te"][idx]
+                pe_term = n_snap * term.Te + Te_snap * term.n
+            if name == "advection" and pe_adv_override is not None:
+                pe_term = pe_adv_override
             for field_name, arr in (
                 ("n", term.n),
                 ("omega", term.omega),
@@ -374,6 +406,7 @@ def _compute_term_metrics(
                 a = np.asarray(arr)
                 out_rows.append(
                     {
+                        "step": int(ti),
                         "t": float(times[idx]),
                         "term": name,
                         "field": field_name,
@@ -382,8 +415,144 @@ def _compute_term_metrics(
                         "mean": float(np.mean(a)),
                     }
                 )
+            if pe_term is not None:
+                a = np.asarray(pe_term)
+                out_rows.append(
+                    {
+                        "step": int(ti),
+                        "t": float(times[idx]),
+                        "term": name,
+                        "field": "Pe",
+                        "rms": float(np.sqrt(np.mean(a * a))),
+                        "maxabs": float(np.max(np.abs(a))),
+                        "mean": float(np.mean(a)),
+                    }
+                )
 
     return out_rows, total_rows, total_fields, phi_rows
+
+
+def _compute_hermes_term_metrics(
+    fields: dict[str, np.ndarray],
+    times: np.ndarray,
+    *,
+    start_index: int,
+    nsteps: int,
+    ddt_scale: float,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    nsteps = int(max(0, min(nsteps, fields["Ne"].shape[0] - start_index)))
+
+    def _add_rows(arr: np.ndarray, field: str, term: str, step: int, tval: float):
+        a = np.asarray(arr, dtype=np.float64)
+        rows.append(
+            {
+                "step": int(step),
+                "t": float(tval),
+                "term": term,
+                "field": field,
+                "rms": float(np.sqrt(np.mean(a * a))),
+                "maxabs": float(np.max(np.abs(a))),
+                "mean": float(np.mean(a)),
+            }
+        )
+
+    for name, arr in fields.items():
+        if not name.startswith("term_"):
+            continue
+        if arr.shape[0] < start_index + nsteps:
+            continue
+        if name.startswith("term_Ne_"):
+            field = "n"
+            term = name[len("term_Ne_") :]
+        elif name.startswith("term_Pe_"):
+            field = "Pe"
+            term = name[len("term_Pe_") :]
+        elif name.startswith("term_Vort_"):
+            field = "omega"
+            term = name[len("term_Vort_") :]
+        else:
+            field = "unknown"
+            term = name
+        for ti in range(nsteps):
+            idx = int(start_index + ti)
+            _add_rows(arr[idx] * ddt_scale, field, term, ti, times[idx])
+
+    # Derive Te-term contributions when possible: dTe = (dP - Te * dN) / N
+    if "Ne" in fields and "Te" in fields:
+        Ne = fields["Ne"][start_index : start_index + nsteps]
+        Te = fields["Te"][start_index : start_index + nsteps]
+        Nlim = np.maximum(Ne, 1e-12)
+        # Collect suffixes available in pressure terms
+        pe_terms = {name[len("term_Pe_") :]: name for name in fields if name.startswith("term_Pe_")}
+        for suffix, name in pe_terms.items():
+            pterm = fields[name][start_index : start_index + nsteps] * ddt_scale
+            nterm_name = f"term_Ne_{suffix}"
+            if nterm_name in fields:
+                nterm = fields[nterm_name][start_index : start_index + nsteps] * ddt_scale
+            else:
+                nterm = 0.0
+            dte = (pterm - Te * nterm) / Nlim
+            for ti in range(nsteps):
+                idx = int(start_index + ti)
+                _add_rows(dte[ti], "Te", suffix, ti, times[idx])
+
+    return rows
+
+
+def _compute_term_mismatch(
+    jax_term_rows: list[dict[str, object]],
+    hermes_term_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    mapping: dict[str, dict[str, str]] = {
+        "n": {
+            "advection": "exb",
+            "parallel": "par",
+        },
+        "Pe": {
+            "advection": "exb",
+            "parallel": "par",
+        },
+        "omega": {
+            "advection": "exb",
+        },
+    }
+    hermes_index: dict[tuple[int, str, str], dict[str, object]] = {}
+    for row in hermes_term_rows:
+        step = int(row.get("step", 0))
+        field = str(row.get("field"))
+        term = str(row.get("term"))
+        hermes_index[(step, field, term)] = row
+
+    mismatch: list[dict[str, object]] = []
+    for row in jax_term_rows:
+        field = str(row.get("field"))
+        term = str(row.get("term"))
+        step = int(row.get("step", 0))
+        if field not in mapping:
+            continue
+        if term not in mapping[field]:
+            continue
+        hermes_term = mapping[field][term]
+        hrow = hermes_index.get((step, field, hermes_term))
+        if hrow is None:
+            continue
+        jax_rms = float(row.get("rms", 0.0))
+        hermes_rms = float(hrow.get("rms", 0.0))
+        denom = max(1e-12, 0.1 * hermes_rms)
+        mismatch.append(
+            {
+                "step": step,
+                "t": float(row.get("t", 0.0)),
+                "field": field,
+                "term": term,
+                "hermes_term": hermes_term,
+                "jax_rms": jax_rms,
+                "hermes_rms": hermes_rms,
+                "rel_diff": abs(jax_rms - hermes_rms) / denom,
+            }
+        )
+    return mismatch
 
 
 def _compute_hermes_ddt(
@@ -565,7 +734,12 @@ def _apply_shifted_binormal(arr: np.ndarray, *, shift_idx: np.ndarray) -> np.nda
         return arr
     nz, nx, ny = arr.shape[1:]
     if shift_idx.shape != (nz, nx):
-        raise ValueError(f"shift_idx shape {shift_idx.shape} does not match (nz,nx)=({nz},{nx}).")
+        if shift_idx.shape == (nx, nz):
+            shift_idx = shift_idx.T
+        else:
+            raise ValueError(
+                f"shift_idx shape {shift_idx.shape} does not match (nz,nx)=({nz},{nx})."
+            )
     y = np.arange(ny, dtype=np.float64)
     y_src = (y[None, None, :] + shift_idx[..., None]) % float(ny)
     y0 = np.floor(y_src).astype(int)
@@ -648,6 +822,33 @@ def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str])
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _split_csv_set(text: str) -> set[str]:
+    return {tok.strip() for tok in str(text).split(",") if tok.strip()}
+
+
+def _first_failing_term(
+    term_mismatch_rows: list[dict[str, object]],
+    *,
+    fields: set[str],
+    terms: set[str],
+) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
+    filtered: list[dict[str, object]] = []
+    for row in term_mismatch_rows:
+        field = str(row.get("field", ""))
+        term = str(row.get("term", ""))
+        if fields and field not in fields:
+            continue
+        if terms and term not in terms:
+            continue
+        filtered.append(row)
+    if not filtered:
+        return None, []
+    first_step = min(int(r.get("step", 0)) for r in filtered)
+    step_rows = [r for r in filtered if int(r.get("step", 0)) == first_step]
+    step_rows.sort(key=lambda r: float(r.get("rel_diff", 0.0)), reverse=True)
+    return step_rows[0], step_rows
 
 
 def _coord_from_spacing(spacing: np.ndarray, axis: int) -> np.ndarray:
@@ -738,9 +939,19 @@ def main() -> None:
         help="Sign for zShift when applying shifted-metric transform (default: +1).",
     )
     parser.add_argument(
+        "--hermes-te-from-pe",
+        action="store_true",
+        help="Override Hermes Te with Pe/Ne when Pe is available (pressure-consistent Te).",
+    )
+    parser.add_argument(
         "--use-hermes-state",
         action="store_true",
         help="Evaluate JAX RHS directly on Hermes snapshots (skip JAX time integration).",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print debug info about snapshot selection and scaling.",
     )
     parser.add_argument(
         "--start-index",
@@ -759,6 +970,22 @@ def main() -> None:
         action="store_true",
         help="Disable scaling Hermes ddt into JAX time units.",
     )
+    parser.add_argument(
+        "--fail-fast-rel-diff",
+        type=float,
+        default=-1.0,
+        help=("If >=0, exit non-zero when first failing term rel_diff exceeds this threshold."),
+    )
+    parser.add_argument(
+        "--fail-fast-fields",
+        default="n,Pe,omega",
+        help="Comma-separated fields considered by fail-fast (default: n,Pe,omega).",
+    )
+    parser.add_argument(
+        "--fail-fast-terms",
+        default="advection,parallel",
+        help="Comma-separated terms considered by fail-fast (default: advection,parallel).",
+    )
     args = parser.parse_args()
 
     cfg_path = Path(args.jax_config)
@@ -772,23 +999,63 @@ def main() -> None:
         if candidate.exists():
             hermes_input_path = candidate
     hermes_sections = _parse_bout_sections(hermes_input_path)
+    hermes_term_names = (
+        "term_Ne_exb",
+        "term_Ne_par",
+        "term_Ne_flutter",
+        "term_Ne_low_n_diff",
+        "term_Ne_low_n_diff_perp",
+        "term_Ne_low_p_diff_perp",
+        "term_Ne_hyper_z",
+        "term_Ne_source",
+        "term_Pe_exb",
+        "term_Pe_par",
+        "term_Pe_work",
+        "term_Pe_flutter",
+        "term_Pe_nvh",
+        "term_Pe_low_n_diff",
+        "term_Pe_low_n_diff_perp",
+        "term_Pe_low_T_diff_perp",
+        "term_Pe_low_p_diff_perp",
+        "term_Pe_hyper_z",
+        "term_Pe_hyper_z_T",
+        "term_Pe_source",
+        "term_Pe_damp_nt",
+        "term_Vort_divJdia",
+        "term_Vort_divJcol",
+        "term_Vort_visc",
+        "term_Vort_exb",
+        "term_Vort_divJextra",
+        "term_Vort_jpar",
+        "term_Vort_jpar_flutter",
+        "term_Vort_vort_diss",
+        "term_Vort_phi_diss",
+        "term_Vort_hyper_z",
+        "term_Vort_phi_sheath",
+        "term_Vort_damp_core",
+    )
     hermes_times, hermes_fields, hermes_meta = _load_hermes_fields(
         hermes_dir,
         (
             "Ne",
             "Te",
+            "Pe",
             "Vort",
             "phi",
             "ddt(Ne)",
             "ddt(Pe)",
             "Ve",
             "NVe",
+            "Vd+",
             "Nd+",
             "Pd+",
             "NVd+",
+            *hermes_term_names,
         ),
         args.hermes_pattern,
     )
+    if args.hermes_te_from_pe and "Pe" in hermes_fields and "Ne" in hermes_fields:
+        hermes_fields["Te"] = hermes_fields["Pe"] / np.maximum(hermes_fields["Ne"], 1e-12)
     hermes_dx_mean = None
     hermes_dy_mean = None
     hermes_dz_mean = None
@@ -882,7 +1149,11 @@ def main() -> None:
             hermes_sections.get("e", {}).get("density_floor", 1e-7),
         )
 
-        if "NVe" in hermes_fields_aligned and "Ne" in hermes_fields_aligned:
+        if (
+            "Ve" not in hermes_fields_aligned
+            and "NVe" in hermes_fields_aligned
+            and "Ne" in hermes_fields_aligned
+        ):
             Ne = hermes_fields_aligned["Ne"]
             Nlim = np.maximum(Ne, density_floor)
             hermes_fields_aligned["Ve"] = hermes_fields_aligned["NVe"] / (aa_e * Nlim)
@@ -890,7 +1161,9 @@ def main() -> None:
             hermes_fields_aligned["Ti"] = hermes_fields_aligned["Pd+"] / np.maximum(
                 hermes_fields_aligned["Nd+"], 1e-12
             )
-        if "NVd+" in hermes_fields_aligned and "Nd+" in hermes_fields_aligned:
+        if "Vd+" in hermes_fields_aligned:
+            hermes_fields_aligned["Vi"] = hermes_fields_aligned["Vd+"]
+        elif "NVd+" in hermes_fields_aligned and "Nd+" in hermes_fields_aligned:
             Nd = hermes_fields_aligned["Nd+"]
             Nlim = np.maximum(Nd, density_floor)
             hermes_fields_aligned["Vi"] = hermes_fields_aligned["NVd+"] / (aa_i * Nlim)
@@ -961,6 +1234,8 @@ def main() -> None:
         start_index=start_index,
         nsteps=int(args.nsteps),
     )
+    if args.debug and phi_rows:
+        print(f"[audit] phi row[0]={phi_rows[0]}")
     hermes_ddt = _compute_hermes_ddt(
         hermes_times,
         hermes_fields_aligned,
@@ -974,6 +1249,56 @@ def main() -> None:
         ddt_scale = jax_time_unit / hermes_time_unit
         for key in hermes_ddt:
             hermes_ddt[key] = hermes_ddt[key] * ddt_scale
+    if args.debug:
+        print(f"[audit] use_hermes_state={args.use_hermes_state}")
+        geom_cfg = cfg.get("geometry", {})
+        if isinstance(geom_cfg, dict):
+            print(f"[audit] coeff_path={geom_cfg.get('coeff_path')}")
+        if args.use_hermes_state:
+            n0 = snapshots["n"][start_index]
+            Te0 = snapshots["Te"][start_index]
+            print(
+                "[audit] snapshot rms n={:.3e} Te={:.3e} omega={:.3e}".format(
+                    float(np.sqrt(np.mean(n0 * n0))),
+                    float(np.sqrt(np.mean(Te0 * Te0))),
+                    float(np.sqrt(np.mean(snapshots["omega"][start_index] ** 2))),
+                )
+            )
+        print(
+            "[audit] params poisson_metric_on={} poisson_b_weighted={} "
+            "poisson_b_weighted_mode={} poisson_scale={}".format(
+                getattr(built.system.params, "poisson_metric_on", None),
+                getattr(built.system.params, "poisson_b_weighted", None),
+                getattr(built.system.params, "poisson_b_weighted_mode", None),
+                getattr(built.system.params, "poisson_scale", None),
+            )
+        )
+        print(
+            "[audit] params log_n={} log_Te={} hot_ion_on={}".format(
+                getattr(built.system.params, "log_n", None),
+                getattr(built.system.params, "log_Te", None),
+                getattr(built.system.params, "hot_ion_on", None),
+            )
+        )
+        print(
+            "[audit] params me_hat={} average_atomic_mass={}".format(
+                getattr(built.system.params, "me_hat", None),
+                getattr(built.system.params, "average_atomic_mass", None),
+            )
+        )
+        print(
+            "[audit] params dpar_factor_scale={}".format(
+                getattr(built.system.params, "dpar_factor_scale", None)
+            )
+        )
+    hermes_term_rows = _compute_hermes_term_metrics(
+        hermes_fields_aligned,
+        hermes_times,
+        start_index=start_index,
+        nsteps=int(args.nsteps),
+        ddt_scale=ddt_scale,
+    )
+    term_mismatch_rows = _compute_term_mismatch(term_rows, hermes_term_rows)
     field_map = {"n": "Ne", "Te": "Te", "omega": "Vort", "phi": "phi"}
 
     mismatch_rows: list[dict[str, object]] = []
@@ -1014,22 +1339,58 @@ def main() -> None:
     _write_csv(
         out_dir / "jax_term_contributions.csv",
         term_rows,
-        ["t", "term", "field", "rms", "maxabs", "mean"],
+        ["step", "t", "term", "field", "rms", "maxabs", "mean"],
     )
     _write_csv(
         out_dir / "jax_total_rhs.csv",
         total_rows,
-        ["t", "field", "rhs_rms", "rhs_maxabs"],
+        ["step", "t", "field", "rhs_rms", "rhs_maxabs"],
     )
     _write_csv(
         out_dir / "jax_phi_stats.csv",
         phi_rows,
-        ["t", "phi_rms", "phi_maxabs", "phi_iters"],
+        ["step", "t", "phi_rms", "phi_maxabs", "phi_iters"],
     )
     _write_csv(
         out_dir / "hermes_ddt_rms.csv",
         mismatch_rows,
         ["t", "field", "jax_rhs_rms", "hermes_ddt_rms", "rel_diff"],
+    )
+    _write_csv(
+        out_dir / "hermes_term_contributions.csv",
+        hermes_term_rows,
+        ["step", "t", "term", "field", "rms", "maxabs", "mean"],
+    )
+    _write_csv(
+        out_dir / "term_mismatch.csv",
+        term_mismatch_rows,
+        ["step", "t", "field", "term", "hermes_term", "jax_rms", "hermes_rms", "rel_diff"],
+    )
+    fail_fields = _split_csv_set(args.fail_fast_fields)
+    fail_terms = _split_csv_set(args.fail_fast_terms)
+    first_fail, first_step_rows = _first_failing_term(
+        term_mismatch_rows, fields=fail_fields, terms=fail_terms
+    )
+    fail_summary_rows: list[dict[str, object]] = []
+    if first_step_rows:
+        for rank, row in enumerate(first_step_rows, start=1):
+            fail_summary_rows.append(
+                {
+                    "rank": rank,
+                    "step": int(row.get("step", 0)),
+                    "t": float(row.get("t", 0.0)),
+                    "field": str(row.get("field", "")),
+                    "term": str(row.get("term", "")),
+                    "hermes_term": str(row.get("hermes_term", "")),
+                    "jax_rms": float(row.get("jax_rms", 0.0)),
+                    "hermes_rms": float(row.get("hermes_rms", 0.0)),
+                    "rel_diff": float(row.get("rel_diff", 0.0)),
+                }
+            )
+    _write_csv(
+        out_dir / "first_failing_terms.csv",
+        fail_summary_rows,
+        ["rank", "step", "t", "field", "term", "hermes_term", "jax_rms", "hermes_rms", "rel_diff"],
     )
 
     summary = {
@@ -1056,6 +1417,12 @@ def main() -> None:
         "hermes_meta": hermes_meta,
         "hermes_dt": dt_hermes,
         "axis_mapping": axis_map,
+        "fail_fast": {
+            "fields": sorted(fail_fields),
+            "terms": sorted(fail_terms),
+            "threshold": float(args.fail_fast_rel_diff),
+            "first_failing_term": first_fail,
+        },
     }
 
     hermes_inp = Path(args.hermes_input) if args.hermes_input else None
@@ -1102,6 +1469,22 @@ def main() -> None:
             split, term_map = built.system.scheduler.run_with_terms(ctx, state)
             total = split.total()
             data["phi"] = np.asarray(ctx.phi)
+            pe_adv_override = None
+            adv_form = str(getattr(built.system.params, "exb_advection_form", "flux")).lower()
+            if adv_form == "flux" and hasattr(ctx.geom, "exb_flux_divergence"):
+                try:
+                    pe_adv_override = -ctx.geom.exb_flux_divergence(
+                        ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_adv=ctx.bcs.Te
+                    )
+                except Exception:
+                    pe_adv_override = None
+            elif hasattr(ctx.geom, "bracket"):
+                try:
+                    pe_adv_override = -ctx.geom.bracket(
+                        ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_f=ctx.bcs.Te
+                    )
+                except Exception:
+                    pe_adv_override = None
 
             for field in field_filter:
                 arr = getattr(total, field, None)
@@ -1126,10 +1509,26 @@ def main() -> None:
             for name, term in term_map.items():
                 if (not dump_all_terms) and (name not in term_filter):
                     continue
+                pe_term = None
+                if "n" in y and "Te" in y:
+                    n_snap = y["n"][ti]
+                    Te_snap = y["Te"][ti]
+                    pe_term = n_snap * term.Te + Te_snap * term.n
+                if name == "advection" and pe_adv_override is not None:
+                    pe_term = pe_adv_override
                 for field in field_filter:
                     arr = getattr(term, field, None)
                     if arr is not None:
                         data[f"{name}_{field}"] = np.asarray(arr)
+                if pe_term is not None:
+                    data[f"{name}_Pe"] = np.asarray(pe_term)
+
+            for name, arr in hermes_fields_aligned.items():
+                if not name.startswith("term_"):
+                    continue
+                if arr.shape[0] <= start_index + ti:
+                    continue
+                data[f"hermes_{name}"] = np.asarray(arr[start_index + ti] * ddt_scale)
             np.savez(dump_dir / f"step_{ti:04d}.npz", **data)
 
             for field in field_filter:
@@ -1215,6 +1614,16 @@ def main() -> None:
         )
 
     print(f"Wrote audit outputs to {out_dir}")
+
+    if args.fail_fast_rel_diff >= 0.0 and first_fail is not None:
+        rel = float(first_fail.get("rel_diff", 0.0))
+        if rel > float(args.fail_fast_rel_diff):
+            raise SystemExit(
+                "fail-fast: first failing term "
+                f"(step={int(first_fail.get('step', 0))}, "
+                f"field={first_fail.get('field')}, term={first_fail.get('term')}) "
+                f"rel_diff={rel:.6g} > threshold={args.fail_fast_rel_diff:.6g}"
+            )
 
     if args.hermes_grid:
         try:
