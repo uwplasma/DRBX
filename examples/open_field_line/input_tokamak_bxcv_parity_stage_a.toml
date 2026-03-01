@@ -108,6 +108,7 @@ exb_advect_conservative = true
 parallel_flux_conservative = true
 parallel_limiter = "mc"
 parallel_flux_scheme = "lax"
+parallel_use_sheath_targets = true
 exb_y_scale = 1.0
 parallel_sign = 1.0
 dpar_factor_scale = 1.0

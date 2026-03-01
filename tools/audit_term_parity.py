@@ -68,6 +68,13 @@ def _load_hermes_fields(
                 continue
             if name == "Ve" and name not in ds.variables and "NVe" in ds.variables:
                 continue
+            if (
+                name == "Vd+"
+                and name not in ds.variables
+                and "NVd+" in ds.variables
+                and "Nd+" in ds.variables
+            ):
+                continue
             if name not in ds.variables:
                 if name.startswith("term_"):
                     continue
@@ -93,6 +100,13 @@ def _load_hermes_fields(
                     continue
                 if name == "Ve" and name not in ds.variables and "NVe" in ds.variables:
                     continue
+                if (
+                    name == "Vd+"
+                    and name not in ds.variables
+                    and "NVd+" in ds.variables
+                    and "Nd+" in ds.variables
+                ):
+                    continue
                 if name not in ds.variables:
                     if name.startswith("term_"):
                         continue
@@ -107,9 +121,6 @@ def _load_hermes_fields(
     if "Te" not in fields and "Pe" in fields and "Ne" in fields:
         fields["Te"] = fields["Pe"] / np.maximum(fields["Ne"], 1e-12)
         fields.pop("Pe", None)
-    if "Ve" not in fields and "NVe" in fields and "Ne" in fields:
-        fields["Ve"] = fields["NVe"] / np.maximum(fields["Ne"], 1e-12)
-
     meta = {
         "nx": float(nx),
         "ny": float(ny),

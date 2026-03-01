@@ -168,6 +168,9 @@ for minimal preset schedules:
   (`none`, `minmod`, `mc`).
 - `parallel_flux_conservative`: use conservative parallel fluxes for `n` and `p`
   (e.g., `-∂‖(n v‖)` and `-∂‖(p v‖)`), with limiter/Lax flux when open-field.
+- `parallel_use_sheath_targets`: in open-field + sheath runs, replace boundary
+  face `v‖` by Bohm/sheath targets in conservative parallel fluxes (Hermes-style
+  boundary-flux parity mode).
 - `phi_dissipation_on`: parity switch for `phi_par_dissipation` in vorticity.
 - `core_vorticity_damping_on`: parity switch for core vorticity damping
   equivalents (`mu_lin_omega`, `mu_zonal_omega`).
