@@ -57,6 +57,10 @@ def test_normalization_scales_geometry_and_transport():
 
     # tau_i should be set when not supplied
     assert np.isclose(physics["tau_i"], info.Ti0_eV / info.Te0_eV, rtol=1e-6)
+    # me_hat and atomic mass should follow normalization defaults
+    assert np.isclose(physics["average_atomic_mass"], 2.0, rtol=1e-12)
+    expected_me_hat = 9.1093837015e-31 / (2.0 * 1.67262192369e-27)
+    assert np.isclose(physics["me_hat"], expected_me_hat, rtol=1e-6)
 
     # poisson_scale defaults to (rho_s / Lref)^2 when normalization is enabled
     numerics = converted.get("numerics", {})
@@ -114,3 +118,26 @@ def test_normalization_bc_phi_timescale():
     bc = converted.get("bc", {})
     expected = info.time / 2.0
     assert np.isclose(bc["bc_enforce_nu_phi"], expected, rtol=1e-6)
+
+
+def test_normalization_fills_mass_params_without_physical_sections():
+    cfg = {
+        "normalization": {
+            "enabled": True,
+            "mode": "physics",
+            "Te0_eV": 30.0,
+            "Ti0_eV": 30.0,
+            "n0": 2e19,
+            "B0": 1.2,
+            "m_i_amu": 3.0,
+            "Z_i": 1.0,
+        },
+        "physics": {"boussinesq": True},
+    }
+
+    converted, info = apply_normalization(cfg)
+    assert info is not None
+    physics = converted["physics"]
+    assert np.isclose(physics["average_atomic_mass"], 3.0, rtol=1e-12)
+    expected_me_hat = 9.1093837015e-31 / (3.0 * 1.67262192369e-27)
+    assert np.isclose(physics["me_hat"], expected_me_hat, rtol=1e-6)

@@ -85,6 +85,7 @@ poisson = "cg_fd"
 bracket = "arakawa"
 parallel_flux_conservative = true
 parallel_limiter = "mc"
+parallel_use_sheath_targets = true
 exb_y_scale = 0.0
 poisson_scale = 2.0e-4
 

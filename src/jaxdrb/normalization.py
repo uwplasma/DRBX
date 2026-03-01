@@ -7,6 +7,7 @@ import math
 
 E_CHARGE = 1.602176634e-19
 M_PROTON = 1.67262192369e-27
+M_ELECTRON = 9.1093837015e-31
 
 
 @dataclass(frozen=True)
@@ -228,8 +229,25 @@ def apply_normalization(cfg: dict[str, Any]) -> tuple[dict[str, Any], Normalizat
         physics.update(converted)
         if "tau_i" not in physics and info.Te0_eV > 0.0:
             physics["tau_i"] = float(info.Ti0_eV / info.Te0_eV)
+        if "average_atomic_mass" not in physics:
+            physics["average_atomic_mass"] = float(norm_cfg.get("m_i_amu", 2.0))
+        if "me_hat" not in physics:
+            physics["me_hat"] = float(M_ELECTRON / max(info.m_i, 1e-30))
         out["physics"] = physics
         out.pop("physics_physical", None)
+    else:
+        # Even when only normalized inputs are provided, fill physical defaults
+        # for mass-ratio parameters so electron parallel dynamics are consistent.
+        physics = dict(cfg.get("physics", {}))
+        changed = False
+        if "average_atomic_mass" not in physics:
+            physics["average_atomic_mass"] = float(norm_cfg.get("m_i_amu", 2.0))
+            changed = True
+        if "me_hat" not in physics:
+            physics["me_hat"] = float(M_ELECTRON / max(info.m_i, 1e-30))
+            changed = True
+        if changed:
+            out["physics"] = physics
 
     # Transport physical inputs (diffusivity/rates).
     trans_phys = cfg.get("transport_physical", None)

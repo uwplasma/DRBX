@@ -285,6 +285,7 @@ This section enumerates the full configuration keys for each block.
 - `parallel_z_mode`
 - `parallel_limiter`
 - `parallel_flux_conservative`
+- `parallel_use_sheath_targets`
 - `poisson_scale`
 - `poisson_metric_on`
 - `poisson`
