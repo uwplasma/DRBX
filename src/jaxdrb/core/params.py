@@ -318,6 +318,9 @@ class NumericsParams(eqx.Module):
     parallel_flux_conservative: bool = False
     parallel_momentum_model: Literal["reduced", "conservative"] = "reduced"
     parallel_transform: Literal["none", "shifted"] = "none"
+    # Use Bohm-target sheath velocities on parallel boundary faces for open-field
+    # conservative fluxes (Hermes-like boundary flux treatment).
+    parallel_use_sheath_targets: bool = False
     dpar_factor_scale: float = 1.0
     use_gpar_flux: bool = False
     poisson_scale: float = 1.0

@@ -173,7 +173,148 @@ def _fastest_wave(ctx: TermContext) -> jnp.ndarray:
     return fast
 
 
+def _with_boundary_targets(
+    v: jnp.ndarray,
+    v_target: jnp.ndarray,
+    mask: jnp.ndarray,
+) -> jnp.ndarray:
+    v = jnp.asarray(v)
+    v_target = jnp.asarray(v_target)
+    mask = jnp.asarray(mask)
+    out = v
+    out = out.at[0].set(jnp.where(mask[0] > 0.0, v_target[0], v[0]))
+    out = out.at[-1].set(jnp.where(mask[-1] > 0.0, v_target[-1], v[-1]))
+    return out
+
+
+def _sheath_velocity_targets(
+    ctx: TermContext,
+    y: DRBSystemState,
+) -> tuple[jnp.ndarray, jnp.ndarray] | None:
+    if not bool(ctx.params.parallel_use_sheath_targets):
+        return None
+    grid = getattr(ctx.geom, "grid", None)
+    if grid is None or not bool(getattr(grid, "open_field_line", False)):
+        return None
+    if not (bool(ctx.params.sheath_on) or bool(ctx.params.sheath_bc_on)):
+        return None
+    if not hasattr(ctx.geom, "sheath_mask_sign"):
+        return None
+    if y.Te.shape[0] < 2:
+        return None
+
+    mask, sign = ctx.geom.sheath_mask_sign()
+    mask = jnp.broadcast_to(mask, y.Te.shape)
+    sign = jnp.broadcast_to(sign, y.Te.shape)
+
+    def _limit_free(fm: jnp.ndarray, fc: jnp.ndarray) -> jnp.ndarray:
+        # Hermes/BOUT limited free-gradient extrapolation used for sheath ghosts.
+        return jnp.where(
+            jnp.logical_or(fm < fc, fm < 1e-10),
+            fc,
+            (fc * fc) / jnp.maximum(fm, 1e-10),
+        )
+
+    # Lower-boundary ghost values.
+    n_l = ctx.n_phys[0]
+    n_lp = ctx.n_phys[1]
+    n_lg = _limit_free(n_lp, n_l)
+    Te_l = ctx.Te_phys[0]
+    Te_lp = ctx.Te_phys[1]
+    Te_lg = _limit_free(Te_lp, Te_l)
+    Ti_l = ctx.Ti[0]
+    Ti_lp = ctx.Ti[1]
+    Ti_lg = _limit_free(Ti_lp, Ti_l)
+    phi_l = ctx.phi[0]
+    phi_lp = ctx.phi[1]
+    phi_lg = 2.0 * phi_l - phi_lp
+
+    # Upper-boundary ghost values.
+    n_u = ctx.n_phys[-1]
+    n_um = ctx.n_phys[-2]
+    n_ug = _limit_free(n_um, n_u)
+    Te_u = ctx.Te_phys[-1]
+    Te_um = ctx.Te_phys[-2]
+    Te_ug = _limit_free(Te_um, Te_u)
+    Ti_u = ctx.Ti[-1]
+    Ti_um = ctx.Ti[-2]
+    Ti_ug = _limit_free(Ti_um, Ti_u)
+    phi_u = ctx.phi[-1]
+    phi_um = ctx.phi[-2]
+    phi_ug = 2.0 * phi_u - phi_um
+
+    Me = jnp.maximum(float(ctx.params.me_hat), 1e-12)
+    Mi = jnp.maximum(float(getattr(ctx.params, "average_atomic_mass", 1.0)), 1e-12)
+    Ge = jnp.clip(float(getattr(ctx.params, "sheath_secondary_electron_coef", 0.0)), 0.0, 1.0)
+    phi_wall = float(getattr(ctx.params, "sheath_wall_potential", 0.0))
+    floor_potential = bool(getattr(ctx.params, "sheath_floor_potential", True))
+    adiabatic_i = float(getattr(ctx.params, "sheath_ion_adiabatic", 5.0 / 3.0))
+    Zi = 1.0
+
+    # Electron sheath velocity (Hermes sheath_boundary form).
+    ne_sh_l = 0.5 * (n_l + n_lg)
+    ne_sh_u = 0.5 * (n_u + n_ug)
+    Te_sh_l = jnp.maximum(0.5 * (Te_l + Te_lg), 1e-10)
+    Te_sh_u = jnp.maximum(0.5 * (Te_u + Te_ug), 1e-10)
+    phi_sh_l = 0.5 * (phi_l + phi_lg)
+    phi_sh_u = 0.5 * (phi_u + phi_ug)
+    if floor_potential:
+        phi_sh_l = jnp.maximum(phi_sh_l, phi_wall)
+        phi_sh_u = jnp.maximum(phi_sh_u, phi_wall)
+    pref_l = jnp.sqrt(Te_sh_l / (2.0 * jnp.pi * Me))
+    pref_u = jnp.sqrt(Te_sh_u / (2.0 * jnp.pi * Me))
+    exp_l = jnp.exp(-(phi_sh_l - phi_wall) / jnp.maximum(Te_sh_l, 1e-5))
+    exp_u = jnp.exp(-(phi_sh_u - phi_wall) / jnp.maximum(Te_sh_u, 1e-5))
+    ve_sh_l = -(1.0 - Ge) * pref_l * exp_l
+    ve_sh_u = (1.0 - Ge) * pref_u * exp_u
+
+    # Ion sheath velocity (Bohm/Tskhakaya-like estimate).
+    ni_sh_l = 0.5 * (n_l + n_lg)
+    ni_sh_u = 0.5 * (n_u + n_ug)
+    Ti_sh_l = jnp.maximum(0.5 * (Ti_l + Ti_lg), 1e-8)
+    Ti_sh_u = jnp.maximum(0.5 * (Ti_u + Ti_ug), 1e-8)
+    s_l = jnp.clip(ni_sh_l / jnp.maximum(ne_sh_l, 1e-10), 0.0, 1.0)
+    s_u = jnp.clip(ni_sh_u / jnp.maximum(ne_sh_u, 1e-10), 0.0, 1.0)
+
+    grad_ne_l = n_lp - ne_sh_l
+    grad_ni_l = n_lp - ni_sh_l
+    grad_ne_u = n_um - ne_sh_u
+    grad_ni_u = n_um - ni_sh_u
+    small_l = jnp.abs(grad_ni_l) < 1e-3
+    small_u = jnp.abs(grad_ni_u) < 1e-3
+    grad_ne_l = jnp.where(small_l, 1e-3, grad_ne_l)
+    grad_ni_l = jnp.where(small_l, 1e-3, grad_ni_l)
+    grad_ne_u = jnp.where(small_u, 1e-3, grad_ne_u)
+    grad_ni_u = jnp.where(small_u, 1e-3, grad_ni_u)
+
+    Ci2_l = jnp.clip(
+        (adiabatic_i * Ti_sh_l + Zi * s_l * Te_sh_l * grad_ne_l / grad_ni_l) / Mi,
+        0.0,
+        100.0,
+    )
+    Ci2_u = jnp.clip(
+        (adiabatic_i * Ti_sh_u + Zi * s_u * Te_sh_u * grad_ne_u / grad_ni_u) / Mi,
+        0.0,
+        100.0,
+    )
+    vi_sh_l = -jnp.sqrt(Ci2_l)
+    vi_sh_u = jnp.sqrt(Ci2_u)
+
+    ve_target = jnp.zeros_like(y.vpar_e)
+    vi_target = jnp.zeros_like(y.vpar_i)
+    ve_target = ve_target.at[0].set(ve_sh_l)
+    ve_target = ve_target.at[-1].set(ve_sh_u)
+    vi_target = vi_target.at[0].set(vi_sh_l)
+    vi_target = vi_target.at[-1].set(vi_sh_u)
+
+    vpar_e_flux = _with_boundary_targets(y.vpar_e, ve_target, mask)
+    vpar_i_flux = _with_boundary_targets(y.vpar_i, vi_target, mask)
+    return vpar_e_flux, vpar_i_flux
+
+
 class ParallelVars(eqx.Module):
+    vpar_e_flux: jnp.ndarray
+    vpar_i_flux: jnp.ndarray
     dpar_ve: jnp.ndarray
     dpar_vi: jnp.ndarray
     dpar_Te: jnp.ndarray
@@ -185,14 +326,20 @@ class ParallelVars(eqx.Module):
 
 
 def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
+    vpar_e_flux = y.vpar_e
+    vpar_i_flux = y.vpar_i
+    sheath_targets = _sheath_velocity_targets(ctx, y)
+    if sheath_targets is not None:
+        vpar_e_flux, vpar_i_flux = sheath_targets
+
     with jax.named_scope("parallel_dpar"):
-        dpar_ve = ctx.geom.dpar(y.vpar_e, bc_kind="dirichlet")
-        dpar_vi = ctx.geom.dpar(y.vpar_i, bc_kind="dirichlet")
+        dpar_ve = ctx.geom.dpar(vpar_e_flux, bc_kind="dirichlet")
+        dpar_vi = ctx.geom.dpar(vpar_i_flux, bc_kind="dirichlet")
         dpar_Te = ctx.geom.dpar(y.Te, bc_kind="neumann")
         dpar_Ti = ctx.geom.dpar(ctx.Ti, bc_kind="neumann") if ctx.hot_on else jnp.zeros_like(ctx.Ti)
 
-    # Hermes-style parallel current: jpar = sum_s Z_s * n * v_par,s
-    # (in normalized units, Z_i=+1, Z_e=-1). Use physical density (log-safe).
+    # Keep current from evolved cell-centered velocities. Sheath targets are
+    # applied to boundary flux reconstruction, not directly to j_par closure.
     jpar_fluid = ctx.n_phys * (y.vpar_i - y.vpar_e)
     jpar_em = (
         -laplacian(ctx.params, ctx.geom, ctx.psi, ctx.bcs.psi)
@@ -221,6 +368,8 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
         )
 
     return ParallelVars(
+        vpar_e_flux=vpar_e_flux,
+        vpar_i_flux=vpar_i_flux,
         dpar_ve=dpar_ve,
         dpar_vi=dpar_vi,
         dpar_Te=dpar_Te,
@@ -239,28 +388,30 @@ def parallel_conservative_terms(
     tau_i = float(ctx.params.tau_i) if ctx.hot_on else 0.0
     vi_par_pressure = ctx.phi + tau_i * (ctx.n_phys + ctx.Ti)
     momentum_model = str(ctx.params.parallel_momentum_model).lower()
+    vpar_e_flux = par.vpar_e_flux
+    vpar_i_flux = par.vpar_i_flux
 
     if momentum_model == "conservative":
         n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
-        dn = -_dpar_flux_conservative(ctx, ctx.n_phys, y.vpar_e, wave=fastest_wave)
+        dn = -_dpar_flux_conservative(ctx, ctx.n_phys, vpar_e_flux, wave=fastest_wave)
         pe = ctx.n_phys * ctx.Te_phys
-        dp_e = -_dpar_flux_conservative(ctx, pe, y.vpar_e, wave=fastest_wave)
+        dp_e = -_dpar_flux_conservative(ctx, pe, vpar_e_flux, wave=fastest_wave)
         dTe = (dp_e - ctx.Te_phys * dn) / n_eff
         if ctx.hot_on:
             pi = ctx.n_phys * ctx.Ti
-            dp_i = -_dpar_flux_conservative(ctx, pi, y.vpar_i, wave=fastest_wave)
+            dp_i = -_dpar_flux_conservative(ctx, pi, vpar_i_flux, wave=fastest_wave)
             dTi = (dp_i - ctx.Ti * dn) / n_eff
         else:
             dTi = jnp.zeros_like(par.dpar_vi)
     elif bool(ctx.params.parallel_flux_conservative):
         n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
-        dn = -_dpar_flux_conservative(ctx, ctx.n_phys, y.vpar_e, wave=fastest_wave)
+        dn = -_dpar_flux_conservative(ctx, ctx.n_phys, vpar_e_flux, wave=fastest_wave)
         pe = ctx.n_phys * ctx.Te_phys
-        dp_e = -_dpar_flux_conservative(ctx, pe, y.vpar_e, wave=fastest_wave)
+        dp_e = -_dpar_flux_conservative(ctx, pe, vpar_e_flux, wave=fastest_wave)
         dTe = (dp_e - ctx.Te_phys * dn) / n_eff
         if ctx.hot_on:
             pi = ctx.n_phys * ctx.Ti
-            dp_i = -_dpar_flux_conservative(ctx, pi, y.vpar_i, wave=fastest_wave)
+            dp_i = -_dpar_flux_conservative(ctx, pi, vpar_i_flux, wave=fastest_wave)
             dTi = (dp_i - ctx.Ti * dn) / n_eff
         else:
             dTi = jnp.zeros_like(par.dpar_vi)
@@ -273,16 +424,18 @@ def parallel_conservative_terms(
         n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
         zi = 1.0
         dNV_e = (
-            -_dpar_flux_conservative(ctx, ctx.n_phys * y.vpar_e, y.vpar_e, wave=fastest_wave)
+            -_dpar_flux_conservative(ctx, ctx.n_phys * vpar_e_flux, vpar_e_flux, wave=fastest_wave)
             - ctx.geom.dpar(pe, bc_kind="dirichlet")
             + ctx.n_phys * ctx.geom.dpar(ctx.phi, bc_kind="dirichlet")
         )
-        dNV_i = -_dpar_flux_conservative(ctx, ctx.n_phys * y.vpar_i, y.vpar_i, wave=fastest_wave)
+        dNV_i = -_dpar_flux_conservative(
+            ctx, ctx.n_phys * vpar_i_flux, vpar_i_flux, wave=fastest_wave
+        )
         if ctx.hot_on:
             dNV_i = dNV_i - ctx.geom.dpar(ctx.n_phys * ctx.Ti, bc_kind="dirichlet")
         dNV_i = dNV_i - zi * ctx.n_phys * ctx.geom.dpar(ctx.phi, bc_kind="dirichlet")
-        vpar_e = (dNV_e - y.vpar_e * dn) / n_eff
-        vpar_i = (dNV_i - y.vpar_i * dn) / n_eff
+        vpar_e = (dNV_e - vpar_e_flux * dn) / n_eff
+        vpar_i = (dNV_i - vpar_i_flux * dn) / n_eff
     else:
         vpar_e = par.grad_par_phi_pe / jnp.maximum(float(ctx.params.me_hat), 1e-12) - par.dpar_psi
         vpar_i = -ctx.geom.dpar(vi_par_pressure, bc_kind="dirichlet")
