@@ -120,6 +120,7 @@ poisson_b_weighted_mode = "hermes"
 poisson_split_n0 = true
 diamagnetic_flux_scheme = "fv"
 diamagnetic_use_jacobian = true
+perp_operator = "fd"
 
 [initial]
 n0 = 0.0
@@ -157,6 +158,8 @@ save_fields = true
 snapshot_fields = ["n", "omega", "Te", "phi"]
 poisson_warm_start = true
 return_numpy = true
+jit = true
+stiff_solver = "analytic"
 
 [bc]
 perp = { bc_x = "neumann", bc_y = "periodic" }

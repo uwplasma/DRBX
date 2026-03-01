@@ -12,6 +12,7 @@ import numpy as np
 E_CHARGE = 1.602176634e-19
 M_PROTON = 1.67262192369e-27
 
+
 def _read_scalar(ds, names: tuple[str, ...], default: float | None = None) -> float:
     for name in names:
         if name in ds.variables:
@@ -22,9 +23,7 @@ def _read_scalar(ds, names: tuple[str, ...], default: float | None = None) -> fl
     return float(default)
 
 
-def _read_var_interior(
-    ds, name: str, mxg: int, myg: int, mxsub: int, mysub: int
-) -> np.ndarray:
+def _read_var_interior(ds, name: str, mxg: int, myg: int, mxsub: int, mysub: int) -> np.ndarray:
     arr = np.asarray(ds.variables[name][:], dtype=np.float64)
     if arr.ndim == 4:
         return arr[:, mxg : mxg + mxsub, myg : myg + mysub, :]
@@ -195,6 +194,27 @@ def _parse_bout_sections(path: Path | None) -> dict[str, dict[str, float]]:
             continue
         sections.setdefault(current, {})[key] = parsed
     return sections
+
+
+def _find_repo_root(start: Path) -> Path | None:
+    for parent in (start, *start.parents):
+        if (parent / "pyproject.toml").exists() or (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _resolve_coeff_path(cfg: dict[str, object], cfg_path: Path) -> dict[str, object]:
+    geom = dict(cfg.get("geometry", {}))
+    coeff_path = geom.get("coeff_path", None)
+    if isinstance(coeff_path, str) and not Path(coeff_path).is_absolute():
+        candidate = (cfg_path.parent / coeff_path).resolve()
+        if not candidate.exists():
+            repo_root = _find_repo_root(cfg_path.parent)
+            if repo_root is not None:
+                candidate = (repo_root / coeff_path).resolve()
+        geom["coeff_path"] = str(candidate)
+    cfg["geometry"] = geom
+    return cfg
 
 
 def _hermes_time_unit(sections: dict[str, dict[str, float]]) -> float | None:
@@ -539,17 +559,13 @@ def _load_hermes_zshift(
     return np.asarray(zshift[mxg : mxg + nx, myg : myg + ny], dtype=np.float64)
 
 
-def _apply_shifted_binormal(
-    arr: np.ndarray, *, shift_idx: np.ndarray
-) -> np.ndarray:
+def _apply_shifted_binormal(arr: np.ndarray, *, shift_idx: np.ndarray) -> np.ndarray:
     """Shift field along binormal (last axis) by shift_idx (index units)."""
     if arr.ndim != 4:
         return arr
     nz, nx, ny = arr.shape[1:]
     if shift_idx.shape != (nz, nx):
-        raise ValueError(
-            f"shift_idx shape {shift_idx.shape} does not match (nz,nx)=({nz},{nx})."
-        )
+        raise ValueError(f"shift_idx shape {shift_idx.shape} does not match (nz,nx)=({nz},{nx}).")
     y = np.arange(ny, dtype=np.float64)
     y_src = (y[None, None, :] + shift_idx[..., None]) % float(ny)
     y0 = np.floor(y_src).astype(int)
@@ -747,6 +763,7 @@ def main() -> None:
 
     cfg_path = Path(args.jax_config)
     cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg = _resolve_coeff_path(cfg, cfg_path)
 
     hermes_dir = Path(args.hermes_data_dir)
     hermes_input_path = Path(args.hermes_input) if args.hermes_input else None
@@ -860,19 +877,15 @@ def main() -> None:
             raise ValueError(f"Axis mapping failed with strict axis mode: {axis_map}")
         aa_e = hermes_sections.get("e", {}).get("AA", 1.0 / 1836.0)
         aa_i = hermes_sections.get("d+", {}).get("AA", 1.0)
-        density_floor = (
-            hermes_sections.get("evolve_momentum", {}).get(
-                "density_floor",
-                hermes_sections.get("e", {}).get("density_floor", 1e-7),
-            )
+        density_floor = hermes_sections.get("evolve_momentum", {}).get(
+            "density_floor",
+            hermes_sections.get("e", {}).get("density_floor", 1e-7),
         )
 
         if "NVe" in hermes_fields_aligned and "Ne" in hermes_fields_aligned:
             Ne = hermes_fields_aligned["Ne"]
             Nlim = np.maximum(Ne, density_floor)
-            hermes_fields_aligned["Ve"] = hermes_fields_aligned["NVe"] / (
-                aa_e * Nlim
-            )
+            hermes_fields_aligned["Ve"] = hermes_fields_aligned["NVe"] / (aa_e * Nlim)
         if "Pd+" in hermes_fields_aligned and "Nd+" in hermes_fields_aligned:
             hermes_fields_aligned["Ti"] = hermes_fields_aligned["Pd+"] / np.maximum(
                 hermes_fields_aligned["Nd+"], 1e-12
@@ -880,9 +893,7 @@ def main() -> None:
         if "NVd+" in hermes_fields_aligned and "Nd+" in hermes_fields_aligned:
             Nd = hermes_fields_aligned["Nd+"]
             Nlim = np.maximum(Nd, density_floor)
-            hermes_fields_aligned["Vi"] = hermes_fields_aligned["NVd+"] / (
-                aa_i * Nlim
-            )
+            hermes_fields_aligned["Vi"] = hermes_fields_aligned["NVd+"] / (aa_i * Nlim)
         snapshots["n"] = np.asarray(hermes_fields_aligned["Ne"], dtype=np.float64)
         snapshots["omega"] = np.asarray(hermes_fields_aligned["Vort"], dtype=np.float64)
         snapshots["Te"] = np.asarray(hermes_fields_aligned["Te"], dtype=np.float64)
@@ -1035,7 +1046,9 @@ def main() -> None:
             "dt": float(cfg["time"].get("dt", 0.0)),
             "nsteps": int(cfg["time"].get("nsteps", 0)),
             "save_every": int(cfg["time"].get("save_every", 1)),
-            "method": str(cfg["time"].get("method", cfg.get("integrator", {}).get("method", "diffrax"))),
+            "method": str(
+                cfg["time"].get("method", cfg.get("integrator", {}).get("method", "diffrax"))
+            ),
             "solver": str(cfg["time"].get("solver", "")),
             "rtol": float(cfg["time"].get("rtol", 0.0)),
             "atol": float(cfg["time"].get("atol", 0.0)),

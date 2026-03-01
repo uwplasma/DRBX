@@ -42,6 +42,13 @@ def _set_by_dotted_key(cfg: dict[str, Any], key: str, value: Any) -> None:
     cur[parts[-1]] = value
 
 
+def _find_repo_root(start: Path) -> Path | None:
+    for parent in (start, *start.parents):
+        if (parent / "pyproject.toml").exists() or (parent / ".git").exists():
+            return parent
+    return None
+
+
 def _channel_rel_error(
     t_model: np.ndarray,
     y_model: np.ndarray,
@@ -71,11 +78,9 @@ def _prepare_cfg(
     if isinstance(coeff_path, str) and not Path(coeff_path).is_absolute():
         candidate = (cfg_path.parent / coeff_path).resolve()
         if not candidate.exists():
-            if cfg_path.parent.name == "benchmarks":
-                repo_root = cfg_path.parents[2]
-            else:
-                repo_root = cfg_path.parents[0]
-            candidate = (repo_root / coeff_path).resolve()
+            repo_root = _find_repo_root(cfg_path.parent)
+            if repo_root is not None:
+                candidate = (repo_root / coeff_path).resolve()
         geom["coeff_path"] = str(candidate)
     cfg["geometry"] = geom
 
@@ -233,7 +238,9 @@ def main() -> None:
     if best is None:
         print("No passing candidates found.")
     else:
-        print(f"Best candidate: value={best['value']} mean_rel={best['mean_rel']:.3e} max_rel={best['max_rel']:.3e}")
+        print(
+            f"Best candidate: value={best['value']} mean_rel={best['mean_rel']:.3e} max_rel={best['max_rel']:.3e}"
+        )
 
 
 if __name__ == "__main__":

@@ -924,6 +924,7 @@ def build_rk4_scan_imex_strang(
     scan_remat: bool = False,
     warm_start: bool = True,
     carry_phi: bool = False,
+    jit: bool = True,
 ) -> Tuple[Callable[[PyTree], Tuple[PyTree, PyTree]], int, int]:
     """Strang-split IMEX: half implicit, full explicit RK4, half implicit."""
 
@@ -996,4 +997,5 @@ def build_rk4_scan_imex_strang(
             diags = _append_diag(diags, diag_last)
         return y, diags
 
-    return jax.jit(run), nsave, rem
+    runner = jax.jit(run) if jit else run
+    return runner, nsave, rem
