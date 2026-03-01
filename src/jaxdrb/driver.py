@@ -458,6 +458,111 @@ def _apply_stiff_implicit(
     return y
 
 
+def _build_diffrax_stiff_step(
+    system: DRBSystem,
+    time_cfg: dict[str, Any],
+) -> Callable[[DRBSystemState, float, jnp.ndarray | None], DRBSystemState]:
+    import diffrax as dfx
+
+    solver_name = str(time_cfg.get("stiff_solver", "implicit_euler")).lower()
+    if solver_name == "diffrax":
+        solver_name = str(time_cfg.get("stiff_solver_name", "implicit_euler")).lower()
+    solver_map = {
+        "implicit_euler": dfx.ImplicitEuler,
+        "kvaerno3": dfx.Kvaerno3,
+        "kvaerno4": dfx.Kvaerno4,
+        "kvaerno5": dfx.Kvaerno5,
+    }
+    solver_cls = solver_map.get(solver_name, dfx.ImplicitEuler)
+    rtol = float(time_cfg.get("stiff_rtol", time_cfg.get("rtol", 1e-1)))
+    atol = float(time_cfg.get("stiff_atol", time_cfg.get("atol", 1e-6)))
+    solver_kwargs: dict[str, Any] = {}
+    implicit_solvers = {"implicit_euler", "kvaerno3", "kvaerno4", "kvaerno5"}
+    if solver_name in implicit_solvers:
+        import lineax as lx
+        import optimistix as optx
+
+        linear_kind = str(time_cfg.get("stiff_linear_solver", "gmres")).lower()
+        linear_max_steps = time_cfg.get("stiff_linear_max_steps", 25)
+        linear_rtol = time_cfg.get("stiff_linear_rtol", rtol)
+        linear_atol = time_cfg.get("stiff_linear_atol", atol)
+        if linear_kind in ("auto", "default"):
+            linear_solver = lx.AutoLinearSolver(well_posed=None)
+        elif linear_kind in ("lu", "dense"):
+            linear_solver = lx.LU()
+        elif linear_kind in ("cholesky", "chol"):
+            linear_solver = lx.Cholesky()
+        elif linear_kind == "gmres":
+            linear_solver = lx.GMRES(
+                rtol=float(linear_rtol),
+                atol=float(linear_atol),
+                max_steps=None if linear_max_steps is None else int(linear_max_steps),
+                restart=int(time_cfg.get("stiff_linear_restart", 20)),
+                stagnation_iters=int(time_cfg.get("stiff_linear_stagnation_iters", 20)),
+            )
+        elif linear_kind in ("bicgstab", "bicg"):
+            linear_solver = lx.BiCGStab(
+                rtol=float(linear_rtol),
+                atol=float(linear_atol),
+                max_steps=None if linear_max_steps is None else int(linear_max_steps),
+            )
+        elif linear_kind in ("cg", "pcg"):
+            linear_solver = lx.CG(
+                rtol=float(linear_rtol),
+                atol=float(linear_atol),
+                max_steps=None if linear_max_steps is None else int(linear_max_steps),
+            )
+        else:
+            raise ValueError(f"Unknown stiff_linear_solver: {linear_kind}")
+
+        root_rtol = time_cfg.get("stiff_root_rtol", rtol)
+        root_atol = time_cfg.get("stiff_root_atol", atol)
+        root_kind = str(time_cfg.get("stiff_root_solver", "verychord")).lower()
+        if root_kind in ("newton", "optimistix_newton"):
+            root_finder = optx.Newton(
+                rtol=float(root_rtol),
+                atol=float(root_atol),
+                linear_solver=linear_solver,
+                kappa=float(time_cfg.get("stiff_root_kappa", 0.01)),
+                cauchy_termination=bool(time_cfg.get("stiff_root_cauchy_termination", True)),
+            )
+        else:
+            root_finder = dfx.VeryChord(
+                rtol=float(root_rtol),
+                atol=float(root_atol),
+                linear_solver=linear_solver,
+            )
+        solver_kwargs["root_finder"] = root_finder
+        solver_kwargs["root_find_max_steps"] = int(time_cfg.get("stiff_root_max_steps", 6))
+
+    solver = solver_cls(**solver_kwargs)
+    term = dfx.ODETerm(lambda t, y, args: system.rhs_stiff(t, y))
+    saveat = dfx.SaveAt(t1=True)
+    controller = dfx.ConstantStepSize()
+    max_steps = time_cfg.get("stiff_max_steps", None)
+    max_steps = int(max_steps) if max_steps is not None else None
+
+    def step(y: DRBSystemState, dt_step: float, phi_guess: jnp.ndarray | None) -> DRBSystemState:
+        _ = phi_guess
+        sol = dfx.diffeqsolve(
+            term,
+            solver,
+            t0=0.0,
+            t1=float(dt_step),
+            dt0=float(dt_step),
+            y0=y,
+            saveat=saveat,
+            stepsize_controller=controller,
+            max_steps=max_steps,
+            adjoint=dfx.DirectAdjoint(),
+            progress_meter=dfx.NoProgressMeter(),
+            args=None,
+        )
+        return sol.ys
+
+    return step
+
+
 def _mixmode_phases(seed: float) -> np.ndarray:
     """Match BOUT++ mixmode phase generation."""
 
@@ -1465,25 +1570,43 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
         if remat:
             diag_fn = jax.checkpoint(diag_fn)
 
+        stiff_solver = str(time_cfg.get("stiff_solver", "analytic")).lower()
+        use_diffrax_stiff = stiff_solver in (
+            "diffrax",
+            "implicit_euler",
+            "kvaerno3",
+            "kvaerno4",
+            "kvaerno5",
+        )
+
         parallel_implicit = bool(time_cfg.get("parallel_implicit", True))
         if parallel_implicit:
             from jaxdrb.core.terms.registry import build_scheduler_from_names, split_term_schedule
 
-            explicit_names, _ = split_term_schedule(system.params)
+            explicit_names, stiff_names = split_term_schedule(system.params)
             explicit_names = tuple(name for name in explicit_names if name != "parallel")
             object.__setattr__(
                 system, "scheduler_explicit", build_scheduler_from_names(explicit_names)
             )
+            if use_diffrax_stiff and "parallel" not in stiff_names:
+                stiff_names = tuple(stiff_names) + ("parallel",)
+                object.__setattr__(
+                    system, "scheduler_stiff", build_scheduler_from_names(stiff_names)
+                )
             if not warm_start:
                 warm_start = True
 
         if track_iters:
             track_iters = False
 
-        def stiff_fn(y, dt_step, phi_guess):
-            return _apply_stiff_implicit(
-                system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
-            )
+        if use_diffrax_stiff:
+            stiff_fn = _build_diffrax_stiff_step(system, time_cfg)
+        else:
+
+            def stiff_fn(y, dt_step, phi_guess):
+                return _apply_stiff_implicit(
+                    system, y, dt_step, phi_guess, parallel_implicit=parallel_implicit
+                )
 
         runner, nsave, rem = build_rk4_scan_imex_strang(
             system.rhs_explicit_with_phi,
@@ -1496,6 +1619,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
             scan_remat=scan_remat,
             warm_start=warm_start,
             carry_phi=carry_phi,
+            jit=bool(time_cfg.get("jit", True)),
         )
         final_state, diag_series = runner(state)
         times = np.arange(nsave, dtype=np.float64) * (save_every * dt)

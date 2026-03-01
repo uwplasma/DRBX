@@ -262,7 +262,9 @@ def _bundle_from_jax(
 
     if "n" in fields and "phi" in fields:
         cfg_geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
-        ny = int(fields["n"].shape[2] if fields["n"].ndim == 4 else _pick_plane(fields["n"]).shape[-1])
+        ny = int(
+            fields["n"].shape[2] if fields["n"].ndim == 4 else _pick_plane(fields["n"]).shape[-1]
+        )
         Ly = float(cfg_geom.get("Ly", 1.0))
         dy = Ly / max(ny, 1)
         gamma_r = compute_radial_particle_flux_profile(
