@@ -179,7 +179,9 @@ def main() -> None:
         mean = np.mean(a, axis=1, keepdims=True)
         return np.repeat(mean, ny_binormal, axis=1)
 
-    if (args.average_parallel or ny_binormal != ny_parallel) and (not args.preserve_parallel_metrics):
+    if (args.average_parallel or ny_binormal != ny_parallel) and (
+        not args.preserve_parallel_metrics
+    ):
         g11 = _avg_parallel(g11)
         g33 = _avg_parallel(g33)
         g13 = _avg_parallel(g13)
@@ -199,21 +201,45 @@ def main() -> None:
     if args.grid:
         grid = Path(args.grid)
         with Dataset(str(grid)) as ds:
-            mxg = int(np.asarray(ds.variables.get("MXG", 0)).reshape(-1)[0]) if "MXG" in ds.variables else 0
-            myg = int(np.asarray(ds.variables.get("MYG", 0)).reshape(-1)[0]) if "MYG" in ds.variables else 0
+            mxg = (
+                int(np.asarray(ds.variables.get("MXG", 0)).reshape(-1)[0])
+                if "MXG" in ds.variables
+                else 0
+            )
+            myg = (
+                int(np.asarray(ds.variables.get("MYG", 0)).reshape(-1)[0])
+                if "MYG" in ds.variables
+                else 0
+            )
             if "Rxy" in ds.variables:
-                Rxy = _slice_grid(np.asarray(ds.variables["Rxy"][:], dtype=np.float64), mxg, myg, nx, ny_parallel)
+                Rxy = _slice_grid(
+                    np.asarray(ds.variables["Rxy"][:], dtype=np.float64), mxg, myg, nx, ny_parallel
+                )
             if "Zxy" in ds.variables:
-                Zxy = _slice_grid(np.asarray(ds.variables["Zxy"][:], dtype=np.float64), mxg, myg, nx, ny_parallel)
+                Zxy = _slice_grid(
+                    np.asarray(ds.variables["Zxy"][:], dtype=np.float64), mxg, myg, nx, ny_parallel
+                )
             if all(v in ds.variables for v in ("bxcvx", "bxcvy", "bxcvz")):
                 bxcvx = _slice_grid(
-                    np.asarray(ds.variables["bxcvx"][:], dtype=np.float64), mxg, myg, nx, ny_parallel
+                    np.asarray(ds.variables["bxcvx"][:], dtype=np.float64),
+                    mxg,
+                    myg,
+                    nx,
+                    ny_parallel,
                 )
                 bxcvy = _slice_grid(
-                    np.asarray(ds.variables["bxcvy"][:], dtype=np.float64), mxg, myg, nx, ny_parallel
+                    np.asarray(ds.variables["bxcvy"][:], dtype=np.float64),
+                    mxg,
+                    myg,
+                    nx,
+                    ny_parallel,
                 )
                 bxcvz = _slice_grid(
-                    np.asarray(ds.variables["bxcvz"][:], dtype=np.float64), mxg, myg, nx, ny_parallel
+                    np.asarray(ds.variables["bxcvz"][:], dtype=np.float64),
+                    mxg,
+                    myg,
+                    nx,
+                    ny_parallel,
                 )
                 # Hermes normalization if requested
                 if args.bxcv_normalization == "hermes":
@@ -251,7 +277,9 @@ def main() -> None:
     else:
         dpar_out = dpar_factor
     if z_shift is not None:
-        z_shift_out = z_shift.T if (args.preserve_parallel_curvature and z_shift.ndim == 2) else z_shift
+        z_shift_out = (
+            z_shift.T if (args.preserve_parallel_curvature and z_shift.ndim == 2) else z_shift
+        )
     else:
         z_shift_out = None
     if gpar is not None:
