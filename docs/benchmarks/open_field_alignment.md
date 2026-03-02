@@ -55,6 +55,33 @@ Outputs per stage:
 - `runs/staged_open_field/jax_<stage>.npz`
 - `runs/staged_open_field/bundle_jax_<stage>.npz`
 
+### Poisson/Vorticity strict audit (before any turbulence window)
+
+Run the strict operator audit first:
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/audit_term_parity.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml \
+  --hermes-data-dir runs/hermes_open_field_short/data \
+  --hermes-input runs/hermes_open_field_short/data/BOUT.inp \
+  --hermes-grid runs/hermes_open_field_short/tokamak.nc \
+  --out-dir runs/parity_strict_poisson_equiv_fix1 \
+  --nsteps 3 \
+  --match-hermes-dt \
+  --use-hermes-state \
+  --hermes-parallel-axis y \
+  --strict-axis
+```
+
+`poisson_parity.csv` now includes both full-domain and core-cropped metrics:
+- `*_corr`, `*_scale`: full domain
+- `*_corr_core`, `*_scale_core`: interior (`x[2:-2]`) used for INVERT_SET parity
+
+For this strict run, the core Poisson forward parity target is:
+- `omega_from_phi_corr_core ≈ 1`
+- `omega_from_phi_scale_core ≈ 1`
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash
