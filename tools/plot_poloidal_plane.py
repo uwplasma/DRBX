@@ -23,16 +23,48 @@ def _latest_snapshot(data: dict[str, np.ndarray], key: str) -> np.ndarray | None
     return None
 
 
-def _slice_midplane(arr: np.ndarray, y_index: int | None) -> np.ndarray:
+def _slice_with_target(
+    arr: np.ndarray, target_shape: tuple[int, int] | None, y_index: int | None
+) -> np.ndarray:
+    """Extract a 2D slice that best matches the plotting grid shape.
+
+    Arrays in jax_drb outputs can be ordered differently across geometries
+    (e.g. (nz, nx, ny) or (nx, ny, nz)). For axisymmetric plotting we match
+    the slice to the available R/Z grid shape instead of assuming one order.
+    """
     if arr.ndim == 2:
         return arr
-    if arr.ndim == 3:
-        idx = y_index if y_index is not None else arr.shape[-1] // 2
-        return arr[:, :, idx]
+    if arr.ndim not in (3, 4):
+        raise ValueError(f"Unsupported snapshot shape: {arr.shape}")
+
+    # Remove leading time axis if present.
     if arr.ndim == 4:
+        arr = arr[-1]
+
+    # If no target shape was provided, retain previous behavior.
+    if target_shape is None:
         idx = y_index if y_index is not None else arr.shape[-1] // 2
         return arr[:, :, idx]
-    raise ValueError(f"Unsupported snapshot shape: {arr.shape}")
+
+    # Try all slicing axes and pick the first that matches target (or transpose).
+    axis_candidates = [0, 1, 2]
+    if y_index is not None:
+        # Prefer treating provided index as toroidal/binormal axis (axis 0) first.
+        axis_candidates = [0, 2, 1]
+    for axis in axis_candidates:
+        idx = (
+            y_index
+            if (y_index is not None and axis == axis_candidates[0])
+            else arr.shape[axis] // 2
+        )
+        idx = int(np.clip(idx, 0, arr.shape[axis] - 1))
+        sliced = np.take(arr, idx, axis=axis)
+        if sliced.shape == target_shape or sliced.T.shape == target_shape:
+            return sliced
+
+    # Fallback for unexpected ordering.
+    idx = y_index if y_index is not None else arr.shape[-1] // 2
+    return arr[:, :, int(np.clip(idx, 0, arr.shape[-1] - 1))]
 
 
 def _sol_masks(
@@ -147,11 +179,19 @@ def main() -> None:
             z = np.linspace(-0.5 * Lz, 0.5 * Lz, nz, endpoint=True)
         theta = z / max(theta_scale, 1e-8)
 
+    if coeffs is not None and ("Rxy" in coeffs) and ("Zxy" in coeffs):
+        R = np.asarray(coeffs["Rxy"]).T
+        Z = np.asarray(coeffs["Zxy"]).T
+    else:
+        r = x * (r_minor / max(Lx, 1e-8))
+        R = R0 + r[None, :] * np.cos(theta[:, None])
+        Z = r[None, :] * np.sin(theta[:, None])
+
     data = np.load(args.input)
     field = _latest_snapshot(data, args.field)
     if field is None:
         raise ValueError(f"Missing snapshots for '{args.field}'.")
-    field = _slice_midplane(field, args.y_index)
+    field = _slice_with_target(field, target_shape=R.shape, y_index=args.y_index)
     if kind == "plane" and field.ndim == 2:
         field = field.T
     field = np.nan_to_num(field, nan=0.0, posinf=0.0, neginf=0.0)
@@ -182,14 +222,6 @@ def main() -> None:
             field = eq_field
         else:
             field = eq_field + float(args.fluct_scale) * field
-
-    if coeffs is not None and ("Rxy" in coeffs) and ("Zxy" in coeffs):
-        R = np.asarray(coeffs["Rxy"]).T
-        Z = np.asarray(coeffs["Zxy"]).T
-    else:
-        r = x * (r_minor / max(Lx, 1e-8))
-        R = R0 + r[None, :] * np.cos(theta[:, None])
-        Z = r[None, :] * np.sin(theta[:, None])
 
     # Ensure field orientation matches (theta, x) grid.
     if field.shape != R.shape:
