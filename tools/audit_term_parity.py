@@ -175,8 +175,8 @@ def _eval_bout_expr(raw: str) -> float | None:
     }
 
     def _eval(node):
-        if isinstance(node, ast.Num):  # type: ignore[attr-defined]
-            return float(node.n)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
         if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
             return ops[type(node.op)](_eval(node.operand))
         if isinstance(node, ast.BinOp) and type(node.op) in ops:
@@ -376,13 +376,17 @@ def _compute_term_metrics(
             except Exception:
                 pe_adv_override = None
         phi = np.asarray(ctx.phi)
+        phi_iters_val = None
+        if ctx.phi_iters is not None:
+            phi_iters_arr = np.asarray(ctx.phi_iters, dtype=np.float64)
+            phi_iters_val = float(np.max(phi_iters_arr))
         phi_rows.append(
             {
                 "step": int(ti),
                 "t": float(times[idx]),
                 "phi_rms": float(np.sqrt(np.mean(phi * phi))),
                 "phi_maxabs": float(np.max(np.abs(phi))),
-                "phi_iters": None if ctx.phi_iters is None else float(np.asarray(ctx.phi_iters)),
+                "phi_iters": phi_iters_val,
             }
         )
         for field_name, arr in (
@@ -682,6 +686,17 @@ def _compute_poisson_parity_metrics(
     rows: list[dict[str, object]] = []
     nsteps = int(max(0, min(nsteps, snapshots["n"].shape[0] - start_index)))
     bcs = resolve_bcs(system.params, system.geom)
+    crop_x = 2 if bcs.phi.kind_x != 0 else 0
+
+    def _crop_x(arr: np.ndarray) -> np.ndarray:
+        if crop_x <= 0:
+            return arr
+        if arr.ndim == 2 and arr.shape[0] > 2 * crop_x:
+            return arr[crop_x:-crop_x, :]
+        if arr.ndim == 3 and arr.shape[1] > 2 * crop_x:
+            return arr[:, crop_x:-crop_x, :]
+        return arr
+
     for ti in range(nsteps):
         idx = int(start_index + ti)
         y = DRBSystemState(
@@ -712,7 +727,14 @@ def _compute_poisson_parity_metrics(
         )
         phi_from_ref = np.asarray(
             phi_from_omega(
-                system.params, system.geom, y.omega, n_phys, bcs.phi, Ti=y.Ti, Te=Te_phys
+                system.params,
+                system.geom,
+                y.omega,
+                n_phys,
+                bcs.phi,
+                Ti=y.Ti,
+                Te=Te_phys,
+                phi_guess=snapshots["phi"][idx],
             ),
             dtype=np.float64,
         )
@@ -733,18 +755,36 @@ def _compute_poisson_parity_metrics(
                 return 0.0
             return num / den
 
+        omega_ref_core = _crop_x(omega_ref)
+        omega_from_ref_core = _crop_x(omega_from_ref)
+        phi_ref_core = _crop_x(phi_ref)
+        phi_from_ref_core = _crop_x(phi_from_ref)
+
         rows.append(
             {
                 "step": int(ti),
                 "t": float(times[idx]),
+                "crop_x": int(crop_x),
                 "omega_ref_rms": float(np.sqrt(np.mean(omega_ref * omega_ref))),
                 "omega_from_phi_rms": float(np.sqrt(np.mean(omega_from_ref * omega_from_ref))),
                 "omega_from_phi_corr": _corr(omega_from_ref, omega_ref),
                 "omega_from_phi_scale": _ls_scale(omega_from_ref, omega_ref),
+                "omega_ref_rms_core": float(np.sqrt(np.mean(omega_ref_core * omega_ref_core))),
+                "omega_from_phi_rms_core": float(
+                    np.sqrt(np.mean(omega_from_ref_core * omega_from_ref_core))
+                ),
+                "omega_from_phi_corr_core": _corr(omega_from_ref_core, omega_ref_core),
+                "omega_from_phi_scale_core": _ls_scale(omega_from_ref_core, omega_ref_core),
                 "phi_ref_rms": float(np.sqrt(np.mean(phi_ref * phi_ref))),
                 "phi_from_omega_rms": float(np.sqrt(np.mean(phi_from_ref * phi_from_ref))),
                 "phi_from_omega_corr": _corr(phi_from_ref, phi_ref),
                 "phi_from_omega_scale": _ls_scale(phi_from_ref, phi_ref),
+                "phi_ref_rms_core": float(np.sqrt(np.mean(phi_ref_core * phi_ref_core))),
+                "phi_from_omega_rms_core": float(
+                    np.sqrt(np.mean(phi_from_ref_core * phi_from_ref_core))
+                ),
+                "phi_from_omega_corr_core": _corr(phi_from_ref_core, phi_ref_core),
+                "phi_from_omega_scale_core": _ls_scale(phi_from_ref_core, phi_ref_core),
             }
         )
     return rows
@@ -905,7 +945,8 @@ def _override_geometry_from_hermes(
     *,
     hermes_meta: dict[str, float] | None = None,
     hermes_dx_mean: float | None = None,
-    hermes_dy_mean: float | None = None,
+    hermes_binormal_mean: float | None = None,
+    override_lengths: bool = False,
 ) -> dict[str, object]:
     try:
         from netCDF4 import Dataset
@@ -923,23 +964,38 @@ def _override_geometry_from_hermes(
         myg = int(round(hermes_meta.get("myg", 0)))
         nx = int(round(hermes_meta.get("nx", nx_full)))
         ny = int(round(hermes_meta.get("ny", ny_full)))
-        if hermes_dx_mean is not None and hermes_dy_mean is not None:
-            Lx = float(hermes_dx_mean * nx)
-            Ly = float(hermes_dy_mean * ny)
-        else:
-            x_slice = slice(mxg, mxg + nx)
-            y_slice = slice(myg, myg + ny)
-            dx_int = dx[x_slice, y_slice]
-            dy_int = dy[x_slice, y_slice]
-            Lx = float(np.mean(dx_int, axis=1).sum())
-            Ly = float(np.mean(dy_int, axis=0).sum())
+        x_slice = slice(mxg, mxg + nx)
+        y_slice = slice(myg, myg + ny)
+        dx_int = dx[x_slice, y_slice]
+        dy_int = dy[x_slice, y_slice]
+        Lx_default = float(np.mean(dx_int, axis=1).sum())
+        # dy in BOUT/Hermes grid is usually parallel spacing, not binormal spacing.
+        # Use an explicit binormal mean from dump metadata when available.
+        Ly_default = float(np.mean(dy_int, axis=0).sum())
     else:
         nx = nx_full
         ny = ny_full
-        Lx = float(dx.mean() * nx_full)
-        Ly = float(dy.mean() * ny_full)
+        Lx_default = float(dx.mean() * nx_full)
+        Ly_default = float(dy.mean() * ny_full)
 
     geom = dict(cfg.get("geometry", {}))
+    Lx_cfg = geom.get("Lx", None)
+    Ly_cfg = geom.get("Ly", None)
+    if override_lengths or Lx_cfg is None:
+        if hermes_dx_mean is not None:
+            Lx = float(hermes_dx_mean * nx)
+        else:
+            Lx = Lx_default
+    else:
+        Lx = float(Lx_cfg)
+    if override_lengths or Ly_cfg is None:
+        if hermes_binormal_mean is not None:
+            Ly = float(hermes_binormal_mean * ny)
+        else:
+            Ly = Ly_default
+    else:
+        Ly = float(Ly_cfg)
+
     geom["nx"] = nx
     geom["ny"] = ny
     geom["Lx"] = Lx
@@ -1105,9 +1161,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--hermes-parallel-axis",
-        default="z",
+        default="y",
         choices=("y", "z"),
         help="Which Hermes axis corresponds to parallel direction (y or z).",
+    )
+    parser.add_argument(
+        "--override-lengths-from-hermes",
+        action="store_true",
+        help=(
+            "Override geometry Lx/Ly using Hermes spacing metadata. By default only nx/ny "
+            "are overridden to avoid mixing parallel and binormal length scales."
+        ),
     )
     parser.add_argument(
         "--hermes-shifted",
@@ -1274,12 +1338,16 @@ def main() -> None:
         hermes_dy_mean = None
         hermes_dz_mean = None
     if args.hermes_grid and not args.skip_geometry_override:
+        hermes_binormal_mean = hermes_dy_mean
+        if str(args.hermes_parallel_axis).lower() == "y":
+            hermes_binormal_mean = hermes_dz_mean
         cfg = _override_geometry_from_hermes(
             cfg,
             Path(args.hermes_grid),
             hermes_meta=hermes_meta,
             hermes_dx_mean=hermes_dx_mean,
-            hermes_dy_mean=hermes_dy_mean,
+            hermes_binormal_mean=hermes_binormal_mean,
+            override_lengths=bool(args.override_lengths_from_hermes),
         )
     start_index = int(max(0, args.start_index))
     if args.time_target is not None:
@@ -1368,7 +1436,12 @@ def main() -> None:
             hermes_fields_aligned["Vi"] = hermes_fields_aligned["NVd+"] / (aa_i * Nlim)
         snapshots["n"] = np.asarray(hermes_fields_aligned["Ne"], dtype=np.float64)
         snapshots["omega"] = np.asarray(hermes_fields_aligned["Vort"], dtype=np.float64)
-        snapshots["Te"] = np.asarray(hermes_fields_aligned["Te"], dtype=np.float64)
+        te_src = "Te"
+        if bool(getattr(built.system.params, "source_Te_is_pressure", False)) and (
+            "Pe" in hermes_fields_aligned
+        ):
+            te_src = "Pe"
+        snapshots["Te"] = np.asarray(hermes_fields_aligned[te_src], dtype=np.float64)
         snapshots["phi"] = np.asarray(hermes_fields_aligned["phi"], dtype=np.float64)
         snapshots["vpar_e"] = np.asarray(
             hermes_fields_aligned.get("Ve", np.zeros_like(snapshots["n"])), dtype=np.float64
@@ -1578,14 +1651,23 @@ def main() -> None:
         [
             "step",
             "t",
+            "crop_x",
             "omega_ref_rms",
             "omega_from_phi_rms",
             "omega_from_phi_corr",
             "omega_from_phi_scale",
+            "omega_ref_rms_core",
+            "omega_from_phi_rms_core",
+            "omega_from_phi_corr_core",
+            "omega_from_phi_scale_core",
             "phi_ref_rms",
             "phi_from_omega_rms",
             "phi_from_omega_corr",
             "phi_from_omega_scale",
+            "phi_ref_rms_core",
+            "phi_from_omega_rms_core",
+            "phi_from_omega_corr_core",
+            "phi_from_omega_scale_core",
         ],
     )
     fail_fields = _split_csv_set(args.fail_fast_fields)

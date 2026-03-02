@@ -332,6 +332,9 @@ class NumericsParams(eqx.Module):
     poisson_b_weighted_mode: Literal["scaled", "hermes"] = "scaled"
     # Hermes-style split of k_y=0 component (LaplaceXY) vs k_y!=0 (Laplacian).
     poisson_split_n0: bool = False
+    # BOUT/Hermes INVERT_SET-style Poisson boundary handling: use field/guess
+    # boundary values as Dirichlet data in non-periodic x.
+    poisson_invert_set: bool = False
     poisson_metric_on: bool = False
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_force_spectral_when_periodic: bool = True

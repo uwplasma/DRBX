@@ -23,8 +23,8 @@ dealias = true
 nx = 32
 ny = 48
 nz = 48
-Lx = 0.9364262194767533
-Ly = 1.2566370614359172
+Lx = 5043.46089151533
+Ly = 9.42477796076938
 theta_scale = 1.0
 
 [physics]
@@ -101,8 +101,9 @@ dpar_factor_scale = 1.0
 use_gpar_flux = false
 parallel_transform = "shifted"
 poisson_b_weighted = true
+poisson_invert_set = true
 poisson_metric_on = true
-poisson_scale = 2.0e-4
+poisson_scale = 1.0
 poisson_b_weighted_mode = "hermes"
 poisson_split_n0 = false
 perp_operator = "fd"
