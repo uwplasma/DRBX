@@ -10,42 +10,21 @@ fully reproducible without external code.
 ## Tokamak SOL Benchmark Panel
 
 ![Tokamak SOL canonical benchmark panel](figures/tokamak_sol_benchmark_panel.png)
+![Tokamak SOL poloidal fluctuation](figures/tokamak_sol_poloidal_fluct.png)
 ![Tokamak SOL poloidal movie](figures/tokamak_sol_movie.gif)
 ![Tokamak SOL 3D cut movie](figures/tokamak_sol_3d_movie.gif)
 
-Generate canonical Hermes-vs-jax_drb panel (latest calibrated short window):
+Generate panel + movies in one command:
 
 ```bash
-python tools/plot_benchmark_panel.py \
-  --hermes <run-dir>/bundle_hermes_short.npz \
-  --jax <run-dir>/bundle_jax_short.npz \
-  --out docs/figures/tokamak_sol_benchmark_panel.png \
-  --summary-csv docs/figures/tokamak_sol_benchmark_panel.csv
-
-# staged short window from calibrated benchmark config
-python tools/run_staged_benchmark.py \
-  --config examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_calibrated.toml \
-  --stages short:0.1 \
-  --max-growth-factor 400 \
-  --max-rms-abs 50 \
-  --out-dir <run-dir>
-```
-
-Generate long-window aligned movies:
-
-python tools/make_poloidal_movie.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align_with_fluct.npz \
-  --config examples/open_field_line/input_tokamak_bxcv_t1_align.toml \
-  --field snapshots_n --fluct zonal --lowpass 0.06 --symmetric \
-  --stride 12 --skip-fraction 0.35 --range-tail --tail-fraction 0.35 \
-  --range-scale 0.9 --interp-grid 320 \
-  --out docs/figures/tokamak_sol_movie.gif
-
-python tools/make_tokamak_3d_movie.py <run-dir>/jaxdrb_open_field_tokamak_bxcv_t1_align_with_fluct.npz \
-  --config examples/open_field_line/input_tokamak_bxcv_t1_align.toml \
-  --field snapshots_n --time-stride 20 --skip-fraction 0.35 \
-  --fluct zonal --symmetric --range-tail --tail-fraction 0.35 \
-  --phi-cut-1 -0.523599 --phi-cut-2 0.523599 --theta-cut 3.14159 \
-  --out docs/figures/tokamak_sol_3d_movie.gif
+PYTHONPATH=src python tools/run_tokamak_hermes_benchmark.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_es_cold.toml \
+  --hermes-data runs/hermes_open_field_short/data \
+  --out-dir runs/tokamak_benchmark_latest \
+  --fig-dir docs/figures \
+  --t-end-short 0.1 \
+  --t-end-visual 1.2 \
+  --field n
 ```
 
 ## Nonlinear Snapshot Panel

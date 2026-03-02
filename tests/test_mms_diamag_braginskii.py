@@ -114,15 +114,17 @@ def test_coupled_diffusion_and_diamag_mms() -> None:
             },
         },
     )
-    kx = 1.0
-    ky = 2.0
+    kx_n = 1.0
+    ky_n = 2.0
+    kx_ti = 2.0
+    ky_ti = 1.0
+    tau_i = 1.0
     errors = []
     for n in (16, 32, 64):
         geom = _make_geom(n, n, params)
-        p_i = _mms_field(geom.grid, kx, ky)
-        nfield = _mms_field(geom.grid, kx, ky)
-        Ti = p_i - nfield
-        Te = _mms_field(geom.grid, kx, ky)
+        nfield = _mms_field(geom.grid, kx_n, ky_n)
+        Ti = _mms_field(geom.grid, kx_ti, ky_ti)
+        Te = _mms_field(geom.grid, kx_n, ky_n)
         state = DRBSystemState(
             n=nfield,
             omega=jnp.zeros_like(nfield),
@@ -135,10 +137,11 @@ def test_coupled_diffusion_and_diamag_mms() -> None:
         )
         ctx = build_context(params, geom, state)
         term_diff = classical_diffusion_terms(ctx, state)
-        term_diamag = _diamagnetic_polarisation_term(params, geom, nfield, Ti, BC2D.periodic())
-        exact = -(kx**2 + ky**2) * nfield
+        n_diamag = jnp.ones_like(nfield)
+        term_diamag = _diamagnetic_polarisation_term(params, geom, n_diamag, Ti, BC2D.periodic())
+        exact = -(kx_n**2 + ky_n**2) * nfield
         combined = term_diff.n + term_diamag
-        exact_combined = exact + (-(kx**2 + ky**2) * p_i)
+        exact_combined = exact + (-(kx_ti**2 + ky_ti**2) * (tau_i * Ti))
         errors.append(_l2_error(np.asarray(combined), np.asarray(exact_combined)))
     assert errors[1] < errors[0]
     assert errors[2] < errors[1]

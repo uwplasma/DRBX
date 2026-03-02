@@ -15,3 +15,20 @@ Outputs:
 - `docs/figures/open_field_poloidal_eq.png`
 - `docs/figures/open_field_poloidal_fluct.png`
 - `docs/figures/open_field_movie.gif`
+
+## Hermes Benchmark Workflow
+
+```bash
+PYTHONPATH=src python tools/run_tokamak_hermes_benchmark.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_es_cold.toml \
+  --hermes-data runs/hermes_open_field_short/data \
+  --out-dir runs/tokamak_benchmark_latest \
+  --fig-dir docs/figures \
+  --t-end-short 0.1 \
+  --t-end-visual 1.2
+```
+
+This generates:
+- short-window Hermes-vs-jax parity panel (`docs/figures/tokamak_sol_benchmark_panel.png`)
+- poloidal fluctuation snapshot (with open/closed overlay when `mask_open` is available in coefficients)
+- poloidal and 3D tokamak turbulence GIFs

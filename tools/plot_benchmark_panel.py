@@ -10,23 +10,28 @@ import numpy as np
 from jaxdrb.benchmarking import load_bundle_npz
 
 
-def _as_plane(a: np.ndarray) -> np.ndarray:
+def _as_plane(a: np.ndarray, plane: str) -> np.ndarray:
     arr = np.asarray(a, dtype=np.float64)
     if arr.ndim == 2:
         return arr
     if arr.ndim == 3:
-        return arr[:, :, arr.shape[2] // 2]
+        if plane == "xy":
+            # Canonical field layout: (x, y, z_parallel)
+            return arr[:, :, arr.shape[2] // 2]
+        if plane == "xz":
+            return arr[:, arr.shape[1] // 2, :]
+        raise ValueError(f"Unsupported plane '{plane}'")
     raise ValueError(f"Expected 2D/3D snapshot, got shape={arr.shape}")
 
 
-def _pick_snapshot(bundle, field: str, use_fluct: bool) -> np.ndarray:
+def _pick_snapshot(bundle, field: str, use_fluct: bool, plane: str) -> np.ndarray:
     key = f"{field}_fluct_last" if use_fluct else f"{field}_last"
     if key not in bundle.snapshots:
         alt = f"{field}_last"
         if alt not in bundle.snapshots:
             raise KeyError(f"Missing snapshot key '{key}' and '{alt}'")
         key = alt
-    return _as_plane(bundle.snapshots[key])
+    return _as_plane(bundle.snapshots[key], plane)
 
 
 def _shared_symmetric_range(a: np.ndarray, b: np.ndarray, q: float = 99.5) -> tuple[float, float]:
@@ -74,6 +79,82 @@ def _diag(bundle, key: str) -> np.ndarray | None:
     return np.asarray(bundle.diagnostics[key], dtype=np.float64)
 
 
+def _load_poloidal_grid(
+    coeff_path: str | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None] | None:
+    if not coeff_path:
+        return None
+    coeffs = np.load(coeff_path)
+    if "Rxy" not in coeffs or "Zxy" not in coeffs:
+        return None
+    R = np.asarray(coeffs["Rxy"], dtype=np.float64)
+    Z = np.asarray(coeffs["Zxy"], dtype=np.float64)
+    mask_open = np.asarray(coeffs["mask_open"], dtype=np.float64) if "mask_open" in coeffs else None
+    return R, Z, mask_open
+
+
+def _plot_snapshot(
+    ax,
+    data: np.ndarray,
+    *,
+    title: str,
+    cmap: str,
+    vmin: float,
+    vmax: float,
+    plane: str,
+    poloidal_grid: tuple[np.ndarray, np.ndarray, np.ndarray | None] | None,
+) -> None:
+    if plane == "xz" and poloidal_grid is not None:
+        Rxy, Zxy, mask_open = poloidal_grid
+        # Snapshot is (x,z); grid is typically (x,z) as Rxy/Zxy in coeff files.
+        vals = data
+        R = Rxy
+        Z = Zxy
+        if R.shape != vals.shape:
+            if R.T.shape == vals.shape:
+                R, Z = R.T, Zxy.T
+            elif R.shape == vals.T.shape:
+                vals = vals.T
+            elif R.T.shape == vals.T.shape:
+                R, Z, vals = R.T, Zxy.T, vals.T
+            else:
+                vals = _resample2d(vals, R.shape)
+        im = ax.pcolormesh(
+            R,
+            Z,
+            vals,
+            shading="gouraud",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        if mask_open is not None:
+            mask_plot = mask_open
+            if mask_plot.shape != R.shape:
+                if mask_plot.T.shape == R.shape:
+                    mask_plot = mask_plot.T
+                else:
+                    mask_plot = _resample2d(mask_plot, R.shape)
+            ax.contour(
+                R,
+                Z,
+                mask_plot,
+                levels=[0.5],
+                colors="white",
+                linewidths=1.2,
+                linestyles="--",
+            )
+        ax.set_aspect("equal")
+        ax.set_xlabel("R")
+        ax.set_ylabel("Z")
+    else:
+        im = ax.imshow(data.T, origin="lower", cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+    ax.set_title(title)
+    return im
+
+
 def _save_summary_csv(path: Path, rows: list[tuple[str, float, float, float]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -96,6 +177,17 @@ def main() -> None:
         default="fluct",
         help="Use fluctuation snapshot (default) or total field snapshot.",
     )
+    parser.add_argument(
+        "--plane",
+        choices=("xy", "xz"),
+        default="xz",
+        help="Plane used for snapshot row: xy (mid parallel) or xz (mid binormal).",
+    )
+    parser.add_argument(
+        "--coeff-path",
+        default="",
+        help="Optional axisymmetric coefficient .npz (Rxy/Zxy/mask_open) for poloidal plots.",
+    )
     parser.add_argument("--dpi", type=int, default=220)
     args = parser.parse_args()
 
@@ -103,8 +195,9 @@ def main() -> None:
     jax = load_bundle_npz(args.jax)
 
     use_fluct = args.snapshot_mode == "fluct"
-    h_snap = _pick_snapshot(hermes, args.field, use_fluct)
-    j_snap = _pick_snapshot(jax, args.field, use_fluct)
+    h_snap = _pick_snapshot(hermes, args.field, use_fluct, args.plane)
+    j_snap = _pick_snapshot(jax, args.field, use_fluct, args.plane)
+    poloidal_grid = _load_poloidal_grid(args.coeff_path)
 
     h_times = np.asarray(hermes.times_norm, dtype=np.float64)
     j_times = np.asarray(jax.times_norm, dtype=np.float64)
@@ -118,34 +211,45 @@ def main() -> None:
     suffix = "'" if use_fluct else ""
 
     ax = fig.add_subplot(gs[0, 0])
-    im = ax.imshow(h_snap.T, origin="lower", cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
-    ax.set_title(f"Hermes {args.field}{suffix}")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
+    im = _plot_snapshot(
+        ax,
+        h_snap,
+        title=f"Hermes {args.field}{suffix}",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        plane=args.plane,
+        poloidal_grid=poloidal_grid,
+    )
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     ax = fig.add_subplot(gs[0, 1])
-    im = ax.imshow(j_snap.T, origin="lower", cmap=cmap, vmin=vmin, vmax=vmax, aspect="auto")
-    ax.set_title(f"jax_drb {args.field}{suffix}")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
+    im = _plot_snapshot(
+        ax,
+        j_snap,
+        title=f"jax_drb {args.field}{suffix}",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        plane=args.plane,
+        poloidal_grid=poloidal_grid,
+    )
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     ax = fig.add_subplot(gs[0, 2])
     j_for_diff = j_snap if h_snap.shape == j_snap.shape else _resample2d(j_snap, h_snap.shape)
     diff = j_for_diff - h_snap
     dvmin, dvmax = _shared_symmetric_range(diff, diff)
-    im = ax.imshow(
-        diff.T,
-        origin="lower",
+    im = _plot_snapshot(
+        ax,
+        diff,
+        title="jax_drb - Hermes",
         cmap="coolwarm",
         vmin=dvmin,
         vmax=dvmax,
-        aspect="auto",
+        plane=args.plane,
+        poloidal_grid=poloidal_grid,
     )
-    ax.set_title("jax_drb - Hermes")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
     # Row 2: RMS fluct, ky PSD, f PSD
