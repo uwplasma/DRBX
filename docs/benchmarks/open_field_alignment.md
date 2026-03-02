@@ -3,6 +3,33 @@
 This workflow aligns `jax_drb` and Hermes on the same open-field tokamak case,
 using the same normalization convention and fluctuation diagnostics.
 
+## One-Command Workflow
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/run_tokamak_hermes_benchmark.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_es_cold.toml \
+  --hermes-data runs/hermes_open_field_short/data \
+  --out-dir runs/tokamak_benchmark_latest \
+  --fig-dir docs/figures \
+  --t-end-short 0.1 \
+  --t-end-visual 0.12 \
+  --field n
+```
+
+Outputs:
+- `runs/tokamak_benchmark_latest/jax_short.npz`
+- `runs/tokamak_benchmark_latest/bundle_jax_short.npz`
+- `runs/tokamak_benchmark_latest/bundle_hermes_short.npz`
+- `docs/figures/tokamak_sol_benchmark_panel.png`
+- `docs/figures/tokamak_sol_poloidal_fluct.png`
+- `docs/figures/tokamak_sol_movie.gif`
+- `docs/figures/tokamak_sol_3d_movie.gif`
+
+The benchmark panel uses the **poloidal (`x-z`) plane** with tokamak
+`Rxy/Zxy` geometry mapping. If the coefficient file includes `mask_open`,
+the open/closed boundary is overlaid on the snapshot row.
+
 Base alignment config:
 - `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment.toml`
 - Calibrated short-window config:

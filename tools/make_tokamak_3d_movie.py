@@ -18,7 +18,7 @@ def _find_field(data: np.lib.npyio.NpzFile, field: str) -> np.ndarray:
     else:
         raise ValueError(f"Missing '{field}' or 'snapshots_{field}' in output.")
     if arr.ndim != 4:
-        raise ValueError(f"Expected 4D snapshots (t,nz,nx,ny), got shape {arr.shape}")
+        raise ValueError(f"Expected 4D snapshots, got shape {arr.shape}")
     return arr
 
 
@@ -72,18 +72,34 @@ def main() -> None:
     if "Rxy" not in coeffs or "Zxy" not in coeffs:
         raise ValueError("Coefficient file must include Rxy and Zxy.")
 
-    R = np.asarray(coeffs["Rxy"]).T  # (nz, nx)
-    Z = np.asarray(coeffs["Zxy"]).T  # (nz, nx)
+    R = np.asarray(coeffs["Rxy"])  # expected (nx, ny)
+    Z = np.asarray(coeffs["Zxy"])  # expected (nx, ny)
     z_coord = np.asarray(coeffs["z"]).reshape(-1)
-    theta_scale = float(geom.get("theta_scale", 1.0))
-    theta = z_coord / max(theta_scale, 1e-8)
-    ny = int(geom.get("ny", R.shape[1]))
-    Ly = float(geom.get("Ly", 2.0 * np.pi))
-    phi = np.linspace(0.0, Ly, ny, endpoint=False) * (2.0 * np.pi / max(Ly, 1e-12))
+    # z_coord in converted tokamak coefficients is the toroidal-like coordinate.
+    zmin = float(np.min(z_coord))
+    zspan = float(np.ptp(z_coord))
+    if zspan <= 1e-12:
+        phi = np.linspace(0.0, 2.0 * np.pi, z_coord.size, endpoint=False)
+    else:
+        phi = 2.0 * np.pi * (z_coord - zmin) / zspan
 
     data = np.load(args.input)
     frames = _find_field(data, args.field)
     frames = np.nan_to_num(frames, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Reconcile orientation: expect (t, nz, nx, ny) with R/Z as (nx, ny).
+    if frames.shape[2:] != R.shape:
+        if frames.shape[2:] == R.T.shape:
+            R = R.T
+            Z = Z.T
+        else:
+            raise ValueError(
+                f"Field geometry mismatch: snapshots have (nx,ny)={frames.shape[2:]}, "
+                f"but coefficients provide {R.shape}."
+            )
+    if phi.size != frames.shape[1]:
+        # Fall back to uniform angle over available toroidal index.
+        phi = np.linspace(0.0, 2.0 * np.pi, frames.shape[1], endpoint=False)
 
     if args.fluct == "mean":
         frames = frames - frames.mean(axis=(1, 2, 3), keepdims=True)
@@ -108,27 +124,31 @@ def main() -> None:
     cmap = plt.get_cmap("coolwarm")
 
     sx = max(int(args.x_step), 1)
-    sy = max(int(args.y_step), 1)
-    sz = max(int(args.z_step), 1)
+    sy = max(int(args.y_step), 1)  # poloidal index
+    sz = max(int(args.z_step), 1)  # toroidal index
 
-    R_sub = R[::sz, ::sx]
-    Z_sub = Z[::sz, ::sx]
-    phi_sub = phi[::sy]
+    R_sub = R[::sx, ::sy]
+    Z_sub = Z[::sx, ::sy]
+    phi_sub = phi[::sz]
 
-    iy1 = _nearest_idx(phi, float(args.phi_cut_1))
-    iy2 = _nearest_idx(phi, float(args.phi_cut_2))
-    iz = _nearest_idx(theta, float(args.theta_cut))
+    iz1 = _nearest_idx(phi, float(args.phi_cut_1))
+    iz2 = _nearest_idx(phi, float(args.phi_cut_2))
+    # Infer poloidal angle from inner radial ring.
+    R0 = float(np.mean(R[0, :]))
+    Z0 = float(np.mean(Z[0, :]))
+    theta = np.unwrap(np.arctan2(Z[0, :] - Z0, R[0, :] - R0))
+    iy = _nearest_idx(theta, float(args.theta_cut))
 
-    phi1 = float(phi[iy1])
-    phi2 = float(phi[iy2])
+    phi1 = float(phi[iz1])
+    phi2 = float(phi[iz2])
 
     X_phi1 = R_sub * np.cos(phi1)
     Y_phi1 = R_sub * np.sin(phi1)
     X_phi2 = R_sub * np.cos(phi2)
     Y_phi2 = R_sub * np.sin(phi2)
 
-    R_tor = R[iz, ::sx]
-    Z_tor = Z[iz, ::sx]
+    R_tor = R[::sx, iy]
+    Z_tor = Z[::sx, iy]
     Phi_g, R_g = np.meshgrid(phi_sub, R_tor, indexing="xy")
     Z_g = np.repeat(Z_tor[:, None], phi_sub.size, axis=1)
     X_tor = R_g * np.cos(Phi_g)
@@ -150,9 +170,9 @@ def main() -> None:
         fig = plt.figure(figsize=(9.5, 7.5), constrained_layout=True)
         ax = fig.add_subplot(111, projection="3d")
 
-        vals_phi1 = frame[::sz, ::sx, iy1]
-        vals_phi2 = frame[::sz, ::sx, iy2]
-        vals_tor = frame[iz, ::sx, ::sy]
+        vals_phi1 = frame[iz1, ::sx, ::sy]
+        vals_phi2 = frame[iz2, ::sx, ::sy]
+        vals_tor = frame[::sz, ::sx, iy].T
 
         ax.plot_surface(
             X_phi1,
@@ -192,7 +212,7 @@ def main() -> None:
         ax.set_title(
             f"Tokamak turbulence cuts: "
             f"$\\phi={phi1:+.2f}, {phi2:+.2f}$ rad, "
-            f"$\\theta={theta[iz]:+.2f}$ rad, "
+            f"$\\theta={theta[iy]:+.2f}$ rad, "
             f"t={times[i]:.3f}"
         )
         ax.set_xlabel("X")

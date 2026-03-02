@@ -12,15 +12,31 @@ from jaxdrb.io import load_config
 from plot_utils import maybe_lowpass
 
 
-def _extract_frames(arr: np.ndarray, y_index: int | None) -> np.ndarray:
+def _extract_frames(
+    arr: np.ndarray, target_shape: tuple[int, int] | None, y_index: int | None
+) -> np.ndarray:
     if arr.ndim == 3:
         # (t, nx, ny) plane
         return arr
-    if arr.ndim == 4:
-        # (t, nz, nx, ny) field-aligned: slice at fixed toroidal angle
-        y0 = y_index if y_index is not None else arr.shape[-1] // 2
-        return arr[:, :, :, y0]
-    raise ValueError(f"Unsupported snapshot shape: {arr.shape}")
+    if arr.ndim != 4:
+        raise ValueError(f"Unsupported snapshot shape: {arr.shape}")
+
+    # Try all possible slice axes for (t, a, b, c) and match plotting grid.
+    if target_shape is not None:
+        axes = [1, 3, 2] if y_index is not None else [1, 2, 3]
+        for axis in axes:
+            idx = y_index if (y_index is not None and axis == axes[0]) else arr.shape[axis] // 2
+            idx = int(np.clip(idx, 0, arr.shape[axis] - 1))
+            frames = np.take(arr, idx, axis=axis)
+            shape2 = frames.shape[1:]
+            if shape2 == target_shape:
+                return frames
+            if shape2[::-1] == target_shape:
+                return frames.transpose(0, 2, 1)
+
+    # Fallback to legacy behavior.
+    y0 = y_index if y_index is not None else arr.shape[-1] // 2
+    return arr[:, :, :, int(np.clip(y0, 0, arr.shape[-1] - 1))]
 
 
 def main() -> None:
@@ -125,10 +141,20 @@ def main() -> None:
             z = np.linspace(-0.5 * Lz, 0.5 * Lz, nz, endpoint=True)
         theta = z / max(theta_scale, 1e-8)
 
+    if coeffs is not None and ("Rxy" in coeffs) and ("Zxy" in coeffs):
+        R = np.asarray(coeffs["Rxy"]).T
+        Z = np.asarray(coeffs["Zxy"]).T
+    else:
+        r = x * (r_minor / max(Lx, 1e-8))
+        R = R0 + r[None, :] * np.cos(theta[:, None])
+        Z = r[None, :] * np.sin(theta[:, None])
+
     data = np.load(args.input)
     if args.field not in data:
         raise ValueError(f"Missing '{args.field}' in output.")
-    frames = _extract_frames(np.asarray(data[args.field]), args.y_index)
+    frames = _extract_frames(
+        np.asarray(data[args.field]), target_shape=R.shape, y_index=args.y_index
+    )
     frames = frames[:: max(args.stride, 1)]
     if args.skip_fraction > 0.0:
         start = int(max(0, min(frames.shape[0] - 1, args.skip_fraction * frames.shape[0])))
@@ -147,14 +173,6 @@ def main() -> None:
 
     frames = frames * float(args.field_scale)
     frames = np.nan_to_num(frames, nan=0.0, posinf=0.0, neginf=0.0)
-
-    if coeffs is not None and ("Rxy" in coeffs) and ("Zxy" in coeffs):
-        R = np.asarray(coeffs["Rxy"]).T
-        Z = np.asarray(coeffs["Zxy"]).T
-    else:
-        r = x * (r_minor / max(Lx, 1e-8))
-        R = R0 + r[None, :] * np.cos(theta[:, None])
-        Z = r[None, :] * np.sin(theta[:, None])
     tri = mtri.Triangulation(R.ravel(), Z.ravel())
     interp_grid = int(args.interp_grid)
     if interp_grid > 0:
