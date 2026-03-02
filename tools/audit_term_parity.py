@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import json
 from dataclasses import asdict
 from pathlib import Path
 import tomllib
 
 import numpy as np
+import jax.numpy as jnp
 
 E_CHARGE = 1.602176634e-19
 M_PROTON = 1.67262192369e-27
@@ -318,10 +320,17 @@ def _build_snapshot_fields(state) -> list[str]:
 
 
 def _compute_term_metrics(
-    system, snapshots: dict[str, np.ndarray], times: np.ndarray, *, start_index: int, nsteps: int
+    system,
+    snapshots: dict[str, np.ndarray],
+    times: np.ndarray,
+    *,
+    start_index: int,
+    nsteps: int,
+    phi_override: np.ndarray | None = None,
 ):
     from jaxdrb.core.state import DRBSystemState
     from jaxdrb.core.terms import build_context
+    import equinox as eqx
 
     out_rows: list[dict[str, object]] = []
     total_rows: list[dict[str, object]] = []
@@ -342,6 +351,12 @@ def _compute_term_metrics(
             N=None if "N" not in snapshots else snapshots["N"][idx],
         )
         ctx = build_context(system.params, system.geom, y, return_phi_iters=True)
+        if phi_override is not None:
+            ctx = eqx.tree_at(
+                lambda c: c.phi,
+                ctx,
+                jnp.asarray(phi_override[idx], dtype=ctx.phi.dtype),
+            )
         split, term_map = system.scheduler.run_with_terms(ctx, y)
         total = split.total()
         pe_adv_override = None
@@ -450,9 +465,11 @@ def _compute_hermes_term_metrics(
     start_index: int,
     nsteps: int,
     ddt_scale: float,
+    step_offset: int = 0,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    nsteps = int(max(0, min(nsteps, fields["Ne"].shape[0] - start_index)))
+    nt = int(fields["Ne"].shape[0])
+    nsteps = int(max(0, nsteps))
 
     def _add_rows(arr: np.ndarray, field: str, term: str, step: int, tval: float):
         a = np.asarray(arr, dtype=np.float64)
@@ -471,8 +488,6 @@ def _compute_hermes_term_metrics(
     for name, arr in fields.items():
         if not name.startswith("term_"):
             continue
-        if arr.shape[0] < start_index + nsteps:
-            continue
         if name.startswith("term_Ne_"):
             field = "n"
             term = name[len("term_Ne_") :]
@@ -486,27 +501,30 @@ def _compute_hermes_term_metrics(
             field = "unknown"
             term = name
         for ti in range(nsteps):
-            idx = int(start_index + ti)
+            idx = int(start_index + ti + step_offset)
+            if idx < 0 or idx >= nt or idx >= arr.shape[0]:
+                continue
             _add_rows(arr[idx] * ddt_scale, field, term, ti, times[idx])
 
     # Derive Te-term contributions when possible: dTe = (dP - Te * dN) / N
     if "Ne" in fields and "Te" in fields:
-        Ne = fields["Ne"][start_index : start_index + nsteps]
-        Te = fields["Te"][start_index : start_index + nsteps]
-        Nlim = np.maximum(Ne, 1e-12)
         # Collect suffixes available in pressure terms
         pe_terms = {name[len("term_Pe_") :]: name for name in fields if name.startswith("term_Pe_")}
         for suffix, name in pe_terms.items():
-            pterm = fields[name][start_index : start_index + nsteps] * ddt_scale
-            nterm_name = f"term_Ne_{suffix}"
-            if nterm_name in fields:
-                nterm = fields[nterm_name][start_index : start_index + nsteps] * ddt_scale
-            else:
-                nterm = 0.0
-            dte = (pterm - Te * nterm) / Nlim
             for ti in range(nsteps):
-                idx = int(start_index + ti)
-                _add_rows(dte[ti], "Te", suffix, ti, times[idx])
+                idx = int(start_index + ti + step_offset)
+                if idx < 0 or idx >= nt or idx >= fields[name].shape[0]:
+                    continue
+                Ne = fields["Ne"][idx]
+                Te = fields["Te"][idx]
+                pterm = fields[name][idx] * ddt_scale
+                nterm_name = f"term_Ne_{suffix}"
+                if nterm_name in fields and idx < fields[nterm_name].shape[0]:
+                    nterm = fields[nterm_name][idx] * ddt_scale
+                else:
+                    nterm = 0.0
+                dte = (pterm - Te * nterm) / np.maximum(Ne, 1e-12)
+                _add_rows(dte, "Te", suffix, ti, times[idx])
 
     return rows
 
@@ -572,46 +590,164 @@ def _compute_hermes_ddt(
     nsteps: int,
     *,
     start_index: int,
+    step_offset: int = 0,
 ) -> dict[str, np.ndarray]:
     ddt: dict[str, np.ndarray] = {}
-
-    def _slice_steps(arr: np.ndarray) -> np.ndarray:
-        return arr[start_index : start_index + nsteps]
+    nt = int(times.size)
+    nsteps = int(max(0, nsteps))
 
     # Prefer direct ddt variables if present (interior values are already extracted).
     if "ddt(Ne)" in fields:
-        ddt["Ne"] = _slice_steps(fields["ddt(Ne)"])
+        rows = []
+        ref_shape = fields["ddt(Ne)"].shape[1:]
+        for ti in range(nsteps):
+            idx = int(start_index + ti + step_offset)
+            if idx < 0 or idx >= fields["ddt(Ne)"].shape[0]:
+                rows.append(np.full(ref_shape, np.nan, dtype=np.float64))
+            else:
+                rows.append(np.asarray(fields["ddt(Ne)"][idx], dtype=np.float64))
+        ddt["Ne"] = np.stack(rows, axis=0)
     if "ddt(Pe)" in fields and "Ne" in fields:
-        dpe = _slice_steps(fields["ddt(Pe)"])
-        n = _slice_steps(fields["Ne"])
-        if "Te" in fields:
-            Te = _slice_steps(fields["Te"])
-        elif "Pe" in fields:
-            Te = _slice_steps(fields["Pe"] / np.maximum(fields["Ne"], 1e-12))
-        else:
-            Te = None
-        if Te is not None:
-            ddt["Te"] = (dpe - Te * ddt.get("Ne", 0.0)) / np.maximum(n, 1e-12)
+        rows = []
+        ref_shape = fields["ddt(Pe)"].shape[1:]
+        for ti in range(nsteps):
+            idx = int(start_index + ti + step_offset)
+            if idx < 0 or idx >= fields["ddt(Pe)"].shape[0] or idx >= fields["Ne"].shape[0]:
+                rows.append(np.full(ref_shape, np.nan, dtype=np.float64))
+                continue
+            dpe = np.asarray(fields["ddt(Pe)"][idx], dtype=np.float64)
+            n = np.asarray(fields["Ne"][idx], dtype=np.float64)
+            if "Te" in fields and idx < fields["Te"].shape[0]:
+                Te = np.asarray(fields["Te"][idx], dtype=np.float64)
+            elif "Pe" in fields and idx < fields["Pe"].shape[0]:
+                Te = np.asarray(fields["Pe"][idx] / np.maximum(fields["Ne"][idx], 1e-12))
+            else:
+                rows.append(np.full(ref_shape, np.nan, dtype=np.float64))
+                continue
+            dne = (
+                np.asarray(ddt["Ne"][ti], dtype=np.float64)
+                if "Ne" in ddt
+                else np.zeros_like(dpe, dtype=np.float64)
+            )
+            rows.append((dpe - Te * dne) / np.maximum(n, 1e-12))
+        ddt["Te"] = np.stack(rows, axis=0)
 
     if "ddt(Vort)" in fields:
-        ddt["Vort"] = _slice_steps(fields["ddt(Vort)"])
+        rows = []
+        ref_shape = fields["ddt(Vort)"].shape[1:]
+        for ti in range(nsteps):
+            idx = int(start_index + ti + step_offset)
+            if idx < 0 or idx >= fields["ddt(Vort)"].shape[0]:
+                rows.append(np.full(ref_shape, np.nan, dtype=np.float64))
+            else:
+                rows.append(np.asarray(fields["ddt(Vort)"][idx], dtype=np.float64))
+        ddt["Vort"] = np.stack(rows, axis=0)
 
     # Fallback to finite differences for missing fields.
-    dt = np.diff(times[start_index : start_index + nsteps + 1])
-    dt = dt.reshape(-1, *([1] * (fields[next(iter(fields))].ndim - 1)))
     for name in ("Ne", "Te", "Vort", "phi"):
         if name in ddt:
             continue
         if name not in fields:
             continue
         arr = fields[name]
-        if arr.shape[0] < start_index + nsteps + 1:
-            raise ValueError(f"Need at least {nsteps + 1} Hermes frames for {name}.")
-        ddt[name] = (
-            arr[start_index + 1 : start_index + nsteps + 1]
-            - arr[start_index : start_index + nsteps]
-        ) / dt
+        rows = []
+        ref_shape = arr.shape[1:]
+        for ti in range(nsteps):
+            idx = int(start_index + ti + step_offset)
+            idxp = idx + 1
+            if idx < 0 or idxp >= arr.shape[0] or idxp >= nt:
+                rows.append(np.full(ref_shape, np.nan, dtype=np.float64))
+                continue
+            dt = float(times[idxp] - times[idx])
+            if abs(dt) <= 0.0:
+                rows.append(np.full(ref_shape, np.nan, dtype=np.float64))
+                continue
+            rows.append((arr[idxp] - arr[idx]) / dt)
+        ddt[name] = np.stack(rows, axis=0)
     return ddt
+
+
+def _compute_poisson_parity_metrics(
+    system,
+    snapshots: dict[str, np.ndarray],
+    times: np.ndarray,
+    *,
+    start_index: int,
+    nsteps: int,
+) -> list[dict[str, object]]:
+    from jaxdrb.core.state import DRBSystemState
+    from jaxdrb.core.terms.bcs import resolve_bcs
+    from jaxdrb.core.terms.fields import omega_from_phi, phi_from_omega, phys_n, phys_Te
+
+    rows: list[dict[str, object]] = []
+    nsteps = int(max(0, min(nsteps, snapshots["n"].shape[0] - start_index)))
+    bcs = resolve_bcs(system.params, system.geom)
+    for ti in range(nsteps):
+        idx = int(start_index + ti)
+        y = DRBSystemState(
+            n=snapshots["n"][idx],
+            omega=snapshots["omega"][idx],
+            vpar_e=snapshots["vpar_e"][idx],
+            vpar_i=snapshots["vpar_i"][idx],
+            Te=snapshots["Te"][idx],
+            Ti=None if "Ti" not in snapshots else snapshots["Ti"][idx],
+            psi=None if "psi" not in snapshots else snapshots["psi"][idx],
+            N=None if "N" not in snapshots else snapshots["N"][idx],
+        )
+        n_phys = phys_n(system.params, y.n)
+        Te_phys = phys_Te(system.params, y.Te)
+        omega_ref = np.asarray(y.omega, dtype=np.float64)
+        phi_ref = np.asarray(snapshots["phi"][idx], dtype=np.float64)
+        omega_from_ref = np.asarray(
+            omega_from_phi(
+                system.params,
+                system.geom,
+                snapshots["phi"][idx],
+                n_phys,
+                bcs.phi,
+                Ti=y.Ti,
+                Te=Te_phys,
+            ),
+            dtype=np.float64,
+        )
+        phi_from_ref = np.asarray(
+            phi_from_omega(
+                system.params, system.geom, y.omega, n_phys, bcs.phi, Ti=y.Ti, Te=Te_phys
+            ),
+            dtype=np.float64,
+        )
+
+        def _corr(a: np.ndarray, b: np.ndarray) -> float:
+            aa = a - float(np.mean(a))
+            bb = b - float(np.mean(b))
+            denom = float(np.sqrt(np.mean(aa * aa)) * np.sqrt(np.mean(bb * bb)))
+            if denom <= 0.0:
+                return 0.0
+            return float(np.mean(aa * bb) / denom)
+
+        def _ls_scale(a: np.ndarray, b: np.ndarray) -> float:
+            # alpha minimizing ||alpha a - b||_2
+            num = float(np.mean(a * b))
+            den = float(np.mean(a * a))
+            if den <= 1e-30:
+                return 0.0
+            return num / den
+
+        rows.append(
+            {
+                "step": int(ti),
+                "t": float(times[idx]),
+                "omega_ref_rms": float(np.sqrt(np.mean(omega_ref * omega_ref))),
+                "omega_from_phi_rms": float(np.sqrt(np.mean(omega_from_ref * omega_from_ref))),
+                "omega_from_phi_corr": _corr(omega_from_ref, omega_ref),
+                "omega_from_phi_scale": _ls_scale(omega_from_ref, omega_ref),
+                "phi_ref_rms": float(np.sqrt(np.mean(phi_ref * phi_ref))),
+                "phi_from_omega_rms": float(np.sqrt(np.mean(phi_from_ref * phi_from_ref))),
+                "phi_from_omega_corr": _corr(phi_from_ref, phi_ref),
+                "phi_from_omega_scale": _ls_scale(phi_from_ref, phi_ref),
+            }
+        )
+    return rows
 
 
 def _align_hermes_fields(
@@ -827,6 +963,41 @@ def _crop_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return a[slicer], b[slicer]
 
 
+def _align_to_shape_strict(arr: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray:
+    """Best-effort alignment for strict comparisons.
+
+    Allows singleton expansion (broadcast) and insertion of singleton axes.
+    """
+    a = np.asarray(arr)
+    if a.shape == target_shape:
+        return a
+
+    # Direct broadcast if already same rank.
+    if a.ndim == len(target_shape):
+        try:
+            return np.broadcast_to(a, target_shape)
+        except ValueError:
+            pass
+
+    # Insert singleton axes and try broadcast.
+    if a.ndim < len(target_shape):
+        add = len(target_shape) - a.ndim
+        for axes in itertools.combinations(range(len(target_shape)), add):
+            shape = list(a.shape)
+            for ax in sorted(axes):
+                shape.insert(ax, 1)
+            try:
+                reshaped = a.reshape(shape)
+            except ValueError:
+                continue
+            try:
+                return np.broadcast_to(reshaped, target_shape)
+            except ValueError:
+                continue
+
+    raise ValueError(f"Cannot strict-align shape {a.shape} -> {target_shape}")
+
+
 def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -960,6 +1131,14 @@ def main() -> None:
         help="Evaluate JAX RHS directly on Hermes snapshots (skip JAX time integration).",
     )
     parser.add_argument(
+        "--use-hermes-phi-in-terms",
+        action="store_true",
+        help=(
+            "For term-level audits, use Hermes phi snapshots directly instead of solving "
+            "phi from omega in JAX. This isolates Poisson-path mismatches."
+        ),
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Print debug info about snapshot selection and scaling.",
@@ -996,6 +1175,15 @@ def main() -> None:
         "--fail-fast-terms",
         default="advection,parallel",
         help="Comma-separated terms considered by fail-fast (default: advection,parallel).",
+    )
+    parser.add_argument(
+        "--hermes-step-offset",
+        type=int,
+        default=0,
+        help=(
+            "Offset applied to Hermes term/ddt indexing relative to JAX step index. "
+            "Useful when Hermes diagnostics are staggered in time."
+        ),
     )
     args = parser.parse_args()
 
@@ -1238,12 +1426,14 @@ def main() -> None:
         if args.strict_axis and axis_map.endswith("unmatched"):
             raise ValueError(f"Axis mapping failed with strict axis mode: {axis_map}")
 
+    phi_override = snapshots["phi"] if bool(args.use_hermes_phi_in_terms) else None
     term_rows, total_rows, total_fields, phi_rows = _compute_term_metrics(
         built.system,
         snapshots,
         times,
         start_index=start_index,
         nsteps=int(args.nsteps),
+        phi_override=phi_override,
     )
     if args.debug and phi_rows:
         print(f"[audit] phi row[0]={phi_rows[0]}")
@@ -1252,6 +1442,7 @@ def main() -> None:
         hermes_fields_aligned,
         int(args.nsteps),
         start_index=start_index,
+        step_offset=int(args.hermes_step_offset),
     )
     hermes_time_unit = _hermes_time_unit(hermes_sections)
     jax_time_unit = None if built.normalization is None else float(built.normalization.time)
@@ -1308,6 +1499,7 @@ def main() -> None:
         start_index=start_index,
         nsteps=int(args.nsteps),
         ddt_scale=ddt_scale,
+        step_offset=int(args.hermes_step_offset),
     )
     term_mismatch_rows = _compute_term_mismatch(term_rows, hermes_term_rows)
     field_map = {"n": "Ne", "Te": "Te", "omega": "Vort", "phi": "phi"}
@@ -1377,6 +1569,25 @@ def main() -> None:
         term_mismatch_rows,
         ["step", "t", "field", "term", "hermes_term", "jax_rms", "hermes_rms", "rel_diff"],
     )
+    poisson_parity_rows = _compute_poisson_parity_metrics(
+        built.system, snapshots, times, start_index=start_index, nsteps=int(args.nsteps)
+    )
+    _write_csv(
+        out_dir / "poisson_parity.csv",
+        poisson_parity_rows,
+        [
+            "step",
+            "t",
+            "omega_ref_rms",
+            "omega_from_phi_rms",
+            "omega_from_phi_corr",
+            "omega_from_phi_scale",
+            "phi_ref_rms",
+            "phi_from_omega_rms",
+            "phi_from_omega_corr",
+            "phi_from_omega_scale",
+        ],
+    )
     fail_fields = _split_csv_set(args.fail_fast_fields)
     fail_terms = _split_csv_set(args.fail_fast_terms)
     first_fail, first_step_rows = _first_failing_term(
@@ -1434,6 +1645,8 @@ def main() -> None:
             "threshold": float(args.fail_fast_rel_diff),
             "first_failing_term": first_fail,
         },
+        "hermes_step_offset": int(args.hermes_step_offset),
+        "use_hermes_phi_in_terms": bool(args.use_hermes_phi_in_terms),
     }
 
     hermes_inp = Path(args.hermes_input) if args.hermes_input else None
@@ -1500,20 +1713,24 @@ def main() -> None:
             for field in field_filter:
                 arr = getattr(total, field, None)
                 if arr is not None:
-                    data[f"total_{field}"] = np.asarray(arr)
+                    arr_np = np.asarray(arr)
                 hermes_key = field_map.get(field)
                 if hermes_key is not None and hermes_key in hermes_ddt:
                     hermes_arr = hermes_ddt[hermes_key][ti]
                     if args.strict_axis:
-                        if arr is not None and hermes_arr.shape != arr.shape:
-                            raise ValueError(
-                                f"Strict axis mismatch for field {field}: "
-                                f"jax {arr.shape} vs hermes {hermes_arr.shape}"
-                            )
+                        if arr is not None:
+                            try:
+                                arr_np = _align_to_shape_strict(arr_np, hermes_arr.shape)
+                            except ValueError as exc:
+                                raise ValueError(
+                                    f"Strict axis mismatch for field {field}: "
+                                    f"jax {arr_np.shape} vs hermes {hermes_arr.shape}"
+                                ) from exc
+                            data[f"total_{field}"] = arr_np
                         data[f"hermes_ddt_{field}"] = np.asarray(hermes_arr)
                     else:
                         if arr is not None:
-                            jax_arr, hermes_arr = _crop_pair(np.asarray(arr), hermes_arr)
+                            jax_arr, hermes_arr = _crop_pair(arr_np, hermes_arr)
                             data[f"total_{field}"] = jax_arr
                         data[f"hermes_ddt_{field}"] = hermes_arr
 
@@ -1552,12 +1769,13 @@ def main() -> None:
                     continue
                 jax_total = np.asarray(total_arr)
                 if args.strict_axis:
-                    if jax_total.shape != hermes_arr.shape:
+                    try:
+                        jax_total_c = _align_to_shape_strict(jax_total, hermes_arr.shape)
+                    except ValueError as exc:
                         raise ValueError(
                             f"Strict axis mismatch for field {field}: "
                             f"jax {jax_total.shape} vs hermes {hermes_arr.shape}"
-                        )
-                    jax_total_c = jax_total
+                        ) from exc
                     hermes_arr_c = hermes_arr
                 else:
                     try:
@@ -1572,12 +1790,13 @@ def main() -> None:
                         continue
                     jax_term = np.asarray(arr)
                     if args.strict_axis:
-                        if jax_term.shape != hermes_arr_c.shape:
+                        try:
+                            jax_term_c = _align_to_shape_strict(jax_term, hermes_arr_c.shape)
+                        except ValueError as exc:
                             raise ValueError(
                                 f"Strict axis mismatch for term {name} field {field}: "
                                 f"jax {jax_term.shape} vs hermes {hermes_arr_c.shape}"
-                            )
-                        jax_term_c = jax_term
+                            ) from exc
                     else:
                         try:
                             jax_term_c, _ = _crop_pair(jax_term, hermes_arr_c)
