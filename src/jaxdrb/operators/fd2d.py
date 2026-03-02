@@ -6,17 +6,42 @@ import jax.numpy as jnp
 from jaxdrb.bc import BC2D
 
 
+def _split_side_value(v):
+    if isinstance(v, (tuple, list)) and len(v) == 2:
+        return v[0], v[1]
+    return v, v
+
+
+def _side_vec(v, *, n: int, dtype):
+    a = jnp.asarray(v, dtype=dtype)
+    if a.ndim == 0:
+        return jnp.full((n,), a, dtype=dtype)
+    if a.ndim == 1 and a.shape[0] == n:
+        return a
+    if a.ndim == 2 and a.shape == (1, n):
+        return a[0]
+    if a.ndim == 2 and a.shape == (n, 1):
+        return a[:, 0]
+    return jnp.broadcast_to(a.reshape((-1,)), (n,))
+
+
 def _pad_x(u: jnp.ndarray, dx: float, bc: BC2D) -> jnp.ndarray:
     # Return u padded with one ghost cell in x at both ends: shape (nx+2, ny).
     if bc.kind_x == 0:
         gl = u[-1:, :]
         gr = u[0:1, :]
     elif bc.kind_x == 1:
-        gl = 2.0 * bc.x_value - u[1:2, :]
-        gr = 2.0 * bc.x_value - u[-2:-1, :]
+        x_left, x_right = _split_side_value(bc.x_value)
+        x_left = _side_vec(x_left, n=u.shape[1], dtype=u.dtype)[None, :]
+        x_right = _side_vec(x_right, n=u.shape[1], dtype=u.dtype)[None, :]
+        gl = 2.0 * x_left - u[1:2, :]
+        gr = 2.0 * x_right - u[-2:-1, :]
     else:
-        gl = u[1:2, :] - 2.0 * dx * bc.x_grad
-        gr = u[-2:-1, :] + 2.0 * dx * bc.x_grad
+        xg_left, xg_right = _split_side_value(bc.x_grad)
+        xg_left = _side_vec(xg_left, n=u.shape[1], dtype=u.dtype)[None, :]
+        xg_right = _side_vec(xg_right, n=u.shape[1], dtype=u.dtype)[None, :]
+        gl = u[1:2, :] - 2.0 * dx * xg_left
+        gr = u[-2:-1, :] + 2.0 * dx * xg_right
     return jnp.concatenate([gl, u, gr], axis=0)
 
 
@@ -26,11 +51,17 @@ def _pad_y(u: jnp.ndarray, dy: float, bc: BC2D) -> jnp.ndarray:
         gl = u[:, -1:]
         gr = u[:, 0:1]
     elif bc.kind_y == 1:
-        gl = 2.0 * bc.y_value - u[:, 1:2]
-        gr = 2.0 * bc.y_value - u[:, -2:-1]
+        y_low, y_high = _split_side_value(bc.y_value)
+        y_low = _side_vec(y_low, n=u.shape[0], dtype=u.dtype)[:, None]
+        y_high = _side_vec(y_high, n=u.shape[0], dtype=u.dtype)[:, None]
+        gl = 2.0 * y_low - u[:, 1:2]
+        gr = 2.0 * y_high - u[:, -2:-1]
     else:
-        gl = u[:, 1:2] - 2.0 * dy * bc.y_grad
-        gr = u[:, -2:-1] + 2.0 * dy * bc.y_grad
+        yg_low, yg_high = _split_side_value(bc.y_grad)
+        yg_low = _side_vec(yg_low, n=u.shape[0], dtype=u.dtype)[:, None]
+        yg_high = _side_vec(yg_high, n=u.shape[0], dtype=u.dtype)[:, None]
+        gl = u[:, 1:2] - 2.0 * dy * yg_low
+        gr = u[:, -2:-1] + 2.0 * dy * yg_high
     return jnp.concatenate([gl, u, gr], axis=1)
 
 
@@ -1132,7 +1163,7 @@ def inv_metric_laplacian_cg(
 ) -> jnp.ndarray:
     """Solve ``∇·(G ∇u) = rhs`` using metric coefficients (gxx/gxy/gyy).
 
-    This uses CG on the symmetric operator ``-∇·(G ∇u)`` with gauge fixing for
+    This uses GMRES/BiCGStab on ``-∇·(G ∇u)`` with gauge fixing for
     periodic/Neumann cases.
     """
 
@@ -1144,7 +1175,9 @@ def inv_metric_laplacian_cg(
 
     diag_est = (jnp.mean(gxx) / dx**2) + (jnp.mean(gyy) / dy**2)
     if gauge_epsilon is None:
-        gauge_epsilon = 1e-12 * float(diag_est)
+        gauge_epsilon = 1e-12 * jnp.asarray(diag_est, dtype=rhs.dtype)
+    else:
+        gauge_epsilon = jnp.asarray(gauge_epsilon, dtype=rhs.dtype)
 
     def _spectral_M(*, shape: tuple[int, int], dx_eff: float, dy_eff: float):
         if k2_precond is None or k2_precond.shape != shape:
@@ -1155,7 +1188,7 @@ def inv_metric_laplacian_cg(
             k2 = kx**2 + ky**2
         else:
             k2 = k2_precond
-        denom = jnp.where(k2 > 0.0, k2, float(gauge_epsilon))
+        denom = jnp.where(k2 > 0.0, k2, gauge_epsilon)
 
         def M(v_flat):
             v = v_flat.reshape(shape)
@@ -1201,14 +1234,58 @@ def inv_metric_laplacian_cg(
         x0_full = jnp.asarray(x0_val)
         return x0_full[1:-1, 1:-1].reshape((-1,))
 
+    def _solve_metric_linear(mv, b, x0_vec, M):
+        # Non-orthogonal metric operators can be weakly non-symmetric with mixed BCs.
+        # GMRES is more robust than CG here; BiCGStab is a fallback if GMRES fails.
+        restart = int(min(20, maxiter))
+        x_gm, info = jax.scipy.sparse.linalg.gmres(
+            mv,
+            b,
+            x0=x0_vec,
+            tol=tol,
+            atol=atol,
+            maxiter=maxiter,
+            restart=restart,
+            M=M,
+        )
+        x_bi, _ = jax.scipy.sparse.linalg.bicgstab(
+            mv,
+            b,
+            x0=x0_vec,
+            tol=tol,
+            atol=atol,
+            maxiter=maxiter,
+            M=M,
+        )
+        ok = jnp.asarray(info) == 0
+        x = jax.lax.cond(ok, lambda _: x_gm, lambda _: x_bi, operand=None)
+        if return_iters:
+            # Iteration counts are solver-internal; expose convergence status instead.
+            iters = jax.lax.cond(
+                ok,
+                lambda _: jnp.asarray(0, dtype=jnp.int32),
+                lambda _: jnp.asarray(maxiter + 1, dtype=jnp.int32),
+                operand=None,
+            )
+            return x, iters
+        return x, None
+
+    def _x_dirichlet_sides():
+        xl, xr = _split_side_value(bc.x_value)
+        return _side_vec(xl, n=ny, dtype=rhs.dtype), _side_vec(xr, n=ny, dtype=rhs.dtype)
+
+    def _y_dirichlet_sides():
+        yl, yr = _split_side_value(bc.y_value)
+        return _side_vec(yl, n=nx, dtype=rhs.dtype), _side_vec(yr, n=nx, dtype=rhs.dtype)
+
     if bc.kind_x == 0 and bc.kind_y == 0:
         rhs0 = rhs - jnp.mean(rhs)
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + float(
-                gauge_epsilon
-            ) * jnp.mean(v)
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + (
+                gauge_epsilon * jnp.mean(v)
+            )
             return out.reshape((-1,))
 
         b = (-rhs0).reshape((-1,))
@@ -1216,61 +1293,97 @@ def inv_metric_laplacian_cg(
         x0_vec = _prep_x0_full(x0, has_null=True)
         if x0_vec is None:
             x0_vec = jnp.zeros_like(b) if M is None else M(b)
-        if return_iters:
-            x, iters = _cg_solve(mv, b, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
-        else:
-            x, _ = jax.scipy.sparse.linalg.cg(
-                mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
-            )
+        x, iters = _solve_metric_linear(mv, b, x0_vec, M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny))
         out = u - jnp.mean(u)
         return (out, iters) if return_iters else out
 
-    if (bc.kind_x == 0 and bc.kind_y != 0) or (bc.kind_x != 0 and bc.kind_y == 0):
-        rhs0 = rhs - jnp.mean(rhs)
+    if bc.kind_x == 1 and bc.kind_y == 0:
+        x_left, x_right = _x_dirichlet_sides()
+
+        def _assemble(v_flat):
+            v = v_flat.reshape((nx - 2, ny))
+            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+            u = u.at[0, :].set(x_left)
+            u = u.at[-1, :].set(x_right)
+            u = u.at[1:-1, :].set(v)
+            return u
 
         def mv(v_flat):
-            v = v_flat.reshape((nx, ny))
-            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + float(
-                gauge_epsilon
-            ) * jnp.mean(v)
-            return out.reshape((-1,))
+            u = _assemble(v_flat)
+            Lu = metric_laplacian(u, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian)
+            return (-Lu[1:-1, :]).reshape((-1,))
 
-        b = (-rhs0).reshape((-1,))
-        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
-        x0_vec = _prep_x0_full(x0, has_null=True)
+        b = (-rhs[1:-1, :]).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx - 2, ny), dx_eff=dx, dy_eff=dy)
+        x0_vec = None
+        if x0 is not None:
+            x0_vec = jnp.asarray(x0)[1:-1, :].reshape((-1,))
         if x0_vec is None:
             x0_vec = jnp.zeros_like(b) if M is None else M(b)
-        if return_iters:
-            x, iters = _cg_solve(mv, b, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
-        else:
-            x, _ = jax.scipy.sparse.linalg.cg(
-                mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
-            )
+        x, iters = _solve_metric_linear(mv, b, x0_vec, M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
-        u = x.reshape((nx, ny))
-        out = u - jnp.mean(u)
-        return (out, iters) if return_iters else out
+        u = _assemble(x)
+        return (u, iters) if return_iters else u
+
+    if bc.kind_x == 0 and bc.kind_y == 1:
+        y_low, y_high = _y_dirichlet_sides()
+
+        def _assemble(v_flat):
+            v = v_flat.reshape((nx, ny - 2))
+            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+            u = u.at[:, 0].set(y_low)
+            u = u.at[:, -1].set(y_high)
+            u = u.at[:, 1:-1].set(v)
+            return u
+
+        def mv(v_flat):
+            u = _assemble(v_flat)
+            Lu = metric_laplacian(u, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian)
+            return (-Lu[:, 1:-1]).reshape((-1,))
+
+        b = (-rhs[:, 1:-1]).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx, ny - 2), dx_eff=dx, dy_eff=dy)
+        x0_vec = None
+        if x0 is not None:
+            x0_vec = jnp.asarray(x0)[:, 1:-1].reshape((-1,))
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, iters = _solve_metric_linear(mv, b, x0_vec, M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = _assemble(x)
+        return (u, iters) if return_iters else u
 
     if bc.kind_x == 1 and bc.kind_y == 1:
+        x_left, x_right = _x_dirichlet_sides()
+        y_low, y_high = _y_dirichlet_sides()
+
+        def _assemble(v_flat):
+            v = v_flat.reshape((nx - 2, ny - 2))
+            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
+            u = u.at[0, :].set(x_left)
+            u = u.at[-1, :].set(x_right)
+            u = u.at[:, 0].set(y_low)
+            u = u.at[:, -1].set(y_high)
+            c00 = 0.5 * (x_left[0] + y_low[0])
+            c01 = 0.5 * (x_left[-1] + y_high[0])
+            c10 = 0.5 * (x_right[0] + y_low[-1])
+            c11 = 0.5 * (x_right[-1] + y_high[-1])
+            u = u.at[0, 0].set(c00)
+            u = u.at[0, -1].set(c01)
+            u = u.at[-1, 0].set(c10)
+            u = u.at[-1, -1].set(c11)
+            u = u.at[1:-1, 1:-1].set(v)
+            return u
+
         b_int = (-rhs[1:-1, 1:-1]).reshape((-1,))
 
         def mv(v_flat):
-            v = v_flat.reshape((nx - 2, ny - 2))
-            u = jnp.zeros((nx, ny), dtype=rhs.dtype)
-            u = u.at[0, :].set(float(bc.x_value))
-            u = u.at[-1, :].set(float(bc.x_value))
-            u = u.at[:, 0].set(float(bc.y_value))
-            u = u.at[:, -1].set(float(bc.y_value))
-            corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
-            u = u.at[0, 0].set(corner)
-            u = u.at[0, -1].set(corner)
-            u = u.at[-1, 0].set(corner)
-            u = u.at[-1, -1].set(corner)
-            u = u.at[1:-1, 1:-1].set(v)
+            u = _assemble(v_flat)
             Lu = metric_laplacian(u, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian)
             return (-Lu[1:-1, 1:-1]).reshape((-1,))
 
@@ -1278,26 +1391,33 @@ def inv_metric_laplacian_cg(
         x0_vec = _prep_x0_dirichlet(x0)
         if x0_vec is None:
             x0_vec = jnp.zeros_like(b_int) if M is None else M(b_int)
-        if return_iters:
-            x, iters = _cg_solve(mv, b_int, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
-        else:
-            x, _ = jax.scipy.sparse.linalg.cg(
-                mv, b_int, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
-            )
+        x, iters = _solve_metric_linear(mv, b_int, x0_vec, M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
-        u = jnp.zeros((nx, ny), dtype=rhs.dtype)
-        u = u.at[0, :].set(float(bc.x_value))
-        u = u.at[-1, :].set(float(bc.x_value))
-        u = u.at[:, 0].set(float(bc.y_value))
-        u = u.at[:, -1].set(float(bc.y_value))
-        corner = 0.5 * (float(bc.x_value) + float(bc.y_value))
-        u = u.at[0, 0].set(corner)
-        u = u.at[0, -1].set(corner)
-        u = u.at[-1, 0].set(corner)
-        u = u.at[-1, -1].set(corner)
-        u = u.at[1:-1, 1:-1].set(x.reshape((nx - 2, ny - 2)))
+        u = _assemble(x)
         return (u, iters) if return_iters else u
+
+    if (bc.kind_x == 0 and bc.kind_y == 2) or (bc.kind_x == 2 and bc.kind_y == 0):
+        rhs0 = rhs - jnp.mean(rhs)
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + (
+                gauge_epsilon * jnp.mean(v)
+            )
+            return out.reshape((-1,))
+
+        b = (-rhs0).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0_vec = _prep_x0_full(x0, has_null=True)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, iters = _solve_metric_linear(mv, b, x0_vec, M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        out = u - jnp.mean(u)
+        return (out, iters) if return_iters else out
 
     if bc.kind_x == 2 and bc.kind_y == 2:
         rhs0 = rhs - jnp.mean(rhs)
@@ -1308,9 +1428,9 @@ def inv_metric_laplacian_cg(
 
         def mv(v_flat):
             v = v_flat.reshape((nx, ny))
-            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + float(
-                gauge_epsilon
-            ) * jnp.mean(v)
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian) + (
+                gauge_epsilon * jnp.mean(v)
+            )
             return out.reshape((-1,))
 
         b = (-rhs_eff).reshape((-1,))
@@ -1318,17 +1438,30 @@ def inv_metric_laplacian_cg(
         x0_vec = _prep_x0_full(x0, has_null=True)
         if x0_vec is None:
             x0_vec = jnp.zeros_like(b) if M is None else M(b)
-        if return_iters:
-            x, iters = _cg_solve(mv, b, x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M)
-        else:
-            x, _ = jax.scipy.sparse.linalg.cg(
-                mv, b, x0=x0_vec, tol=tol, atol=atol, maxiter=maxiter, M=M
-            )
+        x, iters = _solve_metric_linear(mv, b, x0_vec, M)
         if nan_guard:
             x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
         u = x.reshape((nx, ny)) + u_bc
         out = u - jnp.mean(u)
         return (out, iters) if return_iters else out
+
+    if bc.kind_x == 1 or bc.kind_y == 1:
+
+        def mv(v_flat):
+            v = v_flat.reshape((nx, ny))
+            out = -metric_laplacian(v, gxx, gxy, gyy, dx, dy, bc, jacobian=jacobian)
+            return out.reshape((-1,))
+
+        b = (-rhs).reshape((-1,))
+        M = make_M(size=b.size, shape=(nx, ny), dx_eff=dx, dy_eff=dy)
+        x0_vec = _prep_x0_full(x0, has_null=False)
+        if x0_vec is None:
+            x0_vec = jnp.zeros_like(b) if M is None else M(b)
+        x, iters = _solve_metric_linear(mv, b, x0_vec, M)
+        if nan_guard:
+            x = jnp.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        u = x.reshape((nx, ny))
+        return (u, iters) if return_iters else u
 
     raise ValueError(
         "inv_metric_laplacian_cg supports periodic, dirichlet/dirichlet, or neumann/neumann BCs."
