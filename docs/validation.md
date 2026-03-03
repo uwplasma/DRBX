@@ -46,6 +46,7 @@ summarizes the current validation surface and literature anchors.
 | Regression | `tests/test_parity_fv_poisson_solver.py` | spectral Poisson/ω(φ) round-trip and solver-mode regression | parity Poisson/vorticity path |
 | Unit/Physics | `tests/test_parity_fv_sheath.py` | open-field sheath particle/momentum/energy boundary channels | sheath boundary component parity |
 | Regression | `tests/test_parity_fv_one_step_audit_gate.py` | strict one-step term-array regression for parity_fv (step0 and step1 channels) | Phase A one-step parity gate |
+| Regression | `tests/test_parity_fv_short_window_gate.py` | deterministic `t<=0.1` short-window RMS/PSD/finite-run gate for parity_fv | Phase B rewrite-local gate |
 | Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
 | Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
