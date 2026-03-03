@@ -1,3 +1,4 @@
+from .compare import DiagnosticComparison, compare_bundle_diagnostics
 from .diagnostics import (
     compute_cross_coherence_phase,
     compute_fluctuation_rms,
@@ -18,6 +19,8 @@ from .schema import (
 __all__ = [
     "BenchmarkBundle",
     "BenchmarkNormalization",
+    "DiagnosticComparison",
+    "compare_bundle_diagnostics",
     "compute_cross_coherence_phase",
     "compute_fluctuation_rms",
     "compute_frequency_psd",
