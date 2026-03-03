@@ -6,9 +6,11 @@ import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
 
-from .flux_parallel import div_parallel_fv
 from .geometry import ParityFVGeometry
 from .params import ParityFVParams
+from .terms_density import density_parallel_tendency
+from .terms_pressure import pressure_parallel_tendencies
+from .terms_vorticity import vorticity_curvature_tendency, vorticity_parallel_tendency
 
 
 def _zeros_like_state(y: DRBSystemState) -> DRBSystemState:
@@ -77,14 +79,24 @@ class ParityFVSystem:
         limiter: str = "mc",
         poisson_scale: float = 1.0,
         parallel_on: bool = True,
+        curvature_on: bool = True,
         source_n0: float = 0.0,
+        parallel_pressure_flux_coeff: float = 5.0 / 3.0,
+        parallel_pressure_work_coeff: float = 2.0 / 3.0,
+        vorticity_parallel_coeff: float = 1.0,
+        curvature_coeff: float = 1.0,
     ) -> None:
         self.params = params
         self.geom = geom
         self.limiter = str(limiter)
         self.poisson_scale = float(poisson_scale)
         self.parallel_on = bool(parallel_on)
+        self.curvature_on = bool(curvature_on)
         self.source_n0 = float(source_n0)
+        self.parallel_pressure_flux_coeff = float(parallel_pressure_flux_coeff)
+        self.parallel_pressure_work_coeff = float(parallel_pressure_work_coeff)
+        self.vorticity_parallel_coeff = float(vorticity_parallel_coeff)
+        self.curvature_coeff = float(curvature_coeff)
         self.scheduler = ParityFVScheduler(self)
 
     def _phys_n(self, n: jnp.ndarray) -> jnp.ndarray:
@@ -121,29 +133,61 @@ class ParityFVSystem:
         if (not self.parallel_on) or int(y.n.shape[0]) <= 1:
             return _zeros_like_state(y)
 
-        n_eff = jnp.maximum(y.n, float(self.params.n_floor))
-        Te_eff = jnp.maximum(y.Te, float(self.params.te_floor))
-        pe = n_eff * Te_eff
-
-        dn = -div_parallel_fv(
-            n_eff,
+        dn = density_parallel_tendency(
+            y.n,
             y.vpar_e,
             dz=float(self.params.dz),
             limiter=self.limiter,
+            n_floor=float(self.params.n_floor),
         )
-        dpe = -div_parallel_fv(
-            pe,
+        pe, dTe = pressure_parallel_tendencies(
+            y.n,
+            y.Te,
             y.vpar_e,
+            dn_parallel=dn,
             dz=float(self.params.dz),
             limiter=self.limiter,
+            n_floor=float(self.params.n_floor),
+            Te_floor=float(self.params.te_floor),
+            flux_coeff=float(self.parallel_pressure_flux_coeff),
+            work_coeff=float(self.parallel_pressure_work_coeff),
         )
-        dTe = (dpe - Te_eff * dn) / jnp.maximum(n_eff, float(self.params.n_floor))
+        _ = pe
+        domega = vorticity_parallel_tendency(
+            y.vpar_e,
+            y.vpar_i,
+            dz=float(self.params.dz),
+            coeff=float(self.vorticity_parallel_coeff),
+        )
         return DRBSystemState(
             n=dn,
-            omega=jnp.zeros_like(y.omega),
+            omega=domega,
             vpar_e=jnp.zeros_like(y.vpar_e),
             vpar_i=jnp.zeros_like(y.vpar_i),
             Te=dTe,
+            Ti=None if y.Ti is None else jnp.zeros_like(y.Ti),
+            psi=None if y.psi is None else jnp.zeros_like(y.psi),
+            N=None if y.N is None else jnp.zeros_like(y.N),
+        )
+
+    def _curvature_term(self, y: DRBSystemState) -> DRBSystemState:
+        if not self.curvature_on:
+            return _zeros_like_state(y)
+        n_eff = jnp.maximum(y.n, float(self.params.n_floor))
+        Te_eff = jnp.maximum(y.Te, float(self.params.te_floor))
+        pe = n_eff * Te_eff
+        domega = vorticity_curvature_tendency(
+            pe,
+            self.geom.bxcv,
+            dx=float(self.params.dx),
+            coeff=float(self.curvature_coeff),
+        )
+        return DRBSystemState(
+            n=jnp.zeros_like(y.n),
+            omega=domega,
+            vpar_e=jnp.zeros_like(y.vpar_e),
+            vpar_i=jnp.zeros_like(y.vpar_i),
+            Te=jnp.zeros_like(y.Te),
             Ti=None if y.Ti is None else jnp.zeros_like(y.Ti),
             psi=None if y.psi is None else jnp.zeros_like(y.psi),
             N=None if y.N is None else jnp.zeros_like(y.N),
@@ -174,7 +218,8 @@ class ParityFVSystem:
         _ = t
         term_map: dict[str, DRBSystemState] = {}
         term_map["parallel"] = self._parallel_term(y)
-        term_map["source"] = self._source_term(y)
+        term_map["curvature"] = self._curvature_term(y)
+        term_map["volume_source"] = self._source_term(y)
         total = _zeros_like_state(y)
         for term in term_map.values():
             total = _state_add(total, term)
