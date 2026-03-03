@@ -101,7 +101,9 @@ For this strict run, the core Poisson forward parity target is:
 
 Early-time parity-tuned knobs in
 `examples/open_field_line/input_tokamak_bxcv_parity_strict_early.toml`:
-- `parallel_pressure_flux_coeff = 1.73`
+- `parallel_pressure_model = "hermes_vgradp"`
+- `parallel_pressure_flux_coeff = 5/3`
+- `parallel_pressure_work_coeff = 2/3`
 - `parallel_limiter = "none"`
 - `parallel_flux_scheme = "rusanov"`
 - `exb_poloidal_flows = true`

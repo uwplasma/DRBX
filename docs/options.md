@@ -166,11 +166,21 @@ for minimal preset schedules:
   (`exb_y_scale=0` disables y-advection to mimic `poloidal_flows=false` in BOUT++).
 - `parallel_limiter`: slope limiter applied to open-field parallel derivatives
   (`none`, `minmod`, `mc`).
+- `parallel_flux_scheme`: open-field conservative flux (`rusanov` or `lax`).
 - `parallel_flux_conservative`: use conservative parallel fluxes for `n` and `p`
   (e.g., `-∂‖(n v‖)` and `-∂‖(p v‖)`), with limiter/Lax flux when open-field.
+- `parallel_pressure_model`: named pressure-transport closure for conservative
+  parallel energy transport. `hermes_vgradp` maps to
+  `-(5/3)∂‖(p v‖) + (2/3) v‖ ∂‖p`; `hermes_pdivv` maps to `-∂‖(p v‖)`;
+  `custom` uses the coefficients below directly.
+- `parallel_pressure_flux_coeff`: multiplier on conservative parallel pressure
+  transport (`-∂‖(p v‖)` term). Used for Hermes early-time parity calibration.
+- `parallel_pressure_work_coeff`: optional `v‖∂‖p` add-on in pressure transport.
 - `parallel_use_sheath_targets`: in open-field + sheath runs, replace boundary
   face `v‖` by Bohm/sheath targets in conservative parallel fluxes (Hermes-style
   boundary-flux parity mode).
+- `parallel_sheath_flux_mode`: `replace_boundary` (legacy) or `boundary_flux`
+  (apply sheath targets on boundary face fluxes only).
 - `phi_dissipation_on`: parity switch for `phi_par_dissipation` in vorticity.
 - `core_vorticity_damping_on`: parity switch for core vorticity damping
   equivalents (`mu_lin_omega`, `mu_zonal_omega`).
