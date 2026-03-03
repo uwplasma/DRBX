@@ -38,6 +38,9 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_fluctuation_diagnostics.py` | `rms_*_fluct` and `equilibrium_*` consistency | Fluctuation diagnostics |
 | Unit | `tests/test_benchmark_schema.py` | Benchmark bundle schema round-trip (normalized + SI) | Cross-code reproducibility |
 | Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes parity diagnostics |
+| Unit | `tests/test_benchmark_compare.py` | Relative-L2 comparison of short-window diagnostics with axis-aware interpolation | Hermes short-window parity harness |
+| Unit | `tests/test_make_compact_reference_bundle.py` | Reproducible trimming of full bundles into compact reference fixtures | Hermes short-window parity harness |
+| Regression | `tests/test_hermes_short_window_compact_fixture.py` | Compact Hermes reference fixture load + self-consistency regression | Hermes short-window parity harness |
 | Unit | `tests/test_parity_fv_scaffold.py` | Parity-FV state/geometry/RHS shape contracts | rewrite safety gate |
 | Unit | `tests/test_parity_fv_parallel_flux.py` | FV parallel reconstruction + boundary-flux balance | Hermes solver numerics |
 | Unit | `tests/test_parity_fv_poisson_vorticity_guards.py` | INVERT_SET + radial/y-guard semantics | Hermes vorticity boundary semantics |
