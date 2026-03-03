@@ -11,6 +11,7 @@ from .rhs import ParityFVRHS
 from .flux_parallel import div_parallel_fv
 from .terms_density import density_parallel_tendency
 from .terms_pressure import pressure_parallel_tendencies
+from .terms_sheath import sheath_boundary_tendencies
 from .terms_vorticity import vorticity_curvature_tendency, vorticity_parallel_tendency
 from .system import ParityFVSystem
 from .poisson_vorticity import (
@@ -32,6 +33,7 @@ __all__ = [
     "div_parallel_fv",
     "density_parallel_tendency",
     "pressure_parallel_tendencies",
+    "sheath_boundary_tendencies",
     "vorticity_parallel_tendency",
     "vorticity_curvature_tendency",
     "ParityFVSystem",

@@ -14,6 +14,7 @@ Implemented modules:
 - `src/jaxdrb/parity_fv/ops.py`
 - `src/jaxdrb/parity_fv/terms_density.py`
 - `src/jaxdrb/parity_fv/terms_pressure.py`
+- `src/jaxdrb/parity_fv/terms_sheath.py`
 - `src/jaxdrb/parity_fv/terms_vorticity.py`
 - `src/jaxdrb/parity_fv/poisson_vorticity.py`
 - `src/jaxdrb/parity_fv/rhs.py`
@@ -80,6 +81,20 @@ term-by-term parity auditing before adding additional closures.
 This makes the vorticity/phi mapping explicit and testable in CI while keeping
 the parity path small.
 
+### Sheath boundary component parity (new)
+
+`parity_fv` now has explicit sheath boundary channels, active only when both:
+- `geometry.open_field_line = true`
+- sheath is enabled (`terms.sheath_on` or sheath closure toggle)
+
+Implemented component channels:
+- particle sink: boundary \(\Gamma = n c_s\)
+- momentum relaxation: \(v_{\parallel e}, v_{\parallel i}\) to Bohm-like targets
+- electron energy sink: \(q_e = \gamma_e n T_e c_s\)
+
+These terms are emitted in the term map as `sheath`, so term-by-term audits can
+compare them directly.
+
 ### Poisson/vorticity guard-cell semantics (new)
 
 From Hermes `vorticity.cxx`, parity path now mirrors these boundary semantics:
@@ -107,6 +122,7 @@ Added parity-fv tests:
 - `tests/test_parity_fv_engine.py`
 - `tests/test_parity_fv_term_gates.py`
 - `tests/test_parity_fv_poisson_solver.py`
+- `tests/test_parity_fv_sheath.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
 rules mapped directly from Hermes vorticity solver behavior.

@@ -210,6 +210,19 @@ Parity-FV specific numerics (`engine = "parity_fv"`):
 Parity-FV specific term toggles (`[terms]`):
 - `parallel_on`
 - `curvature_on`
+- `sheath_on`
+
+Parity-FV sheath coupling uses:
+- `geometry.open_field_line = true`
+- `[closures.sheath]` values:
+  - `sheath_bc_on`
+  - `sheath_loss_on`
+  - `sheath_bohm_velocity_on`
+  - `sheath_energy_on`
+  - `sheath_gamma_e`
+  - `sheath_current_closure_coeff`
+- `[numerics]` value:
+  - `sheath_relax_coeff`
 
 ### Sheath Options
 

@@ -15,6 +15,7 @@ from .poisson_vorticity import (
 )
 from .terms_density import density_parallel_tendency
 from .terms_pressure import pressure_parallel_tendencies
+from .terms_sheath import sheath_boundary_tendencies
 from .terms_vorticity import vorticity_curvature_tendency, vorticity_parallel_tendency
 
 
@@ -91,6 +92,14 @@ class ParityFVSystem:
         vorticity_parallel_coeff: float = 1.0,
         curvature_coeff: float = 1.0,
         poisson_solver: str = "spectral_xy",
+        open_field_line: bool = False,
+        sheath_on: bool = False,
+        sheath_particle_on: bool = True,
+        sheath_momentum_on: bool = True,
+        sheath_energy_on: bool = True,
+        sheath_relax_coeff: float = 1.0,
+        sheath_electron_target_coeff: float = 1.0,
+        sheath_gamma_e: float = 3.5,
     ) -> None:
         self.params = params
         self.geom = geom
@@ -104,6 +113,14 @@ class ParityFVSystem:
         self.vorticity_parallel_coeff = float(vorticity_parallel_coeff)
         self.curvature_coeff = float(curvature_coeff)
         self.poisson_solver = str(poisson_solver).lower()
+        self.open_field_line = bool(open_field_line)
+        self.sheath_on = bool(sheath_on)
+        self.sheath_particle_on = bool(sheath_particle_on)
+        self.sheath_momentum_on = bool(sheath_momentum_on)
+        self.sheath_energy_on = bool(sheath_energy_on)
+        self.sheath_relax_coeff = float(sheath_relax_coeff)
+        self.sheath_electron_target_coeff = float(sheath_electron_target_coeff)
+        self.sheath_gamma_e = float(sheath_gamma_e)
         self.scheduler = ParityFVScheduler(self)
 
     def _phys_n(self, n: jnp.ndarray) -> jnp.ndarray:
@@ -234,6 +251,36 @@ class ParityFVSystem:
             N=None if y.N is None else jnp.zeros_like(y.N),
         )
 
+    def _sheath_term(self, y: DRBSystemState) -> DRBSystemState:
+        if (not self.sheath_on) or (not self.open_field_line) or int(y.n.shape[0]) <= 1:
+            return _zeros_like_state(y)
+
+        dn, dvpar_e, dvpar_i, dTe = sheath_boundary_tendencies(
+            y.n,
+            y.Te,
+            y.vpar_e,
+            y.vpar_i,
+            dz=float(self.params.dz),
+            n_floor=float(self.params.n_floor),
+            Te_floor=float(self.params.te_floor),
+            particle_on=bool(self.sheath_particle_on),
+            momentum_on=bool(self.sheath_momentum_on),
+            energy_on=bool(self.sheath_energy_on),
+            relax_coeff=float(self.sheath_relax_coeff),
+            electron_target_coeff=float(self.sheath_electron_target_coeff),
+            gamma_e=float(self.sheath_gamma_e),
+        )
+        return DRBSystemState(
+            n=dn,
+            omega=jnp.zeros_like(y.omega),
+            vpar_e=dvpar_e,
+            vpar_i=dvpar_i,
+            Te=dTe,
+            Ti=None if y.Ti is None else jnp.zeros_like(y.Ti),
+            psi=None if y.psi is None else jnp.zeros_like(y.psi),
+            N=None if y.N is None else jnp.zeros_like(y.N),
+        )
+
     def rhs_terms(
         self,
         t: float,
@@ -246,6 +293,7 @@ class ParityFVSystem:
         term_map["parallel"] = self._parallel_term(y)
         term_map["curvature"] = self._curvature_term(y)
         term_map["volume_source"] = self._source_term(y)
+        term_map["sheath"] = self._sheath_term(y)
         total = _zeros_like_state(y)
         for term in term_map.values():
             total = _state_add(total, term)
