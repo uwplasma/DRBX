@@ -57,6 +57,7 @@ def _prepare(base_dir: Path, out_dir: Path, nout: int, timestep: float) -> Path:
 
     for sec in ("e", "d+", "vorticity", "polarisation_drift"):
         lines = _set_key(lines, sec, "diagnose", "true")
+    lines = _set_key(lines, "vorticity", "diagnose_terms", "true")
 
     for sec in ("braginskii_collisions", "braginskii_friction", "braginskii_heat_exchange"):
         lines = _set_key(lines, sec, "diagnose", "true")
