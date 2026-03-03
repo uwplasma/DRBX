@@ -44,6 +44,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_parity_fv_engine.py` | `engine = "parity_fv"` build/run/audit scheduling compatibility | parity rewrite integration |
 | Unit/Physics | `tests/test_parity_fv_term_gates.py` | density/pressure/vorticity parity-term assembly + coefficient scaling | Hermes parallel/vorticity structure |
 | Regression | `tests/test_parity_fv_poisson_solver.py` | spectral Poisson/ω(φ) round-trip and solver-mode regression | parity Poisson/vorticity path |
+| Unit/Physics | `tests/test_parity_fv_sheath.py` | open-field sheath particle/momentum/energy boundary channels | sheath boundary component parity |
 | Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
 | Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |

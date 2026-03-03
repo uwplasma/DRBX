@@ -652,10 +652,12 @@ def _build_parity_fv_system(
     cfg: dict[str, Any], norm_info: NormalizationInfo | None
 ) -> BuiltSystem:
     physics = cfg.get("physics", {})
+    closures = cfg.get("closures", {})
     numerics = cfg.get("numerics", {})
     geometry = cfg.get("geometry", {})
     terms = cfg.get("terms", {})
     init = cfg.get("initial", {})
+    sheath_cfg = closures.get("sheath", {}) if isinstance(closures, dict) else {}
 
     nx = int(geometry.get("nx", 32))
     ny = int(geometry.get("ny", 32))
@@ -725,6 +727,16 @@ def _build_parity_fv_system(
         parallel_pressure_work_coeff=float(numerics.get("parallel_pressure_work_coeff", 2.0 / 3.0)),
         vorticity_parallel_coeff=float(numerics.get("vorticity_parallel_coeff", 1.0)),
         curvature_coeff=float(numerics.get("curvature_coeff", 1.0)),
+        open_field_line=bool(geometry.get("open_field_line", False)),
+        sheath_on=bool(
+            terms.get("sheath_on", physics.get("sheath_on", sheath_cfg.get("sheath_bc_on", False)))
+        ),
+        sheath_particle_on=bool(sheath_cfg.get("sheath_loss_on", True)),
+        sheath_momentum_on=bool(sheath_cfg.get("sheath_bohm_velocity_on", True)),
+        sheath_energy_on=bool(sheath_cfg.get("sheath_energy_on", True)),
+        sheath_relax_coeff=float(numerics.get("sheath_relax_coeff", 1.0)),
+        sheath_electron_target_coeff=float(sheath_cfg.get("sheath_current_closure_coeff", 1.0)),
+        sheath_gamma_e=float(sheath_cfg.get("sheath_gamma_e", 3.5)),
     )
     return BuiltSystem(system=system, state=state, normalization=norm_info)
 
