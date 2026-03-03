@@ -492,10 +492,50 @@ def _compute_hermes_term_metrics(
     nsteps: int,
     ddt_scale: float,
     step_offset: int = 0,
+    axis_map: str = "none",
+    hermes_parallel_axis: str = "z",
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     nt = int(fields["Ne"].shape[0])
     nsteps = int(max(0, nsteps))
+    hermes_parallel_axis = str(hermes_parallel_axis).lower()
+
+    def _parallel_axis_from_map(arr: np.ndarray) -> int | None:
+        if arr.ndim < 3:
+            return None
+        if "->jax_" not in axis_map:
+            return None
+        order = axis_map.split("->jax_", 1)[1]
+        if "_" in order:
+            order = order.split("_", 1)[0]
+        if not order.startswith("t"):
+            return None
+        # order is like "tyxz" / "tzxy" / "txy"
+        spatial_order = order[1:]
+        axis_char = "y" if hermes_parallel_axis == "y" else "z"
+        idx = spatial_order.find(axis_char)
+        if idx < 0:
+            return None
+        return int(idx)
+
+    def _split_boundary_interior(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        boundary = np.zeros_like(arr)
+        parallel_axis = _parallel_axis_from_map(arr)
+        if parallel_axis is None:
+            # No reliable parallel axis mapping: keep backward-compatible behavior.
+            return arr, boundary
+        axis_full = 1 + parallel_axis
+        if axis_full < 1 or axis_full >= arr.ndim:
+            return arr, boundary
+        if arr.shape[axis_full] <= 1:
+            return arr, boundary
+        sl0 = [slice(None)] * arr.ndim
+        sl1 = [slice(None)] * arr.ndim
+        sl0[axis_full] = 0
+        sl1[axis_full] = -1
+        boundary[tuple(sl0)] = arr[tuple(sl0)]
+        boundary[tuple(sl1)] = arr[tuple(sl1)]
+        return boundary, arr - boundary
 
     def _add_rows(arr: np.ndarray, field: str, term: str, step: int, tval: float):
         a = np.asarray(arr, dtype=np.float64)
@@ -558,21 +598,51 @@ def _compute_hermes_term_metrics(
         se = np.asarray(fields["Se_src"], dtype=np.float64)
         if sne.ndim >= 3 and se.ndim >= 3:
             residual = sne - se
+            residual_boundary, residual_interior = _split_boundary_interior(residual)
             for ti in range(nsteps):
                 idx = int(start_index + ti + step_offset)
                 if idx < 0 or idx >= nt or idx >= residual.shape[0]:
                     continue
                 _add_rows(residual[idx] * ddt_scale, "n", "source_residual", ti, times[idx])
+                _add_rows(
+                    residual_boundary[idx] * ddt_scale,
+                    "n",
+                    "source_residual_boundary",
+                    ti,
+                    times[idx],
+                )
+                _add_rows(
+                    residual_interior[idx] * ddt_scale,
+                    "n",
+                    "source_residual_interior",
+                    ti,
+                    times[idx],
+                )
     if "SPe" in fields and "Pe_src" in fields:
         spe = np.asarray(fields["SPe"], dtype=np.float64)
         se = np.asarray(fields["Pe_src"], dtype=np.float64)
         if spe.ndim >= 3 and se.ndim >= 3:
             residual = spe - se
+            residual_boundary, residual_interior = _split_boundary_interior(residual)
             for ti in range(nsteps):
                 idx = int(start_index + ti + step_offset)
                 if idx < 0 or idx >= nt or idx >= residual.shape[0]:
                     continue
                 _add_rows(residual[idx] * ddt_scale, "Pe", "source_residual", ti, times[idx])
+                _add_rows(
+                    residual_boundary[idx] * ddt_scale,
+                    "Pe",
+                    "source_residual_boundary",
+                    ti,
+                    times[idx],
+                )
+                _add_rows(
+                    residual_interior[idx] * ddt_scale,
+                    "Pe",
+                    "source_residual_interior",
+                    ti,
+                    times[idx],
+                )
     # Fallback omega channels present in some Hermes outputs when
     # term_Vort_* channels are not enabled.
     _append_source_rows("DivJdia", "omega", "divJdia")
@@ -624,6 +694,8 @@ def _compute_hermes_term_metrics(
             if all(arr.ndim >= 3 for arr in (spe, sne, pe_src, se_src)):
                 p_res = spe - pe_src
                 n_res = sne - se_src
+                p_res_boundary, p_res_interior = _split_boundary_interior(p_res)
+                n_res_boundary, n_res_interior = _split_boundary_interior(n_res)
                 for ti in range(nsteps):
                     idx = int(start_index + ti + step_offset)
                     if idx < 0 or idx >= nt or idx >= p_res.shape[0] or idx >= n_res.shape[0]:
@@ -631,7 +703,27 @@ def _compute_hermes_term_metrics(
                     Ne = fields["Ne"][idx]
                     Te = fields["Te"][idx]
                     dte = ((p_res[idx] - Te * n_res[idx]) / np.maximum(Ne, 1e-12)) * ddt_scale
+                    dte_boundary = (
+                        (p_res_boundary[idx] - Te * n_res_boundary[idx]) / np.maximum(Ne, 1e-12)
+                    ) * ddt_scale
+                    dte_interior = (
+                        (p_res_interior[idx] - Te * n_res_interior[idx]) / np.maximum(Ne, 1e-12)
+                    ) * ddt_scale
                     _add_rows(dte, "Te", "source_residual", ti, times[idx])
+                    _add_rows(
+                        dte_boundary,
+                        "Te",
+                        "source_residual_boundary",
+                        ti,
+                        times[idx],
+                    )
+                    _add_rows(
+                        dte_interior,
+                        "Te",
+                        "source_residual_interior",
+                        ti,
+                        times[idx],
+                    )
 
     return rows
 
@@ -645,21 +737,21 @@ def _compute_term_mismatch(
             "advection": ("exb",),
             "parallel": ("par",),
             "volume_source": ("source_ext", "source"),
-            "sheath": ("source_residual",),
+            "sheath": ("source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
         },
         "Pe": {
             "advection": ("exb",),
             "parallel": ("par",),
             "volume_source": ("source_ext", "source"),
-            "sheath": ("source_residual",),
+            "sheath": ("source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
         },
         "Te": {
             "advection": ("exb",),
             "parallel": ("par",),
             "volume_source": ("source_ext", "source"),
-            "sheath": ("source_residual",),
+            "sheath": ("source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
         },
         "omega": {
@@ -1717,6 +1809,8 @@ def main() -> None:
         nsteps=int(args.nsteps),
         ddt_scale=ddt_scale,
         step_offset=int(args.hermes_step_offset),
+        axis_map=axis_map,
+        hermes_parallel_axis=args.hermes_parallel_axis,
     )
     term_mismatch_rows = _compute_term_mismatch(term_rows, hermes_term_rows)
     field_map = {"n": "Ne", "Te": "Te", "omega": "Vort", "phi": "phi"}
