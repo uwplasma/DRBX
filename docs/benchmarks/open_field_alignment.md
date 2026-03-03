@@ -81,8 +81,9 @@ PYTHONPATH=src python tools/audit_term_parity.py \
   --hermes-data-dir runs/hermes_open_field_terms_t01_vortterms/data \
   --hermes-input runs/hermes_open_field_terms_t01_vortterms/data/BOUT.inp \
   --hermes-grid runs/hermes_open_field_terms_t01_vortterms/tokamak.nc \
-  --out-dir runs/parity_strict_poisson_equiv_fix1 \
+  --out-dir runs/parity_t01_strict_m1_nocurv_vortterms_v7 \
   --nsteps 3 \
+  --start-index 1 \
   --match-hermes-dt \
   --use-hermes-state \
   --use-hermes-phi-in-terms \
@@ -109,11 +110,16 @@ Early-time parity-tuned knobs in
 - `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit parity with Hermes dump `Omega_ci`)
 - standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
 
-With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the updated
-vorticity-path parity is:
+With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
+RHS parity channels are:
 - `omega total RHS vs ddt(Vort)`: rel-diff `~0.84 .. 1.13` (about 8–11%)
 - `omega parallel (jax vs term_Vort_jpar)`: rel-diff `~0.01 .. 0.04`
 - `omega diamagnetic current (jax vs term_Vort_divJdia)`: rel-diff `~0.25`
+- `n total RHS vs ddt(Ne)`: rel-diff `~0.92 .. 1.10` (about 9–11%)
+- `Te total RHS vs ddt(Te)`: rel-diff `~1.85 .. 2.53` (about 18–25%)
+
+`first_failing_terms.csv` now ranks by `weighted_rel = rel_diff * frac_of_field_rhs`
+so tiny terms do not dominate fail-fast triage.
 
 ## 2) Build Hermes bundle (same normalization metadata)
 
