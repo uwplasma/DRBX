@@ -604,19 +604,19 @@ def _compute_term_mismatch(
         "n": {
             "advection": ("exb",),
             "parallel": ("par",),
-            "volume_source": ("source_ext", "source"),
+            "volume_source": ("source_total", "source", "source_ext"),
             "diffusion": ("low_n_diff_perp",),
         },
         "Pe": {
             "advection": ("exb",),
             "parallel": ("par",),
-            "volume_source": ("source_ext", "source"),
+            "volume_source": ("source_total", "source", "source_ext"),
             "diffusion": ("low_n_diff_perp",),
         },
         "Te": {
             "advection": ("exb",),
             "parallel": ("par",),
-            "volume_source": ("source_ext", "source"),
+            "volume_source": ("source_total", "source", "source_ext"),
             "diffusion": ("low_n_diff_perp",),
         },
         "omega": {
@@ -1167,7 +1167,13 @@ def _first_failing_term(
         return None, []
     first_step = min(int(r.get("step", 0)) for r in filtered)
     step_rows = [r for r in filtered if int(r.get("step", 0)) == first_step]
-    step_rows.sort(key=lambda r: float(r.get("rel_diff", 0.0)), reverse=True)
+
+    def _key(row: dict[str, object]) -> tuple[float, float]:
+        weighted = float(row.get("weighted_rel", row.get("rel_diff", 0.0)))
+        rel = float(row.get("rel_diff", 0.0))
+        return weighted, rel
+
+    step_rows.sort(key=_key, reverse=True)
     return step_rows[0], step_rows
 
 
@@ -1314,8 +1320,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--fail-fast-fields",
-        default="n,Pe,omega",
-        help="Comma-separated fields considered by fail-fast (default: n,Pe,omega).",
+        default="n,Te,omega",
+        help="Comma-separated fields considered by fail-fast (default: n,Te,omega).",
     )
     parser.add_argument(
         "--fail-fast-terms",
@@ -1698,6 +1704,7 @@ def main() -> None:
             denom = max(1e-12, 0.1 * hermes_rms)
             mismatch_rows.append(
                 {
+                    "step": int(ti),
                     "t": float(times[start_index + ti]),
                     "field": field_name,
                     "jax_rhs_rms": jax_rms,
@@ -1705,6 +1712,26 @@ def main() -> None:
                     "rel_diff": diff_rms / denom,
                 }
             )
+
+    # Add field-level weighting to term mismatch rows so first-fail ranking
+    # prioritizes terms that materially contribute to the field RHS.
+    rhs_index = {
+        (int(row["step"]), str(row["field"])): float(row["hermes_ddt_rms"]) for row in mismatch_rows
+    }
+    rhs_term_fallback: dict[tuple[int, str], float] = {}
+    for row in hermes_term_rows:
+        key = (int(row.get("step", 0)), str(row.get("field", "")))
+        rhs_term_fallback[key] = max(rhs_term_fallback.get(key, 0.0), float(row.get("rms", 0.0)))
+    for row in term_mismatch_rows:
+        step = int(row.get("step", 0))
+        field = str(row.get("field", ""))
+        rhs = rhs_index.get((step, field), 0.0)
+        rhs = max(rhs, rhs_term_fallback.get((step, field), 0.0))
+        term_rms = float(row.get("hermes_rms", 0.0))
+        frac = term_rms / max(rhs, 1e-30)
+        row["field_rhs_rms"] = rhs
+        row["frac_of_field_rhs"] = frac
+        row["weighted_rel"] = float(row.get("rel_diff", 0.0)) * frac
 
     out_dir = Path(args.out_dir)
     _write_csv(
@@ -1725,7 +1752,7 @@ def main() -> None:
     _write_csv(
         out_dir / "hermes_ddt_rms.csv",
         mismatch_rows,
-        ["t", "field", "jax_rhs_rms", "hermes_ddt_rms", "rel_diff"],
+        ["step", "t", "field", "jax_rhs_rms", "hermes_ddt_rms", "rel_diff"],
     )
     _write_csv(
         out_dir / "hermes_term_contributions.csv",
@@ -1735,7 +1762,19 @@ def main() -> None:
     _write_csv(
         out_dir / "term_mismatch.csv",
         term_mismatch_rows,
-        ["step", "t", "field", "term", "hermes_term", "jax_rms", "hermes_rms", "rel_diff"],
+        [
+            "step",
+            "t",
+            "field",
+            "term",
+            "hermes_term",
+            "jax_rms",
+            "hermes_rms",
+            "rel_diff",
+            "field_rhs_rms",
+            "frac_of_field_rhs",
+            "weighted_rel",
+        ],
     )
     if "phi" in snapshots and "omega" in snapshots:
         poisson_parity_rows = _compute_poisson_parity_metrics(
@@ -1787,12 +1826,28 @@ def main() -> None:
                     "jax_rms": float(row.get("jax_rms", 0.0)),
                     "hermes_rms": float(row.get("hermes_rms", 0.0)),
                     "rel_diff": float(row.get("rel_diff", 0.0)),
+                    "field_rhs_rms": float(row.get("field_rhs_rms", 0.0)),
+                    "frac_of_field_rhs": float(row.get("frac_of_field_rhs", 0.0)),
+                    "weighted_rel": float(row.get("weighted_rel", 0.0)),
                 }
             )
     _write_csv(
         out_dir / "first_failing_terms.csv",
         fail_summary_rows,
-        ["rank", "step", "t", "field", "term", "hermes_term", "jax_rms", "hermes_rms", "rel_diff"],
+        [
+            "rank",
+            "step",
+            "t",
+            "field",
+            "term",
+            "hermes_term",
+            "jax_rms",
+            "hermes_rms",
+            "rel_diff",
+            "field_rhs_rms",
+            "frac_of_field_rhs",
+            "weighted_rel",
+        ],
     )
 
     summary = {
