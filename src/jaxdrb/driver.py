@@ -17,6 +17,7 @@ from jaxdrb.core.system import DRBSystem
 from jaxdrb.core.terms.fields import phys_Te, phys_n
 from jaxdrb.core.terms.sol import sol_masks
 from jaxdrb.core.terms.bcs import resolve_bcs
+from jaxdrb.parity_fv import ParityFVGeometry, ParityFVParams, ParityFVSystem
 from jaxdrb.integrators import (
     build_rk4_scan,
     build_rk4_scan_cached_iters_phi,
@@ -36,7 +37,7 @@ from jaxdrb.operators.fd2d import enforce_bc_relaxation_implicit, implicit_diffu
 
 @dataclass(frozen=True)
 class BuiltSystem:
-    system: DRBSystem
+    system: Any
     state: DRBSystemState
     normalization: NormalizationInfo | None = None
 
@@ -647,8 +648,84 @@ def _parse_bc_section(bc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _build_parity_fv_system(
+    cfg: dict[str, Any], norm_info: NormalizationInfo | None
+) -> BuiltSystem:
+    physics = cfg.get("physics", {})
+    numerics = cfg.get("numerics", {})
+    geometry = cfg.get("geometry", {})
+    terms = cfg.get("terms", {})
+    init = cfg.get("initial", {})
+
+    nx = int(geometry.get("nx", 32))
+    ny = int(geometry.get("ny", 32))
+    nz = int(geometry.get("nz", 1))
+    Lx = float(geometry.get("Lx", 1.0))
+    Ly = float(geometry.get("Ly", 1.0))
+    Lz = float(geometry.get("Lz", 1.0))
+    dx = Lx / max(nx, 1)
+    dy = Ly / max(ny, 1)
+    dz = Lz / max(nz, 1)
+
+    shape = (nz, nx, ny)
+    jacobian = jnp.ones(shape, dtype=jnp.float64)
+    bxcv = None
+    if "bxcv_const" in geometry:
+        bxcv = jnp.full(shape, float(geometry["bxcv_const"]), dtype=jnp.float64)
+
+    pfv_params = ParityFVParams(
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        dx=dx,
+        dy=dy,
+        dz=dz,
+        boussinesq=bool(physics.get("boussinesq_on", True)),
+        electrostatic=bool(not physics.get("em_on", False)),
+        hot_ions=bool(physics.get("hot_ion_on", False)),
+        source_n0=float(physics.get("source_n0", 0.0)),
+        omega_n=float(physics.get("omega_n", 0.0)),
+        n_floor=float(physics.get("sol_n_floor", 1e-12)),
+        te_floor=float(physics.get("sol_Te_floor", 1e-12)),
+    )
+    pfv_geom = ParityFVGeometry(
+        jacobian=jacobian,
+        bxcv=bxcv,
+        dpar_factor=jnp.ones(shape, dtype=jnp.float64),
+    )
+
+    n0 = float(init.get("n0", 0.0))
+    Te0 = float(init.get("Te0", 0.0))
+    omega0 = float(init.get("omega0", 0.0))
+    vpar_e0 = float(init.get("vpar_e0", 0.0))
+    vpar_i0 = float(init.get("vpar_i0", 0.0))
+    state = DRBSystemState(
+        n=jnp.full(shape, n0, dtype=jnp.float64),
+        omega=jnp.full(shape, omega0, dtype=jnp.float64),
+        vpar_e=jnp.full(shape, vpar_e0, dtype=jnp.float64),
+        vpar_i=jnp.full(shape, vpar_i0, dtype=jnp.float64),
+        Te=jnp.full(shape, Te0, dtype=jnp.float64),
+        Ti=None,
+        psi=None,
+        N=None,
+    )
+
+    system = ParityFVSystem(
+        params=pfv_params,
+        geom=pfv_geom,
+        limiter=str(numerics.get("parity_limiter", "mc")),
+        poisson_scale=float(numerics.get("poisson_scale", 1.0)),
+        parallel_on=bool(terms.get("parallel_on", True)),
+        source_n0=float(physics.get("source_n0", 0.0)),
+    )
+    return BuiltSystem(system=system, state=state, normalization=norm_info)
+
+
 def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     cfg, norm_info = apply_normalization(cfg)
+    engine = str(cfg.get("engine", "unified")).strip().lower()
+    if engine in {"parity_fv", "fv_parity", "parity-fv"}:
+        return _build_parity_fv_system(cfg, norm_info)
 
     physics = cfg.get("physics", {})
     transport = cfg.get("transport", {})
@@ -1196,6 +1273,21 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
 
     shape = state.n.shape
     trace_stats_out: dict[str, Any] = {}
+
+    engine = str(getattr(system, "engine", "unified")).lower()
+    if engine == "parity_fv":
+        supported = {
+            "rk4",
+            "rk4_scan",
+            "fixed",
+            "diffrax",
+            "dopri8",
+            "tsit5",
+            "dopri5",
+            "euler",
+        }
+        if method not in supported:
+            method = "rk4"
 
     def _unpack_diag(diag_series):
         items = list(diag_series)

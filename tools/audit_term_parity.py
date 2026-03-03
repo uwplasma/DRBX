@@ -351,14 +351,18 @@ def _compute_term_metrics(
     phi_override: np.ndarray | None = None,
 ):
     from jaxdrb.core.state import DRBSystemState
-    from jaxdrb.core.terms import build_context
-    import equinox as eqx
 
     out_rows: list[dict[str, object]] = []
     total_rows: list[dict[str, object]] = []
     total_fields: dict[str, list[np.ndarray]] = {}
     phi_rows: list[dict[str, object]] = []
     nsteps = int(max(0, min(nsteps, snapshots["n"].shape[0] - start_index)))
+    engine = str(getattr(system, "engine", "unified")).lower()
+    use_parity_engine = engine == "parity_fv"
+
+    if not use_parity_engine:
+        from jaxdrb.core.terms import build_context
+        import equinox as eqx
 
     for ti in range(nsteps):
         idx = int(start_index + ti)
@@ -372,35 +376,50 @@ def _compute_term_metrics(
             psi=None if "psi" not in snapshots else snapshots["psi"][idx],
             N=None if "N" not in snapshots else snapshots["N"][idx],
         )
-        ctx = build_context(system.params, system.geom, y, return_phi_iters=True)
-        if phi_override is not None:
-            ctx = eqx.tree_at(
-                lambda c: c.phi,
-                ctx,
-                jnp.asarray(phi_override[idx], dtype=ctx.phi.dtype),
+        if use_parity_engine:
+            phi_arg = (
+                None if phi_override is None else jnp.asarray(phi_override[idx], dtype=y.n.dtype)
             )
-        split, term_map = system.scheduler.run_with_terms(ctx, y)
+            split, term_map, phi_val, phi_iters = system.rhs_terms(
+                float(times[idx]),
+                y,
+                phi_override=phi_arg,
+            )
+            ctx_phi = phi_val
+            ctx_phi_iters = phi_iters
+            pe_adv_override = None
+        else:
+            ctx = build_context(system.params, system.geom, y, return_phi_iters=True)
+            if phi_override is not None:
+                ctx = eqx.tree_at(
+                    lambda c: c.phi,
+                    ctx,
+                    jnp.asarray(phi_override[idx], dtype=ctx.phi.dtype),
+                )
+            split, term_map = system.scheduler.run_with_terms(ctx, y)
+            ctx_phi = ctx.phi
+            ctx_phi_iters = ctx.phi_iters
+            pe_adv_override = None
+            adv_form = str(getattr(system.params, "exb_advection_form", "flux")).lower()
+            if adv_form == "flux" and hasattr(ctx.geom, "exb_flux_divergence"):
+                try:
+                    pe_adv_override = -ctx.geom.exb_flux_divergence(
+                        ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_adv=ctx.bcs.Te
+                    )
+                except Exception:
+                    pe_adv_override = None
+            elif hasattr(ctx.geom, "bracket"):
+                try:
+                    pe_adv_override = -ctx.geom.bracket(
+                        ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_f=ctx.bcs.Te
+                    )
+                except Exception:
+                    pe_adv_override = None
         total = split.total()
-        pe_adv_override = None
-        adv_form = str(getattr(system.params, "exb_advection_form", "flux")).lower()
-        if adv_form == "flux" and hasattr(ctx.geom, "exb_flux_divergence"):
-            try:
-                pe_adv_override = -ctx.geom.exb_flux_divergence(
-                    ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_adv=ctx.bcs.Te
-                )
-            except Exception:
-                pe_adv_override = None
-        elif hasattr(ctx.geom, "bracket"):
-            try:
-                pe_adv_override = -ctx.geom.bracket(
-                    ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_f=ctx.bcs.Te
-                )
-            except Exception:
-                pe_adv_override = None
-        phi = np.asarray(ctx.phi)
+        phi = np.asarray(ctx_phi)
         phi_iters_val = None
-        if ctx.phi_iters is not None:
-            phi_iters_arr = np.asarray(ctx.phi_iters, dtype=np.float64)
+        if ctx_phi_iters is not None:
+            phi_iters_arr = np.asarray(ctx_phi_iters, dtype=np.float64)
             phi_iters_val = float(np.max(phi_iters_arr))
         phi_rows.append(
             {
@@ -2055,8 +2074,6 @@ def main() -> None:
             y = snapshots
             data: dict[str, np.ndarray] = {}
             from jaxdrb.core.state import DRBSystemState
-            from jaxdrb.core.terms import build_context
-            import equinox as eqx
 
             state = DRBSystemState(
                 n=y["n"][idx],
@@ -2068,32 +2085,46 @@ def main() -> None:
                 psi=None if "psi" not in y else y["psi"][idx],
                 N=None if "N" not in y else y["N"][idx],
             )
-            ctx = build_context(built.system.params, built.system.geom, state)
-            if bool(args.use_hermes_phi_in_terms) and "phi" in y:
-                ctx = eqx.tree_at(
-                    lambda c: c.phi,
-                    ctx,
-                    jnp.asarray(y["phi"][idx], dtype=ctx.phi.dtype),
+            if str(getattr(built.system, "engine", "unified")).lower() == "parity_fv":
+                phi_arg = None
+                if bool(args.use_hermes_phi_in_terms) and "phi" in y:
+                    phi_arg = jnp.asarray(y["phi"][idx], dtype=state.n.dtype)
+                split, term_map, phi_local, _ = built.system.rhs_terms(
+                    float(times[idx]), state, phi_override=phi_arg
                 )
-            split, term_map = built.system.scheduler.run_with_terms(ctx, state)
-            total = split.total()
-            data["phi"] = np.asarray(ctx.phi)
-            pe_adv_override = None
-            adv_form = str(getattr(built.system.params, "exb_advection_form", "flux")).lower()
-            if adv_form == "flux" and hasattr(ctx.geom, "exb_flux_divergence"):
-                try:
-                    pe_adv_override = -ctx.geom.exb_flux_divergence(
-                        ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_adv=ctx.bcs.Te
+                total = split.total()
+                data["phi"] = np.asarray(phi_local)
+                pe_adv_override = None
+            else:
+                from jaxdrb.core.terms import build_context
+                import equinox as eqx
+
+                ctx = build_context(built.system.params, built.system.geom, state)
+                if bool(args.use_hermes_phi_in_terms) and "phi" in y:
+                    ctx = eqx.tree_at(
+                        lambda c: c.phi,
+                        ctx,
+                        jnp.asarray(y["phi"][idx], dtype=ctx.phi.dtype),
                     )
-                except Exception:
-                    pe_adv_override = None
-            elif hasattr(ctx.geom, "bracket"):
-                try:
-                    pe_adv_override = -ctx.geom.bracket(
-                        ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_f=ctx.bcs.Te
-                    )
-                except Exception:
-                    pe_adv_override = None
+                split, term_map = built.system.scheduler.run_with_terms(ctx, state)
+                total = split.total()
+                data["phi"] = np.asarray(ctx.phi)
+                pe_adv_override = None
+                adv_form = str(getattr(built.system.params, "exb_advection_form", "flux")).lower()
+                if adv_form == "flux" and hasattr(ctx.geom, "exb_flux_divergence"):
+                    try:
+                        pe_adv_override = -ctx.geom.exb_flux_divergence(
+                            ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_adv=ctx.bcs.Te
+                        )
+                    except Exception:
+                        pe_adv_override = None
+                elif hasattr(ctx.geom, "bracket"):
+                    try:
+                        pe_adv_override = -ctx.geom.bracket(
+                            ctx.phi, ctx.n_phys * ctx.Te_phys, bc_phi=ctx.bcs.phi, bc_f=ctx.bcs.Te
+                        )
+                    except Exception:
+                        pe_adv_override = None
 
             for field in field_filter:
                 arr = getattr(total, field, None)

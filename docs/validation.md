@@ -41,6 +41,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_parity_fv_scaffold.py` | Parity-FV state/geometry/RHS shape contracts | rewrite safety gate |
 | Unit | `tests/test_parity_fv_parallel_flux.py` | FV parallel reconstruction + boundary-flux balance | Hermes solver numerics |
 | Unit | `tests/test_parity_fv_poisson_vorticity_guards.py` | INVERT_SET + radial/y-guard semantics | Hermes vorticity boundary semantics |
+| Unit | `tests/test_parity_fv_engine.py` | `engine = "parity_fv"` build/run/audit scheduling compatibility | parity rewrite integration |
 | Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
 | Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
