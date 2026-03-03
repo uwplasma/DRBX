@@ -156,6 +156,12 @@ PYTHONPATH=src python tools/compare_benchmark_bundles.py \
   --candidate <run-dir>/bundle_jax_short.npz
 ```
 
+The CI regression gate for the rewrite path uses the same workflow, but
+generates the candidate bundle from
+`examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`
+at `t<=0.1` and checks that the Hermes-relative mismatch signature remains
+stable while structural parity work continues.
+
 ## Literature Anchors
 
 - Hermes numerics and BC docs:
