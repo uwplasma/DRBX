@@ -219,6 +219,13 @@ class SheathParams(eqx.Module):
     sheath_gamma_auto: bool = True
     sheath_gamma_e: float = 0.0
     sheath_gamma_i: float = 3.5
+    sheath_energy_model: Literal["relaxation", "hermes_flux"] = "relaxation"
+    sheath_energy_flux_scale: float = 1.0
+    sheath_secondary_electron_coef: float = 0.0
+    sheath_wall_potential: float = 0.0
+    sheath_floor_potential: bool = True
+    sheath_electron_adiabatic: float = 5.0 / 3.0
+    sheath_ion_adiabatic: float = 5.0 / 3.0
     sheath_see_on: bool = False
     sheath_see_yield: float = 0.0
     sheath_end_damp_on: bool = True

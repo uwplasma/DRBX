@@ -185,6 +185,23 @@ for minimal preset schedules:
 - `core_vorticity_damping_on`: parity switch for core vorticity damping
   equivalents (`mu_lin_omega`, `mu_zonal_omega`).
 
+### Sheath Options
+
+- `sheath_energy_model`: electron sheath-energy closure. `relaxation` keeps the
+  older local damping form; `hermes_flux` applies a boundary heat-flux source
+  using the Hermes sheath formula and geometry-dependent face-to-volume scaling.
+- `sheath_energy_flux_scale`: scalar multiplier on the `hermes_flux` energy
+  source.
+- `sheath_secondary_electron_coef`: effective secondary-electron coefficient
+  used in the sheath transmission and electron outflow formulas.
+- `sheath_wall_potential`: wall potential used in the sheath exponential.
+- `sheath_floor_potential`: if `true`, floor the sheath potential at the wall
+  potential before evaluating electron losses.
+- `sheath_electron_adiabatic`: electron ratio of specific heats used in the
+  extra sheath-energy flux.
+- `sheath_ion_adiabatic`: ion ratio of specific heats used in Bohm/Loizu ion
+  sheath targets.
+
 ### Parallel Flux Scheme (Open-Field)
 
 When `parallel_flux_conservative=true` and `open_field_line=true`, the solver
