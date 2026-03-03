@@ -58,3 +58,29 @@ def test_load_config_invalid_engine(tmp_path: Path) -> None:
     cfg_path.write_text('engine = "invalid_engine"\n', encoding="utf-8")
     with pytest.raises(ValueError):
         _ = load_config(cfg_path)
+
+
+def test_build_system_parity_fv_from_coeff_path() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    coeff_path = (
+        repo_root / "examples" / "open_field_line" / "axisym_tokamak_bxcv_hermes_norm_parcurv.npz"
+    )
+    cfg = {
+        "engine": "parity_fv",
+        "geometry": {
+            "kind": "axisymmetric",
+            "coeff_path": str(coeff_path),
+            "open_field_line": True,
+        },
+        "initial": {"n0": 1.0, "Te0": 1.0, "omega0": 0.0},
+    }
+    built = build_system_from_config(cfg)
+    assert built.state.n.shape == (48, 32, 81)
+    assert built.system.geom.bxcv is not None
+    assert built.system.geom.gxx is not None
+    assert built.system.geom.gyy is not None
+    assert built.system.geom.dpar_factor is not None
+    assert np.isfinite(np.asarray(built.system.geom.bxcv)).all()
+    assert np.isfinite(np.asarray(built.system.geom.jacobian)).all()
+    assert np.isclose(float(built.system.params.dx), 5043.46089151533 / 32.0)
+    assert np.isclose(float(built.system.params.dy), 1.2566370614359172 / 81.0)
