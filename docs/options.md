@@ -199,6 +199,17 @@ for minimal preset schedules:
 - `core_vorticity_damping_on`: parity switch for core vorticity damping
   equivalents (`mu_lin_omega`, `mu_zonal_omega`).
 
+Parity-FV specific numerics (`engine = "parity_fv"`):
+- `parity_limiter`: limiter for parallel FV reconstruction (`mc`, `minmod`, `none`).
+- `parallel_pressure_flux_coeff`: coefficient on conservative pressure flux.
+- `parallel_pressure_work_coeff`: coefficient on `v_parallel * d_parallel(p)`.
+- `vorticity_parallel_coeff`: coefficient on parallel-current vorticity coupling.
+- `curvature_coeff`: coefficient on curvature-driven vorticity source.
+
+Parity-FV specific term toggles (`[terms]`):
+- `parallel_on`
+- `curvature_on`
+
 ### Sheath Options
 
 - `sheath_energy_model`: electron sheath-energy closure. `relaxation` keeps the

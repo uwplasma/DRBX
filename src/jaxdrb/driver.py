@@ -716,7 +716,12 @@ def _build_parity_fv_system(
         limiter=str(numerics.get("parity_limiter", "mc")),
         poisson_scale=float(numerics.get("poisson_scale", 1.0)),
         parallel_on=bool(terms.get("parallel_on", True)),
+        curvature_on=bool(terms.get("curvature_on", True)),
         source_n0=float(physics.get("source_n0", 0.0)),
+        parallel_pressure_flux_coeff=float(numerics.get("parallel_pressure_flux_coeff", 5.0 / 3.0)),
+        parallel_pressure_work_coeff=float(numerics.get("parallel_pressure_work_coeff", 2.0 / 3.0)),
+        vorticity_parallel_coeff=float(numerics.get("vorticity_parallel_coeff", 1.0)),
+        curvature_coeff=float(numerics.get("curvature_coeff", 1.0)),
     )
     return BuiltSystem(system=system, state=state, normalization=norm_info)
 
