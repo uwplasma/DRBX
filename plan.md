@@ -187,5 +187,5 @@ src/jaxdrb/parity_fv/
 1. [x] Create `src/jaxdrb/legacy_v1/` and move current core/operator modules there (no behavior edits).
 2. [x] Add `src/jaxdrb/parity_fv/{params.py,state.py,geometry.py,rhs.py}` scaffolding with strict field layout.
 3. [x] Implement Hermes-equivalent FV parallel flux kernel and unit tests.
-4. Implement strict Poisson/vorticity guard-cell boundary semantics and one-step parity test.
+4. [x] Implement strict Poisson/vorticity guard-cell boundary semantics and one-step parity test.
 5. Wire CLI to select `engine = "parity_fv"` and run the existing audit scripts against it.

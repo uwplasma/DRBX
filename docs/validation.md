@@ -38,6 +38,9 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_fluctuation_diagnostics.py` | `rms_*_fluct` and `equilibrium_*` consistency | Fluctuation diagnostics |
 | Unit | `tests/test_benchmark_schema.py` | Benchmark bundle schema round-trip (normalized + SI) | Cross-code reproducibility |
 | Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes parity diagnostics |
+| Unit | `tests/test_parity_fv_scaffold.py` | Parity-FV state/geometry/RHS shape contracts | rewrite safety gate |
+| Unit | `tests/test_parity_fv_parallel_flux.py` | FV parallel reconstruction + boundary-flux balance | Hermes solver numerics |
+| Unit | `tests/test_parity_fv_poisson_vorticity_guards.py` | INVERT_SET + radial/y-guard semantics | Hermes vorticity boundary semantics |
 | Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
 | Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
