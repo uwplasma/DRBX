@@ -57,19 +57,35 @@ Outputs per stage:
 
 ### Poisson/Vorticity strict audit (before any turbulence window)
 
+First, prepare a short Hermes run with dense diagnostics (including
+`vorticity:diagnose_terms=true`):
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/prepare_hermes_dense_run.py \
+  --base-run-dir runs/hermes_open_field_terms_t01 \
+  --out-run-dir runs/hermes_open_field_terms_t01_vortterms \
+  --hermes-bin <path-to-hermes-3> \
+  --nout 10 \
+  --timestep 0.01
+cd runs/hermes_open_field_terms_t01_vortterms
+mpirun -n 6 <path-to-hermes-3> -d data
+```
+
 Run the strict operator audit first:
 
 ```bash
 cd <repo>
 PYTHONPATH=src python tools/audit_term_parity.py \
-  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml \
-  --hermes-data-dir runs/hermes_open_field_short/data \
-  --hermes-input runs/hermes_open_field_short/data/BOUT.inp \
-  --hermes-grid runs/hermes_open_field_short/tokamak.nc \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_parity_strict_early.toml \
+  --hermes-data-dir runs/hermes_open_field_terms_t01_vortterms/data \
+  --hermes-input runs/hermes_open_field_terms_t01_vortterms/data/BOUT.inp \
+  --hermes-grid runs/hermes_open_field_terms_t01_vortterms/tokamak.nc \
   --out-dir runs/parity_strict_poisson_equiv_fix1 \
   --nsteps 3 \
   --match-hermes-dt \
   --use-hermes-state \
+  --use-hermes-phi-in-terms \
   --hermes-parallel-axis y \
   --strict-axis
 ```
@@ -81,6 +97,21 @@ PYTHONPATH=src python tools/audit_term_parity.py \
 For this strict run, the core Poisson forward parity target is:
 - `omega_from_phi_corr_core ≈ 1`
 - `omega_from_phi_scale_core ≈ 1`
+
+Early-time parity-tuned knobs in
+`examples/open_field_line/input_tokamak_bxcv_parity_strict_early.toml`:
+- `parallel_pressure_flux_coeff = 1.73`
+- `parallel_limiter = "none"`
+- `parallel_flux_scheme = "rusanov"`
+- `exb_poloidal_flows = true`
+- `exb_poloidal_scale = 1.8`
+- `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
+
+With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the updated
+vorticity-path parity is:
+- `omega total RHS vs ddt(Vort)`: rel-diff `~0.84 .. 1.13` (about 8–11%)
+- `omega parallel (jax vs term_Vort_jpar)`: rel-diff `~0.01 .. 0.04`
+- `omega diamagnetic current (jax vs term_Vort_divJdia)`: rel-diff `~0.25`
 
 ## 2) Build Hermes bundle (same normalization metadata)
 
