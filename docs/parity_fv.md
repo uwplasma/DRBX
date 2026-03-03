@@ -123,9 +123,18 @@ Added parity-fv tests:
 - `tests/test_parity_fv_term_gates.py`
 - `tests/test_parity_fv_poisson_solver.py`
 - `tests/test_parity_fv_sheath.py`
+- `tests/test_parity_fv_one_step_audit_gate.py`
+- `tests/test_parity_fv_short_window_gate.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
-rules mapped directly from Hermes vorticity solver behavior.
+rules mapped directly from Hermes vorticity solver behavior. The short-window
+gate extends this to a deterministic `t<=0.1` integration window, checking:
+
+- fluctuation RMS traces for `n`, `Te`, `omega`, `phi`
+- finite-run gate (non-finite / growth / peak rejection)
+- probe PSD in time
+- final-plane `k_y` PSD
+- final fluctuation slices (`n`, `phi`) at fixed `z`
 
 ## Next steps
 

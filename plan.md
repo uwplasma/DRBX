@@ -168,6 +168,7 @@ src/jaxdrb/parity_fv/
 - [x] Implement vorticity + Poisson parity path.
 - [x] Implement sheath boundary component parity (particle, momentum, energy).
 - [x] Add strict one-step term audit gate in CI.
+- [x] Add deterministic rewrite-local `t<=0.1` short-window regression harness and finite-run gate.
 - [ ] Pass `t<=0.1` parity gate.
 - [ ] Pass `t<=0.5` parity gate.
 - [ ] Build long-window benchmark panel and movies.
