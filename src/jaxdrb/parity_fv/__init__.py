@@ -6,8 +6,10 @@ jax_drb against Hermes before broader model extensions are reintroduced.
 
 from .params import ParityFVParams
 from .state import ParityFVState
+from .geometry import ParityFVGeometry
 from .rhs import ParityFVRHS
 from .flux_parallel import div_parallel_fv
+from .system import ParityFVSystem
 from .poisson_vorticity import (
     apply_invert_set_x_guard,
     apply_parallel_free_y_guard,
@@ -19,8 +21,10 @@ from .poisson_vorticity import (
 __all__ = [
     "ParityFVParams",
     "ParityFVState",
+    "ParityFVGeometry",
     "ParityFVRHS",
     "div_parallel_fv",
+    "ParityFVSystem",
     "apply_invert_set_x_guard",
     "apply_parallel_free_y_guard",
     "copy_outer_x_guard_cells",

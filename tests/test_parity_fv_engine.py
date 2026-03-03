@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from jaxdrb.driver import build_system_from_config, run_simulation
+from jaxdrb.io.config import load_config
+
+
+def _cfg() -> dict:
+    return {
+        "engine": "parity_fv",
+        "geometry": {"kind": "slab", "nx": 16, "ny": 12, "nz": 6, "Lx": 1.0, "Ly": 1.0, "Lz": 2.0},
+        "initial": {"n0": 1.0, "Te0": 1.0, "omega0": 0.1},
+        "time": {"method": "rk4", "dt": 1e-3, "nsteps": 4, "save_every": 2, "return_numpy": True},
+    }
+
+
+def test_build_system_parity_fv_engine() -> None:
+    built = build_system_from_config(_cfg())
+    assert str(getattr(built.system, "engine", "")) == "parity_fv"
+    dy = built.system.rhs(0.0, built.state)
+    assert dy.n.shape == built.state.n.shape
+    assert dy.Te.shape == built.state.Te.shape
+
+
+def test_run_simulation_parity_fv_smoke() -> None:
+    run = run_simulation(_cfg(), as_numpy=True)
+    assert np.asarray(run.times).size >= 2
+    assert np.isfinite(np.asarray(run.diagnostics["rms_n"])).all()
+    assert np.isfinite(np.asarray(run.diagnostics["rms_Te"])).all()
+
+
+def test_parity_fv_scheduler_ctx_override() -> None:
+    built = build_system_from_config(_cfg())
+    phi_override = np.ones_like(np.asarray(built.state.omega))
+
+    class _Ctx:
+        phi = phi_override
+
+    split, term_map = built.system.scheduler.run_with_terms(_Ctx(), built.state)
+    assert "parallel" in term_map
+    total = split.total()
+    assert total.n.shape == built.state.n.shape
+
+
+def test_load_config_engine_alias(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "input.toml"
+    cfg_path.write_text('engine = "fv_parity"\n', encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.data["engine"] == "parity_fv"
+
+
+def test_load_config_invalid_engine(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "bad.toml"
+    cfg_path.write_text('engine = "invalid_engine"\n', encoding="utf-8")
+    with pytest.raises(ValueError):
+        _ = load_config(cfg_path)

@@ -137,23 +137,30 @@ def _rel_l2_scalar(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _jax_initial_term_rms(cfg_path: Path) -> dict[str, float]:
-    from jaxdrb.core.terms import build_context
     from jaxdrb.driver import build_system_from_config
 
     cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
     built = build_system_from_config(cfg)
-    ctx = build_context(built.system.params, built.system.geom, built.state)
-    split, term_map = built.system.scheduler.run_with_terms(ctx, built.state)
 
     def rms(arr) -> float:
         a = np.asarray(arr, dtype=np.float64)
         return float(np.sqrt(np.mean(a * a)))
 
+    engine = str(getattr(built.system, "engine", "unified")).lower()
+    if engine == "parity_fv":
+        split, term_map, phi, _ = built.system.rhs_terms(0.0, built.state)
+    else:
+        from jaxdrb.core.terms import build_context
+
+        ctx = build_context(built.system.params, built.system.geom, built.state)
+        split, term_map = built.system.scheduler.run_with_terms(ctx, built.state)
+        phi = ctx.phi
+
     out: dict[str, float] = {}
     out["jax_rhs_rms_n"] = rms(split.total().n)
     out["jax_rhs_rms_Te"] = rms(split.total().Te)
     out["jax_rhs_rms_omega"] = rms(split.total().omega)
-    out["jax_phi_rms"] = rms(ctx.phi)
+    out["jax_phi_rms"] = rms(phi)
     grid = getattr(built.system.geom, "grid", None)
     if grid is not None and hasattr(grid, "perp"):
         out["jax_dx"] = float(grid.perp.dx)

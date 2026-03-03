@@ -6,13 +6,14 @@ Hermes-parity rewrite path.
 ## Scope (current)
 
 Implemented modules:
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/params.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/state.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/geometry.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/flux_reconstruct.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/flux_parallel.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/poisson_vorticity.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/parity_fv/rhs.py`
+- `src/jaxdrb/parity_fv/params.py`
+- `src/jaxdrb/parity_fv/state.py`
+- `src/jaxdrb/parity_fv/geometry.py`
+- `src/jaxdrb/parity_fv/flux_reconstruct.py`
+- `src/jaxdrb/parity_fv/flux_parallel.py`
+- `src/jaxdrb/parity_fv/poisson_vorticity.py`
+- `src/jaxdrb/parity_fv/rhs.py`
+- `src/jaxdrb/parity_fv/system.py`
 
 ## Numerical policy
 
@@ -59,9 +60,10 @@ Implemented in:
 ## Tests
 
 Added parity-fv tests:
-- `/Users/rogerio/local/jax_drb/tests/test_parity_fv_scaffold.py`
-- `/Users/rogerio/local/jax_drb/tests/test_parity_fv_parallel_flux.py`
-- `/Users/rogerio/local/jax_drb/tests/test_parity_fv_poisson_vorticity_guards.py`
+- `tests/test_parity_fv_scaffold.py`
+- `tests/test_parity_fv_parallel_flux.py`
+- `tests/test_parity_fv_poisson_vorticity_guards.py`
+- `tests/test_parity_fv_engine.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
 rules mapped directly from Hermes vorticity solver behavior.
@@ -70,4 +72,27 @@ rules mapped directly from Hermes vorticity solver behavior.
 
 - Integrate `parity_fv` guard semantics into the new vorticity/Poisson solve path.
 - Add one-step Hermes vs JAX parity gate that uses `parity_fv` operators only.
-- Promote `engine = "parity_fv"` into CLI once term-level short-window gate passes.
+
+## Engine selection
+
+Use top-level TOML key:
+
+```toml
+engine = "parity_fv"
+```
+
+Alias values are accepted by loader and normalized to `parity_fv`:
+- `fv_parity`
+- `parity-fv`
+
+CLI metadata includes engine listing:
+
+```bash
+jax_drb --list-engines
+```
+
+## Audit compatibility
+
+`tools/audit_term_parity.py` and `tools/trace_first_mismatch.py` now detect
+`engine = "parity_fv"` and use parity-engine term assembly directly instead
+of the legacy term-context path.

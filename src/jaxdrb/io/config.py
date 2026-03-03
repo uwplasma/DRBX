@@ -23,8 +23,15 @@ class DRBConfig:
         return value
 
 
+_VALID_ENGINES = {"unified", "parity_fv", "fv_parity", "parity-fv"}
+
+
 def load_config(path: str | Path) -> DRBConfig:
     path = Path(path)
     with path.open("rb") as f:
         data = tomllib.load(f)
+    engine = str(data.get("engine", "unified")).strip().lower()
+    if engine not in _VALID_ENGINES:
+        raise ValueError(f"Invalid engine '{engine}'. Valid options: {sorted(_VALID_ENGINES)}")
+    data["engine"] = "parity_fv" if engine in {"fv_parity", "parity-fv"} else engine
     return DRBConfig(data=data)
