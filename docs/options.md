@@ -207,6 +207,14 @@ Parity-FV specific numerics (`engine = "parity_fv"`):
 - `vorticity_parallel_coeff`: coefficient on parallel-current vorticity coupling.
 - `curvature_coeff`: coefficient on curvature-driven vorticity source.
 
+Parity-FV specific geometry ingestion:
+- `geometry.coeff_path`: optional metric bundle used by the rewrite path.
+  Currently supported fields are `J`, `curv_x`/`bxcv`, `gxx`, `gxy`, `gyy`,
+  and `dpar_factor`.
+- If `coeff_path` provides `nx`, `ny`, or `z`, those are used to infer the
+  parity grid unless the config already specifies the same values.
+- Config/file dimension mismatches are treated as errors.
+
 Parity-FV specific term toggles (`[terms]`):
 - `parallel_on`
 - `curvature_on`

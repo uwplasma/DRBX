@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 import jax
@@ -655,23 +656,105 @@ def _build_parity_fv_system(
     closures = cfg.get("closures", {})
     numerics = cfg.get("numerics", {})
     geometry = cfg.get("geometry", {})
+    geometry_physical = cfg.get("geometry_physical", {})
     terms = cfg.get("terms", {})
     init = cfg.get("initial", {})
     sheath_cfg = closures.get("sheath", {}) if isinstance(closures, dict) else {}
 
-    nx = int(geometry.get("nx", 32))
-    ny = int(geometry.get("ny", 32))
-    nz = int(geometry.get("nz", 1))
-    Lx = float(geometry.get("Lx", 1.0))
-    Ly = float(geometry.get("Ly", 1.0))
-    Lz = float(geometry.get("Lz", 1.0))
+    coeff_data: dict[str, np.ndarray] = {}
+    coeff_path = geometry.get("coeff_path", None)
+
+    def _resolve_repo_path(raw: str) -> Path:
+        path = Path(raw)
+        if path.is_absolute():
+            return path
+        cwd_candidate = (Path.cwd() / path).resolve()
+        if cwd_candidate.exists():
+            return cwd_candidate
+        repo_candidate = (Path(__file__).resolve().parents[2] / path).resolve()
+        if repo_candidate.exists():
+            return repo_candidate
+        return cwd_candidate
+
+    if isinstance(coeff_path, str) and coeff_path:
+        coeff_file = _resolve_repo_path(coeff_path)
+        if not coeff_file.exists():
+            raise FileNotFoundError(f"parity_fv coeff_path not found: {coeff_file}")
+        with np.load(coeff_file) as data:
+            coeff_data = {key: np.asarray(data[key]) for key in data.files}
+
+    def _infer_int(cfg_value: Any, file_value: Any, default: int, *, name: str) -> int:
+        explicit = None if cfg_value is None else int(cfg_value)
+        inferred = None if file_value is None else int(file_value)
+        if explicit is not None and inferred is not None and explicit != inferred:
+            raise ValueError(
+                f"parity_fv geometry {name} mismatch: config={explicit} coeff={inferred}"
+            )
+        if explicit is not None:
+            return explicit
+        if inferred is not None:
+            return inferred
+        return int(default)
+
+    z_coeff = coeff_data.get("z", None)
+    nx = _infer_int(geometry.get("nx", None), coeff_data.get("nx", None), 32, name="nx")
+    ny = _infer_int(geometry.get("ny", None), coeff_data.get("ny", None), 32, name="ny")
+    nz = _infer_int(
+        geometry.get("nz", None),
+        None if z_coeff is None else int(np.asarray(z_coeff).size),
+        1,
+        name="nz",
+    )
+
+    Lx = float(geometry.get("Lx", geometry_physical.get("Lx", coeff_data.get("Lx", 1.0))))
+    Ly = float(geometry.get("Ly", geometry_physical.get("Ly", coeff_data.get("Ly", 1.0))))
+    Lz = float(geometry.get("Lz", geometry_physical.get("Lz", 1.0)))
     dx = Lx / max(nx, 1)
     dy = Ly / max(ny, 1)
     dz = Lz / max(nz, 1)
 
     shape = (nz, nx, ny)
-    jacobian = jnp.ones(shape, dtype=jnp.float64)
-    bxcv = None
+
+    def _metric_to_shape(raw: Any) -> jnp.ndarray | None:
+        if raw is None:
+            return None
+        arr = np.asarray(raw, dtype=np.float64)
+        if arr.ndim == 0:
+            return jnp.full(shape, float(arr), dtype=jnp.float64)
+        if arr.shape == shape:
+            return jnp.asarray(arr, dtype=jnp.float64)
+        if arr.ndim == 1:
+            if arr.size == nz:
+                return jnp.asarray(arr[:, None, None], dtype=jnp.float64) * jnp.ones(
+                    shape, dtype=jnp.float64
+                )
+            if arr.size == nx:
+                return jnp.asarray(arr[None, :, None], dtype=jnp.float64) * jnp.ones(
+                    shape, dtype=jnp.float64
+                )
+            if arr.size == ny:
+                return jnp.asarray(arr[None, None, :], dtype=jnp.float64) * jnp.ones(
+                    shape, dtype=jnp.float64
+                )
+        if arr.ndim == 2:
+            if arr.shape == (nz, nx):
+                return jnp.asarray(arr[:, :, None], dtype=jnp.float64) * jnp.ones(
+                    (1, 1, ny), dtype=jnp.float64
+                )
+            if arr.shape == (nx, ny):
+                return jnp.asarray(arr[None, :, :], dtype=jnp.float64) * jnp.ones(
+                    (nz, 1, 1), dtype=jnp.float64
+                )
+            if arr.shape == (nz, ny):
+                return jnp.asarray(arr[:, None, :], dtype=jnp.float64) * jnp.ones(
+                    (1, nx, 1), dtype=jnp.float64
+                )
+        raise ValueError(f"Unsupported parity_fv metric shape {arr.shape} for target {shape}")
+
+    jacobian = _metric_to_shape(coeff_data.get("J", None))
+    if jacobian is None:
+        jacobian = jnp.ones(shape, dtype=jnp.float64)
+    bxcv = _metric_to_shape(coeff_data.get("bxcv", coeff_data.get("curv_x", None)))
     if "bxcv_const" in geometry:
         bxcv = jnp.full(shape, float(geometry["bxcv_const"]), dtype=jnp.float64)
 
@@ -693,7 +776,14 @@ def _build_parity_fv_system(
     pfv_geom = ParityFVGeometry(
         jacobian=jacobian,
         bxcv=bxcv,
-        dpar_factor=jnp.ones(shape, dtype=jnp.float64),
+        gxx=_metric_to_shape(coeff_data.get("gxx", None)),
+        gxy=_metric_to_shape(coeff_data.get("gxy", None)),
+        gyy=_metric_to_shape(coeff_data.get("gyy", None)),
+        dpar_factor=(
+            _metric_to_shape(coeff_data.get("dpar_factor", None))
+            if "dpar_factor" in coeff_data
+            else jnp.ones(shape, dtype=jnp.float64)
+        ),
     )
 
     n0 = float(init.get("n0", 0.0))

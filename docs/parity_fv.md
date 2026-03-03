@@ -20,6 +20,29 @@ Implemented modules:
 - `src/jaxdrb/parity_fv/rhs.py`
 - `src/jaxdrb/parity_fv/system.py`
 
+## Geometry ingestion (new)
+
+`parity_fv` can now ingest metric/coefficient files through
+`[geometry].coeff_path`. For the current rewrite stage, the loader supports
+Hermes-style axisymmetric coefficient bundles and broadcasts them onto the
+`(z, x, y)` parity layout:
+
+- `J` -> `jacobian`
+- `curv_x` or `bxcv` -> `bxcv`
+- `gxx`, `gxy`, `gyy`
+- `dpar_factor`
+
+Supported source shapes are:
+
+- scalar
+- `(nz,)`, `(nx,)`, `(ny,)`
+- `(nz, nx)`, `(nz, ny)`, `(nx, ny)`
+- `(nz, nx, ny)`
+
+If both config and coefficient file specify `nx`, `ny`, or `nz`, mismatches are
+treated as an error. This is deliberate: the parity path should fail early on
+geometry inconsistencies rather than silently reshape metrics.
+
 ## Numerical policy
 
 The rewrite follows Hermes/BOUT finite-volume semantics first, then extends

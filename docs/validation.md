@@ -41,7 +41,7 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_parity_fv_scaffold.py` | Parity-FV state/geometry/RHS shape contracts | rewrite safety gate |
 | Unit | `tests/test_parity_fv_parallel_flux.py` | FV parallel reconstruction + boundary-flux balance | Hermes solver numerics |
 | Unit | `tests/test_parity_fv_poisson_vorticity_guards.py` | INVERT_SET + radial/y-guard semantics | Hermes vorticity boundary semantics |
-| Unit | `tests/test_parity_fv_engine.py` | `engine = "parity_fv"` build/run/audit scheduling compatibility | parity rewrite integration |
+| Unit | `tests/test_parity_fv_engine.py` | `engine = "parity_fv"` build/run/audit scheduling compatibility + `coeff_path` metric ingestion | parity rewrite integration |
 | Unit/Physics | `tests/test_parity_fv_term_gates.py` | density/pressure/vorticity parity-term assembly + coefficient scaling | Hermes parallel/vorticity structure |
 | Regression | `tests/test_parity_fv_poisson_solver.py` | spectral Poisson/ω(φ) round-trip and solver-mode regression | parity Poisson/vorticity path |
 | Unit/Physics | `tests/test_parity_fv_sheath.py` | open-field sheath particle/momentum/energy boundary channels | sheath boundary component parity |
