@@ -106,6 +106,8 @@ Early-time parity-tuned knobs in
 - `exb_poloidal_flows = true`
 - `exb_poloidal_scale = 1.8`
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
+- `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit parity with Hermes dump `Omega_ci`)
+- standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
 
 With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the updated
 vorticity-path parity is:
