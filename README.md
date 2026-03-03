@@ -25,3 +25,4 @@ jaxdrb path/to/input.toml
 - Profiling: `docs/profiling.md`
 - Figures & diagnostics: `docs/figures.md`
 - Diagnostics utilities: `docs/diagnostics.md`
+- Parity-FV rewrite track: `docs/parity_fv.md`
