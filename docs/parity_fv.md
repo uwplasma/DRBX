@@ -129,8 +129,8 @@ rules mapped directly from Hermes vorticity solver behavior.
 
 ## Next steps
 
-- Integrate `parity_fv` guard semantics into the new vorticity/Poisson solve path.
-- Add one-step Hermes vs JAX parity gate that uses `parity_fv` operators only.
+- Pass staged parity windows (`t<=0.1`, `t<=0.5`) with finite-run gating.
+- Promote parity diagnostics to benchmark panel and long-window runs once staged gates pass.
 
 ## Engine selection
 
