@@ -4,6 +4,16 @@ The production driver lives in `jaxdrb.driver.run_simulation` and is exposed via
 the CLI `jaxdrb --run`. It supports a **JIT‑compiled fixed‑step scan** as well as
 **Diffrax** solvers with adaptive stepping.
 
+## Engine Selection
+
+Set top-level `engine` in TOML:
+
+```toml
+engine = "unified"    # default
+# or
+engine = "parity_fv"  # parity rewrite path
+```
+
 ## `[time]` Configuration
 
 Defaults: `method="diffrax"`, `solver="dopri8"`, `adaptive=true`, `progress=true`.

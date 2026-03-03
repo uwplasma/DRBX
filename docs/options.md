@@ -5,6 +5,20 @@ the unified DRB system. All options are designed to be **subsets of the same cor
 
 ---
 
+## Engine Selection (top-level)
+
+- `engine = "unified"`: current broad unified core (default).
+- `engine = "parity_fv"`: strict finite-volume Hermes-parity rewrite path.
+
+Accepted aliases in input parsing:
+- `engine = "fv_parity"`
+- `engine = "parity-fv"`
+
+CLI listing:
+- `jaxdrb --list-engines`
+
+---
+
 ## Physics Toggles (`[system]`)
 
 - `electromagnetic_on`: enable parallel magnetic fluctuations (`psi` evolution).

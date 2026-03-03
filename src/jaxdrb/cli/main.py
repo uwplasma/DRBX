@@ -24,6 +24,11 @@ def main() -> None:
         help="List available geometry kinds and exit.",
     )
     parser.add_argument(
+        "--list-engines",
+        action="store_true",
+        help="List available solver engines and exit.",
+    )
+    parser.add_argument(
         "--compile-cache",
         type=str,
         default="$HOME/.cache/jaxdrb/compilation",
@@ -66,6 +71,10 @@ def main() -> None:
             aliases = ", ".join(spec.aliases) if spec.aliases else "-"
             print(f"{spec.kind}: required=[{req}] optional=[{opt}] aliases=[{aliases}]")
         return
+    if args.list_engines:
+        for engine in ("unified", "parity_fv"):
+            print(engine)
+        return
 
     cache_opt = str(args.compile_cache).strip()
     if cache_opt and cache_opt.lower() not in ("off", "false", "0", "none"):
@@ -78,7 +87,7 @@ def main() -> None:
         compilation_cache.compilation_cache.initialize_cache(cache_dir)
 
     if args.config is None:
-        parser.error("config is required unless --list-terms is used")
+        parser.error("config is required unless listing metadata")
 
     cfg = load_config(args.config)
     if args.run:
