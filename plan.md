@@ -162,7 +162,7 @@ src/jaxdrb/parity_fv/
 
 - [x] Audit Hermes docs/source and identify structural mismatch classes.
 - [x] Freeze current core as `legacy_v1` in repo.
-- [ ] Scaffold `parity_fv` package with state/params/geometry contracts.
+- [x] Scaffold `parity_fv` package with state/params/geometry contracts.
 - [ ] Implement density FV term parity.
 - [ ] Implement pressure FV term parity.
 - [ ] Implement vorticity + Poisson parity path.
