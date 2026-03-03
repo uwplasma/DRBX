@@ -549,6 +549,30 @@ def _compute_hermes_term_metrics(
     _append_source_rows("Pe_src", "Pe", "source_ext")
     _append_source_rows("SNe", "n", "source_total")
     _append_source_rows("SPe", "Pe", "source_total")
+
+    # Residual source channel: everything in total source that is not the explicit
+    # external source. This often captures sheath/core damping or component-added
+    # source/sink channels in Hermes runs.
+    if "SNe" in fields and "Se_src" in fields:
+        sne = np.asarray(fields["SNe"], dtype=np.float64)
+        se = np.asarray(fields["Se_src"], dtype=np.float64)
+        if sne.ndim >= 3 and se.ndim >= 3:
+            residual = sne - se
+            for ti in range(nsteps):
+                idx = int(start_index + ti + step_offset)
+                if idx < 0 or idx >= nt or idx >= residual.shape[0]:
+                    continue
+                _add_rows(residual[idx] * ddt_scale, "n", "source_residual", ti, times[idx])
+    if "SPe" in fields and "Pe_src" in fields:
+        spe = np.asarray(fields["SPe"], dtype=np.float64)
+        se = np.asarray(fields["Pe_src"], dtype=np.float64)
+        if spe.ndim >= 3 and se.ndim >= 3:
+            residual = spe - se
+            for ti in range(nsteps):
+                idx = int(start_index + ti + step_offset)
+                if idx < 0 or idx >= nt or idx >= residual.shape[0]:
+                    continue
+                _add_rows(residual[idx] * ddt_scale, "Pe", "source_residual", ti, times[idx])
     # Fallback omega channels present in some Hermes outputs when
     # term_Vort_* channels are not enabled.
     _append_source_rows("DivJdia", "omega", "divJdia")
@@ -592,6 +616,22 @@ def _compute_hermes_term_metrics(
 
         _append_te_source_rows("Pe_src", "Se_src", "source_ext")
         _append_te_source_rows("SPe", "SNe", "source_total")
+        if all(k in fields for k in ("SPe", "SNe", "Pe_src", "Se_src")):
+            spe = np.asarray(fields["SPe"], dtype=np.float64)
+            sne = np.asarray(fields["SNe"], dtype=np.float64)
+            pe_src = np.asarray(fields["Pe_src"], dtype=np.float64)
+            se_src = np.asarray(fields["Se_src"], dtype=np.float64)
+            if all(arr.ndim >= 3 for arr in (spe, sne, pe_src, se_src)):
+                p_res = spe - pe_src
+                n_res = sne - se_src
+                for ti in range(nsteps):
+                    idx = int(start_index + ti + step_offset)
+                    if idx < 0 or idx >= nt or idx >= p_res.shape[0] or idx >= n_res.shape[0]:
+                        continue
+                    Ne = fields["Ne"][idx]
+                    Te = fields["Te"][idx]
+                    dte = ((p_res[idx] - Te * n_res[idx]) / np.maximum(Ne, 1e-12)) * ddt_scale
+                    _add_rows(dte, "Te", "source_residual", ti, times[idx])
 
     return rows
 
@@ -604,19 +644,22 @@ def _compute_term_mismatch(
         "n": {
             "advection": ("exb",),
             "parallel": ("par",),
-            "volume_source": ("source_total", "source", "source_ext"),
+            "volume_source": ("source_ext", "source"),
+            "sheath": ("source_residual",),
             "diffusion": ("low_n_diff_perp",),
         },
         "Pe": {
             "advection": ("exb",),
             "parallel": ("par",),
-            "volume_source": ("source_total", "source", "source_ext"),
+            "volume_source": ("source_ext", "source"),
+            "sheath": ("source_residual",),
             "diffusion": ("low_n_diff_perp",),
         },
         "Te": {
             "advection": ("exb",),
             "parallel": ("par",),
-            "volume_source": ("source_total", "source", "source_ext"),
+            "volume_source": ("source_ext", "source"),
+            "sheath": ("source_residual",),
             "diffusion": ("low_n_diff_perp",),
         },
         "omega": {
