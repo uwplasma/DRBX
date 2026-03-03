@@ -159,6 +159,17 @@ gate extends this to a deterministic `t<=0.1` integration window, checking:
 - final-plane `k_y` PSD
 - final fluctuation slices (`n`, `phi`) at fixed `z`
 
+The rewrite-local gate is now complemented by a compact Hermes reference
+harness:
+
+- fixture: `tests/fixtures/hermes_short_window_compact.npz`
+- comparison code: `src/jaxdrb/benchmarking/compare.py`
+- fixture builder: `tools/make_compact_reference_bundle.py`
+- bundle comparator: `tools/compare_benchmark_bundles.py`
+
+This keeps the Hermes-coupled early-window comparison reproducible without
+committing multi-megabyte full dump files into the test surface.
+
 ## Next steps
 
 - Pass staged parity windows (`t<=0.1`, `t<=0.5`) with finite-run gating.

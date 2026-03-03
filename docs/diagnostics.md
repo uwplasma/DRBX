@@ -6,7 +6,10 @@
 Code paths:
 - `src/jaxdrb/benchmarking/schema.py`
 - `src/jaxdrb/benchmarking/diagnostics.py`
+- `src/jaxdrb/benchmarking/compare.py`
 - `tools/build_benchmark_bundle.py`
+- `tools/make_compact_reference_bundle.py`
+- `tools/compare_benchmark_bundles.py`
 - `tools/plot_benchmark_panel.py`
 
 ## Shared Schema (Normalized + SI)
@@ -121,6 +124,36 @@ PYTHONPATH=src python tools/plot_benchmark_panel.py \
   --jax <run-dir>/bundle_jax_short.npz \
   --out docs/figures/tokamak_sol_benchmark_panel.png \
   --summary-csv docs/figures/tokamak_sol_benchmark_panel.csv
+```
+
+## Compact Hermes Reference Fixtures
+
+For short-window parity work we keep a compact Hermes reference bundle in
+`tests/fixtures/hermes_short_window_compact.npz`. It contains only the channels
+needed for early parity closure:
+
+- fluctuation RMS: `n, Te, omega, phi`
+- frequency PSD: `psd_n_f`
+- binormal PSD: `psd_n_ky`
+- PDF and coherence channels
+- final `xy` and `xz` fluctuation slices for `n` and `phi`
+
+The fixture is generated reproducibly from a full Hermes benchmark bundle:
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/make_compact_reference_bundle.py \
+  --input runs/parity_short_window_v2/bundle_hermes_short.npz \
+  --output tests/fixtures/hermes_short_window_compact.npz
+```
+
+To compare any candidate bundle against that compact reference:
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/compare_benchmark_bundles.py \
+  --reference tests/fixtures/hermes_short_window_compact.npz \
+  --candidate <run-dir>/bundle_jax_short.npz
 ```
 
 ## Literature Anchors
