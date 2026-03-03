@@ -161,7 +161,7 @@ src/jaxdrb/parity_fv/
 ## 10) Execution Checklist
 
 - [x] Audit Hermes docs/source and identify structural mismatch classes.
-- [ ] Freeze current core as `legacy_v1` in repo.
+- [x] Freeze current core as `legacy_v1` in repo.
 - [ ] Scaffold `parity_fv` package with state/params/geometry contracts.
 - [ ] Implement density FV term parity.
 - [ ] Implement pressure FV term parity.
