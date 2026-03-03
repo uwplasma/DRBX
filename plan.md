@@ -167,7 +167,7 @@ src/jaxdrb/parity_fv/
 - [x] Implement pressure FV term parity.
 - [x] Implement vorticity + Poisson parity path.
 - [x] Implement sheath boundary component parity (particle, momentum, energy).
-- [ ] Add strict one-step term audit gate in CI.
+- [x] Add strict one-step term audit gate in CI.
 - [ ] Pass `t<=0.1` parity gate.
 - [ ] Pass `t<=0.5` parity gate.
 - [ ] Build long-window benchmark panel and movies.
