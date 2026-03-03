@@ -171,6 +171,7 @@ src/jaxdrb/parity_fv/
 - [x] Add deterministic rewrite-local `t<=0.1` short-window regression harness and finite-run gate.
 - [x] Add `coeff_path` metric ingestion to `parity_fv` so Hermes-style geometry files can drive the rewrite path.
 - [x] Add compact Hermes short-window reference fixture + comparison harness.
+- [x] Add Hermes-coupled `t<=0.1` regression gate against the compact fixture.
 - [ ] Pass `t<=0.1` parity gate.
 - [ ] Pass `t<=0.5` parity gate.
 - [ ] Build long-window benchmark panel and movies.

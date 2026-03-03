@@ -148,6 +148,7 @@ Added parity-fv tests:
 - `tests/test_parity_fv_sheath.py`
 - `tests/test_parity_fv_one_step_audit_gate.py`
 - `tests/test_parity_fv_short_window_gate.py`
+- `tests/test_parity_fv_hermes_short_window_gate.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
 rules mapped directly from Hermes vorticity solver behavior. The short-window
@@ -169,6 +170,21 @@ harness:
 
 This keeps the Hermes-coupled early-window comparison reproducible without
 committing multi-megabyte full dump files into the test surface.
+
+The current Hermes-coupled regression gate runs the strict tokamak/open-field
+`parity_fv` config for `t<=0.1`, builds a benchmark bundle with the same
+normalization path used by the benchmark tools, and compares:
+
+- `rms_n_fluct`
+- `rms_Te_fluct`
+- `rms_omega_fluct`
+- `rms_phi_fluct`
+- `psd_n_f`
+- `psd_n_ky`
+
+against the compact Hermes reference. At this stage this is a **regression
+gate**, not the final parity-pass gate: it freezes the current mismatch
+signature so structural fixes can be measured term-by-term without ambiguity.
 
 ## Next steps
 
