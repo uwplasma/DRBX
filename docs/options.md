@@ -201,6 +201,7 @@ for minimal preset schedules:
 
 Parity-FV specific numerics (`engine = "parity_fv"`):
 - `parity_limiter`: limiter for parallel FV reconstruction (`mc`, `minmod`, `none`).
+- `parity_poisson_solver`: `spectral_xy` (FFT inversion of `∇⊥²φ=ω`) or `identity` (debug).
 - `parallel_pressure_flux_coeff`: coefficient on conservative pressure flux.
 - `parallel_pressure_work_coeff`: coefficient on `v_parallel * d_parallel(p)`.
 - `vorticity_parallel_coeff`: coefficient on parallel-current vorticity coupling.

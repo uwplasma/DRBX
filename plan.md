@@ -165,7 +165,7 @@ src/jaxdrb/parity_fv/
 - [x] Scaffold `parity_fv` package with state/params/geometry contracts.
 - [x] Implement density FV term parity.
 - [x] Implement pressure FV term parity.
-- [ ] Implement vorticity + Poisson parity path.
+- [x] Implement vorticity + Poisson parity path.
 - [ ] Implement sheath boundary component parity (particle, momentum, energy).
 - [ ] Add strict one-step term audit gate in CI.
 - [ ] Pass `t<=0.1` parity gate.

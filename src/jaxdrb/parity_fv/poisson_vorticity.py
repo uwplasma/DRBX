@@ -4,6 +4,56 @@ import jax
 import jax.numpy as jnp
 
 
+def laplacian_xy_periodic(phi: jnp.ndarray, *, dx: float, dy: float) -> jnp.ndarray:
+    """Periodic Cartesian Laplacian over the last two axes.
+
+    Supports arrays shaped `(nx, ny)` or `(nz, nx, ny)`.
+    """
+
+    inv_dx2 = 1.0 / max(float(dx) ** 2, 1e-30)
+    inv_dy2 = 1.0 / max(float(dy) ** 2, 1e-30)
+    dxx = (jnp.roll(phi, -1, axis=-2) - 2.0 * phi + jnp.roll(phi, 1, axis=-2)) * inv_dx2
+    dyy = (jnp.roll(phi, -1, axis=-1) - 2.0 * phi + jnp.roll(phi, 1, axis=-1)) * inv_dy2
+    return dxx + dyy
+
+
+def solve_poisson_xy_spectral(
+    omega: jnp.ndarray,
+    *,
+    dx: float,
+    dy: float,
+    gauge_fix: bool = True,
+) -> jnp.ndarray:
+    """Solve ∇⊥²φ = ω with periodic x/y using FFT over last two axes."""
+
+    nx = int(omega.shape[-2])
+    ny = int(omega.shape[-1])
+    kx = 2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=float(dx))
+    ky = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=float(dy))
+    k2 = kx[:, None] ** 2 + ky[None, :] ** 2
+    denom = -k2
+    denom_safe = jnp.where(k2 > 0.0, denom, 1.0)
+
+    omega_hat = jnp.fft.fftn(omega, axes=(-2, -1))
+    phi_hat = omega_hat / denom_safe
+    phi_hat = phi_hat.at[..., 0, 0].set(0.0)
+    phi = jnp.fft.ifftn(phi_hat, axes=(-2, -1)).real
+    return phi
+
+
+def laplacian_xy_spectral(phi: jnp.ndarray, *, dx: float, dy: float) -> jnp.ndarray:
+    """Spectral Cartesian Laplacian over last two axes."""
+
+    nx = int(phi.shape[-2])
+    ny = int(phi.shape[-1])
+    kx = 2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=float(dx))
+    ky = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=float(dy))
+    k2 = kx[:, None] ** 2 + ky[None, :] ** 2
+    phi_hat = jnp.fft.fftn(phi, axes=(-2, -1))
+    omega_hat = -k2 * phi_hat
+    return jnp.fft.ifftn(omega_hat, axes=(-2, -1)).real
+
+
 def apply_invert_set_x_guard(
     phi_plus_pi: jnp.ndarray,
     *,
