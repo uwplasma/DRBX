@@ -11,6 +11,10 @@ Implemented modules:
 - `src/jaxdrb/parity_fv/geometry.py`
 - `src/jaxdrb/parity_fv/flux_reconstruct.py`
 - `src/jaxdrb/parity_fv/flux_parallel.py`
+- `src/jaxdrb/parity_fv/ops.py`
+- `src/jaxdrb/parity_fv/terms_density.py`
+- `src/jaxdrb/parity_fv/terms_pressure.py`
+- `src/jaxdrb/parity_fv/terms_vorticity.py`
 - `src/jaxdrb/parity_fv/poisson_vorticity.py`
 - `src/jaxdrb/parity_fv/rhs.py`
 - `src/jaxdrb/parity_fv/system.py`
@@ -39,6 +43,29 @@ with
 This matches the Hermes documentation in
 `solver_numerics.rst` (slope-limited FV + Lax term).
 
+### Density / Pressure / Vorticity term gates (new)
+
+The parity engine now assembles explicit per-channel terms:
+
+- `parallel`:
+  - density: \(-\nabla_\parallel (n v_{\parallel e})\)
+  - pressure transport in conservative form with configurable coefficients
+    (`parallel_pressure_flux_coeff`, `parallel_pressure_work_coeff`)
+  - vorticity parallel-current proxy:
+    \[
+    \partial_t \omega \sim -c_{\omega,\parallel}\,\partial_\parallel (v_{\parallel i}-v_{\parallel e})
+    \]
+- `curvature`:
+  - vorticity drive from pressure gradient and curvature coefficient:
+    \[
+    \partial_t \omega \sim -c_{\kappa}\,b_{xcv}\,\partial_x p_e
+    \]
+- `volume_source`:
+  - scalar density source (`source_n0`)
+
+These are intentionally minimal but structurally separated to enable strict
+term-by-term parity auditing before adding additional closures.
+
 ### Poisson/vorticity guard-cell semantics (new)
 
 From Hermes `vorticity.cxx`, parity path now mirrors these boundary semantics:
@@ -64,6 +91,7 @@ Added parity-fv tests:
 - `tests/test_parity_fv_parallel_flux.py`
 - `tests/test_parity_fv_poisson_vorticity_guards.py`
 - `tests/test_parity_fv_engine.py`
+- `tests/test_parity_fv_term_gates.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
 rules mapped directly from Hermes vorticity solver behavior.
