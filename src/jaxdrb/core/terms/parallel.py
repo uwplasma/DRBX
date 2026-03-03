@@ -186,6 +186,18 @@ def _fastest_wave(ctx: TermContext) -> jnp.ndarray:
     return fast
 
 
+def _pressure_transport_coeffs(ctx: TermContext) -> tuple[float, float]:
+    model = str(getattr(ctx.params, "parallel_pressure_model", "custom")).lower()
+    if model == "hermes_vgradp":
+        return 5.0 / 3.0, 2.0 / 3.0
+    if model == "hermes_pdivv":
+        return 1.0, 0.0
+    return (
+        float(getattr(ctx.params, "parallel_pressure_flux_coeff", 1.0)),
+        float(getattr(ctx.params, "parallel_pressure_work_coeff", 0.0)),
+    )
+
+
 def _with_boundary_targets(
     v: jnp.ndarray,
     v_target: jnp.ndarray,
@@ -407,8 +419,17 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
         )
         if use_boundary_flux:
             assert sheath_data is not None
-            j_low = sheath_data["n_lg"] * (sheath_data["vi_sh_l"] - sheath_data["ve_sh_l"])
-            j_high = sheath_data["n_ug"] * (sheath_data["vi_sh_u"] - sheath_data["ve_sh_u"])
+            boundary_flux_scale = float(getattr(ctx.params, "parallel_boundary_flux_scale", 1.0))
+            j_low = (
+                sheath_data["n_lg"]
+                * (sheath_data["vi_sh_l"] - sheath_data["ve_sh_l"])
+                * boundary_flux_scale
+            )
+            j_high = (
+                sheath_data["n_ug"]
+                * (sheath_data["vi_sh_u"] - sheath_data["ve_sh_u"])
+                * boundary_flux_scale
+            )
             dpar_j = _dpar_flux_conservative(
                 ctx,
                 jpar_total,
@@ -455,9 +476,9 @@ def parallel_conservative_terms(
     ctx: TermContext, y: DRBSystemState, par: ParallelVars
 ) -> DRBSystemState:
     fastest_wave = _fastest_wave(ctx)
+    boundary_flux_scale = float(getattr(ctx.params, "parallel_boundary_flux_scale", 1.0))
     tau_i = float(ctx.params.tau_i) if ctx.hot_on else 0.0
-    pressure_flux_coeff = float(getattr(ctx.params, "parallel_pressure_flux_coeff", 1.0))
-    pressure_work_coeff = float(getattr(ctx.params, "parallel_pressure_work_coeff", 0.0))
+    pressure_flux_coeff, pressure_work_coeff = _pressure_transport_coeffs(ctx)
     vi_par_pressure = ctx.phi + tau_i * (ctx.n_phys + ctx.Ti)
     momentum_model = str(ctx.params.parallel_momentum_model).lower()
     vpar_e_flux = par.vpar_e_flux
@@ -473,8 +494,18 @@ def parallel_conservative_terms(
         if not use_boundary_flux:
             return None, None
         assert par.sheath_data is not None
-        left = 0.5 * (f[0] + par.sheath_data[ghost_low]) * par.sheath_data[vel_low]
-        right = 0.5 * (f[-1] + par.sheath_data[ghost_high]) * par.sheath_data[vel_high]
+        left = (
+            0.5
+            * (f[0] + par.sheath_data[ghost_low])
+            * par.sheath_data[vel_low]
+            * boundary_flux_scale
+        )
+        right = (
+            0.5
+            * (f[-1] + par.sheath_data[ghost_high])
+            * par.sheath_data[vel_high]
+            * boundary_flux_scale
+        )
         return left, right
 
     if momentum_model == "conservative":

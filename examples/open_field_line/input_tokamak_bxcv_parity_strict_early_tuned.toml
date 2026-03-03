@@ -69,6 +69,10 @@ sheath_bc_on = true
 sheath_bc_model = "bohm_current"
 sheath_nu_factor = 1.0
 sol_sheath_phi_dissipation_on = true
+sheath_heat_on = true
+sheath_gamma_auto = false
+sheath_gamma_e = 1.0
+sheath_nu_energy = 0.00952
 
 [transport]
 Dn = 0.0

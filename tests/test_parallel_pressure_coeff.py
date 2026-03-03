@@ -8,7 +8,11 @@ from jaxdrb.core.terms.parallel import parallel_conservative_terms, parallel_var
 from jaxdrb.driver import build_system_from_config
 
 
-def _cfg(pressure_flux_coeff: float) -> dict:
+def _cfg(
+    pressure_flux_coeff: float,
+    pressure_work_coeff: float = 0.0,
+    pressure_model: str = "custom",
+) -> dict:
     return {
         "geometry": {
             "kind": "salpha",
@@ -35,8 +39,9 @@ def _cfg(pressure_flux_coeff: float) -> dict:
             "hot_ion_on": False,
             "neutrals_on": False,
             "boussinesq": True,
+            "parallel_pressure_model": pressure_model,
             "parallel_pressure_flux_coeff": pressure_flux_coeff,
-            "parallel_pressure_work_coeff": 0.0,
+            "parallel_pressure_work_coeff": pressure_work_coeff,
         },
         "numerics": {
             "poisson": "spectral",
@@ -49,8 +54,18 @@ def _cfg(pressure_flux_coeff: float) -> dict:
     }
 
 
-def _parallel_pe_term(pressure_flux_coeff: float) -> np.ndarray:
-    built = build_system_from_config(_cfg(pressure_flux_coeff))
+def _parallel_terms(
+    pressure_flux_coeff: float,
+    pressure_work_coeff: float = 0.0,
+    pressure_model: str = "custom",
+) -> tuple[np.ndarray, np.ndarray]:
+    built = build_system_from_config(
+        _cfg(
+            pressure_flux_coeff,
+            pressure_work_coeff=pressure_work_coeff,
+            pressure_model=pressure_model,
+        )
+    )
     y0 = built.state
     shape = np.asarray(y0.n).shape
 
@@ -76,12 +91,12 @@ def _parallel_pe_term(pressure_flux_coeff: float) -> np.ndarray:
     par = parallel_vars(ctx, y)
     term = parallel_conservative_terms(ctx, y, par)
     dpe = ctx.n_phys * np.asarray(term.Te) + ctx.Te_phys * np.asarray(term.n)
-    return np.asarray(dpe, dtype=np.float64)
+    return np.asarray(dpe, dtype=np.float64), np.asarray(term.Te, dtype=np.float64)
 
 
 def test_parallel_pressure_flux_coeff_scales_parallel_pe_term() -> None:
-    dpe_1 = _parallel_pe_term(1.0)
-    dpe_15 = _parallel_pe_term(1.5)
+    dpe_1, _ = _parallel_terms(1.0)
+    dpe_15, _ = _parallel_terms(1.5)
 
     ratio = dpe_15 / np.maximum(np.abs(dpe_1), 1e-12)
     core = np.abs(dpe_1) > 1e-8
@@ -91,3 +106,15 @@ def test_parallel_pressure_flux_coeff_scales_parallel_pe_term() -> None:
     assert np.isfinite(ratio_core).all()
     # Away from tiny values, pressure-parallel term should scale linearly.
     assert np.allclose(ratio_core, 1.5, rtol=2e-2, atol=2e-2)
+
+
+def test_parallel_pressure_model_hermes_vgradp_matches_explicit_coefficients() -> None:
+    _, dte_model = _parallel_terms(1.0, pressure_model="hermes_vgradp")
+    _, dte_coeff = _parallel_terms(5.0 / 3.0, pressure_work_coeff=2.0 / 3.0)
+    assert np.allclose(dte_model, dte_coeff, rtol=1e-10, atol=1e-10)
+
+
+def test_parallel_pressure_model_hermes_pdivv_matches_explicit_coefficients() -> None:
+    _, dte_model = _parallel_terms(1.0, pressure_model="hermes_pdivv")
+    _, dte_coeff = _parallel_terms(1.0, pressure_work_coeff=0.0)
+    assert np.allclose(dte_model, dte_coeff, rtol=1e-10, atol=1e-10)

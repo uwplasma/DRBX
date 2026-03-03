@@ -48,6 +48,15 @@ class PhysicsParams(eqx.Module):
     alpha_Te_ohm: float = 1.71
     alpha_Ti: float = 1.0
     alpha_Ti_ohm: float = 0.0
+    # Conservative parallel pressure transport coefficients:
+    # dp = c_flux * (-Div_par(P v)) + c_work * v * Grad_par(P).
+    parallel_pressure_model: Literal["custom", "hermes_vgradp", "hermes_pdivv"] = "custom"
+    parallel_pressure_flux_coeff: float = 1.0
+    parallel_pressure_work_coeff: float = 0.0
+    # Optional compressional heating/cooling in temperature equations:
+    # dT/dt ... -(gamma-1) T div(v_parallel), matching Hermes p_div_v split.
+    parallel_temperature_compression_on: bool = False
+    parallel_temperature_compression_coeff: float = 2.0 / 3.0
 
     # Electromagnetism.
     beta: float = 0.0
@@ -112,6 +121,10 @@ class PhysicsParams(eqx.Module):
     source_y0: float = 0.0
     source_width_x: float = 1.0
     source_width_y: float = 1.0
+    # Electron pressure closure used in Hermes-style polarization:
+    # "nTe" -> p_e = n * Te (default, physically consistent for Te state variable)
+    # "Te"  -> p_e = Te (for legacy pressure-state compatibility)
+    electron_pressure_model: Literal["nTe", "Te"] = "nTe"
 
 
 class TransportParams(eqx.Module):
@@ -310,6 +323,11 @@ class NumericsParams(eqx.Module):
     exb_advection_form: Literal["bracket", "flux"] = "bracket"
     # When using flux-form ExB advection, advect conservative variables (n, n*v, p).
     exb_advect_conservative: bool = False
+    # Include the metric-coupled X-Y ExB advection contribution present in
+    # field-aligned BOUT/Hermes coordinates (poloidal flow term).
+    exb_poloidal_flows: bool = False
+    # Optional scale for the metric-coupled X-Y ExB advection contribution.
+    exb_poloidal_scale: float = 1.0
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     parallel_limiter: Literal["none", "minmod", "mc"] = "none"
@@ -321,6 +339,13 @@ class NumericsParams(eqx.Module):
     # Use Bohm-target sheath velocities on parallel boundary faces for open-field
     # conservative fluxes (Hermes-like boundary flux treatment).
     parallel_use_sheath_targets: bool = False
+    # Sheath target usage in conservative parallel fluxes:
+    # "boundary_flux" keeps interior v|| and applies Bohm targets only on sheath faces;
+    # "replace_boundary" overwrites boundary-cell v|| with Bohm targets (legacy mode).
+    parallel_sheath_flux_mode: Literal["boundary_flux", "replace_boundary"] = "replace_boundary"
+    # Scale applied to sheath boundary face fluxes in conservative parallel
+    # transport (useful for cross-code parity calibration).
+    parallel_boundary_flux_scale: float = 1.0
     dpar_factor_scale: float = 1.0
     use_gpar_flux: bool = False
     poisson_scale: float = 1.0
@@ -335,6 +360,11 @@ class NumericsParams(eqx.Module):
     # BOUT/Hermes INVERT_SET-style Poisson boundary handling: use field/guess
     # boundary values as Dirichlet data in non-periodic x.
     poisson_invert_set: bool = False
+    # Hermes INVERT_SET applies boundary values at the cell face (midpoint
+    # between guard and first interior cell). When enabled, approximate this
+    # half-cell shift by using the average of boundary and adjacent interior
+    # values as Dirichlet data in Poisson/polarization operators.
+    poisson_invert_set_midpoint: bool = True
     poisson_metric_on: bool = False
     poisson: Literal["spectral", "cg_fd", "mixed_fft"] = "spectral"
     poisson_force_spectral_when_periodic: bool = True
