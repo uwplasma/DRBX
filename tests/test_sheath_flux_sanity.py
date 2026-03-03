@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from jaxdrb.benchmarking import compute_target_fluxes
+from jaxdrb.core.terms.sheath import sheath_terms
+from jaxdrb.driver import build_system_from_config
 from jaxdrb.driver import run_simulation
 
 
@@ -97,3 +99,17 @@ def test_sheath_target_flux_sanity():
     assert np.all(np.isfinite(qi_t))
     assert float(np.mean(gamma_t)) > 0.0
     assert float(np.mean(qe_t)) > 0.0
+
+
+def test_hermes_flux_sheath_energy_is_boundary_local() -> None:
+    cfg = _cfg()
+    cfg["closures"]["sheath_energy_model"] = "hermes_flux"
+    built = build_system_from_config(cfg)
+    y = built.state
+    phi = np.ones_like(np.asarray(y.n))
+    term = sheath_terms(built.system.params, built.system.geom, y, phi)
+    dte = np.asarray(term.Te, dtype=np.float64)
+
+    assert np.all(np.isfinite(dte))
+    assert float(np.sqrt(np.mean(dte[1:-1] ** 2))) == 0.0
+    assert float(np.sqrt(np.mean(dte[[0, -1]] ** 2))) > 0.0

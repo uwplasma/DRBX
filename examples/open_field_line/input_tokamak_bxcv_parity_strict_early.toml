@@ -67,6 +67,7 @@ source_Te0 = 25098.6
 sheath_on = true
 sheath_bc_on = true
 sheath_bc_model = "bohm_current"
+sheath_energy_model = "hermes_flux"
 sheath_nu_factor = 1.0
 sol_sheath_phi_dissipation_on = true
 
