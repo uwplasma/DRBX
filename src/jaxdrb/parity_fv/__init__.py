@@ -18,7 +18,10 @@ from .poisson_vorticity import (
     apply_parallel_free_y_guard,
     copy_outer_x_guard_cells,
     finalize_phi_after_poisson,
+    laplacian_xy_spectral,
+    laplacian_xy_periodic,
     prepare_phi_plus_pi_for_poisson,
+    solve_poisson_xy_spectral,
 )
 
 __all__ = [
@@ -32,6 +35,9 @@ __all__ = [
     "vorticity_parallel_tendency",
     "vorticity_curvature_tendency",
     "ParityFVSystem",
+    "laplacian_xy_spectral",
+    "laplacian_xy_periodic",
+    "solve_poisson_xy_spectral",
     "apply_invert_set_x_guard",
     "apply_parallel_free_y_guard",
     "copy_outer_x_guard_cells",

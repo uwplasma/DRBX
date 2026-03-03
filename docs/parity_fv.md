@@ -66,6 +66,20 @@ The parity engine now assembles explicit per-channel terms:
 These are intentionally minimal but structurally separated to enable strict
 term-by-term parity auditing before adding additional closures.
 
+### Poisson / vorticity path (new)
+
+`parity_fv` now supports:
+
+- `parity_poisson_solver = "spectral_xy"` (default):
+  - solves \(\nabla_\perp^2 \phi = \omega\) via FFT in x/y
+  - applies gauge fixing at \(k_x=k_y=0\)
+  - uses the same spectral operator for \(\omega(\phi)\) in reverse mapping
+- `parity_poisson_solver = "identity"`:
+  - debug/calibration path: \(\phi = s_\phi \omega\)
+
+This makes the vorticity/phi mapping explicit and testable in CI while keeping
+the parity path small.
+
 ### Poisson/vorticity guard-cell semantics (new)
 
 From Hermes `vorticity.cxx`, parity path now mirrors these boundary semantics:
@@ -92,6 +106,7 @@ Added parity-fv tests:
 - `tests/test_parity_fv_poisson_vorticity_guards.py`
 - `tests/test_parity_fv_engine.py`
 - `tests/test_parity_fv_term_gates.py`
+- `tests/test_parity_fv_poisson_solver.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
 rules mapped directly from Hermes vorticity solver behavior.

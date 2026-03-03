@@ -715,6 +715,9 @@ def _build_parity_fv_system(
         geom=pfv_geom,
         limiter=str(numerics.get("parity_limiter", "mc")),
         poisson_scale=float(numerics.get("poisson_scale", 1.0)),
+        poisson_solver=str(
+            numerics.get("parity_poisson_solver", numerics.get("poisson_solver", "spectral_xy"))
+        ),
         parallel_on=bool(terms.get("parallel_on", True)),
         curvature_on=bool(terms.get("curvature_on", True)),
         source_n0=float(physics.get("source_n0", 0.0)),
