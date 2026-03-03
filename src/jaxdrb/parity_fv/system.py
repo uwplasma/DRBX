@@ -8,6 +8,11 @@ from jaxdrb.core.state import DRBSystemState
 
 from .geometry import ParityFVGeometry
 from .params import ParityFVParams
+from .poisson_vorticity import (
+    laplacian_xy_periodic,
+    laplacian_xy_spectral,
+    solve_poisson_xy_spectral,
+)
 from .terms_density import density_parallel_tendency
 from .terms_pressure import pressure_parallel_tendencies
 from .terms_vorticity import vorticity_curvature_tendency, vorticity_parallel_tendency
@@ -85,6 +90,7 @@ class ParityFVSystem:
         parallel_pressure_work_coeff: float = 2.0 / 3.0,
         vorticity_parallel_coeff: float = 1.0,
         curvature_coeff: float = 1.0,
+        poisson_solver: str = "spectral_xy",
     ) -> None:
         self.params = params
         self.geom = geom
@@ -97,6 +103,7 @@ class ParityFVSystem:
         self.parallel_pressure_work_coeff = float(parallel_pressure_work_coeff)
         self.vorticity_parallel_coeff = float(vorticity_parallel_coeff)
         self.curvature_coeff = float(curvature_coeff)
+        self.poisson_solver = str(poisson_solver).lower()
         self.scheduler = ParityFVScheduler(self)
 
     def _phys_n(self, n: jnp.ndarray) -> jnp.ndarray:
@@ -115,7 +122,17 @@ class ParityFVSystem:
         phi_guess: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         _ = (n, Ti, Te, phi_guess)
-        return self.poisson_scale * omega
+        if self.poisson_solver in {"identity", "scaled_identity"}:
+            return self.poisson_scale * omega
+        if self.poisson_solver in {"spectral_xy", "spectral"}:
+            phi = solve_poisson_xy_spectral(
+                omega,
+                dx=float(self.params.dx),
+                dy=float(self.params.dy),
+                gauge_fix=True,
+            )
+            return self.poisson_scale * phi
+        raise ValueError(f"Unknown parity_fv poisson_solver '{self.poisson_solver}'.")
 
     def _omega_from_phi(
         self,
@@ -127,7 +144,16 @@ class ParityFVSystem:
     ) -> jnp.ndarray:
         _ = (n, Ti, Te)
         scale = self.poisson_scale if abs(self.poisson_scale) > 1e-30 else 1.0
-        return phi / scale
+        if self.poisson_solver in {"identity", "scaled_identity"}:
+            return phi / scale
+        phi_unscaled = phi / scale
+        if self.poisson_solver in {"spectral_xy", "spectral"}:
+            return laplacian_xy_spectral(
+                phi_unscaled, dx=float(self.params.dx), dy=float(self.params.dy)
+            )
+        return laplacian_xy_periodic(
+            phi_unscaled, dx=float(self.params.dx), dy=float(self.params.dy)
+        )
 
     def _parallel_term(self, y: DRBSystemState) -> DRBSystemState:
         if (not self.parallel_on) or int(y.n.shape[0]) <= 1:
