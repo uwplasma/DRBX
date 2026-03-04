@@ -178,12 +178,19 @@ for minimal preset schedules:
 - `parallel_z_mode`: `vmap` (fast, more memory) or `scan` (lower memory).
 - `exb_y_scale`: scale the poloidal (`y`) component of ExB advection
   (`exb_y_scale=0` disables y-advection to mimic `poloidal_flows=false` in BOUT++).
+- `exb_flux_scheme`: flux-form perpendicular stencil selector in field-aligned
+  geometry. `centered` uses centered divergence; `hermes_fromm` uses
+  Hermes/BOUT-like Fromm-upwind X-Z transport.
 - `exb_poloidal_flows`: enable metric-coupled field-aligned ExB transport
   branch (Hermes/BOUT X-Y poloidal-flow contribution) in
   `FieldAlignedGeometryAdapter.exb_flux_divergence()`.
 - `exb_poloidal_scale`: scalar multiplier on the metric-coupled poloidal ExB
   branch. Use `1.0` for equation-level parity scans and vary only for
   controlled calibration sweeps.
+- `neumann_boundary_average_y`: Hermes/BOUT-compatible Neumann boundary mode
+  for perpendicular operators. When enabled, x-boundary values are averaged
+  over the perpendicular-y index before Neumann ghost padding
+  (equivalent role to `neumann_boundary_average_z=true` in BOUT inputs).
 - `parallel_limiter`: slope limiter applied to open-field parallel derivatives
   (`none`, `minmod`, `mc`).
 - `parallel_flux_scheme`: open-field conservative flux (`rusanov` or `lax`).

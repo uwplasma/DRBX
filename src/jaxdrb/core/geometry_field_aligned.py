@@ -946,20 +946,96 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         bc_phi = self.grid.perp.bc if bc_phi is None else bc_phi
         bc_adv = self.grid.perp.bc if bc_adv is None else bc_adv
         exb_y_scale = float(self.params.exb_y_scale)
+        neumann_avg_y = bool(getattr(self.params, "neumann_boundary_average_y", False))
 
-        def _plane(phi_plane, adv_plane, jac_plane):
-            return self.perp_ops.exb_flux_divergence_centered(
-                phi_plane,
-                adv_plane,
-                dx=self.grid.perp.dx,
-                dy=self.grid.perp.dy,
-                jacobian=jac_plane,
-                bc_phi=bc_phi,
-                bc_adv=bc_adv,
-                exb_y_scale=exb_y_scale,
+        def _apply_neumann_boundary_average_y(arr: jnp.ndarray, bc: BC2D) -> jnp.ndarray:
+            arr = jnp.asarray(arr)
+            if not neumann_avg_y or int(getattr(bc, "kind_x", 0)) != 2:
+                return arr
+            left = jnp.mean(arr[:, 0, :], axis=-1, keepdims=True)
+            right = jnp.mean(arr[:, -1, :], axis=-1, keepdims=True)
+            left = jnp.repeat(left, arr.shape[2], axis=1)
+            right = jnp.repeat(right, arr.shape[2], axis=1)
+            out = arr
+            out = out.at[:, 0, :].set(left)
+            out = out.at[:, -1, :].set(right)
+            return out
+
+        phi_eff = _apply_neumann_boundary_average_y(phi, bc_phi)
+        adv_eff = _apply_neumann_boundary_average_y(adv, bc_adv)
+
+        def _shift(arr: jnp.ndarray, offset: int, axis: int, *, periodic: bool) -> jnp.ndarray:
+            if periodic:
+                return jnp.roll(arr, int(offset), axis=axis)
+            n = arr.shape[axis]
+            idx = jnp.clip(jnp.arange(n) + int(offset), 0, n - 1)
+            return jnp.take(arr, idx, axis=axis)
+
+        def _fromm_face(
+            arr: jnp.ndarray, vel: jnp.ndarray, axis: int, *, periodic: bool
+        ) -> jnp.ndarray:
+            a_i = arr
+            a_ip1 = _shift(arr, +1, axis, periodic=periodic)
+            a_im1 = _shift(arr, -1, axis, periodic=periodic)
+            a_ip2 = _shift(arr, +2, axis, periodic=periodic)
+            upwind_pos = a_i + 0.25 * (a_ip1 - a_im1)
+            upwind_neg = a_ip1 - 0.25 * (a_ip2 - a_i)
+            return jnp.where(vel > 0.0, upwind_pos, upwind_neg)
+
+        exb_flux_scheme = str(getattr(self.params, "exb_flux_scheme", "centered")).lower()
+        if exb_flux_scheme == "hermes_fromm":
+            # Hermes/BOUT Div_n_bxGrad_f_B_XPPM-like X-Z flux:
+            # upwind-Fromm face reconstruction with corner-interpolated phi.
+            J = jnp.asarray(self.jacobian, dtype=jnp.float64)
+            if J.ndim == 2:
+                J = jnp.broadcast_to(J[None, :, :], phi_eff.shape)
+            dx = float(self.grid.perp.dx)
+            dz = float(self.grid.perp.dy)
+            periodic_x = int(getattr(bc_adv, "kind_x", 0)) == 0
+            periodic_z = int(getattr(bc_adv, "kind_y", 0)) == 0
+
+            f_xm = _shift(phi_eff, -1, axis=1, periodic=periodic_x)
+            f_xp = _shift(phi_eff, +1, axis=1, periodic=periodic_x)
+            f_zm = _shift(phi_eff, -1, axis=2, periodic=periodic_z)
+            f_zp = _shift(phi_eff, +1, axis=2, periodic=periodic_z)
+            f_xm_zp = _shift(f_xm, +1, axis=2, periodic=periodic_z)
+            f_xp_zm = _shift(f_xp, -1, axis=2, periodic=periodic_z)
+            f_xp_zp = _shift(f_xp, +1, axis=2, periodic=periodic_z)
+
+            fmp = 0.25 * (phi_eff + f_xm + f_zp + f_xm_zp)
+            fpp = 0.25 * (phi_eff + f_xp + f_zp + f_xp_zp)
+            fpm = 0.25 * (phi_eff + f_xp + f_zm + f_xp_zm)
+
+            J_xp = _shift(J, +1, axis=1, periodic=periodic_x)
+            v_u = J * (fmp - fpp) / dx
+            v_r = 0.5 * (J + J_xp) * (fpp - fpm) / dz
+
+            n_face_r = _fromm_face(adv_eff, v_r, axis=1, periodic=periodic_x)
+            flux_r = v_r * n_face_r
+            flux_l = _shift(flux_r, -1, axis=1, periodic=periodic_x)
+
+            n_face_u = _fromm_face(adv_eff, v_u, axis=2, periodic=periodic_z)
+            flux_u = v_u * n_face_u
+            flux_d = _shift(flux_u, -1, axis=2, periodic=periodic_z)
+
+            out = (flux_r - flux_l) / (jnp.maximum(J, 1e-30) * dx) + (flux_u - flux_d) / (
+                jnp.maximum(J, 1e-30) * dz
             )
+        else:
 
-        out = jax.vmap(_plane)(phi, adv, self.jacobian)
+            def _plane(phi_plane, adv_plane, jac_plane):
+                return self.perp_ops.exb_flux_divergence_centered(
+                    phi_plane,
+                    adv_plane,
+                    dx=self.grid.perp.dx,
+                    dy=self.grid.perp.dy,
+                    jacobian=jac_plane,
+                    bc_phi=bc_phi,
+                    bc_adv=bc_adv,
+                    exb_y_scale=exb_y_scale,
+                )
+
+            out = jax.vmap(_plane)(phi_eff, adv_eff, self.jacobian)
 
         # Optional metric-coupled X-Y ExB contribution used in field-aligned
         # BOUT/Hermes coordinates (poloidal flow term).
@@ -1010,7 +1086,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             idx = jnp.clip(jnp.arange(n) + int(offset), 0, n - 1)
             return jnp.take(arr, idx, axis=axis)
 
-        def _fromm_face(arr: jnp.ndarray, vel: jnp.ndarray, axis: int) -> jnp.ndarray:
+        def _fromm_face_clip(arr: jnp.ndarray, vel: jnp.ndarray, axis: int) -> jnp.ndarray:
             a_i = arr
             a_ip1 = _shift_clip(arr, +1, axis)
             a_im1 = _shift_clip(arr, -1, axis)
@@ -1022,26 +1098,32 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         # Hermes/BOUT poloidal ExB term has separate X and Y fluxes.
         # X-flux is evaluated in lab coordinates; Y-flux is evaluated in
         # field-aligned coordinates with shifted-metric transform.
-        dphi_dy = d_dy_idx(phi)
+        dphi_dy = d_dy_idx(phi_eff)
+        if int(getattr(bc_phi, "kind_x", 0)) != 0:
+            dphi_dy = dphi_dy.at[:, 0, :].set(dphi_dy[:, 1, :])
+            dphi_dy = dphi_dy.at[:, -1, :].set(dphi_dy[:, -2, :])
         coeff_dphi_dy = coeff * dphi_dy
         coeff_dphi_dy_ip1 = _shift_clip(coeff_dphi_dy, +1, axis=1)
         J_ip1 = _shift_clip(J, +1, axis=1)
         vx_face = 0.5 * (J + J_ip1) * 0.5 * (coeff_dphi_dy + coeff_dphi_dy_ip1)
-        n_face_x = _fromm_face(adv, vx_face, axis=1)
+        n_face_x = _fromm_face_clip(adv_eff, vx_face, axis=1)
         flux_x = vx_face * n_face_x
         div_x = (flux_x - _shift_clip(flux_x, -1, axis=1)) / (
             jnp.maximum(J, 1e-30) * float(self.grid.perp.dx)
         )
 
-        dphi_dx = jax.vmap(lambda p: self.perp_ops.ddx(p))(phi)
+        dphi_dx = jax.vmap(lambda p: self.perp_ops.ddx(p))(phi_eff)
+        if int(getattr(bc_phi, "kind_x", 0)) != 0:
+            dphi_dx = dphi_dx.at[:, 0, :].set(dphi_dx[:, 1, :])
+            dphi_dx = dphi_dx.at[:, -1, :].set(dphi_dx[:, -2, :])
         if use_shift:
             dphi_dx_fa = self.to_field_aligned(dphi_dx)
-            adv_fa = self.to_field_aligned(adv)
+            adv_fa = self.to_field_aligned(adv_eff)
             J_fa = self.to_field_aligned(J)
             coeff_fa = self.to_field_aligned(coeff)
         else:
             dphi_dx_fa = dphi_dx
-            adv_fa = adv
+            adv_fa = adv_eff
             J_fa = J
             coeff_fa = coeff
 
@@ -1052,7 +1134,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         if self.grid.open_field_line:
             vy_face = vy_face.at[0].set(jnp.minimum(vy_face[0], 0.0))
             vy_face = vy_face.at[-2].set(jnp.maximum(vy_face[-2], 0.0))
-        n_face_y = _fromm_face(adv_fa, vy_face, axis=0)
+        n_face_y = _fromm_face_clip(adv_fa, vy_face, axis=0)
         flux_y = vy_face * n_face_y
         div_y_fa = (flux_y - _shift_clip(flux_y, -1, axis=0)) / (
             jnp.maximum(J_fa, 1e-30) * float(self.grid.dz)

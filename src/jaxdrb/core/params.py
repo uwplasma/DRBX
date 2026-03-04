@@ -328,6 +328,10 @@ class NumericsParams(eqx.Module):
     exb_y_scale: float = 1.0
     # ExB advection form: "bracket" (default) or "flux" (Hermes-style conservative form).
     exb_advection_form: Literal["bracket", "flux"] = "bracket"
+    # Flux-form ExB stencil in field-aligned geometry:
+    # - "centered": centered flux divergence
+    # - "hermes_fromm": Hermes/BOUT-style Fromm-upwind X-Z transport
+    exb_flux_scheme: Literal["centered", "hermes_fromm"] = "centered"
     # When using flux-form ExB advection, advect conservative variables (n, n*v, p).
     exb_advect_conservative: bool = False
     # Include the metric-coupled X-Y ExB advection contribution present in
@@ -335,6 +339,10 @@ class NumericsParams(eqx.Module):
     exb_poloidal_flows: bool = False
     # Optional scale for the metric-coupled X-Y ExB advection contribution.
     exb_poloidal_scale: float = 1.0
+    # Hermes/BOUT option equivalent to `neumann_boundary_average_z=true` for
+    # perpendicular operators: when x-boundary BC is Neumann, average boundary
+    # values over the perpendicular-y (z-like) index before ghost padding.
+    neumann_boundary_average_y: bool = False
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     parallel_limiter: Literal["none", "minmod", "mc"] = "none"
