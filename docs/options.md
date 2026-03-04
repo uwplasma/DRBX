@@ -186,13 +186,20 @@ for minimal preset schedules:
   (`exb_y_scale=0` disables y-advection to mimic `poloidal_flows=false` in BOUT++).
 - `exb_flux_scheme`: flux-form perpendicular stencil selector in field-aligned
   geometry. `centered` uses centered divergence; `hermes_fromm` uses
-  Hermes/BOUT-like Fromm-upwind X-Z transport.
+  Hermes/BOUT-like Fromm-upwind X-Z transport; `hermes_xppm` uses MC-limited
+  XPPM-style X-Z transport.
+- `exb_bndry_flux`: allow/disallow radial boundary exchange in flux-form ExB
+  (Hermes/BOUT `bndry_flux` role in `Div_n_bxGrad_f_B_XPPM`).
 - `exb_poloidal_flows`: enable metric-coupled field-aligned ExB transport
   branch (Hermes/BOUT X-Y poloidal-flow contribution) in
   `FieldAlignedGeometryAdapter.exb_flux_divergence()`.
 - `exb_poloidal_scale`: scalar multiplier on the metric-coupled poloidal ExB
   branch. Use `1.0` for equation-level alignment scans and vary only for
   controlled calibration sweeps.
+- `exb_poloidal_x_scale`: multiplier on the X-flux branch of metric-coupled
+  poloidal ExB transport.
+- `exb_poloidal_y_scale`: multiplier on the Y-flux branch of metric-coupled
+  poloidal ExB transport.
 - `exb_poloidal_ddy_scheme`: index-space derivative used in the X-flux of the
   metric-coupled poloidal ExB branch. `face` keeps the legacy face-gradient
   form; `c2` uses a centered 2nd-order DDY-style stencil for Hermes/BOUT
