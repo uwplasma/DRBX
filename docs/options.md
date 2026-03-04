@@ -145,6 +145,12 @@ Geometry is selected via `[geometry]` + a geometry‑specific block.
 All geometries feed the **same coefficient interface** (curvature, `dpar_factor`,
 metric scalings), so the core RHS remains unchanged.
 
+For `axisymmetric_file`, coefficient files may additionally include metric cell
+sizes:
+- `metric_dx` (or `dx` fallback): radial cell size used in ExB FV transport.
+- `metric_dy` (or `dy` fallback): field-line cell size used in metric DDY terms.
+- `metric_dz` (or `dz` fallback): binormal/toroidal cell size used in X-Z ExB FV terms.
+
 ---
 
 ## Boundary Conditions (`[bc]`)
@@ -187,12 +193,23 @@ for minimal preset schedules:
 - `exb_poloidal_scale`: scalar multiplier on the metric-coupled poloidal ExB
   branch. Use `1.0` for equation-level parity scans and vary only for
   controlled calibration sweeps.
+- `exb_poloidal_ddy_scheme`: index-space derivative used in the X-flux of the
+  metric-coupled poloidal ExB branch. `face` keeps the legacy face-gradient
+  form; `c2` uses a centered 2nd-order DDY-style stencil for Hermes/BOUT
+  parity studies.
+- `exb_copy_grad_x_boundary`: when `true`, copy first interior phi-gradient
+  values onto non-periodic x boundaries in metric-coupled ExB X-Y transport
+  (Hermes/BOUT guard-cell-compatible behavior).
 - `neumann_boundary_average_y`: Hermes/BOUT-compatible Neumann boundary mode
-  for perpendicular operators. When enabled, x-boundary values are averaged
-  over the perpendicular-y index before Neumann ghost padding
+  for perpendicular operators. When enabled, Neumann x-ghost values are
+  averaged over the perpendicular-y index before ghost padding
   (equivalent role to `neumann_boundary_average_z=true` in BOUT inputs).
 - `parallel_limiter`: slope limiter applied to open-field parallel derivatives
   (`none`, `minmod`, `mc`).
+- `parallel_transform`: `none` or `shifted`. `shifted` enables
+  field-aligned parallel transforms using `z_shift` from geometry coefficients.
+- `parallel_shift_interp`: interpolation used by `parallel_transform="shifted"`.
+  `linear` is default; `spectral` applies FFT phase-shift interpolation.
 - `parallel_flux_scheme`: open-field conservative flux (`rusanov` or `lax`).
 - `parallel_flux_conservative`: use conservative parallel fluxes for `n` and `p`
   (e.g., `-∂‖(n v‖)` and `-∂‖(p v‖)`), with limiter/Lax flux when open-field.

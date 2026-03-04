@@ -476,16 +476,9 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
                 * (sheath_data["vi_sh_u"] - sheath_data["ve_sh_u"])
                 * boundary_flux_scale
             )
-            # Match Hermes boundary-flux behavior more closely by using
-            # sheath-consistent boundary cells during face reconstruction
-            # while still injecting explicit sheath boundary face fluxes.
-            j_target = jnp.zeros_like(jpar_total)
-            j_target = j_target.at[0].set(j_low)
-            j_target = j_target.at[-1].set(j_high)
-            jpar_for_flux = _with_boundary_targets(jpar_total, j_target, sheath_data["mask"])
             dpar_j = _dpar_flux_conservative(
                 ctx,
-                jpar_for_flux,
+                jpar_total,
                 jnp.ones_like(jpar_total),
                 wave=None,
                 boundary_flux_low=j_low,

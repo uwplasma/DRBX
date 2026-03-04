@@ -165,6 +165,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     g23: jnp.ndarray | None = None
     g_22: jnp.ndarray | None = None
     g_23: jnp.ndarray | None = None
+    metric_dx: jnp.ndarray | None = None
+    metric_dy: jnp.ndarray | None = None
+    metric_dz: jnp.ndarray | None = None
     shift_idx: jnp.ndarray | None = eqx.field(init=False, default=None)
     dpar_factor_const: bool = eqx.field(init=False, static=True, default=False)
     dpar_factor_scalar: float | None = eqx.field(init=False, static=True, default=None)
@@ -287,6 +290,12 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             object.__setattr__(self, "jacobian", _as_field3(self.jacobian, "jacobian"))
         if self.gpar is not None:
             object.__setattr__(self, "gpar", _as_field3(self.gpar, "gpar"))
+        if self.metric_dx is not None:
+            object.__setattr__(self, "metric_dx", _as_field3(self.metric_dx, "metric_dx"))
+        if self.metric_dy is not None:
+            object.__setattr__(self, "metric_dy", _as_field3(self.metric_dy, "metric_dy"))
+        if self.metric_dz is not None:
+            object.__setattr__(self, "metric_dz", _as_field3(self.metric_dz, "metric_dz"))
 
         gxx = self.gxx
         gxy = self.gxy
@@ -407,6 +416,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         g23: jnp.ndarray | None = None,
         g_22: jnp.ndarray | None = None,
         g_23: jnp.ndarray | None = None,
+        metric_dx: jnp.ndarray | None = None,
+        metric_dy: jnp.ndarray | None = None,
+        metric_dz: jnp.ndarray | None = None,
     ) -> "FieldAlignedGeometryAdapter":
         return cls(
             grid=grid,
@@ -425,6 +437,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             g23=g23,
             g_22=g_22,
             g_23=g_23,
+            metric_dx=metric_dx,
+            metric_dy=metric_dy,
+            metric_dz=metric_dz,
         )
 
     @classmethod
@@ -450,6 +465,15 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         g23 = data["g23"] if "g23" in data else None
         g_22 = data["g_22"] if "g_22" in data else None
         g_23 = data["g_23"] if "g_23" in data else None
+        metric_dx = (
+            data["metric_dx"] if "metric_dx" in data else (data["dx"] if "dx" in data else None)
+        )
+        metric_dy = (
+            data["metric_dy"] if "metric_dy" in data else (data["dy"] if "dy" in data else None)
+        )
+        metric_dz = (
+            data["metric_dz"] if "metric_dz" in data else (data["dz"] if "dz" in data else None)
+        )
         return cls.from_coefficients(
             params=params,
             grid=grid,
@@ -467,6 +491,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             g23=g23,
             g_22=g_22,
             g_23=g_23,
+            metric_dx=metric_dx,
+            metric_dy=metric_dy,
+            metric_dz=metric_dz,
         )
 
     @classmethod
@@ -940,6 +967,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         *,
         bc_phi: BC2D | None = None,
         bc_adv: BC2D | None = None,
+        positive: bool = False,
     ) -> jnp.ndarray:
         if self.jacobian is None:
             raise ValueError("ExB flux divergence requires jacobian data.")
@@ -947,22 +975,8 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         bc_adv = self.grid.perp.bc if bc_adv is None else bc_adv
         exb_y_scale = float(self.params.exb_y_scale)
         neumann_avg_y = bool(getattr(self.params, "neumann_boundary_average_y", False))
-
-        def _apply_neumann_boundary_average_y(arr: jnp.ndarray, bc: BC2D) -> jnp.ndarray:
-            arr = jnp.asarray(arr)
-            if not neumann_avg_y or int(getattr(bc, "kind_x", 0)) != 2:
-                return arr
-            left = jnp.mean(arr[:, 0, :], axis=-1, keepdims=True)
-            right = jnp.mean(arr[:, -1, :], axis=-1, keepdims=True)
-            left = jnp.repeat(left, arr.shape[2], axis=1)
-            right = jnp.repeat(right, arr.shape[2], axis=1)
-            out = arr
-            out = out.at[:, 0, :].set(left)
-            out = out.at[:, -1, :].set(right)
-            return out
-
-        phi_eff = _apply_neumann_boundary_average_y(phi, bc_phi)
-        adv_eff = _apply_neumann_boundary_average_y(adv, bc_adv)
+        phi_eff = jnp.asarray(phi)
+        adv_eff = jnp.asarray(adv)
 
         def _shift(arr: jnp.ndarray, offset: int, axis: int, *, periodic: bool) -> jnp.ndarray:
             if periodic:
@@ -972,7 +986,12 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             return jnp.take(arr, idx, axis=axis)
 
         def _fromm_face(
-            arr: jnp.ndarray, vel: jnp.ndarray, axis: int, *, periodic: bool
+            arr: jnp.ndarray,
+            vel: jnp.ndarray,
+            axis: int,
+            *,
+            periodic: bool,
+            positive: bool = False,
         ) -> jnp.ndarray:
             a_i = arr
             a_ip1 = _shift(arr, +1, axis, periodic=periodic)
@@ -980,7 +999,79 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             a_ip2 = _shift(arr, +2, axis, periodic=periodic)
             upwind_pos = a_i + 0.25 * (a_ip1 - a_im1)
             upwind_neg = a_ip1 - 0.25 * (a_ip2 - a_i)
-            return jnp.where(vel > 0.0, upwind_pos, upwind_neg)
+            face_val = jnp.where(vel > 0.0, upwind_pos, upwind_neg)
+            if positive:
+                face_val = jnp.maximum(face_val, 0.0)
+            return face_val
+
+        def _x_ghost(
+            arr: jnp.ndarray,
+            *,
+            side: str,
+            kind: int,
+            value: float,
+            grad: float,
+            order: int = 1,
+        ) -> jnp.ndarray:
+            if side == "left":
+                edge = arr[:, 0, :]
+                near = arr[:, 1, :] if arr.shape[1] > 1 else edge
+                if neumann_avg_y and kind == 2:
+                    edge = jnp.mean(edge, axis=-1, keepdims=True)
+                    edge = jnp.broadcast_to(edge, arr[:, 0, :].shape)
+                if kind == 1:
+                    if order == 1:
+                        return 2.0 * float(value) - edge
+                    return 2.0 * float(value) - near
+                if kind == 2:
+                    if order == 1:
+                        return edge - float(grad) * float(self.grid.perp.dx)
+                    return near - 3.0 * float(grad) * float(self.grid.perp.dx)
+                return arr[:, -1, :]
+            edge = arr[:, -1, :]
+            near = arr[:, -2, :] if arr.shape[1] > 1 else edge
+            if neumann_avg_y and kind == 2:
+                edge = jnp.mean(edge, axis=-1, keepdims=True)
+                edge = jnp.broadcast_to(edge, arr[:, -1, :].shape)
+            if kind == 1:
+                if order == 1:
+                    return 2.0 * float(value) - edge
+                return 2.0 * float(value) - near
+            if kind == 2:
+                if order == 1:
+                    return edge + float(grad) * float(self.grid.perp.dx)
+                return near + 3.0 * float(grad) * float(self.grid.perp.dx)
+            return arr[:, 0, :]
+
+        def _fromm_x_boundary_flux(
+            adv_arr: jnp.ndarray,
+            vel: jnp.ndarray,
+            *,
+            side: str,
+            kind: int,
+            value: float,
+            grad: float,
+            positive: bool = False,
+        ) -> jnp.ndarray:
+            if side == "left":
+                a0 = adv_arr[:, 0, :]
+                a1 = adv_arr[:, 1, :] if adv_arr.shape[1] > 1 else a0
+                ag1 = _x_ghost(adv_arr, side="left", kind=kind, value=value, grad=grad, order=1)
+                ag2 = _x_ghost(adv_arr, side="left", kind=kind, value=value, grad=grad, order=2)
+                outflow = a0 - 0.25 * (a1 - ag1)
+                inflow = ag1 + 0.25 * (a0 - ag2)
+                face_val = jnp.where(vel < 0.0, outflow, inflow)
+            else:
+                a0 = adv_arr[:, -1, :]
+                am1 = adv_arr[:, -2, :] if adv_arr.shape[1] > 1 else a0
+                ag1 = _x_ghost(adv_arr, side="right", kind=kind, value=value, grad=grad, order=1)
+                ag2 = _x_ghost(adv_arr, side="right", kind=kind, value=value, grad=grad, order=2)
+                outflow = a0 + 0.25 * (ag1 - am1)
+                inflow = ag1 - 0.25 * (ag2 - a0)
+                face_val = jnp.where(vel > 0.0, outflow, inflow)
+            if positive:
+                face_val = jnp.maximum(face_val, 0.0)
+            return vel * face_val
 
         exb_flux_scheme = str(getattr(self.params, "exb_flux_scheme", "centered")).lower()
         if exb_flux_scheme == "hermes_fromm":
@@ -989,8 +1080,18 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             J = jnp.asarray(self.jacobian, dtype=jnp.float64)
             if J.ndim == 2:
                 J = jnp.broadcast_to(J[None, :, :], phi_eff.shape)
-            dx = float(self.grid.perp.dx)
-            dz = float(self.grid.perp.dy)
+            if self.metric_dx is None:
+                dx = jnp.full_like(J, float(self.grid.perp.dx))
+            else:
+                dx = jnp.asarray(self.metric_dx, dtype=jnp.float64)
+                if dx.ndim == 2:
+                    dx = jnp.broadcast_to(dx[None, :, :], phi_eff.shape)
+            if self.metric_dz is None:
+                dz = jnp.full_like(J, float(self.grid.perp.dy))
+            else:
+                dz = jnp.asarray(self.metric_dz, dtype=jnp.float64)
+                if dz.ndim == 2:
+                    dz = jnp.broadcast_to(dz[None, :, :], phi_eff.shape)
             periodic_x = int(getattr(bc_adv, "kind_x", 0)) == 0
             periodic_z = int(getattr(bc_adv, "kind_y", 0)) == 0
 
@@ -998,29 +1099,58 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             f_xp = _shift(phi_eff, +1, axis=1, periodic=periodic_x)
             f_zm = _shift(phi_eff, -1, axis=2, periodic=periodic_z)
             f_zp = _shift(phi_eff, +1, axis=2, periodic=periodic_z)
+            f_xm_zm = _shift(f_xm, -1, axis=2, periodic=periodic_z)
             f_xm_zp = _shift(f_xm, +1, axis=2, periodic=periodic_z)
             f_xp_zm = _shift(f_xp, -1, axis=2, periodic=periodic_z)
             f_xp_zp = _shift(f_xp, +1, axis=2, periodic=periodic_z)
 
+            fmm = 0.25 * (phi_eff + f_xm + f_zm + f_xm_zm)
             fmp = 0.25 * (phi_eff + f_xm + f_zp + f_xm_zp)
             fpp = 0.25 * (phi_eff + f_xp + f_zp + f_xp_zp)
             fpm = 0.25 * (phi_eff + f_xp + f_zm + f_xp_zm)
 
             J_xp = _shift(J, +1, axis=1, periodic=periodic_x)
-            v_u = J * (fmp - fpp) / dx
-            v_r = 0.5 * (J + J_xp) * (fpp - fpm) / dz
+            v_u = J * (fmp - fpp) / jnp.maximum(dx, 1e-30)
+            v_r = 0.5 * (J + J_xp) * (fpp - fpm) / jnp.maximum(dz, 1e-30)
 
-            n_face_r = _fromm_face(adv_eff, v_r, axis=1, periodic=periodic_x)
+            n_face_r = _fromm_face(adv_eff, v_r, axis=1, periodic=periodic_x, positive=positive)
             flux_r = v_r * n_face_r
-            flux_l = _shift(flux_r, -1, axis=1, periodic=periodic_x)
+            if periodic_x:
+                flux_l = _shift(flux_r, -1, axis=1, periodic=periodic_x)
+            else:
+                kind = int(getattr(bc_adv, "kind_x", 0))
+                val = float(getattr(bc_adv, "x_value", 0.0))
+                grad = float(getattr(bc_adv, "x_grad", 0.0))
+                J_xm = _shift(J, -1, axis=1, periodic=periodic_x)
+                v_l = 0.5 * (J + J_xm) * (fmp - fmm) / jnp.maximum(dz, 1e-30)
+                flux_left_b = _fromm_x_boundary_flux(
+                    adv_eff,
+                    v_l[:, 0, :],
+                    side="left",
+                    kind=kind,
+                    value=val,
+                    grad=grad,
+                    positive=positive,
+                )
+                flux_right_b = _fromm_x_boundary_flux(
+                    adv_eff,
+                    v_r[:, -1, :],
+                    side="right",
+                    kind=kind,
+                    value=val,
+                    grad=grad,
+                    positive=positive,
+                )
+                flux_r = flux_r.at[:, -1, :].set(flux_right_b)
+                flux_l = jnp.concatenate([flux_left_b[:, None, :], flux_r[:, :-1, :]], axis=1)
 
-            n_face_u = _fromm_face(adv_eff, v_u, axis=2, periodic=periodic_z)
+            n_face_u = _fromm_face(adv_eff, v_u, axis=2, periodic=periodic_z, positive=positive)
             flux_u = v_u * n_face_u
             flux_d = _shift(flux_u, -1, axis=2, periodic=periodic_z)
 
-            out = (flux_r - flux_l) / (jnp.maximum(J, 1e-30) * dx) + (flux_u - flux_d) / (
-                jnp.maximum(J, 1e-30) * dz
-            )
+            out = (flux_r - flux_l) / (jnp.maximum(J, 1e-30) * jnp.maximum(dx, 1e-30)) + (
+                flux_u - flux_d
+            ) / (jnp.maximum(J, 1e-30) * jnp.maximum(dz, 1e-30))
         else:
 
             def _plane(phi_plane, adv_plane, jac_plane):
@@ -1074,46 +1204,140 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         B = _as_field3(self.B)
         gxx = _as_field3(self.gxx)
         g23 = _as_field3(self.g23)
+        dx_metric = (
+            _as_field3(self.metric_dx)
+            if self.metric_dx is not None
+            else jnp.full(full_shape, float(self.grid.perp.dx), dtype=jnp.float64)
+        )
+        dy_metric = (
+            _as_field3(self.metric_dy)
+            if self.metric_dy is not None
+            else jnp.full(full_shape, float(self.grid.dz), dtype=jnp.float64)
+        )
         coeff = gxx * g23 / jnp.maximum(B * B, 1e-30)
 
-        if self.grid.open_field_line:
-            d_dy_idx = self._dpar_open
-        else:
-            d_dy_idx = self._dpar_periodic
+        ddy_scheme = str(getattr(self.params, "exb_poloidal_ddy_scheme", "face")).lower()
 
         def _shift_clip(arr: jnp.ndarray, offset: int, axis: int) -> jnp.ndarray:
             n = arr.shape[axis]
             idx = jnp.clip(jnp.arange(n) + int(offset), 0, n - 1)
             return jnp.take(arr, idx, axis=axis)
 
-        def _fromm_face_clip(arr: jnp.ndarray, vel: jnp.ndarray, axis: int) -> jnp.ndarray:
+        def _fromm_face_clip(
+            arr: jnp.ndarray, vel: jnp.ndarray, axis: int, *, positive: bool = False
+        ) -> jnp.ndarray:
             a_i = arr
             a_ip1 = _shift_clip(arr, +1, axis)
             a_im1 = _shift_clip(arr, -1, axis)
             a_ip2 = _shift_clip(arr, +2, axis)
             upwind_pos = a_i + 0.25 * (a_ip1 - a_im1)
             upwind_neg = a_ip1 - 0.25 * (a_ip2 - a_i)
-            return jnp.where(vel > 0.0, upwind_pos, upwind_neg)
+            face_val = jnp.where(vel > 0.0, upwind_pos, upwind_neg)
+            if positive:
+                face_val = jnp.maximum(face_val, 0.0)
+            return face_val
+
+        def _fromm_parallel_boundary_flux(
+            adv_arr: jnp.ndarray,
+            vel: jnp.ndarray,
+            *,
+            side: str,
+            positive: bool = False,
+        ) -> jnp.ndarray:
+            if side == "low":
+                a0 = adv_arr[0]
+                a1 = adv_arr[1] if adv_arr.shape[0] > 1 else a0
+                ag = a0
+                outflow = a0 - 0.25 * (a1 - ag)
+                inflow = 0.5 * (ag + a0)
+                face_val = jnp.where(vel < 0.0, outflow, inflow)
+            else:
+                a0 = adv_arr[-1]
+                am1 = adv_arr[-2] if adv_arr.shape[0] > 1 else a0
+                ag = a0
+                outflow = a0 + 0.25 * (ag - am1)
+                inflow = 0.5 * (ag + a0)
+                face_val = jnp.where(vel > 0.0, outflow, inflow)
+            if positive:
+                face_val = jnp.maximum(face_val, 0.0)
+            return vel * face_val
 
         # Hermes/BOUT poloidal ExB term has separate X and Y fluxes.
         # X-flux is evaluated in lab coordinates; Y-flux is evaluated in
         # field-aligned coordinates with shifted-metric transform.
-        dphi_dy = d_dy_idx(phi_eff)
-        if int(getattr(bc_phi, "kind_x", 0)) != 0:
+        # Hermes/BOUT X-flux uses DDY(f) in lab coordinates (no
+        # to/from-field-aligned transform here). Only the Y-flux branch
+        # is evaluated in field-aligned coordinates.
+        if self.grid.open_field_line:
+            if ddy_scheme == "c2":
+                dphi_dy = (
+                    self._ddy_open_c2_metric(phi_eff, dy_metric)
+                    if self.metric_dy is not None
+                    else self._ddy_open_c2(phi_eff)
+                )
+            else:
+                dphi_dy = (
+                    self._dpar_open_metric(phi_eff, dy_metric)
+                    if self.metric_dy is not None
+                    else self._dpar_open(phi_eff)
+                )
+        else:
+            if ddy_scheme == "c2":
+                dphi_dy = (
+                    self._ddy_periodic_c2_metric(phi_eff, dy_metric)
+                    if self.metric_dy is not None
+                    else self._ddy_periodic_c2(phi_eff)
+                )
+            else:
+                dphi_dy = (
+                    self._dpar_periodic_metric(phi_eff, dy_metric)
+                    if self.metric_dy is not None
+                    else self._dpar_periodic(phi_eff)
+                )
+        copy_x_grad = bool(getattr(self.params, "exb_copy_grad_x_boundary", True))
+        if copy_x_grad and int(getattr(bc_phi, "kind_x", 0)) != 0:
             dphi_dy = dphi_dy.at[:, 0, :].set(dphi_dy[:, 1, :])
             dphi_dy = dphi_dy.at[:, -1, :].set(dphi_dy[:, -2, :])
         coeff_dphi_dy = coeff * dphi_dy
         coeff_dphi_dy_ip1 = _shift_clip(coeff_dphi_dy, +1, axis=1)
         J_ip1 = _shift_clip(J, +1, axis=1)
         vx_face = 0.5 * (J + J_ip1) * 0.5 * (coeff_dphi_dy + coeff_dphi_dy_ip1)
-        n_face_x = _fromm_face_clip(adv_eff, vx_face, axis=1)
+        n_face_x = _fromm_face_clip(adv_eff, vx_face, axis=1, positive=positive)
         flux_x = vx_face * n_face_x
-        div_x = (flux_x - _shift_clip(flux_x, -1, axis=1)) / (
-            jnp.maximum(J, 1e-30) * float(self.grid.perp.dx)
-        )
+        periodic_x = int(getattr(bc_adv, "kind_x", 0)) == 0
+        if periodic_x:
+            flux_l = _shift_clip(flux_x, -1, axis=1)
+        else:
+            kind = int(getattr(bc_adv, "kind_x", 0))
+            val = float(getattr(bc_adv, "x_value", 0.0))
+            grad = float(getattr(bc_adv, "x_grad", 0.0))
+            coeff_left = coeff_dphi_dy[:, 0, :]
+            coeff_right = coeff_dphi_dy[:, -1, :]
+            J_left = J[:, 0, :]
+            J_right = J[:, -1, :]
+            vx_left = J_left * coeff_left
+            vx_right = J_right * coeff_right
+            flux_left_b = _fromm_x_boundary_flux(
+                adv_eff, vx_left, side="left", kind=kind, value=val, grad=grad, positive=positive
+            )
+            flux_right_b = _fromm_x_boundary_flux(
+                adv_eff,
+                vx_right,
+                side="right",
+                kind=kind,
+                value=val,
+                grad=grad,
+                positive=positive,
+            )
+            flux_x = flux_x.at[:, -1, :].set(flux_right_b)
+            flux_l = jnp.concatenate([flux_left_b[:, None, :], flux_x[:, :-1, :]], axis=1)
+        div_x = (flux_x - flux_l) / (jnp.maximum(J, 1e-30) * jnp.maximum(dx_metric, 1e-30))
 
-        dphi_dx = jax.vmap(lambda p: self.perp_ops.ddx(p))(phi_eff)
-        if int(getattr(bc_phi, "kind_x", 0)) != 0:
+        if self.metric_dx is None:
+            dphi_dx = jax.vmap(lambda p: self.perp_ops.ddx(p))(phi_eff)
+        else:
+            dphi_dx = self._ddx_metric_c2(phi_eff, dx_metric)
+        if copy_x_grad and int(getattr(bc_phi, "kind_x", 0)) != 0:
             dphi_dx = dphi_dx.at[:, 0, :].set(dphi_dx[:, 1, :])
             dphi_dx = dphi_dx.at[:, -1, :].set(dphi_dx[:, -2, :])
         if use_shift:
@@ -1121,24 +1345,36 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             adv_fa = self.to_field_aligned(adv_eff)
             J_fa = self.to_field_aligned(J)
             coeff_fa = self.to_field_aligned(coeff)
+            dy_fa = self.to_field_aligned(dy_metric)
         else:
             dphi_dx_fa = dphi_dx
             adv_fa = adv_eff
             J_fa = J
             coeff_fa = coeff
+            dy_fa = dy_metric
 
         coeff_dphi_dx_fa = coeff_fa * dphi_dx_fa
         coeff_dphi_dx_jp1 = _shift_clip(coeff_dphi_dx_fa, +1, axis=0)
         J_jp1 = _shift_clip(J_fa, +1, axis=0)
-        vy_face = -0.5 * (J_fa + J_jp1) * 0.5 * (coeff_dphi_dx_fa + coeff_dphi_dx_jp1)
+        vy_up = -0.5 * (J_fa + J_jp1) * 0.5 * (coeff_dphi_dx_fa + coeff_dphi_dx_jp1)
+        n_face_y = _fromm_face_clip(adv_fa, vy_up, axis=0, positive=positive)
+        flux_up = vy_up * n_face_y
+
+        coeff_low = coeff_dphi_dx_fa[0]
+        coeff_high = coeff_dphi_dx_fa[-1]
+        J_low = J_fa[0]
+        J_high = J_fa[-1]
+        vy_low = -(J_low * coeff_low)
+        vy_high = -(J_high * coeff_high)
         if self.grid.open_field_line:
-            vy_face = vy_face.at[0].set(jnp.minimum(vy_face[0], 0.0))
-            vy_face = vy_face.at[-2].set(jnp.maximum(vy_face[-2], 0.0))
-        n_face_y = _fromm_face_clip(adv_fa, vy_face, axis=0)
-        flux_y = vy_face * n_face_y
-        div_y_fa = (flux_y - _shift_clip(flux_y, -1, axis=0)) / (
-            jnp.maximum(J_fa, 1e-30) * float(self.grid.dz)
-        )
+            vy_low = jnp.minimum(vy_low, 0.0)
+            vy_high = jnp.maximum(vy_high, 0.0)
+        flux_low_b = _fromm_parallel_boundary_flux(adv_fa, vy_low, side="low", positive=positive)
+        flux_high_b = _fromm_parallel_boundary_flux(adv_fa, vy_high, side="high", positive=positive)
+        flux_up = flux_up.at[-1].set(flux_high_b)
+        flux_down = jnp.concatenate([flux_low_b[None, ...], flux_up[:-1]], axis=0)
+
+        div_y_fa = (flux_up - flux_down) / (jnp.maximum(J_fa, 1e-30) * jnp.maximum(dy_fa, 1e-30))
         div_y = self.from_field_aligned(div_y_fa) if use_shift else div_y_fa
 
         poloidal = div_x + div_y
@@ -1147,6 +1383,45 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     def _dpar_periodic(self, f: jnp.ndarray) -> jnp.ndarray:
         return (jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)) / (2.0 * self.grid.dz)
 
+    def _ddy_periodic_c2(self, f: jnp.ndarray) -> jnp.ndarray:
+        return (jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)) / (2.0 * self.grid.dz)
+
+    def _ddy_periodic_c2_metric(self, f: jnp.ndarray, ds: jnp.ndarray) -> jnp.ndarray:
+        num = jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)
+        den = jnp.roll(ds, -1, axis=0) + jnp.roll(ds, 1, axis=0)
+        return num / jnp.maximum(den, 1e-30)
+
+    def _ddy_open_c2(self, f: jnp.ndarray) -> jnp.ndarray:
+        out = jnp.zeros_like(f)
+        if f.shape[0] <= 1:
+            return out
+        if f.shape[0] == 2:
+            out = out.at[0].set((f[1] - f[0]) / self.grid.dz)
+            out = out.at[1].set((f[1] - f[0]) / self.grid.dz)
+            return out
+        out = out.at[1:-1].set((f[2:] - f[:-2]) / (2.0 * self.grid.dz))
+        out = out.at[0].set((-3.0 * f[0] + 4.0 * f[1] - f[2]) / (2.0 * self.grid.dz))
+        out = out.at[-1].set((3.0 * f[-1] - 4.0 * f[-2] + f[-3]) / (2.0 * self.grid.dz))
+        return out
+
+    def _ddy_open_c2_metric(self, f: jnp.ndarray, ds: jnp.ndarray) -> jnp.ndarray:
+        out = jnp.zeros_like(f)
+        if f.shape[0] <= 1:
+            return out
+        if f.shape[0] == 2:
+            den = 0.5 * (ds[0] + ds[1])
+            slope = (f[1] - f[0]) / jnp.maximum(den, 1e-30)
+            out = out.at[0].set(slope)
+            out = out.at[1].set(slope)
+            return out
+        den_center = ds[:-2] + ds[1:-1]
+        out = out.at[1:-1].set((f[2:] - f[:-2]) / jnp.maximum(den_center, 1e-30))
+        den0 = ds[0] + ds[1]
+        den1 = ds[-1] + ds[-2]
+        out = out.at[0].set((-3.0 * f[0] + 4.0 * f[1] - f[2]) / jnp.maximum(den0, 1e-30))
+        out = out.at[-1].set((3.0 * f[-1] - 4.0 * f[-2] + f[-3]) / jnp.maximum(den1, 1e-30))
+        return out
+
     def _dpar_open(self, f: jnp.ndarray) -> jnp.ndarray:
         face = 0.5 * (f[1:] + f[:-1])
         df = jnp.zeros_like(f)
@@ -1154,6 +1429,28 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         df = df.at[0].set((face[0] - f[0]) / self.grid.dz)
         df = df.at[-1].set((f[-1] - face[-1]) / self.grid.dz)
         return df
+
+    def _dpar_periodic_metric(self, f: jnp.ndarray, ds: jnp.ndarray) -> jnp.ndarray:
+        return (jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)) / jnp.maximum(2.0 * ds, 1e-30)
+
+    def _dpar_open_metric(self, f: jnp.ndarray, ds: jnp.ndarray) -> jnp.ndarray:
+        face = 0.5 * (f[1:] + f[:-1])
+        df = jnp.zeros_like(f)
+        df = df.at[1:-1].set((face[1:] - face[:-1]) / jnp.maximum(ds[1:-1], 1e-30))
+        df = df.at[0].set((face[0] - f[0]) / jnp.maximum(ds[0], 1e-30))
+        df = df.at[-1].set((f[-1] - face[-1]) / jnp.maximum(ds[-1], 1e-30))
+        return df
+
+    def _ddx_metric_c2(self, f: jnp.ndarray, dx: jnp.ndarray) -> jnp.ndarray:
+        xp = jnp.take(f, jnp.clip(jnp.arange(f.shape[1]) + 1, 0, f.shape[1] - 1), axis=1)
+        xm = jnp.take(f, jnp.clip(jnp.arange(f.shape[1]) - 1, 0, f.shape[1] - 1), axis=1)
+        out = (xp - xm) / jnp.maximum(2.0 * dx, 1e-30)
+        if f.shape[1] > 1:
+            out = out.at[:, 0, :].set((f[:, 1, :] - f[:, 0, :]) / jnp.maximum(dx[:, 0, :], 1e-30))
+            out = out.at[:, -1, :].set(
+                (f[:, -1, :] - f[:, -2, :]) / jnp.maximum(dx[:, -1, :], 1e-30)
+            )
+        return out
 
     def _dpar_limited(self, f: jnp.ndarray, limiter: str) -> jnp.ndarray:
         df = f[1:] - f[:-1]
@@ -1216,8 +1513,14 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         if self.shift_idx is None:
             return f
         ny = f.shape[-1]
-        y = jnp.arange(ny, dtype=jnp.float64)
         shift = float(sign) * self.shift_idx
+        interp = str(getattr(self.params, "parallel_shift_interp", "linear")).lower()
+        if interp == "spectral":
+            k = jnp.fft.fftfreq(ny, d=1.0)
+            phase = jnp.exp((2.0j * jnp.pi) * k[None, None, :] * shift[..., None])
+            f_hat = jnp.fft.fft(f, axis=-1)
+            return jnp.real(jnp.fft.ifft(f_hat * phase, axis=-1))
+        y = jnp.arange(ny, dtype=jnp.float64)
         y_src = (y[None, None, :] + shift[..., None]) % float(ny)
         y0 = jnp.floor(y_src).astype(jnp.int32)
         y1 = (y0 + 1) % ny
