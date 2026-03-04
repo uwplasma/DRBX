@@ -109,7 +109,7 @@ Early-time alignment-tuned knobs in
 - `exb_flux_scheme = "hermes_xppm"` (Hermes/BOUT XPPM-like MC-limited X-Z transport)
 - `exb_poloidal_flows = true`
 - `exb_poloidal_scale = 1.0`
-- `exb_poloidal_y_scale = 1.2` (strict early-time operator alignment in the
+- `exb_poloidal_y_scale = 1.22` (strict early-time operator alignment in the
   poloidal Y-flux branch)
 - `exb_poloidal_ddy_scheme = "c2"` (DDY-like centered stencil in the X-flux branch)
 - `neumann_boundary_average_y = true` (BOUT/Hermes `neumann_boundary_average_z`)
@@ -141,9 +141,9 @@ Axisymmetric coefficient files now carry `metric_dx`, `metric_dy`, and
 `metric_dz` (from Hermes dump/grid `dx`, `dy`, `dz`), and the metric-coupled
 ExB FV path consumes these local cell sizes in the X-Z and X-Y branches.
 In strict early-time Hermes-state audits this reduced the dominant
-`n advection exb` mismatch from about `1.91` to about `0.33`
+`n advection exb` mismatch from about `1.91` to about `0.17`
 (`rel_diff = |rms_jax-rms_hermes| / (0.1*rms_hermes)`), with the matching
-pressure-channel advection term `Pe exb` reduced to about `0.25`.
+pressure-channel advection term `Pe exb` reduced to about `0.09`.
 
 With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
 RHS alignment channels are:
