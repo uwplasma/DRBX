@@ -3,7 +3,7 @@ enabled = true
 mode = "physics"
 Te0_eV = 50.0
 Ti0_eV = 50.0
-n0 = 1e+19
+n0 = 1e19
 B0 = 1.0
 m_i_amu = 1.0
 Z_i = 1.0
@@ -60,7 +60,7 @@ source_Te_is_pressure = true
 [physics_physical]
 omega_n = 0.0
 omega_Te = 0.0
-source_n0 = 3.018304651245823e+21
+source_n0 = 3.018304651245823e21
 source_Te0 = 25098.6
 
 [closures]
@@ -92,6 +92,7 @@ poisson = "cg_fd"
 bracket = "arakawa"
 exb_advection_form = "flux"
 exb_advect_conservative = true
+exb_flux_scheme = "hermes_fromm"
 parallel_flux_conservative = true
 parallel_limiter = "none"
 parallel_flux_scheme = "rusanov"
@@ -101,6 +102,7 @@ parallel_sheath_flux_mode = "boundary_flux"
 exb_y_scale = 1.0
 exb_poloidal_flows = true
 exb_poloidal_scale = 1.0
+neumann_boundary_average_y = true
 parallel_sign = 1.0
 dpar_factor_scale = 1.0
 use_gpar_flux = true

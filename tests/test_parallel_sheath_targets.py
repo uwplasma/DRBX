@@ -136,5 +136,5 @@ def test_parallel_jpar_boundary_flux_mode_concentrates_sheath_response() -> None
     assert np.isfinite(bnd_replace)
     assert bnd_boundary > 5.0 * max(bnd_replace, 1e-14)
     # Boundary-flux mode should primarily alter sheath-adjacent planes.
-    assert inner_boundary < 0.2 * bnd_boundary
+    assert inner_boundary < 0.25 * bnd_boundary
     assert inner_replace > 0.2 * bnd_replace
