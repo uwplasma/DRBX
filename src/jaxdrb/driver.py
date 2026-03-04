@@ -1183,6 +1183,156 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
         N=state.N,
     )
 
+    state_path_raw = init.get("state_npz", init.get("state_path", ""))
+    if isinstance(state_path_raw, str) and state_path_raw:
+        state_path = Path(state_path_raw)
+        if not state_path.is_absolute():
+            cwd_candidate = (Path.cwd() / state_path).resolve()
+            repo_candidate = (Path(__file__).resolve().parents[2] / state_path).resolve()
+            state_path = cwd_candidate if cwd_candidate.exists() else repo_candidate
+        if not state_path.exists():
+            raise FileNotFoundError(f"initial state file not found: {state_path}")
+
+        state_index = int(init.get("state_time_index", 0))
+        state_units = str(init.get("state_units", "physical")).lower()
+        allowed_units = {"physical", "state"}
+        if state_units not in allowed_units:
+            raise ValueError(
+                f"Unsupported initial state_units='{state_units}', expected one of {allowed_units}."
+            )
+
+        def _align_field_shape(arr: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray:
+            data = np.asarray(arr, dtype=np.float64)
+            if data.ndim == len(target_shape) + 1:
+                tidx = state_index if state_index >= 0 else data.shape[0] + state_index
+                if tidx < 0 or tidx >= data.shape[0]:
+                    raise IndexError(
+                        f"state_time_index={state_index} out of bounds for array with leading size {data.shape[0]}"
+                    )
+                data = data[tidx]
+            if data.shape == target_shape:
+                return data
+            if data.ndim == 3:
+                permutations = {
+                    "zxy": (0, 1, 2),
+                    "xyz": (2, 0, 1),
+                    "xzy": (1, 0, 2),
+                    "yxz": (2, 1, 0),
+                    "yzx": (1, 2, 0),
+                    "zyx": (0, 2, 1),
+                }
+                for perm in permutations.values():
+                    cand = np.transpose(data, perm)
+                    if cand.shape == target_shape:
+                        return cand
+            raise ValueError(
+                f"Cannot map initial-state array shape {data.shape} to target {target_shape}"
+            )
+
+        with np.load(state_path) as state_data:
+            n_arr = None
+            for key in ("n", "Ne", "density"):
+                if key in state_data:
+                    n_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+            if n_arr is None:
+                raise KeyError("Initial state file must contain 'n' (or alias Ne/density).")
+
+            Te_arr = None
+            for key in ("Te", "temperature_e", "electron_temperature"):
+                if key in state_data:
+                    Te_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+            if Te_arr is None:
+                raise KeyError(
+                    "Initial state file must contain 'Te' (or alias temperature_e/electron_temperature)."
+                )
+
+            omega_arr = None
+            for key in ("omega", "Vort", "vorticity"):
+                if key in state_data:
+                    omega_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+
+            phi_arr = None
+            for key in ("phi", "potential"):
+                if key in state_data:
+                    phi_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+
+            vpar_e_arr = None
+            for key in ("vpar_e", "Ve", "u_e"):
+                if key in state_data:
+                    vpar_e_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+
+            vpar_i_arr = None
+            for key in ("vpar_i", "Vi", "u_i"):
+                if key in state_data:
+                    vpar_i_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+
+            Ti_arr = None
+            for key in ("Ti", "temperature_i", "ion_temperature"):
+                if key in state_data:
+                    Ti_arr = _align_field_shape(state_data[key], state.n.shape)
+                    break
+
+        n_loaded = jnp.asarray(n_arr, dtype=state.n.dtype)
+        Te_loaded = jnp.asarray(Te_arr, dtype=state.Te.dtype)
+        if state_units == "state":
+            n_loaded_state = n_loaded
+            Te_loaded_state = Te_loaded
+            n_loaded_phys = system._phys_n(n_loaded_state)
+            Te_loaded_phys = system._phys_Te(Te_loaded_state)
+        else:
+            n_loaded_phys = n_loaded
+            Te_loaded_phys = Te_loaded
+            if sys_params.log_n:
+                n_loaded_state = jnp.log(jnp.maximum(n_loaded_phys, n_floor))
+            else:
+                n_loaded_state = n_loaded_phys
+            if sys_params.log_Te:
+                Te_loaded_state = jnp.log(jnp.maximum(Te_loaded_phys, Te_floor))
+            else:
+                Te_loaded_state = Te_loaded_phys
+
+        if omega_arr is not None:
+            omega_loaded = jnp.asarray(omega_arr, dtype=state.omega.dtype)
+        elif phi_arr is not None:
+            omega_loaded = system._omega_from_phi(
+                jnp.asarray(phi_arr, dtype=state.omega.dtype),
+                n_loaded_phys,
+                Ti=jnp.asarray(Ti_arr, dtype=state.omega.dtype) if Ti_arr is not None else None,
+                Te=Te_loaded_phys,
+            )
+        else:
+            omega_loaded = state.omega
+
+        if vpar_e_arr is not None:
+            vpar_e_loaded = jnp.asarray(vpar_e_arr, dtype=state.vpar_e.dtype)
+        else:
+            vpar_e_loaded = state.vpar_e
+        if vpar_i_arr is not None:
+            vpar_i_loaded = jnp.asarray(vpar_i_arr, dtype=state.vpar_i.dtype)
+        else:
+            vpar_i_loaded = state.vpar_i
+
+        Ti_loaded = state.Ti
+        if state.Ti is not None and Ti_arr is not None:
+            Ti_loaded = jnp.asarray(Ti_arr, dtype=state.Ti.dtype)
+
+        state = DRBSystemState(
+            n=n_loaded_state,
+            omega=omega_loaded,
+            vpar_e=vpar_e_loaded,
+            vpar_i=vpar_i_loaded,
+            Te=Te_loaded_state,
+            Ti=Ti_loaded,
+            psi=state.psi,
+            N=state.N,
+        )
+
     return BuiltSystem(system=system, state=state, normalization=norm_info)
 
 
