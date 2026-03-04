@@ -8,11 +8,11 @@ the unified DRB system. All options are designed to be **subsets of the same cor
 ## Engine Selection (top-level)
 
 - `engine = "unified"`: current broad unified core (default).
-- `engine = "parity_fv"`: strict finite-volume Hermes-parity rewrite path.
+- `engine = "drb_fv"`: strict finite-volume Hermes-alignment rewrite path.
 
 Accepted aliases in input parsing:
-- `engine = "fv_parity"`
-- `engine = "parity-fv"`
+- `engine = "fv_drb"`
+- `engine = "drb-fv"`
 
 CLI listing:
 - `jaxdrb --list-engines`
@@ -78,7 +78,7 @@ Additional controls:
 - `sol_on`: enable SOL masks and open/closed field‑line logic.
 - `sol_parallel_loss_on`: enable Bohm‑like parallel loss sink terms.
 - `sol_sheath_phi_on`: enable sheath‑current damping in the vorticity equation.
-- `sol_sheath_phi_dissipation_on`: parity switch for the explicit/implicit
+- `sol_sheath_phi_dissipation_on`: alignment switch for the explicit/implicit
   sheath-current vorticity dissipation path.
 - `sol_sheath_phi_model`: `linear` or `exp` (linear is recommended for implicit updates).
 - `sol_sheath_phi_implicit`: operator‑split implicit update for sheath current (robust for long runs).
@@ -191,12 +191,12 @@ for minimal preset schedules:
   branch (Hermes/BOUT X-Y poloidal-flow contribution) in
   `FieldAlignedGeometryAdapter.exb_flux_divergence()`.
 - `exb_poloidal_scale`: scalar multiplier on the metric-coupled poloidal ExB
-  branch. Use `1.0` for equation-level parity scans and vary only for
+  branch. Use `1.0` for equation-level alignment scans and vary only for
   controlled calibration sweeps.
 - `exb_poloidal_ddy_scheme`: index-space derivative used in the X-flux of the
   metric-coupled poloidal ExB branch. `face` keeps the legacy face-gradient
   form; `c2` uses a centered 2nd-order DDY-style stencil for Hermes/BOUT
-  parity studies.
+  alignment studies.
 - `exb_copy_grad_x_boundary`: when `true`, copy first interior phi-gradient
   values onto non-periodic x boundaries in metric-coupled ExB X-Y transport
   (Hermes/BOUT guard-cell-compatible behavior).
@@ -218,39 +218,39 @@ for minimal preset schedules:
   `-(5/3)∂‖(p v‖) + (2/3) v‖ ∂‖p`; `hermes_pdivv` maps to `-∂‖(p v‖)`;
   `custom` uses the coefficients below directly.
 - `parallel_pressure_flux_coeff`: multiplier on conservative parallel pressure
-  transport (`-∂‖(p v‖)` term). Used for Hermes early-time parity calibration.
+  transport (`-∂‖(p v‖)` term). Used for Hermes early-time alignment calibration.
 - `parallel_pressure_work_coeff`: optional `v‖∂‖p` add-on in pressure transport.
 - `parallel_use_sheath_targets`: in open-field + sheath runs, replace boundary
   face `v‖` by Bohm/sheath targets in conservative parallel fluxes (Hermes-style
-  boundary-flux parity mode).
+  boundary-flux alignment mode).
 - `parallel_sheath_flux_mode`: `replace_boundary` (legacy) or `boundary_flux`
   (apply sheath targets on boundary face fluxes only).
-- `phi_dissipation_on`: parity switch for `phi_par_dissipation` in vorticity.
-- `core_vorticity_damping_on`: parity switch for core vorticity damping
+- `phi_dissipation_on`: alignment switch for `phi_par_dissipation` in vorticity.
+- `core_vorticity_damping_on`: alignment switch for core vorticity damping
   equivalents (`mu_lin_omega`, `mu_zonal_omega`).
 
-Parity-FV specific numerics (`engine = "parity_fv"`):
-- `parity_limiter`: limiter for parallel FV reconstruction (`mc`, `minmod`, `none`).
-- `parity_poisson_solver`: `spectral_xy` (FFT inversion of `∇⊥²φ=ω`) or `identity` (debug).
+DRB-FV specific numerics (`engine = "drb_fv"`):
+- `fv_limiter`: limiter for parallel FV reconstruction (`mc`, `minmod`, `none`).
+- `fv_poisson_solver`: `spectral_xy` (FFT inversion of `∇⊥²φ=ω`) or `identity` (debug).
 - `parallel_pressure_flux_coeff`: coefficient on conservative pressure flux.
 - `parallel_pressure_work_coeff`: coefficient on `v_parallel * d_parallel(p)`.
 - `vorticity_parallel_coeff`: coefficient on parallel-current vorticity coupling.
 - `curvature_coeff`: coefficient on curvature-driven vorticity source.
 
-Parity-FV specific geometry ingestion:
+DRB-FV specific geometry ingestion:
 - `geometry.coeff_path`: optional metric bundle used by the rewrite path.
   Currently supported fields are `J`, `curv_x`/`bxcv`, `gxx`, `gxy`, `gyy`,
   and `dpar_factor`.
 - If `coeff_path` provides `nx`, `ny`, or `z`, those are used to infer the
-  parity grid unless the config already specifies the same values.
+  alignment grid unless the config already specifies the same values.
 - Config/file dimension mismatches are treated as errors.
 
-Parity-FV specific term toggles (`[terms]`):
+DRB-FV specific term toggles (`[terms]`):
 - `parallel_on`
 - `curvature_on`
 - `sheath_on`
 
-Parity-FV sheath coupling uses:
+DRB-FV sheath coupling uses:
 - `geometry.open_field_line = true`
 - `[closures.sheath]` values:
   - `sheath_bc_on`

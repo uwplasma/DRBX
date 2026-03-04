@@ -9,7 +9,7 @@ from jaxdrb.driver import build_system_from_config
 
 def _cfg(*, open_field_line: bool, sheath_on: bool) -> dict:
     return {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {
             "kind": "slab",
             "nx": 10,

@@ -6,8 +6,8 @@ import jax.numpy as jnp
 
 
 @dataclass(frozen=True)
-class ParityFVGeometry:
-    """Geometry container for parity-first FV operators.
+class DRBFVGeometry:
+    """Geometry container for alignment-first FV operators.
 
     Arrays follow `(nz, nx, ny)` layout.
     """

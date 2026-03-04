@@ -18,7 +18,7 @@ from jaxdrb.core.system import DRBSystem
 from jaxdrb.core.terms.fields import phys_Te, phys_n
 from jaxdrb.core.terms.sol import sol_masks
 from jaxdrb.core.terms.bcs import resolve_bcs
-from jaxdrb.parity_fv import ParityFVGeometry, ParityFVParams, ParityFVSystem
+from jaxdrb.drb_fv import DRBFVGeometry, DRBFVParams, DRBFVSystem
 from jaxdrb.integrators import (
     build_rk4_scan,
     build_rk4_scan_cached_iters_phi,
@@ -649,9 +649,7 @@ def _parse_bc_section(bc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _build_parity_fv_system(
-    cfg: dict[str, Any], norm_info: NormalizationInfo | None
-) -> BuiltSystem:
+def _build_drb_fv_system(cfg: dict[str, Any], norm_info: NormalizationInfo | None) -> BuiltSystem:
     physics = cfg.get("physics", {})
     closures = cfg.get("closures", {})
     numerics = cfg.get("numerics", {})
@@ -679,7 +677,7 @@ def _build_parity_fv_system(
     if isinstance(coeff_path, str) and coeff_path:
         coeff_file = _resolve_repo_path(coeff_path)
         if not coeff_file.exists():
-            raise FileNotFoundError(f"parity_fv coeff_path not found: {coeff_file}")
+            raise FileNotFoundError(f"drb_fv coeff_path not found: {coeff_file}")
         with np.load(coeff_file) as data:
             coeff_data = {key: np.asarray(data[key]) for key in data.files}
 
@@ -687,9 +685,7 @@ def _build_parity_fv_system(
         explicit = None if cfg_value is None else int(cfg_value)
         inferred = None if file_value is None else int(file_value)
         if explicit is not None and inferred is not None and explicit != inferred:
-            raise ValueError(
-                f"parity_fv geometry {name} mismatch: config={explicit} coeff={inferred}"
-            )
+            raise ValueError(f"drb_fv geometry {name} mismatch: config={explicit} coeff={inferred}")
         if explicit is not None:
             return explicit
         if inferred is not None:
@@ -749,7 +745,7 @@ def _build_parity_fv_system(
                 return jnp.asarray(arr[:, None, :], dtype=jnp.float64) * jnp.ones(
                     (1, nx, 1), dtype=jnp.float64
                 )
-        raise ValueError(f"Unsupported parity_fv metric shape {arr.shape} for target {shape}")
+        raise ValueError(f"Unsupported drb_fv metric shape {arr.shape} for target {shape}")
 
     jacobian = _metric_to_shape(coeff_data.get("J", None))
     if jacobian is None:
@@ -758,7 +754,7 @@ def _build_parity_fv_system(
     if "bxcv_const" in geometry:
         bxcv = jnp.full(shape, float(geometry["bxcv_const"]), dtype=jnp.float64)
 
-    pfv_params = ParityFVParams(
+    pfv_params = DRBFVParams(
         nx=nx,
         ny=ny,
         nz=nz,
@@ -773,7 +769,7 @@ def _build_parity_fv_system(
         n_floor=float(physics.get("sol_n_floor", 1e-12)),
         te_floor=float(physics.get("sol_Te_floor", 1e-12)),
     )
-    pfv_geom = ParityFVGeometry(
+    pfv_geom = DRBFVGeometry(
         jacobian=jacobian,
         bxcv=bxcv,
         gxx=_metric_to_shape(coeff_data.get("gxx", None)),
@@ -802,13 +798,13 @@ def _build_parity_fv_system(
         N=None,
     )
 
-    system = ParityFVSystem(
+    system = DRBFVSystem(
         params=pfv_params,
         geom=pfv_geom,
-        limiter=str(numerics.get("parity_limiter", "mc")),
+        limiter=str(numerics.get("fv_limiter", "mc")),
         poisson_scale=float(numerics.get("poisson_scale", 1.0)),
         poisson_solver=str(
-            numerics.get("parity_poisson_solver", numerics.get("poisson_solver", "spectral_xy"))
+            numerics.get("fv_poisson_solver", numerics.get("poisson_solver", "spectral_xy"))
         ),
         parallel_on=bool(terms.get("parallel_on", True)),
         curvature_on=bool(terms.get("curvature_on", True)),
@@ -834,8 +830,8 @@ def _build_parity_fv_system(
 def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     cfg, norm_info = apply_normalization(cfg)
     engine = str(cfg.get("engine", "unified")).strip().lower()
-    if engine in {"parity_fv", "fv_parity", "parity-fv"}:
-        return _build_parity_fv_system(cfg, norm_info)
+    if engine in {"drb_fv", "fv_drb", "drb-fv"}:
+        return _build_drb_fv_system(cfg, norm_info)
 
     physics = cfg.get("physics", {})
     transport = cfg.get("transport", {})
@@ -1385,7 +1381,7 @@ def run_simulation(cfg: dict[str, Any], *, as_numpy: bool | None = None) -> RunR
     trace_stats_out: dict[str, Any] = {}
 
     engine = str(getattr(system, "engine", "unified")).lower()
-    if engine == "parity_fv":
+    if engine == "drb_fv":
         supported = {
             "rk4",
             "rk4_scan",

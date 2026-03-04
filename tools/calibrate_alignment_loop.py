@@ -227,7 +227,7 @@ def _evaluate_candidate(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Calibration loop for Hermes/jax parity. Runs short windows first, "
+            "Calibration loop for Hermes/jax alignment. Runs short windows first, "
             "keeps finite candidates, and picks best RMS-fluctuation match."
         )
     )
@@ -335,7 +335,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--out-csv",
-        default="docs/figures/parity_calibration_scan.csv",
+        default="docs/figures/alignment_calibration_scan.csv",
         help="CSV output summary.",
     )
     args = parser.parse_args()

@@ -48,7 +48,7 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description=(
             "Run a tokamak ES/cold/Bouss benchmark workflow:\n"
-            "1) short Hermes-vs-jax parity panel, 2) jax poloidal/3D turbulence media."
+            "1) short Hermes-vs-jax alignment panel, 2) jax poloidal/3D turbulence media."
         )
     )
     p.add_argument(
@@ -75,7 +75,7 @@ def main() -> None:
         "--t-end-short",
         type=float,
         default=0.1,
-        help="Short-window end time for Hermes parity panel.",
+        help="Short-window end time for Hermes alignment panel.",
     )
     p.add_argument(
         "--t-end-visual",

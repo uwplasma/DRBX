@@ -146,7 +146,7 @@ def _load_hermes_bundle(path: Path) -> dict[str, np.ndarray]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scan a single parity knob against Hermes.")
+    parser = argparse.ArgumentParser(description="Scan a single alignment knob against Hermes.")
     parser.add_argument("--config", required=True, help="Base jax_drb TOML config.")
     parser.add_argument("--hermes-bundle", required=True, help="Hermes benchmark bundle (.npz).")
     parser.add_argument("--key", required=True, help="Dotted config key to scan.")

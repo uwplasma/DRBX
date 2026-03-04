@@ -37,20 +37,20 @@ summarizes the current validation surface and literature anchors.
 | Unit | `tests/test_normalization.py` | Physical → normalized scaling | Normalization scheme |
 | Unit | `tests/test_fluctuation_diagnostics.py` | `rms_*_fluct` and `equilibrium_*` consistency | Fluctuation diagnostics |
 | Unit | `tests/test_benchmark_schema.py` | Benchmark bundle schema round-trip (normalized + SI) | Cross-code reproducibility |
-| Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes parity diagnostics |
-| Unit | `tests/test_benchmark_compare.py` | Relative-L2 comparison of short-window diagnostics with axis-aware interpolation | Hermes short-window parity harness |
-| Unit | `tests/test_make_compact_reference_bundle.py` | Reproducible trimming of full bundles into compact reference fixtures | Hermes short-window parity harness |
-| Regression | `tests/test_hermes_short_window_compact_fixture.py` | Compact Hermes reference fixture load + self-consistency regression | Hermes short-window parity harness |
-| Unit | `tests/test_parity_fv_scaffold.py` | Parity-FV state/geometry/RHS shape contracts | rewrite safety gate |
-| Unit | `tests/test_parity_fv_parallel_flux.py` | FV parallel reconstruction + boundary-flux balance | Hermes solver numerics |
-| Unit | `tests/test_parity_fv_poisson_vorticity_guards.py` | INVERT_SET + radial/y-guard semantics | Hermes vorticity boundary semantics |
-| Unit | `tests/test_parity_fv_engine.py` | `engine = "parity_fv"` build/run/audit scheduling compatibility + `coeff_path` metric ingestion | parity rewrite integration |
-| Unit/Physics | `tests/test_parity_fv_term_gates.py` | density/pressure/vorticity parity-term assembly + coefficient scaling | Hermes parallel/vorticity structure |
-| Regression | `tests/test_parity_fv_poisson_solver.py` | spectral Poisson/ω(φ) round-trip and solver-mode regression | parity Poisson/vorticity path |
-| Unit/Physics | `tests/test_parity_fv_sheath.py` | open-field sheath particle/momentum/energy boundary channels | sheath boundary component parity |
-| Regression | `tests/test_parity_fv_one_step_audit_gate.py` | strict one-step term-array regression for parity_fv (step0 and step1 channels) | Phase A one-step parity gate |
-| Regression | `tests/test_parity_fv_short_window_gate.py` | deterministic `t<=0.1` short-window RMS/PSD/finite-run gate for parity_fv | Phase B rewrite-local gate |
-| Regression | `tests/test_parity_fv_hermes_short_window_gate.py` | Hermes-coupled `t<=0.1` compact-fixture regression for RMS/PSD mismatch signature | Hermes parity progression gate |
+| Unit | `tests/test_benchmark_diagnostics.py` | Shared diagnostics (PSD/PDF/coherence/flux + finite gates) | Hermes alignment diagnostics |
+| Unit | `tests/test_benchmark_compare.py` | Relative-L2 comparison of short-window diagnostics with axis-aware interpolation | Hermes short-window alignment harness |
+| Unit | `tests/test_make_compact_reference_bundle.py` | Reproducible trimming of full bundles into compact reference fixtures | Hermes short-window alignment harness |
+| Regression | `tests/test_hermes_short_window_compact_fixture.py` | Compact Hermes reference fixture load + self-consistency regression | Hermes short-window alignment harness |
+| Unit | `tests/test_drb_fv_scaffold.py` | DRB-FV state/geometry/RHS shape contracts | rewrite safety gate |
+| Unit | `tests/test_drb_fv_parallel_flux.py` | FV parallel reconstruction + boundary-flux balance | Hermes solver numerics |
+| Unit | `tests/test_drb_fv_poisson_vorticity_guards.py` | INVERT_SET + radial/y-guard semantics | Hermes vorticity boundary semantics |
+| Unit | `tests/test_drb_fv_engine.py` | `engine = "drb_fv"` build/run/audit scheduling compatibility + `coeff_path` metric ingestion | alignment rewrite integration |
+| Unit/Physics | `tests/test_drb_fv_term_gates.py` | density/pressure/vorticity alignment-term assembly + coefficient scaling | Hermes parallel/vorticity structure |
+| Regression | `tests/test_drb_fv_poisson_solver.py` | spectral Poisson/ω(φ) round-trip and solver-mode regression | alignment Poisson/vorticity path |
+| Unit/Physics | `tests/test_drb_fv_sheath.py` | open-field sheath particle/momentum/energy boundary channels | sheath boundary component alignment |
+| Regression | `tests/test_drb_fv_one_step_audit_gate.py` | strict one-step term-array regression for drb_fv (step0 and step1 channels) | Phase A one-step alignment gate |
+| Regression | `tests/test_drb_fv_short_window_gate.py` | deterministic `t<=0.1` short-window RMS/PSD/finite-run gate for drb_fv | Phase B rewrite-local gate |
+| Regression | `tests/test_drb_fv_hermes_short_window_gate.py` | Hermes-coupled `t<=0.1` compact-fixture regression for RMS/PSD mismatch signature | Hermes alignment progression gate |
 | Unit/Physics | `tests/test_diamagnetic_terms.py` | Diamagnetic drift form mixing + pressure→temperature conversion | Hermes diamagnetic drift |
 | Unit/Physics | `tests/test_equilibrium_drive.py` | Equilibrium-profile gradient drives (`ω_n`, `ω_T`) | SOL background-gradient physics |
 | Unit/Physics | `tests/test_braginskii_terms.py` | Braginskii heat exchange, friction, classical diffusion | Braginskii closures |
@@ -63,7 +63,7 @@ summarizes the current validation surface and literature anchors.
 | Unit/Physics | `tests/test_parallel_limiter_mms.py` | Open-field parallel limiter MMS convergence | Hermes parallel numerics |
 | Unit/Physics | `tests/test_neutrals_terms.py` | Neutral ionization/recombination + drag terms (energy-exchange placeholder skips until available) | SOL neutral closures |
 | Regression | `tests/test_full_stack_em_hot_neutrals.py` | Short-run regression with EM + hot-ions + neutrals enabled together | full-stack toggle validation |
-| Physics/Regression | `tests/test_sheath_sol_parity_gate.py` | Sheath flux + SOL parallel loss gate | Open-field SOL parity |
+| Physics/Regression | `tests/test_sheath_sol_alignment_gate.py` | Sheath flux + SOL parallel loss gate | Open-field SOL alignment |
 | Regression | `tests/test_benchmark_panel_script.py` | Canonical side-by-side benchmark panel render | Reproducible benchmark figures |
 | Unit | `tests/test_arakawa_bracket_invariants.py` | Arakawa bracket invariants (energy/enstrophy) | conservative DRB operators |
 | Unit | `tests/test_parallel_z_mode.py` | `vmap` vs `scan` parallel-z modes | Geometry implementation |
@@ -195,7 +195,7 @@ Each physics gate has a direct pytest entry point. Examples:
 - `tests/test_parallel_limiter_mms.py`: `pytest -q tests/test_parallel_limiter_mms.py`
 - `tests/test_neutrals_terms.py`: `pytest -q tests/test_neutrals_terms.py`
 - `tests/test_sheath_flux_sanity.py`: `pytest -q tests/test_sheath_flux_sanity.py`
-- `tests/test_sheath_sol_parity_gate.py`: `pytest -q tests/test_sheath_sol_parity_gate.py`
+- `tests/test_sheath_sol_alignment_gate.py`: `pytest -q tests/test_sheath_sol_alignment_gate.py`
 - `tests/test_nonlinear_stats_window.py`: `pytest -q tests/test_nonlinear_stats_window.py`
 - `tests/test_ideal_ballooning.py`: `pytest -q tests/test_ideal_ballooning.py`
 - `tests/test_mosetto_regime.py`: `pytest -q tests/test_mosetto_regime.py`
@@ -236,7 +236,7 @@ The public validation surface focuses on **internal consistency, conservation,
 and physics‑anchored checks** of the unified DRB system. Validation is kept
 self‑contained and reproducible within `jax_drb`.
 
-## Benchmark Gating (Hermes Parity Workflow)
+## Benchmark Gating (Hermes Alignment Workflow)
 
 The staged benchmark workflow applies finite-run gating at every stage:
 

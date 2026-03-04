@@ -1,6 +1,6 @@
-# Strict Hermes-parity benchmark candidate (ES/cold/Bouss, open-field + sheath).
+# Strict Hermes-alignment benchmark candidate (ES/cold/Bouss, open-field + sheath).
 # This config uses the same stitched Hermes interior dimensions and metric arrays
-# for a first-step RHS parity pass before long-window turbulence.
+# for a first-step RHS alignment pass before long-window turbulence.
 
 [normalization]
 enabled = true

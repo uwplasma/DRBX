@@ -76,12 +76,12 @@ Run the strict operator audit first:
 
 ```bash
 cd <repo>
-PYTHONPATH=src python tools/audit_term_parity.py \
-  --jax-config examples/open_field_line/input_tokamak_bxcv_parity_strict_early.toml \
+PYTHONPATH=src python tools/audit_term_alignment.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml \
   --hermes-data-dir runs/hermes_open_field_terms_t01_vortterms/data \
   --hermes-input runs/hermes_open_field_terms_t01_vortterms/data/BOUT.inp \
   --hermes-grid runs/hermes_open_field_terms_t01_vortterms/tokamak.nc \
-  --out-dir runs/parity_t01_strict_m1_nocurv_vortterms_v7 \
+  --out-dir runs/alignment_t01_strict_m1_nocurv_vortterms_v7 \
   --nsteps 3 \
   --start-index 1 \
   --match-hermes-dt \
@@ -91,16 +91,16 @@ PYTHONPATH=src python tools/audit_term_parity.py \
   --strict-axis
 ```
 
-`poisson_parity.csv` now includes both full-domain and core-cropped metrics:
+`poisson_alignment.csv` now includes both full-domain and core-cropped metrics:
 - `*_corr`, `*_scale`: full domain
-- `*_corr_core`, `*_scale_core`: interior (`x[2:-2]`) used for INVERT_SET parity
+- `*_corr_core`, `*_scale_core`: interior (`x[2:-2]`) used for INVERT_SET alignment
 
-For this strict run, the core Poisson forward parity target is:
+For this strict run, the core Poisson forward alignment target is:
 - `omega_from_phi_corr_core ≈ 1`
 - `omega_from_phi_scale_core ≈ 1`
 
-Early-time parity-tuned knobs in
-`examples/open_field_line/input_tokamak_bxcv_parity_strict_early.toml`:
+Early-time alignment-tuned knobs in
+`examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`:
 - `parallel_pressure_model = "hermes_vgradp"`
 - `parallel_pressure_flux_coeff = 5/3`
 - `parallel_pressure_work_coeff = 2/3`
@@ -112,7 +112,7 @@ Early-time parity-tuned knobs in
 - `exb_poloidal_ddy_scheme = "c2"` (DDY-like centered stencil in the X-flux branch)
 - `neumann_boundary_average_y = true` (BOUT/Hermes `neumann_boundary_average_z`)
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
-- `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit parity with Hermes dump `Omega_ci`)
+- `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit alignment with Hermes dump `Omega_ci`)
 - standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
 
 `exb_poloidal_flows` now routes through the metric-coupled X/Y finite-volume
@@ -143,7 +143,7 @@ In strict early-time Hermes-state audits this reduced the dominant
 (`rel_diff = |rms_jax-rms_hermes| / (0.1*rms_hermes)`).
 
 With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
-RHS parity channels are:
+RHS alignment channels are:
 - `omega total RHS vs ddt(Vort)`: rel-diff `~0.84 .. 1.13` (about 8–11%)
 - `omega parallel (jax vs term_Vort_jpar)`: rel-diff `~0.01 .. 0.04`
 - `omega diamagnetic current (jax vs term_Vort_divJdia)`: rel-diff `~0.25`
@@ -203,14 +203,14 @@ Latest short-loop scan (calibrated config) selected:
 - score `1.348` (fluctuation RMS mismatch score)
 - finite gate: passed (`growth=2.01`, `peak=0.295`)
 
-## 5) Multi-parameter parity loop (rtol target)
+## 5) Multi-parameter alignment loop (rtol target)
 
 Use the calibration loop for staged, finite-gated scans and an explicit
 `rtol` target on fluctuation RMS mismatch:
 
 ```bash
 cd <repo>
-PYTHONPATH=src python tools/calibrate_parity_loop.py \
+PYTHONPATH=src python tools/calibrate_alignment_loop.py \
   --config examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_hermes_exact_ic.toml \
   --hermes-rms <hermes-rms>.npz \
   --stages 0.1,0.5,1.0 \
@@ -225,7 +225,7 @@ PYTHONPATH=src python tools/calibrate_parity_loop.py \
   --core-vorticity-damping-on 0,1 \
   --promote-top-k 8 \
   --rtol-target 1e-1 \
-  --out-csv runs/staged_open_field/parity_scan_t01.csv
+  --out-csv runs/staged_open_field/alignment_scan_t01.csv
 ```
 
 Recommended staged workflow:

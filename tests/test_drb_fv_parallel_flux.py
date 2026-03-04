@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from jaxdrb.parity_fv.flux_parallel import div_parallel_fv
+from jaxdrb.drb_fv.flux_parallel import div_parallel_fv
 
 
 def test_div_parallel_constant_state_is_zero() -> None:

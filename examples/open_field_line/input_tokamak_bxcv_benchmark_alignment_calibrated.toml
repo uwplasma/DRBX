@@ -1,5 +1,5 @@
 # Benchmark-alignment base case (ES/cold/Bouss/open-field with Bohm-current sheath).
-# Uses normalization-enabled physical source/drive inputs for cross-code parity workflows.
+# Uses normalization-enabled physical source/drive inputs for cross-code alignment workflows.
 
 [normalization]
 enabled = true

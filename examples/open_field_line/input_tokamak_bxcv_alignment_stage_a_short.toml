@@ -1,4 +1,4 @@
-# Stage-A Hermes parity baseline:
+# Stage-A Hermes alignment baseline:
 # - Exact Hermes-like initial condition (Ne and pressure-derived Te)
 # - Open-field sheath, ES/cold/Bouss
 # - Curvature from bxcv-converted coefficients
@@ -17,7 +17,7 @@ length_unit = "rho_s"
 
 [geometry]
 kind = "axisymmetric"
-coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv_g22.npz"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv.npz"
 bc_x = "neumann"
 bc_y = "periodic"
 open_field_line = true
@@ -28,34 +28,24 @@ ny = 81
 nz = 48
 theta_scale = 1.0
 
-#[geometry_physical]
-# Lx/Ly/Lz can be provided in physical units. For Hermes parity we use the
-# normalized geometry directly from the coefficient file.
-#Lx = 0.054697793193735585
+[geometry_physical]
+Lx = 0.054697793193735585
 # Torodial extent = 2π / zperiod (zperiod = 5).
-#Ly = 1.2566370614359172
-#Lz = 9.22842842
-#R0 = 1.5
-#r_minor = 0.054697793193735585
+Ly = 1.2566370614359172
+Lz = 9.22842842
+R0 = 1.5
+r_minor = 0.054697793193735585
 
 [physics]
 nonlinear_on = true
 em_on = false
-hot_ion_on = true
+hot_ion_on = false
 neutrals_on = false
 boussinesq = true
 curvature_on = true
-curvature_coeff = 20.0
+curvature_coeff = 0.45
 curvature_model = "vector_xy"
-curvature_Te_coeff = 0.04
-curvature_n_coeff = 0.14
-diamagnetic_on = true
-diamagnetic_current_on = true
-diamagnetic_polarisation_on = true
-diamag_form_profile = "x*(1-x)"
-me_hat = 0.0002723311546840958
-average_atomic_mass = 2.0
-diamagnetic_current_energy_on = false
+curvature_Te_coeff = 0.2
 sol_on = false
 sol_parallel_loss_on = true
 sol_parallel_loss_model = "bohm_exp"
@@ -97,31 +87,15 @@ mu_lin_omega = 0.0
 mu_lin_Te = 0.0
 phi_dissipation_on = true
 core_vorticity_damping_on = true
-low_n_diffuse_perp_on = true
-low_n_diffuse_perp_coeff = 1.0
 
 [numerics]
 poisson = "cg_fd"
 bracket = "arakawa"
-exb_advection_form = "flux"
-exb_advect_conservative = true
 parallel_flux_conservative = true
 parallel_limiter = "mc"
-parallel_flux_scheme = "lax"
 parallel_use_sheath_targets = true
-exb_y_scale = 1.0
-parallel_sign = 1.0
-dpar_factor_scale = 1.0
-use_gpar_flux = true
-parallel_transform = "shifted"
-poisson_b_weighted = true
-poisson_metric_on = true
-poisson_scale = 90.0
-poisson_b_weighted_mode = "hermes"
-poisson_split_n0 = true
-diamagnetic_flux_scheme = "fv"
-diamagnetic_use_jacobian = true
-perp_operator = "fd"
+exb_y_scale = 0.0
+poisson_scale = 1.4e-2
 
 [initial]
 n0 = 0.0
@@ -133,7 +107,7 @@ n_profile_offset = 3.0
 n_profile_slope = -2.7
 n_profile_xref = 0.0
 n_mixmode_amp = 0.001
-n_mixmode_terms = ["x-z"]
+n_mixmode_terms = ["x-y"]
 n_mixmode_mode = "bout"
 n_mixmode_seed = 0.5
 p_profile = "parabolic_x"
@@ -143,7 +117,6 @@ p_profile_a2 = 2.43
 p_profile_xref = 0.0
 Te_profile = "from_pressure"
 Te_pressure_consistent = true
-Ti_profile = "from_pressure"
 amplitude = 0.0
 seed = 1
 noise_mode = "physical"
@@ -152,15 +125,13 @@ noise_fields = ["n"]
 [time]
 method = "rk4_imex_strang"
 dt = 0.00002
-nsteps = 4000
-save_every = 20
+nsteps = 1500
+save_every = 50
 diag_mode = "full"
 save_fields = true
 snapshot_fields = ["n", "omega", "Te", "phi"]
 poisson_warm_start = true
 return_numpy = true
-jit = true
-stiff_solver = "analytic"
 
 [bc]
 perp = { bc_x = "neumann", bc_y = "periodic" }

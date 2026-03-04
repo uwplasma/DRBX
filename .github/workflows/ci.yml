@@ -31,8 +31,8 @@ jobs:
           ruff check src tests
           black --check src tests
 
-      - name: Parity One-Step Gate
-        run: python -m pytest -q tests/test_parity_fv_one_step_audit_gate.py
+      - name: Alignment One-Step Gate
+        run: python -m pytest -q tests/test_drb_fv_one_step_audit_gate.py
 
       - name: Test
         run: python -m pytest -q
