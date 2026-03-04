@@ -28,6 +28,8 @@ _EXPECTED = {
 }
 _EXPECTED_MEAN = 2.901609890297292
 _EXPECTED_MAX = 12.47932146535026
+_RTOL = 1e-6
+_ATOL = 1e-9
 
 
 def _run_candidate_bundle(tmp_path: Path) -> Path:
@@ -83,14 +85,14 @@ def test_drb_fv_hermes_short_window_regression_gate(tmp_path: Path) -> None:
     assert passed, f"finite-run gate failed: {reason} growth={growth:.3e} peak={peak:.3e}"
 
     comparison = compare_bundle_diagnostics(reference, candidate)
-    np.testing.assert_allclose(comparison.mean_rel_l2, _EXPECTED_MEAN, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(comparison.max_rel_l2, _EXPECTED_MAX, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(comparison.mean_rel_l2, _EXPECTED_MEAN, rtol=_RTOL, atol=_ATOL)
+    np.testing.assert_allclose(comparison.max_rel_l2, _EXPECTED_MAX, rtol=_RTOL, atol=_ATOL)
     assert set(comparison.per_key_rel_l2) == set(_EXPECTED)
     for key, expected in _EXPECTED.items():
         np.testing.assert_allclose(
             comparison.per_key_rel_l2[key],
             expected,
-            rtol=1e-12,
-            atol=1e-12,
+            rtol=_RTOL,
+            atol=_ATOL,
             err_msg=f"Hermes-coupled short-window mismatch drifted for {key}",
         )

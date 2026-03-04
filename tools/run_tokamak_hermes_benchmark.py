@@ -89,6 +89,17 @@ def main() -> None:
         choices=("n", "Te", "omega", "phi"),
         help="Field used in panel and media generation.",
     )
+    p.add_argument(
+        "--use-hermes-init-state",
+        action="store_true",
+        help="Initialize jax_drb from Hermes t-index state (exact field start).",
+    )
+    p.add_argument(
+        "--hermes-init-index",
+        type=int,
+        default=0,
+        help="Hermes time index used when --use-hermes-init-state is set.",
+    )
     args = p.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -101,6 +112,22 @@ def main() -> None:
 
     with cfg_path.open("rb") as f:
         base_cfg = tomllib.load(f)
+    if args.use_hermes_init_state:
+        init_npz = out_dir / f"hermes_init_state_t{int(args.hermes_init_index)}.npz"
+        _call(
+            repo_root,
+            "tools/extract_hermes_initial_state.py",
+            "--hermes-data",
+            str(hermes_dir),
+            "--out",
+            str(init_npz),
+            "--time-index",
+            str(int(args.hermes_init_index)),
+        )
+        init_cfg = dict(base_cfg.get("initial", {}))
+        init_cfg["state_npz"] = str(init_npz)
+        init_cfg["state_units"] = "physical"
+        base_cfg["initial"] = init_cfg
 
     coeff_path = str(base_cfg.get("geometry", {}).get("coeff_path", ""))
 
