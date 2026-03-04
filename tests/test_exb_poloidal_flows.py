@@ -14,11 +14,15 @@ def _make_geom(
     neumann_avg_y: bool = False,
     bc_x: str = "periodic",
     exb_flux_scheme: str = "centered",
+    exb_poloidal_x_scale: float = 1.0,
+    exb_poloidal_y_scale: float = 1.0,
 ) -> FieldAlignedGeometryAdapter:
     params = DRBSystemParams(
         numerics=NumericsParams(
             exb_poloidal_flows=poloidal_on,
             exb_poloidal_scale=1.0,
+            exb_poloidal_x_scale=exb_poloidal_x_scale,
+            exb_poloidal_y_scale=exb_poloidal_y_scale,
             exb_flux_scheme=exb_flux_scheme,
             neumann_boundary_average_y=neumann_avg_y,
             perp_operator="fd",
@@ -118,3 +122,43 @@ def test_exb_flux_scheme_hermes_fromm_differs_from_centered() -> None:
     div_fromm = geom_fromm.exb_flux_divergence(phi, adv)
 
     assert not jnp.allclose(div_fromm, div_centered, atol=1e-12, rtol=1e-12)
+
+
+def test_exb_poloidal_branch_scales_split_x_and_y_contributions() -> None:
+    key_phi, key_adv = jax.random.split(jax.random.PRNGKey(4))
+    phi = jax.random.normal(key_phi, (6, 8, 8), dtype=jnp.float64)
+    adv = jax.random.normal(key_adv, (6, 8, 8), dtype=jnp.float64)
+
+    geom_off = _make_geom(poloidal_on=False, with_g23=True, exb_flux_scheme="hermes_xppm")
+    geom_xy0 = _make_geom(
+        poloidal_on=True,
+        with_g23=True,
+        exb_flux_scheme="hermes_xppm",
+        exb_poloidal_x_scale=0.0,
+        exb_poloidal_y_scale=0.0,
+    )
+    geom_xonly = _make_geom(
+        poloidal_on=True,
+        with_g23=True,
+        exb_flux_scheme="hermes_xppm",
+        exb_poloidal_x_scale=1.0,
+        exb_poloidal_y_scale=0.0,
+    )
+    geom_yonly = _make_geom(
+        poloidal_on=True,
+        with_g23=True,
+        exb_flux_scheme="hermes_xppm",
+        exb_poloidal_x_scale=0.0,
+        exb_poloidal_y_scale=1.0,
+    )
+    geom_on = _make_geom(poloidal_on=True, with_g23=True, exb_flux_scheme="hermes_xppm")
+
+    div_off = geom_off.exb_flux_divergence(phi, adv)
+    div_xy0 = geom_xy0.exb_flux_divergence(phi, adv)
+    div_x = geom_xonly.exb_flux_divergence(phi, adv)
+    div_y = geom_yonly.exb_flux_divergence(phi, adv)
+    div_on = geom_on.exb_flux_divergence(phi, adv)
+
+    assert jnp.allclose(div_xy0, div_off, atol=1e-12, rtol=1e-12)
+    assert not jnp.allclose(div_x, div_y, atol=1e-12, rtol=1e-12)
+    assert jnp.allclose(div_on, div_x + div_y - div_off, atol=1e-9, rtol=1e-9)
