@@ -107,10 +107,26 @@ Early-time parity-tuned knobs in
 - `parallel_limiter = "none"`
 - `parallel_flux_scheme = "rusanov"`
 - `exb_poloidal_flows = true`
-- `exb_poloidal_scale = 1.8`
+- `exb_poloidal_scale = 1.0`
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
 - `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit parity with Hermes dump `Omega_ci`)
 - standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
+
+`exb_poloidal_flows` now routes through the metric-coupled X/Y finite-volume
+transport path in `FieldAlignedGeometryAdapter.exb_flux_divergence()`:
+
+\[
+\nabla\cdot\Gamma_{E\times B}
+= \frac{1}{J}\partial_x\left(J v_x f\right)
++ \frac{1}{J}\partial_{\parallel}\left(J v_y f\right),
+\quad
+v_x \propto \frac{g^{xx} g_{23}}{B^2}\partial_{\parallel}\phi,\;
+v_y \propto -\frac{g^{xx} g_{23}}{B^2}\partial_x\phi
+\]
+
+with field-aligned shifted-metric handling on the parallel branch. This closes
+the previous structural gap where `exb_poloidal_flows` existed in config but
+was not applied in the active geometry adapter.
 
 With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
 RHS parity channels are:
