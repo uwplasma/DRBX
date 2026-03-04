@@ -1495,8 +1495,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--fail-fast-fields",
-        default="n,Te,omega",
-        help="Comma-separated fields considered by fail-fast (default: n,Te,omega).",
+        default="n,Pe,omega",
+        help="Comma-separated fields considered by fail-fast (default: n,Pe,omega).",
     )
     parser.add_argument(
         "--fail-fast-terms",
