@@ -56,6 +56,16 @@ def _load_axisymmetric_npz(path: str | Path, *, keys: dict[str, str]) -> dict[st
         key[len("mask_") :]: np.asarray(data[key]) for key in data.files if key.startswith("mask_")
     }
 
+    metric_dx = get_optional(keys.get("metric_dx", "metric_dx"), default=None)
+    if metric_dx is None:
+        metric_dx = get_optional(keys.get("dx", "dx"), default=None)
+    metric_dy = get_optional(keys.get("metric_dy", "metric_dy"), default=None)
+    if metric_dy is None:
+        metric_dy = get_optional(keys.get("dy", "dy"), default=None)
+    metric_dz = get_optional(keys.get("metric_dz", "metric_dz"), default=None)
+    if metric_dz is None:
+        metric_dz = get_optional(keys.get("dz", "dz"), default=None)
+
     return {
         "z": z,
         "curv_x": get_required(keys.get("curv_x", "curv_x")),
@@ -72,6 +82,9 @@ def _load_axisymmetric_npz(path: str | Path, *, keys: dict[str, str]) -> dict[st
         "g23": get_optional(keys.get("g23", "g23"), default=None),
         "g_22": get_optional(keys.get("g_22", "g_22"), default=None),
         "g_23": get_optional(keys.get("g_23", "g_23"), default=None),
+        "metric_dx": metric_dx,
+        "metric_dy": metric_dy,
+        "metric_dz": metric_dz,
         "sheath_mask": get_optional(keys.get("sheath_mask", "sheath_mask"), default=None),
         "sheath_sign": get_optional(keys.get("sheath_sign", "sheath_sign"), default=None),
         "nx": data.get("nx"),
@@ -131,6 +144,16 @@ def _load_axisymmetric_netcdf(path: str | Path, *, keys: dict[str, str]) -> dict
         if key.startswith("mask_")
     }
 
+    metric_dx = get_optional(keys.get("metric_dx", "metric_dx"), default=None)
+    if metric_dx is None:
+        metric_dx = get_optional(keys.get("dx", "dx"), default=None)
+    metric_dy = get_optional(keys.get("metric_dy", "metric_dy"), default=None)
+    if metric_dy is None:
+        metric_dy = get_optional(keys.get("dy", "dy"), default=None)
+    metric_dz = get_optional(keys.get("metric_dz", "metric_dz"), default=None)
+    if metric_dz is None:
+        metric_dz = get_optional(keys.get("dz", "dz"), default=None)
+
     return {
         "z": z,
         "curv_x": get_required(keys.get("curv_x", "curv_x")),
@@ -147,6 +170,9 @@ def _load_axisymmetric_netcdf(path: str | Path, *, keys: dict[str, str]) -> dict
         "g23": get_optional(keys.get("g23", "g23"), default=None),
         "g_22": get_optional(keys.get("g_22", "g_22"), default=None),
         "g_23": get_optional(keys.get("g_23", "g_23"), default=None),
+        "metric_dx": metric_dx,
+        "metric_dy": metric_dy,
+        "metric_dz": metric_dz,
         "sheath_mask": get_optional(keys.get("sheath_mask", "sheath_mask"), default=None),
         "sheath_sign": get_optional(keys.get("sheath_sign", "sheath_sign"), default=None),
         "nx": get_scalar("nx"),
@@ -305,4 +331,7 @@ def build_axisymmetric_field_aligned_adapter(
         g23=coeffs.get("g23") if params.poisson_metric_on else None,
         g_22=coeffs.get("g_22") if params.poisson_metric_on else None,
         g_23=coeffs.get("g_23") if params.poisson_metric_on else None,
+        metric_dx=coeffs.get("metric_dx"),
+        metric_dy=coeffs.get("metric_dy"),
+        metric_dz=coeffs.get("metric_dz"),
     )

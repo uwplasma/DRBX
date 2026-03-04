@@ -109,6 +109,7 @@ Early-time parity-tuned knobs in
 - `exb_flux_scheme = "hermes_fromm"` (Hermes/BOUT X-Z Fromm transport)
 - `exb_poloidal_flows = true`
 - `exb_poloidal_scale = 1.0`
+- `exb_poloidal_ddy_scheme = "c2"` (DDY-like centered stencil in the X-flux branch)
 - `neumann_boundary_average_y = true` (BOUT/Hermes `neumann_boundary_average_z`)
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
 - `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit parity with Hermes dump `Omega_ci`)
@@ -129,6 +130,17 @@ v_y \propto -\frac{g^{xx} g_{23}}{B^2}\partial_x\phi
 with field-aligned shifted-metric handling on the parallel branch. This closes
 the previous structural gap where `exb_poloidal_flows` existed in config but
 was not applied in the active geometry adapter.
+
+The radial boundary reconstruction in this branch now uses two Neumann ghost
+layers for inflow faces (matching BOUT Neumann guard-cell behavior), which
+reduced the leading `n advection exb` mismatch in strict early-time audits.
+
+Axisymmetric coefficient files now carry `metric_dx`, `metric_dy`, and
+`metric_dz` (from Hermes dump/grid `dx`, `dy`, `dz`), and the metric-coupled
+ExB FV path consumes these local cell sizes in the X-Z and X-Y branches.
+In strict early-time Hermes-state audits this reduced the dominant
+`n advection exb` mismatch from about `2.16` to about `1.91`
+(`rel_diff = |rms_jax-rms_hermes| / (0.1*rms_hermes)`).
 
 With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
 RHS parity channels are:

@@ -339,6 +339,13 @@ class NumericsParams(eqx.Module):
     exb_poloidal_flows: bool = False
     # Optional scale for the metric-coupled X-Y ExB advection contribution.
     exb_poloidal_scale: float = 1.0
+    # Index-space DDY operator for the metric-coupled X-Y ExB term:
+    # - "face": finite-volume face divergence style (legacy)
+    # - "c2": centered 2nd-order DDY-like operator (Hermes/BOUT-like)
+    exb_poloidal_ddy_scheme: Literal["face", "c2"] = "face"
+    # If true, copy first interior phi-gradient values to x boundaries when
+    # x is non-periodic in metric-coupled ExB X-Y transport.
+    exb_copy_grad_x_boundary: bool = True
     # Hermes/BOUT option equivalent to `neumann_boundary_average_z=true` for
     # perpendicular operators: when x-boundary BC is Neumann, average boundary
     # values over the perpendicular-y (z-like) index before ghost padding.
@@ -351,6 +358,7 @@ class NumericsParams(eqx.Module):
     parallel_flux_conservative: bool = False
     parallel_momentum_model: Literal["reduced", "conservative"] = "reduced"
     parallel_transform: Literal["none", "shifted"] = "none"
+    parallel_shift_interp: Literal["linear", "spectral"] = "linear"
     # Use Bohm-target sheath velocities on parallel boundary faces for open-field
     # conservative fluxes (Hermes-like boundary flux treatment).
     parallel_use_sheath_targets: bool = False
