@@ -38,6 +38,9 @@ Base alignment config:
   `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_hermes_init.toml`
 - Hermes-equivalent exact IC variant (`n` mixmode + pressure-consistent `Te`):
   `examples/open_field_line/input_tokamak_bxcv_benchmark_alignment_hermes_exact_ic.toml`
+- Strict benchmark baseline used by CI:
+  `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`
+  (flux-form ExB, `hermes_xppm`, shifted parallel transform, boundary-flux sheath mode).
 
 ## 1) Run staged windows with finite-run gating
 
