@@ -154,6 +154,7 @@ def main() -> None:
     Bxy_raw = np.asarray(Bxy, dtype=np.float64)
     dx = _stitch_2d(files, "dx")
     dy = _stitch_2d(files, "dy")
+    dz = _stitch_2d(files, "dz")
     J = _stitch_2d(files, "J")
 
     nx, ny_parallel = g11.shape
@@ -187,6 +188,9 @@ def main() -> None:
         g13 = _avg_parallel(g13)
         Bxy = _avg_parallel(Bxy)
         J = _avg_parallel(J)
+        dx = _avg_parallel(dx)
+        dy = _avg_parallel(dy)
+        dz = _avg_parallel(dz)
         if gpar is not None:
             gpar = _avg_parallel(gpar)
         if not args.preserve_parallel_curvature:
@@ -304,6 +308,12 @@ def main() -> None:
             Bxy = Bxy.T
         if J is not None and J.ndim == 2:
             J = J.T
+        if dx.ndim == 2:
+            dx = dx.T
+        if dy.ndim == 2:
+            dy = dy.T
+        if dz.ndim == 2:
+            dz = dz.T
 
     out = {
         "nx": nx,
@@ -329,6 +339,9 @@ def main() -> None:
         out["gpar"] = gpar_out
     if J is not None:
         out["J"] = J
+    out["metric_dx"] = dx
+    out["metric_dy"] = dy
+    out["metric_dz"] = dz
     if Rxy is not None:
         out["Rxy"] = Rxy
     if Zxy is not None:

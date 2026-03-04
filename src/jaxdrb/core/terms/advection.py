@@ -47,7 +47,13 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
     if use_flux:
         with jax.named_scope("exb_flux_terms"):
             adv_n = (
-                -ctx.geom.exb_flux_divergence(phi, ctx.n_phys, bc_phi=bc.phi, bc_adv=bc_fields[0])
+                -ctx.geom.exb_flux_divergence(
+                    phi,
+                    ctx.n_phys,
+                    bc_phi=bc.phi,
+                    bc_adv=bc_fields[0],
+                    positive=True,
+                )
                 * scale
             )
             adv_w = (
@@ -59,21 +65,33 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
             if use_cons:
                 dNV_e = (
                     -ctx.geom.exb_flux_divergence(
-                        phi, ctx.n_phys * y.vpar_e, bc_phi=bc.phi, bc_adv=bc_fields[2]
+                        phi,
+                        ctx.n_phys * y.vpar_e,
+                        bc_phi=bc.phi,
+                        bc_adv=bc_fields[2],
+                        positive=True,
                     )
                     * scale
                 )
                 adv_ve = (dNV_e - y.vpar_e * adv_n) / n_eff
                 dNV_i = (
                     -ctx.geom.exb_flux_divergence(
-                        phi, ctx.n_phys * y.vpar_i, bc_phi=bc.phi, bc_adv=bc_fields[3]
+                        phi,
+                        ctx.n_phys * y.vpar_i,
+                        bc_phi=bc.phi,
+                        bc_adv=bc_fields[3],
+                        positive=True,
                     )
                     * scale
                 )
                 adv_vi = (dNV_i - y.vpar_i * adv_n) / n_eff
                 dP_e = (
                     -ctx.geom.exb_flux_divergence(
-                        phi, ctx.n_phys * ctx.Te_phys, bc_phi=bc.phi, bc_adv=bc_fields[4]
+                        phi,
+                        ctx.n_phys * ctx.Te_phys,
+                        bc_phi=bc.phi,
+                        bc_adv=bc_fields[4],
+                        positive=True,
                     )
                     * scale
                 )
@@ -81,7 +99,11 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
                 if ctx.hot_on:
                     dP_i = (
                         -ctx.geom.exb_flux_divergence(
-                            phi, ctx.n_phys * ctx.Ti, bc_phi=bc.phi, bc_adv=bc_fields[5]
+                            phi,
+                            ctx.n_phys * ctx.Ti,
+                            bc_phi=bc.phi,
+                            bc_adv=bc_fields[5],
+                            positive=True,
                         )
                         * scale
                     )
