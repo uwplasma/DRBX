@@ -330,15 +330,23 @@ class NumericsParams(eqx.Module):
     exb_advection_form: Literal["bracket", "flux"] = "bracket"
     # Flux-form ExB stencil in field-aligned geometry:
     # - "centered": centered flux divergence
-    # - "hermes_fromm": Hermes/BOUT-style Fromm-upwind X-Z transport
-    exb_flux_scheme: Literal["centered", "hermes_fromm"] = "centered"
+    # - "hermes_fromm": legacy Fromm-upwind X-Z transport
+    # - "hermes_xppm": Hermes/BOUT XPPM-like MC-limited X-Z transport
+    exb_flux_scheme: Literal["centered", "hermes_fromm", "hermes_xppm"] = "centered"
     # When using flux-form ExB advection, advect conservative variables (n, n*v, p).
     exb_advect_conservative: bool = False
     # Include the metric-coupled X-Y ExB advection contribution present in
     # field-aligned BOUT/Hermes coordinates (poloidal flow term).
     exb_poloidal_flows: bool = False
+    # Whether ExB fluxes are allowed to cross non-periodic x boundaries
+    # (Hermes/BOUT `bndry_flux` behavior).
+    exb_bndry_flux: bool = True
     # Optional scale for the metric-coupled X-Y ExB advection contribution.
     exb_poloidal_scale: float = 1.0
+    # Optional per-branch scales for metric-coupled ExB poloidal transport.
+    # These default to 1.0 and are useful for short-window operator audits.
+    exb_poloidal_x_scale: float = 1.0
+    exb_poloidal_y_scale: float = 1.0
     # Index-space DDY operator for the metric-coupled X-Y ExB term:
     # - "face": finite-volume face divergence style (legacy)
     # - "c2": centered 2nd-order DDY-like operator (Hermes/BOUT-like)
