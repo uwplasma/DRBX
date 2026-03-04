@@ -358,9 +358,9 @@ def _compute_term_metrics(
     phi_rows: list[dict[str, object]] = []
     nsteps = int(max(0, min(nsteps, snapshots["n"].shape[0] - start_index)))
     engine = str(getattr(system, "engine", "unified")).lower()
-    use_parity_engine = engine == "parity_fv"
+    use_drb_fv_engine = engine == "drb_fv"
 
-    if not use_parity_engine:
+    if not use_drb_fv_engine:
         from jaxdrb.core.terms import build_context
         import equinox as eqx
 
@@ -376,7 +376,7 @@ def _compute_term_metrics(
             psi=None if "psi" not in snapshots else snapshots["psi"][idx],
             N=None if "N" not in snapshots else snapshots["N"][idx],
         )
-        if use_parity_engine:
+        if use_drb_fv_engine:
             phi_arg = (
                 None if phi_override is None else jnp.asarray(phi_override[idx], dtype=y.n.dtype)
             )
@@ -454,7 +454,7 @@ def _compute_term_metrics(
                 }
             )
         for name, term in term_map.items():
-            # Derived pressure contribution (Pe = n * Te) for parity with Hermes pressure equation.
+            # Derived pressure contribution (Pe = n * Te) for alignment with Hermes pressure equation.
             pe_term = None
             if "n" in snapshots and "Te" in snapshots:
                 n_snap = snapshots["n"][idx]
@@ -744,7 +744,7 @@ def _compute_hermes_term_metrics(
                         times[idx],
                     )
 
-        # Aggregate Hermes pressure transport channels for parity with JAX
+        # Aggregate Hermes pressure transport channels for alignment with JAX
         # conservative temperature update, which carries flux+work together.
         if "par" in pe_terms and "work" in pe_terms:
             par_name = pe_terms["par"]
@@ -928,7 +928,7 @@ def _compute_hermes_ddt(
     return ddt
 
 
-def _compute_poisson_parity_metrics(
+def _compute_poisson_alignment_metrics(
     system,
     snapshots: dict[str, np.ndarray],
     times: np.ndarray,
@@ -1369,7 +1369,7 @@ def _coord_from_spacing(spacing: np.ndarray, axis: int) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Audit early-step term parity by dumping every term contribution and "
+            "Audit early-step term alignment by dumping every term contribution and "
             "comparing JAX RHS with Hermes ddt estimates."
         )
     )
@@ -1954,14 +1954,14 @@ def main() -> None:
         ],
     )
     if "phi" in snapshots and "omega" in snapshots:
-        poisson_parity_rows = _compute_poisson_parity_metrics(
+        poisson_alignment_rows = _compute_poisson_alignment_metrics(
             built.system, snapshots, times, start_index=start_index, nsteps=int(args.nsteps)
         )
     else:
-        poisson_parity_rows = []
+        poisson_alignment_rows = []
     _write_csv(
-        out_dir / "poisson_parity.csv",
-        poisson_parity_rows,
+        out_dir / "poisson_alignment.csv",
+        poisson_alignment_rows,
         [
             "step",
             "t",
@@ -2106,7 +2106,7 @@ def main() -> None:
                 psi=None if "psi" not in y else y["psi"][idx],
                 N=None if "N" not in y else y["N"][idx],
             )
-            if str(getattr(built.system, "engine", "unified")).lower() == "parity_fv":
+            if str(getattr(built.system, "engine", "unified")).lower() == "drb_fv":
                 phi_arg = None
                 if bool(args.use_hermes_phi_in_terms) and "phi" in y:
                     phi_arg = jnp.asarray(y["phi"][idx], dtype=state.n.dtype)

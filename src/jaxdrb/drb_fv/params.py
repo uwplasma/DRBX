@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class ParityFVParams:
-    """Minimal parameter block for the parity-first FV rewrite.
+class DRBFVParams:
+    """Minimal parameter block for the alignment-first FV rewrite.
 
-    Keep this intentionally small while parity kernels are introduced.
+    Keep this intentionally small while alignment kernels are introduced.
     Additional fields are added only when a new term is implemented.
     """
 

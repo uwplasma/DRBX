@@ -72,7 +72,7 @@ def main() -> None:
             print(f"{spec.kind}: required=[{req}] optional=[{opt}] aliases=[{aliases}]")
         return
     if args.list_engines:
-        for engine in ("unified", "parity_fv"):
+        for engine in ("unified", "drb_fv"):
             print(engine)
         return
 

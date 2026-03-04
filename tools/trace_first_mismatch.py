@@ -147,7 +147,7 @@ def _jax_initial_term_rms(cfg_path: Path) -> dict[str, float]:
         return float(np.sqrt(np.mean(a * a)))
 
     engine = str(getattr(built.system, "engine", "unified")).lower()
-    if engine == "parity_fv":
+    if engine == "drb_fv":
         split, term_map, phi, _ = built.system.rhs_terms(0.0, built.state)
     else:
         from jaxdrb.core.terms import build_context
@@ -272,7 +272,7 @@ def main() -> None:
                 }
             )
 
-    # Append Hermes channel RMS at earliest mismatch time to help root-cause parity failures.
+    # Append Hermes channel RMS at earliest mismatch time to help root-cause alignment failures.
     extra_vars = tuple(v.strip() for v in args.hermes_extra_vars.split(",") if v.strip())
     if extra_vars:
         try:

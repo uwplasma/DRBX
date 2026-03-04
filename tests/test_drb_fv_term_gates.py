@@ -5,12 +5,12 @@ import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.driver import build_system_from_config
-from jaxdrb.parity_fv import pressure_parallel_tendencies
+from jaxdrb.drb_fv import pressure_parallel_tendencies
 
 
 def _cfg(*, bxcv_const: float = 0.0, curvature_on: bool = True) -> dict:
     return {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {
             "kind": "slab",
             "nx": 12,
@@ -26,7 +26,7 @@ def _cfg(*, bxcv_const: float = 0.0, curvature_on: bool = True) -> dict:
     }
 
 
-def test_parity_fv_term_map_contains_density_pressure_vorticity_channels() -> None:
+def test_drb_fv_term_map_contains_density_pressure_vorticity_channels() -> None:
     built = build_system_from_config(_cfg())
     split, term_map, _, _ = built.system.rhs_terms(0.0, built.state)
     assert {"parallel", "curvature", "volume_source"}.issubset(set(term_map))

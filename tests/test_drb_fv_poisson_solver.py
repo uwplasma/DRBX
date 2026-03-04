@@ -4,7 +4,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from jaxdrb.driver import build_system_from_config
-from jaxdrb.parity_fv import laplacian_xy_spectral, solve_poisson_xy_spectral
+from jaxdrb.drb_fv import laplacian_xy_spectral, solve_poisson_xy_spectral
 
 
 def _periodic_mode(nz: int, nx: int, ny: int) -> jnp.ndarray:
@@ -27,11 +27,11 @@ def test_solve_poisson_xy_spectral_inverts_laplacian_mode() -> None:
     assert float(np.sqrt(np.mean(err * err))) < 1e-10
 
 
-def test_parity_fv_system_poisson_roundtrip_spectral() -> None:
+def test_drb_fv_system_poisson_roundtrip_spectral() -> None:
     cfg = {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {"kind": "slab", "nx": 28, "ny": 20, "nz": 3, "Lx": 1.0, "Ly": 1.0, "Lz": 1.0},
-        "numerics": {"poisson_scale": 1.0, "parity_poisson_solver": "spectral_xy"},
+        "numerics": {"poisson_scale": 1.0, "fv_poisson_solver": "spectral_xy"},
         "initial": {"n0": 1.0, "Te0": 1.0},
     }
     built = build_system_from_config(cfg)
@@ -42,11 +42,11 @@ def test_parity_fv_system_poisson_roundtrip_spectral() -> None:
     assert float(np.sqrt(np.mean(err * err))) < 1e-10
 
 
-def test_parity_fv_system_poisson_identity_scaling() -> None:
+def test_drb_fv_system_poisson_identity_scaling() -> None:
     cfg = {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {"kind": "slab", "nx": 12, "ny": 10, "nz": 5, "Lx": 1.0, "Ly": 1.0, "Lz": 1.0},
-        "numerics": {"poisson_scale": 2.5, "parity_poisson_solver": "identity"},
+        "numerics": {"poisson_scale": 2.5, "fv_poisson_solver": "identity"},
         "initial": {"n0": 1.0, "Te0": 1.0},
     }
     built = build_system_from_config(cfg)

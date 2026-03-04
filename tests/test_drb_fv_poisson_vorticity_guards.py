@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import jax.numpy as jnp
 
-from jaxdrb.parity_fv.poisson_vorticity import (
+from jaxdrb.drb_fv.poisson_vorticity import (
     apply_invert_set_x_guard,
     apply_parallel_free_y_guard,
     copy_outer_x_guard_cells,

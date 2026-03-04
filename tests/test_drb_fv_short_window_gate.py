@@ -14,12 +14,12 @@ from jaxdrb.benchmarking import (
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.driver import build_system_from_config
 
-_REF_PATH = Path(__file__).resolve().parent / "fixtures" / "parity_fv_short_window_reference.npz"
+_REF_PATH = Path(__file__).resolve().parent / "fixtures" / "drb_fv_short_window_reference.npz"
 
 
 def _cfg() -> dict:
     return {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {
             "kind": "slab",
             "nx": 10,
@@ -35,7 +35,7 @@ def _cfg() -> dict:
         "terms": {"parallel_on": True, "curvature_on": True, "sheath_on": False},
         "numerics": {
             "poisson_scale": 1.7,
-            "parity_poisson_solver": "spectral_xy",
+            "fv_poisson_solver": "spectral_xy",
             "parallel_pressure_flux_coeff": 5.0 / 3.0,
             "parallel_pressure_work_coeff": 2.0 / 3.0,
             "vorticity_parallel_coeff": 1.0,
@@ -148,7 +148,7 @@ def _collect_short_window() -> dict[str, np.ndarray]:
     return data
 
 
-def test_parity_fv_short_window_regression_and_gate() -> None:
+def test_drb_fv_short_window_regression_and_gate() -> None:
     with np.load(_REF_PATH) as ref:
         got = _collect_short_window()
         assert set(got) == set(ref.files)
@@ -158,6 +158,6 @@ def test_parity_fv_short_window_regression_and_gate() -> None:
                 np.asarray(ref[key], dtype=np.float64),
                 rtol=1e-11,
                 atol=1e-12,
-                err_msg=f"Mismatch in parity_fv short-window channel: {key}",
+                err_msg=f"Mismatch in drb_fv short-window channel: {key}",
             )
         assert float(got["gate_passed"][0]) == 1.0

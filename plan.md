@@ -1,13 +1,13 @@
-# jax_drb Rewrite Plan (Hermes-Parity Foundation)
+# jax_drb Rewrite Plan (Hermes-Alignment Foundation)
 
 ## 1) Goal and Decision
 
 Build a **new JAX-native, differentiable, CPU/GPU-efficient DRB solver** that first matches Hermes for ES/cold/Bouss/open-field/sheath, then extends to full conserving DRB physics and advanced geometries.
 
 ### Decision
-- We will **not keep patching parity into the current broad core** as the main path.
-- We will create a **new strict finite-volume parity core** and keep current implementation in `legacy`.
-- We will only promote the new core to default after parity gates pass.
+- We will **not keep patching alignment into the current broad core** as the main path.
+- We will create a **new strict finite-volume alignment core** and keep current implementation in `legacy`.
+- We will only promote the new core to default after alignment gates pass.
 
 ## 2) Audit Summary (Completed)
 
@@ -17,18 +17,18 @@ Build a **new JAX-native, differentiable, CPU/GPU-efficient DRB solver** that fi
 - Vorticity/potential path includes boundary/guard-cell semantics and Laplacian solve details (`vorticity.cxx`).
 - Normalization is explicit (`Nnorm`, `Tnorm`, `Bnorm`, `rho_s0`, `Omega_ci`).
 
-### Current jax_drb issues for parity
-- Mixed discretization paths (bracket-centered + multiple term schedulers) make strict parity brittle.
+### Current jax_drb issues for alignment
+- Mixed discretization paths (bracket-centered + multiple term schedulers) make strict alignment brittle.
 - Sheath/current/vorticity semantics are close but not structurally identical.
-- Too many toggles in one core slow down parity debugging.
+- Too many toggles in one core slow down alignment debugging.
 
 ## 3) Repository Restructure Plan
 
 ## 3.1 New active core
-- Add: `src/jaxdrb/parity_fv/`
-- Add: `src/jaxdrb/parity_fv_operators/`
-- Add: `src/jaxdrb/parity_fv_geometry/`
-- Add: `src/jaxdrb/parity_fv_diagnostics/`
+- Add: `src/jaxdrb/drb_fv/`
+- Add: `src/jaxdrb/drb_fv_operators/`
+- Add: `src/jaxdrb/drb_fv_geometry/`
+- Add: `src/jaxdrb/drb_fv_diagnostics/`
 
 ## 3.2 Move current implementation to legacy (staged)
 - Move to `src/jaxdrb/legacy_v1/`:
@@ -48,7 +48,7 @@ Build a **new JAX-native, differentiable, CPU/GPU-efficient DRB solver** that fi
 ## 4) New Core Architecture (Target)
 
 ```text
-src/jaxdrb/parity_fv/
+src/jaxdrb/drb_fv/
   params.py
   state.py
   geometry.py
@@ -83,7 +83,7 @@ src/jaxdrb/parity_fv/
 - Avoid host transfers inside the loop; diagnostics downsampled and optional.
 
 ## 5.2 Solver strategy
-- Short-term parity runs: explicit RK path matching Hermes short windows.
+- Short-term alignment runs: explicit RK path matching Hermes short windows.
 - Stiff/open-field runs: IMEX path with Diffrax implicit stiff block (Kvaerno/ImplicitEuler + Lineax GMRES).
 - Poisson:
   - FFT/spectral where periodic and valid.
@@ -94,17 +94,17 @@ src/jaxdrb/parity_fv/
 - Differentiable linear solves (`jax.scipy`/Lineax); avoid custom non-diff branches.
 - Use remat/checkpoint toggles for long differentiable runs.
 
-## 6) Physics Parity Roadmap
+## 6) Physics Alignment Roadmap
 
-## Phase A: strict ES/cold/Bouss/open-field/sheath parity
+## Phase A: strict ES/cold/Bouss/open-field/sheath alignment
 - Implement only Hermes-equivalent terms:
   - density FV transport
   - pressure FV transport (`vgradp` and `pdivv` forms)
   - vorticity + Poisson boundary semantics
   - Bohm/current sheath fluxes and energy flux closures
-- Gate: one-step term-by-term RHS parity at `t=0.01`.
+- Gate: one-step term-by-term RHS alignment at `t=0.01`.
 
-## Phase B: short-window parity (`t<=0.1`)
+## Phase B: short-window alignment (`t<=0.1`)
 - Gate: fluctuation RMS and dominant PSD peak within 10–20%.
 - Reject runs with finite-run gate (spikes/non-finite).
 
@@ -122,7 +122,7 @@ src/jaxdrb/parity_fv/
 
 ## 7.2 Next
 - Axisymmetric analytic adapters (s-alpha, Miller) built on same operator contracts.
-- FCI path added only after parity core is stable.
+- FCI path added only after alignment core is stable.
 
 ## 8) Testing Matrix (new, future-proof)
 
@@ -138,14 +138,14 @@ src/jaxdrb/parity_fv/
 - Sheath target flux sanity and open-field transport trends.
 
 ## 8.3 Regression tests
-- Strict one-step term parity CSV gate.
-- `t<=0.1` parity gate (RMS/PSD/PDF/coherence minimal set).
+- Strict one-step term alignment CSV gate.
+- `t<=0.1` alignment gate (RMS/PSD/PDF/coherence minimal set).
 - Performance regression (time/step + peak memory on fixed small case).
 
 ## 8.4 CI policy
 - `ruff`, `black`, `pytest` mandatory.
-- Parity gates run on small meshes with deterministic seeds.
-- Longer turbulence parity as optional/nightly CI.
+- Alignment gates run on small meshes with deterministic seeds.
+- Longer turbulence alignment as optional/nightly CI.
 
 ## 9) Documentation Rewrite Plan
 
@@ -156,24 +156,24 @@ src/jaxdrb/parity_fv/
   - normalization derivation
   - geometry and BC policy
   - solver numerics and algorithmic choices
-  - parity/validation dashboards and reproducible scripts
+  - alignment/validation dashboards and reproducible scripts
 
 ## 10) Execution Checklist
 
 - [x] Audit Hermes docs/source and identify structural mismatch classes.
 - [x] Freeze current core as `legacy_v1` in repo.
-- [x] Scaffold `parity_fv` package with state/params/geometry contracts.
-- [x] Implement density FV term parity.
-- [x] Implement pressure FV term parity.
-- [x] Implement vorticity + Poisson parity path.
-- [x] Implement sheath boundary component parity (particle, momentum, energy).
+- [x] Scaffold `drb_fv` package with state/params/geometry contracts.
+- [x] Implement density FV term alignment.
+- [x] Implement pressure FV term alignment.
+- [x] Implement vorticity + Poisson alignment path.
+- [x] Implement sheath boundary component alignment (particle, momentum, energy).
 - [x] Add strict one-step term audit gate in CI.
 - [x] Add deterministic rewrite-local `t<=0.1` short-window regression harness and finite-run gate.
-- [x] Add `coeff_path` metric ingestion to `parity_fv` so Hermes-style geometry files can drive the rewrite path.
+- [x] Add `coeff_path` metric ingestion to `drb_fv` so Hermes-style geometry files can drive the rewrite path.
 - [x] Add compact Hermes short-window reference fixture + comparison harness.
 - [x] Add Hermes-coupled `t<=0.1` regression gate against the compact fixture.
-- [ ] Pass `t<=0.1` parity gate.
-- [ ] Pass `t<=0.5` parity gate.
+- [ ] Pass `t<=0.1` alignment gate.
+- [ ] Pass `t<=0.5` alignment gate.
 - [ ] Build long-window benchmark panel and movies.
 - [ ] Refactor docs/README to new structure.
 - [ ] Move superseded tests/examples/docs to `legacy_v1`.
@@ -181,15 +181,15 @@ src/jaxdrb/parity_fv/
 ## 11) Stop/Go Criteria
 
 - **Go to long turbulence runs only if**:
-  - term-level parity passes for dominant channels,
+  - term-level alignment passes for dominant channels,
   - short-window finite-run gate passes,
   - no unresolved normalization/geometry mismatch remains.
-- **If not passing**, continue structural parity fixes; do not tune random parameters.
+- **If not passing**, continue structural alignment fixes; do not tune random parameters.
 
 ## 12) Immediate Next 5 Tasks
 
 1. [x] Create `src/jaxdrb/legacy_v1/` and move current core/operator modules there (no behavior edits).
-2. [x] Add `src/jaxdrb/parity_fv/{params.py,state.py,geometry.py,rhs.py}` scaffolding with strict field layout.
+2. [x] Add `src/jaxdrb/drb_fv/{params.py,state.py,geometry.py,rhs.py}` scaffolding with strict field layout.
 3. [x] Implement Hermes-equivalent FV parallel flux kernel and unit tests.
-4. [x] Implement strict Poisson/vorticity guard-cell boundary semantics and one-step parity test.
-5. [x] Wire CLI to select `engine = "parity_fv"` and run the existing audit scripts against it.
+4. [x] Implement strict Poisson/vorticity guard-cell boundary semantics and one-step alignment test.
+5. [x] Wire CLI to select `engine = "drb_fv"` and run the existing audit scripts against it.

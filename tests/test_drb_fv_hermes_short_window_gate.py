@@ -71,7 +71,7 @@ def _run_candidate_bundle(tmp_path: Path) -> Path:
     return bundle_npz
 
 
-def test_parity_fv_hermes_short_window_regression_gate(tmp_path: Path) -> None:
+def test_drb_fv_hermes_short_window_regression_gate(tmp_path: Path) -> None:
     reference = load_bundle_npz(_FIXTURE)
     candidate = load_bundle_npz(_run_candidate_bundle(tmp_path))
 
