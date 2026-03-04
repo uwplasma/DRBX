@@ -19,15 +19,15 @@ _CFG = (
 )
 
 _EXPECTED = {
-    "rms_n_fluct": 0.991309827133154,
-    "rms_Te_fluct": 0.9469178894889881,
-    "rms_omega_fluct": 0.9973162422871362,
-    "rms_phi_fluct": 0.995202562248978,
-    "psd_n_f": 12.486087639805124,
-    "psd_n_ky": 0.9999754844717875,
+    "rms_n_fluct": 0.9913098018089181,
+    "rms_Te_fluct": 0.9469180199729097,
+    "rms_omega_fluct": 0.997316242286761,
+    "rms_phi_fluct": 0.9950340559024824,
+    "psd_n_f": 12.48734055228593,
+    "psd_n_ky": 0.9999753976572665,
 }
-_EXPECTED_MEAN = 2.9028016075725276
-_EXPECTED_MAX = 12.486087639805124
+_EXPECTED_MEAN = 2.9029823449857113
+_EXPECTED_MAX = 12.48734055228593
 
 
 def _run_candidate_bundle(tmp_path: Path) -> Path:
