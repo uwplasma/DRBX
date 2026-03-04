@@ -137,7 +137,11 @@ def _poisson_bc_eval(
     ref: jnp.ndarray | None,
 ) -> BC2D:
     bc_eff = bc
-    if bool(getattr(params, "poisson_invert_set", False)) and bc.kind_x != 0:
+    # Hermes INVERT_SET uses field-derived Dirichlet values at radial guards.
+    # Only switch to Dirichlet when a reference field/guess is available.
+    # Without a reference, keep the configured BC (typically Neumann) instead
+    # of forcing zero-Dirichlet boundaries.
+    if bool(getattr(params, "poisson_invert_set", False)) and bc.kind_x != 0 and ref is not None:
         bc_eff = BC2D(
             kind_x=1,
             kind_y=bc.kind_y,
@@ -605,8 +609,8 @@ def _electron_pressure(
     Te: jnp.ndarray,
 ) -> jnp.ndarray:
     """Return electron pressure used by Hermes-style polarization closures."""
-
-    if bool(getattr(params, "source_Te_is_pressure", False)):
+    model = str(getattr(params, "electron_pressure_model", "nTe")).lower()
+    if model == "te":
         return Te
     return n_phys * Te
 
