@@ -959,7 +959,108 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 exb_y_scale=exb_y_scale,
             )
 
-        return jax.vmap(_plane)(phi, adv, self.jacobian)
+        out = jax.vmap(_plane)(phi, adv, self.jacobian)
+
+        # Optional metric-coupled X-Y ExB contribution used in field-aligned
+        # BOUT/Hermes coordinates (poloidal flow term).
+        if not bool(getattr(self.params, "exb_poloidal_flows", False)):
+            return out
+        if self.g23 is None or self.gxx is None or self.B is None:
+            return out
+
+        nz = int(self.grid.z.size)
+        nx = int(self.grid.perp.nx)
+        ny = int(self.grid.perp.ny)
+        full_shape = (nz, nx, ny)
+
+        def _as_field3(arr: jnp.ndarray) -> jnp.ndarray:
+            arr = jnp.asarray(arr, dtype=jnp.float64)
+            if arr.ndim == 0:
+                return jnp.full(full_shape, arr, dtype=jnp.float64)
+            if arr.ndim == 1:
+                if arr.shape[0] != nz:
+                    raise ValueError(f"metric 1D input must have shape ({nz},), got {arr.shape}")
+                return jnp.broadcast_to(arr[:, None, None], full_shape)
+            if arr.ndim == 2:
+                if arr.shape == (nx, ny):
+                    return jnp.broadcast_to(arr[None, :, :], full_shape)
+                if arr.shape == (nz, nx):
+                    return jnp.broadcast_to(arr[:, :, None], full_shape)
+                if arr.shape == (nx, nz):
+                    return jnp.broadcast_to(jnp.swapaxes(arr, 0, 1)[:, :, None], full_shape)
+                raise ValueError("metric 2D input must have shape (nx, ny), (nz, nx), or (nx, nz).")
+            if arr.ndim == 3 and arr.shape == full_shape:
+                return arr
+            raise ValueError(f"Unsupported metric shape {arr.shape}, expected {full_shape}.")
+
+        use_shift = self.params.parallel_transform == "shifted" and self.shift_idx is not None
+        J = _as_field3(self.jacobian)
+        B = _as_field3(self.B)
+        gxx = _as_field3(self.gxx)
+        g23 = _as_field3(self.g23)
+        coeff = gxx * g23 / jnp.maximum(B * B, 1e-30)
+
+        if self.grid.open_field_line:
+            d_dy_idx = self._dpar_open
+        else:
+            d_dy_idx = self._dpar_periodic
+
+        def _shift_clip(arr: jnp.ndarray, offset: int, axis: int) -> jnp.ndarray:
+            n = arr.shape[axis]
+            idx = jnp.clip(jnp.arange(n) + int(offset), 0, n - 1)
+            return jnp.take(arr, idx, axis=axis)
+
+        def _fromm_face(arr: jnp.ndarray, vel: jnp.ndarray, axis: int) -> jnp.ndarray:
+            a_i = arr
+            a_ip1 = _shift_clip(arr, +1, axis)
+            a_im1 = _shift_clip(arr, -1, axis)
+            a_ip2 = _shift_clip(arr, +2, axis)
+            upwind_pos = a_i + 0.25 * (a_ip1 - a_im1)
+            upwind_neg = a_ip1 - 0.25 * (a_ip2 - a_i)
+            return jnp.where(vel > 0.0, upwind_pos, upwind_neg)
+
+        # Hermes/BOUT poloidal ExB term has separate X and Y fluxes.
+        # X-flux is evaluated in lab coordinates; Y-flux is evaluated in
+        # field-aligned coordinates with shifted-metric transform.
+        dphi_dy = d_dy_idx(phi)
+        coeff_dphi_dy = coeff * dphi_dy
+        coeff_dphi_dy_ip1 = _shift_clip(coeff_dphi_dy, +1, axis=1)
+        J_ip1 = _shift_clip(J, +1, axis=1)
+        vx_face = 0.5 * (J + J_ip1) * 0.5 * (coeff_dphi_dy + coeff_dphi_dy_ip1)
+        n_face_x = _fromm_face(adv, vx_face, axis=1)
+        flux_x = vx_face * n_face_x
+        div_x = (flux_x - _shift_clip(flux_x, -1, axis=1)) / (
+            jnp.maximum(J, 1e-30) * float(self.grid.perp.dx)
+        )
+
+        dphi_dx = jax.vmap(lambda p: self.perp_ops.ddx(p))(phi)
+        if use_shift:
+            dphi_dx_fa = self.to_field_aligned(dphi_dx)
+            adv_fa = self.to_field_aligned(adv)
+            J_fa = self.to_field_aligned(J)
+            coeff_fa = self.to_field_aligned(coeff)
+        else:
+            dphi_dx_fa = dphi_dx
+            adv_fa = adv
+            J_fa = J
+            coeff_fa = coeff
+
+        coeff_dphi_dx_fa = coeff_fa * dphi_dx_fa
+        coeff_dphi_dx_jp1 = _shift_clip(coeff_dphi_dx_fa, +1, axis=0)
+        J_jp1 = _shift_clip(J_fa, +1, axis=0)
+        vy_face = -0.5 * (J_fa + J_jp1) * 0.5 * (coeff_dphi_dx_fa + coeff_dphi_dx_jp1)
+        if self.grid.open_field_line:
+            vy_face = vy_face.at[0].set(jnp.minimum(vy_face[0], 0.0))
+            vy_face = vy_face.at[-2].set(jnp.maximum(vy_face[-2], 0.0))
+        n_face_y = _fromm_face(adv_fa, vy_face, axis=0)
+        flux_y = vy_face * n_face_y
+        div_y_fa = (flux_y - _shift_clip(flux_y, -1, axis=0)) / (
+            jnp.maximum(J_fa, 1e-30) * float(self.grid.dz)
+        )
+        div_y = self.from_field_aligned(div_y_fa) if use_shift else div_y_fa
+
+        poloidal = div_x + div_y
+        return out + float(getattr(self.params, "exb_poloidal_scale", 1.0)) * poloidal
 
     def _dpar_periodic(self, f: jnp.ndarray) -> jnp.ndarray:
         return (jnp.roll(f, -1, axis=0) - jnp.roll(f, 1, axis=0)) / (2.0 * self.grid.dz)

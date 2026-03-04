@@ -119,6 +119,46 @@ def _flux_divergence_open(
     return float(sign) * div
 
 
+def _shift_boundary_flux_to_field_aligned(
+    flux: jnp.ndarray | None,
+    *,
+    params,
+    geom,
+    z_index: int,
+) -> jnp.ndarray | None:
+    if flux is None:
+        return None
+    if str(getattr(params, "parallel_transform", "none")).lower() != "shifted":
+        return flux
+    shift_idx = getattr(geom, "shift_idx", None)
+    if shift_idx is None:
+        return flux
+
+    arr = jnp.asarray(flux)
+    if arr.ndim != 2:
+        return arr
+
+    shift = jnp.asarray(shift_idx[z_index], dtype=jnp.float64)
+    if shift.ndim == 0:
+        shift = jnp.full((arr.shape[0],), shift, dtype=jnp.float64)
+    if shift.ndim == 2:
+        shift = jnp.mean(shift, axis=-1)
+    if shift.ndim != 1:
+        return arr
+    if int(shift.shape[0]) != int(arr.shape[0]):
+        return arr
+
+    ny = int(arr.shape[-1])
+    y = jnp.arange(ny, dtype=jnp.float64)[None, :]
+    y_src = (y + shift[:, None]) % float(ny)
+    y0 = jnp.floor(y_src).astype(jnp.int32)
+    y1 = (y0 + 1) % ny
+    frac = y_src - y0
+    f0 = jnp.take_along_axis(arr, y0, axis=-1)
+    f1 = jnp.take_along_axis(arr, y1, axis=-1)
+    return (1.0 - frac) * f0 + frac * f1
+
+
 def _dpar_flux_conservative(
     ctx: TermContext,
     f: jnp.ndarray,
@@ -140,6 +180,12 @@ def _dpar_flux_conservative(
             v = ctx.geom.to_field_aligned(v)
             if wave is not None:
                 wave = ctx.geom.to_field_aligned(wave)
+            boundary_flux_low = _shift_boundary_flux_to_field_aligned(
+                boundary_flux_low, params=ctx.params, geom=ctx.geom, z_index=0
+            )
+            boundary_flux_high = _shift_boundary_flux_to_field_aligned(
+                boundary_flux_high, params=ctx.params, geom=ctx.geom, z_index=-1
+            )
         J = getattr(ctx.geom, "jacobian", None)
         dpar_factor = getattr(ctx.geom, "dpar_factor", None)
         gpar = getattr(ctx.geom, "gpar", None) if ctx.params.use_gpar_flux else None
