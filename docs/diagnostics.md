@@ -29,7 +29,7 @@ Normalization-derived reference scales:
  \rho_{s0} = \frac{c_{s0}}{\Omega_{ci}}.
 \]
 
-These are encoded in `BenchmarkNormalization` for explicit parity checks.
+These are encoded in `BenchmarkNormalization` for explicit alignment checks.
 
 ## Implemented Shared Diagnostics
 
@@ -128,9 +128,9 @@ PYTHONPATH=src python tools/plot_benchmark_panel.py \
 
 ## Compact Hermes Reference Fixtures
 
-For short-window parity work we keep a compact Hermes reference bundle in
+For short-window alignment work we keep a compact Hermes reference bundle in
 `tests/fixtures/hermes_short_window_compact.npz`. It contains only the channels
-needed for early parity closure:
+needed for early alignment closure:
 
 - fluctuation RMS: `n, Te, omega, phi`
 - frequency PSD: `psd_n_f`
@@ -143,7 +143,7 @@ The fixture is generated reproducibly from a full Hermes benchmark bundle:
 ```bash
 cd <repo>
 PYTHONPATH=src python tools/make_compact_reference_bundle.py \
-  --input runs/parity_short_window_v2/bundle_hermes_short.npz \
+  --input runs/alignment_short_window_v2/bundle_hermes_short.npz \
   --output tests/fixtures/hermes_short_window_compact.npz
 ```
 
@@ -160,7 +160,7 @@ The CI regression gate for the rewrite path uses the same workflow, but
 generates the candidate bundle from
 `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`
 at `t<=0.1` and checks that the Hermes-relative mismatch signature remains
-stable while structural parity work continues.
+stable while structural alignment work continues.
 
 ## Literature Anchors
 

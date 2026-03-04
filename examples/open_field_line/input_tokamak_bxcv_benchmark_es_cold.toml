@@ -1,5 +1,5 @@
 # ES/cold-ion short-window benchmark aligned to Hermes open-field tokamak case.
-# This configuration targets robust short-window parity (t <= 0.1) with
+# This configuration targets robust short-window alignment (t <= 0.1) with
 # conservative parallel flux, sheath Bohm-current BCs, and curvature from bxcv.
 
 [normalization]

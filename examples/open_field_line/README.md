@@ -29,6 +29,6 @@ PYTHONPATH=src python tools/run_tokamak_hermes_benchmark.py \
 ```
 
 This generates:
-- short-window Hermes-vs-jax parity panel (`docs/figures/tokamak_sol_benchmark_panel.png`)
+- short-window Hermes-vs-jax alignment panel (`docs/figures/tokamak_sol_benchmark_panel.png`)
 - poloidal fluctuation snapshot (with open/closed overlay when `mask_open` is available in coefficients)
 - poloidal and 3D tokamak turbulence GIFs

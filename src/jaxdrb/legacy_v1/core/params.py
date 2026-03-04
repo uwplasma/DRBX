@@ -351,7 +351,7 @@ class NumericsParams(eqx.Module):
     # "replace_boundary" overwrites boundary-cell v|| with Bohm targets (legacy mode).
     parallel_sheath_flux_mode: Literal["boundary_flux", "replace_boundary"] = "replace_boundary"
     # Scale applied to sheath boundary face fluxes in conservative parallel
-    # transport (useful for cross-code parity calibration).
+    # transport (useful for cross-code alignment calibration).
     parallel_boundary_flux_scale: float = 1.0
     dpar_factor_scale: float = 1.0
     use_gpar_flux: bool = False

@@ -6,8 +6,8 @@ import jax.numpy as jnp
 
 
 @dataclass(frozen=True)
-class ParityFVState:
-    """State vector for parity-first FV core."""
+class DRBFVState:
+    """State vector for alignment-first FV core."""
 
     n: jnp.ndarray
     pe: jnp.ndarray
@@ -16,9 +16,9 @@ class ParityFVState:
     vpar_e: jnp.ndarray
     vpar_i: jnp.ndarray
 
-    def zeros_like(self) -> "ParityFVState":
+    def zeros_like(self) -> "DRBFVState":
         z = jnp.zeros_like
-        return ParityFVState(
+        return DRBFVState(
             n=z(self.n),
             pe=z(self.pe),
             vort=z(self.vort),

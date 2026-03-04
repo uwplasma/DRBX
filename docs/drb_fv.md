@@ -1,31 +1,31 @@
-# Parity-FV Rewrite Track
+# DRB-FV Rewrite Track
 
-This page documents the new `parity_fv` engine, which is the strict
-Hermes-parity rewrite path.
+This page documents the new `drb_fv` engine, which is the strict
+Hermes-alignment rewrite path.
 
 ## Scope (current)
 
 Implemented modules:
-- `src/jaxdrb/parity_fv/params.py`
-- `src/jaxdrb/parity_fv/state.py`
-- `src/jaxdrb/parity_fv/geometry.py`
-- `src/jaxdrb/parity_fv/flux_reconstruct.py`
-- `src/jaxdrb/parity_fv/flux_parallel.py`
-- `src/jaxdrb/parity_fv/ops.py`
-- `src/jaxdrb/parity_fv/terms_density.py`
-- `src/jaxdrb/parity_fv/terms_pressure.py`
-- `src/jaxdrb/parity_fv/terms_sheath.py`
-- `src/jaxdrb/parity_fv/terms_vorticity.py`
-- `src/jaxdrb/parity_fv/poisson_vorticity.py`
-- `src/jaxdrb/parity_fv/rhs.py`
-- `src/jaxdrb/parity_fv/system.py`
+- `src/jaxdrb/drb_fv/params.py`
+- `src/jaxdrb/drb_fv/state.py`
+- `src/jaxdrb/drb_fv/geometry.py`
+- `src/jaxdrb/drb_fv/flux_reconstruct.py`
+- `src/jaxdrb/drb_fv/flux_parallel.py`
+- `src/jaxdrb/drb_fv/ops.py`
+- `src/jaxdrb/drb_fv/terms_density.py`
+- `src/jaxdrb/drb_fv/terms_pressure.py`
+- `src/jaxdrb/drb_fv/terms_sheath.py`
+- `src/jaxdrb/drb_fv/terms_vorticity.py`
+- `src/jaxdrb/drb_fv/poisson_vorticity.py`
+- `src/jaxdrb/drb_fv/rhs.py`
+- `src/jaxdrb/drb_fv/system.py`
 
 ## Geometry ingestion (new)
 
-`parity_fv` can now ingest metric/coefficient files through
+`drb_fv` can now ingest metric/coefficient files through
 `[geometry].coeff_path`. For the current rewrite stage, the loader supports
 Hermes-style axisymmetric coefficient bundles and broadcasts them onto the
-`(z, x, y)` parity layout:
+`(z, x, y)` alignment layout:
 
 - `J` -> `jacobian`
 - `curv_x` or `bxcv` -> `bxcv`
@@ -40,13 +40,13 @@ Supported source shapes are:
 - `(nz, nx, ny)`
 
 If both config and coefficient file specify `nx`, `ny`, or `nz`, mismatches are
-treated as an error. This is deliberate: the parity path should fail early on
+treated as an error. This is deliberate: the alignment path should fail early on
 geometry inconsistencies rather than silently reshape metrics.
 
 ## Numerical policy
 
 The rewrite follows Hermes/BOUT finite-volume semantics first, then extends
-physics only after parity gates pass.
+physics only after alignment gates pass.
 
 ### Parallel transport kernel
 
@@ -69,7 +69,7 @@ This matches the Hermes documentation in
 
 ### Density / Pressure / Vorticity term gates (new)
 
-The parity engine now assembles explicit per-channel terms:
+The alignment engine now assembles explicit per-channel terms:
 
 - `parallel`:
   - density: \(-\nabla_\parallel (n v_{\parallel e})\)
@@ -88,25 +88,25 @@ The parity engine now assembles explicit per-channel terms:
   - scalar density source (`source_n0`)
 
 These are intentionally minimal but structurally separated to enable strict
-term-by-term parity auditing before adding additional closures.
+term-by-term alignment auditing before adding additional closures.
 
 ### Poisson / vorticity path (new)
 
-`parity_fv` now supports:
+`drb_fv` now supports:
 
-- `parity_poisson_solver = "spectral_xy"` (default):
+- `fv_poisson_solver = "spectral_xy"` (default):
   - solves \(\nabla_\perp^2 \phi = \omega\) via FFT in x/y
   - applies gauge fixing at \(k_x=k_y=0\)
   - uses the same spectral operator for \(\omega(\phi)\) in reverse mapping
-- `parity_poisson_solver = "identity"`:
+- `fv_poisson_solver = "identity"`:
   - debug/calibration path: \(\phi = s_\phi \omega\)
 
 This makes the vorticity/phi mapping explicit and testable in CI while keeping
-the parity path small.
+the alignment path small.
 
-### Sheath boundary component parity (new)
+### Sheath boundary component alignment (new)
 
-`parity_fv` now has explicit sheath boundary channels, active only when both:
+`drb_fv` now has explicit sheath boundary channels, active only when both:
 - `geometry.open_field_line = true`
 - sheath is enabled (`terms.sheath_on` or sheath closure toggle)
 
@@ -120,7 +120,7 @@ compare them directly.
 
 ### Poisson/vorticity guard-cell semantics (new)
 
-From Hermes `vorticity.cxx`, parity path now mirrors these boundary semantics:
+From Hermes `vorticity.cxx`, alignment path now mirrors these boundary semantics:
 
 1. **INVERT_SET midpoint guard rule** for `phi + Pi_hat` at radial guards:
 \[
@@ -138,17 +138,17 @@ Implemented in:
 
 ## Tests
 
-Added parity-fv tests:
-- `tests/test_parity_fv_scaffold.py`
-- `tests/test_parity_fv_parallel_flux.py`
-- `tests/test_parity_fv_poisson_vorticity_guards.py`
-- `tests/test_parity_fv_engine.py`
-- `tests/test_parity_fv_term_gates.py`
-- `tests/test_parity_fv_poisson_solver.py`
-- `tests/test_parity_fv_sheath.py`
-- `tests/test_parity_fv_one_step_audit_gate.py`
-- `tests/test_parity_fv_short_window_gate.py`
-- `tests/test_parity_fv_hermes_short_window_gate.py`
+Added drb-fv tests:
+- `tests/test_drb_fv_scaffold.py`
+- `tests/test_drb_fv_parallel_flux.py`
+- `tests/test_drb_fv_poisson_vorticity_guards.py`
+- `tests/test_drb_fv_engine.py`
+- `tests/test_drb_fv_term_gates.py`
+- `tests/test_drb_fv_poisson_solver.py`
+- `tests/test_drb_fv_sheath.py`
+- `tests/test_drb_fv_one_step_audit_gate.py`
+- `tests/test_drb_fv_short_window_gate.py`
+- `tests/test_drb_fv_hermes_short_window_gate.py`
 
 These tests verify reconstruction, FV boundary-flux balance, and guard-cell
 rules mapped directly from Hermes vorticity solver behavior. The short-window
@@ -172,7 +172,7 @@ This keeps the Hermes-coupled early-window comparison reproducible without
 committing multi-megabyte full dump files into the test surface.
 
 The current Hermes-coupled regression gate runs the strict tokamak/open-field
-`parity_fv` config for `t<=0.1`, builds a benchmark bundle with the same
+`drb_fv` config for `t<=0.1`, builds a benchmark bundle with the same
 normalization path used by the benchmark tools, and compares:
 
 - `rms_n_fluct`
@@ -183,25 +183,25 @@ normalization path used by the benchmark tools, and compares:
 - `psd_n_ky`
 
 against the compact Hermes reference. At this stage this is a **regression
-gate**, not the final parity-pass gate: it freezes the current mismatch
+gate**, not the final alignment-pass gate: it freezes the current mismatch
 signature so structural fixes can be measured term-by-term without ambiguity.
 
 ## Next steps
 
-- Pass staged parity windows (`t<=0.1`, `t<=0.5`) with finite-run gating.
-- Promote parity diagnostics to benchmark panel and long-window runs once staged gates pass.
+- Pass staged alignment windows (`t<=0.1`, `t<=0.5`) with finite-run gating.
+- Promote alignment diagnostics to benchmark panel and long-window runs once staged gates pass.
 
 ## Engine selection
 
 Use top-level TOML key:
 
 ```toml
-engine = "parity_fv"
+engine = "drb_fv"
 ```
 
-Alias values are accepted by loader and normalized to `parity_fv`:
-- `fv_parity`
-- `parity-fv`
+Alias values are accepted by loader and normalized to `drb_fv`:
+- `fv_drb`
+- `drb-fv`
 
 CLI metadata includes engine listing:
 
@@ -211,6 +211,6 @@ jax_drb --list-engines
 
 ## Audit compatibility
 
-`tools/audit_term_parity.py` and `tools/trace_first_mismatch.py` now detect
-`engine = "parity_fv"` and use parity-engine term assembly directly instead
+`tools/audit_term_alignment.py` and `tools/trace_first_mismatch.py` now detect
+`engine = "drb_fv"` and use alignment-engine term assembly directly instead
 of the legacy term-context path.

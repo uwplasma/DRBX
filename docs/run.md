@@ -11,7 +11,7 @@ Set top-level `engine` in TOML:
 ```toml
 engine = "unified"    # default
 # or
-engine = "parity_fv"  # parity rewrite path
+engine = "drb_fv"  # alignment rewrite path
 ```
 
 ## `[time]` Configuration

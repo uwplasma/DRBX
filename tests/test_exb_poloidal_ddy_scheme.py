@@ -14,7 +14,7 @@ def _load_cfg(path: str) -> dict:
 
 
 def test_exb_poloidal_ddy_scheme_switch_changes_rhs_and_stays_finite() -> None:
-    cfg = _load_cfg("examples/open_field_line/input_tokamak_bxcv_parity_strict_early.toml")
+    cfg = _load_cfg("examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml")
     cfg["physics"].update({"source_on": False, "omega_n": 0.0, "omega_Te": 0.0})
     cfg["terms"] = {"term_schedule": ["advection"]}
     cfg["time"].update({"jit": False})

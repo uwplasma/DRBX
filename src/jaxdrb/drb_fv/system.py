@@ -6,8 +6,8 @@ import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
 
-from .geometry import ParityFVGeometry
-from .params import ParityFVParams
+from .geometry import DRBFVGeometry
+from .params import DRBFVParams
 from .poisson_vorticity import (
     laplacian_xy_periodic,
     laplacian_xy_spectral,
@@ -55,15 +55,15 @@ def _state_add(a: DRBSystemState, b: DRBSystemState) -> DRBSystemState:
 
 
 @dataclass(frozen=True)
-class ParityFVSplit:
+class DRBFVSplit:
     total_state: DRBSystemState
 
     def total(self) -> DRBSystemState:
         return self.total_state
 
 
-class ParityFVScheduler:
-    def __init__(self, system: "ParityFVSystem") -> None:
+class DRBFVScheduler:
+    def __init__(self, system: "DRBFVSystem") -> None:
         self._system = system
 
     def run_with_terms(self, ctx, y: DRBSystemState):
@@ -72,16 +72,16 @@ class ParityFVScheduler:
         return split, term_map
 
 
-class ParityFVSystem:
-    """Minimal parity-FV engine with driver/audit compatible interfaces."""
+class DRBFVSystem:
+    """Minimal alignment-FV engine with driver/audit compatible interfaces."""
 
-    engine: str = "parity_fv"
+    engine: str = "drb_fv"
 
     def __init__(
         self,
         *,
-        params: ParityFVParams,
-        geom: ParityFVGeometry,
+        params: DRBFVParams,
+        geom: DRBFVGeometry,
         limiter: str = "mc",
         poisson_scale: float = 1.0,
         parallel_on: bool = True,
@@ -121,7 +121,7 @@ class ParityFVSystem:
         self.sheath_relax_coeff = float(sheath_relax_coeff)
         self.sheath_electron_target_coeff = float(sheath_electron_target_coeff)
         self.sheath_gamma_e = float(sheath_gamma_e)
-        self.scheduler = ParityFVScheduler(self)
+        self.scheduler = DRBFVScheduler(self)
 
     def _phys_n(self, n: jnp.ndarray) -> jnp.ndarray:
         return n
@@ -149,7 +149,7 @@ class ParityFVSystem:
                 gauge_fix=True,
             )
             return self.poisson_scale * phi
-        raise ValueError(f"Unknown parity_fv poisson_solver '{self.poisson_solver}'.")
+        raise ValueError(f"Unknown drb_fv poisson_solver '{self.poisson_solver}'.")
 
     def _omega_from_phi(
         self,
@@ -287,7 +287,7 @@ class ParityFVSystem:
         y: DRBSystemState,
         *,
         phi_override: jnp.ndarray | None = None,
-    ) -> tuple[ParityFVSplit, dict[str, DRBSystemState], jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[DRBFVSplit, dict[str, DRBSystemState], jnp.ndarray, jnp.ndarray]:
         _ = t
         term_map: dict[str, DRBSystemState] = {}
         term_map["parallel"] = self._parallel_term(y)
@@ -299,7 +299,7 @@ class ParityFVSystem:
             total = _state_add(total, term)
         phi = self._phi_from_omega(y.omega) if phi_override is None else phi_override
         phi_iters = jnp.asarray(0.0, dtype=y.n.dtype)
-        return ParityFVSplit(total), term_map, phi, phi_iters
+        return DRBFVSplit(total), term_map, phi, phi_iters
 
     def rhs(self, t: float, y: DRBSystemState) -> DRBSystemState:
         split, _, _, _ = self.rhs_terms(t, y)

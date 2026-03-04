@@ -11,29 +11,29 @@ from jaxdrb.io.config import load_config
 
 def _cfg() -> dict:
     return {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {"kind": "slab", "nx": 16, "ny": 12, "nz": 6, "Lx": 1.0, "Ly": 1.0, "Lz": 2.0},
         "initial": {"n0": 1.0, "Te0": 1.0, "omega0": 0.1},
         "time": {"method": "rk4", "dt": 1e-3, "nsteps": 4, "save_every": 2, "return_numpy": True},
     }
 
 
-def test_build_system_parity_fv_engine() -> None:
+def test_build_system_drb_fv_engine() -> None:
     built = build_system_from_config(_cfg())
-    assert str(getattr(built.system, "engine", "")) == "parity_fv"
+    assert str(getattr(built.system, "engine", "")) == "drb_fv"
     dy = built.system.rhs(0.0, built.state)
     assert dy.n.shape == built.state.n.shape
     assert dy.Te.shape == built.state.Te.shape
 
 
-def test_run_simulation_parity_fv_smoke() -> None:
+def test_run_simulation_drb_fv_smoke() -> None:
     run = run_simulation(_cfg(), as_numpy=True)
     assert np.asarray(run.times).size >= 2
     assert np.isfinite(np.asarray(run.diagnostics["rms_n"])).all()
     assert np.isfinite(np.asarray(run.diagnostics["rms_Te"])).all()
 
 
-def test_parity_fv_scheduler_ctx_override() -> None:
+def test_drb_fv_scheduler_ctx_override() -> None:
     built = build_system_from_config(_cfg())
     phi_override = np.ones_like(np.asarray(built.state.omega))
 
@@ -48,9 +48,9 @@ def test_parity_fv_scheduler_ctx_override() -> None:
 
 def test_load_config_engine_alias(tmp_path: Path) -> None:
     cfg_path = tmp_path / "input.toml"
-    cfg_path.write_text('engine = "fv_parity"\n', encoding="utf-8")
+    cfg_path.write_text('engine = "fv_drb"\n', encoding="utf-8")
     cfg = load_config(cfg_path)
-    assert cfg.data["engine"] == "parity_fv"
+    assert cfg.data["engine"] == "drb_fv"
 
 
 def test_load_config_invalid_engine(tmp_path: Path) -> None:
@@ -60,13 +60,13 @@ def test_load_config_invalid_engine(tmp_path: Path) -> None:
         _ = load_config(cfg_path)
 
 
-def test_build_system_parity_fv_from_coeff_path() -> None:
+def test_build_system_drb_fv_from_coeff_path() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     coeff_path = (
         repo_root / "examples" / "open_field_line" / "axisym_tokamak_bxcv_hermes_norm_parcurv.npz"
     )
     cfg = {
-        "engine": "parity_fv",
+        "engine": "drb_fv",
         "geometry": {
             "kind": "axisymmetric",
             "coeff_path": str(coeff_path),
