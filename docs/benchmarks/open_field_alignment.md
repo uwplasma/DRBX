@@ -17,6 +17,22 @@ PYTHONPATH=src python tools/run_tokamak_hermes_benchmark.py \
   --field n
 ```
 
+Strict start-from-Hermes-state variant:
+
+```bash
+cd <repo>
+PYTHONPATH=src python tools/run_tokamak_hermes_benchmark.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml \
+  --hermes-data runs/hermes_open_field_short/data \
+  --out-dir runs/tokamak_benchmark_strict_latest \
+  --fig-dir runs/tokamak_benchmark_strict_latest/figures \
+  --t-end-short 0.1 \
+  --t-end-visual 0.12 \
+  --field n \
+  --use-hermes-init-state \
+  --hermes-init-index 0
+```
+
 Outputs:
 - `runs/tokamak_benchmark_latest/jax_short.npz`
 - `runs/tokamak_benchmark_latest/bundle_jax_short.npz`
@@ -25,6 +41,8 @@ Outputs:
 - `docs/figures/tokamak_sol_poloidal_fluct.png`
 - `docs/figures/tokamak_sol_movie.gif`
 - `docs/figures/tokamak_sol_3d_movie.gif`
+- When `--use-hermes-init-state` is enabled:
+  - `<out-dir>/hermes_init_state_t<idx>.npz`
 
 The benchmark panel uses the **poloidal (`x-z`) plane** with tokamak
 `Rxy/Zxy` geometry mapping. If the coefficient file includes `mask_open`,

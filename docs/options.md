@@ -164,6 +164,33 @@ BCs in core/SOL/divertor windows without splitting the equations.
 
 ---
 
+## Initial State Import (`[initial]`)
+
+For strict cross-code alignment, initial conditions can be loaded directly from
+an NPZ state file:
+
+- `state_npz` (or alias `state_path`): path to NPZ containing state channels.
+- `state_time_index`: if arrays are time-stacked, choose the frame index.
+- `state_units`: `physical` (default) or `state`.
+  - `physical`: `n` and `Te` are interpreted in physical/normalized field units
+    and converted to log state if `log_n/log_Te` are enabled.
+  - `state`: arrays are interpreted as already in solver state variables.
+
+Supported NPZ keys (aliases in parentheses):
+- `n` (`Ne`, `density`) [required]
+- `Te` (`temperature_e`, `electron_temperature`) [required]
+- `omega` (`Vort`, `vorticity`) [optional]
+- `phi` (`potential`) [optional; used to backfill `omega` if `omega` is missing]
+- `vpar_e` (`Ve`, `u_e`) [optional]
+- `vpar_i` (`Vi`, `u_i`) [optional]
+- `Ti` (`temperature_i`, `ion_temperature`) [optional]
+
+If both `phi` and `omega` are provided, `omega` is used directly.
+If `omega` is missing and `phi` is present, `omega` is computed through the
+active polarization/Poisson forward operator.
+
+---
+
 ## Term Scheduling
 
 Use `term_schedule` to select explicit term ordering, or `term_schedule_preset`
