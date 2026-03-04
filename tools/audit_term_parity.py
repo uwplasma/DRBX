@@ -744,6 +744,27 @@ def _compute_hermes_term_metrics(
                         times[idx],
                     )
 
+        # Aggregate Hermes pressure transport channels for parity with JAX
+        # conservative temperature update, which carries flux+work together.
+        if "par" in pe_terms and "work" in pe_terms:
+            par_name = pe_terms["par"]
+            work_name = pe_terms["work"]
+            has_npar = "term_Ne_par" in fields
+            for ti in range(nsteps):
+                idx = int(start_index + ti + step_offset)
+                if idx < 0 or idx >= nt or idx >= fields[par_name].shape[0]:
+                    continue
+                p_par = np.asarray(fields[par_name][idx], dtype=np.float64) * ddt_scale
+                p_work = np.asarray(fields[work_name][idx], dtype=np.float64) * ddt_scale
+                p_tot = p_par + p_work
+                _add_rows(p_tot, "Pe", "par_total", ti, times[idx])
+                if has_npar and idx < fields["term_Ne_par"].shape[0]:
+                    n_par = np.asarray(fields["term_Ne_par"][idx], dtype=np.float64) * ddt_scale
+                    Ne = np.asarray(fields["Ne"][idx], dtype=np.float64)
+                    Te = np.asarray(fields["Te"][idx], dtype=np.float64)
+                    dte_tot = (p_tot - Te * n_par) / np.maximum(Ne, 1e-12)
+                    _add_rows(dte_tot, "Te", "par_total", ti, times[idx])
+
     return rows
 
 
@@ -761,14 +782,14 @@ def _compute_term_mismatch(
         },
         "Pe": {
             "advection": ("exb",),
-            "parallel": ("par",),
+            "parallel": ("par_total", "par"),
             "volume_source": ("source_ext", "source"),
             "sheath": ("source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
         },
         "Te": {
             "advection": ("exb",),
-            "parallel": ("par",),
+            "parallel": ("par_total", "par"),
             "volume_source": ("source_ext", "source"),
             "sheath": ("source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
@@ -1587,7 +1608,7 @@ def main() -> None:
         hermes_dz_mean = None
     if args.hermes_grid and not args.skip_geometry_override:
         hermes_binormal_mean = hermes_dy_mean
-        if str(args.hermes_parallel_axis).lower() == "y":
+        if str(args.hermes_parallel_axis).lower() == "y" and hermes_dz_mean is not None:
             hermes_binormal_mean = hermes_dz_mean
         cfg = _override_geometry_from_hermes(
             cfg,

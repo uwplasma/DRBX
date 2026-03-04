@@ -106,8 +106,10 @@ Early-time parity-tuned knobs in
 - `parallel_pressure_work_coeff = 2/3`
 - `parallel_limiter = "none"`
 - `parallel_flux_scheme = "rusanov"`
+- `exb_flux_scheme = "hermes_fromm"` (Hermes/BOUT X-Z Fromm transport)
 - `exb_poloidal_flows = true`
 - `exb_poloidal_scale = 1.0`
+- `neumann_boundary_average_y = true` (BOUT/Hermes `neumann_boundary_average_z`)
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
 - `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit parity with Hermes dump `Omega_ci`)
 - standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
