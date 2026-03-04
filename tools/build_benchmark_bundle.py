@@ -34,8 +34,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--Nnorm", type=float, default=None)
     p.add_argument("--Tnorm-eV", type=float, default=None)
     p.add_argument("--Bnorm-T", type=float, default=None)
-    p.add_argument("--m-i-amu", type=float, default=2.0)
-    p.add_argument("--Z-i", type=float, default=1.0)
+    p.add_argument("--m-i-amu", type=float, default=None)
+    p.add_argument("--Z-i", type=float, default=None)
     p.add_argument("--nperseg", type=int, default=256)
     p.add_argument("--bins", type=int, default=120)
     p.add_argument("--max-growth-factor", type=float, default=None)
@@ -74,6 +74,42 @@ def _norm_from_cfg_or_args(cfg: dict[str, Any], args: argparse.Namespace) -> Ben
     m_i = float(args.m_i_amu if args.m_i_amu is not None else nrm.get("m_i_amu", 2.0))
     z_i = float(args.Z_i if args.Z_i is not None else nrm.get("Z_i", 1.0))
     return BenchmarkNormalization(Nnorm=Nnorm, Tnorm_eV=Tnorm, Bnorm_T=Bnorm, m_i_amu=m_i, Z_i=z_i)
+
+
+def _resolve_coeff_path(cfg: dict[str, Any], cfg_path: str | None) -> Path | None:
+    geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
+    coeff_path = geom.get("coeff_path", None)
+    if not isinstance(coeff_path, str) or not coeff_path:
+        return None
+    p = Path(coeff_path)
+    if p.is_absolute():
+        return p
+    if cfg_path:
+        candidate = Path(cfg_path).resolve().parent / coeff_path
+        if candidate.exists():
+            return candidate
+    repo_root = Path(__file__).resolve().parents[1]
+    candidate = (repo_root / coeff_path).resolve()
+    return candidate if candidate.exists() else None
+
+
+def _geometry_lengths_from_config(
+    cfg: dict[str, Any], cfg_path: str | None
+) -> tuple[float | None, float | None]:
+    geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
+    Lx = geom.get("Lx", None)
+    Ly = geom.get("Ly", None)
+    coeff_path = _resolve_coeff_path(cfg, cfg_path)
+    if coeff_path is not None:
+        coeffs = np.load(coeff_path)
+        if Lx is None and "Lx" in coeffs:
+            Lx = float(np.asarray(coeffs["Lx"]).reshape(-1)[0])
+        if Ly is None and "Ly" in coeffs:
+            Ly = float(np.asarray(coeffs["Ly"]).reshape(-1)[0])
+    return (
+        None if Lx is None else float(Lx),
+        None if Ly is None else float(Ly),
+    )
 
 
 def _to_time_series(a: np.ndarray, nt: int) -> np.ndarray:
@@ -225,10 +261,9 @@ def _bundle_from_jax(
         f, p = compute_frequency_psd(probe_n, dt=dt, nperseg=args.nperseg)
         diagnostics["freq_hz"] = f
         diagnostics["psd_n_f"] = p
-        cfg_geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
+        _, Ly = _geometry_lengths_from_config(cfg, args.config)
         ny = int(fields["n"].shape[2] if fields["n"].ndim == 4 else _pick_plane(n_fluct).shape[-1])
-        Ly = float(cfg_geom.get("Ly", 1.0))
-        dy = Ly / max(ny, 1)
+        dy = float(Ly if Ly is not None else 1.0) / max(ny, 1)
         ky, pky = compute_ky_psd(_pick_plane(n_fluct), dy=dy, axis_y=-1)
         diagnostics["ky_m-1"] = ky
         diagnostics["psd_n_ky"] = pky
@@ -261,12 +296,11 @@ def _bundle_from_jax(
         diagnostics["phase_n_phi"] = phase
 
     if "n" in fields and "phi" in fields:
-        cfg_geom = cfg.get("geometry", {}) if isinstance(cfg, dict) else {}
+        _, Ly = _geometry_lengths_from_config(cfg, args.config)
         ny = int(
             fields["n"].shape[2] if fields["n"].ndim == 4 else _pick_plane(fields["n"]).shape[-1]
         )
-        Ly = float(cfg_geom.get("Ly", 1.0))
-        dy = Ly / max(ny, 1)
+        dy = float(Ly if Ly is not None else 1.0) / max(ny, 1)
         gamma_r = compute_radial_particle_flux_profile(
             _pick_plane(fields["n"]),
             _pick_plane(fields["phi"]),
