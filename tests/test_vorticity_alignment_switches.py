@@ -18,6 +18,12 @@ def _omega_l2(arr) -> float:
     return float(np.sqrt(np.mean(a * a)))
 
 
+def _omega_boundary_l2(arr) -> float:
+    a = np.asarray(arr)
+    bnd = np.concatenate([a[:, 0, :].ravel(), a[:, -1, :].ravel()])
+    return float(np.sqrt(np.mean(bnd * bnd)))
+
+
 def test_phi_par_dissipation_switch_controls_extra_dissipation_term() -> None:
     cfg = _load_cfg("examples/field_aligned_3d/input.toml")
     cfg["geometry"].update({"nx": 8, "ny": 8, "nz": 16})
@@ -144,3 +150,40 @@ def test_core_vorticity_damping_switch_controls_mu_lin_omega() -> None:
 
     assert _omega_l2(rhs_on.omega) > 0.0
     assert _omega_l2(rhs_off.omega) < 1e-14
+
+
+def test_full_exb_vorticity_switch_restores_polarisation_branches() -> None:
+    cfg = _load_cfg("examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml")
+    cfg["physics"].update(
+        {"source_on": False, "omega_n": 0.0, "omega_Te": 0.0, "curvature_on": False}
+    )
+    cfg["transport"].update(
+        {
+            "Dn": 0.0,
+            "DOmega": 0.0,
+            "DTe": 0.0,
+            "Dn4": 0.0,
+            "DOmega4": 0.0,
+            "DTe4": 0.0,
+            "mu_lin_n": 0.0,
+            "mu_lin_omega": 0.0,
+            "mu_lin_Te": 0.0,
+        }
+    )
+    cfg["initial"].update(
+        {"amplitude": 1e-3, "noise_mode": "state", "noise_fields": ["omega", "Te", "Ti"]}
+    )
+    cfg["terms"] = {"term_schedule": ["advection"]}
+
+    cfg_full = copy.deepcopy(cfg)
+    cfg_full.setdefault("numerics", {})["exb_advection_simplified"] = False
+    built_full = build_system_from_config(cfg_full)
+    rhs_full = built_full.system.rhs(0.0, built_full.state)
+
+    cfg_simple = copy.deepcopy(cfg)
+    cfg_simple.setdefault("numerics", {})["exb_advection_simplified"] = True
+    built_simple = build_system_from_config(cfg_simple)
+    rhs_simple = built_simple.system.rhs(0.0, built_simple.state)
+
+    assert _omega_l2(rhs_full.omega) > 50.0 * _omega_l2(rhs_simple.omega)
+    assert _omega_boundary_l2(rhs_full.omega) > 50.0 * _omega_boundary_l2(rhs_simple.omega)

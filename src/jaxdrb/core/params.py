@@ -336,6 +336,9 @@ class NumericsParams(eqx.Module):
     # - "hermes_fromm": legacy Fromm-upwind X-Z transport
     # - "hermes_xppm": Hermes/BOUT XPPM-like MC-limited X-Z transport
     exb_flux_scheme: Literal["centered", "hermes_fromm", "hermes_xppm"] = "centered"
+    # Hermes vorticity ExB term: simplified advect-Vort form, or full
+    # polarization-current form used when `exb_advection_simplified = false`.
+    exb_advection_simplified: bool = True
     # When using flux-form ExB advection, advect conservative variables (n, n*v, p).
     exb_advect_conservative: bool = False
     # Include the metric-coupled X-Y ExB advection contribution present in

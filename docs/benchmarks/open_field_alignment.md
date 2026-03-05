@@ -128,6 +128,8 @@ Early-time alignment-tuned knobs in
 - `parallel_limiter = "none"`
 - `parallel_flux_scheme = "rusanov"`
 - `exb_flux_scheme = "hermes_xppm"` (Hermes/BOUT XPPM-like MC-limited X-Z transport)
+- `exb_advection_simplified = false` (Hermes full vorticity ExB form rather than
+  the simplified advect-`Vort` form)
 - `exb_poloidal_flows = true`
 - `exb_poloidal_scale = 1.0`
 - `exb_poloidal_y_scale = 1.24` (strict early-time operator alignment in the
@@ -213,6 +215,28 @@ boundary-face coefficient more closely. In the same
 (`t=0.01`) from `rel_diff ~ 0.0123` to `~ 0.0020`, and moved the fail-fast
 leader to the much smaller-contribution `omega advection exb` term
 (`weighted_rel ~ 0.0070`).
+
+In the follow-on 2026-03-05 strict Hermes-state audit, the next fail-fast
+leader (`omega advection exb`) turned out not to be a boundary-ghost issue:
+the Hermes dense run was using `exb_advection_simplified = false`, so
+`term_Vort_exb` came from the full polarization-current form in
+`vorticity.cxx` rather than the simplified advect-`Vort` branch. The unified
+JAX path now exposes the same switch and, for the full branch, adds:
+
+\[
+-\nabla\cdot\left(\mathbf{v}_E \, 0.5\,\omega\right)
+- \nabla_\perp\cdot\left(\frac{0.5\,\bar{A}}{B^2}\,\mathbf{v}_E\cdot\nabla\Pi\right)
+- \nabla\cdot\left[\mathbf{v}_E(\phi + \hat{\Pi})\,
+\frac{0.5\,\bar{A}}{B^2}\nabla_\perp^2 \phi\right]
+\]
+
+with the `\nabla_\perp^2 \phi` auxiliary field evaluated through the metric
+operator and a zero-Dirichlet radial boundary when `INVERT_SET`-style Poisson
+alignment is active. In the same `start_index=1`, `nsteps=3` audit window this
+reduced `omega advection exb` at `t=0.01` from `weighted_rel ~ 0.00703` to
+`~ 0.000701`, and moved the fail-fast leader to `Pe parallel/par_total`
+(`weighted_rel ~ 0.00622`). Reproducible artifact:
+`runs/audit_takeover_full_vort_exb_fix`.
 
 ## 2) Build Hermes bundle (same normalization metadata)
 

@@ -90,6 +90,7 @@ low_n_diffuse_perp_coeff = 1.0
 poisson = "cg_fd"
 bracket = "arakawa"
 exb_advection_form = "flux"
+exb_advection_simplified = false
 exb_advect_conservative = true
 exb_flux_scheme = "hermes_xppm"
 exb_bndry_flux = true
