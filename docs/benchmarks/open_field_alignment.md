@@ -138,6 +138,11 @@ Early-time alignment-tuned knobs in
 - `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit alignment with Hermes dump `Omega_ci`)
 - standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
 
+`parallel_limiter = "none"` now uses un-limited second-order Fromm slopes
+(`s_i = 0.5(f_{i+1}-f_{i-1})`) instead of piecewise-constant reconstruction.
+This closes the main early-time drift in strict Hermes-state audits for
+parallel channels (`n`, `Pe`, `Te`).
+
 `exb_poloidal_flows` now routes through the metric-coupled X/Y finite-volume
 transport path in `FieldAlignedGeometryAdapter.exb_flux_divergence()`:
 
@@ -169,10 +174,17 @@ pressure-channel advection term `Pe exb` reduced to about `0.09`.
 With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
 RHS alignment channels are:
 - `omega total RHS vs ddt(Vort)`: rel-diff `~0.84 .. 1.13` (about 8–11%)
-- `omega parallel (jax vs term_Vort_jpar)`: rel-diff `~0.01 .. 0.04`
+- `omega parallel (jax vs term_Vort_jpar)`: rel-diff `~0.01 .. 0.03`
 - `omega diamagnetic current (jax vs term_Vort_divJdia)`: rel-diff `~0.25`
 - `n total RHS vs ddt(Ne)`: rel-diff `~0.92 .. 1.10` (about 9–11%)
 - `Te total RHS vs ddt(Te)`: rel-diff `~1.85 .. 2.53` (about 18–25%)
+
+After enabling true Fromm behavior for `parallel_limiter="none"` the strict
+term-level projection error in parallel channels dropped significantly in the
+same (`start_index=1`, `nsteps=3`) audit window:
+- `n parallel`: weighted-rel `~0.017..0.085` -> `~0.002..0.014`
+- `Pe parallel`: weighted-rel `~0.022..0.101` -> `~0.001..0.006`
+- `Te parallel`: weighted-rel `~0.030..0.127` -> `~0.008..0.009`
 
 `first_failing_terms.csv` now ranks by `weighted_rel = rel_diff * frac_of_field_rhs`
 so tiny terms do not dominate fail-fast triage.

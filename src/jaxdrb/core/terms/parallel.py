@@ -18,7 +18,17 @@ def _minmod(a: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
 def _limited_slope(f: jnp.ndarray, limiter: str) -> jnp.ndarray:
     df = f[1:] - f[:-1]
     if limiter == "none":
+        # "none" means un-limited 2nd-order Fromm-style reconstruction,
+        # not piecewise-constant upwind.
         slope = jnp.zeros_like(f)
+        if f.shape[0] > 1:
+            if f.shape[0] == 2:
+                slope = slope.at[0].set(df[0])
+                slope = slope.at[-1].set(df[-1])
+            else:
+                slope = slope.at[1:-1].set(0.5 * (df[:-1] + df[1:]))
+                slope = slope.at[0].set(df[0])
+                slope = slope.at[-1].set(df[-1])
         return slope
     df_b = df[:-1]
     df_f = df[1:]
