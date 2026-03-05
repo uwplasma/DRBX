@@ -1,195 +1,539 @@
-# jax_drb Rewrite Plan (Hermes-Alignment Foundation)
+# jax_drb Agent Handoff + Master Plan
 
-## 1) Goal and Decision
+Last update: 2026-03-05  
+Owner: `jax_drb` core team  
+Primary workspace: `/Users/rogerio/local/jax_drb`
 
-Build a **new JAX-native, differentiable, CPU/GPU-efficient DRB solver** that first matches Hermes for ES/cold/Bouss/open-field/sheath, then extends to full conserving DRB physics and advanced geometries.
+---
 
-### Decision
-- We will **not keep patching alignment into the current broad core** as the main path.
-- We will create a **new strict finite-volume alignment core** and keep current implementation in `legacy`.
-- We will only promote the new core to default after alignment gates pass.
+## 0) Copy/Paste Prompt for a New Agent
 
-## 2) Audit Summary (Completed)
-
-### Hermes facts (source/docs)
-- Parallel transport is FV + slope limiter + Lax flux (`solver_numerics.rst`, `evolve_density.cxx`, `evolve_pressure.cxx`).
-- Sheath BCs are component-level boundary physics with target flux handling (`boundary_conditions.rst`, `sheath_boundary_simple.cxx`).
-- Vorticity/potential path includes boundary/guard-cell semantics and Laplacian solve details (`vorticity.cxx`).
-- Normalization is explicit (`Nnorm`, `Tnorm`, `Bnorm`, `rho_s0`, `Omega_ci`).
-
-### Current jax_drb issues for alignment
-- Mixed discretization paths (bracket-centered + multiple term schedulers) make strict alignment brittle.
-- Sheath/current/vorticity semantics are close but not structurally identical.
-- Too many toggles in one core slow down alignment debugging.
-
-## 3) Repository Restructure Plan
-
-## 3.1 New active core
-- Add: `src/jaxdrb/drb_fv/`
-- Add: `src/jaxdrb/drb_fv_operators/`
-- Add: `src/jaxdrb/drb_fv_geometry/`
-- Add: `src/jaxdrb/drb_fv_diagnostics/`
-
-## 3.2 Move current implementation to legacy (staged)
-- Move to `src/jaxdrb/legacy_v1/`:
-  - `src/jaxdrb/core/`
-  - `src/jaxdrb/operators/`
-  - `src/jaxdrb/fci/`
-  - legacy benchmark scripts tied to old core behavior
-- Keep shared utilities in active package:
-  - `src/jaxdrb/io/config.py`
-  - `src/jaxdrb/normalization.py` (if reused after cleanup)
-  - `src/jaxdrb/cli/main.py` (rewired to new core)
-
-## 3.3 Backward-compatibility policy
-- No compatibility guarantee during rewrite.
-- `legacy_v1` kept for traceability and reference only.
-
-## 4) New Core Architecture (Target)
+Use the block below as the takeover prompt.
 
 ```text
-src/jaxdrb/drb_fv/
-  params.py
-  state.py
-  geometry.py
-  metrics.py
-  bc.py
-  flux_reconstruct.py
-  flux_parallel.py
-  flux_exb.py
-  pressure.py
-  vorticity.py
-  poisson.py
-  sheath.py
-  sources.py
-  rhs.py
-  integrator.py
-  diagnostics.py
+You are taking over development of jax_drb in /Users/rogerio/local/jax_drb.
+
+Project mission:
+- Build a research-grade drift-reduced Braginskii (DRB) solver in JAX that is:
+  - easy to use (CLI + TOML + Python API),
+  - easy to maintain (single modular equation core),
+  - fully validated and tested,
+  - extensively documented (equations, numerics, implementation choices, references),
+  - end-to-end differentiable,
+  - high-performance and memory-efficient on CPU and GPU.
+
+Immediate strategy:
+- First, match Hermes behavior as tightly as possible for electrostatic/cold-ion/Boussinesq open-field SOL with sheath and open/closed field lines.
+- Match not only outputs, but the practical stack: equations, normalization, geometry ingestion, numerics, diagnostics, and benchmark presentation.
+- Then extend jax_drb beyond Hermes:
+  - conservative DRB formulation (de Lucca-style conserving system),
+  - richer geometry options (s-alpha, Miller, tokamak separatrix/divertor, stellarator, FCI),
+  - broader physics toggles (EM, hot ions, non-Boussinesq, neutrals, advanced sheath closures).
+
+Non-negotiables:
+- No proxy/testbed equations in production paths.
+- One core equation system with toggles (physics + geometry + BC policy), not fragmented branch codes.
+- Keep differentiability in all production solver paths.
+- Keep performance and memory usage as first-class acceptance criteria.
+- Validation-first: unit + physics + regression + benchmark gates.
+
+Current architecture:
+- New finite-volume rewrite path: src/jaxdrb/drb_fv (active for strict alignment work).
+- Legacy implementation retained in src/jaxdrb/legacy_v1 for traceability.
+- CLI supports selecting engine="drb_fv" or unified engine.
+- Tooling exists for alignment audits, benchmark bundles, scans, and panel generation.
+
+Current tactical objective:
+- Finish strict short-window parity in staged windows:
+  1) term-level RHS consistency at very early times (few steps),
+  2) normalization/time-unit consistency,
+  3) Poisson/vorticity equivalence and sheath boundary consistency,
+  4) short-window (t<=0.1) fluctuation RMS/PSD agreement,
+  5) only then promote to longer windows and turbulence benchmarking.
+
+What to do every cycle:
+1) run the smallest targeted audit to isolate the first mismatch,
+2) fix the structural cause (equation, discretization, normalization, geometry, BC semantics),
+3) re-run strict gate and record delta in docs/benchmarks/open_field_alignment.md,
+4) run full CI locally (ruff/black/pytest),
+5) commit and push only green changes,
+6) update /Users/rogerio/local/jax_drb/plan.md checkboxes and next actions.
+
+Do not:
+- rely on parameter fiddling before structural mismatch causes are understood,
+- promote long runs while short-window gates fail.
+
+Paths and context:
+- jax_drb repo: /Users/rogerio/local/jax_drb
+- Hermes-3 repo: /Users/rogerio/local/hermes-3
+- Hermes-2 repo: /Users/rogerio/local/hermes-2
+- Literature folder: /Users/rogerio/local/tests/drb_literature
+- GBS and related refs: /Users/rogerio/local/tests/GBS_ISTTOK
+
+Deliverables expected from you:
+- code changes,
+- tests,
+- docs updates,
+- reproducible benchmark artifacts,
+- updated plan.md progress status.
 ```
 
-### Design rules
-- Single state layout and single RHS assembly.
-- Component-like terms mapped 1:1 with Hermes equation blocks.
-- Geometry and normalization are explicit adapters, not hidden in term code.
-- No duplicate equation implementations.
+---
 
-## 5) Numerical Strategy (JAX-specific)
+## 1) North Star
 
-## 5.1 Performance and memory
-- Use fixed-shape arrays and `lax.scan` for full-step JIT.
-- Keep field layout stable (choose one canonical memory layout and never transpose in time loop).
-- Precompute metric factors and face coefficients once.
-- Cache Poisson/preconditioner objects by `(shape, bc, metric hash)`.
-- Avoid host transfers inside the loop; diagnostics downsampled and optional.
+Build `jax_drb` into a production-quality SOL turbulence code that:
 
-## 5.2 Solver strategy
-- Short-term alignment runs: explicit RK path matching Hermes short windows.
-- Stiff/open-field runs: IMEX path with Diffrax implicit stiff block (Kvaerno/ImplicitEuler + Lineax GMRES).
-- Poisson:
-  - FFT/spectral where periodic and valid.
-  - Metric-consistent CG/GMRES for non-periodic with reusable preconditioners.
+1. solves DRB equations in a single modular core with toggles,
+2. reproduces Hermes-class workflows for the baseline model in JAX,
+3. then extends to the conservative DRB system with strict energy diagnostics,
+4. supports multiple geometry paradigms (field-aligned, axisymmetric, FCI),
+5. remains differentiable, fast, memory-efficient, and reproducible.
 
-## 5.3 Differentiability
-- No non-JAX side effects in RHS.
-- Differentiable linear solves (`jax.scipy`/Lineax); avoid custom non-diff branches.
-- Use remat/checkpoint toggles for long differentiable runs.
+---
 
-## 6) Physics Alignment Roadmap
+## 2) Project Scope and Physics Roadmap
 
-## Phase A: strict ES/cold/Bouss/open-field/sheath alignment
-- Implement only Hermes-equivalent terms:
-  - density FV transport
-  - pressure FV transport (`vgradp` and `pdivv` forms)
-  - vorticity + Poisson boundary semantics
-  - Bohm/current sheath fluxes and energy flux closures
-- Gate: one-step term-by-term RHS alignment at `t=0.01`.
+### Stage 1 (current): Hermes-equivalent baseline
+- Electrostatic
+- Cold-ion
+- Boussinesq
+- Open-field + sheath + open/closed masks
+- Tokamak metric ingestion from mesh coefficients (`bxcv`, Jacobian/metrics, masks)
+- FV parallel transport with slope-limited/Lax-style fluxes
 
-## Phase B: short-window alignment (`t<=0.1`)
-- Gate: fluctuation RMS and dominant PSD peak within 10–20%.
-- Reject runs with finite-run gate (spikes/non-finite).
+### Stage 2: Full DRB feature matrix in one core
+- EM toggles
+- Hot ions
+- Non-Boussinesq polarization
+- Neutrals
+- Sheath closure variants
+- Region-policy BCs for core/SOL/divertor legs
 
-## Phase C: medium window (`t<=0.5` then `t<=1.0`)
-- Gate: RMS trend, spectra slope, radial flux profile agreement band.
+### Stage 3: Conservative DRB system
+- Implement conserving DRB equations (`conserving_drb.pdf` + de Lucca line)
+- Add energy-balance diagnostics and conservative residual gates
+- Verify with advection-only and reduced-system invariants + full budget closure
 
-## Phase D: production turbulence window
-- Extend to long SOL turbulence only after A/B/C pass.
+---
 
-## 7) Geometry Plan
+## 3) Where Files Live (Operational Map)
 
-## 7.1 Immediate
-- Field-aligned tokamak with `bxcv`, `J`, `gxx/gxy/gyy`, sheath/open-closed masks.
-- Match Hermes `tokamak.nc` parsing and axis mapping exactly.
+### Core repos
+- `jax_drb`: `/Users/rogerio/local/jax_drb`
+- `Hermes-3`: `/Users/rogerio/local/hermes-3`
+- `Hermes-2`: `/Users/rogerio/local/hermes-2`
 
-## 7.2 Next
-- Axisymmetric analytic adapters (s-alpha, Miller) built on same operator contracts.
-- FCI path added only after alignment core is stable.
+### Literature and external references
+- DRB literature: `/Users/rogerio/local/tests/drb_literature`
+- GBS references/code dumps: `/Users/rogerio/local/tests/GBS_ISTTOK`
 
-## 8) Testing Matrix (new, future-proof)
+### jax_drb key directories
+- Source: `/Users/rogerio/local/jax_drb/src/jaxdrb`
+- Rewrite path: `/Users/rogerio/local/jax_drb/src/jaxdrb/drb_fv`
+- Legacy path: `/Users/rogerio/local/jax_drb/src/jaxdrb/legacy_v1`
+- Docs: `/Users/rogerio/local/jax_drb/docs`
+- Examples: `/Users/rogerio/local/jax_drb/examples`
+- Tests: `/Users/rogerio/local/jax_drb/tests`
+- Tooling scripts: `/Users/rogerio/local/jax_drb/tools`
+- CI workflow: `/Users/rogerio/local/jax_drb/.github/workflows/ci.yml`
+- Runtime artifacts (local): `/Users/rogerio/local/jax_drb/runs`
 
-## 8.1 Unit tests
-- Reconstruction limiters (minmod/MC) and face states.
-- FV flux divergence identities and BC semantics.
-- Poisson operator SPD/symmetry and gauge handling.
-- Sheath flux signs and energy transmission consistency.
+---
 
-## 8.2 Physics tests
-- Linear DW/ballooning proxy checks.
-- Conservation/invariants (advection-only and selected reduced systems).
-- Sheath target flux sanity and open-field transport trends.
+## 4) Current Infrastructure (Already Built)
 
-## 8.3 Regression tests
-- Strict one-step term alignment CSV gate.
-- `t<=0.1` alignment gate (RMS/PSD/PDF/coherence minimal set).
-- Performance regression (time/step + peak memory on fixed small case).
+### Engines and driver
+- CLI entrypoint `jaxdrb`.
+- Engine selection via TOML:
+  - `engine = "unified"`
+  - `engine = "drb_fv"` (strict Hermes-alignment rewrite track)
 
-## 8.4 CI policy
-- `ruff`, `black`, `pytest` mandatory.
-- Alignment gates run on small meshes with deterministic seeds.
-- Longer turbulence alignment as optional/nightly CI.
+### Time stepping
+- Fixed-step: `rk4_scan`, `rk4_imex`, `rk4_imex_strang`
+- Diffrax path: `dopri8`, `dopri5`, `tsit5`, `euler`
+- Stiff-support hooks and IMEX/split infrastructure are present and actively tuned.
 
-## 9) Documentation Rewrite Plan
+### Performance tooling
+- JIT scan loops with warm starts and solver diagnostics.
+- Profiling scripts and named-scope traces:
+  - `tools/profile_jaxdrb.py`
+  - `docs/profiling.md`
 
-- Rewrite docs around new core first; move old pages under `docs/legacy_v1/`.
-- Keep README concise: what code solves, quickstart, links to docs.
-- Full docs include:
-  - equations and term mapping table (Hermes ↔ JAX)
-  - normalization derivation
-  - geometry and BC policy
-  - solver numerics and algorithmic choices
-  - alignment/validation dashboards and reproducible scripts
+### Benchmark/alignment tooling
+- Term audit:
+  - `tools/audit_term_alignment.py`
+  - `tools/trace_first_mismatch.py`
+  - `tools/compare_term_arrays.py`
+- Bundle and panel:
+  - `tools/build_benchmark_bundle.py`
+  - `tools/compare_benchmark_bundles.py`
+  - `tools/plot_benchmark_panel.py`
+  - `tools/run_tokamak_hermes_benchmark.py`
 
-## 10) Execution Checklist
+### Geometry conversion and checks
+- BOUT/Hermes mesh converters:
+  - `tools/convert_bout_grid_axisymmetric.py`
+  - `tools/convert_bout_metrics_axisymmetric.py`
+  - `tools/convert_hermes_dump_axisymmetric.py`
+- Geometry consistency scripts:
+  - `tools/compare_geometry_coeffs.py`
+  - `tools/compare_geometry_metrics.py`
 
-- [x] Audit Hermes docs/source and identify structural mismatch classes.
-- [x] Freeze current core as `legacy_v1` in repo.
-- [x] Scaffold `drb_fv` package with state/params/geometry contracts.
-- [x] Implement density FV term alignment.
-- [x] Implement pressure FV term alignment.
-- [x] Implement vorticity + Poisson alignment path.
-- [x] Implement sheath boundary component alignment (particle, momentum, energy).
-- [x] Add strict one-step term audit gate in CI.
-- [x] Add deterministic rewrite-local `t<=0.1` short-window regression harness and finite-run gate.
-- [x] Add `coeff_path` metric ingestion to `drb_fv` so Hermes-style geometry files can drive the rewrite path.
-- [x] Add compact Hermes short-window reference fixture + comparison harness.
-- [x] Add Hermes-coupled `t<=0.1` regression gate against the compact fixture.
-- [ ] Pass `t<=0.1` alignment gate.
-- [ ] Pass `t<=0.5` alignment gate.
-- [ ] Build long-window benchmark panel and movies.
-- [ ] Refactor docs/README to new structure.
-- [ ] Move superseded tests/examples/docs to `legacy_v1`.
+---
 
-## 11) Stop/Go Criteria
+## 5) Work Done So Far (Condensed History)
 
-- **Go to long turbulence runs only if**:
-  - term-level alignment passes for dominant channels,
-  - short-window finite-run gate passes,
-  - no unresolved normalization/geometry mismatch remains.
-- **If not passing**, continue structural alignment fixes; do not tune random parameters.
+### Earlier refactor phase (before rewrite)
+- Unified/core moves for 2D/line/FCI and diagnostics centralization.
+- Consolidation of wrappers into core calls.
+- Added many benchmark and gate scripts for DRB2D/FCI.
 
-## 12) Immediate Next 5 Tasks
+### Clean rewrite direction
+- Introduced `drb_fv` engine for strict structural alignment.
+- Moved older broad core implementation to `legacy_v1` for traceability.
+- Added strict one-step and short-window gates for Hermes-coupled alignment.
+- Added compact reference fixtures and deterministic comparison harness.
+- Added continuous targeted mismatch-audit loop (term-by-term).
 
-1. [x] Create `src/jaxdrb/legacy_v1/` and move current core/operator modules there (no behavior edits).
-2. [x] Add `src/jaxdrb/drb_fv/{params.py,state.py,geometry.py,rhs.py}` scaffolding with strict field layout.
-3. [x] Implement Hermes-equivalent FV parallel flux kernel and unit tests.
-4. [x] Implement strict Poisson/vorticity guard-cell boundary semantics and one-step alignment test.
-5. [x] Wire CLI to select `engine = "drb_fv"` and run the existing audit scripts against it.
+### Current audit status
+- Several structural mismatches have already been reduced.
+- Dominant early-time mismatch classes are now tracked by strict term audits.
+- Remaining gap still requires structural closure (especially Poisson/vorticity/time-scale normalization consistency and selected sheath/parallel details).
+
+---
+
+## 6) Model and Algorithm Parity Requirements (Hermes-baseline)
+
+The baseline path must structurally match Hermes logic where applicable:
+
+1. **Parallel transport**  
+   Finite-volume + second-order limited reconstruction + Lax/consistent boundary flux semantics.
+
+2. **Boundary conditions / sheath**  
+   Bohm/Chodura-style constraints and energy flux terms as component-level boundary physics; region-aware BC policy.
+
+3. **Curvature and metric handling**  
+   `bxcv` and metric-normalized operators consistent with mesh inputs.
+
+4. **Poisson/vorticity path**  
+   Matching guard-cell/boundary treatment and normalization factors.
+
+5. **Normalization/time units**  
+   Explicit mapping of `Nnorm`, `Tnorm`, `Bnorm`, `rho_s0`, `Omega_ci`, and timestep units.
+
+---
+
+## 7) Beyond Hermes: Conservative DRB Extension
+
+Target after baseline closure:
+
+- Add conservative DRB equation pathway (de Lucca/conserving DRB references).
+- Preserve baseline path for compatibility and benchmarking.
+- Add strict energy diagnostics:
+  - total energy
+  - relative drift
+  - source/sink budget closure
+  - per-term contribution checks
+- Add CI gates that fail if conservative invariants regress beyond tolerance.
+
+---
+
+## 8) Geometry Roadmap (Short -> Long)
+
+### Short-term (now)
+- Tokamak field-aligned with open/closed masks and sheath boundaries.
+- Coefficient file ingestion from Hermes/BOUT meshes.
+
+### Medium-term
+- Analytic axisymmetric adapters:
+  - `s-alpha`
+  - Miller
+  - separatrix/X-point analytic options
+
+### Long-term
+- FCI for complex topologies (divertors, stellarator islands, non-axisymmetry):
+  - field-line map approach per Hariri et al.
+  - implementation style aligned with GRILLIX experience.
+
+---
+
+## 9) Time Integrators and Solver Policy
+
+### Required options
+- Keep Diffrax options available (`Dopri8`, adaptive) for flexible workflows.
+- Keep custom steppers (explicit, semi-implicit, IMEX, implicit/split) for controlled stiff testing.
+- Default baseline path should mimic Hermes numerics for parity runs.
+
+### Performance constraints
+- JIT full loops (`lax.scan`) with static shapes.
+- Persistent compile cache.
+- Minimized host-device transfer.
+- Reused preconditioners and warm starts where valid.
+
+### Differentiability constraints
+- End-to-end differentiable state evolution.
+- Differentiable linear solves and no hidden non-diff branches in main paths.
+
+---
+
+## 10) Testing and Validation Strategy (CI/CD)
+
+### Unit tests
+- Operators, reconstructions, BC application, Poisson invariants/SPD behavior, sheath sign conventions.
+
+### Physics tests
+- Linear proxies (DW/ballooning/Mosetto/Halpern classes as applicable).
+- Open-field sheath/target flux sanity.
+- Conservation gates for reduced and conservative systems.
+
+### Regression tests
+- One-step RHS/term audit gate (strict early mismatch detection).
+- Short-window (`t<=0.1`) fluctuation RMS/PSD gate with finite-run rejection.
+- Performance regression (time/step + memory profile threshold).
+
+### CI workflow
+- Current workflow: `/Users/rogerio/local/jax_drb/.github/workflows/ci.yml`
+  - `ruff check src tests`
+  - `black --check src tests`
+  - focused one-step gate
+  - full `pytest`
+- Extend with:
+  - term-specific mismatch caps
+  - conservative-energy drift cap
+  - optional/nightly longer turbulence windows
+
+---
+
+## 11) Documentation System and Update Rules
+
+### Primary docs files
+- `/Users/rogerio/local/jax_drb/README.md` (concise entrypoint only)
+- `/Users/rogerio/local/jax_drb/docs/run.md`
+- `/Users/rogerio/local/jax_drb/docs/inputs_outputs.md`
+- `/Users/rogerio/local/jax_drb/docs/options.md`
+- `/Users/rogerio/local/jax_drb/docs/normalization.md`
+- `/Users/rogerio/local/jax_drb/docs/geometry_models.md`
+- `/Users/rogerio/local/jax_drb/docs/geometry_compare.md`
+- `/Users/rogerio/local/jax_drb/docs/diagnostics.md`
+- `/Users/rogerio/local/jax_drb/docs/profiling.md`
+- `/Users/rogerio/local/jax_drb/docs/validation.md`
+- `/Users/rogerio/local/jax_drb/docs/benchmarks/open_field_alignment.md`
+- `/Users/rogerio/local/jax_drb/docs/drb_fv.md`
+- `/Users/rogerio/local/jax_drb/docs/figures.md`
+
+### Doc policy
+- README stays concise.
+- Full equations/algorithms/validation live in docs pages.
+- Every benchmark figure/movie must be reproducible from a script in `tools/` with explicit command lines.
+- Every new model toggle requires:
+  - equation statement,
+  - discretization description,
+  - normalization statement,
+  - validation/gate link.
+
+---
+
+## 12) Competitor / Ecosystem Landscape and Market Pull (Online + Literature)
+
+As of 2026-03-05, external landscape signals remain strong:
+
+- Fusion programs are explicitly accelerating toward pilot plants, with high demand for predictive edge/SOL simulation and robust validation workflows.
+- Major public strategy documents call out simulation/HPC/AI acceleration and industry-aligned R&D.
+- Code ecosystem is actively expanding and publishing in CPC/JPP/PoP with stronger verification and CI practices.
+
+### Active code ecosystem to track
+- Hermes (BOUT++ multiphysics drift-fluid components)
+- GBS (global two-fluid SOL turbulence)
+- GRILLIX (FCI fluid edge/SOL; tokamak + stellarator direction)
+- GDB (open-field fluid turbulence; used in GDB/Gkeyll comparisons)
+- GENE-X / GENE-3D (full-f GK edge/SOL and stellarator-capable workflows)
+- Gkeyll (continuum GK/DG with open-field-line sheath studies)
+- Also relevant: STORM, SOLEDGE3X, TOKAM3X, FELTOR
+
+### Why this matters for jax_drb
+- There is clear pull for:
+  1) reproducible validation,
+  2) robust stiff solvers,
+  3) realistic open/closed field topology handling,
+  4) fast turnaround for scenario exploration,
+  5) modern differentiable/HPC-ready implementations.
+
+---
+
+## 13) Short / Medium / Long Horizon Plan
+
+### Short-term (now -> parity closure)
+- [x] Create and stabilize strict finite-volume rewrite track (`drb_fv`).
+- [x] Keep legacy implementation under `legacy_v1`.
+- [x] Build one-step audit and short-window regression infrastructure.
+- [ ] Close remaining structural mismatches in `t<=0.1` strict window:
+  - [ ] Poisson/vorticity equivalence and normalization
+  - [ ] Sheath-energy and boundary flux term equivalence
+  - [ ] Parallel momentum/pressure flux edge semantics
+- [ ] Reach fluctuation RMS/PSD agreement band (10-20%) at `t<=0.1`.
+
+### Medium-term (post-short parity)
+- [ ] Promote validated baseline to `t<=0.5` and `t<=1.0`.
+- [ ] Generate canonical benchmark panels and movies for tokamak SOL with open/closed regions + sheath.
+- [ ] Add robust diagnostics suite aligned with literature:
+  - radial profiles
+  - PSD(k,f)
+  - PDFs/skewness/flatness
+  - fluxes and sheath target channels
+- [ ] Integrate conservative-energy diagnostics in baseline runs.
+
+### Long-term (beyond Hermes baseline)
+- [ ] Implement conservative DRB equation set as first-class engine mode.
+- [ ] Expand geometry adapters:
+  - `s-alpha`
+  - Miller
+  - separatrix/X-point analytic
+  - stellarator + FCI map path
+- [ ] Add broader physics matrix (EM/hot/non-Bouss/neutrals) with unified toggles.
+- [ ] Add publication-grade validation book in docs, fully reproducible.
+
+---
+
+## 14) Concrete Next Iteration Loop (Do This Repeatedly)
+
+1. Run smallest strict audit window (`nsteps <= 3`) for a single mismatch class.
+2. Dump both code paths for only the failing term group.
+3. Classify mismatch origin:
+   - equation form,
+   - discretization/stencil,
+   - normalization/time scale,
+   - geometry/metric mapping,
+   - boundary/sheath semantics.
+4. Apply one structural fix at a time.
+5. Re-run:
+   - strict term gate
+   - short-window gate
+   - full CI.
+6. If green, update docs + this plan + commit/push.
+7. Promote only passing configs to longer windows.
+
+---
+
+## 15) Minimal Commands Reference
+
+### Install and checks
+```bash
+cd /Users/rogerio/local/jax_drb
+python -m pip install -e ".[dev]"
+ruff check src tests
+black --check src tests
+python -m pytest -q
+```
+
+### Run jax_drb
+```bash
+jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml --run --output /tmp/jax_short.npz
+```
+
+### Strict audit
+```bash
+python /Users/rogerio/local/jax_drb/tools/audit_term_alignment.py \
+  --jax-config /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml \
+  --hermes-data-dir /Users/rogerio/local/jax_drb/runs/hermes_open_field_terms_t01_vortterms/data \
+  --out-dir /Users/rogerio/local/jax_drb/runs/audit_latest \
+  --nsteps 3 --match-hermes-dt --strict-axis --use-hermes-state --use-hermes-phi-in-terms --start-index 1
+```
+
+### Canonical benchmark script
+```bash
+python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
+  --jax-config examples/open_field_line/input_tokamak_bxcv_benchmark_es_cold.toml \
+  --hermes-data runs/hermes_open_field_short/data \
+  --out-dir runs/tokamak_benchmark_latest \
+  --fig-dir docs/figures
+```
+
+---
+
+## 16) Progress Tracker (Keep This Updated)
+
+### Milestone A: strict early equivalence (`t<=0.1`)
+- [x] One-step audit infrastructure exists.
+- [x] Compact reference fixture exists.
+- [x] Finite-run gate exists.
+- [ ] Remaining dominant term mismatches reduced below threshold.
+- [ ] Fluctuation RMS/PSD within target band.
+- [ ] Gate promoted to required CI check.
+
+### Milestone B: short benchmark parity (`t<=0.5`)
+- [ ] Stable matched runs generated for Hermes and jax_drb.
+- [ ] Panel diagnostics agree in accepted tolerance.
+- [ ] Runtime/memory comparison table generated.
+
+### Milestone C: turbulence benchmark
+- [ ] Long-window open-field turbulence run stable.
+- [ ] Publication-grade figures/movies and diagnostics.
+- [ ] Docs benchmark page finalized.
+
+### Milestone D: conservative DRB
+- [ ] Conservative equations implemented and documented.
+- [ ] Energy conservation diagnostics and tests in CI.
+- [ ] Extended physics/geometry matrix validated.
+
+---
+
+## 17) Key Risks and Mitigations
+
+1. **Slow convergence of parity work**  
+   Mitigation: always isolate one mismatch class with tiny windows and strict dumps.
+
+2. **Numerical mismatch hidden by parameter tuning**  
+   Mitigation: structural fix-first policy; no broad scans until root cause is known.
+
+3. **Performance regressions during alignment edits**  
+   Mitigation: maintain small performance gate and profile snapshots in CI/nightly.
+
+4. **Documentation drift**  
+   Mitigation: code change requires same-PR doc and test updates.
+
+---
+
+## 18) External References (Used for Planning Context)
+
+### Hermes / BOUT++
+- Hermes docs (solver numerics): <https://hermes3.readthedocs.io/en/stable/solver_numerics.html>  
+- Hermes docs (boundary conditions): <https://hermes3.readthedocs.io/en/latest/boundary_conditions.html>  
+- Hermes docs (equations): <https://hermes3.readthedocs.io/en/latest/equations.html>  
+- Hermes repository: <https://github.com/boutproject/hermes-3>  
+- Hermes CPC paper page: <https://www.sciencedirect.com/science/article/pii/S0010465523003363>
+
+### FCI / GRILLIX
+- Hariri et al., field-line map approach: <https://www.sciencedirect.com/science/article/abs/pii/S0010465515003641>  
+- GRILLIX unified tokamak/stellarator CPC 2026 page: <https://www.sciencedirect.com/science/article/pii/S0010465525003765>  
+- GRILLIX code page: <https://physik.uni-greifswald.de/en/ag-manz/translate-to-english-forschung/codes/grillix/>
+
+### GBS
+- GBS code paper (JCP 2016): <https://www.sciencedirect.com/science/article/pii/S0021999116001923>  
+- GBS plasma+kinetic neutrals (JCP 2022 / arXiv 2112.03573): <https://arxiv.org/abs/2112.03573>
+
+### GENE-X / GENE-3D / Gkeyll / GDB
+- GENE-X code paper (CPC 2021): <https://www.sciencedirect.com/science/article/pii/S0010465521000989>  
+- GENE-X spectral acceleration (CPC 2025): <https://www.osti.gov/pages/servlets/purl/2997736>  
+- GENE-3D global stellarator code (JCP 2020): <https://www.sciencedirect.com/science/article/pii/S002199912030468X>  
+- Gkeyll open-field-line turbulence (JPP 2017): <https://doi.org/10.1017/S002237781700037X>  
+- Fluid vs GK open-field turbulence (GDB + Gkeyll, PoP 2020): <https://www.osti.gov/pages/biblio/1647927>
+
+### Market pull / program demand
+- DOE Fusion Energy Strategy 2024: <https://www.energy.gov/sites/default/files/2024-06/fusion-energy-strategy-2024.pdf>  
+- DOE strategy executive summary: <https://www.energy.gov/doe-fusion-energy-strategy-2024-executive-summary>  
+- DOE Fusion S&T Roadmap announcement (2025): <https://www.energy.gov/articles/energy-department-announces-fusion-science-and-technology-roadmap-accelerate-commercial>  
+- GAO commercialization planning review (2025): <https://www.gao.gov/products/gao-25-107037>  
+- EUROfusion roadmap page: <https://www.eurofusion.org/eurofusion/roadmap/>
+
+---
+
+## 19) Plan Maintenance Rule
+
+When you complete a step:
+1. mark checkbox status in this file,
+2. add a dated note under the relevant milestone,
+3. link the commit hash and affected files,
+4. update associated docs/tests references.
+
+This `plan.md` is the single source of truth for handoff continuity.
