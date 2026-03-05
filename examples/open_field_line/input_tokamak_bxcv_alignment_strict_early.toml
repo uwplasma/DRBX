@@ -68,6 +68,7 @@ sheath_on = true
 sheath_bc_on = true
 sheath_bc_model = "bohm_current"
 sheath_energy_model = "hermes_flux"
+sheath_energy_flux_scale = 0.95
 sheath_nu_factor = 1.0
 sol_sheath_phi_dissipation_on = true
 
