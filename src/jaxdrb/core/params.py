@@ -367,6 +367,7 @@ class NumericsParams(eqx.Module):
     perp_operator: Literal["spectral", "fd", "fv"] = "spectral"
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     parallel_limiter: Literal["none", "minmod", "mc"] = "none"
+    parallel_current_limiter: Literal["same", "none", "minmod", "mc"] = "same"
     parallel_flux_scheme: Literal["rusanov", "lax"] = "rusanov"
     parallel_fixflux: bool = True
     parallel_flux_conservative: bool = False

@@ -238,6 +238,20 @@ reduced `omega advection exb` at `t=0.01` from `weighted_rel ~ 0.00703` to
 (`weighted_rel ~ 0.00622`). Reproducible artifact:
 `runs/audit_takeover_full_vort_exb_fix`.
 
+In the next 2026-03-05 strict Hermes-state pass, the remaining `Pe parallel`
+gap traced back to a numerics-stack mismatch rather than a sheath-flux
+coefficient: Hermes was built with `HERMES_SLOPE_LIMITER=MC` for the
+finite-wave `FV::Div_par_mod` channels, while `term_Vort_jpar` still came from
+plain `Div_par(jpar)`. The unified JAX path now splits those choices with
+`parallel_limiter = "mc"` for the finite-wave density/pressure fluxes and
+`parallel_current_limiter = "none"` for the open-field `wave=None`
+current-divergence path. In the strict `start_index=1`, `nsteps=3` audit window
+this reduced `Pe parallel/par_total` at `t=0.01` from `weighted_rel ~ 0.00622`
+to `~ 0.00258` while keeping `omega parallel/jpar` at `~ 0.001995`; the
+fail-fast leader moved to `Pe advection/exb` (`weighted_rel ~ 0.00476`), with
+`n parallel/par` next at `~ 0.00298`. Reproducible artifact:
+`runs/audit_pe_parallel_split_limiter_3step`.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash
