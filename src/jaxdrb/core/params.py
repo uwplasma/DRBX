@@ -88,6 +88,9 @@ class PhysicsParams(eqx.Module):
     # Diamagnetic current (DivJdia) contribution in vorticity equation.
     diamagnetic_current_on: bool = False
     diamagnetic_current_scale: float = 1.0
+    # In Hermes vorticity mode, omega is mass-weighted; apply Abar to DivJdia
+    # by default so diamagnetic current channels remain consistent with omega.
+    diamagnetic_current_mass_weighted: bool = True
     diamagnetic_current_bndry_flux: bool = True
     diamagnetic_current_energy_on: bool = True
 

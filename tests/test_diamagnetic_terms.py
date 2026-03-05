@@ -7,7 +7,7 @@ from jaxdrb.core.geometry_2d import Geometry2DAdapter
 from jaxdrb.core.params import DRBSystemParams, update_params_from_dict
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.terms.context import build_context
-from jaxdrb.core.terms.diamagnetic import diamagnetic_terms
+from jaxdrb.core.terms.diamagnetic import diamagnetic_current_terms, diamagnetic_terms
 from jaxdrb.core.terms.ops import ddx
 from jaxdrb.geometry.plane import Grid2D
 
@@ -165,3 +165,54 @@ def test_diamagnetic_pressure_to_temperature_conversion() -> None:
     n_eff = jnp.maximum(ctx.n_phys, float(params.n0_min))
     dTe_expected = (dpe - ctx.Te_phys * dn) / n_eff
     assert jnp.allclose(term.Te, dTe_expected, rtol=1e-10, atol=1e-10)
+
+
+def test_diamagnetic_current_mass_weighting_in_hermes_mode() -> None:
+    params_scaled = update_params_from_dict(
+        DRBSystemParams(),
+        {
+            "physics": {
+                "diamagnetic_current_on": True,
+                "hot_ion_on": False,
+                "average_atomic_mass": 2.5,
+                "diamagnetic_current_scale": 1.0,
+            },
+            "numerics": {
+                "poisson": "spectral",
+                "poisson_b_weighted": True,
+                "poisson_b_weighted_mode": "scaled",
+            },
+        },
+    )
+    geom_scaled = _make_geom(params_scaled)
+    y_scaled = _make_state(geom_scaled.grid)
+    ctx_scaled = build_context(params_scaled, geom_scaled, y_scaled)
+    term_scaled = diamagnetic_current_terms(ctx_scaled, y_scaled)
+    assert float(jnp.sqrt(jnp.mean(term_scaled.omega**2))) > 0.0
+
+    params_hermes = update_params_from_dict(
+        params_scaled,
+        {
+            "numerics": {"poisson_b_weighted_mode": "hermes"},
+        },
+    )
+    geom_hermes = _make_geom(params_hermes)
+    y_hermes = _make_state(geom_hermes.grid)
+    ctx_hermes = build_context(params_hermes, geom_hermes, y_hermes)
+    term_hermes = diamagnetic_current_terms(ctx_hermes, y_hermes)
+    np.testing.assert_allclose(
+        term_hermes.omega,
+        float(params_hermes.average_atomic_mass) * term_scaled.omega,
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+    params_hermes_nomass = update_params_from_dict(
+        params_hermes,
+        {"physics": {"diamagnetic_current_mass_weighted": False}},
+    )
+    geom_nomass = _make_geom(params_hermes_nomass)
+    y_nomass = _make_state(geom_nomass.grid)
+    ctx_nomass = build_context(params_hermes_nomass, geom_nomass, y_nomass)
+    term_nomass = diamagnetic_current_terms(ctx_nomass, y_nomass)
+    np.testing.assert_allclose(term_nomass.omega, term_scaled.omega, rtol=1e-12, atol=1e-12)

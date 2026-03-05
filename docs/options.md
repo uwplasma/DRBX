@@ -51,6 +51,19 @@ vorticity operator:
 Enable with `diamagnetic_polarisation_on=true` and scale with
 `diamagnetic_polarisation_scale`.
 
+Diamagnetic current in vorticity is controlled with:
+
+- `diamagnetic_current_on`
+- `diamagnetic_current_scale`
+- `diamagnetic_current_bndry_flux`
+- `diamagnetic_current_energy_on`
+- `diamagnetic_current_mass_weighted`
+
+When using Hermes-style vorticity (`poisson_b_weighted=true` and
+`poisson_b_weighted_mode="hermes"`), keep
+`diamagnetic_current_mass_weighted=true` so the `DivJdia` channel is scaled by
+`average_atomic_mass`, consistent with the Hermes vorticity normalization.
+
 ### Equilibrium-Profile Drives (`[physics]`)
 
 When `drive_from_equilibrium_on=true`, the density and temperature drives are

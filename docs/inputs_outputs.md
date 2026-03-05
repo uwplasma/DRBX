@@ -80,6 +80,13 @@ This section enumerates the full configuration keys for each block.
 - `diamag_form_profile`
 - `diamag_density_model`
 - `diamag_bndry_flux`
+- `diamagnetic_flux_scheme`
+- `diamagnetic_use_jacobian`
+- `diamagnetic_current_on`
+- `diamagnetic_current_scale`
+- `diamagnetic_current_mass_weighted`
+- `diamagnetic_current_bndry_flux`
+- `diamagnetic_current_energy_on`
 - `diamagnetic_polarisation_on`
 - `diamagnetic_polarisation_scale`
 - `n0`
