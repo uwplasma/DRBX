@@ -175,7 +175,16 @@ def _shift_boundary_flux_to_field_aligned(
     frac = y_src - y0
     f0 = jnp.take_along_axis(arr, y0, axis=-1)
     f1 = jnp.take_along_axis(arr, y1, axis=-1)
-    return (1.0 - frac) * f0 + frac * f1
+    shifted = (1.0 - frac) * f0 + frac * f1
+    grid = getattr(geom, "grid", None)
+    bc = getattr(getattr(grid, "perp", None), "bc", None)
+    preserve_x_boundaries = bool(getattr(grid, "open_field_line", False)) and (
+        int(getattr(bc, "kind_x", 0)) != 0
+    )
+    if preserve_x_boundaries and arr.shape[0] > 1:
+        shifted = shifted.at[0].set(arr[0])
+        shifted = shifted.at[-1].set(arr[-1])
+    return shifted
 
 
 def _dpar_flux_conservative(
@@ -199,10 +208,10 @@ def _dpar_flux_conservative(
             and str(ctx.params.parallel_transform).lower() == "shifted"
         )
         if use_shift:
-            f = ctx.geom.to_field_aligned(f)
-            v = ctx.geom.to_field_aligned(v)
+            f = ctx.geom.to_field_aligned_nox(f)
+            v = ctx.geom.to_field_aligned_nox(v)
             if wave is not None:
-                wave = ctx.geom.to_field_aligned(wave)
+                wave = ctx.geom.to_field_aligned_nox(wave)
             boundary_flux_low = _shift_boundary_flux_to_field_aligned(
                 boundary_flux_low, params=ctx.params, geom=ctx.geom, z_index=0
             )
@@ -231,7 +240,7 @@ def _dpar_flux_conservative(
             boundary_flux_high=boundary_flux_high,
         )
         if use_shift:
-            div = ctx.geom.from_field_aligned(div)
+            div = ctx.geom.from_field_aligned_nox(div)
         return div
     return ctx.geom.dpar(f * v, bc_kind="dirichlet")
 

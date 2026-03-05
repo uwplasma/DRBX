@@ -162,3 +162,61 @@ def test_exb_poloidal_branch_scales_split_x_and_y_contributions() -> None:
     assert jnp.allclose(div_xy0, div_off, atol=1e-12, rtol=1e-12)
     assert not jnp.allclose(div_x, div_y, atol=1e-12, rtol=1e-12)
     assert jnp.allclose(div_on, div_x + div_y - div_off, atol=1e-9, rtol=1e-9)
+
+
+def test_metric_open_ddy_c2_uses_local_cell_spacing() -> None:
+    geom = _make_geom(poloidal_on=True, with_g23=True)
+    f = jnp.arange(5, dtype=jnp.float64)[:, None, None] * jnp.ones((1, 2, 3), dtype=jnp.float64)
+    ds = jnp.array([1.0, 2.0, 4.0, 8.0, 16.0], dtype=jnp.float64)[:, None, None]
+
+    ddy = geom._ddy_open_c2_metric(f, ds)
+    expected = jnp.broadcast_to((1.0 / ds), f.shape)
+
+    assert jnp.allclose(ddy, expected, atol=1e-12, rtol=1e-12)
+
+
+def test_shifted_transform_nox_leaves_x_boundaries_unshifted() -> None:
+    params = DRBSystemParams(
+        numerics=NumericsParams(
+            parallel_transform="shifted",
+            parallel_shift_interp="linear",
+            perp_operator="fd",
+            bracket="centered",
+        )
+    )
+    grid = FieldAlignedGrid.make(
+        nx=6,
+        ny=8,
+        nz=4,
+        Lx=1.0,
+        Ly=1.0,
+        Lz=1.0,
+        bc_x="neumann",
+        bc_y="periodic",
+        dealias=False,
+        open_field_line=True,
+    )
+    geom = FieldAlignedGeometryAdapter.from_coefficients(
+        params=params,
+        grid=grid,
+        curv_x=0.0,
+        curv_y=0.0,
+        dpar_factor=1.0,
+        B=1.0,
+        jacobian=1.0,
+        gxx=1.0,
+        gxy=0.0,
+        gyy=1.0,
+        g23=1.0,
+        z_shift=jnp.ones((4, 6), dtype=jnp.float64) * 0.3,
+    )
+    field = jax.random.normal(jax.random.PRNGKey(5), (4, 6, 8), dtype=jnp.float64)
+
+    shifted = geom.to_field_aligned(field)
+    shifted_nox = geom.to_field_aligned_nox(field)
+
+    assert not jnp.allclose(shifted_nox[:, 0, :], shifted[:, 0, :], atol=1e-12, rtol=1e-12)
+    assert not jnp.allclose(shifted_nox[:, -1, :], shifted[:, -1, :], atol=1e-12, rtol=1e-12)
+    assert jnp.allclose(shifted_nox[:, 0, :], field[:, 0, :], atol=1e-12, rtol=1e-12)
+    assert jnp.allclose(shifted_nox[:, -1, :], field[:, -1, :], atol=1e-12, rtol=1e-12)
+    assert jnp.allclose(shifted_nox[:, 1:-1, :], shifted[:, 1:-1, :], atol=1e-12, rtol=1e-12)
