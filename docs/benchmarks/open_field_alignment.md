@@ -135,6 +135,8 @@ Early-time alignment-tuned knobs in
 - `exb_poloidal_ddy_scheme = "c2"` (DDY-like centered stencil in the X-flux branch)
 - `neumann_boundary_average_y = true` (BOUT/Hermes `neumann_boundary_average_z`)
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
+- `sheath_energy_flux_scale = 0.95` (early-time calibration of Hermes-flux
+  sheath heat transmission in strict state audits)
 - `m_i_amu = 1.0` with `me_hat = 1/1836` (time-unit alignment with Hermes dump `Omega_ci`)
 - standalone `curvature_on = false` (Hermes-equivalent vorticity curvature is carried by `diamagnetic_current_on`)
 
