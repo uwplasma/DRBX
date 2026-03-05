@@ -534,6 +534,10 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   `src/jaxdrb/legacy_v1/core/params.py`,
   `src/jaxdrb/legacy_v1/core/terms/parallel.py`,
   `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`,
+  `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early_tuned.toml`,
+  `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`,
+  `tests/test_open_field_strict_config.py`,
+  `docs/benchmarks/open_field_alignment.md`).
 
 2026-03-05 shift-region note:
 - Tightened the unified shifted-transform usage toward Hermes
@@ -550,10 +554,11 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   likely next term after that is still `n parallel/par`.
 - Tests/docs touched: `tests/test_exb_poloidal_flows.py`,
   `docs/benchmarks/open_field_alignment.md`.
-  `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early_tuned.toml`,
-  `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`,
-  `tests/test_open_field_strict_config.py`,
-  `docs/benchmarks/open_field_alignment.md`).
+- Commit: `f73a610` (`src/jaxdrb/core/geometry_field_aligned.py`,
+  `src/jaxdrb/core/terms/parallel.py`,
+  `tests/test_exb_poloidal_flows.py`,
+  `docs/benchmarks/open_field_alignment.md`,
+  `plan.md`).
 
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
