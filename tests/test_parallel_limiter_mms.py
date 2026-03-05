@@ -28,3 +28,14 @@ def test_parallel_limiter_open_flux_second_order():
     assert e128 < e64
     assert (e32 / e64) > 2.0
     assert (e64 / e128) > 2.0
+
+
+def test_parallel_limiter_none_is_fromm_second_order():
+    e32 = _flux_error(32, "none")
+    e64 = _flux_error(64, "none")
+    e128 = _flux_error(128, "none")
+
+    assert e64 < e32
+    assert e128 < e64
+    assert (e32 / e64) > 1.8
+    assert (e64 / e128) > 1.8
