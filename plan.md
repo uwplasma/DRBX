@@ -38,10 +38,13 @@ Non-negotiables:
 - Validation-first: unit + physics + regression + benchmark gates.
 
 Current architecture:
-- New finite-volume rewrite path: src/jaxdrb/drb_fv (active for strict alignment work).
+- New finite-volume rewrite path: src/jaxdrb/drb_fv (retained as rewrite/reference path for parity work and future promotion).
 - Legacy implementation retained in src/jaxdrb/legacy_v1 for traceability.
 - CLI supports selecting engine="drb_fv" or unified engine.
 - Tooling exists for alignment audits, benchmark bundles, scans, and panel generation.
+- Current strict Hermes-state baseline configs run the unified engine unless
+  `engine = "drb_fv"` is explicitly set; unified is the present authoritative
+  parity path for Milestone A until a deliberate promotion changes that.
 
 Current tactical objective:
 - Finish strict short-window parity in staged windows:
@@ -147,7 +150,7 @@ Build `jax_drb` into a production-quality SOL turbulence code that:
 - CLI entrypoint `jaxdrb`.
 - Engine selection via TOML:
   - `engine = "unified"`
-  - `engine = "drb_fv"` (strict Hermes-alignment rewrite track)
+  - `engine = "drb_fv"` (rewrite/reference track; not the default strict gate path)
 
 ### Time stepping
 - Fixed-step: `rk4_scan`, `rk4_imex`, `rk4_imex_strang`
@@ -199,6 +202,9 @@ Build `jax_drb` into a production-quality SOL turbulence code that:
 ### Current audit status
 - Several structural mismatches have already been reduced.
 - Dominant early-time mismatch classes are now tracked by strict term audits.
+- The authoritative strict `t<=0.1` Hermes-state audits currently exercise the
+  unified engine path; `drb_fv` remains available for focused rewrite checks but
+  is not the promoted baseline gate yet.
 - Remaining gap still requires structural closure (especially Poisson/vorticity/time-scale normalization consistency and selected sheath/parallel details).
 
 ---
@@ -498,6 +504,16 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`,
   `tests/test_vorticity_alignment_switches.py`,
   `docs/benchmarks/open_field_alignment.md`).
+
+2026-03-05 planning note:
+- Clarified that the authoritative strict Hermes-state parity path is the
+  unified engine, not `drb_fv`, unless a config explicitly sets
+  `engine = "drb_fv"`.
+- Current next fail-fast target remains `Pe parallel/par_total` at `t=0.01`
+  in `runs/audit_takeover_full_vort_exb_fix`, followed by `Pe advection/exb`.
+- Focus for the next structural fix: open-field parallel pressure boundary
+  semantics (pressure/sheath flux construction, boundary face metric, and
+  shifted-boundary handling), not coefficient retuning or longer-window runs.
 
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
