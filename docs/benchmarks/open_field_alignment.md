@@ -175,9 +175,21 @@ With the strict Hermes-state audit (`start_index=1`, `nsteps=3`), the dominant
 RHS alignment channels are:
 - `omega total RHS vs ddt(Vort)`: rel-diff `~0.84 .. 1.13` (about 8–11%)
 - `omega parallel (jax vs term_Vort_jpar)`: rel-diff `~0.01 .. 0.03`
-- `omega diamagnetic current (jax vs term_Vort_divJdia)`: rel-diff `~0.25`
+- `omega diamagnetic current (jax vs term_Vort_divJdia)`: rel-diff `~0.42`
+  (about 4% RMS gap)
 - `n total RHS vs ddt(Ne)`: rel-diff `~0.92 .. 1.10` (about 9–11%)
 - `Te total RHS vs ddt(Te)`: rel-diff `~1.85 .. 2.53` (about 18–25%)
+
+The `DivJdia` channel now applies mass weighting by default when
+`poisson_b_weighted=true` and `poisson_b_weighted_mode="hermes"`:
+
+\[
+\partial_t \omega \supset \bar{A}\,\nabla\cdot\mathbf{J}_{\mathrm{dia}}
+\]
+
+controlled by `physics.diamagnetic_current_mass_weighted=true`. This closes the
+previous structural scale gap between Hermes vorticity normalization and the
+JAX diamagnetic current term.
 
 After enabling true Fromm behavior for `parallel_limiter="none"` the strict
 term-level projection error in parallel channels dropped significantly in the
