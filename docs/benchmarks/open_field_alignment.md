@@ -204,6 +204,16 @@ same (`start_index=1`, `nsteps=3`) audit window:
 `first_failing_terms.csv` now ranks by `weighted_rel = rel_diff * frac_of_field_rhs`
 so tiny terms do not dominate fail-fast triage.
 
+In the 2026-03-05 strict Hermes-state audit refresh, the `gpar`-aware
+boundary current divergence now uses the boundary-cell metric on the sheath
+face for `Div_par(jpar)` (the `wave=None` path), matching the Hermes/BOUT
+boundary-face coefficient more closely. In the same
+`start_index=1`, `nsteps=3` audit window this reduced
+`omega parallel (jax vs term_Vort_jpar)` at the first audited step
+(`t=0.01`) from `rel_diff ~ 0.0123` to `~ 0.0020`, and moved the fail-fast
+leader to the much smaller-contribution `omega advection exb` term
+(`weighted_rel ~ 0.0070`).
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash

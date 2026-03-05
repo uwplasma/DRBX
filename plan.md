@@ -461,6 +461,18 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
 - [ ] Fluctuation RMS/PSD within target band.
 - [ ] Gate promoted to required CI check.
 
+2026-03-05 note:
+- Narrowed the `Div_par(jpar)` sheath-face metric in
+  `src/jaxdrb/core/terms/parallel.py` so the `gpar`/`wave=None` boundary
+  coefficient uses the boundary-cell metric instead of the first interior face.
+- Strict Hermes-state audit delta (`runs/audit_takeover_20260305` ->
+  `runs/audit_takeover_after_metric_fix_v2`): `omega parallel/jpar`
+  weighted-rel improved from `0.01227` to `0.001995` at `t=0.01`; the
+  fail-fast leader moved to `omega advection/exb` at `0.00703`.
+- Tests/docs touched: `tests/test_parallel_sheath_targets.py`,
+  `docs/benchmarks/open_field_alignment.md`.
+- Commit: `TBD after green commit`.
+
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
 - [ ] Panel diagnostics agree in accepted tolerance.
