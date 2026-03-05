@@ -471,7 +471,9 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   fail-fast leader moved to `omega advection/exb` at `0.00703`.
 - Tests/docs touched: `tests/test_parallel_sheath_targets.py`,
   `docs/benchmarks/open_field_alignment.md`.
-- Commit: `TBD after green commit`.
+- Commit: `e0a0502` (`src/jaxdrb/core/terms/parallel.py`,
+  `tests/test_parallel_sheath_targets.py`,
+  `docs/benchmarks/open_field_alignment.md`).
 
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
