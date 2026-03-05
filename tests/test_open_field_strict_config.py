@@ -21,3 +21,18 @@ def test_open_field_strict_config_uses_flux_form_numerics() -> None:
     assert numerics["parallel_fixflux"] is True
     assert numerics["parallel_sheath_flux_mode"] == "boundary_flux"
     assert numerics["parallel_transform"] == "shifted"
+    assert numerics["parallel_current_limiter"] == "none"
+
+
+def test_open_field_strict_early_config_splits_advective_and_current_limiters() -> None:
+    cfg_path = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "open_field_line"
+        / "input_tokamak_bxcv_alignment_strict_early.toml"
+    )
+    cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+    numerics = cfg["numerics"]
+
+    assert numerics["parallel_limiter"] == "mc"
+    assert numerics["parallel_current_limiter"] == "none"

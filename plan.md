@@ -509,11 +509,26 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
 - Clarified that the authoritative strict Hermes-state parity path is the
   unified engine, not `drb_fv`, unless a config explicitly sets
   `engine = "drb_fv"`.
-- Current next fail-fast target remains `Pe parallel/par_total` at `t=0.01`
-  in `runs/audit_takeover_full_vort_exb_fix`, followed by `Pe advection/exb`.
-- Focus for the next structural fix: open-field parallel pressure boundary
-  semantics (pressure/sheath flux construction, boundary face metric, and
-  shifted-boundary handling), not coefficient retuning or longer-window runs.
+- The old fail-fast target (`Pe parallel/par_total`) was isolated to a
+  limiter-stack mismatch between Hermes `FV::Div_par_mod` and `Div_par(jpar)`,
+  not to pressure boundary-flux coefficients.
+
+2026-03-05 limiter-split note:
+- Added a separate `parallel_current_limiter` so open-field `Div_par(jpar)` no
+  longer shares the finite-wave FV limiter used by density/pressure channels.
+- Updated the strict Hermes configs to use `parallel_limiter = "mc"` together
+  with `parallel_current_limiter = "none"`, matching Hermes’ build-time
+  `MC` limiter for `FV::Div_par_mod` while preserving the already-aligned
+  current-divergence path.
+- Strict Hermes-state audit delta
+  (`runs/audit_takeover_full_vort_exb_fix` ->
+  `runs/audit_pe_parallel_split_limiter_3step`): `Pe parallel/par_total`
+  weighted-rel improved from `0.00622` to `0.00258` at `t=0.01`, while
+  `omega parallel/jpar` stayed at `0.001995`.
+- The fail-fast leader is now `Pe advection/exb` at `0.00476`, followed by
+  `n parallel/par` at `0.00298`, then `Pe parallel/par_total` at `0.00258`.
+- Tests/docs touched: `tests/test_open_field_strict_config.py`,
+  `docs/benchmarks/open_field_alignment.md`.
 
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.

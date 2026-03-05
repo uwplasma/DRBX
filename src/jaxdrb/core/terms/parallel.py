@@ -189,6 +189,10 @@ def _dpar_flux_conservative(
 ) -> jnp.ndarray:
     grid = getattr(ctx.geom, "grid", None)
     limiter = str(ctx.params.parallel_limiter).lower()
+    if wave is None:
+        current_limiter = str(getattr(ctx.params, "parallel_current_limiter", "same")).lower()
+        if current_limiter != "same":
+            limiter = current_limiter
     if grid is not None and getattr(grid, "open_field_line", False):
         use_shift = (
             getattr(ctx.geom, "to_field_aligned", None) is not None
