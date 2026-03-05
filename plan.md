@@ -475,6 +475,30 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   `tests/test_parallel_sheath_targets.py`,
   `docs/benchmarks/open_field_alignment.md`).
 
+2026-03-05 follow-on note:
+- Matched the Hermes dense-run setting `exb_advection_simplified = false` in
+  the unified alignment path by adding the full vorticity ExB branch in
+  `src/jaxdrb/core/terms/advection.py` and wiring the strict alignment configs
+  to the same numerics toggle.
+- The structural closure was the missing polarization-current form, not radial
+  ghost semantics: the dominant fix was the metric `Delp2(phi)` branch with a
+  zero-Dirichlet radial auxiliary BC under `poisson_invert_set`.
+- Strict Hermes-state audit delta
+  (`runs/audit_takeover_after_metric_fix_v2` ->
+  `runs/audit_takeover_full_vort_exb_fix`): `omega advection/exb`
+  weighted-rel improved from `0.00703` to `0.000701` at `t=0.01`; the
+  fail-fast leader moved to `Pe parallel/par_total` at `0.00622`.
+- Tests/docs touched: `tests/test_vorticity_alignment_switches.py`,
+  `docs/benchmarks/open_field_alignment.md`.
+- Commit: `c654950` (`src/jaxdrb/core/terms/advection.py`,
+  `src/jaxdrb/core/params.py`,
+  `src/jaxdrb/legacy_v1/core/params.py`,
+  `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`,
+  `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early_tuned.toml`,
+  `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`,
+  `tests/test_vorticity_alignment_switches.py`,
+  `docs/benchmarks/open_field_alignment.md`).
+
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
 - [ ] Panel diagnostics agree in accepted tolerance.
