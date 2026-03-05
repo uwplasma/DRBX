@@ -1471,11 +1471,11 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             dphi_dx = dphi_dx.at[:, 0, :].set(dphi_dx[:, 1, :])
             dphi_dx = dphi_dx.at[:, -1, :].set(dphi_dx[:, -2, :])
         if use_shift:
-            dphi_dx_fa = self.to_field_aligned(dphi_dx)
-            adv_fa = self.to_field_aligned(adv_eff)
-            J_fa = self.to_field_aligned(J)
-            coeff_fa = self.to_field_aligned(coeff)
-            dy_fa = self.to_field_aligned(dy_metric)
+            dphi_dx_fa = self.to_field_aligned_nox(dphi_dx)
+            adv_fa = self.to_field_aligned_nox(adv_eff)
+            J_fa = self.to_field_aligned_nox(J)
+            coeff_fa = self.to_field_aligned_nox(coeff)
+            dy_fa = self.to_field_aligned_nox(dy_metric)
         else:
             dphi_dx_fa = dphi_dx
             adv_fa = adv_eff
@@ -1505,7 +1505,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         flux_down = jnp.concatenate([flux_low_b[None, ...], flux_up[:-1]], axis=0)
 
         div_y_fa = (flux_up - flux_down) / (jnp.maximum(J_fa, 1e-30) * jnp.maximum(dy_fa, 1e-30))
-        div_y = self.from_field_aligned(div_y_fa) if use_shift else div_y_fa
+        div_y = self.from_field_aligned_nox(div_y_fa) if use_shift else div_y_fa
 
         poloidal_scale = float(getattr(self.params, "exb_poloidal_scale", 1.0))
         poloidal_x_scale = float(getattr(self.params, "exb_poloidal_x_scale", 1.0))
@@ -1547,12 +1547,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             out = out.at[0].set(slope)
             out = out.at[1].set(slope)
             return out
-        den_center = ds[:-2] + ds[1:-1]
-        out = out.at[1:-1].set((f[2:] - f[:-2]) / jnp.maximum(den_center, 1e-30))
-        den0 = ds[0] + ds[1]
-        den1 = ds[-1] + ds[-2]
-        out = out.at[0].set((-3.0 * f[0] + 4.0 * f[1] - f[2]) / jnp.maximum(den0, 1e-30))
-        out = out.at[-1].set((3.0 * f[-1] - 4.0 * f[-2] + f[-3]) / jnp.maximum(den1, 1e-30))
+        out = out.at[1:-1].set((f[2:] - f[:-2]) / jnp.maximum(2.0 * ds[1:-1], 1e-30))
+        out = out.at[0].set((-3.0 * f[0] + 4.0 * f[1] - f[2]) / jnp.maximum(2.0 * ds[0], 1e-30))
+        out = out.at[-1].set((3.0 * f[-1] - 4.0 * f[-2] + f[-3]) / jnp.maximum(2.0 * ds[-1], 1e-30))
         return out
 
     def _dpar_open(self, f: jnp.ndarray) -> jnp.ndarray:
@@ -1642,7 +1639,13 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             out = self.from_field_aligned(out)
         return out
 
-    def _shift_binormal(self, f: jnp.ndarray, sign: float) -> jnp.ndarray:
+    def _shift_binormal(
+        self,
+        f: jnp.ndarray,
+        sign: float,
+        *,
+        exclude_x_boundaries: bool = False,
+    ) -> jnp.ndarray:
         if self.shift_idx is None:
             return f
         ny = f.shape[-1]
@@ -1652,15 +1655,20 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             k = jnp.fft.fftfreq(ny, d=1.0)
             phase = jnp.exp((2.0j * jnp.pi) * k[None, None, :] * shift[..., None])
             f_hat = jnp.fft.fft(f, axis=-1)
-            return jnp.real(jnp.fft.ifft(f_hat * phase, axis=-1))
-        y = jnp.arange(ny, dtype=jnp.float64)
-        y_src = (y[None, None, :] + shift[..., None]) % float(ny)
-        y0 = jnp.floor(y_src).astype(jnp.int32)
-        y1 = (y0 + 1) % ny
-        frac = y_src - y0
-        f0 = jnp.take_along_axis(f, y0, axis=-1)
-        f1 = jnp.take_along_axis(f, y1, axis=-1)
-        return (1.0 - frac) * f0 + frac * f1
+            shifted = jnp.real(jnp.fft.ifft(f_hat * phase, axis=-1))
+        else:
+            y = jnp.arange(ny, dtype=jnp.float64)
+            y_src = (y[None, None, :] + shift[..., None]) % float(ny)
+            y0 = jnp.floor(y_src).astype(jnp.int32)
+            y1 = (y0 + 1) % ny
+            frac = y_src - y0
+            f0 = jnp.take_along_axis(f, y0, axis=-1)
+            f1 = jnp.take_along_axis(f, y1, axis=-1)
+            shifted = (1.0 - frac) * f0 + frac * f1
+        if exclude_x_boundaries and f.shape[1] > 1:
+            shifted = shifted.at[:, 0, :].set(f[:, 0, :])
+            shifted = shifted.at[:, -1, :].set(f[:, -1, :])
+        return shifted
 
     def to_field_aligned(self, f: jnp.ndarray) -> jnp.ndarray:
         if self.shift_idx is None:
@@ -1671,6 +1679,16 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         if self.shift_idx is None:
             return f
         return self._shift_binormal(f, -1.0)
+
+    def to_field_aligned_nox(self, f: jnp.ndarray) -> jnp.ndarray:
+        if self.shift_idx is None:
+            return f
+        return self._shift_binormal(f, 1.0, exclude_x_boundaries=True)
+
+    def from_field_aligned_nox(self, f: jnp.ndarray) -> jnp.ndarray:
+        if self.shift_idx is None:
+            return f
+        return self._shift_binormal(f, -1.0, exclude_x_boundaries=True)
 
     def d2par(self, f: jnp.ndarray, *, bc_kind: str | None = None) -> jnp.ndarray:
         return self.dpar(self.dpar(f, bc_kind=bc_kind), bc_kind=bc_kind)

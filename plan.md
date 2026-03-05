@@ -534,6 +534,22 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   `src/jaxdrb/legacy_v1/core/params.py`,
   `src/jaxdrb/legacy_v1/core/terms/parallel.py`,
   `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`,
+
+2026-03-05 shift-region note:
+- Tightened the unified shifted-transform usage toward Hermes
+  `toFieldAligned(..., "RGN_NOX")` semantics by leaving non-periodic x-boundary
+  cells unshifted in the open-field parallel FV path and the poloidal ExB
+  Y-flux branch.
+- Strict Hermes-state audit delta
+  (`runs/audit_pe_parallel_split_limiter_3step` ->
+  `runs/audit_shift_nox_fix_3step`): `n parallel/par` weighted-rel improved
+  slightly from `0.00298` to `0.00296` at `t=0.01`, while
+  `Pe advection/exb` stayed at `0.00476`.
+- Result: the next priority is still `Pe advection/exb`, specifically the
+  radial-boundary semantics of the metric-coupled poloidal ExB branch; the
+  likely next term after that is still `n parallel/par`.
+- Tests/docs touched: `tests/test_exb_poloidal_flows.py`,
+  `docs/benchmarks/open_field_alignment.md`.
   `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early_tuned.toml`,
   `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`,
   `tests/test_open_field_strict_config.py`,

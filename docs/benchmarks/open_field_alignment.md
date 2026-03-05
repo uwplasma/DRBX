@@ -252,6 +252,19 @@ fail-fast leader moved to `Pe advection/exb` (`weighted_rel ~ 0.00476`), with
 `n parallel/par` next at `~ 0.00298`. Reproducible artifact:
 `runs/audit_pe_parallel_split_limiter_3step`.
 
+In a follow-up 2026-03-05 strict pass, the shifted parallel transform was
+tightened toward Hermes `toFieldAligned(..., "RGN_NOX")` semantics by leaving
+non-periodic x-boundary cells unshifted in the unified open-field parallel FV
+channel and the poloidal ExB Y-flux branch. This had no visible effect on the
+remaining `Pe advection/exb` leader, but it did reduce `n parallel/par` at
+`t=0.01` from `weighted_rel ~ 0.00298` to `~ 0.00296`
+(`runs/audit_pe_parallel_split_limiter_3step` ->
+`runs/audit_shift_nox_fix_3step`). The next structural target remains the
+radial-boundary semantics of the poloidal ExB X/Y transport path, since
+`Pe advection/exb` is still concentrated at the first radial cells and is
+unchanged by the `RGN_NOX` shift fix. Reproducible artifact:
+`runs/audit_shift_nox_fix_3step`.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash
