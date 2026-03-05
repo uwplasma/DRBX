@@ -3,9 +3,71 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
+from jaxdrb.bc import BC2D
 from jaxdrb.core.state import DRBSystemState
 
 from .context import TermContext
+from .fields import _electron_pressure, _metric_div_coeff
+
+
+def _pi_hat(ctx: TermContext) -> jnp.ndarray:
+    if not bool(getattr(ctx.params, "diamagnetic_polarisation_on", False)):
+        return jnp.zeros_like(ctx.n_phys)
+    Abar = max(float(getattr(ctx.params, "average_atomic_mass", 1.0)), 1e-12)
+    ion_pressure = ctx.n_phys * ctx.Ti
+    electron_coeff = float(getattr(ctx.params, "me_hat", 0.0)) / Abar
+    electron_pressure = _electron_pressure(ctx.params, ctx.n_phys, ctx.Te_phys)
+    return ion_pressure - electron_coeff * electron_pressure
+
+
+def _full_omega_exb_advection(
+    ctx: TermContext,
+    y: DRBSystemState,
+    *,
+    phi: jnp.ndarray,
+    scale: jnp.ndarray | float,
+) -> jnp.ndarray:
+    bc = ctx.bcs
+    Abar = float(getattr(ctx.params, "average_atomic_mass", 1.0))
+    B = getattr(ctx.geom, "B", None)
+    if B is None:
+        invB2 = jnp.asarray(1.0, dtype=phi.dtype)
+    else:
+        invB2 = 1.0 / jnp.maximum(jnp.asarray(B, dtype=phi.dtype), 1e-12) ** 2
+    invB2 = jnp.broadcast_to(invB2, phi.shape)
+    pi_hat = _pi_hat(ctx)
+
+    term = -ctx.geom.exb_flux_divergence(phi, 0.5 * y.omega, bc_phi=bc.phi, bc_adv=bc.omega)
+
+    vE_dot_grad_pi = ctx.geom.bracket(phi, pi_hat, bc_phi=bc.phi, bc_f=bc.Te)
+    coeff = 0.5 * Abar * invB2
+    term = term - _metric_div_coeff(ctx.params, ctx.geom, vE_dot_grad_pi, coeff, bc.phi)
+
+    bc_delp = bc.phi
+    if bool(getattr(ctx.params, "poisson_invert_set", False)) and bc.phi.kind_x != 0:
+        bc_delp = BC2D(
+            kind_x=1,
+            kind_y=bc.phi.kind_y,
+            x_value=0.0,
+            y_value=bc.phi.y_value,
+            x_grad=0.0,
+            y_grad=bc.phi.y_grad,
+        )
+    delp_phi = _metric_div_coeff(
+        ctx.params,
+        ctx.geom,
+        phi,
+        jnp.ones_like(phi),
+        bc_delp,
+    )
+    delp_phi_2B2 = 0.5 * Abar * delp_phi * invB2
+    term = term - ctx.geom.exb_flux_divergence(
+        phi + pi_hat,
+        delp_phi_2B2,
+        bc_phi=bc.phi,
+        bc_adv=bc.omega,
+    )
+    return term * scale
 
 
 def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
@@ -60,6 +122,8 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
                 -ctx.geom.exb_flux_divergence(phi, y.omega, bc_phi=bc.phi, bc_adv=bc_fields[1])
                 * scale
             )
+            if not bool(getattr(ctx.params, "exb_advection_simplified", True)):
+                adv_w = _full_omega_exb_advection(ctx, y, phi=phi, scale=scale)
             use_cons = bool(ctx.params.exb_advect_conservative)
             n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
             if use_cons:

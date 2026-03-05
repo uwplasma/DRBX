@@ -328,6 +328,9 @@ class NumericsParams(eqx.Module):
     exb_y_scale: float = 1.0
     # ExB advection form: "bracket" (default) or "flux" (Hermes-style conservative form).
     exb_advection_form: Literal["bracket", "flux"] = "bracket"
+    # Hermes vorticity ExB term: simplified advect-Vort form, or full
+    # polarization-current form used when `exb_advection_simplified = false`.
+    exb_advection_simplified: bool = True
     # When using flux-form ExB advection, advect conservative variables (n, n*v, p).
     exb_advect_conservative: bool = False
     # Include the metric-coupled X-Y ExB advection contribution present in
