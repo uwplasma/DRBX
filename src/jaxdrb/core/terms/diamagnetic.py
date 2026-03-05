@@ -309,6 +309,11 @@ def diamagnetic_current_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemS
     curv_x, curv_y, curv_par = _curv_components(ctx, shape)
     bndry_flux = bool(getattr(ctx.params, "diamagnetic_current_bndry_flux", True))
     scale = float(getattr(ctx.params, "diamagnetic_current_scale", 1.0))
+    if bool(getattr(ctx.params, "diamagnetic_current_mass_weighted", True)) and bool(
+        getattr(ctx.params, "poisson_b_weighted", False)
+    ):
+        if str(getattr(ctx.params, "poisson_b_weighted_mode", "scaled")).lower() == "hermes":
+            scale = scale * float(getattr(ctx.params, "average_atomic_mass", 1.0))
     n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
 
     Pe = ctx.n_phys * ctx.Te_phys
@@ -357,7 +362,8 @@ def diamagnetic_current_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemS
 
     return DRBSystemState(
         n=jnp.zeros_like(y.n),
-        omega=-divJ * scale,
+        # Hermes vorticity adds +DivJdia to ddt(Vort).
+        omega=divJ * scale,
         vpar_e=jnp.zeros_like(y.vpar_e),
         vpar_i=jnp.zeros_like(y.vpar_i),
         Te=dTe,
