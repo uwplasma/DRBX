@@ -4,7 +4,11 @@ import numpy as np
 
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.terms.context import build_context
-from jaxdrb.core.terms.parallel import parallel_conservative_terms, parallel_vars
+from jaxdrb.core.terms.parallel import (
+    _flux_divergence_open,
+    parallel_conservative_terms,
+    parallel_vars,
+)
 from jaxdrb.driver import build_system_from_config
 
 
@@ -138,3 +142,29 @@ def test_parallel_jpar_boundary_flux_mode_concentrates_sheath_response() -> None
     # Boundary-flux mode should primarily alter sheath-adjacent planes.
     assert inner_boundary < 0.25 * bnd_boundary
     assert inner_replace > 0.2 * bnd_replace
+
+
+def test_gpar_boundary_flux_uses_boundary_cell_metric() -> None:
+    f = np.zeros((3, 1, 1), dtype=np.float64)
+    v = np.ones_like(f)
+    J = np.array([[[1.0]], [[2.0]], [[4.0]]], dtype=np.float64)
+    gpar = np.array([[[4.0]], [[9.0]], [[16.0]]], dtype=np.float64)
+
+    div = np.asarray(
+        _flux_divergence_open(
+            f,
+            v,
+            dz=0.5,
+            limiter="none",
+            J=J,
+            gpar=gpar,
+            fixflux=True,
+            boundary_flux_low=np.array([[2.0]], dtype=np.float64),
+            boundary_flux_high=np.array([[5.0]], dtype=np.float64),
+        )
+    )
+
+    expected = np.zeros_like(div)
+    expected[0, 0, 0] = -2.0 / (0.5 * np.sqrt(gpar[0, 0, 0]))
+    expected[-1, 0, 0] = 5.0 / (0.5 * np.sqrt(gpar[-1, 0, 0]))
+    np.testing.assert_allclose(div, expected, atol=1e-12, rtol=1e-12)
