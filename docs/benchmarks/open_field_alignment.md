@@ -106,6 +106,21 @@ and autodiff tests in `tests/hermes_mirror/test_exb.py`.
 This still does not change the strict Hermes audit yet, because the Y-flux
 branch and the mirror runtime wiring are not landed.
 
+A follow-up source check on 2026-03-06 added the missing `RGN_ALL` shifted
+transform variants to the mirror layer and switched the active poloidal Y-flux
+branch to use full-region shifted transforms, matching the Hermes source
+signature more closely. The 1-step strict audit at
+`runs/audit_phase3_yregion_probe` showed no measurable change:
+
+- `Pe advection/exb`: `0.0036033052`
+- `n advection/exb`: `0.0030432257`
+- `n parallel/par`: `0.0029585638`
+
+That rules out transform-region selection as the dominant remaining
+`Pe advection/exb` cause. The next target is the guard-aware
+`DDX(phi) -> communicate -> applyBoundary("neumann")` preparation chain before
+the Y-flux transform.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash
