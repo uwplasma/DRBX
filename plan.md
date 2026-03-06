@@ -337,7 +337,7 @@ This script should extract compact primitive-level fixtures from Hermes dumps:
 - [x] `limit_free`
 - [x] `mc_limiter`
 - [x] `set_boundary_to_midpoint`
-- [ ] `apply_neumann_field3d`
+- [x] `apply_neumann_field3d`
 - [x] `apply_neumann_boundary_average_z`
 
 Acceptance:
@@ -598,9 +598,9 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - Transform validation is currently against the existing JAX shifted-transform
   path in the overlap region; Hermes dump-backed transform fixtures are still
   pending.
-- `apply_neumann_field3d` remains the only unchecked Phase 1 primitive because
-  its full axis/region semantics still need to be pinned directly against
-  Hermes/BOUT before landing a generic version.
+- The centred-field `apply_neumann_field3d` branch is now landed.
+- The remaining follow-up is to pin its named axis/region wiring directly
+  against Hermes/BOUT when the mirror geometry/runtime path is connected.
 
 ---
 

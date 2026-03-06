@@ -135,6 +135,38 @@ That recursion matters for parity: replacing it with a one-shot copy or a
 vectorized edge-only update changes the actual guard values seen by later
 operators.
 
+### 4. `apply_neumann_field3d`
+
+Source:
+- `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/boundary_standard.cxx`
+- function `BoundaryNeumann::apply(Field3D&, BoutReal)` in the non-staggered
+  `CELL_CENTRE` branch
+
+For a centred field and a Neumann boundary condition with prescribed gradient
+\(g\), Hermes applies:
+
+\[
+f_g = f_i + \Delta g
+\]
+
+where \(\Delta\) is the signed metric spacing from the interior cell centre to
+the guard cell centre. For the first lower guard cell, \(\Delta = -dx\); for
+the first upper guard cell, \(\Delta = +dx\).
+
+When two guard cells are present, Hermes then uses:
+
+\[
+f_{g,2} = f_{i,2} + 3 \Delta g
+\]
+
+where \(f_{i,2}\) is the second interior point along the same boundary-normal
+line.
+
+The mirror implementation lands this centred-field branch first and takes the
+boundary axis explicitly. That keeps the source formula literal while avoiding a
+hard-coded guess about coordinate names after reordering into the active JAX
+layout.
+
 ## Phase 2 Transform Slice
 
 Source files:
@@ -216,10 +248,9 @@ This is not yet a Hermes dump-backed transform fixture. That requires a
 dedicated extraction of Hermes-aligned/interpolated fields and remains part of
 the next Phase 2 work.
 
-The remaining unchecked Phase 1 primitive is `apply_neumann_field3d`. That
-helper has not been landed yet because its full axis/region mapping needs to be
-verified directly against Hermes/BOUT boundary regions rather than inferred from
-the current JAX array layout.
+The remaining open question in Phase 1 is not the centred Neumann formula
+itself, which is now landed, but the exact axis/region naming to use when this
+helper is wired into a full mirror geometry/runtime path.
 
 ## Differentiability Rules
 
