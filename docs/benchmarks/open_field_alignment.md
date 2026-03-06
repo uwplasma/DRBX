@@ -173,6 +173,31 @@ Fused and reference implementations now match exactly on this fixture, but the
 strict Hermes audit is still unchanged because the runtime ExB term has not yet
 been switched over to the assembled mirror operator.
 
+The next two mirror-only Phase 3 slices are now landed on top of that same
+fixture. First, `src/jaxdrb/hermes_mirror/species.py` now has the local
+`DDY(phi) -> applyBoundary("neumann")` preparation path for the Hermes
+poloidal X-flux branch, and `src/jaxdrb/hermes_mirror/exb.py` now has the
+matching local X-flux operator:
+`div_n_bxgrad_f_b_xppm_xy_x_local_ref` and friends. The current deterministic
+local RMS values are:
+
+- `Ne`: `0.0053911873`
+- `Pe`: `0.0052891376`
+
+Second, the same module now has the first assembled local full mirror ExB
+operator: `div_n_bxgrad_f_b_xppm_local_ref` and `div_n_bxgrad_f_b_xppm_local`.
+Those now combine the X-Z slice, the local X-flux branch, and the
+field-aligned Y-flux branch plus `fromFieldAligned(...)` in one function. The
+current deterministic local RMS values are:
+
+- `Ne`: `0.0072043576`
+- `Pe`: `0.0070714532`
+
+These are still mirror-only fixture checks, not runtime strict-audit numbers.
+The next remaining Milestone A ExB step is to route this assembled mirror
+operator into the strict runtime state-preparation path, then measure the first
+real strict Hermes-state delta from the mirror implementation.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash

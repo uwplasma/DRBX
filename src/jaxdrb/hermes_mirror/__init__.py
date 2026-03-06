@@ -12,8 +12,14 @@ from .boundary import (
     apply_neumann_field3d,
     set_boundary_to_midpoint,
 )
-from .derivs import ddx_centered_guarded
+from .derivs import ddx_centered_guarded, ddy_centered_guarded_local
 from .exb import (
+    div_n_bxgrad_f_b_xppm_local,
+    div_n_bxgrad_f_b_xppm_local_ref,
+    div_n_bxgrad_f_b_xppm_xy_x_local,
+    div_n_bxgrad_f_b_xppm_xy_x_local_from_fields,
+    div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref,
+    div_n_bxgrad_f_b_xppm_xy_x_local_ref,
     div_n_bxgrad_f_b_xppm_xy_y_local,
     div_n_bxgrad_f_b_xppm_xy_y_local_from_fields,
     div_n_bxgrad_f_b_xppm_xy_y_local_from_fields_ref,
@@ -22,7 +28,12 @@ from .exb import (
     div_n_bxgrad_f_b_xppm_xz_ref,
 )
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
-from .species import prepare_poloidal_y_dfdx_local, prepare_poloidal_y_dfdx_local_ref
+from .species import (
+    prepare_poloidal_x_dfdy_local,
+    prepare_poloidal_x_dfdy_local_ref,
+    prepare_poloidal_y_dfdx_local,
+    prepare_poloidal_y_dfdx_local_ref,
+)
 from .transform import (
     build_shifted_metric_weights,
     build_shifted_metric_fft_phases,
@@ -63,6 +74,13 @@ __all__ = [
     "build_shifted_metric_fft_phases",
     "build_shifted_metric_weights",
     "ddx_centered_guarded",
+    "ddy_centered_guarded_local",
+    "div_n_bxgrad_f_b_xppm_local",
+    "div_n_bxgrad_f_b_xppm_local_ref",
+    "div_n_bxgrad_f_b_xppm_xy_x_local",
+    "div_n_bxgrad_f_b_xppm_xy_x_local_from_fields",
+    "div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref",
+    "div_n_bxgrad_f_b_xppm_xy_x_local_ref",
     "div_n_bxgrad_f_b_xppm_xy_y_local",
     "div_n_bxgrad_f_b_xppm_xy_y_local_from_fields",
     "div_n_bxgrad_f_b_xppm_xy_y_local_from_fields_ref",
@@ -80,6 +98,8 @@ __all__ = [
     "limit_free",
     "mc_limiter",
     "minmod",
+    "prepare_poloidal_x_dfdy_local",
+    "prepare_poloidal_x_dfdy_local_ref",
     "prepare_poloidal_y_dfdx_local",
     "prepare_poloidal_y_dfdx_local_ref",
     "set_boundary_to_midpoint",
