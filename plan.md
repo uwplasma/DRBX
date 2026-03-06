@@ -388,6 +388,7 @@ Acceptance:
 
 ### Phase 4: Species state-preparation mirror
 
+- [x] local `DDX -> applyBoundary("neumann") -> toFieldAligned` prep helper exists
 - [ ] mirror density `transform_impl`
 - [ ] mirror density `finally`
 - [ ] mirror pressure `transform_impl`
@@ -633,6 +634,15 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `n advection/exb` and `Pe advection/exb`.
 - That rejection narrows the next target to the full local preparation chain:
   `DDX(phi)` + communication + Neumann guard application + shifted transform.
+- The first helper for that local preparation chain is now landed in
+  `src/jaxdrb/hermes_mirror/species.py`:
+  `prepare_poloidal_y_dfdx_local_ref`.
+- A new dump-backed local field-aligned fixture exists at
+  `tests/fixtures/hermes_mirror_phi_field_aligned_local_rank0_t1.npz`.
+- The new local prep regression in `tests/hermes_mirror/test_species.py`
+  shows that the literal local prep path differs materially from a guardless
+  approximation, which justifies continuing the mirror rewrite there instead of
+  making more production-path guesses.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.

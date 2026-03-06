@@ -143,6 +143,20 @@ is a literal local mirror of:
 3. `dfdx.applyBoundary("neumann")`
 4. `toFieldAligned(dfdx)`
 
+That local mirror prep step is now partly landed. The new helper
+`prepare_poloidal_y_dfdx_local_ref` in
+`src/jaxdrb/hermes_mirror/species.py` operates on a dump-backed local
+field-aligned fixture
+`tests/fixtures/hermes_mirror_phi_field_aligned_local_rank0_t1.npz`
+in `(npar, nx, nbinorm) = (y, x, z)` layout.
+
+On that fixture, the literal local prep path differs from a guardless
+approximation by a whole-field relative RMS of about `0.5269`. This is not yet
+directly a strict-audit number, because the helper is not wired into the active
+runtime path, but it is the clearest structural evidence so far that the
+remaining `Pe advection/exb` mismatch lives in the local preparation chain
+upstream of the final Y-flux formula.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash

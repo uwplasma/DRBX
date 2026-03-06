@@ -37,6 +37,27 @@ The translation rule is therefore:
 
 Every mirror helper must document which Hermes indices it corresponds to.
 
+### Local Field-Aligned Fixture Layout
+
+For shifted-transform and Y-flux preparation work there is now a second,
+explicitly named local fixture layout:
+
+\[
+(x, y, z)_\text{Hermes local} \longrightarrow (n_\parallel, x, n_\mathrm{binorm})_\text{mirror prep}
+\]
+
+Numerically this is:
+
+\[
+(x, y, z)_\text{Hermes local} \longrightarrow (y, x, z)_\text{mirror prep}
+\]
+
+This is used only for dump-backed local-rank preparation helpers that need to
+follow the Hermes `toFieldAligned(...)` path literally. The active runtime
+solver is not switched to this representation; it exists to avoid mixing
+boundary-primitives and shifted-transform validation in one ambiguous fixture
+format.
+
 ## Implemented Phase 1 Primitives
 
 ### 1. `limit_free`
@@ -393,6 +414,42 @@ guard-aware left-boundary `DDX(phi)` differs from the current guardless JAX
 boundary derivative by an RMS amount larger than the Hermes boundary derivative
 itself. In other words, the active runtime mismatch is not in the transform
 region bookkeeping alone; it is upstream in the state-preparation chain.
+
+## Phase 4 Local Prep Slice
+
+The first field-aligned local preparation helper is now landed in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/species.py`:
+
+- `prepare_poloidal_y_dfdx_local_ref`
+- `prepare_poloidal_y_dfdx_local`
+
+This mirrors the specific Hermes chain used by the Y-flux branch of
+`Div_n_bxGrad_f_B_XPPM`:
+
+1. `DDX(phi)`
+2. `mesh->communicate(dfdx)`
+3. `dfdx.applyBoundary("neumann")`
+4. `toFieldAligned(dfdx)`
+
+The current local fixture for that path is:
+
+- `/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_phi_field_aligned_local_rank0_t1.npz`
+
+It is extracted from:
+
+- `/Users/rogerio/local/jax_drb/runs/hermes_open_field_terms_t01_vortterms/data/BOUT.dmp.0.nc`
+
+with local field-aligned layout `(npar, nx, nbinorm) = (y, x, z)`.
+
+The corresponding tests in
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_species.py`
+cover:
+
+- zero-shift synthetic behavior,
+- autodiff,
+- dump-backed deterministic RMS values,
+- and a regression that shows the literal local prep path differs materially
+  from the current guardless approximation.
 
 ## References
 

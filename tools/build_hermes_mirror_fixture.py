@@ -44,6 +44,12 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help="Extra scalar or metadata key to copy without slicing.",
     )
+    parser.add_argument(
+        "--layout",
+        choices=("standard", "field_aligned"),
+        default="standard",
+        help="Output layout for BOUT dump extraction.",
+    )
     return parser.parse_args()
 
 
@@ -91,6 +97,7 @@ def build_bout_dump_fixture(
     output_path: Path,
     fields: list[str],
     time_index: int,
+    layout: str,
 ) -> None:
     try:
         from netCDF4 import Dataset
@@ -114,6 +121,10 @@ def build_bout_dump_fixture(
             "yend": np.asarray(yend, dtype=np.int32),
             "time_index": np.asarray(time_index, dtype=np.int32),
         }
+        if layout == "field_aligned":
+            payload["pstart"] = np.asarray(ystart, dtype=np.int32)
+            payload["pend"] = np.asarray(yend, dtype=np.int32)
+        nbinorm: int | None = None
 
         for name in fields:
             if name not in ds.variables:
@@ -125,19 +136,29 @@ def build_bout_dump_fixture(
                 else np.asarray(var[:], dtype=np.float64)
             )
             if raw.ndim == 3:
-                arr = np.transpose(raw, (2, 0, 1))
+                nbinorm = int(raw.shape[-1])
+                if layout == "field_aligned":
+                    arr = np.transpose(raw, (1, 0, 2))
+                else:
+                    arr = np.transpose(raw, (2, 0, 1))
                 payload[name] = arr
 
-                avg_lower = arr[:, xstart, :].mean(axis=0, keepdims=True)
-                avg_upper = arr[:, xend, :].mean(axis=0, keepdims=True)
-                payload[f"{name}__neumann_lower"] = 2.0 * avg_lower - arr[:, xstart, :]
-                payload[f"{name}__neumann_upper"] = 2.0 * avg_upper - arr[:, xend, :]
+                if layout == "standard":
+                    avg_lower = arr[:, xstart, :].mean(axis=0, keepdims=True)
+                    avg_upper = arr[:, xend, :].mean(axis=0, keepdims=True)
+                    payload[f"{name}__neumann_lower"] = 2.0 * avg_lower - arr[:, xstart, :]
+                    payload[f"{name}__neumann_upper"] = 2.0 * avg_upper - arr[:, xend, :]
             elif raw.ndim == 2:
-                payload[name] = raw
+                payload[name] = raw.T if layout == "field_aligned" else raw
             else:
                 raise ValueError(
                     f"Field {name!r} has shape {raw.shape}; expected local `(x, y, z)` or `(x, y)` data."
                 )
+
+        if layout == "field_aligned" and "dz" in ds.variables and nbinorm is not None:
+            raw_dz = np.asarray(ds.variables["dz"][:], dtype=np.float64)
+            dz_interior = raw_dz[mxg : mxg + mxsub, myg : myg + mysub]
+            payload["zlength"] = np.asarray(float(dz_interior.mean()) * nbinorm, dtype=np.float64)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(output_path, **payload)
@@ -151,6 +172,7 @@ def main() -> None:
             output_path=args.output,
             fields=list(args.fields),
             time_index=int(args.time_index),
+            layout=str(args.layout),
         )
     else:
         build_fixture(
