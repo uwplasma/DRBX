@@ -16,6 +16,8 @@ def _make_geom(
     exb_flux_scheme: str = "centered",
     exb_poloidal_x_scale: float = 1.0,
     exb_poloidal_y_scale: float = 1.0,
+    open_field_line: bool = False,
+    parallel_transform: str = "none",
 ) -> FieldAlignedGeometryAdapter:
     params = DRBSystemParams(
         numerics=NumericsParams(
@@ -27,7 +29,7 @@ def _make_geom(
             neumann_boundary_average_y=neumann_avg_y,
             perp_operator="fd",
             bracket="centered",
-            parallel_transform="none",
+            parallel_transform=parallel_transform,
         )
     )
     grid = FieldAlignedGrid.make(
@@ -40,7 +42,7 @@ def _make_geom(
         bc_x=bc_x,
         bc_y="periodic",
         dealias=False,
-        open_field_line=False,
+        open_field_line=open_field_line,
     )
     return FieldAlignedGeometryAdapter.from_coefficients(
         params=params,
@@ -49,11 +51,15 @@ def _make_geom(
         curv_y=0.0,
         dpar_factor=1.0,
         B=1.0,
+        z_shift=0.0 if parallel_transform == "shifted" else None,
         jacobian=1.0,
         gxx=1.0,
         gxy=0.0,
         gyy=1.0,
         g23=1.0 if with_g23 else None,
+        metric_dx=1.0,
+        metric_dy=1.0,
+        metric_dz=1.0,
     )
 
 
@@ -122,6 +128,25 @@ def test_exb_flux_scheme_hermes_fromm_differs_from_centered() -> None:
     div_fromm = geom_fromm.exb_flux_divergence(phi, adv)
 
     assert not jnp.allclose(div_fromm, div_centered, atol=1e-12, rtol=1e-12)
+
+
+def test_exb_flux_scheme_hermes_mirror_runs_on_shifted_open_field_geometry() -> None:
+    key_phi, key_adv = jax.random.split(jax.random.PRNGKey(30))
+    phi = jax.random.normal(key_phi, (6, 8, 8), dtype=jnp.float64)
+    adv = jax.random.normal(key_adv, (6, 8, 8), dtype=jnp.float64)
+
+    geom = _make_geom(
+        poloidal_on=True,
+        with_g23=True,
+        bc_x="neumann",
+        exb_flux_scheme="hermes_mirror",
+        open_field_line=True,
+        parallel_transform="shifted",
+    )
+    div = geom.exb_flux_divergence(phi, adv)
+
+    assert div.shape == adv.shape
+    assert jnp.isfinite(div).all()
 
 
 def test_exb_poloidal_branch_scales_split_x_and_y_contributions() -> None:

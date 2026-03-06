@@ -335,7 +335,10 @@ class NumericsParams(eqx.Module):
     # - "centered": centered flux divergence
     # - "hermes_fromm": legacy Fromm-upwind X-Z transport
     # - "hermes_xppm": Hermes/BOUT XPPM-like MC-limited X-Z transport
-    exb_flux_scheme: Literal["centered", "hermes_fromm", "hermes_xppm"] = "centered"
+    # - "hermes_mirror": runtime wrapper around the literal Hermes-mirror ExB path
+    exb_flux_scheme: Literal["centered", "hermes_fromm", "hermes_xppm", "hermes_mirror"] = (
+        "centered"
+    )
     # Hermes vorticity ExB term: simplified advect-Vort form, or full
     # polarization-current form used when `exb_advection_simplified = false`.
     exb_advection_simplified: bool = True

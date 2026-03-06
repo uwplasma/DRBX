@@ -225,6 +225,41 @@ mirror slice. It is runtime promotion: route the same mirrored preparation and
 operator ordering through the strict Hermes audit path and then re-run the
 1-step and 3-step gates.
 
+That first runtime promotion slice is now landed as an opt-in scheme:
+`exb_flux_scheme = "hermes_mirror"`. The runtime wrapper reconstructs a local
+guard-inclusive Hermes/BOUT view from global `(nz, nx, ny)` JAX arrays and then
+calls the validated local mirror ExB operator. The dump-backed wrapper
+regression lives in `tests/hermes_mirror/test_exb_runtime.py` and uses only the
+physical interior cells as input.
+
+On the local-rank fixture interior, the runtime wrapper gives:
+
+- `Ne` diff RMS: `2.488462499110523e-04`
+- `Pe` diff RMS: `2.6183313968993464e-04`
+
+That is close enough to keep the wrapper as the runtime promotion vehicle, but
+it is not yet strict-audit quality.
+
+The first live 3-step Hermes-state audit for the opt-in runtime scheme is
+recorded in `runs/audit_hermes_mirror_runtime_3step_v2`. After correcting the
+shifted-transform FFT length to use `metric_dz * nbinorm`, the runtime mirror
+path still regresses the early ExB channels relative to the current strict
+baseline:
+
+- `omega advection/exb`: `0.06804918916596805`
+- `n advection/exb`: `0.04636472581495929`
+- `Pe advection/exb`: `0.038900114007649214`
+
+while the parallel channels stay identical to the current best strict run:
+
+- `n parallel/par`: `0.0029585637833904267`
+- `Pe parallel/par_total`: `0.0025796150980648175`
+- `omega parallel/jpar`: `0.001995419920917737`
+
+So the next Milestone A target is narrower now: match the global Hermes
+guard/communication contract used by the ExB operator promotion path before
+switching the strict configs to `hermes_mirror`.
+
 The first Phase 4 species state-preparation helpers are now also landed in
 `src/jaxdrb/hermes_mirror/species.py`:
 `density_transform_impl` and `pressure_transform_impl`. These reconstruct the

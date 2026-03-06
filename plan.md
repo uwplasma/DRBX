@@ -368,17 +368,17 @@ Create in this order:
 - [x] local `div_n_bxgrad_f_b_xppm_xy_x_local_ref`
 - [x] local field-aligned `div_n_bxgrad_f_b_xppm_xy_y_local_ref`
 - [x] local assembled `div_n_bxgrad_f_b_xppm_local_ref`
-- [ ] runtime-facing fused production version
+- [x] runtime-facing fused production version
 
 Wire first for:
 
-- [ ] density ExB term
-- [ ] pressure ExB term
+- [x] density ExB term
+- [x] pressure ExB term
 
 Then:
 
-- [ ] temperature ExB term
-- [ ] vorticity ExB term
+- [x] temperature ExB term
+- [x] vorticity ExB term
 
 Acceptance:
 
@@ -708,6 +708,28 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.
+- Added the opt-in runtime wrapper
+  `src/jaxdrb/hermes_mirror/exb.py::div_n_bxgrad_f_b_xppm` plus dump-backed
+  regression `tests/hermes_mirror/test_exb_runtime.py`. On the local-rank
+  fixture interior, the wrapper reaches:
+  `Ne` RMS `2.488462499110523e-04`,
+  `Pe` RMS `2.6183313968993464e-04`,
+  with correlations above `0.983`.
+- Wired that wrapper into the active field-aligned geometry adapter behind
+  `exb_flux_scheme = "hermes_mirror"` and added geometry-path coverage in
+  `tests/test_exb_poloidal_flows.py`.
+- The first live 3-step Hermes-state audit of the opt-in runtime mirror path is
+  recorded in `runs/audit_hermes_mirror_runtime_3step_v2`. After correcting the
+  shifted-transform FFT length to use `metric_dz * nbinorm`, the runtime mirror
+  path still regresses the early ExB channels:
+  `omega advection/exb = 0.06804918916596805`,
+  `n advection/exb = 0.04636472581495929`,
+  `Pe advection/exb = 0.038900114007649214`,
+  while the parallel channels remain unchanged from the current best strict
+  baseline.
+- Conclusion: the remaining blocker is now the global guard reconstruction and
+  communication contract for runtime ExB promotion, not the local mirrored ExB
+  algebra itself. Strict configs are not yet switched to `hermes_mirror`.
 
 ---
 
