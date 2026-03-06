@@ -5,6 +5,7 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.hermes_mirror import density_transform_global, pressure_transform_global
 
 from .context import TermContext
 from .fields import _electron_pressure, _metric_div_coeff
@@ -91,6 +92,9 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
     phi = ctx.phi
     use_flux = str(ctx.params.exb_advection_form).lower() == "flux"
     use_flux = use_flux and getattr(ctx.geom, "jacobian", None) is not None
+    use_hermes_mirror = str(getattr(ctx.params, "exb_flux_scheme", "centered")).lower() == (
+        "hermes_mirror"
+    )
     fields = [
         ctx.n_phys,
         y.omega,
@@ -108,10 +112,32 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
 
     if use_flux:
         with jax.named_scope("exb_flux_terms"):
+            n_adv_field = density_transform_global(ctx.n_phys) if use_hermes_mirror else ctx.n_phys
+            if use_hermes_mirror:
+                pe_adv_field, Te_adv_field = pressure_transform_global(
+                    ctx.n_phys * ctx.Te_phys,
+                    n_adv_field,
+                    density_floor=ctx.n_floor,
+                )
+                if ctx.hot_on:
+                    pi_adv_field, Ti_adv_field = pressure_transform_global(
+                        ctx.n_phys * ctx.Ti,
+                        n_adv_field,
+                        density_floor=ctx.n_floor,
+                    )
+                else:
+                    pi_adv_field = jnp.zeros_like(ctx.Ti)
+                    Ti_adv_field = jnp.zeros_like(ctx.Ti)
+            else:
+                pe_adv_field = ctx.n_phys * ctx.Te_phys
+                Te_adv_field = ctx.Te_phys
+                pi_adv_field = ctx.n_phys * ctx.Ti
+                Ti_adv_field = ctx.Ti
+
             adv_n = (
                 -ctx.geom.exb_flux_divergence(
                     phi,
-                    ctx.n_phys,
+                    n_adv_field,
                     bc_phi=bc.phi,
                     bc_adv=bc_fields[0],
                     positive=True,
@@ -125,12 +151,12 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
             if not bool(getattr(ctx.params, "exb_advection_simplified", True)):
                 adv_w = _full_omega_exb_advection(ctx, y, phi=phi, scale=scale)
             use_cons = bool(ctx.params.exb_advect_conservative)
-            n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
+            n_eff = jnp.maximum(n_adv_field, float(ctx.params.n0_min))
             if use_cons:
                 dNV_e = (
                     -ctx.geom.exb_flux_divergence(
                         phi,
-                        ctx.n_phys * y.vpar_e,
+                        n_adv_field * y.vpar_e,
                         bc_phi=bc.phi,
                         bc_adv=bc_fields[2],
                         positive=True,
@@ -141,7 +167,7 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
                 dNV_i = (
                     -ctx.geom.exb_flux_divergence(
                         phi,
-                        ctx.n_phys * y.vpar_i,
+                        n_adv_field * y.vpar_i,
                         bc_phi=bc.phi,
                         bc_adv=bc_fields[3],
                         positive=True,
@@ -152,26 +178,26 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
                 dP_e = (
                     -ctx.geom.exb_flux_divergence(
                         phi,
-                        ctx.n_phys * ctx.Te_phys,
+                        pe_adv_field,
                         bc_phi=bc.phi,
                         bc_adv=bc_fields[4],
                         positive=True,
                     )
                     * scale
                 )
-                adv_Te = (dP_e - ctx.Te_phys * adv_n) / n_eff
+                adv_Te = (dP_e - Te_adv_field * adv_n) / n_eff
                 if ctx.hot_on:
                     dP_i = (
                         -ctx.geom.exb_flux_divergence(
                             phi,
-                            ctx.n_phys * ctx.Ti,
+                            pi_adv_field,
                             bc_phi=bc.phi,
                             bc_adv=bc_fields[5],
                             positive=True,
                         )
                         * scale
                     )
-                    adv_Ti = (dP_i - ctx.Ti * adv_n) / n_eff
+                    adv_Ti = (dP_i - Ti_adv_field * adv_n) / n_eff
                     idx = 6
                 else:
                     adv_Ti = jnp.zeros_like(ctx.Ti)
@@ -187,14 +213,14 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
                 )
                 adv_Te = (
                     -ctx.geom.exb_flux_divergence(
-                        phi, ctx.Te_phys, bc_phi=bc.phi, bc_adv=bc_fields[4]
+                        phi, Te_adv_field, bc_phi=bc.phi, bc_adv=bc_fields[4]
                     )
                     * scale
                 )
                 if ctx.hot_on:
                     adv_Ti = (
                         -ctx.geom.exb_flux_divergence(
-                            phi, ctx.Ti, bc_phi=bc.phi, bc_adv=bc_fields[5]
+                            phi, Ti_adv_field, bc_phi=bc.phi, bc_adv=bc_fields[5]
                         )
                         * scale
                     )

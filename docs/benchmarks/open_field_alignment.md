@@ -240,6 +240,23 @@ On the local-rank fixture interior, the runtime wrapper gives:
 That is close enough to keep the wrapper as the runtime promotion vehicle, but
 it is not yet strict-audit quality.
 
+The next landed runtime slice is a stitched global Hermes fixture plus a
+hybrid open-boundary wrapper for `hermes_mirror`. The new fixture builder is
+`tools/build_hermes_mirror_runtime_fixture.py`, the checked-in runtime fixture
+is `tests/fixtures/hermes_mirror_exb_global_t1.npz`, and the new regression is
+`tests/hermes_mirror/test_exb_runtime_global.py`.
+
+That regression shows that the residual is concentrated in the first and last
+open parallel subdomains. Re-evaluating only those edge blocks with the local
+guard-inclusive mirror operator, via
+`hermes_mirror_parallel_edge_block = 8`, improves the actual global term arrays
+substantially:
+
+- `Ne` runtime-wrapper RMS: `9.281612304656274e-04 -> 2.7785371223075885e-04`
+- `Pe` runtime-wrapper RMS: `9.436398753984853e-04 -> 2.9023628701603716e-04`
+- `Ne` correlation: `0.9507164518528228 -> 0.99676569423027`
+- `Pe` correlation: `0.9452534023907078 -> 0.9964150807456237`
+
 The first live 3-step Hermes-state audit for the opt-in runtime scheme is
 recorded in `runs/audit_hermes_mirror_runtime_3step_v2`. After correcting the
 shifted-transform FFT length to use `metric_dz * nbinorm`, the runtime mirror
@@ -256,9 +273,27 @@ while the parallel channels stay identical to the current best strict run:
 - `Pe parallel/par_total`: `0.0025796150980648175`
 - `omega parallel/jpar`: `0.001995419920917737`
 
+With the new edge-block wrapper, the smallest strict gate is
+`runs/audit_hermes_mirror_edge_block_1step`. The current scalar fail-fast
+metric only moves slightly:
+
+- `omega advection/exb`: `0.06804918916596805 -> 0.06712108791244092`
+- `Pe advection/exb`: `0.038900114007649214 -> 0.03873682407548267`
+
+while the `n` scalar row becomes worse in `term_mismatch.csv` even though the
+direct built-system term arrays improve strongly. That is because the current
+`term_mismatch.csv` ranking compares only term RMS magnitudes, not array
+differences. The built-system direct mirror calls on the same Hermes snapshot
+now give:
+
+- `n` term vs Hermes `term_Ne_exb` RMS: `2.7785371223075885e-04`
+- `Pe` term vs Hermes `term_Pe_exb` RMS: `2.9023628701559654e-04`
+
 So the next Milestone A target is narrower now: match the global Hermes
-guard/communication contract used by the ExB operator promotion path before
-switching the strict configs to `hermes_mirror`.
+guard/communication contract at the open-end parallel blocks, and tighten the
+strict audit reporting so operator-array improvements are visible alongside the
+existing RMS-magnitude gate, before switching the strict configs to
+`hermes_mirror`.
 
 The first Phase 4 species state-preparation helpers are now also landed in
 `src/jaxdrb/hermes_mirror/species.py`:

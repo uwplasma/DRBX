@@ -8,8 +8,12 @@ import numpy as np
 
 from jaxdrb.hermes_mirror import (
     FieldAlignedLocalLayout,
+    density_transform_global,
+    density_transform_impl,
     prepare_poloidal_x_dfdy_local_ref,
     prepare_poloidal_y_dfdx_local_ref,
+    pressure_transform_global,
+    pressure_transform_impl,
 )
 
 _FIXTURE = (
@@ -186,6 +190,80 @@ def test_prepare_poloidal_x_dfdy_local_ref_applies_lower_parallel_neumann() -> N
     np.testing.assert_allclose(
         np.asarray(out[layout.pstart - 2, :, :]),
         np.asarray(out[layout.pstart + 1, :, :]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_density_transform_global_matches_local_interior() -> None:
+    with np.load(_EXB_FIXTURE, allow_pickle=False) as data:
+        density = jnp.asarray(data["Ne"], dtype=jnp.float64)
+        layout = FieldAlignedLocalLayout(
+            pstart=int(np.asarray(data["pstart"])),
+            pend=int(np.asarray(data["pend"])),
+            xstart=int(np.asarray(data["xstart"])),
+            xend=int(np.asarray(data["xend"])),
+        )
+        sl = (
+            slice(layout.pstart, layout.pend + 1),
+            slice(layout.xstart, layout.xend + 1),
+            slice(None),
+        )
+
+    local = density_transform_impl(
+        density,
+        layout=layout,
+        neumann_boundary_average_z=True,
+    )[sl]
+    global_prepped = density_transform_global(density[sl])
+    np.testing.assert_allclose(
+        np.asarray(global_prepped), np.asarray(local), rtol=1e-12, atol=1e-12
+    )
+
+
+def test_pressure_transform_global_matches_local_interior() -> None:
+    with np.load(_EXB_FIXTURE, allow_pickle=False) as data:
+        density = jnp.asarray(data["Ne"], dtype=jnp.float64)
+        pressure = jnp.asarray(data["Pe"], dtype=jnp.float64)
+        layout = FieldAlignedLocalLayout(
+            pstart=int(np.asarray(data["pstart"])),
+            pend=int(np.asarray(data["pend"])),
+            xstart=int(np.asarray(data["xstart"])),
+            xend=int(np.asarray(data["xend"])),
+        )
+        sl = (
+            slice(layout.pstart, layout.pend + 1),
+            slice(layout.xstart, layout.xend + 1),
+            slice(None),
+        )
+
+    density_local = density_transform_impl(
+        density,
+        layout=layout,
+        neumann_boundary_average_z=True,
+    )
+    pressure_local, temperature_local = pressure_transform_impl(
+        pressure,
+        density_local,
+        density_floor=1e-6,
+        layout=layout,
+        neumann_boundary_average_z=True,
+    )
+    pressure_global, temperature_global = pressure_transform_global(
+        pressure[sl],
+        density[sl],
+        density_floor=1e-6,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(pressure_global),
+        np.asarray(pressure_local[sl]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(temperature_global),
+        np.asarray(temperature_local[sl]),
         rtol=1e-12,
         atol=1e-12,
     )

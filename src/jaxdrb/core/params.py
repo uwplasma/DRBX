@@ -356,6 +356,12 @@ class NumericsParams(eqx.Module):
     # These default to 1.0 and are useful for short-window operator audits.
     exb_poloidal_x_scale: float = 1.0
     exb_poloidal_y_scale: float = 1.0
+    # Optional Hermes-mirror runtime edge-block size. When positive on
+    # open-field runs, the literal mirror wrapper re-evaluates the first and
+    # last parallel blocks with the local guard-inclusive mirror operator.
+    # This targets the Hermes end-rank communication/boundary contract without
+    # decomposing the full domain.
+    hermes_mirror_parallel_edge_block: int = 0
     # Index-space DDY operator for the metric-coupled X-Y ExB term:
     # - "face": finite-volume face divergence style (legacy)
     # - "c2": centered 2nd-order DDY-like operator (Hermes/BOUT-like)
