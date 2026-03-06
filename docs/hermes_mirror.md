@@ -343,6 +343,29 @@ The runtime `engine = "hermes_mirror"` is intentionally not wired yet. That
 will start only after the primitive and transform phases have executable tests
 and dump-backed fixtures.
 
+Phase 3 started on 2026-03-06 with the first mirrored ExB transport slice:
+
+- `div_n_bxgrad_f_b_xppm_xz`
+- `div_n_bxgrad_f_b_xppm_xz_ref`
+
+This slice mirrors only the X-Z branch of Hermes
+`Div_n_bxGrad_f_B_XPPM`, which is the part of the operator that already maps
+cleanly onto the existing JAX `(nz, nx, ny)` storage and current
+`exb_flux_divergence(..., hermes_xppm)` implementation when poloidal ExB flows
+are disabled.
+
+The current validation for this slice is intentionally layered:
+
+- synthetic fused-versus-reference equality for MC and Fromm reconstruction,
+- equality with the existing unified X-Z `hermes_xppm` path when
+  `exb_poloidal_flows = false`,
+- `jax.grad(...)` coverage to keep the mirror operator differentiable before the
+  full ExB term is assembled.
+
+The full mirror ExB operator is still incomplete because the Y-flux branch,
+field-aligned transform wiring, and dump-backed parity fixtures are not landed
+yet.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

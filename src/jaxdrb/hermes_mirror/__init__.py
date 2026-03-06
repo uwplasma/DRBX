@@ -12,6 +12,7 @@ from .boundary import (
     apply_neumann_field3d,
     set_boundary_to_midpoint,
 )
+from .exb import div_n_bxgrad_f_b_xppm_xz, div_n_bxgrad_f_b_xppm_xz_ref
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
 from .transform import (
     build_shifted_metric_weights,
@@ -38,6 +39,8 @@ __all__ = [
     "apply_neumann_field3d",
     "build_shifted_metric_fft_phases",
     "build_shifted_metric_weights",
+    "div_n_bxgrad_f_b_xppm_xz",
+    "div_n_bxgrad_f_b_xppm_xz_ref",
     "from_field_aligned_nobndry_fft",
     "from_field_aligned_nobndry_fft_ref",
     "from_field_aligned_nobndry",
