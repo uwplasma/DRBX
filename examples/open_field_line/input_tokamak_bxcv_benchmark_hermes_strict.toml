@@ -112,6 +112,7 @@ parallel_sign = 1.0
 dpar_factor_scale = 1.0
 use_gpar_flux = true
 parallel_transform = "shifted"
+parallel_shift_interp = "spectral"
 poisson_b_weighted = true
 poisson_invert_set = true
 poisson_metric_on = true

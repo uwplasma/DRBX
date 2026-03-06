@@ -21,6 +21,7 @@ def test_open_field_strict_config_uses_flux_form_numerics() -> None:
     assert numerics["parallel_fixflux"] is True
     assert numerics["parallel_sheath_flux_mode"] == "boundary_flux"
     assert numerics["parallel_transform"] == "shifted"
+    assert numerics["parallel_shift_interp"] == "spectral"
     assert numerics["parallel_current_limiter"] == "none"
 
 
