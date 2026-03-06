@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from .types import GuardLayout
+from .types import FieldAlignedLocalLayout, GuardLayout
 
 
 def _broadcast_metric(arr: jnp.ndarray, shape: tuple[int, int, int], name: str) -> jnp.ndarray:
@@ -53,4 +53,63 @@ def ddx_centered_guarded(
         return out
     return out.at[:, 1:-1, :].set(
         (field_arr[:, 2:, :] - field_arr[:, :-2, :]) / jnp.maximum(2.0 * dx_arr[:, 1:-1, :], 1e-30)
+    )
+
+
+def _broadcast_local_metric(
+    arr: jnp.ndarray | float, shape: tuple[int, int, int], name: str
+) -> jnp.ndarray:
+    out = jnp.asarray(arr, dtype=jnp.float64)
+    npar, nx, nbinorm = shape
+    if out.ndim == 0:
+        return jnp.full(shape, out, dtype=jnp.float64)
+    if out.ndim == 1:
+        if out.shape[0] == npar:
+            return jnp.broadcast_to(out[:, None, None], shape)
+        if out.shape[0] == nx:
+            return jnp.broadcast_to(out[None, :, None], shape)
+        if out.shape[0] == nbinorm:
+            return jnp.broadcast_to(out[None, None, :], shape)
+    if out.ndim == 2:
+        if out.shape == (npar, nx):
+            return jnp.broadcast_to(out[:, :, None], shape)
+        if out.shape == (npar, nbinorm):
+            return jnp.broadcast_to(out[:, None, :], shape)
+        if out.shape == (nx, nbinorm):
+            return jnp.broadcast_to(out[None, :, :], shape)
+        if out.shape == (npar, 1):
+            return jnp.broadcast_to(out[:, :, None], shape)
+        if out.shape == (1, nx):
+            return jnp.broadcast_to(out[0][None, :, None], shape)
+        if out.shape == (1, nbinorm):
+            return jnp.broadcast_to(out[0][None, None, :], shape)
+    if out.ndim == 3 and out.shape == shape:
+        return out
+    raise ValueError(
+        f"{name} has unsupported shape {out.shape}; expected broadcastable to {shape}."
+    )
+
+
+def ddy_centered_guarded_local(
+    field: jnp.ndarray,
+    dy: jnp.ndarray | float,
+    *,
+    layout: FieldAlignedLocalLayout | None = None,
+) -> jnp.ndarray:
+    """Mirror of centred `DDY(f)` on local field-aligned guard-inclusive arrays."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    if field_arr.ndim != 3:
+        raise ValueError(
+            f"field must have shape `(npar, nx, nbinorm)` for local DDY, got {field_arr.shape}."
+        )
+    if layout is not None:
+        layout.validate(tuple(int(v) for v in field_arr.shape))
+
+    dy_arr = _broadcast_local_metric(dy, tuple(int(v) for v in field_arr.shape), "dy")
+    out = jnp.zeros_like(field_arr)
+    if field_arr.shape[0] <= 2:
+        return out
+    return out.at[1:-1, :, :].set(
+        (field_arr[2:, :, :] - field_arr[:-2, :, :]) / jnp.maximum(2.0 * dy_arr[1:-1, :, :], 1e-30)
     )
