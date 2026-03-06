@@ -175,6 +175,98 @@ def test_metric_open_ddy_c2_uses_local_cell_spacing() -> None:
     assert jnp.allclose(ddy, expected, atol=1e-12, rtol=1e-12)
 
 
+def test_poloidal_x_boundary_face_uses_ghost_metric_average() -> None:
+    params_off = DRBSystemParams(
+        numerics=NumericsParams(
+            exb_poloidal_flows=False,
+            exb_flux_scheme="centered",
+            exb_poloidal_ddy_scheme="c2",
+            perp_operator="fd",
+            bracket="centered",
+            parallel_transform="none",
+        )
+    )
+    params_on = DRBSystemParams(
+        numerics=NumericsParams(
+            exb_poloidal_flows=True,
+            exb_poloidal_scale=1.0,
+            exb_poloidal_x_scale=1.0,
+            exb_poloidal_y_scale=0.0,
+            exb_flux_scheme="centered",
+            exb_poloidal_ddy_scheme="c2",
+            perp_operator="fd",
+            bracket="centered",
+            parallel_transform="none",
+        )
+    )
+    grid = FieldAlignedGrid.make(
+        nx=8,
+        ny=8,
+        nz=6,
+        Lx=1.0,
+        Ly=1.0,
+        Lz=1.0,
+        bc_x="neumann",
+        bc_y="periodic",
+        dealias=False,
+        open_field_line=True,
+    )
+    jacobian = jnp.broadcast_to(
+        jnp.arange(1.0, 9.0, dtype=jnp.float64)[None, :, None],
+        (6, 8, 8),
+    )
+    geom_off = FieldAlignedGeometryAdapter.from_coefficients(
+        params=params_off,
+        grid=grid,
+        curv_x=0.0,
+        curv_y=0.0,
+        dpar_factor=1.0,
+        B=1.0,
+        jacobian=jacobian,
+        gxx=1.0,
+        gxy=0.0,
+        gyy=1.0,
+        g23=1.0,
+    )
+    geom_on = FieldAlignedGeometryAdapter.from_coefficients(
+        params=params_on,
+        grid=grid,
+        curv_x=0.0,
+        curv_y=0.0,
+        dpar_factor=1.0,
+        B=1.0,
+        jacobian=jacobian,
+        gxx=1.0,
+        gxy=0.0,
+        gyy=1.0,
+        g23=1.0,
+    )
+    phi = jnp.broadcast_to(
+        (jnp.arange(6, dtype=jnp.float64) * grid.dz)[:, None, None],
+        (6, 8, 8),
+    )
+    adv = jnp.ones_like(phi)
+
+    poloidal = geom_on.exb_flux_divergence(phi, adv) - geom_off.exb_flux_divergence(phi, adv)
+
+    dphi_dy = geom_on._ddy_open_c2(phi)
+    left_j = jacobian[:, 0, :]
+    right_j = jacobian[:, 1, :]
+    left_coeff = dphi_dy[:, 0, :]
+    right_coeff = dphi_dy[:, 1, :]
+    left_j_ghost = 2.0 * left_j - right_j
+    left_coeff_ghost = 2.0 * left_coeff - right_coeff
+    left_flux = 0.5 * (left_j + left_j_ghost) * 0.5 * (left_coeff + left_coeff_ghost)
+    right_flux = 0.5 * (left_j + right_j) * 0.5 * (left_coeff + right_coeff)
+    expected_left = (right_flux - left_flux) / (left_j * grid.perp.dx)
+
+    old_left_flux = left_j * left_coeff
+    old_expected_left = (right_flux - old_left_flux) / (left_j * grid.perp.dx)
+
+    assert jnp.allclose(poloidal[:, 0, :], expected_left, atol=1e-12, rtol=1e-12)
+    assert not jnp.allclose(poloidal[:, 0, :], old_expected_left, atol=1e-12, rtol=1e-12)
+
+
 def test_shifted_transform_nox_leaves_x_boundaries_unshifted() -> None:
     params = DRBSystemParams(
         numerics=NumericsParams(
