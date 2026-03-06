@@ -84,6 +84,12 @@ The first dump-backed mirror fixture is now checked in at
 (`Ne`, local rank 0, `t=0.01`). This fixture backs the `neumann_boundary_average_z`
 regression in `tests/hermes_mirror/test_primitives.py`.
 
+The next landed mirror slice adds precomputed shifted-transform weights plus
+reference/fused implementations of `to_field_aligned_nox` and
+`from_field_aligned_nobndry`, validated against the existing JAX shifted metric
+path where the semantics overlap. This still does not change the strict Hermes
+audit, because the mirror transform is not yet wired into the active RHS terms.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash
