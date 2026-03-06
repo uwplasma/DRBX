@@ -707,17 +707,28 @@ def div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref(
     *,
     dy: jnp.ndarray | float,
     dx: jnp.ndarray | float,
+    z_shift: jnp.ndarray | float,
+    zlength: float,
     jacobian: jnp.ndarray | float,
     g11: jnp.ndarray | float,
     g23: jnp.ndarray | float,
     bxy: jnp.ndarray | float,
     layout: FieldAlignedLocalLayout,
     bndry_flux: bool,
+    interp: str = "spectral",
     positive: bool = False,
 ) -> jnp.ndarray:
     """Reference local X-flux branch starting from unaligned local fields."""
 
-    dfdy = prepare_poloidal_x_dfdy_local_ref(f, dy=dy, dx=dx, layout=layout)
+    dfdy = prepare_poloidal_x_dfdy_local_ref(
+        f,
+        dy=dy,
+        dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        interp=interp,
+    )
     return div_n_bxgrad_f_b_xppm_xy_x_local_ref(
         n,
         dfdy,
@@ -738,17 +749,28 @@ def div_n_bxgrad_f_b_xppm_xy_x_local_from_fields(
     *,
     dy: jnp.ndarray | float,
     dx: jnp.ndarray | float,
+    z_shift: jnp.ndarray | float,
+    zlength: float,
     jacobian: jnp.ndarray | float,
     g11: jnp.ndarray | float,
     g23: jnp.ndarray | float,
     bxy: jnp.ndarray | float,
     layout: FieldAlignedLocalLayout,
     bndry_flux: bool,
+    interp: str = "spectral",
     positive: bool = False,
 ) -> jnp.ndarray:
     """Fused local X-flux branch starting from unaligned local fields."""
 
-    dfdy = prepare_poloidal_x_dfdy_local(f, dy=dy, dx=dx, layout=layout)
+    dfdy = prepare_poloidal_x_dfdy_local(
+        f,
+        dy=dy,
+        dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        interp=interp,
+    )
     return div_n_bxgrad_f_b_xppm_xy_x_local(
         n,
         dfdy,
@@ -817,12 +839,15 @@ def div_n_bxgrad_f_b_xppm_local_ref(
         f,
         dy=dy,
         dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
         jacobian=jacobian,
         g11=g11,
         g23=g23,
         bxy=bxy,
         layout=layout,
         bndry_flux=bndry_flux,
+        interp=interp,
         positive=positive,
     )
     y_fa = div_n_bxgrad_f_b_xppm_xy_y_local_from_fields_ref(
@@ -908,12 +933,15 @@ def div_n_bxgrad_f_b_xppm_local(
         f,
         dy=dy,
         dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
         jacobian=jacobian,
         g11=g11,
         g23=g23,
         bxy=bxy,
         layout=layout,
         bndry_flux=bndry_flux,
+        interp=interp,
         positive=positive,
     )
     y_fa = div_n_bxgrad_f_b_xppm_xy_y_local_from_fields(

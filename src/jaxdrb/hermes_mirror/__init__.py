@@ -12,7 +12,11 @@ from .boundary import (
     apply_neumann_field3d,
     set_boundary_to_midpoint,
 )
-from .derivs import ddx_centered_guarded, ddy_centered_guarded_local
+from .derivs import (
+    ddx_centered_guarded,
+    ddy_centered_guarded_local,
+    ddy_index_centered_guarded_local,
+)
 from .exb import (
     div_n_bxgrad_f_b_xppm_local,
     div_n_bxgrad_f_b_xppm_local_ref,
@@ -77,6 +81,7 @@ __all__ = [
     "build_shifted_metric_weights",
     "ddx_centered_guarded",
     "ddy_centered_guarded_local",
+    "ddy_index_centered_guarded_local",
     "density_transform_impl",
     "div_n_bxgrad_f_b_xppm_local",
     "div_n_bxgrad_f_b_xppm_local_ref",

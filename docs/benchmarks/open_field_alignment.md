@@ -193,10 +193,28 @@ current deterministic local RMS values are:
 - `Ne`: `0.0072043576`
 - `Pe`: `0.0070714532`
 
-These are still mirror-only fixture checks, not runtime strict-audit numbers.
-The next remaining Milestone A ExB step is to route this assembled mirror
-operator into the strict runtime state-preparation path, then measure the first
-real strict Hermes-state delta from the mirror implementation.
+That assembled local operator now also has a direct Hermes-term regression on a
+new fixture,
+`tests/fixtures/hermes_mirror_exb_term_local_rank0_t1.npz`, which includes the
+raw `term_Ne_exb` and `term_Pe_exb` arrays from the same dump. On the physical
+interior cells, the mirror operator is now essentially at parity:
+
+- `Ne` interior diff RMS: `2.8867991448834276e-05`
+- `Pe` interior diff RMS: `1.2432835191026055e-05`
+- `Ne` interior correlation: `0.9998132247422601`
+- `Pe` interior correlation: `0.9999591421467119`
+
+The remaining mismatch is concentrated in the lower open-boundary guard cells,
+not the interior operator. The dominant current `Ne` diff regions are:
+
+- `xlow_guard`: `3.03297619604618e-02`
+- `ylow_guard`: `1.7801910843170923e-02`
+- lower-left corner: `1.0506537581007377e-01`
+
+So the next remaining Milestone A ExB step is no longer “rewrite the operator.”
+It is to mirror the lower-open-boundary guard semantics of the X-flux
+diagnostic path before routing the assembled mirror operator into the strict
+runtime state-preparation path.
 
 The first Phase 4 species state-preparation helpers are now also landed in
 `src/jaxdrb/hermes_mirror/species.py`:
