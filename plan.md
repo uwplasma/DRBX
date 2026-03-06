@@ -383,7 +383,7 @@ Then:
 Acceptance:
 
 - [x] dump-backed local `Ne` / `Pe` ExB terms match Hermes on interior cells
-- [ ] lower-open-boundary guard cells match Hermes diagnostic semantics
+- [x] lower-open-boundary guard cells match Hermes diagnostic semantics
 - [ ] `Ne exb` strict 1-step leader removed
 - [ ] `Pe exb` strict 1-step leader removed
 - [ ] 3-step term audit stays improved
@@ -543,6 +543,7 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - [x] local X-flux slice exists with fused/reference + dump-backed tests.
 - [x] local field-aligned Y-flux slice exists with fused/reference + dump-backed tests.
 - [x] local assembled full ExB mirror exists with fused/reference + dump-backed tests.
+- [x] local assembled full ExB mirror matches Hermes on all dump-backed cells.
 - [ ] `Ne exb` strict 1-step mismatch reduced below threshold.
 - [ ] `Pe exb` strict 1-step mismatch reduced below threshold.
 - [ ] 3-step audit remains green for ExB.
@@ -682,10 +683,19 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `Ne` interior diff RMS `2.8867991448834276e-05`,
   `Pe` interior diff RMS `1.2432835191026055e-05`,
   with interior correlations above `0.9998`.
-- The remaining ExB mismatch is now localized to the lower open-boundary guard
-  cells, especially the lower-x guard, lower-y guard, and lower-left corner of
-  the X-flux path. The next Phase 3 target is guard/boundary diagnostic
-  semantics, not interior operator algebra.
+- The remaining ExB mismatch was then traced to the local `DDY(f)` preparation
+  path for the X-flux branch: the mirror helper was missing the lower-open
+  parallel `applyBoundary("neumann")` step that Hermes applies after
+  `mesh->communicate(dfdy)`.
+- That fix is now landed in `src/jaxdrb/hermes_mirror/species.py` and threaded
+  through the local X-flux/operator entrypoints. Dump-backed full-term parity is
+  now closed across all local cells:
+  `Ne` all-cell diff RMS `3.072901445531812e-05`,
+  `Pe` all-cell diff RMS `1.3376334360587529e-05`,
+  with all-cell correlations above `0.99998`.
+- The next remaining Phase 3 target is runtime promotion of that same mirror
+  ExB path into the strict Hermes audit configs, not further local operator
+  reconstruction.
 - Added the first Phase 4 species state-preparation helpers in
   `src/jaxdrb/hermes_mirror/species.py`:
   `density_transform_impl` and `pressure_transform_impl`.

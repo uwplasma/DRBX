@@ -717,6 +717,9 @@ def div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref(
     bndry_flux: bool,
     interp: str = "spectral",
     positive: bool = False,
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
 ) -> jnp.ndarray:
     """Reference local X-flux branch starting from unaligned local fields."""
 
@@ -728,6 +731,9 @@ def div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref(
         zlength=zlength,
         layout=layout,
         interp=interp,
+        lower_boundary_open=lower_boundary_open,
+        upper_boundary_open=upper_boundary_open,
+        periodic_parallel=periodic_parallel,
     )
     return div_n_bxgrad_f_b_xppm_xy_x_local_ref(
         n,
@@ -759,6 +765,9 @@ def div_n_bxgrad_f_b_xppm_xy_x_local_from_fields(
     bndry_flux: bool,
     interp: str = "spectral",
     positive: bool = False,
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
 ) -> jnp.ndarray:
     """Fused local X-flux branch starting from unaligned local fields."""
 
@@ -770,6 +779,9 @@ def div_n_bxgrad_f_b_xppm_xy_x_local_from_fields(
         zlength=zlength,
         layout=layout,
         interp=interp,
+        lower_boundary_open=lower_boundary_open,
+        upper_boundary_open=upper_boundary_open,
+        periodic_parallel=periodic_parallel,
     )
     return div_n_bxgrad_f_b_xppm_xy_x_local(
         n,
@@ -849,6 +861,9 @@ def div_n_bxgrad_f_b_xppm_local_ref(
         bndry_flux=bndry_flux,
         interp=interp,
         positive=positive,
+        lower_boundary_open=lower_boundary_open,
+        upper_boundary_open=upper_boundary_open,
+        periodic_parallel=periodic_parallel,
     )
     y_fa = div_n_bxgrad_f_b_xppm_xy_y_local_from_fields_ref(
         n,
@@ -943,6 +958,9 @@ def div_n_bxgrad_f_b_xppm_local(
         bndry_flux=bndry_flux,
         interp=interp,
         positive=positive,
+        lower_boundary_open=lower_boundary_open,
+        upper_boundary_open=upper_boundary_open,
+        periodic_parallel=periodic_parallel,
     )
     y_fa = div_n_bxgrad_f_b_xppm_xy_y_local_from_fields(
         n,

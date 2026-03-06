@@ -360,3 +360,93 @@ def test_exb_local_full_matches_hermes_terms_on_interior_cells() -> None:
 
     np.testing.assert_allclose(ne_rms, 1.4927833446557214e-03, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(pe_rms, 1.3746445392775425e-03, rtol=1e-12, atol=1e-12)
+
+
+def test_exb_local_full_matches_hermes_terms_on_all_cells() -> None:
+    with np.load(_TERM_FIXTURE, allow_pickle=False) as data:
+        phi = jnp.asarray(data["phi"], dtype=jnp.float64)
+        ne = jnp.asarray(data["Ne"], dtype=jnp.float64)
+        pe = jnp.asarray(data["Pe"], dtype=jnp.float64)
+        term_ne = jnp.asarray(data["term_Ne_exb"], dtype=jnp.float64)
+        term_pe = jnp.asarray(data["term_Pe_exb"], dtype=jnp.float64)
+        dx = jnp.asarray(data["dx"], dtype=jnp.float64)
+        dy = jnp.asarray(data["dy"], dtype=jnp.float64)
+        dz = jnp.asarray(data["dz"], dtype=jnp.float64)
+        jacobian = jnp.asarray(data["J"], dtype=jnp.float64)
+        g11 = jnp.asarray(data["g11"], dtype=jnp.float64)
+        g23 = jnp.asarray(data["g23"], dtype=jnp.float64)
+        bxy = jnp.asarray(data["Bxy"], dtype=jnp.float64)
+        z_shift = jnp.asarray(data["zShift"], dtype=jnp.float64)
+        zlength = float(np.asarray(data["zlength"]))
+        layout = FieldAlignedLocalLayout(
+            pstart=int(np.asarray(data["pstart"])),
+            pend=int(np.asarray(data["pend"])),
+            xstart=int(np.asarray(data["xstart"])),
+            xend=int(np.asarray(data["xend"])),
+        )
+        lower = bool(np.asarray(data["lower_boundary_open"]))
+        upper = bool(np.asarray(data["upper_boundary_open"]))
+
+    ne_term = -div_n_bxgrad_f_b_xppm_local(
+        ne,
+        phi,
+        jacobian=jacobian,
+        dx=dx,
+        dy=dy,
+        dz=dz,
+        g11=g11,
+        g23=g23,
+        bxy=bxy,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        bndry_flux=True,
+        poloidal=True,
+        lower_boundary_open=lower,
+        upper_boundary_open=upper,
+        bc_kind_x=2,
+        neumann_boundary_average_z=True,
+    )
+    pe_term = -div_n_bxgrad_f_b_xppm_local(
+        pe,
+        phi,
+        jacobian=jacobian,
+        dx=dx,
+        dy=dy,
+        dz=dz,
+        g11=g11,
+        g23=g23,
+        bxy=bxy,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        bndry_flux=True,
+        poloidal=True,
+        lower_boundary_open=lower,
+        upper_boundary_open=upper,
+        bc_kind_x=2,
+        neumann_boundary_average_z=True,
+    )
+
+    ne_diff = np.asarray(ne_term - term_ne)
+    pe_diff = np.asarray(pe_term - term_pe)
+    ne_corr = float(
+        np.sum(np.asarray(ne_term) * np.asarray(term_ne))
+        / np.sqrt(np.sum(np.asarray(ne_term) ** 2) * np.sum(np.asarray(term_ne) ** 2))
+    )
+    pe_corr = float(
+        np.sum(np.asarray(pe_term) * np.asarray(term_pe))
+        / np.sqrt(np.sum(np.asarray(pe_term) ** 2) * np.sum(np.asarray(term_pe) ** 2))
+    )
+
+    ne_all_rms = float(np.sqrt(np.mean(ne_diff**2)))
+    pe_all_rms = float(np.sqrt(np.mean(pe_diff**2)))
+    ne_corner_rms = float(np.sqrt(np.mean(ne_diff[: layout.pstart, : layout.xstart, :] ** 2)))
+    pe_corner_rms = float(np.sqrt(np.mean(pe_diff[: layout.pstart, : layout.xstart, :] ** 2)))
+
+    assert ne_all_rms < 4.0e-5
+    assert pe_all_rms < 2.0e-5
+    assert ne_corner_rms < 1.0e-6
+    assert pe_corner_rms < 1.0e-7
+    assert ne_corr > 0.99998
+    assert pe_corr > 0.99999

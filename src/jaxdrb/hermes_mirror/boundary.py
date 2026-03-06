@@ -81,6 +81,8 @@ def apply_neumann_field3d(
     lower_gradient: jnp.ndarray | float = 0.0,
     upper_gradient: jnp.ndarray | float = 0.0,
     guard_width: int = 2,
+    apply_lower: bool = True,
+    apply_upper: bool = True,
 ) -> jnp.ndarray:
     """Mirror the centred-field `BoundaryNeumann::apply(Field3D&)` branch.
 
@@ -128,32 +130,36 @@ def apply_neumann_field3d(
     lower_delta = -_slice_axis(spacing_arr, axis_i, lower_guard)
     upper_delta = _slice_axis(spacing_arr, axis_i, upper_guard)
 
-    out = _set_axis(
-        out,
-        axis_i,
-        lower_guard,
-        _slice_axis(out, axis_i, interior_start) + (lower_delta * lower_grad),
-    )
-    out = _set_axis(
-        out,
-        axis_i,
-        upper_guard,
-        _slice_axis(out, axis_i, interior_end) + (upper_delta * upper_grad),
-    )
+    if apply_lower:
+        out = _set_axis(
+            out,
+            axis_i,
+            lower_guard,
+            _slice_axis(out, axis_i, interior_start) + (lower_delta * lower_grad),
+        )
+    if apply_upper:
+        out = _set_axis(
+            out,
+            axis_i,
+            upper_guard,
+            _slice_axis(out, axis_i, interior_end) + (upper_delta * upper_grad),
+        )
 
     if guard_width == 2:
-        out = _set_axis(
-            out,
-            axis_i,
-            interior_start - 2,
-            _slice_axis(out, axis_i, interior_start + 1) + (3.0 * lower_delta * lower_grad),
-        )
-        out = _set_axis(
-            out,
-            axis_i,
-            interior_end + 2,
-            _slice_axis(out, axis_i, interior_end - 1) + (3.0 * upper_delta * upper_grad),
-        )
+        if apply_lower:
+            out = _set_axis(
+                out,
+                axis_i,
+                interior_start - 2,
+                _slice_axis(out, axis_i, interior_start + 1) + (3.0 * lower_delta * lower_grad),
+            )
+        if apply_upper:
+            out = _set_axis(
+                out,
+                axis_i,
+                interior_end + 2,
+                _slice_axis(out, axis_i, interior_end - 1) + (3.0 * upper_delta * upper_grad),
+            )
 
     return out
 

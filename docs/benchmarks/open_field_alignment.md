@@ -204,17 +204,26 @@ interior cells, the mirror operator is now essentially at parity:
 - `Ne` interior correlation: `0.9998132247422601`
 - `Pe` interior correlation: `0.9999591421467119`
 
-The remaining mismatch is concentrated in the lower open-boundary guard cells,
-not the interior operator. The dominant current `Ne` diff regions are:
+That lower-open-boundary guard mismatch is now closed in the dump-backed mirror
+operator path. The structural fix was to complete the Hermes
+`DDY(f) -> communicate -> applyBoundary("neumann")` chain for the X-flux
+preparation field in `src/jaxdrb/hermes_mirror/species.py`, including the
+lower-open parallel Neumann copy that the earlier mirror helper was missing.
 
-- `xlow_guard`: `3.03297619604618e-02`
-- `ylow_guard`: `1.7801910843170923e-02`
-- lower-left corner: `1.0506537581007377e-01`
+With that fix landed, the assembled local mirror ExB operator now matches the
+Hermes dump term across all cells, not only the interior:
 
-So the next remaining Milestone A ExB step is no longer “rewrite the operator.”
-It is to mirror the lower-open-boundary guard semantics of the X-flux
-diagnostic path before routing the assembled mirror operator into the strict
-runtime state-preparation path.
+- `Ne` all-cell diff RMS: `3.072901445531812e-05`
+- `Pe` all-cell diff RMS: `1.3376334360587529e-05`
+- `Ne` all-cell correlation: `0.9999820919602114`
+- `Pe` all-cell correlation: `0.9999963535995172`
+- `Ne` lower-left corner diff RMS: `6.171447934311131e-08`
+- `Pe` lower-left corner diff RMS: `7.577202115196461e-09`
+
+So the remaining Milestone A ExB work is no longer operator parity inside the
+mirror slice. It is runtime promotion: route the same mirrored preparation and
+operator ordering through the strict Hermes audit path and then re-run the
+1-step and 3-step gates.
 
 The first Phase 4 species state-preparation helpers are now also landed in
 `src/jaxdrb/hermes_mirror/species.py`:

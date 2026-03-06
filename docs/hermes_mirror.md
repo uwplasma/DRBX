@@ -306,6 +306,52 @@ The remaining open question in Phase 1 is not the centred Neumann formula
 itself, which is now landed, but the exact axis/region naming to use when this
 helper is wired into a full mirror geometry/runtime path.
 
+## Phase 3 Status
+
+The local dump-backed ExB mirror is now at full-cell Hermes parity for the
+`Ne` and `Pe` ExB diagnostic terms on the reference open-field fixture. The
+last structural gap was not in the X-flux algebra itself, but in the
+preparation chain for `DDY(f)` used by that branch.
+
+Hermes does:
+
+\[
+DDY(f) \rightarrow \text{communicate} \rightarrow \text{applyBoundary("neumann")}
+\]
+
+before the X-flux face loop. The earlier mirror helper only applied the radial
+Neumann boundary. The lower-open parallel guard planes were therefore left with
+raw centred-difference values instead of the copied Neumann state Hermes uses
+at the sheath boundary.
+
+The landed fix extends `prepare_poloidal_x_dfdy_local_ref` so that, when the
+parallel direction is not periodic, it also applies the centred-field Neumann
+boundary on the local parallel axis with side-aware control:
+
+- lower open boundary: enabled
+- upper open boundary: enabled only when the local fixture has that boundary
+
+This restores the correct lower guard recursion:
+
+\[
+(\partial_y f)_{g_1} = (\partial_y f)_{i_1},
+\qquad
+(\partial_y f)_{g_2} = (\partial_y f)_{i_2}
+\]
+
+for zero prescribed gradient, in exactly the same way as the centred BOUT
+`BoundaryNeumann::apply(Field3D&)` branch.
+
+On the dump-backed full local ExB term fixture:
+
+- `Ne` all-cell diff RMS: `3.072901445531812e-05`
+- `Pe` all-cell diff RMS: `1.3376334360587529e-05`
+- `Ne` all-cell correlation: `0.9999820919602114`
+- `Pe` all-cell correlation: `0.9999963535995172`
+
+That means the remaining ExB work is now runtime wiring and species-state
+ordering, not further local operator reconstruction.
+
 ## Differentiability Rules
 
 The mirror path is required to stay end to end differentiable on the production
