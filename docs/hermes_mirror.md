@@ -591,6 +591,48 @@ This is still a mirror-only local operator. It is the first point where the
 full Hermes ExB structure exists in JAX as one testable function, but it is
 not yet wired into the strict runtime engine.
 
+## Phase 4 Transform Helpers
+
+The first runtime-facing species state-preparation helpers are now landed in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/species.py`:
+
+- `density_transform_impl`
+- `pressure_transform_impl`
+
+These mirror the Stage 1 parts of Hermes
+`/Users/rogerio/local/hermes-3/src/evolve_density.cxx` and
+`/Users/rogerio/local/hermes-3/src/evolve_pressure.cxx` that prepare the
+species fields before the ExB and parallel terms are assembled:
+
+1. optional `exp(...)` for log-evolved variables,
+2. `neumann_boundary_average_z` x-guard reconstruction using the binormal
+   average at the first/last interior x cell,
+3. density floor at zero for the stored species density,
+4. pressure floor at zero,
+5. temperature reconstruction from `Pfloor / softFloor(N, density_floor)`,
+6. pressure consistency reset `P = N * T`.
+
+The corresponding tests in
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_transform_impl.py`
+cover:
+
+- restoring dump-backed x-guard states after clobbering the guard cells,
+- nonnegative density flooring,
+- pressure/temperature reconstruction against a dump-backed fixture,
+- autodiff through the pressure transform path.
+
+On the shared local fixture, the current deterministic values are:
+
+- density RMS: `1.7785461475277795`
+- density interior RMS: `1.8245458655422153`
+- temperature RMS: `5.928697471001826e-01`
+- temperature interior RMS: `6.081834468193776e-01`
+
+This is the first Phase 4 bridge between the mirror operator stack and the
+prepared species states Hermes actually uses. The next remaining work is to
+mirror the `finally` ordering and connect these prepared states to the strict
+runtime path.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

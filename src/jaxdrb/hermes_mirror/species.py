@@ -18,6 +18,18 @@ from .transform import (
 from .types import FieldAlignedLocalLayout
 
 
+def _floor_nonnegative(field: jnp.ndarray) -> jnp.ndarray:
+    return jnp.maximum(jnp.asarray(field, dtype=jnp.float64), 0.0)
+
+
+def _soft_floor_local(field: jnp.ndarray, floor: float) -> jnp.ndarray:
+    arr = jnp.asarray(field, dtype=jnp.float64)
+    if float(floor) <= 0.0:
+        return arr
+    floor_val = jnp.asarray(float(floor), dtype=jnp.float64)
+    return 0.5 * (arr + jnp.sqrt(arr * arr + floor_val * floor_val))
+
+
 def _as_field_aligned_metric(
     arr: jnp.ndarray | float,
     *,
@@ -174,9 +186,89 @@ def prepare_poloidal_x_dfdy_local(
     return prepare_poloidal_x_dfdy_local_ref(field, **kwargs)
 
 
-def density_transform_impl(*args, **kwargs):
-    raise NotImplementedError("Phase 4: mirror density state preparation is not landed yet.")
+def _apply_neumann_boundary_average_binormal_local(
+    field: jnp.ndarray,
+    *,
+    layout: FieldAlignedLocalLayout,
+    lower_x: bool,
+    upper_x: bool,
+) -> jnp.ndarray:
+    out = jnp.asarray(field, dtype=jnp.float64)
+    layout.validate(tuple(int(v) for v in out.shape))
+
+    if lower_x:
+        x = int(layout.xstart)
+        avg = jnp.mean(out[:, x, :], axis=-1)
+        guard = 2.0 * avg[:, None] - out[:, x, :]
+        out = out.at[:, x - 1, :].set(guard)
+        for offset in range(2, layout.x_guards + 1):
+            out = out.at[:, x - offset, :].set(guard)
+
+    if upper_x:
+        x = int(layout.xend)
+        avg = jnp.mean(out[:, x, :], axis=-1)
+        guard = 2.0 * avg[:, None] - out[:, x, :]
+        out = out.at[:, x + 1, :].set(guard)
+        for offset in range(2, layout.x_guards + 1):
+            out = out.at[:, x + offset, :].set(guard)
+
+    return out
 
 
-def pressure_transform_impl(*args, **kwargs):
-    raise NotImplementedError("Phase 4: mirror pressure state preparation is not landed yet.")
+def density_transform_impl(
+    density: jnp.ndarray,
+    *,
+    layout: FieldAlignedLocalLayout,
+    evolve_log: bool = False,
+    neumann_boundary_average_z: bool = False,
+    lower_x: bool = True,
+    upper_x: bool = True,
+) -> jnp.ndarray:
+    """Mirror the Stage 1 density `transform_impl` state preparation."""
+
+    n = (
+        jnp.exp(jnp.asarray(density, dtype=jnp.float64))
+        if evolve_log
+        else jnp.asarray(density, dtype=jnp.float64)
+    )
+    if neumann_boundary_average_z:
+        n = _apply_neumann_boundary_average_binormal_local(
+            n,
+            layout=layout,
+            lower_x=lower_x,
+            upper_x=upper_x,
+        )
+    return _floor_nonnegative(n)
+
+
+def pressure_transform_impl(
+    pressure: jnp.ndarray,
+    density: jnp.ndarray,
+    *,
+    density_floor: float,
+    layout: FieldAlignedLocalLayout,
+    evolve_log: bool = False,
+    neumann_boundary_average_z: bool = False,
+    lower_x: bool = True,
+    upper_x: bool = True,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Mirror the Stage 1 pressure `transform_impl` state preparation."""
+
+    p = (
+        jnp.exp(jnp.asarray(pressure, dtype=jnp.float64))
+        if evolve_log
+        else jnp.asarray(pressure, dtype=jnp.float64)
+    )
+    if neumann_boundary_average_z:
+        p = _apply_neumann_boundary_average_binormal_local(
+            p,
+            layout=layout,
+            lower_x=lower_x,
+            upper_x=upper_x,
+        )
+
+    n = jnp.asarray(density, dtype=jnp.float64)
+    p_floor = _floor_nonnegative(p)
+    temperature = p_floor / _soft_floor_local(n, density_floor)
+    p_consistent = n * temperature
+    return p_consistent, temperature
