@@ -389,15 +389,15 @@ Acceptance:
 ### Phase 4: Species state-preparation mirror
 
 - [x] local `DDX -> applyBoundary("neumann") -> toFieldAligned` prep helper exists
-- [ ] mirror density `transform_impl`
+- [x] mirror density `transform_impl`
 - [ ] mirror density `finally`
-- [ ] mirror pressure `transform_impl`
+- [x] mirror pressure `transform_impl`
 - [ ] mirror pressure `finally`
 - [ ] mirror sheath guard preparation order used by Stage 1 baseline
 
 Acceptance:
 
-- [ ] boundary-state dump fixtures match Hermes
+- [x] boundary-state dump fixtures match Hermes at transform-helper level
 - [ ] mirror ExB operator uses the same prepared states as Hermes
 
 ### Phase 5: Parallel FV mirror
@@ -675,6 +675,15 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - The remaining ExB gap is now runtime wiring: the full mirror ExB structure
   exists and is tested locally, but it is not yet connected to the strict
   Hermes-state runtime path.
+- Added the first Phase 4 species state-preparation helpers in
+  `src/jaxdrb/hermes_mirror/species.py`:
+  `density_transform_impl` and `pressure_transform_impl`.
+- Added dump-backed regression coverage in
+  `tests/hermes_mirror/test_transform_impl.py`.
+- Transform-helper-level dump fixtures now match the Hermes-prepared state
+  semantics for x-guard reconstruction and pressure/temperature consistency.
+- The next remaining Phase 4 gap is the `finally` ordering and routing those
+  prepared states into the strict runtime path.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.

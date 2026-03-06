@@ -198,6 +198,23 @@ The next remaining Milestone A ExB step is to route this assembled mirror
 operator into the strict runtime state-preparation path, then measure the first
 real strict Hermes-state delta from the mirror implementation.
 
+The first Phase 4 species state-preparation helpers are now also landed in
+`src/jaxdrb/hermes_mirror/species.py`:
+`density_transform_impl` and `pressure_transform_impl`. These reconstruct the
+Hermes `neumann_boundary_average_z` x-guard states and the pressure/temperature
+consistency step on the same local dump-backed fixture. The current
+deterministic values are:
+
+- density RMS: `1.7785461475`
+- density interior RMS: `1.8245458655`
+- temperature RMS: `0.5928697471`
+- temperature interior RMS: `0.6081834468`
+
+This is still not a strict-runtime number, but it closes the next structural
+gap between the mirror ExB operator and the species states Hermes feeds into
+that operator. The next remaining step is to mirror the `finally` ordering and
+route the prepared states into the strict runtime path.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash
