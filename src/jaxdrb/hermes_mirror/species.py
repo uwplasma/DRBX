@@ -8,12 +8,16 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 from .boundary import apply_neumann_field3d
-from .derivs import ddx_centered_guarded, ddy_centered_guarded_local
+from .derivs import ddx_centered_guarded, ddy_index_centered_guarded_local
 from .transform import (
     build_shifted_metric_fft_phases,
     build_shifted_metric_weights,
+    from_field_aligned_nobndry,
+    from_field_aligned_nobndry_fft,
     to_field_aligned_all,
     to_field_aligned_all_fft,
+    to_field_aligned_nox,
+    to_field_aligned_nox_fft,
 )
 from .types import FieldAlignedLocalLayout
 
@@ -146,8 +150,18 @@ def prepare_poloidal_x_dfdy_local_ref(
     dy: jnp.ndarray | float,
     dx: jnp.ndarray | float,
     layout: FieldAlignedLocalLayout,
+    z_shift: jnp.ndarray | float,
+    zlength: float,
+    interp: str = "spectral",
 ) -> jnp.ndarray:
-    """Mirror the local `DDY -> communicate -> applyBoundary` chain for X-flux."""
+    """Mirror the local `DDY -> communicate -> applyBoundary` chain for X-flux.
+
+    Hermes `DDY(f)` on an unaligned `Field3D` first shifts to field-aligned
+    `RGN_NOX`, takes the centred Y derivative there, then shifts the result back
+    with `RGN_NOBNDRY`. The X-flux path in `Div_n_bxGrad_f_B_XPPM` operates on
+    that returned unaligned derivative before applying the explicit radial
+    Neumann boundary.
+    """
 
     field_arr = jnp.asarray(field, dtype=jnp.float64)
     if field_arr.ndim != 3:
@@ -156,15 +170,46 @@ def prepare_poloidal_x_dfdy_local_ref(
         )
     layout.validate(tuple(int(v) for v in field_arr.shape))
     npar, nx, nbinorm = (int(v) for v in field_arr.shape)
-    dy3d = jnp.broadcast_to(
-        _as_field_aligned_metric(dy, npar=npar, nx=nx, nbinorm=nbinorm, name="dy")[:, :, None],
-        field_arr.shape,
-    )
     dx3d = jnp.broadcast_to(
         _as_field_aligned_metric(dx, npar=npar, nx=nx, nbinorm=nbinorm, name="dx")[:, :, None],
         field_arr.shape,
     )
-    dfdy = ddy_centered_guarded_local(field_arr, dy3d, layout=layout)
+    dy3d = jnp.broadcast_to(
+        _as_field_aligned_metric(dy, npar=npar, nx=nx, nbinorm=nbinorm, name="dy")[:, :, None],
+        field_arr.shape,
+    )
+
+    interp_name = str(interp).lower()
+    if interp_name == "spectral":
+        phases = build_shifted_metric_fft_phases(
+            z_shift,
+            nx=nx,
+            npar=npar,
+            nbinorm=nbinorm,
+            zlength=float(zlength),
+            open_field_line=layout.open_field_line,
+        )
+        field_fa = to_field_aligned_nox_fft(field_arr, phases)
+        dfdy_index_fa = ddy_index_centered_guarded_local(field_fa, layout=layout)
+        dfdy = from_field_aligned_nobndry_fft(dfdy_index_fa, phases) / jnp.maximum(dy3d, 1e-30)
+    elif interp_name == "linear":
+        dz = float(zlength) / max(nbinorm, 1)
+        if dz <= 0.0:
+            raise ValueError(f"zlength={zlength} gives invalid binormal spacing {dz}.")
+        shift_idx = jnp.asarray(z_shift, dtype=jnp.float64) / dz
+        weights = build_shifted_metric_weights(
+            shift_idx,
+            nx=nx,
+            npar=npar,
+            nbinorm=nbinorm,
+            open_field_line=layout.open_field_line,
+        )
+        field_fa = to_field_aligned_nox(field_arr, weights)
+        dfdy_index_fa = ddy_index_centered_guarded_local(field_fa, layout=layout)
+        dfdy = from_field_aligned_nobndry(dfdy_index_fa, weights) / jnp.maximum(dy3d, 1e-30)
+    else:
+        raise ValueError(f"Unsupported interp={interp!r}; expected 'spectral' or 'linear'.")
+
     return apply_neumann_field3d(
         dfdy,
         axis=1,

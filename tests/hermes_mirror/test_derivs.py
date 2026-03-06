@@ -11,6 +11,7 @@ from jaxdrb.hermes_mirror import (
     GuardLayout,
     ddx_centered_guarded,
     ddy_centered_guarded_local,
+    ddy_index_centered_guarded_local,
 )
 
 _FIXTURE = (
@@ -104,3 +105,13 @@ def test_ddy_centered_guarded_local_matches_dump_backed_rms() -> None:
     np.testing.assert_allclose(lower, 5.902675901490807e-01, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(upper, 1.0488478686555056e00, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(interior, 6.891203174242735e-01, rtol=1e-12, atol=1e-12)
+
+
+def test_ddy_index_centered_guarded_local_linear_field_has_unit_index_slope() -> None:
+    layout = FieldAlignedLocalLayout(pstart=2, pend=5, xstart=2, xend=5)
+    y = jnp.arange(8, dtype=jnp.float64)[:, None, None]
+    field = jnp.broadcast_to(y, (8, 8, 6))
+
+    ddy = ddy_index_centered_guarded_local(field, layout=layout)
+
+    np.testing.assert_allclose(np.asarray(ddy[layout.pstart : layout.pend + 1, :, :]), 1.0)
