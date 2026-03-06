@@ -1353,6 +1353,20 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             idx = jnp.clip(jnp.arange(n) + int(offset), 0, n - 1)
             return jnp.take(arr, idx, axis=axis)
 
+        def _linear_edge_extrap(arr: jnp.ndarray, axis: int, *, lower: bool) -> jnp.ndarray:
+            n = arr.shape[axis]
+            if lower:
+                edge = jnp.take(arr, 0, axis=axis)
+                if n <= 1:
+                    return edge
+                near = jnp.take(arr, 1, axis=axis)
+            else:
+                edge = jnp.take(arr, n - 1, axis=axis)
+                if n <= 1:
+                    return edge
+                near = jnp.take(arr, n - 2, axis=axis)
+            return 2.0 * edge - near
+
         def _fromm_face_clip(
             arr: jnp.ndarray, vel: jnp.ndarray, axis: int, *, positive: bool = False
         ) -> jnp.ndarray:
@@ -1443,10 +1457,14 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             grad = float(getattr(bc_adv, "x_grad", 0.0))
             coeff_left = coeff_dphi_dy[:, 0, :]
             coeff_right = coeff_dphi_dy[:, -1, :]
+            coeff_left_ghost = _linear_edge_extrap(coeff_dphi_dy, axis=1, lower=True)
+            coeff_right_ghost = _linear_edge_extrap(coeff_dphi_dy, axis=1, lower=False)
             J_left = J[:, 0, :]
             J_right = J[:, -1, :]
-            vx_left = J_left * coeff_left
-            vx_right = J_right * coeff_right
+            J_left_ghost = _linear_edge_extrap(J, axis=1, lower=True)
+            J_right_ghost = _linear_edge_extrap(J, axis=1, lower=False)
+            vx_left = 0.5 * (J_left + J_left_ghost) * 0.5 * (coeff_left + coeff_left_ghost)
+            vx_right = 0.5 * (J_right + J_right_ghost) * 0.5 * (coeff_right + coeff_right_ghost)
             flux_left_b = _fromm_x_boundary_flux(
                 adv_eff, vx_left, side="left", kind=kind, value=val, grad=grad, positive=positive
             )
