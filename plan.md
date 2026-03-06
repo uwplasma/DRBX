@@ -364,9 +364,9 @@ Acceptance:
 
 Create in this order:
 
-- [ ] `div_n_bxgrad_f_b_xppm_xz_ref`
+- [x] `div_n_bxgrad_f_b_xppm_xz_ref`
 - [ ] `div_n_bxgrad_f_b_xppm_xy_x_ref`
-- [ ] `div_n_bxgrad_f_b_xppm_xy_y_ref`
+- [x] local field-aligned `div_n_bxgrad_f_b_xppm_xy_y_local_ref`
 - [ ] assembled `div_n_bxgrad_f_b_xppm_ref`
 - [ ] fused production version
 
@@ -538,6 +538,7 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 ### Milestone A3: mirror ExB parity
 
 - [x] X-Z `Div_n_bxGrad_f_B_XPPM` slice exists with fused/reference + autodiff tests.
+- [x] local field-aligned Y-flux slice exists with fused/reference + dump-backed tests.
 - [ ] `Ne exb` strict 1-step mismatch reduced below threshold.
 - [ ] `Pe exb` strict 1-step mismatch reduced below threshold.
 - [ ] 3-step audit remains green for ExB.
@@ -643,6 +644,17 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   shows that the literal local prep path differs materially from a guardless
   approximation, which justifies continuing the mirror rewrite there instead of
   making more production-path guesses.
+- Added the next local field-aligned Phase 3 slice in
+  `src/jaxdrb/hermes_mirror/exb.py`:
+  `div_n_bxgrad_f_b_xppm_xy_y_local_ref`,
+  `div_n_bxgrad_f_b_xppm_xy_y_local`, and the corresponding `*_from_fields`
+  wrappers.
+- Added dump-backed regression coverage in
+  `tests/hermes_mirror/test_exb_y_local.py` using
+  `tests/fixtures/hermes_mirror_exb_local_rank0_t1.npz`.
+- The fused and reference local Y-flux operators now match exactly on that
+  fixture for both `Ne` and `Pe`, but there is still no strict-audit delta
+  because the assembled runtime mirror ExB operator is not landed yet.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.

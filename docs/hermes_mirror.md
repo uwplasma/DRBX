@@ -451,6 +451,74 @@ cover:
 - and a regression that shows the literal local prep path differs materially
   from the current guardless approximation.
 
+## Phase 3 Local Y-Flux Slice
+
+The next mirrored ExB slice now exists in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/exb.py`:
+
+- `div_n_bxgrad_f_b_xppm_xy_y_local_ref`
+- `div_n_bxgrad_f_b_xppm_xy_y_local`
+- `div_n_bxgrad_f_b_xppm_xy_y_local_from_fields_ref`
+- `div_n_bxgrad_f_b_xppm_xy_y_local_from_fields`
+
+This is still a local field-aligned mirror, not the final runtime-facing
+assembled operator. It mirrors the Hermes Y-flux branch of
+`Div_n_bxGrad_f_B_XPPM` after the guard-aware local preparation chain has
+already been applied:
+
+1. prepare `DDX(phi)` locally with guard cells and Neumann x-boundaries,
+2. shift both `dfdx` and the advected field into field-aligned coordinates,
+3. compute the local Y-face velocity from
+   `J * (g11 * g23 / B^2) * dfdx`,
+4. apply the open-field sheath-sign restrictions at the lower and upper
+   parallel boundaries,
+5. apply the Fromm upwind state on the local field-aligned arrays,
+6. accumulate the flux divergence into the two adjacent field-aligned cells.
+
+The dump-backed fixture for this slice is:
+
+- `/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_exb_local_rank0_t1.npz`
+
+It is extracted from:
+
+- `/Users/rogerio/local/jax_drb/runs/hermes_open_field_terms_t01_vortterms/data/BOUT.dmp.0.nc`
+
+with the combined local fields:
+
+- `phi`
+- `Ne`
+- `Pe`
+- `dx`
+- `dy`
+- `J`
+- `g11`
+- `g23`
+- `Bxy`
+- `zShift`
+- `dz`
+
+The corresponding tests in
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_exb_y_local.py`
+cover:
+
+- zero-metric sanity (`g23 = 0` gives zero Y flux),
+- fused-versus-reference equality on synthetic fields,
+- autodiff through the full local-from-fields path,
+- dump-backed deterministic RMS values for both `Ne` and `Pe`.
+
+On that local dump-backed fixture, the current reference values are:
+
+- `Ne` total RMS: `5.266245270548453e-03`
+- `Ne` interior RMS: `2.3208656645780424e-03`
+- `Pe` total RMS: `5.06778021563735e-03`
+- `Pe` interior RMS: `2.1455021379486773e-03`
+
+This still does not change the strict Hermes audit by itself, because the
+runtime path is still using the old assembled ExB implementation. The next
+Phase 3 step is to combine the already-landed X-Z slice and this local Y-flux
+slice into a full mirror `Div_n_bxGrad_f_B_XPPM` entrypoint before touching
+the active strict engine.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

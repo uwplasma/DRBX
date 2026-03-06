@@ -157,6 +157,22 @@ runtime path, but it is the clearest structural evidence so far that the
 remaining `Pe advection/exb` mismatch lives in the local preparation chain
 upstream of the final Y-flux formula.
 
+The next mirror-only slice now adds the local field-aligned Y-flux operator in
+`src/jaxdrb/hermes_mirror/exb.py`:
+`div_n_bxgrad_f_b_xppm_xy_y_local_ref`,
+`div_n_bxgrad_f_b_xppm_xy_y_local`,
+and their `*_from_fields` wrappers. The dump-backed combined fixture is
+`tests/fixtures/hermes_mirror_exb_local_rank0_t1.npz`, built from the same
+Hermes rank-0 dump at `t=0.01` with local `phi`, `Ne`, `Pe`, and metric
+coefficients. The current deterministic local RMS values are:
+
+- `Ne`: `0.0052662453`
+- `Pe`: `0.0050677802`
+
+Fused and reference implementations now match exactly on this fixture, but the
+strict Hermes audit is still unchanged because the runtime ExB term has not yet
+been switched over to the assembled mirror operator.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash

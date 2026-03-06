@@ -29,8 +29,17 @@ def _as_field_aligned_metric(
     out = jnp.asarray(arr, dtype=jnp.float64)
     if out.ndim == 0:
         return jnp.full((npar, nx), out, dtype=jnp.float64)
+    if out.ndim == 1:
+        if out.shape[0] == npar:
+            return jnp.broadcast_to(out[:, None], (npar, nx))
+        if out.shape[0] == nx:
+            return jnp.broadcast_to(out[None, :], (npar, nx))
     if out.ndim == 2 and out.shape == (npar, nx):
         return out
+    if out.ndim == 2 and out.shape == (npar, 1):
+        return jnp.broadcast_to(out, (npar, nx))
+    if out.ndim == 2 and out.shape == (1, nx):
+        return jnp.broadcast_to(out, (npar, nx))
     if out.ndim == 3 and out.shape == (npar, nx, nbinorm):
         return out[..., 0]
     raise ValueError(
