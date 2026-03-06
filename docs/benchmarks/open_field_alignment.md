@@ -90,6 +90,12 @@ reference/fused implementations of `to_field_aligned_nox` and
 path where the semantics overlap. This still does not change the strict Hermes
 audit, because the mirror transform is not yet wired into the active RHS terms.
 
+That transform work now also has a source-true FFT path matching Hermes
+`ShiftedMetric`, plus a stitched global fixture at
+`tests/fixtures/hermes_mirror_shiftedmetric_global_t1.npz` built from the
+Hermes dump set in
+`runs/hermes_open_field_terms_t01_vortterms/data`.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash

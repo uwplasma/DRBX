@@ -248,6 +248,39 @@ This is not yet a Hermes dump-backed transform fixture. That requires a
 dedicated extraction of Hermes-aligned/interpolated fields and remains part of
 the next Phase 2 work.
 
+The source-true Hermes path for the current open-field benchmark is
+`ShiftedMetric`, not `ShiftedMetricInterp`, because the Hermes input uses:
+
+```ini
+[mesh:paralleltransform]
+type = shifted
+```
+
+The mirror path therefore now also carries an FFT-based phase-cache
+implementation matching `ShiftedMetric::shiftZ(...)`. The linear path remains in
+tree only as an overlap check against the pre-existing JAX shifted-transform
+implementation.
+
+The first stitched global transform fixture is:
+
+- `/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_shiftedmetric_global_t1.npz`
+
+It is produced by:
+
+- `/Users/rogerio/local/jax_drb/tools/build_hermes_mirror_transform_fixture.py`
+
+from:
+
+- `/Users/rogerio/local/jax_drb/runs/hermes_open_field_terms_t01_vortterms/data`
+- field `Ne`
+- time index `1` (`t = 0.01`)
+
+and contains:
+
+- the global interior field in local mirror transform layout `(y, x, z)`
+- the stitched global `zShift(y, x)` field
+- the toroidal domain length used for the FFT phase cache
+
 The remaining open question in Phase 1 is not the centred Neumann formula
 itself, which is now landed, but the exact axis/region naming to use when this
 helper is wired into a full mirror geometry/runtime path.
