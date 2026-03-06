@@ -705,6 +705,49 @@ prepared species states Hermes actually uses. The next remaining work is to
 mirror the `finally` ordering and connect these prepared states to the strict
 runtime path.
 
+## Runtime Promotion Status
+
+An opt-in runtime wrapper is now landed in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/exb.py` as
+`div_n_bxgrad_f_b_xppm`, and the active field-aligned geometry adapter can call
+it with `exb_flux_scheme = "hermes_mirror"`.
+
+This wrapper reconstructs the guard-inclusive local Hermes/BOUT storage
+contract from the global JAX `(nz, nx, ny)` arrays, runs the validated local
+mirror ExB operator, and slices the physical interior cells back out for the
+live geometry path.
+
+On the dump-backed local-rank fixture, feeding only the interior cells into the
+runtime wrapper gives:
+
+- `Ne` diff RMS: `2.488462499110523e-04`
+- `Pe` diff RMS: `2.6183313968993464e-04`
+- `Ne` correlation: `0.9872236467215821`
+- `Pe` correlation: `0.9839313048079569`
+
+That keeps the wrapper viable as the promotion vehicle, but it is not yet
+strict-parity quality.
+
+The first live 3-step Hermes-state audit for that runtime path is recorded in
+`/Users/rogerio/local/jax_drb/runs/audit_hermes_mirror_runtime_3step_v2`. Even
+after correcting the shifted-transform FFT length to use `metric_dz * nbinorm`
+instead of `grid.perp.dy * nbinorm`, the fail-fast leaders are still worse than
+the current strict baseline:
+
+- `omega advection/exb`: `0.06804918916596805`
+- `n advection/exb`: `0.04636472581495929`
+- `Pe advection/exb`: `0.038900114007649214`
+
+The already-closed parallel channels remain unchanged:
+
+- `n parallel/par`: `0.0029585637833904267`
+- `Pe parallel/par_total`: `0.0025796150980648175`
+- `omega parallel/jpar`: `0.001995419920917737`
+
+So the remaining blocker is no longer the local mirrored ExB algebra. It is the
+global guard reconstruction and communication contract required to promote that
+algebra into the strict runtime audit path.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

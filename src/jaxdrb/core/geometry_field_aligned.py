@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jaxdrb.hermes_mirror import div_n_bxgrad_f_b_xppm as div_n_bxgrad_f_b_xppm_mirror
 from jaxdrb.bc import BC2D
 from jaxdrb.core.geometry import GeometryBase
 from jaxdrb.core.geometry_logb import salpha_logb_coefficients
@@ -1117,6 +1118,53 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             return vel * face_val
 
         exb_flux_scheme = str(getattr(self.params, "exb_flux_scheme", "centered")).lower()
+        if exb_flux_scheme == "hermes_mirror":
+            if self.gxx is None or self.g23 is None or self.B is None or self.z_shift is None:
+                raise ValueError(
+                    "Hermes mirror ExB flux requires gxx, g23, B/Bxy, and z_shift coefficients."
+                )
+            if self.metric_dx is None or self.metric_dy is None or self.metric_dz is None:
+                raise ValueError("Hermes mirror ExB flux requires dx, dy, and dz metric fields.")
+            zlength = float(np.asarray(self.metric_dz).mean()) * float(self.grid.perp.ny)
+            poloidal_x_scale = float(getattr(self.params, "exb_poloidal_x_scale", 1.0))
+            poloidal_y_scale = float(getattr(self.params, "exb_poloidal_y_scale", 1.0))
+            poloidal_scale = float(getattr(self.params, "exb_poloidal_scale", 1.0))
+            if (
+                abs(poloidal_scale - 1.0) > 1e-12
+                or abs(poloidal_x_scale - 1.0) > 1e-12
+                or abs(poloidal_y_scale - 1.0) > 1e-12
+            ):
+                raise ValueError(
+                    "Hermes mirror ExB flux currently supports only unit poloidal ExB scales."
+                )
+            return div_n_bxgrad_f_b_xppm_mirror(
+                adv_eff,
+                phi_eff,
+                jacobian=self.jacobian,
+                dx=self.metric_dx,
+                dy=self.metric_dy,
+                dz=self.metric_dz,
+                g11=self.gxx,
+                g23=self.g23,
+                bxy=self.B,
+                z_shift=self.z_shift,
+                zlength=zlength,
+                bc_phi=bc_phi,
+                bc_adv=bc_adv,
+                bndry_flux=bool(getattr(self.params, "exb_bndry_flux", True)),
+                poloidal=bool(getattr(self.params, "exb_poloidal_flows", False)),
+                positive=positive,
+                interp=str(getattr(self.params, "parallel_shift_interp", "spectral")),
+                neumann_boundary_average_z=bool(
+                    getattr(self.params, "neumann_boundary_average_y", False)
+                ),
+                use_mc=True,
+                periodic_parallel=not bool(self.grid.open_field_line),
+                periodic_binormal=int(getattr(bc_adv, "kind_y", 0)) == 0,
+                lower_boundary_open=bool(self.grid.open_field_line),
+                upper_boundary_open=bool(self.grid.open_field_line),
+                poisson_invert_set=bool(getattr(self.params, "poisson_invert_set", False)),
+            )
         if exb_flux_scheme in ("hermes_fromm", "hermes_xppm"):
             # Hermes/BOUT Div_n_bxGrad_f_B_XPPM-style X-Z flux:
             # corner-interpolated stream function + upwinded face reconstruction.
