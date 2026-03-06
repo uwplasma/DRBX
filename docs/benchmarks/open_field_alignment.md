@@ -265,6 +265,23 @@ radial-boundary semantics of the poloidal ExB X/Y transport path, since
 unchanged by the `RGN_NOX` shift fix. Reproducible artifact:
 `runs/audit_shift_nox_fix_3step`.
 
+In the next 2026-03-05 strict cycle, the poloidal ExB X-face boundary velocity
+was tightened to use Hermes-style ghost/cell metric averaging at the nonperiodic
+radial faces, while leaving the Y-face boundary branch unchanged. This reduced
+`Pe advection/exb` across the full 3-step strict window:
+`t=0.01` `weighted_rel 0.00476 -> 0.00360`,
+`t=0.02` `0.00833 -> 0.00714`,
+`t=0.03` `0.01381 -> 0.01261`
+(`runs/audit_shift_nox_fix_3step` -> `runs/audit_pe_exb_xface_avg_3step`).
+The same change moved `n advection/exb` closer to the fail-fast band at
+`t=0.01` (`0.00140 -> 0.00304`), but still below the remaining parallel and
+pressure leaders. A follow-up attempt to apply Hermes-style boundary-face metric
+averaging to the finite-wave parallel sheath flux was rejected because it
+regressed `n parallel/par` and `Pe parallel/par_total` badly at the first
+strict step. The next structural target remains the open-field density/pressure
+sheath-target state construction in the parallel channel. Reproducible artifacts:
+`runs/audit_pe_exb_xface_avg_3step`, `runs/audit_xface_and_parbnd_3step`.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash

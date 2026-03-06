@@ -560,6 +560,30 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   `docs/benchmarks/open_field_alignment.md`,
   `plan.md`).
 
+2026-03-05 poloidal X-face note:
+- Tightened the unified poloidal ExB X-face boundary velocity to use
+  Hermes-style ghost/cell metric averaging at nonperiodic radial faces, while
+  leaving the Y-face boundary branch unchanged.
+- Strict Hermes-state audit delta
+  (`runs/audit_shift_nox_fix_3step` -> `runs/audit_pe_exb_xface_avg_3step`):
+  `Pe advection/exb` improved across the 3-step strict window
+  (`0.00476 -> 0.00360` at `t=0.01`,
+  `0.00833 -> 0.00714` at `t=0.02`,
+  `0.01381 -> 0.01261` at `t=0.03`).
+- Side effect: `n advection/exb` increased at the first strict step
+  (`0.00140 -> 0.00304`) but remained below the main fail-fast terms; the
+  remaining parallel leader `n parallel/par` stayed at `0.00296`.
+- Rejected probe: a follow-up Hermes-style boundary-face metric factor for the
+  finite-wave parallel sheath flux regressed `n parallel/par` to `0.03019` and
+  `Pe parallel/par_total` to `0.02395` at `t=0.01`
+  (`runs/audit_xface_and_parbnd_3step`), so that path should not be retried
+  without new evidence.
+- Result: the next priority remains the open-field density/pressure
+  sheath-target state construction in the parallel channel, with `n parallel/par`
+  still the next distinct structural mismatch after the improved `Pe exb` path.
+- Tests/docs touched: `tests/test_exb_poloidal_flows.py`,
+  `docs/benchmarks/open_field_alignment.md`.
+
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
 - [ ] Panel diagnostics agree in accepted tolerance.
