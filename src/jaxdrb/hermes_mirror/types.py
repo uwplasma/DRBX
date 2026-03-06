@@ -66,3 +66,14 @@ class ShiftedFieldAlignedWeights:
     backward_index1: jnp.ndarray
     backward_frac: jnp.ndarray
     open_field_line: bool
+
+
+@dataclass(frozen=True)
+class ShiftedMetricFFTPhases:
+    """Precomputed FFT phase factors for the Hermes `ShiftedMetric` transform."""
+
+    z_shift: jnp.ndarray
+    zlength: float
+    to_aligned_phase: jnp.ndarray
+    from_aligned_phase: jnp.ndarray
+    open_field_line: bool
