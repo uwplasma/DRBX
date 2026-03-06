@@ -598,6 +598,12 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - Transform validation is currently against the existing JAX shifted-transform
   path in the overlap region; Hermes dump-backed transform fixtures are still
   pending.
+- The true Hermes source path for the current benchmark uses FFT-based
+  `ShiftedMetric`; the mirror transform work therefore needs both:
+  an overlap-checked linear path and a source-true FFT path.
+- A stitched global transform fixture now exists at
+  `tests/fixtures/hermes_mirror_shiftedmetric_global_t1.npz`, produced by
+  `tools/build_hermes_mirror_transform_fixture.py` from the Hermes dump set.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.
