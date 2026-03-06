@@ -60,6 +60,30 @@ Base alignment config:
   `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`
   (flux-form ExB, `hermes_xppm`, shifted parallel transform, boundary-flux sheath mode).
 
+## Hermes Mirror Rewrite Status
+
+On 2026-03-06 the Stage 1 parity strategy switched from patching the old
+Hermes-like path in place to building a temporary `hermes_mirror` translation
+layer under `src/jaxdrb/hermes_mirror`.
+
+The first landed mirror functions are boundary primitives only:
+
+- `limit_free`
+- `mc_limiter`
+- `apply_neumann_boundary_average_z`
+- `set_boundary_to_midpoint`
+
+These do not change the strict audit yet, because the mirror engine and mirror
+ExB/parallel operators are not wired. Their purpose is to create a tested,
+source-cited, differentiable boundary foundation before the remaining operator
+parity work resumes.
+
+The first dump-backed mirror fixture is now checked in at
+`tests/fixtures/hermes_mirror_ne_local_rank0_t1.npz`, built from
+`runs/hermes_open_field_terms_t01_vortterms/data/BOUT.dmp.0.nc`
+(`Ne`, local rank 0, `t=0.01`). This fixture backs the `neumann_boundary_average_z`
+regression in `tests/hermes_mirror/test_primitives.py`.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash
