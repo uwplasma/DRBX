@@ -728,6 +728,34 @@ runtime wrapper gives:
 That keeps the wrapper viable as the promotion vehicle, but it is not yet
 strict-parity quality.
 
+The next runtime slice adds a stitched global Hermes fixture and a hybrid
+open-boundary wrapper. The new fixture builder is
+`/Users/rogerio/local/jax_drb/tools/build_hermes_mirror_runtime_fixture.py`,
+the checked-in artifact is
+`/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_exb_global_t1.npz`,
+and the regression is
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_exb_runtime_global.py`.
+
+That regression localizes the runtime residual to the first and last open
+parallel blocks. The new numerics knob
+`hermes_mirror_parallel_edge_block` therefore re-evaluates only those end
+blocks with the local guard-inclusive mirror operator while leaving the middle
+of the domain on the whole-domain runtime path.
+
+On the stitched global Hermes fixture, setting
+`hermes_mirror_parallel_edge_block = 8` improves the direct runtime mirror
+arrays to:
+
+- `Ne` diff RMS: `2.7785371223075885e-04`
+- `Pe` diff RMS: `2.9023628701603716e-04`
+- `Ne` correlation: `0.99676569423027`
+- `Pe` correlation: `0.9964150807456237`
+
+For reference, the same fixture with the whole-domain runtime wrapper gives:
+
+- `Ne` diff RMS: `9.281612304656274e-04`
+- `Pe` diff RMS: `9.436398753984853e-04`
+
 The first live 3-step Hermes-state audit for that runtime path is recorded in
 `/Users/rogerio/local/jax_drb/runs/audit_hermes_mirror_runtime_3step_v2`. Even
 after correcting the shifted-transform FFT length to use `metric_dz * nbinorm`
@@ -744,9 +772,25 @@ The already-closed parallel channels remain unchanged:
 - `Pe parallel/par_total`: `0.0025796150980648175`
 - `omega parallel/jpar`: `0.001995419920917737`
 
+With the edge-block wrapper, the smallest strict gate is now
+`/Users/rogerio/local/jax_drb/runs/audit_hermes_mirror_edge_block_1step`.
+Its scalar fail-fast metric improves only slightly:
+
+- `omega advection/exb`: `0.06804918916596805 -> 0.06712108791244092`
+- `Pe advection/exb`: `0.038900114007649214 -> 0.03873682407548267`
+
+while the `n` scalar row still looks worse in `term_mismatch.csv`. That does
+not reflect the direct operator arrays: on the same built-system Hermes state,
+`term_map["advection"].n` and the reconstructed pressure advection term now
+match the direct mirror operator exactly, with array RMS against Hermes of:
+
+- `n`: `2.7785371223075885e-04`
+- `Pe`: `2.9023628701559654e-04`
+
 So the remaining blocker is no longer the local mirrored ExB algebra. It is the
-global guard reconstruction and communication contract required to promote that
-algebra into the strict runtime audit path.
+open-end global guard/communication contract in the promoted runtime path, plus
+the current audit reporting which only compares term RMS magnitudes and hides
+most of the array-level gain from that edge-block fix.
 
 ## References
 

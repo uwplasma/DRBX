@@ -730,6 +730,30 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - Conclusion: the remaining blocker is now the global guard reconstruction and
   communication contract for runtime ExB promotion, not the local mirrored ExB
   algebra itself. Strict configs are not yet switched to `hermes_mirror`.
+- Added a stitched global runtime fixture via
+  `tools/build_hermes_mirror_runtime_fixture.py` and
+  `tests/fixtures/hermes_mirror_exb_global_t1.npz`, plus the regression
+  `tests/hermes_mirror/test_exb_runtime_global.py`.
+- Added the hybrid open-boundary runtime knob
+  `hermes_mirror_parallel_edge_block`. Re-evaluating only the first and last
+  parallel edge blocks with the local guard-inclusive mirror operator improves
+  the direct global Hermes term arrays from:
+  `Ne RMS 9.281612304656274e-04 -> 2.7785371223075885e-04`,
+  `Pe RMS 9.436398753984853e-04 -> 2.9023628701603716e-04`,
+  with correlations above `0.996`.
+- The smallest strict gate with that edge-block wrapper is
+  `runs/audit_hermes_mirror_edge_block_1step`. The current scalar fail-fast
+  metric only moves slightly:
+  `omega advection/exb 0.06804918916596805 -> 0.06712108791244092`,
+  `Pe advection/exb 0.038900114007649214 -> 0.03873682407548267`.
+- The audit scalar still understates the real array-level gain because
+  `term_mismatch.csv` compares only term RMS magnitudes. Direct built-system
+  term arrays on the same Hermes snapshot now match Hermes `term_Ne_exb` /
+  `term_Pe_exb` with RMS:
+  `2.7785371223075885e-04` / `2.9023628701559654e-04`.
+- Next target: keep tightening the open-end parallel block promotion path and
+  add an array-difference view alongside the current scalar term-RMS gate so
+  mirror-runtime improvements are measured on the actual operator fields.
 
 ---
 

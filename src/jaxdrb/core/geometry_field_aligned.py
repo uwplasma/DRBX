@@ -1164,6 +1164,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 lower_boundary_open=bool(self.grid.open_field_line),
                 upper_boundary_open=bool(self.grid.open_field_line),
                 poisson_invert_set=bool(getattr(self.params, "poisson_invert_set", False)),
+                parallel_edge_block=int(
+                    getattr(self.params, "hermes_mirror_parallel_edge_block", 0)
+                ),
             )
         if exb_flux_scheme in ("hermes_fromm", "hermes_xppm"):
             # Hermes/BOUT Div_n_bxGrad_f_B_XPPM-style X-Z flux:

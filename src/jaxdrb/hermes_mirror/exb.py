@@ -1184,6 +1184,168 @@ def _pad_runtime_metric(
     )[:, :, 0]
 
 
+def _runtime_local_edge_block(
+    field: jnp.ndarray,
+    phi: jnp.ndarray,
+    *,
+    start: int,
+    block: int,
+    dx2d: jnp.ndarray,
+    dy2d: jnp.ndarray,
+    dz2d: jnp.ndarray,
+    J2d: jnp.ndarray,
+    g11_2d: jnp.ndarray,
+    g23_2d: jnp.ndarray,
+    bxy_2d: jnp.ndarray,
+    zshift_2d: jnp.ndarray,
+    zlength: float,
+    bc_kind_x: int,
+    bc_value_x: object,
+    bc_grad_x: object,
+    phi_kind_x: int,
+    phi_value_x: object,
+    phi_grad_x: object,
+    bndry_flux: bool,
+    poloidal: bool,
+    positive: bool,
+    interp: str,
+    neumann_boundary_average_z: bool,
+    use_mc: bool,
+    periodic_parallel: bool,
+    periodic_binormal: bool,
+    lower_boundary_open: bool,
+    upper_boundary_open: bool,
+) -> jnp.ndarray:
+    stop = int(start + block)
+    field_block = jnp.asarray(field[start:stop], dtype=jnp.float64)
+    phi_block = jnp.asarray(phi[start:stop], dtype=jnp.float64)
+    dx_block = jnp.asarray(dx2d[start:stop], dtype=jnp.float64)
+    dy_block = jnp.asarray(dy2d[start:stop], dtype=jnp.float64)
+    dz_block = jnp.asarray(dz2d[start:stop], dtype=jnp.float64)
+    J_block = jnp.asarray(J2d[start:stop], dtype=jnp.float64)
+    g11_block = jnp.asarray(g11_2d[start:stop], dtype=jnp.float64)
+    g23_block = jnp.asarray(g23_2d[start:stop], dtype=jnp.float64)
+    bxy_block = jnp.asarray(bxy_2d[start:stop], dtype=jnp.float64)
+    zshift_block = jnp.asarray(zshift_2d[start:stop], dtype=jnp.float64)
+
+    apply_lower = bool(lower_boundary_open and start == 0)
+    apply_upper = bool(upper_boundary_open and stop == field.shape[0])
+
+    field_local = _pad_runtime_field(
+        field_block,
+        dx=dx_block,
+        dy=dy_block,
+        bc_kind_x=bc_kind_x,
+        bc_value_x=bc_value_x,
+        bc_grad_x=bc_grad_x,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    phi_local = _pad_runtime_field(
+        phi_block,
+        dx=dx_block,
+        dy=dy_block,
+        bc_kind_x=phi_kind_x,
+        bc_value_x=phi_value_x,
+        bc_grad_x=phi_grad_x,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    J_local = _pad_runtime_metric(
+        J_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    dx_local = _pad_runtime_metric(
+        dx_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    dy_local = _pad_runtime_metric(
+        dy_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    dz_local = _pad_runtime_metric(
+        dz_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    g11_local = _pad_runtime_metric(
+        g11_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    g23_local = _pad_runtime_metric(
+        g23_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    bxy_local = _pad_runtime_metric(
+        bxy_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    zshift_local = _pad_runtime_metric(
+        zshift_block,
+        periodic_x=bc_kind_x == 0,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    layout = FieldAlignedLocalLayout(
+        pstart=2,
+        pend=block + 1,
+        xstart=2,
+        xend=field.shape[1] + 1,
+        open_field_line=not periodic_parallel,
+    )
+    result_local = div_n_bxgrad_f_b_xppm_local(
+        field_local,
+        phi_local,
+        jacobian=J_local,
+        dx=dx_local,
+        dy=dy_local,
+        dz=dz_local,
+        g11=g11_local,
+        g23=g23_local,
+        bxy=bxy_local,
+        z_shift=zshift_local,
+        zlength=zlength,
+        layout=layout,
+        bndry_flux=bndry_flux,
+        poloidal=poloidal,
+        positive=positive,
+        interp=interp,
+        bc_kind_x=bc_kind_x,
+        bc_value_x=float(jnp.asarray(bc_value_x if np.isscalar(bc_value_x) else 0.0)),
+        bc_grad_x=float(jnp.asarray(bc_grad_x if np.isscalar(bc_grad_x) else 0.0)),
+        neumann_boundary_average_z=neumann_boundary_average_z,
+        use_mc=use_mc,
+        periodic_parallel=periodic_parallel,
+        periodic_binormal=periodic_binormal,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    return result_local[2 : block + 2, 2 : field.shape[1] + 2, :]
+
+
 def div_n_bxgrad_f_b_xppm(
     n: jnp.ndarray,
     f: jnp.ndarray,
@@ -1210,6 +1372,7 @@ def div_n_bxgrad_f_b_xppm(
     lower_boundary_open: bool = True,
     upper_boundary_open: bool = True,
     poisson_invert_set: bool = False,
+    parallel_edge_block: int = 0,
 ) -> jnp.ndarray:
     """Runtime mirror wrapper from global `(nz, nx, ny)` arrays.
 
@@ -1358,7 +1521,77 @@ def div_n_bxgrad_f_b_xppm(
         lower_boundary_open=lower_boundary_open,
         upper_boundary_open=upper_boundary_open,
     )
-    return result_local[interior]
+    result = result_local[interior]
+
+    edge_block = int(parallel_edge_block)
+    if edge_block > 0 and (not periodic_parallel) and (2 * edge_block) < nz and edge_block <= nz:
+        result = result.at[:edge_block].set(
+            _runtime_local_edge_block(
+                n_arr,
+                f_arr,
+                start=0,
+                block=edge_block,
+                dx2d=dx2d,
+                dy2d=dy2d,
+                dz2d=dz2d,
+                J2d=J2d,
+                g11_2d=g11_2d,
+                g23_2d=g23_2d,
+                bxy_2d=bxy_2d,
+                zshift_2d=zshift_2d,
+                zlength=zlength,
+                bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
+                bc_value_x=getattr(bc_adv, "x_value", 0.0),
+                bc_grad_x=getattr(bc_adv, "x_grad", 0.0),
+                phi_kind_x=phi_kind_x,
+                phi_value_x=getattr(bc_phi, "x_value", 0.0),
+                phi_grad_x=getattr(bc_phi, "x_grad", 0.0),
+                bndry_flux=bndry_flux,
+                poloidal=poloidal,
+                positive=positive,
+                interp=interp,
+                neumann_boundary_average_z=neumann_boundary_average_z,
+                use_mc=use_mc,
+                periodic_parallel=periodic_parallel,
+                periodic_binormal=periodic_binormal,
+                lower_boundary_open=lower_boundary_open,
+                upper_boundary_open=upper_boundary_open,
+            )
+        )
+        result = result.at[nz - edge_block :].set(
+            _runtime_local_edge_block(
+                n_arr,
+                f_arr,
+                start=nz - edge_block,
+                block=edge_block,
+                dx2d=dx2d,
+                dy2d=dy2d,
+                dz2d=dz2d,
+                J2d=J2d,
+                g11_2d=g11_2d,
+                g23_2d=g23_2d,
+                bxy_2d=bxy_2d,
+                zshift_2d=zshift_2d,
+                zlength=zlength,
+                bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
+                bc_value_x=getattr(bc_adv, "x_value", 0.0),
+                bc_grad_x=getattr(bc_adv, "x_grad", 0.0),
+                phi_kind_x=phi_kind_x,
+                phi_value_x=getattr(bc_phi, "x_value", 0.0),
+                phi_grad_x=getattr(bc_phi, "x_grad", 0.0),
+                bndry_flux=bndry_flux,
+                poloidal=poloidal,
+                positive=positive,
+                interp=interp,
+                neumann_boundary_average_z=neumann_boundary_average_z,
+                use_mc=use_mc,
+                periodic_parallel=periodic_parallel,
+                periodic_binormal=periodic_binormal,
+                lower_boundary_open=lower_boundary_open,
+                upper_boundary_open=upper_boundary_open,
+            )
+        )
+    return result
 
 
 def div_n_bxgrad_f_b_xppm_xy_y_local_ref(
