@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jax.numpy as jnp
+
 
 @dataclass(frozen=True)
 class GuardLayout:
@@ -44,3 +46,23 @@ class GuardLayout:
             raise ValueError(f"xend={self.xend} must be >= xstart={self.xstart}.")
         if self.yend < self.ystart:
             raise ValueError(f"yend={self.yend} must be >= ystart={self.ystart}.")
+
+
+@dataclass(frozen=True)
+class ShiftedFieldAlignedWeights:
+    """Precomputed linear shift weights for Hermes mirror transforms.
+
+    These weights represent the `ShiftedMetricInterp` interpolation along the
+    last axis of the JAX `(npar, nx, nbinorm)` layout. The field-aligned
+    coordinate lives on the first axis, the radial coordinate on the second,
+    and the shifted/binormal interpolation is applied on the last axis.
+    """
+
+    shift_idx: jnp.ndarray
+    forward_index0: jnp.ndarray
+    forward_index1: jnp.ndarray
+    forward_frac: jnp.ndarray
+    backward_index0: jnp.ndarray
+    backward_index1: jnp.ndarray
+    backward_frac: jnp.ndarray
+    open_field_line: bool
