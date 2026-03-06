@@ -34,6 +34,52 @@ def _soft_floor_local(field: jnp.ndarray, floor: float) -> jnp.ndarray:
     return 0.5 * (arr + jnp.sqrt(arr * arr + floor_val * floor_val))
 
 
+def soft_floor_global(field: jnp.ndarray, floor: float) -> jnp.ndarray:
+    """Differentiable Hermes-style soft floor on physical interior fields."""
+
+    arr = jnp.asarray(field, dtype=jnp.float64)
+    if float(floor) <= 0.0:
+        return arr
+    floor_val = jnp.asarray(float(floor), dtype=jnp.float64)
+    return 0.5 * (arr + jnp.sqrt(arr * arr + floor_val * floor_val))
+
+
+def density_transform_global(density: jnp.ndarray) -> jnp.ndarray:
+    """Interior-field mirror of the Hermes density transform.
+
+    This is the physical-domain part of `density_transform_impl`: for global
+    arrays without guard cells, the Stage 1 density transform reduces to a
+    nonnegative floor. Guard reconstruction remains part of the local/runtime
+    mirror operator path.
+    """
+
+    return _floor_nonnegative(density)
+
+
+def pressure_transform_global(
+    pressure: jnp.ndarray,
+    density: jnp.ndarray,
+    *,
+    density_floor: float,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Interior-field mirror of the Hermes pressure transform.
+
+    The full local `pressure_transform_impl` also reconstructs x-guard values
+    when requested. On interior global fields, the Hermes semantics reduce to:
+
+    1. floor density nonnegative,
+    2. floor pressure nonnegative,
+    3. reconstruct temperature via `P / softFloor(N)`,
+    4. reset pressure to the consistent `N * T`.
+    """
+
+    n = density_transform_global(density)
+    p_floor = _floor_nonnegative(pressure)
+    temperature = p_floor / soft_floor_global(n, density_floor)
+    p_consistent = n * temperature
+    return p_consistent, temperature
+
+
 def _as_field_aligned_metric(
     arr: jnp.ndarray | float,
     *,

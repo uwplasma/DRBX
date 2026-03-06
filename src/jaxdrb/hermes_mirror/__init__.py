@@ -34,12 +34,15 @@ from .exb import (
 )
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
 from .species import (
+    density_transform_global,
     density_transform_impl,
     prepare_poloidal_x_dfdy_local,
     prepare_poloidal_x_dfdy_local_ref,
     prepare_poloidal_y_dfdx_local,
     prepare_poloidal_y_dfdx_local_ref,
+    pressure_transform_global,
     pressure_transform_impl,
+    soft_floor_global,
 )
 from .transform import (
     build_shifted_metric_weights,
@@ -83,6 +86,7 @@ __all__ = [
     "ddx_centered_guarded",
     "ddy_centered_guarded_local",
     "ddy_index_centered_guarded_local",
+    "density_transform_global",
     "density_transform_impl",
     "div_n_bxgrad_f_b_xppm_local",
     "div_n_bxgrad_f_b_xppm",
@@ -112,10 +116,12 @@ __all__ = [
     "prepare_poloidal_x_dfdy_local_ref",
     "prepare_poloidal_y_dfdx_local",
     "prepare_poloidal_y_dfdx_local_ref",
+    "pressure_transform_global",
     "pressure_transform_impl",
     "set_boundary_to_midpoint",
     "shifted_metric_fft_phases_from_geometry",
     "shifted_metric_weights_from_geometry",
+    "soft_floor_global",
     "to_field_aligned_all",
     "to_field_aligned_all_fft",
     "to_field_aligned_all_fft_ref",
