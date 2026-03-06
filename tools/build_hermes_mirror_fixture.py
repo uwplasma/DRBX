@@ -113,6 +113,14 @@ def build_bout_dump_fixture(
         xend = mxg + mxsub - 1
         ystart = myg
         yend = myg + mysub - 1
+        pe_yind = (
+            int(np.asarray(ds.variables["PE_YIND"][:]).reshape(-1)[0])
+            if "PE_YIND" in ds.variables
+            else 0
+        )
+        nype = (
+            int(np.asarray(ds.variables["NYPE"][:]).reshape(-1)[0]) if "NYPE" in ds.variables else 1
+        )
 
         payload: dict[str, np.ndarray] = {
             "xstart": np.asarray(xstart, dtype=np.int32),
@@ -124,6 +132,10 @@ def build_bout_dump_fixture(
         if layout == "field_aligned":
             payload["pstart"] = np.asarray(ystart, dtype=np.int32)
             payload["pend"] = np.asarray(yend, dtype=np.int32)
+            payload["pe_yind"] = np.asarray(pe_yind, dtype=np.int32)
+            payload["nype"] = np.asarray(nype, dtype=np.int32)
+            payload["lower_boundary_open"] = np.asarray(pe_yind == 0)
+            payload["upper_boundary_open"] = np.asarray(pe_yind == (nype - 1))
         nbinorm: int | None = None
 
         for name in fields:
