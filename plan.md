@@ -352,6 +352,7 @@ Acceptance:
 - [x] `from_field_aligned_nobndry_ref`
 - [x] `to_field_aligned_nox`
 - [x] `from_field_aligned_nobndry`
+- [x] `to_field_aligned_all` / `from_field_aligned_all`
 
 Acceptance:
 
@@ -614,6 +615,14 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - Strict Hermes example configs now pin `parallel_shift_interp = "spectral"`
   so the active strict path uses the same shifted-metric interpolation family
   as Hermes.
+- Added the missing `RGN_ALL` linear and FFT shifted-transform helpers to the
+  mirror layer and validated them against the current geometry adapter
+  `to_field_aligned(...)` / `from_field_aligned(...)` paths.
+- Switched the active poloidal Y-flux branch to full-region shifted transforms
+  to match the Hermes source signature. The 1-step strict audit at
+  `runs/audit_phase3_yregion_probe` showed no change in the fail-fast leader,
+  so transform-region selection is not the dominant remaining
+  `Pe advection/exb` mismatch.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.

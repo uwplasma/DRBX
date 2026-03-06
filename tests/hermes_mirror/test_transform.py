@@ -11,12 +11,20 @@ from jaxdrb.core.params import DRBSystemParams, NumericsParams
 from jaxdrb.hermes_mirror import (
     build_shifted_metric_fft_phases,
     build_shifted_metric_weights,
+    from_field_aligned_all_fft,
+    from_field_aligned_all_fft_ref,
+    from_field_aligned_all,
+    from_field_aligned_all_ref,
     from_field_aligned_nobndry_fft,
     from_field_aligned_nobndry_fft_ref,
     from_field_aligned_nobndry,
     from_field_aligned_nobndry_ref,
     shifted_metric_fft_phases_from_geometry,
     shifted_metric_weights_from_geometry,
+    to_field_aligned_all_fft,
+    to_field_aligned_all_fft_ref,
+    to_field_aligned_all,
+    to_field_aligned_all_ref,
     to_field_aligned_nox_fft,
     to_field_aligned_nox_fft_ref,
     to_field_aligned_nox,
@@ -95,6 +103,17 @@ def test_to_field_aligned_nox_ref_matches_fused() -> None:
     np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
 
 
+def test_to_field_aligned_all_ref_matches_fused() -> None:
+    geom = _make_shift_geom(open_field_line=True)
+    weights = shifted_metric_weights_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(24), geom.shape(), dtype=jnp.float64)
+
+    ref = to_field_aligned_all_ref(field, weights)
+    fused = to_field_aligned_all(field, weights)
+
+    np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
+
+
 def test_from_field_aligned_nobndry_ref_matches_fused() -> None:
     geom = _make_shift_geom(open_field_line=True)
     weights = shifted_metric_weights_from_geometry(geom)
@@ -102,6 +121,17 @@ def test_from_field_aligned_nobndry_ref_matches_fused() -> None:
 
     ref = from_field_aligned_nobndry_ref(field, weights)
     fused = from_field_aligned_nobndry(field, weights)
+
+    np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
+
+
+def test_from_field_aligned_all_ref_matches_fused() -> None:
+    geom = _make_shift_geom(open_field_line=True)
+    weights = shifted_metric_weights_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(25), geom.shape(), dtype=jnp.float64)
+
+    ref = from_field_aligned_all_ref(field, weights)
+    fused = from_field_aligned_all(field, weights)
 
     np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
 
@@ -117,6 +147,17 @@ def test_to_field_aligned_nox_matches_current_geometry_adapter_linear_shift() ->
     np.testing.assert_allclose(np.asarray(mirror), np.asarray(current), rtol=1e-12, atol=1e-12)
 
 
+def test_to_field_aligned_all_matches_current_geometry_adapter_linear_shift() -> None:
+    geom = _make_shift_geom(open_field_line=True)
+    weights = shifted_metric_weights_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(26), geom.shape(), dtype=jnp.float64)
+
+    mirror = to_field_aligned_all(field, weights)
+    current = geom.to_field_aligned(field)
+
+    np.testing.assert_allclose(np.asarray(mirror), np.asarray(current), rtol=1e-12, atol=1e-12)
+
+
 def test_from_field_aligned_nobndry_preserves_parallel_and_x_boundaries() -> None:
     geom = _make_shift_geom(open_field_line=True)
     weights = shifted_metric_weights_from_geometry(geom)
@@ -128,6 +169,17 @@ def test_from_field_aligned_nobndry_preserves_parallel_and_x_boundaries() -> Non
     np.testing.assert_allclose(np.asarray(out[:, -1, :]), np.asarray(field[:, -1, :]))
     np.testing.assert_allclose(np.asarray(out[0, :, :]), np.asarray(field[0, :, :]))
     np.testing.assert_allclose(np.asarray(out[-1, :, :]), np.asarray(field[-1, :, :]))
+
+
+def test_from_field_aligned_all_matches_current_geometry_transform() -> None:
+    geom = _make_shift_geom(open_field_line=True)
+    weights = shifted_metric_weights_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(27), geom.shape(), dtype=jnp.float64)
+
+    mirror = from_field_aligned_all(field, weights)
+    current = geom.from_field_aligned(field)
+
+    np.testing.assert_allclose(np.asarray(mirror), np.asarray(current), rtol=1e-12, atol=1e-12)
 
 
 def test_from_field_aligned_nobndry_interior_matches_current_geometry_transform() -> None:
@@ -157,6 +209,28 @@ def test_fft_shift_ref_matches_fused() -> None:
     np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
 
 
+def test_fft_shift_all_ref_matches_fused() -> None:
+    geom = _make_shift_geom(open_field_line=True, interp="spectral")
+    phases = shifted_metric_fft_phases_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(28), geom.shape(), dtype=jnp.float64)
+
+    ref = to_field_aligned_all_fft_ref(field, phases)
+    fused = to_field_aligned_all_fft(field, phases)
+
+    np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
+
+
+def test_fft_from_field_aligned_all_ref_matches_fused() -> None:
+    geom = _make_shift_geom(open_field_line=True, interp="spectral")
+    phases = shifted_metric_fft_phases_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(29), geom.shape(), dtype=jnp.float64)
+
+    ref = from_field_aligned_all_fft_ref(field, phases)
+    fused = from_field_aligned_all_fft(field, phases)
+
+    np.testing.assert_allclose(np.asarray(fused), np.asarray(ref), rtol=1e-12, atol=1e-12)
+
+
 def test_fft_shift_matches_current_geometry_spectral_path() -> None:
     geom = _make_shift_geom(open_field_line=True, interp="spectral")
     phases = shifted_metric_fft_phases_from_geometry(geom)
@@ -164,6 +238,28 @@ def test_fft_shift_matches_current_geometry_spectral_path() -> None:
 
     mirror = to_field_aligned_nox_fft(field, phases)
     current = geom.to_field_aligned_nox(field)
+
+    np.testing.assert_allclose(np.asarray(mirror), np.asarray(current), rtol=1e-12, atol=1e-12)
+
+
+def test_fft_shift_all_matches_current_geometry_spectral_path() -> None:
+    geom = _make_shift_geom(open_field_line=True, interp="spectral")
+    phases = shifted_metric_fft_phases_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(30), geom.shape(), dtype=jnp.float64)
+
+    mirror = to_field_aligned_all_fft(field, phases)
+    current = geom.to_field_aligned(field)
+
+    np.testing.assert_allclose(np.asarray(mirror), np.asarray(current), rtol=1e-12, atol=1e-12)
+
+
+def test_fft_from_field_aligned_all_matches_current_geometry_spectral_path() -> None:
+    geom = _make_shift_geom(open_field_line=True, interp="spectral")
+    phases = shifted_metric_fft_phases_from_geometry(geom)
+    field = jax.random.normal(jax.random.PRNGKey(31), geom.shape(), dtype=jnp.float64)
+
+    mirror = from_field_aligned_all_fft(field, phases)
+    current = geom.from_field_aligned(field)
 
     np.testing.assert_allclose(np.asarray(mirror), np.asarray(current), rtol=1e-12, atol=1e-12)
 

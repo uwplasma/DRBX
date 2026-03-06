@@ -366,6 +366,18 @@ The full mirror ExB operator is still incomplete because the Y-flux branch,
 field-aligned transform wiring, and dump-backed parity fixtures are not landed
 yet.
 
+The transform layer now also carries the missing `RGN_ALL` variants:
+
+- `to_field_aligned_all`
+- `from_field_aligned_all`
+- `to_field_aligned_all_fft`
+- `from_field_aligned_all_fft`
+
+These are needed because the Hermes Y-flux branch in
+`Div_n_bxGrad_f_B_XPPM` uses plain `toFieldAligned(...)` and
+`fromFieldAligned(...)`, not the `RGN_NOX`/`RGN_NOBNDRY` restricted forms used
+in other interpolation helpers.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

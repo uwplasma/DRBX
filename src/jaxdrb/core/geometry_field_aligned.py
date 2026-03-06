@@ -1489,11 +1489,11 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             dphi_dx = dphi_dx.at[:, 0, :].set(dphi_dx[:, 1, :])
             dphi_dx = dphi_dx.at[:, -1, :].set(dphi_dx[:, -2, :])
         if use_shift:
-            dphi_dx_fa = self.to_field_aligned_nox(dphi_dx)
-            adv_fa = self.to_field_aligned_nox(adv_eff)
-            J_fa = self.to_field_aligned_nox(J)
-            coeff_fa = self.to_field_aligned_nox(coeff)
-            dy_fa = self.to_field_aligned_nox(dy_metric)
+            dphi_dx_fa = self.to_field_aligned(dphi_dx)
+            adv_fa = self.to_field_aligned(adv_eff)
+            J_fa = self.to_field_aligned(J)
+            coeff_fa = self.to_field_aligned(coeff)
+            dy_fa = self.to_field_aligned(dy_metric)
         else:
             dphi_dx_fa = dphi_dx
             adv_fa = adv_eff
@@ -1523,7 +1523,7 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         flux_down = jnp.concatenate([flux_low_b[None, ...], flux_up[:-1]], axis=0)
 
         div_y_fa = (flux_up - flux_down) / (jnp.maximum(J_fa, 1e-30) * jnp.maximum(dy_fa, 1e-30))
-        div_y = self.from_field_aligned_nox(div_y_fa) if use_shift else div_y_fa
+        div_y = self.from_field_aligned(div_y_fa) if use_shift else div_y_fa
 
         poloidal_scale = float(getattr(self.params, "exb_poloidal_scale", 1.0))
         poloidal_x_scale = float(getattr(self.params, "exb_poloidal_x_scale", 1.0))
