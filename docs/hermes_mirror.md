@@ -135,6 +135,92 @@ That recursion matters for parity: replacing it with a one-shot copy or a
 vectorized edge-only update changes the actual guard values seen by later
 operators.
 
+## Phase 2 Transform Slice
+
+Source files:
+
+- `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/parallel/shiftedmetricinterp.cxx`
+- `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/coordinates.cxx`
+
+The mirror path now includes a first transform implementation for the
+shifted-metric interpolation used by Hermes/BOUT field-aligned operators.
+
+### What is implemented
+
+- precomputed linear interpolation weights in
+  `ShiftedFieldAlignedWeights`
+- `to_field_aligned_nox_ref`
+- `to_field_aligned_nox`
+- `from_field_aligned_nobndry_ref`
+- `from_field_aligned_nobndry`
+
+These target the two region variants used most heavily in the Hermes parity
+path:
+
+- `RGN_NOX`: shift interior x columns and preserve radial boundary columns
+- `RGN_NOBNDRY`: shift only non-boundary cells and preserve both radial and
+  open-field parallel boundary planes
+
+### Interpolation formula
+
+For a field \(f(s, x, \zeta)\), where:
+
+- \(s\) is the field-aligned/parallel index,
+- \(x\) is the radial index,
+- \(\zeta\) is the shifted/binormal interpolation index,
+
+and a shift measured in index space \(\Delta(s, x)\), the mirror transform uses
+the same linear interpolation structure as the current JAX shifted-transform
+path:
+
+\[
+\zeta_{\mathrm{src}} = (\zeta + \Delta) \bmod N_\zeta
+\]
+
+\[
+\zeta_0 = \lfloor \zeta_{\mathrm{src}} \rfloor,
+\qquad
+\zeta_1 = (\zeta_0 + 1) \bmod N_\zeta
+\]
+
+\[
+\alpha = \zeta_{\mathrm{src}} - \zeta_0
+\]
+
+\[
+f_{\mathrm{shift}} = (1-\alpha) f(\zeta_0) + \alpha f(\zeta_1)
+\]
+
+The forward transform uses \(+\Delta\). The inverse transform uses \(-\Delta\).
+
+### Why precompute weights
+
+Hermes/BOUT caches interpolation weights inside `ShiftedMetricInterp`. The JAX
+mirror path does the same for three reasons:
+
+- the transform becomes a pure gather-and-blend operation under JIT,
+- reference and fused implementations can share the same semantics,
+- later ExB and parallel operators can reuse the same cached weights without
+  re-deriving interpolation indices on every RHS evaluation.
+
+### Validation status
+
+The current transform slice is validated against the existing JAX geometry
+adapter in the overlap region where both use the same linear shifted transform:
+
+- `to_field_aligned_nox` matches `FieldAlignedGeometryAdapter.to_field_aligned_nox`
+- `from_field_aligned_nobndry` matches the current inverse transform on the
+  interior region and additionally enforces `RGN_NOBNDRY` boundary preservation
+
+This is not yet a Hermes dump-backed transform fixture. That requires a
+dedicated extraction of Hermes-aligned/interpolated fields and remains part of
+the next Phase 2 work.
+
+The remaining unchecked Phase 1 primitive is `apply_neumann_field3d`. That
+helper has not been landed yet because its full axis/region mapping needs to be
+verified directly against Hermes/BOUT boundary regions rather than inferred from
+the current JAX array layout.
+
 ## Differentiability Rules
 
 The mirror path is required to stay end to end differentiable on the production

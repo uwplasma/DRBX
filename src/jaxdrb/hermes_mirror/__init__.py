@@ -9,14 +9,29 @@ from __future__ import annotations
 
 from .boundary import apply_neumann_boundary_average_z, set_boundary_to_midpoint
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
-from .types import GuardLayout
+from .transform import (
+    build_shifted_metric_weights,
+    from_field_aligned_nobndry,
+    from_field_aligned_nobndry_ref,
+    shifted_metric_weights_from_geometry,
+    to_field_aligned_nox,
+    to_field_aligned_nox_ref,
+)
+from .types import GuardLayout, ShiftedFieldAlignedWeights
 
 __all__ = [
     "GuardLayout",
     "Stencil1D",
+    "ShiftedFieldAlignedWeights",
     "apply_neumann_boundary_average_z",
+    "build_shifted_metric_weights",
+    "from_field_aligned_nobndry",
+    "from_field_aligned_nobndry_ref",
     "limit_free",
     "mc_limiter",
     "minmod",
     "set_boundary_to_midpoint",
+    "shifted_metric_weights_from_geometry",
+    "to_field_aligned_nox",
+    "to_field_aligned_nox_ref",
 ]

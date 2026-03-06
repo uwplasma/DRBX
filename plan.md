@@ -347,15 +347,15 @@ Acceptance:
 
 ### Phase 2: Field-aligned transform transliterations
 
-- [ ] precompute transform weights and masks from existing geometry ingestion
-- [ ] `to_field_aligned_nox_ref`
-- [ ] `from_field_aligned_nobndry_ref`
-- [ ] `to_field_aligned_nox`
-- [ ] `from_field_aligned_nobndry`
+- [x] precompute transform weights and masks from existing geometry ingestion
+- [x] `to_field_aligned_nox_ref`
+- [x] `from_field_aligned_nobndry_ref`
+- [x] `to_field_aligned_nox`
+- [x] `from_field_aligned_nobndry`
 
 Acceptance:
 
-- [ ] fused transform equals reference transform
+- [x] fused transform equals reference transform
 - [ ] dump-backed transform fixtures match Hermes region semantics
 
 ### Phase 3: Hermes ExB operator mirror
@@ -528,8 +528,8 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 ### Milestone A2: mirror transforms
 
-- [ ] `to_field_aligned_nox` and `from_field_aligned_nobndry` mirror implementations exist.
-- [ ] Transform weights are precomputed and cached in the mirror geometry object.
+- [x] `to_field_aligned_nox` and `from_field_aligned_nobndry` mirror implementations exist.
+- [x] Transform weights are precomputed from existing geometry ingestion and reusable.
 - [ ] Transform tests match Hermes.
 
 ### Milestone A3: mirror ExB parity
@@ -592,6 +592,15 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `ruff check src tests tools/build_hermes_mirror_fixture.py`,
   `black --check src tests tools/build_hermes_mirror_fixture.py`,
   `python -m pytest -q`.
+- Phase 2 started with precomputed shifted-transform weights and both reference
+  and fused implementations of:
+  `to_field_aligned_nox` and `from_field_aligned_nobndry`.
+- Transform validation is currently against the existing JAX shifted-transform
+  path in the overlap region; Hermes dump-backed transform fixtures are still
+  pending.
+- `apply_neumann_field3d` remains the only unchecked Phase 1 primitive because
+  its full axis/region semantics still need to be pinned directly against
+  Hermes/BOUT before landing a generic version.
 
 ---
 
