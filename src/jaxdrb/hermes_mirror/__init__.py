@@ -15,6 +15,7 @@ from .boundary import (
 from .derivs import ddx_centered_guarded
 from .exb import div_n_bxgrad_f_b_xppm_xz, div_n_bxgrad_f_b_xppm_xz_ref
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
+from .species import prepare_poloidal_y_dfdx_local, prepare_poloidal_y_dfdx_local_ref
 from .transform import (
     build_shifted_metric_weights,
     build_shifted_metric_fft_phases,
@@ -37,9 +38,15 @@ from .transform import (
     to_field_aligned_nox,
     to_field_aligned_nox_ref,
 )
-from .types import GuardLayout, ShiftedFieldAlignedWeights, ShiftedMetricFFTPhases
+from .types import (
+    FieldAlignedLocalLayout,
+    GuardLayout,
+    ShiftedFieldAlignedWeights,
+    ShiftedMetricFFTPhases,
+)
 
 __all__ = [
+    "FieldAlignedLocalLayout",
     "GuardLayout",
     "Stencil1D",
     "ShiftedFieldAlignedWeights",
@@ -62,6 +69,8 @@ __all__ = [
     "limit_free",
     "mc_limiter",
     "minmod",
+    "prepare_poloidal_y_dfdx_local",
+    "prepare_poloidal_y_dfdx_local_ref",
     "set_boundary_to_midpoint",
     "shifted_metric_fft_phases_from_geometry",
     "shifted_metric_weights_from_geometry",
