@@ -5,9 +5,18 @@ Planned in Phase 3 of `/Users/rogerio/local/jax_drb/plan.md`.
 
 from __future__ import annotations
 
+import numpy as np
 import jax.numpy as jnp
 
 from .primitives import Stencil1D, mc_limiter
+from .species import prepare_poloidal_y_dfdx_local, prepare_poloidal_y_dfdx_local_ref
+from .transform import (
+    build_shifted_metric_fft_phases,
+    build_shifted_metric_weights,
+    to_field_aligned_all,
+    to_field_aligned_all_fft,
+)
+from .types import FieldAlignedLocalLayout
 
 
 def _shift(arr: jnp.ndarray, offset: int, axis: int, *, periodic: bool) -> jnp.ndarray:
@@ -188,6 +197,72 @@ def _fromm_x_boundary_flux(
         face_val = jnp.where(vel > 0.0, outflow, inflow)
     face_val = jnp.maximum(face_val, 0.0) if positive else face_val
     return vel * face_val
+
+
+def _as_field_aligned_metric2d(
+    arr: jnp.ndarray | float,
+    *,
+    npar: int,
+    nx: int,
+    nbinorm: int,
+    name: str,
+) -> jnp.ndarray:
+    out = jnp.asarray(arr, dtype=jnp.float64)
+    if out.ndim == 0:
+        return jnp.full((npar, nx), out, dtype=jnp.float64)
+    if out.ndim == 1:
+        if out.shape[0] == npar:
+            return jnp.broadcast_to(out[:, None], (npar, nx))
+        if out.shape[0] == nx:
+            return jnp.broadcast_to(out[None, :], (npar, nx))
+    if out.ndim == 2 and out.shape == (npar, nx):
+        return out
+    if out.ndim == 2 and out.shape == (npar, 1):
+        return jnp.broadcast_to(out, (npar, nx))
+    if out.ndim == 2 and out.shape == (1, nx):
+        return jnp.broadcast_to(out, (npar, nx))
+    if out.ndim == 3 and out.shape == (npar, nx, nbinorm):
+        return out[..., 0]
+    raise ValueError(
+        f"{name} must be scalar, shape ({npar}, {nx}), or shape ({npar}, {nx}, {nbinorm}); got {out.shape}."
+    )
+
+
+def _to_field_aligned_local(
+    field: jnp.ndarray,
+    *,
+    z_shift: jnp.ndarray | float,
+    zlength: float,
+    open_field_line: bool,
+    interp: str,
+) -> jnp.ndarray:
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    npar, nx, nbinorm = (int(v) for v in field_arr.shape)
+    interp_name = str(interp).lower()
+    if interp_name == "spectral":
+        phases = build_shifted_metric_fft_phases(
+            z_shift,
+            nx=nx,
+            npar=npar,
+            nbinorm=nbinorm,
+            zlength=float(zlength),
+            open_field_line=open_field_line,
+        )
+        return to_field_aligned_all_fft(field_arr, phases)
+    if interp_name == "linear":
+        dz = float(zlength) / max(nbinorm, 1)
+        if dz <= 0.0:
+            raise ValueError(f"zlength={zlength} gives invalid binormal spacing {dz}.")
+        shift_idx = jnp.asarray(z_shift, dtype=jnp.float64) / dz
+        weights = build_shifted_metric_weights(
+            shift_idx,
+            nx=nx,
+            npar=npar,
+            nbinorm=nbinorm,
+            open_field_line=open_field_line,
+        )
+        return to_field_aligned_all(field_arr, weights)
+    raise ValueError(f"Unsupported interp={interp!r}; expected 'spectral' or 'linear'.")
 
 
 def div_n_bxgrad_f_b_xppm_xz(
@@ -438,3 +513,265 @@ def div_n_bxgrad_f_b_xppm_xz_ref(
 
 def div_n_bxgrad_f_b_xppm(*args, **kwargs):
     raise NotImplementedError("Phase 3: mirror ExB transport is not landed yet.")
+
+
+def div_n_bxgrad_f_b_xppm_xy_y_local_ref(
+    n_fa: jnp.ndarray,
+    dfdx_fa: jnp.ndarray,
+    *,
+    jacobian: jnp.ndarray | float,
+    dy: jnp.ndarray | float,
+    g11: jnp.ndarray | float,
+    g23: jnp.ndarray | float,
+    bxy: jnp.ndarray | float,
+    layout: FieldAlignedLocalLayout,
+    bndry_flux: bool,
+    positive: bool = False,
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
+) -> jnp.ndarray:
+    """Reference local Y-flux branch of Hermes `Div_n_bxGrad_f_B_XPPM`."""
+
+    n_arr = np.asarray(n_fa, dtype=np.float64)
+    dfdx_arr = np.asarray(dfdx_fa, dtype=np.float64)
+    if n_arr.shape != dfdx_arr.shape:
+        raise ValueError(f"n_fa shape {n_arr.shape} != dfdx_fa shape {dfdx_arr.shape}.")
+    layout.validate(tuple(int(v) for v in n_arr.shape))
+    npar, nx, nbinorm = (int(v) for v in n_arr.shape)
+
+    J = np.asarray(
+        _as_field_aligned_metric2d(
+            jnp.asarray(jacobian), npar=npar, nx=nx, nbinorm=nbinorm, name="jacobian"
+        )
+    )
+    dy_arr = np.asarray(
+        _as_field_aligned_metric2d(jnp.asarray(dy), npar=npar, nx=nx, nbinorm=nbinorm, name="dy")
+    )
+    g11_arr = np.asarray(
+        _as_field_aligned_metric2d(jnp.asarray(g11), npar=npar, nx=nx, nbinorm=nbinorm, name="g11")
+    )
+    g23_arr = np.asarray(
+        _as_field_aligned_metric2d(jnp.asarray(g23), npar=npar, nx=nx, nbinorm=nbinorm, name="g23")
+    )
+    bxy_arr = np.asarray(
+        _as_field_aligned_metric2d(jnp.asarray(bxy), npar=npar, nx=nx, nbinorm=nbinorm, name="bxy")
+    )
+    coeff = g11_arr * g23_arr / np.maximum(bxy_arr * bxy_arr, 1e-30)
+
+    ys = layout.pstart - 1
+    ye = layout.pend
+    if (not bndry_flux) and (not periodic_parallel):
+        if lower_boundary_open:
+            ys = layout.pstart
+        if upper_boundary_open:
+            ye = layout.pend - 1
+
+    out = np.zeros_like(n_arr)
+    for i in range(layout.xstart, layout.xend + 1):
+        for j in range(ys, ye + 1):
+            for k in range(nbinorm):
+                f_u = 0.5 * (
+                    (coeff[j + 1, i] * dfdx_arr[j + 1, i, k]) + (coeff[j, i] * dfdx_arr[j, i, k])
+                )
+                vy = -0.5 * (J[j + 1, i] + J[j, i]) * f_u
+
+                if lower_boundary_open and (not periodic_parallel) and (j == layout.pstart - 1):
+                    vy = min(vy, 0.0)
+                if upper_boundary_open and (not periodic_parallel) and (j == layout.pend):
+                    vy = max(vy, 0.0)
+
+                if vy > 0.0:
+                    nval = n_arr[j, i, k] + 0.25 * (n_arr[j + 1, i, k] - n_arr[j - 1, i, k])
+                else:
+                    nval = n_arr[j + 1, i, k] - 0.25 * (n_arr[j + 2, i, k] - n_arr[j, i, k])
+                if positive and (nval < 0.0):
+                    nval = 0.0
+                flux = vy * nval
+                out[j, i, k] += flux / (dy_arr[j, i] * J[j, i])
+                out[j + 1, i, k] -= flux / (dy_arr[j + 1, i] * J[j + 1, i])
+
+    return jnp.asarray(out, dtype=jnp.float64)
+
+
+def div_n_bxgrad_f_b_xppm_xy_y_local(
+    n_fa: jnp.ndarray,
+    dfdx_fa: jnp.ndarray,
+    *,
+    jacobian: jnp.ndarray | float,
+    dy: jnp.ndarray | float,
+    g11: jnp.ndarray | float,
+    g23: jnp.ndarray | float,
+    bxy: jnp.ndarray | float,
+    layout: FieldAlignedLocalLayout,
+    bndry_flux: bool,
+    positive: bool = False,
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
+) -> jnp.ndarray:
+    """Fused local Y-flux branch of Hermes `Div_n_bxGrad_f_B_XPPM`."""
+
+    n_arr = jnp.asarray(n_fa, dtype=jnp.float64)
+    dfdx_arr = jnp.asarray(dfdx_fa, dtype=jnp.float64)
+    if n_arr.shape != dfdx_arr.shape:
+        raise ValueError(f"n_fa shape {n_arr.shape} != dfdx_fa shape {dfdx_arr.shape}.")
+    layout.validate(tuple(int(v) for v in n_arr.shape))
+    npar, nx, nbinorm = (int(v) for v in n_arr.shape)
+
+    J2d = _as_field_aligned_metric2d(jacobian, npar=npar, nx=nx, nbinorm=nbinorm, name="jacobian")
+    dy2d = _as_field_aligned_metric2d(dy, npar=npar, nx=nx, nbinorm=nbinorm, name="dy")
+    g11_2d = _as_field_aligned_metric2d(g11, npar=npar, nx=nx, nbinorm=nbinorm, name="g11")
+    g23_2d = _as_field_aligned_metric2d(g23, npar=npar, nx=nx, nbinorm=nbinorm, name="g23")
+    bxy_2d = _as_field_aligned_metric2d(bxy, npar=npar, nx=nx, nbinorm=nbinorm, name="bxy")
+
+    J = jnp.broadcast_to(J2d[:, :, None], n_arr.shape)
+    dy_arr = jnp.broadcast_to(dy2d[:, :, None], n_arr.shape)
+    coeff = jnp.broadcast_to(
+        (g11_2d * g23_2d / jnp.maximum(bxy_2d * bxy_2d, 1e-30))[:, :, None],
+        n_arr.shape,
+    )
+    coeff_dfdx = coeff * dfdx_arr
+    vy = -0.25 * (J[1:] + J[:-1]) * (coeff_dfdx[1:] + coeff_dfdx[:-1])
+
+    if lower_boundary_open and (not periodic_parallel):
+        vy = vy.at[layout.pstart - 1].set(jnp.minimum(vy[layout.pstart - 1], 0.0))
+    if upper_boundary_open and (not periodic_parallel):
+        vy = vy.at[layout.pend].set(jnp.maximum(vy[layout.pend], 0.0))
+
+    n_m = _shift(n_arr, -1, axis=0, periodic=periodic_parallel)[:-1]
+    n_c = n_arr[:-1]
+    n_p = n_arr[1:]
+    n_pp = _shift(n_arr, +2, axis=0, periodic=periodic_parallel)[:-1]
+    pos_state = n_c + 0.25 * (n_p - n_m)
+    neg_state = n_p - 0.25 * (n_pp - n_c)
+    face_state = jnp.where(vy > 0.0, pos_state, neg_state)
+    if positive:
+        face_state = jnp.maximum(face_state, 0.0)
+    flux = vy * face_state
+
+    ys = layout.pstart - 1
+    ye = layout.pend
+    if (not bndry_flux) and (not periodic_parallel):
+        if lower_boundary_open:
+            ys = layout.pstart
+        if upper_boundary_open:
+            ye = layout.pend - 1
+    face_idx = jnp.arange(npar - 1)
+    face_mask = (face_idx >= int(ys)) & (face_idx <= int(ye))
+    x_idx = jnp.arange(nx)
+    x_mask = (x_idx >= int(layout.xstart)) & (x_idx <= int(layout.xend))
+    flux = jnp.where(face_mask[:, None, None] & x_mask[None, :, None], flux, 0.0)
+
+    out = jnp.zeros_like(n_arr)
+    out = out.at[:-1].add(flux / jnp.maximum(dy_arr[:-1] * J[:-1], 1e-30))
+    out = out.at[1:].add(-flux / jnp.maximum(dy_arr[1:] * J[1:], 1e-30))
+    return out
+
+
+def div_n_bxgrad_f_b_xppm_xy_y_local_from_fields_ref(
+    n: jnp.ndarray,
+    f: jnp.ndarray,
+    *,
+    dx: jnp.ndarray | float,
+    z_shift: jnp.ndarray | float,
+    zlength: float,
+    jacobian: jnp.ndarray | float,
+    dy: jnp.ndarray | float,
+    g11: jnp.ndarray | float,
+    g23: jnp.ndarray | float,
+    bxy: jnp.ndarray | float,
+    layout: FieldAlignedLocalLayout,
+    interp: str = "spectral",
+    bndry_flux: bool = True,
+    positive: bool = False,
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
+) -> jnp.ndarray:
+    """Reference local Y-flux branch starting from unaligned local fields."""
+
+    dfdx_fa = prepare_poloidal_y_dfdx_local_ref(
+        f,
+        dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        interp=interp,
+    )
+    n_fa = _to_field_aligned_local(
+        n,
+        z_shift=z_shift,
+        zlength=zlength,
+        open_field_line=layout.open_field_line,
+        interp=interp,
+    )
+    return div_n_bxgrad_f_b_xppm_xy_y_local_ref(
+        n_fa,
+        dfdx_fa,
+        jacobian=jacobian,
+        dy=dy,
+        g11=g11,
+        g23=g23,
+        bxy=bxy,
+        layout=layout,
+        bndry_flux=bndry_flux,
+        positive=positive,
+        lower_boundary_open=lower_boundary_open,
+        upper_boundary_open=upper_boundary_open,
+        periodic_parallel=periodic_parallel,
+    )
+
+
+def div_n_bxgrad_f_b_xppm_xy_y_local_from_fields(
+    n: jnp.ndarray,
+    f: jnp.ndarray,
+    *,
+    dx: jnp.ndarray | float,
+    z_shift: jnp.ndarray | float,
+    zlength: float,
+    jacobian: jnp.ndarray | float,
+    dy: jnp.ndarray | float,
+    g11: jnp.ndarray | float,
+    g23: jnp.ndarray | float,
+    bxy: jnp.ndarray | float,
+    layout: FieldAlignedLocalLayout,
+    interp: str = "spectral",
+    bndry_flux: bool = True,
+    positive: bool = False,
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
+) -> jnp.ndarray:
+    """Fused local Y-flux branch starting from unaligned local fields."""
+
+    dfdx_fa = prepare_poloidal_y_dfdx_local(
+        f,
+        dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        interp=interp,
+    )
+    n_fa = _to_field_aligned_local(
+        n,
+        z_shift=z_shift,
+        zlength=zlength,
+        open_field_line=layout.open_field_line,
+        interp=interp,
+    )
+    return div_n_bxgrad_f_b_xppm_xy_y_local(
+        n_fa,
+        dfdx_fa,
+        jacobian=jacobian,
+        dy=dy,
+        g11=g11,
+        g23=g23,
+        bxy=bxy,
+        layout=layout,
+        bndry_flux=bndry_flux,
+        positive=positive,
+        lower_boundary_open=lower_boundary_open,
+        upper_boundary_open=upper_boundary_open,
+        periodic_parallel=periodic_parallel,
+    )
