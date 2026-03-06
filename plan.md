@@ -365,10 +365,10 @@ Acceptance:
 Create in this order:
 
 - [x] `div_n_bxgrad_f_b_xppm_xz_ref`
-- [ ] `div_n_bxgrad_f_b_xppm_xy_x_ref`
+- [x] local `div_n_bxgrad_f_b_xppm_xy_x_local_ref`
 - [x] local field-aligned `div_n_bxgrad_f_b_xppm_xy_y_local_ref`
-- [ ] assembled `div_n_bxgrad_f_b_xppm_ref`
-- [ ] fused production version
+- [x] local assembled `div_n_bxgrad_f_b_xppm_local_ref`
+- [ ] runtime-facing fused production version
 
 Wire first for:
 
@@ -538,7 +538,9 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 ### Milestone A3: mirror ExB parity
 
 - [x] X-Z `Div_n_bxGrad_f_B_XPPM` slice exists with fused/reference + autodiff tests.
+- [x] local X-flux slice exists with fused/reference + dump-backed tests.
 - [x] local field-aligned Y-flux slice exists with fused/reference + dump-backed tests.
+- [x] local assembled full ExB mirror exists with fused/reference + dump-backed tests.
 - [ ] `Ne exb` strict 1-step mismatch reduced below threshold.
 - [ ] `Pe exb` strict 1-step mismatch reduced below threshold.
 - [ ] 3-step audit remains green for ExB.
@@ -655,6 +657,24 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - The fused and reference local Y-flux operators now match exactly on that
   fixture for both `Ne` and `Pe`, but there is still no strict-audit delta
   because the assembled runtime mirror ExB operator is not landed yet.
+- Added the local X-flux preparation helper
+  `prepare_poloidal_x_dfdy_local_ref` in
+  `src/jaxdrb/hermes_mirror/species.py`.
+- Added the local X-flux mirror operator slice in
+  `src/jaxdrb/hermes_mirror/exb.py`:
+  `div_n_bxgrad_f_b_xppm_xy_x_local_ref`,
+  `div_n_bxgrad_f_b_xppm_xy_x_local`, and the corresponding `*_from_fields`
+  wrappers.
+- Added dump-backed regression coverage in
+  `tests/hermes_mirror/test_exb_x_local.py`.
+- Added the first assembled local full mirror ExB operator in
+  `src/jaxdrb/hermes_mirror/exb.py`:
+  `div_n_bxgrad_f_b_xppm_local_ref` and `div_n_bxgrad_f_b_xppm_local`.
+- Added dump-backed fused/reference and autodiff coverage in
+  `tests/hermes_mirror/test_exb_local_full.py`.
+- The remaining ExB gap is now runtime wiring: the full mirror ExB structure
+  exists and is tested locally, but it is not yet connected to the strict
+  Hermes-state runtime path.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.

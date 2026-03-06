@@ -8,7 +8,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 from .boundary import apply_neumann_field3d
-from .derivs import ddx_centered_guarded
+from .derivs import ddx_centered_guarded, ddy_centered_guarded_local
 from .transform import (
     build_shifted_metric_fft_phases,
     build_shifted_metric_weights,
@@ -126,6 +126,52 @@ def prepare_poloidal_y_dfdx_local(
     """Fused mirror entrypoint for the local Y-flux preparation chain."""
 
     return prepare_poloidal_y_dfdx_local_ref(field, **kwargs)
+
+
+def prepare_poloidal_x_dfdy_local_ref(
+    field: jnp.ndarray,
+    *,
+    dy: jnp.ndarray | float,
+    dx: jnp.ndarray | float,
+    layout: FieldAlignedLocalLayout,
+) -> jnp.ndarray:
+    """Mirror the local `DDY -> communicate -> applyBoundary` chain for X-flux."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    if field_arr.ndim != 3:
+        raise ValueError(
+            f"field must have shape `(npar, nx, nbinorm)` for local X-flux prep, got {field_arr.shape}."
+        )
+    layout.validate(tuple(int(v) for v in field_arr.shape))
+    npar, nx, nbinorm = (int(v) for v in field_arr.shape)
+    dy3d = jnp.broadcast_to(
+        _as_field_aligned_metric(dy, npar=npar, nx=nx, nbinorm=nbinorm, name="dy")[:, :, None],
+        field_arr.shape,
+    )
+    dx3d = jnp.broadcast_to(
+        _as_field_aligned_metric(dx, npar=npar, nx=nx, nbinorm=nbinorm, name="dx")[:, :, None],
+        field_arr.shape,
+    )
+    dfdy = ddy_centered_guarded_local(field_arr, dy3d, layout=layout)
+    return apply_neumann_field3d(
+        dfdy,
+        axis=1,
+        interior_start=layout.xstart,
+        interior_end=layout.xend,
+        spacing=dx3d,
+        lower_gradient=0.0,
+        upper_gradient=0.0,
+        guard_width=layout.x_guards,
+    )
+
+
+def prepare_poloidal_x_dfdy_local(
+    field: jnp.ndarray,
+    **kwargs,
+) -> jnp.ndarray:
+    """Fused mirror entrypoint for the local X-flux preparation chain."""
+
+    return prepare_poloidal_x_dfdy_local_ref(field, **kwargs)
 
 
 def density_transform_impl(*args, **kwargs):

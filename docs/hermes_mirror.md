@@ -519,6 +519,78 @@ Phase 3 step is to combine the already-landed X-Z slice and this local Y-flux
 slice into a full mirror `Div_n_bxGrad_f_B_XPPM` entrypoint before touching
 the active strict engine.
 
+## Phase 3 Local X-Flux Slice
+
+The missing poloidal X-flux slice is now also landed in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/exb.py`:
+
+- `div_n_bxgrad_f_b_xppm_xy_x_local_ref`
+- `div_n_bxgrad_f_b_xppm_xy_x_local`
+- `div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref`
+- `div_n_bxgrad_f_b_xppm_xy_x_local_from_fields`
+
+This mirrors the Hermes X-flux branch of `Div_n_bxGrad_f_B_XPPM`, which stays
+in the unshifted local field-aligned layout and depends on the separate
+preparation chain:
+
+1. `DDY(phi)`
+2. `mesh->communicate(dfdy)`
+3. `dfdy.applyBoundary("neumann")`
+4. average `(g11 * g23 / B^2) * dfdy` to the right x-face
+5. apply the Fromm upwind state in the x direction
+6. accumulate the x-face flux divergence into the neighboring cells
+
+The preparation helper for this slice now also exists in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/species.py`:
+
+- `prepare_poloidal_x_dfdy_local_ref`
+- `prepare_poloidal_x_dfdy_local`
+
+The corresponding tests in
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_exb_x_local.py`
+cover fused-versus-reference equality, autodiff, and dump-backed deterministic
+RMS values on the shared local ExB fixture:
+
+- `Ne` total RMS: `5.391187274308899e-03`
+- `Pe` total RMS: `5.289137581776043e-03`
+
+## Phase 3 Local Full Operator
+
+The first assembled local full mirror now also exists in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/exb.py`:
+
+- `div_n_bxgrad_f_b_xppm_local_ref`
+- `div_n_bxgrad_f_b_xppm_local`
+
+These functions assemble the current Phase 3 slices in the same order as the
+Hermes source:
+
+1. X-Z branch via `div_n_bxgrad_f_b_xppm_xz`
+2. local poloidal X-flux via `div_n_bxgrad_f_b_xppm_xy_x_local_from_fields`
+3. local field-aligned Y-flux via `div_n_bxgrad_f_b_xppm_xy_y_local_from_fields`
+4. `fromFieldAligned(...)` applied to the Y-flux contribution
+5. summed full local ExB divergence
+
+The corresponding tests in
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_exb_local_full.py`
+cover:
+
+- equality with the X-Z slice when `poloidal = false`,
+- fused-versus-reference equality for the assembled local operator,
+- autodiff through the full assembled local path,
+- dump-backed deterministic RMS values for both `Ne` and `Pe`.
+
+On the shared local ExB fixture, the current assembled reference values are:
+
+- `Ne` total RMS: `7.204357588601792e-03`
+- `Ne` interior RMS: `1.4914956178042702e-03`
+- `Pe` total RMS: `7.071453164542667e-03`
+- `Pe` interior RMS: `1.3741825962166174e-03`
+
+This is still a mirror-only local operator. It is the first point where the
+full Hermes ExB structure exists in JAX as one testable function, but it is
+not yet wired into the strict runtime engine.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:
