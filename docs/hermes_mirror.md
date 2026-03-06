@@ -378,6 +378,22 @@ These are needed because the Hermes Y-flux branch in
 `fromFieldAligned(...)`, not the `RGN_NOX`/`RGN_NOBNDRY` restricted forms used
 in other interpolation helpers.
 
+The next mirrored preparation slice is now also landed:
+
+- `ddx_centered_guarded`
+
+This helper is intentionally scoped to local guard-inclusive arrays read
+straight from `BOUT.dmp.*.nc`. It mirrors the centred `DDX` stage that Hermes
+applies before the Y-flux transform, including the fact that boundary interior
+cells still use centred stencils because x-guard values are present in the
+local dump.
+
+That distinction matters. On the Hermes dump used for strict parity work, the
+guard-aware left-boundary `DDX(phi)` differs from the current guardless JAX
+boundary derivative by an RMS amount larger than the Hermes boundary derivative
+itself. In other words, the active runtime mismatch is not in the transform
+region bookkeeping alone; it is upstream in the state-preparation chain.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

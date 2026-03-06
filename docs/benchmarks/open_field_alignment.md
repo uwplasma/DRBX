@@ -121,6 +121,28 @@ That rules out transform-region selection as the dominant remaining
 `DDX(phi) -> communicate -> applyBoundary("neumann")` preparation chain before
 the Y-flux transform.
 
+The first part of that next target is now landed in the mirror layer only:
+
+- `src/jaxdrb/hermes_mirror/derivs.py::ddx_centered_guarded`
+- dump-backed fixture `tests/fixtures/hermes_mirror_phi_metric_local_rank0_t1.npz`
+
+This step is intentionally diagnostic. A direct production-path attempt to
+replace the current guardless Y-flux `DDX(phi)` boundary handling with a simple
+ghost-centred derivative was rejected after the 1-step strict audit at
+`runs/audit_phase3_ddxghost_probe` regressed badly:
+
+- `n advection/exb`: `0.0030432257 -> 0.1658992790`
+- `Pe advection/exb`: `0.0036033052 -> 0.1089011668`
+
+That rejection means the remaining mismatch is in the full preparation chain,
+not just the final boundary derivative formula. The next implementation target
+is a literal local mirror of:
+
+1. `DDX(phi)`
+2. `mesh->communicate(dfdx)`
+3. `dfdx.applyBoundary("neumann")`
+4. `toFieldAligned(dfdx)`
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash
