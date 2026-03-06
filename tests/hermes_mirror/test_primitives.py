@@ -10,6 +10,7 @@ from jaxdrb.hermes_mirror import (
     GuardLayout,
     Stencil1D,
     apply_neumann_boundary_average_z,
+    apply_neumann_field3d,
     limit_free,
     mc_limiter,
     minmod,
@@ -128,6 +129,78 @@ def test_apply_neumann_boundary_average_z_matches_dump_backed_fixture() -> None:
             rtol=1e-12,
             atol=1e-12,
         )
+
+
+def test_apply_neumann_field3d_zero_gradient_matches_centered_bout_rule() -> None:
+    field = jnp.arange(3 * 7 * 8, dtype=jnp.float64).reshape(3, 7, 8)
+
+    out = apply_neumann_field3d(field, axis=1, interior_start=2, interior_end=4, guard_width=2)
+
+    np.testing.assert_allclose(np.asarray(out[:, 1, :]), np.asarray(field[:, 2, :]))
+    np.testing.assert_allclose(np.asarray(out[:, 0, :]), np.asarray(field[:, 3, :]))
+    np.testing.assert_allclose(np.asarray(out[:, 5, :]), np.asarray(field[:, 4, :]))
+    np.testing.assert_allclose(np.asarray(out[:, 6, :]), np.asarray(field[:, 3, :]))
+
+
+def test_apply_neumann_field3d_nonzero_gradient_matches_centered_formula() -> None:
+    field = jnp.arange(3 * 7 * 8, dtype=jnp.float64).reshape(3, 7, 8)
+    spacing = jnp.ones_like(field) * 2.0
+
+    out = apply_neumann_field3d(
+        field,
+        axis=1,
+        interior_start=2,
+        interior_end=4,
+        spacing=spacing,
+        lower_gradient=1.5,
+        upper_gradient=-0.5,
+        guard_width=2,
+    )
+
+    np.testing.assert_allclose(np.asarray(out[:, 1, :]), np.asarray(field[:, 2, :] - 3.0))
+    np.testing.assert_allclose(np.asarray(out[:, 0, :]), np.asarray(field[:, 3, :] - 9.0))
+    np.testing.assert_allclose(np.asarray(out[:, 5, :]), np.asarray(field[:, 4, :] - 1.0))
+    np.testing.assert_allclose(np.asarray(out[:, 6, :]), np.asarray(field[:, 3, :] - 3.0))
+
+
+def test_apply_neumann_field3d_supports_last_axis_boundaries() -> None:
+    field = jnp.arange(3 * 5 * 7, dtype=jnp.float64).reshape(3, 5, 7)
+
+    out = apply_neumann_field3d(
+        field,
+        axis=2,
+        interior_start=2,
+        interior_end=4,
+        spacing=1.0,
+        lower_gradient=2.0,
+        upper_gradient=-1.0,
+        guard_width=2,
+    )
+
+    np.testing.assert_allclose(np.asarray(out[:, :, 1]), np.asarray(field[:, :, 2] - 2.0))
+    np.testing.assert_allclose(np.asarray(out[:, :, 0]), np.asarray(field[:, :, 3] - 6.0))
+    np.testing.assert_allclose(np.asarray(out[:, :, 5]), np.asarray(field[:, :, 4] - 1.0))
+    np.testing.assert_allclose(np.asarray(out[:, :, 6]), np.asarray(field[:, :, 3] - 3.0))
+
+
+def test_apply_neumann_field3d_is_differentiable() -> None:
+    field = jnp.arange(3 * 7 * 8, dtype=jnp.float64).reshape(3, 7, 8) / 10.0
+
+    grad = jax.grad(
+        lambda arr: jnp.sum(
+            apply_neumann_field3d(
+                arr,
+                axis=1,
+                interior_start=2,
+                interior_end=4,
+                spacing=1.0,
+                lower_gradient=0.25,
+                upper_gradient=-0.5,
+            )
+        )
+    )(field)
+
+    assert np.isfinite(np.asarray(grad)).all()
 
 
 def test_set_boundary_to_midpoint_matches_bout_recursive_x_update() -> None:

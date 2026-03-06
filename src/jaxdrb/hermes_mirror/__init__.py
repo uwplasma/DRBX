@@ -7,7 +7,11 @@ Hermes dump fixtures and can be folded back into the unified core.
 
 from __future__ import annotations
 
-from .boundary import apply_neumann_boundary_average_z, set_boundary_to_midpoint
+from .boundary import (
+    apply_neumann_boundary_average_z,
+    apply_neumann_field3d,
+    set_boundary_to_midpoint,
+)
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
 from .transform import (
     build_shifted_metric_weights,
@@ -24,6 +28,7 @@ __all__ = [
     "Stencil1D",
     "ShiftedFieldAlignedWeights",
     "apply_neumann_boundary_average_z",
+    "apply_neumann_field3d",
     "build_shifted_metric_weights",
     "from_field_aligned_nobndry",
     "from_field_aligned_nobndry_ref",
