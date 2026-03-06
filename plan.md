@@ -582,7 +582,13 @@ python /Users/rogerio/local/jax_drb/tools/run_tokamak_hermes_benchmark.py \
   sheath-target state construction in the parallel channel, with `n parallel/par`
   still the next distinct structural mismatch after the improved `Pe exb` path.
 - Tests/docs touched: `tests/test_exb_poloidal_flows.py`,
+  `tests/test_drb_fv_hermes_short_window_gate.py`,
   `docs/benchmarks/open_field_alignment.md`.
+- Commit: `f79ad6e` (`src/jaxdrb/core/geometry_field_aligned.py`,
+  `tests/test_exb_poloidal_flows.py`,
+  `tests/test_drb_fv_hermes_short_window_gate.py`,
+  `docs/benchmarks/open_field_alignment.md`,
+  `plan.md`).
 
 ### Milestone B: short benchmark parity (`t<=0.5`)
 - [ ] Stable matched runs generated for Hermes and jax_drb.
