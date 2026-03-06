@@ -118,18 +118,26 @@ def build_bout_dump_fixture(
         for name in fields:
             if name not in ds.variables:
                 raise KeyError(f"Field {name!r} not found in {bout_dump}.")
-            raw = np.asarray(ds.variables[name][time_index], dtype=np.float64)
-            if raw.ndim != 3:
-                raise ValueError(
-                    f"Field {name!r} has shape {raw.shape}; expected local `(x, y, z)` data."
-                )
-            arr = np.transpose(raw, (2, 0, 1))
-            payload[name] = arr
+            var = ds.variables[name]
+            raw = (
+                np.asarray(var[time_index], dtype=np.float64)
+                if var.ndim == 4
+                else np.asarray(var[:], dtype=np.float64)
+            )
+            if raw.ndim == 3:
+                arr = np.transpose(raw, (2, 0, 1))
+                payload[name] = arr
 
-            avg_lower = arr[:, xstart, :].mean(axis=0, keepdims=True)
-            avg_upper = arr[:, xend, :].mean(axis=0, keepdims=True)
-            payload[f"{name}__neumann_lower"] = 2.0 * avg_lower - arr[:, xstart, :]
-            payload[f"{name}__neumann_upper"] = 2.0 * avg_upper - arr[:, xend, :]
+                avg_lower = arr[:, xstart, :].mean(axis=0, keepdims=True)
+                avg_upper = arr[:, xend, :].mean(axis=0, keepdims=True)
+                payload[f"{name}__neumann_lower"] = 2.0 * avg_lower - arr[:, xstart, :]
+                payload[f"{name}__neumann_upper"] = 2.0 * avg_upper - arr[:, xend, :]
+            elif raw.ndim == 2:
+                payload[name] = raw
+            else:
+                raise ValueError(
+                    f"Field {name!r} has shape {raw.shape}; expected local `(x, y, z)` or `(x, y)` data."
+                )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(output_path, **payload)
