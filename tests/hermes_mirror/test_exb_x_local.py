@@ -139,6 +139,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         bxy=bxy,
         layout=layout,
         bndry_flux=True,
+        lower_boundary_open=True,
+        upper_boundary_open=False,
     )
     ne_fused = div_n_bxgrad_f_b_xppm_xy_x_local_from_fields(
         ne,
@@ -153,6 +155,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         bxy=bxy,
         layout=layout,
         bndry_flux=True,
+        lower_boundary_open=True,
+        upper_boundary_open=False,
     )
     pe_ref = div_n_bxgrad_f_b_xppm_xy_x_local_from_fields_ref(
         pe,
@@ -167,6 +171,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         bxy=bxy,
         layout=layout,
         bndry_flux=True,
+        lower_boundary_open=True,
+        upper_boundary_open=False,
     )
     pe_fused = div_n_bxgrad_f_b_xppm_xy_x_local_from_fields(
         pe,
@@ -181,6 +187,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         bxy=bxy,
         layout=layout,
         bndry_flux=True,
+        lower_boundary_open=True,
+        upper_boundary_open=False,
     )
 
     np.testing.assert_allclose(np.asarray(ne_fused), np.asarray(ne_ref), rtol=1e-12, atol=1e-12)
@@ -189,5 +197,5 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
     ne_rms = float(jnp.sqrt(jnp.mean(ne_ref * ne_ref)))
     pe_rms = float(jnp.sqrt(jnp.mean(pe_ref * pe_ref)))
 
-    np.testing.assert_allclose(ne_rms, 5.391187274308899e-03, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(pe_rms, 5.289137581776043e-03, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(ne_rms, 1.8397448784589722e-03, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(pe_rms, 1.5738353569673229e-03, rtol=1e-12, atol=1e-12)
