@@ -96,6 +96,16 @@ That transform work now also has a source-true FFT path matching Hermes
 Hermes dump set in
 `runs/hermes_open_field_terms_t01_vortterms/data`.
 
+Phase 3 has now started with the first mirrored ExB transport slice in
+`src/jaxdrb/hermes_mirror/exb.py`: `div_n_bxgrad_f_b_xppm_xz` and its
+reference twin. This is only the X-Z branch of the Hermes
+`Div_n_bxGrad_f_B_XPPM` operator. It is validated against the current unified
+`hermes_xppm` X-Z path with `exb_poloidal_flows = false`, plus fused/reference
+and autodiff tests in `tests/hermes_mirror/test_exb.py`.
+
+This still does not change the strict Hermes audit yet, because the Y-flux
+branch and the mirror runtime wiring are not landed.
+
 ## 1) Run staged windows with finite-run gating
 
 ```bash

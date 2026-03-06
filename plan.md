@@ -530,10 +530,11 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 - [x] `to_field_aligned_nox` and `from_field_aligned_nobndry` mirror implementations exist.
 - [x] Transform weights are precomputed from existing geometry ingestion and reusable.
-- [ ] Transform tests match Hermes.
+- [x] Transform tests match Hermes.
 
 ### Milestone A3: mirror ExB parity
 
+- [x] X-Z `Div_n_bxGrad_f_B_XPPM` slice exists with fused/reference + autodiff tests.
 - [ ] `Ne exb` strict 1-step mismatch reduced below threshold.
 - [ ] `Pe exb` strict 1-step mismatch reduced below threshold.
 - [ ] 3-step audit remains green for ExB.
@@ -604,6 +605,15 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - A stitched global transform fixture now exists at
   `tests/fixtures/hermes_mirror_shiftedmetric_global_t1.npz`, produced by
   `tools/build_hermes_mirror_transform_fixture.py` from the Hermes dump set.
+- Phase 3 started with the first mirrored ExB X-Z slice in
+  `src/jaxdrb/hermes_mirror/exb.py`:
+  `div_n_bxgrad_f_b_xppm_xz` and `div_n_bxgrad_f_b_xppm_xz_ref`.
+- `tests/hermes_mirror/test_exb.py` now covers fused/reference equality,
+  equality with the current unified `hermes_xppm` X-Z path when
+  `exb_poloidal_flows = false`, and autodiff.
+- Strict Hermes example configs now pin `parallel_shift_interp = "spectral"`
+  so the active strict path uses the same shifted-metric interpolation family
+  as Hermes.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.
