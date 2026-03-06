@@ -353,6 +353,7 @@ Acceptance:
 - [x] `to_field_aligned_nox`
 - [x] `from_field_aligned_nobndry`
 - [x] `to_field_aligned_all` / `from_field_aligned_all`
+- [x] local guard-aware `DDX` mirror helper exists
 
 Acceptance:
 
@@ -623,6 +624,15 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `runs/audit_phase3_yregion_probe` showed no change in the fail-fast leader,
   so transform-region selection is not the dominant remaining
   `Pe advection/exb` mismatch.
+- Added a local guard-inclusive derivative helper
+  `src/jaxdrb/hermes_mirror/derivs.py::ddx_centered_guarded` and dump-backed
+  fixture `tests/fixtures/hermes_mirror_phi_metric_local_rank0_t1.npz`.
+- A direct production-path attempt to drop a ghost-centred `DDX(phi)` boundary
+  formula into the active Y-flux path was rejected after the 1-step strict
+  audit at `runs/audit_phase3_ddxghost_probe` regressed badly, especially in
+  `n advection/exb` and `Pe advection/exb`.
+- That rejection narrows the next target to the full local preparation chain:
+  `DDX(phi)` + communication + Neumann guard application + shifted transform.
 - The centred-field `apply_neumann_field3d` branch is now landed.
 - The remaining follow-up is to pin its named axis/region wiring directly
   against Hermes/BOUT when the mirror geometry/runtime path is connected.
