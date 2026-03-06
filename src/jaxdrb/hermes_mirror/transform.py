@@ -246,6 +246,27 @@ def to_field_aligned_nox_ref(
     )
 
 
+def to_field_aligned_all_ref(
+    field: jnp.ndarray,
+    weights: ShiftedFieldAlignedWeights,
+) -> jnp.ndarray:
+    """Reference mirror of `toFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_linear_shift_ref(
+        field_arr,
+        weights.forward_index0,
+        weights.forward_index1,
+        weights.forward_frac,
+    )
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
+        preserve_parallel_boundaries=False,
+    )
+
+
 def from_field_aligned_nobndry_ref(
     field: jnp.ndarray,
     weights: ShiftedFieldAlignedWeights,
@@ -267,6 +288,27 @@ def from_field_aligned_nobndry_ref(
     )
 
 
+def from_field_aligned_all_ref(
+    field: jnp.ndarray,
+    weights: ShiftedFieldAlignedWeights,
+) -> jnp.ndarray:
+    """Reference mirror of `fromFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_linear_shift_ref(
+        field_arr,
+        weights.backward_index0,
+        weights.backward_index1,
+        weights.backward_frac,
+    )
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
+        preserve_parallel_boundaries=False,
+    )
+
+
 def to_field_aligned_nox(
     field: jnp.ndarray,
     weights: ShiftedFieldAlignedWeights,
@@ -284,6 +326,27 @@ def to_field_aligned_nox(
         shifted,
         field_arr,
         preserve_x_boundaries=True,
+        preserve_parallel_boundaries=False,
+    )
+
+
+def to_field_aligned_all(
+    field: jnp.ndarray,
+    weights: ShiftedFieldAlignedWeights,
+) -> jnp.ndarray:
+    """Fused mirror of `toFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_linear_shift_fused(
+        field_arr,
+        weights.forward_index0,
+        weights.forward_index1,
+        weights.forward_frac,
+    )
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
         preserve_parallel_boundaries=False,
     )
 
@@ -309,6 +372,27 @@ def from_field_aligned_nobndry(
     )
 
 
+def from_field_aligned_all(
+    field: jnp.ndarray,
+    weights: ShiftedFieldAlignedWeights,
+) -> jnp.ndarray:
+    """Fused mirror of `fromFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_linear_shift_fused(
+        field_arr,
+        weights.backward_index0,
+        weights.backward_index1,
+        weights.backward_frac,
+    )
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
+        preserve_parallel_boundaries=False,
+    )
+
+
 def to_field_aligned_nox_fft_ref(
     field: jnp.ndarray,
     phases: ShiftedMetricFFTPhases,
@@ -321,6 +405,22 @@ def to_field_aligned_nox_fft_ref(
         shifted,
         field_arr,
         preserve_x_boundaries=True,
+        preserve_parallel_boundaries=False,
+    )
+
+
+def to_field_aligned_all_fft_ref(
+    field: jnp.ndarray,
+    phases: ShiftedMetricFFTPhases,
+) -> jnp.ndarray:
+    """Reference mirror of Hermes `ShiftedMetric::toFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_fft_shift_ref(field_arr, phases.to_aligned_phase)
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
         preserve_parallel_boundaries=False,
     )
 
@@ -341,6 +441,22 @@ def from_field_aligned_nobndry_fft_ref(
     )
 
 
+def from_field_aligned_all_fft_ref(
+    field: jnp.ndarray,
+    phases: ShiftedMetricFFTPhases,
+) -> jnp.ndarray:
+    """Reference mirror of Hermes `ShiftedMetric::fromFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_fft_shift_ref(field_arr, phases.from_aligned_phase)
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
+        preserve_parallel_boundaries=False,
+    )
+
+
 def to_field_aligned_nox_fft(
     field: jnp.ndarray,
     phases: ShiftedMetricFFTPhases,
@@ -353,6 +469,22 @@ def to_field_aligned_nox_fft(
         shifted,
         field_arr,
         preserve_x_boundaries=True,
+        preserve_parallel_boundaries=False,
+    )
+
+
+def to_field_aligned_all_fft(
+    field: jnp.ndarray,
+    phases: ShiftedMetricFFTPhases,
+) -> jnp.ndarray:
+    """Fused mirror of Hermes `ShiftedMetric::toFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_fft_shift_fused(field_arr, phases.to_aligned_phase)
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
         preserve_parallel_boundaries=False,
     )
 
@@ -370,4 +502,20 @@ def from_field_aligned_nobndry_fft(
         field_arr,
         preserve_x_boundaries=True,
         preserve_parallel_boundaries=phases.open_field_line,
+    )
+
+
+def from_field_aligned_all_fft(
+    field: jnp.ndarray,
+    phases: ShiftedMetricFFTPhases,
+) -> jnp.ndarray:
+    """Fused mirror of Hermes `ShiftedMetric::fromFieldAligned(..., "RGN_ALL")`."""
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    shifted = _apply_fft_shift_fused(field_arr, phases.from_aligned_phase)
+    return _preserve_region(
+        shifted,
+        field_arr,
+        preserve_x_boundaries=False,
+        preserve_parallel_boundaries=False,
     )
