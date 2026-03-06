@@ -49,6 +49,52 @@ class GuardLayout:
 
 
 @dataclass(frozen=True)
+class FieldAlignedLocalLayout:
+    """Local field-aligned guard layout for `(npar, nx, nbinorm)` arrays.
+
+    This layout is used for mirror helpers that follow Hermes/BOUT field-aligned
+    operators more literally than the active solver storage contract. The first
+    axis is the local parallel coordinate, the second axis is radial, and the
+    last axis is the shifted/binormal coordinate.
+    """
+
+    pstart: int
+    pend: int
+    xstart: int
+    xend: int
+    p_guards: int = 2
+    x_guards: int = 2
+    open_field_line: bool = True
+
+    def validate(self, shape: tuple[int, ...]) -> None:
+        if len(shape) != 3:
+            raise ValueError(
+                f"Mirror field-aligned helpers expect a 3D `(npar, nx, nbinorm)` field, got {shape}."
+            )
+        npar, nx, _ = shape
+        if self.pstart < self.p_guards:
+            raise ValueError(
+                f"pstart={self.pstart} leaves fewer than {self.p_guards} lower parallel guards."
+            )
+        if self.pend >= npar - self.p_guards:
+            raise ValueError(
+                f"pend={self.pend} leaves fewer than {self.p_guards} upper parallel guards for npar={npar}."
+            )
+        if self.xstart < self.x_guards:
+            raise ValueError(
+                f"xstart={self.xstart} leaves fewer than {self.x_guards} lower x guards."
+            )
+        if self.xend >= nx - self.x_guards:
+            raise ValueError(
+                f"xend={self.xend} leaves fewer than {self.x_guards} upper x guards for nx={nx}."
+            )
+        if self.pend < self.pstart:
+            raise ValueError(f"pend={self.pend} must be >= pstart={self.pstart}.")
+        if self.xend < self.xstart:
+            raise ValueError(f"xend={self.xend} must be >= xstart={self.xstart}.")
+
+
+@dataclass(frozen=True)
 class ShiftedFieldAlignedWeights:
     """Precomputed linear shift weights for Hermes mirror transforms.
 
