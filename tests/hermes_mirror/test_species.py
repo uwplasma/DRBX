@@ -6,12 +6,19 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror import FieldAlignedLocalLayout, prepare_poloidal_y_dfdx_local_ref
+from jaxdrb.hermes_mirror import (
+    FieldAlignedLocalLayout,
+    prepare_poloidal_x_dfdy_local_ref,
+    prepare_poloidal_y_dfdx_local_ref,
+)
 
 _FIXTURE = (
     Path(__file__).resolve().parents[1]
     / "fixtures"
     / "hermes_mirror_phi_field_aligned_local_rank0_t1.npz"
+)
+_EXB_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_exb_local_rank0_t1.npz"
 )
 
 
@@ -142,3 +149,43 @@ def test_prepare_poloidal_y_dfdx_local_ref_differs_from_guardless_dump_path() ->
     )
 
     assert rel > 0.5
+
+
+def test_prepare_poloidal_x_dfdy_local_ref_applies_lower_parallel_neumann() -> None:
+    with np.load(_EXB_FIXTURE, allow_pickle=False) as data:
+        phi = jnp.asarray(data["phi"], dtype=jnp.float64)
+        dx = jnp.asarray(data["dx"], dtype=jnp.float64)
+        dy = jnp.asarray(data["dy"], dtype=jnp.float64)
+        z_shift = jnp.asarray(data["zShift"], dtype=jnp.float64)
+        zlength = float(np.asarray(data["zlength"]))
+        layout = FieldAlignedLocalLayout(
+            pstart=int(np.asarray(data["pstart"])),
+            pend=int(np.asarray(data["pend"])),
+            xstart=int(np.asarray(data["xstart"])),
+            xend=int(np.asarray(data["xend"])),
+        )
+
+    out = prepare_poloidal_x_dfdy_local_ref(
+        phi,
+        dy=dy,
+        dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
+        layout=layout,
+        interp="spectral",
+        lower_boundary_open=True,
+        upper_boundary_open=False,
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(out[layout.pstart - 1, :, :]),
+        np.asarray(out[layout.pstart, :, :]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(out[layout.pstart - 2, :, :]),
+        np.asarray(out[layout.pstart + 1, :, :]),
+        rtol=1e-12,
+        atol=1e-12,
+    )

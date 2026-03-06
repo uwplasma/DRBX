@@ -153,6 +153,9 @@ def prepare_poloidal_x_dfdy_local_ref(
     z_shift: jnp.ndarray | float,
     zlength: float,
     interp: str = "spectral",
+    lower_boundary_open: bool = True,
+    upper_boundary_open: bool = False,
+    periodic_parallel: bool = False,
 ) -> jnp.ndarray:
     """Mirror the local `DDY -> communicate -> applyBoundary` chain for X-flux.
 
@@ -210,7 +213,7 @@ def prepare_poloidal_x_dfdy_local_ref(
     else:
         raise ValueError(f"Unsupported interp={interp!r}; expected 'spectral' or 'linear'.")
 
-    return apply_neumann_field3d(
+    dfdy = apply_neumann_field3d(
         dfdy,
         axis=1,
         interior_start=layout.xstart,
@@ -220,6 +223,20 @@ def prepare_poloidal_x_dfdy_local_ref(
         upper_gradient=0.0,
         guard_width=layout.x_guards,
     )
+    if not periodic_parallel:
+        dfdy = apply_neumann_field3d(
+            dfdy,
+            axis=0,
+            interior_start=layout.pstart,
+            interior_end=layout.pend,
+            spacing=dy3d,
+            lower_gradient=0.0,
+            upper_gradient=0.0,
+            guard_width=layout.p_guards,
+            apply_lower=lower_boundary_open,
+            apply_upper=upper_boundary_open,
+        )
+    return dfdy
 
 
 def prepare_poloidal_x_dfdy_local(
