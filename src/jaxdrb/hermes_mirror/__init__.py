@@ -18,6 +18,7 @@ from .derivs import (
     ddy_index_centered_guarded_local,
 )
 from .exb import (
+    div_n_bxgrad_f_b_xppm,
     div_n_bxgrad_f_b_xppm_local,
     div_n_bxgrad_f_b_xppm_local_ref,
     div_n_bxgrad_f_b_xppm_xy_x_local,
@@ -84,6 +85,7 @@ __all__ = [
     "ddy_index_centered_guarded_local",
     "density_transform_impl",
     "div_n_bxgrad_f_b_xppm_local",
+    "div_n_bxgrad_f_b_xppm",
     "div_n_bxgrad_f_b_xppm_local_ref",
     "div_n_bxgrad_f_b_xppm_xy_x_local",
     "div_n_bxgrad_f_b_xppm_xy_x_local_from_fields",
