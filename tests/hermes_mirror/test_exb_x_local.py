@@ -78,6 +78,7 @@ def test_exb_x_local_from_fields_is_differentiable() -> None:
     phi = jax.random.normal(jax.random.PRNGKey(75), (8, 8, 6), dtype=jnp.float64)
     dy = jnp.ones((8, 8), dtype=jnp.float64)
     dx = jnp.ones((8, 8), dtype=jnp.float64)
+    z_shift = jnp.zeros((8, 8), dtype=jnp.float64)
     jacobian = jnp.ones((8, 8), dtype=jnp.float64)
     g11 = jnp.ones((8, 8), dtype=jnp.float64)
     g23 = 0.15 * jnp.ones((8, 8), dtype=jnp.float64)
@@ -90,6 +91,8 @@ def test_exb_x_local_from_fields_is_differentiable() -> None:
                 phi,
                 dy=dy,
                 dx=dx,
+                z_shift=z_shift,
+                zlength=6.0,
                 jacobian=jacobian,
                 g11=g11,
                 g23=g23,
@@ -110,6 +113,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         pe = jnp.asarray(data["Pe"], dtype=jnp.float64)
         dy = jnp.asarray(data["dy"], dtype=jnp.float64)
         dx = jnp.asarray(data["dx"], dtype=jnp.float64)
+        z_shift = jnp.asarray(data["zShift"], dtype=jnp.float64)
+        zlength = float(np.asarray(data["zlength"]))
         jacobian = jnp.asarray(data["J"], dtype=jnp.float64)
         g11 = jnp.asarray(data["g11"], dtype=jnp.float64)
         g23 = jnp.asarray(data["g23"], dtype=jnp.float64)
@@ -126,6 +131,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         phi,
         dy=dy,
         dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
         jacobian=jacobian,
         g11=g11,
         g23=g23,
@@ -138,6 +145,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         phi,
         dy=dy,
         dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
         jacobian=jacobian,
         g11=g11,
         g23=g23,
@@ -150,6 +159,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         phi,
         dy=dy,
         dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
         jacobian=jacobian,
         g11=g11,
         g23=g23,
@@ -162,6 +173,8 @@ def test_exb_x_local_dump_backed_ne_pe_values() -> None:
         phi,
         dy=dy,
         dx=dx,
+        z_shift=z_shift,
+        zlength=zlength,
         jacobian=jacobian,
         g11=g11,
         g23=g23,

@@ -382,6 +382,8 @@ Then:
 
 Acceptance:
 
+- [x] dump-backed local `Ne` / `Pe` ExB terms match Hermes on interior cells
+- [ ] lower-open-boundary guard cells match Hermes diagnostic semantics
 - [ ] `Ne exb` strict 1-step leader removed
 - [ ] `Pe exb` strict 1-step leader removed
 - [ ] 3-step term audit stays improved
@@ -672,9 +674,18 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `div_n_bxgrad_f_b_xppm_local_ref` and `div_n_bxgrad_f_b_xppm_local`.
 - Added dump-backed fused/reference and autodiff coverage in
   `tests/hermes_mirror/test_exb_local_full.py`.
-- The remaining ExB gap is now runtime wiring: the full mirror ExB structure
-  exists and is tested locally, but it is not yet connected to the strict
-  Hermes-state runtime path.
+- Added a second dump-backed parity fixture
+  `tests/fixtures/hermes_mirror_exb_term_local_rank0_t1.npz` containing the raw
+  Hermes `term_Ne_exb` and `term_Pe_exb` arrays from the same local dump.
+- The assembled mirror local ExB operator now matches Hermes on the physical
+  interior cells:
+  `Ne` interior diff RMS `2.8867991448834276e-05`,
+  `Pe` interior diff RMS `1.2432835191026055e-05`,
+  with interior correlations above `0.9998`.
+- The remaining ExB mismatch is now localized to the lower open-boundary guard
+  cells, especially the lower-x guard, lower-y guard, and lower-left corner of
+  the X-flux path. The next Phase 3 target is guard/boundary diagnostic
+  semantics, not interior operator algebra.
 - Added the first Phase 4 species state-preparation helpers in
   `src/jaxdrb/hermes_mirror/species.py`:
   `density_transform_impl` and `pressure_transform_impl`.

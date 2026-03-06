@@ -578,7 +578,8 @@ cover:
 - equality with the X-Z slice when `poloidal = false`,
 - fused-versus-reference equality for the assembled local operator,
 - autodiff through the full assembled local path,
-- dump-backed deterministic RMS values for both `Ne` and `Pe`.
+- dump-backed deterministic RMS values for both `Ne` and `Pe`,
+- direct Hermes-term comparison on the physical interior cells.
 
 On the shared local ExB fixture, the current assembled reference values are:
 
@@ -586,6 +587,31 @@ On the shared local ExB fixture, the current assembled reference values are:
 - `Ne` interior RMS: `1.4914956178042702e-03`
 - `Pe` total RMS: `7.071453164542667e-03`
 - `Pe` interior RMS: `1.3741825962166174e-03`
+
+A second dump-backed fixture,
+`/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_exb_term_local_rank0_t1.npz`,
+now also stores the raw Hermes `term_Ne_exb` and `term_Pe_exb` arrays from the
+same local rank and time slice. On that fixture, the assembled mirror operator
+matches Hermes on the physical interior cells to tight tolerance:
+
+- `Ne` interior diff RMS: `2.8867991448834276e-05`
+- `Pe` interior diff RMS: `1.2432835191026055e-05`
+- `Ne` interior correlation: `0.9998132247422601`
+- `Pe` interior correlation: `0.9999591421467119`
+
+The remaining mismatch is not in the interior operator algebra. It is
+concentrated in the lower open-boundary guard cells, especially the lower-x
+guard, lower-y guard, and lower-left corner. For the `Ne` local term
+comparison, the current diff RMS is:
+
+- interior: `2.8867991448834276e-05`
+- `xlow_guard`: `3.03297619604618e-02`
+- `ylow_guard`: `1.7801910843170923e-02`
+- lower-left corner: `1.0506537581007377e-01`
+
+That means Phase 3 is now structurally closed on the physical interior, and the
+remaining work is the guard/boundary diagnostic semantics around the mirrored
+X-flux open-boundary path.
 
 This is still a mirror-only local operator. It is the first point where the
 full Hermes ExB structure exists in JAX as one testable function, but it is

@@ -113,3 +113,28 @@ def ddy_centered_guarded_local(
     return out.at[1:-1, :, :].set(
         (field_arr[2:, :, :] - field_arr[:-2, :, :]) / jnp.maximum(2.0 * dy_arr[1:-1, :, :], 1e-30)
     )
+
+
+def ddy_index_centered_guarded_local(
+    field: jnp.ndarray,
+    *,
+    layout: FieldAlignedLocalLayout | None = None,
+) -> jnp.ndarray:
+    """Mirror of centred index-space `DDY(f)` on aligned local arrays.
+
+    This is the pre-metric part of `Coordinates::DDY`: centred differencing in
+    the aligned parallel index direction without the final division by `dy`.
+    """
+
+    field_arr = jnp.asarray(field, dtype=jnp.float64)
+    if field_arr.ndim != 3:
+        raise ValueError(
+            f"field must have shape `(npar, nx, nbinorm)` for local DDY, got {field_arr.shape}."
+        )
+    if layout is not None:
+        layout.validate(tuple(int(v) for v in field_arr.shape))
+
+    out = jnp.zeros_like(field_arr)
+    if field_arr.shape[0] <= 2:
+        return out
+    return out.at[1:-1, :, :].set(0.5 * (field_arr[2:, :, :] - field_arr[:-2, :, :]))
