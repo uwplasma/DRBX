@@ -355,6 +355,7 @@ def _compute_term_metrics(
     out_rows: list[dict[str, object]] = []
     total_rows: list[dict[str, object]] = []
     total_fields: dict[str, list[np.ndarray]] = {}
+    term_fields: dict[tuple[int, str, str], np.ndarray] = {}
     phi_rows: list[dict[str, object]] = []
     nsteps = int(max(0, min(nsteps, snapshots["n"].shape[0] - start_index)))
     engine = str(getattr(system, "engine", "unified")).lower()
@@ -486,6 +487,7 @@ def _compute_term_metrics(
                         "mean": float(np.mean(a)),
                     }
                 )
+                term_fields[(int(ti), field_name, name)] = a
             if pe_term is not None:
                 a = np.asarray(pe_term)
                 out_rows.append(
@@ -499,8 +501,9 @@ def _compute_term_metrics(
                         "mean": float(np.mean(a)),
                     }
                 )
+                term_fields[(int(ti), "Pe", name)] = a
 
-    return out_rows, total_rows, total_fields, phi_rows
+    return out_rows, total_rows, total_fields, term_fields, phi_rows
 
 
 def _compute_hermes_term_metrics(
@@ -513,8 +516,9 @@ def _compute_hermes_term_metrics(
     step_offset: int = 0,
     axis_map: str = "none",
     hermes_parallel_axis: str = "z",
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], dict[tuple[int, str, str], np.ndarray]]:
     rows: list[dict[str, object]] = []
+    term_fields: dict[tuple[int, str, str], np.ndarray] = {}
     nt = int(fields["Ne"].shape[0])
     nsteps = int(max(0, nsteps))
     hermes_parallel_axis = str(hermes_parallel_axis).lower()
@@ -569,6 +573,7 @@ def _compute_hermes_term_metrics(
                 "mean": float(np.mean(a)),
             }
         )
+        term_fields[(int(step), field, term)] = a
 
     for name, arr in fields.items():
         if not name.startswith("term_"):
@@ -765,12 +770,16 @@ def _compute_hermes_term_metrics(
                     dte_tot = (p_tot - Te * n_par) / np.maximum(Ne, 1e-12)
                     _add_rows(dte_tot, "Te", "par_total", ti, times[idx])
 
-    return rows
+    return rows, term_fields
 
 
 def _compute_term_mismatch(
     jax_term_rows: list[dict[str, object]],
     hermes_term_rows: list[dict[str, object]],
+    *,
+    jax_term_fields: dict[tuple[int, str, str], np.ndarray] | None = None,
+    hermes_term_fields: dict[tuple[int, str, str], np.ndarray] | None = None,
+    strict_axis: bool = False,
 ) -> list[dict[str, object]]:
     mapping: dict[str, dict[str, tuple[str, ...]]] = {
         "n": {
@@ -809,6 +818,22 @@ def _compute_term_mismatch(
         hermes_index[(step, field, term)] = row
 
     mismatch: list[dict[str, object]] = []
+
+    def _corr(a: np.ndarray, b: np.ndarray) -> float:
+        aa = a - float(np.mean(a))
+        bb = b - float(np.mean(b))
+        denom = float(np.sqrt(np.mean(aa * aa)) * np.sqrt(np.mean(bb * bb)))
+        if denom <= 1e-30:
+            return 0.0
+        return float(np.mean(aa * bb) / denom)
+
+    def _ls_scale(a: np.ndarray, b: np.ndarray) -> float:
+        num = float(np.mean(a * b))
+        den = float(np.mean(a * a))
+        if den <= 1e-30:
+            return 0.0
+        return num / den
+
     for row in jax_term_rows:
         field = str(row.get("field"))
         term = str(row.get("term"))
@@ -830,6 +855,31 @@ def _compute_term_mismatch(
         jax_rms = float(row.get("rms", 0.0))
         hermes_rms = float(hrow.get("rms", 0.0))
         denom = max(1e-12, 0.1 * hermes_rms)
+        array_diff_rms = abs(jax_rms - hermes_rms)
+        array_diff_maxabs = abs(float(row.get("maxabs", 0.0)) - float(hrow.get("maxabs", 0.0)))
+        array_corr = 0.0
+        array_scale = 0.0
+        if jax_term_fields is not None and hermes_term_fields is not None:
+            jarr = jax_term_fields.get((step, field, term))
+            harr = hermes_term_fields.get((step, field, hermes_term))
+            if jarr is not None and harr is not None:
+                jcmp = np.asarray(jarr, dtype=np.float64)
+                hcmp = np.asarray(harr, dtype=np.float64)
+                if strict_axis:
+                    try:
+                        jcmp = _align_to_shape_strict(jcmp, hcmp.shape)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Strict axis mismatch for term {term} field {field}: "
+                            f"jax {jcmp.shape} vs hermes {hcmp.shape}"
+                        ) from exc
+                else:
+                    jcmp, hcmp = _crop_pair(jcmp, hcmp)
+                array_diff = jcmp - hcmp
+                array_diff_rms = float(np.sqrt(np.mean(array_diff * array_diff)))
+                array_diff_maxabs = float(np.max(np.abs(array_diff)))
+                array_corr = _corr(jcmp, hcmp)
+                array_scale = _ls_scale(jcmp, hcmp)
         mismatch.append(
             {
                 "step": step,
@@ -840,6 +890,11 @@ def _compute_term_mismatch(
                 "jax_rms": jax_rms,
                 "hermes_rms": hermes_rms,
                 "rel_diff": abs(jax_rms - hermes_rms) / denom,
+                "array_diff_rms": array_diff_rms,
+                "array_diff_maxabs": array_diff_maxabs,
+                "array_rel_diff": array_diff_rms / denom,
+                "array_corr": array_corr,
+                "array_scale": array_scale,
             }
         )
     return mismatch
@@ -1328,6 +1383,7 @@ def _first_failing_term(
     *,
     fields: set[str],
     terms: set[str],
+    ranking_metric: str = "array",
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     filtered: list[dict[str, object]] = []
     for row in term_mismatch_rows:
@@ -1343,9 +1399,15 @@ def _first_failing_term(
     first_step = min(int(r.get("step", 0)) for r in filtered)
     step_rows = [r for r in filtered if int(r.get("step", 0)) == first_step]
 
+    ranking_metric = str(ranking_metric).lower()
+
     def _key(row: dict[str, object]) -> tuple[float, float]:
-        weighted = float(row.get("weighted_rel", row.get("rel_diff", 0.0)))
-        rel = float(row.get("rel_diff", 0.0))
+        if ranking_metric == "rms":
+            weighted = float(row.get("weighted_rel", row.get("rel_diff", 0.0)))
+            rel = float(row.get("rel_diff", 0.0))
+        else:
+            weighted = float(row.get("weighted_array_rel", row.get("array_rel_diff", 0.0)))
+            rel = float(row.get("array_rel_diff", 0.0))
         return weighted, rel
 
     step_rows.sort(key=_key, reverse=True)
@@ -1491,7 +1553,19 @@ def main() -> None:
         "--fail-fast-rel-diff",
         type=float,
         default=-1.0,
-        help=("If >=0, exit non-zero when first failing term rel_diff exceeds this threshold."),
+        help=(
+            "If >=0, exit non-zero when the selected fail-fast term mismatch metric exceeds "
+            "this threshold."
+        ),
+    )
+    parser.add_argument(
+        "--term-ranking-metric",
+        default="array",
+        choices=("array", "rms"),
+        help=(
+            "Metric used for first-failing-term ranking and fail-fast thresholding: "
+            "'array' uses term-array diff RMS, 'rms' uses only term RMS magnitude mismatch."
+        ),
     )
     parser.add_argument(
         "--fail-fast-fields",
@@ -1774,7 +1848,7 @@ def main() -> None:
             raise ValueError(f"Axis mapping failed with strict axis mode: {axis_map}")
 
     phi_override = snapshots["phi"] if bool(args.use_hermes_phi_in_terms) else None
-    term_rows, total_rows, total_fields, phi_rows = _compute_term_metrics(
+    term_rows, total_rows, total_fields, jax_term_fields, phi_rows = _compute_term_metrics(
         built.system,
         snapshots,
         times,
@@ -1842,7 +1916,7 @@ def main() -> None:
                 getattr(built.system.params, "dpar_factor_scale", None)
             )
         )
-    hermes_term_rows = _compute_hermes_term_metrics(
+    hermes_term_rows, hermes_term_fields = _compute_hermes_term_metrics(
         hermes_fields_aligned,
         hermes_times,
         start_index=start_index,
@@ -1852,7 +1926,13 @@ def main() -> None:
         axis_map=axis_map,
         hermes_parallel_axis=args.hermes_parallel_axis,
     )
-    term_mismatch_rows = _compute_term_mismatch(term_rows, hermes_term_rows)
+    term_mismatch_rows = _compute_term_mismatch(
+        term_rows,
+        hermes_term_rows,
+        jax_term_fields=jax_term_fields,
+        hermes_term_fields=hermes_term_fields,
+        strict_axis=bool(args.strict_axis),
+    )
     field_map = {"n": "Ne", "Te": "Te", "omega": "Vort", "phi": "phi"}
 
     mismatch_rows: list[dict[str, object]] = []
@@ -1909,6 +1989,7 @@ def main() -> None:
         row["field_rhs_rms"] = rhs
         row["frac_of_field_rhs"] = frac
         row["weighted_rel"] = float(row.get("rel_diff", 0.0)) * frac
+        row["weighted_array_rel"] = float(row.get("array_rel_diff", 0.0)) * frac
 
     out_dir = Path(args.out_dir)
     _write_csv(
@@ -1948,9 +2029,15 @@ def main() -> None:
             "jax_rms",
             "hermes_rms",
             "rel_diff",
+            "array_diff_rms",
+            "array_diff_maxabs",
+            "array_rel_diff",
+            "array_corr",
+            "array_scale",
             "field_rhs_rms",
             "frac_of_field_rhs",
             "weighted_rel",
+            "weighted_array_rel",
         ],
     )
     if "phi" in snapshots and "omega" in snapshots:
@@ -1987,7 +2074,10 @@ def main() -> None:
     fail_fields = _split_csv_set(args.fail_fast_fields)
     fail_terms = _split_csv_set(args.fail_fast_terms)
     first_fail, first_step_rows = _first_failing_term(
-        term_mismatch_rows, fields=fail_fields, terms=fail_terms
+        term_mismatch_rows,
+        fields=fail_fields,
+        terms=fail_terms,
+        ranking_metric=str(args.term_ranking_metric),
     )
     fail_summary_rows: list[dict[str, object]] = []
     if first_step_rows:
@@ -2003,9 +2093,16 @@ def main() -> None:
                     "jax_rms": float(row.get("jax_rms", 0.0)),
                     "hermes_rms": float(row.get("hermes_rms", 0.0)),
                     "rel_diff": float(row.get("rel_diff", 0.0)),
+                    "array_diff_rms": float(row.get("array_diff_rms", 0.0)),
+                    "array_diff_maxabs": float(row.get("array_diff_maxabs", 0.0)),
+                    "array_rel_diff": float(row.get("array_rel_diff", 0.0)),
+                    "array_corr": float(row.get("array_corr", 0.0)),
+                    "array_scale": float(row.get("array_scale", 0.0)),
                     "field_rhs_rms": float(row.get("field_rhs_rms", 0.0)),
                     "frac_of_field_rhs": float(row.get("frac_of_field_rhs", 0.0)),
                     "weighted_rel": float(row.get("weighted_rel", 0.0)),
+                    "weighted_array_rel": float(row.get("weighted_array_rel", 0.0)),
+                    "ranking_metric": str(args.term_ranking_metric),
                 }
             )
     _write_csv(
@@ -2021,9 +2118,16 @@ def main() -> None:
             "jax_rms",
             "hermes_rms",
             "rel_diff",
+            "array_diff_rms",
+            "array_diff_maxabs",
+            "array_rel_diff",
+            "array_corr",
+            "array_scale",
             "field_rhs_rms",
             "frac_of_field_rhs",
             "weighted_rel",
+            "weighted_array_rel",
+            "ranking_metric",
         ],
     )
 
@@ -2058,6 +2162,7 @@ def main() -> None:
         "fail_fast": {
             "fields": sorted(fail_fields),
             "terms": sorted(fail_terms),
+            "ranking_metric": str(args.term_ranking_metric),
             "threshold": float(args.fail_fast_rel_diff),
             "first_failing_term": first_fail,
         },
@@ -2284,13 +2389,15 @@ def main() -> None:
     print(f"Wrote audit outputs to {out_dir}")
 
     if args.fail_fast_rel_diff >= 0.0 and first_fail is not None:
-        rel = float(first_fail.get("rel_diff", 0.0))
+        metric = str(args.term_ranking_metric).lower()
+        rel_key = "array_rel_diff" if metric == "array" else "rel_diff"
+        rel = float(first_fail.get(rel_key, 0.0))
         if rel > float(args.fail_fast_rel_diff):
             raise SystemExit(
                 "fail-fast: first failing term "
                 f"(step={int(first_fail.get('step', 0))}, "
                 f"field={first_fail.get('field')}, term={first_fail.get('term')}) "
-                f"rel_diff={rel:.6g} > threshold={args.fail_fast_rel_diff:.6g}"
+                f"{rel_key}={rel:.6g} > threshold={args.fail_fast_rel_diff:.6g}"
             )
 
     if args.hermes_grid:

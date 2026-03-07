@@ -827,6 +827,9 @@ def div_n_bxgrad_f_b_xppm_local_ref(
     periodic_binormal: bool = True,
     lower_boundary_open: bool = True,
     upper_boundary_open: bool = False,
+    poloidal_scale: float = 1.0,
+    poloidal_x_scale: float = 1.0,
+    poloidal_y_scale: float = 1.0,
 ) -> jnp.ndarray:
     """Reference local full mirror of Hermes `Div_n_bxGrad_f_B_XPPM`."""
 
@@ -894,7 +897,9 @@ def div_n_bxgrad_f_b_xppm_local_ref(
         open_field_line=layout.open_field_line,
         interp=interp,
     )
-    return xz + x_flux + y_flux
+    return xz + float(poloidal_scale) * (
+        float(poloidal_x_scale) * x_flux + float(poloidal_y_scale) * y_flux
+    )
 
 
 def div_n_bxgrad_f_b_xppm_local(
@@ -924,6 +929,9 @@ def div_n_bxgrad_f_b_xppm_local(
     periodic_binormal: bool = True,
     lower_boundary_open: bool = True,
     upper_boundary_open: bool = False,
+    poloidal_scale: float = 1.0,
+    poloidal_x_scale: float = 1.0,
+    poloidal_y_scale: float = 1.0,
 ) -> jnp.ndarray:
     """Fused local full mirror of Hermes `Div_n_bxGrad_f_B_XPPM`."""
 
@@ -991,7 +999,9 @@ def div_n_bxgrad_f_b_xppm_local(
         open_field_line=layout.open_field_line,
         interp=interp,
     )
-    return xz + x_flux + y_flux
+    return xz + float(poloidal_scale) * (
+        float(poloidal_x_scale) * x_flux + float(poloidal_y_scale) * y_flux
+    )
 
 
 def _boundary_side_values(value: object) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -1215,6 +1225,9 @@ def _runtime_local_edge_block(
     periodic_binormal: bool,
     lower_boundary_open: bool,
     upper_boundary_open: bool,
+    poloidal_scale: float,
+    poloidal_x_scale: float,
+    poloidal_y_scale: float,
 ) -> jnp.ndarray:
     stop = int(start + block)
     field_block = jnp.asarray(field[start:stop], dtype=jnp.float64)
@@ -1342,6 +1355,9 @@ def _runtime_local_edge_block(
         periodic_binormal=periodic_binormal,
         lower_boundary_open=apply_lower,
         upper_boundary_open=apply_upper,
+        poloidal_scale=poloidal_scale,
+        poloidal_x_scale=poloidal_x_scale,
+        poloidal_y_scale=poloidal_y_scale,
     )
     return result_local[2 : block + 2, 2 : field.shape[1] + 2, :]
 
@@ -1373,6 +1389,9 @@ def div_n_bxgrad_f_b_xppm(
     upper_boundary_open: bool = True,
     poisson_invert_set: bool = False,
     parallel_edge_block: int = 0,
+    poloidal_scale: float = 1.0,
+    poloidal_x_scale: float = 1.0,
+    poloidal_y_scale: float = 1.0,
 ) -> jnp.ndarray:
     """Runtime mirror wrapper from global `(nz, nx, ny)` arrays.
 
@@ -1520,6 +1539,9 @@ def div_n_bxgrad_f_b_xppm(
         periodic_binormal=periodic_binormal,
         lower_boundary_open=lower_boundary_open,
         upper_boundary_open=upper_boundary_open,
+        poloidal_scale=poloidal_scale,
+        poloidal_x_scale=poloidal_x_scale,
+        poloidal_y_scale=poloidal_y_scale,
     )
     result = result_local[interior]
 
@@ -1556,6 +1578,9 @@ def div_n_bxgrad_f_b_xppm(
                 periodic_binormal=periodic_binormal,
                 lower_boundary_open=lower_boundary_open,
                 upper_boundary_open=upper_boundary_open,
+                poloidal_scale=poloidal_scale,
+                poloidal_x_scale=poloidal_x_scale,
+                poloidal_y_scale=poloidal_y_scale,
             )
         )
         result = result.at[nz - edge_block :].set(
@@ -1589,6 +1614,9 @@ def div_n_bxgrad_f_b_xppm(
                 periodic_binormal=periodic_binormal,
                 lower_boundary_open=lower_boundary_open,
                 upper_boundary_open=upper_boundary_open,
+                poloidal_scale=poloidal_scale,
+                poloidal_x_scale=poloidal_x_scale,
+                poloidal_y_scale=poloidal_y_scale,
             )
         )
     return result

@@ -18,6 +18,7 @@ def test_exb_poloidal_ddy_scheme_switch_changes_rhs_and_stays_finite() -> None:
     cfg["physics"].update({"source_on": False, "omega_n": 0.0, "omega_Te": 0.0})
     cfg["terms"] = {"term_schedule": ["advection"]}
     cfg["time"].update({"jit": False})
+    cfg["numerics"]["exb_flux_scheme"] = "hermes_xppm"
 
     cfg_face = copy.deepcopy(cfg)
     cfg_face["numerics"]["exb_poloidal_ddy_scheme"] = "face"

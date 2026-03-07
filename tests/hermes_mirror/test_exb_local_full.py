@@ -95,6 +95,9 @@ def test_exb_local_full_ref_matches_fused() -> None:
         layout=layout,
         bndry_flux=True,
         poloidal=True,
+        poloidal_scale=0.85,
+        poloidal_x_scale=1.1,
+        poloidal_y_scale=1.24,
         bc_kind_x=2,
         neumann_boundary_average_z=True,
     )
@@ -113,6 +116,9 @@ def test_exb_local_full_ref_matches_fused() -> None:
         layout=layout,
         bndry_flux=True,
         poloidal=True,
+        poloidal_scale=0.85,
+        poloidal_x_scale=1.1,
+        poloidal_y_scale=1.24,
         bc_kind_x=2,
         neumann_boundary_average_z=True,
     )
