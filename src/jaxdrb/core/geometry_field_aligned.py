@@ -1129,14 +1129,6 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             poloidal_x_scale = float(getattr(self.params, "exb_poloidal_x_scale", 1.0))
             poloidal_y_scale = float(getattr(self.params, "exb_poloidal_y_scale", 1.0))
             poloidal_scale = float(getattr(self.params, "exb_poloidal_scale", 1.0))
-            if (
-                abs(poloidal_scale - 1.0) > 1e-12
-                or abs(poloidal_x_scale - 1.0) > 1e-12
-                or abs(poloidal_y_scale - 1.0) > 1e-12
-            ):
-                raise ValueError(
-                    "Hermes mirror ExB flux currently supports only unit poloidal ExB scales."
-                )
             return div_n_bxgrad_f_b_xppm_mirror(
                 adv_eff,
                 phi_eff,
@@ -1167,6 +1159,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 parallel_edge_block=int(
                     getattr(self.params, "hermes_mirror_parallel_edge_block", 0)
                 ),
+                poloidal_scale=poloidal_scale,
+                poloidal_x_scale=poloidal_x_scale,
+                poloidal_y_scale=poloidal_y_scale,
             )
         if exb_flux_scheme in ("hermes_fromm", "hermes_xppm"):
             # Hermes/BOUT Div_n_bxGrad_f_B_XPPM-style X-Z flux:

@@ -718,18 +718,6 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - Wired that wrapper into the active field-aligned geometry adapter behind
   `exb_flux_scheme = "hermes_mirror"` and added geometry-path coverage in
   `tests/test_exb_poloidal_flows.py`.
-- The first live 3-step Hermes-state audit of the opt-in runtime mirror path is
-  recorded in `runs/audit_hermes_mirror_runtime_3step_v2`. After correcting the
-  shifted-transform FFT length to use `metric_dz * nbinorm`, the runtime mirror
-  path still regresses the early ExB channels:
-  `omega advection/exb = 0.06804918916596805`,
-  `n advection/exb = 0.04636472581495929`,
-  `Pe advection/exb = 0.038900114007649214`,
-  while the parallel channels remain unchanged from the current best strict
-  baseline.
-- Conclusion: the remaining blocker is now the global guard reconstruction and
-  communication contract for runtime ExB promotion, not the local mirrored ExB
-  algebra itself. Strict configs are not yet switched to `hermes_mirror`.
 - Added a stitched global runtime fixture via
   `tools/build_hermes_mirror_runtime_fixture.py` and
   `tests/fixtures/hermes_mirror_exb_global_t1.npz`, plus the regression
@@ -746,14 +734,42 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   metric only moves slightly:
   `omega advection/exb 0.06804918916596805 -> 0.06712108791244092`,
   `Pe advection/exb 0.038900114007649214 -> 0.03873682407548267`.
-- The audit scalar still understates the real array-level gain because
-  `term_mismatch.csv` compares only term RMS magnitudes. Direct built-system
-  term arrays on the same Hermes snapshot now match Hermes `term_Ne_exb` /
-  `term_Pe_exb` with RMS:
-  `2.7785371223075885e-04` / `2.9023628701559654e-04`.
-- Next target: keep tightening the open-end parallel block promotion path and
-  add an array-difference view alongside the current scalar term-RMS gate so
-  mirror-runtime improvements are measured on the actual operator fields.
+- The audit tool now also writes direct term-array mismatch metrics:
+  `array_diff_rms`, `array_rel_diff`, `array_corr`, and
+  `weighted_array_rel`. `first_failing_terms.csv` now defaults to ranking by
+  the array metric (`--term-ranking-metric=array`) while preserving the older
+  RMS-magnitude columns for continuity.
+- The runtime mirror path now supports the same non-unit poloidal scaling
+  contract as the legacy geometry path:
+  `exb_poloidal_scale`, `exb_poloidal_x_scale`,
+  `exb_poloidal_y_scale`. This is required by the strict Hermes baseline
+  config (`exb_poloidal_y_scale = 1.24`).
+- The strict early parity config
+  `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`
+  is now promoted to:
+  `exb_flux_scheme = "hermes_mirror"` and
+  `hermes_mirror_parallel_edge_block = 8`.
+- The promoted 1-step Hermes-state audit is
+  `runs/audit_strict_early_mirror_promoted_1step`. Relative to the previous
+  array-ranked strict baseline (`runs/audit_current_arraymetric_1step`), the
+  dominant ExB transport channels improve materially:
+  `n advection/exb 0.6415487257460786 -> 0.30603226941513645`,
+  `Pe advection/exb 0.43066567430657776 -> 0.20417452847516265`,
+  with correlations improving to `0.9947894182550701` and
+  `0.9952771323120512`.
+- The closed parallel channels remain unchanged in the promoted config:
+  `omega parallel/jpar = 0.2107103945115671`,
+  `n parallel/par = 0.16847301041461074`,
+  `Pe parallel/par_total = 0.15454019751690204`
+  in the weighted-array metric.
+- Remaining blocker after promotion:
+  `omega advection/exb` worsens from `0.007979974955211428` to
+  `0.09741634145346564` in weighted-array metric even though the dominant
+  density/pressure ExB channels improve strongly.
+- Next target: decompose the promoted runtime vorticity ExB term into its
+  three branches (`-Div(phi,0.5*omega)`, `vE·grad(pi_hat)`, and
+  `-Div(phi+pi_hat, Delp2(phi)/(2B^2))`) and match the Hermes `term_Vort_exb`
+  composition on the same promoted mirror path.
 
 ---
 

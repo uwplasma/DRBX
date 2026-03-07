@@ -787,10 +787,55 @@ match the direct mirror operator exactly, with array RMS against Hermes of:
 - `n`: `2.7785371223075885e-04`
 - `Pe`: `2.9023628701559654e-04`
 
-So the remaining blocker is no longer the local mirrored ExB algebra. It is the
-open-end global guard/communication contract in the promoted runtime path, plus
-the current audit reporting which only compares term RMS magnitudes and hides
-most of the array-level gain from that edge-block fix.
+The audit tooling now also writes array-difference metrics for each matched
+term:
+
+- `array_diff_rms`
+- `array_rel_diff`
+- `array_corr`
+- `weighted_array_rel`
+
+and `first_failing_terms.csv` now ranks by the array metric by default
+(`--term-ranking-metric=array`). That change matters because the promoted
+runtime mirror path really is much better on the dominant density/pressure ExB
+arrays than the old scalar RMS-only ranking suggested.
+
+With the updated audit in place, the strict early parity config
+`/Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`
+is now switched to:
+
+- `exb_flux_scheme = "hermes_mirror"`
+- `hermes_mirror_parallel_edge_block = 8`
+
+The mirror runtime path also now supports the same non-unit poloidal scaling
+contract as the older geometry path:
+
+- `exb_poloidal_scale`
+- `exb_poloidal_x_scale`
+- `exb_poloidal_y_scale`
+
+which is required by the strict Hermes baseline (`exb_poloidal_y_scale = 1.24`).
+
+The promoted 1-step Hermes-state audit lives in
+`/Users/rogerio/local/jax_drb/runs/audit_strict_early_mirror_promoted_1step`.
+Against the previous strict baseline, its dominant array-weighted ExB channels
+improve as follows:
+
+- `n advection/exb`: `0.6415487257460786 -> 0.30603226941513645`
+- `Pe advection/exb`: `0.43066567430657776 -> 0.20417452847516265`
+- `n` correlation: `0.7888450540689848 -> 0.9947894182550701`
+- `Pe` correlation: `0.7699527249045816 -> 0.9952771323120512`
+
+The parallel channels remain unchanged, and the remaining follow-up is now
+narrower:
+
+- `omega parallel/jpar`: still `0.2107103945115671` in weighted-array metric
+- `omega advection/exb`: worsens from `0.007979974955211428` to
+  `0.09741634145346564`
+
+So the remaining blocker is no longer the local mirrored ExB algebra or the
+dominant density/pressure ExB transport. It is now the vorticity ExB
+composition on top of the promoted runtime mirror path.
 
 ## References
 

@@ -455,8 +455,46 @@ same (`start_index=1`, `nsteps=3`) audit window:
 - `Pe parallel`: weighted-rel `~0.022..0.101` -> `~0.001..0.006`
 - `Te parallel`: weighted-rel `~0.030..0.127` -> `~0.008..0.009`
 
-`first_failing_terms.csv` now ranks by `weighted_rel = rel_diff * frac_of_field_rhs`
-so tiny terms do not dominate fail-fast triage.
+As of the mirror-runtime promotion cycle, `tools/audit_term_alignment.py` now
+also writes true term-array mismatch columns:
+`array_diff_rms`, `array_rel_diff`, `array_corr`, and `weighted_array_rel`.
+The fail-fast ranking now defaults to the array-based metric via
+`--term-ranking-metric=array`, so triage follows actual Hermes operator-array
+parity instead of only comparing term RMS magnitudes. The old scalar
+RMS-magnitude columns (`rel_diff`, `weighted_rel`) are still written for
+continuity.
+
+With that updated audit, the strict early config
+`examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml` is
+now promoted to:
+
+- `exb_flux_scheme = "hermes_mirror"`
+- `hermes_mirror_parallel_edge_block = 8`
+
+The first promoted 1-step audit is
+`runs/audit_strict_early_mirror_promoted_1step`. Relative to
+`runs/audit_current_arraymetric_1step`, the dominant array-weighted ExB
+channels improve materially:
+
+- `n advection/exb`: `weighted_array_rel 0.6415487257460786 -> 0.30603226941513645`
+- `Pe advection/exb`: `weighted_array_rel 0.43066567430657776 -> 0.20417452847516265`
+- `n advection/exb` correlation: `0.7888450540689848 -> 0.9947894182550701`
+- `Pe advection/exb` correlation: `0.7699527249045816 -> 0.9952771323120512`
+
+The already-closed parallel channels stay unchanged:
+
+- `omega parallel/jpar`: `weighted_array_rel 0.2107103945115671`
+- `n parallel/par`: `weighted_array_rel 0.16847301041461074`
+- `Pe parallel/par_total`: `weighted_array_rel 0.15454019751690204`
+
+The promoted runtime mirror path still leaves a smaller but real vorticity
+advection regression:
+
+- `omega advection/exb`: `weighted_array_rel 0.007979974955211428 -> 0.09741634145346564`
+
+so Milestone A is not closed yet. The next structural target after this
+promotion is therefore the mirrored vorticity ExB composition, while keeping
+the improved density/pressure ExB transport as the new strict baseline.
 
 In the 2026-03-05 strict Hermes-state audit refresh, the `gpar`-aware
 boundary current divergence now uses the boundary-cell metric on the sheath
