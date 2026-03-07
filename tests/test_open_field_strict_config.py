@@ -35,5 +35,7 @@ def test_open_field_strict_early_config_splits_advective_and_current_limiters() 
     cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
     numerics = cfg["numerics"]
 
+    assert numerics["exb_flux_scheme"] == "hermes_mirror"
+    assert numerics["hermes_mirror_parallel_edge_block"] == 8
     assert numerics["parallel_limiter"] == "mc"
     assert numerics["parallel_current_limiter"] == "none"
