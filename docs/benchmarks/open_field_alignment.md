@@ -572,6 +572,30 @@ strict step. The next structural target remains the open-field density/pressure
 sheath-target state construction in the parallel channel. Reproducible artifacts:
 `runs/audit_pe_exb_xface_avg_3step`, `runs/audit_xface_and_parbnd_3step`.
 
+The latest literal-refactor slice adds the missing mirror boundary and
+finite-volume building blocks for the vorticity path:
+
+- `src/jaxdrb/hermes_mirror/boundary.py::apply_free_o2_field3d`
+- `src/jaxdrb/hermes_mirror/fv.py::div_a_grad_perp_local`
+- `src/jaxdrb/hermes_mirror/fv.py::div_a_grad_perp`
+- `src/jaxdrb/hermes_mirror/vorticity.py::full_omega_exb_advection`
+
+This lands with synthetic/autodiff regressions plus a stitched dump-backed
+fixture at `tests/fixtures/hermes_mirror_vorticity_global_t1.npz`, built by
+`tools/build_hermes_mirror_vorticity_fixture.py`.
+
+That work is intentionally not promoted into the active strict runtime path
+yet. The literal `Div_a_Grad_perp` translation is now available and validated
+as a standalone operator, but the full Hermes `term_Vort_exb` composition still
+needs a dedicated `Delp2(phi)` translation. A naive `Delp2(phi) =
+Div_a_Grad_perp(1, phi)` replacement was wrong in this stack and amplified the
+`DelpPhi_2B2` branch by roughly an order of magnitude. The production omega ExB
+path therefore remains frozen while the literal `Delp2` operator is added. A
+confirming 1-step strict audit at
+`runs/audit_literal_vorticity_scaffold_1step` leaves the active fail-fast rows
+unchanged, with `omega advection/exb` still at weighted-array metric
+`0.09741634145346564`.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash

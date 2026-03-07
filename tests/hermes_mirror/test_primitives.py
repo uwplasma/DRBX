@@ -9,6 +9,7 @@ import numpy as np
 from jaxdrb.hermes_mirror import (
     GuardLayout,
     Stencil1D,
+    apply_free_o2_field3d,
     apply_neumann_boundary_average_z,
     apply_neumann_field3d,
     limit_free,
@@ -200,6 +201,70 @@ def test_apply_neumann_field3d_is_differentiable() -> None:
         )
     )(field)
 
+    assert np.isfinite(np.asarray(grad)).all()
+
+
+def test_apply_free_o2_field3d_matches_bout_recursive_linear_extrapolation() -> None:
+    field = jnp.arange(3 * 7 * 8, dtype=jnp.float64).reshape(3, 7, 8)
+
+    out = apply_free_o2_field3d(field, axis=1, interior_start=2, interior_end=4, guard_width=2)
+
+    expect = np.asarray(field).copy()
+    expect[:, 1, :] = (2.0 * expect[:, 2, :]) - expect[:, 3, :]
+    expect[:, 0, :] = (2.0 * expect[:, 1, :]) - expect[:, 2, :]
+    expect[:, 5, :] = (2.0 * expect[:, 4, :]) - expect[:, 3, :]
+    expect[:, 6, :] = (2.0 * expect[:, 5, :]) - expect[:, 4, :]
+    np.testing.assert_allclose(np.asarray(out), expect)
+
+
+def test_apply_free_o2_field3d_dump_backed_values_follow_bout_formula() -> None:
+    fixture_path = _FIXTURE_DIR / "hermes_mirror_ne_local_rank0_t1.npz"
+    with np.load(fixture_path, allow_pickle=False) as data:
+        field = jnp.asarray(data["Ne"], dtype=jnp.float64)
+        layout = GuardLayout(
+            xstart=int(np.asarray(data["xstart"])),
+            xend=int(np.asarray(data["xend"])),
+            ystart=int(np.asarray(data["ystart"])),
+            yend=int(np.asarray(data["yend"])),
+        )
+        work = field.at[:, : layout.xstart, :].set(0.0)
+        work = work.at[:, layout.xend + 1 :, :].set(0.0)
+        out = apply_free_o2_field3d(
+            work,
+            axis=1,
+            interior_start=layout.xstart,
+            interior_end=layout.xend,
+            guard_width=layout.x_guards,
+        )
+        expect = np.asarray(work).copy()
+        expect[:, layout.xstart - 1, :] = (
+            2.0 * expect[:, layout.xstart, :] - expect[:, layout.xstart + 1, :]
+        )
+        expect[:, layout.xstart - 2, :] = (
+            2.0 * expect[:, layout.xstart - 1, :] - expect[:, layout.xstart, :]
+        )
+        expect[:, layout.xend + 1, :] = (
+            2.0 * expect[:, layout.xend, :] - expect[:, layout.xend - 1, :]
+        )
+        expect[:, layout.xend + 2, :] = (
+            2.0 * expect[:, layout.xend + 1, :] - expect[:, layout.xend, :]
+        )
+        np.testing.assert_allclose(np.asarray(out), expect, rtol=1e-12, atol=1e-12)
+
+
+def test_apply_free_o2_field3d_is_differentiable() -> None:
+    field = jnp.arange(3 * 7 * 8, dtype=jnp.float64).reshape(3, 7, 8) / 10.0
+    grad = jax.grad(
+        lambda arr: jnp.sum(
+            apply_free_o2_field3d(
+                arr,
+                axis=1,
+                interior_start=2,
+                interior_end=4,
+                guard_width=2,
+            )
+        )
+    )(field)
     assert np.isfinite(np.asarray(grad)).all()
 
 

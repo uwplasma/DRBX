@@ -8,6 +8,7 @@ Hermes dump fixtures and can be folded back into the unified core.
 from __future__ import annotations
 
 from .boundary import (
+    apply_free_o2_field3d,
     apply_neumann_boundary_average_z,
     apply_neumann_field3d,
     set_boundary_to_midpoint,
@@ -32,6 +33,7 @@ from .exb import (
     div_n_bxgrad_f_b_xppm_xz,
     div_n_bxgrad_f_b_xppm_xz_ref,
 )
+from .fv import div_a_grad_perp, div_a_grad_perp_local
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
 from .species import (
     density_transform_global,
@@ -72,6 +74,7 @@ from .types import (
     ShiftedFieldAlignedWeights,
     ShiftedMetricFFTPhases,
 )
+from .vorticity import full_omega_exb_advection, pi_hat
 
 __all__ = [
     "FieldAlignedLocalLayout",
@@ -79,6 +82,7 @@ __all__ = [
     "Stencil1D",
     "ShiftedFieldAlignedWeights",
     "ShiftedMetricFFTPhases",
+    "apply_free_o2_field3d",
     "apply_neumann_boundary_average_z",
     "apply_neumann_field3d",
     "build_shifted_metric_fft_phases",
@@ -88,6 +92,8 @@ __all__ = [
     "ddy_index_centered_guarded_local",
     "density_transform_global",
     "density_transform_impl",
+    "div_a_grad_perp",
+    "div_a_grad_perp_local",
     "div_n_bxgrad_f_b_xppm_local",
     "div_n_bxgrad_f_b_xppm",
     "div_n_bxgrad_f_b_xppm_local_ref",
@@ -118,6 +124,8 @@ __all__ = [
     "prepare_poloidal_y_dfdx_local_ref",
     "pressure_transform_global",
     "pressure_transform_impl",
+    "full_omega_exb_advection",
+    "pi_hat",
     "set_boundary_to_midpoint",
     "shifted_metric_fft_phases_from_geometry",
     "shifted_metric_weights_from_geometry",
