@@ -837,6 +837,35 @@ So the remaining blocker is no longer the local mirrored ExB algebra or the
 dominant density/pressure ExB transport. It is now the vorticity ExB
 composition on top of the promoted runtime mirror path.
 
+The newest literal-refactor slice adds the missing vorticity-side primitives:
+
+- `src/jaxdrb/hermes_mirror/boundary.py::apply_free_o2_field3d`
+- `src/jaxdrb/hermes_mirror/fv.py::div_a_grad_perp_local`
+- `src/jaxdrb/hermes_mirror/fv.py::div_a_grad_perp`
+- `src/jaxdrb/hermes_mirror/vorticity.py::full_omega_exb_advection`
+
+It also adds the stitched dump-backed fixture
+`/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_vorticity_global_t1.npz`
+via
+`/Users/rogerio/local/jax_drb/tools/build_hermes_mirror_vorticity_fixture.py`,
+plus operator regressions in:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_primitives.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_fv.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_vorticity.py`
+
+That slice is intentionally not promoted into the active runtime omega path.
+The literal `Div_a_Grad_perp` translation is now available and validated as a
+standalone operator, but the full Hermes `term_Vort_exb` composition still
+needs a dedicated `Delp2(phi)` translation. Treating `Delp2(phi)` as
+`Div_a_Grad_perp(1, phi)` was incorrect in this stack and amplified the
+`DelpPhi_2B2` branch, so the production omega ExB implementation remains
+frozen while the dedicated `Delp2` operator is added. A confirming active-path
+strict audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_vorticity_scaffold_1step`
+shows no runtime parity delta yet: `omega advection/exb` remains the blocker at
+weighted-array metric `0.09741634145346564`.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

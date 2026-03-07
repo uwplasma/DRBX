@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
 from jaxdrb.core.state import DRBSystemState
-from jaxdrb.hermes_mirror import density_transform_global, pressure_transform_global
+from jaxdrb.hermes_mirror.species import density_transform_global, pressure_transform_global
 
 from .context import TermContext
 from .fields import _electron_pressure, _metric_div_coeff

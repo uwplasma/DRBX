@@ -770,6 +770,28 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   three branches (`-Div(phi,0.5*omega)`, `vE·grad(pi_hat)`, and
   `-Div(phi+pi_hat, Delp2(phi)/(2B^2))`) and match the Hermes `term_Vort_exb`
   composition on the same promoted mirror path.
+- 2026-03-07: landed the next literal vorticity-side primitives without
+  promoting them into production omega ExB:
+  `src/jaxdrb/hermes_mirror/boundary.py::apply_free_o2_field3d`,
+  `src/jaxdrb/hermes_mirror/fv.py::div_a_grad_perp_local`,
+  `src/jaxdrb/hermes_mirror/fv.py::div_a_grad_perp`,
+  `src/jaxdrb/hermes_mirror/vorticity.py::full_omega_exb_advection`,
+  plus the stitched fixture
+  `tests/fixtures/hermes_mirror_vorticity_global_t1.npz` and builder
+  `tools/build_hermes_mirror_vorticity_fixture.py`.
+- 2026-03-07: these operators are now covered by synthetic, autodiff, and
+  dump-backed regressions in
+  `tests/hermes_mirror/test_primitives.py`,
+  `tests/hermes_mirror/test_fv.py`,
+  and `tests/hermes_mirror/test_vorticity.py`.
+- 2026-03-07: promotion of the literal vorticity branch remains blocked on a
+  dedicated `Delp2(phi)` translation. A naive `Div_a_Grad_perp(1, phi)`
+  replacement was incorrect, so the active runtime omega ExB path stays frozen
+  until the source-true `Delp2` operator is implemented and validated.
+- 2026-03-07: confirming strict audit
+  `runs/audit_literal_vorticity_scaffold_1step`
+  shows no active-path parity delta yet; `omega advection/exb` remains the
+  lead blocker at weighted-array metric `0.09741634145346564`.
 
 ---
 
