@@ -164,6 +164,74 @@ def apply_neumann_field3d(
     return out
 
 
+def apply_free_o2_field3d(
+    field: jnp.ndarray,
+    *,
+    axis: int,
+    interior_start: int,
+    interior_end: int,
+    guard_width: int = 2,
+    apply_lower: bool = True,
+    apply_upper: bool = True,
+) -> jnp.ndarray:
+    """Mirror `BoundaryFree_O2::apply(Field3D&)` for centred fields.
+
+    Source of truth:
+    `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/boundary_standard.cxx`
+
+    The non-staggered branch recursively extrapolates guard values from the
+    last two evolved cells:
+
+    `f_g = 2 * f_1 - f_2`
+
+    where the updated inner guard becomes the new `f_1` for the outer guard.
+    """
+
+    if guard_width not in (1, 2):
+        raise ValueError(f"guard_width must be 1 or 2, got {guard_width}.")
+
+    out = _as_field3d(field)
+    axis_i = int(axis)
+    if axis_i < 0:
+        axis_i += out.ndim
+    if axis_i < 0 or axis_i >= out.ndim:
+        raise ValueError(f"axis={axis} is out of bounds for shape {out.shape}.")
+    if interior_start < guard_width:
+        raise ValueError(
+            f"interior_start={interior_start} leaves fewer than {guard_width} lower guards."
+        )
+    if interior_end >= out.shape[axis_i] - guard_width:
+        raise ValueError(
+            f"interior_end={interior_end} leaves fewer than {guard_width} upper guards."
+        )
+
+    if apply_lower:
+        for offset in range(1, guard_width + 1):
+            guard = interior_start - offset
+            in1 = guard + 1
+            in2 = guard + 2
+            out = _set_axis(
+                out,
+                axis_i,
+                guard,
+                (2.0 * _slice_axis(out, axis_i, in1)) - _slice_axis(out, axis_i, in2),
+            )
+
+    if apply_upper:
+        for offset in range(1, guard_width + 1):
+            guard = interior_end + offset
+            in1 = guard - 1
+            in2 = guard - 2
+            out = _set_axis(
+                out,
+                axis_i,
+                guard,
+                (2.0 * _slice_axis(out, axis_i, in1)) - _slice_axis(out, axis_i, in2),
+            )
+
+    return out
+
+
 def set_boundary_to_midpoint(
     field: jnp.ndarray,
     reference: jnp.ndarray,
