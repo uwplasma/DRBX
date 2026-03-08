@@ -824,6 +824,18 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `omega advection/exb = 0.004178515908061414`,
   leaving `omega parallel/jpar = 0.2107106038839909` as the next true
   fail-fast leader.
+- 2026-03-08: `omega parallel/jpar` was still going through the FV transport
+  helper even though Hermes vorticity uses plain `Div_par(jpar)`. The
+  `wave=None` current branch in `src/jaxdrb/core/terms/parallel.py` now uses a
+  centered `Div_par`-style divergence with explicit sheath-face current values.
+  The strict 1-step Hermes-state audit `runs/audit_jpar_centered_1step`
+  improves `omega parallel/jpar` from
+  `0.2107106038839909 -> 0.11715792736854537` in weighted-array metric, and
+  the 3-step window `runs/audit_jpar_centered_3step` keeps it below the
+  previous promoted baseline at `t=0.01..0.03`. The next fail-fast terms are
+  now `n parallel/par`, `Te parallel/par_total`, and `Pe parallel/par_total`,
+  with the audit-level `Te/Pe sheath source_residual_boundary` bookkeeping gap
+  still pending as a separate boundary-energy follow-up.
 
 ---
 

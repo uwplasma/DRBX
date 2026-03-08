@@ -138,6 +138,70 @@ def _flux_divergence_open(
     return float(sign) * div
 
 
+def _centered_divergence_open(
+    f: jnp.ndarray,
+    dz: float,
+    *,
+    J: jnp.ndarray | None = None,
+    gpar: jnp.ndarray | None = None,
+    dpar_factor: jnp.ndarray | None = None,
+    sign: float = 1.0,
+    boundary_flux_low: jnp.ndarray | None = None,
+    boundary_flux_high: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Hermes `Div_par`-style centered divergence for the `jpar` channel.
+
+    Hermes vorticity uses `Div_par(jpar)`, not the FV advection operator used by
+    density/pressure transport. For the open-field current path, that means
+    centered interior faces with explicit sheath-face current values when the
+    boundary flux mode is enabled.
+    """
+
+    face = 0.5 * (f[1:] + f[:-1])
+    div = jnp.zeros_like(f)
+    left_bndry = f[0] if boundary_flux_low is None else jnp.asarray(boundary_flux_low)
+    right_bndry = f[-1] if boundary_flux_high is None else jnp.asarray(boundary_flux_high)
+
+    if J is None:
+        div = div.at[1:-1].set((face[1:] - face[:-1]) / dz)
+        div = div.at[0].set((face[0] - left_bndry) / dz)
+        div = div.at[-1].set((right_bndry - face[-1]) / dz)
+    else:
+        Jc = jnp.asarray(J)
+        if Jc.ndim == 1:
+            Jc = Jc[:, None, None]
+        elif Jc.ndim == 2:
+            Jc = Jc[None, :, :]
+        if gpar is None:
+            J_face = 0.5 * (Jc[1:] + Jc[:-1])
+            fluxJ = face * J_face
+            div = div.at[1:-1].set((fluxJ[1:] - fluxJ[:-1]) / (dz * jnp.maximum(Jc[1:-1], 1e-30)))
+            div = div.at[0].set((fluxJ[0] - Jc[0] * left_bndry) / (dz * jnp.maximum(Jc[0], 1e-30)))
+            div = div.at[-1].set(
+                (Jc[-1] * right_bndry - fluxJ[-1]) / (dz * jnp.maximum(Jc[-1], 1e-30))
+            )
+        else:
+            gpar_c = jnp.asarray(gpar)
+            if gpar_c.ndim == 1:
+                gpar_c = gpar_c[:, None, None]
+            elif gpar_c.ndim == 2:
+                gpar_c = gpar_c[None, :, :]
+            sqrt_gpar = jnp.sqrt(jnp.maximum(gpar_c, 1e-30))
+            common_r = (Jc[1:] + Jc[:-1]) / (sqrt_gpar[1:] + sqrt_gpar[:-1])
+            flux_factor_rc = common_r / (dz * jnp.maximum(Jc[:-1], 1e-30))
+            flux_factor_rp = common_r / (dz * jnp.maximum(Jc[1:], 1e-30))
+            div = div.at[:-1].add(face * flux_factor_rc)
+            div = div.at[1:].add(-face * flux_factor_rp)
+            boundary_factor_low = 1.0 / (dz * jnp.maximum(sqrt_gpar[0], 1e-30))
+            boundary_factor_high = 1.0 / (dz * jnp.maximum(sqrt_gpar[-1], 1e-30))
+            div = div.at[0].add(-left_bndry * boundary_factor_low)
+            div = div.at[-1].add(right_bndry * boundary_factor_high)
+
+    if dpar_factor is not None and gpar is None:
+        div = div * jnp.asarray(dpar_factor)
+    return float(sign) * div
+
+
 def _shift_boundary_flux_to_field_aligned(
     flux: jnp.ndarray | None,
     *,
@@ -222,23 +286,35 @@ def _dpar_flux_conservative(
         dpar_factor = getattr(ctx.geom, "dpar_factor", None)
         gpar = getattr(ctx.geom, "gpar", None) if ctx.params.use_gpar_flux else None
         sign = float(ctx.params.parallel_sign)
-        scheme = str(ctx.params.parallel_flux_scheme)
-        fixflux = bool(ctx.params.parallel_fixflux)
-        div = _flux_divergence_open(
-            f,
-            v,
-            float(grid.dz),
-            limiter,
-            wave=wave,
-            J=J,
-            gpar=gpar,
-            dpar_factor=dpar_factor,
-            sign=sign,
-            scheme=scheme,
-            fixflux=fixflux,
-            boundary_flux_low=boundary_flux_low,
-            boundary_flux_high=boundary_flux_high,
-        )
+        if wave is None:
+            div = _centered_divergence_open(
+                f,
+                float(grid.dz),
+                J=J,
+                gpar=gpar,
+                dpar_factor=dpar_factor,
+                sign=sign,
+                boundary_flux_low=boundary_flux_low,
+                boundary_flux_high=boundary_flux_high,
+            )
+        else:
+            scheme = str(ctx.params.parallel_flux_scheme)
+            fixflux = bool(ctx.params.parallel_fixflux)
+            div = _flux_divergence_open(
+                f,
+                v,
+                float(grid.dz),
+                limiter,
+                wave=wave,
+                J=J,
+                gpar=gpar,
+                dpar_factor=dpar_factor,
+                sign=sign,
+                scheme=scheme,
+                fixflux=fixflux,
+                boundary_flux_low=boundary_flux_low,
+                boundary_flux_high=boundary_flux_high,
+            )
         if use_shift:
             div = ctx.geom.from_field_aligned_nox(div)
         return div
