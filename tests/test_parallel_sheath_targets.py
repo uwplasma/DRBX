@@ -5,6 +5,7 @@ import numpy as np
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.terms.context import build_context
 from jaxdrb.core.terms.parallel import (
+    _centered_divergence_open,
     _flux_divergence_open,
     parallel_conservative_terms,
     parallel_vars,
@@ -167,4 +168,16 @@ def test_gpar_boundary_flux_uses_boundary_cell_metric() -> None:
     expected = np.zeros_like(div)
     expected[0, 0, 0] = -2.0 / (0.5 * np.sqrt(gpar[0, 0, 0]))
     expected[-1, 0, 0] = 5.0 / (0.5 * np.sqrt(gpar[-1, 0, 0]))
+    np.testing.assert_allclose(div, expected, atol=1e-12, rtol=1e-12)
+
+
+def test_centered_jpar_divergence_uses_centered_interior_faces() -> None:
+    f = np.array([[[1.0]], [[3.0]], [[7.0]], [[13.0]]], dtype=np.float64)
+    div = np.asarray(_centered_divergence_open(f, dz=2.0))
+
+    expected = np.zeros_like(div)
+    expected[0, 0, 0] = ((1.0 + 3.0) * 0.5 - 1.0) / 2.0
+    expected[1, 0, 0] = (((3.0 + 7.0) * 0.5) - ((1.0 + 3.0) * 0.5)) / 2.0
+    expected[2, 0, 0] = (((7.0 + 13.0) * 0.5) - ((3.0 + 7.0) * 0.5)) / 2.0
+    expected[3, 0, 0] = (13.0 - ((7.0 + 13.0) * 0.5)) / 2.0
     np.testing.assert_allclose(div, expected, atol=1e-12, rtol=1e-12)
