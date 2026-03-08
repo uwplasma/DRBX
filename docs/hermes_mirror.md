@@ -814,7 +814,9 @@ contract as the older geometry path:
 - `exb_poloidal_x_scale`
 - `exb_poloidal_y_scale`
 
-which is required by the strict Hermes baseline (`exb_poloidal_y_scale = 1.24`).
+The promoted mirror path no longer needs the old strict Y-branch tuning:
+the current strict Hermes baseline sets `exb_poloidal_y_scale = 1.0`, and the
+earlier `1.24` value is now documented only as a pre-mirror legacy setting.
 
 The promoted 1-step Hermes-state audit lives in
 `/Users/rogerio/local/jax_drb/runs/audit_strict_early_mirror_promoted_1step`.
@@ -825,6 +827,18 @@ improve as follows:
 - `Pe advection/exb`: `0.43066567430657776 -> 0.20417452847516265`
 - `n` correlation: `0.7888450540689848 -> 0.9947894182550701`
 - `Pe` correlation: `0.7699527249045816 -> 0.9952771323120512`
+
+The follow-up strict refresh
+`/Users/rogerio/local/jax_drb/runs/audit_poloidal_y_scale_1p0_1step` removes
+the stale pre-mirror Y-flux scale from the promoted config:
+
+- `n advection/exb`: `0.30603226941513645 -> 0.09608755774957915`
+- `Pe advection/exb`: `0.20417452847516265 -> 0.06745309373399326`
+- `omega advection/exb`: stays small at `0.004178515908061414`
+
+This confirms that the remaining density/pressure ExB overshoot was not a new
+missing operator path. It was the surviving `exb_poloidal_y_scale = 1.24`
+multiplier from the older non-mirror alignment track.
 
 The parallel channels remain unchanged, and the remaining follow-up is now
 narrower:

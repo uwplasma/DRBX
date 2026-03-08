@@ -1,6 +1,6 @@
 # jax_drb Agent Handoff + Master Plan
 
-Last update: 2026-03-06
+Last update: 2026-03-08
 Owner: `jax_drb` core team
 Primary workspace: `/Users/rogerio/local/jax_drb`
 
@@ -742,8 +742,8 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - The runtime mirror path now supports the same non-unit poloidal scaling
   contract as the legacy geometry path:
   `exb_poloidal_scale`, `exb_poloidal_x_scale`,
-  `exb_poloidal_y_scale`. This is required by the strict Hermes baseline
-  config (`exb_poloidal_y_scale = 1.24`).
+  `exb_poloidal_y_scale`. The strict Hermes baseline no longer uses the old
+  pre-mirror Y-branch tuning; it is now fixed at `1.0`.
 - The strict early parity config
   `examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`
   is now promoted to:
@@ -813,6 +813,17 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `Pe advection/exb = 0.20417452847516265`,
   `n parallel/par = 0.16847301041461074`, and
   `Pe parallel/par_total = 0.15454019751690204`.
+- 2026-03-08: the promoted mirror path was still carrying the old
+  pre-mirror `exb_poloidal_y_scale = 1.24` knob. On the dump-backed global
+  mirror fixture, that single multiplier reproduces the live promoted
+  density/pressure overshoot almost exactly. Resetting the strict config to
+  `exb_poloidal_y_scale = 1.0` moves the 1-step Hermes-state audit
+  `runs/audit_poloidal_y_scale_1p0_1step` to:
+  `n advection/exb = 0.09608755774957915`,
+  `Pe advection/exb = 0.06745309373399326`,
+  `omega advection/exb = 0.004178515908061414`,
+  leaving `omega parallel/jpar = 0.2107106038839909` as the next true
+  fail-fast leader.
 
 ---
 
