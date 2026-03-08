@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
 
-from .boundary import apply_neumann_field3d
+from .boundary import apply_free_o2_field3d, apply_neumann_field3d
 from .primitives import Stencil1D, mc_limiter
 from .species import (
     prepare_poloidal_x_dfdy_local,
@@ -1071,13 +1071,13 @@ def _pad_x_runtime(
 
     if int(bc_kind_x) == 1:
         left_edge = out[:, 2, :]
-        left_near = out[:, 3, :]
         right_edge = out[:, -3, :]
-        right_near = out[:, -4, :]
-        out = out.at[:, 1, :].set((2.0 * lower_val) - left_edge)
-        out = out.at[:, 0, :].set((2.0 * lower_val) - left_near)
-        out = out.at[:, -2, :].set((2.0 * upper_val) - right_edge)
-        out = out.at[:, -1, :].set((2.0 * upper_val) - right_near)
+        left_guard = (2.0 * lower_val) - left_edge
+        right_guard = (2.0 * upper_val) - right_edge
+        out = out.at[:, 1, :].set(left_guard)
+        out = out.at[:, 0, :].set(left_guard)
+        out = out.at[:, -2, :].set(right_guard)
+        out = out.at[:, -1, :].set(right_guard)
         return out
 
     dx_pad = jnp.concatenate([dx[:, :1], dx[:, :1], dx, dx[:, -1:], dx[:, -1:]], axis=1)
@@ -1221,6 +1221,7 @@ def _runtime_local_edge_block(
     interp: str,
     neumann_boundary_average_z: bool,
     use_mc: bool,
+    apply_free_o2_adv: bool,
     periodic_parallel: bool,
     periodic_binormal: bool,
     lower_boundary_open: bool,
@@ -1255,6 +1256,24 @@ def _runtime_local_edge_block(
         lower_boundary_open=apply_lower,
         upper_boundary_open=apply_upper,
     )
+    if apply_free_o2_adv:
+        field_local = apply_free_o2_field3d(
+            field_local,
+            axis=1,
+            interior_start=2,
+            interior_end=field_block.shape[1] + 1,
+            guard_width=2,
+        )
+        if not periodic_parallel:
+            field_local = apply_free_o2_field3d(
+                field_local,
+                axis=0,
+                interior_start=2,
+                interior_end=field_block.shape[0] + 1,
+                guard_width=2,
+                apply_lower=apply_lower,
+                apply_upper=apply_upper,
+            )
     phi_local = _pad_runtime_field(
         phi_block,
         dx=dx_block,
@@ -1389,6 +1408,7 @@ def div_n_bxgrad_f_b_xppm(
     upper_boundary_open: bool = True,
     poisson_invert_set: bool = False,
     parallel_edge_block: int = 0,
+    apply_free_o2_adv: bool = False,
     poloidal_scale: float = 1.0,
     poloidal_x_scale: float = 1.0,
     poloidal_y_scale: float = 1.0,
@@ -1445,6 +1465,24 @@ def div_n_bxgrad_f_b_xppm(
         lower_boundary_open=lower_boundary_open,
         upper_boundary_open=upper_boundary_open,
     )
+    if apply_free_o2_adv:
+        n_local = apply_free_o2_field3d(
+            n_local,
+            axis=1,
+            interior_start=2,
+            interior_end=n_arr.shape[1] + 1,
+            guard_width=2,
+        )
+        if not periodic_parallel:
+            n_local = apply_free_o2_field3d(
+                n_local,
+                axis=0,
+                interior_start=2,
+                interior_end=n_arr.shape[0] + 1,
+                guard_width=2,
+                apply_lower=lower_boundary_open,
+                apply_upper=upper_boundary_open,
+            )
     f_local = _pad_runtime_field(
         f_arr,
         dx=dx2d,
@@ -1574,6 +1612,7 @@ def div_n_bxgrad_f_b_xppm(
                 interp=interp,
                 neumann_boundary_average_z=neumann_boundary_average_z,
                 use_mc=use_mc,
+                apply_free_o2_adv=apply_free_o2_adv,
                 periodic_parallel=periodic_parallel,
                 periodic_binormal=periodic_binormal,
                 lower_boundary_open=lower_boundary_open,
@@ -1610,6 +1649,7 @@ def div_n_bxgrad_f_b_xppm(
                 interp=interp,
                 neumann_boundary_average_z=neumann_boundary_average_z,
                 use_mc=use_mc,
+                apply_free_o2_adv=apply_free_o2_adv,
                 periodic_parallel=periodic_parallel,
                 periodic_binormal=periodic_binormal,
                 lower_boundary_open=lower_boundary_open,

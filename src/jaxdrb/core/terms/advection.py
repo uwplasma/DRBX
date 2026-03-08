@@ -5,6 +5,7 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.hermes_mirror import full_omega_exb_advection as full_omega_exb_advection_mirror
 from jaxdrb.hermes_mirror.species import density_transform_global, pressure_transform_global
 
 from .context import TermContext
@@ -149,7 +150,10 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
                 * scale
             )
             if not bool(getattr(ctx.params, "exb_advection_simplified", True)):
-                adv_w = _full_omega_exb_advection(ctx, y, phi=phi, scale=scale)
+                if use_hermes_mirror:
+                    adv_w = full_omega_exb_advection_mirror(ctx, y, phi=phi, scale=scale)
+                else:
+                    adv_w = _full_omega_exb_advection(ctx, y, phi=phi, scale=scale)
             use_cons = bool(ctx.params.exb_advect_conservative)
             n_eff = jnp.maximum(n_adv_field, float(ctx.params.n0_min))
             if use_cons:

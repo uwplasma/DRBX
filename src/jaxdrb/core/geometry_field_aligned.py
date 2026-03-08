@@ -163,6 +163,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
     gxx: jnp.ndarray | None = None
     gxy: jnp.ndarray | None = None
     gyy: jnp.ndarray | None = None
+    G1: jnp.ndarray | None = None
+    G3: jnp.ndarray | None = None
+    d1_dx: jnp.ndarray | None = None
     g23: jnp.ndarray | None = None
     g_22: jnp.ndarray | None = None
     g_23: jnp.ndarray | None = None
@@ -291,6 +294,12 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             object.__setattr__(self, "jacobian", _as_field3(self.jacobian, "jacobian"))
         if self.gpar is not None:
             object.__setattr__(self, "gpar", _as_field3(self.gpar, "gpar"))
+        if self.G1 is not None:
+            object.__setattr__(self, "G1", _as_field3(self.G1, "G1"))
+        if self.G3 is not None:
+            object.__setattr__(self, "G3", _as_field3(self.G3, "G3"))
+        if self.d1_dx is not None:
+            object.__setattr__(self, "d1_dx", _as_field3(self.d1_dx, "d1_dx"))
         if self.metric_dx is not None:
             object.__setattr__(self, "metric_dx", _as_field3(self.metric_dx, "metric_dx"))
         if self.metric_dy is not None:
@@ -414,6 +423,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         gxx: jnp.ndarray | None = None,
         gxy: jnp.ndarray | None = None,
         gyy: jnp.ndarray | None = None,
+        G1: jnp.ndarray | None = None,
+        G3: jnp.ndarray | None = None,
+        d1_dx: jnp.ndarray | None = None,
         g23: jnp.ndarray | None = None,
         g_22: jnp.ndarray | None = None,
         g_23: jnp.ndarray | None = None,
@@ -435,6 +447,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             gxx=gxx,
             gxy=gxy,
             gyy=gyy,
+            G1=G1,
+            G3=G3,
+            d1_dx=d1_dx,
             g23=g23,
             g_22=g_22,
             g_23=g_23,
@@ -463,6 +478,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
         gxx = data["gxx"] if "gxx" in data else None
         gxy = data["gxy"] if "gxy" in data else None
         gyy = data["gyy"] if "gyy" in data else None
+        G1 = data["G1"] if "G1" in data else None
+        G3 = data["G3"] if "G3" in data else None
+        d1_dx = data["d1_dx"] if "d1_dx" in data else None
         g23 = data["g23"] if "g23" in data else None
         g_22 = data["g_22"] if "g_22" in data else None
         g_23 = data["g_23"] if "g_23" in data else None
@@ -489,6 +507,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
             gxx=gxx,
             gxy=gxy,
             gyy=gyy,
+            G1=G1,
+            G3=G3,
+            d1_dx=d1_dx,
             g23=g23,
             g_22=g_22,
             g_23=g_23,
