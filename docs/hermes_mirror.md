@@ -840,6 +840,18 @@ This confirms that the remaining density/pressure ExB overshoot was not a new
 missing operator path. It was the surviving `exb_poloidal_y_scale = 1.24`
 multiplier from the older non-mirror alignment track.
 
+The next promoted strict parity cycle moved the `jpar` branch itself onto a
+more literal Hermes contract. Hermes vorticity uses `Div_par(jpar)`, not the
+finite-volume transport operator used by the particle/pressure channels. The
+open-field JAX path now mirrors that for `wave=None` by using a centered
+parallel divergence with explicit sheath-face current values only at the open
+ends.
+
+With that change, the promoted 1-step audit
+`/Users/rogerio/local/jax_drb/runs/audit_jpar_centered_1step` improves
+`omega parallel/jpar` from `0.2107106038839909` to `0.11715792736854537` in
+weighted-array metric, with correlation rising to `0.9999301165207451`.
+
 The parallel channels remain unchanged, and the remaining follow-up is now
 narrower:
 

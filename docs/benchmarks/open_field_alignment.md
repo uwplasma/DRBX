@@ -517,6 +517,35 @@ Resetting the strict mirror config to `exb_poloidal_y_scale = 1.0` moves the
 That makes `omega parallel/jpar` the next real fail-fast leader on the
 promoted strict baseline.
 
+In the next 2026-03-08 strict cycle, the `jpar` path itself was moved closer to
+the Hermes source. Hermes vorticity uses `Div_par(jpar)` on the current field,
+not the FV transport operator used by density and pressure. The promoted JAX
+path was still routing `wave=None` through the finite-volume reconstruction,
+which left a small but persistent structural gap in `term_Vort_jpar`. The
+current path now uses a centered `Div_par`-style divergence for the `jpar`
+channel, while still applying the explicit sheath-face current values in
+`boundary_flux` mode.
+
+On the strict 1-step Hermes-state audit
+`runs/audit_jpar_centered_1step`, this reduces:
+
+- `omega parallel/jpar`: `weighted_array_rel 0.2107106038839909 -> 0.11715792736854537`
+- `omega parallel/jpar` correlation: `0.9997735493310655 -> 0.9999301165207451`
+- `omega parallel/jpar` array diff RMS:
+  `0.0005454509757019604 -> 0.0003032780724674658`
+
+On the 3-step strict window `runs/audit_jpar_centered_3step`, the same channel
+stays lower than the previous promoted baseline at all three early steps:
+
+- `t=0.01`: `0.11715792736854537`
+- `t=0.02`: `0.2543975649539223`
+- `t=0.03`: `0.4021854262820713`
+
+The next fail-fast terms on the promoted mirror baseline are now the density
+and pressure parallel transport channels (`n parallel/par`, `Te parallel/par_total`,
+`Pe parallel/par_total`), while the audit-level sheath residual remains a
+separate follow-up for boundary-energy bookkeeping.
+
 In the 2026-03-05 strict Hermes-state audit refresh, the `gpar`-aware
 boundary current divergence now uses the boundary-cell metric on the sheath
 face for `Div_par(jpar)` (the `wave=None` path), matching the Hermes/BOUT
