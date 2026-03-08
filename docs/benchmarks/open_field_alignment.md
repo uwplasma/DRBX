@@ -379,13 +379,14 @@ Early-time alignment-tuned knobs in
 - `parallel_pressure_work_coeff = 2/3`
 - `parallel_limiter = "none"`
 - `parallel_flux_scheme = "rusanov"`
-- `exb_flux_scheme = "hermes_xppm"` (Hermes/BOUT XPPM-like MC-limited X-Z transport)
+- `exb_flux_scheme = "hermes_mirror"` (runtime wrapper around the literal
+  Hermes/BOUT ExB transport stack)
 - `exb_advection_simplified = false` (Hermes full vorticity ExB form rather than
   the simplified advect-`Vort` form)
 - `exb_poloidal_flows = true`
 - `exb_poloidal_scale = 1.0`
-- `exb_poloidal_y_scale = 1.24` (strict early-time operator alignment in the
-  poloidal Y-flux branch)
+- `exb_poloidal_y_scale = 1.0` (the earlier `1.24` tuning knob is no longer
+  needed once the promoted path uses the literal mirror Y-flux operator)
 - `exb_poloidal_ddy_scheme = "c2"` (DDY-like centered stencil in the X-flux branch)
 - `neumann_boundary_average_y = true` (BOUT/Hermes `neumann_boundary_average_z`)
 - `parallel_sheath_flux_mode = "boundary_flux"` for `jpar` divergence
@@ -495,6 +496,26 @@ advection regression:
 so Milestone A is not closed yet. The next structural target after this
 promotion is therefore the mirrored vorticity ExB composition, while keeping
 the improved density/pressure ExB transport as the new strict baseline.
+
+In the 2026-03-08 strict refresh, the remaining density/pressure ExB overshoot
+turned out to be one stale alignment knob, not another operator bug. The
+promoted mirror path was still inheriting `exb_poloidal_y_scale = 1.24` from
+the older pre-mirror geometry path. On the dump-backed global mirror fixture,
+that exact multiplier reproduces the live promoted overshoot:
+
+- `Ne` scale `1.051399020263945 -> 1.287035478033308`
+- `Pe` scale `1.0611891505987026 -> 1.3028369266421438`
+
+Resetting the strict mirror config to `exb_poloidal_y_scale = 1.0` moves the
+1-step Hermes-state audit (`runs/audit_poloidal_y_scale_1p0_1step`) to:
+
+- `n advection/exb`: `weighted_array_rel 0.30603226941513645 -> 0.09608755774957915`
+- `Pe advection/exb`: `weighted_array_rel 0.20417452847516265 -> 0.06745309373399326`
+- `omega advection/exb`: remains small at `0.004178515908061414`
+- `omega parallel/jpar`: unchanged at `0.2107106038839909`
+
+That makes `omega parallel/jpar` the next real fail-fast leader on the
+promoted strict baseline.
 
 In the 2026-03-05 strict Hermes-state audit refresh, the `gpar`-aware
 boundary current divergence now uses the boundary-cell metric on the sheath
