@@ -529,7 +529,7 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 - [x] Mirror boundary primitives exist.
 - [x] Primitive dump-backed fixtures exist.
-- [ ] Primitive tests are green in CI.
+- [x] Primitive tests are green in CI.
 
 ### Milestone A2: mirror transforms
 
@@ -784,14 +784,35 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `tests/hermes_mirror/test_primitives.py`,
   `tests/hermes_mirror/test_fv.py`,
   and `tests/hermes_mirror/test_vorticity.py`.
-- 2026-03-07: promotion of the literal vorticity branch remains blocked on a
-  dedicated `Delp2(phi)` translation. A naive `Div_a_Grad_perp(1, phi)`
-  replacement was incorrect, so the active runtime omega ExB path stays frozen
-  until the source-true `Delp2` operator is implemented and validated.
-- 2026-03-07: confirming strict audit
-  `runs/audit_literal_vorticity_scaffold_1step`
-  shows no active-path parity delta yet; `omega advection/exb` remains the
-  lead blocker at weighted-array metric `0.09741634145346564`.
+- 2026-03-07: landed the source-true literal `Delp2(phi)` path in
+  `src/jaxdrb/hermes_mirror/delp2.py`, extended
+  `src/jaxdrb/core/geometry_field_aligned.py` to ingest Hermes `G1`/`G3`/`d1_dx`,
+  updated `tools/convert_hermes_dump_axisymmetric.py` to emit `G1`/`G3`, and
+  stitched those coefficients into
+  `examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv_g22.npz`.
+- 2026-03-07: the expanded stitched vorticity fixture
+  `tests/fixtures/hermes_mirror_vorticity_global_t1.npz` now carries the raw
+  Hermes `G1`, `G3`, `g11`, `g13`, `g33`, `dx`, `dz`, `Bxy`, and `zShift`
+  planes. The literal Laplacian matches the raw BOUT single-index operator at
+  both local and stitched-global level:
+  local corr `0.9999999979364631`, local diff RMS `6.903925415803028e-07`;
+  global corr `0.9999988050053542`, global diff RMS `3.9164034002630735e-05`.
+- 2026-03-07: the remaining promoted omega mismatch turned out not to be
+  `Delp2(phi)` itself but the transport-side boundary contract. Passing
+  `poisson_invert_set` through the runtime mirror transport of `phi` /
+  `phi + Pi_hat` was wrong. After removing that override and routing the omega
+  path through the validated global mirror wrapper, the dump-backed full
+  `term_Vort_exb` mirror moved to correlation `0.9286922397070627` with diff
+  RMS `9.242617198253543e-06`.
+- 2026-03-07: the promoted strict 1-step Hermes-state audit
+  `runs/audit_mirror_omega_transport_bc_fix_1step` reduces
+  `omega advection/exb` from weighted-array metric `0.09741634145346564` to
+  `0.0035704721275969927`. The fail-fast leader is now back to
+  `n advection/exb = 0.30603226941513645`, followed by
+  `omega parallel/jpar = 0.2107103945115671`,
+  `Pe advection/exb = 0.20417452847516265`,
+  `n parallel/par = 0.16847301041461074`, and
+  `Pe parallel/par_total = 0.15454019751690204`.
 
 ---
 

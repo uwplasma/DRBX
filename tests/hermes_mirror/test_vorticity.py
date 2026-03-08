@@ -51,6 +51,35 @@ def test_full_omega_exb_advection_is_finite_on_dump_backed_snapshot() -> None:
     assert np.isfinite(np.asarray(out)).all()
 
 
+def test_full_omega_exb_advection_matches_hermes_term_on_dump_backed_snapshot() -> None:
+    cfg = _load_cfg()
+    built = build_system_from_config(cfg)
+
+    with np.load(_FIXTURE, allow_pickle=False) as data:
+        y = DRBSystemState(
+            n=jnp.asarray(data["Ne"], dtype=jnp.float64),
+            omega=jnp.asarray(data["Vort"], dtype=jnp.float64),
+            vpar_e=jnp.zeros_like(jnp.asarray(data["Ne"], dtype=jnp.float64)),
+            vpar_i=jnp.zeros_like(jnp.asarray(data["Nd+"], dtype=jnp.float64)),
+            Te=jnp.asarray(data["Te"], dtype=jnp.float64),
+            Ti=jnp.asarray(data["Td+"], dtype=jnp.float64),
+            psi=None,
+            N=None,
+        )
+        phi = jnp.asarray(data["phi"], dtype=jnp.float64)
+        ref = np.asarray(data["term_Vort_exb"], dtype=np.float64)
+
+    ctx = build_context(built.system.params, built.system.geom, y)
+    ctx = eqx.tree_at(lambda c: c.phi, ctx, phi)
+    out = np.asarray(full_omega_exb_advection(ctx, y, phi=ctx.phi, scale=ctx.nonlinear_scale))
+    diff = out - ref
+    corr = float(np.corrcoef(out.ravel(), ref.ravel())[0, 1])
+    diff_rms = float(np.sqrt(np.mean(diff * diff)))
+
+    assert corr > 0.9
+    assert diff_rms < 1.5e-5
+
+
 def test_pi_hat_is_zero_when_diamagnetic_polarisation_is_disabled() -> None:
     cfg = _load_cfg()
     cfg.setdefault("physics", {})["diamagnetic_polarisation_on"] = False

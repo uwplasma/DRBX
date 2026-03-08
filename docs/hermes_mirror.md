@@ -854,17 +854,51 @@ plus operator regressions in:
 - `/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_fv.py`
 - `/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_vorticity.py`
 
-That slice is intentionally not promoted into the active runtime omega path.
-The literal `Div_a_Grad_perp` translation is now available and validated as a
-standalone operator, but the full Hermes `term_Vort_exb` composition still
-needs a dedicated `Delp2(phi)` translation. Treating `Delp2(phi)` as
-`Div_a_Grad_perp(1, phi)` was incorrect in this stack and amplified the
-`DelpPhi_2B2` branch, so the production omega ExB implementation remains
-frozen while the dedicated `Delp2` operator is added. A confirming active-path
-strict audit at
-`/Users/rogerio/local/jax_drb/runs/audit_literal_vorticity_scaffold_1step`
-shows no runtime parity delta yet: `omega advection/exb` remains the blocker at
-weighted-array metric `0.09741634145346564`.
+That literal vorticity slice is now promoted through a dedicated
+`Delp2(phi)` implementation in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/delp2.py`. The geometry
+adapter in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/core/geometry_field_aligned.py` now
+ingests optional Hermes `G1`, `G3`, and `d1_dx` coefficient planes, the
+converter
+`/Users/rogerio/local/jax_drb/tools/convert_hermes_dump_axisymmetric.py` now
+emits `G1`/`G3`, and the strict mesh bundle
+`/Users/rogerio/local/jax_drb/examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv_g22.npz`
+now carries the stitched Hermes `G1`/`G3` arrays used by the strict parity
+config.
+
+The stitched vorticity fixture now also includes raw Hermes metric planes
+(`G1`, `G3`, `g11`, `g13`, `g33`, `dx`, `dz`, `Bxy`, `zShift`) so the mirror
+Laplacian can be checked directly against the saved BOUT guard-cell state. That
+check now passes at operator level:
+
+- local rank-0 `Delp2(phi)` vs raw BOUT single-index evaluation:
+  correlation `0.9999999979364631`, diff RMS `6.903925415803028e-07`
+- stitched global `Delp2(phi)` vs rank-stitched raw BOUT evaluation:
+  correlation `0.9999988050053542`, diff RMS `3.9164034002630735e-05`
+
+The first promotion attempt still failed because the runtime ExB transport was
+carrying the `poisson_invert_set` auxiliary Dirichlet override into the
+transport of `phi` / `phi + Pi_hat`. That is not what Hermes does: the
+Dirichlet override belongs only in the `Delp2(phi)` construction. Once the
+transport-side override was removed and the omega path was routed through the
+same validated global mirror wrapper used by the density/pressure ExB channels,
+the dump-backed full omega term moved to:
+
+- full `term_Vort_exb` mirror correlation: `0.9286922397070627`
+- full diff RMS: `9.242617198253543e-06`
+
+The promoted strict audit
+`/Users/rogerio/local/jax_drb/runs/audit_mirror_omega_transport_bc_fix_1step`
+then reduced the live blocker:
+
+- `omega advection/exb` weighted-array metric:
+  `0.09741634145346564 -> 0.0035704721275969927`
+- `omega advection/exb` correlation:
+  `-0.6627029835778587 -> 0.9286922397070773`
+
+With the omega-side blocker structurally closed, the remaining strict leaders
+are back in the density/pressure ExB and parallel channels.
 
 ## References
 

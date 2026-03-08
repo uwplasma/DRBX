@@ -584,17 +584,59 @@ This lands with synthetic/autodiff regressions plus a stitched dump-backed
 fixture at `tests/fixtures/hermes_mirror_vorticity_global_t1.npz`, built by
 `tools/build_hermes_mirror_vorticity_fixture.py`.
 
-That work is intentionally not promoted into the active strict runtime path
-yet. The literal `Div_a_Grad_perp` translation is now available and validated
-as a standalone operator, but the full Hermes `term_Vort_exb` composition still
-needs a dedicated `Delp2(phi)` translation. A naive `Delp2(phi) =
-Div_a_Grad_perp(1, phi)` replacement was wrong in this stack and amplified the
-`DelpPhi_2B2` branch by roughly an order of magnitude. The production omega ExB
-path therefore remains frozen while the literal `Delp2` operator is added. A
-confirming 1-step strict audit at
-`runs/audit_literal_vorticity_scaffold_1step` leaves the active fail-fast rows
-unchanged, with `omega advection/exb` still at weighted-array metric
-`0.09741634145346564`.
+The vorticity blocker is now structurally reduced. The mirror path adds a
+dedicated literal perpendicular Laplacian in
+`src/jaxdrb/hermes_mirror/delp2.py`, extends
+`src/jaxdrb/core/geometry_field_aligned.py` to ingest Hermes `G1`, `G3`, and
+optional `d1_dx`, updates
+`tools/convert_hermes_dump_axisymmetric.py` to emit `G1`/`G3`, and checks those
+coefficients into the strict mesh bundle
+`examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv_g22.npz`.
+
+The stitched vorticity fixture now also carries the raw Hermes `G1`, `G3`,
+`g11`, `g13`, `g33`, `dx`, `dz`, `Bxy`, and `zShift` planes via
+`tools/build_hermes_mirror_vorticity_fixture.py`, so the literal `Delp2(phi)`
+can be validated directly against the saved BOUT guard-cell state.
+
+That validation shows the operator is now source-true:
+
+- local rank-0 `Delp2(phi)` vs raw BOUT single-index formula:
+  correlation `0.9999999979364631`, diff RMS `6.903925415803028e-07`
+- stitched global `Delp2(phi)` vs rank-stitched raw BOUT evaluation:
+  correlation `0.9999988050053542`, diff RMS `3.9164034002630735e-05`
+- stitched global interior diff RMS: `1.1612800441803346e-07`
+
+The remaining error after the first promotion attempt turned out not to be
+`Delp2(phi)` itself but the boundary contract used to transport
+`DelpPhi_2B2`. The wrong behavior was passing `poisson_invert_set` through the
+runtime ExB transport wrapper for the `phi`/`phi + Pi_hat` transport field. In
+Hermes that auxiliary Dirichlet override belongs only in the `Delp2(phi)` path,
+not in the subsequent `Div_n_bxGrad_f_B_XPPM(...)` transport of the resulting
+field. After removing that transport-side override and routing the omega path
+through the same global mirror wrapper used by the density/pressure channels,
+the dump-backed full omega mirror term moved to:
+
+- full `term_Vort_exb` mirror correlation: `0.9286922397070627`
+- full diff RMS: `9.242617198253543e-06`
+
+The promoted strict 1-step Hermes-state audit is
+`runs/audit_mirror_omega_transport_bc_fix_1step`. Relative to the previous
+promoted strict baseline
+`runs/audit_strict_early_mirror_promoted_1step`, the blocker term collapses:
+
+- `omega advection/exb`: `weighted_array_rel 0.09741634145346564 -> 0.0035704721275969927`
+- `omega advection/exb`: correlation `-0.6627029835778587 -> 0.9286922397070773`
+- `omega advection/exb`: array diff RMS
+  `0.00025217448726198274 -> 9.24261745643642e-06`
+
+With that term reduced below the remaining density/pressure and parallel
+leaders, the new strict fail-fast order is:
+
+- `n advection/exb`: `0.30603226941513645`
+- `omega parallel/jpar`: `0.2107103945115671`
+- `Pe advection/exb`: `0.20417452847516265`
+- `n parallel/par`: `0.16847301041461074`
+- `Pe parallel/par_total`: `0.15454019751690204`
 
 ## 2) Build Hermes bundle (same normalization metadata)
 
