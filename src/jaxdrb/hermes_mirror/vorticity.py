@@ -8,15 +8,9 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
 
-from .boundary import apply_free_o2_field3d
-from .exb import (
-    _as_runtime_metric2d,
-    _pad_runtime_field,
-    _pad_runtime_metric,
-    div_n_bxgrad_f_b_xppm_local,
-)
+from .delp2 import delp2_runtime
+from .exb import div_n_bxgrad_f_b_xppm
 from .fv import div_a_grad_perp
-from .types import FieldAlignedLocalLayout
 
 if TYPE_CHECKING:
     from jaxdrb.core.state import DRBSystemState
@@ -73,177 +67,57 @@ def _runtime_exb_term(
         raise ValueError(
             f"Mirror vorticity ExB runtime expects matching `(nz, nx, ny)` fields, got {adv_arr.shape} and {f_arr.shape}."
         )
-    nz, nx, ny = (int(v) for v in adv_arr.shape)
-
-    jacobian = getattr(geom, "jacobian", None)
-    dx = getattr(geom, "metric_dx", None)
-    dy = getattr(geom, "metric_dy", None)
-    dz = getattr(geom, "metric_dz", None)
-    g11 = getattr(geom, "gxx", None)
-    g23 = getattr(geom, "g23", None)
-    bxy = getattr(geom, "B", None)
-    z_shift = getattr(geom, "z_shift", None)
-    if any(val is None for val in (jacobian, dx, dy, dz, g11, g23, bxy, z_shift)):
+    if any(
+        getattr(geom, name, None) is None
+        for name in (
+            "jacobian",
+            "metric_dx",
+            "metric_dy",
+            "metric_dz",
+            "gxx",
+            "g23",
+            "B",
+            "z_shift",
+        )
+    ):
         raise ValueError(
             "Hermes mirror vorticity ExB path requires Jacobian, metrics, Bxy, and z_shift."
         )
-
-    layout = FieldAlignedLocalLayout(
-        pstart=2,
-        pend=nz + 1,
-        xstart=2,
-        xend=nx + 1,
-        open_field_line=bool(getattr(getattr(geom, "grid", None), "open_field_line", False)),
-    )
-    interior = (
-        slice(layout.pstart, layout.pend + 1),
-        slice(layout.xstart, layout.xend + 1),
-        slice(None),
-    )
-
-    dx2d = _as_runtime_metric2d(dx, nz=nz, nx=nx, ny=ny, name="dx")
-    dy2d = _as_runtime_metric2d(dy, nz=nz, nx=nx, ny=ny, name="dy")
-    dz2d = _as_runtime_metric2d(dz, nz=nz, nx=nx, ny=ny, name="dz")
-    J2d = _as_runtime_metric2d(jacobian, nz=nz, nx=nx, ny=ny, name="jacobian")
-    g11_2d = _as_runtime_metric2d(g11, nz=nz, nx=nx, ny=ny, name="g11")
-    g23_2d = _as_runtime_metric2d(g23, nz=nz, nx=nx, ny=ny, name="g23")
-    bxy_2d = _as_runtime_metric2d(bxy, nz=nz, nx=nx, ny=ny, name="bxy")
-    zshift_2d = _as_runtime_metric2d(z_shift, nz=nz, nx=nx, ny=ny, name="z_shift")
-
     periodic_parallel = not bool(getattr(getattr(geom, "grid", None), "open_field_line", False))
     lower_boundary_open = bool(getattr(getattr(geom, "grid", None), "open_field_line", False))
     upper_boundary_open = lower_boundary_open
 
-    phi_kind_x = _phi_bcx_for_delp(params, bc_phi)
-    adv_local = _pad_runtime_field(
+    return div_n_bxgrad_f_b_xppm(
         adv_arr,
-        dx=dx2d,
-        dy=dy2d,
-        bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
-        bc_value_x=getattr(bc_adv, "x_value", 0.0),
-        bc_grad_x=getattr(bc_adv, "x_grad", 0.0),
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    if adv_free_o2:
-        adv_local = apply_free_o2_field3d(
-            adv_local,
-            axis=1,
-            interior_start=layout.xstart,
-            interior_end=layout.xend,
-            guard_width=layout.x_guards,
-        )
-        if not periodic_parallel:
-            adv_local = apply_free_o2_field3d(
-                adv_local,
-                axis=0,
-                interior_start=layout.pstart,
-                interior_end=layout.pend,
-                guard_width=layout.p_guards,
-                apply_lower=lower_boundary_open,
-                apply_upper=upper_boundary_open,
-            )
-
-    f_local = _pad_runtime_field(
         f_arr,
-        dx=dx2d,
-        dy=dy2d,
-        bc_kind_x=phi_kind_x,
-        bc_value_x=getattr(bc_phi, "x_value", 0.0),
-        bc_grad_x=getattr(bc_phi, "x_grad", 0.0),
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    J_local = _pad_runtime_metric(
-        J2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    dx_local = _pad_runtime_metric(
-        dx2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    dy_local = _pad_runtime_metric(
-        dy2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    dz_local = _pad_runtime_metric(
-        dz2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    g11_local = _pad_runtime_metric(
-        g11_2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    g23_local = _pad_runtime_metric(
-        g23_2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    bxy_local = _pad_runtime_metric(
-        bxy_2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-    zshift_local = _pad_runtime_metric(
-        zshift_2d,
-        periodic_x=int(getattr(bc_adv, "kind_x", 0)) == 0,
-        periodic_parallel=periodic_parallel,
-        lower_boundary_open=lower_boundary_open,
-        upper_boundary_open=upper_boundary_open,
-    )
-
-    result_local = div_n_bxgrad_f_b_xppm_local(
-        adv_local,
-        f_local,
-        jacobian=J_local,
-        dx=dx_local,
-        dy=dy_local,
-        dz=dz_local,
-        g11=g11_local,
-        g23=g23_local,
-        bxy=bxy_local,
-        z_shift=zshift_local,
+        jacobian=geom.jacobian,
+        dx=geom.metric_dx,
+        dy=geom.metric_dy,
+        dz=geom.metric_dz,
+        g11=geom.gxx,
+        g23=geom.g23,
+        bxy=geom.B,
+        z_shift=geom.z_shift,
         zlength=_mirror_zlength(geom),
-        layout=layout,
+        bc_phi=bc_phi,
+        bc_adv=bc_adv,
         bndry_flux=bool(getattr(params, "exb_bndry_flux", True)),
         poloidal=bool(getattr(params, "exb_poloidal_flows", False)),
         positive=False,
         interp=str(getattr(params, "parallel_shift_interp", "spectral")),
-        bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
-        bc_value_x=float(getattr(bc_adv, "x_value", 0.0)),
-        bc_grad_x=float(getattr(bc_adv, "x_grad", 0.0)),
         neumann_boundary_average_z=bool(getattr(params, "neumann_boundary_average_y", False)),
         use_mc=True,
         periodic_parallel=periodic_parallel,
         periodic_binormal=int(getattr(bc_adv, "kind_y", 0)) == 0,
         lower_boundary_open=lower_boundary_open,
         upper_boundary_open=upper_boundary_open,
+        poisson_invert_set=False,
+        parallel_edge_block=int(getattr(params, "hermes_mirror_parallel_edge_block", 0)),
+        apply_free_o2_adv=adv_free_o2,
         poloidal_scale=float(getattr(params, "exb_poloidal_scale", 1.0)),
         poloidal_x_scale=float(getattr(params, "exb_poloidal_x_scale", 1.0)),
         poloidal_y_scale=float(getattr(params, "exb_poloidal_y_scale", 1.0)),
     )
-    return result_local[interior]
 
 
 def full_omega_exb_advection(
@@ -316,8 +190,6 @@ def full_omega_exb_advection(
         apply_free_o2=True,
     )
 
-    from jaxdrb.core.terms.fields import _metric_div_coeff
-
     bc_delp = bc.phi
     if bool(getattr(ctx.params, "poisson_invert_set", False)) and bc.phi.kind_x != 0:
         bc_delp = BC2D(
@@ -328,13 +200,7 @@ def full_omega_exb_advection(
             x_grad=0.0,
             y_grad=bc.phi.y_grad,
         )
-    delp_phi = _metric_div_coeff(
-        ctx.params,
-        ctx.geom,
-        phi,
-        jnp.ones_like(phi),
-        bc_delp,
-    )
+    delp_phi = delp2_runtime(phi, geom=ctx.geom, bc_field=bc_delp)
     delp_phi_2b2 = 0.5 * abar * delp_phi * inv_bsq
     term = term - _runtime_exb_term(
         delp_phi_2b2,

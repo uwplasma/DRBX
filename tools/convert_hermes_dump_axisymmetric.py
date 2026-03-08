@@ -138,6 +138,14 @@ def main() -> None:
     except Exception:
         g23 = None
     try:
+        G1 = _stitch_2d(files, "G1")
+    except Exception:
+        G1 = None
+    try:
+        G3 = _stitch_2d(files, "G3")
+    except Exception:
+        G3 = None
+    try:
         g_22 = _stitch_2d(files, "g_22")
     except Exception:
         g_22 = None
@@ -300,6 +308,10 @@ def main() -> None:
             g13 = g13.T
         if g23 is not None and g23.ndim == 2:
             g23 = g23.T
+        if G1 is not None and G1.ndim == 2:
+            G1 = G1.T
+        if G3 is not None and G3.ndim == 2:
+            G3 = G3.T
         if g_22 is not None and g_22.ndim == 2:
             g_22 = g_22.T
         if g_23 is not None and g_23.ndim == 2:
@@ -329,6 +341,10 @@ def main() -> None:
     }
     if g23 is not None:
         out["g23"] = g23
+    if G1 is not None:
+        out["G1"] = G1
+    if G3 is not None:
+        out["G3"] = G3
     if g_22 is not None:
         out["g_22"] = g_22
     if g_23 is not None:

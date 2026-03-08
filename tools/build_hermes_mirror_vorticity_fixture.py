@@ -30,6 +30,7 @@ def main() -> None:
         raise FileNotFoundError(f"No BOUT.dmp.*.nc files found in {args.bout_data_dir}")
 
     fields_3d = ("Ne", "Te", "Nd+", "Td+", "Vort", "phi", "term_Vort_exb")
+    fields_2d = ("J", "dx", "dy", "dz", "g11", "g13", "g23", "g33", "G1", "G3", "Bxy", "zShift")
     with Dataset(str(files[0])) as ds0:
         mxg = _read_scalar(ds0, "MXG")
         myg = _read_scalar(ds0, "MYG")
@@ -49,6 +50,8 @@ def main() -> None:
         }
         for name in fields_3d:
             payload[name] = np.zeros((npar, nx, nbinorm), dtype=np.float64)
+        for name in fields_2d:
+            payload[name] = np.zeros((npar, nx), dtype=np.float64)
 
     for fp in files:
         with Dataset(str(fp)) as ds:
@@ -66,6 +69,12 @@ def main() -> None:
                     myg : myg + mysub,
                     :,
                 ].transpose(1, 0, 2)
+            for name in fields_2d:
+                raw = np.asarray(ds.variables[name][:], dtype=np.float64)
+                payload[name][y0:y1, x0:x1] = raw[
+                    mxg : mxg + mxsub,
+                    myg : myg + mysub,
+                ].T
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.output, **payload)

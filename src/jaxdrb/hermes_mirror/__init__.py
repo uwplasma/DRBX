@@ -18,6 +18,7 @@ from .derivs import (
     ddy_centered_guarded_local,
     ddy_index_centered_guarded_local,
 )
+from .delp2 import delp2_runtime, derive_delp2_coefficients
 from .exb import (
     div_n_bxgrad_f_b_xppm,
     div_n_bxgrad_f_b_xppm_local,
@@ -88,6 +89,8 @@ __all__ = [
     "build_shifted_metric_fft_phases",
     "build_shifted_metric_weights",
     "ddx_centered_guarded",
+    "delp2_runtime",
+    "derive_delp2_coefficients",
     "ddy_centered_guarded_local",
     "ddy_index_centered_guarded_local",
     "density_transform_global",
