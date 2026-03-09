@@ -213,3 +213,23 @@ def test_parallel_fv_open_boundary_reconstruction_uses_ghost_stencil() -> None:
     # The sheath ghost values should affect the first and last physical cells,
     # not only the boundary-face flux.
     assert not np.allclose(base[[0, 1, -2, -1]], ghosted[[0, 1, -2, -1]])
+
+
+def test_parallel_fv_boundary_flux_uses_boundary_cell_metric_factor() -> None:
+    div = np.asarray(
+        _flux_divergence_open(
+            np.zeros((3, 1, 1), dtype=np.float64),
+            np.zeros((3, 1, 1), dtype=np.float64),
+            dz=2.0,
+            limiter="mc",
+            wave=np.ones((3, 1, 1), dtype=np.float64),
+            J=np.ones((3, 1, 1), dtype=np.float64),
+            gpar=np.array([[[4.0]], [[9.0]], [[16.0]]], dtype=np.float64),
+            boundary_flux_low=np.array([[1.0]], dtype=np.float64),
+            boundary_flux_high=np.array([[0.0]], dtype=np.float64),
+        )
+    )
+
+    expected = np.zeros((3, 1, 1), dtype=np.float64)
+    expected[0, 0, 0] = -1.0 / (2.0 * np.sqrt(4.0))
+    np.testing.assert_allclose(div, expected, atol=1e-12, rtol=1e-12)
