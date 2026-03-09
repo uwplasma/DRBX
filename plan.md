@@ -870,6 +870,19 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   The audit-level `Te/Pe sheath source_residual_boundary` rows are unchanged,
   reinforcing that the remaining gap there is a residual bookkeeping issue
   rather than the same parallel transport bug.
+- 2026-03-09: the next audit-side slice now reconstructs the Hermes electron
+  sheath pressure source directly from the raw BOUT dumps as a synthetic
+  `term_Pe_sheath`, mirroring `sheath_boundary.cxx`, and the `Pe/Te sheath`
+  mismatch rows now prefer that direct term before falling back to the mixed
+  `source_residual_boundary` bucket. In
+  `runs/audit_direct_sheath_mapping_1step`, this moves
+  `Pe sheath/sheath` to `0.022641938293208385` weighted-array mismatch with
+  correlation `1.0`, and `Te sheath/sheath` to
+  `0.08160536527344078` with correlation `1.0`.
+- 2026-03-09: `n sheath/source_residual_boundary` remains a bookkeeping row at
+  `0.006210587208797745`. The direct `Pe/Te sheath` parity is now measured
+  cleanly; the remaining `source_residual_boundary` discrepancy is explicitly
+  an audit residual channel rather than the primary electron sheath term.
 
 ---
 

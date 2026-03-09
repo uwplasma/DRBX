@@ -980,6 +980,24 @@ The audit-level `Te/Pe sheath source_residual_boundary` rows stay unchanged
 under this fix, which reinforces the earlier conclusion that they are a
 bookkeeping-channel gap rather than the same transport bug.
 
+The next audit-side fix closes that measurement gap directly. The audit tool
+now reconstructs the Hermes electron sheath pressure source from the raw BOUT
+dumps as a synthetic `term_Pe_sheath`, mirroring `sheath_boundary.cxx`, and
+the `Pe/Te sheath` mismatch rows now prefer that direct term before falling
+back to the mixed `source_residual_boundary` bucket.
+
+On the strict 1-step audit
+`/Users/rogerio/local/jax_drb/runs/audit_direct_sheath_mapping_1step`, the
+direct sheath comparison moves to:
+
+- `Pe sheath/sheath`: `weighted_array_rel 0.022641938293208385`, correlation `1.0`
+- `Te sheath/sheath`: `weighted_array_rel 0.08160536527344078`, correlation `1.0`
+- `n sheath/source_residual_boundary`: unchanged bookkeeping row at
+  `weighted_array_rel 0.006210587208797745`
+
+So the remaining `source_residual_boundary` discrepancy is now explicitly a
+residual bookkeeping channel, not the primary electron sheath term.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

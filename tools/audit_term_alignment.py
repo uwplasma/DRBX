@@ -137,6 +137,195 @@ def _load_hermes_fields(
     return times, fields, meta
 
 
+def _limit_free_array(fm: np.ndarray, fc: np.ndarray) -> np.ndarray:
+    return np.where(
+        np.logical_or(fm < fc, fm < 1e-10),
+        fc,
+        (fc * fc) / np.maximum(fm, 1e-10),
+    )
+
+
+def _compute_hermes_electron_sheath_pressure_source(
+    data_dir: Path,
+    pattern: str,
+    *,
+    hermes_sections: dict[str, dict[str, float]],
+    hermes_input_path: Path | None = None,
+) -> np.ndarray | None:
+    """Reconstruct Hermes `sheath_boundary` electron pressure source from raw dumps.
+
+    This mirrors the electron energy-source branch in `src/sheath_boundary.cxx`
+    and converts it to the pressure RHS used by `evolve_pressure.cxx`.
+    """
+
+    try:
+        from netCDF4 import Dataset
+    except Exception:  # noqa: BLE001
+        return None
+
+    if hermes_input_path is not None and hermes_input_path.exists():
+        text = hermes_input_path.read_text(encoding="utf-8").lower()
+        if (
+            "sheath_boundary_simple" in text
+            and "sheath_boundary," not in text
+            and "sheath_boundary " not in text
+        ):
+            return None
+        if "sheath_boundary" not in text:
+            return None
+
+    files = sorted(data_dir.glob(pattern))
+    if not files:
+        return None
+
+    with Dataset(str(files[0])) as ds0:
+        nt = int(np.asarray(ds0.variables["t"][:], dtype=np.float64).size)
+        mxg = int(_read_scalar(ds0, ("MXG",), 2))
+        myg = int(_read_scalar(ds0, ("MYG",), 2))
+        mxsub = int(_read_scalar(ds0, ("MXSUB",), ds0.variables["Ne"].shape[1] - 2 * mxg))
+        mysub = int(_read_scalar(ds0, ("MYSUB",), ds0.variables["Ne"].shape[2] - 2 * myg))
+        nxpe = int(_read_scalar(ds0, ("NXPE",), 1))
+        nype = int(_read_scalar(ds0, ("NYPE",), max(1, len(files) // max(nxpe, 1))))
+        nz = int(ds0.variables["Ne"].shape[-1])
+
+    nx = int(nxpe * mxsub)
+    ny = int(nype * mysub)
+    out = np.zeros((nt, nx, ny, nz), dtype=np.float64)
+
+    sheath_opts = hermes_sections.get("sheath_boundary", {})
+    Ge = float(sheath_opts.get("secondary_electron_coef", 0.0))
+    phi_wall = float(sheath_opts.get("wall_potential", 0.0))
+    floor_potential = True
+    lower_y = True
+    upper_y = True
+    electron_adiabatic = float(sheath_opts.get("electron_adiabatic", 5.0 / 3.0))
+    pressure_factor = max(electron_adiabatic - 1.0, 1e-12)
+    me_hat = float(hermes_sections.get("e", {}).get("AA", 1.0 / 1836.0))
+
+    for fp in files:
+        with Dataset(str(fp)) as ds:
+            pe_x = int(_read_scalar(ds, ("PE_XIND",), 0))
+            pe_y = int(_read_scalar(ds, ("PE_YIND",), 0))
+            x0 = pe_x * mxsub
+            y0 = pe_y * mysub
+            x1 = x0 + mxsub
+            y1 = y0 + mysub
+
+            Ne = np.asarray(ds.variables["Ne"][:], dtype=np.float64)
+            if "Te" in ds.variables:
+                Te = np.asarray(ds.variables["Te"][:], dtype=np.float64)
+            elif "Pe" in ds.variables:
+                Pe = np.asarray(ds.variables["Pe"][:], dtype=np.float64)
+                Te = Pe / np.maximum(Ne, 1e-12)
+            else:
+                return None
+            if "phi" not in ds.variables or "J" not in ds.variables or "g_22" not in ds.variables:
+                return None
+            phi = np.asarray(ds.variables["phi"][:], dtype=np.float64)
+            J = np.asarray(ds.variables["J"][:], dtype=np.float64)
+            g_22 = np.asarray(ds.variables["g_22"][:], dtype=np.float64)
+            dy = np.asarray(ds.variables["dy"][:], dtype=np.float64)
+
+            local = np.zeros((nt, mxsub, mysub, nz), dtype=np.float64)
+
+            xsl = slice(mxg, mxg + mxsub)
+            if lower_y and pe_y == 0:
+                yi = myg
+                yg = myg - 1
+                yp = myg + 1
+                Ne_i = Ne[:, xsl, yi, :]
+                Te_i = Te[:, xsl, yi, :]
+                phi_i = phi[:, xsl, yi, :]
+                Ne_g = _limit_free_array(Ne[:, xsl, yp, :], Ne_i)
+                Te_g = _limit_free_array(Te[:, xsl, yp, :], Te_i)
+                phi_g = 2.0 * phi_i - phi[:, xsl, yp, :]
+                ne_sh = 0.5 * (Ne_i + Ne_g)
+                te_sh = 0.5 * (Te_i + Te_g)
+                phi_sh = 0.5 * (phi_i + phi_g)
+                if floor_potential:
+                    phi_sh = np.maximum(phi_sh, phi_wall)
+                gamma_e = np.maximum(
+                    2.0 / (1.0 - Ge) + (phi_sh - phi_wall) / np.maximum(te_sh, 1e-5),
+                    0.0,
+                )
+                ve_sh = np.where(
+                    te_sh < 1e-10,
+                    0.0,
+                    -np.sqrt(te_sh / (2.0 * np.pi * me_hat))
+                    * (1.0 - Ge)
+                    * np.exp(-(phi_sh - phi_wall) / np.maximum(te_sh, 1e-12)),
+                )
+                q = (
+                    (
+                        ((gamma_e - 1.0 - 1.0 / (electron_adiabatic - 1.0)) * te_sh)
+                        - 0.5 * me_hat * ve_sh * ve_sh
+                    )
+                    * ne_sh
+                    * ve_sh
+                )
+                q = np.minimum(q, 0.0)
+                flux_factor = (J[xsl, yi][:, None] + J[xsl, yg][:, None]) / (
+                    np.sqrt(np.maximum(g_22[xsl, yi][:, None], 1e-30))
+                    + np.sqrt(np.maximum(g_22[xsl, yg][:, None], 1e-30))
+                )
+                power = (
+                    q
+                    * flux_factor[None, :, :]
+                    / np.maximum(dy[xsl, yi][None, :, None] * J[xsl, yi][None, :, None], 1e-30)
+                )
+                local[:, :, 0, :] += pressure_factor * power
+
+            if upper_y and pe_y == (nype - 1):
+                yi = myg + mysub - 1
+                yg = myg + mysub
+                ym = yi - 1
+                Ne_i = Ne[:, xsl, yi, :]
+                Te_i = Te[:, xsl, yi, :]
+                phi_i = phi[:, xsl, yi, :]
+                Ne_g = _limit_free_array(Ne[:, xsl, ym, :], Ne_i)
+                Te_g = _limit_free_array(Te[:, xsl, ym, :], Te_i)
+                phi_g = 2.0 * phi_i - phi[:, xsl, ym, :]
+                ne_sh = 0.5 * (Ne_i + Ne_g)
+                te_sh = 0.5 * (Te_i + Te_g)
+                phi_sh = 0.5 * (phi_i + phi_g)
+                if floor_potential:
+                    phi_sh = np.maximum(phi_sh, phi_wall)
+                gamma_e = np.maximum(
+                    2.0 / (1.0 - Ge) + (phi_sh - phi_wall) / np.maximum(te_sh, 1e-5),
+                    0.0,
+                )
+                ve_sh = np.where(
+                    te_sh < 1e-10,
+                    0.0,
+                    np.sqrt(te_sh / (2.0 * np.pi * me_hat))
+                    * (1.0 - Ge)
+                    * np.exp(-(phi_sh - phi_wall) / np.maximum(te_sh, 1e-12)),
+                )
+                q = (
+                    (
+                        ((gamma_e - 1.0 - 1.0 / (electron_adiabatic - 1.0)) * te_sh)
+                        - 0.5 * me_hat * ve_sh * ve_sh
+                    )
+                    * ne_sh
+                    * ve_sh
+                )
+                q = np.maximum(q, 0.0)
+                flux_factor = (J[xsl, yi][:, None] + J[xsl, yg][:, None]) / (
+                    np.sqrt(np.maximum(g_22[xsl, yi][:, None], 1e-30))
+                    + np.sqrt(np.maximum(g_22[xsl, yg][:, None], 1e-30))
+                )
+                power = (
+                    q
+                    * flux_factor[None, :, :]
+                    / np.maximum(dy[xsl, yi][None, :, None] * J[xsl, yi][None, :, None], 1e-30)
+                )
+                local[:, :, -1, :] -= pressure_factor * power
+
+            out[:, x0:x1, y0:y1, :] = local
+
+    return out
+
+
 def _parse_bout_input(path: Path | None) -> dict[str, float]:
     if path is None or not path.exists():
         return {}
@@ -793,14 +982,14 @@ def _compute_term_mismatch(
             "advection": ("exb",),
             "parallel": ("par_total", "par"),
             "volume_source": ("source_ext", "source"),
-            "sheath": ("source_residual_boundary", "source_residual"),
+            "sheath": ("sheath", "source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
         },
         "Te": {
             "advection": ("exb",),
             "parallel": ("par_total", "par"),
             "volume_source": ("source_ext", "source"),
-            "sheath": ("source_residual_boundary", "source_residual"),
+            "sheath": ("sheath", "source_residual_boundary", "source_residual"),
             "diffusion": ("low_n_diff_perp",),
         },
         "omega": {
@@ -1660,6 +1849,14 @@ def main() -> None:
         ),
         args.hermes_pattern,
     )
+    hermes_direct_sheath = _compute_hermes_electron_sheath_pressure_source(
+        hermes_dir,
+        args.hermes_pattern,
+        hermes_sections=hermes_sections,
+        hermes_input_path=hermes_input_path,
+    )
+    if hermes_direct_sheath is not None:
+        hermes_fields["term_Pe_sheath"] = hermes_direct_sheath
     if args.hermes_te_from_pe and "Pe" in hermes_fields and "Ne" in hermes_fields:
         hermes_fields["Te"] = hermes_fields["Pe"] / np.maximum(hermes_fields["Ne"], 1e-12)
     hermes_dx_mean = None
