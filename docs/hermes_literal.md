@@ -39,6 +39,7 @@ The first fresh modules are:
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/sound_speed.py`
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/evolve_density.py`
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/evolve_pressure.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/shifted_metric.py`
 
 Implemented source translations in this first slice:
 
@@ -53,6 +54,10 @@ Implemented source translations in this first slice:
   - sources:
     - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/boundary_standard.cxx`
     - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/field/field3d.cxx`
+- `ShiftedMetricInterp` / `ShiftedMetric`
+  - sources:
+    - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/coordinates.cxx`
+    - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/parallel/shiftedmetricinterp.cxx`
 
 ## Differentiability and Performance Rules
 
@@ -71,3 +76,8 @@ that choice to
 That engine entrypoint is still intentionally incomplete. The strict open-field
 parity run should not switch to it until the communication, shifted-metric,
 ExB, parallel FV, and vorticity component stack is landed.
+
+The shifted-metric layer is now landed and validated in
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
+against both synthetic geometry-adapter checks and the dump-backed fixture
+`/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_shiftedmetric_global_t1.npz`.

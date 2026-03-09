@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jax.numpy as jnp
+
 
 @dataclass(frozen=True)
 class Field3DLayout:
@@ -30,3 +32,32 @@ class Field3DLayout:
             raise ValueError("Interior end must leave room for the configured guard width.")
         if self.pstart > self.pend or self.xstart > self.xend:
             raise ValueError("Interior bounds must be ordered.")
+
+
+@dataclass(frozen=True)
+class ShiftedFieldAlignedWeights:
+    """Precomputed linear interpolation data for `ShiftedMetricInterp`.
+
+    The literal shifted-metric helpers operate on `(npar, nx, nbinorm)` arrays:
+    local parallel coordinate, radial coordinate, and binormal/shift direction.
+    """
+
+    shift_idx: jnp.ndarray
+    forward_index0: jnp.ndarray
+    forward_index1: jnp.ndarray
+    forward_frac: jnp.ndarray
+    backward_index0: jnp.ndarray
+    backward_index1: jnp.ndarray
+    backward_frac: jnp.ndarray
+    open_field_line: bool
+
+
+@dataclass(frozen=True)
+class ShiftedMetricFFTPhases:
+    """Precomputed FFT phase factors for BOUT `ShiftedMetric`."""
+
+    z_shift: jnp.ndarray
+    zlength: float
+    to_aligned_phase: jnp.ndarray
+    from_aligned_phase: jnp.ndarray
+    open_field_line: bool
