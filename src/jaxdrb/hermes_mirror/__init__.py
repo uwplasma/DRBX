@@ -34,6 +34,7 @@ from .exb import (
     div_n_bxgrad_f_b_xppm_xz,
     div_n_bxgrad_f_b_xppm_xz_ref,
 )
+from .parallel import div_par_centered, div_par_mod
 from .fv import div_a_grad_perp, div_a_grad_perp_local
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
 from .species import (
@@ -129,6 +130,8 @@ __all__ = [
     "pressure_transform_impl",
     "full_omega_exb_advection",
     "pi_hat",
+    "div_par_centered",
+    "div_par_mod",
     "set_boundary_to_midpoint",
     "shifted_metric_fft_phases_from_geometry",
     "shifted_metric_weights_from_geometry",
