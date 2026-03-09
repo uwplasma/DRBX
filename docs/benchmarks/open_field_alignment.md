@@ -845,6 +845,44 @@ the same direction of change through `t=0.03`, for example:
 - `n parallel/par`: `0.4242715402774202 -> 0.4238822347442656` at `t=0.03`
 - `Pe parallel/par_total`: `0.24908302291800197 -> 0.24905629487447392` at `t=0.02`
 
+The next full-refactor slice promotes the remaining density/pressure
+state-preparation stubs into the active mirror runtime. The new global no-guard
+helpers in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/species.py`
+
+- `density_final_global`
+- `pressure_final_global`
+- `prepare_reduced_species_state_global`
+
+now mirror the reduced Hermes density/pressure ordering, and
+`/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/context.py` constructs the
+prepared mirror species state once before the strict ExB and parallel channels
+run. The active transport code in
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/advection.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/parallel.py`
+
+now consumes the prepared fields directly instead of rebuilding transformed
+states locally:
+
+- `ctx.n_prepared`
+- `ctx.pe_prepared`
+- `ctx.Te_prepared`
+- `ctx.pi_prepared`
+- `ctx.Ti_prepared`
+
+The architectural layer is covered by
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_species.py`, and the
+promoted audits
+
+- `/Users/rogerio/local/jax_drb/runs/audit_full_species_prep_1step`
+- `/Users/rogerio/local/jax_drb/runs/audit_full_species_prep_3step`
+
+are unchanged relative to the shifted-ghost baseline up to roundoff. That is
+still a useful Milestone A result: the remaining live parity gap is now even
+more clearly below the species-state layer, in the lower-level
+operator/communication contract.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash

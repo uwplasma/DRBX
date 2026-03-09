@@ -1072,6 +1072,41 @@ missing shifted-ghost transform call in the promoted mirror stack. The 3-step
 confirm window `runs/audit_sheath_shifted_ghosts_3step` keeps the same
 direction of change through `t=0.03`.
 
+The next full-refactor slice closes the remaining density/pressure
+state-preparation stubs on the JAX side. The mirror package now has explicit
+global no-guard translations of Hermes density/pressure `finally()` in
+`src/jaxdrb/hermes_mirror/species.py`:
+
+- `density_final_global`
+- `pressure_final_global`
+- `prepare_reduced_species_state_global`
+
+and `src/jaxdrb/core/terms/context.py` now builds a prepared mirror species
+state before the strict ExB and parallel channels run. The active density and
+pressure transport paths in:
+
+- `src/jaxdrb/core/terms/advection.py`
+- `src/jaxdrb/core/terms/parallel.py`
+
+now consume:
+
+- `ctx.n_prepared`
+- `ctx.pe_prepared`
+- `ctx.Te_prepared`
+- `ctx.pi_prepared`
+- `ctx.Ti_prepared`
+
+instead of rebuilding ad hoc transformed fields locally.
+
+That architectural promotion is validated by
+`tests/hermes_mirror/test_species.py`, but the promoted strict audit
+`runs/audit_full_species_prep_1step` is numerically unchanged relative to
+`runs/audit_sheath_shifted_ghosts_1step` up to roundoff. That is still a
+useful result: it rules out the density/pressure `transform_impl`/`finally`
+layer as the dominant remaining parity blocker. The unresolved gap is now
+below the species-state layer, in the lower-level operator/communication
+contract itself.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

@@ -927,6 +927,25 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   not closed yet. The 3-step confirm window
   `runs/audit_sheath_shifted_ghosts_3step` preserves the same sign of
   improvement through `t=0.03`.
+- 2026-03-09: the next full-refactor slice closes the remaining density and
+  pressure state-preparation stubs in the promoted mirror runtime. New global
+  no-guard helpers now exist in `src/jaxdrb/hermes_mirror/species.py`:
+  `density_final_global`, `pressure_final_global`, and
+  `prepare_reduced_species_state_global`. `src/jaxdrb/core/terms/context.py`
+  now constructs a prepared mirror species state once, and the live strict ExB
+  and parallel paths in `src/jaxdrb/core/terms/advection.py` and
+  `src/jaxdrb/core/terms/parallel.py` consume `ctx.n_prepared`,
+  `ctx.pe_prepared`, `ctx.Te_prepared`, `ctx.pi_prepared`, and
+  `ctx.Ti_prepared` instead of rebuilding transformed fields locally.
+- 2026-03-09: the new architectural layer is covered by
+  `tests/hermes_mirror/test_species.py`, and the promoted audits
+  `runs/audit_full_species_prep_1step` and
+  `runs/audit_full_species_prep_3step` are unchanged relative to
+  `runs/audit_sheath_shifted_ghosts_1step` and
+  `runs/audit_sheath_shifted_ghosts_3step` up to roundoff. That is still a
+  valid narrowing result: the dominant remaining Milestone A gap is now more
+  clearly below the density/pressure state-preparation layer, in the lower
+  operator / communication contract.
 
 ---
 
