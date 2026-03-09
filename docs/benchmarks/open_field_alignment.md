@@ -1036,6 +1036,35 @@ array-ranked mismatches remain:
 - `n advection/exb`: `0.09623829491706752`
 - `Pe advection/exb`: `0.0676385260919583`
 
+### 2026-03-09 literal engine execution
+
+The strict early config
+`/Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`
+now explicitly sets:
+
+- `engine = "hermes_literal"`
+
+and the smallest strict audit now executes through the literal engine itself:
+
+- `/Users/rogerio/local/jax_drb/runs/audit_literal_engine_smoke`
+
+This is the first point where the parity tool is no longer evaluating a hybrid
+runtime. The top 1-step array-ranked mismatches from that literal-engine audit
+are:
+
+- `Te parallel`: `0.1474904091090806`
+- `n parallel`: `0.13383127252151306`
+- `omega parallel`: `0.11697795624618619`
+- `Pe parallel`: `0.1133024567583403`
+- `n advection`: `0.09623829491706752`
+- `Pe advection`: `0.0676385260919583`
+
+The ranking did not yet improve, but the architectural milestone matters more
+than the numbers in this slice: strict Milestone A parity work is now running
+through `engine="hermes_literal"` rather than the old unified/hybrid path.
+Subsequent parity fixes should therefore land inside the literal engine and its
+supporting runtime contract, not as more hybrid term patches.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
