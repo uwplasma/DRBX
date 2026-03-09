@@ -926,6 +926,36 @@ then reduced the live blocker:
 With the omega-side blocker structurally closed, the remaining strict leaders
 are back in the density/pressure ExB and parallel channels.
 
+The next promoted strict parallel slice tightened the open-field finite-volume
+density and pressure channels to use sheath ghost states in the boundary-
+adjacent limited reconstruction, not only in the explicit sheath face flux.
+That mirrors the Hermes `FV::Div_par_mod` stencil more closely at the first and
+last physical parallel cells while leaving the already-correct centered
+`Div_par(jpar)` current path unchanged.
+
+The confirm audit
+`/Users/rogerio/local/jax_drb/runs/audit_parallel_ghost_stencil_confirm_1step`
+shows a small but consistent reduction in the promoted parallel leaders at
+`t=0.01`:
+
+- `n parallel/par`: `0.15689932456328756 -> 0.15650650752322878`
+- `Te parallel/par_total`: `0.15587502102513381 -> 0.1556861680908554`
+- `Pe parallel/par_total`: `0.15453748447303708 -> 0.154109603265596`
+- `omega parallel/jpar`: unchanged at `0.11715792736854537`
+
+A simpler sheath-energy hypothesis was also tested and rejected. Replacing the
+current electron-sheath energy closure with a constant Hermes-like
+`gamma_e = 3.5` contract made the audit-level boundary-energy rows diverge
+instead of converge in
+`/Users/rogerio/local/jax_drb/runs/audit_parallel_and_sheath_fix_1step`:
+
+- `Te sheath/source_residual_boundary`: `0.26493593205386157 -> 8.4765`
+- `Pe sheath/source_residual_boundary`: `0.11172993716659292 -> 3.6046`
+
+That rules out a missing single gamma coefficient as the cause of the remaining
+`Te/Pe sheath source_residual_boundary` gap. The next target is the
+boundary-energy bookkeeping contract itself.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

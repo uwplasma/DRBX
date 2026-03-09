@@ -43,6 +43,43 @@ def _limited_slope(f: jnp.ndarray, limiter: str) -> jnp.ndarray:
     return slope_full
 
 
+def _edge_slope(
+    prev_val: jnp.ndarray,
+    cell_val: jnp.ndarray,
+    next_val: jnp.ndarray,
+    limiter: str,
+) -> jnp.ndarray:
+    df_b = cell_val - prev_val
+    df_f = next_val - cell_val
+    if limiter == "none":
+        return 0.5 * (next_val - prev_val)
+    if limiter == "mc":
+        return _minmod(_minmod(2.0 * df_b, 2.0 * df_f), 0.5 * (df_b + df_f))
+    return _minmod(df_b, df_f)
+
+
+def _apply_open_boundary_reconstruction(
+    left: jnp.ndarray,
+    right: jnp.ndarray,
+    f: jnp.ndarray,
+    *,
+    limiter: str,
+    ghost_low: jnp.ndarray | None,
+    ghost_high: jnp.ndarray | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    out_l = left
+    out_r = right
+    if ghost_low is not None and f.shape[0] >= 2:
+        slope_low = _edge_slope(jnp.asarray(ghost_low), f[0], f[1], limiter)
+        out_l = out_l.at[0].set(f[0] - 0.5 * slope_low)
+        out_r = out_r.at[0].set(f[0] + 0.5 * slope_low)
+    if ghost_high is not None and f.shape[0] >= 2:
+        slope_high = _edge_slope(f[-2], f[-1], jnp.asarray(ghost_high), limiter)
+        out_l = out_l.at[-1].set(f[-1] - 0.5 * slope_high)
+        out_r = out_r.at[-1].set(f[-1] + 0.5 * slope_high)
+    return out_l, out_r
+
+
 def _flux_divergence_open(
     f: jnp.ndarray,
     v: jnp.ndarray,
@@ -57,6 +94,10 @@ def _flux_divergence_open(
     fixflux: bool = True,
     boundary_flux_low: jnp.ndarray | None = None,
     boundary_flux_high: jnp.ndarray | None = None,
+    ghost_low_f: jnp.ndarray | None = None,
+    ghost_high_f: jnp.ndarray | None = None,
+    ghost_low_v: jnp.ndarray | None = None,
+    ghost_high_v: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     slope_f = _limited_slope(f, limiter)
     slope_v = _limited_slope(v, limiter)
@@ -64,6 +105,24 @@ def _flux_divergence_open(
     f_R = f + 0.5 * slope_f
     v_L = v - 0.5 * slope_v
     v_R = v + 0.5 * slope_v
+    if any(val is not None for val in (ghost_low_f, ghost_high_f)):
+        f_L, f_R = _apply_open_boundary_reconstruction(
+            f_L,
+            f_R,
+            f,
+            limiter=limiter,
+            ghost_low=ghost_low_f,
+            ghost_high=ghost_high_f,
+        )
+    if any(val is not None for val in (ghost_low_v, ghost_high_v)):
+        v_L, v_R = _apply_open_boundary_reconstruction(
+            v_L,
+            v_R,
+            v,
+            limiter=limiter,
+            ghost_low=ghost_low_v,
+            ghost_high=ghost_high_v,
+        )
 
     left_f = f_R[:-1]
     right_f = f_L[1:]
@@ -259,6 +318,10 @@ def _dpar_flux_conservative(
     wave: jnp.ndarray | None = None,
     boundary_flux_low: jnp.ndarray | None = None,
     boundary_flux_high: jnp.ndarray | None = None,
+    ghost_low_f: jnp.ndarray | None = None,
+    ghost_high_f: jnp.ndarray | None = None,
+    ghost_low_v: jnp.ndarray | None = None,
+    ghost_high_v: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     grid = getattr(ctx.geom, "grid", None)
     limiter = str(ctx.params.parallel_limiter).lower()
@@ -314,6 +377,10 @@ def _dpar_flux_conservative(
                 fixflux=fixflux,
                 boundary_flux_low=boundary_flux_low,
                 boundary_flux_high=boundary_flux_high,
+                ghost_low_f=ghost_low_f,
+                ghost_high_f=ghost_high_f,
+                ghost_low_v=ghost_low_v,
+                ghost_high_v=ghost_high_v,
             )
         if use_shift:
             div = ctx.geom.from_field_aligned_nox(div)
@@ -643,10 +710,22 @@ def parallel_conservative_terms(
     use_boundary_flux = par.sheath_data is not None and sheath_flux_mode == "boundary_flux"
 
     def _boundary_fluxes(
-        f: jnp.ndarray, ghost_low: str, ghost_high: str, vel_low: str, vel_high: str
-    ) -> tuple[jnp.ndarray | None, jnp.ndarray | None]:
+        f: jnp.ndarray,
+        v_field: jnp.ndarray,
+        ghost_low: str,
+        ghost_high: str,
+        vel_low: str,
+        vel_high: str,
+    ) -> tuple[
+        jnp.ndarray | None,
+        jnp.ndarray | None,
+        jnp.ndarray | None,
+        jnp.ndarray | None,
+        jnp.ndarray | None,
+        jnp.ndarray | None,
+    ]:
         if not use_boundary_flux:
-            return None, None
+            return None, None, None, None, None, None
         assert par.sheath_data is not None
         left = (
             0.5
@@ -660,11 +739,17 @@ def parallel_conservative_terms(
             * par.sheath_data[vel_high]
             * boundary_flux_scale
         )
-        return left, right
+        ghost_f_low = par.sheath_data[ghost_low]
+        ghost_f_high = par.sheath_data[ghost_high]
+        ghost_v_low = 2.0 * par.sheath_data[vel_low] - v_field[0]
+        ghost_v_high = 2.0 * par.sheath_data[vel_high] - v_field[-1]
+        return left, right, ghost_f_low, ghost_f_high, ghost_v_low, ghost_v_high
 
     if momentum_model == "conservative":
         n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
-        n_blow, n_bhigh = _boundary_fluxes(ctx.n_phys, "n_lg", "n_ug", "ve_sh_l", "ve_sh_u")
+        n_blow, n_bhigh, n_glow, n_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
+            ctx.n_phys, vpar_e_flux, "n_lg", "n_ug", "ve_sh_l", "ve_sh_u"
+        )
         dn = -_dpar_flux_conservative(
             ctx,
             ctx.n_phys,
@@ -672,9 +757,15 @@ def parallel_conservative_terms(
             wave=fastest_wave,
             boundary_flux_low=n_blow,
             boundary_flux_high=n_bhigh,
+            ghost_low_f=n_glow,
+            ghost_high_f=n_ghigh,
+            ghost_low_v=ve_glow,
+            ghost_high_v=ve_ghigh,
         )
         pe = ctx.n_phys * ctx.Te_phys
-        pe_blow, pe_bhigh = _boundary_fluxes(pe, "pe_lg", "pe_ug", "ve_sh_l", "ve_sh_u")
+        pe_blow, pe_bhigh, pe_glow, pe_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
+            pe, vpar_e_flux, "pe_lg", "pe_ug", "ve_sh_l", "ve_sh_u"
+        )
         dp_e = pressure_flux_coeff * (
             -_dpar_flux_conservative(
                 ctx,
@@ -683,6 +774,10 @@ def parallel_conservative_terms(
                 wave=fastest_wave,
                 boundary_flux_low=pe_blow,
                 boundary_flux_high=pe_bhigh,
+                ghost_low_f=pe_glow,
+                ghost_high_f=pe_ghigh,
+                ghost_low_v=ve_glow,
+                ghost_high_v=ve_ghigh,
             )
         )
         if pressure_work_coeff != 0.0:
@@ -692,7 +787,9 @@ def parallel_conservative_terms(
         dTe = (dp_e - ctx.Te_phys * dn) / n_eff
         if ctx.hot_on:
             pi = ctx.n_phys * ctx.Ti
-            pi_blow, pi_bhigh = _boundary_fluxes(pi, "pi_lg", "pi_ug", "vi_sh_l", "vi_sh_u")
+            pi_blow, pi_bhigh, pi_glow, pi_ghigh, vi_glow, vi_ghigh = _boundary_fluxes(
+                pi, vpar_i_flux, "pi_lg", "pi_ug", "vi_sh_l", "vi_sh_u"
+            )
             dp_i = pressure_flux_coeff * (
                 -_dpar_flux_conservative(
                     ctx,
@@ -701,6 +798,10 @@ def parallel_conservative_terms(
                     wave=fastest_wave,
                     boundary_flux_low=pi_blow,
                     boundary_flux_high=pi_bhigh,
+                    ghost_low_f=pi_glow,
+                    ghost_high_f=pi_ghigh,
+                    ghost_low_v=vi_glow,
+                    ghost_high_v=vi_ghigh,
                 )
             )
             if pressure_work_coeff != 0.0:
@@ -712,7 +813,9 @@ def parallel_conservative_terms(
             dTi = jnp.zeros_like(par.dpar_vi)
     elif bool(ctx.params.parallel_flux_conservative):
         n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
-        n_blow, n_bhigh = _boundary_fluxes(ctx.n_phys, "n_lg", "n_ug", "ve_sh_l", "ve_sh_u")
+        n_blow, n_bhigh, n_glow, n_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
+            ctx.n_phys, vpar_e_flux, "n_lg", "n_ug", "ve_sh_l", "ve_sh_u"
+        )
         dn = -_dpar_flux_conservative(
             ctx,
             ctx.n_phys,
@@ -720,9 +823,15 @@ def parallel_conservative_terms(
             wave=fastest_wave,
             boundary_flux_low=n_blow,
             boundary_flux_high=n_bhigh,
+            ghost_low_f=n_glow,
+            ghost_high_f=n_ghigh,
+            ghost_low_v=ve_glow,
+            ghost_high_v=ve_ghigh,
         )
         pe = ctx.n_phys * ctx.Te_phys
-        pe_blow, pe_bhigh = _boundary_fluxes(pe, "pe_lg", "pe_ug", "ve_sh_l", "ve_sh_u")
+        pe_blow, pe_bhigh, pe_glow, pe_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
+            pe, vpar_e_flux, "pe_lg", "pe_ug", "ve_sh_l", "ve_sh_u"
+        )
         dp_e = pressure_flux_coeff * (
             -_dpar_flux_conservative(
                 ctx,
@@ -731,6 +840,10 @@ def parallel_conservative_terms(
                 wave=fastest_wave,
                 boundary_flux_low=pe_blow,
                 boundary_flux_high=pe_bhigh,
+                ghost_low_f=pe_glow,
+                ghost_high_f=pe_ghigh,
+                ghost_low_v=ve_glow,
+                ghost_high_v=ve_ghigh,
             )
         )
         if pressure_work_coeff != 0.0:
@@ -740,7 +853,9 @@ def parallel_conservative_terms(
         dTe = (dp_e - ctx.Te_phys * dn) / n_eff
         if ctx.hot_on:
             pi = ctx.n_phys * ctx.Ti
-            pi_blow, pi_bhigh = _boundary_fluxes(pi, "pi_lg", "pi_ug", "vi_sh_l", "vi_sh_u")
+            pi_blow, pi_bhigh, pi_glow, pi_ghigh, vi_glow, vi_ghigh = _boundary_fluxes(
+                pi, vpar_i_flux, "pi_lg", "pi_ug", "vi_sh_l", "vi_sh_u"
+            )
             dp_i = pressure_flux_coeff * (
                 -_dpar_flux_conservative(
                     ctx,
@@ -749,6 +864,10 @@ def parallel_conservative_terms(
                     wave=fastest_wave,
                     boundary_flux_low=pi_blow,
                     boundary_flux_high=pi_bhigh,
+                    ghost_low_f=pi_glow,
+                    ghost_high_f=pi_ghigh,
+                    ghost_low_v=vi_glow,
+                    ghost_high_v=vi_ghigh,
                 )
             )
             if pressure_work_coeff != 0.0:
