@@ -40,6 +40,8 @@ The first fresh modules are:
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/evolve_density.py`
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/evolve_pressure.py`
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/shifted_metric.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/fv.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/div_ops.py`
 
 Implemented source translations in this first slice:
 
@@ -58,6 +60,12 @@ Implemented source translations in this first slice:
   - sources:
     - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/coordinates.cxx`
     - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/parallel/shiftedmetricinterp.cxx`
+- `FV::Div_par_mod`
+  - source:
+    - `/Users/rogerio/local/hermes-3/external/BOUT-dev/include/bout/fv_ops.hxx`
+- `Div_par(jpar)`
+  - source:
+    - `/Users/rogerio/local/hermes-3/src/div_ops.cxx`
 
 ## Differentiability and Performance Rules
 
@@ -81,3 +89,11 @@ The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture
 `/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_shiftedmetric_global_t1.npz`.
+
+The literal parallel FV/divergence layer is now landed in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/fv.py` and
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/div_ops.py`, with
+synthetic checks in
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_parallel.py` and
+dump-backed term regressions in
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_parallel_dump.py`.
