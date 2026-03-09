@@ -103,3 +103,51 @@ def test_first_failing_term_can_rank_by_rms_metric() -> None:
 
     assert first is not None
     assert first["term"] == "advection"
+
+
+def test_compute_term_mismatch_prefers_direct_sheath_term() -> None:
+    jax_rows = [
+        {
+            "step": 0,
+            "t": 0.01,
+            "field": "Pe",
+            "term": "sheath",
+            "rms": 1.0,
+            "maxabs": 1.0,
+        }
+    ]
+    hermes_rows = [
+        {
+            "step": 0,
+            "t": 0.01,
+            "field": "Pe",
+            "term": "sheath",
+            "rms": 1.0,
+            "maxabs": 1.0,
+        },
+        {
+            "step": 0,
+            "t": 0.01,
+            "field": "Pe",
+            "term": "source_residual_boundary",
+            "rms": 1.0,
+            "maxabs": 1.0,
+        },
+    ]
+    jax_arrays = {(0, "Pe", "sheath"): [1.0, 2.0, 3.0, 4.0]}
+    hermes_arrays = {
+        (0, "Pe", "sheath"): [1.0, 2.0, 3.0, 4.0],
+        (0, "Pe", "source_residual_boundary"): [4.0, 3.0, 2.0, 1.0],
+    }
+
+    rows = _compute_term_mismatch(
+        jax_rows,
+        hermes_rows,
+        jax_term_fields=jax_arrays,
+        hermes_term_fields=hermes_arrays,
+        strict_axis=True,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["hermes_term"] == "sheath"
+    assert rows[0]["array_diff_rms"] == 0.0
