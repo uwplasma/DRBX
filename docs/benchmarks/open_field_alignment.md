@@ -745,6 +745,26 @@ The audit-level `Te/Pe sheath source_residual_boundary` rows are unchanged by
 this fix, which supports the earlier diagnosis that those rows are a residual
 bookkeeping issue rather than the same transport bug.
 
+The follow-up 2026-03-09 audit change addresses that bookkeeping ambiguity
+directly. `tools/audit_term_alignment.py` now reconstructs the Hermes electron
+sheath pressure source as a synthetic `term_Pe_sheath` from the raw BOUT dumps,
+mirroring `sheath_boundary.cxx`, and the `Pe/Te sheath` mismatch rows now
+prefer that direct term before falling back to the mixed
+`source_residual_boundary` bucket.
+
+On the strict 1-step audit
+`runs/audit_direct_sheath_mapping_1step`, the direct sheath comparison is now
+substantially cleaner:
+
+- `Pe sheath/sheath`: `weighted_array_rel 0.022641938293208385`, correlation `1.0`
+- `Te sheath/sheath`: `weighted_array_rel 0.08160536527344078`, correlation `1.0`
+- `n sheath/source_residual_boundary`: unchanged bookkeeping row at
+  `weighted_array_rel 0.006210587208797745`
+
+This confirms the earlier diagnosis: the old `Te/Pe sheath/source_residual_boundary`
+rows were not measuring the direct sheath term cleanly. They were comparing a
+pure JAX sheath channel against a mixed Hermes residual-source bucket.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash
