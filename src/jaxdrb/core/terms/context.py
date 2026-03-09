@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.hermes_mirror.species import prepare_reduced_species_state_global
 
 from .bcs import FieldBCs, resolve_bcs
 from .fields import phys_n, phys_Te, phi_from_omega
@@ -24,6 +25,11 @@ class TermContext(eqx.Module):
     Ti: jnp.ndarray
     psi: jnp.ndarray
     phi: jnp.ndarray
+    n_prepared: jnp.ndarray
+    Te_prepared: jnp.ndarray
+    Ti_prepared: jnp.ndarray
+    pe_prepared: jnp.ndarray
+    pi_prepared: jnp.ndarray
     n_floor: float
     Te_floor: float
     hot_on: bool = eqx.field(static=True)
@@ -58,6 +64,29 @@ def build_context(
     Te_phys = phys_Te(params, y.Te)
     n_floor = float(params.sol_n_floor)
     Te_floor = float(params.sol_Te_floor)
+    use_mirror_species_state = (
+        str(getattr(params, "exb_flux_scheme", "centered")).lower() == ("hermes_mirror")
+        or str(getattr(params, "parallel_flux_scheme", "rusanov")).lower() == "hermes_mirror"
+    )
+
+    if use_mirror_species_state:
+        prepared = prepare_reduced_species_state_global(
+            n_phys,
+            Te_phys,
+            Ti if hot_on else None,
+            density_floor=max(float(params.n0_min), n_floor),
+        )
+        n_prepared = prepared.density
+        Te_prepared = prepared.electron_temperature
+        Ti_prepared = prepared.ion_temperature if hot_on else jnp.zeros_like(Ti)
+        pe_prepared = prepared.electron_pressure
+        pi_prepared = prepared.ion_pressure if hot_on else jnp.zeros_like(Ti)
+    else:
+        n_prepared = n_phys
+        Te_prepared = Te_phys
+        Ti_prepared = Ti
+        pe_prepared = n_phys * Te_phys
+        pi_prepared = n_phys * Ti
 
     if skip_phi:
         phi = jnp.zeros_like(y.omega)
@@ -105,6 +134,11 @@ def build_context(
         Ti=Ti,
         psi=psi,
         phi=phi,
+        n_prepared=n_prepared,
+        Te_prepared=Te_prepared,
+        Ti_prepared=Ti_prepared,
+        pe_prepared=pe_prepared,
+        pi_prepared=pi_prepared,
         phi_iters=phi_iters,
         n_floor=n_floor,
         Te_floor=Te_floor,

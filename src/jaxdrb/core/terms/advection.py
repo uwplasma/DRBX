@@ -6,7 +6,6 @@ import jax.numpy as jnp
 from jaxdrb.bc import BC2D
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.hermes_mirror import full_omega_exb_advection as full_omega_exb_advection_mirror
-from jaxdrb.hermes_mirror.species import density_transform_global, pressure_transform_global
 
 from .context import TermContext
 from .fields import _electron_pressure, _metric_div_coeff
@@ -113,27 +112,11 @@ def exb_advection_terms(ctx: TermContext, y: DRBSystemState) -> DRBSystemState:
 
     if use_flux:
         with jax.named_scope("exb_flux_terms"):
-            n_adv_field = density_transform_global(ctx.n_phys) if use_hermes_mirror else ctx.n_phys
-            if use_hermes_mirror:
-                pe_adv_field, Te_adv_field = pressure_transform_global(
-                    ctx.n_phys * ctx.Te_phys,
-                    n_adv_field,
-                    density_floor=ctx.n_floor,
-                )
-                if ctx.hot_on:
-                    pi_adv_field, Ti_adv_field = pressure_transform_global(
-                        ctx.n_phys * ctx.Ti,
-                        n_adv_field,
-                        density_floor=ctx.n_floor,
-                    )
-                else:
-                    pi_adv_field = jnp.zeros_like(ctx.Ti)
-                    Ti_adv_field = jnp.zeros_like(ctx.Ti)
-            else:
-                pe_adv_field = ctx.n_phys * ctx.Te_phys
-                Te_adv_field = ctx.Te_phys
-                pi_adv_field = ctx.n_phys * ctx.Ti
-                Ti_adv_field = ctx.Ti
+            n_adv_field = ctx.n_prepared if use_hermes_mirror else ctx.n_phys
+            pe_adv_field = ctx.pe_prepared if use_hermes_mirror else ctx.n_phys * ctx.Te_phys
+            Te_adv_field = ctx.Te_prepared if use_hermes_mirror else ctx.Te_phys
+            pi_adv_field = ctx.pi_prepared if use_hermes_mirror else ctx.n_phys * ctx.Ti
+            Ti_adv_field = ctx.Ti_prepared if use_hermes_mirror else ctx.Ti
 
             adv_n = (
                 -ctx.geom.exb_flux_divergence(

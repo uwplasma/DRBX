@@ -7,11 +7,14 @@ import jax.numpy as jnp
 import numpy as np
 
 from jaxdrb.hermes_mirror import (
+    density_final_global,
     FieldAlignedLocalLayout,
     density_transform_global,
     density_transform_impl,
+    prepare_reduced_species_state_global,
     prepare_poloidal_x_dfdy_local_ref,
     prepare_poloidal_y_dfdx_local_ref,
+    pressure_final_global,
     pressure_transform_global,
     pressure_transform_impl,
 )
@@ -267,3 +270,48 @@ def test_pressure_transform_global_matches_local_interior() -> None:
         rtol=1e-12,
         atol=1e-12,
     )
+
+
+def test_prepare_reduced_species_state_global_matches_density_pressure_sequences() -> None:
+    with np.load(_EXB_FIXTURE, allow_pickle=False) as data:
+        density = jnp.asarray(data["Ne"], dtype=jnp.float64)
+        Te = jnp.asarray(data["Pe"], dtype=jnp.float64) / jnp.maximum(density, 1e-12)
+        Ti = 0.9 * Te
+        layout = FieldAlignedLocalLayout(
+            pstart=int(np.asarray(data["pstart"])),
+            pend=int(np.asarray(data["pend"])),
+            xstart=int(np.asarray(data["xstart"])),
+            xend=int(np.asarray(data["xend"])),
+        )
+        sl = (
+            slice(layout.pstart, layout.pend + 1),
+            slice(layout.xstart, layout.xend + 1),
+            slice(None),
+        )
+
+    prepared = prepare_reduced_species_state_global(
+        density[sl],
+        Te[sl],
+        Ti[sl],
+        density_floor=1e-6,
+    )
+
+    density_state = density_final_global(density_transform_global(density[sl]))
+    pe_transform, Te_transform = pressure_transform_global(
+        density_state * Te[sl],
+        density_state,
+        density_floor=1e-6,
+    )
+    pe_state, Te_state, _ = pressure_final_global(pe_transform, Te_transform, density_state)
+    pi_transform, Ti_transform = pressure_transform_global(
+        density_state * Ti[sl],
+        density_state,
+        density_floor=1e-6,
+    )
+    pi_state, Ti_state, _ = pressure_final_global(pi_transform, Ti_transform, density_state)
+
+    np.testing.assert_allclose(np.asarray(prepared.density), np.asarray(density_state))
+    np.testing.assert_allclose(np.asarray(prepared.electron_pressure), np.asarray(pe_state))
+    np.testing.assert_allclose(np.asarray(prepared.electron_temperature), np.asarray(Te_state))
+    np.testing.assert_allclose(np.asarray(prepared.ion_pressure), np.asarray(pi_state))
+    np.testing.assert_allclose(np.asarray(prepared.ion_temperature), np.asarray(Ti_state))
