@@ -443,17 +443,17 @@ def _dpar_flux_conservative(
 def _fastest_wave(ctx: TermContext) -> jnp.ndarray:
     """Hermes-style fastest wave estimate for parallel flux stabilization."""
 
-    Te = ctx.Te_phys
-    Ti = ctx.Ti if ctx.hot_on else None
+    Te = ctx.Te_prepared
+    Ti = ctx.Ti_prepared if ctx.hot_on else None
     aa_e = jnp.maximum(float(ctx.params.me_hat), 1e-12)
     aa_i = jnp.maximum(float(getattr(ctx.params, "average_atomic_mass", 1.0)), 1e-12)
 
     fast = jnp.sqrt(Te / aa_e)
-    total_pressure = ctx.n_phys * Te
-    total_density = ctx.n_phys * aa_i
+    total_pressure = ctx.pe_prepared
+    total_density = ctx.n_prepared * aa_i
     if Ti is not None:
         fast = jnp.maximum(fast, jnp.sqrt(Ti / aa_i))
-        total_pressure = total_pressure + ctx.n_phys * Ti
+        total_pressure = total_pressure + ctx.pi_prepared
     sound_speed = jnp.sqrt(total_pressure / jnp.maximum(total_density, 1e-12))
     fast = jnp.maximum(fast, sound_speed)
     return fast
@@ -506,14 +506,14 @@ def _sheath_boundary_data(
     sign = jnp.broadcast_to(sign, y.Te.shape)
 
     return build_parallel_sheath_state_mirror(
-        n_e=ctx.n_phys,
-        Te=ctx.Te_phys,
-        pe=ctx.n_phys * ctx.Te_phys,
+        n_e=ctx.n_prepared,
+        Te=ctx.Te_prepared,
+        pe=ctx.pe_prepared,
         phi=ctx.phi,
         v_e=y.vpar_e,
-        n_i=ctx.n_phys,
-        Ti=ctx.Ti,
-        pi=ctx.n_phys * ctx.Ti,
+        n_i=ctx.n_prepared,
+        Ti=ctx.Ti_prepared,
+        pi=ctx.pi_prepared,
         v_i=y.vpar_i,
         me_hat=max(float(ctx.params.me_hat), 1e-12),
         ion_mass=max(float(getattr(ctx.params, "average_atomic_mass", 1.0)), 1e-12),
@@ -572,12 +572,16 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
     with jax.named_scope("parallel_dpar"):
         dpar_ve = ctx.geom.dpar(vpar_e_flux, bc_kind="dirichlet")
         dpar_vi = ctx.geom.dpar(vpar_i_flux, bc_kind="dirichlet")
-        dpar_Te = ctx.geom.dpar(y.Te, bc_kind="neumann")
-        dpar_Ti = ctx.geom.dpar(ctx.Ti, bc_kind="neumann") if ctx.hot_on else jnp.zeros_like(ctx.Ti)
+        dpar_Te = ctx.geom.dpar(ctx.Te_prepared, bc_kind="neumann")
+        dpar_Ti = (
+            ctx.geom.dpar(ctx.Ti_prepared, bc_kind="neumann")
+            if ctx.hot_on
+            else jnp.zeros_like(ctx.Ti_prepared)
+        )
 
     # Keep current from evolved cell-centered velocities. Sheath targets are
     # applied to boundary flux reconstruction, not directly to j_par closure.
-    jpar_fluid = ctx.n_phys * (y.vpar_i - y.vpar_e)
+    jpar_fluid = ctx.n_prepared * (y.vpar_i - y.vpar_e)
     jpar_em = (
         -laplacian(ctx.params, ctx.geom, ctx.psi, ctx.bcs.psi)
         if ctx.em_on
@@ -613,9 +617,9 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
     with jax.named_scope("parallel_grad_phi_pe"):
         grad_par_phi_pe = ctx.geom.dpar(
             ctx.phi
-            - ctx.n_phys
-            - float(ctx.params.alpha_Te_ohm) * ctx.Te_phys
-            - float(ctx.params.alpha_Ti_ohm) * ctx.Ti,
+            - ctx.n_prepared
+            - float(ctx.params.alpha_Te_ohm) * ctx.Te_prepared
+            - float(ctx.params.alpha_Ti_ohm) * ctx.Ti_prepared,
             bc_kind="dirichlet",
         )
 
@@ -646,7 +650,7 @@ def parallel_conservative_terms(
     boundary_flux_scale = float(getattr(ctx.params, "parallel_boundary_flux_scale", 1.0))
     tau_i = float(ctx.params.tau_i) if ctx.hot_on else 0.0
     pressure_flux_coeff, pressure_work_coeff = _pressure_transport_coeffs(ctx)
-    vi_par_pressure = ctx.phi + tau_i * (ctx.n_phys + ctx.Ti)
+    vi_par_pressure = ctx.phi + tau_i * (ctx.n_prepared + ctx.Ti_prepared)
     momentum_model = str(ctx.params.parallel_momentum_model).lower()
     vpar_e_flux = par.vpar_e_flux
     vpar_i_flux = par.vpar_i_flux
@@ -692,9 +696,9 @@ def parallel_conservative_terms(
         return left, right, ghost_f_low, ghost_f_high, ghost_v_low, ghost_v_high
 
     if momentum_model == "conservative":
-        n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
+        n_eff = jnp.maximum(ctx.n_prepared, float(ctx.params.n0_min))
         n_blow, n_bhigh, n_glow, n_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
-            ctx.n_phys,
+            ctx.n_prepared,
             vpar_e_flux,
             "n_ghost_low",
             "n_ghost_high",
@@ -703,7 +707,7 @@ def parallel_conservative_terms(
         )
         dn = -_dpar_flux_conservative(
             ctx,
-            ctx.n_phys,
+            ctx.n_prepared,
             vpar_e_flux,
             wave=fastest_wave,
             boundary_flux_low=n_blow,
@@ -713,7 +717,7 @@ def parallel_conservative_terms(
             ghost_low_v=ve_glow,
             ghost_high_v=ve_ghigh,
         )
-        pe = ctx.n_phys * ctx.Te_phys
+        pe = ctx.pe_prepared
         pe_blow, pe_bhigh, pe_glow, pe_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
             pe,
             vpar_e_flux,
@@ -740,9 +744,9 @@ def parallel_conservative_terms(
             dp_e = dp_e + pressure_work_coeff * (
                 vpar_e_flux * ctx.geom.dpar(pe, bc_kind="dirichlet")
             )
-        dTe = (dp_e - ctx.Te_phys * dn) / n_eff
+        dTe = (dp_e - ctx.Te_prepared * dn) / n_eff
         if ctx.hot_on:
-            pi = ctx.n_phys * ctx.Ti
+            pi = ctx.pi_prepared
             pi_blow, pi_bhigh, pi_glow, pi_ghigh, vi_glow, vi_ghigh = _boundary_fluxes(
                 pi,
                 vpar_i_flux,
@@ -769,13 +773,13 @@ def parallel_conservative_terms(
                 dp_i = dp_i + pressure_work_coeff * (
                     vpar_i_flux * ctx.geom.dpar(pi, bc_kind="dirichlet")
                 )
-            dTi = (dp_i - ctx.Ti * dn) / n_eff
+            dTi = (dp_i - ctx.Ti_prepared * dn) / n_eff
         else:
             dTi = jnp.zeros_like(par.dpar_vi)
     elif bool(ctx.params.parallel_flux_conservative):
-        n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
+        n_eff = jnp.maximum(ctx.n_prepared, float(ctx.params.n0_min))
         n_blow, n_bhigh, n_glow, n_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
-            ctx.n_phys,
+            ctx.n_prepared,
             vpar_e_flux,
             "n_ghost_low",
             "n_ghost_high",
@@ -784,7 +788,7 @@ def parallel_conservative_terms(
         )
         dn = -_dpar_flux_conservative(
             ctx,
-            ctx.n_phys,
+            ctx.n_prepared,
             vpar_e_flux,
             wave=fastest_wave,
             boundary_flux_low=n_blow,
@@ -794,7 +798,7 @@ def parallel_conservative_terms(
             ghost_low_v=ve_glow,
             ghost_high_v=ve_ghigh,
         )
-        pe = ctx.n_phys * ctx.Te_phys
+        pe = ctx.pe_prepared
         pe_blow, pe_bhigh, pe_glow, pe_ghigh, ve_glow, ve_ghigh = _boundary_fluxes(
             pe,
             vpar_e_flux,
@@ -821,9 +825,9 @@ def parallel_conservative_terms(
             dp_e = dp_e + pressure_work_coeff * (
                 vpar_e_flux * ctx.geom.dpar(pe, bc_kind="dirichlet")
             )
-        dTe = (dp_e - ctx.Te_phys * dn) / n_eff
+        dTe = (dp_e - ctx.Te_prepared * dn) / n_eff
         if ctx.hot_on:
-            pi = ctx.n_phys * ctx.Ti
+            pi = ctx.pi_prepared
             pi_blow, pi_bhigh, pi_glow, pi_ghigh, vi_glow, vi_ghigh = _boundary_fluxes(
                 pi,
                 vpar_i_flux,
@@ -850,7 +854,7 @@ def parallel_conservative_terms(
                 dp_i = dp_i + pressure_work_coeff * (
                     vpar_i_flux * ctx.geom.dpar(pi, bc_kind="dirichlet")
                 )
-            dTi = (dp_i - ctx.Ti * dn) / n_eff
+            dTi = (dp_i - ctx.Ti_prepared * dn) / n_eff
         else:
             dTi = jnp.zeros_like(par.dpar_vi)
     else:
@@ -860,24 +864,26 @@ def parallel_conservative_terms(
 
     if bool(getattr(ctx.params, "parallel_temperature_compression_on", False)):
         comp = float(getattr(ctx.params, "parallel_temperature_compression_coeff", 2.0 / 3.0))
-        dTe = dTe - comp * ctx.Te_phys * par.dpar_ve
+        dTe = dTe - comp * ctx.Te_prepared * par.dpar_ve
         if ctx.hot_on:
-            dTi = dTi - comp * ctx.Ti * par.dpar_vi
+            dTi = dTi - comp * ctx.Ti_prepared * par.dpar_vi
 
     if momentum_model == "conservative":
-        n_eff = jnp.maximum(ctx.n_phys, float(ctx.params.n0_min))
+        n_eff = jnp.maximum(ctx.n_prepared, float(ctx.params.n0_min))
         zi = 1.0
         dNV_e = (
-            -_dpar_flux_conservative(ctx, ctx.n_phys * vpar_e_flux, vpar_e_flux, wave=fastest_wave)
+            -_dpar_flux_conservative(
+                ctx, ctx.n_prepared * vpar_e_flux, vpar_e_flux, wave=fastest_wave
+            )
             - ctx.geom.dpar(pe, bc_kind="dirichlet")
-            + ctx.n_phys * ctx.geom.dpar(ctx.phi, bc_kind="dirichlet")
+            + ctx.n_prepared * ctx.geom.dpar(ctx.phi, bc_kind="dirichlet")
         )
         dNV_i = -_dpar_flux_conservative(
-            ctx, ctx.n_phys * vpar_i_flux, vpar_i_flux, wave=fastest_wave
+            ctx, ctx.n_prepared * vpar_i_flux, vpar_i_flux, wave=fastest_wave
         )
         if ctx.hot_on:
-            dNV_i = dNV_i - ctx.geom.dpar(ctx.n_phys * ctx.Ti, bc_kind="dirichlet")
-        dNV_i = dNV_i - zi * ctx.n_phys * ctx.geom.dpar(ctx.phi, bc_kind="dirichlet")
+            dNV_i = dNV_i - ctx.geom.dpar(ctx.pi_prepared, bc_kind="dirichlet")
+        dNV_i = dNV_i - zi * ctx.n_prepared * ctx.geom.dpar(ctx.phi, bc_kind="dirichlet")
         vpar_e = (dNV_e - vpar_e_flux * dn) / n_eff
         vpar_i = (dNV_i - vpar_i_flux * dn) / n_eff
     else:

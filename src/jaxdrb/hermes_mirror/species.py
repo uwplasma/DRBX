@@ -5,6 +5,8 @@ Planned in Phase 4 of `/Users/rogerio/local/jax_drb/plan.md`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import jax.numpy as jnp
 
 from .boundary import apply_neumann_field3d
@@ -20,6 +22,28 @@ from .transform import (
     to_field_aligned_nox_fft,
 )
 from .types import FieldAlignedLocalLayout
+
+
+@dataclass(frozen=True)
+class PreparedReducedSpeciesState:
+    """Global no-guard mirror of the Hermes density/pressure state contract.
+
+    This follows the sequence relevant to the active reduced JAX model:
+
+    1. density `transform_impl`
+    2. density `finally`
+    3. pressure `transform_impl`
+    4. pressure `finally`
+
+    The active solver stores physical cells only, so the guard-only parts of
+    Hermes/BOUT are handled elsewhere in the mirror operator paths.
+    """
+
+    density: jnp.ndarray
+    electron_pressure: jnp.ndarray
+    electron_temperature: jnp.ndarray
+    ion_pressure: jnp.ndarray
+    ion_temperature: jnp.ndarray
 
 
 def _floor_nonnegative(field: jnp.ndarray) -> jnp.ndarray:
@@ -78,6 +102,68 @@ def pressure_transform_global(
     temperature = p_floor / soft_floor_global(n, density_floor)
     p_consistent = n * temperature
     return p_consistent, temperature
+
+
+def density_final_global(density: jnp.ndarray) -> jnp.ndarray:
+    """Mirror the global no-guard effect of Hermes density `finally()`."""
+
+    return jnp.asarray(density, dtype=jnp.float64)
+
+
+def pressure_final_global(
+    pressure: jnp.ndarray,
+    temperature: jnp.ndarray,
+    density: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Mirror the global no-guard effect of Hermes pressure `finally()`."""
+
+    return (
+        _floor_nonnegative(pressure),
+        jnp.asarray(temperature, dtype=jnp.float64),
+        jnp.asarray(density, dtype=jnp.float64),
+    )
+
+
+def prepare_reduced_species_state_global(
+    density: jnp.ndarray,
+    electron_temperature: jnp.ndarray,
+    ion_temperature: jnp.ndarray | None,
+    *,
+    density_floor: float,
+) -> PreparedReducedSpeciesState:
+    """Prepare the reduced species state using Hermes density/pressure ordering."""
+
+    density_state = density_final_global(density_transform_global(density))
+    pe_transform, te_transform = pressure_transform_global(
+        density_state * jnp.asarray(electron_temperature, dtype=jnp.float64),
+        density_state,
+        density_floor=density_floor,
+    )
+    pe_state, te_state, _ = pressure_final_global(pe_transform, te_transform, density_state)
+
+    if ion_temperature is None:
+        zero = jnp.zeros_like(density_state)
+        return PreparedReducedSpeciesState(
+            density=density_state,
+            electron_pressure=pe_state,
+            electron_temperature=te_state,
+            ion_pressure=zero,
+            ion_temperature=zero,
+        )
+
+    pi_transform, ti_transform = pressure_transform_global(
+        density_state * jnp.asarray(ion_temperature, dtype=jnp.float64),
+        density_state,
+        density_floor=density_floor,
+    )
+    pi_state, ti_state, _ = pressure_final_global(pi_transform, ti_transform, density_state)
+    return PreparedReducedSpeciesState(
+        density=density_state,
+        electron_pressure=pe_state,
+        electron_temperature=te_state,
+        ion_pressure=pi_state,
+        ion_temperature=ti_state,
+    )
 
 
 def _as_field_aligned_metric(
