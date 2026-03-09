@@ -609,6 +609,14 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `n parallel/par = 0.13383127252151306`,
   `omega parallel/jpar = 0.11697795624618619`,
   `Pe parallel/par_total = 0.1133024567583403`.
+- 2026-03-09: the reduced density/pressure cache now pulls its live parallel
+  runtime state from `src/jaxdrb/hermes_literal/parallel.py` rather than
+  `src/jaxdrb/core/terms/parallel.py`. The rehome audit at
+  `runs/audit_literal_parallel_runtime_rehome` preserves the literal-engine
+  baseline and moves the top parallel rows slightly in the right direction:
+  `Te parallel 0.1474904091090806 -> 0.14748382093236653`,
+  `n parallel 0.13383127252151306 -> 0.1338298917677307`,
+  `Pe parallel 0.1133024567583403 -> 0.11330241103262646`.
 
 ### Milestone A5: strict short-window parity (`t <= 0.1`)
 

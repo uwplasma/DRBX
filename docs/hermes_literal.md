@@ -125,6 +125,25 @@ So the remaining Milestone A work is no longer “make the literal engine
 exist.” It is “close the remaining operator/state contract gaps while the
 strict audit is already running on that engine.”
 
+The next runtime rehome is also landed now:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/parallel.py`
+
+The reduced density/pressure cache in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/rhs.py` now uses that
+module directly for:
+
+- sheath-state reconstruction
+- shifted boundary-plane handling
+- `Div_par(jpar)` / `FV::Div_par_mod` selection
+- fastest-wave and pressure transport coefficients
+
+That removes another major hybrid dependency from the literal engine without
+changing the live 1-step parity ordering. The rehome audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_parallel_runtime_rehome`
+stays numerically aligned with the earlier literal-engine baseline while moving
+`Te parallel`, `n parallel`, and `Pe parallel` slightly in the right direction.
+
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture
