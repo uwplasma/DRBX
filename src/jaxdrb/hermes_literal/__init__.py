@@ -14,6 +14,8 @@ from .boundary_standard import (
 from .evolve_density import DensityTransformResult, density_transform_impl
 from .evolve_pressure import PressureTransformResult, pressure_transform_impl
 from .field import empty_guarded_field, interior_view, pad_field3d
+from .div_ops import div_par_centered
+from .fv import div_par_mod
 from .shifted_metric import (
     build_shifted_metric_fft_phases,
     build_shifted_metric_weights,
@@ -56,6 +58,8 @@ __all__ = [
     "build_shifted_metric_weights",
     "compute_fastest_wave",
     "density_transform_impl",
+    "div_par_centered",
+    "div_par_mod",
     "empty_guarded_field",
     "from_field_aligned_all",
     "from_field_aligned_all_fft",
