@@ -10,7 +10,7 @@ import numpy as np
 from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.terms.context import build_context
 from jaxdrb.driver import build_system_from_config
-from jaxdrb.hermes_mirror import full_omega_exb_advection, pi_hat
+from jaxdrb.legacy_hermes import full_omega_exb_advection, pi_hat
 
 _CFG = (
     Path(__file__).resolve().parents[2]

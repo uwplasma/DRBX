@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jaxdrb.bc import BC2D
-from jaxdrb.hermes_mirror import delp2_runtime, derive_delp2_coefficients
+from jaxdrb.legacy_hermes import delp2_runtime, derive_delp2_coefficients
 
 
 def _geom_for_test(**overrides):

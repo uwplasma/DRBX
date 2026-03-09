@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror import div_n_bxgrad_f_b_xppm as div_n_bxgrad_f_b_xppm_mirror
+from jaxdrb.legacy_hermes import div_n_bxgrad_f_b_xppm as div_n_bxgrad_f_b_xppm_mirror
 from jaxdrb.bc import BC2D
 from jaxdrb.core.geometry import GeometryBase
 from jaxdrb.core.geometry_logb import salpha_logb_coefficients

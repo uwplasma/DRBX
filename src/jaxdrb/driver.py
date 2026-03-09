@@ -832,6 +832,10 @@ def build_system_from_config(cfg: dict[str, Any]) -> BuiltSystem:
     engine = str(cfg.get("engine", "unified")).strip().lower()
     if engine in {"drb_fv", "fv_drb", "drb-fv"}:
         return _build_drb_fv_system(cfg, norm_info)
+    if engine in {"hermes_literal", "literal_hermes", "hermes-literal"}:
+        from jaxdrb.hermes_literal.engine import build_system as build_hermes_literal_system
+
+        return build_hermes_literal_system(cfg, norm_info)
 
     physics = cfg.get("physics", {})
     transport = cfg.get("transport", {})
