@@ -37,6 +37,7 @@ from .exb import (
 from .parallel import div_par_centered, div_par_mod
 from .fv import div_a_grad_perp, div_a_grad_perp_local
 from .primitives import Stencil1D, limit_free, mc_limiter, minmod
+from .sheath import ParallelSheathState, build_parallel_sheath_state
 from .species import (
     density_transform_global,
     density_transform_impl,
@@ -84,6 +85,7 @@ __all__ = [
     "Stencil1D",
     "ShiftedFieldAlignedWeights",
     "ShiftedMetricFFTPhases",
+    "ParallelSheathState",
     "apply_free_o2_field3d",
     "apply_neumann_boundary_average_z",
     "apply_neumann_field3d",
@@ -122,6 +124,7 @@ __all__ = [
     "limit_free",
     "mc_limiter",
     "minmod",
+    "build_parallel_sheath_state",
     "prepare_poloidal_x_dfdy_local",
     "prepare_poloidal_x_dfdy_local_ref",
     "prepare_poloidal_y_dfdx_local",

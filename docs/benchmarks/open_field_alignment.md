@@ -782,6 +782,69 @@ That isolates the remaining live `n/Pe/jpar` parallel gap to the runtime
 boundary-conditioned state that feeds the operator, especially the open-end
 sheath guard reconstruction and transform ordering, not the FV stencil itself.
 
+The next mirror slice closes the sheath-state side of that contract directly.
+A new literal guard builder in `src/jaxdrb/hermes_mirror/sheath.py`
+transliterates the open-end updates in
+`/Users/rogerio/local/hermes-3/src/sheath_boundary.cxx` for:
+
+- `Ne`, `Te`, `Pe` via `limitFree(...)`
+- `phi` guard extrapolation
+- midpoint `vesheath` / `visheath`
+- guard `Ve`, `NVe`, `Vi`, `NVi`, and `jpar`
+
+Two new dump-backed fixtures pin both end ranks:
+
+- `tests/fixtures/hermes_mirror_parallel_local_rank0_t1.npz`
+- `tests/fixtures/hermes_mirror_parallel_local_rank5_t1.npz`
+
+and `tests/hermes_mirror/test_sheath.py` now checks both the guard values and
+the resulting mirrored local operator terms without reading dumped guards
+directly into the operator. The open-end guard RMS is:
+
+- lower end rank:
+  - `Ne 7.63e-4`
+  - `Te 2.60e-4`
+  - `Pe 8.33e-7`
+  - `Ve 6.06e-3`
+  - `NVe 2.77e-6`
+  - `NVd+ 1.26e-3`
+- upper end rank:
+  - `Ne 2.59e-3`
+  - `Te 8.52e-4`
+  - `Pe 2.10e-6`
+  - `Ve 1.96e-2`
+  - `NVe 7.80e-6`
+  - `NVd+ 3.76e-3`
+
+and the reconstructed-guard operator parity remains within:
+
+- `term_Ne_par` RMS `< 4e-4`
+- `term_Pe_par` RMS `< 3e-4`
+- `term_Vort_jpar` RMS `< 2e-5`
+
+The first promoted live audit with that builder was still unchanged. That
+identified the missing piece: in the shifted-transform runtime path, the code
+was moving the cell-centered fields and explicit boundary fluxes into
+field-aligned coordinates, but not the sheath ghost planes themselves. The
+next runtime fix applies the same boundary-plane shifted transform to
+`ghost_low/high_f` and `ghost_low/high_v` before the mirror operator runs.
+
+That produces a small but real strict-gate improvement in
+`/Users/rogerio/local/jax_drb/runs/audit_sheath_shifted_ghosts_1step`:
+
+- `n parallel/par`: `0.13448644700674087 -> 0.1338459414001929`
+- `omega parallel/jpar`: `0.1169915003671119 -> 0.11697747997572151`
+- `Pe parallel/par_total`: `0.11335202275260099 -> 0.11330118219042988`
+
+The gain is modest, but it closes the last known missing shifted-ghost wiring
+in the promoted mirror parallel stack. The 3-step confirm window
+`/Users/rogerio/local/jax_drb/runs/audit_sheath_shifted_ghosts_3step` keeps
+the same direction of change through `t=0.03`, for example:
+
+- `n parallel/par`: `0.2672274769250367 -> 0.26673799080966265` at `t=0.02`
+- `n parallel/par`: `0.4242715402774202 -> 0.4238822347442656` at `t=0.03`
+- `Pe parallel/par_total`: `0.24908302291800197 -> 0.24905629487447392` at `t=0.02`
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash

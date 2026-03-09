@@ -395,7 +395,7 @@ Acceptance:
 - [ ] mirror density `finally`
 - [x] mirror pressure `transform_impl`
 - [ ] mirror pressure `finally`
-- [ ] mirror sheath guard preparation order used by Stage 1 baseline
+- [x] mirror sheath guard preparation order used by Stage 1 baseline
 
 Acceptance:
 
@@ -902,6 +902,31 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   contract feeding the operator, not to the mirrored FV operator itself. The
   next coherent refactor target is therefore a literal Hermes sheath-state
   transform feeding the mirror parallel path.
+- 2026-03-09: the literal sheath-state transform is now landed in
+  `src/jaxdrb/hermes_mirror/sheath.py`, with new dump-backed fixtures
+  `tests/fixtures/hermes_mirror_parallel_local_rank0_t1.npz` and
+  `tests/fixtures/hermes_mirror_parallel_local_rank5_t1.npz`, and regression
+  coverage in `tests/hermes_mirror/test_sheath.py`. That closes the Stage 1
+  mirror guard-preparation step directly against
+  `/Users/rogerio/local/hermes-3/src/sheath_boundary.cxx`: the open-end guard
+  reconstruction now reproduces Hermes closely enough to recover
+  `term_Ne_par`, `term_Pe_par`, and `term_Vort_jpar` without feeding dumped
+  guard cells into the operator.
+- 2026-03-09: promoting the guard builder alone did not move the strict live
+  audits, which exposed the missing shifted-transform contract. In
+  `src/jaxdrb/core/terms/parallel.py`, the solver was already shifting the
+  cell-centered fields and explicit boundary face fluxes into field-aligned
+  coordinates, but not `ghost_low/high_f` or `ghost_low/high_v`. That runtime
+  omission is now fixed and covered by
+  `tests/test_parallel_shifted_boundary_flux.py`. The promoted audit
+  `runs/audit_sheath_shifted_ghosts_1step` then gives a small real improvement:
+  `n parallel/par 0.13448644700674087 -> 0.1338459414001929`,
+  `omega parallel/jpar 0.1169915003671119 -> 0.11697747997572151`,
+  `Pe parallel/par_total 0.11335202275260099 -> 0.11330118219042988`. The
+  runtime sheath / guard / transform contract is therefore narrower now, but
+  not closed yet. The 3-step confirm window
+  `runs/audit_sheath_shifted_ghosts_3step` preserves the same sign of
+  improvement through `t=0.03`.
 
 ---
 
