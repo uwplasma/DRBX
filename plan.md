@@ -566,6 +566,10 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - [x] `to_field_aligned_nox` and `from_field_aligned_nobndry` mirror implementations exist.
 - [x] Transform weights are precomputed from existing geometry ingestion and reusable.
 - [x] Transform tests match Hermes.
+- 2026-03-09: the fresh `hermes_literal/shifted_metric.py` implementation is
+  now landed and validated independently of `legacy_hermes`, including linear
+  and FFT paths plus a dump-backed roundtrip fixture in
+  `tests/hermes_literal/test_shifted_metric.py`.
 
 ### Milestone A3: literal ExB parity
 
