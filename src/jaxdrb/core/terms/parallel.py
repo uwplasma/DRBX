@@ -180,15 +180,8 @@ def _flux_divergence_open(
             div = div.at[:-1].add(flux * flux_factor_rc)
             div = div.at[1:].add(-flux * flux_factor_rp)
             if fixflux:
-                # Hermes/BOUT `Div_par(jpar)` uses the boundary cell metric on
-                # the sheath face. Keep the interior-face factor for the
-                # parallel FV channels, which carry a finite wave speed.
-                if wave is None:
-                    boundary_factor_low = 1.0 / (dz * jnp.maximum(sqrt_gpar[0], 1e-30))
-                    boundary_factor_high = 1.0 / (dz * jnp.maximum(sqrt_gpar[-1], 1e-30))
-                else:
-                    boundary_factor_low = flux_factor_rc[0]
-                    boundary_factor_high = flux_factor_rp[-1]
+                boundary_factor_low = 1.0 / (dz * jnp.maximum(sqrt_gpar[0], 1e-30))
+                boundary_factor_high = 1.0 / (dz * jnp.maximum(sqrt_gpar[-1], 1e-30))
                 div = div.at[0].add(-left_bndry * boundary_factor_low)
                 div = div.at[-1].add(right_bndry * boundary_factor_high)
 

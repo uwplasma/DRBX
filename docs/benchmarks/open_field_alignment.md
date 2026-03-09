@@ -718,6 +718,33 @@ single gamma coefficient. The next structural target is the boundary-energy
 bookkeeping contract itself, using explicit dumped term arrays rather than a
 formula swap.
 
+In the next 2026-03-09 strict parallel cycle, the finite-wave sheath-face
+metric factor was brought back into line with Hermes `FV::Div_par_mod` for the
+density and pressure channels. Hermes uses the boundary-cell metric on the
+sheath face even for the finite-wave transport path; the JAX path had still
+been using the first interior-face factor there.
+
+The promoted 1-step audit
+`runs/audit_parallel_boundary_metric_retry_1step` reduces the remaining
+parallel leaders at `t=0.01` to:
+
+- `n parallel/par`: `0.15650650752322878 -> 0.13432807982024225`
+- `Te parallel/par_total`: `0.1556861680908554 -> 0.14849268403368665`
+- `Pe parallel/par_total`: `0.154109603265596 -> 0.11330115527226602`
+- `omega parallel/jpar`: unchanged at `0.11715751270556365`
+
+The 3-step confirm window
+`runs/audit_parallel_boundary_metric_retry_3step` keeps that improvement in
+place while preserving very high correlations (`> 0.9990`) for the parallel
+channels through `t=0.03`:
+
+- `t=0.02`: `n/Te/Pe/omega parallel = 0.26710 / 0.26923 / 0.24906 / 0.25440`
+- `t=0.03`: `n/Te/Pe/omega parallel = 0.42417 / 0.41920 / 0.40253 / 0.40219`
+
+The audit-level `Te/Pe sheath source_residual_boundary` rows are unchanged by
+this fix, which supports the earlier diagnosis that those rows are a residual
+bookkeeping issue rather than the same transport bug.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash
