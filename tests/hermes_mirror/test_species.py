@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror import (
+from jaxdrb.legacy_hermes import (
     density_final_global,
     FieldAlignedLocalLayout,
     density_transform_global,
@@ -138,7 +138,7 @@ def test_prepare_poloidal_y_dfdx_local_ref_differs_from_guardless_dump_path() ->
     guardless = guardless.at[:, 0, :].set((phi[:, 1, :] - phi[:, 0, :]) / dx[:, 0, None])
     guardless = guardless.at[:, -1, :].set((phi[:, -1, :] - phi[:, -2, :]) / dx[:, -1, None])
 
-    from jaxdrb.hermes_mirror import build_shifted_metric_fft_phases, to_field_aligned_all_fft
+    from jaxdrb.legacy_hermes import build_shifted_metric_fft_phases, to_field_aligned_all_fft
 
     phases = build_shifted_metric_fft_phases(
         z_shift,

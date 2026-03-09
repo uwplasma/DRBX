@@ -1,13 +1,19 @@
 # Hermes Mirror Path
 
+Status: frozen legacy hybrid traceability path.
+
 ## Purpose
 
-`jax_drb` now has a dedicated `hermes_mirror` translation path under
-`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror`.
+`jax_drb` previously used a dedicated hybrid translation path under
+`/Users/rogerio/local/jax_drb/src/jaxdrb/legacy_hermes`.
 
-This path exists for one reason: close Stage 1 Hermes parity by translating the
-actual Hermes/BOUT operator stack into JAX function by function, instead of
-continuing to patch the old approximation path in place.
+This document is retained as the historical record of that hybrid path. It is
+no longer the active Milestone A implementation target.
+
+The active strict parity path is now:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal`
+- documented in `/Users/rogerio/local/jax_drb/docs/hermes_literal.md`
 
 The mirror path is temporary in architecture and strict in semantics:
 

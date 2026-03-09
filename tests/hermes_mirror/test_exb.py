@@ -6,7 +6,7 @@ import numpy as np
 
 from jaxdrb.core.geometry_field_aligned import FieldAlignedGeometryAdapter, FieldAlignedGrid
 from jaxdrb.core.params import DRBSystemParams, NumericsParams
-from jaxdrb.hermes_mirror import div_n_bxgrad_f_b_xppm_xz, div_n_bxgrad_f_b_xppm_xz_ref
+from jaxdrb.legacy_hermes import div_n_bxgrad_f_b_xppm_xz, div_n_bxgrad_f_b_xppm_xz_ref
 
 
 def _make_geom(*, bc_x: str, scheme: str) -> FieldAlignedGeometryAdapter:

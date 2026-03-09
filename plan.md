@@ -23,10 +23,11 @@ Project mission:
   - high-performance and memory-efficient on CPU and GPU.
 
 Immediate strategy reset:
-- Stop trying to close Milestone A by patching the existing Hermes-alignment branches in place.
-- Build a temporary Hermes-mirror JAX path that is a literal transliteration of the specific Hermes/BOUT baseline operator stack needed for the strict open-field electrostatic baseline.
-- Use that mirror path to reach strict early parity first.
-- Once it passes the strict gates, promote its logic into the unified core and delete the superseded patched operator code.
+- Stop using the hybrid Hermes-alignment path as the active Milestone A vehicle.
+- Freeze the current hybrid translation under a legacy namespace for traceability only.
+- Build a fresh `hermes_literal` JAX path from the Hermes/BOUT component execution model outward.
+- Reach strict early parity only through `engine = "hermes_literal"`.
+- Once the literal engine passes the strict gates, promote its logic into the unified core and delete the superseded hybrid code.
 
 Non-negotiables:
 - No proxy/testbed equations in production paths.
@@ -84,31 +85,44 @@ Build `jax_drb` into a production-quality SOL turbulence code that:
 
 ### Decision
 
-Milestone A work is now a staged Hermes-mirror rewrite, not an in-place patching program.
+Milestone A work is now a staged Hermes-literal rewrite, not a hybrid mirror or
+an in-place patching program.
 
 ### Why
 
 - The remaining strict-window mismatch is localized but structurally tangled.
 - Repeated local edits in the current operator stack are no longer converging reliably.
-- The fastest path to parity is to mirror the Hermes source stack directly, function by function.
+- The fastest path to parity is to mirror the Hermes source stack directly,
+  component by component, with the same state contract and execution order.
 
 ### What changes
 
-- New Stage 1 baseline work goes into a new mirror path under:
-  - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror`
-- The mirror path is allowed to duplicate limited Stage 1 logic temporarily.
-- The current patched Hermes-specific logic in:
+- New Stage 1 baseline work goes into a fresh literal path under:
+  - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal`
+- The previous hybrid translation path is frozen under:
+  - `/Users/rogerio/local/jax_drb/src/jaxdrb/legacy_hermes`
+- The literal path is allowed to duplicate limited Stage 1 logic temporarily.
+- The current Hermes-specific logic in:
   - `/Users/rogerio/local/jax_drb/src/jaxdrb/core/geometry_field_aligned.py`
   - `/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/advection.py`
   - `/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/parallel.py`
-  is frozen for Milestone A parity work and should not receive more speculative parity patches.
-- After the mirror path passes Milestone A and Milestone B, fold its logic back into the unified core and delete the superseded patched code.
+  is frozen for Milestone A parity work and should not receive more speculative
+  parity patches.
+- After the literal path passes Milestone A and Milestone B, fold its logic
+  back into the unified core and delete the superseded hybrid code.
+
+### Historical note
+
+The implementation log later in this file still contains detailed dated notes
+from the earlier `hermes_mirror` phase. Those notes are retained for
+traceability, but they now refer to the frozen hybrid path under
+`/Users/rogerio/local/jax_drb/src/jaxdrb/legacy_hermes`.
 
 ### Temporary architecture allowance
 
-The mirror path may be introduced as a temporary engine mode, for example:
+The literal path may be introduced as a temporary engine mode, for example:
 
-- `engine = "hermes_mirror"`
+- `engine = "hermes_literal"`
 
 This is allowed only as a parity-integration scaffold. It is not the final architecture target.
 
@@ -128,9 +142,8 @@ This is allowed only as a parity-integration scaffold. It is not the final archi
 
 ### Replace for Stage 1 parity
 
-- patched Hermes-specific ExB path in the existing field-aligned geometry adapter
-- patched open-field boundary helper logic built incrementally in the unified core
 - continued term-by-term gap-closing inside the old operator path
+- using the hybrid mirror path as the active parity vehicle
 
 ### Delete later
 
@@ -158,7 +171,8 @@ Once the mirror path is promoted:
 ### jax_drb key directories
 
 - Source: `/Users/rogerio/local/jax_drb/src/jaxdrb`
-- New mirror path: `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror`
+- Active literal path: `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal`
+- Frozen hybrid parity path: `/Users/rogerio/local/jax_drb/src/jaxdrb/legacy_hermes`
 - Unified core: `/Users/rogerio/local/jax_drb/src/jaxdrb/core`
 - Legacy path: `/Users/rogerio/local/jax_drb/src/jaxdrb/legacy_v1`
 - Docs: `/Users/rogerio/local/jax_drb/docs`
@@ -170,21 +184,21 @@ Once the mirror path is promoted:
 
 ## 5) Hermes Source-of-Truth Map
 
-The functions below define the mirror scope. New JAX functions must cite the Hermes source they mirror.
+The functions below define the literal scope. New JAX functions must cite the
+Hermes source they mirror.
 
 | Hermes source | Hermes function / logic | New JAX target | Purpose |
 | --- | --- | --- | --- |
-| `/Users/rogerio/local/hermes-3/src/sheath_boundary_simple.cxx` | `limitFree` | `hermes_mirror/primitives.py::limit_free` | sheath guard construction |
-| `/Users/rogerio/local/hermes-3/src/evolve_density.cxx` | `transform_impl` | `hermes_mirror/species.py::density_transform_impl` | x-boundary average-z ghost setup |
-| `/Users/rogerio/local/hermes-3/src/evolve_pressure.cxx` | `transform_impl` | `hermes_mirror/species.py::pressure_transform_impl` | pressure x-boundary average-z ghost setup |
-| `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/field/field3d.cxx` | `Field3D::setBoundaryTo` | `hermes_mirror/boundary.py::set_boundary_to_midpoint` | boundary cell overwrite semantics |
-| `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/boundary_standard.cxx` | `BoundaryNeumann::apply(Field3D&)` | `hermes_mirror/boundary.py::apply_neumann_field3d` | cell-centred/staggered Neumann boundary application |
-| `/Users/rogerio/local/hermes-3/src/div_ops.cxx` | `Stencil1D`, `MC` | `hermes_mirror/primitives.py::stencil1d`, `mc_limiter` | limited face reconstruction |
-| `/Users/rogerio/local/hermes-3/src/div_ops.cxx` | `Div_n_bxGrad_f_B_XPPM` | `hermes_mirror/exb.py::div_n_bxgrad_f_b_xppm` | Hermes ExB conservative advection |
-| `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/coordinates.cxx` | `toFieldAligned(..., "RGN_NOX")`, `fromFieldAligned(..., "RGN_NOBNDRY")` | `hermes_mirror/transform.py::to_field_aligned_nox`, `from_field_aligned_nobndry` | shifted-field transport semantics |
-| `/Users/rogerio/local/hermes-3/src/evolve_density.cxx` | `finally` density ExB / parallel ordering | `hermes_mirror/rhs.py::density_rhs_terms` | density RHS order |
-| `/Users/rogerio/local/hermes-3/src/evolve_pressure.cxx` | `finally` pressure ExB / parallel ordering | `hermes_mirror/rhs.py::pressure_rhs_terms` | pressure RHS order |
-| `/Users/rogerio/local/hermes-3/src/div_ops.cxx` and `/Users/rogerio/local/hermes-3/external/BOUT-dev/include/bout/fv_ops.hxx` | `FV::Div_par_mod<hermes::Limiter>` and limiter behavior | `hermes_mirror/parallel.py::div_par_mod` | parallel transport parity |
+| `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/field/field3d.cxx` | guard-aware `Field3D` storage + `clearParallelSlices` + `setBoundaryTo` | `hermes_literal/field.py`, `hermes_literal/boundary_standard.py` | literal state and boundary contract |
+| `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/boundary_standard.cxx` | `BoundaryNeumann::apply(Field3D&)` and related boundary ops | `hermes_literal/boundary_standard.py` | standard boundary semantics |
+| `/Users/rogerio/local/hermes-3/src/sound_speed.cxx` | `SoundSpeed::transform_impl` | `hermes_literal/sound_speed.py::compute_fastest_wave` | shared fastest-wave state |
+| `/Users/rogerio/local/hermes-3/src/evolve_density.cxx` | `transform_impl` / `finally` | `hermes_literal/evolve_density.py` | density component parity |
+| `/Users/rogerio/local/hermes-3/src/evolve_pressure.cxx` | `transform_impl` / `finally` | `hermes_literal/evolve_pressure.py` | pressure component parity |
+| `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/coordinates.cxx` | shifted-metric transforms | `hermes_literal/shifted_metric.py` | field-aligned communication semantics |
+| `/Users/rogerio/local/hermes-3/src/div_ops.cxx` | `Div_n_bxGrad_f_B_XPPM`, `Div_par` | `hermes_literal/div_ops.py` | ExB and centered parallel operators |
+| `/Users/rogerio/local/hermes-3/external/BOUT-dev/include/bout/fv_ops.hxx` | `FV::Div_par_mod`, `FV::Div_a_Grad_perp` | `hermes_literal/fv.py` | FV transport operators |
+| `/Users/rogerio/local/hermes-3/src/vorticity.cxx` | vorticity component `finally` | `hermes_literal/vorticity.py` | literal omega path |
+| `/Users/rogerio/local/hermes-3/src/*` | Stage 1 component order | `hermes_literal/engine.py` | strict parity engine |
 
 ### Explicit non-goals for the mirror rewrite
 
@@ -198,41 +212,51 @@ Instead:
 
 ---
 
-## 6) New JAX Mirror Layout
+## 6) New JAX Literal Layout
 
 Create these files first:
 
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/__init__.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/types.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/primitives.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/boundary.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/transform.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/exb.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/parallel.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/species.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/rhs.py`
-- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/engine.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/__init__.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/types.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/field.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/boundary_standard.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/state.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/sound_speed.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/evolve_density.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/evolve_pressure.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/shifted_metric.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/div_ops.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/fv.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/vorticity.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/engine.py`
 
 ### Intended roles
 
 - `types.py`
-  - immutable `eqx.Module` containers for geometry arrays, masks, transform weights, and runtime options
-- `primitives.py`
-  - exact scalar/face primitives: `limit_free`, `mc_limiter`, face reconstruction helpers
-- `boundary.py`
-  - x and y boundary updates: average-z ghosts, Neumann apply, midpoint overwrite
-- `transform.py`
-  - field-aligned transforms driven by precomputed weights and region masks
-- `exb.py`
-  - literal Hermes ExB operator path
-- `parallel.py`
-  - literal Hermes parallel FV operator path
-- `species.py`
-  - density and pressure state-preparation order
-- `rhs.py`
-  - density and pressure RHS builders using the mirror operators
+  - immutable layout and runtime metadata used by literal guarded fields
+- `field.py`
+  - guard-aware storage helpers and interior/guard views
+- `boundary_standard.py`
+  - literal translations of BOUT standard boundary operators and
+    `Field3D::setBoundaryTo`
+- `state.py`
+  - immutable literal Stage 1 state containers
+- `sound_speed.py`
+  - literal `SoundSpeed::transform_impl`
+- `evolve_density.py`
+  - literal `EvolveDensity::transform_impl` and then `finally`
+- `evolve_pressure.py`
+  - literal `EvolvePressure::transform_impl` and then `finally`
+- `shifted_metric.py`
+  - literal `toFieldAligned` / `fromFieldAligned` and communication helpers
+- `div_ops.py`
+  - literal `Div_n_bxGrad_f_B_XPPM` and centered `Div_par`
+- `fv.py`
+  - literal `FV::Div_par_mod` and `FV::Div_a_Grad_perp`
+- `vorticity.py`
+  - literal `Vorticity::finally`
 - `engine.py`
-  - strict parity engine wrapper
+  - strict Stage 1 component ordering and runtime assembly
 
 ---
 
@@ -513,7 +537,7 @@ python /Users/rogerio/local/jax_drb/tools/audit_term_alignment.py \
 python /Users/rogerio/local/jax_drb/tools/build_hermes_mirror_fixture.py
 ```
 
-### Planned mirror strict run
+### Planned literal strict run
 
 ```bash
 jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_mirror.toml --run --output /tmp/jax_mirror_short.npz
@@ -527,21 +551,23 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 - [x] Decide to stop patching the old Hermes parity path in place.
 - [x] Define the Hermes source-of-truth function map.
-- [x] Rewrite this plan around the mirror strategy.
+- [x] Rewrite this plan around the literal Hermes strategy.
+- [x] Freeze the hybrid implementation under `src/jaxdrb/legacy_hermes`.
+- [x] Add the fresh `src/jaxdrb/hermes_literal` scaffold and config aliases.
 
-### Milestone A1: mirror primitives
+### Milestone A1: literal primitives
 
-- [x] Mirror boundary primitives exist.
+- [x] Literal boundary primitives exist.
 - [x] Primitive dump-backed fixtures exist.
 - [x] Primitive tests are green in CI.
 
-### Milestone A2: mirror transforms
+### Milestone A2: literal transforms
 
 - [x] `to_field_aligned_nox` and `from_field_aligned_nobndry` mirror implementations exist.
 - [x] Transform weights are precomputed from existing geometry ingestion and reusable.
 - [x] Transform tests match Hermes.
 
-### Milestone A3: mirror ExB parity
+### Milestone A3: literal ExB parity
 
 - [x] X-Z `Div_n_bxGrad_f_B_XPPM` slice exists with fused/reference + autodiff tests.
 - [x] local X-flux slice exists with fused/reference + dump-backed tests.
@@ -552,7 +578,7 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - [ ] `Pe exb` strict 1-step mismatch reduced below threshold.
 - [ ] 3-step audit remains green for ExB.
 
-### Milestone A4: mirror parallel parity
+### Milestone A4: literal parallel parity
 
 - [x] dump-backed local mirror parallel operator matches Hermes terms.
 - [ ] `n parallel/par` reduced below threshold.
@@ -574,9 +600,9 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 ### Milestone C: fold-back and cleanup
 
-- [ ] validated mirror operators moved into unified core
+- [ ] validated literal operators moved into unified core
 - [ ] superseded patched Hermes code deleted
-- [ ] mirror tests retained as regression gates
+- [ ] literal and legacy regression tests retained as traceability gates
 
 ### Milestone D: beyond baseline
 

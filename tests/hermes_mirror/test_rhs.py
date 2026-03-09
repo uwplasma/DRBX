@@ -10,7 +10,7 @@ from jaxdrb.core.state import DRBSystemState
 from jaxdrb.core.terms.context import build_context
 from jaxdrb.core.terms.parallel import parallel_vars
 from jaxdrb.driver import build_system_from_config
-from jaxdrb.hermes_mirror.rhs import (
+from jaxdrb.legacy_hermes.rhs import (
     build_reduced_mirror_term_cache,
     density_rhs_terms,
     pressure_rhs_terms,

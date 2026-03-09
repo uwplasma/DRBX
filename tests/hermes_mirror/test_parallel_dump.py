@@ -5,7 +5,7 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror.parallel import div_par_centered, div_par_mod
+from jaxdrb.legacy_hermes.parallel import div_par_centered, div_par_mod
 
 _FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_parallel_local_rank0_t1.npz"

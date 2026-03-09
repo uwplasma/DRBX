@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror import FieldAlignedLocalLayout, div_a_grad_perp, div_a_grad_perp_local
+from jaxdrb.legacy_hermes import FieldAlignedLocalLayout, div_a_grad_perp, div_a_grad_perp_local
 
 
 def test_div_a_grad_perp_local_matches_quadratic_x_second_derivative() -> None:
