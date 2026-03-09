@@ -36,12 +36,11 @@ def pi_hat(
 
 
 def _mirror_zlength(geom) -> float:
-    metric_dz = getattr(geom, "metric_dz", None)
     grid = getattr(geom, "grid", None)
     perp = getattr(grid, "perp", None)
-    if metric_dz is None or perp is None:
-        raise ValueError("Hermes mirror vorticity path requires metric_dz and field-aligned grid.")
-    return float(jnp.asarray(metric_dz, dtype=jnp.float64).mean()) * float(perp.ny)
+    if perp is None:
+        raise ValueError("Hermes mirror vorticity path requires a field-aligned grid.")
+    return float(getattr(perp, "dy", 1.0)) * float(perp.ny)
 
 
 def _phi_bcx_for_delp(params, bc_phi: BC2D) -> int:

@@ -612,10 +612,22 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 ### Milestone A5: strict short-window parity (`t <= 0.1`)
 
+- [x] strict early config runs through `engine = "hermes_literal"`
 - [ ] strict term leaders all below acceptance threshold
 - [ ] fluctuation RMS within target band
 - [ ] PSD within target band
 - [ ] strict short-window gate promoted to required CI check
+- 2026-03-09: the strict early parity config
+  `/Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`
+  now explicitly sets `engine = "hermes_literal"`. The smallest strict audit at
+  `runs/audit_literal_engine_smoke` runs through that engine successfully and
+  keeps the current 1-step leaders at:
+  `Te parallel = 0.1474904091090806`,
+  `n parallel = 0.13383127252151306`,
+  `omega parallel = 0.11697795624618619`,
+  `Pe parallel = 0.1133024567583403`,
+  `n advection = 0.09623829491706752`,
+  `Pe advection = 0.0676385260919583`.
 
 ### Milestone B: longer baseline windows
 

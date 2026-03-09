@@ -93,9 +93,37 @@ The config/driver layer now recognizes `engine = "hermes_literal"` and routes
 that choice to
 `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/engine.py`.
 
-That engine entrypoint is still intentionally incomplete. The strict open-field
-parity run should not switch to it until the communication, shifted-metric,
-ExB, parallel FV, and vorticity component stack is landed.
+That engine is now executable for the strict Stage 1 baseline. It owns the
+runtime scheduler interface used by the normal driver path:
+
+- `rhs_split`
+- `rhs`
+- `rhs_explicit`
+- `rhs_stiff`
+- `rhs_with_phi`
+- `rhs_with_phi_iters`
+- `rhs_explicit_with_phi`
+- `rhs_explicit_with_phi_iters`
+
+The strict early parity config at
+`/Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_alignment_strict_early.toml`
+now sets `engine = "hermes_literal"`, and the smallest strict audit runs
+through that engine directly:
+
+- `/Users/rogerio/local/jax_drb/runs/audit_literal_engine_smoke`
+
+Current 1-step array-ranked leaders on the literal engine are:
+
+- `Te parallel`: `0.1474904091090806`
+- `n parallel`: `0.13383127252151306`
+- `omega parallel`: `0.11697795624618619`
+- `Pe parallel`: `0.1133024567583403`
+- `n advection`: `0.09623829491706752`
+- `Pe advection`: `0.0676385260919583`
+
+So the remaining Milestone A work is no longer “make the literal engine
+exist.” It is “close the remaining operator/state contract gaps while the
+strict audit is already running on that engine.”
 
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`

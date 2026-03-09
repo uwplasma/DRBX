@@ -1,3 +1,5 @@
+engine = "hermes_literal"
+
 [normalization]
 enabled = true
 mode = "physics"

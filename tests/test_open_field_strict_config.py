@@ -33,6 +33,7 @@ def test_open_field_strict_early_config_splits_advective_and_current_limiters() 
         / "input_tokamak_bxcv_alignment_strict_early.toml"
     )
     cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+    assert cfg["engine"] == "hermes_literal"
     numerics = cfg["numerics"]
 
     assert numerics["exb_flux_scheme"] == "hermes_mirror"
