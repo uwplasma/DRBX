@@ -854,6 +854,22 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `Pe sheath/source_residual_boundary 0.11172993716659292 -> 3.6046`).
   The remaining `Te/Pe sheath source_residual_boundary` gap is therefore in
   the bookkeeping contract, not a single gamma coefficient.
+- 2026-03-09: the next strict parallel slice corrected the finite-wave
+  sheath-face metric factor in `src/jaxdrb/core/terms/parallel.py`. Hermes
+  `FV::Div_par_mod` uses the boundary-cell metric on the sheath face even for
+  the finite-wave density/pressure channels; the JAX path had still been using
+  the first interior-face factor there. The promoted 1-step audit
+  `runs/audit_parallel_boundary_metric_retry_1step` improves
+  `n parallel/par 0.15650650752322878 -> 0.13432807982024225`,
+  `Te parallel/par_total 0.1556861680908554 -> 0.14849268403368665`,
+  and `Pe parallel/par_total 0.154109603265596 -> 0.11330115527226602`,
+  while `omega parallel/jpar` stays fixed at `0.11715751270556365`.
+- 2026-03-09: the 3-step confirm window
+  `runs/audit_parallel_boundary_metric_retry_3step` preserves that gain
+  through `t=0.03` with correlations above `0.9990` in the parallel channels.
+  The audit-level `Te/Pe sheath source_residual_boundary` rows are unchanged,
+  reinforcing that the remaining gap there is a residual bookkeeping issue
+  rather than the same parallel transport bug.
 
 ---
 

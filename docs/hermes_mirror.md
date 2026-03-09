@@ -956,6 +956,30 @@ That rules out a missing single gamma coefficient as the cause of the remaining
 `Te/Pe sheath source_residual_boundary` gap. The next target is the
 boundary-energy bookkeeping contract itself.
 
+The next strict parallel slice then fixed the remaining finite-wave sheath-face
+metric mismatch in `src/jaxdrb/core/terms/parallel.py`. Hermes
+`FV::Div_par_mod` uses the boundary-cell metric on the sheath face even for the
+finite-wave density and pressure channels; the JAX path had still been using
+the first interior-face factor there.
+
+With that corrected, the promoted 1-step audit
+`/Users/rogerio/local/jax_drb/runs/audit_parallel_boundary_metric_retry_1step`
+moves the remaining parallel leaders to:
+
+- `n parallel/par`: `0.15650650752322878 -> 0.13432807982024225`
+- `Te parallel/par_total`: `0.1556861680908554 -> 0.14849268403368665`
+- `Pe parallel/par_total`: `0.154109603265596 -> 0.11330115527226602`
+- `omega parallel/jpar`: unchanged at `0.11715751270556365`
+
+The 3-step confirm window
+`/Users/rogerio/local/jax_drb/runs/audit_parallel_boundary_metric_retry_3step`
+keeps those gains while retaining correlations above `0.9990` in the parallel
+channels through `t=0.03`.
+
+The audit-level `Te/Pe sheath source_residual_boundary` rows stay unchanged
+under this fix, which reinforces the earlier conclusion that they are a
+bookkeeping-channel gap rather than the same transport bug.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:
