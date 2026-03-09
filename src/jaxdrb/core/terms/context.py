@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemState
-from jaxdrb.legacy_hermes.species import prepare_reduced_species_state_global
+from jaxdrb.hermes_literal.species import prepare_reduced_species_state_global
 
 from .bcs import FieldBCs, resolve_bcs
 from .fields import phys_n, phys_Te, phi_from_omega

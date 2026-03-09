@@ -42,6 +42,9 @@ The first fresh modules are:
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/shifted_metric.py`
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/fv.py`
 - `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/div_ops.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/exb.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/delp2.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/vorticity.py`
 
 Implemented source translations in this first slice:
 
@@ -66,6 +69,15 @@ Implemented source translations in this first slice:
 - `Div_par(jpar)`
   - source:
     - `/Users/rogerio/local/hermes-3/src/div_ops.cxx`
+- `Div_n_bxGrad_f_B_XPPM`
+  - source:
+    - `/Users/rogerio/local/hermes-3/src/div_ops.cxx`
+- `Coordinates::Delp2(Field3D)`
+  - source:
+    - `/Users/rogerio/local/hermes-3/external/BOUT-dev/src/mesh/coordinates.cxx`
+- `Vorticity::finally` ExB branch
+  - source:
+    - `/Users/rogerio/local/hermes-3/src/vorticity.cxx`
 
 ## Differentiability and Performance Rules
 
@@ -97,3 +109,30 @@ synthetic checks in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_parallel.py` and
 dump-backed term regressions in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_parallel_dump.py`.
+
+The literal ExB, `Delp2`, and vorticity layers are now also landed in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/exb.py`,
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/delp2.py`, and
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/vorticity.py`, with
+targeted regressions in:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_exb.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_exb_runtime.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_vorticity.py`
+
+The active strict runtime is now also consuming the fresh literal modules for:
+
+- reduced species preparation
+- shifted transforms
+- ExB transport
+- `Delp2` / vorticity ExB
+- parallel FV transport
+- mirror RHS cache assembly
+
+The latest strict 1-step audit from
+`/Users/rogerio/local/jax_drb/runs/audit_literal_runtime_promotion_1step`
+preserves the previous fail-fast ordering rather than regressing it:
+
+- `n parallel/par`: `weighted_array_rel = 0.13383127252151306`
+- `omega parallel/jpar`: `weighted_array_rel = 0.11697795624618619`
+- `Pe parallel/par_total`: `weighted_array_rel = 0.1133024567583403`

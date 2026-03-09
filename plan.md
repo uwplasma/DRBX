@@ -581,6 +581,16 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - [ ] `Ne exb` strict 1-step mismatch reduced below threshold.
 - [ ] `Pe exb` strict 1-step mismatch reduced below threshold.
 - [ ] 3-step audit remains green for ExB.
+- 2026-03-09: the fresh `hermes_literal/exb.py`, `hermes_literal/delp2.py`,
+  and `hermes_literal/vorticity.py` modules are now landed and validated
+  independently of `legacy_hermes`, including dump-backed runtime regressions in
+  `tests/hermes_literal/test_literal_exb_runtime.py` and
+  `tests/hermes_literal/test_literal_vorticity.py`.
+- 2026-03-09: the active strict runtime now imports the fresh literal ExB and
+  vorticity path from `src/jaxdrb/hermes_literal/`. The 1-step audit at
+  `runs/audit_literal_runtime_promotion_1step` preserved the current fail-fast
+  ordering, with `n advection/exb = 0.09623829491706752` and
+  `Pe advection/exb = 0.0676385260919583` still below the parallel leaders.
 
 ### Milestone A4: literal parallel parity
 
@@ -592,6 +602,13 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `hermes_literal/div_ops.py::div_par_centered` translations are now landed and
   validated independently of `legacy_hermes`, including dump-backed local
   regressions in `tests/hermes_literal/test_literal_parallel_dump.py`.
+- 2026-03-09: the active strict runtime now imports the fresh literal parallel
+  transport and mirror RHS cache path from `src/jaxdrb/hermes_literal/`. The
+  1-step audit at `runs/audit_literal_runtime_promotion_1step` preserved the
+  current leaders:
+  `n parallel/par = 0.13383127252151306`,
+  `omega parallel/jpar = 0.11697795624618619`,
+  `Pe parallel/par_total = 0.1133024567583403`.
 
 ### Milestone A5: strict short-window parity (`t <= 0.1`)
 

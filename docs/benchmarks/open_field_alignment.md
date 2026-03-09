@@ -1012,6 +1012,30 @@ Current status for the best finite full-grid candidate (`t_end=0.5`):
 
 ## Notes on Physics Alignment
 
+### 2026-03-09 literal runtime promotion
+
+The active Hermes-specific runtime imports now point at the fresh
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal` modules for:
+
+- reduced species preparation
+- shifted-metric transforms
+- ExB transport and vorticity ExB
+- parallel FV transport
+- mirror RHS cache assembly
+
+The strict 1-step audit was rerun at:
+
+- `/Users/rogerio/local/jax_drb/runs/audit_literal_runtime_promotion_1step`
+
+This promotion preserved the previous parity baseline. The current top
+array-ranked mismatches remain:
+
+- `n parallel/par`: `0.13383127252151306`
+- `omega parallel/jpar`: `0.11697795624618619`
+- `Pe parallel/par_total`: `0.1133024567583403`
+- `n advection/exb`: `0.09623829491706752`
+- `Pe advection/exb`: `0.0676385260919583`
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,

@@ -92,6 +92,61 @@ def apply_neumann_field3d(
     return out
 
 
+def apply_free_o2_field3d(
+    field: jnp.ndarray,
+    *,
+    axis: int,
+    interior_start: int,
+    interior_end: int,
+    guard_width: int = 2,
+    apply_lower: bool = True,
+    apply_upper: bool = True,
+) -> jnp.ndarray:
+    """Mirror `BoundaryFree_O2::apply(Field3D&)` for centred fields."""
+
+    if guard_width not in (1, 2):
+        raise ValueError(f"guard_width must be 1 or 2, got {guard_width}.")
+
+    out = jnp.asarray(field, dtype=jnp.float64)
+    axis_i = int(axis)
+    if axis_i < 0:
+        axis_i += out.ndim
+    if axis_i < 0 or axis_i >= out.ndim:
+        raise ValueError(f"axis={axis} is out of bounds for shape {out.shape}.")
+    if interior_start < guard_width:
+        raise ValueError(
+            f"interior_start={interior_start} leaves fewer than {guard_width} lower guards."
+        )
+    if interior_end >= out.shape[axis_i] - guard_width:
+        raise ValueError(
+            f"interior_end={interior_end} leaves fewer than {guard_width} upper guards."
+        )
+
+    def _take(a: jnp.ndarray, idx: int) -> jnp.ndarray:
+        return jnp.take(a, idx, axis=axis_i)
+
+    def _set(a: jnp.ndarray, idx: int, value: jnp.ndarray) -> jnp.ndarray:
+        sl = [slice(None)] * a.ndim
+        sl[axis_i] = idx
+        return a.at[tuple(sl)].set(value)
+
+    if apply_lower:
+        for offset in range(1, guard_width + 1):
+            guard = interior_start - offset
+            in1 = guard + 1
+            in2 = guard + 2
+            out = _set(out, guard, (2.0 * _take(out, in1)) - _take(out, in2))
+
+    if apply_upper:
+        for offset in range(1, guard_width + 1):
+            guard = interior_end + offset
+            in1 = guard - 1
+            in2 = guard - 2
+            out = _set(out, guard, (2.0 * _take(out, in1)) - _take(out, in2))
+
+    return out
+
+
 def set_boundary_to(
     field: jnp.ndarray,
     reference: jnp.ndarray,

@@ -5,13 +5,13 @@ import jax
 import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
-from jaxdrb.legacy_hermes.parallel import div_par_centered as hermes_div_par_centered
-from jaxdrb.legacy_hermes.parallel import div_par_mod as hermes_div_par_mod
-from jaxdrb.legacy_hermes.sheath import (
+from jaxdrb.hermes_literal.div_ops import div_par_centered as hermes_div_par_centered
+from jaxdrb.hermes_literal.fv import div_par_mod as hermes_div_par_mod
+from jaxdrb.hermes_literal.sheath import (
     ParallelSheathState,
     build_parallel_sheath_state as build_parallel_sheath_state_mirror,
 )
-from jaxdrb.legacy_hermes.transform import (
+from jaxdrb.hermes_literal.shifted_metric import (
     build_shifted_metric_fft_phases,
     build_shifted_metric_weights,
     to_field_aligned_all,

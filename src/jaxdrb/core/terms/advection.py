@@ -5,7 +5,9 @@ import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
 from jaxdrb.core.state import DRBSystemState
-from jaxdrb.legacy_hermes import full_omega_exb_advection as full_omega_exb_advection_mirror
+from jaxdrb.hermes_literal.vorticity import (
+    full_omega_exb_advection as full_omega_exb_advection_mirror,
+)
 
 from .context import TermContext
 from .fields import _electron_pressure, _metric_div_coeff

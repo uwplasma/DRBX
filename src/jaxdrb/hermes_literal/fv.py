@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
+from .fv_perp import div_a_grad_perp, div_a_grad_perp_local
+
+__all__ = ["div_a_grad_perp", "div_a_grad_perp_local", "div_par_mod"]
+
 
 def _minmod_pair(a: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
     same_sign = 0.5 * (jnp.sign(a) + jnp.sign(b))
