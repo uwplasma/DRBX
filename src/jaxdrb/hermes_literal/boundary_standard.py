@@ -60,6 +60,8 @@ def apply_neumann_field3d(
     out = arr
     axis_i = int(axis)
     spacing_arr = jnp.asarray(spacing, dtype=jnp.float64)
+    lower_grad = jnp.asarray(lower_gradient, dtype=jnp.float64)
+    upper_grad = jnp.asarray(upper_gradient, dtype=jnp.float64)
 
     def _take(a: jnp.ndarray, idx: int) -> jnp.ndarray:
         return jnp.take(a, idx, axis=axis_i)
@@ -77,7 +79,7 @@ def apply_neumann_field3d(
             out = _set(
                 out,
                 guard,
-                _take(out, inside) - float(lower_gradient) * dx,
+                _take(out, inside) - lower_grad * dx,
             )
     if apply_upper:
         for offset in range(1, guard_width + 1):
@@ -87,7 +89,7 @@ def apply_neumann_field3d(
             out = _set(
                 out,
                 guard,
-                _take(out, inside) + float(upper_gradient) * dx,
+                _take(out, inside) + upper_grad * dx,
             )
     return out
 

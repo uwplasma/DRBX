@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,23 @@ def _cfg() -> dict:
     }
 
 
+def _literal_cfg() -> dict:
+    repo_root = Path(__file__).resolve().parents[1]
+    cfg_path = (
+        repo_root
+        / "examples"
+        / "open_field_line"
+        / "input_tokamak_bxcv_alignment_strict_early.toml"
+    )
+    cfg = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
+    time_cfg = dict(cfg["time"])
+    time_cfg["nsteps"] = 1
+    time_cfg["save_every"] = 1
+    time_cfg["return_numpy"] = True
+    cfg["time"] = time_cfg
+    return cfg
+
+
 def test_build_system_drb_fv_engine() -> None:
     built = build_system_from_config(_cfg())
     assert str(getattr(built.system, "engine", "")) == "drb_fv"
@@ -31,6 +49,22 @@ def test_run_simulation_drb_fv_smoke() -> None:
     assert np.asarray(run.times).size >= 2
     assert np.isfinite(np.asarray(run.diagnostics["rms_n"])).all()
     assert np.isfinite(np.asarray(run.diagnostics["rms_Te"])).all()
+
+
+def test_build_system_hermes_literal_engine() -> None:
+    built = build_system_from_config(_literal_cfg())
+    assert str(getattr(built.system, "engine", "")) == "hermes_literal"
+    dy = built.system.rhs(0.0, built.state)
+    assert dy.n.shape == built.state.n.shape
+    assert dy.Te.shape == built.state.Te.shape
+
+
+def test_hermes_literal_rhs_with_phi_smoke() -> None:
+    built = build_system_from_config(_literal_cfg())
+    dy, phi = built.system.rhs_with_phi(0.0, built.state)
+    assert dy.n.shape == built.state.n.shape
+    assert dy.Te.shape == built.state.Te.shape
+    assert phi.shape == built.state.omega.shape
 
 
 def test_drb_fv_scheduler_ctx_override() -> None:
