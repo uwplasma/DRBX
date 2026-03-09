@@ -765,6 +765,23 @@ This confirms the earlier diagnosis: the old `Te/Pe sheath/source_residual_bound
 rows were not measuring the direct sheath term cleanly. They were comparing a
 pure JAX sheath channel against a mixed Hermes residual-source bucket.
 
+The next parallel refactor promoted a literal Hermes-mirror `FV::Div_par_mod`
+and centered `Div_par(jpar)` path into the strict config, including the local
+parallel `dy` metric in the face factors. The important result from that cycle
+is operator closure, not yet live strict closure:
+
+- the local dump-backed mirror parallel operator now matches the raw Hermes
+  `term_Ne_par`, `term_Pe_par`, and `term_Vort_jpar` arrays in
+  `/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_parallel_dump.py`
+- the promoted strict audits
+  `/Users/rogerio/local/jax_drb/runs/audit_parallel_mirror_with_dy_1step` and
+  `/Users/rogerio/local/jax_drb/runs/audit_parallel_mirror_with_dy_3step`
+  are numerically unchanged relative to the previous promoted baseline
+
+That isolates the remaining live `n/Pe/jpar` parallel gap to the runtime
+boundary-conditioned state that feeds the operator, especially the open-end
+sheath guard reconstruction and transform ordering, not the FV stencil itself.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash

@@ -998,6 +998,27 @@ direct sheath comparison moves to:
 So the remaining `source_residual_boundary` discrepancy is now explicitly a
 residual bookkeeping channel, not the primary electron sheath term.
 
+The next mirror slice lands the literal parallel FV operator in
+`src/jaxdrb/hermes_mirror/parallel.py` and promotes it in the strict configs
+through `parallel_flux_scheme = "hermes_mirror"`. The new dump-backed
+regression `tests/hermes_mirror/test_parallel_dump.py` uses
+`tests/fixtures/hermes_mirror_parallel_local_rank0_t1.npz` and checks:
+
+- `term_Ne_par`
+- `term_Pe_par`
+- `term_Vort_jpar`
+
+with the same local guard cells and metric `dy/J/g_22` factors used by Hermes.
+
+That operator-level regression is green, but the promoted strict audits
+
+- `runs/audit_parallel_mirror_with_dy_1step`
+- `runs/audit_parallel_mirror_with_dy_3step`
+
+are unchanged relative to the previous promoted live baseline. So the
+remaining parallel mismatch is now isolated to the runtime sheath / guard /
+transform contract feeding the operator, not the mirrored FV operator itself.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

@@ -406,11 +406,13 @@ Acceptance:
 
 Create in this order:
 
-- [ ] limiter and reconstruction helpers from Hermes FV path
+- [x] limiter and reconstruction helpers from Hermes FV path
 - [ ] `div_par_mod_ref`
-- [ ] fused `div_par_mod`
-- [ ] density parallel term wiring
-- [ ] pressure parallel term wiring
+- [x] fused `div_par_mod`
+- [x] density parallel term wiring
+- [x] pressure parallel term wiring
+- [x] centered `Div_par(jpar)` mirror wiring
+- [ ] runtime sheath / guard / transform contract feeding the mirror operator
 - [ ] later momentum and energy channels as needed
 
 Acceptance:
@@ -418,6 +420,8 @@ Acceptance:
 - [ ] `n parallel/par` below threshold
 - [ ] `Pe parallel/par_total` below threshold
 - [ ] no regression in already-closed `omega parallel/jpar`
+- [x] dump-backed local `term_Ne_par` / `term_Pe_par` / `term_Vort_jpar`
+  mirror parity regression exists
 
 ### Phase 6: Mirror engine promotion
 
@@ -550,6 +554,7 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 
 ### Milestone A4: mirror parallel parity
 
+- [x] dump-backed local mirror parallel operator matches Hermes terms.
 - [ ] `n parallel/par` reduced below threshold.
 - [ ] `Pe parallel/par_total` reduced below threshold.
 - [ ] No regression in previously closed terms.
@@ -883,6 +888,20 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `0.006210587208797745`. The direct `Pe/Te sheath` parity is now measured
   cleanly; the remaining `source_residual_boundary` discrepancy is explicitly
   an audit residual channel rather than the primary electron sheath term.
+- 2026-03-09: the literal Hermes parallel FV mirror is now landed in
+  `src/jaxdrb/hermes_mirror/parallel.py`, promoted in the strict configs via
+  `parallel_flux_scheme = "hermes_mirror"`, and validated directly against the
+  rank-0 raw dump fixture `tests/fixtures/hermes_mirror_parallel_local_rank0_t1.npz`.
+  The regression `tests/hermes_mirror/test_parallel_dump.py` now matches
+  `term_Ne_par`, `term_Pe_par`, and `term_Vort_jpar` at operator level.
+- 2026-03-09: the promoted strict audits
+  `runs/audit_parallel_mirror_with_dy_1step` and
+  `runs/audit_parallel_mirror_with_dy_3step` are unchanged relative to the
+  previous promoted live baseline. This isolates the remaining live
+  `n/Pe/jpar` parallel mismatch to the runtime sheath / guard / transform
+  contract feeding the operator, not to the mirrored FV operator itself. The
+  next coherent refactor target is therefore a literal Hermes sheath-state
+  transform feeding the mirror parallel path.
 
 ---
 
