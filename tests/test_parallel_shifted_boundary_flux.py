@@ -15,7 +15,7 @@ from jaxdrb.core.terms.parallel import (
 
 def test_shifted_boundary_flux_passthrough_when_not_shifted_transform() -> None:
     flux = jnp.asarray([[0.0, 1.0, 2.0, 3.0]])
-    params = SimpleNamespace(parallel_transform="none")
+    params = SimpleNamespace(parallel_transform="none", parallel_shift_interp="linear")
     geom = SimpleNamespace(shift_idx=jnp.asarray([[1.0]]))
     out = _shift_boundary_flux_to_field_aligned(flux, params=params, geom=geom, z_index=0)
     np.testing.assert_allclose(np.asarray(out), np.asarray(flux))
@@ -23,7 +23,7 @@ def test_shifted_boundary_flux_passthrough_when_not_shifted_transform() -> None:
 
 def test_shifted_boundary_flux_applies_integer_shift() -> None:
     flux = jnp.asarray([[0.0, 1.0, 2.0, 3.0], [10.0, 11.0, 12.0, 13.0]])
-    params = SimpleNamespace(parallel_transform="shifted")
+    params = SimpleNamespace(parallel_transform="shifted", parallel_shift_interp="linear")
     geom = SimpleNamespace(
         shift_idx=jnp.asarray(
             [
@@ -39,11 +39,41 @@ def test_shifted_boundary_flux_applies_integer_shift() -> None:
 
 def test_shifted_boundary_flux_supports_fractional_shift() -> None:
     flux = jnp.asarray([[0.0, 1.0, 2.0, 3.0]])
-    params = SimpleNamespace(parallel_transform="shifted")
+    params = SimpleNamespace(parallel_transform="shifted", parallel_shift_interp="linear")
     geom = SimpleNamespace(shift_idx=jnp.asarray([[0.5]]))
     out = _shift_boundary_flux_to_field_aligned(flux, params=params, geom=geom, z_index=0)
     expect = np.asarray([[0.5, 1.5, 2.5, 1.5]])
     np.testing.assert_allclose(np.asarray(out), expect)
+
+
+def test_shifted_boundary_flux_uses_spectral_transform_when_requested() -> None:
+    flux = jnp.asarray(
+        [
+            [0.0, 1.0, 2.0, 3.0],
+            [10.0, 11.0, 12.0, 13.0],
+            [20.0, 21.0, 22.0, 23.0],
+            [30.0, 31.0, 32.0, 33.0],
+        ]
+    )
+    params = SimpleNamespace(parallel_transform="shifted", parallel_shift_interp="spectral")
+    geom = SimpleNamespace(
+        shift_idx=jnp.asarray([[1.0, 1.0, 1.0, 1.0], [-1.0, -1.0, -1.0, -1.0]]),
+        z_shift=jnp.asarray([[1.0, 1.0, 1.0, 1.0], [-1.0, -1.0, -1.0, -1.0]]),
+        grid=SimpleNamespace(
+            open_field_line=True,
+            perp=SimpleNamespace(dy=1.0, bc=SimpleNamespace(kind_x=1)),
+        ),
+    )
+    out = _shift_boundary_flux_to_field_aligned(flux, params=params, geom=geom, z_index=0)
+    expect = np.asarray(
+        [
+            [0.0, 1.0, 2.0, 3.0],
+            [11.0, 12.0, 13.0, 10.0],
+            [21.0, 22.0, 23.0, 20.0],
+            [30.0, 31.0, 32.0, 33.0],
+        ]
+    )
+    np.testing.assert_allclose(np.asarray(out), expect, rtol=1e-12, atol=1e-12)
 
 
 def test_shifted_parallel_flux_transforms_ghost_planes_before_mirror_operator(
@@ -62,6 +92,7 @@ def test_shifted_parallel_flux_transforms_ghost_planes_before_mirror_operator(
 
     params = SimpleNamespace(
         parallel_transform="shifted",
+        parallel_shift_interp="linear",
         parallel_limiter="mc",
         parallel_current_limiter="same",
         parallel_flux_scheme="hermes_mirror",
