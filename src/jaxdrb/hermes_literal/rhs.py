@@ -19,6 +19,12 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.hermes_literal.parallel import (
+    dpar_flux_conservative,
+    fastest_wave,
+    parallel_vars,
+    pressure_transport_coeffs,
+)
 
 
 @dataclass(frozen=True)
@@ -110,8 +116,6 @@ def _pressure_temperature_rhs(
 def density_rhs_terms(ctx, y: DRBSystemState, par=None) -> MirrorDensityRhsTerms:
     """Mirror the density channel from Hermes `EvolveDensity::finally()`."""
 
-    from jaxdrb.core.terms.parallel import _dpar_flux_conservative, _fastest_wave, parallel_vars
-
     if par is None:
         par = parallel_vars(ctx, y)
 
@@ -138,11 +142,11 @@ def density_rhs_terms(ctx, y: DRBSystemState, par=None) -> MirrorDensityRhsTerms
         vel_low="ve_sheath_low",
         vel_high="ve_sheath_high",
     )
-    parallel = -_dpar_flux_conservative(
+    parallel = -dpar_flux_conservative(
         ctx,
         ctx.n_prepared,
         par.vpar_e_flux,
-        wave=_fastest_wave(ctx),
+        wave=fastest_wave(ctx),
         boundary_flux_low=n_blow,
         boundary_flux_high=n_bhigh,
         ghost_low_f=n_glow,
@@ -162,13 +166,6 @@ def pressure_rhs_terms(
     species: str = "electron",
 ) -> MirrorPressureRhsTerms:
     """Mirror the pressure channel from Hermes `EvolvePressure::finally()`."""
-
-    from jaxdrb.core.terms.parallel import (
-        _dpar_flux_conservative,
-        _fastest_wave,
-        _pressure_transport_coeffs,
-        parallel_vars,
-    )
 
     if par is None:
         par = parallel_vars(ctx, y)
@@ -209,7 +206,7 @@ def pressure_rhs_terms(
     else:
         pressure_advection = jnp.zeros_like(pressure)
 
-    pressure_transport_coeff, pressure_work_coeff = _pressure_transport_coeffs(ctx)
+    pressure_transport_coeff, pressure_work_coeff = pressure_transport_coeffs(ctx)
     p_blow, p_bhigh, p_glow, p_ghigh, v_glow, v_ghigh = _boundary_fluxes(
         ctx,
         par,
@@ -219,11 +216,11 @@ def pressure_rhs_terms(
         vel_low=vel_low,
         vel_high=vel_high,
     )
-    pressure_parallel_flux = -pressure_transport_coeff * _dpar_flux_conservative(
+    pressure_parallel_flux = -pressure_transport_coeff * dpar_flux_conservative(
         ctx,
         pressure,
         velocity,
-        wave=_fastest_wave(ctx),
+        wave=fastest_wave(ctx),
         boundary_flux_low=p_blow,
         boundary_flux_high=p_bhigh,
         ghost_low_f=p_glow,

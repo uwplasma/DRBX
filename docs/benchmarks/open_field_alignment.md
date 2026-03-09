@@ -1065,6 +1065,34 @@ through `engine="hermes_literal"` rather than the old unified/hybrid path.
 Subsequent parity fixes should therefore land inside the literal engine and its
 supporting runtime contract, not as more hybrid term patches.
 
+### 2026-03-09 literal parallel runtime rehome
+
+The reduced density/pressure cache now gets its live parallel transport state
+from:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/parallel.py`
+
+instead of routing that contract through the unified helper layer in
+`core/terms/parallel.py`. This rehome includes:
+
+- sheath-state reconstruction
+- shifted boundary-plane transforms
+- literal `Div_par(jpar)` / `FV::Div_par_mod` dispatch
+- fastest-wave and pressure transport coefficients
+
+The 1-step strict audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_parallel_runtime_rehome`
+preserves the literal-engine baseline and nudges the leading parallel rows
+slightly downward:
+
+- `Te parallel`: `0.1474904091090806 -> 0.14748382093236653`
+- `n parallel`: `0.13383127252151306 -> 0.1338298917677307`
+- `Pe parallel`: `0.1133024567583403 -> 0.11330241103262646`
+
+This slice is architectural, not a parity jump, but it matters because the
+remaining dominant parallel mismatch is now owned by the literal runtime layer
+itself rather than a copied call back into the unified core.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
