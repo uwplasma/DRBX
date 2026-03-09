@@ -181,3 +181,35 @@ def test_centered_jpar_divergence_uses_centered_interior_faces() -> None:
     expected[2, 0, 0] = (((7.0 + 13.0) * 0.5) - ((3.0 + 7.0) * 0.5)) / 2.0
     expected[3, 0, 0] = (13.0 - ((7.0 + 13.0) * 0.5)) / 2.0
     np.testing.assert_allclose(div, expected, atol=1e-12, rtol=1e-12)
+
+
+def test_parallel_fv_open_boundary_reconstruction_uses_ghost_stencil() -> None:
+    f = np.array([[[1.0]], [[3.0]], [[5.0]], [[7.0]]], dtype=np.float64)
+    v = np.ones_like(f)
+
+    base = np.asarray(
+        _flux_divergence_open(
+            f,
+            v,
+            dz=1.0,
+            limiter="mc",
+            wave=np.ones_like(f),
+        )
+    )
+    ghosted = np.asarray(
+        _flux_divergence_open(
+            f,
+            v,
+            dz=1.0,
+            limiter="mc",
+            wave=np.ones_like(f),
+            ghost_low_f=np.array([[2.0]], dtype=np.float64),
+            ghost_high_f=np.array([[8.0]], dtype=np.float64),
+            ghost_low_v=np.array([[1.0]], dtype=np.float64),
+            ghost_high_v=np.array([[1.0]], dtype=np.float64),
+        )
+    )
+
+    # The sheath ghost values should affect the first and last physical cells,
+    # not only the boundary-face flux.
+    assert not np.allclose(base[[0, 1, -2, -1]], ghosted[[0, 1, -2, -1]])
