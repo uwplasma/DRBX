@@ -588,6 +588,10 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
 - [ ] `n parallel/par` reduced below threshold.
 - [ ] `Pe parallel/par_total` reduced below threshold.
 - [ ] No regression in previously closed terms.
+- 2026-03-09: the fresh `hermes_literal/fv.py::div_par_mod` and
+  `hermes_literal/div_ops.py::div_par_centered` translations are now landed and
+  validated independently of `legacy_hermes`, including dump-backed local
+  regressions in `tests/hermes_literal/test_literal_parallel_dump.py`.
 
 ### Milestone A5: strict short-window parity (`t <= 0.1`)
 
