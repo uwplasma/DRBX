@@ -377,7 +377,7 @@ class NumericsParams(eqx.Module):
     parallel_z_mode: Literal["vmap", "scan"] = "vmap"
     parallel_limiter: Literal["none", "minmod", "mc"] = "none"
     parallel_current_limiter: Literal["same", "none", "minmod", "mc"] = "same"
-    parallel_flux_scheme: Literal["rusanov", "lax"] = "rusanov"
+    parallel_flux_scheme: Literal["rusanov", "lax", "hermes_mirror"] = "rusanov"
     parallel_fixflux: bool = True
     parallel_flux_conservative: bool = False
     parallel_momentum_model: Literal["reduced", "conservative"] = "reduced"

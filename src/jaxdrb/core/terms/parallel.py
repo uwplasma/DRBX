@@ -5,6 +5,8 @@ import jax
 import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.hermes_mirror.parallel import div_par_centered as hermes_div_par_centered
+from jaxdrb.hermes_mirror.parallel import div_par_mod as hermes_div_par_mod
 
 from .context import TermContext
 from .ops import laplacian
@@ -323,6 +325,7 @@ def _dpar_flux_conservative(
         if current_limiter != "same":
             limiter = current_limiter
     if grid is not None and getattr(grid, "open_field_line", False):
+        scheme = str(ctx.params.parallel_flux_scheme).lower()
         use_shift = (
             getattr(ctx.geom, "to_field_aligned", None) is not None
             and str(ctx.params.parallel_transform).lower() == "shifted"
@@ -339,42 +342,82 @@ def _dpar_flux_conservative(
                 boundary_flux_high, params=ctx.params, geom=ctx.geom, z_index=-1
             )
         J = getattr(ctx.geom, "jacobian", None)
+        dy = getattr(ctx.geom, "metric_dy", None)
         dpar_factor = getattr(ctx.geom, "dpar_factor", None)
         gpar = getattr(ctx.geom, "gpar", None) if ctx.params.use_gpar_flux else None
         sign = float(ctx.params.parallel_sign)
+        boundary_flux_scale = float(getattr(ctx.params, "parallel_boundary_flux_scale", 1.0))
         if wave is None:
-            div = _centered_divergence_open(
-                f,
-                float(grid.dz),
-                J=J,
-                gpar=gpar,
-                dpar_factor=dpar_factor,
-                sign=sign,
-                boundary_flux_low=boundary_flux_low,
-                boundary_flux_high=boundary_flux_high,
-            )
+            if scheme == "hermes_mirror" and (ghost_low_f is not None or ghost_high_f is not None):
+                div = hermes_div_par_centered(
+                    f,
+                    dz=float(grid.dz),
+                    dy=dy,
+                    J=J,
+                    gpar=gpar,
+                    dpar_factor=dpar_factor,
+                    sign=sign,
+                    ghost_low=ghost_low_f,
+                    ghost_high=ghost_high_f,
+                    boundary_flux_scale=boundary_flux_scale,
+                )
+            else:
+                div = _centered_divergence_open(
+                    f,
+                    float(grid.dz),
+                    J=J,
+                    gpar=gpar,
+                    dpar_factor=dpar_factor,
+                    sign=sign,
+                    boundary_flux_low=boundary_flux_low,
+                    boundary_flux_high=boundary_flux_high,
+                )
         else:
-            scheme = str(ctx.params.parallel_flux_scheme)
             fixflux = bool(ctx.params.parallel_fixflux)
-            div = _flux_divergence_open(
-                f,
-                v,
-                float(grid.dz),
-                limiter,
-                wave=wave,
-                J=J,
-                gpar=gpar,
-                dpar_factor=dpar_factor,
-                sign=sign,
-                scheme=scheme,
-                fixflux=fixflux,
-                boundary_flux_low=boundary_flux_low,
-                boundary_flux_high=boundary_flux_high,
-                ghost_low_f=ghost_low_f,
-                ghost_high_f=ghost_high_f,
-                ghost_low_v=ghost_low_v,
-                ghost_high_v=ghost_high_v,
-            )
+            if scheme == "hermes_mirror" and (
+                any(
+                    val is not None
+                    for val in (ghost_low_f, ghost_high_f, ghost_low_v, ghost_high_v)
+                )
+            ):
+                div = hermes_div_par_mod(
+                    f,
+                    v,
+                    wave,
+                    dz=float(grid.dz),
+                    dy=dy,
+                    limiter=limiter,
+                    J=J,
+                    gpar=gpar,
+                    dpar_factor=dpar_factor,
+                    sign=sign,
+                    fixflux=fixflux,
+                    ghost_low_f=ghost_low_f,
+                    ghost_high_f=ghost_high_f,
+                    ghost_low_v=ghost_low_v,
+                    ghost_high_v=ghost_high_v,
+                    boundary_flux_scale=boundary_flux_scale,
+                )
+            else:
+                div = _flux_divergence_open(
+                    f,
+                    v,
+                    float(grid.dz),
+                    limiter,
+                    wave=wave,
+                    J=J,
+                    gpar=gpar,
+                    dpar_factor=dpar_factor,
+                    sign=sign,
+                    scheme=scheme,
+                    fixflux=fixflux,
+                    boundary_flux_low=boundary_flux_low,
+                    boundary_flux_high=boundary_flux_high,
+                    ghost_low_f=ghost_low_f,
+                    ghost_high_f=ghost_high_f,
+                    ghost_low_v=ghost_low_v,
+                    ghost_high_v=ghost_high_v,
+                )
         if use_shift:
             div = ctx.geom.from_field_aligned_nox(div)
         return div
@@ -644,6 +687,12 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
                 * (sheath_data["vi_sh_u"] - sheath_data["ve_sh_u"])
                 * boundary_flux_scale
             )
+            n_mid_low = 0.5 * (ctx.n_phys[0] + sheath_data["n_lg"])
+            n_mid_high = 0.5 * (ctx.n_phys[-1] + sheath_data["n_ug"])
+            j_mid_low = n_mid_low * (sheath_data["vi_sh_l"] - sheath_data["ve_sh_l"])
+            j_mid_high = n_mid_high * (sheath_data["vi_sh_u"] - sheath_data["ve_sh_u"])
+            j_glow = 2.0 * j_mid_low - jpar_total[0]
+            j_ghigh = 2.0 * j_mid_high - jpar_total[-1]
             dpar_j = _dpar_flux_conservative(
                 ctx,
                 jpar_total,
@@ -651,6 +700,8 @@ def parallel_vars(ctx: TermContext, y: DRBSystemState) -> ParallelVars:
                 wave=None,
                 boundary_flux_low=j_low,
                 boundary_flux_high=j_high,
+                ghost_low_f=j_glow,
+                ghost_high_f=j_ghigh,
             )
         elif hasattr(ctx.geom, "div_par"):
             dpar_j = ctx.geom.div_par(jpar_total, bc_kind="dirichlet")
