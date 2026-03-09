@@ -1107,6 +1107,48 @@ layer as the dominant remaining parity blocker. The unresolved gap is now
 below the species-state layer, in the lower-level operator/communication
 contract itself.
 
+The next runtime slice promotes the density/pressure `finally()` assembly
+itself into the active mirror path. `src/jaxdrb/hermes_mirror/rhs.py` now
+contains:
+
+- `density_rhs_terms`
+- `pressure_rhs_terms`
+- `build_reduced_mirror_term_cache`
+
+and `src/jaxdrb/core/terms/registry.py` now routes the live `advection` and
+`parallel` term groups through that cache when the mirror flux schemes are
+active. The new regression `tests/hermes_mirror/test_rhs.py` checks the
+pressure-space identities directly:
+
+- the mirror density advection term equals the direct mirror ExB flux of `N`
+- the mirror pressure advection term equals the direct mirror ExB flux of `P`
+- the cached temperature-space terms reconstruct the underlying pressure-space
+  transport and work terms exactly up to floating-point roundoff
+
+The promoted strict audit `runs/audit_mirror_rhs_cache_1step` is numerically
+identical to `runs/audit_full_species_prep_1step_rerun`. That is a useful
+negative result: the remaining Milestone A gap is not in the term scheduler or
+the density/pressure `finally()` assembly order.
+
+The next lower-level contract fix lands in
+`src/jaxdrb/core/terms/parallel.py`: `_shift_boundary_flux_to_field_aligned`
+now uses the same Hermes-mirror shifted-metric transform implementation as the
+interior fields, including the spectral path selected by
+`parallel_shift_interp = "spectral"`. The regression
+`tests/test_parallel_shifted_boundary_flux.py` now covers both the linear and
+spectral boundary-plane paths.
+
+On the promoted strict audit
+`runs/audit_parallel_boundary_spectral_shift_1step`, this changes the live
+parallel terms only slightly but in the expected direction for density:
+
+- `n parallel/par`: `0.1338459414001856 -> 0.13383127252151306`
+
+while the corresponding `omega parallel/jpar` and `Pe parallel/par_total`
+metrics move only at the `1e-6` to `1e-7` level. That confirms the remaining
+parallel gap is still in the full runtime sheath / guard / transform contract,
+not just in boundary-plane interpolation or term grouping.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:

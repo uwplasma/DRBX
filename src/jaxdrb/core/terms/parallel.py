@@ -11,6 +11,14 @@ from jaxdrb.hermes_mirror.sheath import (
     ParallelSheathState,
     build_parallel_sheath_state as build_parallel_sheath_state_mirror,
 )
+from jaxdrb.hermes_mirror.transform import (
+    build_shifted_metric_fft_phases,
+    build_shifted_metric_weights,
+    to_field_aligned_all,
+    to_field_aligned_all_fft,
+    to_field_aligned_nox,
+    to_field_aligned_nox_fft,
+)
 
 from .context import TermContext
 from .ops import laplacian
@@ -284,29 +292,55 @@ def _shift_boundary_flux_to_field_aligned(
         shift = jnp.full((arr.shape[0],), shift, dtype=jnp.float64)
     if shift.ndim == 2:
         shift = jnp.mean(shift, axis=-1)
-    if shift.ndim != 1:
-        return arr
-    if int(shift.shape[0]) != int(arr.shape[0]):
+    if shift.ndim != 1 or int(shift.shape[0]) != int(arr.shape[0]):
         return arr
 
-    ny = int(arr.shape[-1])
-    y = jnp.arange(ny, dtype=jnp.float64)[None, :]
-    y_src = (y + shift[:, None]) % float(ny)
-    y0 = jnp.floor(y_src).astype(jnp.int32)
-    y1 = (y0 + 1) % ny
-    frac = y_src - y0
-    f0 = jnp.take_along_axis(arr, y0, axis=-1)
-    f1 = jnp.take_along_axis(arr, y1, axis=-1)
-    shifted = (1.0 - frac) * f0 + frac * f1
     grid = getattr(geom, "grid", None)
+    interp = str(getattr(params, "parallel_shift_interp", "spectral")).lower()
+    open_field_line = bool(getattr(grid, "open_field_line", False))
     bc = getattr(getattr(grid, "perp", None), "bc", None)
-    preserve_x_boundaries = bool(getattr(grid, "open_field_line", False)) and (
-        int(getattr(bc, "kind_x", 0)) != 0
+    preserve_x_boundaries = open_field_line and int(getattr(bc, "kind_x", 0)) != 0
+    field = arr[None, :, :]
+    if interp == "spectral":
+        z_shift = getattr(geom, "z_shift", None)
+        if z_shift is None:
+            return arr
+        z_shift_row = jnp.asarray(z_shift[z_index], dtype=jnp.float64)
+        if z_shift_row.ndim == 0:
+            z_shift_row = jnp.full((arr.shape[0],), z_shift_row, dtype=jnp.float64)
+        if z_shift_row.ndim == 2:
+            z_shift_row = jnp.mean(z_shift_row, axis=-1)
+        if z_shift_row.ndim != 1 or int(z_shift_row.shape[0]) != int(arr.shape[0]):
+            return arr
+        dy = float(getattr(getattr(grid, "perp", None), "dy", 1.0))
+        phases = build_shifted_metric_fft_phases(
+            z_shift_row[None, :],
+            nx=int(arr.shape[0]),
+            npar=1,
+            nbinorm=int(arr.shape[1]),
+            zlength=dy * float(arr.shape[1]),
+            open_field_line=open_field_line,
+        )
+        shifted = (
+            to_field_aligned_nox_fft(field, phases)
+            if preserve_x_boundaries
+            else to_field_aligned_all_fft(field, phases)
+        )
+        return shifted[0]
+
+    weights = build_shifted_metric_weights(
+        shift[None, :],
+        nx=int(arr.shape[0]),
+        npar=1,
+        nbinorm=int(arr.shape[1]),
+        open_field_line=open_field_line,
     )
-    if preserve_x_boundaries and arr.shape[0] > 1:
-        shifted = shifted.at[0].set(arr[0])
-        shifted = shifted.at[-1].set(arr[-1])
-    return shifted
+    shifted = (
+        to_field_aligned_nox(field, weights)
+        if preserve_x_boundaries
+        else to_field_aligned_all(field, weights)
+    )
+    return shifted[0]
 
 
 def _dpar_flux_conservative(

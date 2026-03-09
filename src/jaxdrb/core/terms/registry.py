@@ -8,6 +8,7 @@ import jax.numpy as jnp
 
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state_zeros_like
+from jaxdrb.hermes_mirror.rhs import build_reduced_mirror_term_cache
 
 from .advection import exb_advection_terms
 from .bc_relaxation import field_bc_relaxation
@@ -92,6 +93,15 @@ def _get_par(work: dict[str, object], ctx: TermContext, y: DRBSystemState):
     return par
 
 
+def _get_reduced_mirror_terms(work: dict[str, object], ctx: TermContext, y: DRBSystemState):
+    cached = work.get("reduced_mirror_terms")
+    if cached is None:
+        par = _get_par(work, ctx, y)
+        cached = build_reduced_mirror_term_cache(ctx, y, par=par)
+        work["reduced_mirror_terms"] = cached
+    return cached
+
+
 def _log_term_nTe(ctx: TermContext, term: DRBSystemState) -> DRBSystemState:
     return DRBSystemState(
         n=log_rhs(ctx.params, term.n, ctx.n_phys, ctx.n_floor, ctx.params.log_n),
@@ -106,7 +116,10 @@ def _log_term_nTe(ctx: TermContext, term: DRBSystemState) -> DRBSystemState:
 
 
 def _term_advection(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
-    term = exb_advection_terms(ctx, y)
+    if str(getattr(ctx.params, "exb_flux_scheme", "centered")).lower() == "hermes_mirror":
+        term = _get_reduced_mirror_terms(work, ctx, y).advection
+    else:
+        term = exb_advection_terms(ctx, y)
     term = _log_term_nTe(ctx, term)
     return DRBSystemState(
         n=term.n,
@@ -121,8 +134,11 @@ def _term_advection(ctx: TermContext, y: DRBSystemState, work: dict[str, object]
 
 
 def _term_parallel(ctx: TermContext, y: DRBSystemState, work: dict[str, object]) -> DRBSystemState:
-    par = _get_par(work, ctx, y)
-    term = parallel_conservative_terms(ctx, y, par)
+    if str(getattr(ctx.params, "parallel_flux_scheme", "rusanov")).lower() == "hermes_mirror":
+        term = _get_reduced_mirror_terms(work, ctx, y).parallel
+    else:
+        par = _get_par(work, ctx, y)
+        term = parallel_conservative_terms(ctx, y, par)
     term = _log_term_nTe(ctx, term)
     return DRBSystemState(
         n=term.n,
