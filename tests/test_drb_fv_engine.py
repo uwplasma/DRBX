@@ -53,6 +53,13 @@ def test_load_config_engine_alias(tmp_path: Path) -> None:
     assert cfg.data["engine"] == "drb_fv"
 
 
+def test_load_config_hermes_literal_alias(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "input.toml"
+    cfg_path.write_text('engine = "literal_hermes"\n', encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.data["engine"] == "hermes_literal"
+
+
 def test_load_config_invalid_engine(tmp_path: Path) -> None:
     cfg_path = tmp_path / "bad.toml"
     cfg_path.write_text('engine = "invalid_engine"\n', encoding="utf-8")

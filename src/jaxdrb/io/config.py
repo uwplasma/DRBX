@@ -23,7 +23,15 @@ class DRBConfig:
         return value
 
 
-_VALID_ENGINES = {"unified", "drb_fv", "fv_drb", "drb-fv"}
+_VALID_ENGINES = {
+    "unified",
+    "drb_fv",
+    "fv_drb",
+    "drb-fv",
+    "hermes_literal",
+    "literal_hermes",
+    "hermes-literal",
+}
 
 
 def load_config(path: str | Path) -> DRBConfig:
@@ -33,5 +41,10 @@ def load_config(path: str | Path) -> DRBConfig:
     engine = str(data.get("engine", "unified")).strip().lower()
     if engine not in _VALID_ENGINES:
         raise ValueError(f"Invalid engine '{engine}'. Valid options: {sorted(_VALID_ENGINES)}")
-    data["engine"] = "drb_fv" if engine in {"fv_drb", "drb-fv"} else engine
+    if engine in {"fv_drb", "drb-fv"}:
+        data["engine"] = "drb_fv"
+    elif engine in {"literal_hermes", "hermes-literal"}:
+        data["engine"] = "hermes_literal"
+    else:
+        data["engine"] = engine
     return DRBConfig(data=data)

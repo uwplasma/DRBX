@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from jaxdrb.hermes_mirror.parallel import div_par_centered, div_par_mod
+from jaxdrb.legacy_hermes.parallel import div_par_centered, div_par_mod
 
 
 def test_div_par_mod_uses_ghost_midpoint_boundary_flux() -> None:

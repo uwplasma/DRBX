@@ -6,7 +6,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from jaxdrb.bc import BC2D
-from jaxdrb.hermes_mirror import div_n_bxgrad_f_b_xppm
+from jaxdrb.legacy_hermes import div_n_bxgrad_f_b_xppm
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_exb_global_t1.npz"
 

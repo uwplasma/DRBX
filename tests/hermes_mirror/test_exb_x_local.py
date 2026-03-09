@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror import (
+from jaxdrb.legacy_hermes import (
     FieldAlignedLocalLayout,
     div_n_bxgrad_f_b_xppm_xy_x_local,
     div_n_bxgrad_f_b_xppm_xy_x_local_from_fields,

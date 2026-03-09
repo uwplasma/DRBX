@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxdrb.hermes_mirror import (
+from jaxdrb.legacy_hermes import (
     GuardLayout,
     Stencil1D,
     apply_free_o2_field3d,

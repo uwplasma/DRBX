@@ -8,7 +8,7 @@ import numpy as np
 
 from jaxdrb.core.geometry_field_aligned import FieldAlignedGeometryAdapter, FieldAlignedGrid
 from jaxdrb.core.params import DRBSystemParams, NumericsParams
-from jaxdrb.hermes_mirror import (
+from jaxdrb.legacy_hermes import (
     build_shifted_metric_fft_phases,
     build_shifted_metric_weights,
     from_field_aligned_all_fft,
