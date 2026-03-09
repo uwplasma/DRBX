@@ -392,9 +392,9 @@ Acceptance:
 
 - [x] local `DDX -> applyBoundary("neumann") -> toFieldAligned` prep helper exists
 - [x] mirror density `transform_impl`
-- [ ] mirror density `finally`
+- [x] mirror density `finally`
 - [x] mirror pressure `transform_impl`
-- [ ] mirror pressure `finally`
+- [x] mirror pressure `finally`
 - [x] mirror sheath guard preparation order used by Stage 1 baseline
 
 Acceptance:
@@ -946,6 +946,32 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   valid narrowing result: the dominant remaining Milestone A gap is now more
   clearly below the density/pressure state-preparation layer, in the lower
   operator / communication contract.
+- 2026-03-09: `src/jaxdrb/hermes_mirror/rhs.py` now contains the reduced-model
+  density and pressure `finally()` assembly used by the strict mirror runtime:
+  `density_rhs_terms`, `pressure_rhs_terms`, and
+  `build_reduced_mirror_term_cache`. `src/jaxdrb/core/terms/registry.py` now
+  routes the live `advection` and `parallel` term groups through that cache
+  whenever `exb_flux_scheme = "hermes_mirror"` or
+  `parallel_flux_scheme = "hermes_mirror"`. This closes the Phase 4
+  density/pressure `finally()` item at the runtime assembly level.
+- 2026-03-09: the promoted strict audit
+  `runs/audit_mirror_rhs_cache_1step` is numerically identical to
+  `runs/audit_full_species_prep_1step_rerun`. That rules out the scheduler/RHS
+  assembly layer as the remaining Milestone A blocker.
+- 2026-03-09: the next lower contract fix landed in
+  `src/jaxdrb/core/terms/parallel.py`: shifted boundary ghost planes now use
+  the same Hermes-mirror shifted-metric implementation as interior fields,
+  including the spectral path selected by
+  `parallel_shift_interp = "spectral"`. The new regression is
+  `tests/test_parallel_shifted_boundary_flux.py`.
+- 2026-03-09: the promoted strict audit
+  `runs/audit_parallel_boundary_spectral_shift_1step` shows the expected
+  lower-level effect: `n parallel/par`
+  `0.1338459414001856 -> 0.13383127252151306`, while
+  `omega parallel/jpar` and `Pe parallel/par_total` move only at the
+  numerical-noise level. The remaining blocker is therefore still the runtime
+  sheath / guard / transform contract feeding the mirror parallel operator as a
+  whole, not just the term assembly or boundary-plane interpolation choice.
 
 ---
 

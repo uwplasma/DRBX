@@ -883,6 +883,47 @@ still a useful Milestone A result: the remaining live parity gap is now even
 more clearly below the species-state layer, in the lower-level
 operator/communication contract.
 
+The next strict-runtime slice promotes the density/pressure `finally()`
+assembly itself into the mirror term path. The new module
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_mirror/rhs.py`
+contains:
+
+- `density_rhs_terms`
+- `pressure_rhs_terms`
+- `build_reduced_mirror_term_cache`
+
+and `/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/registry.py` now uses
+that cache for the live `advection` and `parallel` term groups whenever the
+mirror flux schemes are active. The regression
+`/Users/rogerio/local/jax_drb/tests/hermes_mirror/test_rhs.py` checks the
+pressure-space identities directly. On the promoted audit
+`/Users/rogerio/local/jax_drb/runs/audit_mirror_rhs_cache_1step`, the strict
+numbers are unchanged relative to
+`/Users/rogerio/local/jax_drb/runs/audit_full_species_prep_1step_rerun` down
+to roundoff. That closes the runtime density/pressure `finally()` assembly
+question without changing the live parity leaders.
+
+The next lower contract fix lands in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/core/terms/parallel.py`:
+`_shift_boundary_flux_to_field_aligned` now uses the same Hermes-mirror
+shifted-metric transform implementation as interior fields, including the
+spectral path requested by the strict config. The regression
+`/Users/rogerio/local/jax_drb/tests/test_parallel_shifted_boundary_flux.py`
+now covers both linear and spectral boundary-plane shifts.
+
+On the promoted audit
+`/Users/rogerio/local/jax_drb/runs/audit_parallel_boundary_spectral_shift_1step`,
+the effect is small but real at the intended layer:
+
+- `n parallel/par`: `0.1338459414001856 -> 0.13383127252151306`
+- `omega parallel/jpar`: `0.11697747997572525 -> 0.11697795624618619`
+- `Pe parallel/par_total`: `0.11330118219042934 -> 0.1133024567583403`
+
+So this source-true boundary-plane transform fix is numerically neutral to
+slightly positive, and the remaining Milestone A blocker is still the full
+runtime sheath / guard / transform contract feeding the mirror parallel
+operator.
+
 ## 2) Build Hermes bundle (same normalization metadata)
 
 ```bash
