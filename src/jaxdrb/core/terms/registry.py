@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state_zeros_like
-from jaxdrb.legacy_hermes.rhs import build_reduced_mirror_term_cache
+from jaxdrb.hermes_literal.rhs import build_reduced_mirror_term_cache
 
 from .advection import exb_advection_terms
 from .bc_relaxation import field_bc_relaxation
