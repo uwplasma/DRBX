@@ -1019,6 +1019,59 @@ are unchanged relative to the previous promoted live baseline. So the
 remaining parallel mismatch is now isolated to the runtime sheath / guard /
 transform contract feeding the operator, not the mirrored FV operator itself.
 
+The next source-true layer lands that missing guard contract in
+`src/jaxdrb/hermes_mirror/sheath.py`. This is a literal JAX translation of the
+open-end guard updates in
+`/Users/rogerio/local/hermes-3/src/sheath_boundary.cxx` for the variables
+actually consumed by the strict parallel mirror path:
+
+- `Ne`, `Te`, `Pe` sheath ghosts with `limitFree(...)`
+- `phi` guard extrapolation
+- midpoint `vesheath` / `visheath`
+- `Ve`, `NVe`, `Vi`, `NVi`, and `jpar` guard reconstruction
+
+The dump-backed regression layer now includes both end ranks:
+
+- `tests/fixtures/hermes_mirror_parallel_local_rank0_t1.npz`
+- `tests/fixtures/hermes_mirror_parallel_local_rank5_t1.npz`
+- `tests/hermes_mirror/test_sheath.py`
+
+Those regressions verify both the guard states and the local mirrored operator
+fed by reconstructed guards rather than dumped guards. On the strict Hermes
+fixture, the open-end guard RMS is:
+
+- lower end rank: `Ne 7.63e-4`, `Te 2.60e-4`, `Pe 8.33e-7`, `Ve 6.06e-3`,
+  `NVe 2.77e-6`, `NVd+ 1.26e-3`
+- upper end rank: `Ne 2.59e-3`, `Te 8.52e-4`, `Pe 2.10e-6`, `Ve 1.96e-2`,
+  `NVe 7.80e-6`, `NVd+ 3.76e-3`
+
+and the reconstructed-guard local operator still matches Hermes within:
+
+- `term_Ne_par` RMS `< 4e-4`
+- `term_Pe_par` RMS `< 3e-4`
+- `term_Vort_jpar` RMS `< 2e-5`
+
+Promoting that guard builder alone did not move the live strict audit. That
+showed the remaining mismatch was not the formulas themselves, but the
+shifted-transform ordering in the runtime path. In
+`src/jaxdrb/core/terms/parallel.py`, the active solver was already shifting the
+cell-centered fields and explicit boundary flux planes into field-aligned
+coordinates, but it was not shifting `ghost_low/high_f` or `ghost_low/high_v`.
+
+That omission is now fixed and covered by
+`tests/test_parallel_shifted_boundary_flux.py`. The promoted 1-step audit
+`runs/audit_sheath_shifted_ghosts_1step` then gives a small real improvement:
+
+- `n parallel/par`: `0.13448644700674087 -> 0.1338459414001929`
+- `omega parallel/jpar`: `0.1169915003671119 -> 0.11697747997572151`
+- `Pe parallel/par_total`: `0.11335202275260099 -> 0.11330118219042988`
+
+The magnitude is small, but the meaning is important: the remaining parallel
+gap is no longer explained by an unimplemented sheath guard formula or by a
+missing shifted-ghost transform call in the promoted mirror stack. The 3-step
+confirm window `runs/audit_sheath_shifted_ghosts_3step` keeps the same
+direction of change through `t=0.03`.
+
 ## References
 
 - Dudson et al., Hermes-3 code and documentation:
