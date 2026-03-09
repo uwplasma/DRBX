@@ -1,6 +1,6 @@
 # jax_drb Agent Handoff + Master Plan
 
-Last update: 2026-03-08
+Last update: 2026-03-09
 Owner: `jax_drb` core team
 Primary workspace: `/Users/rogerio/local/jax_drb`
 
@@ -836,6 +836,24 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   now `n parallel/par`, `Te parallel/par_total`, and `Pe parallel/par_total`,
   with the audit-level `Te/Pe sheath source_residual_boundary` bookkeeping gap
   still pending as a separate boundary-energy follow-up.
+- 2026-03-09: the next strict parallel slice tightened the open-field
+  finite-volume density and pressure channels to use sheath ghost states in
+  the boundary-adjacent limited reconstruction, not only in the explicit
+  sheath face flux. The confirm audit
+  `runs/audit_parallel_ghost_stencil_confirm_1step` gives a small but real
+  reduction in the promoted parallel leaders at `t=0.01`:
+  `n parallel/par 0.15689932456328756 -> 0.15650650752322878`,
+  `Te parallel/par_total 0.15587502102513381 -> 0.1556861680908554`,
+  `Pe parallel/par_total 0.15453748447303708 -> 0.154109603265596`,
+  while `omega parallel/jpar` stays fixed at `0.11715792736854537`.
+- 2026-03-09: a simpler sheath-energy hypothesis was explicitly rejected.
+  Replacing the current electron-sheath energy closure with a constant
+  Hermes-like `gamma_e = 3.5` contract made the audit-level boundary-energy
+  rows diverge badly in `runs/audit_parallel_and_sheath_fix_1step`
+  (`Te sheath/source_residual_boundary 0.26493593205386157 -> 8.4765`,
+  `Pe sheath/source_residual_boundary 0.11172993716659292 -> 3.6046`).
+  The remaining `Te/Pe sheath source_residual_boundary` gap is therefore in
+  the bookkeeping contract, not a single gamma coefficient.
 
 ---
 
