@@ -1094,6 +1094,25 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   while the leading parallel rows remain unchanged at about
   `0.113-0.147`. This is progress, not closure: Milestone A is still above the
   `1e-2` target and should not be promoted to longer benchmark windows yet.
+- 2026-03-09: `src/jaxdrb/hermes_literal/communicate.py` now owns the local
+  parallel-slab assembly used by the promoted literal ExB runtime. The new
+  regression is `tests/hermes_literal/test_literal_communicate.py`.
+- 2026-03-09: `src/jaxdrb/hermes_literal/exb.py` now builds its promoted
+  `MYSUB`-sized local slabs through that helper, while preserving the current
+  validated internal seam contract. The stitched global Hermes regression in
+  `tests/hermes_literal/test_literal_exb_runtime.py` is unchanged at the
+  improved `Ne/Pe` raw relative errors `0.06090172693816785 / 0.06601079736963186`.
+- 2026-03-09: the strict 1-step audit
+  `runs/audit_literal_comm_layer_1step` is numerically identical to
+  `runs/audit_literal_subdomain_parallel_1step` on the leading rows. This
+  slice is therefore architectural, not a new parity jump: it removes hidden
+  ExB runtime assembly logic without changing the promoted literal baseline.
+- 2026-03-09: `src/jaxdrb/hermes_literal/context.py` now resolves BCs and
+  `is_2d` through local copies in
+  `src/jaxdrb/hermes_literal/bcs.py` and
+  `src/jaxdrb/hermes_literal/ops.py` rather than importing those helpers from
+  `core.terms`. The remaining major shared Stage 1 context dependency is still
+  the Poisson/field helper layer in `core.terms.fields`.
 
 ---
 

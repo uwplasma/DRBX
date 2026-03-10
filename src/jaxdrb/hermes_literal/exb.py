@@ -11,6 +11,11 @@ import jax.numpy as jnp
 from jaxdrb.bc import BC2D
 
 from .boundary import apply_free_o2_field3d, apply_neumann_field3d
+from .communicate import (
+    build_parallel_subdomain,
+    slice_parallel_subdomain_2d,
+    slice_parallel_subdomain_3d,
+)
 from .primitives import Stencil1D, mc_limiter
 from .species import (
     prepare_poloidal_x_dfdy_local,
@@ -1194,6 +1199,202 @@ def _pad_runtime_metric(
     )[:, :, 0]
 
 
+def _pad_x_metric_runtime(
+    metric: jnp.ndarray,
+    *,
+    periodic_x: bool,
+) -> jnp.ndarray:
+    metric_arr = jnp.asarray(metric, dtype=jnp.float64)
+    if periodic_x:
+        return jnp.concatenate([metric_arr[:, -2:], metric_arr, metric_arr[:, :2]], axis=1)
+    edge_l = metric_arr[:, :1]
+    edge_r = metric_arr[:, -1:]
+    x_padded = jnp.concatenate([edge_l, edge_l, metric_arr, edge_r, edge_r], axis=1)
+    return apply_neumann_field3d(
+        x_padded[:, :, None],
+        axis=1,
+        interior_start=2,
+        interior_end=metric_arr.shape[1] + 1,
+        spacing=1.0,
+        lower_gradient=0.0,
+        upper_gradient=0.0,
+        guard_width=2,
+    )[:, :, 0]
+
+
+def _runtime_local_subdomain_from_xpadded(
+    field_x: jnp.ndarray,
+    phi_x: jnp.ndarray,
+    *,
+    start: int,
+    stop: int,
+    nx_physical: int,
+    J_x: jnp.ndarray,
+    dx_x: jnp.ndarray,
+    dy_x: jnp.ndarray,
+    dz_x: jnp.ndarray,
+    g11_x: jnp.ndarray,
+    g23_x: jnp.ndarray,
+    bxy_x: jnp.ndarray,
+    zshift_x: jnp.ndarray,
+    zlength: float,
+    bc_kind_x: int,
+    bc_value_x: object,
+    bc_grad_x: object,
+    phi_kind_x: int,
+    phi_value_x: object,
+    phi_grad_x: object,
+    bndry_flux: bool,
+    poloidal: bool,
+    positive: bool,
+    interp: str,
+    neumann_boundary_average_z: bool,
+    use_mc: bool,
+    apply_free_o2_adv: bool,
+    periodic_parallel: bool,
+    periodic_binormal: bool,
+    lower_boundary_open: bool,
+    upper_boundary_open: bool,
+    poloidal_scale: float,
+    poloidal_x_scale: float,
+    poloidal_y_scale: float,
+) -> jnp.ndarray:
+    stop_i = int(stop)
+    start_i = int(start)
+    subdomain = build_parallel_subdomain(
+        start=start_i,
+        stop=stop_i,
+        guard_width=2,
+        open_field_line=not periodic_parallel,
+    )
+    apply_lower = bool(lower_boundary_open and start_i == 0)
+    apply_upper = bool(upper_boundary_open and stop_i == int(field_x.shape[0]))
+    field_local = slice_parallel_subdomain_3d(
+        field_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    phi_local = slice_parallel_subdomain_3d(
+        phi_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    J_local = slice_parallel_subdomain_2d(
+        J_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    dx_local = slice_parallel_subdomain_2d(
+        dx_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    dy_local = slice_parallel_subdomain_2d(
+        dy_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    dz_local = slice_parallel_subdomain_2d(
+        dz_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    g11_local = slice_parallel_subdomain_2d(
+        g11_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    g23_local = slice_parallel_subdomain_2d(
+        g23_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    bxy_local = slice_parallel_subdomain_2d(
+        bxy_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    zshift_local = slice_parallel_subdomain_2d(
+        zshift_x,
+        subdomain=subdomain,
+        periodic_parallel=periodic_parallel,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+    )
+    layout = subdomain.layout(nx=nx_physical)
+    if apply_free_o2_adv:
+        field_local = apply_free_o2_field3d(
+            field_local,
+            axis=1,
+            interior_start=layout.xstart,
+            interior_end=layout.xend,
+            guard_width=layout.x_guards,
+        )
+        if not periodic_parallel:
+            field_local = apply_free_o2_field3d(
+                field_local,
+                axis=0,
+                interior_start=layout.pstart,
+                interior_end=layout.pend,
+                guard_width=layout.p_guards,
+                apply_lower=apply_lower,
+                apply_upper=apply_upper,
+            )
+    result_local = div_n_bxgrad_f_b_xppm_local(
+        field_local,
+        phi_local,
+        jacobian=J_local,
+        dx=dx_local,
+        dy=dy_local,
+        dz=dz_local,
+        g11=g11_local,
+        g23=g23_local,
+        bxy=bxy_local,
+        z_shift=zshift_local,
+        zlength=zlength,
+        layout=layout,
+        bndry_flux=bndry_flux,
+        poloidal=poloidal,
+        positive=positive,
+        interp=interp,
+        bc_kind_x=bc_kind_x,
+        bc_value_x=bc_value_x,
+        bc_grad_x=bc_grad_x,
+        neumann_boundary_average_z=neumann_boundary_average_z,
+        use_mc=use_mc,
+        periodic_parallel=periodic_parallel,
+        periodic_binormal=periodic_binormal,
+        lower_boundary_open=apply_lower,
+        upper_boundary_open=apply_upper,
+        poloidal_scale=poloidal_scale,
+        poloidal_x_scale=poloidal_x_scale,
+        poloidal_y_scale=poloidal_y_scale,
+    )
+    return result_local[
+        layout.pstart : layout.pend + 1,
+        layout.xstart : layout.xend + 1,
+        :,
+    ]
+
+
 def _runtime_local_edge_block(
     field: jnp.ndarray,
     phi: jnp.ndarray,
@@ -1584,25 +1785,53 @@ def div_n_bxgrad_f_b_xppm(
     )
     result = result_local[interior]
 
+    need_local_subdomains = (int(parallel_subdomain_size) > 0 or int(parallel_edge_block) > 0) and (
+        not periodic_parallel
+    )
+    if need_local_subdomains:
+        n_x = _pad_x_runtime(
+            n_arr,
+            bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
+            bc_value_x=getattr(bc_adv, "x_value", 0.0),
+            bc_grad_x=getattr(bc_adv, "x_grad", 0.0),
+            dx=dx2d,
+        )
+        f_x = _pad_x_runtime(
+            f_arr,
+            bc_kind_x=phi_kind_x,
+            bc_value_x=getattr(bc_phi, "x_value", 0.0),
+            bc_grad_x=getattr(bc_phi, "x_grad", 0.0),
+            dx=dx2d,
+        )
+        J_x = _pad_x_metric_runtime(J2d, periodic_x=periodic_x)
+        dx_x = _pad_x_metric_runtime(dx2d, periodic_x=periodic_x)
+        dy_x = _pad_x_metric_runtime(dy2d, periodic_x=periodic_x)
+        dz_x = _pad_x_metric_runtime(dz2d, periodic_x=periodic_x)
+        g11_x = _pad_x_metric_runtime(g11_2d, periodic_x=periodic_x)
+        g23_x = _pad_x_metric_runtime(g23_2d, periodic_x=periodic_x)
+        bxy_x = _pad_x_metric_runtime(bxy_2d, periodic_x=periodic_x)
+        zshift_x = _pad_x_metric_runtime(zshift_2d, periodic_x=periodic_x)
+
     subdomain = int(parallel_subdomain_size)
     if subdomain > 0 and (not periodic_parallel) and subdomain < nz:
         pieces: list[jnp.ndarray] = []
         for start in range(0, nz, subdomain):
-            block = min(subdomain, nz - start)
+            stop = min(start + subdomain, nz)
             pieces.append(
-                _runtime_local_edge_block(
-                    n_arr,
-                    f_arr,
+                _runtime_local_subdomain_from_xpadded(
+                    n_x,
+                    f_x,
                     start=start,
-                    block=block,
-                    dx2d=dx2d,
-                    dy2d=dy2d,
-                    dz2d=dz2d,
-                    J2d=J2d,
-                    g11_2d=g11_2d,
-                    g23_2d=g23_2d,
-                    bxy_2d=bxy_2d,
-                    zshift_2d=zshift_2d,
+                    stop=stop,
+                    nx_physical=nx,
+                    J_x=J_x,
+                    dx_x=dx_x,
+                    dy_x=dy_x,
+                    dz_x=dz_x,
+                    g11_x=g11_x,
+                    g23_x=g23_x,
+                    bxy_x=bxy_x,
+                    zshift_x=zshift_x,
                     zlength=zlength,
                     bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
                     bc_value_x=getattr(bc_adv, "x_value", 0.0),
@@ -1631,19 +1860,20 @@ def div_n_bxgrad_f_b_xppm(
     edge_block = int(parallel_edge_block)
     if edge_block > 0 and (not periodic_parallel) and (2 * edge_block) < nz and edge_block <= nz:
         result = result.at[:edge_block].set(
-            _runtime_local_edge_block(
-                n_arr,
-                f_arr,
+            _runtime_local_subdomain_from_xpadded(
+                n_x,
+                f_x,
                 start=0,
-                block=edge_block,
-                dx2d=dx2d,
-                dy2d=dy2d,
-                dz2d=dz2d,
-                J2d=J2d,
-                g11_2d=g11_2d,
-                g23_2d=g23_2d,
-                bxy_2d=bxy_2d,
-                zshift_2d=zshift_2d,
+                stop=edge_block,
+                nx_physical=nx,
+                J_x=J_x,
+                dx_x=dx_x,
+                dy_x=dy_x,
+                dz_x=dz_x,
+                g11_x=g11_x,
+                g23_x=g23_x,
+                bxy_x=bxy_x,
+                zshift_x=zshift_x,
                 zlength=zlength,
                 bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
                 bc_value_x=getattr(bc_adv, "x_value", 0.0),
@@ -1668,19 +1898,20 @@ def div_n_bxgrad_f_b_xppm(
             )
         )
         result = result.at[nz - edge_block :].set(
-            _runtime_local_edge_block(
-                n_arr,
-                f_arr,
+            _runtime_local_subdomain_from_xpadded(
+                n_x,
+                f_x,
                 start=nz - edge_block,
-                block=edge_block,
-                dx2d=dx2d,
-                dy2d=dy2d,
-                dz2d=dz2d,
-                J2d=J2d,
-                g11_2d=g11_2d,
-                g23_2d=g23_2d,
-                bxy_2d=bxy_2d,
-                zshift_2d=zshift_2d,
+                stop=nz,
+                nx_physical=nx,
+                J_x=J_x,
+                dx_x=dx_x,
+                dy_x=dy_x,
+                dz_x=dz_x,
+                g11_x=g11_x,
+                g23_x=g23_x,
+                bxy_x=bxy_x,
+                zshift_x=zshift_x,
                 zlength=zlength,
                 bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
                 bc_value_x=getattr(bc_adv, "x_value", 0.0),
