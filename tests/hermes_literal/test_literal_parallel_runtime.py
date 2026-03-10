@@ -6,9 +6,15 @@ from pathlib import Path
 import numpy as np
 
 from jaxdrb.core.terms import build_context
-from jaxdrb.core.terms.parallel import parallel_vars as unified_parallel_vars
+from jaxdrb.core.terms.parallel import (
+    parallel_conservative_terms as unified_parallel_conservative_terms,
+    parallel_vars as unified_parallel_vars,
+)
 from jaxdrb.driver import build_system_from_config
-from jaxdrb.hermes_literal.parallel import parallel_vars as literal_parallel_vars
+from jaxdrb.hermes_literal.parallel import (
+    parallel_conservative_terms as literal_parallel_conservative_terms,
+    parallel_vars as literal_parallel_vars,
+)
 
 
 def _strict_cfg() -> dict:
@@ -42,3 +48,9 @@ def test_literal_parallel_runtime_matches_frozen_runtime_contract() -> None:
     assert np.allclose(
         np.asarray(literal.sheath_data.n_ghost_high), np.asarray(unified.sheath_data.n_ghost_high)
     )
+
+    literal_terms = literal_parallel_conservative_terms(ctx, built.state, literal)
+    unified_terms = unified_parallel_conservative_terms(ctx, built.state, unified)
+    assert np.allclose(np.asarray(literal_terms.n), np.asarray(unified_terms.n), atol=1e-6)
+    assert np.allclose(np.asarray(literal_terms.omega), np.asarray(unified_terms.omega), atol=1e-12)
+    assert np.allclose(np.asarray(literal_terms.Te), np.asarray(unified_terms.Te), atol=1e-6)

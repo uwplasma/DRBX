@@ -19,9 +19,11 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
+from jaxdrb.hermes_literal.advection import exb_advection_terms
 from jaxdrb.hermes_literal.parallel import (
     dpar_flux_conservative,
     fastest_wave,
+    parallel_conservative_terms,
     parallel_vars,
     pressure_transport_coeffs,
 )
@@ -258,9 +260,6 @@ def pressure_rhs_terms(
 
 def build_reduced_mirror_term_cache(ctx, y: DRBSystemState, par=None) -> ReducedMirrorTermCache:
     """Assemble the reduced-model advection and parallel term groups via Hermes order."""
-
-    from jaxdrb.core.terms.advection import exb_advection_terms
-    from jaxdrb.core.terms.parallel import parallel_conservative_terms, parallel_vars
 
     if par is None:
         par = parallel_vars(ctx, y)
