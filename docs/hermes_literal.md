@@ -195,6 +195,15 @@ contract for:
 This does not change the strict audit ranking, but it removes another shared
 runtime dependency from the literal engine itself.
 
+The literal engine now also imports its schedule and dispatch table through:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/registry.py`
+
+instead of importing `core.terms.registry` directly from `engine.py`. The new
+regression `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_registry.py`
+locks the current Stage 1 contract by checking that the literal registry still
+matches the active schedule and term names used by the strict engine.
+
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture

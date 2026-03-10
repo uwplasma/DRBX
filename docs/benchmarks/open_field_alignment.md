@@ -1144,6 +1144,22 @@ contract for `n_phys`, `Te_phys`, `phi`, and the prepared density/pressure
 fields. This slice is again architectural rather than a parity jump, but it
 removes another direct dependency from the literal engine onto `core/terms`.
 
+### 2026-03-09 literal registry rehome
+
+The literal engine now imports its schedule and dispatch table through:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/registry.py`
+
+instead of importing `core.terms.registry` directly from `engine.py`. The new
+regression:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_registry.py`
+
+locks the current Stage 1 contract by checking that the literal registry still
+matches the active schedule and term names used by the strict engine. This is
+again architectural, but it narrows the remaining hybrid surface area inside
+the literal runtime itself.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
