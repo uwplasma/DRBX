@@ -8,6 +8,7 @@ import numpy as np
 from jaxdrb.core.terms import build_context as build_core_context
 from jaxdrb.driver import build_system_from_config
 from jaxdrb.hermes_literal.context import build_context as build_literal_context
+from jaxdrb.hermes_literal.field import interior_view
 
 
 def _strict_cfg() -> dict:
@@ -37,3 +38,23 @@ def test_literal_context_matches_frozen_runtime_contract() -> None:
     assert literal.hot_on == core.hot_on
     assert literal.em_on == core.em_on
     assert literal.neut_on == core.neut_on
+    assert literal.literal_state is not None
+    state = literal.literal_state
+    assert state.electrons.layout is not None
+    assert state.fields.layout is not None
+    np.testing.assert_allclose(
+        np.asarray(interior_view(state.electrons.density_guarded, state.electrons.layout)),
+        np.asarray(literal.n_prepared),
+    )
+    np.testing.assert_allclose(
+        np.asarray(interior_view(state.electrons.temperature_guarded, state.electrons.layout)),
+        np.asarray(literal.Te_prepared),
+    )
+    np.testing.assert_allclose(
+        np.asarray(interior_view(state.fields.phi_guarded, state.fields.layout)),
+        np.asarray(literal.phi),
+    )
+    np.testing.assert_allclose(
+        np.asarray(state.fields.fastest_wave),
+        np.asarray(literal.literal_state.fields.fastest_wave),
+    )
