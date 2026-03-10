@@ -309,3 +309,43 @@ preserves the previous fail-fast ordering rather than regressing it:
 - `n parallel/par`: `weighted_array_rel = 0.13383127252151306`
 - `omega parallel/jpar`: `weighted_array_rel = 0.11697795624618619`
 - `Pe parallel/par_total`: `weighted_array_rel = 0.1133024567583403`
+
+### 2026-03-10 literal Stage 1 term-layer rehome
+
+The strict `hermes_literal` engine no longer imports any Stage 1 term modules,
+schedules, or helper layers from `core.terms`. The following files are now
+owned directly in the literal package:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/fields.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/sol.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/bc_relaxation.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/braginskii.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/curvature.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/diamagnetic.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/diffusion.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/drive.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/extra_dissipation.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/line_bcs.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/neutrals.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/perp_bc.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/region_bc.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/sheath_terms.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/volume_source.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/registry.py`
+
+This cut is deliberately parity-neutral. The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_local_registry_1step`
+is numerically identical to
+`/Users/rogerio/local/jax_drb/runs/audit_literal_comm_layer_1step`
+on the leading rows:
+
+- `n parallel/par = 0.1338298917677307`
+- `omega parallel/jpar = 0.11697795624618619`
+- `Te parallel/par_total = 0.14748382093236653`
+- `Pe parallel/par_total = 0.11330241103262646`
+- `n advection/exb = 0.06021497597645309`
+- `Pe advection/exb = 0.0417892594173691`
+
+The value of this slice is structural: the active strict engine now owns its
+Stage 1 term layer outright, so the remaining parity gap is in the runtime
+state/communication/geometry contract rather than in shared unified term code.

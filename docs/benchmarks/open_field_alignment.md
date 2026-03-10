@@ -1234,6 +1234,53 @@ current promoted literal baseline intact while removing more hidden runtime
 logic from the ExB wrapper and shrinking the remaining `core.terms`
 dependencies.
 
+### 2026-03-10 literal Stage 1 term-layer rehome
+
+The strict engine no longer imports Stage 1 schedules or term implementations
+from `core.terms`. The local literal package now owns:
+
+- `src/jaxdrb/hermes_literal/fields.py`
+- `src/jaxdrb/hermes_literal/sol.py`
+- `src/jaxdrb/hermes_literal/bc_relaxation.py`
+- `src/jaxdrb/hermes_literal/braginskii.py`
+- `src/jaxdrb/hermes_literal/curvature.py`
+- `src/jaxdrb/hermes_literal/diamagnetic.py`
+- `src/jaxdrb/hermes_literal/diffusion.py`
+- `src/jaxdrb/hermes_literal/drive.py`
+- `src/jaxdrb/hermes_literal/extra_dissipation.py`
+- `src/jaxdrb/hermes_literal/line_bcs.py`
+- `src/jaxdrb/hermes_literal/neutrals.py`
+- `src/jaxdrb/hermes_literal/perp_bc.py`
+- `src/jaxdrb/hermes_literal/region_bc.py`
+- `src/jaxdrb/hermes_literal/sheath_terms.py`
+- `src/jaxdrb/hermes_literal/volume_source.py`
+- `src/jaxdrb/hermes_literal/registry.py`
+
+Focused literal-engine regressions stay green:
+
+- `tests/hermes_literal/test_literal_context.py`
+- `tests/hermes_literal/test_literal_parallel_runtime.py`
+- `tests/hermes_literal/test_literal_exb_runtime.py`
+- `tests/test_open_field_strict_config.py`
+- `tests/test_drb_fv_engine.py`
+
+The strict 1-step audit
+`runs/audit_literal_local_registry_1step`
+is unchanged relative to
+`runs/audit_literal_comm_layer_1step`
+on the leading rows:
+
+- `n parallel/par = 0.1338298917677307`
+- `omega parallel/jpar = 0.11697795624618619`
+- `Te parallel/par_total = 0.14748382093236653`
+- `Pe parallel/par_total = 0.11330241103262646`
+- `n advection/exb = 0.06021497597645309`
+- `Pe advection/exb = 0.0417892594173691`
+
+This is the expected result for the hard-reset refactor: it removes the last
+`core.terms` ownership from the strict engine without perturbing the promoted
+literal baseline.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,

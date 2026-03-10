@@ -1113,6 +1113,34 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `src/jaxdrb/hermes_literal/ops.py` rather than importing those helpers from
   `core.terms`. The remaining major shared Stage 1 context dependency is still
   the Poisson/field helper layer in `core.terms.fields`.
+- 2026-03-10: the strict `hermes_literal` engine no longer imports any Stage 1
+  schedule or term implementations from `core.terms`. The active literal
+  package now owns local copies of:
+  `fields.py`, `sol.py`, `bc_relaxation.py`, `braginskii.py`,
+  `curvature.py`, `diamagnetic.py`, `diffusion.py`, `drive.py`,
+  `extra_dissipation.py`, `line_bcs.py`, `neutrals.py`, `perp_bc.py`,
+  `region_bc.py`, `sheath_terms.py`, `volume_source.py`, and `registry.py`.
+- 2026-03-10: focused literal-engine regressions
+  `tests/hermes_literal/test_literal_context.py`,
+  `tests/hermes_literal/test_literal_parallel_runtime.py`,
+  `tests/hermes_literal/test_literal_exb_runtime.py`,
+  `tests/test_open_field_strict_config.py`, and
+  `tests/test_drb_fv_engine.py`
+  pass against the local term-layer rehome.
+- 2026-03-10: the strict 1-step audit
+  `runs/audit_literal_local_registry_1step`
+  is numerically identical to
+  `runs/audit_literal_comm_layer_1step`
+  on the remaining leaders:
+  `n parallel/par = 0.1338298917677307`,
+  `omega parallel/jpar = 0.11697795624618619`,
+  `Te parallel/par_total = 0.14748382093236653`,
+  `Pe parallel/par_total = 0.11330241103262646`,
+  `n advection/exb = 0.06021497597645309`,
+  `Pe advection/exb = 0.0417892594173691`.
+  That is the intended result for this slice: the parity vehicle is now more
+  fully owned by `hermes_literal`, and the remaining mismatch is in the live
+  runtime state/communication contract rather than in shared unified term code.
 
 ---
 
