@@ -1141,6 +1141,27 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   That is the intended result for this slice: the parity vehicle is now more
   fully owned by `hermes_literal`, and the remaining mismatch is in the live
   runtime state/communication contract rather than in shared unified term code.
+- 2026-03-10: `src/jaxdrb/hermes_literal/context.py` now builds an explicit
+  prepared `LiteralStage1State` from
+  `src/jaxdrb/hermes_literal/state.py`, including guarded density, pressure,
+  temperature, velocity, `phi`, `sound_speed`, and `fastest_wave` fields plus
+  shared `Field3DLayout` metadata.
+- 2026-03-10: the new regressions
+  `tests/hermes_literal/test_literal_context.py` and
+  `tests/hermes_literal/test_literal_state.py`
+  verify that the guarded literal state preserves the prepared interior fields
+  exposed by the strict runtime.
+- 2026-03-10: `src/jaxdrb/hermes_literal/parallel.py` now reads `fastest_wave`
+  from that prepared literal state when available instead of recomputing it
+  ad hoc, while remaining compatible with older core-term contexts used by
+  comparison tests.
+- 2026-03-10: the strict 1-step audit
+  `runs/audit_literal_stage1_state_1step`
+  is numerically identical to
+  `runs/audit_literal_local_registry_1step`
+  on the live leaders. This is again the intended hard-reset outcome:
+  more runtime ownership moves into `hermes_literal` without perturbing the
+  current promoted parity baseline.
 
 ---
 

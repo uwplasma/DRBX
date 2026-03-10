@@ -555,6 +555,13 @@ def dpar_flux_conservative(
 
 
 def fastest_wave(ctx: TermContext) -> jnp.ndarray:
+    try:
+        literal_state = ctx.literal_state
+    except AttributeError:
+        literal_state = None
+    if literal_state is not None and literal_state.fields.fastest_wave is not None:
+        return jnp.asarray(literal_state.fields.fastest_wave, dtype=jnp.float64)
+
     Te = ctx.Te_prepared
     Ti = ctx.Ti_prepared if ctx.hot_on else None
     aa_e = jnp.maximum(float(ctx.params.me_hat), 1e-12)
