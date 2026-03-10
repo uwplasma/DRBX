@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import tomllib
 from pathlib import Path
 
@@ -29,7 +30,9 @@ def _strict_cfg() -> dict:
 
 
 def test_literal_parallel_runtime_matches_frozen_runtime_contract() -> None:
-    built = build_system_from_config(_strict_cfg())
+    cfg = copy.deepcopy(_strict_cfg())
+    cfg["numerics"]["hermes_mirror_parallel_subdomain_size"] = 0
+    built = build_system_from_config(cfg)
     ctx = build_context(built.system.params, built.system.geom, built.state)
 
     literal = literal_parallel_vars(ctx, built.state)
