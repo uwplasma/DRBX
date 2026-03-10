@@ -9,6 +9,7 @@ from jaxdrb.core.state import DRBSystemState
 from jaxdrb.hermes_literal.bcs import FieldBCs, resolve_bcs
 from jaxdrb.hermes_literal.fields import phys_n, phys_Te, phi_from_omega
 from jaxdrb.hermes_literal.ops import is_2d
+from jaxdrb.hermes_literal.state import LiteralStage1State, build_literal_stage1_state
 from jaxdrb.hermes_literal.sol import apply_sol_phi_bc, sol_masks
 from jaxdrb.hermes_literal.species import prepare_reduced_species_state_global
 
@@ -39,6 +40,7 @@ class TermContext(eqx.Module):
     mask_open: jnp.ndarray | None = None
     nonlinear_scale: jnp.ndarray | float = 1.0
     phi_iters: jnp.ndarray | None = None
+    literal_state: LiteralStage1State | None = None
 
 
 def build_context(
@@ -124,6 +126,20 @@ def build_context(
     if params.sol_on:
         mask_closed, mask_open, nonlinear_scale = sol_masks(params, geom)
 
+    literal_state = build_literal_stage1_state(
+        params=params,
+        geom=geom,
+        bcs=bcs,
+        density=n_prepared,
+        electron_temperature=Te_prepared,
+        ion_temperature=Ti_prepared,
+        electron_pressure=pe_prepared,
+        ion_pressure=pi_prepared,
+        phi=phi,
+        vpar_e=y.vpar_e,
+        vpar_i=y.vpar_i,
+    )
+
     return TermContext(
         params=params,
         geom=geom,
@@ -148,4 +164,5 @@ def build_context(
         mask_closed=mask_closed,
         mask_open=mask_open,
         nonlinear_scale=nonlinear_scale,
+        literal_state=literal_state,
     )

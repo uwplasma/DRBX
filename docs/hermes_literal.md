@@ -349,3 +349,32 @@ on the leading rows:
 The value of this slice is structural: the active strict engine now owns its
 Stage 1 term layer outright, so the remaining parity gap is in the runtime
 state/communication/geometry contract rather than in shared unified term code.
+
+### 2026-03-10 literal prepared Stage 1 state in context
+
+The literal context now carries an explicit prepared Stage 1 runtime state
+through:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/state.py`
+
+`build_context()` now constructs a `LiteralStage1State` with:
+
+- guarded density / pressure / temperature / velocity fields
+- guarded `phi`, `sound_speed`, and `fastest_wave`
+- a shared `Field3DLayout` for the prepared `(z, x, y)` storage contract
+
+The runtime still evaluates the same promoted operators, but the strict engine
+no longer recomputes `fastest_wave` ad hoc in the parallel path. It now reads
+that quantity from the prepared literal state when available.
+
+The new regressions are:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_context.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_state.py`
+
+The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_stage1_state_1step`
+is numerically identical to
+`/Users/rogerio/local/jax_drb/runs/audit_literal_local_registry_1step`
+on the live leaders, so this is another runtime-ownership cut rather than a
+parity jump.

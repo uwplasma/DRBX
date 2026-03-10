@@ -1281,6 +1281,43 @@ This is the expected result for the hard-reset refactor: it removes the last
 `core.terms` ownership from the strict engine without perturbing the promoted
 literal baseline.
 
+### 2026-03-10 literal prepared Stage 1 state rehome
+
+The strict literal context now carries an explicit prepared runtime state via:
+
+- `src/jaxdrb/hermes_literal/state.py`
+
+This state holds:
+
+- guarded density / pressure / temperature / velocity fields
+- guarded `phi`, `sound_speed`, and `fastest_wave`
+- shared `Field3DLayout` metadata for the active `(z, x, y)` storage contract
+
+`src/jaxdrb/hermes_literal/context.py`
+now builds that state on every RHS evaluation, and
+`src/jaxdrb/hermes_literal/parallel.py`
+uses the cached prepared `fastest_wave` from it when available. The new
+regressions are:
+
+- `tests/hermes_literal/test_literal_context.py`
+- `tests/hermes_literal/test_literal_state.py`
+
+The strict 1-step audit
+`runs/audit_literal_stage1_state_1step`
+is unchanged relative to
+`runs/audit_literal_local_registry_1step`
+on the leading rows:
+
+- `n parallel/par = 0.1338298917677307`
+- `omega parallel/jpar = 0.11697795624618619`
+- `Te parallel/par_total = 0.14748382093236653`
+- `Pe parallel/par_total = 0.11330241103262646`
+- `n advection/exb = 0.06021497597645309`
+- `Pe advection/exb = 0.0417892594173691`
+
+So this slice is structural: the literal engine now owns more of the prepared
+Hermes runtime state without changing the promoted parity baseline.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
