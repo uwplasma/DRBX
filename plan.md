@@ -1070,6 +1070,14 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   for `n_phys`, `Te_phys`, solved `phi`, and the prepared density/pressure
   state. This does not change the audit ranking, but it removes another direct
   dependency from the literal engine onto `core/terms`.
+- 2026-03-09: `src/jaxdrb/hermes_literal/engine.py` now imports its active
+  schedule and dispatch table from `src/jaxdrb/hermes_literal/registry.py`
+  rather than from `core.terms.registry`. The new regression is
+  `tests/hermes_literal/test_literal_registry.py`.
+- 2026-03-09: the registry rehome does not change parity, but it reduces the
+  remaining direct ownership gaps inside the literal engine itself. The next
+  structural target is replacing the shared registry contents with literal
+  wrappers for the remaining Stage 1 term groups.
 
 ---
 
