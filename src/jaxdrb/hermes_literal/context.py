@@ -6,10 +6,10 @@ import jax.numpy as jnp
 from jaxdrb.core.geometry import GeometryAdapter
 from jaxdrb.core.params import DRBSystemParams
 from jaxdrb.core.state import DRBSystemState
-from jaxdrb.core.terms.fields import phys_n, phys_Te, phi_from_omega
-from jaxdrb.core.terms.sol import apply_sol_phi_bc, sol_masks
 from jaxdrb.hermes_literal.bcs import FieldBCs, resolve_bcs
+from jaxdrb.hermes_literal.fields import phys_n, phys_Te, phi_from_omega
 from jaxdrb.hermes_literal.ops import is_2d
+from jaxdrb.hermes_literal.sol import apply_sol_phi_bc, sol_masks
 from jaxdrb.hermes_literal.species import prepare_reduced_species_state_global
 
 
