@@ -378,3 +378,36 @@ is numerically identical to
 `/Users/rogerio/local/jax_drb/runs/audit_literal_local_registry_1step`
 on the live leaders, so this is another runtime-ownership cut rather than a
 parity jump.
+
+### 2026-03-10 literal engine no longer retains unified `DRBSystem`
+
+The active strict engine in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/engine.py`
+no longer stores a live unified `DRBSystem` instance as `base_system`.
+Instead, it owns the remaining helper surface directly:
+
+- physical/log variable conversion
+- BC resolution helpers for the Poisson path
+- finite-difference / spectral derivative dispatch
+- split application
+- Poisson / polarization cache ownership
+- energy, energy-rate, and energy-budget diagnostics
+
+`build_system()` still reuses the current driver to ingest geometry and build
+the initial normalized state, but after that handoff the executable runtime is
+fully the literal engine.
+
+Focused regressions covering this slice are:
+
+- `/Users/rogerio/local/jax_drb/tests/test_drb_fv_engine.py`
+- `/Users/rogerio/local/jax_drb/tests/test_open_field_strict_config.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_context.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_parallel_runtime.py`
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_exb_runtime.py`
+
+The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_engine_no_base_1step`
+is numerically identical to
+`/Users/rogerio/local/jax_drb/runs/audit_literal_stage1_state_1step`
+on the leading rows, so this is another structural hard-reset slice rather
+than a parity jump.

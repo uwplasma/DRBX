@@ -1318,6 +1318,47 @@ on the leading rows:
 So this slice is structural: the literal engine now owns more of the prepared
 Hermes runtime state without changing the promoted parity baseline.
 
+### 2026-03-10 literal engine no-base rehome
+
+The active strict engine in
+`src/jaxdrb/hermes_literal/engine.py`
+no longer retains a live unified `DRBSystem` object. The literal runtime now
+owns:
+
+- physical/log variable conversion
+- BC helpers for the Poisson path
+- FD/spectral operator dispatch used by diagnostics
+- split application
+- Poisson / polarization cache ownership
+- energy, energy-rate, and energy-budget diagnostics
+
+Geometry ingestion and initial-state construction still come through the
+existing driver, but the executable RHS/diagnostic engine after that handoff is
+now the literal engine alone.
+
+Focused regressions that stay green for this cut:
+
+- `tests/test_drb_fv_engine.py`
+- `tests/test_open_field_strict_config.py`
+- `tests/hermes_literal/test_literal_context.py`
+- `tests/hermes_literal/test_literal_parallel_runtime.py`
+- `tests/hermes_literal/test_literal_exb_runtime.py`
+
+The strict 1-step audit
+`runs/audit_literal_engine_no_base_1step`
+is unchanged relative to
+`runs/audit_literal_stage1_state_1step`
+on the leading rows:
+
+- `n parallel/par = 0.1338298917677307`
+- `omega parallel/jpar = 0.11697795624618619`
+- `Te parallel/par_total = 0.14748382093236653`
+- `Pe parallel/par_total = 0.11330241103262646`
+- `n advection/exb = 0.06021497597645309`
+- `Pe advection/exb = 0.0417892594173691`
+
+So this is another hard-reset ownership cut rather than a parity jump.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
