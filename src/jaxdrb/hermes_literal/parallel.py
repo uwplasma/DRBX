@@ -12,9 +12,9 @@ import jax
 import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemState
-from jaxdrb.core.terms.context import TermContext
 from jaxdrb.core.terms.ops import laplacian
 
+from .context import TermContext
 from .div_ops import div_par_centered
 from .fv import div_par_mod
 from .sheath import ParallelSheathState, build_parallel_sheath_state

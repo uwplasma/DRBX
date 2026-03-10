@@ -1124,6 +1124,26 @@ This closes another hybrid dependency: the strict literal cache now gets its
 dominant advection and parallel rows from literal runtime modules rather than
 calling back into the unified core for those term groups.
 
+### 2026-03-09 literal context rehome
+
+The literal engine now builds its runtime context through:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/context.py`
+
+instead of importing `core.terms.build_context` directly. This keeps the
+strict engine’s prepared density/pressure state, `phi` solve staging, and SOL
+mask assembly inside the literal package while still reusing the shared
+low-level helper implementations for boundary and field transforms.
+
+The new regression:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_context.py`
+
+checks that the literal context reproduces the previous strict runtime
+contract for `n_phys`, `Te_phys`, `phi`, and the prepared density/pressure
+fields. This slice is again architectural rather than a parity jump, but it
+removes another direct dependency from the literal engine onto `core/terms`.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,

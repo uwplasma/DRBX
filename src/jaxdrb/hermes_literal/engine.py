@@ -16,12 +16,13 @@ import jax.numpy as jnp
 
 from jaxdrb.core.state import DRBSystemSplit, DRBSystemState, _state_add, _state_zeros_like
 from jaxdrb.core.system import DRBSystem
-from jaxdrb.core.terms import build_context
 from jaxdrb.core.terms.registry import (
     DEFAULT_TERM_SCHEDULE,
     STIFF_TERM_SCHEDULE,
     TERM_REGISTRY,
 )
+
+from .context import build_context
 
 
 def _explicit_term_schedule(term_schedule: tuple[str, ...]) -> tuple[str, ...]:
