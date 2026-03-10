@@ -1043,6 +1043,25 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   numerical-noise level. The remaining blocker is therefore still the runtime
   sheath / guard / transform contract feeding the mirror parallel operator as a
   whole, not just the term assembly or boundary-plane interpolation choice.
+- 2026-03-09: `src/jaxdrb/hermes_literal/rhs.py` no longer imports the live
+  advection or parallel term groups from `core/terms`. The strict literal cache
+  now gets those groups from:
+  `src/jaxdrb/hermes_literal/advection.py` and
+  `src/jaxdrb/hermes_literal/parallel.py`.
+- 2026-03-09: `src/jaxdrb/hermes_literal/advection.py` preserves the existing
+  runtime switches `exb_advection_simplified` and
+  `exb_advect_conservative`, with regressions in
+  `tests/hermes_literal/test_literal_advection_runtime.py` and
+  `tests/test_vorticity_alignment_switches.py`.
+- 2026-03-09: the strict 1-step audit
+  `runs/audit_literal_advection_parallel_rehome_1step_after_fix` is unchanged
+  on the leading rows relative to the prior literal-engine baseline:
+  `n advection/exb = 0.09623829491706752`,
+  `Pe advection/exb = 0.0676385260919583`,
+  `n parallel/par = 0.1338298917677307`,
+  `Te parallel/par_total = 0.14748382093236653`.
+  That is the expected result for this slice: it removes another hybrid
+  dependency without changing the live parity ranking.
 
 ---
 

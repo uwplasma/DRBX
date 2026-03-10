@@ -144,6 +144,39 @@ changing the live 1-step parity ordering. The rehome audit at
 stays numerically aligned with the earlier literal-engine baseline while moving
 `Te parallel`, `n parallel`, and `Pe parallel` slightly in the right direction.
 
+The next runtime rehome is also landed now:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/advection.py`
+
+The reduced density/pressure cache in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/rhs.py` now gets its
+live ExB advection group from the literal module rather than importing
+`core/terms/advection.py`. The literal module preserves the existing runtime
+switches for:
+
+- `exb_advection_simplified`
+- `exb_advect_conservative`
+
+and is covered by:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_advection_runtime.py`
+- `/Users/rogerio/local/jax_drb/tests/test_vorticity_alignment_switches.py`
+
+The 1-step strict audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_advection_parallel_rehome_1step_after_fix`
+is numerically identical to the prior literal-engine baseline for the leading
+rows:
+
+- `n advection`: `0.09623829491706752`
+- `Pe advection`: `0.0676385260919583`
+- `n parallel`: `0.1338298917677307`
+- `Te parallel`: `0.14748382093236653`
+
+This matters because the leading strict channels now come from literal runtime
+modules for both advection and parallel transport. The remaining gap is no
+longer explained by those term-group imports falling back into the unified
+core.
+
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture

@@ -1093,6 +1093,37 @@ This slice is architectural, not a parity jump, but it matters because the
 remaining dominant parallel mismatch is now owned by the literal runtime layer
 itself rather than a copied call back into the unified core.
 
+### 2026-03-09 literal advection runtime rehome
+
+The reduced density/pressure cache now gets its live ExB advection group from:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/advection.py`
+
+instead of importing that term group from `core/terms/advection.py`. The
+literal module preserves the runtime switches that the strict engine still
+needs during validation:
+
+- `exb_advection_simplified`
+- `exb_advect_conservative`
+
+and is covered by:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_advection_runtime.py`
+- `/Users/rogerio/local/jax_drb/tests/test_vorticity_alignment_switches.py`
+
+The 1-step strict audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_advection_parallel_rehome_1step_after_fix`
+preserves the literal-engine baseline exactly for the leading rows:
+
+- `n advection/exb`: `0.09623829491706752`
+- `Pe advection/exb`: `0.0676385260919583`
+- `n parallel/par`: `0.1338298917677307`
+- `Te parallel/par_total`: `0.14748382093236653`
+
+This closes another hybrid dependency: the strict literal cache now gets its
+dominant advection and parallel rows from literal runtime modules rather than
+calling back into the unified core for those term groups.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
