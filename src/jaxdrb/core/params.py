@@ -362,6 +362,12 @@ class NumericsParams(eqx.Module):
     # This targets the Hermes end-rank communication/boundary contract without
     # decomposing the full domain.
     hermes_mirror_parallel_edge_block: int = 0
+    # Optional Hermes/BOUT local parallel-subdomain size. When positive on
+    # open-field runs, the literal mirror ExB runtime wrapper evaluates the
+    # operator blockwise over consecutive parallel chunks of this size, matching
+    # the processor-local `MYSUB` contract more closely than a single global
+    # transform.
+    hermes_mirror_parallel_subdomain_size: int = 0
     # Index-space DDY operator for the metric-coupled X-Y ExB term:
     # - "face": finite-volume face divergence style (legacy)
     # - "c2": centered 2nd-order DDY-like operator (Hermes/BOUT-like)

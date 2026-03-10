@@ -1160,6 +1160,43 @@ matches the active schedule and term names used by the strict engine. This is
 again architectural, but it narrows the remaining hybrid surface area inside
 the literal runtime itself.
 
+### 2026-03-09 literal ExB subdomain runtime
+
+The strict literal config now sets:
+
+- `hermes_mirror_parallel_subdomain_size = 8`
+
+and the literal ExB runtime wrapper in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/exb.py`
+evaluates the local Hermes operator over consecutive `MYSUB`-sized parallel
+chunks instead of a single global transform. This is the first literal runtime
+change in this refactor that materially moves the remaining live ExB rows.
+
+The new stitched-global regression in
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_exb_runtime.py`
+shows that the blockwise local runtime improves the raw Hermes dump-backed
+global ExB term relative error from about `0.097/0.107` to about
+`0.061/0.066` for `Ne/Pe`.
+
+The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_subdomain_parallel_1step`
+moves the live transport rows in the same direction:
+
+- `n advection/exb`: `0.09623829491706752 -> 0.06021497597645309`
+- `Te advection/exb`: `0.03993444992422992 -> 0.03175328243530484`
+- `Pe advection/exb`: `0.0676385260919583 -> 0.0417892594173691`
+
+The leading parallel rows do not move in this slice:
+
+- `n parallel/par`: `0.1338298917677307`
+- `omega parallel/jpar`: `0.11697795624618619`
+- `Te parallel/par_total`: `0.14748382093236653`
+- `Pe parallel/par_total`: `0.11330241103262646`
+
+This is still not strict parity closure. It does, however, confirm that the
+remaining ExB gap is in the processor-local subdomain contract rather than in
+the already-copied local operator body alone.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,

@@ -382,6 +382,7 @@ def dpar_flux_conservative(
         gpar = getattr(ctx.geom, "gpar", None) if ctx.params.use_gpar_flux else None
         sign = float(ctx.params.parallel_sign)
         boundary_flux_scale = float(getattr(ctx.params, "parallel_boundary_flux_scale", 1.0))
+        subdomain = int(getattr(ctx.params, "hermes_mirror_parallel_subdomain_size", 0))
 
         if use_shift:
             if J is not None:
@@ -391,9 +392,82 @@ def dpar_flux_conservative(
             if gpar is not None:
                 gpar = ctx.geom.to_field_aligned_nox(gpar)
 
+        def _slice_metric(arr, start: int, stop: int):
+            if arr is None:
+                return None
+            arr_j = jnp.asarray(arr, dtype=jnp.float64)
+            if arr_j.ndim == 0:
+                return arr_j
+            return arr_j[start:stop]
+
+        def _block_low(arr, start: int, fallback):
+            if start == 0:
+                return fallback
+            return jnp.asarray(arr[start - 1], dtype=jnp.float64)
+
+        def _block_high(arr, stop: int, npar: int, fallback):
+            if stop >= npar:
+                return fallback
+            return jnp.asarray(arr[stop], dtype=jnp.float64)
+
+        def _blockwise_centered() -> jnp.ndarray:
+            pieces: list[jnp.ndarray] = []
+            npar = int(f.shape[0])
+            for start in range(0, npar, subdomain):
+                stop = min(start + subdomain, npar)
+                pieces.append(
+                    div_par_centered(
+                        f[start:stop],
+                        dz=float(grid.dz),
+                        dy=_slice_metric(dy, start, stop),
+                        J=_slice_metric(J, start, stop),
+                        gpar=_slice_metric(gpar, start, stop),
+                        dpar_factor=_slice_metric(dpar_factor, start, stop),
+                        sign=sign,
+                        ghost_low=_block_low(f, start, ghost_low_f),
+                        ghost_high=_block_high(f, stop, npar, ghost_high_f),
+                        boundary_flux_scale=boundary_flux_scale,
+                    )
+                )
+            return jnp.concatenate(pieces, axis=0)
+
+        def _blockwise_mod(wave_arr: jnp.ndarray) -> jnp.ndarray:
+            pieces: list[jnp.ndarray] = []
+            npar = int(f.shape[0])
+            for start in range(0, npar, subdomain):
+                stop = min(start + subdomain, npar)
+                pieces.append(
+                    div_par_mod(
+                        f[start:stop],
+                        v[start:stop],
+                        wave_arr[start:stop],
+                        dz=float(grid.dz),
+                        dy=_slice_metric(dy, start, stop),
+                        limiter=limiter,
+                        J=_slice_metric(J, start, stop),
+                        gpar=_slice_metric(gpar, start, stop),
+                        dpar_factor=_slice_metric(dpar_factor, start, stop),
+                        sign=sign,
+                        fixflux=bool(ctx.params.parallel_fixflux),
+                        ghost_low_f=_block_low(f, start, ghost_low_f),
+                        ghost_high_f=_block_high(f, stop, npar, ghost_high_f),
+                        ghost_low_v=_block_low(v, start, ghost_low_v),
+                        ghost_high_v=_block_high(v, stop, npar, ghost_high_v),
+                        boundary_flux_scale=boundary_flux_scale,
+                    )
+                )
+            return jnp.concatenate(pieces, axis=0)
+
         if grid.open_field_line:
             if wave is None:
-                if scheme == "hermes_mirror" and (
+                if (
+                    subdomain > 0
+                    and scheme == "hermes_mirror"
+                    and f.ndim == 3
+                    and subdomain < int(f.shape[0])
+                ):
+                    div = _blockwise_centered()
+                elif scheme == "hermes_mirror" and (
                     ghost_low_f is not None or ghost_high_f is not None
                 ):
                     div = div_par_centered(
@@ -421,7 +495,14 @@ def dpar_flux_conservative(
                     )
             else:
                 fixflux = bool(ctx.params.parallel_fixflux)
-                if scheme == "hermes_mirror" and any(
+                if (
+                    subdomain > 0
+                    and scheme == "hermes_mirror"
+                    and f.ndim == 3
+                    and subdomain < int(f.shape[0])
+                ):
+                    div = _blockwise_mod(jnp.asarray(wave, dtype=jnp.float64))
+                elif scheme == "hermes_mirror" and any(
                     val is not None
                     for val in (ghost_low_f, ghost_high_f, ghost_low_v, ghost_high_v)
                 ):
