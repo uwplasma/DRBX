@@ -14,7 +14,7 @@ from .fv import div_a_grad_perp
 
 if TYPE_CHECKING:
     from jaxdrb.core.state import DRBSystemState
-    from jaxdrb.core.terms.context import TermContext
+    from jaxdrb.hermes_literal.context import TermContext
 
 
 def pi_hat(
