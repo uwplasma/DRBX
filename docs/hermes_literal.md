@@ -240,6 +240,36 @@ parity target. The remaining blocker is no longer “global vs local ExB” in
 general; it is the residual processor-local communication/transform contract in
 the ExB and parallel transport paths.
 
+The next structural slice is now also landed in:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/communicate.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/bcs.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/ops.py`
+
+`communicate.py` makes the local parallel-slab assembly explicit instead of
+embedding that logic directly in the ExB runtime wrapper. The promoted runtime
+currently uses the same internal edge-copy seam contract as the previously
+validated subdomain path, while also exposing a neighbor-plane extraction mode
+for the later, stricter processor-communication rewrite. The new unit coverage
+is:
+
+- `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_communicate.py`
+
+and the existing stitched-global regression in
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_exb_runtime.py`
+still reports the same improvement:
+
+- `Ne` raw relative error: `0.3242119312307518 -> 0.06090172693816785`
+- `Pe` raw relative error: `0.3455716236178938 -> 0.06601079736963186`
+
+The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_comm_layer_1step` is
+numerically identical to
+`/Users/rogerio/local/jax_drb/runs/audit_literal_subdomain_parallel_1step` on
+the leading rows. That is intentional for this slice: it removes more shared
+runtime ownership from `core.terms` without regressing the promoted literal
+baseline.
+
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture

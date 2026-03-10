@@ -1197,6 +1197,43 @@ This is still not strict parity closure. It does, however, confirm that the
 remaining ExB gap is in the processor-local subdomain contract rather than in
 the already-copied local operator body alone.
 
+### 2026-03-09 literal communication layer rehome
+
+The next literal slice makes the local parallel-slab assembly explicit in:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/communicate.py`
+
+and rehomes the literal BC/operator-selection helpers to:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/bcs.py`
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/ops.py`
+
+The promoted ExB runtime in
+`/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/exb.py`
+now uses that communication helper to assemble processor-local slabs before it
+calls the validated local operator. For the active strict baseline, the helper
+preserves the previously validated internal seam policy, so the stitched-global
+Hermes regression remains:
+
+- `Ne` raw relative error: `0.3242119312307518 -> 0.06090172693816785`
+- `Pe` raw relative error: `0.3455716236178938 -> 0.06601079736963186`
+
+The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_comm_layer_1step`
+is unchanged relative to
+`/Users/rogerio/local/jax_drb/runs/audit_literal_subdomain_parallel_1step` on
+the live leaders:
+
+- `n advection/exb`: `0.06021497597645309`
+- `Pe advection/exb`: `0.0417892594173691`
+- `n parallel/par`: `0.1338298917677307`
+- `Te parallel/par_total`: `0.14748382093236653`
+
+So this slice is architectural rather than a new parity jump: it keeps the
+current promoted literal baseline intact while removing more hidden runtime
+logic from the ExB wrapper and shrinking the remaining `core.terms`
+dependencies.
+
 - Open-field + sheath (`bohm_current`) enabled in the benchmark config.
 - Curvature is read from the `bxcv` tokamak grid (not a proxy field).
 - Parallel transport uses conservative + limiter options (`parallel_flux_conservative=true`,
