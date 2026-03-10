@@ -98,6 +98,7 @@ exb_advection_simplified = false
 exb_advect_conservative = true
 exb_flux_scheme = "hermes_mirror"
 hermes_mirror_parallel_edge_block = 8
+hermes_mirror_parallel_subdomain_size = 8
 parallel_flux_conservative = true
 parallel_limiter = "mc"
 parallel_current_limiter = "none"

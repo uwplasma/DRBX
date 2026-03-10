@@ -1078,6 +1078,22 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   remaining direct ownership gaps inside the literal engine itself. The next
   structural target is replacing the shared registry contents with literal
   wrappers for the remaining Stage 1 term groups.
+- 2026-03-09: the strict literal config now sets
+  `hermes_mirror_parallel_subdomain_size = 8`, and
+  `src/jaxdrb/hermes_literal/exb.py` evaluates the literal ExB runtime
+  blockwise over Hermes-sized local parallel chunks.
+- 2026-03-09: the stitched-global ExB regression in
+  `tests/hermes_literal/test_literal_exb_runtime.py` confirms that the
+  blockwise local runtime improves the raw Hermes `Ne/Pe` ExB term relative
+  error from about `0.097/0.107` to about `0.061/0.066`.
+- 2026-03-09: the strict 1-step audit
+  `runs/audit_literal_subdomain_parallel_1step` shows the same live gain:
+  `n advection/exb = 0.06021497597645309`,
+  `Te advection/exb = 0.03175328243530484`,
+  `Pe advection/exb = 0.0417892594173691`,
+  while the leading parallel rows remain unchanged at about
+  `0.113-0.147`. This is progress, not closure: Milestone A is still above the
+  `1e-2` target and should not be promoted to longer benchmark windows yet.
 
 ---
 

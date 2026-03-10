@@ -1180,6 +1180,9 @@ class FieldAlignedGeometryAdapter(GeometryBase):
                 parallel_edge_block=int(
                     getattr(self.params, "hermes_mirror_parallel_edge_block", 0)
                 ),
+                parallel_subdomain_size=int(
+                    getattr(self.params, "hermes_mirror_parallel_subdomain_size", 0)
+                ),
                 poloidal_scale=poloidal_scale,
                 poloidal_x_scale=poloidal_x_scale,
                 poloidal_y_scale=poloidal_y_scale,

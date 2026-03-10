@@ -1408,6 +1408,7 @@ def div_n_bxgrad_f_b_xppm(
     upper_boundary_open: bool = True,
     poisson_invert_set: bool = False,
     parallel_edge_block: int = 0,
+    parallel_subdomain_size: int = 0,
     apply_free_o2_adv: bool = False,
     poloidal_scale: float = 1.0,
     poloidal_x_scale: float = 1.0,
@@ -1582,6 +1583,50 @@ def div_n_bxgrad_f_b_xppm(
         poloidal_y_scale=poloidal_y_scale,
     )
     result = result_local[interior]
+
+    subdomain = int(parallel_subdomain_size)
+    if subdomain > 0 and (not periodic_parallel) and subdomain < nz:
+        pieces: list[jnp.ndarray] = []
+        for start in range(0, nz, subdomain):
+            block = min(subdomain, nz - start)
+            pieces.append(
+                _runtime_local_edge_block(
+                    n_arr,
+                    f_arr,
+                    start=start,
+                    block=block,
+                    dx2d=dx2d,
+                    dy2d=dy2d,
+                    dz2d=dz2d,
+                    J2d=J2d,
+                    g11_2d=g11_2d,
+                    g23_2d=g23_2d,
+                    bxy_2d=bxy_2d,
+                    zshift_2d=zshift_2d,
+                    zlength=zlength,
+                    bc_kind_x=int(getattr(bc_adv, "kind_x", 0)),
+                    bc_value_x=getattr(bc_adv, "x_value", 0.0),
+                    bc_grad_x=getattr(bc_adv, "x_grad", 0.0),
+                    phi_kind_x=phi_kind_x,
+                    phi_value_x=getattr(bc_phi, "x_value", 0.0),
+                    phi_grad_x=getattr(bc_phi, "x_grad", 0.0),
+                    bndry_flux=bndry_flux,
+                    poloidal=poloidal,
+                    positive=positive,
+                    interp=interp,
+                    neumann_boundary_average_z=neumann_boundary_average_z,
+                    use_mc=use_mc,
+                    apply_free_o2_adv=apply_free_o2_adv,
+                    periodic_parallel=periodic_parallel,
+                    periodic_binormal=periodic_binormal,
+                    lower_boundary_open=lower_boundary_open,
+                    upper_boundary_open=upper_boundary_open,
+                    poloidal_scale=poloidal_scale,
+                    poloidal_x_scale=poloidal_x_scale,
+                    poloidal_y_scale=poloidal_y_scale,
+                )
+            )
+        result = jnp.concatenate(pieces, axis=0)
 
     edge_block = int(parallel_edge_block)
     if edge_block > 0 and (not periodic_parallel) and (2 * edge_block) < nz and edge_block <= nz:

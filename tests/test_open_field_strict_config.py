@@ -38,6 +38,7 @@ def test_open_field_strict_early_config_splits_advective_and_current_limiters() 
 
     assert numerics["exb_flux_scheme"] == "hermes_mirror"
     assert numerics["hermes_mirror_parallel_edge_block"] == 8
+    assert numerics["hermes_mirror_parallel_subdomain_size"] == 8
     assert numerics["exb_poloidal_y_scale"] == 1.0
     assert numerics["parallel_limiter"] == "mc"
     assert numerics["parallel_current_limiter"] == "none"

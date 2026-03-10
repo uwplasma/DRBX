@@ -204,6 +204,42 @@ regression `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_regis
 locks the current Stage 1 contract by checking that the literal registry still
 matches the active schedule and term names used by the strict engine.
 
+The latest literal-runtime transport change is the staged local-subdomain ExB
+path in:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/exb.py`
+
+with the strict config now setting:
+
+- `hermes_mirror_parallel_subdomain_size = 8`
+
+This makes the runtime ExB wrapper evaluate the literal local operator over
+consecutive Hermes-sized parallel chunks (`MYSUB`-style) instead of applying a
+single global transform across the whole strict field. The new stitched-global
+regression in
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_exb_runtime.py`
+shows the expected improvement against the Hermes dump-backed global fixture.
+
+The strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_subdomain_parallel_1step`
+improves the live ExB rows to:
+
+- `n advection`: `0.09623829491706752 -> 0.06021497597645309`
+- `Te advection`: `0.03993444992422992 -> 0.03175328243530484`
+- `Pe advection`: `0.0676385260919583 -> 0.0417892594173691`
+
+while the leading parallel rows remain unchanged:
+
+- `n parallel`: `0.1338298917677307`
+- `omega parallel`: `0.11697795624618619`
+- `Te parallel`: `0.14748382093236653`
+- `Pe parallel`: `0.11330241103262646`
+
+This is a real literal-runtime gain, but it is still not the `1e-2` strict
+parity target. The remaining blocker is no longer “global vs local ExB” in
+general; it is the residual processor-local communication/transform contract in
+the ExB and parallel transport paths.
+
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture
