@@ -1062,6 +1062,14 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `Te parallel/par_total = 0.14748382093236653`.
   That is the expected result for this slice: it removes another hybrid
   dependency without changing the live parity ranking.
+- 2026-03-09: `src/jaxdrb/hermes_literal/engine.py` now calls
+  `src/jaxdrb/hermes_literal/context.py::build_context` instead of importing
+  `core.terms.build_context`. The new regression is
+  `tests/hermes_literal/test_literal_context.py`.
+- 2026-03-09: the literal context rehome preserves the strict runtime contract
+  for `n_phys`, `Te_phys`, solved `phi`, and the prepared density/pressure
+  state. This does not change the audit ranking, but it removes another direct
+  dependency from the literal engine onto `core/terms`.
 
 ---
 

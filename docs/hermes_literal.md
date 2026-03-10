@@ -177,6 +177,24 @@ modules for both advection and parallel transport. The remaining gap is no
 longer explained by those term-group imports falling back into the unified
 core.
 
+The literal engine now also owns its context builder in:
+
+- `/Users/rogerio/local/jax_drb/src/jaxdrb/hermes_literal/context.py`
+
+and `engine.py` now calls that builder directly instead of importing
+`core.terms.build_context`. The new regression
+`/Users/rogerio/local/jax_drb/tests/hermes_literal/test_literal_context.py`
+checks that the literal context reproduces the previous strict runtime
+contract for:
+
+- physical density and temperature fields
+- prepared density and pressure fields
+- solved `phi`
+- the hot/EM/neutrals feature flags
+
+This does not change the strict audit ranking, but it removes another shared
+runtime dependency from the literal engine itself.
+
 The shifted-metric layer is now landed and validated in
 `/Users/rogerio/local/jax_drb/tests/hermes_literal/test_shifted_metric.py`
 against both synthetic geometry-adapter checks and the dump-backed fixture
