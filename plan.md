@@ -1162,6 +1162,23 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   on the live leaders. This is again the intended hard-reset outcome:
   more runtime ownership moves into `hermes_literal` without perturbing the
   current promoted parity baseline.
+- 2026-03-10: `src/jaxdrb/hermes_literal/engine.py` no longer stores a live
+  unified `DRBSystem` as `base_system`. The literal engine now owns split
+  application, physical/log conversion, FD/spectral operator dispatch,
+  Poisson/polarization cache ownership, and energy diagnostics directly.
+- 2026-03-10: focused engine regressions
+  `tests/test_drb_fv_engine.py`,
+  `tests/test_open_field_strict_config.py`,
+  `tests/hermes_literal/test_literal_context.py`,
+  `tests/hermes_literal/test_literal_parallel_runtime.py`, and
+  `tests/hermes_literal/test_literal_exb_runtime.py`
+  pass after removing the unified runtime object from the active literal path.
+- 2026-03-10: the strict 1-step audit
+  `runs/audit_literal_engine_no_base_1step`
+  is numerically identical to
+  `runs/audit_literal_stage1_state_1step`
+  on the remaining leaders. This means the active parity vehicle now depends
+  less on the unified runtime without changing the promoted baseline.
 
 ---
 
