@@ -25,8 +25,9 @@ def build_portable_summary_payload(
     configured_timestep: float | None = None,
     producer: str = "jax-drb",
 ) -> dict[str, Any]:
+    summary_dimensions = tuple(dimensions)
     summaries = {
-        name: _summarize_array(name, np.asarray(variables[name], dtype=np.float64))
+        name: _serialize_summary(_summarize_array(name, np.asarray(variables[name], dtype=np.float64), summary_dimensions))
         for name in compare_variables
         if name in variables
     }
@@ -40,7 +41,7 @@ def build_portable_summary_payload(
         "dimensions": dict(dimensions),
         "time_points": list(time_points),
         "dataset_scalars": {key: float(value) for key, value in dataset_scalars.items()},
-        "variable_summaries": {name: asdict(summary) for name, summary in summaries.items()},
+        "variable_summaries": summaries,
         "effective_output_points": len(time_points),
     }
     if configured_nout is not None:
@@ -57,11 +58,14 @@ def write_portable_summary_payload(payload: Mapping[str, Any], path: str | Path)
     return target
 
 
-def _summarize_array(name: str, data: np.ndarray) -> VariableSummary:
+def _summarize_array(name: str, data: np.ndarray, dimension_names: tuple[str, ...]) -> VariableSummary:
     delta = None
     if data.ndim >= 1 and data.shape[0] >= 2:
         delta = float(np.max(np.abs(data[-1] - data[0])))
-    dimensions = tuple(["t", *[f"dim_{index}" for index in range(1, data.ndim)]])
+    if len(dimension_names) == data.ndim:
+        dimensions = dimension_names
+    else:
+        dimensions = tuple(["t", *[f"dim_{index}" for index in range(1, data.ndim)]])
     return VariableSummary(
         name=name,
         dimensions=dimensions,
@@ -71,3 +75,10 @@ def _summarize_array(name: str, data: np.ndarray) -> VariableSummary:
         mean=float(np.mean(data)),
         max_abs_delta_last_first=delta,
     )
+
+
+def _serialize_summary(summary: VariableSummary) -> dict[str, Any]:
+    payload = asdict(summary)
+    payload["dimensions"] = list(summary.dimensions)
+    payload["shape"] = list(summary.shape)
+    return payload
