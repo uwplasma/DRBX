@@ -4,8 +4,7 @@ import argparse
 from pathlib import Path
 
 from .config.boutinp import load_bout_input
-from .config.normalization import HermesNormalization
-from .runtime.scheduler import expand_component_requests
+from .runtime.run_config import RunConfiguration
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,17 +41,21 @@ def _default_command(args: argparse.Namespace) -> int:
 
 def _inspect_command(args: argparse.Namespace) -> int:
     config = load_bout_input(args.input_file)
-    requests = expand_component_requests(config)
+    run_config = RunConfiguration.from_config(config)
 
     print(f"input: {args.input_file}")
     print(f"sections: {', '.join(config.section_names())}")
-    print(f"scheduled components: {', '.join(request.label for request in requests)}")
+    print(f"time: nout={run_config.time.nout}, timestep={run_config.time.timestep:g}")
+    print(
+        "mesh: "
+        f"nx={run_config.mesh.nx}, ny={run_config.mesh.ny}, nz={run_config.mesh.nz}, "
+        f"MXG={run_config.mesh.mxg}, MYG={run_config.mesh.myg}, "
+        f"parallel_transform={run_config.mesh.parallel_transform.type}"
+    )
+    print(f"scheduled components: {', '.join(request.label for request in run_config.components)}")
 
-    try:
-        normalization = HermesNormalization.from_config(config)
-    except Exception as exc:  # pragma: no cover - exercised by CLI smoke coverage only
-        print(f"normalization: unresolved ({exc})")
-    else:
+    if run_config.normalization is not None:
+        normalization = run_config.normalization
         print(
             "normalization: "
             f"Nnorm={normalization.Nnorm:g}, "
@@ -62,6 +65,8 @@ def _inspect_command(args: argparse.Namespace) -> int:
             f"Omega_ci={normalization.Omega_ci:.8e}, "
             f"rho_s0={normalization.rho_s0:.8e}"
         )
+    else:
+        print("normalization: unresolved (missing one or more of Nnorm, Tnorm, Bnorm)")
 
     return 0
 

@@ -40,8 +40,8 @@ class HermesNormalization:
         Cs0 = (ELEMENTARY_CHARGE * Tnorm / PROTON_MASS) ** 0.5
         Omega_ci = ELEMENTARY_CHARGE * Bnorm / PROTON_MASS
         rho_s0 = Cs0 / Omega_ci
-        normalise_metric = bool(config.get("hermes", "normalise_metric", False).parsed)
-        recalculate_metric = bool(config.get("hermes", "recalculate_metric", False).parsed)
+        normalise_metric = bool(config.parsed("hermes", "normalise_metric")) if config.has_option("hermes", "normalise_metric") else False
+        recalculate_metric = bool(config.parsed("hermes", "recalculate_metric")) if config.has_option("hermes", "recalculate_metric") else False
         units = {
             "inv_meters_cubed": Nnorm,
             "eV": Tnorm,
