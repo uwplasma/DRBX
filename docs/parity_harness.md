@@ -23,8 +23,21 @@ The first executable parity harness is centered on the curated case ladder in [r
 Current support is intentionally narrow:
 
 - `evolve_density_rhs` is implemented end to end;
-- the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, applies the current boundary/guard reconstruction, and emits the portable summary schema;
+- `diffusion_one_step` is implemented for the current structured, axisymmetric, `nz = 1` transport benchmark;
+- the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
+
+For the current one-step diffusion milestone, summary comparison should use a modest scalar tolerance, for example:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-summary \
+  references/baselines/reference/diffusion_one_step.json \
+  /tmp/jax_drb_diffusion_one_step_native.json \
+  --scalar-rtol 1e-3 \
+  --scalar-atol 2e-6
+```
+
+That tolerance is only for the first transport milestone. The intent is to tighten it as more of the operator and time-integration stack becomes native and shared across cases.
 
 ## Confirmed Reference Behavior
 
