@@ -1,0 +1,61 @@
+{
+  "case_name": "evolve_density_rhs",
+  "compare_variables": [
+    "Ne"
+  ],
+  "component_labels": [
+    "e:evolve_density"
+  ],
+  "configured_nout": 5,
+  "configured_timestep": 20.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 97871.51425755137,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 100.0,
+    "rho_s0": 0.0010217477552952484
+  },
+  "dimensions": {
+    "t": 1,
+    "x": 10,
+    "y": 14,
+    "z": 10
+  },
+  "effective_output_points": 1,
+  "hermes_binary": "hermes-3",
+  "overrides": [
+    "nout=0"
+  ],
+  "parity_mode": "one_rhs",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0
+  ],
+  "variable_summaries": {
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.99060001424835,
+      "mean": 0.4234861314375598,
+      "minimum": -0.7437047895637322,
+      "name": "Ne",
+      "shape": [
+        1,
+        10,
+        14,
+        10
+      ]
+    }
+  }
+}

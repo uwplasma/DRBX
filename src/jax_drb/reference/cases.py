@@ -17,6 +17,7 @@ class ReferenceCase:
     hermes_path: str
     parity_mode: str
     rationale: str
+    compare_variables: tuple[str, ...] = ()
 
     def input_path(self, hermes_root: str | Path) -> Path:
         return Path(hermes_root) / self.hermes_path
@@ -40,6 +41,7 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
             hermes_path=entry["hermes_path"],
             parity_mode=entry["parity_mode"],
             rationale=entry["rationale"],
+            compare_variables=tuple(entry.get("compare_variables", [])),
         )
         for entry in payload.get("case", [])
     )

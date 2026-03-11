@@ -23,6 +23,15 @@ The initial normalization module reproduces those exact derived quantities and t
 
 Hermes inputs routinely define reusable scalar parameters before `[mesh]` and `[hermes]`, for example `tnorm_setting`, `core_ne`, and `initial_pi`. Mesh sections then reference local and root scalars (`dy = Ly / ny`, `dz = 2 * pi / nz`, `Bnorm = mesh:Bxy`). JAX-DRB now resolves these into a structured run configuration rather than reparsing them inside later kernels.
 
+## Live Output Facts
+
+Direct runs against `/Users/rogerio/local/hermes-3/build/hermes-3` confirmed:
+
+- `nout=0` writes a `BOUT.dmp.0.nc` file with `t_array = [0.0]`;
+- `nout=1` writes initial plus one evolved output time slice;
+- scalar normalization metadata is present directly in the dump file;
+- the first portable Hermes baselines are stored in [references/baselines/hermes](/Users/rogerio/local/jax_drb/references/baselines/hermes).
+
 ## Input Syntax Observations
 
 Representative Hermes inputs require support for:
