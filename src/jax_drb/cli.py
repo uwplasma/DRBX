@@ -65,6 +65,20 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--scalar-atol", type=float, default=1e-12)
     compare_parser.set_defaults(command=_compare_summary_command)
 
+    run_case_parser = subparsers.add_parser(
+        "run-case",
+        help="Run a curated case through the native JAX implementation and emit a portable summary.",
+    )
+    run_case_parser.add_argument("case_name")
+    run_case_parser.add_argument(
+        "--reference-root",
+        type=Path,
+        default=_default_reference_root(),
+        help="Path to the local private reference checkout used to locate the curated input file.",
+    )
+    run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary to JSON.")
+    run_case_parser.set_defaults(command=_run_case_command)
+
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
@@ -200,3 +214,30 @@ def _compare_summary_command(args: argparse.Namespace) -> int:
     for issue in result.issues:
         print(f"  {issue.field}: {issue.message}")
     return 1
+
+
+def _run_case_command(args: argparse.Namespace) -> int:
+    from .native import run_curated_case
+    from .parity.portable import write_portable_summary_payload
+
+    if args.reference_root is None:
+        print("run-case: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
+        return 1
+
+    result = run_curated_case(args.case_name, reference_root=args.reference_root)
+    payload = result.payload
+    print(f"case: {payload['case_name']}")
+    print(f"parity_mode: {payload['parity_mode']}")
+    print(f"producer: {payload['producer']}")
+    print(f"compare_variables: {', '.join(payload['compare_variables']) if payload['compare_variables'] else '(none)'}")
+    for name, variable in payload["variable_summaries"].items():
+        delta = variable["max_abs_delta_last_first"]
+        delta_text = "n/a" if delta is None else f"{delta:.8e}"
+        print(
+            f"  {name}: shape={tuple(variable['shape'])}, min={variable['minimum']:.8e}, "
+            f"max={variable['maximum']:.8e}, mean={variable['mean']:.8e}, delta={delta_text}"
+        )
+    if args.json_out is not None:
+        path = write_portable_summary_payload(payload, args.json_out)
+        print(f"json_out: {path}")
+    return 0
