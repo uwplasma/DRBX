@@ -22,7 +22,8 @@ Tests:
 - multiline component lists;
 - numeric expression resolution;
 - normalization formulas;
-- scheduler ordering.
+- scheduler ordering;
+- live Hermes output summary extraction from `BOUT.dmp.0.nc`.
 
 ## Stage 2: Parity Harness
 
@@ -31,6 +32,8 @@ Goal: support `nout = 0` one-RHS checks, one fixed step, and short-time windows 
 Deliverables:
 
 - manifest of reference Hermes cases;
+- live Hermes runner that stages isolated work directories and applies parity-mode overrides such as `nout=0` and `nout=1`;
+- NetCDF summary extraction for selected compare variables and scalar metadata;
 - hermes/jax comparison harness;
 - reference dump metadata schema;
 - first regression baselines.
