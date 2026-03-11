@@ -15,6 +15,14 @@ rationale = "Finite-volume transport and boundary bookkeeping without full multi
 compare_variables = ["Nh", "Ph"]
 
 [[case]]
+name = "diffusion_short_window"
+stage = "stage2"
+reference_path = "tests/integrated/diffusion/data/BOUT.inp"
+parity_mode = "short_window"
+rationale = "Repeated finite-volume transport steps before moving to more coupled electrostatic cases."
+compare_variables = ["Nh", "Ph"]
+
+[[case]]
 name = "vorticity_short_window"
 stage = "stage4"
 reference_path = "tests/integrated/vorticity/data/BOUT.inp"

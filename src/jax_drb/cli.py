@@ -53,6 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_case_parser.add_argument("--workdir", type=Path, default=None)
     run_case_parser.add_argument("--override", action="append", default=[], help="Additional source-style overrides such as nout=0.")
     run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the run summary to a JSON file.")
+    run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
     run_case_parser.set_defaults(command=_run_reference_case_command)
 
     compare_parser = subparsers.add_parser(
@@ -64,6 +65,18 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--scalar-rtol", type=float, default=1e-10)
     compare_parser.add_argument("--scalar-atol", type=float, default=1e-12)
     compare_parser.set_defaults(command=_compare_summary_command)
+
+    compare_arrays_parser = subparsers.add_parser(
+        "compare-arrays",
+        help="Compare an actual portable array NPZ against an expected baseline NPZ.",
+    )
+    compare_arrays_parser.add_argument("expected_npz", type=Path)
+    compare_arrays_parser.add_argument("actual_npz", type=Path)
+    compare_arrays_parser.add_argument("--scalar-rtol", type=float, default=1e-10)
+    compare_arrays_parser.add_argument("--scalar-atol", type=float, default=1e-12)
+    compare_arrays_parser.add_argument("--array-rtol", type=float, default=1e-10)
+    compare_arrays_parser.add_argument("--array-atol", type=float, default=1e-12)
+    compare_arrays_parser.set_defaults(command=_compare_arrays_command)
 
     run_case_parser = subparsers.add_parser(
         "run-case",
@@ -77,6 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to the local private reference checkout used to locate the curated input file.",
     )
     run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary to JSON.")
+    run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
     run_case_parser.set_defaults(command=_run_case_command)
 
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
@@ -164,6 +178,7 @@ def _default_reference_binary() -> Path | None:
 
 
 def _run_reference_case_command(args: argparse.Namespace) -> int:
+    from .parity.arrays import build_dataset_array_payload, write_portable_array_payload
     from .parity.reference import run_reference_case, write_case_baseline_json
 
     if args.reference_root is None:
@@ -193,6 +208,19 @@ def _run_reference_case_command(args: argparse.Namespace) -> int:
     if args.json_out is not None:
         path = write_case_baseline_json(summary, args.json_out)
         print(f"json_out: {path}")
+    if args.arrays_out is not None:
+        array_payload = build_dataset_array_payload(
+            summary.artifacts["BOUT.dmp.0.nc"],
+            case_name=summary.case_name,
+            parity_mode=summary.parity_mode,
+            compare_variables=summary.compare_variables,
+            component_labels=summary.component_labels,
+            overrides=summary.overrides,
+            configured_nout=summary.nout,
+            configured_timestep=summary.timestep,
+        )
+        path = write_portable_array_payload(array_payload, args.arrays_out)
+        print(f"arrays_out: {path}")
     return 0
 
 
@@ -216,8 +244,31 @@ def _compare_summary_command(args: argparse.Namespace) -> int:
     return 1
 
 
+def _compare_arrays_command(args: argparse.Namespace) -> int:
+    from .parity.arrays import compare_array_payloads, load_portable_array_payload
+
+    expected = load_portable_array_payload(args.expected_npz)
+    actual = load_portable_array_payload(args.actual_npz)
+    result = compare_array_payloads(
+        expected,
+        actual,
+        scalar_rtol=args.scalar_rtol,
+        scalar_atol=args.scalar_atol,
+        array_rtol=args.array_rtol,
+        array_atol=args.array_atol,
+    )
+    if result.ok:
+        print("comparison: ok")
+        return 0
+    print("comparison: mismatch")
+    for issue in result.issues:
+        print(f"  {issue.field}: {issue.message}")
+    return 1
+
+
 def _run_case_command(args: argparse.Namespace) -> int:
     from .native import run_curated_case
+    from .parity.arrays import build_array_payload_from_summary_payload, write_portable_array_payload
     from .parity.portable import write_portable_summary_payload
 
     if args.reference_root is None:
@@ -240,4 +291,8 @@ def _run_case_command(args: argparse.Namespace) -> int:
     if args.json_out is not None:
         path = write_portable_summary_payload(payload, args.json_out)
         print(f"json_out: {path}")
+    if args.arrays_out is not None:
+        array_payload = build_array_payload_from_summary_payload(payload, result.variables)
+        path = write_portable_array_payload(array_payload, args.arrays_out)
+        print(f"arrays_out: {path}")
     return 0

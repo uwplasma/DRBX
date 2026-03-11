@@ -19,7 +19,7 @@ from .mesh import (
     broadcast_to_field_shape,
     build_structured_mesh,
 )
-from .transport import advance_anomalous_diffusion_one_step
+from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 
 
@@ -80,7 +80,7 @@ def run_config_case(
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
-    time_points, variables = _execute_supported_case(config, run_config, mesh, metrics)
+    time_points, variables = _execute_supported_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
     compare_names = compare_variables or tuple(variables)
     dataset_scalars = resolved_dataset_scalars(run_config)
     payload = build_portable_summary_payload(
@@ -112,16 +112,20 @@ def _execute_supported_case(
     run_config: RunConfiguration,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     implementations = tuple(component.implementation for component in run_config.components)
     if len(run_config.components) == 1 and implementations == ("evolve_density",):
         component = run_config.components[0]
         variable_name = f"N{component.section}"
+        if parity_mode != "one_rhs":
+            raise NotImplementedError("Native single-component density execution currently supports one_rhs parity only.")
         field = _initialize_species_field(config, variable_name, mesh)
         return (0.0,), {variable_name: field[None, ...]}
 
     if _is_supported_diffusion_case(run_config):
-        return _execute_diffusion_case(config, run_config, mesh, metrics)
+        return _execute_diffusion_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     raise NotImplementedError(
         "Native execution is not implemented for the configured component set: "
@@ -134,12 +138,20 @@ def _execute_diffusion_case(
     run_config: RunConfiguration,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     section = run_config.components[0].section
     density_name = f"N{section}"
     pressure_name = f"P{section}"
     density = _initialize_species_field(config, density_name, mesh)
     pressure = _initialize_species_field(config, pressure_name, mesh)
+    if not np.allclose(np.asarray(density), np.asarray(pressure), rtol=1e-12, atol=1e-12):
+        raise NotImplementedError(
+            "Native anomalous diffusion currently requires identical density and pressure initial states."
+        )
+    if not np.allclose(np.asarray(metrics.g23), 0.0, rtol=1e-12, atol=1e-12):
+        raise NotImplementedError("Native anomalous diffusion currently supports g23 = 0 structured metrics only.")
     density_boundary = _field_boundary_kind(config, density_name)
     pressure_boundary = _field_boundary_kind(config, pressure_name)
 
@@ -154,7 +166,8 @@ def _execute_diffusion_case(
     if config.has_option(section, "anomalous_nu") and abs(resolver.resolve(section, "anomalous_nu")) > 0.0:
         raise NotImplementedError("Native one-step anomalous diffusion does not yet support anomalous_nu.")
 
-    stepped = advance_anomalous_diffusion_one_step(
+    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    history = advance_anomalous_diffusion_history(
         density,
         pressure,
         mesh=mesh,
@@ -163,11 +176,12 @@ def _execute_diffusion_case(
         density_boundary=density_boundary,
         pressure_boundary=pressure_boundary,
         timestep=run_config.time.timestep,
+        steps=steps,
     )
-    time_points = (0.0, run_config.time.timestep)
+    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {
-        density_name: np.asarray(np.stack((density, stepped.density), axis=0), dtype=np.float64),
-        pressure_name: np.asarray(np.stack((pressure, stepped.pressure), axis=0), dtype=np.float64),
+        density_name: np.asarray(history.density_history, dtype=np.float64),
+        pressure_name: np.asarray(history.pressure_history, dtype=np.float64),
     }
 
 
@@ -195,3 +209,11 @@ def _is_supported_diffusion_case(run_config: RunConfiguration) -> bool:
         return False
     sections = {component.section for component in run_config.components}
     return len(sections) == 1
+
+
+def _effective_output_steps(parity_mode: str, *, configured_nout: int) -> int:
+    if parity_mode == "one_rhs":
+        return 0
+    if parity_mode == "one_step":
+        return 1
+    return configured_nout
