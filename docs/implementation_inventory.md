@@ -31,6 +31,7 @@ Direct runs against the local reference build confirmed:
 - `nout=1` writes initial plus one evolved output time slice;
 - scalar normalization metadata is present directly in the dump file;
 - the first portable reference baselines are stored in [references/baselines/reference](/Users/rogerio/local/jax_drb/references/baselines/reference).
+- the first native JAX execution path now matches the committed `evolve_density_rhs` portable baseline exactly, including dimensions, scalar metadata, and variable summary statistics.
 
 ## Input Syntax Observations
 
@@ -46,3 +47,8 @@ Representative reference inputs require support for:
 ## Selected Reference Cases
 
 The first parity ladder is recorded in [references/reference_case_ladder.toml](/Users/rogerio/local/jax_drb/references/reference_case_ladder.toml). It starts with one-RHS and one-step cases from integrated tests, then grows into blobs, recycling, turbulence, and the TCV X-point example.
+
+Current native execution coverage:
+
+- `evolve_density_rhs`: implemented and regression-tested;
+- `diffusion_one_step`: next executable target, because it is the first case that requires a genuine time advance and finite-volume transport source terms.

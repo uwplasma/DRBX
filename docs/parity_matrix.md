@@ -36,7 +36,8 @@ Deliverables:
 - NetCDF summary extraction for selected compare variables and scalar metadata;
 - reference/JAX comparison harness;
 - reference dump metadata schema;
-- first regression baselines.
+- first regression baselines;
+- native JAX `one_rhs` execution for `evolve_density_rhs`, including structured-mesh coordinates, array-expression evaluation, boundary reconstruction, portable summary emission, and baseline regression tests.
 
 ## Stage 3+: Physics Buildout
 
