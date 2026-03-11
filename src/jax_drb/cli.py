@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from .config.boutinp import load_bout_input
+from .reference.cases import resolve_reference_cases
 from .runtime.run_config import RunConfiguration
 
 
@@ -23,6 +25,18 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_parser = subparsers.add_parser("inspect", help="Inspect a BOUT.inp file and print the resolved plan.")
     inspect_parser.add_argument("input_file", type=Path)
     inspect_parser.set_defaults(command=_inspect_command)
+
+    cases_parser = subparsers.add_parser(
+        "reference-cases",
+        help="Inspect the curated Hermes reference cases and report their resolved run configuration.",
+    )
+    cases_parser.add_argument(
+        "--hermes-root",
+        type=Path,
+        default=_default_hermes_root(),
+        help="Path to a Hermes-3 checkout used for case inspection.",
+    )
+    cases_parser.set_defaults(command=_reference_cases_command)
 
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
     run_parser.add_argument("input_file", type=Path)
@@ -71,8 +85,33 @@ def _inspect_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _reference_cases_command(args: argparse.Namespace) -> int:
+    if args.hermes_root is None:
+        print("reference-cases: set --hermes-root or JAX_DRB_HERMES_ROOT to a Hermes-3 checkout.")
+        return 1
+
+    resolved_cases = resolve_reference_cases(args.hermes_root)
+    for resolved in resolved_cases:
+        status = "missing" if not resolved.exists else resolved.case.parity_mode
+        print(f"{resolved.case.name}: {status} -> {resolved.input_path}")
+        if resolved.run_config is None:
+            continue
+        print(
+            "  "
+            f"nout={resolved.run_config.time.nout}, "
+            f"timestep={resolved.run_config.time.timestep:g}, "
+            f"components={','.join(request.label for request in resolved.run_config.components)}"
+        )
+    return 0
+
+
 def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
     print("Transient execution is not implemented yet. Use --dry-run for configuration parity checks.")
     return 1
+
+
+def _default_hermes_root() -> Path | None:
+    value = os.environ.get("JAX_DRB_HERMES_ROOT")
+    return Path(value) if value else None

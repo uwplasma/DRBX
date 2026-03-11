@@ -132,7 +132,7 @@ def _resolved_scalars(config: BoutConfig, resolver: NumericResolver, section: st
             continue
         try:
             scalars[key] = resolver.resolve(section, key)
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, SyntaxError):
             continue
     return scalars
 
