@@ -4,6 +4,8 @@ import numpy as np
 
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.mesh import (
+    apply_field_boundaries,
+    apply_neumann_x_guards,
     apply_zero_dirichlet_x_guards,
     build_structured_mesh,
     communicate_y_guards,
@@ -71,3 +73,63 @@ def test_boundary_pipeline_reproduces_expected_guard_pattern() -> None:
     assert np.all(field[0, :, :] == 0.0)
     assert np.all(field[1, 0:mesh.ystart, :] == -1.0)
     assert np.all(field[1, mesh.yend + 1 :, :] == -1.0)
+
+
+def test_neumann_x_guards_copy_interior_strips() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 10
+        ny = 10
+        nz = 1
+
+        [model]
+        components = h
+
+        [h]
+        type = evolve_density
+        """
+    )
+    mesh = build_structured_mesh(config, RunConfiguration.from_config(config))
+    field = np.zeros((mesh.nx, mesh.local_ny, mesh.nz))
+    field[2:8, mesh.ystart : mesh.yend + 1, 0] = np.arange(6)[:, None]
+
+    bounded = np.asarray(apply_neumann_x_guards(field, mesh))
+
+    assert np.all(bounded[1, mesh.ystart : mesh.yend + 1, 0] == bounded[2, mesh.ystart : mesh.yend + 1, 0])
+    assert np.all(bounded[0, mesh.ystart : mesh.yend + 1, 0] == bounded[3, mesh.ystart : mesh.yend + 1, 0])
+    assert np.all(bounded[8, mesh.ystart : mesh.yend + 1, 0] == bounded[7, mesh.ystart : mesh.yend + 1, 0])
+    assert np.all(bounded[9, mesh.ystart : mesh.yend + 1, 0] == bounded[6, mesh.ystart : mesh.yend + 1, 0])
+
+
+def test_apply_field_boundaries_combines_x_and_y_guard_logic() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 10
+        ny = 10
+        nz = 1
+
+        [model]
+        components = h
+
+        [h]
+        type = evolve_density
+        """
+    )
+    mesh = build_structured_mesh(config, RunConfiguration.from_config(config))
+    field = np.zeros((mesh.nx, mesh.local_ny, mesh.nz))
+    field[2:8, mesh.ystart : mesh.yend + 1, 0] = np.arange(6)[:, None]
+
+    bounded = np.asarray(apply_field_boundaries(field, mesh, x_boundary="neumann"))
+
+    assert np.all(bounded[:, 1, :] == bounded[:, 2, :])
+    assert np.all(bounded[:, 0, :] == bounded[:, 3, :])
+    assert np.all(bounded[:, 12, :] == bounded[:, 11, :])
+    assert np.all(bounded[:, 13, :] == bounded[:, 10, :])

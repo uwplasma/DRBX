@@ -47,7 +47,12 @@ def _min_fn(*args: Any) -> Any:
     return result
 
 
+def _heaviside_fn(value: Any) -> Any:
+    return jnp.where(jnp.asarray(value) > 0.0, 1.0, 0.0)
+
+
 _SAFE_FUNCTIONS = {
+    "H": _heaviside_fn,
     "abs": jnp.abs,
     "cos": jnp.cos,
     "exp": jnp.exp,
