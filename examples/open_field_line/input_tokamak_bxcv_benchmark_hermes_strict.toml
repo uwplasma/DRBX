@@ -2,6 +2,8 @@
 # This config uses the same stitched Hermes interior dimensions and metric arrays
 # for a first-step RHS alignment pass before long-window turbulence.
 
+engine = "hermes_literal"
+
 [normalization]
 enabled = true
 mode = "physics"
@@ -15,7 +17,7 @@ length_unit = "rho_s"
 
 [geometry]
 kind = "axisymmetric"
-coeff_path = "examples/open_field_line/axisym_tokamak_from_hermes_short.npz"
+coeff_path = "examples/open_field_line/axisym_tokamak_bxcv_hermes_norm_parcurv_g22.npz"
 bc_x = "neumann"
 bc_y = "periodic"
 open_field_line = true
@@ -92,7 +94,9 @@ bracket = "arakawa"
 exb_advection_form = "flux"
 exb_advection_simplified = false
 exb_advect_conservative = true
-exb_flux_scheme = "hermes_xppm"
+exb_flux_scheme = "hermes_mirror"
+hermes_mirror_parallel_edge_block = 8
+hermes_mirror_parallel_subdomain_size = 8
 exb_bndry_flux = true
 parallel_flux_conservative = true
 parallel_limiter = "mc"
@@ -104,7 +108,7 @@ parallel_sheath_flux_mode = "boundary_flux"
 exb_y_scale = 1.0
 exb_poloidal_flows = true
 exb_poloidal_scale = 1.0
-exb_poloidal_y_scale = 1.22
+exb_poloidal_y_scale = 1.0
 exb_poloidal_ddy_scheme = "c2"
 exb_copy_grad_x_boundary = true
 neumann_boundary_average_y = true
@@ -164,3 +168,4 @@ perp = { bc_x = "neumann", bc_y = "periodic" }
 
 [bc_physical]
 phi_boundary_timescale = 1e-6
+engine = "hermes_literal"
