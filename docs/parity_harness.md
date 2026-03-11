@@ -41,3 +41,5 @@ These files are not full field dumps. They intentionally store:
 - output dimensions and time points;
 - normalization scalars from `BOUT.dmp.0.nc`;
 - selected comparison-variable statistics and first-to-last deltas.
+
+Future JAX runs should emit the same portable schema through the generic summary helpers in [portable.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/portable.py), so that `jax-drb compare-summary` can be used unchanged for Hermès vs. JAX comparisons.
