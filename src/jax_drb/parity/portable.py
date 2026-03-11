@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from .hermes import VariableSummary
+from .reference import VariableSummary
 
 
 def build_portable_summary_payload(

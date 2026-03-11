@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jax-drb",
-        description="Inspect or run JAX-DRB inputs using Hermes-compatible configuration structure.",
+        description="Inspect or run JAX-DRB inputs using the native model configuration structure.",
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=False)
 
@@ -28,30 +28,30 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cases_parser = subparsers.add_parser(
         "reference-cases",
-        help="Inspect the curated Hermes reference cases and report their resolved run configuration.",
+        help="Inspect the curated reference cases and report their resolved run configuration.",
     )
     cases_parser.add_argument(
-        "--hermes-root",
+        "--reference-root",
         type=Path,
-        default=_default_hermes_root(),
-        help="Path to a Hermes-3 checkout used for case inspection.",
+        default=_default_reference_root(),
+        help="Path to the local reference checkout used for case inspection.",
     )
     cases_parser.set_defaults(command=_reference_cases_command)
 
     run_case_parser = subparsers.add_parser(
         "run-reference-case",
-        help="Stage, run, and summarize a curated Hermes reference case in an isolated workdir.",
+        help="Stage, run, and summarize a curated reference case in an isolated workdir.",
     )
     run_case_parser.add_argument("case_name")
     run_case_parser.add_argument(
-        "--hermes-root",
+        "--reference-root",
         type=Path,
-        default=_default_hermes_root(),
-        help="Path to a Hermes-3 checkout used for case lookup and default binary discovery.",
+        default=_default_reference_root(),
+        help="Path to the local reference checkout used for case lookup and default binary discovery.",
     )
-    run_case_parser.add_argument("--hermes-binary", type=Path, default=_default_hermes_binary())
+    run_case_parser.add_argument("--reference-binary", type=Path, default=_default_reference_binary())
     run_case_parser.add_argument("--workdir", type=Path, default=None)
-    run_case_parser.add_argument("--override", action="append", default=[], help="Additional Hermes overrides such as nout=0.")
+    run_case_parser.add_argument("--override", action="append", default=[], help="Additional source-style overrides such as nout=0.")
     run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the run summary to a JSON file.")
     run_case_parser.set_defaults(command=_run_reference_case_command)
 
@@ -113,11 +113,11 @@ def _inspect_command(args: argparse.Namespace) -> int:
 
 
 def _reference_cases_command(args: argparse.Namespace) -> int:
-    if args.hermes_root is None:
-        print("reference-cases: set --hermes-root or JAX_DRB_HERMES_ROOT to a Hermes-3 checkout.")
+    if args.reference_root is None:
+        print("reference-cases: set --reference-root or JAX_DRB_REFERENCE_ROOT to a local reference checkout.")
         return 1
 
-    resolved_cases = resolve_reference_cases(args.hermes_root)
+    resolved_cases = resolve_reference_cases(args.reference_root)
     for resolved in resolved_cases:
         status = "missing" if not resolved.exists else resolved.case.parity_mode
         print(f"{resolved.case.name}: {status} -> {resolved.input_path}")
@@ -139,27 +139,27 @@ def _run_command(args: argparse.Namespace) -> int:
     return 1
 
 
-def _default_hermes_root() -> Path | None:
-    value = os.environ.get("JAX_DRB_HERMES_ROOT")
+def _default_reference_root() -> Path | None:
+    value = os.environ.get("JAX_DRB_REFERENCE_ROOT")
     return Path(value) if value else None
 
 
-def _default_hermes_binary() -> Path | None:
-    value = os.environ.get("JAX_DRB_HERMES_BINARY")
+def _default_reference_binary() -> Path | None:
+    value = os.environ.get("JAX_DRB_REFERENCE_BINARY")
     return Path(value) if value else None
 
 
 def _run_reference_case_command(args: argparse.Namespace) -> int:
-    from .parity.hermes import run_reference_case, write_case_baseline_json
+    from .parity.reference import run_reference_case, write_case_baseline_json
 
-    if args.hermes_root is None:
-        print("run-reference-case: set --hermes-root or JAX_DRB_HERMES_ROOT.")
+    if args.reference_root is None:
+        print("run-reference-case: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
         return 1
 
     result = run_reference_case(
         args.case_name,
-        hermes_root=args.hermes_root,
-        hermes_binary=args.hermes_binary,
+        reference_root=args.reference_root,
+        reference_binary=args.reference_binary,
         workdir=args.workdir,
         extra_overrides=args.override,
     )

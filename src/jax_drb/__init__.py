@@ -1,10 +1,10 @@
 from .config.boutinp import BoutConfig, NumericResolver, ROOT_SECTION, load_bout_input, parse_bout_input
-from .config.normalization import HermesNormalization, MetricPolicy
+from .config.normalization import MetricPolicy, ModelNormalization
 
 __all__ = [
     "BoutConfig",
-    "HermesNormalization",
     "MetricPolicy",
+    "ModelNormalization",
     "NumericResolver",
     "ROOT_SECTION",
     "load_bout_input",

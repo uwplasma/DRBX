@@ -7,20 +7,20 @@ from pathlib import Path
 from ..config.boutinp import load_bout_input
 from ..runtime.run_config import RunConfiguration
 
-DEFAULT_CASE_MANIFEST = Path(__file__).resolve().parents[3] / "references" / "hermes_case_ladder.toml"
+DEFAULT_CASE_MANIFEST = Path(__file__).resolve().parents[3] / "references" / "reference_case_ladder.toml"
 
 
 @dataclass(frozen=True)
 class ReferenceCase:
     name: str
     stage: str
-    hermes_path: str
+    reference_path: str
     parity_mode: str
     rationale: str
     compare_variables: tuple[str, ...] = ()
 
-    def input_path(self, hermes_root: str | Path) -> Path:
-        return Path(hermes_root) / self.hermes_path
+    def input_path(self, reference_root: str | Path) -> Path:
+        return Path(reference_root) / self.reference_path
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
         ReferenceCase(
             name=entry["name"],
             stage=entry["stage"],
-            hermes_path=entry["hermes_path"],
+            reference_path=entry["reference_path"],
             parity_mode=entry["parity_mode"],
             rationale=entry["rationale"],
             compare_variables=tuple(entry.get("compare_variables", [])),
@@ -48,13 +48,13 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
 
 
 def resolve_reference_cases(
-    hermes_root: str | Path,
+    reference_root: str | Path,
     *,
     manifest_path: str | Path | None = None,
 ) -> tuple[ResolvedReferenceCase, ...]:
     resolved_cases: list[ResolvedReferenceCase] = []
     for case in load_reference_cases(manifest_path):
-        input_path = case.input_path(hermes_root)
+        input_path = case.input_path(reference_root)
         if not input_path.exists():
             resolved_cases.append(
                 ResolvedReferenceCase(

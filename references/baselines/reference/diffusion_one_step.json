@@ -26,11 +26,11 @@
     "z": 1
   },
   "effective_output_points": 2,
-  "hermes_binary": "hermes-3",
   "overrides": [
     "nout=1"
   ],
   "parity_mode": "one_step",
+  "reference_runner": "external-reference",
   "required_artifacts": [
     "BOUT.dmp.0.nc",
     "BOUT.log.0",

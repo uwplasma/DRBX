@@ -36,7 +36,7 @@ def test_run_configuration_resolves_time_mesh_solver_and_scalars() -> None:
         use_precon = true
         cvode_max_order = 3
 
-        [hermes]
+        [model]
         components = e, vorticity
         Nnorm = 1e19
         Tnorm = tnorm_setting
@@ -65,5 +65,5 @@ def test_run_configuration_resolves_time_mesh_solver_and_scalars() -> None:
     assert run_config.components[0].label == "e:evolve_density"
     assert run_config.components[1].label == "e:evolve_pressure"
     assert run_config.components[2].label == "vorticity"
-    assert math.isclose(run_config.hermes_scalars["Tnorm"], 100.0)
+    assert math.isclose(run_config.model_scalars["Tnorm"], 100.0)
     assert math.isclose(run_config.normalization.Bnorm, 0.35)

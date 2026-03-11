@@ -31,7 +31,7 @@ def test_parser_preserves_section_and_key_order() -> None:
 def test_parser_handles_multiline_component_lists_and_types() -> None:
     config = parse_bout_input(
         """
-        [hermes]
+        [model]
         components = (e, i, sound_speed,
                       vorticity, sheath_boundary)
 
@@ -40,7 +40,7 @@ def test_parser_handles_multiline_component_lists_and_types() -> None:
         """
     )
 
-    assert config.parsed("hermes", "components") == (
+    assert config.parsed("model", "components") == (
         "e",
         "i",
         "sound_speed",
@@ -65,7 +65,7 @@ def test_numeric_resolver_handles_local_names_section_references_and_power_synta
         Rxy = 1.5
         bxcvz = 1./Rxy^2
 
-        [hermes]
+        [model]
         Bnorm = mesh:Bxy
 
         [i]
@@ -75,7 +75,7 @@ def test_numeric_resolver_handles_local_names_section_references_and_power_synta
     resolver = NumericResolver(config)
 
     assert math.isclose(resolver.resolve("mesh", "dy"), 10.0 / 128.0)
-    assert math.isclose(resolver.resolve("hermes", "Bnorm"), 0.35)
+    assert math.isclose(resolver.resolve("model", "Bnorm"), 0.35)
     assert math.isclose(resolver.resolve("mesh", "bxcvz"), 1.0 / (1.5**2))
     assert math.isclose(resolver.resolve("i", "AA"), 1.0 / 1836.0)
 

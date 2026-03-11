@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..config.boutinp import BoutConfig, NumericResolver, ROOT_SECTION
-from ..config.normalization import HermesNormalization
+from ..config.model import has_model_section, locate_model_section
+from ..config.normalization import ModelNormalization
 from .scheduler import ComponentRequest, expand_component_requests
 
 
@@ -52,10 +53,10 @@ class RunConfiguration:
     time: TimeConfig
     mesh: MeshScalarConfig
     solver: SolverConfig
-    normalization: HermesNormalization | None
+    normalization: ModelNormalization | None
     components: tuple[ComponentRequest, ...]
     root_scalars: Mapping[str, float]
-    hermes_scalars: Mapping[str, float]
+    model_scalars: Mapping[str, float]
 
     @classmethod
     def from_config(cls, config: BoutConfig) -> "RunConfiguration":
@@ -66,15 +67,16 @@ class RunConfiguration:
         )
         mesh = _build_mesh_config(config, resolver)
         solver = _build_solver_config(config, resolver)
-        normalization = HermesNormalization.from_config(config) if _has_normalization(config) else None
+        normalization = ModelNormalization.from_config(config) if _has_normalization(config) else None
+        model_section = locate_model_section(config) if has_model_section(config) else None
         return cls(
             time=time,
             mesh=mesh,
             solver=solver,
             normalization=normalization,
-            components=expand_component_requests(config) if config.has_option("hermes", "components") else (),
+            components=expand_component_requests(config) if model_section is not None else (),
             root_scalars=_resolved_scalars(config, resolver, ROOT_SECTION),
-            hermes_scalars=_resolved_scalars(config, resolver, "hermes") if config.has_section("hermes") else {},
+            model_scalars=_resolved_scalars(config, resolver, model_section) if model_section is not None else {},
         )
 
 
@@ -176,6 +178,7 @@ def _with_default(value: Any, default: Any) -> Any:
 
 
 def _has_normalization(config: BoutConfig) -> bool:
-    return config.has_section("hermes") and all(
-        config.has_option("hermes", key) for key in ("Nnorm", "Tnorm", "Bnorm")
-    )
+    if not has_model_section(config):
+        return False
+    model_section = locate_model_section(config)
+    return all(config.has_option(model_section, key) for key in ("Nnorm", "Tnorm", "Bnorm"))

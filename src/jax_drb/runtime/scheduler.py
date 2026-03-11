@@ -5,6 +5,7 @@ import re
 from typing import Any, Protocol
 
 from ..config.boutinp import BoutConfig
+from ..config.model import locate_model_section
 
 _COMPONENT_TYPE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -42,7 +43,8 @@ class Scheduler:
 
 
 def expand_component_requests(config: BoutConfig) -> tuple[ComponentRequest, ...]:
-    component_value = config.get("hermes", "components")
+    model_section = locate_model_section(config)
+    component_value = config.get(model_section, "components")
     component_names = _as_tuple(component_value.parsed)
     requests: list[ComponentRequest] = []
 
