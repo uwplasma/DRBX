@@ -1,69 +1,11 @@
+.DS_Store
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.ipynb_checkpoints/
-
-.DS_Store
-Thumbs.db
-
 .venv/
-.venv_sys/
-_install/
-
-# Local copies of external codes (kept out of git due to size/licensing).
-external/**
-!external/README.md
-
-out_*/
-out*/
-out_*.png
-out_*.gif
-profiles/
-examples/**/output.npz
-examples/**/figures/
-runs/
-
-site/
-_out_make_*/
-_tmp_*/
-
-# Packaging/build artifacts
-*.egg-info/
-build/
+venv/
 dist/
-
-# Common run outputs
-results_*.h5
-restart_*.h5
-*.nc
-*.nc~
-*.h5
-*_out.npz
-
-# Fortran/CMake build artifacts
-*.o
-*.mod
-*.a
-*.so
-*.dylib
-*.exe
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-
-# Misc run outputs
-*.out
-*.log
-*.dat
-*.vtk
-
-# Matplotlib + cache dirs created by CLI/examples
-.mplcache/
-.cache/
-
-# Coverage (optional)
-.coverage
-coverage.xml
-htmlcov/
+build/
+*.egg-info/
