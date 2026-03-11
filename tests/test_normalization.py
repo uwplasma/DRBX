@@ -3,16 +3,16 @@ from __future__ import annotations
 import math
 
 from jax_drb.config.boutinp import parse_bout_input
-from jax_drb.config.normalization import ELEMENTARY_CHARGE, PROTON_MASS, HermesNormalization
+from jax_drb.config.normalization import ELEMENTARY_CHARGE, PROTON_MASS, ModelNormalization
 
 
-def test_hermes_normalization_matches_reference_formulas() -> None:
+def test_model_normalization_matches_reference_formulas() -> None:
     config = parse_bout_input(
         """
         [mesh]
         Bxy = 0.35
 
-        [hermes]
+        [model]
         Nnorm = 2e18
         Tnorm = 5
         Bnorm = mesh:Bxy
@@ -21,7 +21,7 @@ def test_hermes_normalization_matches_reference_formulas() -> None:
         """
     )
 
-    normalization = HermesNormalization.from_config(config)
+    normalization = ModelNormalization.from_config(config)
     expected_cs0 = math.sqrt(ELEMENTARY_CHARGE * 5.0 / PROTON_MASS)
     expected_omega_ci = ELEMENTARY_CHARGE * 0.35 / PROTON_MASS
 

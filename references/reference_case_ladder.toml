@@ -1,7 +1,7 @@
 [[case]]
 name = "evolve_density_rhs"
 stage = "stage2"
-hermes_path = "tests/integrated/evolve_density/data/BOUT.inp"
+reference_path = "tests/integrated/evolve_density/data/BOUT.inp"
 parity_mode = "one_rhs"
 rationale = "Smallest typed-species density evolution case with analytic source."
 compare_variables = ["Ne"]
@@ -9,7 +9,7 @@ compare_variables = ["Ne"]
 [[case]]
 name = "diffusion_one_step"
 stage = "stage2"
-hermes_path = "tests/integrated/diffusion/data/BOUT.inp"
+reference_path = "tests/integrated/diffusion/data/BOUT.inp"
 parity_mode = "one_step"
 rationale = "Finite-volume transport and boundary bookkeeping without full multi-physics."
 compare_variables = ["Nh", "Ph"]
@@ -17,7 +17,7 @@ compare_variables = ["Nh", "Ph"]
 [[case]]
 name = "vorticity_short_window"
 stage = "stage4"
-hermes_path = "tests/integrated/vorticity/data/BOUT.inp"
+reference_path = "tests/integrated/vorticity/data/BOUT.inp"
 parity_mode = "short_window"
 rationale = "Early electrostatic potential and vorticity closure parity."
 compare_variables = ["Vort"]
@@ -25,7 +25,7 @@ compare_variables = ["Vort"]
 [[case]]
 name = "neutral_mixed_short_window"
 stage = "stage7"
-hermes_path = "tests/integrated/neutral_mixed/data/BOUT.inp"
+reference_path = "tests/integrated/neutral_mixed/data/BOUT.inp"
 parity_mode = "short_window"
 rationale = "Neutral coupling and reaction bookkeeping."
 compare_variables = ["Nh", "Nd", "Pd", "Td"]
@@ -33,7 +33,7 @@ compare_variables = ["Nh", "Nd", "Pd", "Td"]
 [[case]]
 name = "fluid_1d_mms"
 stage = "stage4"
-hermes_path = "tests/integrated/1D-fluid/data/BOUT.inp"
+reference_path = "tests/integrated/1D-fluid/data/BOUT.inp"
 parity_mode = "short_window"
 rationale = "Pressure and momentum evolution with MMS sources and exact manufactured fields."
 compare_variables = ["Ni", "Pi", "NVi"]
@@ -41,7 +41,7 @@ compare_variables = ["Ni", "Pi", "NVi"]
 [[case]]
 name = "drift_wave_short_window"
 stage = "stage6"
-hermes_path = "tests/integrated/drift-wave/data/BOUT.inp"
+reference_path = "tests/integrated/drift-wave/data/BOUT.inp"
 parity_mode = "short_window"
 rationale = "Electrostatic drift-wave parity before longer turbulence runs."
 compare_variables = ["Ni", "NVi", "Pe", "Vort"]
@@ -49,7 +49,7 @@ compare_variables = ["Ni", "NVi", "Pe", "Vort"]
 [[case]]
 name = "recycling_1d_long"
 stage = "stage5"
-hermes_path = "tests/integrated/1D-recycling/data/BOUT.inp"
+reference_path = "tests/integrated/1D-recycling/data/BOUT.inp"
 parity_mode = "long_run"
 rationale = "Sheath and recycling parity in open-field geometry."
 compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "Pe"]
@@ -57,7 +57,7 @@ compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "Pe"]
 [[case]]
 name = "blob2d_short_window"
 stage = "stage6"
-hermes_path = "examples/other/blob2d/BOUT.inp"
+reference_path = "examples/other/blob2d/BOUT.inp"
 parity_mode = "short_window"
 rationale = "2D blob convection with recalc-metric path and sheath closure."
 compare_variables = ["Ne", "Vort", "phi"]
@@ -65,7 +65,7 @@ compare_variables = ["Ne", "Vort", "phi"]
 [[case]]
 name = "tokamak_tcv_x21_escalation"
 stage = "stage8"
-hermes_path = "examples/tokamak-3D/tcv-x21/data/BOUT.inp"
+reference_path = "examples/tokamak-3D/tcv-x21/data/BOUT.inp"
 parity_mode = "long_run"
 rationale = "Late-stage 3D X-point and turbulence reference case."
 compare_variables = ["Ne", "Pe", "Pi", "NVi", "phi"]

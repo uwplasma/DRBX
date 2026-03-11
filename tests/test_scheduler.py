@@ -9,7 +9,7 @@ from jax_drb.runtime.scheduler import Scheduler, expand_component_requests
 def test_expand_component_requests_splits_typed_species() -> None:
     config = parse_bout_input(
         """
-        [hermes]
+        [model]
         components = e, reactions, vorticity, sheath_boundary
 
         [e]

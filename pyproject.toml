@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jax-drb"
 version = "0.1.0"
-description = "Fresh JAX reimplementation of Hermes-3 for differentiable edge/SOL plasma simulations."
+description = "Fresh JAX edge/SOL plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "PLAN.md"
 requires-python = ">=3.11"
 dependencies = ["jax>=0.7"]

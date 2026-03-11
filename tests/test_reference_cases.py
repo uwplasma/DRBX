@@ -7,15 +7,15 @@ from jax_drb.reference.cases import load_reference_cases, resolve_reference_case
 
 def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
     manifest = tmp_path / "cases.toml"
-    hermes_root = tmp_path / "hermes-3"
-    case_dir = hermes_root / "tests" / "integrated" / "toy" / "data"
+    reference_root = tmp_path / "source-checkout"
+    case_dir = reference_root / "tests" / "integrated" / "toy" / "data"
     case_dir.mkdir(parents=True)
     manifest.write_text(
         """
         [[case]]
         name = "toy_case"
         stage = "stage2"
-        hermes_path = "tests/integrated/toy/data/BOUT.inp"
+        reference_path = "tests/integrated/toy/data/BOUT.inp"
         parity_mode = "one_rhs"
         rationale = "Minimal reference."
         """,
@@ -34,7 +34,7 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
         [solver]
         mxstep = 10
 
-        [hermes]
+        [model]
         components = e
         Nnorm = 1e18
         Tnorm = 5
@@ -47,7 +47,7 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
     )
 
     cases = load_reference_cases(manifest)
-    resolved = resolve_reference_cases(hermes_root, manifest_path=manifest)
+    resolved = resolve_reference_cases(reference_root, manifest_path=manifest)
 
     assert cases[0].name == "toy_case"
     assert resolved[0].exists is True
