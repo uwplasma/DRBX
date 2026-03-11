@@ -1,0 +1,1231 @@
+# jax_drb Plan
+
+Date: 2026-03-11
+
+## 1. Mission
+
+Build `jax_drb` as a faithful JAX implementation of Hermes-3:
+
+- same physics model and component ordering semantics,
+- same normalization, boundary, diagnostic, and restart conventions where practical,
+- runnable from both a Python API and a Hermes-like CLI,
+- CPU/GPU portable with a pure-JAX runtime path,
+- end-to-end differentiable through production solver paths,
+- minimal runtime dependencies.
+
+This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
+
+## 2. Non-Negotiable Requirements
+
+1. Hermes-3 is the source of truth for Stage 1 parity.
+2. New runtime kernels must be written in JAX primitives only.
+3. Array semantics, guard-cell behavior, and component execution order must match Hermes before any model reformulation.
+4. Every implementation step must land with:
+   - unit tests,
+   - at least one physics or regression test,
+   - a differentiability check,
+   - a CPU/GPU execution check.
+5. Do not start with extensions such as FCI, conservative DRB, stellarator-first workflows, or surrogate/control tooling before the base Hermes parity path is stable.
+6. `legacy/` is quarantine-only:
+   - no active package code may import from `legacy/`,
+   - no active tests may use `legacy/` as an oracle,
+   - `legacy/` may only be cited as historical context while Hermes remains the numerical source of truth.
+
+## 3. Sources of Truth
+
+The plan is based on the current Hermes-3 codebase, tests, examples, docs, and the literature in `/Users/rogerio/local/tests/drb_literature`.
+
+Primary Hermes-3 references:
+
+- code: `/Users/rogerio/local/hermes-3/src`
+- headers: `/Users/rogerio/local/hermes-3/include`
+- docs: `/Users/rogerio/local/hermes-3/docs/sphinx`
+- unit tests: `/Users/rogerio/local/hermes-3/tests/unit`
+- MMS/operator tests: `/Users/rogerio/local/hermes-3/tests/mms_operator`
+- integrated tests: `/Users/rogerio/local/hermes-3/tests/integrated`
+- examples: `/Users/rogerio/local/hermes-3/examples`
+
+Hermes implementation facts that must be preserved early:
+
+- `BOUT.inp`-driven runtime configuration with ordered `[hermes] components`
+- species/type expansion through `ComponentScheduler`
+- scheduler execution order is `transform()` for all components followed by `finally()` for all components
+- normalizations from `Tnorm`, `Nnorm`, `Bnorm`, then `Cs0`, `Omega_ci`, `rho_s0`
+- guard-cell and midpoint boundary semantics
+- conservative finite-volume parallel operators and XPPM-style ExB transport
+- diagnostics naming and metadata conventions
+- restart/output conventions and field naming
+
+Literature themes that inform the long-range roadmap:
+
+- open-field-line SOL turbulence and validation: Ricci 2012, Halpern 2016, Giacomin 2022
+- SOL regimes, density/beta limits, and width scalings: Mosetto 2012, Halpern 2013, Giacomin 2022, Lim 2023
+- sheath and equilibrium potential boundary physics: Loizu 2012, Loizu 2013
+- whole-volume core-edge-SOL geometry and arbitrary equilibria: Giacomin 2022
+- stellarator/global 3D fluid extensions: Coelho 2024, Jorge 2021
+- FCI/X-point numerics: Hariri 2013, Hariri 2014, Stegmeir 2018, Wiesenberger 2023
+- conservative DRB reformulation: De Lucca 2026
+- detachment/control-oriented reduced modeling: Body 2024
+
+## 4. Active Scope and Out-of-Scope Work
+
+Active Stage 1 scope:
+
+- reproduce Hermes-3 numerics and workflows in JAX,
+- establish parity on 1D, 2D, and selected 3D tokamak cases,
+- include core plasma, drifts, fields, neutrals, reactions, and diagnostics,
+- provide a clean Python API and CLI for those workflows.
+
+Explicitly out of scope until parity is achieved:
+
+- redesigning the model equations,
+- replacing Hermes field-aligned geometry with FCI,
+- new physics not already in Hermes-3,
+- optimization/inverse-design workflows beyond smoke tests,
+- aggressive performance tuning that changes semantics.
+
+## 5. Target Architecture
+
+The clean JAX implementation should be built around the Hermes execution model, not around the old archived code.
+
+Legacy quarantine rules:
+
+- `legacy/` remains in the repository only as an archival snapshot.
+- Nothing in the active `src/jaxdrb/` tree may import, wrap, subclass, or progressively adapt code from `legacy/`.
+- If a useful idea or fixture exists in `legacy/`, it must be re-derived from Hermes or recreated cleanly in the new tree.
+- Any future deletion of `legacy/` must not change behavior of the active code, tests, docs, or benchmarks.
+
+Target package layout:
+
+- `src/jaxdrb/config/`
+  - `BOUT.inp` parser
+  - typed runtime config
+  - normalization and defaults
+- `src/jaxdrb/mesh/`
+  - grid/metric loaders
+  - guard-cell and region helpers
+  - field-aligned communication helpers
+- `src/jaxdrb/state/`
+  - immutable pytrees for fields, species state, diagnostics, restart state
+- `src/jaxdrb/components/`
+  - one module per Hermes component or tightly related component family
+- `src/jaxdrb/operators/`
+  - parallel FV operators
+  - ExB operators
+  - perpendicular diffusion/hyper-diffusion
+  - elliptic operators and solves
+- `src/jaxdrb/reactions/`
+  - reaction parser
+  - ADAS/AMJUEL rate tables
+  - source bookkeeping
+- `src/jaxdrb/io/`
+  - Hermes/BOUT reference import
+  - restart/output writing
+  - diagnostics metadata
+- `src/jaxdrb/solvers/`
+  - explicit and IMEX/backward-Euler stepping
+  - nonlinear/linear solve wrappers
+- `src/jaxdrb/cli.py`
+  - `run`, `restart`, `compare`, `inspect`
+- `tests/`
+  - unit
+  - mms
+  - regression
+  - physics
+  - performance
+
+Dependency policy:
+
+- required runtime: `jax`, `jaxlib`
+- allowed runtime if justified: `equinox`, `diffrax`
+- dev/parity tools only: `pytest`, `numpy`, `netCDF4` or equivalent reader, lint/type tools
+
+## 6. Cross-Cutting Infrastructure That Must Exist Early
+
+These are mandatory before porting large physics blocks.
+
+### 6.1 Parity Matrix
+
+Create and maintain a file that maps every Hermes runtime component, operator family, diagnostic family, and relevant input option to:
+
+- the new JAX module,
+- the reference Hermes source file/function,
+- the test that proves parity,
+- the current status.
+
+### 6.2 Reference Data Harness
+
+Add tooling to ingest Hermes reference runs and expose:
+
+- mesh/metric data,
+- initial state,
+- restart state,
+- selected diagnostics,
+- one-step RHS references where possible.
+
+The preferred early parity workflow is:
+
+1. run Hermes on a tiny case,
+2. extract the state just before an RHS evaluation,
+3. run JAX on the same state,
+4. compare per-field outputs and diagnostics.
+
+### 6.3 Low-Iteration Parity Protocol
+
+The default parity workflow must minimize debugging cycles.
+
+Protocol:
+
+1. start with `nout = 0` in Hermes whenever possible to obtain a single RHS evaluation with no timestepper noise
+2. compare a single component or operator on the smallest case that exercises it
+3. only after one-RHS parity is green, move to one fixed-step comparison
+4. only after one-step parity is green, move to short-window trajectory comparison
+5. only after short-window parity is green, move to medium and long runs
+
+Rules:
+
+- no new component should be wired into a larger case before its smallest exercising case is already passing
+- no adaptive-step investigation should begin before the fixed-step one-step harness is green
+- when a mismatch appears, reduce to the smallest Tier A or Tier B case and re-run the protocol
+
+### 6.4 Test Taxonomy
+
+Every ported feature must fit into this test structure:
+
+- unit: local formulas, parser logic, boundary stencils, source terms
+- MMS: operator accuracy and convergence
+- regression: dump-backed field parity on tiny cases
+- physics: integrated runs against Hermes behavior or known theory
+- differentiability: `grad`/`jvp` smoke tests through a representative scalar loss
+- performance: compile time, step time, and memory on CPU and GPU
+
+### 6.5 Design Rule
+
+Preserve Hermes variable names and component boundaries until parity is established. Refactoring into a more compact or more elegant JAX form can happen only after the matching test suite is already green.
+
+## 7. Component Rollout Order
+
+Port components in this order:
+
+1. scheduler, config, normalization, guards, diagnostics metadata
+2. `sound_speed`
+3. `fixed_density`, `evolve_density`
+4. `fixed_temperature`, `set_temperature`, `isothermal`, `evolve_pressure`, `evolve_energy`
+5. `fixed_velocity`, `evolve_momentum`, `scale_timederivs`
+6. `quasineutral`, `fixed_fraction_ions`, `zero_current`, `electron_force_balance`
+7. `sheath_boundary_simple`, `sheath_boundary`, `sheath_boundary_insulating`, `sheath_closure`, `noflow_boundary`, `neutral_boundary`
+8. `simple_conduction`, `braginskii_collisions`, `braginskii_friction`, `braginskii_heat_exchange`, `braginskii_conduction`, viscosities, thermal force
+9. `classical_diffusion`, `anomalous_diffusion`, `diamagnetic_drift`, `polarisation_drift`
+10. `vorticity`, `relax_potential`
+11. `electromagnetic`
+12. `neutral_mixed`, `neutral_full_velocity`, `neutral_parallel_diffusion`, `solkit_neutral_parallel_diffusion`
+13. `recycling`, `simple_pump`, `temperature_feedback`, `upstream_density_feedback`, `detachment_controller`
+14. `reaction_parser`, `ionisation`, hydrogen charge exchange, ADAS/AMJUEL reaction families, impurity source terms
+
+This order follows the actual Hermes dependency graph more closely than the archived prototype code and should remain the default unless a missing low-level dependency forces a local reordering.
+
+## 8. Staged Plan
+
+### Stage 0. Repository Reset and Audit Baseline
+
+Status: completed for the archive step; implementation artifacts still to be created.
+
+Goals:
+
+- keep the pre-reset repository state intact under `legacy/`
+- establish a clean implementation root
+- record exactly what from Hermes is being ported
+
+Deliverables:
+
+- `legacy/` archive of all prior repository contents
+- `docs/hermes_parity_matrix.md`
+- `docs/hermes_inventory.md` summarizing:
+  - all source components,
+  - tests,
+  - examples,
+  - docs pages,
+  - literature-derived extension topics
+
+Tests:
+
+- none beyond repository integrity
+
+Exit criteria:
+
+- no active code remains outside `legacy/` except new plan and new implementation files
+
+### Stage 1. Configuration, Scheduling, Normalization, and State Semantics
+
+Goals:
+
+- replicate Hermes runtime organization before porting full physics
+- make `jax_drb` accept Hermes-like inputs
+- mirror the state contract used by components
+
+Hermes scope:
+
+- `hermes-3.cxx`
+- `component.cxx`
+- `component_scheduler.cxx`
+- `guarded_options.cxx`
+- `permissions.cxx`
+- docs: `inputs.rst`, `execution.rst`, `developer.rst`, `postprocessing.rst`
+
+Implementation tasks:
+
+- implement a `BOUT.inp` parser for the Hermes subset used by tests/examples
+- reproduce ordered component scheduling and species/type expansion
+- define immutable state pytrees with explicit guard cells
+- implement normalization and metric normalization switches
+- define diagnostics metadata storage with Hermes naming conventions
+- implement a minimal CLI:
+  - `jax_drb run path/to/BOUT.inp`
+  - `jax_drb compare --hermes-run ...`
+- implement the Python API entry point around the same config/state model
+
+Required tests:
+
+- unit tests mirroring `test_component`, `test_component_scheduler`, `test_permissions`, `test_guarded_options`
+- regression tests proving component order and species expansion match Hermes on tiny configs
+- normalization tests for `Nnorm`, `Tnorm`, `Bnorm`, `rho_s0`, `Cs0`, `Omega_ci`
+- differentiability smoke test through a no-op or fixed-density/fixed-temperature pipeline
+
+Exit criteria:
+
+- Hermes input order yields the same scheduled component list in JAX
+- state names, diagnostics names, and normalization constants match Hermes on reference cases
+
+### Stage 2. Mesh, Metrics, Guard Cells, Standard Boundaries, and I/O
+
+Goals:
+
+- reproduce the geometric and guard-cell semantics that all later operators depend on
+- make Hermes reference data ingestible
+
+Hermes scope:
+
+- docs: `domain_grid.rst`, `boundary_conditions.rst`, `postprocessing.rst`
+- BOUT boundary semantics used by Hermes
+- metric recalculation/normalization path
+
+Implementation tasks:
+
+- implement mesh loaders for Hermes/BOUT reference grids
+- preserve two guard cells with Hermes midpoint conventions
+- port boundary primitives:
+  - Neumann
+  - Dirichlet/value copy where used
+  - `setBoundaryTo`
+  - `decaylength(...)`
+  - sheath-oriented free extrapolation helpers
+- implement restart/output readers and writers for parity workflows
+- preserve field naming and units/conversion metadata in outputs
+
+Required tests:
+
+- unit tests for guard-cell indexing and midpoint relations
+- unit tests for `limitFree`, Neumann, `setBoundaryTo`, and boundary averages
+- regression tests against tiny Hermes dumps for boundary-populated fields
+- output metadata tests matching Hermes naming and units rules
+
+Exit criteria:
+
+- any later operator can consume the JAX field object without special-case boundary code
+- JAX can read Hermes reference states and write comparable output fields
+
+### Stage 3. Numerical Operators and Elliptic Solves
+
+Goals:
+
+- reproduce the discrete operators before assembling large physics blocks
+- verify order of accuracy and conservation properties
+
+Hermes scope:
+
+- `div_ops.cxx`
+- finite-volume parallel flux operators
+- Poisson/Helmholtz/Ampere support used by `vorticity` and `electromagnetic`
+- docs: `solver_numerics.rst`
+- MMS suite: `tests/mms_operator`
+
+Implementation tasks:
+
+- port centered and FV parallel operators:
+  - `Grad_par`
+  - `Div_par`
+  - `FV::Div_par_mod`
+  - `FV::Div_par_fvv`
+  - `FV::Div_par_fvv_heating`
+- port ExB advection operators used by density/pressure/momentum/vorticity
+- port perpendicular diffusion and hyper-diffusion operators that appear in core components
+- implement JAX elliptic solves for:
+  - vorticity-to-potential inversion
+  - `Apar` Helmholtz/Ampere solve
+- choose initial solver path conservatively:
+  - matrix-free iterative methods in JAX first
+  - preconditioned variants second
+
+Required tests:
+
+- direct operator unit tests on analytic fields
+- MMS parity for all operators covered in `tests/mms_operator`
+- conservation tests for FV operators on periodic/tiny domains
+- differentiability tests through operator application and through one elliptic solve
+- CPU/GPU step parity tests for operator kernels
+
+Exit criteria:
+
+- MMS convergence matches Hermes expectations
+- operator-level regression errors are below tolerances needed for component parity
+
+### Stage 4. Core 1D Plasma Equations and Open-Field Baseline
+
+Goals:
+
+- establish a stable 1D open-field single-/few-species baseline
+- reproduce the principal density/pressure/momentum/energy equations
+
+Hermes scope:
+
+- `sound_speed`
+- `evolve_density`
+- `evolve_pressure`
+- `evolve_momentum`
+- `evolve_energy`
+- `fixed_density`
+- `fixed_temperature`
+- `fixed_velocity`
+- `isothermal`
+- `set_temperature`
+- `scale_timederivs`
+- `quasineutral`
+- `fixed_fraction_ions`
+- `zero_current`
+- `electron_force_balance`
+- docs: `equations.rst`, `boundary_conditions.rst`, `closure.rst`
+
+Implementation tasks:
+
+- port transform/finally semantics for the core evolving components
+- support both `N`/`logN` and `P`/`logP` evolution paths
+- preserve density/pressure/temperature floors and source bookkeeping
+- implement open-field parallel transport, Bohm/sheath target coupling, and sound-speed sharing
+- define the first production time integrator path:
+  - explicit RK for turbulence/transient tests
+  - simple backward Euler or IMEX stepping for stiff transport tests
+
+Required tests:
+
+- unit tests mirroring Hermes unit tests for density/pressure/momentum/energy/sound speed
+- physics tests from:
+  - `tests/integrated/evolve_density`
+  - `tests/integrated/1D-fluid`
+  - `tests/integrated/diffusion`
+  - `tests/integrated/sod-shock`
+  - `tests/integrated/sod-shock-energy`
+- example regression on `examples/tokamak-1D/extra/1D-periodic`
+- short-window Hermes parity runs using tiny meshes and `nout = 0`-style comparisons where possible
+- differentiability test of a scalar target diagnostic with respect to an upstream source or initial profile
+
+Exit criteria:
+
+- 1D open-field plasma cases run from the JAX CLI and Python API
+- short-window field parity is acceptable for density, pressure/temperature, momentum, and energy
+
+### Stage 5. Sheaths, Boundaries, Recycling, and Control-Relevant 1D Cases
+
+Goals:
+
+- make 1D divertor/SOL workflows faithful enough to cover recycling and detachment-style examples
+
+Hermes scope:
+
+- `sheath_boundary_simple`
+- `sheath_boundary`
+- `sheath_boundary_insulating`
+- `sheath_closure`
+- `noflow_boundary`
+- `neutral_boundary`
+- `recycling`
+- `simple_pump`
+- `temperature_feedback`
+- `upstream_density_feedback`
+- `detachment_controller`
+- docs: `boundary_conditions.rst`, `feedback_control.rst`
+
+Implementation tasks:
+
+- port target fluxes, target heat transmission, sheath potential/electron force balance coupling
+- port recycling source deposition and sheath diagnostic dependencies
+- port control components with the same signal conventions used by Hermes examples
+
+Required tests:
+
+- unit tests for sheath formulas and recycling source bookkeeping
+- physics tests from:
+  - `tests/integrated/1D-recycling`
+  - `tests/integrated/1D-recycling-dthe`
+  - `examples/tokamak-1D/extra/1D-recycling`
+  - `examples/tokamak-1D/extra/1D-recycling-with-Tt-control`
+  - `examples/tokamak-1D/extra/1D-recycling-with-detachment-control`
+- regression on target flux and control trajectory shape
+- differentiability smoke tests through a short controlled 1D run
+
+Exit criteria:
+
+- the full 1D divertor/recycling workflow is usable in JAX
+- control-oriented examples run without leaving the pure-JAX runtime path
+
+### Stage 6. Cross-Field Electrostatic Plasma Physics
+
+Goals:
+
+- add the 2D electrostatic physics that makes Hermes more than a 1D transport code
+
+Hermes scope:
+
+- `vorticity`
+- `relax_potential`
+- `diamagnetic_drift`
+- `polarisation_drift`
+- `classical_diffusion`
+- `anomalous_diffusion`
+- `braginskii_collisions`
+- `braginskii_friction`
+- `braginskii_heat_exchange`
+- `simple_conduction`
+- `braginskii_conduction`
+- `braginskii_electron_viscosity`
+- `braginskii_ion_viscosity`
+- `braginskii_thermal_force`
+
+Implementation tasks:
+
+- port the vorticity equation and potential solve with the same source decomposition Hermes uses
+- preserve `phi + Pi_hat` and diamagnetic current bookkeeping
+- port collisional and conductive closures in the order Hermes integrated tests require
+- support cross-field turbulence examples and 2D transport examples
+
+Required tests:
+
+- unit tests mirroring Hermes tests for vorticity, drifts, collisions, conduction, viscosities
+- physics tests from:
+  - `tests/integrated/vorticity`
+  - `tests/integrated/2D-energy`
+  - `tests/integrated/drift-wave`
+  - `examples/other/blob2d*`
+  - `examples/tokamak-2D/diffusion*`
+  - `examples/tokamak-2D/recycling*`
+  - `examples/tokamak-2D/turbulence`
+- regression on diagnostic families `pf`, `ef`, `mf`
+- differentiability checks through a short 2D electrostatic run
+
+Exit criteria:
+
+- blob, drift-wave, and 2D transport/recycling cases are reproducible in JAX with stable diagnostics
+
+### Stage 7. Electromagnetic and 3D Turbulence Capability
+
+Goals:
+
+- complete the core Hermes field evolution path for 3D turbulence
+
+Hermes scope:
+
+- `electromagnetic`
+- EM contributions already present in momentum/pressure/vorticity paths
+- examples and tests involving finite electron mass and `Apar`
+
+Implementation tasks:
+
+- port `Apar` solve and canonical/mechanical momentum handling
+- preserve `Apar_flutter` and EM source bookkeeping
+- validate 3D stepping on representative annulus and tokamak cases
+
+Required tests:
+
+- unit test mirroring `test_electromagnetic`
+- physics tests from:
+  - `tests/integrated/alfven-wave`
+  - electromagnetic annulus examples
+  - selected `examples/tokamak-3D/tcv-x21` reduced cases
+- regression on `Apar` and EM-corrected momentum fields
+- differentiability smoke test through a tiny EM trajectory
+
+Exit criteria:
+
+- JAX supports CPU/GPU 3D EM runs without leaving production code paths
+
+### Stage 8. Neutrals, Reactions, Impurities, and Full Multi-Component Parity
+
+Goals:
+
+- reproduce the Hermes multi-species, neutral, and reaction machinery
+
+Hermes scope:
+
+- `neutral_mixed`
+- `neutral_full_velocity`
+- `neutral_parallel_diffusion`
+- `solkit_neutral_parallel_diffusion`
+- `ionisation`
+- hydrogen charge exchange
+- ADAS/AMJUEL reaction families
+- impurity examples such as neon
+- docs: `reactions.rst`
+
+Implementation tasks:
+
+- port reaction parsing and stoichiometric source accounting
+- load and interpolate atomic/molecular data tables
+- port neutral-fluid closures and projected diffusion models
+- reproduce diagnostic naming for reaction rates and sources
+
+Required tests:
+
+- unit tests mirroring:
+  - `test_reaction_parser`
+  - `test_reactions`
+  - `test_neutral_mixed`
+  - `test_neutral_parallel_diffusion`
+  - `test_recycling`
+- MMS/conservation tests for neutral operators where Hermes provides them
+- physics tests from:
+  - `tests/integrated/neutral_mixed`
+  - `tests/integrated/neutral_parallel_diffusion`
+  - `tests/integrated/snb/*`
+  - `examples/tokamak-1D/extra/1D-hydrogen*`
+  - `examples/tokamak-1D/extra/1D-neon*`
+  - `examples/tokamak-1D/extra/solkit-comparison`
+- regression on reaction diagnostics and impurity balance
+- differentiability smoke tests through at least one reaction-coupled run
+
+Exit criteria:
+
+- the JAX code can run the representative Hermes hydrogen/neon/recycling workflows with matching qualitative and short-window quantitative behavior
+
+### Stage 9. User-Facing Workflow, Outputs, Restarts, and Packaging
+
+Goals:
+
+- turn the port into a usable research tool rather than a parity harness only
+
+Implementation tasks:
+
+- finalize the Python API
+- finalize the CLI to support:
+  - run from `BOUT.inp`
+  - restart from JAX or Hermes-compatible restart input where feasible
+  - compare to a Hermes run
+  - inspect diagnostics
+- write documented output/restart formats
+- provide reproducible example run scripts and benchmark commands
+- add packaging, versioning, and environment setup docs
+
+Required tests:
+
+- CLI smoke tests
+- restart/reproducibility tests
+- output metadata tests
+- package import tests on CPU and GPU environments
+
+Exit criteria:
+
+- a new user can run a documented 1D, 2D, and 3D case from the CLI or Python API without touching internal code
+
+### Stage 10. Performance, Differentiability, and Research Extensions
+
+This stage begins only after Stages 1-9 are stable.
+
+### 10A. Performance hardening
+
+Goals:
+
+- reduce compile overhead,
+- improve memory behavior,
+- retain differentiability.
+
+Tasks:
+
+- fuse kernels only where tests already prove semantic parity
+- add checkpointing/rematerialization where necessary
+- benchmark explicit vs IMEX/backward-Euler options
+- add GPU scaling baselines and memory ceilings
+
+### 10B. Conservative DRB branch
+
+Motivation:
+
+- De Lucca 2026 shows a conservative reformulation of drift-reduced fluid plasma models with exact energy/mass/charge/momentum conservation.
+
+Plan:
+
+- keep this as a separate branch or feature flag after Hermes parity,
+- add exact conservation tests in periodic and closed systems,
+- compare against the Hermes-formulated branch on matched cases.
+
+### 10C. FCI and X-point-first geometry branch
+
+Motivation:
+
+- Hariri 2013/2014, Stegmeir 2018, and Wiesenberger 2023 point to a robust extension path for X-points, separatrices, and non-axisymmetric geometry without flux-coordinate singularities.
+
+Plan:
+
+- retain the Hermes field-aligned path as the baseline solver,
+- add an FCI geometry/operator backend behind a separate geometry interface,
+- start with operator verification and TORPEX/blob-style benchmarks before full tokamak use.
+
+### 10D. Whole-volume and arbitrary-equilibrium workflows
+
+Motivation:
+
+- Giacomin 2022 extends GBS to whole-volume core-edge-SOL, arbitrary diverted equilibria, and faster elliptic solvers.
+
+Plan:
+
+- extend mesh and source handling to whole-volume geometry,
+- add validation on single-null, double-null, and snowflake-like equilibria after tokamak baseline parity.
+
+### 10E. Stellarator branch
+
+Motivation:
+
+- Coelho 2024 and Jorge 2021 indicate a realistic long-term fluid extension path to stellarator turbulence and near-axis geometry workflows.
+
+Plan:
+
+- add non-axisymmetric metric support after tokamak parity,
+- start with reduced operator verification and then island-divertor stellarator turbulence cases.
+
+## Time Integration and Solver Parity Program
+
+The time integrator must not be the first source of disagreement. Solver parity therefore has to be staged.
+
+Hermes solver facts to preserve:
+
+- Hermes development focuses on `cvode` for accurate transient/turbulent runs and `beuler` for stiff steady-state transport runs.
+- Both are adaptive-timestep implicit solvers.
+- Many integrated tests and examples still use legacy solver settings such as `pvode`; those cases should be treated as physics references first, not as integrator references.
+
+JAX solver implementation order:
+
+1. pure `rhs(state, t, config)` parity with no time stepping
+2. fixed-step single-step wrappers:
+   - explicit Euler for debugging only
+   - SSP-RK2 or SSP-RK3 for operator/physics smoke tests
+   - one-step backward Euler residual form for implicit debugging
+3. production steady-state path:
+   - backward Euler + Newton/GMRES, matching the role of Hermes `beuler`
+4. production transient path:
+   - adaptive implicit or IMEX multistep path, matching the role of Hermes `cvode`
+   - `diffrax` may be used if it gives a clean and controllable mapping; otherwise implement a custom JAX adaptive path
+
+Solver parity rules:
+
+- first prove one-RHS equality,
+- then prove one-step equality at the same fixed timestep,
+- only then compare adaptive trajectories,
+- do not use adaptive-step disagreement as evidence of physics disagreement until the fixed-step one-step harness is green.
+
+Mandatory solver tests:
+
+- exact one-RHS parity tests for every selected Hermes case in the case ladder below
+- one-step fixed-`dt` tests on the same state for explicit and implicit wrappers
+- Newton residual convergence tests for backward Euler on 1D steady-state cases
+- adaptive-step reproducibility tests with fixed tolerances and deterministic norms
+- stiffness tests on recycling and conduction cases
+- differentiability tests through one explicit step and one implicit step
+- CPU/GPU reproducibility tests at the solver-wrapper level
+
+Solver-specific publication figures:
+
+- one-step error versus field/component for representative 1D, 2D, and 3D cases
+- timestep history and nonlinear iteration history for matched Hermes/JAX transient and steady-state runs
+- compile time, wall time, and memory plots for CPU and GPU
+
+## Geometry, Normalization, and Equation Reference Program
+
+These items need their own tracked deliverables because they determine whether outputs, diagnostics, and documentation are trustworthy.
+
+### Geometry parity requirements
+
+Support order:
+
+1. identity/slab geometry used by the simplest integrated tests
+2. shifted field-aligned geometry used by blob, tokamak-2D, and tokamak-3D cases
+3. metric loaded from the grid file
+4. metric recalculated from `Rxy`, `Bpxy`, `Btxy`, `hthe`, `sinty`
+
+Geometry functions that require direct parity tests:
+
+- metric loading and metric normalization from the grid file
+- `recalculate_metric(...)` formulas
+- guard-cell conventions with two Y guard cells and midpoint boundary values
+- field-aligned communication and shifted transforms
+- cell-volume, face-area, and `g_22` handling in FV parallel operators
+- non-orthogonal perpendicular operator path used by vorticity and related terms
+
+Geometry tests:
+
+- synthetic identity-metric tests with closed-form expected coefficients
+- recalculate-metric tests against the formulas in `recalculate_metric.cxx`
+- loaded-metric versus recalculated-metric comparisons on orthogonal grids
+- shifted-transform round-trip tests
+- guard-aware transform tests at domain boundaries
+- operator MMS on orthogonal and non-orthogonal meshes
+- tokamak-grid smoke tests using representative Hypnotoad/BOUT grids
+
+### Normalization parity requirements
+
+Hermes base normalization:
+
+- `Tnorm` in eV
+- `Nnorm` in `m^-3`
+- `Bnorm` in T
+- `Cs0 = sqrt(qe * Tnorm / Mp)`
+- `Omega_ci = qe * Bnorm / Mp`
+- `rho_s0 = Cs0 / Omega_ci`
+
+Normalization deliverables:
+
+- a single JAX normalization module that reproduces the Hermes `units` tree exactly
+- a reference page documenting every derived quantity and every conversion factor used in outputs
+- tests that compare both internal normalized values and emitted SI conversion metadata
+
+At minimum the docs and code must make explicit the following output conversions:
+
+- density: `Nnorm`
+- time: `1 / Omega_ci`
+- velocity: `Cs0`
+- length: `rho_s0`
+- pressure / thermal energy density: `qe * Tnorm * Nnorm`
+- density source: `Nnorm * Omega_ci`
+- pressure/energy source: `qe * Tnorm * Nnorm * Omega_ci`
+- momentum density: `Mp * Nnorm * Cs0`
+- momentum source / force density: `Mp * Nnorm * Cs0 * Omega_ci`
+- diffusion/viscosity coefficients: `rho_s0^2 * Omega_ci`
+- electrostatic potential: `Tnorm`
+- vector potential: `Bnorm * rho_s0`
+
+### Equation reference requirements
+
+The code and docs must track equations at three levels:
+
+1. high-level model equations exactly as configured by components
+2. discrete numerical operators actually implemented
+3. reduced/derived analytical results used for validation and interpretation
+
+Documentation deliverables:
+
+- a component-by-component equation reference mirroring the Hermes organization
+- a discrete-operator reference page with stencil and flux formulas
+- derivations for:
+  - Bohm normalization
+  - guard-cell midpoint conventions
+  - FV parallel fluxes and limiter choices
+  - sheath particle and heat flux formulas
+  - drift-reduced vorticity / potential equations
+  - key validation scalings used later in the benchmark program
+
+## Selected Hermes Comparison Case Ladder
+
+Comparison cases must be staged by both physics complexity and runtime length.
+
+### Tier A. One-RHS and one-step parity cases
+
+Use these first because they isolate field semantics and operator correctness:
+
+- `/Users/rogerio/local/hermes-3/tests/integrated/evolve_density/data/BOUT.inp`
+  - role: single evolving density equation
+  - compare: `N`, `ddt(N)`, density sources, normalization metadata
+- `/Users/rogerio/local/hermes-3/tests/integrated/diffusion/data/BOUT.inp`
+  - role: density + pressure + anomalous diffusion
+  - compare: `N`, `P`, diffusion terms, source bookkeeping
+- `/Users/rogerio/local/hermes-3/tests/integrated/vorticity/data/BOUT.inp`
+  - role: electrostatic field solve only
+  - compare: `Vort`, `phi`, vorticity RHS pieces
+- `/Users/rogerio/local/hermes-3/tests/integrated/neutral_mixed/data/BOUT.inp`
+  - role: compact neutral model check
+  - compare: neutral density/pressure/velocity/momentum outputs
+
+### Tier B. Short transient parity cases
+
+These should run for a few outputs only and are the first real time-trajectory checks:
+
+- `/Users/rogerio/local/hermes-3/tests/integrated/1D-fluid/data/BOUT.inp`
+  - role: density + pressure + momentum in 1D
+  - compare: `Ni`, `Pi`, `NVi`, derived `Vi`, shock/transport behavior
+- `/Users/rogerio/local/hermes-3/tests/integrated/neutral_parallel_diffusion/data/BOUT.inp`
+  - role: projected neutral transport and collision-frequency dependence
+  - compare: neutral fluxes, source terms, collision diagnostics
+- `/Users/rogerio/local/hermes-3/tests/integrated/drift-wave/data/BOUT.inp`
+  - role: vorticity + collisions + friction + sound speed
+  - compare: `Ne`, ion momentum, `phi`, `fastest_wave`, collisional source terms
+- `/Users/rogerio/local/hermes-3/tests/integrated/2D-energy/data/BOUT.inp`
+  - role: 2D pressure/vorticity/polarisation coupling
+  - compare: `Pe`, ion pressure, `phi`, `Vort`, polarisation diagnostics
+- `/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp`
+  - role: minimal electromagnetic path
+  - compare: `Apar`, `phi`, momentum, wave phase speed/damping
+
+### Tier C. Medium-length parity and source/diagnostic cases
+
+These establish that sources, boundaries, and diagnostics match:
+
+- `/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp`
+  - role: sheath + recycling + reactions + collisions
+  - compare: upstream profiles, target fluxes, selected reaction diagnostics (`K`, `S`, `E`, `F`, `R`)
+- `/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp`
+  - role: multi-species recycling with electrons, deuterium, tritium, helium
+  - compare: multi-species sources, target conditions, power balance
+- `/Users/rogerio/local/hermes-3/examples/other/blob2d/BOUT.inp`
+  - role: electrostatic isothermal blob baseline
+  - compare: blob propagation, peak amplitude, COM trajectory
+- `/Users/rogerio/local/hermes-3/examples/other/blob2d-vpol/BOUT.inp`
+  - role: blob with polarisation drift
+  - compare: blob speed and morphology shift relative to baseline
+- `/Users/rogerio/local/hermes-3/examples/other/blob2d-te-ti/BOUT.inp`
+  - role: two-temperature blob
+  - compare: coupled pressure and field dynamics
+
+### Tier D. Long-run and publication-grade parity cases
+
+These become the main journal and docs examples after the earlier tiers are stable:
+
+- `/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp`
+  - role: 2D tokamak recycling with `cvode`
+  - compare: profiles, target diagnostics, reaction and recycling source fields
+- `/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp`
+  - role: multi-species 2D tokamak edge/divertor physics
+  - compare: multi-species profiles, wall/target fluxes, reaction diagnostics
+- `/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp`
+  - role: turbulent 2D tokamak transport
+  - compare: time traces, RMS fluctuation levels, spectra, PDFs, zonal quantities
+- `/Users/rogerio/local/hermes-3/examples/tokamak-3D/tcv-x21/data/BOUT.inp`
+  - role: representative 3D tokamak benchmark
+  - compare: 3D profiles, fluctuation statistics, selected cross-sections, runtime scaling
+
+Case-ladder execution policy:
+
+- every Tier A case must support:
+  - static loaded-state comparison
+  - one-RHS comparison
+  - one-step fixed-`dt` comparison
+- Tier B and above must additionally support:
+  - short-window trajectory comparison
+  - output/diagnostic metadata comparison
+- Tier C and D must additionally support:
+  - integrated balance checks
+  - plotting and post-processing parity
+
+## Output, Diagnostic, and Plot Parity Plan
+
+Hermes parity is not complete until the outputs are compatible enough that the same analysis habits work on both codes.
+
+### File-level compatibility targets
+
+JAX outputs should eventually provide equivalents of:
+
+- `BOUT.settings`
+- `BOUT.log.*`
+- `BOUT.dmp.*`
+- `BOUT.restart.*`
+
+JAX does not need to reproduce MPI file sharding exactly on day one, but it must preserve the semantic contents and metadata.
+
+### Variable-level compatibility targets
+
+For every output variable documented or emitted by Hermes, preserve:
+
+- variable name
+- dimensions and guard-handling conventions where relevant
+- `units`
+- `conversion`
+- `standard_name`
+- `long_name`
+- `species`
+- `source`
+- whether it is time-evolving or saved once
+
+Implementation tasks:
+
+- build an auto-generated output registry by scanning `outputVars(...)`, `restartVars(...)`, and `set_with_attrs(...)` usage in Hermes
+- classify variables into:
+  - state fields
+  - derived fields
+  - sources
+  - flows
+  - reactions
+  - geometry/normalization metadata
+- add a test that fails if a supported component emits a variable whose name or metadata disagrees with the registry
+
+### Plot and analysis parity targets
+
+Reproduce a standard set of analysis products for both Hermes and JAX:
+
+- 1D profile overlays
+- 2D poloidal and cross-field planes
+- target and wall flux traces
+- RMS fluctuation time traces
+- spectra
+- PDFs
+- zonal-flow and zonal-profile plots
+- blob COM trajectories and morphology panels
+- integrated particle, momentum, and energy balance plots
+
+The same plotting scripts should operate on Hermes and JAX outputs via a thin adapter layer. The goal is to allow a paper or docs figure to be generated from either code with only the dataset path changed.
+
+## Research-Grade Benchmark and Validation Program
+
+The benchmark program must satisfy three different review questions:
+
+1. Is the implementation correct?
+2. Does it reproduce the reference code?
+3. Does the reproduced code capture the expected physics?
+
+### Verification layer
+
+This is purely mathematical/numerical correctness.
+
+Required items:
+
+- unit tests for every boundary rule, parser, normalization rule, and source term
+- MMS convergence plots for all major operators
+- discrete conservation tests where applicable
+- one-RHS and one-step parity error norms
+- solver convergence diagnostics
+- CPU/GPU numerical reproducibility checks
+- differentiability tests with finite-difference or complex-step cross-checks on small cases
+
+### Hermes parity layer
+
+This proves that JAX reproduces Hermes, not just a plausible DRB model.
+
+Required items:
+
+- Tier A-D case ladder above
+- per-field relative/absolute norms
+- per-diagnostic comparison tables
+- trajectory comparison for short/medium windows
+- long-run comparison on reduced sets of summary statistics where chaotic divergence is expected
+- archived used-input files and exact run settings for both Hermes and JAX
+
+### Physics validation layer
+
+This ties the reproduced code to accepted behavior in the literature.
+
+Validation topics to include after parity is stable:
+
+- SOL instability/regime transitions informed by Mosetto 2012 and Halpern 2013
+- SOL width / pressure decay trends informed by Giacomin 2022 and Lim 2023
+- sheath/equilibrium potential behavior informed by Loizu 2012 and Loizu 2013
+- open-field turbulence properties and blob propagation informed by Ricci 2012, Halpern 2016, and related blob benchmarks
+- detachment scaling checks informed by Body 2024
+- whole-volume / arbitrary-equilibrium extensions benchmarked later against Giacomin 2022
+- stellarator extension benchmarks reserved for the post-parity branch, informed by Coelho 2024
+
+### Journal-grade benchmark bundle
+
+For a future JCP paper, prepare a reproducible artifact bundle containing:
+
+- exact Hermes and JAX input files
+- exact grids and restart snapshots where needed
+- scripts for one-RHS, one-step, short-window, and long-run comparisons
+- MMS scripts and raw convergence data
+- CPU/GPU performance benchmark scripts
+- plotting scripts for all paper figures
+- a machine-readable manifest of code version, dependency versions, and hardware
+
+### Candidate JCP figure set
+
+- architecture and dataflow diagram
+- normalization and geometry conventions diagram
+- MMS convergence figure for core operators
+- one-RHS parity heatmaps for representative cases
+- one-step and short-window parity traces
+- 1D recycling parity profiles and diagnostic table
+- 2D blob and turbulence comparison panels
+- electromagnetic `Apar` benchmark figure
+- CPU/GPU performance and memory figure
+- differentiability demo figure showing gradients of a scalar QoI
+
+## Documentation Program
+
+The documentation needs to be useful simultaneously for:
+
+- new users,
+- developers,
+- reviewers,
+- future maintainers,
+- readers of a validation or methods paper.
+
+The documentation structure should take inspiration from the strengths of WarpX:
+
+- broad landing page with clear entry points
+- exhaustive parameter reference
+- curated examples/tutorials
+- theory and algorithms pages
+- data-analysis/output pages
+- development and API sections
+
+Reference inspiration:
+
+- WarpX landing page: [https://warpx.readthedocs.io/en/latest/](https://warpx.readthedocs.io/en/latest/)
+- WarpX input parameter reference: [https://warpx.readthedocs.io/en/latest/usage/parameters.html](https://warpx.readthedocs.io/en/latest/usage/parameters.html)
+- WarpX examples page: [https://warpx.readthedocs.io/en/latest/usage/examples.html](https://warpx.readthedocs.io/en/latest/usage/examples.html)
+
+### Documentation platform and UX
+
+Recommended stack:
+
+- Sphinx + MyST Markdown
+- `pydata-sphinx-theme` or an equivalent documentation-first theme with a persistent sidebar and version switcher
+- MathJax for derivations
+- `sphinx-design` for callouts/cards/tabs
+- auto-generated API docs from docstrings
+- searchable reference pages with stable anchors
+- versioned docs on Read the Docs
+
+UX requirements:
+
+- every page must tell the reader where they are in the hierarchy
+- every parameter, diagnostic, component, and equation must have a stable anchor
+- code and paper references must be clickable
+- example pages must link directly to the exact input files and plotting scripts
+- figures must have short interpretation captions, not just screenshots
+
+### Required documentation sections
+
+1. Home
+   - what `jax_drb` is
+   - what physics it supports today
+   - quick links for install, run, examples, theory, outputs, validation
+2. Quickstart
+   - installation
+   - first run from CLI
+   - first run from Python
+   - first plot
+3. User guide
+   - running simulations
+   - restarting
+   - selecting geometry
+   - choosing solvers
+   - reading outputs
+4. Inputs reference
+   - every supported `BOUT.inp` option grouped by section/component
+   - defaults, units, normalization, allowed values
+   - exact Hermes compatibility notes
+5. Outputs and diagnostics reference
+   - every emitted variable
+   - metadata meanings
+   - derived diagnostic families
+   - example plots and analysis recipes
+6. Physics model and equations
+   - high-level equations by component
+   - closures, source terms, sheath, reactions
+   - derivations of the main formulas and analytical scalings
+7. Numerics and algorithms
+   - time integration
+   - field-aligned and shifted geometry handling
+   - FV operators, limiters, elliptic solves, preconditioning
+   - differentiability notes
+8. Geometry guide
+   - identity/slab
+   - shifted tokamak grids
+   - metric loading vs recalculation
+   - later FCI and stellarator branches
+9. Examples and tutorials
+   - one page per selected Tier A-D case
+   - expected outputs and interpretation
+   - links to source files and plots
+10. Verification and validation
+   - MMS results
+   - Hermes parity results
+   - literature validation cases
+   - performance results
+11. Developer guide
+   - repository layout
+   - adding a component
+   - adding a diagnostic
+   - adding a test
+   - style and contribution rules
+12. API reference
+   - Python API
+   - CLI commands
+13. Publications and references
+   - Hermes, GBS, GRILLIX, FCI, conservative DRB, detachment, validation papers
+
+### Documentation generation from source
+
+The docs should not rely only on handwritten reference pages.
+
+Auto-generated pages should be built from:
+
+- the supported input schema
+- the output/diagnostic registry
+- the parity matrix
+- the benchmark manifest
+- docstrings in the Python API
+
+### Documentation figure plan
+
+Produce figures that are both explanatory and reusable in papers:
+
+- normalization ladder diagram
+- grid/guard-cell diagrams
+- shifted field-aligned geometry diagrams
+- operator stencil figures
+- solver workflow diagrams
+- example result galleries
+- benchmark summary dashboards
+- validation scaling plots
+
+### Documentation acceptance criteria
+
+The docs are complete only when a new user can:
+
+- install the code,
+- run a simple case,
+- understand the inputs,
+- find the meaning and SI units of every output variable,
+- locate the exact equations and algorithms used,
+- reproduce the published benchmark and validation figures.
+
+## Benchmark and Validation Ladder
+
+The long-term benchmark suite should be kept in this exact order:
+
+1. local unit/operator tests
+2. MMS operator tests
+3. 1D fluid and shock/conduction tests
+4. 1D sheath/recycling/detachment tests
+5. 2D electrostatic diffusion and drift-wave tests
+6. blob benchmarks
+7. 2D recycling/transport tests
+8. 3D electromagnetic tests
+9. multi-species neutral/reaction tests
+10. selected full examples such as `tcv-x21`
+11. literature-driven validation cases:
+    - SOL width and regime scalings
+    - triangularity trend
+    - density/beta limit trends
+    - detachment onset scaling
+
+No later benchmark tier should become a gating CI requirement until all earlier tiers are stable.
+
+## Done Definition
+
+`jax_drb` can be considered a Hermes-3 JAX replica only when all of the following are true:
+
+- the component scheduler and input semantics match Hermes on representative examples,
+- all core operator families pass MMS and regression tests,
+- the 1D, 2D, and selected 3D reference cases run from CLI and Python,
+- multi-species neutrals/reactions work on representative Hermes examples,
+- diagnostics and normalization conventions are preserved,
+- production paths are differentiable,
+- CPU and GPU runs use the same code path,
+- the parity matrix shows no unimplemented Hermes runtime component required by the supported examples.
+
+Until then, new work should prioritize parity gaps over new physics.
