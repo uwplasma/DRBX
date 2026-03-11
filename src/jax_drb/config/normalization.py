@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from .boutinp import BoutConfig, NumericResolver
+from .model import locate_model_section
 
 ELEMENTARY_CHARGE = 1.602176634e-19
 PROTON_MASS = 1.67262192369e-27
@@ -16,7 +17,7 @@ class MetricPolicy:
 
 
 @dataclass(frozen=True)
-class HermesNormalization:
+class ModelNormalization:
     Nnorm: float
     Tnorm: float
     Bnorm: float
@@ -32,16 +33,17 @@ class HermesNormalization:
         config: BoutConfig,
         *,
         external_values: Mapping[str, float] | None = None,
-    ) -> "HermesNormalization":
+    ) -> "ModelNormalization":
         resolver = NumericResolver(config, external_values=external_values)
-        Nnorm = resolver.resolve("hermes", "Nnorm")
-        Tnorm = resolver.resolve("hermes", "Tnorm")
-        Bnorm = resolver.resolve("hermes", "Bnorm")
+        model_section = locate_model_section(config)
+        Nnorm = resolver.resolve(model_section, "Nnorm")
+        Tnorm = resolver.resolve(model_section, "Tnorm")
+        Bnorm = resolver.resolve(model_section, "Bnorm")
         Cs0 = (ELEMENTARY_CHARGE * Tnorm / PROTON_MASS) ** 0.5
         Omega_ci = ELEMENTARY_CHARGE * Bnorm / PROTON_MASS
         rho_s0 = Cs0 / Omega_ci
-        normalise_metric = bool(config.parsed("hermes", "normalise_metric")) if config.has_option("hermes", "normalise_metric") else False
-        recalculate_metric = bool(config.parsed("hermes", "recalculate_metric")) if config.has_option("hermes", "recalculate_metric") else False
+        normalise_metric = bool(config.parsed(model_section, "normalise_metric")) if config.has_option(model_section, "normalise_metric") else False
+        recalculate_metric = bool(config.parsed(model_section, "recalculate_metric")) if config.has_option(model_section, "recalculate_metric") else False
         units = {
             "inv_meters_cubed": Nnorm,
             "eV": Tnorm,

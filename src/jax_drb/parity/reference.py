@@ -36,10 +36,10 @@ class VariableSummary:
 
 
 @dataclass(frozen=True)
-class HermesRunSummary:
+class ReferenceRunSummary:
     case_name: str
     parity_mode: str
-    hermes_binary: str
+    reference_binary: str
     overrides: tuple[str, ...]
     workdir: str
     artifacts: Mapping[str, str]
@@ -54,40 +54,40 @@ class HermesRunSummary:
 
 
 @dataclass(frozen=True)
-class HermesExecutionResult:
-    summary: HermesRunSummary
+class ReferenceExecutionResult:
+    summary: ReferenceRunSummary
     stdout_path: str
 
 
 @dataclass(frozen=True)
-class HermesCaseBaseline:
+class ReferenceCaseBaseline:
     case_name: str
     parity_mode: str
     compare_variables: tuple[str, ...]
 
 
-def discover_hermes_binary(
+def discover_reference_binary(
     *,
-    hermes_binary: str | Path | None = None,
-    hermes_root: str | Path | None = None,
+    reference_binary: str | Path | None = None,
+    reference_root: str | Path | None = None,
 ) -> Path:
-    if hermes_binary is not None:
-        path = Path(hermes_binary).expanduser().resolve()
+    if reference_binary is not None:
+        path = Path(reference_binary).expanduser().resolve()
         if not path.exists():
-            raise FileNotFoundError(f"Hermes binary not found: {path}")
+            raise FileNotFoundError(f"Reference binary not found: {path}")
         return path
 
-    env_binary = os.environ.get("JAX_DRB_HERMES_BINARY")
+    env_binary = os.environ.get("JAX_DRB_REFERENCE_BINARY")
     if env_binary:
-        return discover_hermes_binary(hermes_binary=env_binary)
+        return discover_reference_binary(reference_binary=env_binary)
 
-    root = Path(hermes_root).expanduser().resolve() if hermes_root is not None else None
+    root = Path(reference_root).expanduser().resolve() if reference_root is not None else None
     if root is not None:
-        candidate = root / "build" / "hermes-3"
+        candidate = root / "build" / root.name
         if candidate.exists():
             return candidate
 
-    raise FileNotFoundError("Could not discover a Hermes binary. Pass --hermes-binary or --hermes-root.")
+    raise FileNotFoundError("Could not discover a reference binary. Pass --reference-binary or --reference-root.")
 
 
 def find_reference_case(case_name: str, *, manifest_path: str | Path | None = None) -> ReferenceCase:
@@ -101,11 +101,11 @@ def find_reference_case(case_name: str, *, manifest_path: str | Path | None = No
 def resolve_reference_case(
     case_name: str,
     *,
-    hermes_root: str | Path,
+    reference_root: str | Path,
     manifest_path: str | Path | None = None,
 ) -> tuple[ReferenceCase, Path]:
     case = find_reference_case(case_name, manifest_path=manifest_path)
-    input_path = case.input_path(hermes_root)
+    input_path = case.input_path(reference_root)
     if not input_path.exists():
         raise FileNotFoundError(f"Reference case input not found: {input_path}")
     return case, input_path
@@ -122,21 +122,21 @@ def make_default_overrides(parity_mode: str) -> tuple[str, ...]:
 def run_reference_case(
     case_name: str,
     *,
-    hermes_root: str | Path,
-    hermes_binary: str | Path | None = None,
+    reference_root: str | Path,
+    reference_binary: str | Path | None = None,
     manifest_path: str | Path | None = None,
     workdir: str | Path | None = None,
     extra_overrides: Iterable[str] = (),
     keep_workdir: bool = True,
-) -> HermesExecutionResult:
-    case, input_path = resolve_reference_case(case_name, hermes_root=hermes_root, manifest_path=manifest_path)
-    binary = discover_hermes_binary(hermes_binary=hermes_binary, hermes_root=hermes_root)
+) -> ReferenceExecutionResult:
+    case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
+    binary = discover_reference_binary(reference_binary=reference_binary, reference_root=reference_root)
     staged_workdir = _prepare_workdir(input_path, workdir=workdir)
     stdout_path = staged_workdir / "run.stdout"
     overrides = (*make_default_overrides(case.parity_mode), *tuple(extra_overrides))
 
     try:
-        _run_hermes(binary=binary, workdir=staged_workdir, overrides=overrides, stdout_path=stdout_path)
+        _run_reference_binary(binary=binary, workdir=staged_workdir, overrides=overrides, stdout_path=stdout_path)
         summary = _summarize_run(case=case, input_path=input_path, binary=binary, workdir=staged_workdir, overrides=overrides)
     except Exception:
         if workdir is None and not keep_workdir:
@@ -145,12 +145,12 @@ def run_reference_case(
 
     if workdir is None and not keep_workdir:
         summary_workdir = summary.workdir
-        result = HermesExecutionResult(summary=summary, stdout_path=str(stdout_path))
+        result = ReferenceExecutionResult(summary=summary, stdout_path=str(stdout_path))
         shutil.rmtree(staged_workdir, ignore_errors=True)
-        sanitized_summary = HermesRunSummary(
+        sanitized_summary = ReferenceRunSummary(
             case_name=summary.case_name,
             parity_mode=summary.parity_mode,
-            hermes_binary=summary.hermes_binary,
+            reference_binary=summary.reference_binary,
             overrides=summary.overrides,
             workdir=summary_workdir,
             artifacts=summary.artifacts,
@@ -163,12 +163,12 @@ def run_reference_case(
             nout=summary.nout,
             timestep=summary.timestep,
         )
-        return HermesExecutionResult(summary=sanitized_summary, stdout_path=str(stdout_path))
+        return ReferenceExecutionResult(summary=sanitized_summary, stdout_path=str(stdout_path))
 
-    return HermesExecutionResult(summary=summary, stdout_path=str(stdout_path))
+    return ReferenceExecutionResult(summary=summary, stdout_path=str(stdout_path))
 
 
-def write_run_summary_json(summary: HermesRunSummary, path: str | Path) -> Path:
+def write_run_summary_json(summary: ReferenceRunSummary, path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(summary)
@@ -176,13 +176,13 @@ def write_run_summary_json(summary: HermesRunSummary, path: str | Path) -> Path:
     return target
 
 
-def write_case_baseline_json(summary: HermesRunSummary, path: str | Path) -> Path:
+def write_case_baseline_json(summary: ReferenceRunSummary, path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "case_name": summary.case_name,
         "parity_mode": summary.parity_mode,
-        "hermes_binary": Path(summary.hermes_binary).name,
+        "reference_runner": "external-reference",
         "overrides": list(summary.overrides),
         "required_artifacts": sorted(summary.artifacts),
         "dimensions": dict(summary.dimensions),
@@ -221,7 +221,7 @@ def _stage_case_directory(source_dir: Path, target_dir: Path) -> None:
         target.symlink_to(child, target_is_directory=child.is_dir())
 
 
-def _run_hermes(*, binary: Path, workdir: Path, overrides: Iterable[str], stdout_path: Path) -> None:
+def _run_reference_binary(*, binary: Path, workdir: Path, overrides: Iterable[str], stdout_path: Path) -> None:
     command = [str(binary), "-d", str(workdir), *overrides]
     completed = subprocess.run(
         command,
@@ -232,7 +232,7 @@ def _run_hermes(*, binary: Path, workdir: Path, overrides: Iterable[str], stdout
     )
     stdout_path.write_text(completed.stdout, encoding="utf-8")
     if completed.returncode != 0:
-        raise RuntimeError(f"Hermes run failed with exit code {completed.returncode}. See {stdout_path}")
+        raise RuntimeError(f"Reference run failed with exit code {completed.returncode}. See {stdout_path}")
 
 
 def _summarize_run(
@@ -242,7 +242,7 @@ def _summarize_run(
     binary: Path,
     workdir: Path,
     overrides: tuple[str, ...],
-) -> HermesRunSummary:
+) -> ReferenceRunSummary:
     run_config = RunConfiguration.from_config(load_bout_input(input_path))
     dmp_path = workdir / "BOUT.dmp.0.nc"
     artifacts = {name: str(workdir / name) for name in DEFAULT_REQUIRED_ARTIFACTS}
@@ -251,10 +251,10 @@ def _summarize_run(
         dmp_path,
         compare_variables=case.compare_variables,
     )
-    return HermesRunSummary(
+    return ReferenceRunSummary(
         case_name=case.name,
         parity_mode=case.parity_mode,
-        hermes_binary=str(binary),
+        reference_binary=str(binary),
         overrides=overrides,
         workdir=str(workdir),
         artifacts=artifacts,
@@ -272,7 +272,7 @@ def _summarize_run(
 def _assert_artifacts_exist(artifacts: Mapping[str, str]) -> None:
     missing = [name for name, path in artifacts.items() if not Path(path).exists()]
     if missing:
-        raise FileNotFoundError(f"Missing expected Hermes artifacts: {', '.join(missing)}")
+        raise FileNotFoundError(f"Missing expected reference artifacts: {', '.join(missing)}")
 
 
 def _summarize_dataset(

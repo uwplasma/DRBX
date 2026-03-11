@@ -6,14 +6,14 @@ from pathlib import Path
 import numpy as np
 from netCDF4 import Dataset
 
-from jax_drb.parity.hermes import (
+from jax_drb.parity.reference import (
     _summarize_dataset,
     make_default_overrides,
     write_case_baseline_json,
     write_run_summary_json,
 )
 from jax_drb.reference.cases import load_reference_cases
-from jax_drb.parity.hermes import HermesRunSummary, VariableSummary
+from jax_drb.parity.reference import ReferenceRunSummary, VariableSummary
 
 
 def test_reference_cases_support_optional_compare_variables() -> None:
@@ -58,10 +58,10 @@ def test_summarize_dataset_extracts_scalars_and_deltas(tmp_path: Path) -> None:
 
 
 def test_write_run_summary_json_serializes_payload(tmp_path: Path) -> None:
-    summary = HermesRunSummary(
+    summary = ReferenceRunSummary(
         case_name="toy",
         parity_mode="one_rhs",
-        hermes_binary="/tmp/hermes-3",
+        reference_binary="/tmp/reference-binary",
         overrides=("nout=0",),
         workdir="/tmp/run",
         artifacts={"BOUT.dmp.0.nc": "/tmp/run/BOUT.dmp.0.nc"},
@@ -92,10 +92,10 @@ def test_write_run_summary_json_serializes_payload(tmp_path: Path) -> None:
 
 
 def test_write_case_baseline_json_omits_machine_specific_paths(tmp_path: Path) -> None:
-    summary = HermesRunSummary(
+    summary = ReferenceRunSummary(
         case_name="toy",
         parity_mode="one_rhs",
-        hermes_binary="/tmp/build/hermes-3",
+        reference_binary="/tmp/build/reference-binary",
         overrides=("nout=0",),
         workdir="/tmp/run",
         artifacts={"BOUT.dmp.0.nc": "/tmp/run/BOUT.dmp.0.nc", "BOUT.settings": "/tmp/run/BOUT.settings"},
@@ -121,6 +121,6 @@ def test_write_case_baseline_json_omits_machine_specific_paths(tmp_path: Path) -
 
     path = write_case_baseline_json(summary, tmp_path / "baseline.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["hermes_binary"] == "hermes-3"
+    assert payload["reference_runner"] == "external-reference"
     assert payload["required_artifacts"] == ["BOUT.dmp.0.nc", "BOUT.settings"]
     assert "workdir" not in payload

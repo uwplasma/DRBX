@@ -23,11 +23,11 @@
     "z": 10
   },
   "effective_output_points": 1,
-  "hermes_binary": "hermes-3",
   "overrides": [
     "nout=0"
   ],
   "parity_mode": "one_rhs",
+  "reference_runner": "external-reference",
   "required_artifacts": [
     "BOUT.dmp.0.nc",
     "BOUT.log.0",
