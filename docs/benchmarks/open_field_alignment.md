@@ -1318,6 +1318,53 @@ on the leading rows:
 So this slice is structural: the literal engine now owns more of the prepared
 Hermes runtime state without changing the promoted parity baseline.
 
+### 2026-03-10 corrected audit relative metrics and bilateral local ExB checks
+
+The strict audit metrics in
+`tools/audit_term_alignment.py`
+were overstating the live array mismatch by exactly `10x`: `array_rel_diff`
+and `weighted_array_rel` were normalized by `0.1 * hermes_rms` while being
+reported as plain relative errors. The audit now reports true relative values
+against `hermes_rms`, and preserves the legacy stricter normalization in the
+new `scaled_rel_diff`, `scaled_array_rel_diff`, `scaled_weighted_rel`, and
+`scaled_weighted_array_rel` columns.
+
+The corrected strict 1-step audit in
+`runs/audit_literal_engine_true_rel_reverted_1step`
+shows that the live parallel channels are already near the target band on the
+actual array metric:
+
+- `Te parallel/par_total`: `weighted_array_rel 0.014748382093236655`,
+  `array_rel_diff 0.015436351897318895`
+- `n parallel/par`: `weighted_array_rel 0.01338298917677307`,
+  `array_rel_diff 0.013543302195114624`
+- `omega parallel/jpar`: `weighted_array_rel 0.01169779562461862`,
+  `array_rel_diff 0.011715130895629948`
+- `Pe parallel/par_total`: `weighted_array_rel 0.011330241103262645`,
+  `array_rel_diff 0.011330241103262645`
+
+The same rerun also confirms that the remaining real live gap is still in the
+global ExB runtime contract rather than the local literal operator:
+
+- `n advection/exb`: `weighted_array_rel 0.00602149759764531`,
+  `array_rel_diff 0.06090172614132968`
+- `Pe advection/exb`: `weighted_array_rel 0.004178925941736911`,
+  `array_rel_diff 0.0660107963883212`
+
+To make that boundary explicit, the dump-backed local ExB runtime regression in
+`tests/hermes_literal/test_literal_exb_runtime.py`
+now covers both physical sheath ends using:
+
+- `tests/fixtures/hermes_mirror_exb_local_rank0_t1.npz`
+- `tests/fixtures/hermes_mirror_exb_local_rank5_t1.npz`
+
+Both local end blocks still match Hermes closely. A direct attempt to improve
+the stitched global ExB runtime by importing raw neighboring physical planes
+into every local parallel slab was tested and rejected: the raw Hermes local
+guards for `phi`, `J`, `g11`, `g23`, and `zShift` are not simple neighbor
+copies from the stitched global interior, so that change regressed the global
+fixture and the strict audit instead of improving them.
+
 ### 2026-03-10 literal engine no-base rehome
 
 The active strict engine in

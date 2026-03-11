@@ -411,3 +411,42 @@ is numerically identical to
 `/Users/rogerio/local/jax_drb/runs/audit_literal_stage1_state_1step`
 on the leading rows, so this is another structural hard-reset slice rather
 than a parity jump.
+
+### 2026-03-10 corrected strict metrics and easier local ExB parity target
+
+The strict audit tool in
+`/Users/rogerio/local/jax_drb/tools/audit_term_alignment.py`
+now reports true relative array errors. The previous `array_rel_diff` and
+`weighted_array_rel` columns were normalized by `0.1 * hermes_rms`, which made
+the promoted literal-engine gaps look ten times larger than the physical array
+comparison. That stricter normalization is still available for historical
+tracking via the new `scaled_*` columns, but fail-fast ranking now uses the
+actual relative quantity exposed by the name.
+
+The corrected strict 1-step audit at
+`/Users/rogerio/local/jax_drb/runs/audit_literal_engine_true_rel_reverted_1step`
+shows the literal parallel channels are already close to the target band:
+
+- `Te parallel/par_total`: `array_rel_diff = 0.015436351897318895`
+- `n parallel/par`: `array_rel_diff = 0.013543302195114624`
+- `omega parallel/jpar`: `array_rel_diff = 0.011715130895629948`
+- `Pe parallel/par_total`: `array_rel_diff = 0.011330241103262645`
+
+The remaining real live gap is therefore concentrated in the stitched global
+ExB runtime:
+
+- `n advection/exb`: `array_rel_diff = 0.06090172614132968`
+- `Pe advection/exb`: `array_rel_diff = 0.0660107963883212`
+
+To keep the comparison target cleaner while that global communication contract
+is being reworked, the local dump-backed ExB runtime regression now covers both
+physical sheath ends:
+
+- `/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_exb_local_rank0_t1.npz`
+- `/Users/rogerio/local/jax_drb/tests/fixtures/hermes_mirror_exb_local_rank5_t1.npz`
+
+Those local end-block checks still match Hermes closely. A naive stitched
+global seam fix based on importing neighboring physical planes directly into
+each local slab was rejected after the raw dump comparison showed the Hermes
+local guards for `phi` and several metric planes are not simple neighbor
+copies.
