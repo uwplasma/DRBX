@@ -92,3 +92,28 @@ def test_build_dataset_array_payload_reads_full_variable_arrays(tmp_path: Path) 
     assert payload["time_points"] == [0.0, 1.0]
     assert payload["variable_dimensions"]["Ne"] == ["t", "x"]
     np.testing.assert_allclose(payload["variables"]["Ne"], np.array([[1.0, 2.0, 3.0], [1.5, 2.0, 2.5]]))
+
+
+def test_build_dataset_array_payload_can_trim_y_guards(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "BOUT.dmp.0.nc"
+    with Dataset(dataset_path, "w") as dataset:
+        dataset.createDimension("t", 1)
+        dataset.createDimension("x", 1)
+        dataset.createDimension("y", 6)
+        dataset.createDimension("z", 1)
+        t = dataset.createVariable("t_array", "f8", ("t",))
+        t[:] = np.array([0.0])
+        ne = dataset.createVariable("Ne", "f8", ("t", "x", "y", "z"))
+        ne[:] = np.arange(6, dtype=np.float64)[None, None, :, None]
+
+    payload = build_dataset_array_payload(
+        dataset_path,
+        case_name="toy",
+        parity_mode="one_rhs",
+        compare_variables=("Ne",),
+        component_labels=("e:evolve_density",),
+        trim_y_guards=True,
+        y_guards=2,
+    )
+
+    np.testing.assert_allclose(payload["variables"]["Ne"], np.array([[[[2.0], [3.0]]]]))

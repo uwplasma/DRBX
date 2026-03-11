@@ -10,6 +10,7 @@ from jax_drb.parity.arrays import (
     load_portable_array_payload,
 )
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
+from jax_drb.reference.cases import ReferenceCase
 
 
 _EVOLVE_DENSITY_INPUT = """
@@ -76,6 +77,51 @@ bndry_all = neumann
 [Ph]
 function = Nh:function
 bndry_all = neumann
+"""
+
+_FLUID_1D_MMS_INPUT = """
+nout = 50
+timestep = 0.1
+
+MXG = 0
+
+[mesh]
+nx = 1
+ny = 128
+nz = 1
+Ly = 10
+dy = Ly / ny
+J = 1
+
+[solver]
+mxstep = 10000
+rtol = 1e-7
+mms = true
+
+[model]
+components = i
+normalise_metric = false
+Nnorm = 1e18
+Bnorm = 1
+Tnorm = 5
+
+[i]
+type = evolve_density, evolve_pressure, evolve_momentum
+charge = 1.0
+AA = 2.0
+thermal_conduction = false
+
+[Ni]
+solution = 1 - 0.1*sin(t - 2.0*y)
+source = -0.1*cos(t - 2.0*y) + 0.0628318530717959*cos(2*t + y)
+
+[Pi]
+solution = 0.1*cos(t + 3.0*y) + 1
+source = (0.0628318530717959*cos(2*t + y)/(1 - 0.1*sin(t - 2.0*y)) - 0.0125663706143592*sin(2*t + y)*cos(t - 2.0*y)/(1 - 0.1*sin(t - 2.0*y))^2)*(0.0666666666666667*cos(t + 3.0*y) + 0.666666666666667) - 0.1*sin(t + 3.0*y) + 0.0628318530717959*(0.1*cos(t + 3.0*y) + 1)*cos(2*t + y)/(1 - 0.1*sin(t - 2.0*y)) - 0.0188495559215388*sin(t + 3.0*y)*sin(2*t + y)/(1 - 0.1*sin(t - 2.0*y)) - 0.0125663706143592*(0.1*cos(t + 3.0*y) + 1)*sin(2*t + y)*cos(t - 2.0*y)/(1 - 0.1*sin(t - 2.0*y))^2
+
+[NVi]
+solution = 0.2*sin(2*t + y)
+source = -0.188495559215388*sin(t + 3.0*y) + 0.4*cos(2*t + y) + 0.0251327412287183*sin(2*t + y)*cos(2*t + y)/(1 - 0.1*sin(t - 2.0*y)) - 0.00251327412287184*sin(2*t + y)^2*cos(t - 2.0*y)/(1 - 0.1*sin(t - 2.0*y))^2
 """
 
 
@@ -160,4 +206,125 @@ def test_native_runner_tracks_diffusion_short_window_array_baseline() -> None:
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=2e-4, array_atol=2e-6)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_fluid_rhs_summary_baseline() -> None:
+    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
+    result = run_config_case(
+        config,
+        case_name="fluid_1d_mms_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("ddt(Ni)", "ddt(Pi)", "ddt(NVi)"),
+        reference_case=ReferenceCase(
+            name="fluid_1d_mms_rhs",
+            stage="stage4",
+            reference_path="tests/integrated/1D-fluid/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="RHS parity",
+            compare_variables=("ddt(Ni)", "ddt(Pi)", "ddt(NVi)"),
+            extra_overrides=("i:diagnose=true",),
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_rhs.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-6, scalar_atol=1e-8)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_fluid_rhs_array_baseline() -> None:
+    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
+    result = run_config_case(
+        config,
+        case_name="fluid_1d_mms_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("ddt(Ni)", "ddt(Pi)", "ddt(NVi)"),
+        reference_case=ReferenceCase(
+            name="fluid_1d_mms_rhs",
+            stage="stage4",
+            reference_path="tests/integrated/1D-fluid/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="RHS parity",
+            compare_variables=("ddt(Ni)", "ddt(Pi)", "ddt(NVi)"),
+            extra_overrides=("i:diagnose=true",),
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_rhs.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1e-6, array_atol=1e-8)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_fluid_one_step_summary_baseline() -> None:
+    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
+    result = run_config_case(
+        config,
+        case_name="fluid_1d_mms_one_step",
+        parity_mode="one_step",
+        compare_variables=("Ni", "Pi", "NVi"),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_one_step.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-5, scalar_atol=1e-8)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0, 0.1)
+
+
+def test_native_runner_tracks_fluid_one_step_array_baseline() -> None:
+    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
+    result = run_config_case(
+        config,
+        case_name="fluid_1d_mms_one_step",
+        parity_mode="one_step",
+        compare_variables=("Ni", "Pi", "NVi"),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_one_step.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=2e-6, array_atol=5e-7)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_fluid_short_window_summary_baseline() -> None:
+    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
+    result = run_config_case(
+        config,
+        case_name="fluid_1d_mms",
+        parity_mode="short_window",
+        compare_variables=("Ni", "Pi", "NVi"),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-5, scalar_atol=1e-8)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == tuple(0.1 * index for index in range(51))
+
+
+def test_native_runner_tracks_fluid_short_window_array_baseline() -> None:
+    config = parse_bout_input(_FLUID_1D_MMS_INPUT)
+    result = run_config_case(
+        config,
+        case_name="fluid_1d_mms",
+        parity_mode="short_window",
+        compare_variables=("Ni", "Pi", "NVi"),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=3e-6, array_atol=5e-7)
     assert comparison.ok, comparison.issues

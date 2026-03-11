@@ -11,12 +11,14 @@ The first executable parity harness is centered on the curated case ladder in [r
 3. apply parity-mode overrides:
    - `one_rhs -> nout=0`
    - `one_step -> nout=1`
+   - case-specific overrides from the manifest are merged after parity-mode defaults, so diagnostic cases can request extra outputs without duplicating `nout`
 4. run the reference binary;
 5. verify `BOUT.settings`, `BOUT.log.0`, `BOUT.dmp.0.nc`, and `BOUT.restart.0.nc`;
 6. summarize selected comparison variables and normalization scalars from `BOUT.dmp.0.nc`.
 7. compare future JAX portable summaries against the committed reference baselines with `jax-drb compare-summary`.
 
 If requested, the same command can also emit full comparison arrays to compressed NPZ files. Those artifacts are intended for the smallest curated cases where full-field regression is practical.
+For diagnostic RHS cases, the harness can also trim Y guard cells before writing summary and array baselines so comparisons focus on physically meaningful interior outputs.
 
 ## Native Protocol
 
@@ -27,6 +29,9 @@ Current support is intentionally narrow:
 - `evolve_density_rhs` is implemented end to end;
 - `diffusion_one_step` is implemented for the current structured, axisymmetric, `nz = 1` transport benchmark;
 - `diffusion_short_window` is implemented on the same transport path, using the configured output cadence from the curated input;
+- `fluid_1d_mms_rhs` is implemented for trimmed interior RHS parity on the periodic 1D manufactured-solution benchmark;
+- `fluid_1d_mms_one_step` is implemented for the first coupled density/pressure/momentum advance;
+- `fluid_1d_mms` is implemented for a full 50-output short window on the same benchmark, using RK4 subcycling;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
@@ -61,6 +66,9 @@ The first portable baseline summaries generated from live reference runs are:
 - [evolve_density_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/evolve_density_rhs.json)
 - [diffusion_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_one_step.json)
 - [diffusion_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_short_window.json)
+- [fluid_1d_mms_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_rhs.json)
+- [fluid_1d_mms_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_one_step.json)
+- [fluid_1d_mms.json](/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -76,6 +84,9 @@ The first committed full-array baselines are:
 
 - [diffusion_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_one_step.npz)
 - [diffusion_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_short_window.npz)
+- [fluid_1d_mms_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_rhs.npz)
+- [fluid_1d_mms_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_one_step.npz)
+- [fluid_1d_mms.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms.npz)
 
 These are written and read through [arrays.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/arrays.py). For the current diffusion milestone, the intended comparison command is:
 

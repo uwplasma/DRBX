@@ -72,5 +72,59 @@ def test_structured_metrics_match_normalized_diffusion_scalars() -> None:
         rtol=1e-12,
         atol=1e-9,
     )
+    np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 1.0)
     np.testing.assert_allclose(np.asarray(metrics.g23[:, mesh.ystart, 0]), 0.0)
     np.testing.assert_allclose(np.asarray(metrics.Bxy[:, mesh.ystart, 0]), 1.0)
+
+
+def test_structured_metrics_respect_normalise_metric_false() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 0.1
+        MXG = 0
+
+        [mesh]
+        nx = 1
+        ny = 8
+        nz = 1
+        dy = 10 / ny
+        J = 1
+
+        [solver]
+        mms = true
+
+        [model]
+        components = i
+        normalise_metric = false
+        Nnorm = 1e18
+        Tnorm = 5
+        Bnorm = 1
+
+        [i]
+        type = evolve_density, evolve_pressure, evolve_momentum
+        thermal_conduction = false
+        AA = 2
+
+        [Ni]
+        solution = 1
+        source = 0
+
+        [Pi]
+        solution = 1
+        source = 0
+
+        [NVi]
+        solution = 0
+        source = 0
+        """
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    np.testing.assert_allclose(np.asarray(metrics.dx[:, mesh.ystart, 0]), 1.0)
+    np.testing.assert_allclose(np.asarray(metrics.dy[:, mesh.ystart, 0]), 1.25)
+    np.testing.assert_allclose(np.asarray(metrics.J[:, mesh.ystart, 0]), 1.0)
+    np.testing.assert_allclose(np.asarray(metrics.g11[:, mesh.ystart, 0]), 1.0)
+    np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 1.0)
