@@ -40,7 +40,12 @@ Direct runs against the local reference build confirmed:
   - `fluid_1d_mms_rhs` compares trimmed interior `ddt(Ni)`, `ddt(Pi)`, and `ddt(NVi)` against a diagnostic reference run;
   - `fluid_1d_mms_one_step` and `fluid_1d_mms` compare full state histories for `Ni`, `Pi`, and `NVi`;
   - the native path uses periodic-Y guard wrapping, MC-limited parallel finite-volume fluxes, centered `Grad_par`, and fixed-step RK4 subcycling.
+- the first electrostatic vorticity slice is now in place:
+  - `vorticity_rhs` matches the diagnostic `ddt(Vort)` field to machine precision;
+  - `vorticity_one_step` and `vorticity_short_window` compare both `Vort` and `phi`;
+  - the native path uses the same discrete X-Z XPPM advection stencil as the reference, a Fourier-in-`z` / tridiagonal-in-`x` Boussinesq potential inversion, and an adaptive JAX ODE solve over the 60 evolved interior cells.
 - structured metric handling now respects `normalise_metric = false`, which is required for the 1D MMS fluid case and future benchmark inputs that specify already-physical mesh coefficients.
+- structured metric handling now also reproduces the default periodic-binormal spacing and normalized `g33` needed by the electrostatic vorticity benchmark.
 
 ## Input Syntax Observations
 
@@ -65,5 +70,8 @@ Current native execution coverage:
 - `fluid_1d_mms_rhs`: implemented and regression-tested on trimmed interior RHS outputs;
 - `fluid_1d_mms_one_step`: implemented and regression-tested for the first coupled fluid advance;
 - `fluid_1d_mms`: implemented and regression-tested for a 50-output short window;
+- `vorticity_rhs`: implemented and regression-tested at summary and full-array level;
+- `vorticity_one_step`: implemented and regression-tested for the first electrostatic output interval;
+- `vorticity_short_window`: implemented and regression-tested for the full 10-output benchmark window;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: reuse the new periodic 1D operator kernels for additional fluid and sheath cases, then move into electrostatic vorticity.
+- next target: build on the new electrostatic closure with the first density-vorticity coupled 2D case, most likely the drift-wave ladder entry before sheath-connected blob physics.

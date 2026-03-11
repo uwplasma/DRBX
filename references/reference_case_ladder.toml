@@ -46,7 +46,24 @@ stage = "stage4"
 reference_path = "tests/integrated/vorticity/data/BOUT.inp"
 parity_mode = "short_window"
 rationale = "Early electrostatic potential and vorticity closure parity."
-compare_variables = ["Vort"]
+compare_variables = ["Vort", "phi"]
+
+[[case]]
+name = "vorticity_rhs"
+stage = "stage4"
+reference_path = "tests/integrated/vorticity/data/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Discrete electrostatic vorticity RHS parity before transient comparisons."
+compare_variables = ["ddt(Vort)"]
+extra_overrides = ["vorticity:diagnose=true"]
+
+[[case]]
+name = "vorticity_one_step"
+stage = "stage4"
+reference_path = "tests/integrated/vorticity/data/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Single-output electrostatic vorticity and potential parity."
+compare_variables = ["Vort", "phi"]
 
 [[case]]
 name = "neutral_mixed_short_window"
