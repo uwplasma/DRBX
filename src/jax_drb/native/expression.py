@@ -4,6 +4,7 @@ import ast
 import operator
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Mapping
 
 from jax import config as jax_config
@@ -102,16 +103,7 @@ class ArrayExpressionEvaluator:
         return result
 
     def _evaluate_expression(self, expression: str, *, current_section: str, seen: set[tuple[str, str]]) -> Any:
-        sanitized = expression.replace("π", "pi").replace("^", "**")
-        sanitized = re.sub(r"(?<=\d)pi\b", "*pi", sanitized)
-        references: dict[str, str] = {}
-
-        def replace_reference(match: re.Match[str]) -> str:
-            token = f"__ref_{len(references)}"
-            references[token] = match.group(0)
-            return token
-
-        tree = ast.parse(_REFERENCE_PATTERN.sub(replace_reference, sanitized), mode="eval")
+        tree, references = _compile_expression(expression)
         return self._eval_node(tree.body, current_section=current_section, references=references, seen=seen)
 
     def _eval_node(
@@ -168,3 +160,18 @@ class ArrayExpressionEvaluator:
         if self.config.has_option(ROOT_SECTION, name):
             return self._resolve_option(ROOT_SECTION, name, seen)
         raise KeyError(f"Unknown array expression symbol {name!r} while evaluating section {current_section!r}")
+
+
+@lru_cache(maxsize=1024)
+def _compile_expression(expression: str) -> tuple[ast.Expression, Mapping[str, str]]:
+    sanitized = expression.replace("π", "pi").replace("^", "**")
+    sanitized = re.sub(r"(?<=\d)pi\b", "*pi", sanitized)
+    references: dict[str, str] = {}
+
+    def replace_reference(match: re.Match[str]) -> str:
+        token = f"__ref_{len(references)}"
+        references[token] = match.group(0)
+        return token
+
+    tree = ast.parse(_REFERENCE_PATTERN.sub(replace_reference, sanitized), mode="eval")
+    return tree, dict(references)

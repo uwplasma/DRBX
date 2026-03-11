@@ -36,6 +36,11 @@ Direct runs against the local reference build confirmed:
 - the native one-step transport path now reproduces the committed `diffusion_one_step` summary statistics within regression tolerance, using structured metrics, strict Heaviside support, Neumann guard reconstruction, and an exact matrix-exponential radial advance.
 - the transport parity harness now also stores full comparison arrays in [references/baselines/reference_arrays](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays), so regressions can be checked against complete fields instead of summaries only.
 - the same transport slice now covers a short-window benchmark, `diffusion_short_window`, using the configured output cadence from the input file.
+- the first coupled fluid MMS slice is now in place:
+  - `fluid_1d_mms_rhs` compares trimmed interior `ddt(Ni)`, `ddt(Pi)`, and `ddt(NVi)` against a diagnostic reference run;
+  - `fluid_1d_mms_one_step` and `fluid_1d_mms` compare full state histories for `Ni`, `Pi`, and `NVi`;
+  - the native path uses periodic-Y guard wrapping, MC-limited parallel finite-volume fluxes, centered `Grad_par`, and fixed-step RK4 subcycling.
+- structured metric handling now respects `normalise_metric = false`, which is required for the 1D MMS fluid case and future benchmark inputs that specify already-physical mesh coefficients.
 
 ## Input Syntax Observations
 
@@ -57,5 +62,8 @@ Current native execution coverage:
 - `evolve_density_rhs`: implemented and regression-tested;
 - `diffusion_one_step`: implemented and regression-tested as the first genuine time-advance benchmark;
 - `diffusion_short_window`: implemented and regression-tested at both summary and full-array level;
+- `fluid_1d_mms_rhs`: implemented and regression-tested on trimmed interior RHS outputs;
+- `fluid_1d_mms_one_step`: implemented and regression-tested for the first coupled fluid advance;
+- `fluid_1d_mms`: implemented and regression-tested for a 50-output short window;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: extend from this one-step transport slice into reusable finite-volume operator kernels and longer-window transport cases.
+- next target: reuse the new periodic 1D operator kernels for additional fluid and sheath cases, then move into electrostatic vorticity.
