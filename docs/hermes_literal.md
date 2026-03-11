@@ -450,3 +450,56 @@ global seam fix based on importing neighboring physical planes directly into
 each local slab was rejected after the raw dump comparison showed the Hermes
 local guards for `phi` and several metric planes are not simple neighbor
 copies.
+
+### 2026-03-10 literal edge-block field communication and long-window overview
+
+A follow-on runtime probe stayed inside the communication contract rather than
+changing any local operator body. It tested using actual neighboring parallel
+planes for the **advected field** at the first and last edge blocks while
+leaving `phi` and the metric planes on the previous reconstruction, because raw
+dump checks showed those local guards are not simple neighbor copies.
+
+That probe improves the stitched global ExB fixture and the promoted strict
+1-step audit slightly:
+
+- `n advection/exb`: `0.06090172614132968 -> 0.060766993509094175`
+- `Pe advection/exb`: `0.0660107963883212 -> 0.06587254628876064`
+
+But it regresses the dump-backed vorticity ExB regression enough to fail the
+source-term correlation threshold (`0.8494116815859967` vs required `> 0.9` in
+`tests/hermes_literal/test_literal_vorticity.py`). So the probe was reverted.
+The remaining global ExB gap is still the main literal-runtime blocker.
+
+For the first time on the literal parity path, there is also now a long-window
+Hermes-vs-JAX diagnostic panel driven by the current strict benchmark config:
+
+- benchmark config:
+  `/Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`
+- Hermes data:
+  `/Users/rogerio/local/jax_drb/runs/hermes_open_field_05/data`
+- output directory:
+  `/Users/rogerio/local/jax_drb/runs/tokamak_benchmark_literal_t036`
+- multi-field overview:
+  `/Users/rogerio/local/jax_drb/runs/tokamak_benchmark_literal_t036/figures/tokamak_sol_benchmark_overview.png`
+
+The overview figure is produced by the new helper
+`/Users/rogerio/local/jax_drb/tools/plot_benchmark_overview.py`,
+which plots, for each of `n`, `Te`, `omega`, and `phi`:
+
+1. Hermes fluctuation snapshot
+2. jax_drb fluctuation snapshot
+3. snapshot difference
+4. fluctuation RMS over time
+
+The long-window result is not good enough yet. The comparison bundles report:
+
+- mean relative diagnostic L2: `1.1728155373109848`
+- max relative diagnostic L2: `2.153985971639393`
+
+and the end-of-window RMS values in
+`/Users/rogerio/local/jax_drb/runs/tokamak_benchmark_literal_t036/figures/tokamak_sol_benchmark_panel.csv`
+show nearly complete RMS collapse relative to Hermes by `t = 0.36`.
+
+So the literal path is now capable of producing the requested long-window
+comparison artifact, but that artifact confirms the code is still not at
+Hermes benchmark parity.
