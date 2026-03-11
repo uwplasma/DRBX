@@ -1207,6 +1207,40 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `J`, `g11`, `g23`, and `zShift` are not simple neighbor copies from the
   stitched global interior, so the remaining work is the full processor-local
   guard reconstruction contract, not another local operator rewrite.
+- 2026-03-10: a follow-on literal ExB runtime probe tested using actual
+  neighboring parallel planes for the advected field at the first and last
+  processor-like edge blocks. It does improve the promoted strict 1-step
+  ExB rows in
+  `runs/audit_literal_edge_neighbor_field_1step`
+  (`n advection/exb = 0.06090172614132968 -> 0.060766993509094175`,
+  `Pe advection/exb = 0.0660107963883212 -> 0.06587254628876064`),
+  but it regresses the dump-backed literal vorticity ExB term correlation to
+  `0.8494116815859967` in
+  `tests/hermes_literal/test_literal_vorticity.py`.
+  That probe was reverted and is not part of the active baseline.
+- 2026-03-10: the strict benchmark config
+  `examples/open_field_line/input_tokamak_bxcv_benchmark_hermes_strict.toml`
+  was refreshed to the literal runtime (`engine = "hermes_literal"`,
+  `exb_flux_scheme = "hermes_mirror"`,
+  `hermes_mirror_parallel_edge_block = 8`,
+  `hermes_mirror_parallel_subdomain_size = 8`,
+  `exb_poloidal_y_scale = 1.0`,
+  current metric coeff bundle).
+- 2026-03-10: a long-window diagnostic comparison against
+  `runs/hermes_open_field_05/data`
+  was generated in
+  `runs/tokamak_benchmark_literal_t036`,
+  including the new multi-field overview panel
+  `runs/tokamak_benchmark_literal_t036/figures/tokamak_sol_benchmark_overview.png`
+  produced by `tools/plot_benchmark_overview.py`.
+- 2026-03-10: that long-window comparison is explicitly a diagnostic artifact,
+  not a promotion. The bundles show the literal path is still far from
+  benchmark parity at `t = 0.36`:
+  mean relative diagnostic L2 `= 1.1728155373109848`,
+  max relative diagnostic L2 `= 2.153985971639393`,
+  and end-of-window RMS relative errors near `-0.96` to `-0.99` for
+  `n`, `Te`, and `omega`. Milestone A remains blocked on the live global ExB
+  and parallel runtime contract.
 
 ---
 
