@@ -16,6 +16,16 @@ The first executable parity harness is centered on the curated case ladder in [r
 6. summarize selected comparison variables and normalization scalars from `BOUT.dmp.0.nc`.
 7. compare future JAX portable summaries against the committed reference baselines with `jax-drb compare-summary`.
 
+## Native Protocol
+
+`jax-drb run-case <case>` resolves the same curated input and runs the supported native JAX path.
+
+Current support is intentionally narrow:
+
+- `evolve_density_rhs` is implemented end to end;
+- the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, applies the current boundary/guard reconstruction, and emits the portable summary schema;
+- the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
+
 ## Confirmed Reference Behavior
 
 Live runs against `local reference build` established:

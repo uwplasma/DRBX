@@ -7,7 +7,7 @@ from .boutinp import BoutConfig, NumericResolver
 from .model import locate_model_section
 
 ELEMENTARY_CHARGE = 1.602176634e-19
-PROTON_MASS = 1.67262192369e-27
+PROTON_MASS = 1.672621898e-27
 
 
 @dataclass(frozen=True)
