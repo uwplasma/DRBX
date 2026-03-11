@@ -8,6 +8,7 @@ from netCDF4 import Dataset
 
 from jax_drb.parity.reference import (
     _summarize_dataset,
+    merge_overrides,
     make_default_overrides,
     write_case_baseline_json,
     write_run_summary_json,
@@ -26,6 +27,13 @@ def test_make_default_overrides_respects_fast_parity_modes() -> None:
     assert make_default_overrides("one_rhs") == ("nout=0",)
     assert make_default_overrides("one_step") == ("nout=1",)
     assert make_default_overrides("short_window") == ()
+
+
+def test_merge_overrides_replaces_duplicate_keys_with_latest_value() -> None:
+    assert merge_overrides(("nout=0", "i:diagnose=false"), ("nout=1",), ("i:diagnose=true",)) == (
+        "nout=1",
+        "i:diagnose=true",
+    )
 
 
 def test_summarize_dataset_extracts_scalars_and_deltas(tmp_path: Path) -> None:
@@ -48,7 +56,12 @@ def test_summarize_dataset_extracts_scalars_and_deltas(tmp_path: Path) -> None:
         ne = dataset.createVariable("Ne", "f8", ("t", "x"))
         ne[:] = np.array([[1.0, 2.0, 3.0], [1.5, 2.0, 2.5]])
 
-    variables, dimensions, time_points, scalars = _summarize_dataset(dataset_path, compare_variables=("Ne",))
+    variables, dimensions, time_points, scalars = _summarize_dataset(
+        dataset_path,
+        compare_variables=("Ne",),
+        trim_y_guards=False,
+        y_guards=0,
+    )
 
     assert dimensions == {"t": 2, "x": 3}
     assert time_points == (0.0, 1.0)

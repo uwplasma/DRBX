@@ -119,6 +119,18 @@ def make_default_overrides(parity_mode: str) -> tuple[str, ...]:
     return ()
 
 
+def merge_overrides(*groups: Iterable[str]) -> tuple[str, ...]:
+    merged: dict[str, str] = {}
+    order: list[str] = []
+    for group in groups:
+        for override in group:
+            key = _override_key(override)
+            if key not in merged:
+                order.append(key)
+            merged[key] = override
+    return tuple(merged[key] for key in order)
+
+
 def run_reference_case(
     case_name: str,
     *,
@@ -133,7 +145,7 @@ def run_reference_case(
     binary = discover_reference_binary(reference_binary=reference_binary, reference_root=reference_root)
     staged_workdir = _prepare_workdir(input_path, workdir=workdir)
     stdout_path = staged_workdir / "run.stdout"
-    overrides = (*make_default_overrides(case.parity_mode), *tuple(extra_overrides))
+    overrides = merge_overrides(make_default_overrides(case.parity_mode), case.extra_overrides, tuple(extra_overrides))
 
     try:
         _run_reference_binary(binary=binary, workdir=staged_workdir, overrides=overrides, stdout_path=stdout_path)
@@ -250,6 +262,8 @@ def _summarize_run(
     variable_summaries, dimensions, time_points, dataset_scalars = _summarize_dataset(
         dmp_path,
         compare_variables=case.compare_variables,
+        trim_y_guards=case.trim_y_guards,
+        y_guards=run_config.mesh.myg,
     )
     return ReferenceRunSummary(
         case_name=case.name,
@@ -279,6 +293,8 @@ def _summarize_dataset(
     path: Path,
     *,
     compare_variables: Iterable[str],
+    trim_y_guards: bool,
+    y_guards: int,
 ) -> tuple[dict[str, VariableSummary], dict[str, int], tuple[float, ...], dict[str, float]]:
     with Dataset(path) as dataset:
         dimensions = {name: len(dimension) for name, dimension in dataset.dimensions.items()}
@@ -289,16 +305,21 @@ def _summarize_dataset(
             if name in dataset.variables
         }
         variable_summaries = {
-            name: _summarize_variable(dataset, name)
+            name: _summarize_variable(dataset, name, trim_y_guards=trim_y_guards, y_guards=y_guards)
             for name in compare_variables
             if name in dataset.variables
         }
     return variable_summaries, dimensions, time_points, dataset_scalars
 
 
-def _summarize_variable(dataset: Dataset, name: str) -> VariableSummary:
+def _summarize_variable(dataset: Dataset, name: str, *, trim_y_guards: bool, y_guards: int) -> VariableSummary:
     variable = dataset.variables[name]
-    data = np.asarray(variable[:], dtype=np.float64)
+    data = _maybe_trim_y_guards(
+        np.asarray(variable[:], dtype=np.float64),
+        dimensions=tuple(variable.dimensions),
+        trim_y_guards=trim_y_guards,
+        y_guards=y_guards,
+    )
     delta = None
     if "t" in variable.dimensions and data.shape[0] >= 2:
         delta = float(np.max(np.abs(data[-1] - data[0])))
@@ -311,6 +332,27 @@ def _summarize_variable(dataset: Dataset, name: str) -> VariableSummary:
         mean=float(np.mean(data)),
         max_abs_delta_last_first=delta,
     )
+
+
+def _override_key(override: str) -> str:
+    return override.split("=", 1)[0].strip()
+
+
+def _maybe_trim_y_guards(
+    array: np.ndarray,
+    *,
+    dimensions: tuple[str, ...],
+    trim_y_guards: bool,
+    y_guards: int,
+) -> np.ndarray:
+    if not trim_y_guards or y_guards <= 0 or "y" not in dimensions:
+        return array
+    axis = dimensions.index("y")
+    if array.shape[axis] <= 2 * y_guards:
+        return array
+    slicer = [slice(None)] * array.ndim
+    slicer[axis] = slice(y_guards, -y_guards)
+    return array[tuple(slicer)]
 
 
 def load_bout_input(path: Path):

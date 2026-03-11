@@ -23,6 +23,24 @@ rationale = "Repeated finite-volume transport steps before moving to more couple
 compare_variables = ["Nh", "Ph"]
 
 [[case]]
+name = "fluid_1d_mms_rhs"
+stage = "stage4"
+reference_path = "tests/integrated/1D-fluid/data/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Manufactured-solution RHS parity for density, pressure, and momentum operators before transient checks."
+compare_variables = ["ddt(Ni)", "ddt(Pi)", "ddt(NVi)"]
+extra_overrides = ["i:diagnose=true"]
+trim_y_guards = true
+
+[[case]]
+name = "fluid_1d_mms_one_step"
+stage = "stage4"
+reference_path = "tests/integrated/1D-fluid/data/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Single-step coupled fluid parity after locking the manufactured RHS."
+compare_variables = ["Ni", "Pi", "NVi"]
+
+[[case]]
 name = "vorticity_short_window"
 stage = "stage4"
 reference_path = "tests/integrated/vorticity/data/BOUT.inp"
