@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from tools.audit_term_alignment import _compute_term_mismatch, _first_failing_term
 
 
@@ -39,7 +41,8 @@ def test_compute_term_mismatch_adds_array_metrics() -> None:
     row = rows[0]
     assert row["rel_diff"] == 0.0
     assert row["array_diff_rms"] > 0.0
-    assert row["array_rel_diff"] > 0.0
+    assert row["array_rel_diff"] == math.sqrt(2.0)
+    assert row["scaled_array_rel_diff"] == 10.0 * math.sqrt(2.0)
     assert row["array_diff_maxabs"] == 2.0
     assert row["array_corr"] == 0.0
 

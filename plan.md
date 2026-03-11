@@ -1179,6 +1179,34 @@ jaxdrb /Users/rogerio/local/jax_drb/examples/open_field_line/input_tokamak_bxcv_
   `runs/audit_literal_stage1_state_1step`
   on the remaining leaders. This means the active parity vehicle now depends
   less on the unified runtime without changing the promoted baseline.
+- 2026-03-10: `tools/audit_term_alignment.py` now reports true relative array
+  errors. The previous `array_rel_diff` and `weighted_array_rel` columns were
+  normalized by `0.1 * hermes_rms`, so the promoted literal-engine gaps were
+  overstated by `10x`. The legacy stricter normalization is retained in the
+  new `scaled_*` columns for historical tracking.
+- 2026-03-10: with the corrected strict audit
+  `runs/audit_literal_engine_true_rel_reverted_1step`,
+  the live parallel channels are already near the `1e-2` target on the actual
+  array metric:
+  `Te parallel/par_total = 0.015436351897318895`,
+  `n parallel/par = 0.013543302195114624`,
+  `omega parallel/jpar = 0.011715130895629948`,
+  `Pe parallel/par_total = 0.011330241103262645`.
+- 2026-03-10: the remaining real live solver gap is concentrated in the
+  stitched global ExB runtime:
+  `n advection/exb = 0.06090172614132968`,
+  `Pe advection/exb = 0.0660107963883212`.
+  The local literal ExB operator itself continues to match Hermes closely at
+  both sheath ends in
+  `tests/hermes_literal/test_literal_exb_runtime.py` using
+  `tests/fixtures/hermes_mirror_exb_local_rank0_t1.npz` and
+  `tests/fixtures/hermes_mirror_exb_local_rank5_t1.npz`.
+- 2026-03-10: a naive stitched-global seam fix that imported neighboring
+  physical planes directly into every local parallel slab was tested and
+  rejected. Raw Hermes dump comparison shows the local guards for `phi`,
+  `J`, `g11`, `g23`, and `zShift` are not simple neighbor copies from the
+  stitched global interior, so the remaining work is the full processor-local
+  guard reconstruction contract, not another local operator rewrite.
 
 ---
 

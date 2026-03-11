@@ -1043,7 +1043,8 @@ def _compute_term_mismatch(
             continue
         jax_rms = float(row.get("rms", 0.0))
         hermes_rms = float(hrow.get("rms", 0.0))
-        denom = max(1e-12, 0.1 * hermes_rms)
+        denom = max(1e-12, hermes_rms)
+        scaled_denom = max(1e-12, 0.1 * hermes_rms)
         array_diff_rms = abs(jax_rms - hermes_rms)
         array_diff_maxabs = abs(float(row.get("maxabs", 0.0)) - float(hrow.get("maxabs", 0.0)))
         array_corr = 0.0
@@ -1079,9 +1080,11 @@ def _compute_term_mismatch(
                 "jax_rms": jax_rms,
                 "hermes_rms": hermes_rms,
                 "rel_diff": abs(jax_rms - hermes_rms) / denom,
+                "scaled_rel_diff": abs(jax_rms - hermes_rms) / scaled_denom,
                 "array_diff_rms": array_diff_rms,
                 "array_diff_maxabs": array_diff_maxabs,
                 "array_rel_diff": array_diff_rms / denom,
+                "scaled_array_rel_diff": array_diff_rms / scaled_denom,
                 "array_corr": array_corr,
                 "array_scale": array_scale,
             }
@@ -2187,6 +2190,8 @@ def main() -> None:
         row["frac_of_field_rhs"] = frac
         row["weighted_rel"] = float(row.get("rel_diff", 0.0)) * frac
         row["weighted_array_rel"] = float(row.get("array_rel_diff", 0.0)) * frac
+        row["scaled_weighted_rel"] = float(row.get("scaled_rel_diff", 0.0)) * frac
+        row["scaled_weighted_array_rel"] = float(row.get("scaled_array_rel_diff", 0.0)) * frac
 
     out_dir = Path(args.out_dir)
     _write_csv(
@@ -2226,15 +2231,19 @@ def main() -> None:
             "jax_rms",
             "hermes_rms",
             "rel_diff",
+            "scaled_rel_diff",
             "array_diff_rms",
             "array_diff_maxabs",
             "array_rel_diff",
+            "scaled_array_rel_diff",
             "array_corr",
             "array_scale",
             "field_rhs_rms",
             "frac_of_field_rhs",
             "weighted_rel",
             "weighted_array_rel",
+            "scaled_weighted_rel",
+            "scaled_weighted_array_rel",
         ],
     )
     if "phi" in snapshots and "omega" in snapshots:
@@ -2290,15 +2299,19 @@ def main() -> None:
                     "jax_rms": float(row.get("jax_rms", 0.0)),
                     "hermes_rms": float(row.get("hermes_rms", 0.0)),
                     "rel_diff": float(row.get("rel_diff", 0.0)),
+                    "scaled_rel_diff": float(row.get("scaled_rel_diff", 0.0)),
                     "array_diff_rms": float(row.get("array_diff_rms", 0.0)),
                     "array_diff_maxabs": float(row.get("array_diff_maxabs", 0.0)),
                     "array_rel_diff": float(row.get("array_rel_diff", 0.0)),
+                    "scaled_array_rel_diff": float(row.get("scaled_array_rel_diff", 0.0)),
                     "array_corr": float(row.get("array_corr", 0.0)),
                     "array_scale": float(row.get("array_scale", 0.0)),
                     "field_rhs_rms": float(row.get("field_rhs_rms", 0.0)),
                     "frac_of_field_rhs": float(row.get("frac_of_field_rhs", 0.0)),
                     "weighted_rel": float(row.get("weighted_rel", 0.0)),
                     "weighted_array_rel": float(row.get("weighted_array_rel", 0.0)),
+                    "scaled_weighted_rel": float(row.get("scaled_weighted_rel", 0.0)),
+                    "scaled_weighted_array_rel": float(row.get("scaled_weighted_array_rel", 0.0)),
                     "ranking_metric": str(args.term_ranking_metric),
                 }
             )
@@ -2315,15 +2328,19 @@ def main() -> None:
             "jax_rms",
             "hermes_rms",
             "rel_diff",
+            "scaled_rel_diff",
             "array_diff_rms",
             "array_diff_maxabs",
             "array_rel_diff",
+            "scaled_array_rel_diff",
             "array_corr",
             "array_scale",
             "field_rhs_rms",
             "frac_of_field_rhs",
             "weighted_rel",
             "weighted_array_rel",
+            "scaled_weighted_rel",
+            "scaled_weighted_array_rel",
             "ranking_metric",
         ],
     )
