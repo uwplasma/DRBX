@@ -19,6 +19,10 @@ From `hermes-3.cxx`, Hermes defines:
 
 The initial normalization module reproduces those exact derived quantities and tracks both `normalise_metric` and `recalculate_metric`.
 
+## Root And Mesh Scalars
+
+Hermes inputs routinely define reusable scalar parameters before `[mesh]` and `[hermes]`, for example `tnorm_setting`, `core_ne`, and `initial_pi`. Mesh sections then reference local and root scalars (`dy = Ly / ny`, `dz = 2 * pi / nz`, `Bnorm = mesh:Bxy`). JAX-DRB now resolves these into a structured run configuration rather than reparsing them inside later kernels.
+
 ## Input Syntax Observations
 
 Representative Hermes inputs require support for:
