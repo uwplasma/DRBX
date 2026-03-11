@@ -16,6 +16,8 @@ The first executable parity harness is centered on the curated case ladder in [r
 6. summarize selected comparison variables and normalization scalars from `BOUT.dmp.0.nc`.
 7. compare future JAX portable summaries against the committed reference baselines with `jax-drb compare-summary`.
 
+If requested, the same command can also emit full comparison arrays to compressed NPZ files. Those artifacts are intended for the smallest curated cases where full-field regression is practical.
+
 ## Native Protocol
 
 `jax-drb run-case <case>` resolves the same curated input and runs the supported native JAX path.
@@ -24,7 +26,9 @@ Current support is intentionally narrow:
 
 - `evolve_density_rhs` is implemented end to end;
 - `diffusion_one_step` is implemented for the current structured, axisymmetric, `nz = 1` transport benchmark;
+- `diffusion_short_window` is implemented on the same transport path, using the configured output cadence from the curated input;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
+- the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
 
 For the current one-step diffusion milestone, summary comparison should use a modest scalar tolerance, for example:
@@ -56,6 +60,7 @@ The first portable baseline summaries generated from live reference runs are:
 
 - [evolve_density_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/evolve_density_rhs.json)
 - [diffusion_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_one_step.json)
+- [diffusion_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_short_window.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -66,3 +71,18 @@ These files are not full field dumps. They intentionally store:
 - selected comparison-variable statistics and first-to-last deltas.
 
 Future JAX runs should emit the same portable schema through the generic summary helpers in [portable.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/portable.py), so that `jax-drb compare-summary` can be used unchanged for reference vs. JAX comparisons.
+
+The first committed full-array baselines are:
+
+- [diffusion_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_one_step.npz)
+- [diffusion_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_short_window.npz)
+
+These are written and read through [arrays.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/arrays.py). For the current diffusion milestone, the intended comparison command is:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-arrays \
+  references/baselines/reference_arrays/diffusion_short_window.npz \
+  /tmp/jax_drb_diffusion_short_window_native.npz \
+  --array-rtol 2e-4 \
+  --array-atol 2e-6
+```
