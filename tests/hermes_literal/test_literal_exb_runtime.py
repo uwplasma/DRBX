@@ -5,6 +5,7 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jaxdrb.bc import BC2D
 from jaxdrb.hermes_literal.exb import div_n_bxgrad_f_b_xppm
@@ -13,16 +14,19 @@ _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_exb
 _TERM_FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_exb_term_local_rank0_t1.npz"
 )
+_UPPER_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_exb_local_rank5_t1.npz"
+)
 _GLOBAL_FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "hermes_mirror_exb_global_t1.npz"
 )
 
 
-def _runtime_fixture_inputs() -> tuple[dict[str, object], np.ndarray, np.ndarray]:
-    with (
-        np.load(_FIXTURE, allow_pickle=False) as data,
-        np.load(_TERM_FIXTURE, allow_pickle=False) as terms,
-    ):
+def _runtime_fixture_inputs(
+    fixture_path: Path,
+    term_fixture_path: Path | None = None,
+) -> tuple[dict[str, object], np.ndarray, np.ndarray]:
+    with np.load(fixture_path, allow_pickle=False) as data:
         ps = int(np.asarray(data["pstart"]))
         pe = int(np.asarray(data["pend"]))
         xs = int(np.asarray(data["xstart"]))
@@ -53,13 +57,28 @@ def _runtime_fixture_inputs() -> tuple[dict[str, object], np.ndarray, np.ndarray
         pe_field = np.asarray(data["Pe"][sl], dtype=np.float64)
         phi = np.asarray(data["phi"][sl], dtype=np.float64)
         kwargs["phi"] = jnp.asarray(phi, dtype=jnp.float64)
-        ne_ref = np.asarray(terms["term_Ne_exb"][sl], dtype=np.float64)
-        pe_ref = np.asarray(terms["term_Pe_exb"][sl], dtype=np.float64)
+        if term_fixture_path is None:
+            ne_ref = np.asarray(data["term_Ne_exb"][sl], dtype=np.float64)
+            pe_ref = np.asarray(data["term_Pe_exb"][sl], dtype=np.float64)
+        else:
+            with np.load(term_fixture_path, allow_pickle=False) as terms:
+                ne_ref = np.asarray(terms["term_Ne_exb"][sl], dtype=np.float64)
+                pe_ref = np.asarray(terms["term_Pe_exb"][sl], dtype=np.float64)
     return kwargs, np.stack([ne, pe_field]), np.stack([ne_ref, pe_ref])
 
 
-def test_exb_runtime_wrapper_matches_dump_backed_interior_terms() -> None:
-    kwargs, fields, refs = _runtime_fixture_inputs()
+@pytest.mark.parametrize(
+    ("fixture_path", "term_fixture_path"),
+    [
+        (_FIXTURE, _TERM_FIXTURE),
+        (_UPPER_FIXTURE, None),
+    ],
+)
+def test_exb_runtime_wrapper_matches_dump_backed_interior_terms(
+    fixture_path: Path,
+    term_fixture_path: Path | None,
+) -> None:
+    kwargs, fields, refs = _runtime_fixture_inputs(fixture_path, term_fixture_path)
     phi = kwargs.pop("phi")
     names = ("Ne", "Pe")
     thresholds = {"Ne": 3.0e-4, "Pe": 3.0e-4}
@@ -75,7 +94,7 @@ def test_exb_runtime_wrapper_matches_dump_backed_interior_terms() -> None:
 
 
 def test_exb_runtime_wrapper_is_differentiable() -> None:
-    kwargs, fields, _ = _runtime_fixture_inputs()
+    kwargs, fields, _ = _runtime_fixture_inputs(_FIXTURE, _TERM_FIXTURE)
     phi = kwargs.pop("phi")
 
     grad = jax.grad(lambda arr: jnp.sum(div_n_bxgrad_f_b_xppm(arr, phi, **kwargs)))(
