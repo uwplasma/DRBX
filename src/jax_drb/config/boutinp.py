@@ -222,6 +222,7 @@ class NumericResolver:
 
     def _evaluate_expression(self, expression: str, *, current_section: str, seen: set[tuple[str, str]]) -> float:
         sanitized = expression.replace("π", "pi").replace("^", "**")
+        sanitized = re.sub(r"(?<=\d)pi\b", "*pi", sanitized)
         references: dict[str, str] = {}
 
         def replace_reference(match: re.Match[str]) -> str:

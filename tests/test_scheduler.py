@@ -10,10 +10,14 @@ def test_expand_component_requests_splits_typed_species() -> None:
     config = parse_bout_input(
         """
         [hermes]
-        components = e, vorticity, sheath_boundary
+        components = e, reactions, vorticity, sheath_boundary
 
         [e]
         type = evolve_density, evolve_pressure
+        AA = 1/1836
+
+        [reactions]
+        type = a + b -> c, c + e -> d
         """
     )
 
@@ -21,6 +25,7 @@ def test_expand_component_requests_splits_typed_species() -> None:
     assert tuple(request.label for request in requests) == (
         "e:evolve_density",
         "e:evolve_pressure",
+        "reactions",
         "vorticity",
         "sheath_boundary",
     )

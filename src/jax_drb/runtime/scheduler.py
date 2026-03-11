@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Protocol
 
 from ..config.boutinp import BoutConfig
+
+_COMPONENT_TYPE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -44,7 +47,7 @@ def expand_component_requests(config: BoutConfig) -> tuple[ComponentRequest, ...
     requests: list[ComponentRequest] = []
 
     for name in component_names:
-        if config.has_section(name) and config.has_option(name, "type"):
+        if config.has_section(name) and config.has_option(name, "type") and _is_species_component(config, name):
             for implementation in _as_tuple(config.parsed(name, "type")):
                 requests.append(
                     ComponentRequest(
@@ -74,3 +77,8 @@ def _as_tuple(value: bool | int | float | str | tuple[str, ...]) -> tuple[str, .
     if isinstance(value, tuple):
         return value
     return (str(value),)
+
+
+def _is_species_component(config: BoutConfig, section: str) -> bool:
+    type_value = config.parsed(section, "type")
+    return all(_COMPONENT_TYPE_PATTERN.fullmatch(item) for item in _as_tuple(type_value))
