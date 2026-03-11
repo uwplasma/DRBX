@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jax-drb"
+version = "0.1.0"
+description = "Fresh JAX reimplementation of Hermes-3 for differentiable edge/SOL plasma simulations."
+readme = "PLAN.md"
+requires-python = ">=3.11"
+dependencies = ["jax>=0.7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4"]
+integrators = ["diffrax>=0.7"]
+models = ["equinox>=0.13"]
+
+[project.scripts]
+jax-drb = "jax_drb.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
