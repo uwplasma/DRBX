@@ -179,12 +179,15 @@ def _default_reference_binary() -> Path | None:
 
 def _run_reference_case_command(args: argparse.Namespace) -> int:
     from .parity.arrays import build_dataset_array_payload, write_portable_array_payload
-    from .parity.reference import run_reference_case, write_case_baseline_json
+    from .parity.reference import find_reference_case, run_reference_case, write_case_baseline_json
 
     if args.reference_root is None:
         print("run-reference-case: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
         return 1
 
+    case = find_reference_case(args.case_name)
+    case_input = case.input_path(args.reference_root)
+    case_run_config = RunConfiguration.from_config(load_bout_input(case_input))
     result = run_reference_case(
         args.case_name,
         reference_root=args.reference_root,
@@ -216,6 +219,8 @@ def _run_reference_case_command(args: argparse.Namespace) -> int:
             compare_variables=summary.compare_variables,
             component_labels=summary.component_labels,
             overrides=summary.overrides,
+            trim_y_guards=case.trim_y_guards,
+            y_guards=case_run_config.mesh.myg,
             configured_nout=summary.nout,
             configured_timestep=summary.timestep,
         )

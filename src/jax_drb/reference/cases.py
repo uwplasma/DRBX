@@ -18,6 +18,8 @@ class ReferenceCase:
     parity_mode: str
     rationale: str
     compare_variables: tuple[str, ...] = ()
+    extra_overrides: tuple[str, ...] = ()
+    trim_y_guards: bool = False
 
     def input_path(self, reference_root: str | Path) -> Path:
         return Path(reference_root) / self.reference_path
@@ -42,6 +44,8 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
             parity_mode=entry["parity_mode"],
             rationale=entry["rationale"],
             compare_variables=tuple(entry.get("compare_variables", [])),
+            extra_overrides=tuple(entry.get("extra_overrides", [])),
+            trim_y_guards=bool(entry.get("trim_y_guards", False)),
         )
         for entry in payload.get("case", [])
     )

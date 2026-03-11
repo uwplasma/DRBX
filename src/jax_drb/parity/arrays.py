@@ -72,6 +72,8 @@ def build_dataset_array_payload(
     compare_variables: tuple[str, ...],
     component_labels: tuple[str, ...],
     overrides: tuple[str, ...] = (),
+    trim_y_guards: bool = False,
+    y_guards: int = 0,
     configured_nout: int | None = None,
     configured_timestep: float | None = None,
     producer: str = "external-reference",
@@ -85,7 +87,12 @@ def build_dataset_array_payload(
             if name in dataset.variables
         }
         variables = {
-            name: np.asarray(dataset.variables[name][:], dtype=np.float64)
+            name: _maybe_trim_y_guards(
+                np.asarray(dataset.variables[name][:], dtype=np.float64),
+                dimensions=tuple(dataset.variables[name].dimensions),
+                trim_y_guards=trim_y_guards,
+                y_guards=y_guards,
+            )
             for name in compare_variables
             if name in dataset.variables
         }
@@ -223,6 +230,23 @@ def compare_array_payloads(
             )
 
     return ComparisonResult(ok=not issues, issues=tuple(issues))
+
+
+def _maybe_trim_y_guards(
+    array: np.ndarray,
+    *,
+    dimensions: tuple[str, ...],
+    trim_y_guards: bool,
+    y_guards: int,
+) -> np.ndarray:
+    if not trim_y_guards or y_guards <= 0 or "y" not in dimensions:
+        return array
+    axis = dimensions.index("y")
+    if array.shape[axis] <= 2 * y_guards:
+        return array
+    slicer = [slice(None)] * array.ndim
+    slicer[axis] = slice(y_guards, -y_guards)
+    return array[tuple(slicer)]
 
 
 def _compare_float_sequences(

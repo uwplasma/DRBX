@@ -1,0 +1,104 @@
+{
+  "case_name": "fluid_1d_mms_one_step",
+  "compare_variables": [
+    "Ni",
+    "Pi",
+    "NVi"
+  ],
+  "component_labels": [
+    "i:evolve_density",
+    "i:evolve_pressure",
+    "i:evolve_momentum"
+  ],
+  "configured_nout": 50,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 21884.735894072473,
+    "Nnorm": 1e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 5.0,
+    "rho_s0": 0.0002284697436697996
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 1,
+    "y": 132,
+    "z": 1
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    0.1
+  ],
+  "variable_summaries": {
+    "NVi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.03998377887108496,
+      "maximum": 0.20001235443798057,
+      "mean": 0.0006010693091256848,
+      "minimum": -0.20001321342120207,
+      "name": "NVi",
+      "shape": [
+        2,
+        1,
+        132,
+        1
+      ]
+    },
+    "Ni": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.010018128618765054,
+      "maximum": 1.0998904867913986,
+      "mean": 0.9998497135194739,
+      "minimum": 0.9001168758746533,
+      "name": "Ni",
+      "shape": [
+        2,
+        1,
+        132,
+        1
+      ]
+    },
+    "Pi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.010009478495728752,
+      "maximum": 1.0999698818696204,
+      "mean": 1.002981547508181,
+      "minimum": 0.9000301181303796,
+      "name": "Pi",
+      "shape": [
+        2,
+        1,
+        132,
+        1
+      ]
+    }
+  }
+}

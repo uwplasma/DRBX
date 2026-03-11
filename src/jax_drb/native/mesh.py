@@ -50,7 +50,7 @@ class StructuredMesh:
     def local_ny(self) -> int:
         return self.ny + 2 * self.myg
 
-    def expression_context(self) -> dict[str, jnp.ndarray]:
+    def expression_context(self, *, time: float = 0.0) -> dict[str, jnp.ndarray]:
         x3 = self.x[:, None, None]
         y3 = self.y[None, :, None]
         z3 = self.z[None, None, :]
@@ -58,7 +58,7 @@ class StructuredMesh:
             "x": x3,
             "y": 2.0 * jnp.pi * y3,
             "z": 2.0 * jnp.pi * z3,
-            "t": jnp.array(0.0),
+            "t": jnp.array(time, dtype=jnp.float64),
         }
 
 
