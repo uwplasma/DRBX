@@ -124,6 +124,42 @@ solution = 0.2*sin(2*t + y)
 source = -0.188495559215388*sin(t + 3.0*y) + 0.4*cos(2*t + y) + 0.0251327412287183*sin(2*t + y)*cos(2*t + y)/(1 - 0.1*sin(t - 2.0*y)) - 0.00251327412287184*sin(2*t + y)^2*cos(t - 2.0*y)/(1 - 0.1*sin(t - 2.0*y))^2
 """
 
+_VORTICITY_INPUT = """
+nout = 10
+timestep = 20
+
+MYG = 0
+
+[mesh]
+nx = 10
+ny = 1
+nz = 10
+
+zn = z / (2π)
+J = 1
+
+[mesh:paralleltransform]
+type = identity
+
+[solver]
+mxstep = 1000
+
+[model]
+components = vorticity
+
+[vorticity]
+diamagnetic = false
+diamagnetic_polarisation = false
+average_atomic_mass = 2
+bndry_flux = false
+poloidal_flows = false
+split_n0 = false
+phi_dissipation = false
+
+[Vort]
+function = exp(-((x-0.5)^2 + (mesh:zn - 0.5)^2)/(0.2^2))
+"""
+
 
 def test_native_runner_matches_committed_smallest_case_baseline() -> None:
     config = parse_bout_input(_EVOLVE_DENSITY_INPUT)
@@ -327,4 +363,123 @@ def test_native_runner_tracks_fluid_short_window_array_baseline() -> None:
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=3e-6, array_atol=5e-7)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_vorticity_rhs_summary_baseline() -> None:
+    config = parse_bout_input(_VORTICITY_INPUT)
+    result = run_config_case(
+        config,
+        case_name="vorticity_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("ddt(Vort)",),
+        reference_case=ReferenceCase(
+            name="vorticity_rhs",
+            stage="stage4",
+            reference_path="tests/integrated/vorticity/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Electrostatic vorticity RHS parity",
+            compare_variables=("ddt(Vort)",),
+            extra_overrides=("vorticity:diagnose=true",),
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_rhs.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-9, scalar_atol=1e-12)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_vorticity_rhs_array_baseline() -> None:
+    config = parse_bout_input(_VORTICITY_INPUT)
+    result = run_config_case(
+        config,
+        case_name="vorticity_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("ddt(Vort)",),
+        reference_case=ReferenceCase(
+            name="vorticity_rhs",
+            stage="stage4",
+            reference_path="tests/integrated/vorticity/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Electrostatic vorticity RHS parity",
+            compare_variables=("ddt(Vort)",),
+            extra_overrides=("vorticity:diagnose=true",),
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_rhs.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1e-9, array_atol=1e-12)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_vorticity_one_step_summary_baseline() -> None:
+    config = parse_bout_input(_VORTICITY_INPUT)
+    result = run_config_case(
+        config,
+        case_name="vorticity_one_step",
+        parity_mode="one_step",
+        compare_variables=("Vort", "phi"),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_one_step.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-3, scalar_atol=1e-6)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0, 20.0)
+
+
+def test_native_runner_tracks_vorticity_one_step_array_baseline() -> None:
+    config = parse_bout_input(_VORTICITY_INPUT)
+    result = run_config_case(
+        config,
+        case_name="vorticity_one_step",
+        parity_mode="one_step",
+        compare_variables=("Vort", "phi"),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_one_step.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=2e-3, array_atol=1e-5)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_vorticity_short_window_summary_baseline() -> None:
+    config = parse_bout_input(_VORTICITY_INPUT)
+    result = run_config_case(
+        config,
+        case_name="vorticity_short_window",
+        parity_mode="short_window",
+        compare_variables=("Vort", "phi"),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_short_window.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=2e-3, scalar_atol=1e-6)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == tuple(20.0 * index for index in range(11))
+
+
+def test_native_runner_tracks_vorticity_short_window_array_baseline() -> None:
+    config = parse_bout_input(_VORTICITY_INPUT)
+    result = run_config_case(
+        config,
+        case_name="vorticity_short_window",
+        parity_mode="short_window",
+        compare_variables=("Vort", "phi"),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_short_window.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=2e-3, array_atol=1e-5)
     assert comparison.ok, comparison.issues

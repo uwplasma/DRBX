@@ -32,6 +32,9 @@ Current support is intentionally narrow:
 - `fluid_1d_mms_rhs` is implemented for trimmed interior RHS parity on the periodic 1D manufactured-solution benchmark;
 - `fluid_1d_mms_one_step` is implemented for the first coupled density/pressure/momentum advance;
 - `fluid_1d_mms` is implemented for a full 50-output short window on the same benchmark, using RK4 subcycling;
+- `vorticity_rhs` is implemented for diagnostic electrostatic RHS parity on the standalone vorticity benchmark;
+- `vorticity_one_step` is implemented for the first electrostatic output interval, comparing both `Vort` and `phi`;
+- `vorticity_short_window` is implemented for the full 10-output electrostatic benchmark window using an adaptive JAX ODE solve;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
@@ -69,6 +72,9 @@ The first portable baseline summaries generated from live reference runs are:
 - [fluid_1d_mms_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_rhs.json)
 - [fluid_1d_mms_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_one_step.json)
 - [fluid_1d_mms.json](/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms.json)
+- [vorticity_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_rhs.json)
+- [vorticity_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_one_step.json)
+- [vorticity_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_short_window.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -87,6 +93,9 @@ The first committed full-array baselines are:
 - [fluid_1d_mms_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_rhs.npz)
 - [fluid_1d_mms_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_one_step.npz)
 - [fluid_1d_mms.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms.npz)
+- [vorticity_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_rhs.npz)
+- [vorticity_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_one_step.npz)
+- [vorticity_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_short_window.npz)
 
 These are written and read through [arrays.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/arrays.py). For the current diffusion milestone, the intended comparison command is:
 
@@ -96,4 +105,14 @@ PYTHONPATH=src python -m jax_drb compare-arrays \
   /tmp/jax_drb_diffusion_short_window_native.npz \
   --array-rtol 2e-4 \
   --array-atol 2e-6
+```
+
+For the current electrostatic vorticity milestone, the intended comparison command is:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-arrays \
+  references/baselines/reference_arrays/vorticity_short_window.npz \
+  /tmp/jax_drb_vorticity_short_window_native.npz \
+  --array-rtol 2e-3 \
+  --array-atol 1e-5
 ```

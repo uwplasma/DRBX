@@ -22,6 +22,7 @@ from .mesh import (
 )
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
+from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,9 @@ def _execute_supported_case(
 
     if _is_supported_periodic_fluid_mms_case(config, run_config, mesh, metrics):
         return _execute_periodic_fluid_mms_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+
+    if _is_supported_electrostatic_vorticity_case(config, run_config, mesh, metrics):
+        return _execute_electrostatic_vorticity_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     raise NotImplementedError(
         "Native execution is not implemented for the configured component set: "
@@ -264,6 +268,41 @@ def _execute_periodic_fluid_mms_case(
     }
 
 
+def _execute_electrostatic_vorticity_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
+) -> tuple[tuple[float, ...], dict[str, Any]]:
+    initial = apply_vorticity_boundaries(_initialize_species_field(config, "Vort", mesh), mesh)
+    average_atomic_mass = float(config.parsed("vorticity", "average_atomic_mass")) if config.has_option("vorticity", "average_atomic_mass") else 2.0
+    operator = build_vorticity_operator(mesh=mesh, metrics=metrics, average_atomic_mass=average_atomic_mass)
+
+    if parity_mode == "one_rhs":
+        rhs = compute_vorticity_rhs(initial, mesh=mesh, metrics=metrics, operator=operator)
+        return (0.0,), {"ddt(Vort)": np.asarray(rhs.vorticity[None, ...], dtype=np.float64)}
+
+    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    history = advance_vorticity_history(
+        initial,
+        mesh=mesh,
+        metrics=metrics,
+        operator=operator,
+        timestep=run_config.time.timestep,
+        steps=steps,
+        rtol=1e-6,
+        atol=1e-8,
+        mxstep=20000,
+    )
+    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    return time_points, {
+        "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
+        "phi": np.asarray(history.potential_history, dtype=np.float64),
+    }
+
+
 def _is_supported_periodic_fluid_mms_case(
     config: BoutConfig,
     run_config: RunConfiguration,
@@ -290,6 +329,50 @@ def _is_supported_periodic_fluid_mms_case(
         config.has_section(name) and config.has_option(name, "solution") and config.has_option(name, "source")
         for name in (f"N{section}", f"P{section}", f"NV{section}")
     )
+
+
+def _is_supported_electrostatic_vorticity_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> bool:
+    if tuple(component.implementation for component in run_config.components) != ("vorticity",):
+        return False
+    if run_config.mesh.ny != 1 or run_config.mesh.myg != 0:
+        return False
+    if mesh.mxg != 2:
+        return False
+    if not config.has_section("Vort") or not config.has_option("Vort", "function"):
+        return False
+    option_defaults = {
+        "diamagnetic": False,
+        "diamagnetic_polarisation": False,
+        "bndry_flux": False,
+        "poloidal_flows": False,
+        "split_n0": False,
+        "phi_dissipation": False,
+        "vort_dissipation": False,
+        "collisional_friction": False,
+        "phi_boundary_relax": False,
+        "phi_sheath_dissipation": False,
+        "damp_core_vorticity": False,
+    }
+    for key, expected in option_defaults.items():
+        value = bool(config.parsed("vorticity", key)) if config.has_option("vorticity", key) else (True if key == "phi_dissipation" else False)
+        if value != expected:
+            return False
+    exb_advection = bool(config.parsed("vorticity", "exb_advection")) if config.has_option("vorticity", "exb_advection") else True
+    exb_advection_simplified = (
+        bool(config.parsed("vorticity", "exb_advection_simplified"))
+        if config.has_option("vorticity", "exb_advection_simplified")
+        else True
+    )
+    if not exb_advection or not exb_advection_simplified:
+        return False
+    if not np.allclose(np.asarray(metrics.g23), 0.0, rtol=1e-12, atol=1e-12):
+        return False
+    return True
 
 
 def _uniform_identity_parallel_metric(mesh: StructuredMesh, *, metrics: StructuredMetrics) -> bool:

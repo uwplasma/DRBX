@@ -72,6 +72,12 @@ def test_structured_metrics_match_normalized_diffusion_scalars() -> None:
         rtol=1e-12,
         atol=1e-9,
     )
+    np.testing.assert_allclose(
+        np.asarray(metrics.g33[:, mesh.ystart, 0]),
+        1.0439684845591577e-06,
+        rtol=1e-8,
+        atol=1e-15,
+    )
     np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 1.0)
     np.testing.assert_allclose(np.asarray(metrics.g23[:, mesh.ystart, 0]), 0.0)
     np.testing.assert_allclose(np.asarray(metrics.Bxy[:, mesh.ystart, 0]), 1.0)
@@ -127,4 +133,37 @@ def test_structured_metrics_respect_normalise_metric_false() -> None:
     np.testing.assert_allclose(np.asarray(metrics.dy[:, mesh.ystart, 0]), 1.25)
     np.testing.assert_allclose(np.asarray(metrics.J[:, mesh.ystart, 0]), 1.0)
     np.testing.assert_allclose(np.asarray(metrics.g11[:, mesh.ystart, 0]), 1.0)
+    np.testing.assert_allclose(np.asarray(metrics.g33[:, mesh.ystart, 0]), 1.0)
     np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 1.0)
+
+
+def test_structured_metrics_default_periodic_dz_matches_reference_convention() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 6
+        ny = 1
+        nz = 8
+        J = 1
+
+        [model]
+        components = e
+        Nnorm = 1e19
+        Tnorm = 100
+        Bnorm = 1
+
+        [e]
+        type = evolve_density
+
+        [Ne]
+        function = 1
+        """
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    np.testing.assert_allclose(np.asarray(metrics.dz[:, mesh.ystart, 0]), np.pi / 4.0, rtol=1e-12, atol=1e-12)

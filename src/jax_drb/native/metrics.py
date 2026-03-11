@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +25,7 @@ class StructuredMetrics:
     dz: jnp.ndarray
     J: jnp.ndarray
     g11: jnp.ndarray
+    g33: jnp.ndarray
     g22: jnp.ndarray
     g23: jnp.ndarray
     Bxy: jnp.ndarray
@@ -42,9 +44,10 @@ def build_structured_metrics(
 
     raw_dx = _metric_value(config, evaluator, "dx", default=1.0)
     raw_dy = _metric_value(config, evaluator, "dy", default=1.0)
-    raw_dz = _metric_value(config, evaluator, "dz", default=1.0)
+    raw_dz = _metric_value(config, evaluator, "dz", default=(2.0 * math.pi) / float(mesh.nz))
     raw_J = _metric_value(config, evaluator, "J", default=1.0)
     raw_g11 = _metric_value(config, evaluator, "g11", default=1.0)
+    raw_g33 = _metric_value(config, evaluator, "g33", default=1.0)
     raw_g22 = _metric_value(config, evaluator, "g22", default=1.0)
     raw_g23 = _metric_value(config, evaluator, "g23", default=0.0)
     raw_Bxy = _metric_value(config, evaluator, "Bxy", default=1.0)
@@ -55,6 +58,7 @@ def build_structured_metrics(
         dz=broadcast_to_field_shape(raw_dz, mesh),
         J=_normalize_J(broadcast_to_field_shape(raw_J, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0),
         g11=_normalize_g11(broadcast_to_field_shape(raw_g11, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0),
+        g33=_normalize_g33(broadcast_to_field_shape(raw_g33, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0),
         g22=broadcast_to_field_shape(raw_g22, mesh),
         g23=broadcast_to_field_shape(raw_g23, mesh),
         Bxy=_normalize_Bxy(broadcast_to_field_shape(raw_Bxy, mesh), normalize_metric=normalize_metric, Bnorm=Bnorm),
@@ -98,6 +102,12 @@ def _normalize_g11(value: jnp.ndarray, *, normalize_metric: bool, rho_s0: float)
     if not normalize_metric:
         return value
     return value / (rho_s0 * rho_s0)
+
+
+def _normalize_g33(value: jnp.ndarray, *, normalize_metric: bool, rho_s0: float) -> jnp.ndarray:
+    if not normalize_metric:
+        return value
+    return value * (rho_s0 * rho_s0)
 
 
 def _normalize_Bxy(value: jnp.ndarray, *, normalize_metric: bool, Bnorm: float) -> jnp.ndarray:
