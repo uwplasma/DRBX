@@ -34,6 +34,8 @@ Direct runs against the local reference build confirmed:
 - the first portable reference baselines are stored in [references/baselines/reference](/Users/rogerio/local/jax_drb/references/baselines/reference).
 - the first native JAX execution path now matches the committed `evolve_density_rhs` portable baseline exactly, including dimensions, scalar metadata, and variable summary statistics.
 - the native one-step transport path now reproduces the committed `diffusion_one_step` summary statistics within regression tolerance, using structured metrics, strict Heaviside support, Neumann guard reconstruction, and an exact matrix-exponential radial advance.
+- the transport parity harness now also stores full comparison arrays in [references/baselines/reference_arrays](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays), so regressions can be checked against complete fields instead of summaries only.
+- the same transport slice now covers a short-window benchmark, `diffusion_short_window`, using the configured output cadence from the input file.
 
 ## Input Syntax Observations
 
@@ -54,4 +56,6 @@ Current native execution coverage:
 
 - `evolve_density_rhs`: implemented and regression-tested;
 - `diffusion_one_step`: implemented and regression-tested as the first genuine time-advance benchmark;
+- `diffusion_short_window`: implemented and regression-tested at both summary and full-array level;
+- the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
 - next target: extend from this one-step transport slice into reusable finite-volume operator kernels and longer-window transport cases.

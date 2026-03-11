@@ -34,11 +34,13 @@ Deliverables:
 - manifest of reference cases;
 - live reference runner that stages isolated work directories and applies parity-mode overrides such as `nout=0` and `nout=1`;
 - NetCDF summary extraction for selected compare variables and scalar metadata;
+- NetCDF full-array extraction for small curated cases and compressed baseline artifacts;
 - reference/JAX comparison harness;
 - reference dump metadata schema;
 - first regression baselines;
 - native JAX `one_rhs` execution for `evolve_density_rhs`, including structured-mesh coordinates, array-expression evaluation, boundary reconstruction, portable summary emission, and baseline regression tests;
-- native JAX `one_step` execution for `diffusion_one_step`, including strict `H(...)` support, structured metric normalization, Neumann guard reconstruction, and an exact one-step radial transport advance.
+- native JAX `one_step` execution for `diffusion_one_step`, including strict `H(...)` support, structured metric normalization, Neumann guard reconstruction, and an exact one-step radial transport advance;
+- native JAX `short_window` execution for `diffusion_short_window`, including repeated transport-history output and field-level array comparisons against committed baselines.
 
 ## Stage 3+: Physics Buildout
 
