@@ -30,8 +30,10 @@ Direct runs against the local reference build confirmed:
 - `nout=0` writes a `BOUT.dmp.0.nc` file with `t_array = [0.0]`;
 - `nout=1` writes initial plus one evolved output time slice;
 - scalar normalization metadata is present directly in the dump file;
+- for the structured identity-metric transport cases, the dumped metric fields follow the normalized forms `dx / (rho_s0^2 * Bnorm)`, `J / rho_s0`, `g11 / rho_s0^2`, and `Bxy / Bnorm`;
 - the first portable reference baselines are stored in [references/baselines/reference](/Users/rogerio/local/jax_drb/references/baselines/reference).
 - the first native JAX execution path now matches the committed `evolve_density_rhs` portable baseline exactly, including dimensions, scalar metadata, and variable summary statistics.
+- the native one-step transport path now reproduces the committed `diffusion_one_step` summary statistics within regression tolerance, using structured metrics, strict Heaviside support, Neumann guard reconstruction, and an exact matrix-exponential radial advance.
 
 ## Input Syntax Observations
 
@@ -51,4 +53,5 @@ The first parity ladder is recorded in [references/reference_case_ladder.toml](/
 Current native execution coverage:
 
 - `evolve_density_rhs`: implemented and regression-tested;
-- `diffusion_one_step`: next executable target, because it is the first case that requires a genuine time advance and finite-volume transport source terms.
+- `diffusion_one_step`: implemented and regression-tested as the first genuine time-advance benchmark;
+- next target: extend from this one-step transport slice into reusable finite-volume operator kernels and longer-window transport cases.

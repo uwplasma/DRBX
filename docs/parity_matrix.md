@@ -37,7 +37,8 @@ Deliverables:
 - reference/JAX comparison harness;
 - reference dump metadata schema;
 - first regression baselines;
-- native JAX `one_rhs` execution for `evolve_density_rhs`, including structured-mesh coordinates, array-expression evaluation, boundary reconstruction, portable summary emission, and baseline regression tests.
+- native JAX `one_rhs` execution for `evolve_density_rhs`, including structured-mesh coordinates, array-expression evaluation, boundary reconstruction, portable summary emission, and baseline regression tests;
+- native JAX `one_step` execution for `diffusion_one_step`, including strict `H(...)` support, structured metric normalization, Neumann guard reconstruction, and an exact one-step radial transport advance.
 
 ## Stage 3+: Physics Buildout
 
