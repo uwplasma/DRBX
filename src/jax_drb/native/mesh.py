@@ -110,6 +110,14 @@ def build_structured_mesh(config: BoutConfig, run_config: RunConfiguration) -> S
     )
 
 
+def broadcast_to_field_shape(value: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
+    array = jnp.asarray(value, dtype=jnp.float64)
+    target_shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    if array.shape == target_shape:
+        return array
+    return jnp.broadcast_to(array, target_shape)
+
+
 def apply_zero_dirichlet_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
     result = jnp.asarray(field, dtype=jnp.float64)
     y_slice = slice(mesh.ystart, mesh.yend + 1)
@@ -121,6 +129,18 @@ def apply_zero_dirichlet_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> j
     for offset in range(2, mesh.mxg + 1):
         result = result.at[mesh.xstart - offset, y_slice, :].set(0.0)
         result = result.at[mesh.xend + offset, y_slice, :].set(0.0)
+    return result
+
+
+def apply_neumann_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
+    result = jnp.asarray(field, dtype=jnp.float64)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    if mesh.mxg <= 0:
+        return result
+
+    for offset in range(1, mesh.mxg + 1):
+        result = result.at[mesh.xstart - offset, y_slice, :].set(result[mesh.xstart - 1 + offset, y_slice, :])
+        result = result.at[mesh.xend + offset, y_slice, :].set(result[mesh.xend + 1 - offset, y_slice, :])
     return result
 
 
@@ -140,6 +160,23 @@ def project_nonnegative_x_boundaries(field: jnp.ndarray, mesh: StructuredMesh) -
         right = result[mesh.xend + 1 :, y_slice, :]
         result = result.at[:mesh.xstart, y_slice, :].set(jnp.maximum(left, 0.0))
         result = result.at[mesh.xend + 1 :, y_slice, :].set(jnp.maximum(right, 0.0))
+    return result
+
+
+def apply_x_boundary(field: jnp.ndarray, mesh: StructuredMesh, boundary_kind: str) -> jnp.ndarray:
+    normalized = boundary_kind.strip().lower()
+    if normalized == "neumann":
+        return apply_neumann_x_guards(field, mesh)
+    if normalized in {"dirichlet", "dirichlet_zero", "zero"}:
+        return apply_zero_dirichlet_x_guards(field, mesh)
+    raise NotImplementedError(f"Unsupported X boundary kind {boundary_kind!r}")
+
+
+def apply_field_boundaries(field: jnp.ndarray, mesh: StructuredMesh, *, x_boundary: str) -> jnp.ndarray:
+    result = apply_x_boundary(field, mesh, x_boundary)
+    result = communicate_y_guards(result, mesh)
+    if x_boundary.strip().lower() in {"dirichlet", "dirichlet_zero", "zero"}:
+        result = project_nonnegative_x_boundaries(result, mesh)
     return result
 
 
