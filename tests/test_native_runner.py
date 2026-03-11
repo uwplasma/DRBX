@@ -4,6 +4,11 @@ from pathlib import Path
 
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native import run_config_case
+from jax_drb.parity.arrays import (
+    build_array_payload_from_summary_payload,
+    compare_array_payloads,
+    load_portable_array_payload,
+)
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 
 
@@ -105,3 +110,54 @@ def test_native_runner_tracks_committed_diffusion_baseline() -> None:
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-3, scalar_atol=2e-6)
     assert comparison.ok, comparison.issues
     assert result.time_points == (0.0, 1000.0)
+
+
+def test_native_runner_tracks_diffusion_short_window_summary_baseline() -> None:
+    config = parse_bout_input(_DIFFUSION_INPUT)
+    result = run_config_case(
+        config,
+        case_name="diffusion_short_window",
+        parity_mode="short_window",
+        compare_variables=("Nh", "Ph"),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_short_window.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=2e-3, scalar_atol=2e-6)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0)
+
+
+def test_native_runner_tracks_diffusion_one_step_array_baseline() -> None:
+    config = parse_bout_input(_DIFFUSION_INPUT)
+    result = run_config_case(
+        config,
+        case_name="diffusion_one_step",
+        parity_mode="one_step",
+        compare_variables=("Nh", "Ph"),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_one_step.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=2e-4, array_atol=2e-6)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_diffusion_short_window_array_baseline() -> None:
+    config = parse_bout_input(_DIFFUSION_INPUT)
+    result = run_config_case(
+        config,
+        case_name="diffusion_short_window",
+        parity_mode="short_window",
+        compare_variables=("Nh", "Ph"),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_short_window.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=2e-4, array_atol=2e-6)
+    assert comparison.ok, comparison.issues
