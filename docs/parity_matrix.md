@@ -1,6 +1,6 @@
 # Parity Matrix
 
-This document tracks the parity buildout against the private reference implementation. `legacy/` is archival only and is not part of the active implementation plan.
+This document tracks the parity buildout against the private reference implementation. `legacy/` is archival only and is not part of the active implementation plan. For visual snapshots of the validated slices, see [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md).
 
 ## Stage 1: Configuration And Runtime Skeleton
 

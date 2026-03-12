@@ -21,6 +21,7 @@ _UNITS_REFERENCE_PATTERN = re.compile(r"\bunits:([A-Za-z_][A-Za-z0-9_]*)\b")
 @dataclass(frozen=True)
 class DriftWaveBenchmark:
     ion_temperature: float
+    ion_atomic_mass: float
     electron_temperature: float
     electron_atomic_mass: float
     electron_charge: float
@@ -41,6 +42,9 @@ class DriftWaveBenchmark:
     Nnorm: float
     Tnorm: float
     Omega_ci: float
+    sound_speed: float
+    fastest_wave: float
+    density_floor: float = 1.0e-7
 
     @property
     def momentum_coefficient(self) -> float:
@@ -80,6 +84,10 @@ def build_drift_wave_benchmark(
     dataset_scalars: Mapping[str, float],
 ) -> DriftWaveBenchmark:
     resolver = NumericResolver(config)
+    ion_temperature = resolver.resolve("i", "temperature") / float(dataset_scalars["Tnorm"])
+    ion_atomic_mass = resolver.resolve("i", "AA")
+    electron_temperature = resolver.resolve("e", "temperature") / float(dataset_scalars["Tnorm"])
+    electron_atomic_mass = resolver.resolve("e", "AA")
     y_slice = slice(mesh.ystart, mesh.yend + 1)
     x_index = mesh.xstart
     metric_bxy = np.asarray(metrics.Bxy[x_index, y_slice, :], dtype=np.float64)
@@ -94,9 +102,10 @@ def build_drift_wave_benchmark(
         "meters": float(dataset_scalars["rho_s0"]),
     }
     return DriftWaveBenchmark(
-        ion_temperature=resolver.resolve("i", "temperature") / float(dataset_scalars["Tnorm"]),
-        electron_temperature=resolver.resolve("e", "temperature") / float(dataset_scalars["Tnorm"]),
-        electron_atomic_mass=resolver.resolve("e", "AA"),
+        ion_temperature=ion_temperature,
+        ion_atomic_mass=ion_atomic_mass,
+        electron_temperature=electron_temperature,
+        electron_atomic_mass=electron_atomic_mass,
         electron_charge=resolver.resolve("e", "charge"),
         average_atomic_mass=resolver.resolve("vorticity", "average_atomic_mass")
         if config.has_option("vorticity", "average_atomic_mass")
@@ -117,6 +126,18 @@ def build_drift_wave_benchmark(
         Nnorm=float(dataset_scalars["Nnorm"]),
         Tnorm=float(dataset_scalars["Tnorm"]),
         Omega_ci=float(dataset_scalars["Omega_ci"]),
+        sound_speed=_compute_collective_sound_speed(
+            ion_temperature,
+            ion_atomic_mass,
+            electron_temperature,
+            electron_atomic_mass,
+        ),
+        fastest_wave=_compute_fastest_wave(
+            ion_temperature,
+            ion_atomic_mass,
+            electron_temperature,
+            electron_atomic_mass,
+        ),
     )
 
 
@@ -133,6 +154,8 @@ def compute_drift_wave_rhs(
     *,
     mesh: StructuredMesh,
     benchmark: DriftWaveBenchmark,
+    include_parallel_transport: bool = False,
+    include_phi_dissipation: bool = False,
 ) -> DriftWaveRhsResult:
     density_full = _assemble_density_field(state.ion_density, benchmark=benchmark, mesh=mesh)
     momentum_full = _assemble_zero_dirichlet_field(state.electron_momentum, mesh=mesh)
@@ -146,17 +169,28 @@ def compute_drift_wave_rhs(
     vorticity_rhs_full = -_compute_xz_exb_divergence(vorticity_full, potential_full, mesh=mesh, benchmark=benchmark)
 
     electron_density = np.asarray(state.ion_density, dtype=np.float64)
+    electron_density_limited = np.maximum(electron_density, benchmark.density_floor)
     electron_pressure = electron_density * benchmark.electron_temperature
     collision_frequency = _electron_ion_collision_frequency(electron_density, benchmark=benchmark)
+    electron_velocity = state.electron_momentum / (benchmark.electron_atomic_mass * electron_density_limited)
 
     momentum_rhs = np.asarray(momentum_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
     momentum_rhs += electron_density * _grad_par_periodic(potential, benchmark=benchmark)
     momentum_rhs -= _grad_par_periodic(electron_pressure, benchmark=benchmark)
+    if include_parallel_transport:
+        momentum_rhs -= benchmark.electron_atomic_mass * _div_par_fvv_periodic(
+            electron_density_limited,
+            electron_velocity,
+            benchmark.fastest_wave,
+            benchmark=benchmark,
+        )
     momentum_rhs -= benchmark.momentum_coefficient * collision_frequency * state.electron_momentum
 
     parallel_current = (benchmark.electron_charge / benchmark.electron_atomic_mass) * state.electron_momentum
     vorticity_rhs = np.asarray(vorticity_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
     vorticity_rhs += _div_par_periodic(parallel_current, benchmark=benchmark)
+    if include_phi_dissipation:
+        vorticity_rhs -= _div_par_scalar_periodic(-potential, benchmark.sound_speed, benchmark=benchmark)
 
     return DriftWaveRhsResult(
         density=np.asarray(density_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=np.float64),
@@ -176,6 +210,8 @@ def advance_drift_wave_history(
     timestep: float,
     steps: int,
     substeps: int,
+    include_parallel_transport: bool = False,
+    include_phi_dissipation: bool = False,
 ) -> DriftWaveHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
@@ -191,7 +227,14 @@ def advance_drift_wave_history(
     sub_timestep = timestep / float(substeps)
     for _ in range(steps):
         for _ in range(substeps):
-            state = _rk4_step(state, mesh=mesh, benchmark=benchmark, timestep=sub_timestep)
+            state = _rk4_step(
+                state,
+                mesh=mesh,
+                benchmark=benchmark,
+                timestep=sub_timestep,
+                include_parallel_transport=include_parallel_transport,
+                include_phi_dissipation=include_phi_dissipation,
+            )
         density_history.append(_assemble_density_field(state.ion_density, benchmark=benchmark, mesh=mesh))
         momentum_history.append(_assemble_zero_dirichlet_field(state.electron_momentum, mesh=mesh))
         vorticity_history.append(_assemble_zero_dirichlet_field(state.vorticity, mesh=mesh))
@@ -230,11 +273,37 @@ def _rk4_step(
     mesh: StructuredMesh,
     benchmark: DriftWaveBenchmark,
     timestep: float,
+    include_parallel_transport: bool,
+    include_phi_dissipation: bool,
 ) -> DriftWaveState:
-    k1 = compute_drift_wave_rhs(state, mesh=mesh, benchmark=benchmark)
-    k2 = compute_drift_wave_rhs(_add_state(state, k1, scale=0.5 * timestep), mesh=mesh, benchmark=benchmark)
-    k3 = compute_drift_wave_rhs(_add_state(state, k2, scale=0.5 * timestep), mesh=mesh, benchmark=benchmark)
-    k4 = compute_drift_wave_rhs(_add_state(state, k3, scale=timestep), mesh=mesh, benchmark=benchmark)
+    k1 = compute_drift_wave_rhs(
+        state,
+        mesh=mesh,
+        benchmark=benchmark,
+        include_parallel_transport=include_parallel_transport,
+        include_phi_dissipation=include_phi_dissipation,
+    )
+    k2 = compute_drift_wave_rhs(
+        _add_state(state, k1, scale=0.5 * timestep),
+        mesh=mesh,
+        benchmark=benchmark,
+        include_parallel_transport=include_parallel_transport,
+        include_phi_dissipation=include_phi_dissipation,
+    )
+    k3 = compute_drift_wave_rhs(
+        _add_state(state, k2, scale=0.5 * timestep),
+        mesh=mesh,
+        benchmark=benchmark,
+        include_parallel_transport=include_parallel_transport,
+        include_phi_dissipation=include_phi_dissipation,
+    )
+    k4 = compute_drift_wave_rhs(
+        _add_state(state, k3, scale=timestep),
+        mesh=mesh,
+        benchmark=benchmark,
+        include_parallel_transport=include_parallel_transport,
+        include_phi_dissipation=include_phi_dissipation,
+    )
     return DriftWaveState(
         ion_density=state.ion_density + (timestep / 6.0) * (k1.density + 2.0 * k2.density + 2.0 * k3.density + k4.density),
         electron_momentum=state.electron_momentum
@@ -385,3 +454,100 @@ def _substitute_unit_references(expression: str, units: Mapping[str, float]) -> 
         return repr(float(units[key]))
 
     return _UNITS_REFERENCE_PATTERN.sub(replace, expression)
+
+
+def _compute_collective_sound_speed(
+    ion_temperature: float,
+    ion_atomic_mass: float,
+    electron_temperature: float,
+    electron_atomic_mass: float,
+) -> float:
+    return float(np.sqrt((ion_temperature + electron_temperature) / (ion_atomic_mass + electron_atomic_mass)))
+
+
+def _compute_fastest_wave(
+    ion_temperature: float,
+    ion_atomic_mass: float,
+    electron_temperature: float,
+    electron_atomic_mass: float,
+) -> float:
+    ion_wave = np.sqrt(ion_temperature / ion_atomic_mass)
+    electron_wave = np.sqrt(electron_temperature / electron_atomic_mass)
+    sound_speed = _compute_collective_sound_speed(
+        ion_temperature,
+        ion_atomic_mass,
+        electron_temperature,
+        electron_atomic_mass,
+    )
+    return float(max(ion_wave, electron_wave, sound_speed))
+
+
+def _div_par_scalar_periodic(
+    field: np.ndarray,
+    wave_speed: float | np.ndarray,
+    *,
+    benchmark: DriftWaveBenchmark,
+) -> np.ndarray:
+    left_cell, right_cell = _mc_field_edges(field)
+    wave = _broadcast_wave_speed(wave_speed, field)
+    amax_right = np.maximum(wave, np.roll(wave, shift=-1, axis=0))
+    amax_left = np.maximum(wave, np.roll(wave, shift=1, axis=0))
+    flux_right = 0.5 * right_cell * amax_right
+    flux_left = -0.5 * left_cell * amax_left
+    return _scatter_face_divergence(flux_right, flux_left, benchmark=benchmark)
+
+
+def _div_par_fvv_periodic(
+    density: np.ndarray,
+    velocity: np.ndarray,
+    wave_speed: float | np.ndarray,
+    *,
+    benchmark: DriftWaveBenchmark,
+) -> np.ndarray:
+    density_left_cell, density_right_cell = _mc_field_edges(density)
+    velocity_left_cell, velocity_right_cell = _mc_field_edges(velocity)
+    wave = _broadcast_wave_speed(wave_speed, velocity)
+    velocity_center = np.asarray(velocity, dtype=np.float64)
+    amax_right = np.maximum(
+        np.maximum(wave, np.roll(wave, shift=-1, axis=0)),
+        np.maximum(np.abs(velocity_center), np.abs(np.roll(velocity_center, shift=-1, axis=0))),
+    )
+    amax_left = np.maximum(
+        np.maximum(wave, np.roll(wave, shift=1, axis=0)),
+        np.maximum(np.abs(velocity_center), np.abs(np.roll(velocity_center, shift=1, axis=0))),
+    )
+    flux_right = density_right_cell * 0.5 * (velocity_right_cell + amax_right) * velocity_right_cell
+    flux_left = density_left_cell * 0.5 * (velocity_left_cell - amax_left) * velocity_left_cell
+    return _scatter_face_divergence(flux_right, flux_left, benchmark=benchmark)
+
+
+def _mc_field_edges(field: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    center = np.asarray(field, dtype=np.float64)
+    minus = np.roll(center, shift=1, axis=0)
+    plus = np.roll(center, shift=-1, axis=0)
+    slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
+    return center - 0.5 * slope, center + 0.5 * slope
+
+
+def _broadcast_wave_speed(wave_speed: float | np.ndarray, field: np.ndarray) -> np.ndarray:
+    wave = np.asarray(wave_speed, dtype=np.float64)
+    if wave.ndim == 0:
+        wave = np.full_like(field, float(wave), dtype=np.float64)
+    return wave
+
+
+def _scatter_face_divergence(
+    flux_right: np.ndarray,
+    flux_left: np.ndarray,
+    *,
+    benchmark: DriftWaveBenchmark,
+) -> np.ndarray:
+    common_right = (benchmark.J + np.roll(benchmark.J, shift=-1, axis=0)) / (
+        np.sqrt(benchmark.g22) + np.sqrt(np.roll(benchmark.g22, shift=-1, axis=0))
+    )
+    common_left = (benchmark.J + np.roll(benchmark.J, shift=1, axis=0)) / (
+        np.sqrt(benchmark.g22) + np.sqrt(np.roll(benchmark.g22, shift=1, axis=0))
+    )
+    result_right = benchmark.rho_s0 * flux_right * common_right / (benchmark.dy * benchmark.J)
+    result_left = benchmark.rho_s0 * flux_left * common_left / (benchmark.dy * benchmark.J)
+    return result_right - result_left

@@ -2,6 +2,8 @@
 
 The first executable parity harness is centered on the curated case ladder in [references/reference_case_ladder.toml](/Users/rogerio/local/jax_drb/references/reference_case_ladder.toml).
 
+For a figure-first view of the currently locked cases, see [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md).
+
 ## Live Reference Protocol
 
 `jax-drb run-reference-case <case>` performs the following steps:
