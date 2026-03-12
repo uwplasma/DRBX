@@ -362,6 +362,7 @@ Implementation tasks:
   - `FV::Div_par_fvv`
   - `FV::Div_par_fvv_heating`
 - port ExB advection operators used by density/pressure/momentum/vorticity
+- once Tier C transient cases become runtime-gated, replace scalar-loop operator kernels with parity-preserving vectorized implementations, and lock those rewrites with scalar-reference regression tests before relying on them in longer benchmark windows
 - port perpendicular diffusion and hyper-diffusion operators that appear in core components
 - implement JAX elliptic solves for:
   - vorticity-to-potential inversion
@@ -886,7 +887,7 @@ These establish that sources, boundaries, and diagnostics match:
   - compare: multi-species sources, target conditions, power balance
 - `local source checkout/examples/other/blob2d/BOUT.inp`
   - role: electrostatic isothermal blob baseline
-  - compare: blob propagation, peak amplitude, COM trajectory
+  - compare: blob propagation, peak amplitude, COM trajectory, and long-window summary statistics
 - `local source checkout/examples/other/blob2d-vpol/BOUT.inp`
   - role: blob with polarisation drift
   - compare: blob speed and morphology shift relative to baseline

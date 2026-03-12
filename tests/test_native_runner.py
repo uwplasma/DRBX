@@ -14,7 +14,12 @@ from jax_drb.parity.arrays import (
 )
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 from jax_drb.reference.cases import ReferenceCase
-from jax_drb.validation import analyze_drift_wave_array_payload
+from jax_drb.validation import (
+    analyze_blob2d_array_payload,
+    analyze_drift_wave_array_payload,
+    compare_blob2d_analysis_results,
+    load_blob2d_analysis_json,
+)
 
 
 _EVOLVE_DENSITY_INPUT = """
@@ -907,3 +912,40 @@ def test_native_runner_tracks_blob2d_one_step_array_baseline() -> None:
 
     comparison = compare_array_payloads(expected, actual, array_rtol=2e-3, array_atol=2e-6)
     assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_blob2d_short_window_summary_and_blob_metrics() -> None:
+    config = parse_bout_input(_BLOB2D_INPUT)
+    result = run_config_case(
+        config,
+        case_name="blob2d_short_window",
+        parity_mode="short_window",
+        compare_variables=("Ne", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="blob2d_short_window",
+            stage="stage6",
+            reference_path="examples/other/blob2d/BOUT.inp",
+            parity_mode="short_window",
+            rationale="2D blob convection with recalc-metric path and sheath closure.",
+            compare_variables=("Ne", "Vort", "phi"),
+            trim_x_guards=True,
+        ),
+    )
+    expected_summary = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_short_window.json")
+    )
+    summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=2e-2, scalar_atol=2e-6)
+    assert summary_comparison.ok, summary_comparison.issues
+    assert result.time_points == tuple(50.0 * index for index in range(51))
+
+    expected_analysis = load_blob2d_analysis_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/blob2d_short_window_metrics.json")
+    )
+    actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
+    actual_analysis = analyze_blob2d_array_payload(actual_arrays)
+    blob_metrics = compare_blob2d_analysis_results(expected_analysis, actual_analysis)
+
+    assert blob_metrics.peak_max_abs_error < 1.5e-2
+    assert blob_metrics.peak_rms_error < 5.0e-3
+    assert blob_metrics.center_of_mass_x_max_abs_error < 0.7
+    assert blob_metrics.center_of_mass_z_max_abs_error < 0.8

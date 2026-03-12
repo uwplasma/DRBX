@@ -500,24 +500,26 @@ def _execute_blob2d_case(
             "ddt(Vort)": np.asarray(rhs.vorticity_rhs[None, ...], dtype=np.float64),
         }
 
-    if parity_mode != "one_step":
-        raise NotImplementedError("Native blob2d support currently covers one_rhs and one_step parity only.")
+    if parity_mode not in {"one_step", "short_window"}:
+        raise NotImplementedError("Native blob2d support currently covers one_rhs, one_step, and short_window parity only.")
 
     operator = build_blob2d_potential_operator(
         mesh=mesh,
         metrics=metrics,
         average_atomic_mass=NumericResolver(config).resolve("vorticity", "average_atomic_mass"),
     )
+    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    substeps = 14 if parity_mode == "short_window" else 10
     history = advance_blob2d_history(
         initial_state,
         mesh=mesh,
         benchmark=benchmark,
         operator=operator,
         timestep=run_config.time.timestep,
-        steps=1,
-        substeps=10,
+        steps=steps,
+        substeps=substeps,
     )
-    return (0.0, run_config.time.timestep), {
+    return tuple(run_config.time.timestep * index for index in range(steps + 1)), {
         "Ne": np.asarray(history.electron_density_history, dtype=np.float64),
         "Pe": np.asarray(history.electron_pressure_history, dtype=np.float64),
         "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
