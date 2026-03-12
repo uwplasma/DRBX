@@ -8,7 +8,7 @@ The current validated slices are small on purpose. Each one is locked to committ
 - anomalous diffusion `one_step` and `short_window`;
 - periodic 1D manufactured fluid `one_rhs`, `one_step`, and `short_window`;
 - standalone electrostatic vorticity `one_rhs`, `one_step`, and `short_window`;
-- coupled 2D drift-wave `one_rhs` and `one_step`.
+- coupled 2D drift-wave `one_rhs`, `one_step`, and `short_window`.
 
 ## Validation Snapshots
 

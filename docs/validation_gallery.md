@@ -57,5 +57,5 @@ These figures are generated from the committed baseline arrays plus native case 
 The next gallery pass should add:
 
 - periodic 1D fluid short-window figures;
-- native drift-wave short-window parity figures once the longer transient path is locked;
+- native drift-wave short-window parity figures once the field-comparison plotting pipeline is added for the new transient milestone;
 - benchmark and validation plots for open-field-line cases as those stages land.
