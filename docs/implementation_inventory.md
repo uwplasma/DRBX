@@ -80,6 +80,11 @@ Representative reference inputs require support for:
 
 The first parity ladder is recorded in [references/reference_case_ladder.toml](/Users/rogerio/local/jax_drb/references/reference_case_ladder.toml). It starts with one-RHS and one-step cases from integrated tests, then grows into blobs, recycling, turbulence, and the TCV X-point example.
 
+The next queued staged baselines are now committed as well:
+
+- `neutral_mixed_rhs`, `neutral_mixed_one_step`, and `neutral_mixed_short_window`, with corrected `h`-species compare variables and an explicit `output_ddt` RHS baseline;
+- `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the upcoming sheath-connected blob work starts from stored low-iteration targets instead of ad hoc runs.
+
 Current native execution coverage:
 
 - `evolve_density_rhs`: implemented and regression-tested;

@@ -40,6 +40,7 @@ Current support is intentionally narrow:
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;
+- staged reference-only baselines are now also committed for `neutral_mixed_rhs`, `neutral_mixed_one_step`, `neutral_mixed_short_window`, `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the next transport/sheath implementation passes start from stored low-iteration targets rather than fresh local runs;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;
@@ -84,9 +85,15 @@ The first portable baseline summaries generated from live reference runs are:
 - [vorticity_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_rhs.json)
 - [vorticity_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_one_step.json)
 - [vorticity_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_short_window.json)
+- [neutral_mixed_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/neutral_mixed_rhs.json)
+- [neutral_mixed_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/neutral_mixed_one_step.json)
+- [neutral_mixed_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/neutral_mixed_short_window.json)
 - [drift_wave_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_rhs.json)
 - [drift_wave_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_one_step.json)
 - [drift_wave_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_short_window.json)
+- [blob2d_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_rhs.json)
+- [blob2d_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_one_step.json)
+- [blob2d_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_short_window.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -108,9 +115,14 @@ The first committed full-array baselines are:
 - [vorticity_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_rhs.npz)
 - [vorticity_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_one_step.npz)
 - [vorticity_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_short_window.npz)
+- [neutral_mixed_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_rhs.npz)
+- [neutral_mixed_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_one_step.npz)
+- [neutral_mixed_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_short_window.npz)
 - [drift_wave_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_rhs.npz)
 - [drift_wave_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_one_step.npz)
 - [drift_wave_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_short_window.npz)
+- [blob2d_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_rhs.npz)
+- [blob2d_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_one_step.npz)
 
 These are written and read through [arrays.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/arrays.py). For the current diffusion milestone, the intended comparison command is:
 
