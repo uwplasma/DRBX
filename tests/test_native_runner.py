@@ -307,6 +307,40 @@ AA = 1/1836
 temperature = 100
 """
 
+_NEUTRAL_MIXED_INPUT = """
+nout = 15
+timestep = 20
+
+[mesh]
+nx = 10
+ny = 10
+nz = 10
+
+dx = 1e-3
+dy = 1e-3
+dz = 1e-3
+
+yn = y / (2π)
+zn = z / (2π)
+
+J = 1
+
+[solver]
+mxstep = 1000
+
+[model]
+components = h
+
+[h]
+type = neutral_mixed
+
+[Nh]
+function = exp(-(x - 0.5)^2 - (mesh:yn - 0.5)^2 - (mesh:zn - 0.5)^2)
+
+[Ph]
+function = 0.1 * Nh:function
+"""
+
 
 def test_native_runner_matches_committed_smallest_case_baseline() -> None:
     config = parse_bout_input(_EVOLVE_DENSITY_INPUT)
@@ -949,3 +983,29 @@ def test_native_runner_tracks_blob2d_short_window_summary_and_blob_metrics() -> 
     assert blob_metrics.peak_rms_error < 5.0e-3
     assert blob_metrics.center_of_mass_x_max_abs_error < 0.7
     assert blob_metrics.center_of_mass_z_max_abs_error < 0.8
+
+
+def test_native_runner_tracks_neutral_mixed_rhs_summary_baseline() -> None:
+    config = parse_bout_input(_NEUTRAL_MIXED_INPUT)
+    result = run_config_case(
+        config,
+        case_name="neutral_mixed_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("Nh", "Ph", "NVh", "ddt(Nh)", "ddt(Ph)", "ddt(NVh)"),
+        reference_case=ReferenceCase(
+            name="neutral_mixed_rhs",
+            stage="stage7",
+            reference_path="tests/integrated/neutral_mixed/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Mixed-neutral RHS parity before transient neutral transport checks.",
+            compare_variables=("Nh", "Ph", "NVh", "ddt(Nh)", "ddt(Ph)", "ddt(NVh)"),
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/neutral_mixed_rhs.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-2, scalar_atol=2e-6)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0,)

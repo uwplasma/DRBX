@@ -43,6 +43,7 @@ Current support is intentionally narrow:
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;
+- `neutral_mixed_rhs` is now implemented for the first neutral-fluid milestone, comparing the active `y` domain against trimmed reference baselines while the exact guard-fill parity stays queued with the transient neutral pass;
 - staged reference-only baselines are now also committed for `neutral_mixed_rhs`, `neutral_mixed_one_step`, `neutral_mixed_short_window`, `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the next transport/sheath implementation passes start from stored low-iteration targets rather than fresh local runs;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
@@ -111,6 +112,8 @@ These files are not full field dumps. They intentionally store:
 - output dimensions and time points;
 - normalization scalars from `BOUT.dmp.0.nc`;
 - selected comparison-variable statistics and first-to-last deltas.
+
+For the staged neutral branch, the committed reference summaries and array baselines now trim `y` guards so the parity checks focus on the active domain while the guard-fill rules remain an explicit follow-up target.
 
 Future JAX runs should emit the same portable schema through the generic summary helpers in [portable.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/portable.py), so that `jax-drb compare-summary` can be used unchanged for reference vs. JAX comparisons.
 

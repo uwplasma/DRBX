@@ -37,6 +37,7 @@ from .mesh import (
     broadcast_to_field_shape,
     build_structured_mesh,
 )
+from .neutral_mixed import compute_neutral_mixed_rhs, initialize_neutral_mixed_state
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -157,6 +158,9 @@ def _execute_supported_case(
 
     if _is_supported_electrostatic_vorticity_case(config, run_config, mesh, metrics):
         return _execute_electrostatic_vorticity_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+
+    if _is_supported_neutral_mixed_case(run_config):
+        return _execute_neutral_mixed_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     if _is_supported_blob2d_case(config, run_config, mesh, metrics):
         return _execute_blob2d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
@@ -327,6 +331,39 @@ def _execute_electrostatic_vorticity_case(
     }
 
 
+def _execute_neutral_mixed_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
+) -> tuple[tuple[float, ...], dict[str, Any]]:
+    if parity_mode != "one_rhs":
+        raise NotImplementedError("Native neutral mixed execution currently supports one_rhs parity only.")
+
+    section = run_config.components[0].section
+    state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    rhs = compute_neutral_mixed_rhs(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    return (0.0,), {
+        f"N{section}": np.asarray(state.density[None, ...], dtype=np.float64),
+        f"P{section}": np.asarray(state.pressure[None, ...], dtype=np.float64),
+        f"NV{section}": np.asarray(state.momentum[None, ...], dtype=np.float64),
+        f"ddt(N{section})": np.asarray(rhs.density[None, ...], dtype=np.float64),
+        f"ddt(P{section})": np.asarray(rhs.pressure[None, ...], dtype=np.float64),
+        f"ddt(NV{section})": np.asarray(rhs.momentum[None, ...], dtype=np.float64),
+    }
+
+
 def _is_supported_periodic_fluid_mms_case(
     config: BoutConfig,
     run_config: RunConfiguration,
@@ -397,6 +434,13 @@ def _is_supported_electrostatic_vorticity_case(
     if not np.allclose(np.asarray(metrics.g23), 0.0, rtol=1e-12, atol=1e-12):
         return False
     return True
+
+
+def _is_supported_neutral_mixed_case(run_config: RunConfiguration) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    if implementations != ("neutral_mixed",):
+        return False
+    return len({component.section for component in run_config.components}) == 1
 
 
 def _execute_drift_wave_case(
