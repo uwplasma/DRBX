@@ -105,5 +105,6 @@ Current native execution coverage:
 - `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_short_window`: implemented and regression-tested against benchmark scalars plus documented field-difference tolerances on the committed array baseline;
+- `neutral_mixed_rhs`: implemented and regression-tested on the trimmed active `y` domain, including the exact reference diffusivity formula, X/Z face-flux transport stencil, and wall-compatible parallel pressure-gradient drive;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: move to the neutral branch, starting from `neutral_mixed_rhs` and then the one-step / short-window neutral transport path, while keeping the new blob benchmark report in sync with future solver changes.
+- next target: extend the new neutral branch from `neutral_mixed_rhs` into the one-step and short-window transient paths, while keeping the trimmed active-domain reference baselines and the blob benchmark report in sync with future solver changes.

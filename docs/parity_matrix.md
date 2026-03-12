@@ -53,6 +53,7 @@ Deliverables:
 - native benchmark-specific `one_rhs` execution for `drift_wave_rhs`, including quasineutral density closure, fixed-temperature electron pressure, electron-ion drag, spectral potential inversion, and trimmed interior-cell parity against the committed reference baseline;
 - native benchmark-specific `one_step` execution for `drift_wave_one_step`, including coupled density, electron momentum, vorticity, and potential output parity on the first 2D density-vorticity benchmark;
 - native benchmark-specific `short_window` execution for `drift_wave_short_window`, using the validated reduced adaptive branch over the full 50-output benchmark window;
+- native `one_rhs` execution for `neutral_mixed_rhs`, including the reference neutral diffusivity formula, X/Z face-flux transport stencil, and active-domain parity against trimmed neutral baselines;
 - drift-wave operator-scale regressions locked against the committed `drift_wave_one_step` arrays so the parallel transport and scalar damping terms can be tuned without breaking the validated first-output milestone.
 - drift-wave benchmark postprocessing on the committed `drift_wave_short_window` arrays, including measured growth/frequency extraction, analytic dispersion evaluation, CLI reporting, JSON export, and a documentation figure.
 - drift-wave short-window parity reporting on the committed `drift_wave_short_window` arrays plus current native output, including benchmark deltas, per-field error histories, JSON export, and a documentation figure.
