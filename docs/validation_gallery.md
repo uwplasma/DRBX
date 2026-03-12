@@ -56,6 +56,17 @@ What this locks down:
 - analytic finite-electron-mass dispersion evaluation from the same normalization and geometry scalars used by the run;
 - documentation-ready reviewer figures backed by automated regression tests.
 
+## Blob2d Short-Window Parity
+
+![Blob2d short-window parity](images/blob2d_short_window_parity.png)
+
+What this locks down:
+
+- the full 50-output sheath-connected blob transient on the recalc-metric benchmark geometry;
+- the optimized X-Z ExB transport kernel that made the native long-enough blob run practical without changing the discrete flux formulas;
+- benchmark-level parity on reviewer-facing blob diagnostics rather than only pointwise field maxima: peak density excess plus radial and binormal center-of-mass trajectories;
+- the current documented native/reference envelope: peak-excess max error about `1.41e-2`, radial COM max error about `6.29e-1` active cells, and binormal COM max error about `7.32e-1` active cells.
+
 ## Regeneration
 
 These figures are generated from the committed baseline arrays plus native case runs. The current gallery uses:
@@ -64,6 +75,7 @@ These figures are generated from the committed baseline arrays plus native case 
 - `vorticity_short_window`
 - `drift_wave_one_step`
 - `drift_wave_short_window`
+- `blob2d_short_window`
 
 The next gallery pass should add:
 

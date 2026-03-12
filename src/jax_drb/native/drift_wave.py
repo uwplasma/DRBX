@@ -564,57 +564,83 @@ def _compute_xz_exb_divergence(
     bndry_flux: bool,
 ) -> np.ndarray:
     result = np.zeros_like(field, dtype=np.float64)
-    for j in range(mesh.ystart, mesh.yend + 1):
-        for i in range(mesh.xstart, mesh.xend + 1):
-            for k in range(mesh.nz):
-                kp = (k + 1) % mesh.nz
-                kpp = (kp + 1) % mesh.nz
-                km = (k - 1 + mesh.nz) % mesh.nz
-                kmm = (km - 1 + mesh.nz) % mesh.nz
-                fmm = 0.25 * (potential[i, j, k] + potential[i - 1, j, k] + potential[i, j, km] + potential[i - 1, j, km])
-                fmp = 0.25 * (potential[i, j, k] + potential[i, j, kp] + potential[i - 1, j, k] + potential[i - 1, j, kp])
-                fpp = 0.25 * (potential[i, j, k] + potential[i, j, kp] + potential[i + 1, j, k] + potential[i + 1, j, kp])
-                fpm = 0.25 * (potential[i, j, k] + potential[i + 1, j, k] + potential[i, j, km] + potential[i + 1, j, km])
-                jj = j - mesh.ystart
-                v_up = benchmark.J[jj, k] * (fmp - fpp) / benchmark.dx
-                v_down = benchmark.J[jj, k] * (fmm - fpm) / benchmark.dx
-                v_right = benchmark.right_face_j * (fpp - fpm) / benchmark.dz[jj, k]
-                v_left = benchmark.left_face_j * (fmp - fmm) / benchmark.dz[jj, k]
-                center = field[i, j, k]
-                x_left_face, x_right_face = _mc_cell_edges(center, field[i - 1, j, k], field[i + 1, j, k])
-                if i == mesh.xend:
-                    if bndry_flux:
-                        if v_right > 0.0:
-                            flux = v_right * x_right_face
-                        else:
-                            flux = v_right * 0.5 * (field[i + 1, j, k] + center)
-                        result[i, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
-                        result[i + 1, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
-                elif v_right > 0.0:
-                    flux = v_right * x_right_face
-                    result[i, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
-                    result[i + 1, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
-                if i == mesh.xstart:
-                    if bndry_flux:
-                        if v_left < 0.0:
-                            flux = v_left * x_left_face
-                        else:
-                            flux = v_left * 0.5 * (field[i - 1, j, k] + center)
-                        result[i, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
-                        result[i - 1, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
-                elif v_left < 0.0:
-                    flux = v_left * x_left_face
-                    result[i, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
-                    result[i - 1, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
-                z_left_face, z_right_face = _mc_cell_edges(center, field[i, j, km], field[i, j, kp])
-                if v_up > 0.0:
-                    flux = v_up * z_right_face / (benchmark.J[jj, k] * benchmark.dz[jj, k])
-                    result[i, j, k] += flux
-                    result[i, j, kp] -= flux
-                if v_down < 0.0:
-                    flux = v_down * z_left_face / (benchmark.J[jj, k] * benchmark.dz[jj, k])
-                    result[i, j, k] -= flux
-                    result[i, j, km] += flux
+    x_slice = slice(mesh.xstart, mesh.xend + 1)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+
+    field_center = np.asarray(field[x_slice, y_slice, :], dtype=np.float64)
+    field_left = np.asarray(field[mesh.xstart - 1 : mesh.xend, y_slice, :], dtype=np.float64)
+    field_right = np.asarray(field[mesh.xstart + 1 : mesh.xend + 2, y_slice, :], dtype=np.float64)
+
+    potential_center = np.asarray(potential[x_slice, y_slice, :], dtype=np.float64)
+    potential_left = np.asarray(potential[mesh.xstart - 1 : mesh.xend, y_slice, :], dtype=np.float64)
+    potential_right = np.asarray(potential[mesh.xstart + 1 : mesh.xend + 2, y_slice, :], dtype=np.float64)
+
+    potential_center_km = np.roll(potential_center, shift=1, axis=-1)
+    potential_center_kp = np.roll(potential_center, shift=-1, axis=-1)
+    potential_left_km = np.roll(potential_left, shift=1, axis=-1)
+    potential_left_kp = np.roll(potential_left, shift=-1, axis=-1)
+    potential_right_km = np.roll(potential_right, shift=1, axis=-1)
+    potential_right_kp = np.roll(potential_right, shift=-1, axis=-1)
+
+    fmm = 0.25 * (potential_center + potential_left + potential_center_km + potential_left_km)
+    fmp = 0.25 * (potential_center + potential_center_kp + potential_left + potential_left_kp)
+    fpp = 0.25 * (potential_center + potential_center_kp + potential_right + potential_right_kp)
+    fpm = 0.25 * (potential_center + potential_right + potential_center_km + potential_right_km)
+
+    J = np.asarray(benchmark.J, dtype=np.float64)[None, :, :]
+    dz = np.asarray(benchmark.dz, dtype=np.float64)[None, :, :]
+    inv_cell = 1.0 / (benchmark.dx * J)
+    inv_z_cell = 1.0 / (J * dz)
+
+    v_up = J * (fmp - fpp) / benchmark.dx
+    v_down = J * (fmm - fpm) / benchmark.dx
+    v_right = benchmark.right_face_j * (fpp - fpm) / dz
+    v_left = benchmark.left_face_j * (fmp - fmm) / dz
+
+    x_left_face, x_right_face = _mc_cell_edges(field_center, field_left, field_right)
+    z_left_face, z_right_face = _mc_cell_edges(
+        field_center,
+        np.roll(field_center, shift=1, axis=-1),
+        np.roll(field_center, shift=-1, axis=-1),
+    )
+
+    active_result = np.zeros_like(field_center, dtype=np.float64)
+
+    if field_center.shape[0] > 1:
+        right_flux = np.where(v_right[:-1] > 0.0, v_right[:-1] * x_right_face[:-1], 0.0)
+        active_result[:-1] += right_flux * inv_cell
+        active_result[1:] -= right_flux * inv_cell
+
+        left_flux = np.where(v_left[1:] < 0.0, v_left[1:] * x_left_face[1:], 0.0)
+        active_result[1:] -= left_flux * inv_cell
+        active_result[:-1] += left_flux * inv_cell
+
+    if bndry_flux:
+        right_boundary_flux = np.where(
+            v_right[-1] > 0.0,
+            v_right[-1] * x_right_face[-1],
+            v_right[-1] * 0.5 * (field_right[-1] + field_center[-1]),
+        )
+        active_result[-1] += right_boundary_flux * inv_cell[0]
+        result[mesh.xend + 1, y_slice, :] -= right_boundary_flux * inv_cell[0]
+
+        left_boundary_flux = np.where(
+            v_left[0] < 0.0,
+            v_left[0] * x_left_face[0],
+            v_left[0] * 0.5 * (field_left[0] + field_center[0]),
+        )
+        active_result[0] -= left_boundary_flux * inv_cell[0]
+        result[mesh.xstart - 1, y_slice, :] += left_boundary_flux * inv_cell[0]
+
+    up_flux = np.where(v_up > 0.0, v_up * z_right_face * inv_z_cell, 0.0)
+    active_result += up_flux
+    active_result -= np.roll(up_flux, shift=1, axis=-1)
+
+    down_flux = np.where(v_down < 0.0, v_down * z_left_face * inv_z_cell, 0.0)
+    active_result -= down_flux
+    active_result += np.roll(down_flux, shift=-1, axis=-1)
+
+    result[x_slice, y_slice, :] = active_result
     return result
 
 

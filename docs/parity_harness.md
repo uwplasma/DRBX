@@ -39,6 +39,7 @@ Current support is intentionally narrow:
 - `vorticity_short_window` is implemented for the full 10-output electrostatic benchmark window using an adaptive JAX ODE solve;
 - `blob2d_rhs` is implemented for the first sheath-connected blob milestone, matching `Ne`, `Pe`, zero `phi`, zero `ddt(Ne)`, and the curvature-driven `ddt(Vort)` source on the committed reference baseline;
 - `blob2d_one_step` is implemented for the first sheath-connected blob transient, using the reference-style orthogonal `recalculate_metric` path together with reduced RK4 evolution for `Ne`, `Vort`, and `phi`, and a direct Fourier/tridiagonal electrostatic solve to keep the benchmark practical in the regression suite;
+- `blob2d_short_window` is now implemented for the full 50-output sheath-connected blob benchmark, with the long-window parity locked through the committed summary baseline plus reviewer-facing peak-excess and center-of-mass metrics on a compact committed benchmark artifact;
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;
@@ -47,6 +48,7 @@ Current support is intentionally narrow:
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;
 - `jax-drb compare-drift-wave <input> <expected.npz> <actual.npz>` now emits the current short-window drift-wave parity report, including benchmark-scalar deltas plus per-field max/RMS error histories and a documentation figure;
+- `jax-drb compare-blob2d <expected.npz> <actual.npz>` now emits the current blob short-window parity report, including peak-density and center-of-mass history deltas plus a documentation figure;
 - `jax-drb validate-reference-baselines` now re-runs committed reference cases and checks their live summaries against the stored baseline JSON files, so baseline drift can be caught as an explicit smoke-validation step;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
@@ -97,6 +99,10 @@ The first portable baseline summaries generated from live reference runs are:
 - [blob2d_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_rhs.json)
 - [blob2d_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_one_step.json)
 - [blob2d_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_short_window.json)
+
+The compact benchmark-metric references are:
+
+- [blob2d_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/blob2d_short_window_metrics.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -166,4 +172,14 @@ PYTHONPATH=src python -m jax_drb compare-drift-wave \
   /tmp/jax_drb_drift_wave_short_window_native.npz \
   --json-out docs/data/drift_wave_short_window_parity.json \
   --plot-out docs/images/drift_wave_short_window_parity.png
+```
+
+For the current blob `short_window` milestone, the reviewer-facing comparison command is:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-blob2d \
+  references/baselines/reference_metrics/blob2d_short_window_metrics.json \
+  /tmp/jax_drb_blob2d_short_window_native.npz \
+  --json-out docs/data/blob2d_short_window_parity.json \
+  --plot-out docs/images/blob2d_short_window_parity.png
 ```
