@@ -34,6 +34,17 @@ What this locks down:
 - fixed-temperature electron pressure;
 - trimmed active-cell comparisons for the first 2D density-vorticity benchmark.
 
+## Drift-Wave Short-Window Benchmark
+
+![Drift-wave short-window diagnostics](images/drift_wave_short_window_diagnostics.png)
+
+What this locks down:
+
+- benchmark postprocessing on the committed short-window array baseline;
+- measured growth-rate and frequency extraction from the periodic density history;
+- analytic finite-electron-mass dispersion evaluation from the same normalization and geometry scalars used by the run;
+- documentation-ready reviewer figures backed by automated regression tests.
+
 ## Regeneration
 
 These figures are generated from the committed baseline arrays plus native case runs. The current gallery uses:
@@ -41,9 +52,10 @@ These figures are generated from the committed baseline arrays plus native case 
 - `diffusion_short_window`
 - `vorticity_short_window`
 - `drift_wave_one_step`
+- `drift_wave_short_window`
 
 The next gallery pass should add:
 
 - periodic 1D fluid short-window figures;
-- longer electrostatic drift-wave transient figures once the native transient path is locked;
+- native drift-wave short-window parity figures once the longer transient path is locked;
 - benchmark and validation plots for open-field-line cases as those stages land.

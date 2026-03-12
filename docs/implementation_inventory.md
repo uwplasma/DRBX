@@ -48,6 +48,9 @@ Direct runs against the local reference build confirmed:
   - `drift_wave_rhs` compares trimmed active-cell `Ni`, `Ne`, `Pe`, `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs;
   - `drift_wave_one_step` compares trimmed active-cell `Ni`, `Ne`, `NVe`, `Vort`, and `phi`;
   - the native path uses a benchmark-specific reduced operator set: ion ExB advection, quasineutral electron density, fixed-temperature electron pressure, electron-ion Braginskii drag, parallel current closure, and Fourier-in-`z` electrostatic inversion with slab `Bxy` recovered from `mesh:B`.
+- the committed `drift_wave_short_window` array baseline now also feeds a public benchmark-analysis path:
+  - `jax-drb analyze-drift-wave` reports `omega_*`, `sigma_parallel / omega_*`, measured growth/frequency, and the analytic finite-electron-mass dispersion target;
+  - the same command can emit JSON plus a documentation figure, so reviewer-facing validation plots are generated from the same stored arrays used by the regression suite.
 - the next drift-wave transient slice is under active investigation:
   - native finite-volume parallel electron transport and `phi` dissipation stencils have been reconstructed for the benchmark-specific branch;
   - their normalized strength depends on the same `rho_s0` scaling already used by `Grad_par`, which is now captured in the native implementation;
