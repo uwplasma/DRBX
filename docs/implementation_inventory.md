@@ -51,12 +51,15 @@ Direct runs against the local reference build confirmed:
 - the committed `drift_wave_short_window` array baseline now also feeds a public benchmark-analysis path:
   - `jax-drb analyze-drift-wave` reports `omega_*`, `sigma_parallel / omega_*`, measured growth/frequency, and the analytic finite-electron-mass dispersion target;
   - the same command can emit JSON plus a documentation figure, so reviewer-facing validation plots are generated from the same stored arrays used by the regression suite.
-- the next drift-wave transient slice is under active investigation:
+- the drift-wave short-window slice is now in place:
+  - `drift_wave_short_window` runs through the native runner with an adaptive reduced branch that keeps the validated density, momentum, vorticity, and potential history on the committed 50-output benchmark window;
+  - the current transient milestone is locked by benchmark scalars rather than a single global array tolerance: `gamma / omega_*` and `omega / omega_*` match the committed reference analysis to within the documented test tolerances;
+  - the density boundary reconstruction now uses the same `gradient * dx` guard update implied by the benchmark input and confirmed by the reference dump;
+  - a committed `drift_wave_one_step_diagnostics` array baseline now locks the evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` comparison, so the first post-step operator drift is regression-tested directly.
+- the next drift-wave transient slice is still under active investigation:
   - native finite-volume parallel electron transport and `phi` dissipation stencils have been reconstructed for the benchmark-specific branch;
   - their normalized strength depends on the same `rho_s0` scaling already used by `Grad_par`, which is now captured in the native implementation;
-  - the one-step operator calibration now includes a regression against the committed drift-wave array baseline, locking the small but nonzero scale of parallel momentum flux, drag, and `phi` damping terms on the first evolved state;
-  - an adaptive native RK23 history integrator is now available for this branch, so longer transient probes can be run without introducing a new solver dependency;
-  - these operators are staged behind the transient path so the validated `one_rhs` and `one_step` baselines remain locked while the longer-window branch is tuned.
+  - these extra transient-only operators currently move the benchmark away from parity, so they remain staged behind the validated reduced branch until their long-window effect is matched.
 - the drift-wave parity harness now trims both X and Y guards for the committed benchmark baselines, because the first implementation target is the physically evolved interior cell rather than reference-specific guard bookkeeping.
 - structured metric handling now respects `normalise_metric = false`, which is required for the 1D MMS fluid case and future benchmark inputs that specify already-physical mesh coefficients.
 - structured metric handling now also reproduces the default periodic-binormal spacing and normalized `g33` needed by the electrostatic vorticity benchmark.
@@ -89,6 +92,6 @@ Current native execution coverage:
 - `vorticity_short_window`: implemented and regression-tested for the full 10-output benchmark window;
 - `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
-- `drift_wave_short_window`: reference baselines committed; native transient support is the next target;
+- `drift_wave_short_window`: implemented and regression-tested against benchmark scalars plus documented field-difference tolerances on the committed array baseline;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: extend the new drift-wave branch from one output interval to the committed short-window transient, then move to sheath-connected blob physics.
+- next target: tighten the remaining field-level drift-wave transient differences and then move to sheath-connected blob physics.
