@@ -48,6 +48,22 @@ class DriftWaveAnalysisResult:
     peak_history: np.ndarray
 
 
+@dataclass(frozen=True)
+class DriftWaveParityVariableError:
+    name: str
+    max_abs_error: float
+    rms_error: float
+    max_abs_error_history: np.ndarray
+    rms_error_history: np.ndarray
+
+
+@dataclass(frozen=True)
+class DriftWaveParityResult:
+    expected: DriftWaveAnalysisResult
+    actual: DriftWaveAnalysisResult
+    variable_errors: dict[str, DriftWaveParityVariableError]
+
+
 def analyze_drift_wave_npz(
     arrays_npz: str | Path,
     *,
@@ -121,6 +137,86 @@ def analyze_drift_wave_array_payload(
         log_rms_history=log_rms_history,
         peak_history=peak_history,
     )
+
+
+def compare_drift_wave_npz(
+    expected_npz: str | Path,
+    actual_npz: str | Path,
+    *,
+    input_file: str | Path,
+    density_variable: str = "Ni",
+    x_index: int = 0,
+    y_index: int = 0,
+    fit_points: int = 10,
+) -> DriftWaveParityResult:
+    expected_payload = load_portable_array_payload(expected_npz)
+    actual_payload = load_portable_array_payload(actual_npz)
+    config = load_bout_input(input_file)
+    run_config = RunConfiguration.from_config(config)
+    return compare_drift_wave_array_payloads(
+        expected_payload,
+        actual_payload,
+        config=config,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+        density_variable=density_variable,
+        x_index=x_index,
+        y_index=y_index,
+        fit_points=fit_points,
+    )
+
+
+def compare_drift_wave_array_payloads(
+    expected_payload: Mapping[str, Any],
+    actual_payload: Mapping[str, Any],
+    *,
+    config: BoutConfig,
+    dataset_scalars: Mapping[str, float],
+    density_variable: str = "Ni",
+    x_index: int = 0,
+    y_index: int = 0,
+    fit_points: int = 10,
+) -> DriftWaveParityResult:
+    expected = analyze_drift_wave_array_payload(
+        expected_payload,
+        config=config,
+        dataset_scalars=dataset_scalars,
+        density_variable=density_variable,
+        x_index=x_index,
+        y_index=y_index,
+        fit_points=fit_points,
+    )
+    actual = analyze_drift_wave_array_payload(
+        actual_payload,
+        config=config,
+        dataset_scalars=dataset_scalars,
+        density_variable=density_variable,
+        x_index=x_index,
+        y_index=y_index,
+        fit_points=fit_points,
+    )
+
+    expected_variables = expected_payload.get("variables", {})
+    actual_variables = actual_payload.get("variables", {})
+    common_names = sorted(set(expected_variables).intersection(actual_variables))
+    variable_errors: dict[str, DriftWaveParityVariableError] = {}
+    for name in common_names:
+        expected_array = np.asarray(expected_variables[name], dtype=np.float64)
+        actual_array = np.asarray(actual_variables[name], dtype=np.float64)
+        if expected_array.shape != actual_array.shape:
+            continue
+        diff = actual_array - expected_array
+        axes = tuple(range(1, diff.ndim))
+        max_abs_error_history = np.max(np.abs(diff), axis=axes)
+        rms_error_history = np.sqrt(np.mean(np.square(diff), axis=axes))
+        variable_errors[name] = DriftWaveParityVariableError(
+            name=name,
+            max_abs_error=float(np.max(np.abs(diff))),
+            rms_error=float(np.sqrt(np.mean(np.square(diff)))),
+            max_abs_error_history=np.asarray(max_abs_error_history, dtype=np.float64),
+            rms_error_history=np.asarray(rms_error_history, dtype=np.float64),
+        )
+
+    return DriftWaveParityResult(expected=expected, actual=actual, variable_errors=variable_errors)
 
 
 def compute_drift_wave_benchmark_scalars(
@@ -215,13 +311,45 @@ def write_drift_wave_analysis_json(result: DriftWaveAnalysisResult, path: str | 
     return target
 
 
+def write_drift_wave_parity_json(result: DriftWaveParityResult, path: str | Path) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "expected": {
+            "measured_gamma_over_wstar": result.expected.measured_gamma_over_wstar,
+            "measured_omega_over_wstar": result.expected.measured_omega_over_wstar,
+            "time_wstar": result.expected.time_wstar.tolist(),
+            "log_rms_history": result.expected.log_rms_history.tolist(),
+            "peak_history": result.expected.peak_history.tolist(),
+        },
+        "actual": {
+            "measured_gamma_over_wstar": result.actual.measured_gamma_over_wstar,
+            "measured_omega_over_wstar": result.actual.measured_omega_over_wstar,
+            "time_wstar": result.actual.time_wstar.tolist(),
+            "log_rms_history": result.actual.log_rms_history.tolist(),
+            "peak_history": result.actual.peak_history.tolist(),
+        },
+        "variable_errors": {
+            name: {
+                "max_abs_error": variable.max_abs_error,
+                "rms_error": variable.rms_error,
+                "max_abs_error_history": variable.max_abs_error_history.tolist(),
+                "rms_error_history": variable.rms_error_history.tolist(),
+            }
+            for name, variable in sorted(result.variable_errors.items())
+        },
+    }
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
 def save_drift_wave_diagnostic_plot(result: DriftWaveAnalysisResult, path: str | Path) -> Path:
     import matplotlib.pyplot as plt
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    fit_slice = slice(max(0, len(result.time_wstar) - result.fit_points), len(result.time_wstar))
+    fit_slice = _fit_slice(result)
     growth_fit = np.polyfit(result.time_wstar[fit_slice], result.log_rms_history[fit_slice], deg=1)
     phase_history = result.peak_history - result.peak_history[0]
     phase_fit = np.polyfit(result.time_wstar[fit_slice], phase_history[fit_slice], deg=1)
@@ -261,6 +389,112 @@ def save_drift_wave_diagnostic_plot(result: DriftWaveAnalysisResult, path: str |
         + rf"analytic $={result.benchmark.analytic_omega_over_wstar:.3f}$"
     )
     axes[1].legend(loc="best")
+
+    figure.savefig(target, dpi=160)
+    plt.close(figure)
+    return target
+
+
+def save_drift_wave_parity_plot(result: DriftWaveParityResult, path: str | Path) -> Path:
+    import matplotlib.pyplot as plt
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    expected_fit = _fit_slice(result.expected)
+    actual_fit = _fit_slice(result.actual)
+    expected_phase = result.expected.peak_history - result.expected.peak_history[0]
+    actual_phase = result.actual.peak_history - result.actual.peak_history[0]
+    expected_growth_fit = np.polyfit(
+        result.expected.time_wstar[expected_fit],
+        result.expected.log_rms_history[expected_fit],
+        deg=1,
+    )
+    actual_growth_fit = np.polyfit(
+        result.actual.time_wstar[actual_fit],
+        result.actual.log_rms_history[actual_fit],
+        deg=1,
+    )
+
+    figure, axes = plt.subplots(nrows=3, figsize=(9.0, 8.5), constrained_layout=True)
+
+    axes[0].plot(
+        result.expected.time_wstar,
+        result.expected.log_rms_history,
+        color="#495057",
+        linewidth=2.0,
+        label="Reference log(n_rms)",
+    )
+    axes[0].plot(
+        result.actual.time_wstar,
+        result.actual.log_rms_history,
+        color="#0b7285",
+        linewidth=2.0,
+        label="Native log(n_rms)",
+    )
+    axes[0].plot(
+        result.expected.time_wstar[expected_fit],
+        np.polyval(expected_growth_fit, result.expected.time_wstar[expected_fit]),
+        color="#868e96",
+        linestyle="--",
+        linewidth=1.8,
+        label="Reference tail fit",
+    )
+    axes[0].plot(
+        result.actual.time_wstar[actual_fit],
+        np.polyval(actual_growth_fit, result.actual.time_wstar[actual_fit]),
+        color="#d9480f",
+        linestyle="--",
+        linewidth=1.8,
+        label="Native tail fit",
+    )
+    axes[0].set_ylabel(r"$\log(n_\mathrm{rms})$")
+    axes[0].set_title(
+        "Drift-wave short-window parity\n"
+        + rf"reference $\gamma/\omega_*={result.expected.measured_gamma_over_wstar:.3f}$, "
+        + rf"native $={result.actual.measured_gamma_over_wstar:.3f}$"
+    )
+    axes[0].legend(loc="best")
+
+    axes[1].plot(
+        result.expected.time_wstar,
+        expected_phase,
+        color="#495057",
+        linewidth=2.0,
+        label="Reference peak offset",
+    )
+    axes[1].plot(
+        result.actual.time_wstar,
+        actual_phase,
+        color="#0b7285",
+        linewidth=2.0,
+        label="Native peak offset",
+    )
+    axes[1].set_ylabel("Peak offset")
+    axes[1].set_title(
+        rf"reference $\omega/\omega_*={result.expected.measured_omega_over_wstar:.3f}$, "
+        + rf"native $={result.actual.measured_omega_over_wstar:.3f}$"
+    )
+    axes[1].legend(loc="best")
+
+    any_positive_error = False
+    for name, color in [("Ni", "#1c7ed6"), ("NVe", "#f08c00"), ("Vort", "#c2255c"), ("phi", "#2b8a3e")]:
+        if name not in result.variable_errors:
+            continue
+        any_positive_error = any_positive_error or bool(np.any(result.variable_errors[name].max_abs_error_history > 0.0))
+        axes[2].plot(
+            result.actual.time_wstar,
+            result.variable_errors[name].max_abs_error_history,
+            linewidth=2.0,
+            color=color,
+            label=f"{name} max |error|",
+        )
+    axes[2].set_xlabel(r"$\omega_* t$")
+    axes[2].set_ylabel("Max |error|")
+    if any_positive_error:
+        axes[2].set_yscale("log")
+    axes[2].set_title("Field error history")
+    axes[2].legend(loc="best", ncol=2)
 
     figure.savefig(target, dpi=160)
     plt.close(figure)
@@ -308,6 +542,10 @@ def _resolve_fit_points(fit_points: int, *, total_points: int) -> int:
     if total_points < 2:
         raise ValueError("At least two time points are required to fit growth and frequency.")
     return min(max(int(fit_points), 2), total_points)
+
+
+def _fit_slice(result: DriftWaveAnalysisResult) -> slice:
+    return slice(max(0, len(result.time_wstar) - result.fit_points), len(result.time_wstar))
 
 
 def _measure_growth_rate(
