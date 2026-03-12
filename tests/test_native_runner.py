@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native import run_config_case
+from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.arrays import (
     build_array_payload_from_summary_payload,
     compare_array_payloads,
@@ -11,6 +14,7 @@ from jax_drb.parity.arrays import (
 )
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 from jax_drb.reference.cases import ReferenceCase
+from jax_drb.validation import analyze_drift_wave_array_payload
 
 
 _EVOLVE_DENSITY_INPUT = """
@@ -625,6 +629,73 @@ def test_native_runner_tracks_drift_wave_one_step_array_baseline() -> None:
 
     comparison = compare_array_payloads(expected, actual, array_rtol=5e-2, array_atol=5e-6)
     assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_drift_wave_short_window_benchmark_scalars() -> None:
+    config = parse_bout_input(_DRIFT_WAVE_INPUT)
+    result = run_config_case(
+        config,
+        case_name="drift_wave_short_window",
+        parity_mode="short_window",
+        compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="drift_wave_short_window",
+            stage="stage6",
+            reference_path="tests/integrated/drift-wave/data/BOUT.inp",
+            parity_mode="short_window",
+            rationale="Short-window drift-wave parity",
+            compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+            trim_x_guards=True,
+            trim_y_guards=True,
+        ),
+    )
+    analysis = analyze_drift_wave_array_payload(
+        {
+            "time_points": list(result.time_points),
+            "variables": {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()},
+        },
+        config=config,
+        dataset_scalars=resolved_dataset_scalars(result.run_config),
+        fit_points=10,
+    )
+
+    assert np.isclose(analysis.measured_gamma_over_wstar, 0.27478899792606437, rtol=1e-2, atol=2e-3)
+    assert np.isclose(analysis.measured_omega_over_wstar, 0.23224315136107215, rtol=2e-2, atol=3e-3)
+    assert result.time_points == tuple(10.0 * index for index in range(51))
+
+
+def test_native_runner_tracks_drift_wave_short_window_arrays_with_documented_tolerances() -> None:
+    config = parse_bout_input(_DRIFT_WAVE_INPUT)
+    result = run_config_case(
+        config,
+        case_name="drift_wave_short_window",
+        parity_mode="short_window",
+        compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="drift_wave_short_window",
+            stage="stage6",
+            reference_path="tests/integrated/drift-wave/data/BOUT.inp",
+            parity_mode="short_window",
+            rationale="Short-window drift-wave parity",
+            compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+            trim_x_guards=True,
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_short_window.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    for name, max_allowed in {
+        "Ni": 1.6e-3,
+        "Ne": 1.6e-3,
+        "NVe": 1.8e-4,
+        "Vort": 2.2e-2,
+        "phi": 4.5e-4,
+    }.items():
+        diff = np.asarray(actual["variables"][name], dtype=np.float64) - np.asarray(expected["variables"][name], dtype=np.float64)
+        assert float(np.max(np.abs(diff))) < max_allowed, name
 
 
 def test_native_runner_tracks_vorticity_short_window_summary_baseline() -> None:

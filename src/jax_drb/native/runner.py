@@ -17,6 +17,7 @@ from .drift_wave import (
     _assemble_density_field,
     _assemble_zero_dirichlet_field,
     advance_drift_wave_history,
+    advance_drift_wave_history_adaptive,
     build_drift_wave_benchmark,
     compute_drift_wave_rhs,
     initialize_drift_wave_state,
@@ -396,8 +397,10 @@ def _execute_drift_wave_case(
     *,
     parity_mode: str,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
-    if parity_mode not in {"one_rhs", "one_step"}:
-        raise NotImplementedError("Native drift-wave support currently covers one_rhs and one_step parity only.")
+    if parity_mode not in {"one_rhs", "one_step", "short_window"}:
+        raise NotImplementedError(
+            "Native drift-wave support currently covers one_rhs, one_step, and short_window parity only."
+        )
 
     benchmark = build_drift_wave_benchmark(
         config,
@@ -420,15 +423,39 @@ def _execute_drift_wave_case(
             "ddt(Vort)": np.asarray(_assemble_zero_dirichlet_output(rhs.vorticity, mesh=mesh)[None, ...], dtype=np.float64),
         }
 
-    history = advance_drift_wave_history(
+    if parity_mode == "one_step":
+        history = advance_drift_wave_history(
+            initial_state,
+            mesh=mesh,
+            benchmark=benchmark,
+            timestep=run_config.time.timestep,
+            steps=1,
+            substeps=10,
+        )
+        return (0.0, run_config.time.timestep), {
+            "Ni": np.asarray(history.ion_density_history, dtype=np.float64),
+            "Ne": np.asarray(history.ion_density_history, dtype=np.float64),
+            "NVe": np.asarray(history.electron_momentum_history, dtype=np.float64),
+            "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
+            "phi": np.asarray(history.potential_history, dtype=np.float64),
+        }
+
+    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    history = advance_drift_wave_history_adaptive(
         initial_state,
         mesh=mesh,
         benchmark=benchmark,
         timestep=run_config.time.timestep,
-        steps=1,
-        substeps=10,
+        steps=steps,
+        rtol=1e-6,
+        atol=1e-8,
+        max_step=1.0,
+        initial_step=0.25,
+        include_parallel_transport=False,
+        include_phi_dissipation=False,
     )
-    return (0.0, run_config.time.timestep), {
+    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    return time_points, {
         "Ni": np.asarray(history.ion_density_history, dtype=np.float64),
         "Ne": np.asarray(history.ion_density_history, dtype=np.float64),
         "NVe": np.asarray(history.electron_momentum_history, dtype=np.float64),
