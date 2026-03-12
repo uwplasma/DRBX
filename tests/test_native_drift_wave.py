@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
+import jax.numpy as jnp
 import numpy as np
 
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.drift_wave import (
     DriftWaveState,
     _assemble_density_field,
+    _compute_xz_exb_divergence,
     _div_par_fvv_periodic,
     _div_par_periodic,
     _div_par_scalar_periodic,
@@ -18,7 +21,7 @@ from jax_drb.native.drift_wave import (
     compute_drift_wave_rhs,
     initialize_drift_wave_state,
 )
-from jax_drb.native.mesh import build_structured_mesh
+from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.arrays import load_portable_array_payload
@@ -297,3 +300,114 @@ def test_adaptive_reduced_drift_wave_short_window_matches_benchmark_scalars() ->
 
     assert np.isclose(result.measured_gamma_over_wstar, 0.27478899792606437, rtol=1e-2, atol=2e-3)
     assert np.isclose(result.measured_omega_over_wstar, 0.23224315136107215, rtol=2e-2, atol=3e-3)
+
+
+def test_xz_exb_divergence_vectorized_kernel_matches_scalar_reference() -> None:
+    mesh = StructuredMesh(
+        nx=7,
+        ny=2,
+        nz=5,
+        mxg=2,
+        myg=1,
+        symmetric_global_x=True,
+        symmetric_global_y=True,
+        jyseps1_1=-1,
+        jyseps2_1=1,
+        jyseps1_2=1,
+        jyseps2_2=1,
+        ny_inner=1,
+        x=jnp.arange(7, dtype=jnp.float64),
+        y=jnp.arange(4, dtype=jnp.float64),
+        z=jnp.arange(5, dtype=jnp.float64),
+    )
+    benchmark = SimpleNamespace(
+        J=np.array(
+            [
+                [1.1, 1.0, 0.9, 1.2, 1.05],
+                [0.95, 1.15, 1.05, 0.98, 1.08],
+            ],
+            dtype=np.float64,
+        ),
+        dz=np.array(
+            [
+                [0.4, 0.42, 0.41, 0.43, 0.39],
+                [0.45, 0.44, 0.46, 0.43, 0.47],
+            ],
+            dtype=np.float64,
+        ),
+        dx=0.37,
+        right_face_j=1.07,
+        left_face_j=0.93,
+    )
+    rng = np.random.default_rng(1234)
+    field = rng.normal(size=(mesh.nx, mesh.local_ny, mesh.nz))
+    potential = rng.normal(size=(mesh.nx, mesh.local_ny, mesh.nz))
+
+    def scalar_reference(bndry_flux: bool) -> np.ndarray:
+        result = np.zeros_like(field, dtype=np.float64)
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for i in range(mesh.xstart, mesh.xend + 1):
+                for k in range(mesh.nz):
+                    kp = (k + 1) % mesh.nz
+                    km = (k - 1 + mesh.nz) % mesh.nz
+                    fmm = 0.25 * (potential[i, j, k] + potential[i - 1, j, k] + potential[i, j, km] + potential[i - 1, j, km])
+                    fmp = 0.25 * (potential[i, j, k] + potential[i, j, kp] + potential[i - 1, j, k] + potential[i - 1, j, kp])
+                    fpp = 0.25 * (potential[i, j, k] + potential[i, j, kp] + potential[i + 1, j, k] + potential[i + 1, j, kp])
+                    fpm = 0.25 * (potential[i, j, k] + potential[i + 1, j, k] + potential[i, j, km] + potential[i + 1, j, km])
+                    jj = j - mesh.ystart
+                    v_up = benchmark.J[jj, k] * (fmp - fpp) / benchmark.dx
+                    v_down = benchmark.J[jj, k] * (fmm - fpm) / benchmark.dx
+                    v_right = benchmark.right_face_j * (fpp - fpm) / benchmark.dz[jj, k]
+                    v_left = benchmark.left_face_j * (fmp - fmm) / benchmark.dz[jj, k]
+                    center = field[i, j, k]
+                    x_left_face, x_right_face = _scalar_mc_cell_edges(center, field[i - 1, j, k], field[i + 1, j, k])
+                    if i == mesh.xend:
+                        if bndry_flux:
+                            flux = v_right * (x_right_face if v_right > 0.0 else 0.5 * (field[i + 1, j, k] + center))
+                            result[i, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                            result[i + 1, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                    elif v_right > 0.0:
+                        flux = v_right * x_right_face
+                        result[i, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                        result[i + 1, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                    if i == mesh.xstart:
+                        if bndry_flux:
+                            flux = v_left * (x_left_face if v_left < 0.0 else 0.5 * (field[i - 1, j, k] + center))
+                            result[i, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                            result[i - 1, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                    elif v_left < 0.0:
+                        flux = v_left * x_left_face
+                        result[i, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                        result[i - 1, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                    z_left_face, z_right_face = _scalar_mc_cell_edges(center, field[i, j, km], field[i, j, kp])
+                    if v_up > 0.0:
+                        flux = v_up * z_right_face / (benchmark.J[jj, k] * benchmark.dz[jj, k])
+                        result[i, j, k] += flux
+                        result[i, j, kp] -= flux
+                    if v_down < 0.0:
+                        flux = v_down * z_left_face / (benchmark.J[jj, k] * benchmark.dz[jj, k])
+                        result[i, j, k] -= flux
+                        result[i, j, km] += flux
+        return result
+
+    for bndry_flux in (False, True):
+        expected = scalar_reference(bndry_flux)
+        actual = _compute_xz_exb_divergence(
+            field,
+            potential,
+            mesh=mesh,
+            benchmark=benchmark,
+            bndry_flux=bndry_flux,
+        )
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
+def _scalar_mc_cell_edges(center: float, minus: float, plus: float) -> tuple[float, float]:
+    slope = _scalar_minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
+    return center - 0.5 * slope, center + 0.5 * slope
+
+
+def _scalar_minmod3(a: float, b: float, c: float) -> float:
+    if a * b > 0.0 and a * c > 0.0:
+        return float(np.sign(a) * min(abs(a), abs(b), abs(c)))
+    return 0.0

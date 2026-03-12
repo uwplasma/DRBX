@@ -8,7 +8,7 @@ The current validated slices are small on purpose. Each one is locked to committ
 - anomalous diffusion `one_step` and `short_window`;
 - periodic 1D manufactured fluid `one_rhs`, `one_step`, and `short_window`;
 - standalone electrostatic vorticity `one_rhs`, `one_step`, and `short_window`;
-- blob2d curvature-driven `one_rhs` and `one_step`;
+- blob2d curvature-driven `one_rhs`, `one_step`, and `short_window`;
 - coupled 2D drift-wave `one_rhs`, `one_step`, and `short_window`.
 
 ## Validation Snapshots
@@ -22,6 +22,8 @@ The figures below come from the committed validation ladder. They compare native
 ![Drift-wave one-step parity](docs/images/drift_wave_one_step_parity.png)
 
 ![Drift-wave short-window parity](docs/images/drift_wave_short_window_parity.png)
+
+![Blob2d short-window parity](docs/images/blob2d_short_window_parity.png)
 
 The current benchmark diagnostics page also includes a short-window drift-wave validation figure with measured growth/frequency extraction against the analytic dispersion target:
 
@@ -56,6 +58,16 @@ PYTHONPATH=src python -m jax_drb compare-drift-wave \
   /tmp/jax_drb_drift_wave_short_window_native.npz \
   --json-out docs/data/drift_wave_short_window_parity.json \
   --plot-out docs/images/drift_wave_short_window_parity.png
+```
+
+Generate the blob2d short-window parity report and figure:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-blob2d \
+  references/baselines/reference_metrics/blob2d_short_window_metrics.json \
+  /tmp/jax_drb_blob2d_short_window_native.npz \
+  --json-out docs/data/blob2d_short_window_parity.json \
+  --plot-out docs/images/blob2d_short_window_parity.png
 ```
 
 Re-run committed reference baselines as a smoke check:
