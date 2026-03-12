@@ -7,6 +7,7 @@ import numpy as np
 from netCDF4 import Dataset
 
 from jax_drb.parity.reference import (
+    build_case_baseline_payload,
     _summarize_dataset,
     merge_overrides,
     make_default_overrides,
@@ -139,3 +140,38 @@ def test_write_case_baseline_json_omits_machine_specific_paths(tmp_path: Path) -
     assert payload["reference_runner"] == "external-reference"
     assert payload["required_artifacts"] == ["BOUT.dmp.0.nc", "BOUT.settings"]
     assert "workdir" not in payload
+
+
+def test_build_case_baseline_payload_serializes_sequence_metadata_as_lists() -> None:
+    summary = ReferenceRunSummary(
+        case_name="toy",
+        parity_mode="one_rhs",
+        reference_binary="/tmp/build/reference-binary",
+        overrides=("nout=0",),
+        workdir="/tmp/run",
+        artifacts={"BOUT.dmp.0.nc": "/tmp/run/BOUT.dmp.0.nc"},
+        dimensions={"t": 1},
+        time_points=(0.0,),
+        dataset_scalars={"Nnorm": 1.0},
+        compare_variables=("Ne",),
+        variable_summaries={
+            "Ne": VariableSummary(
+                name="Ne",
+                dimensions=("t", "x"),
+                shape=(1, 3),
+                minimum=1.0,
+                maximum=3.0,
+                mean=2.0,
+                max_abs_delta_last_first=None,
+            )
+        },
+        component_labels=("e:evolve_density",),
+        nout=5,
+        timestep=20.0,
+    )
+
+    payload = build_case_baseline_payload(summary)
+    assert payload["compare_variables"] == ["Ne"]
+    assert payload["component_labels"] == ["e:evolve_density"]
+    assert payload["variable_summaries"]["Ne"]["dimensions"] == ["t", "x"]
+    assert payload["variable_summaries"]["Ne"]["shape"] == [1, 3]

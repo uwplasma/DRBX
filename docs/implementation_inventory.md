@@ -84,6 +84,7 @@ The next queued staged baselines are now committed as well:
 
 - `neutral_mixed_rhs`, `neutral_mixed_one_step`, and `neutral_mixed_short_window`, with corrected `h`-species compare variables and an explicit `output_ddt` RHS baseline;
 - `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the upcoming sheath-connected blob work starts from stored low-iteration targets instead of ad hoc runs.
+- `jax-drb validate-reference-baselines`, which re-runs committed reference cases and compares the live summaries to the stored baseline JSON files as a smoke-validation step.
 
 Current native execution coverage:
 
@@ -97,8 +98,10 @@ Current native execution coverage:
 - `vorticity_one_step`: implemented and regression-tested for the first electrostatic output interval;
 - `vorticity_short_window`: implemented and regression-tested for the full 10-output benchmark window;
 - `blob2d_rhs`: implemented and regression-tested against the committed curvature-driven blob baseline;
+- `blob2d_one_step`: implemented and regression-tested against the committed single-output blob baseline, using the reference-style orthogonal `recalculate_metric` geometry path;
+- the blob one-step electrostatic inversion now uses a direct Fourier/tridiagonal solve on NumPy arrays rather than repeated dense solves, which keeps the validated sheath-connected first-output benchmark practical in the default regression suite;
 - `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_short_window`: implemented and regression-tested against benchmark scalars plus documented field-difference tolerances on the committed array baseline;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: tighten the remaining field-level drift-wave transient differences and then move to sheath-connected blob physics.
+- next target: use the now-validated blob geometry path to extend from `blob2d_one_step` to the committed `blob2d_short_window` baseline, then move to the neutral branch.
