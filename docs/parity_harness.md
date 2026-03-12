@@ -37,6 +37,7 @@ Current support is intentionally narrow:
 - `vorticity_rhs` is implemented for diagnostic electrostatic RHS parity on the standalone vorticity benchmark;
 - `vorticity_one_step` is implemented for the first electrostatic output interval, comparing both `Vort` and `phi`;
 - `vorticity_short_window` is implemented for the full 10-output electrostatic benchmark window using an adaptive JAX ODE solve;
+- `blob2d_rhs` is implemented for the first sheath-connected blob milestone, matching `Ne`, `Pe`, zero `phi`, zero `ddt(Ne)`, and the curvature-driven `ddt(Vort)` source on the committed reference baseline;
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;

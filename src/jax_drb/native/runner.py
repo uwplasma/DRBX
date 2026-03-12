@@ -11,6 +11,7 @@ from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import make_default_overrides, merge_overrides
 from ..reference.cases import ReferenceCase
 from ..runtime.run_config import RunConfiguration
+from .blob2d import build_blob2d_benchmark, compute_blob2d_rhs, initialize_blob2d_density
 from .expression import ArrayExpressionEvaluator
 from .drift_wave import (
     DriftWaveBenchmark,
@@ -150,6 +151,9 @@ def _execute_supported_case(
 
     if _is_supported_electrostatic_vorticity_case(config, run_config, mesh, metrics):
         return _execute_electrostatic_vorticity_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+
+    if _is_supported_blob2d_case(config, run_config, mesh, metrics):
+        return _execute_blob2d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     if _is_supported_drift_wave_case(config, run_config, mesh, metrics):
         return _execute_drift_wave_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
@@ -464,6 +468,34 @@ def _execute_drift_wave_case(
     }
 
 
+def _execute_blob2d_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
+) -> tuple[tuple[float, ...], dict[str, Any]]:
+    if parity_mode != "one_rhs":
+        raise NotImplementedError("Native blob2d support currently covers one_rhs parity only.")
+
+    benchmark = build_blob2d_benchmark(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+    density = initialize_blob2d_density(config, mesh=mesh)
+    rhs = compute_blob2d_rhs(density, benchmark=benchmark)
+    return (0.0,), {
+        "Ne": np.asarray(rhs.electron_density[None, ...], dtype=np.float64),
+        "Pe": np.asarray(rhs.electron_pressure[None, ...], dtype=np.float64),
+        "phi": np.asarray(rhs.potential[None, ...], dtype=np.float64),
+        "ddt(Ne)": np.asarray(rhs.density_rhs[None, ...], dtype=np.float64),
+        "ddt(Vort)": np.asarray(rhs.vorticity_rhs[None, ...], dtype=np.float64),
+    }
+
+
 def _is_supported_drift_wave_case(
     config: BoutConfig,
     run_config: RunConfiguration,
@@ -506,6 +538,38 @@ def _is_supported_drift_wave_case(
         return False
     if not config.has_option("Ni", "function"):
         return False
+    return np.allclose(np.asarray(metrics.g23), 0.0, rtol=1e-12, atol=1e-12)
+
+
+def _is_supported_blob2d_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    if implementations != ("evolve_density", "isothermal", "vorticity", "sheath_closure"):
+        return False
+    if tuple(component.section for component in run_config.components[:2]) != ("e", "e"):
+        return False
+    if mesh.myg != 0:
+        return False
+    if mesh.nz <= 1:
+        return False
+    if not config.has_option("Ne", "function"):
+        return False
+    option_defaults = {
+        "diamagnetic": True,
+        "diamagnetic_polarisation": False,
+        "bndry_flux": False,
+        "poloidal_flows": False,
+        "split_n0": False,
+        "phi_dissipation": False,
+    }
+    for key, expected in option_defaults.items():
+        value = bool(config.parsed("vorticity", key)) if config.has_option("vorticity", key) else False
+        if value != expected:
+            return False
     return np.allclose(np.asarray(metrics.g23), 0.0, rtol=1e-12, atol=1e-12)
 
 

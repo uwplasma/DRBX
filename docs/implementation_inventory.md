@@ -96,6 +96,7 @@ Current native execution coverage:
 - `vorticity_rhs`: implemented and regression-tested at summary and full-array level;
 - `vorticity_one_step`: implemented and regression-tested for the first electrostatic output interval;
 - `vorticity_short_window`: implemented and regression-tested for the full 10-output benchmark window;
+- `blob2d_rhs`: implemented and regression-tested against the committed curvature-driven blob baseline;
 - `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_short_window`: implemented and regression-tested against benchmark scalars plus documented field-difference tolerances on the committed array baseline;
