@@ -100,8 +100,10 @@ Current native execution coverage:
 - `blob2d_rhs`: implemented and regression-tested against the committed curvature-driven blob baseline;
 - `blob2d_one_step`: implemented and regression-tested against the committed single-output blob baseline, using the reference-style orthogonal `recalculate_metric` geometry path;
 - the blob one-step electrostatic inversion now uses a direct Fourier/tridiagonal solve on NumPy arrays rather than repeated dense solves, which keeps the validated sheath-connected first-output benchmark practical in the default regression suite;
+- `blob2d_short_window`: implemented and regression-tested against the committed summary baseline, with benchmark-level parity locked on peak-density and center-of-mass histories from the committed full-array baseline;
+- the shared X-Z ExB transport kernel is now vectorized over whole active planes and regression-checked against a scalar reference implementation, which is what made the long blob transient practical without changing limiter or flux semantics;
 - `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_short_window`: implemented and regression-tested against benchmark scalars plus documented field-difference tolerances on the committed array baseline;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: use the now-validated blob geometry path to extend from `blob2d_one_step` to the committed `blob2d_short_window` baseline, then move to the neutral branch.
+- next target: move to the neutral branch, starting from `neutral_mixed_rhs` and then the one-step / short-window neutral transport path, while keeping the new blob benchmark report in sync with future solver changes.

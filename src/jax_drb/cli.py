@@ -142,6 +142,18 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_drift_wave_parser.add_argument("--plot-out", type=Path, default=None)
     compare_drift_wave_parser.set_defaults(command=_compare_drift_wave_command)
 
+    compare_blob2d_parser = subparsers.add_parser(
+        "compare-blob2d",
+        help="Compare blob2d benchmark artifacts and report peak-amplitude and center-of-mass parity metrics.",
+    )
+    compare_blob2d_parser.add_argument("expected_artifact", type=Path)
+    compare_blob2d_parser.add_argument("actual_artifact", type=Path)
+    compare_blob2d_parser.add_argument("--density-variable", default="Ne")
+    compare_blob2d_parser.add_argument("--background-density", type=float, default=1.0)
+    compare_blob2d_parser.add_argument("--json-out", type=Path, default=None)
+    compare_blob2d_parser.add_argument("--plot-out", type=Path, default=None)
+    compare_blob2d_parser.set_defaults(command=_compare_blob2d_command)
+
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
@@ -445,5 +457,33 @@ def _compare_drift_wave_command(args: argparse.Namespace) -> int:
         print(f"json_out: {path}")
     if args.plot_out is not None:
         path = save_drift_wave_parity_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
+    return 0
+
+
+def _compare_blob2d_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        compare_blob2d_artifacts,
+        save_blob2d_parity_plot,
+        write_blob2d_parity_json,
+    )
+
+    result = compare_blob2d_artifacts(
+        args.expected_artifact,
+        args.actual_artifact,
+        density_variable=args.density_variable,
+        background_density=args.background_density,
+    )
+    print(f"density_variable: {result.expected.density_variable}")
+    print(f"background_density: {result.expected.background_density:.8e}")
+    print(f"peak_max_abs_error: {result.peak_max_abs_error:.8e}")
+    print(f"peak_rms_error: {result.peak_rms_error:.8e}")
+    print(f"center_of_mass_x_max_abs_error: {result.center_of_mass_x_max_abs_error:.8e}")
+    print(f"center_of_mass_z_max_abs_error: {result.center_of_mass_z_max_abs_error:.8e}")
+    if args.json_out is not None:
+        path = write_blob2d_parity_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_blob2d_parity_plot(result, args.plot_out)
         print(f"plot_out: {path}")
     return 0
