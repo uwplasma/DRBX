@@ -164,6 +164,77 @@ phi_dissipation = false
 function = exp(-((x-0.5)^2 + (mesh:zn - 0.5)^2)/(0.2^2))
 """
 
+_BLOB2D_INPUT = """
+nout = 50
+timestep = 50
+
+MYG = 0
+
+[mesh]
+nx = 260
+ny = 1
+nz = 256
+
+Lrad = 0.05
+Lpol = 0.05
+
+Bpxy = 0.35
+Rxy = 1.5
+
+dx = Lrad * Rxy * Bpxy / (nx - 4)
+dz = Lpol / Rxy / nz
+
+hthe = 1
+sinty = 0
+Bxy = Bpxy
+Btxy = 0
+bxcvz = 1./Rxy^2
+
+[mesh:paralleltransform]
+type = identity
+
+[solver]
+mxstep = 10000
+
+[model]
+components = e, vorticity, sheath_closure
+
+recalculate_metric = true
+
+Nnorm = 2e18
+Bnorm = mesh:Bxy
+Tnorm = 5
+
+[e]
+type = evolve_density, isothermal
+
+charge = -1
+AA = 1./1836
+
+poloidal_flows = false
+
+temperature = 5
+
+[Ne]
+height = 0.5
+width = 0.05
+
+function = 1 + height * exp(-((x-0.25)/width)^2 - ((z/(2*pi) - 0.5)/width)^2)
+
+[vorticity]
+
+diamagnetic = true
+diamagnetic_polarisation = false
+average_atomic_mass = 1.0
+bndry_flux = false
+poloidal_flows = false
+split_n0 = false
+phi_dissipation = false
+
+[sheath_closure]
+connection_length = 10
+"""
+
 _DRIFT_WAVE_INPUT = """
 nout = 50
 timestep = 10
@@ -729,4 +800,58 @@ def test_native_runner_tracks_vorticity_short_window_array_baseline() -> None:
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=2e-3, array_atol=1e-5)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_blob2d_rhs_summary_baseline() -> None:
+    config = parse_bout_input(_BLOB2D_INPUT)
+    result = run_config_case(
+        config,
+        case_name="blob2d_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("Ne", "Pe", "phi", "ddt(Ne)", "ddt(Vort)"),
+        reference_case=ReferenceCase(
+            name="blob2d_rhs",
+            stage="stage6",
+            reference_path="examples/other/blob2d/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Blob RHS parity",
+            compare_variables=("Ne", "Pe", "phi", "ddt(Ne)", "ddt(Vort)"),
+            extra_overrides=("e:diagnose=true", "vorticity:diagnose=true"),
+            trim_x_guards=True,
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_rhs.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-12, scalar_atol=1e-12)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0,)
+
+
+def test_native_runner_tracks_blob2d_rhs_array_baseline() -> None:
+    config = parse_bout_input(_BLOB2D_INPUT)
+    result = run_config_case(
+        config,
+        case_name="blob2d_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("Ne", "Pe", "phi", "ddt(Ne)", "ddt(Vort)"),
+        reference_case=ReferenceCase(
+            name="blob2d_rhs",
+            stage="stage6",
+            reference_path="examples/other/blob2d/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Blob RHS parity",
+            compare_variables=("Ne", "Pe", "phi", "ddt(Ne)", "ddt(Vort)"),
+            extra_overrides=("e:diagnose=true", "vorticity:diagnose=true"),
+            trim_x_guards=True,
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_rhs.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1e-12, array_atol=1e-12)
     assert comparison.ok, comparison.issues

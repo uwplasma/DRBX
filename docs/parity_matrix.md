@@ -47,6 +47,7 @@ Deliverables:
 - native JAX `one_rhs` execution for `vorticity_rhs`, including the exact discrete X-Z XPPM advection operator and diagnostic `ddt(Vort)` parity;
 - native JAX `one_step` execution for `vorticity_one_step`, including Fourier-in-`z` / tridiagonal-in-`x` potential inversion and `phi` output parity;
 - native JAX `short_window` execution for `vorticity_short_window`, including adaptive JAX ODE integration across the full 10-output electrostatic benchmark window.
+- native JAX `one_rhs` execution for `blob2d_rhs`, including curvature-driven `ddt(Vort)` parity on the first sheath-connected blob benchmark.
 - native benchmark-specific `one_rhs` execution for `drift_wave_rhs`, including quasineutral density closure, fixed-temperature electron pressure, electron-ion drag, spectral potential inversion, and trimmed interior-cell parity against the committed reference baseline;
 - native benchmark-specific `one_step` execution for `drift_wave_one_step`, including coupled density, electron momentum, vorticity, and potential output parity on the first 2D density-vorticity benchmark;
 - native benchmark-specific `short_window` execution for `drift_wave_short_window`, using the validated reduced adaptive branch over the full 50-output benchmark window;
