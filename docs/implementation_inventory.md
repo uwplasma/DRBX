@@ -44,6 +44,11 @@ Direct runs against the local reference build confirmed:
   - `vorticity_rhs` matches the diagnostic `ddt(Vort)` field to machine precision;
   - `vorticity_one_step` and `vorticity_short_window` compare both `Vort` and `phi`;
   - the native path uses the same discrete X-Z XPPM advection stencil as the reference, a Fourier-in-`z` / tridiagonal-in-`x` Boussinesq potential inversion, and an adaptive JAX ODE solve over the 60 evolved interior cells.
+- the first coupled 2D drift-wave slice is now in place:
+  - `drift_wave_rhs` compares trimmed active-cell `Ni`, `Ne`, `Pe`, `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs;
+  - `drift_wave_one_step` compares trimmed active-cell `Ni`, `Ne`, `NVe`, `Vort`, and `phi`;
+  - the native path uses a benchmark-specific reduced operator set: ion ExB advection, quasineutral electron density, fixed-temperature electron pressure, electron-ion Braginskii drag, parallel current closure, and Fourier-in-`z` electrostatic inversion with slab `Bxy` recovered from `mesh:B`.
+- the drift-wave parity harness now trims both X and Y guards for the committed benchmark baselines, because the first implementation target is the physically evolved interior cell rather than reference-specific guard bookkeeping.
 - structured metric handling now respects `normalise_metric = false`, which is required for the 1D MMS fluid case and future benchmark inputs that specify already-physical mesh coefficients.
 - structured metric handling now also reproduces the default periodic-binormal spacing and normalized `g33` needed by the electrostatic vorticity benchmark.
 
@@ -73,5 +78,8 @@ Current native execution coverage:
 - `vorticity_rhs`: implemented and regression-tested at summary and full-array level;
 - `vorticity_one_step`: implemented and regression-tested for the first electrostatic output interval;
 - `vorticity_short_window`: implemented and regression-tested for the full 10-output benchmark window;
+- `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
+- `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
+- `drift_wave_short_window`: reference baselines committed; native transient support is the next target;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: build on the new electrostatic closure with the first density-vorticity coupled 2D case, most likely the drift-wave ladder entry before sheath-connected blob physics.
+- next target: extend the new drift-wave branch from one output interval to the committed short-window transient, then move to sheath-connected blob physics.

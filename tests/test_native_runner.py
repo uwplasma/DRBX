@@ -160,6 +160,73 @@ phi_dissipation = false
 function = exp(-((x-0.5)^2 + (mesh:zn - 0.5)^2)/(0.2^2))
 """
 
+_DRIFT_WAVE_INPUT = """
+nout = 50
+timestep = 10
+
+[mesh]
+nx = 5
+ny = 32
+nz = 27
+
+Lx = 0.01
+Ly = 10
+Lz = 0.01
+
+B = 0.2
+inv_Ln = 10
+ixseps1 = nx
+ixseps2 = nx
+
+dr = Lx / (nx - 4)
+dx = dr * B
+dy = Ly / ny
+dz = Lz / nz
+
+g11 = B^2
+g22 = 1
+g33 = 1
+J = 1 / B
+
+[mesh:paralleltransform]
+type = identity
+
+[solver]
+mxstep = 10000
+
+[model]
+components = (i, e, vorticity, sound_speed, braginskii_collisions, braginskii_friction, braginskii_heat_exchange)
+
+[vorticity]
+diamagnetic = false
+diamagnetic_polarisation = false
+average_atomic_mass = 1
+bndry_flux = false
+poloidal_flows = false
+
+[vorticity:laplacian]
+inner_boundary_flags = 2
+outer_boundary_flags = 2
+
+[i]
+type = evolve_density, fixed_velocity, fixed_temperature
+charge = 1
+AA = 1
+velocity = 0
+temperature = 100
+
+[Ni]
+function = 1 + 1e-3 * sin(z - y)
+bndry_xin = neumann(mesh:inv_Ln * units:meters^2 * units:Tesla / mesh:B)
+bndry_xout = neumann(mesh:inv_Ln * units:meters^2 * units:Tesla / mesh:B)
+
+[e]
+type = quasineutral, evolve_momentum, fixed_temperature
+charge = -1
+AA = 1/1836
+temperature = 100
+"""
+
 
 def test_native_runner_matches_committed_smallest_case_baseline() -> None:
     config = parse_bout_input(_EVOLVE_DENSITY_INPUT)
@@ -448,6 +515,115 @@ def test_native_runner_tracks_vorticity_one_step_array_baseline() -> None:
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=2e-3, array_atol=1e-5)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_drift_wave_rhs_summary_baseline() -> None:
+    config = parse_bout_input(_DRIFT_WAVE_INPUT)
+    result = run_config_case(
+        config,
+        case_name="drift_wave_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("Ni", "Ne", "Pe", "ddt(Ni)", "ddt(NVe)", "ddt(Vort)"),
+        reference_case=ReferenceCase(
+            name="drift_wave_rhs",
+            stage="stage6",
+            reference_path="tests/integrated/drift-wave/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Coupled drift-wave RHS parity",
+            compare_variables=("Ni", "Ne", "Pe", "ddt(Ni)", "ddt(NVe)", "ddt(Vort)"),
+            extra_overrides=("i:diagnose=true", "e:diagnose=true", "vorticity:diagnose=true"),
+            trim_x_guards=True,
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_rhs.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-6, scalar_atol=1e-6)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_drift_wave_rhs_array_baseline() -> None:
+    config = parse_bout_input(_DRIFT_WAVE_INPUT)
+    result = run_config_case(
+        config,
+        case_name="drift_wave_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("Ni", "Ne", "Pe", "ddt(Ni)", "ddt(NVe)", "ddt(Vort)"),
+        reference_case=ReferenceCase(
+            name="drift_wave_rhs",
+            stage="stage6",
+            reference_path="tests/integrated/drift-wave/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Coupled drift-wave RHS parity",
+            compare_variables=("Ni", "Ne", "Pe", "ddt(Ni)", "ddt(NVe)", "ddt(Vort)"),
+            extra_overrides=("i:diagnose=true", "e:diagnose=true", "vorticity:diagnose=true"),
+            trim_x_guards=True,
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_rhs.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1e-6, array_atol=1e-6)
+    assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_drift_wave_one_step_summary_baseline() -> None:
+    config = parse_bout_input(_DRIFT_WAVE_INPUT)
+    result = run_config_case(
+        config,
+        case_name="drift_wave_one_step",
+        parity_mode="one_step",
+        compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="drift_wave_one_step",
+            stage="stage6",
+            reference_path="tests/integrated/drift-wave/data/BOUT.inp",
+            parity_mode="one_step",
+            rationale="Single-output drift-wave parity",
+            compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+            trim_x_guards=True,
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_one_step.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-3, scalar_atol=5e-6)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0, 10.0)
+
+
+def test_native_runner_tracks_drift_wave_one_step_array_baseline() -> None:
+    config = parse_bout_input(_DRIFT_WAVE_INPUT)
+    result = run_config_case(
+        config,
+        case_name="drift_wave_one_step",
+        parity_mode="one_step",
+        compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="drift_wave_one_step",
+            stage="stage6",
+            reference_path="tests/integrated/drift-wave/data/BOUT.inp",
+            parity_mode="one_step",
+            rationale="Single-output drift-wave parity",
+            compare_variables=("Ni", "Ne", "NVe", "Vort", "phi"),
+            trim_x_guards=True,
+            trim_y_guards=True,
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_one_step.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=5e-2, array_atol=5e-6)
     assert comparison.ok, comparison.issues
 
 
