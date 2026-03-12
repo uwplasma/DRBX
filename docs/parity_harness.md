@@ -38,6 +38,7 @@ Current support is intentionally narrow:
 - `vorticity_one_step` is implemented for the first electrostatic output interval, comparing both `Vort` and `phi`;
 - `vorticity_short_window` is implemented for the full 10-output electrostatic benchmark window using an adaptive JAX ODE solve;
 - `blob2d_rhs` is implemented for the first sheath-connected blob milestone, matching `Ne`, `Pe`, zero `phi`, zero `ddt(Ne)`, and the curvature-driven `ddt(Vort)` source on the committed reference baseline;
+- `blob2d_one_step` is implemented for the first sheath-connected blob transient, using the reference-style orthogonal `recalculate_metric` path together with reduced RK4 evolution for `Ne`, `Vort`, and `phi`, and a direct Fourier/tridiagonal electrostatic solve to keep the benchmark practical in the regression suite;
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;
@@ -46,6 +47,7 @@ Current support is intentionally narrow:
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;
 - `jax-drb compare-drift-wave <input> <expected.npz> <actual.npz>` now emits the current short-window drift-wave parity report, including benchmark-scalar deltas plus per-field max/RMS error histories and a documentation figure;
+- `jax-drb validate-reference-baselines` now re-runs committed reference cases and checks their live summaries against the stored baseline JSON files, so baseline drift can be caught as an explicit smoke-validation step;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.

@@ -66,6 +66,13 @@ class ReferenceCaseBaseline:
     compare_variables: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ReferenceSmokeResult:
+    case_name: str
+    ok: bool
+    issues: tuple[str, ...]
+
+
 def discover_reference_binary(
     *,
     reference_binary: str | Path | None = None,
@@ -191,7 +198,13 @@ def write_run_summary_json(summary: ReferenceRunSummary, path: str | Path) -> Pa
 def write_case_baseline_json(summary: ReferenceRunSummary, path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
+    payload = build_case_baseline_payload(summary)
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
+def build_case_baseline_payload(summary: ReferenceRunSummary) -> dict[str, Any]:
+    return {
         "case_name": summary.case_name,
         "parity_mode": summary.parity_mode,
         "reference_runner": "external-reference",
@@ -201,14 +214,68 @@ def write_case_baseline_json(summary: ReferenceRunSummary, path: str | Path) -> 
         "time_points": list(summary.time_points),
         "dataset_scalars": dict(summary.dataset_scalars),
         "compare_variables": list(summary.compare_variables),
-        "variable_summaries": {name: asdict(variable) for name, variable in summary.variable_summaries.items()},
+        "variable_summaries": {
+            name: {
+                **asdict(variable),
+                "dimensions": list(variable.dimensions),
+                "shape": list(variable.shape),
+            }
+            for name, variable in summary.variable_summaries.items()
+        },
         "component_labels": list(summary.component_labels),
         "configured_nout": summary.nout,
         "configured_timestep": summary.timestep,
         "effective_output_points": len(summary.time_points),
     }
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    return target
+
+
+def validate_reference_baselines(
+    *,
+    reference_root: str | Path,
+    reference_binary: str | Path | None = None,
+    manifest_path: str | Path | None = None,
+    case_names: Iterable[str] | None = None,
+    baseline_dir: str | Path,
+) -> tuple[ReferenceSmokeResult, ...]:
+    from .compare import compare_summary_payloads, load_summary_json
+
+    requested = tuple(case_names) if case_names is not None else ()
+    if requested:
+        selected_cases = [find_reference_case(name, manifest_path=manifest_path) for name in requested]
+    else:
+        selected_cases = [
+            case for case in load_reference_cases(manifest_path) if (Path(baseline_dir) / f"{case.name}.json").exists()
+        ]
+    results: list[ReferenceSmokeResult] = []
+    for case in selected_cases:
+        baseline_path = Path(baseline_dir) / f"{case.name}.json"
+        if not baseline_path.exists():
+            results.append(
+                ReferenceSmokeResult(
+                    case_name=case.name,
+                    ok=False,
+                    issues=(f"Missing committed baseline JSON: {baseline_path}",),
+                )
+            )
+            continue
+        execution = run_reference_case(
+            case.name,
+            reference_root=reference_root,
+            reference_binary=reference_binary,
+            manifest_path=manifest_path,
+            keep_workdir=False,
+        )
+        expected = load_summary_json(baseline_path)
+        actual = build_case_baseline_payload(execution.summary)
+        comparison = compare_summary_payloads(expected, actual, scalar_rtol=1e-12, scalar_atol=1e-12)
+        results.append(
+            ReferenceSmokeResult(
+                case_name=case.name,
+                ok=comparison.ok,
+                issues=tuple(f"{issue.field}: {issue.message}" for issue in comparison.issues),
+            )
+        )
+    return tuple(results)
 
 
 def _prepare_workdir(input_path: Path, *, workdir: str | Path | None) -> Path:
