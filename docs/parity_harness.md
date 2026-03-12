@@ -43,6 +43,7 @@ Current support is intentionally narrow:
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;
+- `jax-drb compare-drift-wave <input> <expected.npz> <actual.npz>` now emits the current short-window drift-wave parity report, including benchmark-scalar deltas plus per-field max/RMS error histories and a documentation figure;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
@@ -139,4 +140,15 @@ PYTHONPATH=src python -m jax_drb compare-arrays \
   /tmp/jax_drb_drift_wave_one_step_native.npz \
   --array-rtol 5e-2 \
   --array-atol 5e-6
+```
+
+For the current drift-wave `short_window` milestone, the reviewer-facing comparison command is:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-drift-wave \
+  /path/to/curated/drift_wave/BOUT.inp \
+  references/baselines/reference_arrays/drift_wave_short_window.npz \
+  /tmp/jax_drb_drift_wave_short_window_native.npz \
+  --json-out docs/data/drift_wave_short_window_parity.json \
+  --plot-out docs/images/drift_wave_short_window_parity.png
 ```

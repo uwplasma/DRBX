@@ -56,6 +56,7 @@ Direct runs against the local reference build confirmed:
   - the current transient milestone is locked by benchmark scalars rather than a single global array tolerance: `gamma / omega_*` and `omega / omega_*` match the committed reference analysis to within the documented test tolerances;
   - the density boundary reconstruction now uses the same `gradient * dx` guard update implied by the benchmark input and confirmed by the reference dump;
   - a committed `drift_wave_one_step_diagnostics` array baseline now locks the evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` comparison, so the first post-step operator drift is regression-tested directly.
+  - the validation layer now also emits a source-neutral short-window parity report with benchmark-scalar deltas and per-field max/RMS error histories, so the published docs figures are derived from the exact same comparison artifact used for review.
 - the next drift-wave transient slice is still under active investigation:
   - native finite-volume parallel electron transport and `phi` dissipation stencils have been reconstructed for the benchmark-specific branch;
   - their normalized strength depends on the same `rho_s0` scaling already used by `Grad_par`, which is now captured in the native implementation;
