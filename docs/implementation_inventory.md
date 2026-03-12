@@ -51,6 +51,7 @@ Direct runs against the local reference build confirmed:
 - the next drift-wave transient slice is under active investigation:
   - native finite-volume parallel electron transport and `phi` dissipation stencils have been reconstructed for the benchmark-specific branch;
   - their normalized strength depends on the same `rho_s0` scaling already used by `Grad_par`, which is now captured in the native implementation;
+  - the one-step operator calibration now includes a regression against the committed drift-wave array baseline, locking the small but nonzero scale of parallel momentum flux, drag, and `phi` damping terms on the first evolved state;
   - an adaptive native RK23 history integrator is now available for this branch, so longer transient probes can be run without introducing a new solver dependency;
   - these operators are staged behind the transient path so the validated `one_rhs` and `one_step` baselines remain locked while the longer-window branch is tuned.
 - the drift-wave parity harness now trims both X and Y guards for the committed benchmark baselines, because the first implementation target is the physically evolved interior cell rather than reference-specific guard bookkeeping.

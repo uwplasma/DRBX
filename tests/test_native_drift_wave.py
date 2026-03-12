@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.drift_wave import (
+    DriftWaveState,
+    _div_par_fvv_periodic,
+    _div_par_periodic,
+    _div_par_scalar_periodic,
+    _electron_ion_collision_frequency,
+    _grad_par_periodic,
     advance_drift_wave_history_adaptive,
     build_drift_wave_benchmark,
     initialize_drift_wave_state,
@@ -153,3 +161,46 @@ def test_adaptive_full_drift_wave_branch_stays_bounded_over_short_probe() -> Non
     assert float(np.max(np.abs(trimmed_momentum[-1]))) < 1.0e-3
     assert float(np.max(np.abs(trimmed_vorticity[-1]))) < 5.0e-2
     assert float(np.max(np.abs(trimmed_phi[-1]))) < 1.0e-3
+
+
+def test_locked_one_step_parallel_terms_stay_small_against_drive_terms() -> None:
+    _, _, benchmark, _ = _build_case()
+    arrays = np.load(
+        Path(__file__).resolve().parents[1]
+        / "references"
+        / "baselines"
+        / "reference_arrays"
+        / "drift_wave_one_step.npz"
+    )
+    state = DriftWaveState(
+        ion_density=np.asarray(arrays["var__Ni"][-1, 0], dtype=np.float64),
+        electron_momentum=np.asarray(arrays["var__NVe"][-1, 0], dtype=np.float64),
+        vorticity=np.asarray(arrays["var__Vort"][-1, 0], dtype=np.float64),
+    )
+    phi = np.asarray(arrays["var__phi"][-1, 0], dtype=np.float64)
+
+    electron_density = state.ion_density
+    electron_density_limited = np.maximum(electron_density, benchmark.density_floor)
+    electron_pressure = electron_density * benchmark.electron_temperature
+    electron_velocity = state.electron_momentum / (benchmark.electron_atomic_mass * electron_density_limited)
+    collision_frequency = _electron_ion_collision_frequency(electron_density, benchmark=benchmark)
+
+    pressure_term = -_grad_par_periodic(electron_pressure, benchmark=benchmark)
+    divjpar_term = _div_par_periodic(
+        (benchmark.electron_charge / benchmark.electron_atomic_mass) * state.electron_momentum,
+        benchmark=benchmark,
+    )
+    parflux_term = -benchmark.electron_atomic_mass * _div_par_fvv_periodic(
+        electron_density_limited,
+        electron_velocity,
+        benchmark.fastest_wave,
+        benchmark=benchmark,
+    )
+    phi_dissipation_term = -_div_par_scalar_periodic(-phi, benchmark.sound_speed, benchmark=benchmark)
+    collision_term = -benchmark.momentum_coefficient * collision_frequency * state.electron_momentum
+
+    assert np.isclose(float(np.max(np.abs(pressure_term))), 6.37698e-07, rtol=2e-3, atol=1e-10)
+    assert np.isclose(float(np.max(np.abs(divjpar_term))), 7.37425e-06, rtol=2e-3, atol=1e-10)
+    assert np.isclose(float(np.max(np.abs(parflux_term))), 1.88078e-08, rtol=5e-2, atol=5e-11)
+    assert np.isclose(float(np.max(np.abs(phi_dissipation_term))), 4.92867e-10, rtol=5e-2, atol=5e-12)
+    assert np.isclose(float(np.max(np.abs(collision_term))), 1.33849e-08, rtol=5e-2, atol=5e-11)
