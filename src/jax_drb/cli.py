@@ -93,6 +93,26 @@ def _build_parser() -> argparse.ArgumentParser:
     run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
     run_case_parser.set_defaults(command=_run_case_command)
 
+    validate_reference_parser = subparsers.add_parser(
+        "validate-reference-baselines",
+        help="Re-run committed reference cases and compare the live outputs to the stored summary baselines.",
+    )
+    validate_reference_parser.add_argument(
+        "--reference-root",
+        type=Path,
+        default=_default_reference_root(),
+        help="Path to the local private reference checkout used for case lookup and binary discovery.",
+    )
+    validate_reference_parser.add_argument("--reference-binary", type=Path, default=_default_reference_binary())
+    validate_reference_parser.add_argument("--case", action="append", default=[], help="Specific case name to validate. Repeat to validate multiple cases.")
+    validate_reference_parser.add_argument(
+        "--baseline-dir",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "references" / "baselines" / "reference",
+        help="Directory containing committed reference summary baselines.",
+    )
+    validate_reference_parser.set_defaults(command=_validate_reference_baselines_command)
+
     analyze_drift_wave_parser = subparsers.add_parser(
         "analyze-drift-wave",
         help="Analyze a stored drift-wave array payload and report measured vs. analytic benchmark scalars.",
@@ -332,6 +352,29 @@ def _run_case_command(args: argparse.Namespace) -> int:
         path = write_portable_array_payload(array_payload, args.arrays_out)
         print(f"arrays_out: {path}")
     return 0
+
+
+def _validate_reference_baselines_command(args: argparse.Namespace) -> int:
+    from .parity.reference import validate_reference_baselines
+
+    if args.reference_root is None:
+        print("validate-reference-baselines: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
+        return 1
+
+    results = validate_reference_baselines(
+        reference_root=args.reference_root,
+        reference_binary=args.reference_binary,
+        case_names=args.case or None,
+        baseline_dir=args.baseline_dir,
+    )
+    ok = True
+    for result in results:
+        status = "ok" if result.ok else "mismatch"
+        print(f"{result.case_name}: {status}")
+        for issue in result.issues:
+            print(f"  {issue}")
+        ok = ok and result.ok
+    return 0 if ok else 1
 
 
 def _analyze_drift_wave_command(args: argparse.Namespace) -> int:

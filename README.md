@@ -8,7 +8,7 @@ The current validated slices are small on purpose. Each one is locked to committ
 - anomalous diffusion `one_step` and `short_window`;
 - periodic 1D manufactured fluid `one_rhs`, `one_step`, and `short_window`;
 - standalone electrostatic vorticity `one_rhs`, `one_step`, and `short_window`;
-- blob2d curvature-driven `one_rhs`;
+- blob2d curvature-driven `one_rhs` and `one_step`;
 - coupled 2D drift-wave `one_rhs`, `one_step`, and `short_window`.
 
 ## Validation Snapshots
@@ -56,6 +56,16 @@ PYTHONPATH=src python -m jax_drb compare-drift-wave \
   /tmp/jax_drb_drift_wave_short_window_native.npz \
   --json-out docs/data/drift_wave_short_window_parity.json \
   --plot-out docs/images/drift_wave_short_window_parity.png
+```
+
+Re-run committed reference baselines as a smoke check:
+
+```bash
+PYTHONPATH=src python -m jax_drb validate-reference-baselines \
+  --reference-root /path/to/reference-checkout \
+  --case evolve_density_rhs \
+  --case diffusion_one_step \
+  --case vorticity_rhs
 ```
 
 Run the regression suite:

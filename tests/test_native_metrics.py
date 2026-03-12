@@ -167,3 +167,71 @@ def test_structured_metrics_default_periodic_dz_matches_reference_convention() -
     metrics = build_structured_metrics(config, run_config, mesh)
 
     np.testing.assert_allclose(np.asarray(metrics.dz[:, mesh.ystart, 0]), np.pi / 4.0, rtol=1e-12, atol=1e-12)
+
+
+def test_structured_metrics_recalculate_metric_matches_blob_reference_geometry() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+        MYG = 0
+
+        [mesh]
+        nx = 260
+        ny = 1
+        nz = 256
+        Lrad = 0.05
+        Lpol = 0.05
+        Bpxy = 0.35
+        Rxy = 1.5
+        dx = Lrad * Rxy * Bpxy / (nx - 4)
+        dz = Lpol / Rxy / nz
+        hthe = 1
+        sinty = 0
+        Bxy = Bpxy
+        Btxy = 0
+
+        [mesh:paralleltransform]
+        type = identity
+
+        [model]
+        components = e, vorticity, sheath_closure
+        recalculate_metric = true
+        Nnorm = 2e18
+        Bnorm = mesh:Bxy
+        Tnorm = 5
+
+        [e]
+        type = evolve_density, isothermal
+        charge = -1
+        AA = 1./1836
+        temperature = 5
+
+        [Ne]
+        function = 1
+
+        [vorticity]
+        diamagnetic = true
+        diamagnetic_polarisation = false
+        average_atomic_mass = 1
+        bndry_flux = false
+        poloidal_flows = false
+        phi_dissipation = false
+
+        [sheath_closure]
+        connection_length = 10
+        """
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    np.testing.assert_allclose(np.asarray(metrics.dx[:, mesh.ystart, 0]), 687.5432107181219, rtol=1e-12, atol=1e-9)
+    np.testing.assert_allclose(np.asarray(metrics.dy[:, mesh.ystart, 0]), 1.0, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(metrics.dz[:, mesh.ystart, 0]), 1.3020833333333333e-4, rtol=1e-12, atol=1e-15)
+    np.testing.assert_allclose(np.asarray(metrics.J[:, mesh.ystart, 0]), 1531.931512585073, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(np.asarray(metrics.g11[:, mesh.ystart, 0]), 5280331.858315176, rtol=1e-12, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 4.2610958181668514e-7, rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(np.asarray(metrics.g33[:, mesh.ystart, 0]), 1.893820363629712e-7, rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(np.asarray(metrics.g23[:, mesh.ystart, 0]), 0.0, rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(np.asarray(metrics.Bxy[:, mesh.ystart, 0]), 1.0, rtol=1e-12, atol=1e-12)
