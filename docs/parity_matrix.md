@@ -52,6 +52,7 @@ Deliverables:
 - native benchmark-specific `short_window` execution for `drift_wave_short_window`, using the validated reduced adaptive branch over the full 50-output benchmark window;
 - drift-wave operator-scale regressions locked against the committed `drift_wave_one_step` arrays so the parallel transport and scalar damping terms can be tuned without breaking the validated first-output milestone.
 - drift-wave benchmark postprocessing on the committed `drift_wave_short_window` arrays, including measured growth/frequency extraction, analytic dispersion evaluation, CLI reporting, JSON export, and a documentation figure.
+- drift-wave short-window parity reporting on the committed `drift_wave_short_window` arrays plus current native output, including benchmark deltas, per-field error histories, JSON export, and a documentation figure.
 - evolved-state drift-wave diagnostics locked against a committed reference `one_step` baseline with `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)`, so the first post-step density operator mismatch is regression-tested directly.
 
 ## Stage 3+: Physics Buildout

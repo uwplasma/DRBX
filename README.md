@@ -20,6 +20,8 @@ The figures below come from the committed validation ladder. They compare native
 
 ![Drift-wave one-step parity](docs/images/drift_wave_one_step_parity.png)
 
+![Drift-wave short-window parity](docs/images/drift_wave_short_window_parity.png)
+
 The current benchmark diagnostics page also includes a short-window drift-wave validation figure with measured growth/frequency extraction against the analytic dispersion target:
 
 ![Drift-wave short-window diagnostics](docs/images/drift_wave_short_window_diagnostics.png)
@@ -42,6 +44,17 @@ Inspect the curated ladder:
 
 ```bash
 PYTHONPATH=src python -m jax_drb reference-cases --reference-root /path/to/reference-checkout
+```
+
+Generate the drift-wave short-window parity report and figure:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-drift-wave \
+  /path/to/curated/drift_wave/BOUT.inp \
+  references/baselines/reference_arrays/drift_wave_short_window.npz \
+  /tmp/jax_drb_drift_wave_short_window_native.npz \
+  --json-out docs/data/drift_wave_short_window_parity.json \
+  --plot-out docs/images/drift_wave_short_window_parity.png
 ```
 
 Run the regression suite:
