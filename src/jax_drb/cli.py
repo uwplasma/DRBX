@@ -107,6 +107,21 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_drift_wave_parser.add_argument("--plot-out", type=Path, default=None)
     analyze_drift_wave_parser.set_defaults(command=_analyze_drift_wave_command)
 
+    compare_drift_wave_parser = subparsers.add_parser(
+        "compare-drift-wave",
+        help="Compare two drift-wave array payloads and report benchmark plus field-error parity metrics.",
+    )
+    compare_drift_wave_parser.add_argument("input_file", type=Path)
+    compare_drift_wave_parser.add_argument("expected_npz", type=Path)
+    compare_drift_wave_parser.add_argument("actual_npz", type=Path)
+    compare_drift_wave_parser.add_argument("--density-variable", default="Ni")
+    compare_drift_wave_parser.add_argument("--x-index", type=int, default=0)
+    compare_drift_wave_parser.add_argument("--y-index", type=int, default=0)
+    compare_drift_wave_parser.add_argument("--fit-points", type=int, default=10)
+    compare_drift_wave_parser.add_argument("--json-out", type=Path, default=None)
+    compare_drift_wave_parser.add_argument("--plot-out", type=Path, default=None)
+    compare_drift_wave_parser.set_defaults(command=_compare_drift_wave_command)
+
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
@@ -350,5 +365,42 @@ def _analyze_drift_wave_command(args: argparse.Namespace) -> int:
         print(f"json_out: {path}")
     if args.plot_out is not None:
         path = save_drift_wave_diagnostic_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
+    return 0
+
+
+def _compare_drift_wave_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        compare_drift_wave_npz,
+        save_drift_wave_parity_plot,
+        write_drift_wave_parity_json,
+    )
+
+    result = compare_drift_wave_npz(
+        args.expected_npz,
+        args.actual_npz,
+        input_file=args.input_file,
+        density_variable=args.density_variable,
+        x_index=args.x_index,
+        y_index=args.y_index,
+        fit_points=args.fit_points,
+    )
+    print(f"density_variable: {result.expected.density_variable}")
+    print(f"trace_index: x={result.expected.trace_x_index}, y={result.expected.trace_y_index}")
+    print(f"fit_points: {result.expected.fit_points}")
+    print(f"expected_gamma_over_wstar: {result.expected.measured_gamma_over_wstar:.8e}")
+    print(f"actual_gamma_over_wstar: {result.actual.measured_gamma_over_wstar:.8e}")
+    print(f"expected_omega_over_wstar: {result.expected.measured_omega_over_wstar:.8e}")
+    print(f"actual_omega_over_wstar: {result.actual.measured_omega_over_wstar:.8e}")
+    for name, variable_error in sorted(result.variable_errors.items()):
+        print(
+            f"{name}: max_abs_error={variable_error.max_abs_error:.8e}, "
+            f"rms_error={variable_error.rms_error:.8e}"
+        )
+    if args.json_out is not None:
+        path = write_drift_wave_parity_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_drift_wave_parity_plot(result, args.plot_out)
         print(f"plot_out: {path}")
     return 0
