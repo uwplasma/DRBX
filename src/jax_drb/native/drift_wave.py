@@ -44,6 +44,9 @@ class DriftWaveBenchmark:
     Omega_ci: float
     sound_speed: float
     fastest_wave: float
+    density_bndry_flux: bool
+    momentum_bndry_flux: bool
+    vorticity_bndry_flux: bool
     density_floor: float = 1.0e-7
 
     @property
@@ -138,6 +141,11 @@ def build_drift_wave_benchmark(
             electron_temperature,
             electron_atomic_mass,
         ),
+        density_bndry_flux=bool(config.parsed("i", "bndry_flux")) if config.has_option("i", "bndry_flux") else True,
+        momentum_bndry_flux=bool(config.parsed("e", "bndry_flux")) if config.has_option("e", "bndry_flux") else True,
+        vorticity_bndry_flux=bool(config.parsed("vorticity", "bndry_flux"))
+        if config.has_option("vorticity", "bndry_flux")
+        else False,
     )
 
 
@@ -164,9 +172,27 @@ def compute_drift_wave_rhs(
     potential = solve_drift_wave_potential(state.vorticity, benchmark=benchmark)
     potential_full = _assemble_neumann_potential_field(potential, mesh=mesh)
 
-    density_rhs_full = -_compute_xz_exb_divergence(density_full, potential_full, mesh=mesh, benchmark=benchmark)
-    momentum_rhs_full = -_compute_xz_exb_divergence(momentum_full, potential_full, mesh=mesh, benchmark=benchmark)
-    vorticity_rhs_full = -_compute_xz_exb_divergence(vorticity_full, potential_full, mesh=mesh, benchmark=benchmark)
+    density_rhs_full = -_compute_xz_exb_divergence(
+        density_full,
+        potential_full,
+        mesh=mesh,
+        benchmark=benchmark,
+        bndry_flux=benchmark.density_bndry_flux,
+    )
+    momentum_rhs_full = -_compute_xz_exb_divergence(
+        momentum_full,
+        potential_full,
+        mesh=mesh,
+        benchmark=benchmark,
+        bndry_flux=benchmark.momentum_bndry_flux,
+    )
+    vorticity_rhs_full = -_compute_xz_exb_divergence(
+        vorticity_full,
+        potential_full,
+        mesh=mesh,
+        benchmark=benchmark,
+        bndry_flux=benchmark.vorticity_bndry_flux,
+    )
 
     electron_density = np.asarray(state.ion_density, dtype=np.float64)
     electron_density_limited = np.maximum(electron_density, benchmark.density_floor)
@@ -489,9 +515,15 @@ def _next_adaptive_step(current_step: float, error_norm: float) -> float:
 
 def _assemble_density_field(interior: np.ndarray, *, benchmark: DriftWaveBenchmark, mesh: StructuredMesh) -> np.ndarray:
     field = _assemble_interior_field(interior, mesh=mesh)
+    inner_increment = benchmark.density_gradient_inner * benchmark.dx
+    outer_increment = benchmark.density_gradient_outer * benchmark.dx
     for offset in range(1, mesh.mxg + 1):
-        field[mesh.xstart - offset, benchmark.y_slice, :] = field[mesh.xstart - offset + 1, benchmark.y_slice, :] - benchmark.density_gradient_inner
-        field[mesh.xend + offset, benchmark.y_slice, :] = field[mesh.xend + offset - 1, benchmark.y_slice, :] + benchmark.density_gradient_outer
+        field[mesh.xstart - offset, benchmark.y_slice, :] = (
+            field[mesh.xstart - offset + 1, benchmark.y_slice, :] - inner_increment
+        )
+        field[mesh.xend + offset, benchmark.y_slice, :] = (
+            field[mesh.xend + offset - 1, benchmark.y_slice, :] + outer_increment
+        )
     return field
 
 
@@ -529,32 +561,60 @@ def _compute_xz_exb_divergence(
     *,
     mesh: StructuredMesh,
     benchmark: DriftWaveBenchmark,
+    bndry_flux: bool,
 ) -> np.ndarray:
     result = np.zeros_like(field, dtype=np.float64)
     for j in range(mesh.ystart, mesh.yend + 1):
         for i in range(mesh.xstart, mesh.xend + 1):
             for k in range(mesh.nz):
                 kp = (k + 1) % mesh.nz
+                kpp = (kp + 1) % mesh.nz
                 km = (k - 1 + mesh.nz) % mesh.nz
+                kmm = (km - 1 + mesh.nz) % mesh.nz
                 fmm = 0.25 * (potential[i, j, k] + potential[i - 1, j, k] + potential[i, j, km] + potential[i - 1, j, km])
                 fmp = 0.25 * (potential[i, j, k] + potential[i, j, kp] + potential[i - 1, j, k] + potential[i - 1, j, kp])
                 fpp = 0.25 * (potential[i, j, k] + potential[i, j, kp] + potential[i + 1, j, k] + potential[i + 1, j, kp])
                 fpm = 0.25 * (potential[i, j, k] + potential[i + 1, j, k] + potential[i, j, km] + potential[i + 1, j, km])
-                v_up = benchmark.J[j - mesh.ystart, k] * (fmp - fpp) / benchmark.dx
-                v_down = benchmark.J[j - mesh.ystart, k] * (fmm - fpm) / benchmark.dx
-                v_right = benchmark.right_face_j * (fpp - fpm) / benchmark.dz[j - mesh.ystart, k]
-                v_left = benchmark.left_face_j * (fmp - fmm) / benchmark.dz[j - mesh.ystart, k]
+                jj = j - mesh.ystart
+                v_up = benchmark.J[jj, k] * (fmp - fpp) / benchmark.dx
+                v_down = benchmark.J[jj, k] * (fmm - fpm) / benchmark.dx
+                v_right = benchmark.right_face_j * (fpp - fpm) / benchmark.dz[jj, k]
+                v_left = benchmark.left_face_j * (fmp - fmm) / benchmark.dz[jj, k]
                 center = field[i, j, k]
                 x_left_face, x_right_face = _mc_cell_edges(center, field[i - 1, j, k], field[i + 1, j, k])
-                if v_right > 0.0:
-                    result[i, j, k] += v_right * x_right_face / (benchmark.dx * benchmark.J[j - mesh.ystart, k])
-                if v_left < 0.0:
-                    result[i, j, k] += -v_left * x_left_face / (benchmark.dx * benchmark.J[j - mesh.ystart, k])
+                if i == mesh.xend:
+                    if bndry_flux:
+                        if v_right > 0.0:
+                            flux = v_right * x_right_face
+                        else:
+                            flux = v_right * 0.5 * (field[i + 1, j, k] + center)
+                        result[i, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                        result[i + 1, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                elif v_right > 0.0:
+                    flux = v_right * x_right_face
+                    result[i, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                    result[i + 1, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                if i == mesh.xstart:
+                    if bndry_flux:
+                        if v_left < 0.0:
+                            flux = v_left * x_left_face
+                        else:
+                            flux = v_left * 0.5 * (field[i - 1, j, k] + center)
+                        result[i, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                        result[i - 1, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
+                elif v_left < 0.0:
+                    flux = v_left * x_left_face
+                    result[i, j, k] -= flux / (benchmark.dx * benchmark.J[jj, k])
+                    result[i - 1, j, k] += flux / (benchmark.dx * benchmark.J[jj, k])
                 z_left_face, z_right_face = _mc_cell_edges(center, field[i, j, km], field[i, j, kp])
                 if v_up > 0.0:
-                    result[i, j, k] += v_up * z_right_face / (benchmark.J[j - mesh.ystart, k] * benchmark.dz[j - mesh.ystart, k])
+                    flux = v_up * z_right_face / (benchmark.J[jj, k] * benchmark.dz[jj, k])
+                    result[i, j, k] += flux
+                    result[i, j, kp] -= flux
                 if v_down < 0.0:
-                    result[i, j, k] += -v_down * z_left_face / (benchmark.J[j - mesh.ystart, k] * benchmark.dz[j - mesh.ystart, k])
+                    flux = v_down * z_left_face / (benchmark.J[jj, k] * benchmark.dz[jj, k])
+                    result[i, j, k] -= flux
+                    result[i, j, km] += flux
     return result
 
 
