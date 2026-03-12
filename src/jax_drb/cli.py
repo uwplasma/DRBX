@@ -93,6 +93,20 @@ def _build_parser() -> argparse.ArgumentParser:
     run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
     run_case_parser.set_defaults(command=_run_case_command)
 
+    analyze_drift_wave_parser = subparsers.add_parser(
+        "analyze-drift-wave",
+        help="Analyze a stored drift-wave array payload and report measured vs. analytic benchmark scalars.",
+    )
+    analyze_drift_wave_parser.add_argument("input_file", type=Path)
+    analyze_drift_wave_parser.add_argument("arrays_npz", type=Path)
+    analyze_drift_wave_parser.add_argument("--density-variable", default="Ni")
+    analyze_drift_wave_parser.add_argument("--x-index", type=int, default=0)
+    analyze_drift_wave_parser.add_argument("--y-index", type=int, default=0)
+    analyze_drift_wave_parser.add_argument("--fit-points", type=int, default=10)
+    analyze_drift_wave_parser.add_argument("--json-out", type=Path, default=None)
+    analyze_drift_wave_parser.add_argument("--plot-out", type=Path, default=None)
+    analyze_drift_wave_parser.set_defaults(command=_analyze_drift_wave_command)
+
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
@@ -302,4 +316,39 @@ def _run_case_command(args: argparse.Namespace) -> int:
         array_payload = build_array_payload_from_summary_payload(payload, result.variables)
         path = write_portable_array_payload(array_payload, args.arrays_out)
         print(f"arrays_out: {path}")
+    return 0
+
+
+def _analyze_drift_wave_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        analyze_drift_wave_npz,
+        save_drift_wave_diagnostic_plot,
+        write_drift_wave_analysis_json,
+    )
+
+    result = analyze_drift_wave_npz(
+        args.arrays_npz,
+        input_file=args.input_file,
+        density_variable=args.density_variable,
+        x_index=args.x_index,
+        y_index=args.y_index,
+        fit_points=args.fit_points,
+    )
+    benchmark = result.benchmark
+    print(f"density_variable: {result.density_variable}")
+    print(f"trace_index: x={result.trace_x_index}, y={result.trace_y_index}")
+    print(f"fit_points: {result.fit_points}")
+    print(f"wstar: {benchmark.wstar:.8e}")
+    print(f"sigmapar: {benchmark.sigmapar:.8e}")
+    print(f"sigmapar_over_wstar: {benchmark.sigmapar_over_wstar:.8e}")
+    print(f"analytic_gamma_over_wstar: {benchmark.analytic_gamma_over_wstar:.8e}")
+    print(f"analytic_omega_over_wstar: {benchmark.analytic_omega_over_wstar:.8e}")
+    print(f"measured_gamma_over_wstar: {result.measured_gamma_over_wstar:.8e}")
+    print(f"measured_omega_over_wstar: {result.measured_omega_over_wstar:.8e}")
+    if args.json_out is not None:
+        path = write_drift_wave_analysis_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_drift_wave_diagnostic_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
     return 0

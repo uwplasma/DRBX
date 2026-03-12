@@ -20,12 +20,16 @@ The figures below come from the committed validation ladder. They compare native
 
 ![Drift-wave one-step parity](docs/images/drift_wave_one_step_parity.png)
 
+The current benchmark diagnostics page also includes a short-window drift-wave validation figure with measured growth/frequency extraction against the analytic dispersion target:
+
+![Drift-wave short-window diagnostics](docs/images/drift_wave_short_window_diagnostics.png)
+
 ## Running Cases
 
 Editable install:
 
 ```bash
-pip install -e .[dev]
+pip install -e .[dev,validation]
 ```
 
 Run a curated native case:
@@ -49,6 +53,7 @@ pytest -q
 ## Docs Map
 
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
+- Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
 - Parity harness: [docs/parity_harness.md](/Users/rogerio/local/jax_drb/docs/parity_harness.md)
 - Parity matrix: [docs/parity_matrix.md](/Users/rogerio/local/jax_drb/docs/parity_matrix.md)
 - Implementation inventory: [docs/implementation_inventory.md](/Users/rogerio/local/jax_drb/docs/implementation_inventory.md)

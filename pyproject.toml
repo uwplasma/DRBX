@@ -14,7 +14,7 @@ dependencies = ["jax>=0.7"]
 dev = ["pytest>=8.4"]
 integrators = ["diffrax>=0.7"]
 models = ["equinox>=0.13"]
-validation = ["netCDF4>=1.7"]
+validation = ["matplotlib>=3.9", "netCDF4>=1.7"]
 
 [project.scripts]
 jax-drb = "jax_drb.cli:main"
