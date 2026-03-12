@@ -219,6 +219,8 @@ def _run_reference_case_command(args: argparse.Namespace) -> int:
             compare_variables=summary.compare_variables,
             component_labels=summary.component_labels,
             overrides=summary.overrides,
+            trim_x_guards=case.trim_x_guards,
+            x_guards=case_run_config.mesh.mxg,
             trim_y_guards=case.trim_y_guards,
             y_guards=case_run_config.mesh.myg,
             configured_nout=summary.nout,
