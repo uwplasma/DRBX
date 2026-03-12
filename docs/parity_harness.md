@@ -18,7 +18,7 @@ The first executable parity harness is centered on the curated case ladder in [r
 7. compare future JAX portable summaries against the committed reference baselines with `jax-drb compare-summary`.
 
 If requested, the same command can also emit full comparison arrays to compressed NPZ files. Those artifacts are intended for the smallest curated cases where full-field regression is practical.
-For diagnostic RHS cases, the harness can also trim Y guard cells before writing summary and array baselines so comparisons focus on physically meaningful interior outputs.
+For diagnostic RHS cases and the current drift-wave benchmark, the harness can trim X and/or Y guard cells before writing summary and array baselines so comparisons focus on physically meaningful interior outputs.
 
 ## Native Protocol
 
@@ -35,6 +35,9 @@ Current support is intentionally narrow:
 - `vorticity_rhs` is implemented for diagnostic electrostatic RHS parity on the standalone vorticity benchmark;
 - `vorticity_one_step` is implemented for the first electrostatic output interval, comparing both `Vort` and `phi`;
 - `vorticity_short_window` is implemented for the full 10-output electrostatic benchmark window using an adaptive JAX ODE solve;
+- `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
+- `drift_wave_one_step` is implemented for the same benchmark at the first output time;
+- `drift_wave_short_window` has committed trimmed reference baselines, but the native transient path is still pending;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
@@ -75,6 +78,9 @@ The first portable baseline summaries generated from live reference runs are:
 - [vorticity_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_rhs.json)
 - [vorticity_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_one_step.json)
 - [vorticity_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_short_window.json)
+- [drift_wave_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_rhs.json)
+- [drift_wave_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_one_step.json)
+- [drift_wave_short_window.json](/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_short_window.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -96,6 +102,9 @@ The first committed full-array baselines are:
 - [vorticity_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_rhs.npz)
 - [vorticity_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_one_step.npz)
 - [vorticity_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_short_window.npz)
+- [drift_wave_rhs.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_rhs.npz)
+- [drift_wave_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_one_step.npz)
+- [drift_wave_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_short_window.npz)
 
 These are written and read through [arrays.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/arrays.py). For the current diffusion milestone, the intended comparison command is:
 
@@ -115,4 +124,14 @@ PYTHONPATH=src python -m jax_drb compare-arrays \
   /tmp/jax_drb_vorticity_short_window_native.npz \
   --array-rtol 2e-3 \
   --array-atol 1e-5
+```
+
+For the current drift-wave `one_step` milestone, the intended comparison command is:
+
+```bash
+PYTHONPATH=src python -m jax_drb compare-arrays \
+  references/baselines/reference_arrays/drift_wave_one_step.npz \
+  /tmp/jax_drb_drift_wave_one_step_native.npz \
+  --array-rtol 5e-2 \
+  --array-atol 5e-6
 ```
