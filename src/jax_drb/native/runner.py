@@ -12,6 +12,15 @@ from ..parity.reference import make_default_overrides, merge_overrides
 from ..reference.cases import ReferenceCase
 from ..runtime.run_config import RunConfiguration
 from .expression import ArrayExpressionEvaluator
+from .drift_wave import (
+    DriftWaveBenchmark,
+    _assemble_density_field,
+    _assemble_zero_dirichlet_field,
+    advance_drift_wave_history,
+    build_drift_wave_benchmark,
+    compute_drift_wave_rhs,
+    initialize_drift_wave_state,
+)
 from .fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
 from .metrics import StructuredMetrics, build_structured_metrics
 from .mesh import (
@@ -87,6 +96,7 @@ def run_config_case(
     trimmed_variables = _prepare_compare_variables(
         variables,
         mesh,
+        trim_x_guards=reference_case.trim_x_guards if reference_case is not None else False,
         trim_y_guards=reference_case.trim_y_guards if reference_case is not None else False,
     )
     dataset_scalars = resolved_dataset_scalars(run_config)
@@ -139,6 +149,9 @@ def _execute_supported_case(
 
     if _is_supported_electrostatic_vorticity_case(config, run_config, mesh, metrics):
         return _execute_electrostatic_vorticity_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+
+    if _is_supported_drift_wave_case(config, run_config, mesh, metrics):
+        return _execute_drift_wave_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     raise NotImplementedError(
         "Native execution is not implemented for the configured component set: "
@@ -375,6 +388,108 @@ def _is_supported_electrostatic_vorticity_case(
     return True
 
 
+def _execute_drift_wave_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
+) -> tuple[tuple[float, ...], dict[str, Any]]:
+    if parity_mode not in {"one_rhs", "one_step"}:
+        raise NotImplementedError("Native drift-wave support currently covers one_rhs and one_step parity only.")
+
+    benchmark = build_drift_wave_benchmark(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+    initial_state = initialize_drift_wave_state(config, mesh=mesh)
+
+    if parity_mode == "one_rhs":
+        rhs = compute_drift_wave_rhs(initial_state, mesh=mesh, benchmark=benchmark)
+        density_field = _assemble_density_output(initial_state.ion_density, benchmark=benchmark, mesh=mesh)
+        pressure_field = density_field * benchmark.electron_temperature
+        return (0.0,), {
+            "Ni": np.asarray(density_field[None, ...], dtype=np.float64),
+            "Ne": np.asarray(density_field[None, ...], dtype=np.float64),
+            "Pe": np.asarray(pressure_field[None, ...], dtype=np.float64),
+            "ddt(Ni)": np.asarray(_assemble_density_output(rhs.density, benchmark=benchmark, mesh=mesh)[None, ...], dtype=np.float64),
+            "ddt(NVe)": np.asarray(_assemble_zero_dirichlet_output(rhs.momentum, mesh=mesh)[None, ...], dtype=np.float64),
+            "ddt(Vort)": np.asarray(_assemble_zero_dirichlet_output(rhs.vorticity, mesh=mesh)[None, ...], dtype=np.float64),
+        }
+
+    history = advance_drift_wave_history(
+        initial_state,
+        mesh=mesh,
+        benchmark=benchmark,
+        timestep=run_config.time.timestep,
+        steps=1,
+        substeps=10,
+    )
+    return (0.0, run_config.time.timestep), {
+        "Ni": np.asarray(history.ion_density_history, dtype=np.float64),
+        "Ne": np.asarray(history.ion_density_history, dtype=np.float64),
+        "NVe": np.asarray(history.electron_momentum_history, dtype=np.float64),
+        "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
+        "phi": np.asarray(history.potential_history, dtype=np.float64),
+    }
+
+
+def _is_supported_drift_wave_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    expected = (
+        "evolve_density",
+        "fixed_velocity",
+        "fixed_temperature",
+        "quasineutral",
+        "evolve_momentum",
+        "fixed_temperature",
+        "vorticity",
+        "sound_speed",
+        "braginskii_collisions",
+        "braginskii_friction",
+        "braginskii_heat_exchange",
+    )
+    if implementations != expected:
+        return False
+    if tuple(component.section for component in run_config.components[:3]) != ("i", "i", "i"):
+        return False
+    if tuple(component.section for component in run_config.components[3:6]) != ("e", "e", "e"):
+        return False
+    if mesh.mxg != 2 or mesh.myg != 2:
+        return False
+    if mesh.xend != mesh.xstart:
+        return False
+    if bool(config.parsed("vorticity", "diamagnetic")) if config.has_option("vorticity", "diamagnetic") else False:
+        return False
+    if bool(config.parsed("vorticity", "diamagnetic_polarisation")) if config.has_option("vorticity", "diamagnetic_polarisation") else False:
+        return False
+    if bool(config.parsed("vorticity", "bndry_flux")) if config.has_option("vorticity", "bndry_flux") else False:
+        return False
+    if bool(config.parsed("vorticity", "poloidal_flows")) if config.has_option("vorticity", "poloidal_flows") else False:
+        return False
+    if float(config.parsed("i", "charge")) != 1.0 or float(config.parsed("e", "charge")) != -1.0:
+        return False
+    if not config.has_option("Ni", "function"):
+        return False
+    return np.allclose(np.asarray(metrics.g23), 0.0, rtol=1e-12, atol=1e-12)
+
+
+def _assemble_density_output(interior: Any, *, benchmark: DriftWaveBenchmark, mesh: StructuredMesh) -> Any:
+    return _assemble_density_field(interior, benchmark=benchmark, mesh=mesh)
+
+
+def _assemble_zero_dirichlet_output(interior: Any, *, mesh: StructuredMesh) -> Any:
+    return _assemble_zero_dirichlet_field(interior, mesh=mesh)
+
+
 def _uniform_identity_parallel_metric(mesh: StructuredMesh, *, metrics: StructuredMetrics) -> bool:
     if not np.allclose(np.asarray(metrics.J), 1.0, rtol=1e-12, atol=1e-12):
         return False
@@ -390,11 +505,14 @@ def _prepare_compare_variables(
     variables: Mapping[str, Any],
     mesh: StructuredMesh,
     *,
+    trim_x_guards: bool,
     trim_y_guards: bool,
 ) -> dict[str, Any]:
     prepared: dict[str, Any] = {}
     for name, value in variables.items():
         array = np.asarray(value, dtype=np.float64)
+        if trim_x_guards and array.ndim >= 4 and array.shape[1] > 2 * mesh.mxg:
+            array = array[:, mesh.mxg : -mesh.mxg, ...]
         if trim_y_guards and array.ndim >= 4 and array.shape[2] > 2 * mesh.myg:
             array = array[:, :, mesh.myg : -mesh.myg, ...]
         prepared[name] = array

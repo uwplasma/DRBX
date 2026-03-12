@@ -47,6 +47,9 @@ Deliverables:
 - native JAX `one_rhs` execution for `vorticity_rhs`, including the exact discrete X-Z XPPM advection operator and diagnostic `ddt(Vort)` parity;
 - native JAX `one_step` execution for `vorticity_one_step`, including Fourier-in-`z` / tridiagonal-in-`x` potential inversion and `phi` output parity;
 - native JAX `short_window` execution for `vorticity_short_window`, including adaptive JAX ODE integration across the full 10-output electrostatic benchmark window.
+- native benchmark-specific `one_rhs` execution for `drift_wave_rhs`, including quasineutral density closure, fixed-temperature electron pressure, electron-ion drag, spectral potential inversion, and trimmed interior-cell parity against the committed reference baseline;
+- native benchmark-specific `one_step` execution for `drift_wave_one_step`, including coupled density, electron momentum, vorticity, and potential output parity on the first 2D density-vorticity benchmark;
+- trimmed `drift_wave_short_window` reference baselines committed for the same benchmark, ready for the next native transient slice.
 
 ## Stage 3+: Physics Buildout
 
@@ -56,7 +59,7 @@ The remaining stages stay as defined in [PLAN.md](/Users/rogerio/local/jax_drb/P
 - finite-volume operators and MMS parity beyond the periodic 1D fluid branch;
 - 1D open-field fluid core;
 - sheath, recycling, and control terms;
-- 2D electrostatic drifts and density-vorticity coupling beyond the standalone vorticity branch;
+- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch;
 - 3D electromagnetic capabilities;
 - neutrals, reactions, and impurities;
 - performance, packaging, validation, and documentation.

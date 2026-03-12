@@ -87,7 +87,30 @@ stage = "stage6"
 reference_path = "tests/integrated/drift-wave/data/BOUT.inp"
 parity_mode = "short_window"
 rationale = "Electrostatic drift-wave parity before longer turbulence runs."
-compare_variables = ["Ni", "NVi", "Pe", "Vort"]
+compare_variables = ["Ni", "Ne", "NVe", "Vort", "phi"]
+trim_x_guards = true
+trim_y_guards = true
+
+[[case]]
+name = "drift_wave_rhs"
+stage = "stage6"
+reference_path = "tests/integrated/drift-wave/data/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Coupled drift-wave RHS parity with quasineutral pressure closure and electron momentum drive."
+compare_variables = ["Ni", "Ne", "Pe", "ddt(Ni)", "ddt(NVe)", "ddt(Vort)"]
+extra_overrides = ["i:diagnose=true", "e:diagnose=true", "vorticity:diagnose=true"]
+trim_x_guards = true
+trim_y_guards = true
+
+[[case]]
+name = "drift_wave_one_step"
+stage = "stage6"
+reference_path = "tests/integrated/drift-wave/data/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Single-output coupled drift-wave parity before longer transient comparisons."
+compare_variables = ["Ni", "Ne", "NVe", "Vort", "phi"]
+trim_x_guards = true
+trim_y_guards = true
 
 [[case]]
 name = "recycling_1d_long"

@@ -1,0 +1,152 @@
+{
+  "case_name": "drift_wave_one_step",
+  "compare_variables": [
+    "Ni",
+    "Ne",
+    "NVe",
+    "Vort",
+    "phi"
+  ],
+  "component_labels": [
+    "i:evolve_density",
+    "i:fixed_velocity",
+    "i:fixed_temperature",
+    "e:quasineutral",
+    "e:evolve_momentum",
+    "e:fixed_temperature",
+    "vorticity",
+    "sound_speed",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange"
+  ],
+  "configured_nout": 50,
+  "configured_timestep": 10.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 97871.51425755137,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 100.0,
+    "rho_s0": 0.0010217477552952484
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 5,
+    "y": 36,
+    "z": 27
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    10.0
+  ],
+  "variable_summaries": {
+    "NVe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 6.301496011467664e-06,
+      "maximum": 6.301479219754664e-06,
+      "mean": 2.3244887124115083e-13,
+      "minimum": -6.301496011467664e-06,
+      "name": "NVe",
+      "shape": [
+        2,
+        1,
+        32,
+        27
+      ]
+    },
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 4.4508201522130975e-06,
+      "maximum": 1.0009999933893863,
+      "mean": 1.0,
+      "minimum": 0.9990000066106138,
+      "name": "Ne",
+      "shape": [
+        2,
+        1,
+        32,
+        27
+      ]
+    },
+    "Ni": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 4.4508201522130975e-06,
+      "maximum": 1.0009999933893863,
+      "mean": 1.0,
+      "minimum": 0.9990000066106138,
+      "name": "Ni",
+      "shape": [
+        2,
+        1,
+        32,
+        27
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 3.7037786955144216e-05,
+      "maximum": 3.7037786955144216e-05,
+      "mean": 1.4509360670559775e-22,
+      "minimum": -3.703551156250568e-05,
+      "name": "Vort",
+      "shape": [
+        2,
+        1,
+        32,
+        27
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 3.6779981250595965e-06,
+      "maximum": 3.67789691612835e-06,
+      "mean": -1.1911400820763599e-22,
+      "minimum": -3.6779981250595965e-06,
+      "name": "phi",
+      "shape": [
+        2,
+        1,
+        32,
+        27
+      ]
+    }
+  }
+}

@@ -59,6 +59,8 @@ def test_summarize_dataset_extracts_scalars_and_deltas(tmp_path: Path) -> None:
     variables, dimensions, time_points, scalars = _summarize_dataset(
         dataset_path,
         compare_variables=("Ne",),
+        trim_x_guards=False,
+        x_guards=0,
         trim_y_guards=False,
         y_guards=0,
     )

@@ -262,6 +262,8 @@ def _summarize_run(
     variable_summaries, dimensions, time_points, dataset_scalars = _summarize_dataset(
         dmp_path,
         compare_variables=case.compare_variables,
+        trim_x_guards=case.trim_x_guards,
+        x_guards=run_config.mesh.mxg,
         trim_y_guards=case.trim_y_guards,
         y_guards=run_config.mesh.myg,
     )
@@ -293,6 +295,8 @@ def _summarize_dataset(
     path: Path,
     *,
     compare_variables: Iterable[str],
+    trim_x_guards: bool,
+    x_guards: int,
     trim_y_guards: bool,
     y_guards: int,
 ) -> tuple[dict[str, VariableSummary], dict[str, int], tuple[float, ...], dict[str, float]]:
@@ -305,18 +309,35 @@ def _summarize_dataset(
             if name in dataset.variables
         }
         variable_summaries = {
-            name: _summarize_variable(dataset, name, trim_y_guards=trim_y_guards, y_guards=y_guards)
+            name: _summarize_variable(
+                dataset,
+                name,
+                trim_x_guards=trim_x_guards,
+                x_guards=x_guards,
+                trim_y_guards=trim_y_guards,
+                y_guards=y_guards,
+            )
             for name in compare_variables
             if name in dataset.variables
         }
     return variable_summaries, dimensions, time_points, dataset_scalars
 
 
-def _summarize_variable(dataset: Dataset, name: str, *, trim_y_guards: bool, y_guards: int) -> VariableSummary:
+def _summarize_variable(
+    dataset: Dataset,
+    name: str,
+    *,
+    trim_x_guards: bool,
+    x_guards: int,
+    trim_y_guards: bool,
+    y_guards: int,
+) -> VariableSummary:
     variable = dataset.variables[name]
-    data = _maybe_trim_y_guards(
+    data = _maybe_trim_guards(
         np.asarray(variable[:], dtype=np.float64),
         dimensions=tuple(variable.dimensions),
+        trim_x_guards=trim_x_guards,
+        x_guards=x_guards,
         trim_y_guards=trim_y_guards,
         y_guards=y_guards,
     )
@@ -338,21 +359,29 @@ def _override_key(override: str) -> str:
     return override.split("=", 1)[0].strip()
 
 
-def _maybe_trim_y_guards(
+def _maybe_trim_guards(
     array: np.ndarray,
     *,
     dimensions: tuple[str, ...],
+    trim_x_guards: bool,
+    x_guards: int,
     trim_y_guards: bool,
     y_guards: int,
 ) -> np.ndarray:
-    if not trim_y_guards or y_guards <= 0 or "y" not in dimensions:
-        return array
-    axis = dimensions.index("y")
-    if array.shape[axis] <= 2 * y_guards:
-        return array
-    slicer = [slice(None)] * array.ndim
-    slicer[axis] = slice(y_guards, -y_guards)
-    return array[tuple(slicer)]
+    result = array
+    if trim_x_guards and x_guards > 0 and "x" in dimensions:
+        axis = dimensions.index("x")
+        if result.shape[axis] > 2 * x_guards:
+            slicer = [slice(None)] * result.ndim
+            slicer[axis] = slice(x_guards, -x_guards)
+            result = result[tuple(slicer)]
+    if trim_y_guards and y_guards > 0 and "y" in dimensions:
+        axis = dimensions.index("y")
+        if result.shape[axis] > 2 * y_guards:
+            slicer = [slice(None)] * result.ndim
+            slicer[axis] = slice(y_guards, -y_guards)
+            result = result[tuple(slicer)]
+    return result
 
 
 def load_bout_input(path: Path):
