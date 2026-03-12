@@ -659,8 +659,10 @@ def _div_par_scalar_periodic(
     wave = _broadcast_wave_speed(wave_speed, field)
     amax_right = np.maximum(wave, np.roll(wave, shift=-1, axis=0))
     amax_left = np.maximum(wave, np.roll(wave, shift=1, axis=0))
-    flux_right = 0.5 * right_cell * amax_right
-    flux_left = -0.5 * left_cell * amax_left
+    midpoint_right = 0.5 * (np.asarray(field, dtype=np.float64) + np.roll(field, shift=-1, axis=0))
+    midpoint_left = 0.5 * (np.asarray(field, dtype=np.float64) + np.roll(field, shift=1, axis=0))
+    flux_right = amax_right * (right_cell - midpoint_right)
+    flux_left = -amax_left * (left_cell - midpoint_left)
     return _scatter_face_divergence(flux_right, flux_left, benchmark=benchmark)
 
 
@@ -675,6 +677,7 @@ def _div_par_fvv_periodic(
     velocity_left_cell, velocity_right_cell = _mc_field_edges(velocity)
     wave = _broadcast_wave_speed(wave_speed, velocity)
     velocity_center = np.asarray(velocity, dtype=np.float64)
+    density_center = np.asarray(density, dtype=np.float64)
     amax_right = np.maximum(
         np.maximum(wave, np.roll(wave, shift=-1, axis=0)),
         np.maximum(np.abs(velocity_center), np.abs(np.roll(velocity_center, shift=-1, axis=0))),
@@ -683,8 +686,16 @@ def _div_par_fvv_periodic(
         np.maximum(wave, np.roll(wave, shift=1, axis=0)),
         np.maximum(np.abs(velocity_center), np.abs(np.roll(velocity_center, shift=1, axis=0))),
     )
-    flux_right = density_right_cell * 0.5 * (velocity_right_cell + amax_right) * velocity_right_cell
-    flux_left = density_left_cell * 0.5 * (velocity_left_cell - amax_left) * velocity_left_cell
+    velocity_mid_right = 0.5 * (velocity_center + np.roll(velocity_center, shift=-1, axis=0))
+    velocity_mid_left = 0.5 * (velocity_center + np.roll(velocity_center, shift=1, axis=0))
+    density_mid_right = 0.5 * (density_center + np.roll(density_center, shift=-1, axis=0))
+    density_mid_left = 0.5 * (density_center + np.roll(density_center, shift=1, axis=0))
+    flux_right = density_right_cell * velocity_right_cell * velocity_right_cell + amax_right * density_mid_right * (
+        velocity_right_cell - velocity_mid_right
+    )
+    flux_left = density_left_cell * velocity_left_cell * velocity_left_cell - amax_left * density_mid_left * (
+        velocity_left_cell - velocity_mid_left
+    )
     return _scatter_face_divergence(flux_right, flux_left, benchmark=benchmark)
 
 
