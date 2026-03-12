@@ -11,7 +11,13 @@ from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import make_default_overrides, merge_overrides
 from ..reference.cases import ReferenceCase
 from ..runtime.run_config import RunConfiguration
-from .blob2d import build_blob2d_benchmark, compute_blob2d_rhs, initialize_blob2d_density
+from .blob2d import (
+    advance_blob2d_history,
+    build_blob2d_benchmark,
+    build_blob2d_potential_operator,
+    compute_blob2d_rhs,
+    initialize_blob2d_state,
+)
 from .expression import ArrayExpressionEvaluator
 from .drift_wave import (
     DriftWaveBenchmark,
@@ -476,23 +482,46 @@ def _execute_blob2d_case(
     *,
     parity_mode: str,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
-    if parity_mode != "one_rhs":
-        raise NotImplementedError("Native blob2d support currently covers one_rhs parity only.")
-
     benchmark = build_blob2d_benchmark(
         config,
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=resolved_dataset_scalars(run_config),
     )
-    density = initialize_blob2d_density(config, mesh=mesh)
-    rhs = compute_blob2d_rhs(density, benchmark=benchmark)
-    return (0.0,), {
-        "Ne": np.asarray(rhs.electron_density[None, ...], dtype=np.float64),
-        "Pe": np.asarray(rhs.electron_pressure[None, ...], dtype=np.float64),
-        "phi": np.asarray(rhs.potential[None, ...], dtype=np.float64),
-        "ddt(Ne)": np.asarray(rhs.density_rhs[None, ...], dtype=np.float64),
-        "ddt(Vort)": np.asarray(rhs.vorticity_rhs[None, ...], dtype=np.float64),
+    initial_state = initialize_blob2d_state(config, mesh=mesh)
+
+    if parity_mode == "one_rhs":
+        rhs = compute_blob2d_rhs(initial_state, mesh=mesh, benchmark=benchmark, operator=None)
+        return (0.0,), {
+            "Ne": np.asarray(rhs.electron_density[None, ...], dtype=np.float64),
+            "Pe": np.asarray(rhs.electron_pressure[None, ...], dtype=np.float64),
+            "phi": np.asarray(rhs.potential[None, ...], dtype=np.float64),
+            "ddt(Ne)": np.asarray(rhs.density_rhs[None, ...], dtype=np.float64),
+            "ddt(Vort)": np.asarray(rhs.vorticity_rhs[None, ...], dtype=np.float64),
+        }
+
+    if parity_mode != "one_step":
+        raise NotImplementedError("Native blob2d support currently covers one_rhs and one_step parity only.")
+
+    operator = build_blob2d_potential_operator(
+        mesh=mesh,
+        metrics=metrics,
+        average_atomic_mass=NumericResolver(config).resolve("vorticity", "average_atomic_mass"),
+    )
+    history = advance_blob2d_history(
+        initial_state,
+        mesh=mesh,
+        benchmark=benchmark,
+        operator=operator,
+        timestep=run_config.time.timestep,
+        steps=1,
+        substeps=10,
+    )
+    return (0.0, run_config.time.timestep), {
+        "Ne": np.asarray(history.electron_density_history, dtype=np.float64),
+        "Pe": np.asarray(history.electron_pressure_history, dtype=np.float64),
+        "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
+        "phi": np.asarray(history.potential_history, dtype=np.float64),
     }
 
 

@@ -855,3 +855,55 @@ def test_native_runner_tracks_blob2d_rhs_array_baseline() -> None:
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1e-12, array_atol=1e-12)
     assert comparison.ok, comparison.issues
+
+
+def test_native_runner_tracks_blob2d_one_step_summary_baseline() -> None:
+    config = parse_bout_input(_BLOB2D_INPUT)
+    result = run_config_case(
+        config,
+        case_name="blob2d_one_step",
+        parity_mode="one_step",
+        compare_variables=("Ne", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="blob2d_one_step",
+            stage="stage6",
+            reference_path="examples/other/blob2d/BOUT.inp",
+            parity_mode="one_step",
+            rationale="Single-output blob parity",
+            compare_variables=("Ne", "Vort", "phi"),
+            trim_x_guards=True,
+        ),
+    )
+    expected = load_summary_json(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_one_step.json")
+    )
+
+    comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=2e-3, scalar_atol=2e-6)
+    assert comparison.ok, comparison.issues
+    assert result.time_points == (0.0, 50.0)
+
+
+def test_native_runner_tracks_blob2d_one_step_array_baseline() -> None:
+    config = parse_bout_input(_BLOB2D_INPUT)
+    result = run_config_case(
+        config,
+        case_name="blob2d_one_step",
+        parity_mode="one_step",
+        compare_variables=("Ne", "Vort", "phi"),
+        reference_case=ReferenceCase(
+            name="blob2d_one_step",
+            stage="stage6",
+            reference_path="examples/other/blob2d/BOUT.inp",
+            parity_mode="one_step",
+            rationale="Single-output blob parity",
+            compare_variables=("Ne", "Vort", "phi"),
+            trim_x_guards=True,
+        ),
+    )
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_one_step.npz")
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=2e-3, array_atol=2e-6)
+    assert comparison.ok, comparison.issues

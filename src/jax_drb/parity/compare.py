@@ -35,7 +35,7 @@ def compare_summary_payloads(
     issues: list[ComparisonIssue] = []
 
     for field in ("case_name", "parity_mode", "compare_variables", "component_labels", "dimensions"):
-        if actual.get(field) != expected.get(field):
+        if _normalize_summary_field(field, actual.get(field)) != _normalize_summary_field(field, expected.get(field)):
             issues.append(ComparisonIssue(field=field, message=f"expected {expected.get(field)!r}, got {actual.get(field)!r}"))
 
     _compare_float_sequences(
@@ -131,7 +131,7 @@ def _compare_variable_summaries(
         expected_summary = expected[name]
         actual_summary = actual[name]
         for field in ("dimensions", "shape", "name"):
-            if actual_summary.get(field) != expected_summary.get(field):
+            if _normalize_variable_field(field, actual_summary.get(field)) != _normalize_variable_field(field, expected_summary.get(field)):
                 issues.append(
                     ComparisonIssue(
                         field=f"variable_summaries.{name}.{field}",
@@ -170,3 +170,15 @@ def _compare_variable_summaries(
                     message=f"expected {expected_delta!r}, got {actual_delta!r}",
                 )
             )
+
+
+def _normalize_summary_field(field: str, value: Any) -> Any:
+    if field in {"compare_variables", "component_labels"}:
+        return tuple(value) if isinstance(value, (list, tuple)) else value
+    return value
+
+
+def _normalize_variable_field(field: str, value: Any) -> Any:
+    if field in {"dimensions", "shape"} and isinstance(value, (list, tuple)):
+        return tuple(value)
+    return value
