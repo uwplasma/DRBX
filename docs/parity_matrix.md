@@ -49,7 +49,8 @@ Deliverables:
 - native JAX `short_window` execution for `vorticity_short_window`, including adaptive JAX ODE integration across the full 10-output electrostatic benchmark window.
 - native benchmark-specific `one_rhs` execution for `drift_wave_rhs`, including quasineutral density closure, fixed-temperature electron pressure, electron-ion drag, spectral potential inversion, and trimmed interior-cell parity against the committed reference baseline;
 - native benchmark-specific `one_step` execution for `drift_wave_one_step`, including coupled density, electron momentum, vorticity, and potential output parity on the first 2D density-vorticity benchmark;
-- trimmed `drift_wave_short_window` reference baselines committed for the same benchmark, ready for the next native transient slice.
+- trimmed `drift_wave_short_window` reference baselines committed for the same benchmark, ready for the next native transient slice;
+- drift-wave operator-scale regressions locked against the committed `drift_wave_one_step` arrays so the parallel transport and scalar damping terms can be tuned without breaking the validated first-output milestone.
 
 ## Stage 3+: Physics Buildout
 
