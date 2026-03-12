@@ -253,6 +253,77 @@ def advance_drift_wave_history(
     )
 
 
+def advance_drift_wave_history_adaptive(
+    initial_state: DriftWaveState,
+    *,
+    mesh: StructuredMesh,
+    benchmark: DriftWaveBenchmark,
+    timestep: float,
+    steps: int,
+    rtol: float = 1.0e-6,
+    atol: float = 1.0e-8,
+    max_step: float | None = None,
+    initial_step: float | None = None,
+    include_parallel_transport: bool = False,
+    include_phi_dissipation: bool = False,
+) -> DriftWaveHistoryResult:
+    if steps < 0:
+        raise ValueError("steps must be non-negative")
+    if timestep <= 0.0 and steps > 0:
+        raise ValueError("timestep must be positive when steps > 0")
+
+    target_times = np.asarray([timestep * index for index in range(steps + 1)], dtype=np.float64)
+    state_shape = initial_state.ion_density.shape
+    state_flat = _flatten_state(initial_state)
+    current_time = 0.0
+    step_size = float(initial_step if initial_step is not None else min(timestep, 1.0))
+    max_step_size = float(max_step if max_step is not None else timestep)
+
+    density_history = [_assemble_density_field(initial_state.ion_density, benchmark=benchmark, mesh=mesh)]
+    momentum_history = [_assemble_zero_dirichlet_field(initial_state.electron_momentum, mesh=mesh)]
+    vorticity_history = [_assemble_zero_dirichlet_field(initial_state.vorticity, mesh=mesh)]
+    potential_history = [np.zeros_like(density_history[0], dtype=np.float64)]
+
+    for target_time in target_times[1:]:
+        while current_time + 1.0e-14 < float(target_time):
+            trial_step = min(step_size, max_step_size, float(target_time) - current_time)
+            next_state, error_estimate = _rk23_step_flat(
+                state_flat,
+                timestep=trial_step,
+                state_shape=state_shape,
+                mesh=mesh,
+                benchmark=benchmark,
+                include_parallel_transport=include_parallel_transport,
+                include_phi_dissipation=include_phi_dissipation,
+            )
+            scale = atol + rtol * np.maximum(np.abs(state_flat), np.abs(next_state))
+            error_norm = float(np.sqrt(np.mean(np.square(error_estimate / scale))))
+            if error_norm <= 1.0 or trial_step <= 1.0e-12:
+                state_flat = next_state
+                current_time += trial_step
+                step_size = _next_adaptive_step(trial_step, error_norm)
+                continue
+            step_size = _next_adaptive_step(trial_step, error_norm)
+
+        state = _unflatten_state(state_flat, state_shape)
+        density_history.append(_assemble_density_field(state.ion_density, benchmark=benchmark, mesh=mesh))
+        momentum_history.append(_assemble_zero_dirichlet_field(state.electron_momentum, mesh=mesh))
+        vorticity_history.append(_assemble_zero_dirichlet_field(state.vorticity, mesh=mesh))
+        potential_history.append(
+            _assemble_neumann_potential_field(
+                solve_drift_wave_potential(state.vorticity, benchmark=benchmark),
+                mesh=mesh,
+            )
+        )
+
+    return DriftWaveHistoryResult(
+        ion_density_history=np.stack(density_history, axis=0),
+        electron_momentum_history=np.stack(momentum_history, axis=0),
+        vorticity_history=np.stack(vorticity_history, axis=0),
+        potential_history=np.stack(potential_history, axis=0),
+    )
+
+
 def solve_drift_wave_potential(vorticity: np.ndarray, *, benchmark: DriftWaveBenchmark) -> np.ndarray:
     hat = np.fft.rfft(np.asarray(vorticity, dtype=np.float64), axis=-1)
     output = np.zeros_like(hat)
@@ -318,6 +389,102 @@ def _add_state(state: DriftWaveState, rhs: DriftWaveRhsResult, *, scale: float) 
         electron_momentum=state.electron_momentum + scale * rhs.momentum,
         vorticity=state.vorticity + scale * rhs.vorticity,
     )
+
+
+def _flatten_state(state: DriftWaveState) -> np.ndarray:
+    return np.concatenate(
+        [
+            np.ravel(np.asarray(state.ion_density, dtype=np.float64)),
+            np.ravel(np.asarray(state.electron_momentum, dtype=np.float64)),
+            np.ravel(np.asarray(state.vorticity, dtype=np.float64)),
+        ]
+    )
+
+
+def _unflatten_state(state: np.ndarray, shape: tuple[int, int]) -> DriftWaveState:
+    block = int(np.prod(shape))
+    return DriftWaveState(
+        ion_density=np.asarray(state[:block], dtype=np.float64).reshape(shape),
+        electron_momentum=np.asarray(state[block : 2 * block], dtype=np.float64).reshape(shape),
+        vorticity=np.asarray(state[2 * block :], dtype=np.float64).reshape(shape),
+    )
+
+
+def _rk23_step_flat(
+    state_flat: np.ndarray,
+    *,
+    timestep: float,
+    state_shape: tuple[int, int],
+    mesh: StructuredMesh,
+    benchmark: DriftWaveBenchmark,
+    include_parallel_transport: bool,
+    include_phi_dissipation: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    state = _unflatten_state(state_flat, state_shape)
+    k1 = _flatten_rhs(
+        compute_drift_wave_rhs(
+            state,
+            mesh=mesh,
+            benchmark=benchmark,
+            include_parallel_transport=include_parallel_transport,
+            include_phi_dissipation=include_phi_dissipation,
+        )
+    )
+    k2_state = state_flat + timestep * (0.5 * k1)
+    k2 = _flatten_rhs(
+        compute_drift_wave_rhs(
+            _unflatten_state(k2_state, state_shape),
+            mesh=mesh,
+            benchmark=benchmark,
+            include_parallel_transport=include_parallel_transport,
+            include_phi_dissipation=include_phi_dissipation,
+        )
+    )
+    k3_state = state_flat + timestep * (0.75 * k2)
+    k3 = _flatten_rhs(
+        compute_drift_wave_rhs(
+            _unflatten_state(k3_state, state_shape),
+            mesh=mesh,
+            benchmark=benchmark,
+            include_parallel_transport=include_parallel_transport,
+            include_phi_dissipation=include_phi_dissipation,
+        )
+    )
+    third_order = state_flat + timestep * ((2.0 / 9.0) * k1 + (1.0 / 3.0) * k2 + (4.0 / 9.0) * k3)
+    k4 = _flatten_rhs(
+        compute_drift_wave_rhs(
+            _unflatten_state(third_order, state_shape),
+            mesh=mesh,
+            benchmark=benchmark,
+            include_parallel_transport=include_parallel_transport,
+            include_phi_dissipation=include_phi_dissipation,
+        )
+    )
+    second_order = state_flat + timestep * (
+        (7.0 / 24.0) * k1 + 0.25 * k2 + (1.0 / 3.0) * k3 + 0.125 * k4
+    )
+    return third_order, third_order - second_order
+
+
+def _flatten_rhs(rhs: DriftWaveRhsResult) -> np.ndarray:
+    return np.concatenate(
+        [
+            np.ravel(np.asarray(rhs.density, dtype=np.float64)),
+            np.ravel(np.asarray(rhs.momentum, dtype=np.float64)),
+            np.ravel(np.asarray(rhs.vorticity, dtype=np.float64)),
+        ]
+    )
+
+
+def _next_adaptive_step(current_step: float, error_norm: float) -> float:
+    if error_norm <= 0.0:
+        return current_step * 2.0
+    safety = 0.9
+    min_factor = 0.2
+    max_factor = 5.0
+    factor = safety * error_norm ** (-1.0 / 3.0)
+    factor = min(max(factor, min_factor), max_factor)
+    return current_step * factor
 
 
 def _assemble_density_field(interior: np.ndarray, *, benchmark: DriftWaveBenchmark, mesh: StructuredMesh) -> np.ndarray:
