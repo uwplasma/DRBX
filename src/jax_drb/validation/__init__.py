@@ -27,6 +27,22 @@ from .drift_wave import (
     write_drift_wave_analysis_json,
     write_drift_wave_parity_json,
 )
+from .neutral_mixed import (
+    NeutralMixedAnalysisResult,
+    NeutralMixedParityResult,
+    NeutralMixedSeriesError,
+    analyze_neutral_mixed_array_payload,
+    analyze_neutral_mixed_npz,
+    compare_neutral_mixed_analysis_results,
+    compare_neutral_mixed_array_payloads,
+    compare_neutral_mixed_artifacts,
+    compare_neutral_mixed_npz,
+    load_neutral_mixed_analysis_json,
+    save_neutral_mixed_diagnostic_plot,
+    save_neutral_mixed_parity_plot,
+    write_neutral_mixed_analysis_json,
+    write_neutral_mixed_parity_json,
+)
 
 __all__ = [
     "Blob2DAnalysisResult",
@@ -54,4 +70,18 @@ __all__ = [
     "save_drift_wave_parity_plot",
     "write_drift_wave_analysis_json",
     "write_drift_wave_parity_json",
+    "NeutralMixedAnalysisResult",
+    "NeutralMixedParityResult",
+    "NeutralMixedSeriesError",
+    "analyze_neutral_mixed_array_payload",
+    "analyze_neutral_mixed_npz",
+    "compare_neutral_mixed_analysis_results",
+    "compare_neutral_mixed_array_payloads",
+    "compare_neutral_mixed_artifacts",
+    "compare_neutral_mixed_npz",
+    "load_neutral_mixed_analysis_json",
+    "save_neutral_mixed_diagnostic_plot",
+    "save_neutral_mixed_parity_plot",
+    "write_neutral_mixed_analysis_json",
+    "write_neutral_mixed_parity_json",
 ]

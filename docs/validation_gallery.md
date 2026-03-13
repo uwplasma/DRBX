@@ -67,6 +67,17 @@ What this locks down:
 - benchmark-level parity on reviewer-facing blob diagnostics rather than only pointwise field maxima: peak density excess plus radial and binormal center-of-mass trajectories;
 - the current documented native/reference envelope: peak-excess max error about `1.41e-2`, radial COM max error about `6.29e-1` active cells, and binormal COM max error about `7.32e-1` active cells.
 
+## Neutral Mixed Short-Window Benchmark Target
+
+![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
+
+What this locks down:
+
+- a compact reference-side transient target for the staged neutral branch before the native stiff solver is promoted through the public runner;
+- center-probe histories for `Nh`, `Ph`, and `NVh` at the committed benchmark location `(x=5, y=3, z=5)`;
+- the derived center temperature `Ph / Nh`, which stays close to the expected `0.1` throughout the short window;
+- reviewer-facing compact metrics rather than large raw arrays: final total `Nh` about `7.86197875e+02`, final total `Ph` about `7.86184063e+01`, and final momentum RMS about `5.56121767e-08`.
+
 ## Regeneration
 
 These figures are generated from the committed baseline arrays plus native case runs. The current gallery uses:
@@ -80,4 +91,5 @@ These figures are generated from the committed baseline arrays plus native case 
 The next gallery pass should add:
 
 - periodic 1D fluid short-window figures;
-- benchmark and validation plots for open-field-line cases as those stages land.
+- native neutral transient parity figures once the stiff `neutral_mixed` path is benchmark-clean;
+- benchmark and validation plots for additional open-field-line cases as those stages land.
