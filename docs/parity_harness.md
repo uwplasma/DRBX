@@ -51,6 +51,7 @@ Current support is intentionally narrow:
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;
 - `jax-drb compare-drift-wave <input> <expected.npz> <actual.npz>` now emits the current short-window drift-wave parity report, including benchmark-scalar deltas plus per-field max/RMS error histories and a documentation figure;
 - `jax-drb compare-blob2d <expected.npz> <actual.npz>` now emits the current blob short-window parity report, including peak-density and center-of-mass history deltas plus a documentation figure;
+- `jax-drb analyze-neutral-mixed <arrays.npz>` now postprocesses the committed neutral short-window arrays into compact center-history, derived-temperature, total-mass/pressure, and momentum-RMS metrics, so the staged neutral transient has a reviewer-facing target before the native stiff solver is exposed;
 - `jax-drb validate-reference-baselines` now re-runs committed reference cases and checks their live summaries against the stored baseline JSON files, so baseline drift can be caught as an explicit smoke-validation step;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
@@ -105,6 +106,7 @@ The first portable baseline summaries generated from live reference runs are:
 The compact benchmark-metric references are:
 
 - [blob2d_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/blob2d_short_window_metrics.json)
+- [neutral_mixed_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -186,4 +188,16 @@ PYTHONPATH=src python -m jax_drb compare-blob2d \
   /tmp/jax_drb_blob2d_short_window_native.npz \
   --json-out docs/data/blob2d_short_window_parity.json \
   --plot-out docs/images/blob2d_short_window_parity.png
+```
+
+For the staged neutral `short_window` benchmark target, the current compact-analysis command is:
+
+```bash
+PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \
+  references/baselines/reference_arrays/neutral_mixed_short_window.npz \
+  --x-index 5 \
+  --y-index 3 \
+  --z-index 5 \
+  --json-out references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json \
+  --plot-out docs/images/neutral_mixed_short_window_diagnostics.png
 ```

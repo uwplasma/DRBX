@@ -29,6 +29,10 @@ The current benchmark diagnostics page also includes a short-window drift-wave v
 
 ![Drift-wave short-window diagnostics](docs/images/drift_wave_short_window_diagnostics.png)
 
+The staged neutral branch now also has a compact short-window benchmark target that locks the reference transient before the native stiff integrator is exposed:
+
+![Neutral mixed short-window diagnostics](docs/images/neutral_mixed_short_window_diagnostics.png)
+
 ## Running Cases
 
 Editable install:
@@ -70,6 +74,18 @@ PYTHONPATH=src python -m jax_drb compare-blob2d \
   --plot-out docs/images/blob2d_short_window_parity.png
 ```
 
+Generate the compact neutral short-window benchmark report and figure:
+
+```bash
+PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \
+  references/baselines/reference_arrays/neutral_mixed_short_window.npz \
+  --x-index 5 \
+  --y-index 3 \
+  --z-index 5 \
+  --json-out references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json \
+  --plot-out docs/images/neutral_mixed_short_window_diagnostics.png
+```
+
 Re-run committed reference baselines as a smoke check:
 
 ```bash
@@ -90,6 +106,7 @@ pytest -q
 
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
 - Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
+- Neutral mixed benchmark: [docs/neutral_mixed_benchmark.md](/Users/rogerio/local/jax_drb/docs/neutral_mixed_benchmark.md)
 - Parity harness: [docs/parity_harness.md](/Users/rogerio/local/jax_drb/docs/parity_harness.md)
 - Parity matrix: [docs/parity_matrix.md](/Users/rogerio/local/jax_drb/docs/parity_matrix.md)
 - Implementation inventory: [docs/implementation_inventory.md](/Users/rogerio/local/jax_drb/docs/implementation_inventory.md)
