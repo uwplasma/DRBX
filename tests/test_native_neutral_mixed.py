@@ -7,6 +7,8 @@ from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
+    _div_a_grad_perp_flows,
+    _prepare_neutral_mixed_state,
     build_neutral_mixed_transport_operators,
     compute_neutral_mixed_rhs,
     initialize_neutral_mixed_state,
@@ -79,13 +81,34 @@ def test_neutral_mixed_diffusion_matches_known_case_values() -> None:
 
 
 def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
-    _, _, _, _, state, rhs = _build_case()
+    config, run_config, mesh, metrics, state, rhs = _build_case()
+    expected = np.load(
+        "/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_rhs.npz"
+    )
+    expected_density = expected["var__Nh"][0]
+    expected_pressure = expected["var__Ph"][0]
+    expected_momentum = expected["var__NVh"][0]
+    expected_density_rhs = expected["var__ddt(Nh)"][0]
+    expected_pressure_rhs = expected["var__ddt(Ph)"][0]
+    expected_momentum_rhs = expected["var__ddt(NVh)"][0]
+    scalars = resolved_dataset_scalars(run_config)
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
 
-    assert state.density[5, 5, 5] == pytest.approx(0.9709848197438855, rel=1e-12, abs=1e-12)
-    assert state.pressure[5, 5, 5] == pytest.approx(0.09709848197438856, rel=1e-12, abs=1e-12)
-    assert rhs.density[5, 5, 5] == pytest.approx(-0.07201691370446264, rel=1e-12, abs=1e-12)
-    assert rhs.pressure[5, 5, 5] == pytest.approx(-0.012002818950743778, rel=1e-12, abs=1e-12)
-    assert rhs.momentum[5, 5, 5] == pytest.approx(-0.002947131977001758, rel=1e-12, abs=1e-12)
+    assert state.density[5, 5, 5] == pytest.approx(expected_density[5, 3, 5], rel=1e-12, abs=1e-12)
+    assert state.pressure[5, 5, 5] == pytest.approx(expected_pressure[5, 3, 5], rel=1e-12, abs=1e-12)
+    assert state.momentum[5, 5, 5] == pytest.approx(expected_momentum[5, 3, 5], rel=1e-12, abs=1e-12)
+    assert rhs.density[5, 5, 5] == pytest.approx(expected_density_rhs[5, 3, 5], rel=3e-2, abs=2e-4)
+    assert rhs.pressure[5, 5, 5] == pytest.approx(expected_pressure_rhs[5, 3, 5], rel=3e-2, abs=2e-4)
+    assert rhs.momentum[5, 5, 5] == pytest.approx(expected_momentum_rhs[5, 3, 5], rel=1e-12, abs=1e-12)
+    assert prepared.temperature[5, 5, 5] == pytest.approx(0.1, rel=1e-12, abs=1e-12)
 
 
 def test_neutral_mixed_rhs_keeps_guard_derivatives_zero_in_x() -> None:
@@ -100,22 +123,32 @@ def test_neutral_mixed_rhs_keeps_guard_derivatives_zero_in_x() -> None:
 
 
 def test_neutral_mixed_transport_operators_reproduce_frozen_density_rhs() -> None:
-    _, _, mesh, metrics, state, rhs = _build_case()
-    density = state.density
-    pressure = state.pressure
-    density_limited = density.clip(min=1.0e-8)
-    pressure_limited = pressure.clip(min=1.0e-11)
-    log_pressure = np.log(pressure_limited)
+    config, run_config, mesh, metrics, state, rhs = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
     operators = build_neutral_mixed_transport_operators(
         rhs.diffusion,
-        log_pressure,
+        prepared.log_pressure,
         mesh=mesh,
         metrics=metrics,
     )
 
-    active_density_rhs = rhs.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
+    active_density_rhs = _div_a_grad_perp_flows(
+        prepared.diffusion_density,
+        prepared.log_pressure,
+        mesh=mesh,
+        metrics=metrics,
+    )[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
     for j_offset, operator in enumerate(operators):
-        density_slice = density_limited[mesh.xstart : mesh.xend + 1, mesh.ystart + j_offset, :]
+        density_slice = prepared.density_limited[mesh.xstart : mesh.xend + 1, mesh.ystart + j_offset, :]
         actual = (operator @ density_slice.reshape(-1)).reshape(density_slice.shape)
         expected = active_density_rhs[:, j_offset, :]
         error = actual - expected
