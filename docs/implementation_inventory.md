@@ -105,6 +105,7 @@ Current native execution coverage:
 - `drift_wave_rhs`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_one_step`: implemented and regression-tested on trimmed active-cell outputs;
 - `drift_wave_short_window`: implemented and regression-tested against benchmark scalars plus documented field-difference tolerances on the committed array baseline;
-- `neutral_mixed_rhs`: implemented and regression-tested on the trimmed active `y` domain, including the exact reference diffusivity formula, X/Z face-flux transport stencil, and wall-compatible parallel pressure-gradient drive;
+- `neutral_mixed_rhs`: implemented and regression-tested on the trimmed active `y` domain, now including wall-consistent density/pressure/velocity guards, parallel pressure-work/conduction/viscosity terms, and documented full-array tolerances against the committed reference RHS baseline;
 - the current diffusion history path has JIT and `grad` smoke coverage, so the first transport slice is exercised as an actual differentiable JAX computation rather than only an eager NumPy-style check;
-- next target: extend the new neutral branch from `neutral_mixed_rhs` into the one-step and short-window transient paths, while keeping the trimmed active-domain reference baselines and the blob benchmark report in sync with future solver changes.
+- neutral transient RK scaffolding now exists in the native neutral module, but it is not yet promoted through the runner because the stiff one-step and short-window solves still need a benchmark-clean integrator strategy;
+- next target: finish the neutral one-step and short-window transient path on top of the hardened RHS slice, while keeping the trimmed active-domain reference baselines and the blob benchmark report in sync with future solver changes.
