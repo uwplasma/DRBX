@@ -343,8 +343,8 @@ def _execute_neutral_mixed_case(
         raise NotImplementedError("Native neutral mixed execution currently supports one_rhs parity only.")
 
     section = run_config.components[0].section
-    state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
     scalars = resolved_dataset_scalars(run_config)
+    state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
     rhs = compute_neutral_mixed_rhs(
         config,
         state,
