@@ -154,6 +154,37 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_blob2d_parser.add_argument("--plot-out", type=Path, default=None)
     compare_blob2d_parser.set_defaults(command=_compare_blob2d_command)
 
+    analyze_neutral_mixed_parser = subparsers.add_parser(
+        "analyze-neutral-mixed",
+        help="Analyze a stored neutral-mixed array payload and report compact transient metrics.",
+    )
+    analyze_neutral_mixed_parser.add_argument("arrays_npz", type=Path)
+    analyze_neutral_mixed_parser.add_argument("--density-variable", default="Nh")
+    analyze_neutral_mixed_parser.add_argument("--pressure-variable", default="Ph")
+    analyze_neutral_mixed_parser.add_argument("--momentum-variable", default="NVh")
+    analyze_neutral_mixed_parser.add_argument("--x-index", type=int, default=None)
+    analyze_neutral_mixed_parser.add_argument("--y-index", type=int, default=None)
+    analyze_neutral_mixed_parser.add_argument("--z-index", type=int, default=None)
+    analyze_neutral_mixed_parser.add_argument("--json-out", type=Path, default=None)
+    analyze_neutral_mixed_parser.add_argument("--plot-out", type=Path, default=None)
+    analyze_neutral_mixed_parser.set_defaults(command=_analyze_neutral_mixed_command)
+
+    compare_neutral_mixed_parser = subparsers.add_parser(
+        "compare-neutral-mixed",
+        help="Compare neutral-mixed analysis artifacts or array payloads and report compact parity metrics.",
+    )
+    compare_neutral_mixed_parser.add_argument("expected_artifact", type=Path)
+    compare_neutral_mixed_parser.add_argument("actual_artifact", type=Path)
+    compare_neutral_mixed_parser.add_argument("--density-variable", default="Nh")
+    compare_neutral_mixed_parser.add_argument("--pressure-variable", default="Ph")
+    compare_neutral_mixed_parser.add_argument("--momentum-variable", default="NVh")
+    compare_neutral_mixed_parser.add_argument("--x-index", type=int, default=None)
+    compare_neutral_mixed_parser.add_argument("--y-index", type=int, default=None)
+    compare_neutral_mixed_parser.add_argument("--z-index", type=int, default=None)
+    compare_neutral_mixed_parser.add_argument("--json-out", type=Path, default=None)
+    compare_neutral_mixed_parser.add_argument("--plot-out", type=Path, default=None)
+    compare_neutral_mixed_parser.set_defaults(command=_compare_neutral_mixed_command)
+
     run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
@@ -485,5 +516,73 @@ def _compare_blob2d_command(args: argparse.Namespace) -> int:
         print(f"json_out: {path}")
     if args.plot_out is not None:
         path = save_blob2d_parity_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
+    return 0
+
+
+def _analyze_neutral_mixed_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        analyze_neutral_mixed_npz,
+        save_neutral_mixed_diagnostic_plot,
+        write_neutral_mixed_analysis_json,
+    )
+
+    result = analyze_neutral_mixed_npz(
+        args.arrays_npz,
+        density_variable=args.density_variable,
+        pressure_variable=args.pressure_variable,
+        momentum_variable=args.momentum_variable,
+        x_index=args.x_index,
+        y_index=args.y_index,
+        z_index=args.z_index,
+    )
+    print(f"density_variable: {result.density_variable}")
+    print(f"pressure_variable: {result.pressure_variable}")
+    print(f"momentum_variable: {result.momentum_variable}")
+    print(f"center_index: x={result.center_index_x}, y={result.center_index_y}, z={result.center_index_z}")
+    print(f"center_density_final: {result.center_density_history[-1]:.8e}")
+    print(f"center_pressure_final: {result.center_pressure_history[-1]:.8e}")
+    print(f"center_momentum_final: {result.center_momentum_history[-1]:.8e}")
+    print(f"center_temperature_final: {result.center_temperature_history[-1]:.8e}")
+    print(f"total_density_final: {result.total_density_history[-1]:.8e}")
+    print(f"total_pressure_final: {result.total_pressure_history[-1]:.8e}")
+    print(f"momentum_rms_final: {result.momentum_rms_history[-1]:.8e}")
+    if args.json_out is not None:
+        path = write_neutral_mixed_analysis_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_neutral_mixed_diagnostic_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
+    return 0
+
+
+def _compare_neutral_mixed_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        compare_neutral_mixed_artifacts,
+        save_neutral_mixed_parity_plot,
+        write_neutral_mixed_parity_json,
+    )
+
+    result = compare_neutral_mixed_artifacts(
+        args.expected_artifact,
+        args.actual_artifact,
+        density_variable=args.density_variable,
+        pressure_variable=args.pressure_variable,
+        momentum_variable=args.momentum_variable,
+        x_index=args.x_index,
+        y_index=args.y_index,
+        z_index=args.z_index,
+    )
+    print(f"center_index: x={result.expected.center_index_x}, y={result.expected.center_index_y}, z={result.expected.center_index_z}")
+    for name, series_error in sorted(result.series_errors.items()):
+        print(
+            f"{name}: max_abs_error={series_error.max_abs_error:.8e}, "
+            f"rms_error={series_error.rms_error:.8e}"
+        )
+    if args.json_out is not None:
+        path = write_neutral_mixed_parity_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_neutral_mixed_parity_plot(result, args.plot_out)
         print(f"plot_out: {path}")
     return 0
