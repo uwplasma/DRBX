@@ -1009,3 +1009,46 @@ def test_native_runner_tracks_neutral_mixed_rhs_summary_baseline() -> None:
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-2, scalar_atol=2e-6)
     assert comparison.ok, comparison.issues
     assert result.time_points == (0.0,)
+
+
+def test_native_runner_tracks_neutral_mixed_rhs_array_baseline() -> None:
+    config = parse_bout_input(_NEUTRAL_MIXED_INPUT)
+    result = run_config_case(
+        config,
+        case_name="neutral_mixed_rhs",
+        parity_mode="one_rhs",
+        compare_variables=("Nh", "Ph", "NVh", "ddt(Nh)", "ddt(Ph)", "ddt(NVh)"),
+        reference_case=ReferenceCase(
+            name="neutral_mixed_rhs",
+            stage="stage7",
+            reference_path="tests/integrated/neutral_mixed/data/BOUT.inp",
+            parity_mode="one_rhs",
+            rationale="Mixed-neutral RHS parity before transient neutral transport checks.",
+            compare_variables=("Nh", "Ph", "NVh", "ddt(Nh)", "ddt(Ph)", "ddt(NVh)"),
+            trim_y_guards=True,
+        ),
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    expected = load_portable_array_payload(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_rhs.npz")
+    )
+    metadata_comparison = compare_array_payloads(
+        expected,
+        actual,
+        scalar_rtol=5e-2,
+        scalar_atol=2e-6,
+        array_rtol=0.0,
+        array_atol=0.0,
+    )
+    metadata_issues = tuple(issue for issue in metadata_comparison.issues if not issue.field.startswith("variables."))
+    assert not metadata_issues, metadata_issues
+
+    density_error = np.asarray(actual["variables"]["ddt(Nh)"]) - np.asarray(expected["variables"]["ddt(Nh)"])
+    pressure_error = np.asarray(actual["variables"]["ddt(Ph)"]) - np.asarray(expected["variables"]["ddt(Ph)"])
+    momentum_error = np.asarray(actual["variables"]["ddt(NVh)"]) - np.asarray(expected["variables"]["ddt(NVh)"])
+
+    assert np.max(np.abs(density_error)) < 8.0e-3
+    assert np.sqrt(np.mean(np.square(density_error))) < 3.5e-3
+    assert np.max(np.abs(pressure_error)) < 1.5e-3
+    assert np.sqrt(np.mean(np.square(pressure_error))) < 6.0e-4
+    assert np.max(np.abs(momentum_error)) < 1.0e-12
