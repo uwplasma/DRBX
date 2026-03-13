@@ -127,6 +127,72 @@ def compute_neutral_mixed_diffusion(
     return _apply_dirichlet_like_scalar_boundaries(diffusion, mesh)
 
 
+def build_neutral_mixed_transport_operators(
+    diffusion: np.ndarray,
+    log_pressure: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> tuple[np.ndarray, ...]:
+    active_nx = mesh.xend - mesh.xstart + 1
+    size = active_nx * mesh.nz
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dz = np.asarray(metrics.dz, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g23 = np.asarray(metrics.g23, dtype=np.float64)
+    g33 = np.asarray(metrics.g33, dtype=np.float64)
+
+    if not np.allclose(g23, 0.0, rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native neutral mixed transport currently requires g23 = 0.")
+
+    def index(ix: int, kz: int) -> int:
+        return ix * mesh.nz + kz
+
+    operators: list[np.ndarray] = []
+    for j in range(mesh.ystart, mesh.yend + 1):
+        matrix = np.zeros((size, size), dtype=np.float64)
+        for i in range(mesh.xstart - 1, mesh.xend + 1):
+            for k in range(mesh.nz):
+                face_flux = (
+                    0.5
+                    * (diffusion[i, j, k] + diffusion[i + 1, j, k])
+                    * (J[i, j, k] * g11[i, j, k] + J[i + 1, j, k] * g11[i + 1, j, k])
+                    * (log_pressure[i + 1, j, k] - log_pressure[i, j, k])
+                    / (dx[i, j, k] + dx[i + 1, j, k])
+                )
+                if mesh.xstart <= i <= mesh.xend:
+                    row = index(i - mesh.xstart, k)
+                    matrix[row, row] += 0.5 * face_flux / (dx[i, j, k] * J[i, j, k])
+                if mesh.xstart <= i + 1 <= mesh.xend:
+                    row = index(i + 1 - mesh.xstart, k)
+                    matrix[row, row] -= 0.5 * face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+                if mesh.xstart <= i <= mesh.xend and mesh.xstart <= i + 1 <= mesh.xend:
+                    row_left = index(i - mesh.xstart, k)
+                    row_right = index(i + 1 - mesh.xstart, k)
+                    matrix[row_left, row_right] += 0.5 * face_flux / (dx[i, j, k] * J[i, j, k])
+                    matrix[row_right, row_left] -= 0.5 * face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+
+        for i in range(mesh.xstart, mesh.xend + 1):
+            for k in range(mesh.nz):
+                kp = (k + 1) % mesh.nz
+                face_flux = (
+                    0.25
+                    * (diffusion[i, j, k] + diffusion[i, j, kp])
+                    * (J[i, j, k] * g33[i, j, k] + J[i, j, kp] * g33[i, j, kp])
+                    / dz[i, j, k]
+                )
+                row = index(i - mesh.xstart, k)
+                row_periodic = index(i - mesh.xstart, kp)
+                matrix[row, row] -= face_flux / (J[i, j, k] * dz[i, j, k])
+                matrix[row, row_periodic] += face_flux / (J[i, j, k] * dz[i, j, k])
+                matrix[row_periodic, row] += face_flux / (J[i, j, kp] * dz[i, j, kp])
+                matrix[row_periodic, row_periodic] -= face_flux / (J[i, j, kp] * dz[i, j, kp])
+
+        operators.append(matrix)
+    return tuple(operators)
+
+
 def _evaluate_field_option(
     config: BoutConfig,
     variable_name: str,
