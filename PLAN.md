@@ -854,6 +854,7 @@ Use these first because they isolate field semantics and operator correctness:
 - `local source checkout/tests/integrated/neutral_mixed/data/BOUT.inp`
   - role: compact neutral model check
   - compare: neutral density/pressure/velocity/momentum outputs
+  - implementation note: lock RHS and evolved-state diagnostics first, then promote transient parity only with a stiff solver strategy that is benchmark-clean on the first 20-normalized-time output.
 
 ### Tier B. Short transient parity cases
 
