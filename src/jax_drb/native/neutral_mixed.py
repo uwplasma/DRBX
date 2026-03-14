@@ -198,6 +198,56 @@ def compute_neutral_mixed_active_rhs(
     )
 
 
+def build_neutral_mixed_active_jacobian_sparsity(mesh: StructuredMesh):
+    try:
+        from scipy.sparse import coo_matrix
+    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
+        raise ImportError("Neutral Jacobian sparsity construction requires scipy.") from exc
+
+    active_nx = mesh.xend - mesh.xstart + 1
+    active_ny = mesh.yend - mesh.ystart + 1
+    active_cells = active_nx * active_ny * mesh.nz
+    total_size = 3 * active_cells
+
+    def active_index(ix: int, iy: int, iz: int) -> int:
+        return ((ix * active_ny) + iy) * mesh.nz + iz
+
+    row_indices: list[int] = []
+    col_indices: list[int] = []
+    neighbor_offsets = (
+        (0, 0, 0),
+        (-1, 0, 0),
+        (1, 0, 0),
+        (0, -1, 0),
+        (0, 1, 0),
+        (0, 0, -1),
+        (0, 0, 1),
+    )
+
+    for equation_block in range(3):
+        row_offset = equation_block * active_cells
+        for ix in range(active_nx):
+            for iy in range(active_ny):
+                for iz in range(mesh.nz):
+                    row = row_offset + active_index(ix, iy, iz)
+                    neighbors: set[int] = set()
+                    for dx, dy, dz in neighbor_offsets:
+                        nix = ix + dx
+                        niy = iy + dy
+                        if not (0 <= nix < active_nx and 0 <= niy < active_ny):
+                            continue
+                        niz = (iz + dz) % mesh.nz
+                        neighbors.add(active_index(nix, niy, niz))
+                    for variable_block in range(3):
+                        col_offset = variable_block * active_cells
+                        for neighbor in neighbors:
+                            row_indices.append(row)
+                            col_indices.append(col_offset + neighbor)
+
+    data = np.ones(len(row_indices), dtype=bool)
+    return coo_matrix((data, (row_indices, col_indices)), shape=(total_size, total_size)).tocsr()
+
+
 def compute_neutral_mixed_backward_euler_residual(
     packed_state: np.ndarray,
     previous_packed_state: np.ndarray,
