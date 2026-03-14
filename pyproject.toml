@@ -12,7 +12,7 @@ dependencies = ["jax>=0.7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4"]
-integrators = ["diffrax>=0.7"]
+integrators = ["diffrax>=0.7", "scipy>=1.14"]
 models = ["equinox>=0.13"]
 validation = ["matplotlib>=3.9", "netCDF4>=1.7"]
 

@@ -11,9 +11,13 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
     _prepare_neutral_mixed_state,
+    advance_neutral_mixed_backward_euler_step,
     build_neutral_mixed_transport_operators,
+    compute_neutral_mixed_backward_euler_residual,
     compute_neutral_mixed_rhs,
     initialize_neutral_mixed_state,
+    pack_neutral_mixed_active_state,
+    unpack_neutral_mixed_active_state,
 )
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
@@ -206,3 +210,64 @@ def test_neutral_mixed_transport_operators_reproduce_frozen_density_rhs() -> Non
         error = actual - expected
         assert np.max(np.abs(error)) < 3.5e-3
         assert np.sqrt(np.mean(np.square(error))) < 1.0e-3
+
+
+def test_neutral_mixed_active_state_round_trip_preserves_interior() -> None:
+    _, _, mesh, _, state, _ = _build_case()
+    packed = pack_neutral_mixed_active_state(state, mesh=mesh)
+    unpacked = unpack_neutral_mixed_active_state(packed, template=state, mesh=mesh)
+
+    np.testing.assert_allclose(unpacked.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
+    np.testing.assert_allclose(unpacked.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
+    np.testing.assert_allclose(unpacked.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
+
+
+def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:
+    pytest.importorskip("scipy")
+
+    config, run_config, mesh, metrics, state, _ = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    previous = pack_neutral_mixed_active_state(state, mesh=mesh)
+    initial_residual = compute_neutral_mixed_backward_euler_residual(
+        previous,
+        previous,
+        config=config,
+        template_state=state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=20.0,
+    )
+
+    stepped, info = advance_neutral_mixed_backward_euler_step(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=20.0,
+    )
+    solved = pack_neutral_mixed_active_state(stepped, mesh=mesh)
+    solved_residual = compute_neutral_mixed_backward_euler_residual(
+        solved,
+        previous,
+        config=config,
+        template_state=state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=20.0,
+    )
+
+    assert np.max(np.abs(initial_residual)) > 1.0e-1
+    assert info.residual_inf_norm < 1.0e-8
+    assert np.max(np.abs(solved_residual)) < 1.0e-8
+    assert np.all(np.isfinite(stepped.density))
+    assert np.all(np.isfinite(stepped.pressure))
+    assert np.all(np.isfinite(stepped.momentum))
