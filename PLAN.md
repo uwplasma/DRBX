@@ -727,6 +727,8 @@ JAX solver implementation order:
 4. production transient path:
    - adaptive implicit multistep path, matching the role of reference `cvode`
    - for the neutral branch, prioritize a BDF-like Newton/GMRES path over any tuned explicit or IMEX workaround because the live reference case already identified the exact solver family in use
+   - use the active-domain Jacobian sparsity implied by the local neutral `x/y/z` stencil and cross-field coupling, so sparse implicit prototypes preserve the same coupling pattern as the reference operators
+   - direct low-level SciPy BDF probes with that sparsity are still too slow for production parity on the staged neutral case, so the next transient implementation should move toward a more direct CVODE-like sparse implicit path rather than a generic `solve_ivp` wrapper
    - `diffrax` may be used only if it gives a clean mapping to the traced reference behavior; otherwise implement a custom JAX adaptive path
 
 Solver parity rules:

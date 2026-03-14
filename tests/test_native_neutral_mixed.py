@@ -12,6 +12,7 @@ from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
     _prepare_neutral_mixed_state,
     advance_neutral_mixed_backward_euler_step,
+    build_neutral_mixed_active_jacobian_sparsity,
     build_neutral_mixed_transport_operators,
     compute_neutral_mixed_backward_euler_residual,
     compute_neutral_mixed_rhs,
@@ -271,3 +272,53 @@ def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:
     assert np.all(np.isfinite(stepped.density))
     assert np.all(np.isfinite(stepped.pressure))
     assert np.all(np.isfinite(stepped.momentum))
+
+
+def test_neutral_mixed_active_jacobian_sparsity_matches_local_stencil() -> None:
+    pytest.importorskip("scipy")
+
+    _, _, mesh, _, _, _ = _build_case()
+    sparsity = build_neutral_mixed_active_jacobian_sparsity(mesh)
+    active_nx = mesh.xend - mesh.xstart + 1
+    active_ny = mesh.yend - mesh.ystart + 1
+    active_cells = active_nx * active_ny * mesh.nz
+
+    def active_index(ix: int, iy: int, iz: int) -> int:
+        return ((ix * active_ny) + iy) * mesh.nz + iz
+
+    def row_columns(row: int) -> set[int]:
+        return set(sparsity.indices[sparsity.indptr[row] : sparsity.indptr[row + 1]].tolist())
+
+    assert sparsity.shape == (3 * active_cells, 3 * active_cells)
+
+    interior_row = active_index(2, 5, 4)
+    interior_columns = row_columns(interior_row)
+    expected_interior = set()
+    for variable_block in range(3):
+        base = variable_block * active_cells
+        for neighbor in (
+            active_index(2, 5, 4),
+            active_index(1, 5, 4),
+            active_index(3, 5, 4),
+            active_index(2, 4, 4),
+            active_index(2, 6, 4),
+            active_index(2, 5, 3),
+            active_index(2, 5, 5),
+        ):
+            expected_interior.add(base + neighbor)
+    assert interior_columns == expected_interior
+
+    boundary_row = active_index(0, 0, 0)
+    boundary_columns = row_columns(boundary_row)
+    expected_boundary = set()
+    for variable_block in range(3):
+        base = variable_block * active_cells
+        for neighbor in (
+            active_index(0, 0, 0),
+            active_index(1, 0, 0),
+            active_index(0, 1, 0),
+            active_index(0, 0, 1),
+            active_index(0, 0, mesh.nz - 1),
+        ):
+            expected_boundary.add(base + neighbor)
+    assert boundary_columns == expected_boundary
