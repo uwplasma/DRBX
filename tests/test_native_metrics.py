@@ -78,7 +78,18 @@ def test_structured_metrics_match_normalized_diffusion_scalars() -> None:
         rtol=1e-8,
         atol=1e-15,
     )
-    np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 1.0)
+    np.testing.assert_allclose(
+        np.asarray(metrics.g22[:, mesh.ystart, 0]),
+        1.0439684845591577e-06,
+        rtol=1e-8,
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(
+        np.asarray(metrics.g_22[:, mesh.ystart, 0]),
+        957883.3303066083,
+        rtol=1e-12,
+        atol=1e-9,
+    )
     np.testing.assert_allclose(np.asarray(metrics.g23[:, mesh.ystart, 0]), 0.0)
     np.testing.assert_allclose(np.asarray(metrics.Bxy[:, mesh.ystart, 0]), 1.0)
 
@@ -135,6 +146,7 @@ def test_structured_metrics_respect_normalise_metric_false() -> None:
     np.testing.assert_allclose(np.asarray(metrics.g11[:, mesh.ystart, 0]), 1.0)
     np.testing.assert_allclose(np.asarray(metrics.g33[:, mesh.ystart, 0]), 1.0)
     np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 1.0)
+    np.testing.assert_allclose(np.asarray(metrics.g_22[:, mesh.ystart, 0]), 1.0)
 
 
 def test_structured_metrics_default_periodic_dz_matches_reference_convention() -> None:
@@ -232,6 +244,7 @@ def test_structured_metrics_recalculate_metric_matches_blob_reference_geometry()
     np.testing.assert_allclose(np.asarray(metrics.J[:, mesh.ystart, 0]), 1531.931512585073, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(np.asarray(metrics.g11[:, mesh.ystart, 0]), 5280331.858315176, rtol=1e-12, atol=1e-6)
     np.testing.assert_allclose(np.asarray(metrics.g22[:, mesh.ystart, 0]), 4.2610958181668514e-7, rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(np.asarray(metrics.g_22[:, mesh.ystart, 0]), 2346814.15925119, rtol=1e-12, atol=1e-6)
     np.testing.assert_allclose(np.asarray(metrics.g33[:, mesh.ystart, 0]), 1.893820363629712e-7, rtol=1e-12, atol=1e-18)
     np.testing.assert_allclose(np.asarray(metrics.g23[:, mesh.ystart, 0]), 0.0, rtol=1e-12, atol=1e-18)
     np.testing.assert_allclose(np.asarray(metrics.Bxy[:, mesh.ystart, 0]), 1.0, rtol=1e-12, atol=1e-12)

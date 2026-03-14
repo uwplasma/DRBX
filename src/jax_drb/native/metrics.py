@@ -27,6 +27,7 @@ class StructuredMetrics:
     g11: jnp.ndarray
     g33: jnp.ndarray
     g22: jnp.ndarray
+    g_22: jnp.ndarray
     g23: jnp.ndarray
     Bxy: jnp.ndarray
 
@@ -49,6 +50,10 @@ def build_structured_metrics(
     raw_g11 = _metric_value(config, evaluator, "g11", default=1.0)
     raw_g33 = _metric_value(config, evaluator, "g33", default=1.0)
     raw_g22 = _metric_value(config, evaluator, "g22", default=1.0)
+    if config.has_section("mesh") and config.has_option("mesh", "g_22"):
+        raw_g_22 = _metric_value(config, evaluator, "g_22", default=1.0)
+    else:
+        raw_g_22 = 1.0 / jnp.asarray(raw_g22, dtype=jnp.float64)
     raw_g23 = _metric_value(config, evaluator, "g23", default=0.0)
     raw_Bxy = _metric_value(config, evaluator, "Bxy", default=1.0)
 
@@ -71,9 +76,20 @@ def build_structured_metrics(
         raw_g11 = recalculated.g11
         raw_g33 = recalculated.g33
         raw_g22 = recalculated.g22
+        raw_g_22 = recalculated.g_22
         raw_g23 = recalculated.g23
         raw_Bxy = recalculated.Bxy
 
+    normalized_g22 = _normalize_g22(
+        broadcast_to_field_shape(raw_g22, mesh),
+        normalize_metric=normalize_metric,
+        rho_s0=rho_s0,
+    )
+    normalized_g_22 = _normalize_g_22(
+        broadcast_to_field_shape(raw_g_22, mesh),
+        normalize_metric=normalize_metric,
+        rho_s0=rho_s0,
+    )
     return StructuredMetrics(
         dx=_normalize_dx(broadcast_to_field_shape(raw_dx, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0, Bnorm=Bnorm),
         dy=broadcast_to_field_shape(raw_dy, mesh),
@@ -81,7 +97,8 @@ def build_structured_metrics(
         J=_normalize_J(broadcast_to_field_shape(raw_J, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0),
         g11=_normalize_g11(broadcast_to_field_shape(raw_g11, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0),
         g33=_normalize_g33(broadcast_to_field_shape(raw_g33, mesh), normalize_metric=normalize_metric, rho_s0=rho_s0),
-        g22=broadcast_to_field_shape(raw_g22, mesh),
+        g22=normalized_g22,
+        g_22=normalized_g_22,
         g23=broadcast_to_field_shape(raw_g23, mesh),
         Bxy=_normalize_Bxy(broadcast_to_field_shape(raw_Bxy, mesh), normalize_metric=normalize_metric, Bnorm=Bnorm),
     )
@@ -142,7 +159,8 @@ def _recalculate_orthogonal_metrics(
 
     sign_Bp = jnp.where(jnp.min(normalized_Bpxy) < 0.0, -1.0, 1.0)
     g11_normalized = jnp.square(normalized_Rxy * normalized_Bpxy)
-    g22 = 1.0 / jnp.square(normalized_hthe)
+    g22 = 1.0 / jnp.square(broadcast_to_field_shape(hthe, mesh))
+    g_22 = jnp.square(broadcast_to_field_shape(hthe, mesh))
     g33_normalized = jnp.square(normalized_sinty) * g11_normalized + jnp.square(normalized_Bxy) / g11_normalized
     g23 = -sign_Bp * normalized_Btxy / (normalized_hthe * normalized_Bpxy * normalized_Rxy)
     J_normalized = normalized_hthe / normalized_Bpxy
@@ -155,6 +173,7 @@ def _recalculate_orthogonal_metrics(
         g11=g11_normalized * (rho_s0 * rho_s0),
         g33=g33_normalized / (rho_s0 * rho_s0),
         g22=g22,
+        g_22=g_22,
         g23=g23,
         Bxy=broadcast_to_field_shape(raw_Bxy, mesh),
     )
@@ -188,6 +207,18 @@ def _normalize_g33(value: jnp.ndarray, *, normalize_metric: bool, rho_s0: float)
     if not normalize_metric:
         return value
     return value * (rho_s0 * rho_s0)
+
+
+def _normalize_g22(value: jnp.ndarray, *, normalize_metric: bool, rho_s0: float) -> jnp.ndarray:
+    if not normalize_metric:
+        return value
+    return value * (rho_s0 * rho_s0)
+
+
+def _normalize_g_22(value: jnp.ndarray, *, normalize_metric: bool, rho_s0: float) -> jnp.ndarray:
+    if not normalize_metric:
+        return value
+    return value / (rho_s0 * rho_s0)
 
 
 def _normalize_Bxy(value: jnp.ndarray, *, normalize_metric: bool, Bnorm: float) -> jnp.ndarray:
