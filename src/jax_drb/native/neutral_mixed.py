@@ -27,6 +27,8 @@ class NeutralMixedRhsResult:
     pressure: np.ndarray
     momentum: np.ndarray
     diffusion: np.ndarray
+    density_parallel_flow: np.ndarray
+    pressure_parallel_flow: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,7 @@ def compute_neutral_mixed_rhs(
         mesh=mesh,
         metrics=metrics,
     )
+    density_parallel_flow = _last_parallel_flow.copy()
     density_rhs += _div_a_grad_perp_flows(
         prepared.diffusion_density,
         prepared.log_pressure,
@@ -161,6 +164,7 @@ def compute_neutral_mixed_rhs(
         mesh=mesh,
         metrics=metrics,
     )
+    pressure_parallel_flow = (5.0 / 2.0) * _last_parallel_flow.copy()
     pressure_rhs += (2.0 / 3.0) * prepared.velocity * _grad_par_open(
         prepared.pressure,
         mesh=mesh,
@@ -225,6 +229,8 @@ def compute_neutral_mixed_rhs(
         pressure=np.asarray(pressure_rhs, dtype=np.float64),
         momentum=np.asarray(momentum_rhs, dtype=np.float64),
         diffusion=np.asarray(prepared.diffusion, dtype=np.float64),
+        density_parallel_flow=np.asarray(density_parallel_flow, dtype=np.float64),
+        pressure_parallel_flow=np.asarray(pressure_parallel_flow, dtype=np.float64),
     )
 
 
@@ -509,7 +515,7 @@ def _apply_dirichlet_x_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np
 
 def _apply_density_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
     result = _apply_neumann_x_boundaries(field, mesh)
-    return _apply_density_y_boundaries(result, mesh)
+    return _apply_zero_gradient_y_boundaries(result, mesh)
 
 
 def _apply_pressure_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
@@ -540,21 +546,13 @@ def _apply_velocity_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.nd
 def _apply_zero_gradient_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
     result = np.asarray(field, dtype=np.float64).copy()
     for offset in range(1, mesh.myg + 1):
-        result[:, mesh.ystart - offset, :] = result[:, mesh.ystart, :]
-        result[:, mesh.yend + offset, :] = result[:, mesh.yend, :]
+        result[:, mesh.ystart - offset, :] = result[:, mesh.ystart - 1 + offset, :]
+        result[:, mesh.yend + offset, :] = result[:, mesh.yend + 1 - offset, :]
     return result
 
 
 def _apply_density_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64).copy()
-    lower = np.maximum(2.0 * result[:, mesh.ystart, :] - result[:, mesh.ystart + 1, :], 0.0)
-    upper = np.maximum(2.0 * result[:, mesh.yend, :] - result[:, mesh.yend - 1, :], 0.0)
-    result[:, mesh.ystart - 1, :] = lower
-    result[:, mesh.yend + 1, :] = upper
-    for offset in range(2, mesh.myg + 1):
-        result[:, mesh.ystart - offset, :] = lower
-        result[:, mesh.yend + offset, :] = upper
-    return result
+    return _apply_zero_gradient_y_boundaries(field, mesh)
 
 
 def _apply_antisymmetric_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
@@ -606,6 +604,25 @@ def _minmod3(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
     return np.where(same_sign, np.sign(a) * magnitude, 0.0)
 
 
+def _minmod3_scalar(a: float, b: float, c: float) -> float:
+    if (a * b <= 0.0) or (a * c <= 0.0):
+        return 0.0
+    magnitude = min(abs(a), abs(b), abs(c))
+    return float(np.sign(a) * magnitude)
+
+
+def _mc_edges_scalar(center: float, minus: float, plus: float) -> tuple[float, float]:
+    slope = _minmod3_scalar(
+        2.0 * (plus - center),
+        0.5 * (plus - minus),
+        2.0 * (center - minus),
+    )
+    return center - 0.5 * slope, center + 0.5 * slope
+
+
+_last_parallel_flow = np.zeros((1, 1, 1), dtype=np.float64)
+
+
 def _div_par_mod_open(
     field: np.ndarray,
     velocity: np.ndarray,
@@ -618,44 +635,77 @@ def _div_par_mod_open(
     if not fix_flux:
         raise NotImplementedError("Native neutral mixed advection currently supports fix_flux=True only.")
     result = np.zeros_like(field, dtype=np.float64)
-    center = field[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    minus = field[mesh.xstart : mesh.xend + 1, mesh.ystart - 1 : mesh.yend, :]
-    plus = field[mesh.xstart : mesh.xend + 1, mesh.ystart + 1 : mesh.yend + 2, :]
-    velocity_center = velocity[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    velocity_minus = velocity[mesh.xstart : mesh.xend + 1, mesh.ystart - 1 : mesh.yend, :]
-    velocity_plus = velocity[mesh.xstart : mesh.xend + 1, mesh.ystart + 1 : mesh.yend + 2, :]
-    wave_center = wave_speed[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    wave_minus = wave_speed[mesh.xstart : mesh.xend + 1, mesh.ystart - 1 : mesh.yend, :]
-    wave_plus = wave_speed[mesh.xstart : mesh.xend + 1, mesh.ystart + 1 : mesh.yend + 2, :]
+    flow_ylow = np.zeros_like(field, dtype=np.float64)
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    dz = np.asarray(metrics.dz, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
 
-    left_state, right_state = _mc_edges(center, minus, plus)
-    velocity_left, velocity_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                right_common = (J[i, j, k] + J[i, j + 1, k]) / (
+                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j + 1, k])
+                )
+                flux_factor_rc = right_common / (dy[i, j, k] * J[i, j, k])
+                flux_factor_rp = right_common / (dy[i, j + 1, k] * J[i, j + 1, k])
+                area_rp = right_common * dx[i, j + 1, k] * dz[i, j + 1, k]
 
-    dy = np.asarray(metrics.dy, dtype=np.float64)[mesh.xstart : mesh.xend + 1]
-    J = np.asarray(metrics.J, dtype=np.float64)[mesh.xstart : mesh.xend + 1]
-    g22 = np.asarray(metrics.g22, dtype=np.float64)[mesh.xstart : mesh.xend + 1]
+                left_common = (J[i, j, k] + J[i, j - 1, k]) / (
+                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j - 1, k])
+                )
+                flux_factor_lc = left_common / (dy[i, j, k] * J[i, j, k])
+                flux_factor_lm = left_common / (dy[i, j - 1, k] * J[i, j - 1, k])
+                area_lc = left_common * dx[i, j, k] * dz[i, j, k]
 
-    active_result = result[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    face_flux = np.zeros((center.shape[0], center.shape[1] + 1, center.shape[2]), dtype=np.float64)
-    face_flux[:, 0, :] = 0.5 * (center[:, 0, :] + minus[:, 0, :]) * 0.5 * (velocity_center[:, 0, :] + velocity_minus[:, 0, :])
-    face_flux[:, -1, :] = 0.5 * (center[:, -1, :] + plus[:, -1, :]) * 0.5 * (velocity_center[:, -1, :] + velocity_plus[:, -1, :])
-    for face in range(1, center.shape[1]):
-        left_index = face - 1
-        right_index = face
-        face_flux[:, face, :] = 0.5 * (
-            right_state[:, left_index, :] * velocity_right[:, left_index, :]
-            + left_state[:, right_index, :] * velocity_left[:, right_index, :]
-        )
+                s_left, s_right = _mc_edges_scalar(
+                    float(field[i, j, k]),
+                    float(field[i, j - 1, k]),
+                    float(field[i, j + 1, k]),
+                )
+                v_left, v_right = _mc_edges_scalar(
+                    float(velocity[i, j, k]),
+                    float(velocity[i, j - 1, k]),
+                    float(velocity[i, j + 1, k]),
+                )
 
-    for index in range(center.shape[1]):
-        j = mesh.ystart + index
-        common_right = (J[:, j, :] + J[:, j + 1, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, j + 1, :]))
-        common_left = (J[:, j, :] + J[:, j - 1, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, j - 1, :]))
-        active_result[:, index, :] = (
-            face_flux[:, index + 1, :] * common_right - face_flux[:, index, :] * common_left
-        ) / (dy[:, j, :] * J[:, j, :])
+                if j == mesh.yend:
+                    vpar = 0.5 * (velocity[i, j, k] + velocity[i, j + 1, k])
+                    boundary_value = 0.5 * (field[i, j, k] + field[i, j + 1, k])
+                    flux = boundary_value * vpar
+                else:
+                    amax = max(
+                        float(wave_speed[i, j, k]),
+                        float(wave_speed[i, j + 1, k]),
+                        abs(float(velocity[i, j, k])),
+                        abs(float(velocity[i, j + 1, k])),
+                    )
+                    flux = s_right * 0.5 * (v_right + amax)
 
-    result[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :] = active_result
+                result[i, j, k] += flux * flux_factor_rc
+                result[i, j + 1, k] -= flux * flux_factor_rp
+                flow_ylow[i, j + 1, k] += flux * area_rp
+
+                if j == mesh.ystart:
+                    vpar = 0.5 * (velocity[i, j, k] + velocity[i, j - 1, k])
+                    boundary_value = 0.5 * (field[i, j, k] + field[i, j - 1, k])
+                    flux = boundary_value * vpar
+                else:
+                    amax = max(
+                        float(wave_speed[i, j, k]),
+                        float(wave_speed[i, j - 1, k]),
+                        abs(float(velocity[i, j, k])),
+                        abs(float(velocity[i, j - 1, k])),
+                    )
+                    flux = s_left * 0.5 * (v_left - amax)
+
+                result[i, j, k] -= flux * flux_factor_lc
+                result[i, j - 1, k] += flux * flux_factor_lm
+                flow_ylow[i, j, k] += flux * area_lc
+
+    global _last_parallel_flow
+    _last_parallel_flow = np.asarray(flow_ylow, dtype=np.float64)
     return result
 
 
@@ -671,46 +721,66 @@ def _div_par_fvv_open(
     if not fix_flux:
         raise NotImplementedError("Native neutral mixed momentum advection currently supports fix_flux=True only.")
     result = np.zeros_like(density, dtype=np.float64)
-    center = density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    minus = density[mesh.xstart : mesh.xend + 1, mesh.ystart - 1 : mesh.yend, :]
-    plus = density[mesh.xstart : mesh.xend + 1, mesh.ystart + 1 : mesh.yend + 2, :]
-    velocity_center = velocity[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    velocity_minus = velocity[mesh.xstart : mesh.xend + 1, mesh.ystart - 1 : mesh.yend, :]
-    velocity_plus = velocity[mesh.xstart : mesh.xend + 1, mesh.ystart + 1 : mesh.yend + 2, :]
-    wave_center = wave_speed[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    wave_minus = wave_speed[mesh.xstart : mesh.xend + 1, mesh.ystart - 1 : mesh.yend, :]
-    wave_plus = wave_speed[mesh.xstart : mesh.xend + 1, mesh.ystart + 1 : mesh.yend + 2, :]
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
 
-    left_state, right_state = _mc_edges(center, minus, plus)
-    velocity_left, velocity_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                right_common = (J[i, j, k] + J[i, j + 1, k]) / (
+                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j + 1, k])
+                )
+                flux_factor_rc = right_common / (dy[i, j, k] * J[i, j, k])
+                flux_factor_rp = right_common / (dy[i, j + 1, k] * J[i, j + 1, k])
 
-    dy = np.asarray(metrics.dy, dtype=np.float64)[mesh.xstart : mesh.xend + 1]
-    J = np.asarray(metrics.J, dtype=np.float64)[mesh.xstart : mesh.xend + 1]
-    g22 = np.asarray(metrics.g22, dtype=np.float64)[mesh.xstart : mesh.xend + 1]
+                left_common = (J[i, j, k] + J[i, j - 1, k]) / (
+                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j - 1, k])
+                )
+                flux_factor_lc = left_common / (dy[i, j, k] * J[i, j, k])
+                flux_factor_lm = left_common / (dy[i, j - 1, k] * J[i, j - 1, k])
 
-    active_result = result[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
-    face_flux = np.zeros((center.shape[0], center.shape[1] + 1, center.shape[2]), dtype=np.float64)
-    lower_velocity = 0.5 * (velocity_center[:, 0, :] + velocity_minus[:, 0, :])
-    upper_velocity = 0.5 * (velocity_center[:, -1, :] + velocity_plus[:, -1, :])
-    face_flux[:, 0, :] = 0.5 * (center[:, 0, :] + minus[:, 0, :]) * lower_velocity * lower_velocity
-    face_flux[:, -1, :] = 0.5 * (center[:, -1, :] + plus[:, -1, :]) * upper_velocity * upper_velocity
-    for face in range(1, center.shape[1]):
-        left_index = face - 1
-        right_index = face
-        face_flux[:, face, :] = 0.5 * (
-            right_state[:, left_index, :] * velocity_right[:, left_index, :] * velocity_right[:, left_index, :]
-            + left_state[:, right_index, :] * velocity_left[:, right_index, :] * velocity_left[:, right_index, :]
-        )
+                s_left, s_right = _mc_edges_scalar(
+                    float(density[i, j, k]),
+                    float(density[i, j - 1, k]),
+                    float(density[i, j + 1, k]),
+                )
+                v_left, v_right = _mc_edges_scalar(
+                    float(velocity[i, j, k]),
+                    float(velocity[i, j - 1, k]),
+                    float(velocity[i, j + 1, k]),
+                )
+                v_mid_right = 0.5 * (velocity[i, j, k] + velocity[i, j + 1, k])
+                n_mid_right = 0.5 * (density[i, j, k] + density[i, j + 1, k])
+                if j == mesh.yend:
+                    flux = n_mid_right * v_mid_right * v_mid_right
+                else:
+                    amax = max(
+                        float(wave_speed[i, j, k]),
+                        float(wave_speed[i, j + 1, k]),
+                        abs(float(velocity[i, j, k])),
+                        abs(float(velocity[i, j + 1, k])),
+                    )
+                    flux = s_right * 0.5 * (v_right + amax) * v_right
 
-    for index in range(center.shape[1]):
-        j = mesh.ystart + index
-        common_right = (J[:, j, :] + J[:, j + 1, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, j + 1, :]))
-        common_left = (J[:, j, :] + J[:, j - 1, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, j - 1, :]))
-        active_result[:, index, :] = (
-            face_flux[:, index + 1, :] * common_right - face_flux[:, index, :] * common_left
-        ) / (dy[:, j, :] * J[:, j, :])
+                result[i, j, k] += flux * flux_factor_rc
+                result[i, j + 1, k] -= flux * flux_factor_rp
 
-    result[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :] = active_result
+                v_mid_left = 0.5 * (velocity[i, j, k] + velocity[i, j - 1, k])
+                n_mid_left = 0.5 * (density[i, j, k] + density[i, j - 1, k])
+                if j == mesh.ystart:
+                    flux = n_mid_left * v_mid_left * v_mid_left
+                else:
+                    amax = max(
+                        float(wave_speed[i, j, k]),
+                        float(wave_speed[i, j - 1, k]),
+                        abs(float(velocity[i, j, k])),
+                        abs(float(velocity[i, j - 1, k])),
+                    )
+                    flux = s_left * 0.5 * (v_left - amax) * v_left
+
+                result[i, j, k] -= flux * flux_factor_lc
+                result[i, j - 1, k] += flux * flux_factor_lm
     return result
 
 
@@ -725,7 +795,7 @@ def _div_par_k_grad_par_open(
     result = np.zeros_like(field, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     J = np.asarray(metrics.J, dtype=np.float64)
-    g22 = np.asarray(metrics.g22, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
 
     for j in range(mesh.ystart, mesh.yend + 1):
         if boundary_flux or j != mesh.yend:

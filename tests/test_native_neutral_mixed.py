@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -109,6 +111,56 @@ def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
     assert rhs.pressure[5, 5, 5] == pytest.approx(expected_pressure_rhs[5, 3, 5], rel=3e-2, abs=2e-4)
     assert rhs.momentum[5, 5, 5] == pytest.approx(expected_momentum_rhs[5, 3, 5], rel=1e-12, abs=1e-12)
     assert prepared.temperature[5, 5, 5] == pytest.approx(0.1, rel=1e-12, abs=1e-12)
+
+
+def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
+    config, run_config, mesh, metrics, state, rhs = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    with open(
+        "/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/"
+        "neutral_mixed_rhs_diagnostics.json"
+    ) as handle:
+        payload = json.load(handle)
+    probe = payload["probe"]
+    y_slice = slice(probe["y_start"], probe["y_end"] + 1)
+
+    np.testing.assert_allclose(state.density[5, :, 5], np.asarray(payload["density_centerline"]), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(state.pressure[5, :, 5], np.asarray(payload["pressure_centerline"]), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        rhs.density_parallel_flow[5, y_slice, 5],
+        np.asarray(payload["density_parallel_flow_active"]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        rhs.pressure_parallel_flow[5, y_slice, 5],
+        np.asarray(payload["pressure_parallel_flow_active"]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        -(_div_a_grad_perp_flows(
+            prepared.diffusion_density,
+            prepared.log_pressure,
+            mesh=mesh,
+            metrics=metrics,
+        )[5, y_slice, 5] - rhs.density[5, y_slice, 5]),
+        np.asarray(payload["density_parallel_rhs_active"]),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    assert prepared.sound_speed[5, 5, 5] == pytest.approx(payload["sound_speed_center"], rel=1e-12, abs=1e-12)
+    assert metrics.g22[5, 5, 5] == pytest.approx(payload["g22_center"], rel=1e-12, abs=1e-18)
+    assert metrics.g_22[5, 5, 5] == pytest.approx(payload["g_22_center"], rel=1e-12, abs=1e-9)
 
 
 def test_neutral_mixed_rhs_keeps_guard_derivatives_zero_in_x() -> None:
