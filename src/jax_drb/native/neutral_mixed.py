@@ -39,6 +39,12 @@ class NeutralMixedHistoryResult:
 
 
 @dataclass(frozen=True)
+class NeutralMixedImplicitStepInfo:
+    residual_inf_norm: float
+    active_shape: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
 class _PreparedNeutralMixedState:
     density: np.ndarray
     pressure: np.ndarray
@@ -120,6 +126,159 @@ def advance_neutral_mixed_history(
         density_history=np.stack(density_history, axis=0),
         pressure_history=np.stack(pressure_history, axis=0),
         momentum_history=np.stack(momentum_history, axis=0),
+    )
+
+
+def pack_neutral_mixed_active_state(
+    state: NeutralMixedState,
+    *,
+    mesh: StructuredMesh,
+) -> np.ndarray:
+    active = _active_domain_slices(mesh)
+    return np.concatenate(
+        [
+            np.asarray(state.density[active], dtype=np.float64).ravel(),
+            np.asarray(state.pressure[active], dtype=np.float64).ravel(),
+            np.asarray(state.momentum[active], dtype=np.float64).ravel(),
+        ]
+    )
+
+
+def unpack_neutral_mixed_active_state(
+    packed: np.ndarray,
+    *,
+    template: NeutralMixedState,
+    mesh: StructuredMesh,
+) -> NeutralMixedState:
+    active = _active_domain_slices(mesh)
+    active_shape = template.density[active].shape
+    active_size = int(np.prod(active_shape))
+    density = np.array(template.density, copy=True)
+    pressure = np.array(template.pressure, copy=True)
+    momentum = np.array(template.momentum, copy=True)
+    density[active] = np.asarray(packed[:active_size], dtype=np.float64).reshape(active_shape)
+    pressure[active] = np.asarray(packed[active_size : 2 * active_size], dtype=np.float64).reshape(active_shape)
+    momentum[active] = np.asarray(packed[2 * active_size :], dtype=np.float64).reshape(active_shape)
+    return _sanitize_neutral_state(
+        NeutralMixedState(
+            density=density,
+            pressure=pressure,
+            momentum=momentum,
+        ),
+        mesh,
+    )
+
+
+def compute_neutral_mixed_active_rhs(
+    config: BoutConfig,
+    state: NeutralMixedState,
+    *,
+    section: str,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    meters_scale: float,
+    tnorm: float,
+) -> np.ndarray:
+    active = _active_domain_slices(mesh)
+    rhs = compute_neutral_mixed_rhs(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=meters_scale,
+        tnorm=tnorm,
+    )
+    return np.concatenate(
+        [
+            np.asarray(rhs.density[active], dtype=np.float64).ravel(),
+            np.asarray(rhs.pressure[active], dtype=np.float64).ravel(),
+            np.asarray(rhs.momentum[active], dtype=np.float64).ravel(),
+        ]
+    )
+
+
+def compute_neutral_mixed_backward_euler_residual(
+    packed_state: np.ndarray,
+    previous_packed_state: np.ndarray,
+    *,
+    config: BoutConfig,
+    template_state: NeutralMixedState,
+    section: str,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    meters_scale: float,
+    tnorm: float,
+    timestep: float,
+) -> np.ndarray:
+    state = unpack_neutral_mixed_active_state(
+        packed_state,
+        template=template_state,
+        mesh=mesh,
+    )
+    rhs = compute_neutral_mixed_active_rhs(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=meters_scale,
+        tnorm=tnorm,
+    )
+    return np.asarray(packed_state, dtype=np.float64) - np.asarray(previous_packed_state, dtype=np.float64) - float(timestep) * rhs
+
+
+def advance_neutral_mixed_backward_euler_step(
+    config: BoutConfig,
+    state: NeutralMixedState,
+    *,
+    section: str,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    meters_scale: float,
+    tnorm: float,
+    timestep: float,
+    newton_tolerance: float = 1.0e-9,
+    newton_maxiter: int = 25,
+) -> tuple[NeutralMixedState, NeutralMixedImplicitStepInfo]:
+    try:
+        from scipy.optimize import newton_krylov
+    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
+        raise ImportError("Neutral implicit stepping requires scipy.") from exc
+
+    previous_packed_state = pack_neutral_mixed_active_state(state, mesh=mesh)
+
+    def residual(packed_state: np.ndarray) -> np.ndarray:
+        return compute_neutral_mixed_backward_euler_residual(
+            packed_state,
+            previous_packed_state,
+            config=config,
+            template_state=state,
+            section=section,
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=meters_scale,
+            tnorm=tnorm,
+            timestep=timestep,
+        )
+
+    solved = newton_krylov(
+        residual,
+        previous_packed_state,
+        f_tol=float(newton_tolerance),
+        maxiter=int(newton_maxiter),
+        method="lgmres",
+        verbose=0,
+    )
+    next_state = unpack_neutral_mixed_active_state(
+        np.asarray(solved, dtype=np.float64),
+        template=state,
+        mesh=mesh,
+    )
+    residual_inf_norm = float(np.max(np.abs(residual(pack_neutral_mixed_active_state(next_state, mesh=mesh)))))
+    return next_state, NeutralMixedImplicitStepInfo(
+        residual_inf_norm=residual_inf_norm,
+        active_shape=state.density[_active_domain_slices(mesh)].shape,
     )
 
 
@@ -490,6 +649,14 @@ def _add_state(state: NeutralMixedState, rhs: NeutralMixedRhsResult, *, scale: f
         density=state.density + scale * rhs.density,
         pressure=state.pressure + scale * rhs.pressure,
         momentum=state.momentum + scale * rhs.momentum,
+    )
+
+
+def _active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
+    return (
+        slice(mesh.xstart, mesh.xend + 1),
+        slice(mesh.ystart, mesh.yend + 1),
+        slice(None),
     )
 
 
