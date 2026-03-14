@@ -43,8 +43,8 @@ Current support is intentionally narrow:
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;
-- `neutral_mixed_rhs` is now implemented for the first neutral-fluid milestone, comparing the active `y` domain against trimmed reference baselines while the exact guard-fill parity stays queued with the transient neutral pass;
-- the neutral RHS slice now also has a committed full-array regression with explicit max/RMS tolerances on `ddt(Nh)` and `ddt(Ph)`, so future neutral operator work is locked to the current live-reference agreement instead of summary-only checks;
+- `neutral_mixed_rhs` is now implemented for the first neutral-fluid milestone, comparing the active `y` domain against trimmed reference baselines while the live diagnosed reference state now also locks the exact RHS-time scalar guard reconstruction and the covariant `g_22` metric usage in the parallel FV operators;
+- the neutral RHS slice now also has a committed full-array regression with explicit max/RMS tolerances on `ddt(Nh)` and `ddt(Ph)`, plus a compact diagnosed-reference artifact in [neutral_mixed_rhs_diagnostics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_rhs_diagnostics.json) for the isolated parallel density term and advective-flow centerlines;
 - staged reference-only baselines are now also committed for `neutral_mixed_rhs`, `neutral_mixed_one_step`, `neutral_mixed_short_window`, `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the next transport/sheath implementation passes start from stored low-iteration targets rather than fresh local runs;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
@@ -106,6 +106,7 @@ The first portable baseline summaries generated from live reference runs are:
 The compact benchmark-metric references are:
 
 - [blob2d_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/blob2d_short_window_metrics.json)
+- [neutral_mixed_rhs_diagnostics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_rhs_diagnostics.json)
 - [neutral_mixed_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json)
 
 These files are not full field dumps. They intentionally store:

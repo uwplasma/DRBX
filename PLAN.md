@@ -713,6 +713,7 @@ reference solver facts to preserve:
 - reference development focuses on `cvode` for accurate transient/turbulent runs and `beuler` for stiff steady-state transport runs.
 - Both are adaptive-timestep implicit solvers.
 - Many integrated tests and examples still use legacy solver settings such as `pvode`; those cases should be treated as physics references first, not as integrator references.
+- the staged neutral transient case has now been traced live: it runs with `cvode` using `BDF` and `gmres`, with `rtol = 1e-5`, `atol = 1e-12`, and `mxstep = 1000`.
 
 JAX solver implementation order:
 
@@ -724,8 +725,9 @@ JAX solver implementation order:
 3. production steady-state path:
    - backward Euler + Newton/GMRES, matching the role of reference `beuler`
 4. production transient path:
-   - adaptive implicit or IMEX multistep path, matching the role of reference `cvode`
-   - `diffrax` may be used if it gives a clean and controllable mapping; otherwise implement a custom JAX adaptive path
+   - adaptive implicit multistep path, matching the role of reference `cvode`
+   - for the neutral branch, prioritize a BDF-like Newton/GMRES path over any tuned explicit or IMEX workaround because the live reference case already identified the exact solver family in use
+   - `diffrax` may be used only if it gives a clean mapping to the traced reference behavior; otherwise implement a custom JAX adaptive path
 
 Solver parity rules:
 
@@ -854,7 +856,7 @@ Use these first because they isolate field semantics and operator correctness:
 - `local source checkout/tests/integrated/neutral_mixed/data/BOUT.inp`
   - role: compact neutral model check
   - compare: neutral density/pressure/velocity/momentum outputs
-  - implementation note: lock RHS and evolved-state diagnostics first, then compact transient metrics at probe `(x=5, y=3, z=5)` plus total neutral mass/pressure and momentum-RMS decay, and only then promote public transient parity with a stiff solver strategy that is benchmark-clean on the first 20-normalized-time output; current explicit RK scaffolding is not sufficient and overflows on the short-window benchmark.
+  - implementation note: lock RHS and evolved-state diagnostics first, including the isolated parallel density term, parallel advective flows, and the `g22` / `g_22` metric semantics from the diagnosed reference dump at probe `(x=5, z=5)`, then compact transient metrics plus total neutral mass/pressure and momentum-RMS decay, and only then promote public transient parity with a stiff solver strategy that follows the traced `cvode`/BDF/GMRES reference path; current explicit RK scaffolding is not sufficient and overflows on the short-window benchmark.
 
 ### Tier B. Short transient parity cases
 

@@ -315,7 +315,7 @@ def _minmod3(a: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray) -> jnp.ndarray:
 
 def _face_common_factor(metrics: StructuredMetrics, mesh: StructuredMesh) -> jnp.ndarray:
     J = _interior_y(metrics.J, mesh)
-    g22 = _interior_y(metrics.g22, mesh)
+    g22 = _interior_y(metrics.g_22, mesh)
     return (J + jnp.roll(J, shift=-1, axis=1)) / (jnp.sqrt(g22) + jnp.sqrt(jnp.roll(g22, shift=-1, axis=1)))
 
 

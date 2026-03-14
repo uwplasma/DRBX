@@ -119,7 +119,7 @@ def build_drift_wave_benchmark(
         dy=np.asarray(metrics.dy[x_index, y_slice, :], dtype=np.float64),
         dz=np.asarray(metrics.dz[x_index, y_slice, :], dtype=np.float64),
         J=np.asarray(metrics.J[x_index, y_slice, :], dtype=np.float64),
-        g22=np.asarray(metrics.g22[x_index, y_slice, :], dtype=np.float64),
+        g22=np.asarray(metrics.g22[x_index, y_slice, :], dtype=np.float64) / float(dataset_scalars["rho_s0"]) ** 2,
         g33=np.asarray(metrics.g33[x_index, y_slice, :], dtype=np.float64),
         Bxy=metric_bxy,
         dx=float(metrics.dx[x_index, mesh.ystart, 0]),
