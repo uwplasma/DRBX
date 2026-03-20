@@ -6,10 +6,12 @@ from pathlib import Path
 
 from .config.boutinp import load_bout_input
 from .reference.cases import resolve_reference_cases
+from .runtime import configure_jax_runtime
 from .runtime.run_config import RunConfiguration
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_jax_runtime()
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.command(args)
