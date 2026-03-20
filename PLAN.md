@@ -260,7 +260,9 @@ Tests required in this step:
 - unit tests for guard fills, metric normalization, flux stencils, limiters, and elliptic solves
 - solver tests for one-RHS, one-step backward Euler, BDF2, adaptive controller bookkeeping, and restart/state pack-unpack
 - regression tests for portable summaries, array comparisons, and metadata parity
-- performance smoke tests on representative small 1D/2D/3D cases so infrastructure regressions are caught early
+- performance smoke tests on representative small 1D/2D/3D cases so infrastructure regressions are caught early:
+  - warm compiled kernel timings for the hot numerical path
+  - end-to-end CLI timings so process/setup overhead is tracked separately from solver throughput
 
 Exit criteria:
 
@@ -271,6 +273,8 @@ Current Step 1 status:
 
 - the shared `src/jax_drb/solver/` package now exists and is the active home for active-domain vectorization, sparse locality/color-group construction, grouped difference-quotient Jacobians, sparse Newton/GMRES, matrix-free Newton-Krylov, and backward-Euler/BDF2 residuals;
 - the neutral implicit branch now consumes that shared backbone rather than carrying a private copy of the same logic;
+- the shared electrostatic inversion layer now also exists in `src/jax_drb/solver/elliptic.py`, and the vorticity/blob branches now reuse that same JAX Fourier-Helmholtz backend instead of maintaining separate mode-by-mode solvers;
+- differentiability and performance smoke now explicitly cover that inversion backbone through JIT/`grad` checks on the shared solver, vorticity potential solve, and blob RHS;
 - the remaining Step 1 work is the common elliptic/inversion layer and broad reuse of the shared implicit substrate outside the neutral branch.
 
 ### Step 2. Land the Full Open-Field Plasma + Neutral + Recycling Stack

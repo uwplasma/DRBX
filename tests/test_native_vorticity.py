@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from jax import grad, jit
 
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.expression import ArrayExpressionEvaluator
@@ -104,3 +105,18 @@ def test_vorticity_rhs_matches_reference_regression_samples() -> None:
 
     np.testing.assert_allclose(np.asarray(rhs.vorticity[4, 0, :], dtype=np.float64), expected_row4, rtol=1e-8, atol=1e-12)
     np.testing.assert_allclose(np.asarray(rhs.vorticity[5, 0, :], dtype=np.float64), expected_row5, rtol=1e-8, atol=1e-12)
+
+
+def test_vorticity_potential_supports_jit_and_grad() -> None:
+    mesh, metrics, operator, vorticity = _initial_vorticity()
+
+    @jit
+    def loss_fn(scale):
+        potential = solve_potential(scale * vorticity, mesh=mesh, operator=operator)
+        return (potential * potential).sum()
+
+    value = loss_fn(1.0)
+    derivative = grad(loss_fn)(1.0)
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(derivative))

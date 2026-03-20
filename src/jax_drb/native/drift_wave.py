@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Mapping
 
+import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
@@ -194,32 +195,32 @@ def compute_drift_wave_rhs(
         bndry_flux=benchmark.vorticity_bndry_flux,
     )
 
-    electron_density = np.asarray(state.ion_density, dtype=np.float64)
-    electron_density_limited = np.maximum(electron_density, benchmark.density_floor)
+    electron_density = jnp.asarray(state.ion_density, dtype=jnp.float64)
+    electron_density_limited = jnp.maximum(electron_density, benchmark.density_floor)
     electron_pressure = electron_density * benchmark.electron_temperature
     collision_frequency = _electron_ion_collision_frequency(electron_density, benchmark=benchmark)
     electron_velocity = state.electron_momentum / (benchmark.electron_atomic_mass * electron_density_limited)
 
-    momentum_rhs = np.asarray(momentum_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
-    momentum_rhs += electron_density * _grad_par_periodic(potential, benchmark=benchmark)
-    momentum_rhs -= _grad_par_periodic(electron_pressure, benchmark=benchmark)
+    momentum_rhs = jnp.asarray(momentum_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=jnp.float64)
+    momentum_rhs = momentum_rhs + electron_density * _grad_par_periodic(potential, benchmark=benchmark)
+    momentum_rhs = momentum_rhs - _grad_par_periodic(electron_pressure, benchmark=benchmark)
     if include_parallel_transport:
-        momentum_rhs -= benchmark.electron_atomic_mass * _div_par_fvv_periodic(
+        momentum_rhs = momentum_rhs - benchmark.electron_atomic_mass * _div_par_fvv_periodic(
             electron_density_limited,
             electron_velocity,
             benchmark.fastest_wave,
             benchmark=benchmark,
         )
-    momentum_rhs -= benchmark.momentum_coefficient * collision_frequency * state.electron_momentum
+    momentum_rhs = momentum_rhs - benchmark.momentum_coefficient * collision_frequency * state.electron_momentum
 
     parallel_current = (benchmark.electron_charge / benchmark.electron_atomic_mass) * state.electron_momentum
-    vorticity_rhs = np.asarray(vorticity_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
-    vorticity_rhs += _div_par_periodic(parallel_current, benchmark=benchmark)
+    vorticity_rhs = jnp.asarray(vorticity_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=jnp.float64)
+    vorticity_rhs = vorticity_rhs + _div_par_periodic(parallel_current, benchmark=benchmark)
     if include_phi_dissipation:
-        vorticity_rhs -= _div_par_scalar_periodic(-potential, benchmark.sound_speed, benchmark=benchmark)
+        vorticity_rhs = vorticity_rhs - _div_par_scalar_periodic(-potential, benchmark.sound_speed, benchmark=benchmark)
 
     return DriftWaveRhsResult(
-        density=np.asarray(density_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=np.float64),
+        density=jnp.asarray(density_rhs_full[mesh.xstart, mesh.ystart : mesh.yend + 1, :], dtype=jnp.float64),
         momentum=momentum_rhs,
         vorticity=vorticity_rhs,
         potential=potential,
@@ -556,39 +557,39 @@ def _assemble_interior_field(interior: np.ndarray, *, mesh: StructuredMesh) -> n
 
 
 def _compute_xz_exb_divergence(
-    field: np.ndarray,
-    potential: np.ndarray,
+    field: jnp.ndarray,
+    potential: jnp.ndarray,
     *,
     mesh: StructuredMesh,
     benchmark: DriftWaveBenchmark,
     bndry_flux: bool,
-) -> np.ndarray:
-    result = np.zeros_like(field, dtype=np.float64)
+) -> jnp.ndarray:
+    result = jnp.zeros_like(field, dtype=jnp.float64)
     x_slice = slice(mesh.xstart, mesh.xend + 1)
     y_slice = slice(mesh.ystart, mesh.yend + 1)
 
-    field_center = np.asarray(field[x_slice, y_slice, :], dtype=np.float64)
-    field_left = np.asarray(field[mesh.xstart - 1 : mesh.xend, y_slice, :], dtype=np.float64)
-    field_right = np.asarray(field[mesh.xstart + 1 : mesh.xend + 2, y_slice, :], dtype=np.float64)
+    field_center = jnp.asarray(field[x_slice, y_slice, :], dtype=jnp.float64)
+    field_left = jnp.asarray(field[mesh.xstart - 1 : mesh.xend, y_slice, :], dtype=jnp.float64)
+    field_right = jnp.asarray(field[mesh.xstart + 1 : mesh.xend + 2, y_slice, :], dtype=jnp.float64)
 
-    potential_center = np.asarray(potential[x_slice, y_slice, :], dtype=np.float64)
-    potential_left = np.asarray(potential[mesh.xstart - 1 : mesh.xend, y_slice, :], dtype=np.float64)
-    potential_right = np.asarray(potential[mesh.xstart + 1 : mesh.xend + 2, y_slice, :], dtype=np.float64)
+    potential_center = jnp.asarray(potential[x_slice, y_slice, :], dtype=jnp.float64)
+    potential_left = jnp.asarray(potential[mesh.xstart - 1 : mesh.xend, y_slice, :], dtype=jnp.float64)
+    potential_right = jnp.asarray(potential[mesh.xstart + 1 : mesh.xend + 2, y_slice, :], dtype=jnp.float64)
 
-    potential_center_km = np.roll(potential_center, shift=1, axis=-1)
-    potential_center_kp = np.roll(potential_center, shift=-1, axis=-1)
-    potential_left_km = np.roll(potential_left, shift=1, axis=-1)
-    potential_left_kp = np.roll(potential_left, shift=-1, axis=-1)
-    potential_right_km = np.roll(potential_right, shift=1, axis=-1)
-    potential_right_kp = np.roll(potential_right, shift=-1, axis=-1)
+    potential_center_km = jnp.roll(potential_center, shift=1, axis=-1)
+    potential_center_kp = jnp.roll(potential_center, shift=-1, axis=-1)
+    potential_left_km = jnp.roll(potential_left, shift=1, axis=-1)
+    potential_left_kp = jnp.roll(potential_left, shift=-1, axis=-1)
+    potential_right_km = jnp.roll(potential_right, shift=1, axis=-1)
+    potential_right_kp = jnp.roll(potential_right, shift=-1, axis=-1)
 
     fmm = 0.25 * (potential_center + potential_left + potential_center_km + potential_left_km)
     fmp = 0.25 * (potential_center + potential_center_kp + potential_left + potential_left_kp)
     fpp = 0.25 * (potential_center + potential_center_kp + potential_right + potential_right_kp)
     fpm = 0.25 * (potential_center + potential_right + potential_center_km + potential_right_km)
 
-    J = np.asarray(benchmark.J, dtype=np.float64)[None, :, :]
-    dz = np.asarray(benchmark.dz, dtype=np.float64)[None, :, :]
+    J = jnp.asarray(benchmark.J, dtype=jnp.float64)[None, :, :]
+    dz = jnp.asarray(benchmark.dz, dtype=jnp.float64)[None, :, :]
     inv_cell = 1.0 / (benchmark.dx * J)
     inv_z_cell = 1.0 / (J * dz)
 
@@ -600,82 +601,81 @@ def _compute_xz_exb_divergence(
     x_left_face, x_right_face = _mc_cell_edges(field_center, field_left, field_right)
     z_left_face, z_right_face = _mc_cell_edges(
         field_center,
-        np.roll(field_center, shift=1, axis=-1),
-        np.roll(field_center, shift=-1, axis=-1),
+        jnp.roll(field_center, shift=1, axis=-1),
+        jnp.roll(field_center, shift=-1, axis=-1),
     )
 
-    active_result = np.zeros_like(field_center, dtype=np.float64)
+    active_result = jnp.zeros_like(field_center, dtype=jnp.float64)
 
     if field_center.shape[0] > 1:
-        right_flux = np.where(v_right[:-1] > 0.0, v_right[:-1] * x_right_face[:-1], 0.0)
-        active_result[:-1] += right_flux * inv_cell
-        active_result[1:] -= right_flux * inv_cell
+        right_flux = jnp.where(v_right[:-1] > 0.0, v_right[:-1] * x_right_face[:-1], 0.0)
+        active_result = active_result.at[:-1].add(right_flux * inv_cell)
+        active_result = active_result.at[1:].add(-right_flux * inv_cell)
 
-        left_flux = np.where(v_left[1:] < 0.0, v_left[1:] * x_left_face[1:], 0.0)
-        active_result[1:] -= left_flux * inv_cell
-        active_result[:-1] += left_flux * inv_cell
+        left_flux = jnp.where(v_left[1:] < 0.0, v_left[1:] * x_left_face[1:], 0.0)
+        active_result = active_result.at[1:].add(-left_flux * inv_cell)
+        active_result = active_result.at[:-1].add(left_flux * inv_cell)
 
     if bndry_flux:
-        right_boundary_flux = np.where(
+        right_boundary_flux = jnp.where(
             v_right[-1] > 0.0,
             v_right[-1] * x_right_face[-1],
             v_right[-1] * 0.5 * (field_right[-1] + field_center[-1]),
         )
-        active_result[-1] += right_boundary_flux * inv_cell[0]
-        result[mesh.xend + 1, y_slice, :] -= right_boundary_flux * inv_cell[0]
+        active_result = active_result.at[-1].add(right_boundary_flux * inv_cell[0])
+        result = result.at[mesh.xend + 1, y_slice, :].add(-right_boundary_flux * inv_cell[0])
 
-        left_boundary_flux = np.where(
+        left_boundary_flux = jnp.where(
             v_left[0] < 0.0,
             v_left[0] * x_left_face[0],
             v_left[0] * 0.5 * (field_left[0] + field_center[0]),
         )
-        active_result[0] -= left_boundary_flux * inv_cell[0]
-        result[mesh.xstart - 1, y_slice, :] += left_boundary_flux * inv_cell[0]
+        active_result = active_result.at[0].add(-left_boundary_flux * inv_cell[0])
+        result = result.at[mesh.xstart - 1, y_slice, :].add(left_boundary_flux * inv_cell[0])
 
-    up_flux = np.where(v_up > 0.0, v_up * z_right_face * inv_z_cell, 0.0)
+    up_flux = jnp.where(v_up > 0.0, v_up * z_right_face * inv_z_cell, 0.0)
     active_result += up_flux
-    active_result -= np.roll(up_flux, shift=1, axis=-1)
+    active_result -= jnp.roll(up_flux, shift=1, axis=-1)
 
-    down_flux = np.where(v_down < 0.0, v_down * z_left_face * inv_z_cell, 0.0)
+    down_flux = jnp.where(v_down < 0.0, v_down * z_left_face * inv_z_cell, 0.0)
     active_result -= down_flux
-    active_result += np.roll(down_flux, shift=-1, axis=-1)
+    active_result += jnp.roll(down_flux, shift=-1, axis=-1)
 
-    result[x_slice, y_slice, :] = active_result
-    return result
+    return result.at[x_slice, y_slice, :].set(active_result)
 
 
-def _mc_cell_edges(center: np.ndarray, minus: np.ndarray, plus: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _mc_cell_edges(center: jnp.ndarray, minus: jnp.ndarray, plus: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
     return center - 0.5 * slope, center + 0.5 * slope
 
 
-def _minmod3(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+def _minmod3(a: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray) -> jnp.ndarray:
     same_sign = (a * b > 0.0) & (a * c > 0.0)
-    magnitude = np.minimum(np.abs(a), np.minimum(np.abs(b), np.abs(c)))
-    return np.where(same_sign, np.sign(a) * magnitude, 0.0)
+    magnitude = jnp.minimum(jnp.abs(a), jnp.minimum(jnp.abs(b), jnp.abs(c)))
+    return jnp.where(same_sign, jnp.sign(a) * magnitude, 0.0)
 
 
-def _grad_par_periodic(field: np.ndarray, *, benchmark: DriftWaveBenchmark) -> np.ndarray:
-    return benchmark.rho_s0 * (np.roll(field, shift=-1, axis=0) - np.roll(field, shift=1, axis=0)) / (
-        2.0 * benchmark.dy * np.sqrt(benchmark.g22)
+def _grad_par_periodic(field: jnp.ndarray, *, benchmark: DriftWaveBenchmark) -> jnp.ndarray:
+    return benchmark.rho_s0 * (jnp.roll(field, shift=-1, axis=0) - jnp.roll(field, shift=1, axis=0)) / (
+        2.0 * benchmark.dy * jnp.sqrt(benchmark.g22)
     )
 
 
-def _div_par_periodic(field: np.ndarray, *, benchmark: DriftWaveBenchmark) -> np.ndarray:
+def _div_par_periodic(field: jnp.ndarray, *, benchmark: DriftWaveBenchmark) -> jnp.ndarray:
     return benchmark.Bxy * _grad_par_periodic(field / benchmark.Bxy, benchmark=benchmark)
 
 
-def _electron_ion_collision_frequency(density: np.ndarray, *, benchmark: DriftWaveBenchmark) -> np.ndarray:
+def _electron_ion_collision_frequency(density: jnp.ndarray, *, benchmark: DriftWaveBenchmark) -> jnp.ndarray:
     electron_temperature = benchmark.electron_temperature * benchmark.Tnorm
     ion_temperature = benchmark.ion_temperature * benchmark.Tnorm
-    electron_density = np.maximum(density * benchmark.Nnorm, 1.0e10)
-    ion_density = np.maximum(density * benchmark.Nnorm, 1.0e10)
+    electron_density = jnp.maximum(density * benchmark.Nnorm, 1.0e10)
+    ion_density = jnp.maximum(density * benchmark.Nnorm, 1.0e10)
     me_over_mi = ELECTRON_MASS / PROTON_MASS
-    coulomb_log = 31.0 - 0.5 * np.log(electron_density) + np.log(electron_temperature)
+    coulomb_log = 31.0 - 0.5 * jnp.log(electron_density) + jnp.log(electron_temperature)
     electron_speed_sq = 2.0 * electron_temperature * ELEMENTARY_CHARGE / ELECTRON_MASS
     ion_speed_sq = 2.0 * ion_temperature * ELEMENTARY_CHARGE / PROTON_MASS
-    numerator = (ELEMENTARY_CHARGE**4) * ion_density * np.maximum(coulomb_log, 1.0) * (1.0 + me_over_mi)
-    denominator = 3.0 * np.power(np.pi * (electron_speed_sq + ion_speed_sq), 1.5) * (VACUUM_PERMITTIVITY * ELECTRON_MASS) ** 2
+    numerator = (ELEMENTARY_CHARGE**4) * ion_density * jnp.maximum(coulomb_log, 1.0) * (1.0 + me_over_mi)
+    denominator = 3.0 * jnp.power(jnp.pi * (electron_speed_sq + ion_speed_sq), 1.5) * (VACUUM_PERMITTIVITY * ELECTRON_MASS) ** 2
     return numerator / denominator / benchmark.Omega_ci
 
 
@@ -736,46 +736,46 @@ def _compute_fastest_wave(
 
 
 def _div_par_scalar_periodic(
-    field: np.ndarray,
-    wave_speed: float | np.ndarray,
+    field: jnp.ndarray,
+    wave_speed: float | jnp.ndarray,
     *,
     benchmark: DriftWaveBenchmark,
-) -> np.ndarray:
+) -> jnp.ndarray:
     left_cell, right_cell = _mc_field_edges(field)
     wave = _broadcast_wave_speed(wave_speed, field)
-    amax_right = np.maximum(wave, np.roll(wave, shift=-1, axis=0))
-    amax_left = np.maximum(wave, np.roll(wave, shift=1, axis=0))
-    midpoint_right = 0.5 * (np.asarray(field, dtype=np.float64) + np.roll(field, shift=-1, axis=0))
-    midpoint_left = 0.5 * (np.asarray(field, dtype=np.float64) + np.roll(field, shift=1, axis=0))
+    amax_right = jnp.maximum(wave, jnp.roll(wave, shift=-1, axis=0))
+    amax_left = jnp.maximum(wave, jnp.roll(wave, shift=1, axis=0))
+    midpoint_right = 0.5 * (jnp.asarray(field, dtype=jnp.float64) + jnp.roll(field, shift=-1, axis=0))
+    midpoint_left = 0.5 * (jnp.asarray(field, dtype=jnp.float64) + jnp.roll(field, shift=1, axis=0))
     flux_right = amax_right * (right_cell - midpoint_right)
     flux_left = -amax_left * (left_cell - midpoint_left)
     return _scatter_face_divergence(flux_right, flux_left, benchmark=benchmark)
 
 
 def _div_par_fvv_periodic(
-    density: np.ndarray,
-    velocity: np.ndarray,
-    wave_speed: float | np.ndarray,
+    density: jnp.ndarray,
+    velocity: jnp.ndarray,
+    wave_speed: float | jnp.ndarray,
     *,
     benchmark: DriftWaveBenchmark,
-) -> np.ndarray:
+) -> jnp.ndarray:
     density_left_cell, density_right_cell = _mc_field_edges(density)
     velocity_left_cell, velocity_right_cell = _mc_field_edges(velocity)
     wave = _broadcast_wave_speed(wave_speed, velocity)
-    velocity_center = np.asarray(velocity, dtype=np.float64)
-    density_center = np.asarray(density, dtype=np.float64)
-    amax_right = np.maximum(
-        np.maximum(wave, np.roll(wave, shift=-1, axis=0)),
-        np.maximum(np.abs(velocity_center), np.abs(np.roll(velocity_center, shift=-1, axis=0))),
+    velocity_center = jnp.asarray(velocity, dtype=jnp.float64)
+    density_center = jnp.asarray(density, dtype=jnp.float64)
+    amax_right = jnp.maximum(
+        jnp.maximum(wave, jnp.roll(wave, shift=-1, axis=0)),
+        jnp.maximum(jnp.abs(velocity_center), jnp.abs(jnp.roll(velocity_center, shift=-1, axis=0))),
     )
-    amax_left = np.maximum(
-        np.maximum(wave, np.roll(wave, shift=1, axis=0)),
-        np.maximum(np.abs(velocity_center), np.abs(np.roll(velocity_center, shift=1, axis=0))),
+    amax_left = jnp.maximum(
+        jnp.maximum(wave, jnp.roll(wave, shift=1, axis=0)),
+        jnp.maximum(jnp.abs(velocity_center), jnp.abs(jnp.roll(velocity_center, shift=1, axis=0))),
     )
-    velocity_mid_right = 0.5 * (velocity_center + np.roll(velocity_center, shift=-1, axis=0))
-    velocity_mid_left = 0.5 * (velocity_center + np.roll(velocity_center, shift=1, axis=0))
-    density_mid_right = 0.5 * (density_center + np.roll(density_center, shift=-1, axis=0))
-    density_mid_left = 0.5 * (density_center + np.roll(density_center, shift=1, axis=0))
+    velocity_mid_right = 0.5 * (velocity_center + jnp.roll(velocity_center, shift=-1, axis=0))
+    velocity_mid_left = 0.5 * (velocity_center + jnp.roll(velocity_center, shift=1, axis=0))
+    density_mid_right = 0.5 * (density_center + jnp.roll(density_center, shift=-1, axis=0))
+    density_mid_left = 0.5 * (density_center + jnp.roll(density_center, shift=1, axis=0))
     flux_right = density_right_cell * velocity_right_cell * velocity_right_cell + amax_right * density_mid_right * (
         velocity_right_cell - velocity_mid_right
     )
@@ -785,32 +785,32 @@ def _div_par_fvv_periodic(
     return _scatter_face_divergence(flux_right, flux_left, benchmark=benchmark)
 
 
-def _mc_field_edges(field: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    center = np.asarray(field, dtype=np.float64)
-    minus = np.roll(center, shift=1, axis=0)
-    plus = np.roll(center, shift=-1, axis=0)
+def _mc_field_edges(field: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    center = jnp.asarray(field, dtype=jnp.float64)
+    minus = jnp.roll(center, shift=1, axis=0)
+    plus = jnp.roll(center, shift=-1, axis=0)
     slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
     return center - 0.5 * slope, center + 0.5 * slope
 
 
-def _broadcast_wave_speed(wave_speed: float | np.ndarray, field: np.ndarray) -> np.ndarray:
-    wave = np.asarray(wave_speed, dtype=np.float64)
+def _broadcast_wave_speed(wave_speed: float | jnp.ndarray, field: jnp.ndarray) -> jnp.ndarray:
+    wave = jnp.asarray(wave_speed, dtype=jnp.float64)
     if wave.ndim == 0:
-        wave = np.full_like(field, float(wave), dtype=np.float64)
+        wave = jnp.full_like(field, float(wave), dtype=jnp.float64)
     return wave
 
 
 def _scatter_face_divergence(
-    flux_right: np.ndarray,
-    flux_left: np.ndarray,
+    flux_right: jnp.ndarray,
+    flux_left: jnp.ndarray,
     *,
     benchmark: DriftWaveBenchmark,
-) -> np.ndarray:
-    common_right = (benchmark.J + np.roll(benchmark.J, shift=-1, axis=0)) / (
-        np.sqrt(benchmark.g22) + np.sqrt(np.roll(benchmark.g22, shift=-1, axis=0))
+) -> jnp.ndarray:
+    common_right = (benchmark.J + jnp.roll(benchmark.J, shift=-1, axis=0)) / (
+        jnp.sqrt(benchmark.g22) + jnp.sqrt(jnp.roll(benchmark.g22, shift=-1, axis=0))
     )
-    common_left = (benchmark.J + np.roll(benchmark.J, shift=1, axis=0)) / (
-        np.sqrt(benchmark.g22) + np.sqrt(np.roll(benchmark.g22, shift=1, axis=0))
+    common_left = (benchmark.J + jnp.roll(benchmark.J, shift=1, axis=0)) / (
+        jnp.sqrt(benchmark.g22) + jnp.sqrt(jnp.roll(benchmark.g22, shift=1, axis=0))
     )
     result_right = benchmark.rho_s0 * flux_right * common_right / (benchmark.dy * benchmark.J)
     result_left = benchmark.rho_s0 * flux_left * common_left / (benchmark.dy * benchmark.J)
