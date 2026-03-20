@@ -277,6 +277,25 @@ Current Step 1 status:
 - differentiability and performance smoke now explicitly cover that inversion backbone through JIT/`grad` checks on the shared solver, vorticity potential solve, and blob RHS;
 - the remaining Step 1 work is the common elliptic/inversion layer and broad reuse of the shared implicit substrate outside the neutral branch.
 
+### Step 1A. Performance Hardening Before Step 2
+
+Goal:
+
+- remove avoidable execution overhead from the stabilized Step 1 backbone without changing numerical behavior
+- ensure repeated native runs are practical enough to support the much broader Step 2 parity campaign
+
+Scope:
+
+- keep the hot operator paths vectorized and JAX-native where the current branches already allow it
+- enable persistent compilation reuse for CLI and scripted runs so repeated process launches do not pay the full compilation cost each time
+- record both cold and warm timings for representative one-step cases and separate process/setup overhead from warm kernel throughput
+
+Exit criteria:
+
+- repeated native CLI runs materially improve after the first compile on the same machine
+- performance smoke coverage exists for both the hot kernels and the repeated entrypoint workflow
+- no parity baselines or differentiability tests regress while applying these runtime changes
+
 ### Step 2. Land the Full Open-Field Plasma + Neutral + Recycling Stack
 
 Goal:
