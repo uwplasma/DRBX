@@ -83,6 +83,7 @@ The first parity ladder is recorded in [references/reference_case_ladder.toml](/
 The next queued staged baselines are now committed as well:
 
 - `neutral_mixed_rhs`, `neutral_mixed_one_step`, and `neutral_mixed_short_window`, with corrected `h`-species compare variables and an explicit `output_ddt` RHS baseline;
+- staged one-step open-field recycling baselines for [recycling_1d_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_1d_one_step.json) and [recycling_dthe_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_dthe_one_step.json), so Step 2 now has low-iteration sheath/recycling targets for both the single-species and multi-species divertor workflows before any native recycling runner is exposed;
 - `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the upcoming sheath-connected blob work starts from stored low-iteration targets instead of ad hoc runs.
 - `jax-drb validate-reference-baselines`, which re-runs committed reference cases and compares the live summaries to the stored baseline JSON files as a smoke-validation step.
 
