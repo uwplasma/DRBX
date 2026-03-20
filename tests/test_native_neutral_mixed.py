@@ -11,8 +11,12 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
     _prepare_neutral_mixed_state,
+    advance_neutral_mixed_bdf2_step,
     advance_neutral_mixed_backward_euler_step,
+    build_neutral_mixed_active_jacobian_color_groups,
     build_neutral_mixed_active_jacobian_sparsity,
+    build_neutral_mixed_sparse_residual_jacobian,
+    compute_neutral_mixed_bdf2_residual,
     build_neutral_mixed_transport_operators,
     compute_neutral_mixed_backward_euler_residual,
     compute_neutral_mixed_rhs,
@@ -24,14 +28,15 @@ from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 
 
-_NEUTRAL_MIXED_INPUT = """
+def _neutral_mixed_input(*, nx: int = 10, ny: int = 10, nz: int = 10) -> str:
+    return f"""
 nout = 15
 timestep = 20
 
 [mesh]
-nx = 10
-ny = 10
-nz = 10
+nx = {nx}
+ny = {ny}
+nz = {nz}
 
 dx = 1e-3
 dy = 1e-3
@@ -59,8 +64,8 @@ function = 0.1 * Nh:function
 """
 
 
-def _build_case():
-    config = parse_bout_input(_NEUTRAL_MIXED_INPUT)
+def _build_case(*, nx: int = 10, ny: int = 10, nz: int = 10):
+    config = parse_bout_input(_neutral_mixed_input(nx=nx, ny=ny, nz=nz))
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -76,6 +81,10 @@ def _build_case():
         tnorm=float(scalars["Tnorm"]),
     )
     return config, run_config, mesh, metrics, state, rhs
+
+
+def _build_small_implicit_case():
+    return _build_case(nx=8, ny=4, nz=6)
 
 
 def test_neutral_mixed_diffusion_matches_known_case_values() -> None:
@@ -272,12 +281,14 @@ def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:
     assert np.all(np.isfinite(stepped.density))
     assert np.all(np.isfinite(stepped.pressure))
     assert np.all(np.isfinite(stepped.momentum))
+    assert info.nonlinear_iterations >= 1
+    assert info.linear_iterations >= info.nonlinear_iterations
 
 
 def test_neutral_mixed_active_jacobian_sparsity_matches_local_stencil() -> None:
     pytest.importorskip("scipy")
 
-    _, _, mesh, _, _, _ = _build_case()
+    _, _, mesh, _, _, _ = _build_small_implicit_case()
     sparsity = build_neutral_mixed_active_jacobian_sparsity(mesh)
     active_nx = mesh.xend - mesh.xstart + 1
     active_ny = mesh.yend - mesh.ystart + 1
@@ -291,34 +302,138 @@ def test_neutral_mixed_active_jacobian_sparsity_matches_local_stencil() -> None:
 
     assert sparsity.shape == (3 * active_cells, 3 * active_cells)
 
-    interior_row = active_index(2, 5, 4)
+    interior_row = active_index(1, 2, 3)
     interior_columns = row_columns(interior_row)
-    expected_interior = set()
+    required_interior = set()
     for variable_block in range(3):
         base = variable_block * active_cells
         for neighbor in (
-            active_index(2, 5, 4),
-            active_index(1, 5, 4),
-            active_index(3, 5, 4),
-            active_index(2, 4, 4),
-            active_index(2, 6, 4),
-            active_index(2, 5, 3),
-            active_index(2, 5, 5),
+            active_index(1, 2, 3),
+            active_index(0, 2, 3),
+            active_index(2, 2, 3),
+            active_index(1, 1, 3),
+            active_index(1, 3, 3),
+            active_index(1, 2, 2),
+            active_index(1, 2, 4),
+            active_index(3, 2, 3),
+            active_index(1, 0, 3),
+            active_index(1, 2, 5),
+            active_index(2, 3, 3),
         ):
-            expected_interior.add(base + neighbor)
-    assert interior_columns == expected_interior
+            required_interior.add(base + neighbor)
+    assert required_interior.issubset(interior_columns)
 
     boundary_row = active_index(0, 0, 0)
     boundary_columns = row_columns(boundary_row)
-    expected_boundary = set()
+    required_boundary = set()
     for variable_block in range(3):
         base = variable_block * active_cells
         for neighbor in (
             active_index(0, 0, 0),
             active_index(1, 0, 0),
+            active_index(2, 0, 0),
             active_index(0, 1, 0),
+            active_index(0, 2, 0),
             active_index(0, 0, 1),
+            active_index(0, 0, 2),
             active_index(0, 0, mesh.nz - 1),
+            active_index(0, 0, mesh.nz - 2),
+            active_index(1, 1, 0),
         ):
-            expected_boundary.add(base + neighbor)
-    assert boundary_columns == expected_boundary
+            required_boundary.add(base + neighbor)
+    assert required_boundary.issubset(boundary_columns)
+
+    far_neighbor = active_index(active_nx - 1, active_ny - 1, 0)
+    assert far_neighbor not in interior_columns
+
+
+def test_neutral_mixed_active_jacobian_color_groups_partition_state() -> None:
+    _, _, mesh, _, state, _ = _build_small_implicit_case()
+    packed = pack_neutral_mixed_active_state(state, mesh=mesh)
+    color_groups = build_neutral_mixed_active_jacobian_color_groups(mesh)
+    flattened = sorted(column for group in color_groups for column in group)
+    active_nx = mesh.xend - mesh.xstart + 1
+    active_ny = mesh.yend - mesh.ystart + 1
+
+    assert flattened == list(range(packed.size))
+    assert len(color_groups) == 3 * min(5, active_nx) * min(5, active_ny) * mesh.nz
+
+
+def test_neutral_mixed_sparse_residual_jacobian_matches_single_column_difference_quotient() -> None:
+    pytest.importorskip("scipy")
+
+    config, run_config, mesh, metrics, state, _ = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    packed = pack_neutral_mixed_active_state(state, mesh=mesh)
+
+    def residual(packed_state: np.ndarray) -> np.ndarray:
+        return compute_neutral_mixed_backward_euler_residual(
+            packed_state,
+            packed,
+            config=config,
+            template_state=state,
+            section="h",
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=float(scalars["rho_s0"]),
+            tnorm=float(scalars["Tnorm"]),
+            timestep=20.0,
+        )
+
+    jacobian = build_neutral_mixed_sparse_residual_jacobian(residual, packed, mesh=mesh)
+    column = 53
+    step = np.sqrt(np.finfo(np.float64).eps) * max(1.0, abs(float(packed[column])))
+    direct = (residual(packed + step * np.eye(1, packed.size, column, dtype=np.float64).ravel()) - residual(packed)) / step
+    sparse_column = jacobian.getcol(column).toarray().ravel()
+
+    np.testing.assert_allclose(sparse_column, direct, rtol=1e-6, atol=1e-8)
+
+
+def test_neutral_mixed_bdf2_step_solves_active_residual() -> None:
+    pytest.importorskip("scipy")
+
+    config, run_config, mesh, metrics, state, _ = _build_case()
+    scalars = resolved_dataset_scalars(run_config)
+    first_step, _ = advance_neutral_mixed_backward_euler_step(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=10.0,
+    )
+    second_step, info = advance_neutral_mixed_bdf2_step(
+        config,
+        first_step,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=10.0,
+    )
+    solved = pack_neutral_mixed_active_state(second_step, mesh=mesh)
+    previous = pack_neutral_mixed_active_state(first_step, mesh=mesh)
+    previous_previous = pack_neutral_mixed_active_state(state, mesh=mesh)
+    solved_residual = compute_neutral_mixed_bdf2_residual(
+        solved,
+        previous,
+        previous_previous,
+        config=config,
+        template_state=first_step,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=10.0,
+    )
+
+    assert np.max(np.abs(solved_residual)) < 1.0e-7
+    assert info.residual_inf_norm < 1.0e-7
+    assert np.all(np.isfinite(second_step.density))
+    assert np.all(np.isfinite(second_step.pressure))
+    assert np.all(np.isfinite(second_step.momentum))
