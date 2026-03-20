@@ -68,6 +68,8 @@ For performance checks, Step 1 now distinguishes between:
 
 Both matter, but only the second number should be used to judge whether a shared JAX operator backend is fundamentally too slow relative to the private reference.
 
+The CLI entrypoint now also enables a persistent JAX compilation cache by default, so repeated `jax-drb run-case ...` invocations on the same machine can reuse previously compiled kernels. That is part of Step 1 performance hardening and should be kept enabled for parity campaigns unless explicitly debugging compilation behavior. On the current machine, representative repeated runs improved from `8.968s` to `3.428s` for `vorticity_one_step` and from `3.541s` to `1.575s` for `blob2d_one_step` when reusing the same cache directory across processes.
+
 For the current one-step diffusion milestone, summary comparison should use a modest scalar tolerance, for example:
 
 ```bash
