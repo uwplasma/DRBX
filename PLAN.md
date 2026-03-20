@@ -331,6 +331,10 @@ Exit criteria:
 - all representative 1D divertor/recycling workflows run from CLI and Python
 - 1D parity is complete enough that no later 2D/3D work needs to backfill 1D source, boundary, or diagnostic logic
 
+Current Step 2 note:
+
+- the neutral RHS branch now includes the traced soft-floor and free-extrapolation wall-density rules, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
+
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
 
 Goal:

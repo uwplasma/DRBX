@@ -145,6 +145,92 @@ def advance_neutral_mixed_history(
     )
 
 
+def advance_neutral_mixed_implicit_history(
+    config: BoutConfig,
+    *,
+    section: str,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    meters_scale: float,
+    tnorm: float,
+    timestep: float,
+    steps: int,
+    solver_mode: str = "sparse",
+    residual_tolerance: float = 1.0e-8,
+    step_tolerance: float = 1.0e-10,
+    max_nonlinear_iterations: int = 8,
+    linear_restart: int = 20,
+    linear_maxiter: int = 200,
+    linear_rtol: float = 1.0e-8,
+) -> NeutralMixedHistoryResult:
+    if steps < 0:
+        raise ValueError("steps must be non-negative")
+
+    state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
+    density_history = [np.asarray(state.density, dtype=np.float64)]
+    pressure_history = [np.asarray(state.pressure, dtype=np.float64)]
+    momentum_history = [np.asarray(state.momentum, dtype=np.float64)]
+
+    if steps == 0:
+        return NeutralMixedHistoryResult(
+            density_history=np.stack(density_history, axis=0),
+            pressure_history=np.stack(pressure_history, axis=0),
+            momentum_history=np.stack(momentum_history, axis=0),
+        )
+
+    previous_state = state
+    current_state, _ = advance_neutral_mixed_backward_euler_step(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=meters_scale,
+        tnorm=tnorm,
+        timestep=timestep,
+        solver_mode=solver_mode,
+        residual_tolerance=residual_tolerance,
+        step_tolerance=step_tolerance,
+        max_nonlinear_iterations=max_nonlinear_iterations,
+        linear_restart=linear_restart,
+        linear_maxiter=linear_maxiter,
+        linear_rtol=linear_rtol,
+    )
+    density_history.append(np.asarray(current_state.density, dtype=np.float64))
+    pressure_history.append(np.asarray(current_state.pressure, dtype=np.float64))
+    momentum_history.append(np.asarray(current_state.momentum, dtype=np.float64))
+
+    for _ in range(1, steps):
+        next_state, _ = advance_neutral_mixed_bdf2_step(
+            config,
+            current_state,
+            previous_state,
+            section=section,
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=meters_scale,
+            tnorm=tnorm,
+            timestep=timestep,
+            solver_mode=solver_mode,
+            residual_tolerance=residual_tolerance,
+            step_tolerance=step_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            linear_restart=linear_restart,
+            linear_maxiter=linear_maxiter,
+            linear_rtol=linear_rtol,
+        )
+        previous_state, current_state = current_state, next_state
+        density_history.append(np.asarray(current_state.density, dtype=np.float64))
+        pressure_history.append(np.asarray(current_state.pressure, dtype=np.float64))
+        momentum_history.append(np.asarray(current_state.momentum, dtype=np.float64))
+
+    return NeutralMixedHistoryResult(
+        density_history=np.stack(density_history, axis=0),
+        pressure_history=np.stack(pressure_history, axis=0),
+        momentum_history=np.stack(momentum_history, axis=0),
+    )
+
+
 def pack_neutral_mixed_active_state(
     state: NeutralMixedState,
     *,
@@ -557,8 +643,7 @@ def compute_neutral_mixed_rhs(
 
 
 def compute_neutral_mixed_diffusion(
-    density: np.ndarray,
-    pressure: np.ndarray,
+    temperature_limited: np.ndarray,
     log_pressure: np.ndarray,
     *,
     mesh: StructuredMesh,
@@ -568,8 +653,7 @@ def compute_neutral_mixed_diffusion(
     flux_limit: float,
     diffusion_limit: float = -1.0,
 ) -> np.ndarray:
-    temperature = pressure / density
-    thermal_speed = np.sqrt(temperature / atomic_mass)
+    thermal_speed = np.sqrt(np.asarray(temperature_limited, dtype=np.float64) / atomic_mass)
     neutral_lmax = 0.1 / meters_scale
     raw_diffusion = thermal_speed * neutral_lmax
 
@@ -674,16 +758,15 @@ def _prepare_neutral_mixed_state(
     pressure = _apply_pressure_boundaries(np.maximum(np.asarray(state.pressure, dtype=np.float64), 0.0), mesh)
     momentum = _apply_momentum_boundaries(np.asarray(state.momentum, dtype=np.float64), mesh)
 
-    density_limited = np.maximum(density, density_floor)
+    density_limited = _apply_density_boundaries(_soft_floor(density, density_floor), mesh)
     temperature = _apply_temperature_boundaries(pressure / density_limited, mesh)
-    temperature_limited = np.maximum(temperature, temperature_floor)
-    pressure_limited = _apply_pressure_boundaries(np.maximum(pressure, pressure_floor), mesh)
+    temperature_limited = _apply_temperature_boundaries(_soft_floor(temperature, temperature_floor), mesh)
+    pressure_limited = _apply_pressure_boundaries(_soft_floor(pressure, pressure_floor), mesh)
     log_pressure = _apply_pressure_boundaries(np.log(pressure_limited), mesh)
     velocity = _apply_velocity_boundaries(momentum / (atomic_mass * density_limited), mesh)
 
     diffusion = compute_neutral_mixed_diffusion(
-        density_limited,
-        pressure_limited,
+        temperature_limited,
         log_pressure,
         mesh=mesh,
         metrics=metrics,
@@ -915,6 +998,13 @@ def _apply_zero_gradient_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -
 
 def _apply_density_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
     return _apply_zero_gradient_y_boundaries(field, mesh)
+
+
+def _soft_floor(field: np.ndarray, minimum: float) -> np.ndarray:
+    if minimum <= 0.0:
+        raise ValueError("soft floor minimum must be positive")
+    values = np.maximum(np.asarray(field, dtype=np.float64), 0.0)
+    return values + float(minimum) * np.exp(-values / float(minimum))
 
 
 def _apply_antisymmetric_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
