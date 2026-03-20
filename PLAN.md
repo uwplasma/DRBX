@@ -333,7 +333,8 @@ Exit criteria:
 
 Current Step 2 note:
 
-- the neutral RHS branch now includes the traced soft-floor and free-extrapolation wall-density rules, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
+- the neutral RHS branch now includes the traced soft-floor rule, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
+- the staged comparison ladder now includes first-output baselines for `1D-recycling` and `1D-recycling-dthe`, so the open-field sheath/recycling implementation can be driven against low-iteration reference targets rather than only the existing long-run case
 
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
 
