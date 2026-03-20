@@ -10,15 +10,12 @@ import jax.numpy as jnp
 import numpy as np
 from jax.experimental.ode import odeint
 
+from ..solver import FourierHelmholtzOperator, build_fourier_helmholtz_operator, solve_fourier_helmholtz
 from .mesh import StructuredMesh, apply_zero_dirichlet_x_guards, communicate_y_guards
 from .metrics import StructuredMetrics
 
 
-@dataclass(frozen=True)
-class VorticityOperator:
-    mode_matrices: tuple[jnp.ndarray, ...]
-    rhs_scale: jnp.ndarray
-    zlength: float
+VorticityOperator = FourierHelmholtzOperator
 
 
 @dataclass(frozen=True)
@@ -54,28 +51,15 @@ def build_vorticity_operator(
     zlength = float(dz[0]) * float(mesh.nz)
     x_coef = g11 / (dx * dx)
 
-    matrices: list[jnp.ndarray] = []
-    for kz in range(mesh.nz // 2 + 1):
-        kwave = (2.0 * jnp.pi * kz) / zlength
-        diagonal = -2.0 * x_coef - (kwave * kwave) * g33
-        matrix = jnp.zeros((x_coef.shape[0], x_coef.shape[0]), dtype=jnp.complex128)
-        matrix = matrix.at[jnp.arange(x_coef.shape[0]), jnp.arange(x_coef.shape[0])].set(
-            diagonal.astype(jnp.complex128)
-        )
-        for row in range(x_coef.shape[0]):
-            coef = jnp.asarray(x_coef[row], dtype=jnp.complex128)
-            if row > 0:
-                matrix = matrix.at[row, row - 1].set(coef)
-            if row < x_coef.shape[0] - 1:
-                matrix = matrix.at[row, row + 1].set(coef)
-        matrix = matrix.at[0, 0].add(-jnp.asarray(x_coef[0], dtype=jnp.complex128))
-        matrix = matrix.at[-1, -1].add(-jnp.asarray(x_coef[-1], dtype=jnp.complex128))
-        matrices.append(matrix)
-
     return VorticityOperator(
-        mode_matrices=tuple(matrices),
-        rhs_scale=rhs_scale,
-        zlength=zlength,
+        **build_fourier_helmholtz_operator(
+            dx=dx,
+            dz=dz,
+            g11=g11,
+            g33=g33,
+            rhs_scale=rhs_scale,
+            nz=mesh.nz,
+        ).__dict__,
     )
 
 
@@ -95,14 +79,7 @@ def solve_potential(
     guarded = apply_vorticity_boundaries(vorticity, mesh)
     y_index = mesh.ystart
     interior = jnp.asarray(guarded[mesh.xstart : mesh.xend + 1, y_index, :], dtype=jnp.float64)
-    rhs_hat = jnp.fft.rfft(interior * operator.rhs_scale[:, None], axis=-1)
-
-    interior_modes: list[jnp.ndarray] = []
-    for kz, matrix in enumerate(operator.mode_matrices):
-        interior_modes.append(jnp.linalg.solve(matrix, rhs_hat[:, kz]))
-
-    interior_hat = jnp.stack(interior_modes, axis=-1)
-    interior_phi = jnp.fft.irfft(interior_hat, n=mesh.nz, axis=-1)
+    interior_phi = solve_fourier_helmholtz(interior, operator=operator)
 
     potential = jnp.zeros_like(guarded, dtype=jnp.float64)
     potential = potential.at[mesh.xstart : mesh.xend + 1, y_index, :].set(interior_phi)
