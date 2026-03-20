@@ -722,6 +722,7 @@ JAX solver implementation order:
    - explicit Euler for debugging only
    - SSP-RK2 or SSP-RK3 for operator/physics smoke tests
    - one-step backward Euler residual form for implicit debugging
+   - keep a validated matrix-free implicit fallback while the sparse direct path is being hardened, so transient work can keep moving without masking the sparse-solver development state
 3. production steady-state path:
    - backward Euler + Newton/GMRES, matching the role of reference `beuler`
 4. production transient path:
@@ -729,6 +730,7 @@ JAX solver implementation order:
    - for the neutral branch, prioritize a BDF-like Newton/GMRES path over any tuned explicit or IMEX workaround because the live reference case already identified the exact solver family in use
    - use the active-domain Jacobian sparsity implied by the local neutral `x/y/z` stencil and cross-field coupling, so sparse implicit prototypes preserve the same coupling pattern as the reference operators
    - direct low-level SciPy BDF probes with that sparsity are still too slow for production parity on the staged neutral case, so the next transient implementation should move toward a more direct CVODE-like sparse implicit path rather than a generic `solve_ivp` wrapper
+   - current in-tree status: sparse grouped difference-quotient Jacobians, sparse Newton/GMRES substrate, and BDF2 residuals are implemented for the neutral branch, but the default validated step path still uses the matrix-free nonlinear solve because sparse globalization is not yet parity-clean
    - `diffrax` may be used only if it gives a clean mapping to the traced reference behavior; otherwise implement a custom JAX adaptive path
 
 Solver parity rules:
