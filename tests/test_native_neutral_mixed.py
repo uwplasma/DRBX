@@ -285,6 +285,51 @@ def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:
     assert info.linear_iterations >= info.nonlinear_iterations
 
 
+def test_neutral_mixed_sparse_backward_euler_step_solves_active_residual() -> None:
+    pytest.importorskip("scipy")
+
+    config, run_config, mesh, metrics, state, _ = _build_small_implicit_case()
+    scalars = resolved_dataset_scalars(run_config)
+    previous = pack_neutral_mixed_active_state(state, mesh=mesh)
+
+    stepped, info = advance_neutral_mixed_backward_euler_step(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=5.0,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-8,
+        step_tolerance=1.0e-10,
+        max_nonlinear_iterations=8,
+        linear_restart=10,
+        linear_maxiter=60,
+        linear_rtol=1.0e-9,
+    )
+    solved = pack_neutral_mixed_active_state(stepped, mesh=mesh)
+    solved_residual = compute_neutral_mixed_backward_euler_residual(
+        solved,
+        previous,
+        config=config,
+        template_state=state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=5.0,
+    )
+
+    assert info.residual_inf_norm < 1.0e-7
+    assert np.max(np.abs(solved_residual)) < 1.0e-7
+    assert np.all(np.isfinite(stepped.density))
+    assert np.all(np.isfinite(stepped.pressure))
+    assert np.all(np.isfinite(stepped.momentum))
+
+
 def test_neutral_mixed_active_jacobian_sparsity_matches_local_stencil() -> None:
     pytest.importorskip("scipy")
 

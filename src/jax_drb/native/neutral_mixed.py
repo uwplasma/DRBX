@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 from jax import config as jax_config
 
@@ -9,6 +10,19 @@ jax_config.update("jax_enable_x64", True)
 import numpy as np
 
 from ..config.boutinp import BoutConfig
+from ..solver import (
+    ImplicitStepInfo,
+    active_region_from_slices,
+    backward_euler_residual,
+    bdf2_residual,
+    build_locality_sparsity,
+    build_modulo_color_groups,
+    build_sparse_difference_quotient_jacobian,
+    pack_active_fields,
+    solve_matrix_free_newton_system,
+    solve_sparse_newton_system,
+    unpack_active_fields,
+)
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
@@ -136,13 +150,9 @@ def pack_neutral_mixed_active_state(
     *,
     mesh: StructuredMesh,
 ) -> np.ndarray:
-    active = _active_domain_slices(mesh)
-    return np.concatenate(
-        [
-            np.asarray(state.density[active], dtype=np.float64).ravel(),
-            np.asarray(state.pressure[active], dtype=np.float64).ravel(),
-            np.asarray(state.momentum[active], dtype=np.float64).ravel(),
-        ]
+    return pack_active_fields(
+        (state.density, state.pressure, state.momentum),
+        active_slices=_active_domain_slices(mesh),
     )
 
 
@@ -152,15 +162,11 @@ def unpack_neutral_mixed_active_state(
     template: NeutralMixedState,
     mesh: StructuredMesh,
 ) -> NeutralMixedState:
-    active = _active_domain_slices(mesh)
-    active_shape = template.density[active].shape
-    active_size = int(np.prod(active_shape))
-    density = np.array(template.density, copy=True)
-    pressure = np.array(template.pressure, copy=True)
-    momentum = np.array(template.momentum, copy=True)
-    density[active] = np.asarray(packed[:active_size], dtype=np.float64).reshape(active_shape)
-    pressure[active] = np.asarray(packed[active_size : 2 * active_size], dtype=np.float64).reshape(active_shape)
-    momentum[active] = np.asarray(packed[2 * active_size :], dtype=np.float64).reshape(active_shape)
+    density, pressure, momentum = unpack_active_fields(
+        packed,
+        templates=(template.density, template.pressure, template.momentum),
+        active_slices=_active_domain_slices(mesh),
+    )
     return _sanitize_neutral_state(
         NeutralMixedState(
             density=density,
@@ -201,68 +207,13 @@ def compute_neutral_mixed_active_rhs(
 
 
 def build_neutral_mixed_active_jacobian_sparsity(mesh: StructuredMesh):
-    try:
-        from scipy.sparse import coo_matrix
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
-        raise ImportError("Neutral Jacobian sparsity construction requires scipy.") from exc
-
-    active_nx = mesh.xend - mesh.xstart + 1
-    active_ny = mesh.yend - mesh.ystart + 1
-    active_cells = active_nx * active_ny * mesh.nz
-    total_size = 3 * active_cells
-
-    def active_index(ix: int, iy: int, iz: int) -> int:
-        return ((ix * active_ny) + iy) * mesh.nz + iz
-
-    row_indices: list[int] = []
-    col_indices: list[int] = []
-    for equation_block in range(3):
-        row_offset = equation_block * active_cells
-        for ix in range(active_nx):
-            for iy in range(active_ny):
-                for iz in range(mesh.nz):
-                    row = row_offset + active_index(ix, iy, iz)
-                    neighbors: set[int] = set()
-                    for dx in range(-2, 3):
-                        nix = ix + dx
-                        if not (0 <= nix < active_nx):
-                            continue
-                        for dy in range(-2, 3):
-                            niy = iy + dy
-                            if not (0 <= niy < active_ny):
-                                continue
-                            for dz in range(-2, 3):
-                                niz = (iz + dz) % mesh.nz
-                                neighbors.add(active_index(nix, niy, niz))
-                    for variable_block in range(3):
-                        col_offset = variable_block * active_cells
-                        for neighbor in neighbors:
-                            row_indices.append(row)
-                            col_indices.append(col_offset + neighbor)
-
-    data = np.ones(len(row_indices), dtype=bool)
-    return coo_matrix((data, (row_indices, col_indices)), shape=(total_size, total_size)).tocsr()
+    return _neutral_mixed_jacobian_sparsity(_active_domain_shape(mesh))
 
 
 def build_neutral_mixed_active_jacobian_color_groups(
     mesh: StructuredMesh,
 ) -> tuple[tuple[int, ...], ...]:
-    active_nx = mesh.xend - mesh.xstart + 1
-    active_ny = mesh.yend - mesh.ystart + 1
-    active_cells = active_nx * active_ny * mesh.nz
-
-    def active_index(ix: int, iy: int, iz: int) -> int:
-        return ((ix * active_ny) + iy) * mesh.nz + iz
-
-    groups: dict[tuple[int, int, int, int], list[int]] = {}
-    for variable_block in range(3):
-        block_offset = variable_block * active_cells
-        for ix in range(active_nx):
-            for iy in range(active_ny):
-                for iz in range(mesh.nz):
-                    color = (variable_block, ix % 5, iy % 5, iz)
-                    groups.setdefault(color, []).append(block_offset + active_index(ix, iy, iz))
-    return tuple(tuple(groups[key]) for key in sorted(groups))
+    return _neutral_mixed_jacobian_color_groups(_active_domain_shape(mesh))
 
 
 def build_neutral_mixed_sparse_residual_jacobian(
@@ -274,44 +225,17 @@ def build_neutral_mixed_sparse_residual_jacobian(
     sparsity=None,
     color_groups: tuple[tuple[int, ...], ...] | None = None,
 ):
-    try:
-        from scipy.sparse import coo_matrix
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
-        raise ImportError("Neutral sparse Jacobian construction requires scipy.") from exc
-
-    state = np.asarray(packed_state, dtype=np.float64)
-    residual0 = (
-        np.asarray(base_residual, dtype=np.float64)
-        if base_residual is not None
-        else np.asarray(residual(state), dtype=np.float64)
-    )
     if sparsity is None:
         sparsity = build_neutral_mixed_active_jacobian_sparsity(mesh)
     if color_groups is None:
         color_groups = build_neutral_mixed_active_jacobian_color_groups(mesh)
-    sparsity_csc = sparsity.tocsc()
-
-    row_indices: list[int] = []
-    col_indices: list[int] = []
-    data: list[float] = []
-
-    for group in color_groups:
-        perturbation = np.zeros_like(state)
-        group_steps: list[tuple[int, float]] = []
-        for column in group:
-            step = _difference_quotient_step_size(state[column])
-            perturbation[column] = step
-            group_steps.append((column, step))
-
-        perturbed_residual = np.asarray(residual(state + perturbation), dtype=np.float64)
-        delta = perturbed_residual - residual0
-        for column, step in group_steps:
-            rows = sparsity_csc.indices[sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]]
-            row_indices.extend(rows.tolist())
-            col_indices.extend([column] * len(rows))
-            data.extend((delta[rows] / step).tolist())
-
-    return coo_matrix((data, (row_indices, col_indices)), shape=sparsity.shape).tocsr()
+    return build_sparse_difference_quotient_jacobian(
+        residual,
+        packed_state,
+        base_residual=base_residual,
+        sparsity=sparsity,
+        color_groups=color_groups,
+    )
 
 
 def compute_neutral_mixed_backward_euler_residual(
@@ -341,7 +265,12 @@ def compute_neutral_mixed_backward_euler_residual(
         meters_scale=meters_scale,
         tnorm=tnorm,
     )
-    return np.asarray(packed_state, dtype=np.float64) - np.asarray(previous_packed_state, dtype=np.float64) - float(timestep) * rhs
+    return backward_euler_residual(
+        packed_state,
+        previous_packed_state,
+        rhs,
+        timestep=timestep,
+    )
 
 
 def compute_neutral_mixed_bdf2_residual(
@@ -372,11 +301,12 @@ def compute_neutral_mixed_bdf2_residual(
         meters_scale=meters_scale,
         tnorm=tnorm,
     )
-    return (
-        np.asarray(packed_state, dtype=np.float64)
-        - (4.0 / 3.0) * np.asarray(previous_packed_state, dtype=np.float64)
-        + (1.0 / 3.0) * np.asarray(previous_previous_packed_state, dtype=np.float64)
-        - (2.0 / 3.0) * float(timestep) * rhs
+    return bdf2_residual(
+        packed_state,
+        previous_packed_state,
+        previous_previous_packed_state,
+        rhs,
+        timestep=timestep,
     )
 
 
@@ -415,10 +345,12 @@ def advance_neutral_mixed_backward_euler_step(
         )
 
     if solver_mode == "sparse":
-        solved, info = _solve_neutral_mixed_sparse_newton_system(
+        solved, info = solve_sparse_newton_system(
             residual,
             previous_packed_state,
-            mesh=mesh,
+            active_shape=_active_domain_shape(mesh),
+            sparsity=build_neutral_mixed_active_jacobian_sparsity(mesh),
+            color_groups=build_neutral_mixed_active_jacobian_color_groups(mesh),
             residual_tolerance=residual_tolerance,
             step_tolerance=step_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -427,10 +359,10 @@ def advance_neutral_mixed_backward_euler_step(
             linear_rtol=linear_rtol,
         )
     elif solver_mode == "matrix_free":
-        solved, info = _solve_neutral_mixed_matrix_free_newton_system(
+        solved, info = solve_matrix_free_newton_system(
             residual,
             previous_packed_state,
-            mesh=mesh,
+            active_shape=_active_domain_shape(mesh),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
@@ -441,7 +373,7 @@ def advance_neutral_mixed_backward_euler_step(
         template=state,
         mesh=mesh,
     )
-    return next_state, info
+    return next_state, _as_neutral_step_info(info)
 
 
 def advance_neutral_mixed_bdf2_step(
@@ -482,10 +414,12 @@ def advance_neutral_mixed_bdf2_step(
         )
 
     if solver_mode == "sparse":
-        solved, info = _solve_neutral_mixed_sparse_newton_system(
+        solved, info = solve_sparse_newton_system(
             residual,
             previous_packed_state,
-            mesh=mesh,
+            active_shape=_active_domain_shape(mesh),
+            sparsity=build_neutral_mixed_active_jacobian_sparsity(mesh),
+            color_groups=build_neutral_mixed_active_jacobian_color_groups(mesh),
             residual_tolerance=residual_tolerance,
             step_tolerance=step_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -494,10 +428,10 @@ def advance_neutral_mixed_bdf2_step(
             linear_rtol=linear_rtol,
         )
     elif solver_mode == "matrix_free":
-        solved, info = _solve_neutral_mixed_matrix_free_newton_system(
+        solved, info = solve_matrix_free_newton_system(
             residual,
             previous_packed_state,
-            mesh=mesh,
+            active_shape=_active_domain_shape(mesh),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
@@ -508,7 +442,7 @@ def advance_neutral_mixed_bdf2_step(
         template=state,
         mesh=mesh,
     )
-    return next_state, info
+    return next_state, _as_neutral_step_info(info)
 
 
 def compute_neutral_mixed_rhs(
@@ -881,131 +815,6 @@ def _add_state(state: NeutralMixedState, rhs: NeutralMixedRhsResult, *, scale: f
     )
 
 
-def _solve_neutral_mixed_sparse_newton_system(
-    residual,
-    initial_state: np.ndarray,
-    *,
-    mesh: StructuredMesh,
-    residual_tolerance: float,
-    step_tolerance: float,
-    max_nonlinear_iterations: int,
-    linear_restart: int,
-    linear_maxiter: int,
-    linear_rtol: float,
-) -> tuple[np.ndarray, NeutralMixedImplicitStepInfo]:
-    try:
-        from scipy.optimize import newton_krylov
-        from scipy.sparse.linalg import gmres, spsolve
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
-        raise ImportError("Neutral sparse implicit stepping requires scipy.") from exc
-
-    state = np.asarray(initial_state, dtype=np.float64).copy()
-    sparsity = build_neutral_mixed_active_jacobian_sparsity(mesh)
-    color_groups = build_neutral_mixed_active_jacobian_color_groups(mesh)
-    total_linear_iterations = 0
-
-    for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
-        residual_value = np.asarray(residual(state), dtype=np.float64)
-        residual_inf_norm = float(np.max(np.abs(residual_value)))
-        if residual_inf_norm < float(residual_tolerance):
-            return state, NeutralMixedImplicitStepInfo(
-                residual_inf_norm=residual_inf_norm,
-                active_shape=_active_domain_shape(mesh),
-                nonlinear_iterations=nonlinear_iteration - 1,
-                linear_iterations=total_linear_iterations,
-            )
-
-        jacobian = build_neutral_mixed_sparse_residual_jacobian(
-            residual,
-            state,
-            mesh=mesh,
-            base_residual=residual_value,
-            sparsity=sparsity,
-            color_groups=color_groups,
-        )
-        linear_iterations = 0
-
-        def callback(_residual_norm) -> None:
-            nonlocal linear_iterations
-            linear_iterations += 1
-
-        update, exit_code = gmres(
-            jacobian,
-            -residual_value,
-            restart=int(linear_restart),
-            maxiter=int(linear_maxiter),
-            rtol=float(linear_rtol),
-            atol=0.0,
-            callback=callback,
-            callback_type="pr_norm",
-        )
-        total_linear_iterations += linear_iterations
-        if exit_code != 0:
-            update = spsolve(jacobian.tocsc(), -residual_value)
-            total_linear_iterations += 1
-
-        state = state + np.asarray(update, dtype=np.float64)
-        if not np.all(np.isfinite(state)):
-            break
-        if float(np.max(np.abs(update))) < float(step_tolerance):
-            residual_value = np.asarray(residual(state), dtype=np.float64)
-            residual_inf_norm = float(np.max(np.abs(residual_value)))
-            return state, NeutralMixedImplicitStepInfo(
-                residual_inf_norm=residual_inf_norm,
-                active_shape=_active_domain_shape(mesh),
-                nonlinear_iterations=nonlinear_iteration,
-                linear_iterations=total_linear_iterations,
-            )
-
-    solved = newton_krylov(
-        residual,
-        np.asarray(initial_state, dtype=np.float64),
-        f_tol=float(residual_tolerance),
-        maxiter=max(int(max_nonlinear_iterations), 25),
-        method="lgmres",
-        verbose=0,
-    )
-    residual_value = np.asarray(residual(np.asarray(solved, dtype=np.float64)), dtype=np.float64)
-    residual_inf_norm = float(np.max(np.abs(residual_value)))
-    return np.asarray(solved, dtype=np.float64), NeutralMixedImplicitStepInfo(
-        residual_inf_norm=residual_inf_norm,
-        active_shape=_active_domain_shape(mesh),
-        nonlinear_iterations=int(max_nonlinear_iterations),
-        linear_iterations=total_linear_iterations,
-    )
-
-
-def _solve_neutral_mixed_matrix_free_newton_system(
-    residual,
-    initial_state: np.ndarray,
-    *,
-    mesh: StructuredMesh,
-    residual_tolerance: float,
-    max_nonlinear_iterations: int,
-) -> tuple[np.ndarray, NeutralMixedImplicitStepInfo]:
-    try:
-        from scipy.optimize import newton_krylov
-    except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
-        raise ImportError("Neutral matrix-free implicit stepping requires scipy.") from exc
-
-    iteration_budget = max(int(max_nonlinear_iterations), 25)
-    solved = newton_krylov(
-        residual,
-        np.asarray(initial_state, dtype=np.float64),
-        f_tol=float(residual_tolerance),
-        maxiter=iteration_budget,
-        method="lgmres",
-        verbose=0,
-    )
-    residual_value = np.asarray(residual(np.asarray(solved, dtype=np.float64)), dtype=np.float64)
-    return np.asarray(solved, dtype=np.float64), NeutralMixedImplicitStepInfo(
-        residual_inf_norm=float(np.max(np.abs(residual_value))),
-        active_shape=_active_domain_shape(mesh),
-        nonlinear_iterations=iteration_budget,
-        linear_iterations=iteration_budget,
-    )
-
-
 def _active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
     return (
         slice(mesh.xstart, mesh.xend + 1),
@@ -1015,16 +824,35 @@ def _active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
 
 
 def _active_domain_shape(mesh: StructuredMesh) -> tuple[int, int, int]:
-    return (
-        mesh.xend - mesh.xstart + 1,
-        mesh.yend - mesh.ystart + 1,
-        mesh.nz,
+    return active_region_from_slices((mesh.nx, mesh.local_ny, mesh.nz), _active_domain_slices(mesh)).shape
+
+
+def _as_neutral_step_info(info: ImplicitStepInfo) -> NeutralMixedImplicitStepInfo:
+    return NeutralMixedImplicitStepInfo(
+        residual_inf_norm=info.residual_inf_norm,
+        active_shape=tuple(int(axis) for axis in info.active_shape),
+        nonlinear_iterations=info.nonlinear_iterations,
+        linear_iterations=info.linear_iterations,
     )
 
 
-def _difference_quotient_step_size(value: float) -> float:
-    scale = max(1.0, abs(float(value)))
-    return np.sqrt(np.finfo(np.float64).eps) * scale
+@lru_cache(maxsize=None)
+def _neutral_mixed_jacobian_sparsity(active_shape: tuple[int, int, int]):
+    return build_locality_sparsity(
+        active_shape,
+        field_count=3,
+        radii=(2, 2, 2),
+        periodic_axes=(2,),
+    )
+
+
+@lru_cache(maxsize=None)
+def _neutral_mixed_jacobian_color_groups(active_shape: tuple[int, int, int]) -> tuple[tuple[int, ...], ...]:
+    return build_modulo_color_groups(
+        active_shape,
+        field_count=3,
+        color_periods=(min(5, active_shape[0]), min(5, active_shape[1]), active_shape[2]),
+    )
 
 
 def _apply_neumann_x_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:

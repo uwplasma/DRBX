@@ -95,41 +95,41 @@ The clean JAX implementation should be built around the reference execution mode
 Legacy quarantine rules:
 
 - `legacy/` remains in the repository only as an archival snapshot.
-- Nothing in the active `src/jaxdrb/` tree may import, wrap, subclass, or progressively adapt code from `legacy/`.
+- Nothing in the active `src/jax_drb/` tree may import, wrap, subclass, or progressively adapt code from `legacy/`.
 - If a useful idea or fixture exists in `legacy/`, it must be re-derived from reference or recreated cleanly in the new tree.
 - Any future deletion of `legacy/` must not change behavior of the active code, tests, docs, or benchmarks.
 
 Target package layout:
 
-- `src/jaxdrb/config/`
+- `src/jax_drb/config/`
   - `BOUT.inp` parser
   - typed runtime config
   - normalization and defaults
-- `src/jaxdrb/mesh/`
+- `src/jax_drb/mesh/`
   - grid/metric loaders
   - guard-cell and region helpers
   - field-aligned communication helpers
-- `src/jaxdrb/state/`
+- `src/jax_drb/state/`
   - immutable pytrees for fields, species state, diagnostics, restart state
-- `src/jaxdrb/components/`
+- `src/jax_drb/components/`
   - one module per reference component or tightly related component family
-- `src/jaxdrb/operators/`
+- `src/jax_drb/operators/`
   - parallel FV operators
   - ExB operators
   - perpendicular diffusion/hyper-diffusion
   - elliptic operators and solves
-- `src/jaxdrb/reactions/`
+- `src/jax_drb/reactions/`
   - reaction parser
   - ADAS/AMJUEL rate tables
   - source bookkeeping
-- `src/jaxdrb/io/`
+- `src/jax_drb/io/`
   - reference/BOUT reference import
   - restart/output writing
   - diagnostics metadata
-- `src/jaxdrb/solvers/`
+- `src/jax_drb/solver/`
   - explicit and IMEX/backward-Euler stepping
   - nonlinear/linear solve wrappers
-- `src/jaxdrb/cli.py`
+- `src/jax_drb/cli.py`
   - `run`, `restart`, `compare`, `inspect`
 - `tests/`
   - unit
@@ -248,6 +248,11 @@ Scope:
 - finish the implicit transient substrate:
   - matrix-free path retained as validated fallback
   - sparse Jacobian assembly, sparse Newton/GMRES, and BDF/BDF2 stepping hardened into a reusable backend
+- centralize that substrate in shared solver modules rather than case-local helper code:
+  - active-domain state pack/unpack
+  - finite-difference Jacobian sparsity/color grouping
+  - sparse and matrix-free Newton solves
+  - reusable backward-Euler and BDF2 residual forms
 - standardize one common output/diagnostic registry and comparison harness across all supported components
 
 Tests required in this step:
@@ -261,6 +266,12 @@ Exit criteria:
 
 - no remaining component needs to invent its own stepping, Jacobian, or output-comparison logic
 - the neutral, fluid, vorticity, drift, and EM branches all share the same implicit/transient backbone
+
+Current Step 1 status:
+
+- the shared `src/jax_drb/solver/` package now exists and is the active home for active-domain vectorization, sparse locality/color-group construction, grouped difference-quotient Jacobians, sparse Newton/GMRES, matrix-free Newton-Krylov, and backward-Euler/BDF2 residuals;
+- the neutral implicit branch now consumes that shared backbone rather than carrying a private copy of the same logic;
+- the remaining Step 1 work is the common elliptic/inversion layer and broad reuse of the shared implicit substrate outside the neutral branch.
 
 ### Step 2. Land the Full Open-Field Plasma + Neutral + Recycling Stack
 
