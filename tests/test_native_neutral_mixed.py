@@ -10,7 +10,9 @@ from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
+    advance_neutral_mixed_implicit_history,
     _prepare_neutral_mixed_state,
+    _soft_floor,
     advance_neutral_mixed_bdf2_step,
     advance_neutral_mixed_backward_euler_step,
     build_neutral_mixed_active_jacobian_color_groups,
@@ -482,3 +484,44 @@ def test_neutral_mixed_bdf2_step_solves_active_residual() -> None:
     assert np.all(np.isfinite(second_step.density))
     assert np.all(np.isfinite(second_step.pressure))
     assert np.all(np.isfinite(second_step.momentum))
+
+
+def test_neutral_mixed_implicit_history_returns_finite_step_sequence() -> None:
+    pytest.importorskip("scipy")
+
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+    scalars = resolved_dataset_scalars(run_config)
+    history = advance_neutral_mixed_implicit_history(
+        config,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=5.0,
+        steps=3,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-8,
+        step_tolerance=1.0e-10,
+        max_nonlinear_iterations=8,
+        linear_restart=10,
+        linear_maxiter=60,
+        linear_rtol=1.0e-9,
+    )
+
+    assert history.density_history.shape == (4, mesh.nx, mesh.local_ny, mesh.nz)
+    assert history.pressure_history.shape == (4, mesh.nx, mesh.local_ny, mesh.nz)
+    assert history.momentum_history.shape == (4, mesh.nx, mesh.local_ny, mesh.nz)
+    assert np.all(np.isfinite(history.density_history))
+    assert np.all(np.isfinite(history.pressure_history))
+    assert np.all(np.isfinite(history.momentum_history))
+
+
+def test_soft_floor_matches_reference_formula() -> None:
+    values = np.asarray([-1.0, 0.0, 0.02, 0.2], dtype=np.float64)
+    minimum = 0.1
+    actual = _soft_floor(values, minimum)
+    expected = np.maximum(values, 0.0) + minimum * np.exp(-np.maximum(values, 0.0) / minimum)
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
