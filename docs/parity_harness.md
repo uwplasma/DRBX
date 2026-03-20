@@ -46,6 +46,7 @@ Current support is intentionally narrow:
 - `neutral_mixed_rhs` is now implemented for the first neutral-fluid milestone, comparing the active `y` domain against trimmed reference baselines while the live diagnosed reference state now also locks the exact RHS-time scalar guard reconstruction and the covariant `g_22` metric usage in the parallel FV operators;
 - the neutral RHS slice now also has a committed full-array regression with explicit max/RMS tolerances on `ddt(Nh)` and `ddt(Ph)`, plus a compact diagnosed-reference artifact in [neutral_mixed_rhs_diagnostics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_rhs_diagnostics.json) for the isolated parallel density term and advective-flow centerlines;
 - the active-domain implicit machinery is now centralized in the shared [solver](/Users/rogerio/local/jax_drb/src/jax_drb/solver) package rather than living only inside the neutral model, so future fluid/recycling/EM branches can reuse the same pack/unpack, Jacobian, and Newton infrastructure;
+- the electrostatic inversion path is now centralized there as well through the shared Fourier-Helmholtz backend, which both blob and vorticity now use;
 - the neutral branch now regression-tests both the validated matrix-free backward-Euler path and a stable sparse-backend backward-Euler solve on a small active-domain case;
 - the public runner still keeps `neutral_mixed_one_step` and `neutral_mixed_short_window` disabled until the shared backbone is driven by a reference-faithful adaptive multistep transient, but the low-level stepper/Jacobian substrate is now frozen into common code rather than staged as a private prototype;
 - staged reference-only baselines are now also committed for `neutral_mixed_rhs`, `neutral_mixed_one_step`, `neutral_mixed_short_window`, `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the next transport/sheath implementation passes start from stored low-iteration targets rather than fresh local runs;
@@ -59,6 +60,13 @@ Current support is intentionally narrow:
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
+
+For performance checks, Step 1 now distinguishes between:
+
+- end-to-end CLI timings, which include Python startup, config parsing, case staging, and summary generation;
+- warm compiled kernel timings, which isolate the actual numerical backbone after JAX compilation.
+
+Both matter, but only the second number should be used to judge whether a shared JAX operator backend is fundamentally too slow relative to the private reference.
 
 For the current one-step diffusion milestone, summary comparison should use a modest scalar tolerance, for example:
 
