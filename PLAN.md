@@ -230,6 +230,158 @@ This order follows the actual reference dependency graph more closely than the a
 
 ## 8. Staged Plan
 
+## 8A. Five-Step Finish Plan
+
+The remaining port should be executed as five broad capability drops rather than many narrow iterations. Each step should land a large, usable block of functionality, together with the tests needed to prevent regression and rework.
+
+### Step 1. Freeze the Numerical Backbone
+
+Goal:
+
+- finish the shared solver/operator substrate that every remaining component depends on
+- stop solving the same infrastructure problem repeatedly inside physics slices
+
+Scope:
+
+- finalize structured mesh/metric/guard semantics for all currently selected 1D, 2D, and reduced 3D cases
+- finish the common elliptic/inversion layer used by electrostatic and electromagnetic paths
+- finish the implicit transient substrate:
+  - matrix-free path retained as validated fallback
+  - sparse Jacobian assembly, sparse Newton/GMRES, and BDF/BDF2 stepping hardened into a reusable backend
+- standardize one common output/diagnostic registry and comparison harness across all supported components
+
+Tests required in this step:
+
+- unit tests for guard fills, metric normalization, flux stencils, limiters, and elliptic solves
+- solver tests for one-RHS, one-step backward Euler, BDF2, adaptive controller bookkeeping, and restart/state pack-unpack
+- regression tests for portable summaries, array comparisons, and metadata parity
+- performance smoke tests on representative small 1D/2D/3D cases so infrastructure regressions are caught early
+
+Exit criteria:
+
+- no remaining component needs to invent its own stepping, Jacobian, or output-comparison logic
+- the neutral, fluid, vorticity, drift, and EM branches all share the same implicit/transient backbone
+
+### Step 2. Land the Full Open-Field Plasma + Neutral + Recycling Stack
+
+Goal:
+
+- finish the entire 1D open-field capability in one push, including neutrals, recycling, sheath closures, reactions, and control hooks
+
+Scope:
+
+- complete all remaining 1D core plasma closures
+- complete `neutral_mixed`, `neutral_parallel_diffusion`, and the required reaction/source machinery for hydrogenic recycling workflows
+- complete sheath/recycling/control components:
+  - sheath closures
+  - `neutral_boundary`
+  - `recycling`
+  - `simple_pump`
+  - temperature/density feedback controllers
+- wire all relevant diagnostics, target fluxes, integrated balances, and derived quantities
+
+Tests required in this step:
+
+- unit tests for sheath formulas, recycling deposition, reaction-source bookkeeping, and target diagnostics
+- parity tests on:
+  - `tests/integrated/1D-fluid`
+  - `tests/integrated/neutral_mixed`
+  - `tests/integrated/neutral_parallel_diffusion`
+  - `tests/integrated/1D-recycling`
+  - `tests/integrated/1D-recycling-dthe`
+- physics tests for conservation, positivity floors, steady-state consistency, and target power/particle balance
+- regression plots/tables for 1D profiles and divertor diagnostics
+
+Exit criteria:
+
+- all representative 1D divertor/recycling workflows run from CLI and Python
+- 1D parity is complete enough that no later 2D/3D work needs to backfill 1D source, boundary, or diagnostic logic
+
+### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
+
+Goal:
+
+- finish the entire 2D electrostatic edge/SOL capability in one push rather than separate blob, drift-wave, transport, and recycling subprojects
+
+Scope:
+
+- complete shared 2D transport/drift operators
+- finish the coupled density-pressure-momentum-vorticity/electrostatic field path
+- lift the finished 1D neutral/recycling/reaction machinery into 2D
+- support the full set of selected 2D reference examples:
+  - diffusion/transport
+  - blob family
+  - drift-wave
+  - 2D recycling
+  - 2D turbulence
+
+Tests required in this step:
+
+- unit tests for 2D flux assembly, field inversion coupling, and drift/source operator splits
+- parity tests on Tier A/B/C 2D cases, including one-RHS, one-step, short-window, and medium-window comparisons
+- physics tests for blob COM/velocity, drift-wave growth/frequency, energy exchange, and recycling target/source balances
+- regression plots for spectra, RMS fluctuation levels, profile overlays, and benchmark metrics
+
+Exit criteria:
+
+- the 2D electrostatic code path is feature-complete enough for transport, blob, and recycling studies
+- all selected 2D comparison cases share one production path instead of case-specific implementations
+
+### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
+
+Goal:
+
+- finish the remaining 3D and electromagnetic path in one push, using the already-finished backbone and 2D physics stack
+
+Scope:
+
+- complete `electromagnetic`, `Apar`, coupled momentum/field evolution, and required inversions
+- extend geometry support from reduced/annulus/shifted 2D to the selected 3D tokamak cases
+- support the chosen reduced 3D annulus and TCV-X21 comparison ladder
+- complete 3D diagnostics, slices, fluctuation statistics, and runtime/performance tracking
+
+Tests required in this step:
+
+- unit tests for electromagnetic operators, `Apar` solves, and 3D geometry/metric handling
+- parity tests on minimal EM benchmarks and selected reduced 3D tokamak cases
+- regression tests for 3D cross-sections, time traces, fluctuation statistics, and selected spectral measures
+- CPU/GPU smoke tests to ensure the same production path runs on both backends
+
+Exit criteria:
+
+- selected 3D electromagnetic tokamak cases run through the main CLI/Python workflow
+- 1D, 2D, and selected 3D parity coverage is broad enough for a complete reference-paper parity claim
+
+### Step 5. Finalize Multi-Species, Outputs, Docs, and Reviewer-Facing Validation
+
+Goal:
+
+- close the remaining gaps in species/reaction breadth, output compatibility, and research-grade presentation
+
+Scope:
+
+- finish remaining multi-species / impurity / reaction breadth needed by the selected hydrogen/neon and mixed-species workflows
+- finalize output/restart/log compatibility and metadata completeness
+- finalize documentation and validation assets:
+  - inputs/outputs/equations/numerics/geometry pages
+  - benchmark and validation galleries
+  - reproducible parity and physics figures
+  - user-facing examples and API/CLI docs
+- complete the journal-grade validation matrix across selected 1D, 2D, and 3D cases
+
+Tests required in this step:
+
+- parity regressions for all selected final comparison cases
+- output/restart compatibility tests
+- doc-build tests and example smoke tests
+- validation scripts that regenerate the committed benchmark/parity artifacts from the supported workflows
+
+Exit criteria:
+
+- the selected comparison ladder is fully covered
+- docs and outputs are complete enough for external users and a computational-physics paper
+- remaining work is extension-oriented rather than parity-critical
+
 ### Stage 0. Repository Reset and Audit Baseline
 
 Status: completed for the archive step; implementation artifacts still to be created.
