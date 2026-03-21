@@ -305,6 +305,7 @@ def _run_reference_binary(*, binary: Path, workdir: Path, overrides: Iterable[st
     completed = subprocess.run(
         command,
         check=False,
+        cwd=workdir,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

@@ -275,7 +275,7 @@ Current Step 1 status:
 - the neutral implicit branch now consumes that shared backbone rather than carrying a private copy of the same logic;
 - the shared electrostatic inversion layer now also exists in `src/jax_drb/solver/elliptic.py`, and the vorticity/blob branches now reuse that same JAX Fourier-Helmholtz backend instead of maintaining separate mode-by-mode solvers;
 - differentiability and performance smoke now explicitly cover that inversion backbone through JIT/`grad` checks on the shared solver, vorticity potential solve, and blob RHS;
-- the remaining Step 1 work is the common elliptic/inversion layer and broad reuse of the shared implicit substrate outside the neutral branch.
+- Step 1 is now closed for the branches currently in tree: the shared implicit substrate, shared electrostatic inversion layer, compilation-cache runtime hardening, and differentiability/performance smoke checks are all in place.
 
 ### Step 1A. Performance Hardening Before Step 2
 
@@ -335,6 +335,7 @@ Current Step 2 note:
 
 - the neutral RHS branch now includes the traced soft-floor rule, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
 - the staged comparison ladder now includes first-output baselines for `1D-recycling` and `1D-recycling-dthe`, so the open-field sheath/recycling implementation can be driven against low-iteration reference targets rather than only the existing long-run case
+- shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, so the next native Step 2 slice can focus on wiring these traced operators into the coupled 1D runner rather than re-deriving low-level formulas again
 
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
 
@@ -365,6 +366,10 @@ Exit criteria:
 
 - the 2D electrostatic code path is feature-complete enough for transport, blob, and recycling studies
 - all selected 2D comparison cases share one production path instead of case-specific implementations
+
+Current Step 3 note:
+
+- the 2D tokamak recycling cases are now staged in the curated ladder, but committed one-step baselines are still blocked on curated multi-rank reference launch support rather than native numerics: the reference harness `cwd` bug is fixed, and the remaining requirement is manifest-driven MPI launch for geometry cases that cannot run on a single rank.
 
 ### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
 
