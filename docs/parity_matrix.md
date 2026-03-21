@@ -32,7 +32,7 @@ Goal: support `nout = 0` one-RHS checks, one fixed step, and short-time windows 
 Deliverables:
 
 - manifest of reference cases;
-- live reference runner that stages isolated work directories, launches with the staged workdir as `cwd`, and applies parity-mode overrides such as `nout=0` and `nout=1`;
+- live reference runner that stages isolated work directories, launches with the staged workdir as `cwd`, supports manifest-driven `mpirun -np N` for curated geometry cases, and applies parity-mode overrides such as `nout=0` and `nout=1`;
 - NetCDF summary extraction for selected compare variables and scalar metadata;
 - NetCDF full-array extraction for small curated cases and compressed baseline artifacts;
 - reference/JAX comparison harness;
@@ -75,7 +75,7 @@ The remaining stages stay as defined in [PLAN.md](/Users/rogerio/local/jax_drb/P
 - finite-volume operators and MMS parity beyond the periodic 1D fluid branch;
 - 1D open-field fluid core;
 - sheath, recycling, and control terms;
-- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch, with staged tokamak recycling geometry targets awaiting curated multi-rank reference launch support;
+- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch, with staged tokamak recycling geometry targets now waiting on a stable curated processor split rather than missing launch infrastructure;
 - 3D electromagnetic capabilities;
 - neutrals, reactions, and impurities;
 - performance, packaging, validation, and documentation.

@@ -155,7 +155,13 @@ def run_reference_case(
     overrides = merge_overrides(make_default_overrides(case.parity_mode), case.extra_overrides, tuple(extra_overrides))
 
     try:
-        _run_reference_binary(binary=binary, workdir=staged_workdir, overrides=overrides, stdout_path=stdout_path)
+        _run_reference_binary(
+            binary=binary,
+            workdir=staged_workdir,
+            overrides=overrides,
+            stdout_path=stdout_path,
+            process_count=case.process_count,
+        )
         summary = _summarize_run(case=case, input_path=input_path, binary=binary, workdir=staged_workdir, overrides=overrides)
     except Exception:
         if workdir is None and not keep_workdir:
@@ -300,8 +306,28 @@ def _stage_case_directory(source_dir: Path, target_dir: Path) -> None:
         target.symlink_to(child, target_is_directory=child.is_dir())
 
 
-def _run_reference_binary(*, binary: Path, workdir: Path, overrides: Iterable[str], stdout_path: Path) -> None:
-    command = [str(binary), "-d", str(workdir), *overrides]
+def _reference_command(
+    *,
+    binary: Path,
+    workdir: Path,
+    overrides: Iterable[str],
+    process_count: int,
+) -> list[str]:
+    base = [str(binary), "-d", str(workdir), *overrides]
+    if process_count <= 1:
+        return base
+    return ["mpirun", "-np", str(process_count), *base]
+
+
+def _run_reference_binary(
+    *,
+    binary: Path,
+    workdir: Path,
+    overrides: Iterable[str],
+    stdout_path: Path,
+    process_count: int = 1,
+) -> None:
+    command = _reference_command(binary=binary, workdir=workdir, overrides=overrides, process_count=process_count)
     completed = subprocess.run(
         command,
         check=False,
