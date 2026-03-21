@@ -335,6 +335,7 @@ Current Step 2 note:
 
 - the neutral RHS branch now includes the traced soft-floor rule, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
 - the staged comparison ladder now includes first-output baselines for `1D-recycling` and `1D-recycling-dthe`, so the open-field sheath/recycling implementation can be driven against low-iteration reference targets rather than only the existing long-run case
+- the same ladder now also includes explicit `one_rhs` baselines for `1D-recycling` and `1D-recycling-dthe`, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs, so the native Step 2 runner can follow the intended RHS-first parity protocol rather than jumping directly to whole-step state parity
 - shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, so the next native Step 2 slice can focus on wiring these traced operators into the coupled 1D runner rather than re-deriving low-level formulas again
 
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack

@@ -66,6 +66,7 @@ Deliverables:
 - drift-wave benchmark postprocessing on the committed `drift_wave_short_window` arrays, including measured growth/frequency extraction, analytic dispersion evaluation, CLI reporting, JSON export, and a documentation figure.
 - drift-wave short-window parity reporting on the committed `drift_wave_short_window` arrays plus current native output, including benchmark deltas, per-field error histories, JSON export, and a documentation figure.
 - evolved-state drift-wave diagnostics locked against a committed reference `one_step` baseline with `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)`, so the first post-step density operator mismatch is regression-tested directly.
+- staged `one_rhs` recycling baselines for the single-species and multi-species 1D divertor cases, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs before the first output-step state comparison.
 
 ## Stage 3+: Physics Buildout
 
