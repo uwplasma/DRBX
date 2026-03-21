@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import numpy as np
 from netCDF4 import Dataset
 
 from jax_drb.parity.reference import (
+    _run_reference_binary,
     build_case_baseline_payload,
     _summarize_dataset,
     merge_overrides,
@@ -175,3 +178,22 @@ def test_build_case_baseline_payload_serializes_sequence_metadata_as_lists() -> 
     assert payload["component_labels"] == ["e:evolve_density"]
     assert payload["variable_summaries"]["Ne"]["dimensions"] == ["t", "x"]
     assert payload["variable_summaries"]["Ne"]["shape"] == [1, 3]
+
+
+def test_run_reference_binary_executes_in_staged_workdir(tmp_path: Path) -> None:
+    binary = tmp_path / "reference-stub"
+    marker = tmp_path / "expected-cwd.txt"
+    binary.write_text(
+        "#!/bin/sh\n"
+        "pwd > expected-cwd.txt\n",
+        encoding="utf-8",
+    )
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+
+    workdir = tmp_path / "run"
+    workdir.mkdir()
+    stdout_path = workdir / "run.stdout"
+
+    _run_reference_binary(binary=binary, workdir=workdir, overrides=(), stdout_path=stdout_path)
+
+    assert (workdir / "expected-cwd.txt").read_text(encoding="utf-8").strip() == os.fspath(workdir)
