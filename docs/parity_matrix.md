@@ -32,7 +32,7 @@ Goal: support `nout = 0` one-RHS checks, one fixed step, and short-time windows 
 Deliverables:
 
 - manifest of reference cases;
-- live reference runner that stages isolated work directories and applies parity-mode overrides such as `nout=0` and `nout=1`;
+- live reference runner that stages isolated work directories, launches with the staged workdir as `cwd`, and applies parity-mode overrides such as `nout=0` and `nout=1`;
 - NetCDF summary extraction for selected compare variables and scalar metadata;
 - NetCDF full-array extraction for small curated cases and compressed baseline artifacts;
 - reference/JAX comparison harness;
@@ -58,6 +58,7 @@ Deliverables:
 - source-traced neutral low-level semantics for the soft floor, locked by a direct unit test so the later transient/recycling work inherits the same floor rule as the reference implementation;
 - shared active-domain solver substrate in [src/jax_drb/solver](/Users/rogerio/local/jax_drb/src/jax_drb/solver), including reusable pack/unpack, backward-Euler/BDF2 residuals, sparse locality/color grouping, grouped difference-quotient Jacobians, sparse Newton/GMRES, and matrix-free Newton-Krylov helpers.
 - shared electrostatic inversion substrate in [elliptic.py](/Users/rogerio/local/jax_drb/src/jax_drb/solver/elliptic.py), including the common Fourier-Helmholtz / tridiagonal backend now used by both the vorticity and blob branches.
+- shared open-field operator utilities in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), including traced no-flow guard semantics, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly for the upcoming Step 2 recycling runner.
 - neutral implicit stepping now runs on that shared substrate, including both validated matrix-free convergence tests and a stable `solver_mode="sparse"` backward-Euler regression on the small active domain.
 - the remaining neutral transient work is now specifically the reference-style adaptive multistep driver, not another round of private Jacobian/stepper infrastructure.
 - neutral benchmark postprocessing on the committed `neutral_mixed_short_window` arrays, including center-history extraction, derived temperature tracking, total neutral mass/pressure histories, momentum-RMS decay, CLI reporting, JSON export, and a documentation figure;
@@ -74,7 +75,7 @@ The remaining stages stay as defined in [PLAN.md](/Users/rogerio/local/jax_drb/P
 - finite-volume operators and MMS parity beyond the periodic 1D fluid branch;
 - 1D open-field fluid core;
 - sheath, recycling, and control terms;
-- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch;
+- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch, with staged tokamak recycling geometry targets awaiting curated multi-rank reference launch support;
 - 3D electromagnetic capabilities;
 - neutrals, reactions, and impurities;
 - performance, packaging, validation, and documentation.
