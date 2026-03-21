@@ -20,6 +20,7 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
         rationale = "Minimal reference."
         extra_overrides = ["e:diagnose=true"]
         trim_y_guards = true
+        process_count = 4
         """,
         encoding="utf-8",
     )
@@ -54,6 +55,7 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
     assert cases[0].name == "toy_case"
     assert cases[0].extra_overrides == ("e:diagnose=true",)
     assert cases[0].trim_y_guards is True
+    assert cases[0].process_count == 4
     assert resolved[0].exists is True
     assert resolved[0].run_config is not None
     assert resolved[0].run_config.time.nout == 1

@@ -9,6 +9,7 @@ import numpy as np
 from netCDF4 import Dataset
 
 from jax_drb.parity.reference import (
+    _reference_command,
     _run_reference_binary,
     build_case_baseline_payload,
     _summarize_dataset,
@@ -197,3 +198,24 @@ def test_run_reference_binary_executes_in_staged_workdir(tmp_path: Path) -> None
     _run_reference_binary(binary=binary, workdir=workdir, overrides=(), stdout_path=stdout_path)
 
     assert (workdir / "expected-cwd.txt").read_text(encoding="utf-8").strip() == os.fspath(workdir)
+
+
+def test_reference_command_uses_mpirun_for_multi_rank_cases(tmp_path: Path) -> None:
+    binary = tmp_path / "reference-binary"
+    workdir = tmp_path / "run"
+    command = _reference_command(
+        binary=binary,
+        workdir=workdir,
+        overrides=("nout=1", "NXPE=1"),
+        process_count=6,
+    )
+    assert command == [
+        "mpirun",
+        "-np",
+        "6",
+        os.fspath(binary),
+        "-d",
+        os.fspath(workdir),
+        "nout=1",
+        "NXPE=1",
+    ]
