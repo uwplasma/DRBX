@@ -369,7 +369,7 @@ Exit criteria:
 
 Current Step 3 note:
 
-- the 2D tokamak recycling cases are now staged in the curated ladder, but committed one-step baselines are still blocked on curated multi-rank reference launch support rather than native numerics: the reference harness `cwd` bug is fixed, and the remaining requirement is manifest-driven MPI launch for geometry cases that cannot run on a single rank.
+- the 2D tokamak recycling cases are now staged in the curated ladder, and the reference harness now has manifest-driven MPI launch capability for geometry cases that cannot run on a single rank; the remaining work is to identify a stable curated processor split and commit the first tokamak recycling baselines.
 
 ### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
 

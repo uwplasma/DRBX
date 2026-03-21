@@ -21,6 +21,7 @@ class ReferenceCase:
     extra_overrides: tuple[str, ...] = ()
     trim_x_guards: bool = False
     trim_y_guards: bool = False
+    process_count: int = 1
 
     def input_path(self, reference_root: str | Path) -> Path:
         return Path(reference_root) / self.reference_path
@@ -48,6 +49,7 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
             extra_overrides=tuple(entry.get("extra_overrides", [])),
             trim_x_guards=bool(entry.get("trim_x_guards", False)),
             trim_y_guards=bool(entry.get("trim_y_guards", False)),
+            process_count=int(entry.get("process_count", 1)),
         )
         for entry in payload.get("case", [])
     )

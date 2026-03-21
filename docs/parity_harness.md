@@ -16,6 +16,7 @@ For a figure-first view of the currently locked cases, see [docs/validation_gall
    - case-specific overrides from the manifest are merged after parity-mode defaults, so diagnostic cases can request extra outputs without duplicating `nout`
 4. run the reference binary;
    - the harness now launches the binary with `cwd` set to the staged workdir, which is required for curated cases that resolve relative mesh files from the case directory;
+   - multi-rank geometry cases can now also request a manifest `process_count`, which prefixes the launch with `mpirun -np <N>` while keeping the same staged-workdir flow;
 5. verify `BOUT.settings`, `BOUT.log.0`, `BOUT.dmp.0.nc`, and `BOUT.restart.0.nc`;
 6. summarize selected comparison variables and normalization scalars from `BOUT.dmp.0.nc`.
 7. compare future JAX portable summaries against the committed reference baselines with `jax-drb compare-summary`.
@@ -54,7 +55,7 @@ Current support is intentionally narrow:
 - the current neutral transient mismatch is localized to the target-adjacent active `y` cells in the neutral momentum RHS, with the dominant error sitting in the parallel viscosity/conduction neighborhood rather than the core interior transport operators;
 - staged reference-only baselines are now also committed for `neutral_mixed_rhs`, `neutral_mixed_one_step`, `neutral_mixed_short_window`, `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the next transport/sheath implementation passes start from stored low-iteration targets rather than fresh local runs;
 - the reference ladder now also includes committed `one_step` baselines for the single-species and multi-species 1D recycling workflows, so the sheath/recycling branch can start from `1D-recycling` and `1D-recycling-dthe` first-output targets instead of jumping directly to a long-run divertor comparison;
-- the same ladder now also stages `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` as the first named 2D recycling geometry targets, but their committed baselines are still blocked on manifest-driven multi-rank reference launch support;
+- the same ladder now also stages `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` as the first named 2D recycling geometry targets; their committed baselines still need a stable curated processor split, but no longer need ad hoc launch scripting;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
