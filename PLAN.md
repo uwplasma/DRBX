@@ -1438,3 +1438,13 @@ No later benchmark tier should become a gating CI requirement until all earlier 
 - the parity matrix shows no unimplemented reference runtime component required by the supported examples.
 
 Until then, new work should prioritize parity gaps over new physics.
+Current Step 2 checkpoint:
+
+- `recycling_1d_rhs` is now native, regression-tested, and locked against committed summary and full-array baselines.
+- The next Step 2 blocker is `recycling_dthe_rhs`, where the remaining mismatch is concentrated in the multi-species momentum/pressure source stack rather than in the shared sheath, recycling, or reference harness layers.
+- The efficient next implementation jump is to port the multi-species collisional closure as a grouped block:
+  - `braginskii_collisions`
+  - `braginskii_friction`
+  - `braginskii_thermal_force`
+  - `braginskii_ion_viscosity`
+- Step 3 should not continue from the broken tokamak example. The next curated 2D recycling target should be staged from the integrated `2D-recycling` workflow with its external artifact bundle handled explicitly by the harness.
