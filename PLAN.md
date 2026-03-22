@@ -336,7 +336,7 @@ Current Step 2 note:
 - the neutral RHS branch now includes the traced soft-floor rule, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
 - the staged comparison ladder now includes first-output baselines for `1D-recycling` and `1D-recycling-dthe`, so the open-field sheath/recycling implementation can be driven against low-iteration reference targets rather than only the existing long-run case
 - the same ladder now also includes explicit `one_rhs` baselines for `1D-recycling` and `1D-recycling-dthe`, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs, so the native Step 2 runner can follow the intended RHS-first parity protocol rather than jumping directly to whole-step state parity
-- shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, so the next native Step 2 slice can focus on wiring these traced operators into the coupled 1D runner rather than re-deriving low-level formulas again
+- shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, and both `recycling_1d_rhs` and `recycling_dthe_rhs` now run natively against live reference baselines; the remaining Step 2 work is the transient ladder (`one_step`, `short_window`, and control/recycling long-run behavior), not another round of 1D RHS reconstruction
 
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
 
@@ -1441,11 +1441,9 @@ Until then, new work should prioritize parity gaps over new physics.
 Current Step 2 checkpoint:
 
 - `recycling_1d_rhs` is now native, regression-tested, and locked against committed summary and full-array baselines.
-- The next Step 2 blocker is `recycling_dthe_rhs`, where the remaining mismatch is concentrated in the multi-species momentum/pressure source stack rather than in the shared sheath, recycling, or reference harness layers.
-- The broad multispecies closure jump is now partially landed: the dominant `dthe` ion-momentum source mismatch has been reduced to the ion-viscosity/collisional source path, while the remaining parity gap is concentrated in neutral pressure-source bookkeeping for `d` and `t`.
-- The efficient next implementation jump is to port the multi-species collisional closure as a grouped block:
-  - `braginskii_collisions`
-  - `braginskii_friction`
+- `recycling_dthe_rhs` is now also native and live-reference clean at the committed summary tolerances, with the exact multi-species collision-table ordering and cross-isotope charge-exchange bookkeeping now traced into the public implementation.
+- The next Step 2 jump is no longer the RHS source stack; it is the transient stack: `recycling_1d_one_step`, `recycling_dthe_one_step`, then the corresponding short-window/long-run open-field cases on the shared implicit backbone.
+- Step 3 still depends on restaging a stable 2D recycling geometry target, because the currently named tokamak example remains blocked on the reference side.
   - `braginskii_thermal_force`
   - `braginskii_ion_viscosity`
 - Step 3 should not continue from the broken tokamak example. The next curated 2D recycling target should be staged from the integrated `2D-recycling` workflow with its external artifact bundle handled explicitly by the harness.

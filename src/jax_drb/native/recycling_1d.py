@@ -435,7 +435,7 @@ def _reaction_sources(
             atom = rhs[0]
             result = _amjuel_recombination(atom, ion, species=species, electron_density=electron_density, dataset_scalars=dataset_scalars)
             _accumulate_terms(result, density_source, energy_source, momentum_source, diagnostics)
-        elif len(lhs) == 2 and len(rhs) == 2 and lhs[0] == rhs[1] and lhs[1] == rhs[0]:
+        elif _is_charge_exchange_reaction(lhs, rhs):
             atom1 = lhs[0]
             ion1 = lhs[1]
             ion2 = rhs[0]
@@ -443,6 +443,16 @@ def _reaction_sources(
             result = _charge_exchange(atom1, ion1, atom2, ion2, species=species, dataset_scalars=dataset_scalars)
             _accumulate_terms(result, density_source, energy_source, momentum_source, diagnostics)
     return _ReactionTerms(density_source=density_source, energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
+
+
+def _is_charge_exchange_reaction(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> bool:
+    if len(lhs) != 2 or len(rhs) != 2:
+        return False
+    atom1, ion1 = lhs
+    ion2, atom2 = rhs
+    if not ion1.endswith("+") or not ion2.endswith("+"):
+        return False
+    return ion2[:-1] == atom1 and ion1[:-1] == atom2
 
 
 def _accumulate_terms(
@@ -668,119 +678,91 @@ def _compute_collision_frequencies(
             / np.maximum(neutral_state.density, 1.0e-5)
         )
 
-    charged_names = [name for name, sp in species.items() if name != "e" and sp.charge != 0.0]
-    neutral_names = [name for name, sp in species.items() if name != "e" and sp.charge == 0.0]
+    names = tuple(sorted(name for name in species if name != "e"))
 
-    for charged_name in charged_names:
-        charged_species = species[charged_name]
-        charged_state = prepared[charged_name]
-        temperature_ev = charged_state.temperature * tnorm
-        density_m3 = charged_state.density * nnorm
-        charge = charged_species.charge
-        atomic_mass = charged_species.atomic_mass
-        mass = atomic_mass * _MP
-        temperature_limited = np.maximum(temperature_ev, 0.1)
-        density_limited = np.maximum(density_m3, 1.0e10)
-        coulomb_log = 29.91 - np.log(
-            ((charge * charge * (2.0 * atomic_mass)) / (2.0 * atomic_mass * temperature_limited))
-            * np.sqrt(2.0 * density_limited * (charge * charge) / temperature_limited)
+    def collide(name1: str, name2: str, nu_12: np.ndarray) -> None:
+        first_species = species[name1]
+        second_species = species[name2]
+        first_state = prepared[name1]
+        second_state = prepared[name2]
+        nu_12 = np.asarray(nu_12, dtype=np.float64)
+        collision_rates[(name1, name2)] = nu_12
+        if name1 == name2:
+            return
+        collision_rates[(name2, name1)] = (
+            nu_12
+            * (first_species.atomic_mass / second_species.atomic_mass)
+            * first_state.density
+            / np.maximum(second_state.density, 1.0e-5)
         )
-        v_sq = 2.0 * temperature_limited * _QE / mass
-        nu_self = (
-            (((charge * _QE) * (charge * _QE)) ** 2)
-            * density_limited
-            * np.maximum(coulomb_log, 1.0)
-            * 2.0
-            / (3.0 * np.power(math.pi * (2.0 * v_sq), 1.5) * ((_EPS0 * mass) ** 2))
-        )
-        collision_rates[(charged_name, charged_name)] = np.asarray(nu_self / omega_ci, dtype=np.float64)
 
-    for charged_name in charged_names:
-        charged_species = species[charged_name]
-        charged_state = prepared[charged_name]
-        for neutral_name in neutral_names:
-            neutral_species = species[neutral_name]
-            neutral_state = prepared[neutral_name]
-            vrel = np.sqrt(
-                charged_state.temperature / charged_species.atomic_mass
-                + neutral_state.temperature / neutral_species.atomic_mass
-            )
-        if ion_neutral:
-            nu_cn = vrel * neutral_state.density * nnorm * 5.0e-19 * rho_s0
-            nu_cn = np.asarray(nu_cn, dtype=np.float64)
-            collision_rates[(charged_name, neutral_name)] = nu_cn
-            collision_rates[(neutral_name, charged_name)] = (
-                nu_cn
-                * (charged_species.atomic_mass / neutral_species.atomic_mass)
-                * charged_state.density
-                / np.maximum(neutral_state.density, 1.0e-5)
-            )
-
-    for index, first_name in enumerate(charged_names):
-        if not ion_ion:
-            break
+    for index, first_name in enumerate(names):
         first_species = species[first_name]
         first_state = prepared[first_name]
         t1_ev = first_state.temperature * tnorm
         n1_m3 = first_state.density * nnorm
-        for second_name in charged_names[index + 1 :]:
+        first_charged = first_species.charge != 0.0
+
+        for second_name in names[index:]:
             second_species = species[second_name]
             second_state = prepared[second_name]
             t2_ev = second_state.temperature * tnorm
             n2_m3 = second_state.density * nnorm
-            z1 = first_species.charge
-            z2 = second_species.charge
-            a1 = first_species.atomic_mass
-            a2 = second_species.atomic_mass
-            m1 = a1 * _MP
-            m2 = a2 * _MP
-            t1_limited = np.maximum(t1_ev, 0.1)
-            t2_limited = np.maximum(t2_ev, 0.1)
-            n1_limited = np.maximum(n1_m3, 1.0e10)
-            n2_limited = np.maximum(n2_m3, 1.0e10)
-            coulomb_log = 29.91 - np.log(
-                ((z1 * z2 * (a1 + a2)) / (a1 * t2_limited + a2 * t1_limited))
-                * np.sqrt(n1_limited * (z1 * z1) / t1_limited + n2_limited * (z2 * z2) / t2_limited)
-            )
-            v1sq = 2.0 * t1_limited * _QE / m1
-            v2sq = 2.0 * t2_limited * _QE / m2
-            nu_12 = (
-                (((z1 * _QE) * (z2 * _QE)) ** 2)
-                * n2_limited
-                * np.maximum(coulomb_log, 1.0)
-                * (1.0 + (m1 / m2))
-                / (3.0 * np.power(math.pi * (v1sq + v2sq), 1.5) * ((_EPS0 * m1) ** 2))
-            )
-            nu_12 = np.asarray(nu_12 / omega_ci, dtype=np.float64)
-            collision_rates[(first_name, second_name)] = nu_12
-            collision_rates[(second_name, first_name)] = (
-                nu_12
-                * (first_species.atomic_mass / second_species.atomic_mass)
-                * first_state.density
-                / np.maximum(second_state.density, 1.0e-5)
-            )
+            second_charged = second_species.charge != 0.0
 
-    for index, first_name in enumerate(neutral_names):
-        if not neutral_neutral:
-            break
-        first_species = species[first_name]
-        first_state = prepared[first_name]
-        for second_name in neutral_names[index + 1 :]:
-            second_species = species[second_name]
-            second_state = prepared[second_name]
-            vrel = np.sqrt(
-                first_state.temperature / first_species.atomic_mass
-                + second_state.temperature / second_species.atomic_mass
-            )
-            nu_12 = vrel * second_state.density * nnorm * (math.pi * (2.8e-10**2)) * rho_s0
-            nu_12 = np.asarray(nu_12, dtype=np.float64)
-            collision_rates[(first_name, second_name)] = nu_12
-            collision_rates[(second_name, first_name)] = (
-                nu_12
-                * (first_species.atomic_mass / second_species.atomic_mass)
-                * first_state.density
-                / np.maximum(second_state.density, 1.0e-5)
-            )
+            if first_charged:
+                if second_charged:
+                    if not ion_ion:
+                        continue
+                    z1 = first_species.charge
+                    z2 = second_species.charge
+                    a1 = first_species.atomic_mass
+                    a2 = second_species.atomic_mass
+                    m1 = a1 * _MP
+                    m2 = a2 * _MP
+                    t1_limited = np.maximum(t1_ev, 0.1)
+                    t2_limited = np.maximum(t2_ev, 0.1)
+                    n1_limited = np.maximum(n1_m3, 1.0e10)
+                    n2_limited = np.maximum(n2_m3, 1.0e10)
+                    coulomb_log = 29.91 - np.log(
+                        ((z1 * z2 * (a1 + a2)) / (a1 * t2_limited + a2 * t1_limited))
+                        * np.sqrt(n1_limited * (z1 * z1) / t1_limited + n2_limited * (z2 * z2) / t2_limited)
+                    )
+                    v1sq = 2.0 * t1_limited * _QE / m1
+                    v2sq = 2.0 * t2_limited * _QE / m2
+                    nu_12 = (
+                        (((z1 * _QE) * (z2 * _QE)) ** 2)
+                        * n2_limited
+                        * np.maximum(coulomb_log, 1.0)
+                        * (1.0 + (m1 / m2))
+                        / (3.0 * np.power(math.pi * (v1sq + v2sq), 1.5) * ((_EPS0 * m1) ** 2))
+                    )
+                    collide(first_name, second_name, nu_12 / omega_ci)
+                else:
+                    if not ion_neutral:
+                        continue
+                    vrel = np.sqrt(
+                        first_state.temperature / first_species.atomic_mass
+                        + second_state.temperature / second_species.atomic_mass
+                    )
+                    collide(first_name, second_name, vrel * second_state.density * nnorm * 5.0e-19 * rho_s0)
+            else:
+                if second_charged:
+                    if not ion_neutral:
+                        continue
+                    vrel = np.sqrt(
+                        first_state.temperature / first_species.atomic_mass
+                        + second_state.temperature / second_species.atomic_mass
+                    )
+                    collide(first_name, second_name, vrel * second_state.density * nnorm * 5.0e-19 * rho_s0)
+                else:
+                    if not neutral_neutral:
+                        continue
+                    vrel = np.sqrt(
+                        first_state.temperature / first_species.atomic_mass
+                        + second_state.temperature / second_species.atomic_mass
+                    )
+                    collide(first_name, second_name, vrel * second_state.density * nnorm * (math.pi * (2.8e-10**2)) * rho_s0)
     return collision_rates
 
 
@@ -896,7 +878,95 @@ def _apply_collision_closure(
             momentum_source[name] = momentum_source[name] + viscosity_source
             energy_source[name] = energy_source[name] - prepared[name].velocity * viscosity_source
 
+    if "braginskii_conduction" in configured_components:
+        for name, sp in species.items():
+            if not sp.has_pressure:
+                continue
+            if config.has_option(name, "thermal_conduction") and not bool(config.parsed(name, "thermal_conduction")):
+                continue
+            tau = _conduction_collision_time(
+                config,
+                species=species,
+                prepared=prepared,
+                collision_rates=collision_rates,
+                cx_rates=cx_rates,
+                species_name=name,
+            )
+            kappa_coefficient = _conduction_kappa_coefficient(config, sp)
+            temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
+            pressure = np.maximum(np.asarray(prepared[name].pressure, dtype=np.float64), 0.0)
+            kappa_par = kappa_coefficient * pressure * tau / sp.atomic_mass
+            if mesh.myg > 0:
+                kappa_par = np.asarray(
+                    apply_noflow_scalar_guards(kappa_par, mesh=mesh, lower_y=True, upper_y=True),
+                    dtype=np.float64,
+                )
+            energy_source[name] = energy_source[name] + _div_par_k_grad_par_open(
+                kappa_par,
+                temperature,
+                mesh=mesh,
+                metrics=metrics,
+                boundary_flux=False,
+            )
+
     return _CollisionClosureTerms(energy_source=energy_source, momentum_source=momentum_source)
+
+
+def _conduction_kappa_coefficient(config: BoutConfig, species: OpenFieldSpecies) -> float:
+    if config.has_option(species.name, "kappa_coefficient"):
+        return float(NumericResolver(config).resolve(species.name, "kappa_coefficient"))
+    if species.charge < 0.0:
+        return 3.16 / math.sqrt(2.0)
+    if species.charge == 0.0:
+        return 2.5
+    return 3.9
+
+
+def _conduction_collision_time(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    collision_rates: dict[tuple[str, str], np.ndarray],
+    cx_rates: dict[str, np.ndarray],
+    species_name: str,
+) -> np.ndarray:
+    species_type = "electron" if species_name == "e" else ("neutral" if species[species_name].charge == 0.0 else "ion")
+    mode = str(config.parsed(species_name, "conduction_collisions_mode")).strip().lower() if config.has_option(species_name, "conduction_collisions_mode") else "multispecies"
+    total = np.zeros_like(prepared[species_name].density, dtype=np.float64)
+
+    if mode == "braginskii":
+        if species_type == "electron":
+            rate = collision_rates.get((species_name, species_name))
+            if rate is not None:
+                total = total + rate
+        elif species_type == "ion":
+            rate = collision_rates.get((species_name, species_name))
+            if rate is not None:
+                total = total + rate
+        else:
+            raise NotImplementedError("Neutral conduction_collisions_mode='braginskii' is not supported.")
+    elif mode == "multispecies":
+        for other_name in species:
+            rate = collision_rates.get((species_name, other_name))
+            if rate is not None:
+                total = total + rate
+        if species_name in cx_rates:
+            total = total + cx_rates[species_name]
+    elif mode == "afn":
+        if species_type != "neutral":
+            raise NotImplementedError("Conduction_collisions_mode='afn' is only supported for neutrals.")
+        for other_name, other_species in species.items():
+            if other_species.charge > 0.0:
+                cx_rate = collision_rates.get((species_name, other_name))
+                if cx_rate is not None:
+                    total = total + cx_rate
+        if species_name in cx_rates:
+            total = total + cx_rates[species_name]
+    else:
+        raise NotImplementedError(f"Unsupported conduction_collisions_mode {mode!r} for {species_name}.")
+
+    return 1.0 / np.maximum(total, 1.0e-10)
 
 
 def _amjuel_ionisation(

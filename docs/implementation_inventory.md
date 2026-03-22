@@ -90,7 +90,8 @@ The next queued staged baselines are now committed as well:
 - `jax-drb validate-reference-baselines`, which re-runs committed reference cases and compares the live summaries to the stored baseline JSON files as a smoke-validation step.
 - `recycling_1d_rhs`: implemented and regression-tested against committed summary and full-array baselines, including target-recycling diagnostics, sheath boundary fluxes, AMJUEL-based ionization/recombination, hydrogenic charge exchange, literal section-reference resolution for source expressions, and the open-field electron-force-balance source path;
 - the active recycling package now vendors the compact atomic-rate JSON files inside [src/jax_drb/data/atomic_rates](/Users/rogerio/local/jax_drb/src/jax_drb/data/atomic_rates), so the open-field recycling branch no longer depends on out-of-tree rate data for the currently staged hydrogen and helium reactions;
-- the next open-field blocker is the multi-species `recycling_dthe_rhs` case, where live parity probes now show a much narrower residual: the dominant ion-momentum source gap is no longer the transport skeleton, and the remaining mismatch is concentrated in the multispecies ion-viscosity / neutral-pressure bookkeeping rather than the shared sheath/recycling utilities;
+- `recycling_dthe_rhs`: now implemented and regression-tested against the committed summary baseline, with full-array parity passing at the documented `5e-2` tolerance; the traced fixes were the exact multispecies ion-neutral collision-table ordering and the previously missing cross-isotope D-T charge-exchange channels;
+- the next open-field blocker is no longer the 1D multi-species RHS; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
 Current native execution coverage:
 
