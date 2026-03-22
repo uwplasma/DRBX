@@ -18,7 +18,7 @@ from ..config.boutinp import BoutConfig, NumericResolver
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
-from .neutral_mixed import _div_par_fvv_open, _div_par_mod_open, _grad_par_open
+from .neutral_mixed import _div_par_fvv_open, _div_par_k_grad_par_open, _div_par_mod_open, _grad_par_open
 from .open_field import (
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
@@ -108,26 +108,27 @@ def compute_recycling_1d_rhs(
         momentum_source[name] = momentum_source[name] + value
     diagnostics.update(reaction_terms.diagnostics)
 
-    ion_boundary = _apply_ion_sheath_boundary(
-        ions,
-        electron_pressure=electron.pressure,
-        electron_density=electron_density,
+    prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
+        species,
         mesh=mesh,
         metrics=metrics,
     )
     ion_velocity = ion_boundary.velocity
-    ion_momentum = ion_boundary.momentum
     for name, value in ion_boundary.energy_source.items():
         energy_source[name] = energy_source[name] + value
 
-    electron_boundary = _apply_electron_sheath_boundary(
-        electron_pressure=electron.pressure,
-        electron_density=electron_density,
-        ion_velocity=ion_velocity,
-        ions=ions,
+    collision_terms = _apply_collision_closure(
+        config,
+        species,
+        prepared,
         mesh=mesh,
         metrics=metrics,
+        dataset_scalars=dataset_scalars,
     )
+    for name, value in collision_terms.energy_source.items():
+        energy_source[name] = energy_source[name] + value
+    for name, value in collision_terms.momentum_source.items():
+        momentum_source[name] = momentum_source[name] + value
     energy_source["e"] = energy_source["e"] + electron_boundary.energy_source
 
     recycling_terms = _target_recycling_sources(
@@ -145,7 +146,7 @@ def compute_recycling_1d_rhs(
 
     electron_force = compute_electron_force_balance(
         electron_boundary.pressure,
-        electron_density,
+        prepared["e"].density,
         mesh=mesh,
         dy=jnp.asarray(metrics.dy, dtype=jnp.float64),
         electron_momentum_source=momentum_source["e"],
@@ -153,7 +154,7 @@ def compute_recycling_1d_rhs(
     for ion in ions:
         momentum_source[ion.name] = momentum_source[ion.name] + np.asarray(
             apply_parallel_electric_force(
-                jnp.asarray(ion.density, dtype=jnp.float64),
+                jnp.asarray(prepared[ion.name].density, dtype=jnp.float64),
                 charge=ion.charge,
                 epar=electron_force.epar,
             ),
@@ -161,13 +162,14 @@ def compute_recycling_1d_rhs(
         )
 
     variables: dict[str, np.ndarray] = {}
-    variables[electron.density_name] = electron_density[None, ...]
+    variables[electron.density_name] = prepared["e"].density[None, ...]
 
     for ion in ions:
-        temperature = _safe_temperature(ion.pressure, ion.density)
+        ion_state = prepared[ion.name]
+        temperature = ion_state.temperature
         fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / ion.atomic_mass)
         density_rhs = density_source[ion.name] - _div_par_mod_open(
-            ion.density,
+            ion_state.density,
             ion_velocity[ion.name],
             fastest_wave,
             mesh=mesh,
@@ -175,14 +177,14 @@ def compute_recycling_1d_rhs(
         )
         pressure_rhs = _explicit_pressure_source(config, ion.name, mesh=mesh, dataset_scalars=dataset_scalars)
         pressure_rhs = pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
-            ion.pressure,
+            ion_state.pressure,
             ion_velocity[ion.name],
             fastest_wave,
             mesh=mesh,
             metrics=metrics,
         )
         pressure_rhs = pressure_rhs + (2.0 / 3.0) * ion_velocity[ion.name] * _grad_par_open(
-            ion.pressure,
+            ion_state.pressure,
             mesh=mesh,
             metrics=metrics,
         )
@@ -191,24 +193,24 @@ def compute_recycling_1d_rhs(
         # the guard-side FV sweep. Re-using the neutral helper needs a signed factor to
         # recover the same last-cell sheath flux on this 1D open-field branch.
         momentum_rhs = 2.0 * ion.atomic_mass * _div_par_fvv_open(
-            np.maximum(ion.density, 1.0e-7),
+            np.maximum(ion_state.density, 1.0e-7),
             ion_velocity[ion.name],
             fastest_wave,
             mesh=mesh,
             metrics=metrics,
         )
-        momentum_rhs = momentum_rhs - _grad_par_open(ion.pressure, mesh=mesh, metrics=metrics)
+        momentum_rhs = momentum_rhs - _grad_par_open(ion_state.pressure, mesh=mesh, metrics=metrics)
         momentum_rhs = momentum_rhs + momentum_source[ion.name]
 
-        variables[ion.density_name] = ion.density[None, ...]
-        variables[ion.pressure_name] = ion.pressure[None, ...]
-        variables[ion.momentum_name] = ion.momentum[None, ...]
+        variables[ion.density_name] = ion_state.density[None, ...]
+        variables[ion.pressure_name] = ion_state.pressure[None, ...]
+        variables[ion.momentum_name] = ion_state.momentum[None, ...]
         variables[f"ddt({ion.density_name})"] = density_rhs[None, ...]
         variables[f"ddt({ion.pressure_name})"] = pressure_rhs[None, ...]
         variables[f"ddt({ion.momentum_name})"] = momentum_rhs[None, ...]
 
-    electron_velocity = _electron_zero_current_velocity(ions, ion_velocity=ion_velocity, electron_density=electron_density)
-    electron_fastest_wave = np.sqrt(np.maximum(_safe_temperature(electron.pressure, electron_density), 0.0) / electron.atomic_mass)
+    electron_velocity = _electron_zero_current_velocity(ions, ion_velocity=ion_velocity, electron_density=prepared["e"].density)
+    electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
     electron_pressure_rhs = _explicit_pressure_source(config, "e", mesh=mesh, dataset_scalars=dataset_scalars)
     electron_pressure_rhs = electron_pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
         electron_boundary.pressure,
@@ -223,13 +225,14 @@ def compute_recycling_1d_rhs(
         metrics=metrics,
     )
     electron_pressure_rhs = electron_pressure_rhs + (2.0 / 3.0) * energy_source["e"]
-    variables[electron.pressure_name] = electron.pressure[None, ...]
+    variables[electron.pressure_name] = electron_boundary.pressure[None, ...]
     variables[f"ddt({electron.pressure_name})"] = electron_pressure_rhs[None, ...]
 
     for neutral in neutrals:
-        variables[neutral.density_name] = neutral.density[None, ...]
-        variables[neutral.pressure_name] = neutral.pressure[None, ...]
-        variables[neutral.momentum_name] = neutral.momentum[None, ...]
+        neutral_state = prepared[neutral.name]
+        variables[neutral.density_name] = neutral_state.density[None, ...]
+        variables[neutral.pressure_name] = neutral_state.pressure[None, ...]
+        variables[neutral.momentum_name] = neutral_state.momentum[None, ...]
         variables[f"ddt({neutral.density_name})"] = density_source[neutral.name][None, ...]
         variables[f"ddt({neutral.pressure_name})"] = ((2.0 / 3.0) * energy_source[neutral.name])[None, ...]
         variables[f"ddt({neutral.momentum_name})"] = momentum_source[neutral.name][None, ...]
@@ -378,6 +381,27 @@ class _ReactionTerms:
     diagnostics: dict[str, np.ndarray]
 
 
+@dataclass(frozen=True)
+class _PreparedSpeciesState:
+    density: np.ndarray
+    pressure: np.ndarray
+    temperature: np.ndarray
+    velocity: np.ndarray
+    momentum: np.ndarray
+
+
+@dataclass(frozen=True)
+class _CollisionClosureTerms:
+    energy_source: dict[str, np.ndarray]
+    momentum_source: dict[str, np.ndarray]
+
+
+_QE = 1.602176634e-19
+_EPS0 = 8.8541878128e-12
+_MP = 1.67262192369e-27
+_ME = 9.1093837015e-31
+
+
 def _reaction_sources(
     config: BoutConfig,
     *,
@@ -435,6 +459,444 @@ def _accumulate_terms(
     for name, value in result.momentum_source.items():
         momentum_source[name] = momentum_source[name] + value
     diagnostics.update(result.diagnostics)
+
+
+def _prepare_species_state(
+    species: OpenFieldSpecies,
+    *,
+    mesh: StructuredMesh,
+) -> _PreparedSpeciesState:
+    density = species.density.copy()
+    pressure = species.pressure.copy()
+    temperature = _safe_temperature(pressure, density)
+    velocity = species.momentum / np.maximum(species.atomic_mass * density, 1.0e-8)
+    momentum = species.momentum.copy()
+
+    if species.noflow_lower_y or species.noflow_upper_y:
+        density = np.array(
+            apply_noflow_scalar_guards(
+                density,
+                mesh=mesh,
+                lower_y=species.noflow_lower_y,
+                upper_y=species.noflow_upper_y,
+            ),
+            dtype=np.float64,
+            copy=True,
+        )
+        pressure = np.array(
+            apply_noflow_scalar_guards(
+                pressure,
+                mesh=mesh,
+                lower_y=species.noflow_lower_y,
+                upper_y=species.noflow_upper_y,
+            ),
+            dtype=np.float64,
+            copy=True,
+        )
+        temperature = np.array(
+            apply_noflow_scalar_guards(
+                temperature,
+                mesh=mesh,
+                lower_y=species.noflow_lower_y,
+                upper_y=species.noflow_upper_y,
+            ),
+            dtype=np.float64,
+            copy=True,
+        )
+        velocity = np.array(
+            apply_noflow_flow_guards(
+                velocity,
+                mesh=mesh,
+                lower_y=species.noflow_lower_y,
+                upper_y=species.noflow_upper_y,
+            ),
+            dtype=np.float64,
+            copy=True,
+        )
+    return _PreparedSpeciesState(
+        density=density,
+        pressure=pressure,
+        temperature=temperature,
+        velocity=velocity,
+        momentum=momentum,
+    )
+
+
+def _prepare_open_field_states(
+    species: dict[str, OpenFieldSpecies],
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> tuple[dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult]:
+    prepared = {name: _prepare_species_state(sp, mesh=mesh) for name, sp in species.items()}
+    ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
+    electron_density = np.zeros_like(species["e"].density, dtype=np.float64)
+    for ion in ions:
+        electron_density = electron_density + ion.charge * prepared[ion.name].density
+
+    ion_boundary = _apply_ion_sheath_boundary(
+        ions,
+        electron_pressure=prepared["e"].pressure,
+        electron_density=electron_density,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    for ion in ions:
+        prepared[ion.name] = _PreparedSpeciesState(
+            density=ion_boundary.density[ion.name],
+            pressure=ion_boundary.pressure[ion.name],
+            temperature=ion_boundary.temperature[ion.name],
+            velocity=ion_boundary.velocity[ion.name],
+            momentum=ion_boundary.momentum[ion.name],
+        )
+
+    electron_density = np.zeros_like(species["e"].density, dtype=np.float64)
+    for ion in ions:
+        electron_density = electron_density + ion.charge * prepared[ion.name].density
+
+    electron_boundary = _apply_electron_sheath_boundary(
+        electron_pressure=prepared["e"].pressure,
+        electron_density=electron_density,
+        ion_velocity={ion.name: prepared[ion.name].velocity for ion in ions},
+        ions=ions,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    prepared["e"] = _PreparedSpeciesState(
+        density=electron_boundary.density,
+        pressure=electron_boundary.pressure,
+        temperature=electron_boundary.temperature,
+        velocity=np.zeros_like(electron_boundary.density, dtype=np.float64),
+        momentum=np.zeros_like(electron_boundary.density, dtype=np.float64),
+    )
+    return prepared, ion_boundary, electron_boundary
+
+
+def _configured_component_names(config: BoutConfig) -> tuple[str, ...]:
+    for section in ("model", "hermes"):
+        if config.has_section(section) and config.has_option(section, "components"):
+            values = config.parsed(section, "components")
+            if isinstance(values, tuple):
+                return tuple(str(value).strip() for value in values)
+            return (str(values).strip(),)
+    return ()
+
+
+def _compute_collision_frequencies(
+    config: BoutConfig,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    *,
+    dataset_scalars: dict[str, float],
+) -> dict[tuple[str, str], np.ndarray]:
+    collision_rates: dict[tuple[str, str], np.ndarray] = {}
+    nnorm = float(dataset_scalars["Nnorm"])
+    tnorm = float(dataset_scalars["Tnorm"])
+    rho_s0 = float(dataset_scalars["rho_s0"])
+    omega_ci = float(dataset_scalars["Omega_ci"])
+    electron_ion = bool(config.parsed("braginskii_collisions", "electron_ion")) if config.has_option("braginskii_collisions", "electron_ion") else True
+    electron_neutral = bool(config.parsed("braginskii_collisions", "electron_neutral")) if config.has_option("braginskii_collisions", "electron_neutral") else False
+    ion_ion = bool(config.parsed("braginskii_collisions", "ion_ion")) if config.has_option("braginskii_collisions", "ion_ion") else True
+    ion_neutral = bool(config.parsed("braginskii_collisions", "ion_neutral")) if config.has_option("braginskii_collisions", "ion_neutral") else False
+    neutral_neutral = bool(config.parsed("braginskii_collisions", "neutral_neutral")) if config.has_option("braginskii_collisions", "neutral_neutral") else True
+
+    electron = species["e"]
+    electron_state = prepared["e"]
+    te_ev = electron_state.temperature * tnorm
+    ne_m3 = electron_state.density * nnorm
+
+    for species_name, sp in species.items():
+        if not electron_ion or species_name == "e" or sp.charge <= 0.0:
+            continue
+        state = prepared[species_name]
+        ti_ev = state.temperature * tnorm
+        ni_m3 = state.density * nnorm
+        zi = sp.charge
+        ai = sp.atomic_mass
+        me_mi = _ME / (_MP * ai)
+
+        te_limited = np.maximum(te_ev, 0.1)
+        ti_limited = np.maximum(ti_ev, 0.1)
+        ne_limited = np.maximum(ne_m3, 1.0e10)
+        ni_limited = np.maximum(ni_m3, 1.0e10)
+        mask_very_low = (te_ev < 0.1) | (ni_m3 < 1.0e10) | (ne_m3 < 1.0e10)
+        mask_low_te = te_ev < (ti_ev * me_mi)
+        mask_mid_te = te_ev < (math.exp(2.0) * zi * zi)
+        coulomb_log = np.where(
+            mask_very_low,
+            10.0,
+            np.where(
+                mask_low_te,
+                23.0 - 0.5 * np.log(ni_limited) + 1.5 * np.log(ti_limited) - np.log((zi * zi) * ai),
+                np.where(
+                    mask_mid_te,
+                    30.0 - 0.5 * np.log(ne_limited) - np.log(zi) + 1.5 * np.log(te_limited),
+                    31.0 - 0.5 * np.log(ne_limited) + np.log(te_limited),
+                ),
+            ),
+        )
+        vesq = 2.0 * te_limited * _QE / _ME
+        visq = 2.0 * ti_limited * _QE / (_MP * ai)
+        nu_ei = (
+            (((_QE * _QE) * zi) ** 2)
+            * np.maximum(ni_m3, 0.0)
+            * np.maximum(coulomb_log, 1.0)
+            * (1.0 + me_mi)
+            / (3.0 * np.power(math.pi * (vesq + visq), 1.5) * ((_EPS0 * _ME) ** 2))
+        )
+        nu_ei = np.asarray(nu_ei / omega_ci, dtype=np.float64)
+        collision_rates[("e", species_name)] = nu_ei
+        collision_rates[(species_name, "e")] = (
+            nu_ei
+            * (electron.atomic_mass / sp.atomic_mass)
+            * prepared["e"].density
+            / np.maximum(state.density, 1.0e-5)
+        )
+
+    for neutral_name, neutral_species in species.items():
+        if not electron_neutral or neutral_name == "e" or neutral_species.charge != 0.0:
+            continue
+        neutral_state = prepared[neutral_name]
+        vth_e = np.sqrt((_MP / _ME) * np.maximum(prepared["e"].temperature, 0.0))
+        nu_en = vth_e * nnorm * neutral_state.density * 5.0e-19 * rho_s0
+        nu_en = np.asarray(nu_en, dtype=np.float64)
+        collision_rates[("e", neutral_name)] = nu_en
+        collision_rates[(neutral_name, "e")] = (
+            nu_en
+            * (electron.atomic_mass / neutral_species.atomic_mass)
+            * prepared["e"].density
+            / np.maximum(neutral_state.density, 1.0e-5)
+        )
+
+    charged_names = [name for name, sp in species.items() if name != "e" and sp.charge != 0.0]
+    neutral_names = [name for name, sp in species.items() if name != "e" and sp.charge == 0.0]
+
+    for charged_name in charged_names:
+        charged_species = species[charged_name]
+        charged_state = prepared[charged_name]
+        temperature_ev = charged_state.temperature * tnorm
+        density_m3 = charged_state.density * nnorm
+        charge = charged_species.charge
+        atomic_mass = charged_species.atomic_mass
+        mass = atomic_mass * _MP
+        temperature_limited = np.maximum(temperature_ev, 0.1)
+        density_limited = np.maximum(density_m3, 1.0e10)
+        coulomb_log = 29.91 - np.log(
+            ((charge * charge * (2.0 * atomic_mass)) / (2.0 * atomic_mass * temperature_limited))
+            * np.sqrt(2.0 * density_limited * (charge * charge) / temperature_limited)
+        )
+        v_sq = 2.0 * temperature_limited * _QE / mass
+        nu_self = (
+            (((charge * _QE) * (charge * _QE)) ** 2)
+            * density_limited
+            * np.maximum(coulomb_log, 1.0)
+            * 2.0
+            / (3.0 * np.power(math.pi * (2.0 * v_sq), 1.5) * ((_EPS0 * mass) ** 2))
+        )
+        collision_rates[(charged_name, charged_name)] = np.asarray(nu_self / omega_ci, dtype=np.float64)
+
+    for charged_name in charged_names:
+        charged_species = species[charged_name]
+        charged_state = prepared[charged_name]
+        for neutral_name in neutral_names:
+            neutral_species = species[neutral_name]
+            neutral_state = prepared[neutral_name]
+            vrel = np.sqrt(
+                charged_state.temperature / charged_species.atomic_mass
+                + neutral_state.temperature / neutral_species.atomic_mass
+            )
+        if ion_neutral:
+            nu_cn = vrel * neutral_state.density * nnorm * 5.0e-19 * rho_s0
+            nu_cn = np.asarray(nu_cn, dtype=np.float64)
+            collision_rates[(charged_name, neutral_name)] = nu_cn
+            collision_rates[(neutral_name, charged_name)] = (
+                nu_cn
+                * (charged_species.atomic_mass / neutral_species.atomic_mass)
+                * charged_state.density
+                / np.maximum(neutral_state.density, 1.0e-5)
+            )
+
+    for index, first_name in enumerate(charged_names):
+        if not ion_ion:
+            break
+        first_species = species[first_name]
+        first_state = prepared[first_name]
+        t1_ev = first_state.temperature * tnorm
+        n1_m3 = first_state.density * nnorm
+        for second_name in charged_names[index + 1 :]:
+            second_species = species[second_name]
+            second_state = prepared[second_name]
+            t2_ev = second_state.temperature * tnorm
+            n2_m3 = second_state.density * nnorm
+            z1 = first_species.charge
+            z2 = second_species.charge
+            a1 = first_species.atomic_mass
+            a2 = second_species.atomic_mass
+            m1 = a1 * _MP
+            m2 = a2 * _MP
+            t1_limited = np.maximum(t1_ev, 0.1)
+            t2_limited = np.maximum(t2_ev, 0.1)
+            n1_limited = np.maximum(n1_m3, 1.0e10)
+            n2_limited = np.maximum(n2_m3, 1.0e10)
+            coulomb_log = 29.91 - np.log(
+                ((z1 * z2 * (a1 + a2)) / (a1 * t2_limited + a2 * t1_limited))
+                * np.sqrt(n1_limited * (z1 * z1) / t1_limited + n2_limited * (z2 * z2) / t2_limited)
+            )
+            v1sq = 2.0 * t1_limited * _QE / m1
+            v2sq = 2.0 * t2_limited * _QE / m2
+            nu_12 = (
+                (((z1 * _QE) * (z2 * _QE)) ** 2)
+                * n2_limited
+                * np.maximum(coulomb_log, 1.0)
+                * (1.0 + (m1 / m2))
+                / (3.0 * np.power(math.pi * (v1sq + v2sq), 1.5) * ((_EPS0 * m1) ** 2))
+            )
+            nu_12 = np.asarray(nu_12 / omega_ci, dtype=np.float64)
+            collision_rates[(first_name, second_name)] = nu_12
+            collision_rates[(second_name, first_name)] = (
+                nu_12
+                * (first_species.atomic_mass / second_species.atomic_mass)
+                * first_state.density
+                / np.maximum(second_state.density, 1.0e-5)
+            )
+
+    for index, first_name in enumerate(neutral_names):
+        if not neutral_neutral:
+            break
+        first_species = species[first_name]
+        first_state = prepared[first_name]
+        for second_name in neutral_names[index + 1 :]:
+            second_species = species[second_name]
+            second_state = prepared[second_name]
+            vrel = np.sqrt(
+                first_state.temperature / first_species.atomic_mass
+                + second_state.temperature / second_species.atomic_mass
+            )
+            nu_12 = vrel * second_state.density * nnorm * (math.pi * (2.8e-10**2)) * rho_s0
+            nu_12 = np.asarray(nu_12, dtype=np.float64)
+            collision_rates[(first_name, second_name)] = nu_12
+            collision_rates[(second_name, first_name)] = (
+                nu_12
+                * (first_species.atomic_mass / second_species.atomic_mass)
+                * first_state.density
+                / np.maximum(second_state.density, 1.0e-5)
+            )
+    return collision_rates
+
+
+def _momentum_coefficient(name1: str, charge1: float, name2: str, charge2: float) -> float:
+    def coefficient(charge: float) -> float:
+        if charge == 1.0:
+            return 0.51
+        if charge == 2.0:
+            return 0.44
+        if charge == 3.0:
+            return 0.40
+        return 0.38
+
+    if name1 == "e":
+        return coefficient(charge2)
+    if name2 == "e":
+        return coefficient(charge1)
+    return 1.0
+
+
+def _apply_collision_closure(
+    config: BoutConfig,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> _CollisionClosureTerms:
+    configured_components = set(_configured_component_names(config))
+    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    collision_rates = _compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
+    cx_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+
+    names = tuple(species)
+    for index, first_name in enumerate(names):
+        first_species = species[first_name]
+        first_state = prepared[first_name]
+        for second_name in names[index + 1 :]:
+            rate_key = (first_name, second_name)
+            if rate_key not in collision_rates:
+                continue
+            second_species = species[second_name]
+            second_state = prepared[second_name]
+            nu_12 = collision_rates[rate_key]
+            a1 = first_species.atomic_mass
+            a2 = second_species.atomic_mass
+
+            if "braginskii_friction" in configured_components:
+                coeff = _momentum_coefficient(first_name, first_species.charge, second_name, second_species.charge)
+                friction = (
+                    coeff
+                    * a1
+                    * nu_12
+                    * first_state.density
+                    * (second_state.velocity - first_state.velocity)
+                )
+                momentum_source[first_name] = momentum_source[first_name] + friction
+                momentum_source[second_name] = momentum_source[second_name] - friction
+
+                if first_species.has_pressure or second_species.has_pressure:
+                    velocity_delta = second_state.velocity - first_state.velocity
+                    energy_source[first_name] = energy_source[first_name] + (
+                        (a2 / (a1 + a2)) * velocity_delta * friction
+                    )
+                    energy_source[second_name] = energy_source[second_name] + (
+                        (a1 / (a1 + a2)) * velocity_delta * friction
+                    )
+
+            if "braginskii_heat_exchange" in configured_components and (first_species.has_pressure or second_species.has_pressure):
+                heat_exchange = 3.0 * (a1 / (a1 + a2)) * nu_12 * first_state.density * (
+                    second_state.temperature - first_state.temperature
+                )
+                energy_source[first_name] = energy_source[first_name] + heat_exchange
+                energy_source[second_name] = energy_source[second_name] - heat_exchange
+
+    if "braginskii_thermal_force" in configured_components:
+        electron_temperature_gradient = _grad_par_open(prepared["e"].temperature, mesh=mesh, metrics=metrics)
+        for name, sp in species.items():
+            if name == "e" or sp.charge <= 0.0:
+                continue
+            ion_force = prepared[name].density * (0.71 * (sp.charge**2)) * electron_temperature_gradient
+            momentum_source[name] = momentum_source[name] + ion_force
+            momentum_source["e"] = momentum_source["e"] - ion_force
+
+    if "braginskii_ion_viscosity" in configured_components:
+        for name, sp in species.items():
+            if name == "e" or sp.charge == 0.0:
+                continue
+            total_collisionality = np.zeros_like(prepared[name].density, dtype=np.float64)
+            for other_name in species:
+                rate = collision_rates.get((name, other_name))
+                if rate is not None:
+                    total_collisionality = total_collisionality + rate
+            if name in cx_rates:
+                total_collisionality = total_collisionality + cx_rates[name]
+            total_collisionality = np.maximum(total_collisionality, 1.0e-12)
+            tau = 1.0 / total_collisionality
+            eta = 1.28 * prepared[name].pressure * tau
+            viscosity_source = _div_par_k_grad_par_open(
+                eta,
+                prepared[name].velocity,
+                mesh=mesh,
+                metrics=metrics,
+                boundary_flux=True,
+            )
+            momentum_source[name] = momentum_source[name] + viscosity_source
+            energy_source[name] = energy_source[name] - prepared[name].velocity * viscosity_source
+
+    return _CollisionClosureTerms(energy_source=energy_source, momentum_source=momentum_source)
 
 
 def _amjuel_ionisation(
@@ -528,11 +990,23 @@ def _charge_exchange(
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
 
+    atom_velocity = atom1.momentum / np.maximum(atom1.atomic_mass * atom1.density, 1.0e-8)
+    ion_velocity = ion1.momentum / np.maximum(ion1.atomic_mass * ion1.density, 1.0e-8)
+    atom2_velocity = atom2.momentum / np.maximum(atom2.atomic_mass * atom2.density, 1.0e-8)
+    ion2_velocity = ion2.momentum / np.maximum(ion2.atomic_mass * ion2.density, 1.0e-8)
+
     if atom1_name != atom2_name or ion1_name != ion2_name:
         density_source[atom1_name] -= rate
         density_source[ion2_name] += rate
         density_source[ion1_name] -= rate
         density_source[atom2_name] += rate
+
+    atom_momentum = rate * atom1.atomic_mass * atom_velocity
+    ion_momentum = rate * ion1.atomic_mass * ion_velocity
+    momentum_source[atom1_name] -= atom_momentum
+    momentum_source[ion2_name] += atom_momentum
+    momentum_source[ion1_name] -= ion_momentum
+    momentum_source[atom2_name] += ion_momentum
 
     atom_energy = 1.5 * rate * atom_temperature
     ion_energy = 1.5 * rate * ion_temperature
@@ -540,6 +1014,8 @@ def _charge_exchange(
     energy_source[ion2_name] += atom_energy
     energy_source[ion1_name] -= ion_energy
     energy_source[atom2_name] += ion_energy
+    energy_source[ion2_name] += 0.5 * atom1.atomic_mass * rate * np.square(ion2_velocity - atom_velocity)
+    energy_source[atom2_name] += 0.5 * ion1.atomic_mass * rate * np.square(atom2_velocity - ion_velocity)
 
     diag_suffix = f"{atom1_name}{ion1_name}_cx"
     if atom1_name == atom2_name and ion1_name == ion2_name:
@@ -555,6 +1031,47 @@ def _charge_exchange(
             f"K{diag_suffix}": ion1.density * sigmav,
         }
     return _ReactionTerms(density_source=density_source, energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
+
+
+def _charge_exchange_collision_rates(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    dataset_scalars: dict[str, float],
+) -> dict[str, np.ndarray]:
+    if not config.has_section("reactions") or not config.has_option("reactions", "type"):
+        return {}
+    totals: dict[str, np.ndarray] = {}
+    reactions = config.parsed("reactions", "type")
+    for reaction in (reactions if isinstance(reactions, tuple) else (reactions,)):
+        tokens = tuple(part.strip() for part in str(reaction).split("->"))
+        if len(tokens) != 2:
+            continue
+        lhs = tuple(part.strip() for part in re.split(r"\s+\+\s+", tokens[0].strip()))
+        rhs = tuple(part.strip() for part in re.split(r"\s+\+\s+", tokens[1].strip()))
+        if not (len(lhs) == 2 and len(rhs) == 2 and lhs[0] == rhs[1] and lhs[1] == rhs[0]):
+            continue
+        atom1_name = lhs[0]
+        ion1_name = lhs[1]
+        if atom1_name not in species or ion1_name not in species:
+            continue
+        atom1 = species[atom1_name]
+        ion1 = species[ion1_name]
+        atom_temperature = prepared[atom1_name].temperature
+        ion_temperature = prepared[ion1_name].temperature
+        teff = np.clip(
+            (atom_temperature / atom1.atomic_mass + ion_temperature / ion1.atomic_mass) * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        )
+        sigmav = _hydrogen_cx_sigmav(teff, dataset_scalars)
+        ion_rate = prepared[atom1_name].density * sigmav
+        if ion1_name in totals:
+            totals[ion1_name] = totals[ion1_name] + ion_rate
+        else:
+            totals[ion1_name] = np.asarray(ion_rate, dtype=np.float64)
+    return totals
 
 
 def _amjuel_reaction_rate(
@@ -637,6 +1154,9 @@ def _hydrogen_cx_sigmav(teff_ev: np.ndarray, dataset_scalars: dict[str, float]) 
 
 @dataclass(frozen=True)
 class _IonBoundaryResult:
+    density: dict[str, np.ndarray]
+    pressure: dict[str, np.ndarray]
+    temperature: dict[str, np.ndarray]
     velocity: dict[str, np.ndarray]
     momentum: dict[str, np.ndarray]
     energy_source: dict[str, np.ndarray]
@@ -654,6 +1174,9 @@ def _apply_ion_sheath_boundary(
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     J = np.asarray(metrics.J, dtype=np.float64)
+    boundary_density: dict[str, np.ndarray] = {}
+    boundary_pressure: dict[str, np.ndarray] = {}
+    boundary_temperature: dict[str, np.ndarray] = {}
     velocity: dict[str, np.ndarray] = {}
     momentum: dict[str, np.ndarray] = {}
     energy_source: dict[str, np.ndarray] = {ion.name: np.zeros_like(ion.density, dtype=np.float64) for ion in ions}
@@ -705,13 +1228,25 @@ def _apply_ion_sheath_boundary(
         power = flux / (dy[:, j, :] * J[:, j, :])
         energy_source[ion.name][:, j, :] -= power
 
+        boundary_density[ion.name] = density
+        boundary_pressure[ion.name] = pressure
+        boundary_temperature[ion.name] = temperature
         velocity[ion.name] = vel
         momentum[ion.name] = momentum_field
-    return _IonBoundaryResult(velocity=velocity, momentum=momentum, energy_source=energy_source)
+    return _IonBoundaryResult(
+        density=boundary_density,
+        pressure=boundary_pressure,
+        temperature=boundary_temperature,
+        velocity=velocity,
+        momentum=momentum,
+        energy_source=energy_source,
+    )
 
 
 @dataclass(frozen=True)
 class _ElectronBoundaryResult:
+    density: np.ndarray
+    temperature: np.ndarray
     pressure: np.ndarray
     energy_source: np.ndarray
 
@@ -774,7 +1309,12 @@ def _apply_electron_sheath_boundary(
     power = flux / (np.asarray(metrics.dy)[:, j, :] * np.asarray(metrics.J)[:, j, :])
     energy_source = np.zeros_like(density, dtype=np.float64)
     energy_source[:, j, :] -= power
-    return _ElectronBoundaryResult(pressure=pressure, energy_source=energy_source)
+    return _ElectronBoundaryResult(
+        density=density,
+        temperature=temperature,
+        pressure=pressure,
+        energy_source=energy_source,
+    )
 
 
 @dataclass(frozen=True)

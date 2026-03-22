@@ -68,6 +68,7 @@ Deliverables:
 - evolved-state drift-wave diagnostics locked against a committed reference `one_step` baseline with `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)`, so the first post-step density operator mismatch is regression-tested directly.
 - staged `one_rhs` recycling baselines for the single-species and multi-species 1D divertor cases, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs before the first output-step state comparison.
 - native `one_rhs` execution for `recycling_1d_rhs`, including the first open-field divertor/sheath/recycling slice with AMJUEL-backed hydrogen/helium rates, hydrogenic charge exchange, target-recycling source diagnostics, literal reference-expression resolution, and strict summary/full-array regression coverage against the committed single-species baseline.
+- staged multispecies closure support in `recycling_1d.py` for the `recycling_dthe_rhs` branch, including option-aware Braginskii collision frequencies, friction/heat-exchange energy bookkeeping, charge-exchange collisionality for the viscosity path, and the first native parallel ion-viscosity source reconstruction.
 
 ## Stage 3+: Physics Buildout
 
