@@ -38,6 +38,7 @@ from .mesh import (
     build_structured_mesh,
 )
 from .neutral_mixed import compute_neutral_mixed_rhs, initialize_neutral_mixed_state
+from .recycling_1d import compute_recycling_1d_rhs
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -162,6 +163,9 @@ def _execute_supported_case(
     if _is_supported_neutral_mixed_case(run_config):
         return _execute_neutral_mixed_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
+    if _is_supported_recycling_1d_case(run_config, mesh):
+        return _execute_recycling_1d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+
     if _is_supported_blob2d_case(config, run_config, mesh, metrics):
         return _execute_blob2d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
@@ -256,6 +260,45 @@ def _is_supported_diffusion_case(run_config: RunConfiguration) -> bool:
         return False
     sections = {component.section for component in run_config.components}
     return len(sections) == 1
+
+
+def _is_supported_recycling_1d_case(run_config: RunConfiguration, mesh: StructuredMesh) -> bool:
+    if mesh.nx != 1 or mesh.nz != 1:
+        return False
+    implementations = {component.implementation for component in run_config.components}
+    required = {
+        "evolve_density",
+        "evolve_pressure",
+        "evolve_momentum",
+        "quasineutral",
+        "zero_current",
+        "sheath_boundary",
+        "recycling",
+        "reactions",
+        "electron_force_balance",
+    }
+    if not required.issubset(implementations):
+        return False
+    return "sound_speed" not in implementations
+
+
+def _execute_recycling_1d_case(
+    config: BoutConfig,
+    run_config: RunConfiguration,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    *,
+    parity_mode: str,
+) -> tuple[tuple[float, ...], dict[str, Any]]:
+    if parity_mode != "one_rhs":
+        raise NotImplementedError("Native 1D recycling execution currently supports one_rhs parity only.")
+    result = compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+    return (0.0,), {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()}
 
 
 def _execute_periodic_fluid_mms_case(

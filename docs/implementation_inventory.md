@@ -88,6 +88,9 @@ The next queued staged baselines are now committed as well:
 - staged manifest entries for `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step`, so the 2D recycling branch now has named geometric targets; the remaining staging blocker is choosing a stable curated processor split for the geometry runs, not missing harness support;
 - `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the upcoming sheath-connected blob work starts from stored low-iteration targets instead of ad hoc runs.
 - `jax-drb validate-reference-baselines`, which re-runs committed reference cases and compares the live summaries to the stored baseline JSON files as a smoke-validation step.
+- `recycling_1d_rhs`: implemented and regression-tested against committed summary and full-array baselines, including target-recycling diagnostics, sheath boundary fluxes, AMJUEL-based ionization/recombination, hydrogenic charge exchange, literal section-reference resolution for source expressions, and the open-field electron-force-balance source path;
+- the active recycling package now vendors the compact atomic-rate JSON files inside [src/jax_drb/data/atomic_rates](/Users/rogerio/local/jax_drb/src/jax_drb/data/atomic_rates), so the open-field recycling branch no longer depends on out-of-tree rate data for the currently staged hydrogen and helium reactions;
+- the next open-field blocker is the multi-species `recycling_dthe_rhs` case, where live parity probes show the remaining mismatch sits mainly in ion momentum and neutral pressure source terms that require the multispecies collisional closure rather than more changes to the shared sheath/recycling utilities;
 
 Current native execution coverage:
 
@@ -130,4 +133,7 @@ Current native execution coverage:
 - direct active-domain probes now show that a single backward-Euler solve converges robustly but is too diffusive, while simple BDF2 substepping reduces momentum error but still misses the reference density history, so the next neutral transient iteration needs closer reference-style multistep/adaptive behavior rather than more first-order substep tuning;
 - direct low-level SciPy BDF probing with the new sparsity pattern is still too slow to be reviewer-safe on the staged neutral one-step case, so the next transient iteration should target a more direct sparse implicit path rather than simply wrapping `solve_ivp`;
 - the sparse direct path is now in-tree and routed through the shared solver backbone, but it is not the default validated stepper yet; the public implicit helpers still default to the matrix-free nonlinear solve while transient parity is tightened;
-- next target: finish the neutral one-step and short-window transient path on top of the hardened RHS slice by reproducing the reference `cvode`/BDF role more faithfully, while keeping the trimmed active-domain reference baselines and the blob benchmark report in sync with future solver changes.
+- next targets:
+  - finish the multi-species open-field recycling RHS by porting the missing collisional closure block on top of the already-locked `recycling_1d_rhs` slice;
+  - then expose `recycling_1d_one_step` and the first stable multi-species divertor milestone;
+  - in parallel, replace the broken staged tokamak Step 3 geometry target with the integrated 2D recycling workflow plus explicit artifact staging in the reference harness.
