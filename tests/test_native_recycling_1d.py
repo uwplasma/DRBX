@@ -37,7 +37,7 @@ def test_recycling_1d_rhs_matches_summary_baseline() -> None:
 
     comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
 
-    assert comparison.ok, comparison.pretty_report()
+    assert comparison.ok, comparison.issues
 
 
 def test_recycling_1d_rhs_matches_array_baseline() -> None:
@@ -47,4 +47,4 @@ def test_recycling_1d_rhs_matches_array_baseline() -> None:
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
 
-    assert comparison.ok, comparison.pretty_report()
+    assert comparison.ok, comparison.issues

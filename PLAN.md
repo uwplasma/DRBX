@@ -1442,6 +1442,7 @@ Current Step 2 checkpoint:
 
 - `recycling_1d_rhs` is now native, regression-tested, and locked against committed summary and full-array baselines.
 - The next Step 2 blocker is `recycling_dthe_rhs`, where the remaining mismatch is concentrated in the multi-species momentum/pressure source stack rather than in the shared sheath, recycling, or reference harness layers.
+- The broad multispecies closure jump is now partially landed: the dominant `dthe` ion-momentum source mismatch has been reduced to the ion-viscosity/collisional source path, while the remaining parity gap is concentrated in neutral pressure-source bookkeeping for `d` and `t`.
 - The efficient next implementation jump is to port the multi-species collisional closure as a grouped block:
   - `braginskii_collisions`
   - `braginskii_friction`
