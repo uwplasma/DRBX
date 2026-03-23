@@ -8,7 +8,8 @@ import pytest
 
 from jax_drb.native import run_curated_case
 from jax_drb.parity.arrays import build_array_payload_from_summary_payload, load_portable_array_payload
-from jax_drb.parity.diff import build_array_diff_report, format_array_diff_report
+from jax_drb.parity.diff import build_array_diff_report, compare_recycling_artifacts, format_array_diff_report, format_recycling_diff_report
+from jax_drb.parity.arrays import write_portable_array_payload
 from jax_drb.parity.recycling import extract_recycling_controller_snapshot
 
 
@@ -84,3 +85,28 @@ def test_recycling_one_step_native_parity_is_blocked_but_ready_for_diff_reportin
         pytest.xfail(format_array_diff_report(report))
 
     assert report.max_abs_diff <= 5.0e-2
+
+
+def test_recycling_array_diff_report_localizes_worst_cell(tmp_path: Path) -> None:
+    expected_path = _BASELINE_DIR / "recycling_dthe_one_step.npz"
+    actual_path = tmp_path / "recycling_dthe_one_step.npz"
+    payload = load_portable_array_payload(expected_path)
+    payload["variables"] = {name: np.array(value, copy=True) for name, value in payload["variables"].items()}
+    target_name = "NVhe+"
+    if target_name not in payload["variables"]:
+        target_name = next(iter(payload["variables"]))
+    target = payload["variables"][target_name]
+    flat_index = target.size // 2 if target.size else 0
+    target.reshape(-1)[flat_index] += 1.25
+    write_portable_array_payload(payload, actual_path)
+
+    report = compare_recycling_artifacts(expected_path, actual_path, artifact_kind="arrays")
+
+    assert not report.ok
+    assert report.worst_variable == target_name
+    assert report.worst_location == np.unravel_index(flat_index, target.shape) if target.shape else ()
+    assert report.max_abs_diff == pytest.approx(1.25)
+
+    text = format_recycling_diff_report(report)
+    assert "arrays:" in text
+    assert "worst_location:" in text

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
+
+from .arrays import compare_array_payloads, load_portable_array_payload
+from .compare import ComparisonResult, compare_summary_payloads, load_summary_json
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,68 @@ class ArrayDiffReport:
         if not self.entries:
             return 0.0
         return max(entry.max_abs_diff for entry in self.entries)
+
+
+@dataclass(frozen=True)
+class RecyclingArtifactDiffReport:
+    expected_path: Path
+    actual_path: Path
+    artifact_kind: str
+    summary_result: ComparisonResult | None = None
+    metadata_result: ComparisonResult | None = None
+    array_report: ArrayDiffReport | None = None
+
+    @property
+    def ok(self) -> bool:
+        summary_ok = True if self.summary_result is None else self.summary_result.ok
+        metadata_ok = True if self.metadata_result is None else self.metadata_result.ok
+        array_ok = True if self.array_report is None else self.array_report.ok
+        return summary_ok and metadata_ok and array_ok
+
+    @property
+    def max_abs_diff(self) -> float:
+        if self.array_report is not None:
+            return self.array_report.max_abs_diff
+        return 0.0
+
+    @property
+    def worst_field(self) -> str | None:
+        if self.ok:
+            return None
+        if self.array_report is not None and self.array_report.max_abs_diff > 0.0 and self.array_report.entries:
+            return self._worst_array_entry().field
+        for result in (self.summary_result, self.metadata_result):
+            if result is None or result.ok or not result.issues:
+                continue
+            return result.issues[0].field
+        return None
+
+    @property
+    def worst_variable(self) -> str | None:
+        if self.ok:
+            return None
+        if self.array_report is not None and self.array_report.max_abs_diff > 0.0 and self.array_report.entries:
+            return self._worst_array_entry().field
+        for result in (self.summary_result, self.metadata_result):
+            if result is None or result.ok:
+                continue
+            for issue in result.issues:
+                variable = _extract_summary_variable_name(issue.field)
+                if variable is not None:
+                    return variable
+        return None
+
+    @property
+    def worst_location(self) -> tuple[int, ...] | None:
+        if self.ok:
+            return None
+        if self.array_report is None or self.array_report.max_abs_diff <= 0.0 or not self.array_report.entries:
+            return None
+        return self._worst_array_entry().max_abs_location
+
+    def _worst_array_entry(self) -> ArrayDiffEntry:
+        assert self.array_report is not None
+        return max(self.array_report.entries, key=lambda entry: entry.max_abs_diff)
 
 
 def build_array_diff_report(
@@ -119,7 +185,124 @@ def format_array_diff_report(report: ArrayDiffReport) -> str:
     return "\n".join(lines)
 
 
+def compare_recycling_artifacts(
+    expected_artifact: str | Path,
+    actual_artifact: str | Path,
+    *,
+    artifact_kind: str = "auto",
+    scalar_rtol: float = 1e-10,
+    scalar_atol: float = 1e-12,
+    array_rtol: float = 1e-10,
+    array_atol: float = 1e-12,
+) -> RecyclingArtifactDiffReport:
+    expected_path = Path(expected_artifact)
+    actual_path = Path(actual_artifact)
+    resolved_kind = _resolve_recycling_artifact_kind(expected_path, actual_path, artifact_kind)
+
+    if resolved_kind == "summary":
+        expected = load_summary_json(expected_path)
+        actual = load_summary_json(actual_path)
+        return RecyclingArtifactDiffReport(
+            expected_path=expected_path,
+            actual_path=actual_path,
+            artifact_kind=resolved_kind,
+            summary_result=compare_summary_payloads(
+                expected,
+                actual,
+                scalar_rtol=scalar_rtol,
+                scalar_atol=scalar_atol,
+            ),
+        )
+
+    expected = load_portable_array_payload(expected_path)
+    actual = load_portable_array_payload(actual_path)
+    metadata_result = compare_array_payloads(
+        expected,
+        actual,
+        scalar_rtol=scalar_rtol,
+        scalar_atol=scalar_atol,
+        array_rtol=array_rtol,
+        array_atol=array_atol,
+    )
+    compare_variables = tuple(expected.get("compare_variables", [])) or None
+    array_report = build_array_diff_report(
+        expected.get("variables", {}),
+        actual.get("variables", {}),
+        compare_variables=compare_variables,
+    )
+    return RecyclingArtifactDiffReport(
+        expected_path=expected_path,
+        actual_path=actual_path,
+        artifact_kind=resolved_kind,
+        metadata_result=metadata_result,
+        array_report=array_report,
+    )
+
+
+def format_recycling_diff_report(report: RecyclingArtifactDiffReport) -> str:
+    lines = [
+        f"artifact_kind: {report.artifact_kind}",
+        f"expected: {report.expected_path}",
+        f"actual: {report.actual_path}",
+    ]
+    if report.worst_field is not None:
+        lines.append(f"worst_field: {report.worst_field}")
+    if report.worst_variable is not None:
+        lines.append(f"worst_variable: {report.worst_variable}")
+    if report.worst_location is not None:
+        lines.append(f"worst_location: {report.worst_location}")
+    if report.summary_result is not None:
+        lines.append(f"summary: {'ok' if report.summary_result.ok else 'mismatch'}")
+        for issue in report.summary_result.issues:
+            lines.append(f"  {issue.field}: {issue.message}")
+    if report.metadata_result is not None:
+        lines.append(f"metadata: {'ok' if report.metadata_result.ok else 'mismatch'}")
+        for issue in report.metadata_result.issues:
+            lines.append(f"  {issue.field}: {issue.message}")
+    if report.array_report is not None:
+        lines.append("arrays:")
+        if report.array_report.ok:
+            lines.append("  comparison: ok")
+        else:
+            formatted = format_array_diff_report(report.array_report)
+            lines.extend(f"  {line}" for line in formatted.splitlines())
+        if report.array_report.entries and not report.array_report.ok:
+            worst = report._worst_array_entry()
+            lines.append(
+                f"worst: {worst.field} @ {worst.max_abs_location} diff={worst.max_abs_diff:.8e}"
+            )
+    return "\n".join(lines)
+
+
 def _unravel_location(shape: tuple[int, ...], flat_index: int) -> tuple[int, ...]:
     if not shape:
         return ()
     return tuple(int(value) for value in np.unravel_index(flat_index, shape))
+
+
+def _resolve_recycling_artifact_kind(
+    expected_path: Path,
+    actual_path: Path,
+    artifact_kind: str,
+) -> str:
+    if artifact_kind != "auto":
+        if artifact_kind not in {"summary", "arrays"}:
+            raise ValueError(f"unsupported artifact_kind: {artifact_kind!r}")
+        return artifact_kind
+    suffixes = {expected_path.suffix.lower(), actual_path.suffix.lower()}
+    if suffixes == {".json"}:
+        return "summary"
+    if suffixes == {".npz"}:
+        return "arrays"
+    raise ValueError(
+        "cannot infer recycling artifact kind from mismatched suffixes "
+        f"{expected_path.suffix!r} and {actual_path.suffix!r}"
+    )
+
+
+def _extract_summary_variable_name(field: str) -> str | None:
+    prefix = "variable_summaries."
+    if not field.startswith(prefix):
+        return None
+    remainder = field.removeprefix(prefix)
+    return remainder.split(".", 1)[0] if remainder else None
