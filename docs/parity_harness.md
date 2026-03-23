@@ -105,6 +105,10 @@ Current support is intentionally narrow:
 - the active transient branch now matches two additional reference-side details:
   - controller integrals are advanced on accepted steps with a trapezoid rule instead of being solved as extra implicit unknowns;
   - the sheath preparation order applies the electron boundary state before the ion boundary state so the ion sheath sees the electron boundary density/pressure fields;
+- the current transient blocker is now localized by the short-step reference probe in [diagnose_recycling_transient_step.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_transient_step.py):
+  - on a `timestep = 25` single-species recycling run, the native backward-Euler step still misses the evolved state (`Nd+` about `5.96e-2`, `NVd+` about `1.54e-1`);
+  - when the native RHS is evaluated on that same reference-evolved state, the localized operator differences remain small (`ddt(Nd+)` about `1.03e-6`, `ddt(NVd+)` about `9.06e-4`, `ddt(Pe)` about `1.53e-4`);
+  - that short-step split is the current proof that the remaining Step 2 defect is the transient integrator path itself rather than another missing recycling/open-field source term;
 - performance of the transient debug loop improved materially after the latest open-field cleanup:
   - the shared no-flow / limited-free / target-recycling helpers now have NumPy fast paths, so they no longer spend most of their time in `jax.numpy` scatter/device-put when called from the recycling solver;
   - the current native probe runtimes are about `40.6 s` for `recycling_1d_one_step` and about `76.9 s` for `recycling_dthe_one_step` on this machine;

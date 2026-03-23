@@ -209,6 +209,7 @@ def _compute_recycling_1d_rhs_from_species(
         energy_source[name] = energy_source[name] + value
     for name, value in collision_terms.momentum_source.items():
         momentum_source[name] = momentum_source[name] + value
+    diagnostics.update(collision_terms.diagnostics)
 
     neutral_diffusion_terms = _apply_neutral_parallel_diffusion(
         config,
@@ -272,6 +273,8 @@ def _compute_recycling_1d_rhs_from_species(
             ),
             dtype=np.float64,
         )
+    diagnostics["Epar"] = np.asarray(electron_epar, dtype=np.float64)
+    diagnostics["Ve"] = np.asarray(electron_boundary.velocity, dtype=np.float64)
 
     variables: dict[str, np.ndarray] = {}
     variables[electron.density_name] = prepared["e"].density[None, ...]
@@ -321,6 +324,7 @@ def _compute_recycling_1d_rhs_from_species(
         variables[ion.density_name] = ion_state.density[None, ...]
         variables[ion.pressure_name] = ion_state.pressure[None, ...]
         variables[ion.momentum_name] = ion_state.momentum[None, ...]
+        variables[f"SNV{ion.name}"] = momentum_source[ion.name][None, ...]
         variables[f"ddt({ion.density_name})"] = density_rhs[None, ...]
         variables[f"ddt({ion.pressure_name})"] = pressure_rhs[None, ...]
         variables[f"ddt({ion.momentum_name})"] = momentum_rhs[None, ...]
@@ -355,6 +359,7 @@ def _compute_recycling_1d_rhs_from_species(
         variables[neutral.density_name] = neutral_state.density[None, ...]
         variables[neutral.pressure_name] = neutral_state.pressure[None, ...]
         variables[neutral.momentum_name] = neutral_state.momentum[None, ...]
+        variables[f"SNV{neutral.name}"] = momentum_source[neutral.name][None, ...]
         variables[f"ddt({neutral.density_name})"] = density_source[neutral.name][None, ...]
         variables[f"ddt({neutral.pressure_name})"] = ((2.0 / 3.0) * energy_source[neutral.name])[None, ...]
         variables[f"ddt({neutral.momentum_name})"] = momentum_source[neutral.name][None, ...]
@@ -673,6 +678,7 @@ class _PreparedSpeciesState:
 class _CollisionClosureTerms:
     energy_source: dict[str, np.ndarray]
     momentum_source: dict[str, np.ndarray]
+    diagnostics: dict[str, np.ndarray]
 
 
 @dataclass(frozen=True)
@@ -1174,6 +1180,7 @@ def _apply_collision_closure(
     configured_components = set(_configured_component_names(config))
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    diagnostics: dict[str, np.ndarray] = {}
     collision_rates = _compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
     cx_rates = _charge_exchange_collision_rates(
         config,
@@ -1207,15 +1214,17 @@ def _apply_collision_closure(
                 )
                 momentum_source[first_name] = momentum_source[first_name] + friction
                 momentum_source[second_name] = momentum_source[second_name] - friction
+                diagnostics[f"F{first_name}{second_name}_coll"] = np.asarray(friction, dtype=np.float64)
+                diagnostics[f"F{second_name}{first_name}_coll"] = np.asarray(-friction, dtype=np.float64)
 
                 if first_species.has_pressure or second_species.has_pressure:
                     velocity_delta = second_state.velocity - first_state.velocity
-                    energy_source[first_name] = energy_source[first_name] + (
-                        (a2 / (a1 + a2)) * velocity_delta * friction
-                    )
-                    energy_source[second_name] = energy_source[second_name] + (
-                        (a1 / (a1 + a2)) * velocity_delta * friction
-                    )
+                    first_heating = (a2 / (a1 + a2)) * velocity_delta * friction
+                    second_heating = (a1 / (a1 + a2)) * velocity_delta * friction
+                    energy_source[first_name] = energy_source[first_name] + first_heating
+                    energy_source[second_name] = energy_source[second_name] + second_heating
+                    diagnostics[f"E{first_name}{second_name}_coll_friction"] = np.asarray(first_heating, dtype=np.float64)
+                    diagnostics[f"E{second_name}{first_name}_coll_friction"] = np.asarray(second_heating, dtype=np.float64)
 
             if "braginskii_heat_exchange" in configured_components and (first_species.has_pressure or second_species.has_pressure):
                 heat_exchange = 3.0 * (a1 / (a1 + a2)) * nu_12 * first_state.density * (
@@ -1255,6 +1264,7 @@ def _apply_collision_closure(
             )
             momentum_source[name] = momentum_source[name] + viscosity_source
             energy_source[name] = energy_source[name] - prepared[name].velocity * viscosity_source
+            diagnostics[f"DivPiPar_{name}"] = np.asarray(viscosity_source, dtype=np.float64)
 
     if "braginskii_conduction" in configured_components:
         for name, sp in species.items():
@@ -1287,7 +1297,7 @@ def _apply_collision_closure(
                 boundary_flux=False,
             )
 
-    return _CollisionClosureTerms(energy_source=energy_source, momentum_source=momentum_source)
+    return _CollisionClosureTerms(energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
 
 
 def _div_par_parallel_ion_viscosity_open(
@@ -1669,11 +1679,16 @@ def _amjuel_ionisation(
 
     density_source[atom_name] -= rate
     density_source[ion_name] += rate
+    atom_velocity = atom.momentum / np.maximum(atom.atomic_mass * atom.density, 1.0e-8)
+    ion_momentum = rate * atom.atomic_mass * atom_velocity
+    momentum_source[atom_name] -= ion_momentum
+    momentum_source[ion_name] += ion_momentum
     energy_source[atom_name] -= 1.5 * rate * atom_temperature
     energy_source[ion_name] += 1.5 * rate * atom_temperature
     energy_source["e"] -= radiation
     diagnostics = {
         f"S{ion_name}_iz": rate,
+        f"F{ion_name}_iz": ion_momentum,
         f"E{ion_name}_iz": 1.5 * rate * atom_temperature,
         f"R{ion_name}_ex": -radiation,
     }
@@ -1703,11 +1718,16 @@ def _amjuel_recombination(
 
     density_source[ion_name] -= rate
     density_source[atom_name] += rate
+    ion_velocity = ion.momentum / np.maximum(ion.atomic_mass * ion.density, 1.0e-8)
+    ion_momentum = rate * ion.atomic_mass * ion_velocity
+    momentum_source[ion_name] -= ion_momentum
+    momentum_source[atom_name] += ion_momentum
     energy_source[ion_name] -= 1.5 * rate * ion_temperature
     energy_source[atom_name] += 1.5 * rate * ion_temperature
     energy_source["e"] -= radiation
     diagnostics = {
         f"S{ion_name}_rec": -rate,
+        f"F{ion_name}_rec": -ion_momentum,
         f"E{ion_name}_rec": -(1.5 * rate * ion_temperature),
         f"R{ion_name}_rec": -radiation,
     }
@@ -1768,13 +1788,16 @@ def _charge_exchange(
     if atom1_name == atom2_name and ion1_name == ion2_name:
         diagnostics = {
             f"E{diag_suffix}": ion_energy - atom_energy,
-            f"F{diag_suffix}": np.zeros_like(rate, dtype=np.float64),
+            f"F{diag_suffix}": ion_momentum - atom_momentum,
             f"K{diag_suffix}": ion1.density * sigmav,
         }
     else:
         diagnostics = {
             f"S{diag_suffix}": -rate,
+            f"F{diag_suffix}": -atom_momentum,
+            f"F{ion1_name}{atom1_name}_cx": -ion_momentum,
             f"E{diag_suffix}": -atom_energy,
+            f"E{ion1_name}{atom1_name}_cx": -ion_energy,
             f"K{diag_suffix}": ion1.density * sigmav,
         }
     return _ReactionTerms(density_source=density_source, energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)

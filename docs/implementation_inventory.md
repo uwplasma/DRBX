@@ -116,6 +116,10 @@ The next queued staged baselines are now committed as well:
 - the open-field transient path now follows the reference controller/state ordering more closely:
   - upstream density-feedback integrals are updated with an accepted-step trapezoid rule rather than being solved as extra implicit unknowns;
   - the sheath preparation order now applies the electron boundary state before the ion boundary state, and the ion sheath uses the electron boundary density/pressure fields instead of the pre-sheath quasineutral sum;
+- the transient blocker is now localized with a dedicated short-step probe in [diagnose_recycling_transient_step.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_transient_step.py):
+  - on a `timestep = 25` single-species reference run, the native backward-Euler step still misses the evolved state by about `5.96e-2` on `Nd+` and about `1.54e-1` on `NVd+`;
+  - on that same reference-evolved state, the native RHS stays tight, with max diffs around `1.03e-6` for `ddt(Nd+)`, `9.06e-4` for `ddt(NVd+)`, and `1.53e-4` for `ddt(Pe)`;
+  - that is the clearest current evidence that the remaining Step 2 mismatch is in the transient integrator path rather than in the localized recycling/open-field RHS operators;
 - recent transient performance work materially reduced the current first-output cost:
   - NumPy fast paths in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py) remove the old `jax.numpy` scatter/device-put overhead when the recycling solver is working with plain NumPy state;
   - the neutral parallel operator in [neutral_mixed.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/neutral_mixed.py) is now vectorized;

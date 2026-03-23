@@ -24,6 +24,7 @@ _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
 _BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
 _STAGED_REFERENCE_1D = Path("/private/tmp/jax_drb_recycling_1d_one_step_inspect")
 _STAGED_REFERENCE_DTHE = Path("/private/tmp/jax_drb_recycling_dthe_one_step_inspect")
+_STAGED_REFERENCE_DTHE_DIAG = Path("/private/tmp/jax_drb_recycling_dthe_one_step_diag2")
 _INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
 _INPUT_DTHE = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
 
@@ -135,6 +136,91 @@ def test_staged_recycling_dthe_evolved_rhs_stays_within_locked_tolerances() -> N
     assert diffs["ddt(NVd+)"] <= 2.0e-3
     assert diffs["ddt(NVt+)"] <= 2.0e-3
     assert diffs["ddt(NVhe+)"] <= 2.0e-5
+
+
+def test_staged_recycling_dthe_evolved_diagnostics_stay_within_locked_tolerances() -> None:
+    if not _STAGED_REFERENCE_DTHE_DIAG.exists():
+        pytest.skip("staged multispecies recycling diagnostic artifacts are unavailable")
+
+    diffs = _staged_rhs_differences(
+        _INPUT_DTHE,
+        _STAGED_REFERENCE_DTHE_DIAG,
+        controller_species=("d+", "t+", "he+"),
+        state_fields=(
+            "Nd+",
+            "Pd+",
+            "NVd+",
+            "Nt+",
+            "Pt+",
+            "NVt+",
+            "Nhe+",
+            "Phe+",
+            "NVhe+",
+            "Nd",
+            "Pd",
+            "NVd",
+            "Nt",
+            "Pt",
+            "NVt",
+            "Nhe",
+            "Phe",
+            "NVhe",
+            "Pe",
+        ),
+        compare_fields=(
+            "Ve",
+            "Epar",
+            "SNVd+",
+            "SNVt+",
+            "SNVhe+",
+            "SNVd",
+            "SNVt",
+            "SNVhe",
+            "Fd+d_coll",
+            "Fd+e_coll",
+            "Ft+t_coll",
+            "Ft+e_coll",
+            "DivPiPar_d+",
+            "DivPiPar_t+",
+            "DivPiPar_he+",
+            "Fd+_iz",
+            "Ft+_iz",
+            "Fd+_rec",
+            "Ft+_rec",
+            "Fdt+_cx",
+            "Ft+d_cx",
+            "Ftd+_cx",
+            "Fd+t_cx",
+            "Fdd+_cx",
+            "Ftt+_cx",
+        ),
+    )
+
+    assert diffs["Ve"] <= 1.0e-12
+    assert diffs["Epar"] <= 8.0e-5
+    assert diffs["SNVd+"] <= 7.0e-4
+    assert diffs["SNVt+"] <= 2.5e-3
+    assert diffs["SNVhe+"] <= 2.0e-5
+    assert diffs["SNVd"] <= 2.5e-3
+    assert diffs["SNVt"] <= 1.0e-3
+    assert diffs["SNVhe"] <= 3.0e-5
+    assert diffs["Fd+d_coll"] <= 1.0e-9
+    assert diffs["Fd+e_coll"] <= 1.0e-9
+    assert diffs["Ft+t_coll"] <= 1.0e-9
+    assert diffs["Ft+e_coll"] <= 1.0e-9
+    assert diffs["DivPiPar_d+"] <= 1.3e-3
+    assert diffs["DivPiPar_t+"] <= 1.7e-3
+    assert diffs["DivPiPar_he+"] <= 1.0e-6
+    assert diffs["Fd+_iz"] <= 2.0e-6
+    assert diffs["Ft+_iz"] <= 2.0e-6
+    assert diffs["Fd+_rec"] <= 1.0e-9
+    assert diffs["Ft+_rec"] <= 1.0e-9
+    assert diffs["Fdt+_cx"] <= 1.0e-9
+    assert diffs["Ft+d_cx"] <= 1.0e-9
+    assert diffs["Ftd+_cx"] <= 1.0e-9
+    assert diffs["Fd+t_cx"] <= 1.0e-9
+    assert diffs["Fdd+_cx"] <= 1.0e-9
+    assert diffs["Ftt+_cx"] <= 1.0e-9
 
 
 @pytest.mark.parametrize(
