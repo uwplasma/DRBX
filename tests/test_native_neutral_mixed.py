@@ -10,6 +10,7 @@ from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
+    _div_par_k_grad_par_open,
     advance_neutral_mixed_implicit_history,
     _prepare_neutral_mixed_state,
     _soft_floor,
@@ -222,6 +223,60 @@ def test_neutral_mixed_transport_operators_reproduce_frozen_density_rhs() -> Non
         error = actual - expected
         assert np.max(np.abs(error)) < 3.5e-3
         assert np.sqrt(np.mean(np.square(error))) < 1.0e-3
+
+
+@pytest.mark.parametrize("boundary_flux", [False, True])
+def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> None:
+    _, _, mesh, metrics, state, _ = _build_case(nx=8, ny=4, nz=6)
+    coefficient = 0.5 + 0.1 * state.density
+    field = np.log1p(state.pressure)
+
+    expected = np.zeros_like(field, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+    for j in range(mesh.ystart, mesh.yend + 1):
+        if boundary_flux or j != mesh.yend:
+            coefficient_up = 0.5 * (
+                coefficient[mesh.xstart : mesh.xend + 1, j, :] + coefficient[mesh.xstart : mesh.xend + 1, j + 1, :]
+            )
+            jacobian_up = 0.5 * (J[mesh.xstart : mesh.xend + 1, j, :] + J[mesh.xstart : mesh.xend + 1, j + 1, :])
+            metric_up = 0.5 * (g22[mesh.xstart : mesh.xend + 1, j, :] + g22[mesh.xstart : mesh.xend + 1, j + 1, :])
+            gradient_up = 2.0 * (
+                field[mesh.xstart : mesh.xend + 1, j + 1, :] - field[mesh.xstart : mesh.xend + 1, j, :]
+            ) / (
+                dy[mesh.xstart : mesh.xend + 1, j, :] + dy[mesh.xstart : mesh.xend + 1, j + 1, :]
+            )
+            flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
+            expected[mesh.xstart : mesh.xend + 1, j, :] += flux_up / (
+                dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
+            )
+
+        if boundary_flux or j != mesh.ystart:
+            coefficient_down = 0.5 * (
+                coefficient[mesh.xstart : mesh.xend + 1, j, :] + coefficient[mesh.xstart : mesh.xend + 1, j - 1, :]
+            )
+            jacobian_down = 0.5 * (J[mesh.xstart : mesh.xend + 1, j, :] + J[mesh.xstart : mesh.xend + 1, j - 1, :])
+            metric_down = 0.5 * (g22[mesh.xstart : mesh.xend + 1, j, :] + g22[mesh.xstart : mesh.xend + 1, j - 1, :])
+            gradient_down = 2.0 * (
+                field[mesh.xstart : mesh.xend + 1, j, :] - field[mesh.xstart : mesh.xend + 1, j - 1, :]
+            ) / (
+                dy[mesh.xstart : mesh.xend + 1, j, :] + dy[mesh.xstart : mesh.xend + 1, j - 1, :]
+            )
+            flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
+            expected[mesh.xstart : mesh.xend + 1, j, :] -= flux_down / (
+                dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
+            )
+
+    actual = _div_par_k_grad_par_open(
+        coefficient,
+        field,
+        mesh=mesh,
+        metrics=metrics,
+        boundary_flux=boundary_flux,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)
 
 
 def test_neutral_mixed_active_state_round_trip_preserves_interior() -> None:
@@ -524,4 +579,3 @@ def test_soft_floor_matches_reference_formula() -> None:
     expected = np.maximum(values, 0.0) + minimum * np.exp(-np.maximum(values, 0.0) / minimum)
 
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
-

@@ -1262,45 +1262,38 @@ def _div_par_k_grad_par_open(
     dy = np.asarray(metrics.dy, dtype=np.float64)
     J = np.asarray(metrics.J, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
+    xs = slice(mesh.xstart, mesh.xend + 1)
 
-    for j in range(mesh.ystart, mesh.yend + 1):
-        if boundary_flux or j != mesh.yend:
-            coefficient_up = 0.5 * (
-                coefficient[mesh.xstart : mesh.xend + 1, j, :] + coefficient[mesh.xstart : mesh.xend + 1, j + 1, :]
-            )
-            jacobian_up = 0.5 * (J[mesh.xstart : mesh.xend + 1, j, :] + J[mesh.xstart : mesh.xend + 1, j + 1, :])
-            metric_up = 0.5 * (g22[mesh.xstart : mesh.xend + 1, j, :] + g22[mesh.xstart : mesh.xend + 1, j + 1, :])
-            gradient_up = (
-                2.0
-                * (
-                    field[mesh.xstart : mesh.xend + 1, j + 1, :]
-                    - field[mesh.xstart : mesh.xend + 1, j, :]
-                )
-                / (dy[mesh.xstart : mesh.xend + 1, j, :] + dy[mesh.xstart : mesh.xend + 1, j + 1, :])
-            )
-            flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
-            result[mesh.xstart : mesh.xend + 1, j, :] += flux_up / (
-                dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
-            )
+    if boundary_flux:
+        up_cells = slice(mesh.ystart, mesh.yend + 1)
+        down_cells = slice(mesh.ystart, mesh.yend + 1)
+    else:
+        up_cells = slice(mesh.ystart, mesh.yend)
+        down_cells = slice(mesh.ystart + 1, mesh.yend + 1)
 
-        if boundary_flux or j != mesh.ystart:
-            coefficient_down = 0.5 * (
-                coefficient[mesh.xstart : mesh.xend + 1, j, :] + coefficient[mesh.xstart : mesh.xend + 1, j - 1, :]
-            )
-            jacobian_down = 0.5 * (J[mesh.xstart : mesh.xend + 1, j, :] + J[mesh.xstart : mesh.xend + 1, j - 1, :])
-            metric_down = 0.5 * (g22[mesh.xstart : mesh.xend + 1, j, :] + g22[mesh.xstart : mesh.xend + 1, j - 1, :])
-            gradient_down = (
-                2.0
-                * (
-                    field[mesh.xstart : mesh.xend + 1, j, :]
-                    - field[mesh.xstart : mesh.xend + 1, j - 1, :]
-                )
-                / (dy[mesh.xstart : mesh.xend + 1, j, :] + dy[mesh.xstart : mesh.xend + 1, j - 1, :])
-            )
-            flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
-            result[mesh.xstart : mesh.xend + 1, j, :] -= flux_down / (
-                dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
-            )
+    if up_cells.start < up_cells.stop:
+        coefficient_up = 0.5 * (coefficient[xs, up_cells, :] + coefficient[xs, up_cells.start + 1 : up_cells.stop + 1, :])
+        jacobian_up = 0.5 * (J[xs, up_cells, :] + J[xs, up_cells.start + 1 : up_cells.stop + 1, :])
+        metric_up = 0.5 * (g22[xs, up_cells, :] + g22[xs, up_cells.start + 1 : up_cells.stop + 1, :])
+        gradient_up = 2.0 * (
+            field[xs, up_cells.start + 1 : up_cells.stop + 1, :] - field[xs, up_cells, :]
+        ) / (
+            dy[xs, up_cells, :] + dy[xs, up_cells.start + 1 : up_cells.stop + 1, :]
+        )
+        flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
+        result[xs, up_cells, :] += flux_up / (dy[xs, up_cells, :] * J[xs, up_cells, :])
+
+    if down_cells.start < down_cells.stop:
+        coefficient_down = 0.5 * (coefficient[xs, down_cells, :] + coefficient[xs, down_cells.start - 1 : down_cells.stop - 1, :])
+        jacobian_down = 0.5 * (J[xs, down_cells, :] + J[xs, down_cells.start - 1 : down_cells.stop - 1, :])
+        metric_down = 0.5 * (g22[xs, down_cells, :] + g22[xs, down_cells.start - 1 : down_cells.stop - 1, :])
+        gradient_down = 2.0 * (
+            field[xs, down_cells, :] - field[xs, down_cells.start - 1 : down_cells.stop - 1, :]
+        ) / (
+            dy[xs, down_cells, :] + dy[xs, down_cells.start - 1 : down_cells.stop - 1, :]
+        )
+        flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
+        result[xs, down_cells, :] -= flux_down / (dy[xs, down_cells, :] * J[xs, down_cells, :])
 
     return result
 
