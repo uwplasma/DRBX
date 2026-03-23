@@ -22,6 +22,9 @@ class ReferenceCase:
     trim_x_guards: bool = False
     trim_y_guards: bool = False
     process_count: int = 1
+    artifact_bundle_url: str | None = None
+    artifact_bundle_sha256: str | None = None
+    artifact_bundle_files: tuple[str, ...] = ()
 
     def input_path(self, reference_root: str | Path) -> Path:
         return Path(reference_root) / self.reference_path
@@ -50,6 +53,9 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
             trim_x_guards=bool(entry.get("trim_x_guards", False)),
             trim_y_guards=bool(entry.get("trim_y_guards", False)),
             process_count=int(entry.get("process_count", 1)),
+            artifact_bundle_url=entry.get("artifact_bundle_url"),
+            artifact_bundle_sha256=entry.get("artifact_bundle_sha256"),
+            artifact_bundle_files=tuple(entry.get("artifact_bundle_files", [])),
         )
         for entry in payload.get("case", [])
     )

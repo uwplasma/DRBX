@@ -21,6 +21,9 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
         extra_overrides = ["e:diagnose=true"]
         trim_y_guards = true
         process_count = 4
+        artifact_bundle_url = "file:///tmp/reference-bundle.zip"
+        artifact_bundle_sha256 = "abc123"
+        artifact_bundle_files = ["grid_test2.nc"]
         """,
         encoding="utf-8",
     )
@@ -56,7 +59,21 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
     assert cases[0].extra_overrides == ("e:diagnose=true",)
     assert cases[0].trim_y_guards is True
     assert cases[0].process_count == 4
+    assert cases[0].artifact_bundle_url == "file:///tmp/reference-bundle.zip"
+    assert cases[0].artifact_bundle_sha256 == "abc123"
+    assert cases[0].artifact_bundle_files == ("grid_test2.nc",)
     assert resolved[0].exists is True
     assert resolved[0].run_config is not None
     assert resolved[0].run_config.time.nout == 1
     assert resolved[0].run_config.components[0].label == "e:evolve_density"
+
+
+def test_default_manifest_stages_integrated_2d_recycling_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "integrated_2d_recycling_one_step")
+
+    assert case.reference_path == "tests/integrated/2D-recycling/data/BOUT.inp"
+    assert case.process_count == 10
+    assert case.artifact_bundle_url is not None
+    assert case.artifact_bundle_sha256 == "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
+    assert case.artifact_bundle_files == ("grid_test2.nc",)
