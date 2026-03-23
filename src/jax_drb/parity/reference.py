@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+import urllib.request
+import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -150,7 +154,7 @@ def run_reference_case(
 ) -> ReferenceExecutionResult:
     case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
     binary = discover_reference_binary(reference_binary=reference_binary, reference_root=reference_root)
-    staged_workdir = _prepare_workdir(input_path, workdir=workdir)
+    staged_workdir = _prepare_workdir(case, input_path, workdir=workdir)
     stdout_path = staged_workdir / "run.stdout"
     overrides = merge_overrides(make_default_overrides(case.parity_mode), case.extra_overrides, tuple(extra_overrides))
 
@@ -284,13 +288,14 @@ def validate_reference_baselines(
     return tuple(results)
 
 
-def _prepare_workdir(input_path: Path, *, workdir: str | Path | None) -> Path:
+def _prepare_workdir(case: ReferenceCase, input_path: Path, *, workdir: str | Path | None) -> Path:
     if workdir is None:
         staged = Path(tempfile.mkdtemp(prefix=f"jaxdrb-{input_path.parent.parent.name}-"))
     else:
         staged = Path(workdir).expanduser().resolve()
         staged.mkdir(parents=True, exist_ok=True)
     _stage_case_directory(input_path.parent, staged)
+    _stage_case_artifacts(case, staged)
     return staged
 
 
@@ -304,6 +309,43 @@ def _stage_case_directory(source_dir: Path, target_dir: Path) -> None:
         if target.exists():
             continue
         target.symlink_to(child, target_is_directory=child.is_dir())
+
+
+def _stage_case_artifacts(case: ReferenceCase, target_dir: Path) -> None:
+    if case.artifact_bundle_url is None:
+        return
+
+    bundle_bytes = _read_artifact_bundle(case.artifact_bundle_url)
+    if case.artifact_bundle_sha256 is not None:
+        digest = hashlib.sha256(bundle_bytes).hexdigest()
+        if digest != case.artifact_bundle_sha256:
+            raise RuntimeError(
+                f"Artifact bundle sha256 mismatch for {case.name}: expected {case.artifact_bundle_sha256}, got {digest}"
+            )
+
+    with zipfile.ZipFile(io.BytesIO(bundle_bytes)) as archive:
+        filenames = case.artifact_bundle_files or tuple(archive.namelist())
+        for filename in filenames:
+            target = target_dir / filename
+            if target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with archive.open(filename) as source, target.open("wb") as sink:
+                    shutil.copyfileobj(source, sink)
+            except KeyError as exc:
+                raise FileNotFoundError(
+                    f"Artifact {filename!r} not found in bundle for {case.name}: {case.artifact_bundle_url}"
+                ) from exc
+
+
+def _read_artifact_bundle(bundle_url: str) -> bytes:
+    candidate = Path(bundle_url)
+    if "://" not in bundle_url and candidate.exists():
+        return candidate.read_bytes()
+
+    with urllib.request.urlopen(bundle_url, timeout=60) as response:
+        return response.read()
 
 
 def _reference_command(
