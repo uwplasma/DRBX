@@ -38,7 +38,7 @@ from .mesh import (
     build_structured_mesh,
 )
 from .neutral_mixed import compute_neutral_mixed_rhs, initialize_neutral_mixed_state
-from .recycling_1d import compute_recycling_1d_rhs
+from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -290,15 +290,33 @@ def _execute_recycling_1d_case(
     *,
     parity_mode: str,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
-    if parity_mode != "one_rhs":
-        raise NotImplementedError("Native 1D recycling execution currently supports one_rhs parity only.")
-    result = compute_recycling_1d_rhs(
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    if parity_mode == "one_rhs":
+        result = compute_recycling_1d_rhs(
+            config,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+        return (0.0,), {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()}
+
+    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    history = advance_recycling_1d_implicit_history(
         config,
         mesh=mesh,
         metrics=metrics,
-        dataset_scalars=resolved_dataset_scalars(run_config),
+        dataset_scalars=dataset_scalars,
+        timestep=run_config.time.timestep,
+        steps=steps,
+        solver_mode="bdf",
+        residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
+        max_nonlinear_iterations=30,
     )
-    return (0.0,), {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()}
+    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    return time_points, {
+        name: np.asarray(value, dtype=np.float64)
+        for name, value in history.variable_history.items()
+    }
 
 
 def _execute_periodic_fluid_mms_case(

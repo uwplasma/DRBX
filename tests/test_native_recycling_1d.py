@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native.mesh import build_structured_mesh
@@ -15,6 +16,7 @@ from jax_drb.native.recycling_1d import (
     _load_amjuel_rate,
     _prepare_open_field_states,
     _reaction_sources,
+    compute_recycling_1d_rhs,
 )
 from jax_drb.parity.arrays import (
     build_array_payload_from_summary_payload,
@@ -122,3 +124,42 @@ def test_recycling_dthe_collision_rates_cover_asymmetric_ion_neutral_pairs() -> 
     assert np.isfinite(float(collision_rates[("t", "d+")][active]))
     assert np.isfinite(float(collision_rates[("d", "t+")][active]))
     assert float(collision_rates[("t", "d+")][active]) != float(collision_rates[("d", "t+")][active])
+
+
+def test_single_species_feedback_diagnostics_are_present_and_zero_initially() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    result = compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+
+    assert "Sd+_feedback" in result.variables
+    assert "density_feedback_src_mult_d+" in result.variables
+    assert float(np.asarray(result.variables["density_feedback_src_mult_d+"]).reshape(-1)[0]) == 0.0
+
+
+def test_multispecies_feedback_controller_detects_initial_helium_density_error() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    result = compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+
+    multiplier = float(np.asarray(result.variables["density_feedback_src_mult_he+"]).reshape(-1)[0])
+    proportional = float(np.asarray(result.variables["density_feedback_src_p_he+"]).reshape(-1)[0])
+    source = np.asarray(result.variables["She+_feedback"][0])
+
+    assert multiplier == pytest.approx(495.0)
+    assert proportional == pytest.approx(495.0)
+    assert np.allclose(source, 0.0, rtol=0.0, atol=0.0)

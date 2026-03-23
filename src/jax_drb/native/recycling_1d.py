@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 import json
 from importlib import resources
@@ -15,6 +15,17 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
+from ..solver import (
+    ImplicitStepInfo,
+    backward_euler_residual,
+    build_locality_sparsity,
+    build_modulo_color_groups,
+    build_sparse_difference_quotient_jacobian,
+    pack_active_fields,
+    solve_matrix_free_newton_system,
+    solve_sparse_newton_system,
+    unpack_active_fields,
+)
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
@@ -64,6 +75,33 @@ class OpenFieldSpecies:
 @dataclass(frozen=True)
 class Recycling1DRhsResult:
     variables: dict[str, np.ndarray]
+    feedback_integral_rhs: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Recycling1DHistoryResult:
+    variable_history: dict[str, np.ndarray]
+    feedback_integral_history: dict[str, np.ndarray]
+
+
+@dataclass(frozen=True)
+class Recycling1DImplicitStepInfo:
+    residual_inf_norm: float
+    active_size: int
+    nonlinear_iterations: int
+    linear_iterations: int
+
+
+@dataclass(frozen=True)
+class _DensityFeedbackController:
+    species_name: str
+    density_upstream: float
+    density_controller_p: float
+    density_controller_i: float
+    density_integral_positive: bool
+    density_source_positive: bool
+    density_source_shape: np.ndarray
+    diagnose: bool
 
 
 _AMJUEL_FILENAMES = {
@@ -82,8 +120,37 @@ def compute_recycling_1d_rhs(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
+    field_overrides: dict[str, np.ndarray] | None = None,
+    feedback_integrals: dict[str, float] | None = None,
 ) -> Recycling1DRhsResult:
-    species = _initialize_species(config, mesh=mesh)
+    species = _initialize_species(config, mesh=mesh, field_overrides=field_overrides)
+    controllers = _load_density_feedback_controllers(
+        config,
+        species=species,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    return _compute_recycling_1d_rhs_from_species(
+        config,
+        species=species,
+        controllers=controllers,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        feedback_integrals=feedback_integrals,
+    )
+
+
+def _compute_recycling_1d_rhs_from_species(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    controllers: dict[str, _DensityFeedbackController],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    feedback_integrals: dict[str, float] | None,
+) -> Recycling1DRhsResult:
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     neutrals = tuple(sp for sp in species.values() if sp.charge == 0.0)
     electron = species["e"]
@@ -143,6 +210,19 @@ def compute_recycling_1d_rhs(
     for name, value in recycling_terms.energy_source.items():
         energy_source[name] = energy_source[name] + value
     diagnostics.update(recycling_terms.diagnostics)
+
+    feedback_terms = _apply_upstream_density_feedback(
+        species,
+        prepared,
+        controllers=controllers,
+        mesh=mesh,
+        feedback_integrals=feedback_integrals,
+    )
+    for name, value in feedback_terms.density_source.items():
+        density_source[name] = density_source[name] + value
+    for name, value in feedback_terms.energy_source.items():
+        energy_source[name] = energy_source[name] + value
+    diagnostics.update(feedback_terms.diagnostics)
 
     electron_force = compute_electron_force_balance(
         electron_boundary.pressure,
@@ -240,11 +320,20 @@ def compute_recycling_1d_rhs(
     for name, value in diagnostics.items():
         variables[name] = value[None, ...]
 
-    return Recycling1DRhsResult(variables=variables)
+    return Recycling1DRhsResult(
+        variables=variables,
+        feedback_integral_rhs=feedback_terms.feedback_integral_rhs,
+    )
 
 
-def _initialize_species(config: BoutConfig, *, mesh: StructuredMesh) -> dict[str, OpenFieldSpecies]:
+def _initialize_species(
+    config: BoutConfig,
+    *,
+    mesh: StructuredMesh,
+    field_overrides: dict[str, np.ndarray] | None = None,
+) -> dict[str, OpenFieldSpecies]:
     resolver = NumericResolver(config)
+    overrides = field_overrides or {}
     model_species = []
     for section in config.sections:
         if section == "e":
@@ -258,17 +347,26 @@ def _initialize_species(config: BoutConfig, *, mesh: StructuredMesh) -> dict[str
 
     species: dict[str, OpenFieldSpecies] = {}
     for name in model_species:
-        density = _evaluate_field_option(config, f"N{name}", mesh=mesh) if config.has_section(f"N{name}") else None
+        density_name = f"N{name}"
+        pressure_name = f"P{name}"
+        momentum_name = f"NV{name}"
+        density = np.asarray(overrides[density_name], dtype=np.float64, copy=True) if density_name in overrides else (
+            _evaluate_field_option(config, density_name, mesh=mesh) if config.has_section(density_name) else None
+        )
         if name == "e":
             if density is None:
                 density = None
-            pressure = _evaluate_field_option(config, "Pe", mesh=mesh)
+            pressure = np.asarray(overrides[pressure_name], dtype=np.float64, copy=True) if pressure_name in overrides else _evaluate_field_option(config, pressure_name, mesh=mesh)
             momentum = np.zeros_like(pressure, dtype=np.float64)
         else:
             if density is None:
                 raise KeyError(f"Missing density section for {name}.")
-            pressure = _evaluate_field_option(config, f"P{name}", mesh=mesh) if config.has_section(f"P{name}") else density.copy()
-            momentum = _evaluate_field_option(config, f"NV{name}", mesh=mesh) if config.has_section(f"NV{name}") else np.zeros_like(density, dtype=np.float64)
+            pressure = np.asarray(overrides[pressure_name], dtype=np.float64, copy=True) if pressure_name in overrides else (
+                _evaluate_field_option(config, pressure_name, mesh=mesh) if config.has_section(pressure_name) else density.copy()
+            )
+            momentum = np.asarray(overrides[momentum_name], dtype=np.float64, copy=True) if momentum_name in overrides else (
+                _evaluate_field_option(config, momentum_name, mesh=mesh) if config.has_section(momentum_name) else np.zeros_like(density, dtype=np.float64)
+            )
 
         type_values = config.parsed(name, "type")
         components = tuple(str(item) for item in (type_values if isinstance(type_values, tuple) else (type_values,)))
@@ -362,6 +460,57 @@ def _try_literal_reference(config: BoutConfig, raw_value: str) -> tuple[str, str
     return section, key
 
 
+def _load_density_feedback_controllers(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    mesh: StructuredMesh,
+    dataset_scalars: dict[str, float],
+) -> dict[str, _DensityFeedbackController]:
+    resolver = NumericResolver(config)
+    nnorm = float(dataset_scalars["Nnorm"])
+    omega_ci = float(dataset_scalars["Omega_ci"])
+    controllers: dict[str, _DensityFeedbackController] = {}
+    for name, sp in species.items():
+        if name == "e" or sp.charge <= 0.0 or not config.has_option(name, "type"):
+            continue
+        type_values = config.parsed(name, "type")
+        components = tuple(str(item).strip() for item in (type_values if isinstance(type_values, tuple) else (type_values,)))
+        if "upstream_density_feedback" not in components:
+            continue
+        density_section = f"N{name}"
+        if config.has_option(density_section, "source_shape"):
+            raw_value = config.raw(density_section, "source_shape")
+            resolved_reference = _try_literal_reference(config, raw_value)
+            if resolved_reference is not None:
+                source_shape = _evaluate_field_value(
+                    config,
+                    resolved_reference[0],
+                    mesh=mesh,
+                    option_name=resolved_reference[1],
+                )
+            else:
+                evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
+                source_shape = broadcast_to_field_shape(
+                    evaluator.resolve_option(density_section, "source_shape"),
+                    mesh,
+                )
+            source_shape = np.asarray(source_shape, dtype=np.float64) / (nnorm * omega_ci)
+        else:
+            source_shape = np.zeros_like(sp.density, dtype=np.float64)
+        controllers[name] = _DensityFeedbackController(
+            species_name=name,
+            density_upstream=float(resolver.resolve(name, "density_upstream")) / nnorm,
+            density_controller_p=float(resolver.resolve(name, "density_controller_p")) if config.has_option(name, "density_controller_p") else 1.0e-2,
+            density_controller_i=float(resolver.resolve(name, "density_controller_i")) if config.has_option(name, "density_controller_i") else 1.0e-3,
+            density_integral_positive=bool(config.parsed(name, "density_integral_positive")) if config.has_option(name, "density_integral_positive") else False,
+            density_source_positive=bool(config.parsed(name, "density_source_positive")) if config.has_option(name, "density_source_positive") else True,
+            density_source_shape=source_shape,
+            diagnose=bool(config.parsed(name, "diagnose")) if config.has_option(name, "diagnose") else False,
+        )
+    return controllers
+
+
 def _electron_density(ions: tuple[OpenFieldSpecies, ...]) -> np.ndarray:
     density = np.zeros_like(ions[0].density, dtype=np.float64)
     for ion in ions:
@@ -394,6 +543,14 @@ class _PreparedSpeciesState:
 class _CollisionClosureTerms:
     energy_source: dict[str, np.ndarray]
     momentum_source: dict[str, np.ndarray]
+
+
+@dataclass(frozen=True)
+class _DensityFeedbackTerms:
+    density_source: dict[str, np.ndarray]
+    energy_source: dict[str, np.ndarray]
+    diagnostics: dict[str, np.ndarray]
+    feedback_integral_rhs: dict[str, float]
 
 
 _QE = 1.602176634e-19
@@ -580,6 +737,50 @@ def _prepare_open_field_states(
         momentum=np.zeros_like(electron_boundary.density, dtype=np.float64),
     )
     return prepared, ion_boundary, electron_boundary
+
+
+def _apply_upstream_density_feedback(
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    *,
+    controllers: dict[str, _DensityFeedbackController],
+    mesh: StructuredMesh,
+    feedback_integrals: dict[str, float] | None,
+) -> _DensityFeedbackTerms:
+    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    diagnostics: dict[str, np.ndarray] = {}
+    integral_rhs: dict[str, float] = {}
+    integrals = feedback_integrals or {}
+
+    for name, controller in controllers.items():
+        upstream_density = float(prepared[name].density[mesh.xstart, mesh.ystart, 0])
+        error = controller.density_upstream - upstream_density
+        stored_integral = float(integrals.get(name, 0.0))
+        if controller.density_integral_positive and stored_integral < 0.0:
+            stored_integral = 0.0
+        proportional_term = controller.density_controller_p * error
+        integral_term = controller.density_controller_i * stored_integral
+        source_multiplier = proportional_term + integral_term
+        if controller.density_source_positive and source_multiplier < 0.0:
+            source_multiplier = 0.0
+        source = source_multiplier * controller.density_source_shape
+        density_source[name] = density_source[name] + source
+        velocity = np.asarray(prepared[name].velocity, dtype=np.float64)
+        energy_source[name] = energy_source[name] + 0.5 * species[name].atomic_mass * np.square(velocity) * source
+        diagnostics[f"S{name}_feedback"] = np.asarray(source, dtype=np.float64)
+        diagnostics[f"density_feedback_src_mult_{name}"] = np.asarray(source_multiplier, dtype=np.float64)
+        diagnostics[f"density_feedback_src_p_{name}"] = np.asarray(proportional_term, dtype=np.float64)
+        diagnostics[f"density_feedback_src_i_{name}"] = np.asarray(integral_term, dtype=np.float64)
+        diagnostics[f"density_feedback_src_shape_{name}"] = np.asarray(controller.density_source_shape, dtype=np.float64)
+        integral_rhs[name] = error
+
+    return _DensityFeedbackTerms(
+        density_source=density_source,
+        energy_source=energy_source,
+        diagnostics=diagnostics,
+        feedback_integral_rhs=integral_rhs,
+    )
 
 
 def _configured_component_names(config: BoutConfig) -> tuple[str, ...]:
@@ -1447,3 +1648,505 @@ def _electron_zero_current_velocity(
     for ion in ions:
         current = current + ion.charge * ion.density * ion_velocity[ion.name]
     return current / np.maximum(electron_density, 1.0e-5)
+
+
+def advance_recycling_1d_implicit_history(
+    config: BoutConfig,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+    steps: int,
+    solver_mode: str = "bdf",
+    residual_tolerance: float = 1.0e-8,
+    max_nonlinear_iterations: int = 20,
+) -> Recycling1DHistoryResult:
+    if steps < 0:
+        raise ValueError("steps must be non-negative.")
+    species = _initialize_species(config, mesh=mesh)
+    controllers = _load_density_feedback_controllers(
+        config,
+        species=species,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    field_names = _recycling_evolving_variable_names(species)
+    feedback_names = tuple(sorted(controllers))
+    fields = _recycling_field_templates(species, field_names=field_names)
+    integrals = {name: 0.0 for name in feedback_names}
+
+    if solver_mode == "bdf":
+        return _advance_recycling_1d_bdf_history(
+            config,
+            fields,
+            feedback_integrals=integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=timestep,
+            steps=steps,
+        )
+
+    variable_history = {name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names}
+    feedback_history = {name: [np.asarray(0.0, dtype=np.float64)] for name in feedback_names}
+
+    for _ in range(steps):
+        fields, integrals, _ = advance_recycling_1d_backward_euler_step(
+            config,
+            fields,
+            feedback_integrals=integrals,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=timestep,
+            solver_mode=solver_mode,
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+        for name in field_names:
+            variable_history[name].append(np.asarray(fields[name], dtype=np.float64))
+        for name in feedback_names:
+            feedback_history[name].append(np.asarray(integrals[name], dtype=np.float64))
+
+    return Recycling1DHistoryResult(
+        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
+        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+    )
+
+
+def advance_recycling_1d_backward_euler_step(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    feedback_integrals: dict[str, float],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+    solver_mode: str = "sparse",
+    residual_tolerance: float = 1.0e-8,
+    max_nonlinear_iterations: int = 20,
+) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
+    species = _initialize_species(config, mesh=mesh, field_overrides=fields)
+    controllers = _load_density_feedback_controllers(
+        config,
+        species=species,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    field_names = _recycling_evolving_variable_names(species)
+    feedback_names = tuple(sorted(controllers))
+    packed_previous = _pack_recycling_active_state(
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
+    previous_rhs = _compute_recycling_1d_packed_rhs(
+        config,
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+    initial_guess = packed_previous + float(timestep) * previous_rhs
+
+    def residual(packed_state: np.ndarray) -> np.ndarray:
+        state_fields, state_integrals = _unpack_recycling_active_state(
+            packed_state,
+            field_templates=fields,
+            feedback_integrals=feedback_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+        )
+        rhs = _compute_recycling_1d_packed_rhs(
+            config,
+            state_fields,
+            feedback_integrals=state_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+        return backward_euler_residual(
+            packed_state,
+            packed_previous,
+            rhs,
+            timestep=timestep,
+        )
+
+    if solver_mode == "sparse":
+        solved, info = solve_sparse_newton_system(
+            residual,
+            initial_guess,
+            active_shape=(packed_previous.size,),
+            sparsity=_build_recycling_residual_sparsity(
+                active_shape=_recycling_active_shape(mesh),
+                field_count=len(field_names),
+                controller_count=len(feedback_names),
+            ),
+            color_groups=_build_recycling_color_groups(
+                active_shape=_recycling_active_shape(mesh),
+                field_count=len(field_names),
+                controller_count=len(feedback_names),
+            ),
+            residual_tolerance=residual_tolerance,
+            step_tolerance=1.0e-11,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            linear_restart=20,
+            linear_maxiter=300,
+            linear_rtol=1.0e-8,
+        )
+    elif solver_mode == "matrix_free":
+        solved, info = solve_matrix_free_newton_system(
+            residual,
+            initial_guess,
+            active_shape=(packed_previous.size,),
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+    else:
+        raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
+    next_fields, next_integrals = _unpack_recycling_active_state(
+        solved,
+        field_templates=fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
+    return _sanitize_recycling_fields(config, next_fields), next_integrals, _as_recycling_step_info(info)
+
+
+def _advance_recycling_1d_bdf_history(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    feedback_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+    steps: int,
+) -> Recycling1DHistoryResult:
+    try:
+        from scipy.integrate import solve_ivp
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("BDF recycling stepping requires scipy.") from exc
+
+    y0 = _pack_recycling_active_state(
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
+    if steps == 0:
+        return Recycling1DHistoryResult(
+            variable_history={name: np.asarray(fields[name], dtype=np.float64)[None, ...] for name in field_names},
+            feedback_integral_history={
+                name: np.asarray([feedback_integrals.get(name, 0.0)], dtype=np.float64) for name in feedback_names
+            },
+        )
+
+    output_times = np.asarray([float(index) * float(timestep) for index in range(steps + 1)], dtype=np.float64)
+
+    active_shape = _recycling_active_shape(mesh)
+    sparsity = _build_recycling_residual_sparsity(
+        active_shape=active_shape,
+        field_count=len(field_names),
+        controller_count=len(feedback_names),
+    )
+    color_groups = _build_recycling_color_groups(
+        active_shape=active_shape,
+        field_count=len(field_names),
+        controller_count=len(feedback_names),
+    )
+
+    def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
+        state_fields, state_integrals = _unpack_recycling_active_state(
+            packed_state,
+            field_templates=fields,
+            feedback_integrals=feedback_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+        )
+        return _compute_recycling_1d_packed_rhs(
+            config,
+            state_fields,
+            feedback_integrals=state_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+
+    def jac(time_value: float, packed_state: np.ndarray):
+        return build_sparse_difference_quotient_jacobian(
+            lambda state: rhs(time_value, state),
+            packed_state,
+            sparsity=sparsity,
+            color_groups=color_groups,
+        )
+
+    solution = solve_ivp(
+        rhs,
+        (0.0, float(steps) * float(timestep)),
+        y0,
+        method="BDF",
+        t_eval=output_times,
+        rtol=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6,
+        atol=float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9,
+        jac=jac,
+    )
+    if not solution.success:
+        raise RuntimeError(f"Adaptive recycling BDF step failed: {solution.message}")
+
+    variable_history = {name: [] for name in field_names}
+    feedback_history = {name: [] for name in feedback_names}
+    for column in solution.y.T:
+        state_fields, state_integrals = _unpack_recycling_active_state(
+            column,
+            field_templates=fields,
+            feedback_integrals=feedback_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+        )
+        state_fields = _sanitize_recycling_fields(config, state_fields)
+        for name in field_names:
+            variable_history[name].append(np.asarray(state_fields[name], dtype=np.float64))
+        for name in feedback_names:
+            feedback_history[name].append(np.asarray(state_integrals[name], dtype=np.float64))
+
+    return Recycling1DHistoryResult(
+        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
+        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+    )
+
+
+def _compute_recycling_1d_packed_rhs(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    feedback_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> np.ndarray:
+    sanitized_fields = _sanitize_recycling_fields(config, fields)
+    result = compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        field_overrides=sanitized_fields,
+        feedback_integrals=feedback_integrals,
+    )
+    active_slices = _recycling_active_domain_slices(mesh)
+    pieces = [
+        np.asarray(result.variables[f"ddt({name})"][0][active_slices], dtype=np.float64).ravel()
+        for name in field_names
+    ]
+    pieces.extend(np.asarray(result.feedback_integral_rhs.get(name, 0.0), dtype=np.float64).reshape(1) for name in feedback_names)
+    return np.concatenate(pieces) if pieces else np.array([], dtype=np.float64)
+
+
+def _pack_recycling_active_state(
+    fields: dict[str, np.ndarray],
+    *,
+    feedback_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+) -> np.ndarray:
+    field_block = pack_active_fields(
+        tuple(np.asarray(fields[name], dtype=np.float64) for name in field_names),
+        active_slices=_recycling_active_domain_slices(mesh),
+    )
+    if not feedback_names:
+        return field_block
+    scalar_block = np.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=np.float64)
+    return np.concatenate([field_block, scalar_block])
+
+
+def _unpack_recycling_active_state(
+    packed: np.ndarray,
+    *,
+    field_templates: dict[str, np.ndarray],
+    feedback_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+) -> tuple[dict[str, np.ndarray], dict[str, float]]:
+    packed_array = np.asarray(packed, dtype=np.float64)
+    field_size = _recycling_active_field_size(mesh) * len(field_names)
+    field_block = packed_array[:field_size]
+    scalar_block = packed_array[field_size:]
+    unpacked_fields = unpack_active_fields(
+        field_block,
+        templates=tuple(np.asarray(field_templates[name], dtype=np.float64) for name in field_names),
+        active_slices=_recycling_active_domain_slices(mesh),
+    )
+    restored_fields = {name: np.asarray(value, dtype=np.float64) for name, value in zip(field_names, unpacked_fields, strict=True)}
+    restored_integrals = {name: float(value) for name, value in feedback_integrals.items()}
+    for index, name in enumerate(feedback_names):
+        restored_integrals[name] = float(scalar_block[index])
+    return restored_fields, restored_integrals
+
+
+def _sanitize_recycling_fields(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    sanitized = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
+    resolver = NumericResolver(config)
+    ion_density_names = sorted(name for name in sanitized if name.startswith("N") and not name.startswith("NV") and name != "Ne")
+    electron_density = np.zeros_like(sanitized[ion_density_names[0]], dtype=np.float64) if ion_density_names else None
+    if electron_density is not None:
+        for density_name in ion_density_names:
+            species_name = density_name[1:]
+            if species_name == "e":
+                continue
+            charge = float(resolver.resolve(species_name, "charge")) if config.has_option(species_name, "charge") else 0.0
+            if charge > 0.0:
+                electron_density = electron_density + charge * np.maximum(sanitized[density_name], 1.0e-12)
+    for name in list(sanitized):
+        if name.startswith("N") and not name.startswith("NV") and name != "Ne":
+            species_name = name[1:]
+            density_floor = float(resolver.resolve(species_name, "density_floor")) if config.has_option(species_name, "density_floor") else 1.0e-7
+            sanitized[name] = np.maximum(sanitized[name], density_floor)
+        elif name.startswith("P"):
+            species_name = name[1:]
+            temperature_floor = float(resolver.resolve(species_name, "temperature_floor")) if config.has_option(species_name, "temperature_floor") else 0.1
+            if species_name == "e" and electron_density is not None:
+                sanitized[name] = np.maximum(sanitized[name], temperature_floor * np.maximum(electron_density, 1.0e-7))
+            else:
+                density_name = f"N{species_name}"
+                density = sanitized.get(density_name)
+                floor_density = np.maximum(density, 1.0e-7) if density is not None else 1.0e-7
+                sanitized[name] = np.maximum(sanitized[name], temperature_floor * floor_density)
+    return sanitized
+
+
+def _recycling_evolving_variable_names(species: dict[str, OpenFieldSpecies]) -> tuple[str, ...]:
+    names: list[str] = []
+    for name, sp in species.items():
+        if name == "e":
+            names.append("Pe")
+            continue
+        names.extend((sp.density_name, sp.pressure_name, sp.momentum_name))
+    return tuple(names)
+
+
+def _recycling_field_templates(
+    species: dict[str, OpenFieldSpecies],
+    *,
+    field_names: tuple[str, ...],
+) -> dict[str, np.ndarray]:
+    templates: dict[str, np.ndarray] = {}
+    for name in field_names:
+        if name == "Pe":
+            templates[name] = np.asarray(species["e"].pressure, dtype=np.float64)
+            continue
+        species_name = name[1:] if name.startswith("N") else name[1:]
+        if name.startswith("NV"):
+            species_name = name[2:]
+        sp = species[species_name]
+        if name.startswith("N") and not name.startswith("NV"):
+            templates[name] = np.asarray(sp.density, dtype=np.float64)
+        elif name.startswith("P"):
+            templates[name] = np.asarray(sp.pressure, dtype=np.float64)
+        else:
+            templates[name] = np.asarray(sp.momentum, dtype=np.float64)
+    return templates
+
+
+def _recycling_active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
+    return (
+        slice(mesh.xstart, mesh.xend + 1),
+        slice(mesh.ystart, mesh.yend + 1),
+        slice(None),
+    )
+
+
+def _recycling_active_field_size(mesh: StructuredMesh) -> int:
+    return int(np.prod(_recycling_active_shape(mesh)))
+
+
+def _recycling_active_shape(mesh: StructuredMesh) -> tuple[int, int, int]:
+    active_slices = _recycling_active_domain_slices(mesh)
+    return tuple(
+        len(range(*active_slice.indices(axis_extent)))
+        for active_slice, axis_extent in zip(active_slices, (mesh.nx, mesh.local_ny, mesh.nz), strict=True)
+    )
+
+
+@lru_cache(maxsize=None)
+def _build_recycling_residual_sparsity(
+    *,
+    active_shape: tuple[int, int, int],
+    field_count: int,
+    controller_count: int,
+):
+    try:
+        from scipy.sparse import lil_matrix
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("Sparse recycling stepping requires scipy.") from exc
+
+    field_sparsity = build_locality_sparsity(
+        active_shape,
+        field_count=field_count,
+        radii=(0, 2, 0),
+        periodic_axes=(),
+    )
+    field_size = field_sparsity.shape[0]
+    total_size = field_size + controller_count
+    sparsity = lil_matrix((total_size, total_size), dtype=bool)
+    sparsity[:field_size, :field_size] = field_sparsity
+    if controller_count > 0:
+        sparsity[:field_size, field_size:total_size] = True
+        sparsity[field_size:total_size, :field_size] = True
+        sparsity[field_size:total_size, field_size:total_size] = True
+    return sparsity.tocsr()
+
+
+@lru_cache(maxsize=None)
+def _build_recycling_color_groups(
+    *,
+    active_shape: tuple[int, int, int],
+    field_count: int,
+    controller_count: int,
+) -> tuple[tuple[int, ...], ...]:
+    field_groups = build_modulo_color_groups(
+        active_shape,
+        field_count=field_count,
+        color_periods=(1, min(5, active_shape[1]), 1),
+    )
+    field_size = field_count * int(np.prod(active_shape))
+    controller_groups = tuple((field_size + index,) for index in range(controller_count))
+    return field_groups + controller_groups
+
+
+def _as_recycling_step_info(info: ImplicitStepInfo) -> Recycling1DImplicitStepInfo:
+    return Recycling1DImplicitStepInfo(
+        residual_inf_norm=info.residual_inf_norm,
+        active_size=int(np.prod(info.active_shape)),
+        nonlinear_iterations=info.nonlinear_iterations,
+        linear_iterations=info.linear_iterations,
+    )
