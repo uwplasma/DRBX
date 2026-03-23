@@ -22,9 +22,11 @@ from jax_drb.native.recycling_1d import (
     _initialize_species,
     _hydrogen_cx_sigmav,
     _load_amjuel_rate,
+    _neutral_ionisation_collision_rates,
     _prepare_open_field_states,
     _reaction_sources,
     _recycling_evolving_variable_names,
+    _ion_thermal_force_pair,
     compute_recycling_1d_rhs,
 )
 from jax_drb.parity.arrays import (
@@ -171,6 +173,120 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
         float(prepared["d"].density[active] * sigma_v[active])
     )
     assert float(cx_rates["d"][active]) != float(cx_rates["d+"][active])
+
+
+def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    cx_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+
+    active = (mesh.xstart, mesh.ystart, 0)
+    d_same = float(prepared["d+"].density[active] * _hydrogen_cx_sigmav(
+        np.clip(
+            (prepared["d"].temperature / species["d"].atomic_mass + prepared["d+"].temperature / species["d+"].atomic_mass)
+            * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        dataset_scalars,
+    )[active])
+    d_cross = float(prepared["t+"].density[active] * _hydrogen_cx_sigmav(
+        np.clip(
+            (prepared["d"].temperature / species["d"].atomic_mass + prepared["t+"].temperature / species["t+"].atomic_mass)
+            * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        dataset_scalars,
+    )[active])
+    t_same = float(prepared["t+"].density[active] * _hydrogen_cx_sigmav(
+        np.clip(
+            (prepared["t"].temperature / species["t"].atomic_mass + prepared["t+"].temperature / species["t+"].atomic_mass)
+            * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        dataset_scalars,
+    )[active])
+    t_cross = float(prepared["d+"].density[active] * _hydrogen_cx_sigmav(
+        np.clip(
+            (prepared["t"].temperature / species["t"].atomic_mass + prepared["d+"].temperature / species["d+"].atomic_mass)
+            * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        dataset_scalars,
+    )[active])
+
+    assert float(cx_rates["d"][active]) == pytest.approx(d_same + d_cross, rel=1.0e-12, abs=1.0e-12)
+    assert float(cx_rates["t"][active]) == pytest.approx(t_same + t_cross, rel=1.0e-12, abs=1.0e-12)
+
+
+def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+
+    pair = _ion_thermal_force_pair(
+        "d+",
+        "t+",
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        override_mass_restrictions=True,
+    )
+
+    assert pair is not None
+    light_name, heavy_name, heavy_force = pair
+    active = (mesh.xstart, mesh.yend, 0)
+
+    assert light_name == "d+"
+    assert heavy_name == "t+"
+    assert np.isfinite(float(heavy_force[active]))
+    assert heavy_force.shape == species["t+"].density.shape
+
+
+def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    ionisation_rates = _neutral_ionisation_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+    reaction_terms = _reaction_sources(
+        config,
+        species=species,
+        electron_density=_electron_density(tuple(sp for sp in species.values() if sp.charge > 0.0)),
+        dataset_scalars=dataset_scalars,
+    )
+
+    active = (mesh.xstart, mesh.yend, 0)
+    expected = float(reaction_terms.diagnostics["Sd+_iz"][active] / species["d"].density[active])
+    actual = float(ionisation_rates["d"][active])
+
+    assert actual == pytest.approx(expected, rel=1.0e-12, abs=1.0e-12)
 
 
 def test_single_species_feedback_diagnostics_are_present_and_zero_initially() -> None:

@@ -90,7 +90,7 @@ Current support is intentionally narrow:
 - the reference ladder now also includes committed `one_rhs` and `one_step` baselines for the single-species and multi-species 1D recycling workflows, so the sheath/recycling branch can lock target-recycling sources and `ddt(...)` fields before the first output-step state comparison;
 - `recycling_1d_rhs` is now implemented natively and locked against both the committed portable summary baseline and the committed full-array NPZ baseline;
 - the native recycling branch currently vendors its active hydrogen/helium AMJUEL fits inside the package, so the staged open-field parity path does not depend on a separate external rate-data checkout;
-- `recycling_dthe_rhs` is now also implemented natively and live-reference clean at the committed summary tolerances; the field-level array comparison passes against the committed NPZ baseline at `5e-2` relative tolerance, which is currently set by the remaining small ion-momentum edge residuals;
+- `recycling_dthe_rhs` is now also implemented natively and live-reference clean at the committed summary tolerances; the field-level array comparison passes against the committed NPZ baseline at `5e-2` relative tolerance, and the last staged multispecies edge residual was closed by adding the missing D-T ion-ion thermal-force exchange when `override_ion_mass_restrictions = true`;
 - the native recycling branch now also carries the traced upstream density-feedback controller physics:
   - controller source-shape evaluation from `N<species>:source_shape`,
   - proportional/integral multiplier diagnostics,
