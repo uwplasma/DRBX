@@ -104,6 +104,15 @@ class _DensityFeedbackController:
     diagnose: bool
 
 
+@dataclass(frozen=True)
+class _RecyclingRuntimeModel:
+    species_templates: dict[str, OpenFieldSpecies]
+    controllers: dict[str, _DensityFeedbackController]
+    explicit_pressure_sources: dict[str, np.ndarray]
+    field_names: tuple[str, ...]
+    feedback_names: tuple[str, ...]
+
+
 _AMJUEL_FILENAMES = {
     ("d", "iz"): "iz_AMJUEL_H.x_2.1.5.json",
     ("d", "rec"): "rec_AMJUEL_H.x_2.1.8.json",
@@ -123,21 +132,22 @@ def compute_recycling_1d_rhs(
     field_overrides: dict[str, np.ndarray] | None = None,
     feedback_integrals: dict[str, float] | None = None,
 ) -> Recycling1DRhsResult:
-    species = _initialize_species(config, mesh=mesh, field_overrides=field_overrides)
-    controllers = _load_density_feedback_controllers(
+    runtime_model = _build_recycling_runtime_model(
         config,
-        species=species,
         mesh=mesh,
         dataset_scalars=dataset_scalars,
     )
+    fields = _build_recycling_state_fields(runtime_model, field_overrides=field_overrides)
+    species = _override_species_fields(runtime_model.species_templates, fields=fields, mesh=mesh)
     return _compute_recycling_1d_rhs_from_species(
         config,
         species=species,
-        controllers=controllers,
+        controllers=runtime_model.controllers,
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         feedback_integrals=feedback_integrals,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
     )
 
 
@@ -150,7 +160,9 @@ def _compute_recycling_1d_rhs_from_species(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     feedback_integrals: dict[str, float] | None,
+    explicit_pressure_sources: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
+    pressure_sources = explicit_pressure_sources or {}
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     neutrals = tuple(sp for sp in species.values() if sp.charge == 0.0)
     electron = species["e"]
@@ -272,7 +284,13 @@ def _compute_recycling_1d_rhs_from_species(
             mesh=mesh,
             metrics=metrics,
         )
-        pressure_rhs = _explicit_pressure_source(config, ion.name, mesh=mesh, dataset_scalars=dataset_scalars)
+        pressure_rhs = np.asarray(
+            pressure_sources.get(
+                ion.name,
+                _explicit_pressure_source(config, ion.name, mesh=mesh, dataset_scalars=dataset_scalars),
+            ),
+            dtype=np.float64,
+        )
         pressure_rhs = pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
             ion_state.pressure,
             ion_velocity[ion.name],
@@ -306,7 +324,13 @@ def _compute_recycling_1d_rhs_from_species(
 
     electron_velocity = _electron_zero_current_velocity(ions, ion_velocity=ion_velocity, electron_density=prepared["e"].density)
     electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
-    electron_pressure_rhs = _explicit_pressure_source(config, "e", mesh=mesh, dataset_scalars=dataset_scalars)
+    electron_pressure_rhs = np.asarray(
+        pressure_sources.get(
+            "e",
+            _explicit_pressure_source(config, "e", mesh=mesh, dataset_scalars=dataset_scalars),
+        ),
+        dtype=np.float64,
+    )
     electron_pressure_rhs = electron_pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
         electron_boundary.pressure,
         electron_velocity,
@@ -418,6 +442,91 @@ def _initialize_species(
             pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
             momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
         species[name] = OpenFieldSpecies(**{**sp.__dict__, "density": density, "pressure": pressure, "momentum": momentum})
+    return species
+
+
+def _build_recycling_runtime_model(
+    config: BoutConfig,
+    *,
+    mesh: StructuredMesh,
+    dataset_scalars: dict[str, float],
+) -> _RecyclingRuntimeModel:
+    species_templates = _initialize_species(config, mesh=mesh)
+    controllers = _load_density_feedback_controllers(
+        config,
+        species=species_templates,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    field_names = _recycling_evolving_variable_names(species_templates)
+    return _RecyclingRuntimeModel(
+        species_templates=species_templates,
+        controllers=controllers,
+        explicit_pressure_sources=_load_explicit_pressure_sources(
+            config,
+            species_templates=species_templates,
+            mesh=mesh,
+            dataset_scalars=dataset_scalars,
+        ),
+        field_names=field_names,
+        feedback_names=tuple(sorted(controllers)),
+    )
+
+
+def _load_explicit_pressure_sources(
+    config: BoutConfig,
+    *,
+    species_templates: dict[str, OpenFieldSpecies],
+    mesh: StructuredMesh,
+    dataset_scalars: dict[str, float],
+) -> dict[str, np.ndarray]:
+    return {
+        name: _explicit_pressure_source(config, name, mesh=mesh, dataset_scalars=dataset_scalars)
+        for name in species_templates
+        if species_templates[name].has_pressure or name == "e"
+    }
+
+
+def _build_recycling_state_fields(
+    runtime_model: _RecyclingRuntimeModel,
+    *,
+    field_overrides: dict[str, np.ndarray] | None = None,
+) -> dict[str, np.ndarray]:
+    overrides = field_overrides or {}
+    fields = _recycling_field_templates(runtime_model.species_templates, field_names=runtime_model.field_names)
+    for name, value in overrides.items():
+        if name in fields:
+            fields[name] = np.asarray(value, dtype=np.float64, copy=True)
+    return fields
+
+
+def _override_species_fields(
+    species_templates: dict[str, OpenFieldSpecies],
+    *,
+    fields: dict[str, np.ndarray],
+    mesh: StructuredMesh,
+) -> dict[str, OpenFieldSpecies]:
+    species: dict[str, OpenFieldSpecies] = {}
+    for name, template in species_templates.items():
+        density = np.asarray(fields.get(template.density_name, template.density), dtype=np.float64, copy=True)
+        pressure = np.asarray(fields.get(template.pressure_name, template.pressure), dtype=np.float64, copy=True)
+        momentum = np.asarray(fields.get(template.momentum_name, template.momentum), dtype=np.float64, copy=True)
+        if template.noflow_lower_y:
+            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
+            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
+            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
+        if template.noflow_upper_y:
+            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
+            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
+            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
+        species[name] = OpenFieldSpecies(
+            **{
+                **template.__dict__,
+                "density": density,
+                "pressure": pressure,
+                "momentum": momentum,
+            }
+        )
     return species
 
 
@@ -2046,22 +2155,21 @@ def advance_recycling_1d_implicit_history(
 ) -> Recycling1DHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative.")
-    species = _initialize_species(config, mesh=mesh)
-    controllers = _load_density_feedback_controllers(
+    runtime_model = _build_recycling_runtime_model(
         config,
-        species=species,
         mesh=mesh,
         dataset_scalars=dataset_scalars,
     )
-    field_names = _recycling_evolving_variable_names(species)
-    feedback_names = tuple(sorted(controllers))
-    fields = _recycling_field_templates(species, field_names=field_names)
+    field_names = runtime_model.field_names
+    feedback_names = runtime_model.feedback_names
+    fields = _recycling_field_templates(runtime_model.species_templates, field_names=field_names)
     integrals = {name: 0.0 for name in feedback_names}
 
     if solver_mode == "bdf":
         return _advance_recycling_1d_bdf_history(
             config,
             fields,
+            runtime_model=runtime_model,
             feedback_integrals=integrals,
             field_names=field_names,
             feedback_names=feedback_names,
@@ -2079,6 +2187,7 @@ def advance_recycling_1d_implicit_history(
         fields, integrals, _ = advance_recycling_1d_backward_euler_step(
             config,
             fields,
+            runtime_model=runtime_model,
             feedback_integrals=integrals,
             mesh=mesh,
             metrics=metrics,
@@ -2103,6 +2212,7 @@ def advance_recycling_1d_backward_euler_step(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
     *,
+    runtime_model: _RecyclingRuntimeModel | None = None,
     feedback_integrals: dict[str, float],
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
@@ -2112,15 +2222,13 @@ def advance_recycling_1d_backward_euler_step(
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
-    species = _initialize_species(config, mesh=mesh, field_overrides=fields)
-    controllers = _load_density_feedback_controllers(
+    runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
-        species=species,
         mesh=mesh,
         dataset_scalars=dataset_scalars,
     )
-    field_names = _recycling_evolving_variable_names(species)
-    feedback_names = tuple(sorted(controllers))
+    field_names = runtime_model.field_names
+    feedback_names = runtime_model.feedback_names
     packed_previous = _pack_recycling_active_state(
         fields,
         feedback_integrals=feedback_integrals,
@@ -2137,8 +2245,8 @@ def advance_recycling_1d_backward_euler_step(
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
+        runtime_model=runtime_model,
     )
-    initial_guess = packed_previous + float(timestep) * previous_rhs
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
@@ -2158,6 +2266,7 @@ def advance_recycling_1d_backward_euler_step(
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
+            runtime_model=runtime_model,
         )
         return backward_euler_residual(
             packed_state,
@@ -2169,7 +2278,7 @@ def advance_recycling_1d_backward_euler_step(
     if solver_mode == "sparse":
         solved, info = solve_sparse_newton_system(
             residual,
-            initial_guess,
+            packed_previous,
             active_shape=(packed_previous.size,),
             sparsity=_build_recycling_residual_sparsity(
                 active_shape=_recycling_active_shape(mesh),
@@ -2187,11 +2296,12 @@ def advance_recycling_1d_backward_euler_step(
             linear_restart=20,
             linear_maxiter=300,
             linear_rtol=1.0e-8,
+            prefer_direct_linear_solve=True,
         )
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
             residual,
-            initial_guess,
+            packed_previous,
             active_shape=(packed_previous.size,),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -2213,6 +2323,7 @@ def _advance_recycling_1d_bdf_history(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
     *,
+    runtime_model: _RecyclingRuntimeModel,
     feedback_integrals: dict[str, float],
     field_names: tuple[str, ...],
     feedback_names: tuple[str, ...],
@@ -2250,12 +2361,6 @@ def _advance_recycling_1d_bdf_history(
         field_count=len(field_names),
         controller_count=len(feedback_names),
     )
-    color_groups = _build_recycling_color_groups(
-        active_shape=active_shape,
-        field_count=len(field_names),
-        controller_count=len(feedback_names),
-    )
-
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
             packed_state,
@@ -2274,14 +2379,7 @@ def _advance_recycling_1d_bdf_history(
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
-        )
-
-    def jac(time_value: float, packed_state: np.ndarray):
-        return build_sparse_difference_quotient_jacobian(
-            lambda state: rhs(time_value, state),
-            packed_state,
-            sparsity=sparsity,
-            color_groups=color_groups,
+            runtime_model=runtime_model,
         )
 
     solution = solve_ivp(
@@ -2292,7 +2390,8 @@ def _advance_recycling_1d_bdf_history(
         t_eval=output_times,
         rtol=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6,
         atol=float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9,
-        jac=jac,
+        jac_sparsity=sparsity,
+        max_step=float(timestep),
     )
     if not solution.success:
         raise RuntimeError(f"Adaptive recycling BDF step failed: {solution.message}")
@@ -2324,6 +2423,7 @@ def _compute_recycling_1d_packed_rhs(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
     *,
+    runtime_model: _RecyclingRuntimeModel | None = None,
     feedback_integrals: dict[str, float],
     field_names: tuple[str, ...],
     feedback_names: tuple[str, ...],
@@ -2331,14 +2431,22 @@ def _compute_recycling_1d_packed_rhs(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
 ) -> np.ndarray:
-    sanitized_fields = _sanitize_recycling_fields(config, fields)
-    result = compute_recycling_1d_rhs(
+    runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    sanitized_fields = _sanitize_recycling_fields(config, fields)
+    species = _override_species_fields(runtime_model.species_templates, fields=sanitized_fields, mesh=mesh)
+    result = _compute_recycling_1d_rhs_from_species(
+        config,
+        species=species,
+        controllers=runtime_model.controllers,
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
-        field_overrides=sanitized_fields,
         feedback_integrals=feedback_integrals,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
     )
     active_slices = _recycling_active_domain_slices(mesh)
     pieces = [
@@ -2532,3 +2640,4 @@ def _as_recycling_step_info(info: ImplicitStepInfo) -> Recycling1DImplicitStepIn
         nonlinear_iterations=info.nonlinear_iterations,
         linear_iterations=info.linear_iterations,
     )
+    pressure_sources = explicit_pressure_sources or {}

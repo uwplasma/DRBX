@@ -12,12 +12,16 @@ from jax_drb.native import run_curated_case
 from jax_drb.native.recycling_1d import (
     _charge_exchange_collision_rates,
     _compute_collision_frequencies,
+    _compute_recycling_1d_packed_rhs,
     _electron_density,
+    _build_recycling_runtime_model,
+    _build_recycling_state_fields,
     _initialize_species,
     _hydrogen_cx_sigmav,
     _load_amjuel_rate,
     _prepare_open_field_states,
     _reaction_sources,
+    _recycling_evolving_variable_names,
     compute_recycling_1d_rhs,
 )
 from jax_drb.parity.arrays import (
@@ -203,3 +207,45 @@ def test_multispecies_feedback_controller_detects_initial_helium_density_error()
     assert multiplier == pytest.approx(495.0)
     assert proportional == pytest.approx(495.0)
     assert np.allclose(source, 0.0, rtol=0.0, atol=0.0)
+
+
+def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    field_names = _recycling_evolving_variable_names(runtime_model.species_templates)
+    fields = _build_recycling_state_fields(runtime_model)
+    feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+
+    uncached = _compute_recycling_1d_packed_rhs(
+        config,
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=runtime_model.feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    cached = _compute_recycling_1d_packed_rhs(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=runtime_model.feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    assert np.allclose(cached, uncached, rtol=1.0e-12, atol=1.0e-12)

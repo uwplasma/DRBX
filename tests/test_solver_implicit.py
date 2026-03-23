@@ -163,3 +163,35 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     np.testing.assert_allclose(matrix_free_solution, target, rtol=1e-9, atol=1e-9)
     assert sparse_info.residual_inf_norm < 1.0e-10
     assert matrix_free_info.residual_inf_norm < 1.0e-10
+
+
+def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:
+    pytest.importorskip("scipy")
+
+    active_shape = (3,)
+    target = np.array([1.0, 0.5, 2.0], dtype=np.float64)
+    initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
+    sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
+    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+
+    def residual(state: np.ndarray) -> np.ndarray:
+        return state * state - target * target
+
+    solution, info = solve_sparse_newton_system(
+        residual,
+        initial,
+        active_shape=active_shape,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=8,
+        linear_restart=5,
+        linear_maxiter=20,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+    )
+
+    np.testing.assert_allclose(solution, target, rtol=1.0e-9, atol=1.0e-9)
+    assert info.residual_inf_norm < 1.0e-10
+    assert info.linear_iterations >= 1
