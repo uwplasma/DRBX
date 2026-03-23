@@ -80,6 +80,24 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_arrays_parser.add_argument("--array-atol", type=float, default=1e-12)
     compare_arrays_parser.set_defaults(command=_compare_arrays_command)
 
+    compare_recycling_parser = subparsers.add_parser(
+        "compare-recycling",
+        help="Compare compact recycling reference and native artifacts with worst-variable/cell localization.",
+    )
+    compare_recycling_parser.add_argument("expected_artifact", type=Path)
+    compare_recycling_parser.add_argument("actual_artifact", type=Path)
+    compare_recycling_parser.add_argument(
+        "--artifact-kind",
+        choices=("auto", "summary", "arrays"),
+        default="auto",
+        help="Force JSON summary or NPZ array comparison instead of inferring from file suffixes.",
+    )
+    compare_recycling_parser.add_argument("--scalar-rtol", type=float, default=1e-10)
+    compare_recycling_parser.add_argument("--scalar-atol", type=float, default=1e-12)
+    compare_recycling_parser.add_argument("--array-rtol", type=float, default=1e-10)
+    compare_recycling_parser.add_argument("--array-atol", type=float, default=1e-12)
+    compare_recycling_parser.set_defaults(command=_compare_recycling_command)
+
     run_case_parser = subparsers.add_parser(
         "run-case",
         help="Run a curated case through the native JAX implementation and emit a portable summary.",
@@ -365,6 +383,22 @@ def _compare_arrays_command(args: argparse.Namespace) -> int:
     for issue in result.issues:
         print(f"  {issue.field}: {issue.message}")
     return 1
+
+
+def _compare_recycling_command(args: argparse.Namespace) -> int:
+    from .parity.diff import compare_recycling_artifacts, format_recycling_diff_report
+
+    result = compare_recycling_artifacts(
+        args.expected_artifact,
+        args.actual_artifact,
+        artifact_kind=args.artifact_kind,
+        scalar_rtol=args.scalar_rtol,
+        scalar_atol=args.scalar_atol,
+        array_rtol=args.array_rtol,
+        array_atol=args.array_atol,
+    )
+    print(format_recycling_diff_report(result))
+    return 0 if result.ok else 1
 
 
 def _run_case_command(args: argparse.Namespace) -> int:
