@@ -80,12 +80,29 @@ Representative reference inputs require support for:
 
 The first parity ladder is recorded in [references/reference_case_ladder.toml](/Users/rogerio/local/jax_drb/references/reference_case_ladder.toml). It starts with one-RHS and one-step cases from integrated tests, then grows into blobs, recycling, turbulence, and the TCV X-point example.
 
+### Step 2/3 Status Markers
+
+| Case | Status | Note |
+| --- | --- | --- |
+| `neutral_mixed_rhs` | `native-validated` | Active-domain RHS parity is locked. |
+| `neutral_mixed_one_step` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
+| `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
+| `recycling_1d_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
+| `recycling_dthe_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
+| `integrated_2d_recycling_rhs` | `reference-staged` | Stable integrated 2D recycling target runs in the harness. |
+| `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is staged. |
+| `blob2d_short_window` | `native-validated` | Blob benchmark history is locked. |
+| `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
+
 The next queued staged baselines are now committed as well:
 
 - `neutral_mixed_rhs`, `neutral_mixed_one_step`, and `neutral_mixed_short_window`, with corrected `h`-species compare variables and an explicit `output_ddt` RHS baseline;
 - staged RHS baselines for [recycling_1d_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_1d_rhs.json) and [recycling_dthe_rhs.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_dthe_rhs.json), so the divertor branch now has explicit target-recycling source and `ddt(...)` parity checkpoints before the first output step;
 - staged one-step open-field recycling baselines for [recycling_1d_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_1d_one_step.json) and [recycling_dthe_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_dthe_one_step.json), so Step 2 now has low-iteration sheath/recycling targets for both the single-species and multi-species divertor workflows before any native recycling runner is exposed;
-- staged manifest entries for `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step`, so the 2D recycling branch now has named geometric targets; the remaining staging blocker is choosing a stable curated processor split for the geometry runs, not missing harness support;
+- staged evolved-state RHS regressions against the live reference dumps for `recycling_1d_one_step` and `recycling_dthe_one_step`, so the open-field operator fixes are now locked before the transient runner is promoted;
+- staged manifest entries for `integrated_2d_recycling_rhs` and `integrated_2d_recycling_one_step`, including external artifact staging and `process_count = 10`, so the 2D recycling branch now has a stable integrated geometry target rather than the broken tokamak example;
 - `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the upcoming sheath-connected blob work starts from stored low-iteration targets instead of ad hoc runs.
 - `jax-drb validate-reference-baselines`, which re-runs committed reference cases and compares the live summaries to the stored baseline JSON files as a smoke-validation step.
 - `recycling_1d_rhs`: implemented and regression-tested against committed summary and full-array baselines, including target-recycling diagnostics, sheath boundary fluxes, AMJUEL-based ionization/recombination, hydrogenic charge exchange, literal section-reference resolution for source expressions, and the open-field electron-force-balance source path;
@@ -94,7 +111,7 @@ The next queued staged baselines are now committed as well:
 - the native recycling RHS now also includes the upstream density-feedback controller source path and its stored integral state semantics at the operator level:
   - single-species initial feedback diagnostics are now regression-tested as zero when the upstream density starts on target;
   - the multi-species helium controller now reproduces the expected nonzero initial proportional multiplier while still depositing zero density source when the configured source shape is zero;
-- the next open-field blocker is no longer the 1D multi-species RHS; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
+- the next open-field blocker is no longer the 1D source stack; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
 Current native execution coverage:
 
