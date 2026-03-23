@@ -1442,7 +1442,10 @@ Current Step 2 checkpoint:
 
 - `recycling_1d_rhs` is now native, regression-tested, and locked against committed summary and full-array baselines.
 - `recycling_dthe_rhs` is now also native and live-reference clean at the committed summary tolerances, with the exact multi-species collision-table ordering and cross-isotope charge-exchange bookkeeping now traced into the public implementation.
+- the native 1D recycling stack now also includes the upstream density-feedback controller source path and controller-integral auxiliary state, with focused regressions on the single-species zero-feedback start and the multi-species helium feedback multiplier.
+- the transient substrate around that RHS now exists in-tree on the shared implicit backbone, including packed active-domain field/controller state, backward-Euler residual wiring, and adaptive BDF probes with grouped sparse finite-difference Jacobians.
 - The next Step 2 jump is no longer the RHS source stack; it is the transient stack: `recycling_1d_one_step`, `recycling_dthe_one_step`, then the corresponding short-window/long-run open-field cases on the shared implicit backbone.
+- current transient status: the controller-complete recycling one-step branch is not yet parity-clean enough to expose, and the current adaptive BDF probe is still too slow for reviewer-safe production use on the staged one-step cases.
 - Step 3 still depends on restaging a stable 2D recycling geometry target, because the currently named tokamak example remains blocked on the reference side.
   - `braginskii_thermal_force`
   - `braginskii_ion_viscosity`
