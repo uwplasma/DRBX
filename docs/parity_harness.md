@@ -4,6 +4,36 @@ The first executable parity harness is centered on the curated case ladder in [r
 
 For a figure-first view of the currently locked cases, see [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md).
 
+## Step Status
+
+| Case | Status | Meaning |
+| --- | --- | --- |
+| `evolve_density_rhs` | `native-validated` | Smallest one-RHS parity target is locked. |
+| `diffusion_one_step` | `native-validated` | First transport transient is locked. |
+| `diffusion_short_window` | `native-validated` | Repeated transport history is locked. |
+| `fluid_1d_mms_rhs` | `native-validated` | Trimmed interior MMS RHS is locked. |
+| `fluid_1d_mms_one_step` | `native-validated` | First coupled 1D MMS advance is locked. |
+| `fluid_1d_mms` | `native-validated` | Short-window MMS history is locked. |
+| `vorticity_rhs` | `native-validated` | Electrostatic RHS parity is locked. |
+| `vorticity_one_step` | `native-validated` | First electrostatic output interval is locked. |
+| `vorticity_short_window` | `native-validated` | Electrostatic short-window history is locked. |
+| `blob2d_rhs` | `native-validated` | Blob RHS parity is locked. |
+| `blob2d_one_step` | `native-validated` | First blob transient is locked. |
+| `blob2d_short_window` | `native-validated` | Blob short-window benchmark is locked. |
+| `drift_wave_rhs` | `native-validated` | Drift-wave RHS parity is locked. |
+| `drift_wave_one_step` | `native-validated` | First drift-wave output interval is locked. |
+| `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
+| `neutral_mixed_rhs` | `native-validated` | Neutral active-domain RHS is locked. |
+| `neutral_mixed_one_step` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
+| `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
+| `recycling_1d_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
+| `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
+| `recycling_1d_long` | `blocked` | Depends on the transient ladder. |
+| `tokamak_recycling_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
+| `tokamak_recycling_dthe_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
+
 ## Live Reference Protocol
 
 `jax-drb run-reference-case <case>` performs the following steps:
@@ -63,6 +93,8 @@ Current support is intentionally narrow:
   - proportional/integral multiplier diagnostics,
   - stored controller-integral auxiliary state for transient stepping;
 - focused regressions now lock the initial controller behavior for both the single-species and multi-species 1D recycling cases, so that source term cannot silently disappear again while the transient ladder is being finished;
+- a compact recycling parity scaffold now exists in [parity/diff.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/diff.py) and [parity/recycling.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/recycling.py), giving per-variable max-absolute-difference and argmax-location reports plus staged reference controller snapshot extraction for the one-step recycling cases;
+- the `recycling_1d_one_step` and `recycling_dthe_one_step` native parity tests are intentionally `xfail`-guarded by default until the transient solver matches the reference behavior; set `JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1` to opt into an explicit native probe when debugging the transient path;
 - the same ladder now also stages `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` as the first named 2D recycling geometry targets; their committed baselines still need a stable curated processor split, but no longer need ad hoc launch scripting;
 - for Step 3 geometry work, the current tokamak example should be treated as blocked by a real reference-side component conflict, so future curated 2D recycling staging should pivot to the integrated artifact-backed `2D-recycling` workflow instead of continuing to debug that example inside the active porting path;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
