@@ -308,7 +308,7 @@ def _execute_recycling_1d_case(
         dataset_scalars=dataset_scalars,
         timestep=run_config.time.timestep,
         steps=steps,
-        solver_mode="bdf",
+        solver_mode="continuation",
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
     )

@@ -2165,6 +2165,23 @@ def advance_recycling_1d_implicit_history(
     fields = _recycling_field_templates(runtime_model.species_templates, field_names=field_names)
     integrals = {name: 0.0 for name in feedback_names}
 
+    if solver_mode == "continuation":
+        return _advance_recycling_1d_continuation_history(
+            config,
+            fields,
+            runtime_model=runtime_model,
+            feedback_integrals=integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=timestep,
+            steps=steps,
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+
     if solver_mode == "bdf":
         return _advance_recycling_1d_bdf_history(
             config,
@@ -2206,6 +2223,118 @@ def advance_recycling_1d_implicit_history(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
         feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
     )
+
+
+def _advance_recycling_1d_continuation_history(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    feedback_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+    steps: int,
+    residual_tolerance: float,
+    max_nonlinear_iterations: int,
+) -> Recycling1DHistoryResult:
+    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
+    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
+    variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
+    feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
+    suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+
+    for _ in range(steps):
+        current_fields, current_integrals, suggested_dt = _advance_recycling_1d_output_interval(
+            config,
+            current_fields,
+            runtime_model=runtime_model,
+            feedback_integrals=current_integrals,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            output_timestep=timestep,
+            suggested_dt=suggested_dt,
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+        for name in field_names:
+            variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
+        for name in feedback_names:
+            feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+
+    return Recycling1DHistoryResult(
+        variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
+        feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+    )
+
+
+def _initial_recycling_continuation_dt(
+    runtime_model: _RecyclingRuntimeModel,
+    *,
+    timestep: float,
+) -> float:
+    base_dt = 25.0 if len(runtime_model.field_names) > 10 else 100.0
+    return min(float(timestep), base_dt)
+
+
+def _advance_recycling_1d_output_interval(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    feedback_integrals: dict[str, float],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    output_timestep: float,
+    suggested_dt: float,
+    residual_tolerance: float,
+    max_nonlinear_iterations: int,
+) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
+    remaining = float(output_timestep)
+    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
+    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in runtime_model.feedback_names}
+    trial_dt = min(float(suggested_dt), remaining)
+    minimum_dt = max(float(output_timestep) / 4096.0, 1.0)
+
+    while remaining > 1.0e-12:
+        trial_dt = min(trial_dt, remaining)
+        next_fields, next_integrals, info = advance_recycling_1d_backward_euler_step(
+            config,
+            current_fields,
+            runtime_model=runtime_model,
+            feedback_integrals=current_integrals,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=trial_dt,
+            solver_mode="sparse",
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+        if not np.isfinite(info.residual_inf_norm) or info.residual_inf_norm > max(100.0 * residual_tolerance, 1.0e-7):
+            if trial_dt <= minimum_dt:
+                raise RuntimeError(
+                    f"Recycling continuation step failed to converge at dt={trial_dt:g}; residual={info.residual_inf_norm:g}"
+                )
+            trial_dt *= 0.5
+            continue
+
+        current_fields = next_fields
+        current_integrals = next_integrals
+        remaining -= trial_dt
+        if remaining <= 1.0e-12:
+            return current_fields, current_integrals, min(float(output_timestep), max(trial_dt, suggested_dt))
+        if info.nonlinear_iterations <= 8 and info.linear_iterations <= 8:
+            trial_dt = min(remaining, 2.0 * trial_dt)
+        else:
+            trial_dt = min(remaining, trial_dt)
+
+    return current_fields, current_integrals, trial_dt
 
 
 def advance_recycling_1d_backward_euler_step(

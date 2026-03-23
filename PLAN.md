@@ -339,6 +339,7 @@ Current Step 2 note:
 - shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, and both `recycling_1d_rhs` and `recycling_dthe_rhs` now run natively against live reference baselines
 - staged evolved-state RHS checks are now locked for `recycling_1d_one_step` and `recycling_dthe_one_step`; the remaining Step 2 work is therefore the transient ladder (`one_step`, `short_window`, and control/recycling long-run behavior), not another round of open-field source-term reconstruction
 - the recycling transient branch now reuses a cached runtime model during packed RHS evaluations, and the shared sparse Newton backend now has a direct sparse linear-solve mode that is enabled for recycling substeps; this reduced the packed recycling RHS cost by about an order of magnitude and removed the worst GMRES bottleneck, but the public `one_step` recycling cases remain blocked because the generic adaptive BDF wrapper is still too slow over the full output interval
+- the public recycling runner no longer routes through the generic adaptive BDF wrapper; it now uses a continuation-based sparse implicit ladder on top of the shared recycling backward-Euler stepper, with small-step regression coverage in-tree. That substrate is the active Step 2 transient path, but the full first-output recycling cases are still too slow to claim parity-complete in this pass
 
 Current Step 2/3 status markers:
 

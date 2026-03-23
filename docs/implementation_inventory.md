@@ -112,6 +112,7 @@ The next queued staged baselines are now committed as well:
   - single-species initial feedback diagnostics are now regression-tested as zero when the upstream density starts on target;
   - the multi-species helium controller now reproduces the expected nonzero initial proportional multiplier while still depositing zero density source when the configured source shape is zero;
 - the recycling transient infrastructure now reuses a cached runtime model rather than rebuilding species/controller/source metadata on every packed RHS call, and the shared sparse Newton backend now supports direct sparse linear solves for small active systems; that combination reduced the packed `1D-recycling` RHS evaluation cost from the old O(1e-1 s) range to about `2.9e-2 s` per call on this machine while preserving all current RHS parity locks;
+- the recycling runner now uses a continuation-based sparse implicit ladder rather than the old generic adaptive BDF wrapper, and that ladder has a dedicated finite-step regression in the suite; the full `recycling_1d_one_step` and `recycling_dthe_one_step` cases are still not promoted as parity-complete because the output-interval runs remain too slow for the current Step 2 budget;
 - the next open-field blocker is no longer the 1D source stack; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
 Current native execution coverage:
