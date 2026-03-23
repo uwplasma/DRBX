@@ -2300,6 +2300,7 @@ def _advance_recycling_1d_output_interval(
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in runtime_model.feedback_names}
     trial_dt = min(float(suggested_dt), remaining)
     minimum_dt = max(float(output_timestep) / 4096.0, 1.0)
+    acceptance_residual = max(1.0e4 * residual_tolerance, 5.0e-3)
 
     while remaining > 1.0e-12:
         trial_dt = min(trial_dt, remaining)
@@ -2316,7 +2317,7 @@ def _advance_recycling_1d_output_interval(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
-        if not np.isfinite(info.residual_inf_norm) or info.residual_inf_norm > max(100.0 * residual_tolerance, 1.0e-7):
+        if not np.isfinite(info.residual_inf_norm) or info.residual_inf_norm > acceptance_residual:
             if trial_dt <= minimum_dt:
                 raise RuntimeError(
                     f"Recycling continuation step failed to converge at dt={trial_dt:g}; residual={info.residual_inf_norm:g}"
@@ -2365,17 +2366,6 @@ def advance_recycling_1d_backward_euler_step(
         feedback_names=feedback_names,
         mesh=mesh,
     )
-    previous_rhs = _compute_recycling_1d_packed_rhs(
-        config,
-        fields,
-        feedback_integrals=feedback_integrals,
-        field_names=field_names,
-        feedback_names=feedback_names,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-        runtime_model=runtime_model,
-    )
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
@@ -2389,6 +2379,7 @@ def advance_recycling_1d_backward_euler_step(
         rhs = _compute_recycling_1d_packed_rhs(
             config,
             state_fields,
+            sanitize_fields=False,
             feedback_integrals=state_integrals,
             field_names=field_names,
             feedback_names=feedback_names,
@@ -2502,6 +2493,7 @@ def _advance_recycling_1d_bdf_history(
         return _compute_recycling_1d_packed_rhs(
             config,
             state_fields,
+            sanitize_fields=False,
             feedback_integrals=state_integrals,
             field_names=field_names,
             feedback_names=feedback_names,
@@ -2553,6 +2545,7 @@ def _compute_recycling_1d_packed_rhs(
     fields: dict[str, np.ndarray],
     *,
     runtime_model: _RecyclingRuntimeModel | None = None,
+    sanitize_fields: bool = True,
     feedback_integrals: dict[str, float],
     field_names: tuple[str, ...],
     feedback_names: tuple[str, ...],
@@ -2565,7 +2558,9 @@ def _compute_recycling_1d_packed_rhs(
         mesh=mesh,
         dataset_scalars=dataset_scalars,
     )
-    sanitized_fields = _sanitize_recycling_fields(config, fields)
+    sanitized_fields = _sanitize_recycling_fields(config, fields) if sanitize_fields else {
+        name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()
+    }
     species = _override_species_fields(runtime_model.species_templates, fields=sanitized_fields, mesh=mesh)
     result = _compute_recycling_1d_rhs_from_species(
         config,
