@@ -1,5 +1,13 @@
 from .compare import ComparisonIssue, ComparisonResult, compare_summary_payloads, load_summary_json
-from .diff import ArrayDiffEntry, ArrayDiffReport, build_array_diff_report, format_array_diff_report
+from .diff import (
+    ArrayDiffEntry,
+    ArrayDiffReport,
+    RecyclingArtifactDiffReport,
+    build_array_diff_report,
+    compare_recycling_artifacts,
+    format_array_diff_report,
+    format_recycling_diff_report,
+)
 from .reference import (
     DEFAULT_DATASET_SCALARS,
     DEFAULT_REQUIRED_ARTIFACTS,
@@ -20,6 +28,7 @@ from .portable import build_portable_summary_payload, write_portable_summary_pay
 __all__ = [
     "ArrayDiffEntry",
     "ArrayDiffReport",
+    "RecyclingArtifactDiffReport",
     "ComparisonIssue",
     "ComparisonResult",
     "DEFAULT_DATASET_SCALARS",
@@ -30,12 +39,14 @@ __all__ = [
     "RecyclingControllerSnapshot",
     "compare_summary_payloads",
     "build_array_diff_report",
+    "compare_recycling_artifacts",
     "compare_snapshot_mappings",
     "discover_reference_binary",
     "find_reference_case",
     "build_portable_summary_payload",
     "extract_recycling_controller_snapshot",
     "format_array_diff_report",
+    "format_recycling_diff_report",
     "load_summary_json",
     "make_default_overrides",
     "resolve_reference_case",
