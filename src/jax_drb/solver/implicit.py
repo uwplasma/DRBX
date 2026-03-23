@@ -177,6 +177,7 @@ def solve_sparse_newton_system(
     linear_restart: int,
     linear_maxiter: int,
     linear_rtol: float,
+    prefer_direct_linear_solve: bool = False,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         from scipy.optimize import NoConvergence, newton_krylov
@@ -211,25 +212,28 @@ def solve_sparse_newton_system(
             color_groups=color_groups,
         )
         linear_iterations = 0
-
-        def callback(_residual_norm) -> None:
-            nonlocal linear_iterations
-            linear_iterations += 1
-
-        update, exit_code = gmres(
-            jacobian,
-            -residual_value,
-            restart=int(linear_restart),
-            maxiter=int(linear_maxiter),
-            rtol=float(linear_rtol),
-            atol=0.0,
-            callback=callback,
-            callback_type="pr_norm",
-        )
-        total_linear_iterations += linear_iterations
-        if exit_code != 0:
+        if prefer_direct_linear_solve:
             update = spsolve(jacobian.tocsc(), -residual_value)
             total_linear_iterations += 1
+        else:
+            def callback(_residual_norm) -> None:
+                nonlocal linear_iterations
+                linear_iterations += 1
+
+            update, exit_code = gmres(
+                jacobian,
+                -residual_value,
+                restart=int(linear_restart),
+                maxiter=int(linear_maxiter),
+                rtol=float(linear_rtol),
+                atol=0.0,
+                callback=callback,
+                callback_type="pr_norm",
+            )
+            total_linear_iterations += linear_iterations
+            if exit_code != 0:
+                update = spsolve(jacobian.tocsc(), -residual_value)
+                total_linear_iterations += 1
 
         update = np.asarray(update, dtype=np.float64)
         accepted = False

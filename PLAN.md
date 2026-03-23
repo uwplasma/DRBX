@@ -338,6 +338,7 @@ Current Step 2 note:
 - the same ladder now also includes explicit `one_rhs` baselines for `1D-recycling` and `1D-recycling-dthe`, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs, so the native Step 2 runner can follow the intended RHS-first parity protocol rather than jumping directly to whole-step state parity
 - shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, and both `recycling_1d_rhs` and `recycling_dthe_rhs` now run natively against live reference baselines
 - staged evolved-state RHS checks are now locked for `recycling_1d_one_step` and `recycling_dthe_one_step`; the remaining Step 2 work is therefore the transient ladder (`one_step`, `short_window`, and control/recycling long-run behavior), not another round of open-field source-term reconstruction
+- the recycling transient branch now reuses a cached runtime model during packed RHS evaluations, and the shared sparse Newton backend now has a direct sparse linear-solve mode that is enabled for recycling substeps; this reduced the packed recycling RHS cost by about an order of magnitude and removed the worst GMRES bottleneck, but the public `one_step` recycling cases remain blocked because the generic adaptive BDF wrapper is still too slow over the full output interval
 
 Current Step 2/3 status markers:
 
