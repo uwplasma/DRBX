@@ -16,6 +16,7 @@ from jax_drb.native.recycling_1d import (
     _electron_density,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
+    advance_recycling_1d_implicit_history,
     _initialize_species,
     _hydrogen_cx_sigmav,
     _load_amjuel_rate,
@@ -249,3 +250,28 @@ def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
     )
 
     assert np.allclose(cached, uncached, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_recycling_continuation_history_produces_finite_small_step() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        steps=1,
+        solver_mode="continuation",
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+    )
+
+    assert history.variable_history["Nd+"].shape[0] == 2
+    assert np.isfinite(history.variable_history["Nd+"]).all()
+    assert np.isfinite(history.variable_history["Pe"]).all()
