@@ -10,9 +10,11 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native import run_curated_case
 from jax_drb.native.recycling_1d import (
+    _charge_exchange_collision_rates,
     _compute_collision_frequencies,
     _electron_density,
     _initialize_species,
+    _hydrogen_cx_sigmav,
     _load_amjuel_rate,
     _prepare_open_field_states,
     _reaction_sources,
@@ -124,6 +126,44 @@ def test_recycling_dthe_collision_rates_cover_asymmetric_ion_neutral_pairs() -> 
     assert np.isfinite(float(collision_rates[("t", "d+")][active]))
     assert np.isfinite(float(collision_rates[("d", "t+")][active]))
     assert float(collision_rates[("t", "d+")][active]) != float(collision_rates[("d", "t+")][active])
+
+
+def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    cx_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+
+    assert "d" in cx_rates
+    assert "d+" in cx_rates
+
+    active = (mesh.xstart, mesh.ystart, 0)
+    atom_temperature = prepared["d"].temperature
+    ion_temperature = prepared["d+"].temperature
+    teff = np.clip(
+        (atom_temperature / species["d"].atomic_mass + ion_temperature / species["d+"].atomic_mass)
+        * resolved_dataset_scalars(run_config)["Tnorm"],
+        0.01,
+        10000.0,
+    )
+    sigma_v = _hydrogen_cx_sigmav(teff, resolved_dataset_scalars(run_config))
+
+    assert float(cx_rates["d"][active]) == pytest.approx(
+        float(prepared["d+"].density[active] * sigma_v[active])
+    )
+    assert float(cx_rates["d+"][active]) == pytest.approx(
+        float(prepared["d"].density[active] * sigma_v[active])
+    )
+    assert float(cx_rates["d"][active]) != float(cx_rates["d+"][active])
 
 
 def test_single_species_feedback_diagnostics_are_present_and_zero_initially() -> None:

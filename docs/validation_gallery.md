@@ -2,6 +2,18 @@
 
 This page collects the first curated parity figures from the active validation ladder. Each figure is generated from the same committed baseline artifacts used by the regression harness, so the visuals and the automated checks stay in sync.
 
+## Figure Status
+
+| Figure | Status | Meaning |
+| --- | --- | --- |
+| `Diffusion Short Window` | `native-validated` | Transport baseline is locked. |
+| `Electrostatic Vorticity Short Window` | `native-validated` | Electrostatic benchmark is locked. |
+| `Coupled Drift-Wave One Step` | `native-validated` | First coupled 2D transient is locked. |
+| `Drift-Wave Short-Window Parity` | `native-validated` | Drift-wave benchmark history is locked. |
+| `Drift-Wave Short-Window Benchmark` | `native-validated` | Benchmark analysis is locked. |
+| `Blob2d Short-Window Parity` | `native-validated` | Blob benchmark history is locked. |
+| `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
+
 ## Diffusion Short Window
 
 ![Diffusion short-window parity](images/diffusion_short_window_parity.png)
