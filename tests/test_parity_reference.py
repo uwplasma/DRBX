@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
+import zipfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 from netCDF4 import Dataset
 
 from jax_drb.parity.reference import (
+    _prepare_workdir,
     _reference_command,
     _run_reference_binary,
     build_case_baseline_payload,
@@ -18,7 +22,7 @@ from jax_drb.parity.reference import (
     write_case_baseline_json,
     write_run_summary_json,
 )
-from jax_drb.reference.cases import load_reference_cases
+from jax_drb.reference.cases import ReferenceCase, load_reference_cases
 from jax_drb.parity.reference import ReferenceRunSummary, VariableSummary
 
 
@@ -219,3 +223,60 @@ def test_reference_command_uses_mpirun_for_multi_rank_cases(tmp_path: Path) -> N
         "nout=1",
         "NXPE=1",
     ]
+
+
+def test_prepare_workdir_extracts_required_bundle_artifacts(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source" / "tests" / "integrated" / "2D-recycling" / "data"
+    source_dir.mkdir(parents=True)
+    input_path = source_dir / "BOUT.inp"
+    input_path.write_text("nout = 1\n", encoding="utf-8")
+
+    bundle_path = tmp_path / "artifacts.zip"
+    with zipfile.ZipFile(bundle_path, "w") as archive:
+        archive.writestr("grid_test2.nc", "grid-data")
+        archive.writestr("unused.txt", "ignore-me")
+    digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+
+    case = ReferenceCase(
+        name="integrated_2d_recycling_one_step",
+        stage="stage7",
+        reference_path="tests/integrated/2D-recycling/data/BOUT.inp",
+        parity_mode="one_step",
+        rationale="Stable 2D recycling staging target.",
+        process_count=10,
+        artifact_bundle_url=bundle_path.as_uri(),
+        artifact_bundle_sha256=digest,
+        artifact_bundle_files=("grid_test2.nc",),
+    )
+
+    workdir = _prepare_workdir(case, input_path, workdir=tmp_path / "run")
+
+    assert (workdir / "BOUT.inp").is_symlink()
+    assert (workdir / "grid_test2.nc").read_text(encoding="utf-8") == "grid-data"
+    assert not (workdir / "unused.txt").exists()
+
+
+def test_prepare_workdir_rejects_artifact_bundle_hash_mismatch(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source" / "tests" / "integrated" / "2D-recycling" / "data"
+    source_dir.mkdir(parents=True)
+    input_path = source_dir / "BOUT.inp"
+    input_path.write_text("nout = 0\n", encoding="utf-8")
+
+    bundle_path = tmp_path / "artifacts.zip"
+    with zipfile.ZipFile(bundle_path, "w") as archive:
+        archive.writestr("grid_test2.nc", "grid-data")
+
+    case = ReferenceCase(
+        name="integrated_2d_recycling_rhs",
+        stage="stage7",
+        reference_path="tests/integrated/2D-recycling/data/BOUT.inp",
+        parity_mode="one_rhs",
+        rationale="Stable 2D recycling staging target.",
+        process_count=10,
+        artifact_bundle_url=bundle_path.as_uri(),
+        artifact_bundle_sha256="deadbeef",
+        artifact_bundle_files=("grid_test2.nc",),
+    )
+
+    with pytest.raises(RuntimeError, match="sha256 mismatch"):
+        _prepare_workdir(case, input_path, workdir=tmp_path / "run")
