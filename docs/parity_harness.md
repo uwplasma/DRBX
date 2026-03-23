@@ -102,6 +102,15 @@ Current support is intentionally narrow:
 - the older `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` manifest entries should still be treated as blocked reference-side geometry targets until their initialization conflicts are fixed upstream;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
 - the recycling transient branch now uses a continuation-based sparse implicit ladder on top of the shared backward-Euler stepper rather than the older generic adaptive BDF wrapper; the packed RHS still reuses the cached runtime model and the sparse Newton path still uses a direct sparse linear solve on these small active systems, but the full first-output recycling cases remain too slow to promote as parity-complete yet;
+- the active transient branch now matches two additional reference-side details:
+  - controller integrals are advanced on accepted steps with a trapezoid rule instead of being solved as extra implicit unknowns;
+  - the sheath preparation order applies the electron boundary state before the ion boundary state so the ion sheath sees the electron boundary density/pressure fields;
+- performance of the transient debug loop improved materially after the latest open-field cleanup:
+  - the shared no-flow / limited-free / target-recycling helpers now have NumPy fast paths, so they no longer spend most of their time in `jax.numpy` scatter/device-put when called from the recycling solver;
+  - the current native probe runtimes are about `40.6 s` for `recycling_1d_one_step` and about `76.9 s` for `recycling_dthe_one_step` on this machine;
+- parity for those first-output cases is still blocked, but the remaining defect is now tightly localized:
+  - `recycling_1d_one_step`: max active-domain absolute error about `5.46e-1`, worst field `Nd+`;
+  - `recycling_dthe_one_step`: max active-domain absolute error about `6.14e-1`, worst field `NVt+`;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;

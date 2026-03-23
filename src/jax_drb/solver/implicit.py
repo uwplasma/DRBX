@@ -178,6 +178,7 @@ def solve_sparse_newton_system(
     linear_maxiter: int,
     linear_rtol: float,
     prefer_direct_linear_solve: bool = False,
+    jacobian_refresh_frequency: int = 1,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         from scipy.optimize import NoConvergence, newton_krylov
@@ -189,6 +190,8 @@ def solve_sparse_newton_system(
     total_linear_iterations = 0
     best_state = np.array(state, copy=True)
     best_residual_inf_norm = np.inf
+    refresh_frequency = max(1, int(jacobian_refresh_frequency))
+    jacobian = None
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         residual_value = np.asarray(residual(state), dtype=np.float64)
@@ -204,13 +207,14 @@ def solve_sparse_newton_system(
                 linear_iterations=total_linear_iterations,
             )
 
-        jacobian = build_sparse_difference_quotient_jacobian(
-            residual,
-            state,
-            base_residual=residual_value,
-            sparsity=sparsity,
-            color_groups=color_groups,
-        )
+        if jacobian is None or nonlinear_iteration == 1 or ((nonlinear_iteration - 1) % refresh_frequency == 0):
+            jacobian = build_sparse_difference_quotient_jacobian(
+                residual,
+                state,
+                base_residual=residual_value,
+                sparsity=sparsity,
+                color_groups=color_groups,
+            )
         linear_iterations = 0
         if prefer_direct_linear_solve:
             update = spsolve(jacobian.tocsc(), -residual_value)
@@ -255,6 +259,7 @@ def solve_sparse_newton_system(
             step_scale *= 0.5
 
         if not accepted:
+            jacobian = None
             break
 
         state = candidate_state

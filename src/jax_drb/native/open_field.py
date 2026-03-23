@@ -7,6 +7,7 @@ from jax import config as jax_config
 jax_config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
+import numpy as np
 
 from .mesh import StructuredMesh
 
@@ -25,8 +26,28 @@ class RecyclingSourceResult:
     target_energy_source: jnp.ndarray
 
 
+def _use_numpy_backend(*values: object) -> bool:
+    return any(isinstance(value, np.ndarray) for value in values if value is not None)
+
+
 def limit_free(fm: jnp.ndarray, fc: jnp.ndarray, mode: int | float) -> jnp.ndarray:
     mode_value = float(mode)
+    if _use_numpy_backend(fm, fc):
+        fm_np = np.asarray(fm, dtype=np.float64)
+        fc_np = np.asarray(fc, dtype=np.float64)
+        extrapolated = np.divide(
+            fc_np * fc_np,
+            fm_np,
+            out=np.array(fc_np, dtype=np.float64, copy=True),
+            where=fm_np >= 1.0e-10,
+        )
+        if mode_value == 0.0:
+            return np.where(fm_np < fc_np, fc_np, extrapolated)
+        if mode_value == 1.0:
+            return extrapolated
+        if mode_value == 2.0:
+            return 2.0 * fc_np - fm_np
+        raise ValueError(f"Unsupported boundary mode {mode!r}")
     fm = jnp.asarray(fm, dtype=jnp.float64)
     fc = jnp.asarray(fc, dtype=jnp.float64)
     if mode_value == 0.0:
@@ -46,6 +67,15 @@ def apply_noflow_scalar_guards(
     lower_y: bool,
     upper_y: bool,
 ) -> jnp.ndarray:
+    if _use_numpy_backend(field):
+        result = np.array(field, dtype=np.float64, copy=True)
+        if mesh.myg <= 0:
+            return result
+        if lower_y:
+            result[:, mesh.ystart - 1, :] = result[:, mesh.ystart, :]
+        if upper_y:
+            result[:, mesh.yend + 1, :] = result[:, mesh.yend, :]
+        return result
     result = jnp.asarray(field, dtype=jnp.float64)
     if mesh.myg <= 0:
         return result
@@ -63,6 +93,15 @@ def apply_noflow_flow_guards(
     lower_y: bool,
     upper_y: bool,
 ) -> jnp.ndarray:
+    if _use_numpy_backend(field):
+        result = np.array(field, dtype=np.float64, copy=True)
+        if mesh.myg <= 0:
+            return result
+        if lower_y:
+            result[:, mesh.ystart - 1, :] = -result[:, mesh.ystart, :]
+        if upper_y:
+            result[:, mesh.yend + 1, :] = -result[:, mesh.yend, :]
+        return result
     result = jnp.asarray(field, dtype=jnp.float64)
     if mesh.myg <= 0:
         return result
@@ -74,6 +113,18 @@ def apply_noflow_flow_guards(
 
 
 def grad_par_y(field: jnp.ndarray, *, mesh: StructuredMesh, dy: jnp.ndarray) -> jnp.ndarray:
+    if _use_numpy_backend(field, dy):
+        field_np = np.asarray(field, dtype=np.float64)
+        dy_np = np.asarray(dy, dtype=np.float64)
+        result = np.zeros_like(field_np, dtype=np.float64)
+        interior = field_np[:, mesh.ystart : mesh.yend + 1, :]
+        if interior.shape[1] == 1:
+            return result
+        left = field_np[:, mesh.ystart - 1 : mesh.yend, :]
+        right = field_np[:, mesh.ystart + 1 : mesh.yend + 2, :]
+        dy_interior = dy_np[:, mesh.ystart : mesh.yend + 1, :]
+        result[:, mesh.ystart : mesh.yend + 1, :] = (right - left) / (2.0 * dy_interior)
+        return result
     result = jnp.zeros_like(field, dtype=jnp.float64)
     interior = jnp.asarray(field[:, mesh.ystart : mesh.yend + 1, :], dtype=jnp.float64)
     dy_interior = jnp.asarray(dy[:, mesh.ystart : mesh.yend + 1, :], dtype=jnp.float64)
@@ -95,6 +146,14 @@ def compute_electron_force_balance(
     electron_momentum_source: jnp.ndarray | None = None,
     density_floor: float = 1.0e-5,
 ) -> ElectronForceBalanceResult:
+    if _use_numpy_backend(electron_pressure, electron_density, dy, electron_momentum_source):
+        pressure = np.asarray(electron_pressure, dtype=np.float64)
+        density = np.asarray(electron_density, dtype=np.float64)
+        force_density = -np.asarray(grad_par_y(pressure, mesh=mesh, dy=np.asarray(dy, dtype=np.float64)), dtype=np.float64)
+        if electron_momentum_source is not None:
+            force_density = force_density + np.asarray(electron_momentum_source, dtype=np.float64)
+        epar = force_density / np.maximum(density, float(density_floor))
+        return ElectronForceBalanceResult(epar=epar, force_density=force_density)
     pressure = jnp.asarray(electron_pressure, dtype=jnp.float64)
     density = jnp.asarray(electron_density, dtype=jnp.float64)
     force_density = -grad_par_y(pressure, mesh=mesh, dy=jnp.asarray(dy, dtype=jnp.float64))
@@ -111,6 +170,11 @@ def apply_parallel_electric_force(
     epar: jnp.ndarray,
     existing_source: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
+    if _use_numpy_backend(density, epar, existing_source):
+        source = float(charge) * np.asarray(density, dtype=np.float64) * np.asarray(epar, dtype=np.float64)
+        if existing_source is not None:
+            source = source + np.asarray(existing_source, dtype=np.float64)
+        return source
     source = charge * jnp.asarray(density, dtype=jnp.float64) * jnp.asarray(epar, dtype=jnp.float64)
     if existing_source is not None:
         source = source + jnp.asarray(existing_source, dtype=jnp.float64)
@@ -136,6 +200,69 @@ def compute_target_recycling_sources(
     lower_y: bool = True,
     upper_y: bool = True,
 ) -> RecyclingSourceResult:
+    if _use_numpy_backend(density, velocity, temperature, J, dy, dx, dz, g_22):
+        density_np = np.asarray(density, dtype=np.float64)
+        velocity_np = np.asarray(velocity, dtype=np.float64)
+        temperature_np = np.asarray(temperature, dtype=np.float64)
+        j_np = np.asarray(J, dtype=np.float64)
+        dy_np = np.asarray(dy, dtype=np.float64)
+        dx_np = np.asarray(dx, dtype=np.float64)
+        dz_np = np.asarray(dz, dtype=np.float64)
+        g22_np = np.asarray(g_22, dtype=np.float64)
+
+        density_source = np.zeros_like(density_np, dtype=np.float64)
+        energy_source = np.zeros_like(density_np, dtype=np.float64)
+
+        if lower_y and mesh.myg > 0:
+            lower_density_source, lower_energy_source = _target_boundary_sources(
+                density_np,
+                velocity_np,
+                temperature_np,
+                J=j_np,
+                dy=dy_np,
+                dx=dx_np,
+                dz=dz_np,
+                g_22=g22_np,
+                y_index=mesh.ystart,
+                guard_index=mesh.ystart - 1,
+                sign=-1.0,
+                target_multiplier=target_multiplier,
+                target_energy=target_energy,
+                gamma_i=gamma_i,
+                fast_recycle_fraction=target_fast_recycle_fraction,
+                fast_recycle_energy_factor=target_fast_recycle_energy_factor,
+            )
+            density_source[:, mesh.ystart, :] = lower_density_source
+            energy_source[:, mesh.ystart, :] = lower_energy_source
+
+        if upper_y and mesh.myg > 0:
+            upper_density_source, upper_energy_source = _target_boundary_sources(
+                density_np,
+                velocity_np,
+                temperature_np,
+                J=j_np,
+                dy=dy_np,
+                dx=dx_np,
+                dz=dz_np,
+                g_22=g22_np,
+                y_index=mesh.yend,
+                guard_index=mesh.yend + 1,
+                sign=1.0,
+                target_multiplier=target_multiplier,
+                target_energy=target_energy,
+                gamma_i=gamma_i,
+                fast_recycle_fraction=target_fast_recycle_fraction,
+                fast_recycle_energy_factor=target_fast_recycle_energy_factor,
+            )
+            density_source[:, mesh.yend, :] += upper_density_source
+            energy_source[:, mesh.yend, :] += upper_energy_source
+
+        return RecyclingSourceResult(
+            density_source=density_source,
+            energy_source=energy_source,
+            target_density_source=density_source,
+            target_energy_source=energy_source,
+        )
     density = jnp.asarray(density, dtype=jnp.float64)
     velocity = jnp.asarray(velocity, dtype=jnp.float64)
     temperature = jnp.asarray(temperature, dtype=jnp.float64)
