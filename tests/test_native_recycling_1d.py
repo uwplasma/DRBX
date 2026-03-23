@@ -10,9 +10,11 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native import run_curated_case
 from jax_drb.native.recycling_1d import (
+    _advance_feedback_integrals,
     _charge_exchange_collision_rates,
     _compute_collision_frequencies,
     _compute_recycling_1d_packed_rhs,
+    _current_feedback_errors,
     _electron_density,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
@@ -208,6 +210,32 @@ def test_multispecies_feedback_controller_detects_initial_helium_density_error()
     assert multiplier == pytest.approx(495.0)
     assert proportional == pytest.approx(495.0)
     assert np.allclose(source, 0.0, rtol=0.0, atol=0.0)
+
+
+def test_feedback_integrals_advance_with_reference_trapezoid_rule() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    previous_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
+
+    updated = _advance_feedback_integrals(
+        fields,
+        controllers=runtime_model.controllers,
+        feedback_integrals={name: 0.0 for name in runtime_model.feedback_names},
+        feedback_previous_errors=previous_errors,
+        mesh=mesh,
+        timestep=1.0,
+    )
+
+    assert updated["he+"] == pytest.approx(previous_errors["he+"])
+    assert updated["d+"] == pytest.approx(previous_errors["d+"])
+    assert updated["t+"] == pytest.approx(previous_errors["t+"])
 
 
 def test_runtime_model_packed_rhs_matches_uncached_path() -> None:

@@ -11,7 +11,6 @@ from jax import config as jax_config
 
 jax_config.update("jax_enable_x64", True)
 
-import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
@@ -160,6 +159,8 @@ def _compute_recycling_1d_rhs_from_species(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     feedback_integrals: dict[str, float] | None,
+    feedback_previous_errors: dict[str, float] | None = None,
+    feedback_timestep: float | None = None,
     explicit_pressure_sources: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
@@ -246,6 +247,8 @@ def _compute_recycling_1d_rhs_from_species(
         controllers=controllers,
         mesh=mesh,
         feedback_integrals=feedback_integrals,
+        feedback_previous_errors=feedback_previous_errors,
+        feedback_timestep=feedback_timestep,
     )
     for name, value in feedback_terms.density_source.items():
         density_source[name] = density_source[name] + value
@@ -263,9 +266,9 @@ def _compute_recycling_1d_rhs_from_species(
     for ion in ions:
         momentum_source[ion.name] = momentum_source[ion.name] + np.asarray(
             apply_parallel_electric_force(
-                jnp.asarray(prepared[ion.name].density, dtype=jnp.float64),
+                prepared[ion.name].density,
                 charge=ion.charge,
-                epar=jnp.asarray(electron_epar, dtype=jnp.float64),
+                epar=electron_epar,
             ),
             dtype=np.float64,
         )
@@ -643,7 +646,10 @@ def _electron_density(ions: tuple[OpenFieldSpecies, ...]) -> np.ndarray:
 
 
 def _safe_temperature(pressure: np.ndarray, density: np.ndarray, density_floor: float = 1.0e-8) -> np.ndarray:
-    return np.asarray(pressure, dtype=np.float64) / np.maximum(np.asarray(density, dtype=np.float64), density_floor)
+    return np.maximum(np.asarray(pressure, dtype=np.float64), 0.0) / np.maximum(
+        np.asarray(density, dtype=np.float64),
+        density_floor,
+    )
 
 
 @dataclass(frozen=True)
@@ -833,26 +839,6 @@ def _prepare_open_field_states(
     for ion in ions:
         electron_density = electron_density + ion.charge * prepared[ion.name].density
 
-    ion_boundary = _apply_ion_sheath_boundary(
-        ions,
-        electron_pressure=prepared["e"].pressure,
-        electron_density=electron_density,
-        mesh=mesh,
-        metrics=metrics,
-    )
-    for ion in ions:
-        prepared[ion.name] = _PreparedSpeciesState(
-            density=ion_boundary.density[ion.name],
-            pressure=ion_boundary.pressure[ion.name],
-            temperature=ion_boundary.temperature[ion.name],
-            velocity=ion_boundary.velocity[ion.name],
-            momentum=ion_boundary.momentum[ion.name],
-        )
-
-    electron_density = np.zeros_like(species["e"].density, dtype=np.float64)
-    for ion in ions:
-        electron_density = electron_density + ion.charge * prepared[ion.name].density
-
     electron_current = np.zeros_like(electron_density, dtype=np.float64)
     for ion in ions:
         electron_current = electron_current + ion.charge * prepared[ion.name].density * prepared[ion.name].velocity
@@ -865,6 +851,7 @@ def _prepare_open_field_states(
         electron_mass=species["e"].atomic_mass,
         ion_velocity={ion.name: prepared[ion.name].velocity for ion in ions},
         ions=ions,
+        prepared_ions=prepared,
         mesh=mesh,
         metrics=metrics,
     )
@@ -875,6 +862,22 @@ def _prepare_open_field_states(
         velocity=electron_boundary.velocity,
         momentum=electron_boundary.momentum,
     )
+
+    ion_boundary = _apply_ion_sheath_boundary(
+        ions,
+        electron_pressure=prepared["e"].pressure,
+        electron_density=prepared["e"].density,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    for ion in ions:
+        prepared[ion.name] = _PreparedSpeciesState(
+            density=ion_boundary.density[ion.name],
+            pressure=ion_boundary.pressure[ion.name],
+            temperature=ion_boundary.temperature[ion.name],
+            velocity=ion_boundary.velocity[ion.name],
+            momentum=ion_boundary.momentum[ion.name],
+        )
     return prepared, ion_boundary, electron_boundary
 
 
@@ -885,6 +888,8 @@ def _apply_upstream_density_feedback(
     controllers: dict[str, _DensityFeedbackController],
     mesh: StructuredMesh,
     feedback_integrals: dict[str, float] | None,
+    feedback_previous_errors: dict[str, float] | None = None,
+    feedback_timestep: float | None = None,
 ) -> _DensityFeedbackTerms:
     density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
@@ -896,10 +901,14 @@ def _apply_upstream_density_feedback(
         upstream_density = float(prepared[name].density[mesh.xstart, mesh.ystart, 0])
         error = controller.density_upstream - upstream_density
         stored_integral = float(integrals.get(name, 0.0))
-        if controller.density_integral_positive and stored_integral < 0.0:
-            stored_integral = 0.0
+        integrated_error = stored_integral
+        if feedback_timestep is not None:
+            previous_error = error if feedback_previous_errors is None else float(feedback_previous_errors.get(name, error))
+            integrated_error = stored_integral + float(feedback_timestep) * 0.5 * (error + previous_error)
+        if controller.density_integral_positive and integrated_error < 0.0:
+            integrated_error = 0.0
         proportional_term = controller.density_controller_p * error
-        integral_term = controller.density_controller_i * stored_integral
+        integral_term = controller.density_controller_i * integrated_error
         source_multiplier = proportional_term + integral_term
         if controller.density_source_positive and source_multiplier < 0.0:
             source_multiplier = 0.0
@@ -1942,9 +1951,9 @@ def _apply_ion_sheath_boundary(
         ni_m = density[:, jm, :]
         ne_i = electron_density[:, j, :]
         ne_m = electron_density[:, jm, :]
-        density[:, jp, :] = np.asarray(limit_free(jnp.asarray(ni_m), jnp.asarray(ni_i), 0), dtype=np.float64)
-        temperature[:, jp, :] = np.asarray(limit_free(jnp.asarray(temperature[:, jm, :]), jnp.asarray(temperature[:, j, :]), 0), dtype=np.float64)
-        pressure[:, jp, :] = np.asarray(limit_free(jnp.asarray(pressure[:, jm, :]), jnp.asarray(pressure[:, j, :]), 0), dtype=np.float64)
+        density[:, jp, :] = np.asarray(limit_free(ni_m, ni_i, 0), dtype=np.float64)
+        temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
+        pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
 
         nisheath = 0.5 * (density[:, jp, :] + density[:, j, :])
         nesheath = 0.5 * (electron_density[:, jp, :] + electron_density[:, j, :]) if jp < electron_density.shape[1] else 0.5 * (electron_density[:, j, :] + electron_density[:, j, :])
@@ -2004,6 +2013,7 @@ def _apply_electron_sheath_boundary(
     electron_mass: float,
     ion_velocity: dict[str, np.ndarray],
     ions: tuple[OpenFieldSpecies, ...],
+    prepared_ions: dict[str, _PreparedSpeciesState],
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> _ElectronBoundaryResult:
@@ -2025,14 +2035,15 @@ def _apply_electron_sheath_boundary(
     j = mesh.yend
     jp = j + 1
     jm = j - 1
-    density[:, jp, :] = np.asarray(limit_free(jnp.asarray(density[:, jm, :]), jnp.asarray(density[:, j, :]), 0), dtype=np.float64)
-    temperature[:, jp, :] = np.asarray(limit_free(jnp.asarray(temperature[:, jm, :]), jnp.asarray(temperature[:, j, :]), 0), dtype=np.float64)
-    pressure[:, jp, :] = np.asarray(limit_free(jnp.asarray(pressure[:, jm, :]), jnp.asarray(pressure[:, j, :]), 0), dtype=np.float64)
+    density[:, jp, :] = np.asarray(limit_free(density[:, jm, :], density[:, j, :], 0), dtype=np.float64)
+    temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
+    pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
 
     ion_sum = np.zeros_like(density[:, j, :], dtype=np.float64)
     for ion in ions:
-        ti = _safe_temperature(ion.pressure, ion.density)
-        ni = ion.density
+        ion_state = prepared_ions[ion.name]
+        ti = np.asarray(ion_state.temperature, dtype=np.float64)
+        ni = np.asarray(ion_state.density, dtype=np.float64)
         s_i = np.clip(0.5 * (3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12) - ni[:, jm, :] / np.maximum(density[:, jm, :], 1.0e-12)), 0.0, 1.0)
         s_i = np.where(np.isfinite(s_i), s_i, 1.0)
         grad_ne = density[:, j, :] - density[:, jm, :]
@@ -2046,7 +2057,9 @@ def _apply_electron_sheath_boundary(
     me = 1.0 / 1836.0
     phi = np.zeros_like(density, dtype=np.float64)
     valid = temperature[:, j, :] > 0.0
-    phi[:, j, :] = np.where(valid, temperature[:, j, :] * np.log(np.sqrt(temperature[:, j, :] / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)), 0.0)
+    safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
+    log_argument = np.sqrt(safe_temperature / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)
+    phi[:, j, :] = np.where(valid, safe_temperature * np.log(np.maximum(log_argument, 1.0e-12)), 0.0)
     phi[:, jp, :] = phi[:, j, :]
     phi[:, j - 1, :] = phi[:, j, :]
 
@@ -2104,15 +2117,15 @@ def _target_recycling_sources(
             continue
         neutral = neutral_lookup[ion.recycle_as]
         result = compute_target_recycling_sources(
-            jnp.asarray(ion.density, dtype=jnp.float64),
-            jnp.asarray(ion_velocity[ion.name], dtype=jnp.float64),
-            jnp.asarray(_safe_temperature(ion.pressure, ion.density), dtype=jnp.float64),
+            ion.density,
+            ion_velocity[ion.name],
+            _safe_temperature(ion.pressure, ion.density),
             mesh=mesh,
-            J=jnp.asarray(metrics.J, dtype=jnp.float64),
-            dy=jnp.asarray(metrics.dy, dtype=jnp.float64),
-            dx=jnp.asarray(metrics.dx, dtype=jnp.float64),
-            dz=jnp.asarray(metrics.dz, dtype=jnp.float64),
-            g_22=jnp.asarray(metrics.g_22, dtype=jnp.float64),
+            J=np.asarray(metrics.J, dtype=np.float64),
+            dy=np.asarray(metrics.dy, dtype=np.float64),
+            dx=np.asarray(metrics.dx, dtype=np.float64),
+            dz=np.asarray(metrics.dz, dtype=np.float64),
+            g_22=np.asarray(metrics.g_22, dtype=np.float64),
             target_multiplier=ion.target_recycle_multiplier,
             target_energy=ion.target_recycle_energy,
             gamma_i=0.0,
@@ -2359,11 +2372,13 @@ def advance_recycling_1d_backward_euler_step(
     )
     field_names = runtime_model.field_names
     feedback_names = runtime_model.feedback_names
+    packed_feedback_names: tuple[str, ...] = ()
+    previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
     packed_previous = _pack_recycling_active_state(
         fields,
         feedback_integrals=feedback_integrals,
         field_names=field_names,
-        feedback_names=feedback_names,
+        feedback_names=packed_feedback_names,
         mesh=mesh,
     )
 
@@ -2373,7 +2388,7 @@ def advance_recycling_1d_backward_euler_step(
             field_templates=fields,
             feedback_integrals=feedback_integrals,
             field_names=field_names,
-            feedback_names=feedback_names,
+            feedback_names=packed_feedback_names,
             mesh=mesh,
         )
         rhs = _compute_recycling_1d_packed_rhs(
@@ -2381,8 +2396,10 @@ def advance_recycling_1d_backward_euler_step(
             state_fields,
             sanitize_fields=False,
             feedback_integrals=state_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            feedback_timestep=timestep,
             field_names=field_names,
-            feedback_names=feedback_names,
+            feedback_names=packed_feedback_names,
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
@@ -2403,12 +2420,12 @@ def advance_recycling_1d_backward_euler_step(
             sparsity=_build_recycling_residual_sparsity(
                 active_shape=_recycling_active_shape(mesh),
                 field_count=len(field_names),
-                controller_count=len(feedback_names),
+                controller_count=len(packed_feedback_names),
             ),
             color_groups=_build_recycling_color_groups(
                 active_shape=_recycling_active_shape(mesh),
                 field_count=len(field_names),
-                controller_count=len(feedback_names),
+                controller_count=len(packed_feedback_names),
             ),
             residual_tolerance=residual_tolerance,
             step_tolerance=1.0e-11,
@@ -2417,6 +2434,7 @@ def advance_recycling_1d_backward_euler_step(
             linear_maxiter=300,
             linear_rtol=1.0e-8,
             prefer_direct_linear_solve=True,
+            jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
         )
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
@@ -2433,10 +2451,19 @@ def advance_recycling_1d_backward_euler_step(
         field_templates=fields,
         feedback_integrals=feedback_integrals,
         field_names=field_names,
-        feedback_names=feedback_names,
+        feedback_names=packed_feedback_names,
         mesh=mesh,
     )
-    return _sanitize_recycling_fields(config, next_fields), next_integrals, _as_recycling_step_info(info)
+    sanitized_fields = _sanitize_recycling_fields(config, next_fields)
+    updated_integrals = _advance_feedback_integrals(
+        sanitized_fields,
+        controllers=runtime_model.controllers,
+        feedback_integrals=next_integrals,
+        feedback_previous_errors=previous_feedback_errors,
+        mesh=mesh,
+        timestep=timestep,
+    )
+    return sanitized_fields, updated_integrals, _as_recycling_step_info(info)
 
 
 def _advance_recycling_1d_bdf_history(
@@ -2547,6 +2574,8 @@ def _compute_recycling_1d_packed_rhs(
     runtime_model: _RecyclingRuntimeModel | None = None,
     sanitize_fields: bool = True,
     feedback_integrals: dict[str, float],
+    feedback_previous_errors: dict[str, float] | None = None,
+    feedback_timestep: float | None = None,
     field_names: tuple[str, ...],
     feedback_names: tuple[str, ...],
     mesh: StructuredMesh,
@@ -2570,6 +2599,8 @@ def _compute_recycling_1d_packed_rhs(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         feedback_integrals=feedback_integrals,
+        feedback_previous_errors=feedback_previous_errors,
+        feedback_timestep=feedback_timestep,
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
     )
     active_slices = _recycling_active_domain_slices(mesh)
@@ -2656,6 +2687,43 @@ def _sanitize_recycling_fields(
                 floor_density = np.maximum(density, 1.0e-7) if density is not None else 1.0e-7
                 sanitized[name] = np.maximum(sanitized[name], temperature_floor * floor_density)
     return sanitized
+
+
+def _current_feedback_errors(
+    fields: dict[str, np.ndarray],
+    *,
+    controllers: dict[str, _DensityFeedbackController],
+    mesh: StructuredMesh,
+) -> dict[str, float]:
+    errors: dict[str, float] = {}
+    for name, controller in controllers.items():
+        density_name = f"N{name}"
+        if density_name not in fields:
+            continue
+        upstream_density = float(np.asarray(fields[density_name], dtype=np.float64)[mesh.xstart, mesh.ystart, 0])
+        errors[name] = controller.density_upstream - upstream_density
+    return errors
+
+
+def _advance_feedback_integrals(
+    fields: dict[str, np.ndarray],
+    *,
+    controllers: dict[str, _DensityFeedbackController],
+    feedback_integrals: dict[str, float],
+    feedback_previous_errors: dict[str, float],
+    mesh: StructuredMesh,
+    timestep: float,
+) -> dict[str, float]:
+    updated = {name: float(value) for name, value in feedback_integrals.items()}
+    current_errors = _current_feedback_errors(fields, controllers=controllers, mesh=mesh)
+    for name, controller in controllers.items():
+        current_error = float(current_errors.get(name, 0.0))
+        previous_error = float(feedback_previous_errors.get(name, current_error))
+        integral = float(feedback_integrals.get(name, 0.0)) + float(timestep) * 0.5 * (current_error + previous_error)
+        if controller.density_integral_positive and integral < 0.0:
+            integral = 0.0
+        updated[name] = integral
+    return updated
 
 
 def _recycling_evolving_variable_names(species: dict[str, OpenFieldSpecies]) -> tuple[str, ...]:

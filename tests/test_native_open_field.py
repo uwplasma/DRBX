@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from jax import grad
 import jax.numpy as jnp
@@ -54,6 +55,21 @@ def test_noflow_guards_copy_scalars_and_reflect_flows() -> None:
     np.testing.assert_allclose(np.asarray(scalar[:, mesh.yend + 1, :]), np.asarray(field[:, mesh.yend, :]))
     np.testing.assert_allclose(np.asarray(flow[:, mesh.ystart - 1, :]), -np.asarray(field[:, mesh.ystart, :]))
     np.testing.assert_allclose(np.asarray(flow[:, mesh.yend + 1, :]), -np.asarray(field[:, mesh.yend, :]))
+
+
+def test_noflow_guards_use_numpy_fast_path_without_changing_values() -> None:
+    mesh = _mesh()
+    field = np.arange(mesh.nx * mesh.local_ny * mesh.nz, dtype=np.float64).reshape((mesh.nx, mesh.local_ny, mesh.nz))
+
+    scalar = apply_noflow_scalar_guards(field, mesh=mesh, lower_y=True, upper_y=True)
+    flow = apply_noflow_flow_guards(field, mesh=mesh, lower_y=True, upper_y=True)
+
+    assert isinstance(scalar, np.ndarray)
+    assert isinstance(flow, np.ndarray)
+    np.testing.assert_allclose(scalar[:, mesh.ystart - 1, :], field[:, mesh.ystart, :])
+    np.testing.assert_allclose(scalar[:, mesh.yend + 1, :], field[:, mesh.yend, :])
+    np.testing.assert_allclose(flow[:, mesh.ystart - 1, :], -field[:, mesh.ystart, :])
+    np.testing.assert_allclose(flow[:, mesh.yend + 1, :], -field[:, mesh.yend, :])
 
 
 def test_electron_force_balance_applies_parallel_pressure_force_to_species() -> None:
@@ -120,6 +136,45 @@ def test_target_recycling_sources_match_reference_formula() -> None:
     assert float(result.energy_source[0, mesh.yend, 0]) == upper_energy
     assert lower_heat > 0.0
     assert upper_heat > 0.0
+
+
+def test_target_recycling_sources_numpy_fast_path_matches_reference_formula() -> None:
+    mesh = _mesh()
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = np.ones(shape, dtype=np.float64)
+    velocity = np.zeros(shape, dtype=np.float64)
+    temperature = 2.0 * np.ones(shape, dtype=np.float64)
+    velocity[:, mesh.ystart - 1, :] = -3.0
+    velocity[:, mesh.ystart, :] = -1.0
+    velocity[:, mesh.yend, :] = 2.0
+    velocity[:, mesh.yend + 1, :] = 4.0
+    J = np.ones(shape, dtype=np.float64)
+    dy = 2.0 * np.ones(shape, dtype=np.float64)
+    dx = 3.0 * np.ones(shape, dtype=np.float64)
+    dz = 5.0 * np.ones(shape, dtype=np.float64)
+    g_22 = 4.0 * np.ones(shape, dtype=np.float64)
+
+    result = compute_target_recycling_sources(
+        density,
+        velocity,
+        temperature,
+        mesh=mesh,
+        J=J,
+        dy=dy,
+        dx=dx,
+        dz=dz,
+        g_22=g_22,
+        target_multiplier=0.5,
+        target_energy=3.0,
+        gamma_i=3.5,
+    )
+
+    assert isinstance(result.density_source, np.ndarray)
+    assert isinstance(result.energy_source, np.ndarray)
+    assert float(result.density_source[0, mesh.ystart, 0]) == pytest.approx(0.25)
+    assert float(result.density_source[0, mesh.yend, 0]) == pytest.approx(0.375)
+    assert float(result.energy_source[0, mesh.ystart, 0]) == pytest.approx(0.75)
+    assert float(result.energy_source[0, mesh.yend, 0]) == pytest.approx(1.125)
 
 
 def test_open_field_utilities_are_differentiable() -> None:
