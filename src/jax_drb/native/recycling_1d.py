@@ -196,6 +196,23 @@ def _compute_recycling_1d_rhs_from_species(
         energy_source[name] = energy_source[name] + value
     for name, value in collision_terms.momentum_source.items():
         momentum_source[name] = momentum_source[name] + value
+
+    neutral_diffusion_terms = _apply_neutral_parallel_diffusion(
+        config,
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+    for name, value in neutral_diffusion_terms.density_source.items():
+        density_source[name] = density_source[name] + value
+    for name, value in neutral_diffusion_terms.energy_source.items():
+        energy_source[name] = energy_source[name] + value
+    for name, value in neutral_diffusion_terms.momentum_source.items():
+        momentum_source[name] = momentum_source[name] + value
+    diagnostics.update(neutral_diffusion_terms.diagnostics)
+
     energy_source["e"] = energy_source["e"] + electron_boundary.energy_source
 
     recycling_terms = _target_recycling_sources(
@@ -224,19 +241,19 @@ def _compute_recycling_1d_rhs_from_species(
         energy_source[name] = energy_source[name] + value
     diagnostics.update(feedback_terms.diagnostics)
 
-    electron_force = compute_electron_force_balance(
+    electron_force_density = -_grad_par_open(
         electron_boundary.pressure,
-        prepared["e"].density,
         mesh=mesh,
-        dy=jnp.asarray(metrics.dy, dtype=jnp.float64),
-        electron_momentum_source=momentum_source["e"],
+        metrics=metrics,
     )
+    electron_force_density = electron_force_density + momentum_source["e"]
+    electron_epar = electron_force_density / np.maximum(prepared["e"].density, 1.0e-5)
     for ion in ions:
         momentum_source[ion.name] = momentum_source[ion.name] + np.asarray(
             apply_parallel_electric_force(
                 jnp.asarray(prepared[ion.name].density, dtype=jnp.float64),
                 charge=ion.charge,
-                epar=electron_force.epar,
+                epar=jnp.asarray(electron_epar, dtype=jnp.float64),
             ),
             dtype=np.float64,
         )
@@ -269,15 +286,13 @@ def _compute_recycling_1d_rhs_from_species(
             metrics=metrics,
         )
         pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[ion.name]
-        # The reference momentum operator includes the boundary-cell contribution from
-        # the guard-side FV sweep. Re-using the neutral helper needs a signed factor to
-        # recover the same last-cell sheath flux on this 1D open-field branch.
-        momentum_rhs = 2.0 * ion.atomic_mass * _div_par_fvv_open(
+        momentum_rhs = -ion.atomic_mass * _div_par_fvv_open(
             np.maximum(ion_state.density, 1.0e-7),
             ion_velocity[ion.name],
             fastest_wave,
             mesh=mesh,
             metrics=metrics,
+            fix_flux=False,
         )
         momentum_rhs = momentum_rhs - _grad_par_open(ion_state.pressure, mesh=mesh, metrics=metrics)
         momentum_rhs = momentum_rhs + momentum_source[ion.name]
@@ -546,6 +561,14 @@ class _CollisionClosureTerms:
 
 
 @dataclass(frozen=True)
+class _NeutralParallelDiffusionTerms:
+    density_source: dict[str, np.ndarray]
+    energy_source: dict[str, np.ndarray]
+    momentum_source: dict[str, np.ndarray]
+    diagnostics: dict[str, np.ndarray]
+
+
+@dataclass(frozen=True)
 class _DensityFeedbackTerms:
     density_source: dict[str, np.ndarray]
     energy_source: dict[str, np.ndarray]
@@ -721,9 +744,16 @@ def _prepare_open_field_states(
     for ion in ions:
         electron_density = electron_density + ion.charge * prepared[ion.name].density
 
+    electron_current = np.zeros_like(electron_density, dtype=np.float64)
+    for ion in ions:
+        electron_current = electron_current + ion.charge * prepared[ion.name].density * prepared[ion.name].velocity
+    electron_velocity = electron_current / np.maximum((-species["e"].charge) * electron_density, 1.0e-5)
+
     electron_boundary = _apply_electron_sheath_boundary(
         electron_pressure=prepared["e"].pressure,
         electron_density=electron_density,
+        electron_velocity=electron_velocity,
+        electron_mass=species["e"].atomic_mass,
         ion_velocity={ion.name: prepared[ion.name].velocity for ion in ions},
         ions=ions,
         mesh=mesh,
@@ -733,8 +763,8 @@ def _prepare_open_field_states(
         density=electron_boundary.density,
         pressure=electron_boundary.pressure,
         temperature=electron_boundary.temperature,
-        velocity=np.zeros_like(electron_boundary.density, dtype=np.float64),
-        momentum=np.zeros_like(electron_boundary.density, dtype=np.float64),
+        velocity=electron_boundary.velocity,
+        momentum=electron_boundary.momentum,
     )
     return prepared, ion_boundary, electron_boundary
 
@@ -806,6 +836,7 @@ def _compute_collision_frequencies(
     rho_s0 = float(dataset_scalars["rho_s0"])
     omega_ci = float(dataset_scalars["Omega_ci"])
     electron_ion = bool(config.parsed("braginskii_collisions", "electron_ion")) if config.has_option("braginskii_collisions", "electron_ion") else True
+    electron_electron = bool(config.parsed("braginskii_collisions", "electron_electron")) if config.has_option("braginskii_collisions", "electron_electron") else True
     electron_neutral = bool(config.parsed("braginskii_collisions", "electron_neutral")) if config.has_option("braginskii_collisions", "electron_neutral") else False
     ion_ion = bool(config.parsed("braginskii_collisions", "ion_ion")) if config.has_option("braginskii_collisions", "ion_ion") else True
     ion_neutral = bool(config.parsed("braginskii_collisions", "ion_neutral")) if config.has_option("braginskii_collisions", "ion_neutral") else False
@@ -815,6 +846,26 @@ def _compute_collision_frequencies(
     electron_state = prepared["e"]
     te_ev = electron_state.temperature * tnorm
     ne_m3 = electron_state.density * nnorm
+
+    if electron_electron:
+        te_limited = np.maximum(te_ev, 0.1)
+        ne_limited = np.maximum(ne_m3, 1.0e10)
+        log_te = np.log(te_limited)
+        coulomb_log = (
+            30.4
+            - 0.5 * np.log(ne_limited)
+            + 1.25 * log_te
+            - np.sqrt(1.0e-5 + np.square(log_te - 2.0) / 16.0)
+        )
+        v1sq = 2.0 * te_limited * _QE / _ME
+        nu_ee = (
+            (_QE**4)
+            * np.maximum(ne_m3, 0.0)
+            * np.maximum(coulomb_log, 1.0)
+            * 2.0
+            / (3.0 * np.power(math.pi * 2.0 * v1sq, 1.5) * ((_EPS0 * _ME) ** 2))
+        )
+        collision_rates[("e", "e")] = np.asarray(nu_ee / omega_ci, dtype=np.float64)
 
     for species_name, sp in species.items():
         if not electron_ion or species_name == "e" or sp.charge <= 0.0:
@@ -943,8 +994,11 @@ def _compute_collision_frequencies(
                     if not ion_neutral:
                         continue
                     vrel = np.sqrt(
-                        first_state.temperature / first_species.atomic_mass
-                        + second_state.temperature / second_species.atomic_mass
+                        np.maximum(
+                            first_state.temperature / first_species.atomic_mass
+                            + second_state.temperature / second_species.atomic_mass,
+                            0.0,
+                        )
                     )
                     collide(first_name, second_name, vrel * second_state.density * nnorm * 5.0e-19 * rho_s0)
             else:
@@ -952,16 +1006,22 @@ def _compute_collision_frequencies(
                     if not ion_neutral:
                         continue
                     vrel = np.sqrt(
-                        first_state.temperature / first_species.atomic_mass
-                        + second_state.temperature / second_species.atomic_mass
+                        np.maximum(
+                            first_state.temperature / first_species.atomic_mass
+                            + second_state.temperature / second_species.atomic_mass,
+                            0.0,
+                        )
                     )
                     collide(first_name, second_name, vrel * second_state.density * nnorm * 5.0e-19 * rho_s0)
                 else:
                     if not neutral_neutral:
                         continue
                     vrel = np.sqrt(
-                        first_state.temperature / first_species.atomic_mass
-                        + second_state.temperature / second_species.atomic_mass
+                        np.maximum(
+                            first_state.temperature / first_species.atomic_mass
+                            + second_state.temperature / second_species.atomic_mass,
+                            0.0,
+                        )
                     )
                     collide(first_name, second_name, vrel * second_state.density * nnorm * (math.pi * (2.8e-10**2)) * rho_s0)
     return collision_rates
@@ -1069,12 +1129,11 @@ def _apply_collision_closure(
             total_collisionality = np.maximum(total_collisionality, 1.0e-12)
             tau = 1.0 / total_collisionality
             eta = 1.28 * prepared[name].pressure * tau
-            viscosity_source = _div_par_k_grad_par_open(
+            viscosity_source = _div_par_parallel_ion_viscosity_open(
                 eta,
                 prepared[name].velocity,
                 mesh=mesh,
                 metrics=metrics,
-                boundary_flux=True,
             )
             momentum_source[name] = momentum_source[name] + viscosity_source
             energy_source[name] = energy_source[name] - prepared[name].velocity * viscosity_source
@@ -1111,6 +1170,231 @@ def _apply_collision_closure(
             )
 
     return _CollisionClosureTerms(energy_source=energy_source, momentum_source=momentum_source)
+
+
+def _div_par_parallel_ion_viscosity_open(
+    eta: np.ndarray,
+    velocity: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> np.ndarray:
+    bxy = np.maximum(np.asarray(metrics.Bxy, dtype=np.float64), 1.0e-12)
+    sqrt_b = np.sqrt(bxy)
+    return sqrt_b * _div_par_k_grad_par_open(
+        eta / bxy,
+        sqrt_b * np.asarray(velocity, dtype=np.float64),
+        mesh=mesh,
+        metrics=metrics,
+        boundary_flux=True,
+    )
+
+
+def _apply_neutral_parallel_diffusion(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> _NeutralParallelDiffusionTerms:
+    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    diagnostics: dict[str, np.ndarray] = {}
+
+    if "neutral_parallel_diffusion" not in set(_configured_component_names(config)):
+        return _NeutralParallelDiffusionTerms(
+            density_source=density_source,
+            energy_source=energy_source,
+            momentum_source=momentum_source,
+            diagnostics=diagnostics,
+        )
+
+    section = "neutral_parallel_diffusion"
+    dneut = float(config.parsed(section, "dneut")) if config.has_option(section, "dneut") else 0.0
+    if dneut <= 0.0:
+        return _NeutralParallelDiffusionTerms(
+            density_source=density_source,
+            energy_source=energy_source,
+            momentum_source=momentum_source,
+            diagnostics=diagnostics,
+        )
+
+    diffusion_mode = (
+        str(config.parsed(section, "diffusion_collisions_mode")).strip().lower()
+        if config.has_option(section, "diffusion_collisions_mode")
+        else "afn"
+    )
+    equation_fix = bool(config.parsed(section, "equation_fix")) if config.has_option(section, "equation_fix") else True
+    perpendicular_conduction = (
+        bool(config.parsed(section, "perpendicular_conduction"))
+        if config.has_option(section, "perpendicular_conduction")
+        else True
+    )
+    perpendicular_viscosity = (
+        bool(config.parsed(section, "perpendicular_viscosity"))
+        if config.has_option(section, "perpendicular_viscosity")
+        else True
+    )
+    diagnose = bool(config.parsed(section, "diagnose")) if config.has_option(section, "diagnose") else False
+
+    collision_rates = _compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
+    ionisation_rates = _neutral_ionisation_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+    charge_exchange_rates = _neutral_charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+
+    advection_factor = 2.5 if equation_fix else 1.5
+    kappa_factor = 2.5 if equation_fix else 1.0
+
+    for name, sp in species.items():
+        if name == "e" or sp.charge != 0.0:
+            continue
+
+        nu = np.zeros_like(prepared[name].density, dtype=np.float64)
+        if diffusion_mode == "afn":
+            if name in ionisation_rates:
+                nu = nu + ionisation_rates[name]
+            if name in charge_exchange_rates:
+                nu = nu + charge_exchange_rates[name]
+        elif diffusion_mode == "multispecies":
+            for other_name in species:
+                rate = collision_rates.get((name, other_name))
+                if rate is not None:
+                    nu = nu + rate
+            if name in charge_exchange_rates:
+                nu = nu + charge_exchange_rates[name]
+        else:
+            raise NotImplementedError(
+                f"Unsupported neutral_parallel_diffusion diffusion_collisions_mode={diffusion_mode!r}."
+            )
+
+        density = np.asarray(prepared[name].density, dtype=np.float64)
+        pressure = np.asarray(prepared[name].pressure, dtype=np.float64)
+        temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
+        momentum = np.asarray(prepared[name].momentum, dtype=np.float64)
+        velocity = np.asarray(prepared[name].velocity, dtype=np.float64)
+
+        diffusion = dneut * temperature / np.maximum(sp.atomic_mass * nu, 1.0e-10)
+        diffusion = _apply_open_field_dirichlet_scalar_guards(
+            diffusion,
+            mesh=mesh,
+            lower_y=sp.noflow_lower_y,
+            upper_y=sp.noflow_upper_y,
+        )
+        log_pressure = np.log(np.maximum(pressure, 1.0e-7))
+        log_pressure = _apply_open_field_neumann_scalar_guards(
+            log_pressure,
+            mesh=mesh,
+            lower_y=sp.noflow_lower_y,
+            upper_y=sp.noflow_upper_y,
+        )
+
+        density_rhs = _div_par_k_grad_par_open(
+            diffusion * density,
+            log_pressure,
+            mesh=mesh,
+            metrics=metrics,
+            boundary_flux=False,
+        )
+        density_source[name] = density_source[name] + density_rhs
+
+        energy_rhs = _div_par_k_grad_par_open(
+            diffusion * advection_factor * pressure,
+            log_pressure,
+            mesh=mesh,
+            metrics=metrics,
+            boundary_flux=False,
+        )
+        conductivity = kappa_factor * density * diffusion
+        conductivity = _apply_open_field_neumann_scalar_guards(
+            conductivity,
+            mesh=mesh,
+            lower_y=sp.noflow_lower_y,
+            upper_y=sp.noflow_upper_y,
+        )
+        if perpendicular_conduction:
+            energy_rhs = energy_rhs + _div_par_k_grad_par_open(
+                conductivity,
+                temperature,
+                mesh=mesh,
+                metrics=metrics,
+                boundary_flux=False,
+            )
+        energy_source[name] = energy_source[name] + energy_rhs
+
+        momentum_rhs = np.zeros_like(density_rhs, dtype=np.float64)
+        if sp.has_momentum and perpendicular_viscosity:
+            eta_n = (2.0 / 5.0) * conductivity
+            momentum_rhs = _div_par_k_grad_par_open(
+                diffusion * momentum,
+                log_pressure,
+                mesh=mesh,
+                metrics=metrics,
+                boundary_flux=False,
+            )
+            momentum_rhs = momentum_rhs + _div_par_k_grad_par_open(
+                eta_n,
+                velocity,
+                mesh=mesh,
+                metrics=metrics,
+                boundary_flux=False,
+            )
+            momentum_source[name] = momentum_source[name] + momentum_rhs
+
+        if diagnose:
+            diagnostics[f"D{name}_Dpar"] = np.asarray(diffusion, dtype=np.float64)
+            diagnostics[f"S{name}_Dpar"] = np.asarray(density_rhs, dtype=np.float64)
+            diagnostics[f"E{name}_Dpar"] = np.asarray(energy_rhs, dtype=np.float64)
+            if sp.has_momentum and perpendicular_viscosity:
+                diagnostics[f"F{name}_Dpar"] = np.asarray(momentum_rhs, dtype=np.float64)
+
+    return _NeutralParallelDiffusionTerms(
+        density_source=density_source,
+        energy_source=energy_source,
+        momentum_source=momentum_source,
+        diagnostics=diagnostics,
+    )
+
+
+def _apply_open_field_neumann_scalar_guards(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    lower_y: bool,
+    upper_y: bool,
+) -> np.ndarray:
+    return np.asarray(
+        apply_noflow_scalar_guards(field, mesh=mesh, lower_y=lower_y, upper_y=upper_y),
+        dtype=np.float64,
+    )
+
+
+def _apply_open_field_dirichlet_scalar_guards(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    lower_y: bool,
+    upper_y: bool,
+) -> np.ndarray:
+    result = np.asarray(field, dtype=np.float64, copy=True)
+    if mesh.myg <= 0:
+        return result
+    if lower_y:
+        result[:, mesh.ystart - 1, :] = -result[:, mesh.ystart, :]
+    if upper_y:
+        result[:, mesh.yend + 1, :] = -result[:, mesh.yend, :]
+    return result
 
 
 def _conduction_kappa_coefficient(config: BoutConfig, species: OpenFieldSpecies) -> float:
@@ -1168,6 +1452,80 @@ def _conduction_collision_time(
         raise NotImplementedError(f"Unsupported conduction_collisions_mode {mode!r} for {species_name}.")
 
     return 1.0 / np.maximum(total, 1.0e-10)
+
+
+def _neutral_ionisation_collision_rates(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    dataset_scalars: dict[str, float],
+) -> dict[str, np.ndarray]:
+    if not config.has_section("reactions") or not config.has_option("reactions", "type"):
+        return {}
+    totals: dict[str, np.ndarray] = {}
+    electron_density = _electron_density(tuple(sp for sp in species.values() if sp.charge > 0.0))
+    electron_temperature = _safe_temperature(species["e"].pressure, electron_density)
+    reactions = config.parsed("reactions", "type")
+    for reaction in (reactions if isinstance(reactions, tuple) else (reactions,)):
+        tokens = tuple(part.strip() for part in str(reaction).split("->"))
+        if len(tokens) != 2:
+            continue
+        lhs = tuple(part.strip() for part in re.split(r"\s+\+\s+", tokens[0].strip()))
+        rhs = tuple(part.strip() for part in re.split(r"\s+\+\s+", tokens[1].strip()))
+        if not (len(lhs) == 2 and lhs[1] == "e" and len(rhs) == 2 and rhs[1] == "2e"):
+            continue
+        atom_name = lhs[0]
+        if atom_name not in species or species[atom_name].charge != 0.0:
+            continue
+        sigma_v_coeffs, _, _ = _load_amjuel_rate(atom_name, "iz")
+        sigma_v = _eval_amjuel_fit(
+            np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
+            np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
+            sigma_v_coeffs,
+        )
+        totals[atom_name] = np.asarray(sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"]), dtype=np.float64)
+    return totals
+
+
+def _neutral_charge_exchange_collision_rates(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    prepared: dict[str, _PreparedSpeciesState],
+    dataset_scalars: dict[str, float],
+) -> dict[str, np.ndarray]:
+    if not config.has_section("reactions") or not config.has_option("reactions", "type"):
+        return {}
+    totals: dict[str, np.ndarray] = {}
+    reactions = config.parsed("reactions", "type")
+    for reaction in (reactions if isinstance(reactions, tuple) else (reactions,)):
+        tokens = tuple(part.strip() for part in str(reaction).split("->"))
+        if len(tokens) != 2:
+            continue
+        lhs = tuple(part.strip() for part in re.split(r"\s+\+\s+", tokens[0].strip()))
+        rhs = tuple(part.strip() for part in re.split(r"\s+\+\s+", tokens[1].strip()))
+        if not (len(lhs) == 2 and len(rhs) == 2 and lhs[0] == rhs[1] and lhs[1] == rhs[0]):
+            continue
+        atom_name = lhs[0]
+        ion_name = lhs[1]
+        if atom_name not in species or ion_name not in species:
+            continue
+        atom = species[atom_name]
+        ion = species[ion_name]
+        atom_temperature = prepared[atom_name].temperature
+        ion_temperature = prepared[ion_name].temperature
+        teff = np.clip(
+            (atom_temperature / atom.atomic_mass + ion_temperature / ion.atomic_mass) * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        )
+        sigma_v = _hydrogen_cx_sigmav(teff, dataset_scalars)
+        totals[atom_name] = np.asarray(
+            totals.get(atom_name, 0.0) + prepared[ion_name].density * sigma_v,
+            dtype=np.float64,
+        )
+    return totals
 
 
 def _amjuel_ionisation(
@@ -1337,7 +1695,12 @@ def _charge_exchange_collision_rates(
             10000.0,
         )
         sigmav = _hydrogen_cx_sigmav(teff, dataset_scalars)
+        atom_rate = prepared[ion1_name].density * sigmav
         ion_rate = prepared[atom1_name].density * sigmav
+        if atom1_name in totals:
+            totals[atom1_name] = totals[atom1_name] + atom_rate
+        else:
+            totals[atom1_name] = np.asarray(atom_rate, dtype=np.float64)
         if ion1_name in totals:
             totals[ion1_name] = totals[ion1_name] + ion_rate
         else:
@@ -1519,6 +1882,8 @@ class _ElectronBoundaryResult:
     density: np.ndarray
     temperature: np.ndarray
     pressure: np.ndarray
+    velocity: np.ndarray
+    momentum: np.ndarray
     energy_source: np.ndarray
 
 
@@ -1526,6 +1891,8 @@ def _apply_electron_sheath_boundary(
     *,
     electron_pressure: np.ndarray,
     electron_density: np.ndarray,
+    electron_velocity: np.ndarray,
+    electron_mass: float,
     ion_velocity: dict[str, np.ndarray],
     ions: tuple[OpenFieldSpecies, ...],
     mesh: StructuredMesh,
@@ -1534,6 +1901,17 @@ def _apply_electron_sheath_boundary(
     density = np.array(apply_noflow_scalar_guards(electron_density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
     pressure = np.array(apply_noflow_scalar_guards(electron_pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
     temperature = _safe_temperature(pressure, density)
+    velocity = np.array(
+        apply_noflow_flow_guards(
+            np.asarray(electron_velocity, dtype=np.float64),
+            mesh=mesh,
+            lower_y=True,
+            upper_y=False,
+        ),
+        dtype=np.float64,
+        copy=True,
+    )
+    momentum = np.asarray(electron_mass * density * velocity, dtype=np.float64)
 
     j = mesh.yend
     jp = j + 1
@@ -1572,6 +1950,8 @@ def _apply_electron_sheath_boundary(
         0.0,
         np.sqrt(tesheath / (2.0 * math.pi * me)) * np.exp(-phisheath / np.maximum(tesheath, 1.0e-12)),
     )
+    velocity[:, jp, :] = 2.0 * vesheath - velocity[:, j, :]
+    momentum[:, jp, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
     q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
     q = np.maximum(q, 0.0)
     flux = q * (np.asarray(metrics.J)[:, j, :] + np.asarray(metrics.J)[:, jp, :]) / (
@@ -1584,6 +1964,8 @@ def _apply_electron_sheath_boundary(
         density=density,
         temperature=temperature,
         pressure=pressure,
+        velocity=velocity,
+        momentum=momentum,
         energy_source=energy_source,
     )
 

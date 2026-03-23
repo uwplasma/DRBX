@@ -1170,8 +1170,6 @@ def _div_par_fvv_open(
     metrics: StructuredMetrics,
     fix_flux: bool = True,
 ) -> np.ndarray:
-    if not fix_flux:
-        raise NotImplementedError("Native neutral mixed momentum advection currently supports fix_flux=True only.")
     result = np.zeros_like(density, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     J = np.asarray(metrics.J, dtype=np.float64)
@@ -1205,7 +1203,15 @@ def _div_par_fvv_open(
                 v_mid_right = 0.5 * (velocity[i, j, k] + velocity[i, j + 1, k])
                 n_mid_right = 0.5 * (density[i, j, k] + density[i, j + 1, k])
                 if j == mesh.yend:
-                    flux = n_mid_right * v_mid_right * v_mid_right
+                    if fix_flux:
+                        flux = n_mid_right * v_mid_right * v_mid_right
+                    else:
+                        amax = max(
+                            float(wave_speed[i, j, k]),
+                            abs(float(velocity[i, j, k])),
+                            abs(float(velocity[i, j + 1, k])),
+                        )
+                        flux = s_right * v_right * v_right + amax * n_mid_right * (v_right - v_mid_right)
                 else:
                     amax = max(
                         float(wave_speed[i, j, k]),
@@ -1221,7 +1227,15 @@ def _div_par_fvv_open(
                 v_mid_left = 0.5 * (velocity[i, j, k] + velocity[i, j - 1, k])
                 n_mid_left = 0.5 * (density[i, j, k] + density[i, j - 1, k])
                 if j == mesh.ystart:
-                    flux = n_mid_left * v_mid_left * v_mid_left
+                    if fix_flux:
+                        flux = n_mid_left * v_mid_left * v_mid_left
+                    else:
+                        amax = max(
+                            float(wave_speed[i, j, k]),
+                            abs(float(velocity[i, j, k])),
+                            abs(float(velocity[i, j - 1, k])),
+                        )
+                        flux = s_left * v_left * v_left - amax * n_mid_left * (v_left - v_mid_left)
                 else:
                     amax = max(
                         float(wave_speed[i, j, k]),

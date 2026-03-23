@@ -336,7 +336,23 @@ Current Step 2 note:
 - the neutral RHS branch now includes the traced soft-floor rule, and the remaining neutral transient mismatch has been narrowed to target-adjacent active `y` cells in the momentum RHS; the next Step 2 work should therefore focus on exact target-boundary parallel viscosity/conduction parity before exposing neutral transients or recycling workflows through the public runner
 - the staged comparison ladder now includes first-output baselines for `1D-recycling` and `1D-recycling-dthe`, so the open-field sheath/recycling implementation can be driven against low-iteration reference targets rather than only the existing long-run case
 - the same ladder now also includes explicit `one_rhs` baselines for `1D-recycling` and `1D-recycling-dthe`, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs, so the native Step 2 runner can follow the intended RHS-first parity protocol rather than jumping directly to whole-step state parity
-- shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, and both `recycling_1d_rhs` and `recycling_dthe_rhs` now run natively against live reference baselines; the remaining Step 2 work is the transient ladder (`one_step`, `short_window`, and control/recycling long-run behavior), not another round of 1D RHS reconstruction
+- shared open-field utilities are now in-tree for the exact no-flow guard rules, the electron-force-balance source term, limited free extrapolation, and target-recycling source assembly, and both `recycling_1d_rhs` and `recycling_dthe_rhs` now run natively against live reference baselines
+- staged evolved-state RHS checks are now locked for `recycling_1d_one_step` and `recycling_dthe_one_step`; the remaining Step 2 work is therefore the transient ladder (`one_step`, `short_window`, and control/recycling long-run behavior), not another round of open-field source-term reconstruction
+
+Current Step 2/3 status markers:
+
+| Case | Status | Note |
+| --- | --- | --- |
+| `neutral_mixed_rhs` | `native-validated` | Active-domain RHS parity is locked. |
+| `neutral_mixed_one_step` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `recycling_1d_rhs` | `native-validated` | RHS parity and controller bookkeeping are locked. |
+| `recycling_dthe_rhs` | `native-validated` | RHS parity and multispecies collision bookkeeping are locked. |
+| `recycling_1d_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
+| `recycling_dthe_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
+| `recycling_1d_long` | `blocked` | Long-run parity depends on the transient ladder. |
+| `integrated_2d_recycling_rhs` | `reference-staged` | Stable integrated 2D recycling target now runs in the harness with staged artifacts. |
+| `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is now the Step 3 entry point. |
 
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
 
@@ -370,7 +386,8 @@ Exit criteria:
 
 Current Step 3 note:
 
-- the 2D tokamak recycling cases are now staged in the curated ladder, and the reference harness now has manifest-driven MPI launch capability for geometry cases that cannot run on a single rank; the remaining work is to identify a stable curated processor split and commit the first tokamak recycling baselines.
+- the stable Step 3 reference target is now the integrated `2D-recycling` workflow, staged with its required external artifact bundle and `process_count = 10` in the harness; the remaining Step 3 work is the native 2D recycling implementation on top of that target, not more geometry staging
+- the current practical 2D validation set is `native-validated` for diffusion, vorticity, blob, and drift-wave, while 2D recycling remains `reference-staged` until the integrated artifact-backed workflow is promoted into the native runner
 
 ### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
 

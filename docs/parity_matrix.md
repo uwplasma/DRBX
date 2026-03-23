@@ -69,6 +69,36 @@ Deliverables:
 - staged `one_rhs` recycling baselines for the single-species and multi-species 1D divertor cases, including target-recycling source diagnostics and trimmed active-domain `ddt(...)` outputs before the first output-step state comparison.
 - native `one_rhs` execution for `recycling_1d_rhs`, including the first open-field divertor/sheath/recycling slice with AMJUEL-backed hydrogen/helium rates, hydrogenic charge exchange, target-recycling source diagnostics, literal reference-expression resolution, and strict summary/full-array regression coverage against the committed single-species baseline.
 - native `one_rhs` execution for `recycling_dthe_rhs`, including source-faithful multispecies collision-table ordering, cross-isotope D-T charge exchange, option-aware Braginskii friction/heat-exchange bookkeeping, and the traced ion-viscosity source path; committed summary parity is now clean and the committed full-array baseline passes at `5e-2` relative tolerance.
+- staged evolved-state RHS regression checks for `recycling_1d_one_step` and `recycling_dthe_one_step`, locking the current open-field operator parity against the first reference output before the transient runner is promoted.
+
+### Stage 2 Status Markers
+
+| Case | Status | Note |
+| --- | --- | --- |
+| `evolve_density_rhs` | `native-validated` | Smallest one-RHS case is locked. |
+| `diffusion_one_step` | `native-validated` | First transport transient is locked. |
+| `diffusion_short_window` | `native-validated` | Transport history is locked. |
+| `fluid_1d_mms_rhs` | `native-validated` | Trimmed periodic MMS RHS is locked. |
+| `fluid_1d_mms_one_step` | `native-validated` | First coupled fluid advance is locked. |
+| `fluid_1d_mms` | `native-validated` | Short-window MMS history is locked. |
+| `vorticity_rhs` | `native-validated` | Electrostatic RHS parity is locked. |
+| `vorticity_one_step` | `native-validated` | First electrostatic output interval is locked. |
+| `vorticity_short_window` | `native-validated` | Electrostatic short-window history is locked. |
+| `blob2d_rhs` | `native-validated` | Blob RHS parity is locked. |
+| `blob2d_one_step` | `native-validated` | First blob transient is locked. |
+| `blob2d_short_window` | `native-validated` | Blob short-window benchmark is locked. |
+| `drift_wave_rhs` | `native-validated` | Drift-wave RHS parity is locked. |
+| `drift_wave_one_step` | `native-validated` | First drift-wave output interval is locked. |
+| `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
+| `neutral_mixed_rhs` | `native-validated` | Neutral active-domain RHS is locked. |
+| `neutral_mixed_one_step` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
+| `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
+| `recycling_1d_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
+| `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
+| `integrated_2d_recycling_rhs` | `reference-staged` | Stable integrated 2D recycling target is runnable in the harness. |
+| `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is staged. |
 
 ## Stage 3+: Physics Buildout
 
@@ -78,8 +108,8 @@ The remaining stages stay as defined in [PLAN.md](/Users/rogerio/local/jax_drb/P
 - finite-volume operators and MMS parity beyond the periodic 1D fluid branch;
 - 1D open-field fluid core;
 - sheath, recycling, and control terms;
-- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch, with staged tokamak recycling geometry targets now waiting on a stable curated processor split rather than missing launch infrastructure;
-- 2D open-field recycling geometry should now be restaged off the integrated artifact-backed `2D-recycling` workflow rather than the currently broken tokamak example;
+- 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch, with staged integrated `2D-recycling` geometry targets now waiting on native implementation rather than harness work;
+- 2D open-field recycling geometry is now staged off the integrated artifact-backed `2D-recycling` workflow rather than the broken tokamak example;
 - 3D electromagnetic capabilities;
 - neutrals, reactions, and impurities;
 - performance, packaging, validation, and documentation.
