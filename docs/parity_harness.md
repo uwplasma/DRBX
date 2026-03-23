@@ -31,6 +31,8 @@ For a figure-first view of the currently locked cases, see [docs/validation_gall
 | `recycling_1d_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `recycling_1d_long` | `blocked` | Depends on the transient ladder. |
+| `integrated_2d_recycling_rhs` | `reference-only target` | Stable integrated 2D recycling geometry target with staged grid artifact and 10-rank launch. |
+| `integrated_2d_recycling_one_step` | `reference-only target` | Stable integrated 2D recycling first-output target with staged grid artifact and 10-rank launch. |
 | `tokamak_recycling_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 | `tokamak_recycling_dthe_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 
@@ -53,6 +55,7 @@ For a figure-first view of the currently locked cases, see [docs/validation_gall
 
 If requested, the same command can also emit full comparison arrays to compressed NPZ files. Those artifacts are intended for the smallest curated cases where full-field regression is practical.
 For diagnostic RHS cases and the current drift-wave benchmark, the harness can trim X and/or Y guard cells before writing summary and array baselines so comparisons focus on physically meaningful interior outputs.
+For recycling debugging, `jax-drb compare-recycling <expected> <actual>` auto-detects summary JSON or portable array NPZ inputs and prints the worst variable plus the worst cell/index location for array payloads without requiring any large artifact format.
 
 ## Native Protocol
 
@@ -95,8 +98,8 @@ Current support is intentionally narrow:
 - focused regressions now lock the initial controller behavior for both the single-species and multi-species 1D recycling cases, so that source term cannot silently disappear again while the transient ladder is being finished;
 - a compact recycling parity scaffold now exists in [parity/diff.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/diff.py) and [parity/recycling.py](/Users/rogerio/local/jax_drb/src/jax_drb/parity/recycling.py), giving per-variable max-absolute-difference and argmax-location reports plus staged reference controller snapshot extraction for the one-step recycling cases;
 - the `recycling_1d_one_step` and `recycling_dthe_one_step` native parity tests are intentionally `xfail`-guarded by default until the transient solver matches the reference behavior; set `JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1` to opt into an explicit native probe when debugging the transient path;
-- the same ladder now also stages `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` as the first named 2D recycling geometry targets; their committed baselines still need a stable curated processor split, but no longer need ad hoc launch scripting;
-- for Step 3 geometry work, the current tokamak example should be treated as blocked by a real reference-side component conflict, so future curated 2D recycling staging should pivot to the integrated artifact-backed `2D-recycling` workflow instead of continuing to debug that example inside the active porting path;
+- the same ladder now stages `integrated_2d_recycling_rhs` and `integrated_2d_recycling_one_step` off the stable integrated `2D-recycling` workflow, with manifest-driven `process_count = 10` and explicit artifact staging for `grid_test2.nc` from the published reference bundle;
+- the older `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` manifest entries should still be treated as blocked reference-side geometry targets until their initialization conflicts are fixed upstream;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
 - the recycling transient branch now has both a shared-implicit backward-Euler residual path and an adaptive BDF probe around the packed active-domain state plus controller integrals, but neither path is promoted through the public runner as parity-clean yet because the one-step solves remain too slow and are not yet matching the committed first-output baselines;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
