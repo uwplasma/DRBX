@@ -20,6 +20,7 @@ from jax_drb.native.recycling_1d import (
     _current_feedback_errors,
     _electron_zero_current_velocity,
     _electron_density,
+    _grad_par_electron_force_balance_open,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     advance_recycling_1d_implicit_history,
@@ -315,6 +316,36 @@ def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
     )
 
     np.testing.assert_allclose(distorted, baseline, rtol=0.0, atol=0.0)
+
+
+def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil() -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    field = np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    for j in range(mesh.local_ny):
+        field[:, j, :] = float(j)
+
+    gradient = _grad_par_electron_force_balance_open(
+        field,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    g_22 = np.asarray(metrics.g_22, dtype=np.float64)
+    expected = np.zeros_like(field, dtype=np.float64)
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                expected[i, j, k] = 0.5 * (field[i, j + 1, k] - field[i, j - 1, k]) / (
+                    dy[i, j, k] * np.sqrt(g_22[i, j, k])
+                )
+
+    active = (slice(mesh.xstart, mesh.xend + 1), slice(mesh.ystart, mesh.yend + 1), slice(None))
+    np.testing.assert_allclose(gradient[active], expected[active], rtol=1.0e-12, atol=1.0e-12)
 
 
 def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> None:
