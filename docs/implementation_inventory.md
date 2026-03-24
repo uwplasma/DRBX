@@ -127,8 +127,9 @@ The next queued staged baselines are now committed as well:
   - the neutral parallel operator in [neutral_mixed.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/neutral_mixed.py) is now vectorized;
   - the current probe runtimes are about `40.6 s` for `recycling_1d_one_step` and about `76.9 s` for `recycling_dthe_one_step` on this machine;
 - those first-output probes are still not parity-clean:
-  - `recycling_1d_one_step` is currently off by about `5.46e-1` in the trimmed active domain, worst field `Nd+`;
-  - `recycling_dthe_one_step` is currently off by about `6.14e-1`, worst field `NVt+`;
+  - `recycling_1d_one_step` is now down to about `1.00e-1` in the trimmed active domain, worst field `Nd+` at the penultimate target-adjacent cell;
+  - the remaining single-species first-output mismatch is concentrated in `Nd+`, `Pe`, `Nd`, and `NVd` in the top two active `y` cells, and the new [diagnose_recycling_timeline.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_timeline.py) report is now the fastest way to track those fields against the staged reference dump;
+  - `recycling_dthe_one_step` is still blocked on the default continuation ladder, but the native `bdf` path now reaches the first output interval cleanly and is the current candidate for the multispecies Step 2 transient route;
 - the next open-field blocker is no longer the 1D source stack; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
 Current native execution coverage:
