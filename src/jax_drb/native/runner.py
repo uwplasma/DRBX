@@ -301,6 +301,7 @@ def _execute_recycling_1d_case(
         return (0.0,), {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()}
 
     steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    solver_mode = _select_recycling_transient_solver_mode(config, parity_mode=parity_mode)
     history = advance_recycling_1d_implicit_history(
         config,
         mesh=mesh,
@@ -308,7 +309,7 @@ def _execute_recycling_1d_case(
         dataset_scalars=dataset_scalars,
         timestep=run_config.time.timestep,
         steps=steps,
-        solver_mode="continuation",
+        solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
     )
@@ -317,6 +318,29 @@ def _execute_recycling_1d_case(
         name: np.asarray(value, dtype=np.float64)
         for name, value in history.variable_history.items()
     }
+
+
+def _select_recycling_transient_solver_mode(
+    config: BoutConfig,
+    *,
+    parity_mode: str,
+) -> str:
+    if parity_mode != "one_step":
+        return "continuation"
+
+    resolver = NumericResolver(config)
+    ion_species = 0
+    for section_name in config.section_names():
+        if not config.has_option(section_name, "charge"):
+            continue
+        try:
+            charge = float(resolver.resolve(section_name, "charge"))
+        except Exception:
+            continue
+        if charge > 0.0:
+            ion_species += 1
+
+    return "bdf" if ion_species > 1 else "continuation"
 
 
 def _execute_periodic_fluid_mms_case(
