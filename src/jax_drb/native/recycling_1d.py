@@ -260,7 +260,7 @@ def _compute_recycling_1d_rhs_from_species(
         energy_source[name] = energy_source[name] + value
     diagnostics.update(feedback_terms.diagnostics)
 
-    electron_force_density = -_grad_par_open(
+    electron_force_density = -_grad_par_electron_force_balance_open(
         electron_boundary.pressure,
         mesh=mesh,
         metrics=metrics,
@@ -2306,6 +2306,28 @@ def _electron_zero_current_velocity(
     for ion in ions:
         current = current + ion.charge * prepared[ion.name].density * ion_velocity[ion.name]
     return current / np.maximum(electron_density, 1.0e-5)
+
+
+def _grad_par_electron_force_balance_open(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> np.ndarray:
+    """Match BOUT's Grad_par/DDY stencil used by electron_force_balance."""
+    result = np.zeros_like(field, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    g_22 = np.asarray(metrics.g_22, dtype=np.float64)
+
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                result[i, j, k] = (
+                    0.5
+                    * (field[i, j + 1, k] - field[i, j - 1, k])
+                    / (dy[i, j, k] * np.sqrt(g_22[i, j, k]))
+                )
+    return result
 
 
 def advance_recycling_1d_implicit_history(
