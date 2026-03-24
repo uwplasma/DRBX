@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from jax_drb.config.boutinp import load_bout_input
+import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native import run_curated_case
@@ -48,6 +50,7 @@ _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
 _BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference")
 _ARRAY_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
 _DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
 
 
 def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
@@ -98,6 +101,47 @@ def test_recycling_dthe_rhs_matches_array_baseline() -> None:
     comparison = compare_array_payloads(expected, actual, array_rtol=5.0e-2, array_atol=1.0e-9)
 
     assert comparison.ok, comparison.issues
+
+
+@pytest.mark.parametrize(
+    ("input_path", "expected_solver_mode"),
+    [
+        (_INPUT_1D, "continuation"),
+        (_DTHE_INPUT, "bdf"),
+    ],
+)
+def test_recycling_one_step_selects_expected_transient_solver_mode(
+    input_path: Path,
+    expected_solver_mode: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    calls: list[str] = []
+
+    def fake_advance(*args, **kwargs):
+        calls.append(kwargs["solver_mode"])
+        field_history = {
+            "Nd+": np.zeros((2, mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64),
+        }
+        return SimpleNamespace(variable_history=field_history)
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_advance)
+
+    time_points, variables = native_runner._execute_recycling_1d_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode="one_step",
+    )
+
+    assert calls == [expected_solver_mode]
+    assert time_points == (0.0, run_config.time.timestep)
+    assert "Nd+" in variables
 
 
 def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange() -> None:
