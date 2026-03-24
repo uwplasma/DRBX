@@ -10,11 +10,13 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native import run_curated_case
 from jax_drb.native.recycling_1d import (
+    OpenFieldSpecies,
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
     _compute_collision_frequencies,
     _compute_recycling_1d_packed_rhs,
     _current_feedback_errors,
+    _electron_zero_current_velocity,
     _electron_density,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
@@ -26,6 +28,7 @@ from jax_drb.native.recycling_1d import (
     _prepare_open_field_states,
     _reaction_sources,
     _recycling_evolving_variable_names,
+    _target_recycling_sources,
     _ion_thermal_force_pair,
     advance_recycling_1d_backward_euler_step,
     advance_recycling_1d_bdf2_step,
@@ -175,6 +178,99 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
         float(prepared["d"].density[active] * sigma_v[active])
     )
     assert float(cx_rates["d"][active]) != float(cx_rates["d+"][active])
+
+
+def test_target_recycling_sources_use_prepared_ion_state() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
+    neutrals = tuple(sp for sp in species.values() if sp.charge == 0.0 and sp.name != "e")
+    ion_velocity = {ion.name: prepared[ion.name].velocity for ion in ions}
+
+    baseline = _target_recycling_sources(
+        ions=ions,
+        prepared=prepared,
+        neutrals=neutrals,
+        ion_velocity=ion_velocity,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    distorted_ions = tuple(
+        OpenFieldSpecies(
+            **{
+                **ion.__dict__,
+                "density": ion.density * 3.0,
+                "pressure": ion.pressure * 5.0,
+            }
+        )
+        for ion in ions
+    )
+    distorted = _target_recycling_sources(
+        ions=distorted_ions,
+        prepared=prepared,
+        neutrals=neutrals,
+        ion_velocity=ion_velocity,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    for neutral in ("d",):
+        np.testing.assert_allclose(
+            distorted.density_source[neutral],
+            baseline.density_source[neutral],
+            rtol=0.0,
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            distorted.energy_source[neutral],
+            baseline.energy_source[neutral],
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
+    ion_velocity = {ion.name: prepared[ion.name].velocity for ion in ions}
+    electron_density = prepared["e"].density
+
+    baseline = _electron_zero_current_velocity(
+        ions,
+        prepared=prepared,
+        ion_velocity=ion_velocity,
+        electron_density=electron_density,
+    )
+
+    distorted_ions = tuple(
+        OpenFieldSpecies(
+            **{
+                **ion.__dict__,
+                "density": ion.density * 4.0,
+            }
+        )
+        for ion in ions
+    )
+    distorted = _electron_zero_current_velocity(
+        distorted_ions,
+        prepared=prepared,
+        ion_velocity=ion_velocity,
+        electron_density=electron_density,
+    )
+
+    np.testing.assert_allclose(distorted, baseline, rtol=0.0, atol=0.0)
 
 
 def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> None:
@@ -457,6 +553,7 @@ def test_recycling_bdf2_step_produces_finite_small_step() -> None:
         fields0,
         runtime_model=runtime_model,
         feedback_integrals=integrals1,
+        previous_feedback_integrals=integrals0,
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=scalars,
