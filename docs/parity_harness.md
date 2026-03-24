@@ -103,6 +103,9 @@ Current support is intentionally narrow:
 - the older `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` manifest entries should still be treated as blocked reference-side geometry targets until their initialization conflicts are fixed upstream;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
 - the recycling transient branch now uses a continuation-based sparse implicit ladder on top of the shared backward-Euler stepper rather than the older generic adaptive BDF wrapper; the packed RHS still reuses the cached runtime model and the sparse Newton path still uses a direct sparse linear solve on these small active systems, but the full first-output recycling cases remain too slow to promote as parity-complete yet;
+- the public recycling runner now chooses the transient backend per one-step case:
+  - `recycling_1d_one_step` still uses the continuation ladder, because the current BDF wrapper does not materially improve the single-species first-output parity;
+  - `recycling_dthe_one_step` now routes through the existing BDF path, because that path completes the multispecies first-output interval while the continuation ladder is still vulnerable to zero-Jacobian failures on that case;
 - the active transient branch now matches two additional reference-side details:
   - controller integrals are advanced on accepted steps with a trapezoid rule instead of being solved as extra implicit unknowns;
   - the sheath preparation order applies the electron boundary state before the ion boundary state so the ion sheath sees the electron boundary density/pressure fields;
