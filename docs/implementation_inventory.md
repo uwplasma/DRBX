@@ -129,6 +129,9 @@ The next queued staged baselines are now committed as well:
 - those first-output probes are still not parity-clean:
   - `recycling_1d_one_step` is now down to about `1.00e-1` in the trimmed active domain, worst field `Nd+` at the penultimate target-adjacent cell;
   - the remaining single-species first-output mismatch is concentrated in `Nd+`, `Pe`, `Nd`, and `NVd` in the top two active `y` cells, and the new [diagnose_recycling_timeline.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_timeline.py) report is now the fastest way to track those fields against the staged reference dump;
+  - a direct continuation sweep over `suggested_dt = 500, 100, 50, 25, 10` leaves the single-species first-output max error essentially unchanged, so the current blocker is not simple continuation substep resolution;
+  - the current accepted-step controller history still underestimates the staged reference restart integral (`~5.05` native versus `~6.81` reference after the first output interval for `d+`), but the resulting feedback source difference is too small to explain the whole target-band state error;
+  - evaluating the native one-step result through the same sheath-preparation path confirms that the remaining active-cell error is not just a raw-versus-prepared output mismatch: the target-adjacent active `Nd+` and `Pe` values remain off even though the prepared upper guard cell moves much closer to the staged reference dump;
   - `recycling_dthe_one_step` is still blocked on the default continuation ladder, but the native `bdf` path now reaches the first output interval cleanly and is the current candidate for the multispecies Step 2 transient route;
 - the next open-field blocker is no longer the 1D source stack; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
