@@ -2633,19 +2633,21 @@ def _recycling_state_error_ratio(
     absolute_tolerance: float,
 ) -> float:
     active_slices = _recycling_active_domain_slices(mesh)
-    ratio = 0.0
+    squared_terms: list[np.ndarray] = []
     for name in field_names:
         full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
         half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
         scale = float(absolute_tolerance) + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
-        local = np.max(np.abs(half - full) / scale)
-        ratio = max(ratio, float(local))
+        squared_terms.append(np.square((half - full) / scale).ravel())
     for name in feedback_names:
         full = float(full_integrals.get(name, 0.0))
         half = float(half_integrals.get(name, 0.0))
         scale = float(absolute_tolerance) + float(relative_tolerance) * max(abs(full), abs(half), 1.0)
-        ratio = max(ratio, abs(half - full) / scale)
-    return ratio
+        squared_terms.append(np.asarray([(half - full) / scale], dtype=np.float64))
+    if not squared_terms:
+        return 0.0
+    combined = np.concatenate(squared_terms)
+    return float(np.sqrt(np.mean(combined * combined)))
 
 
 def _initial_recycling_continuation_dt(
