@@ -105,7 +105,8 @@ def _run_integrated_2d_recycling_rhs_case(
             metrics=snapshot.metrics,
             dataset_scalars=dataset_scalars,
             field_overrides=snapshot.fields,
-            apply_sheath_boundaries=False,
+            apply_sheath_boundaries=True,
+            preserve_dump_target_state=True,
         )
     trimmed_variables = _prepare_compare_variables(
         result.variables,
