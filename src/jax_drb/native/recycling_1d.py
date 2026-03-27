@@ -2713,8 +2713,8 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 candidate_fields = bdf_fields
                 candidate_integrals = bdf_integrals
             else:
-                candidate_fields = {}
-                candidate_integrals = {}
+                candidate_fields = be_fields
+                candidate_integrals = be_integrals
         order = 2 if use_bdf2 else 1
 
         if np.isfinite(error_ratio) and error_ratio <= 1.0:
@@ -2742,8 +2742,8 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             prev_fields = current_fields
             prev_integrals = current_integrals
             prev_dt = dt
-            current_fields = candidate_fields if candidate_fields else current_fields
-            current_integrals = candidate_integrals if candidate_integrals else current_integrals
+            current_fields = candidate_fields
+            current_integrals = candidate_integrals
             remaining -= dt
             continue
 
@@ -3330,7 +3330,7 @@ def _advance_recycling_1d_bdf_history(
     sparsity = _build_recycling_residual_sparsity(
         active_shape=active_shape,
         field_count=len(field_names),
-        controller_count=0,
+        controller_count=len(feedback_names),
     )
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
@@ -3340,60 +3340,28 @@ def _advance_recycling_1d_bdf_history(
     output_times = np.linspace(0.0, total_time, steps + 1, dtype=np.float64)
     y0 = _pack_recycling_active_state(
         current_fields,
-        feedback_integrals={},
+        feedback_integrals=current_integrals,
         field_names=field_names,
-        feedback_names=(),
+        feedback_names=feedback_names,
         mesh=mesh,
     )
-    controller_state = {
-        name: {
-            "integral": float(current_integrals.get(name, 0.0)),
-            "last_error": 0.0,
-            "last_time": -1.0,
-        }
-        for name in feedback_names
-    }
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
-        state_fields, _ = _unpack_recycling_active_state(
+        state_fields, state_integrals = _unpack_recycling_active_state(
             packed_state,
             field_templates=current_fields,
-            feedback_integrals={},
+            feedback_integrals=current_integrals,
             field_names=field_names,
-            feedback_names=(),
+            feedback_names=feedback_names,
             mesh=mesh,
         )
-        current_errors = _current_feedback_errors(
-            state_fields,
-            controllers=runtime_model.controllers,
-            mesh=mesh,
-        )
-        for name, controller in runtime_model.controllers.items():
-            error = float(current_errors.get(name, 0.0))
-            state = controller_state[name]
-            last_time = float(state["last_time"])
-            last_error = float(state["last_error"])
-            integral = float(state["integral"])
-            if last_time < 0.0:
-                last_time = float(_time)
-                last_error = error
-            elif float(_time) > last_time:
-                integral = integral + (float(_time) - last_time) * 0.5 * (error + last_error)
-                if controller.density_integral_positive and integral < 0.0:
-                    integral = 0.0
-            state["integral"] = integral
-            state["last_error"] = error
-            state["last_time"] = float(_time)
         return _compute_recycling_1d_packed_rhs(
             config,
             state_fields,
             sanitize_fields=True,
-            feedback_integrals={
-                name: float(state["integral"])
-                for name, state in controller_state.items()
-            },
+            feedback_integrals=state_integrals,
             field_names=field_names,
-            feedback_names=(),
+            feedback_names=feedback_names,
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
@@ -3415,48 +3383,21 @@ def _advance_recycling_1d_bdf_history(
         raise RuntimeError(f"Adaptive recycling BDF step failed: {solution.message}")
 
     variable_history = {name: [] for name in field_names}
-    feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
-    replay_integrals = {name: float(current_integrals.get(name, 0.0)) for name in feedback_names}
-    replay_last_errors = {name: 0.0 for name in feedback_names}
-    replay_last_time = -1.0
+    feedback_history = {name: [] for name in feedback_names}
     for column in range(solution.y.shape[1]):
-        sample_fields, _ = _unpack_recycling_active_state(
+        sample_fields, sample_integrals = _unpack_recycling_active_state(
             solution.y[:, column],
             field_templates=current_fields,
-            feedback_integrals={},
+            feedback_integrals=current_integrals,
             field_names=field_names,
-            feedback_names=(),
+            feedback_names=feedback_names,
             mesh=mesh,
         )
         sample_fields = _sanitize_recycling_fields(config, sample_fields)
-        sample_time = float(solution.t[column])
-        current_errors = _current_feedback_errors(
-            sample_fields,
-            controllers=runtime_model.controllers,
-            mesh=mesh,
-        )
-        for name, controller in runtime_model.controllers.items():
-            error = float(current_errors.get(name, 0.0))
-            if replay_last_time < 0.0:
-                replay_last_time = sample_time
-                replay_last_errors[name] = error
-            elif sample_time > replay_last_time:
-                replay_integrals[name] = replay_integrals[name] + (sample_time - replay_last_time) * 0.5 * (
-                    error + replay_last_errors[name]
-                )
-                if controller.density_integral_positive and replay_integrals[name] < 0.0:
-                    replay_integrals[name] = 0.0
-                replay_last_time = sample_time
-                replay_last_errors[name] = error
-            else:
-                replay_last_errors[name] = error
-                replay_last_time = sample_time
-        sample_integrals = _sanitize_feedback_integrals(replay_integrals, controllers=runtime_model.controllers)
+        sample_integrals = _sanitize_feedback_integrals(sample_integrals, controllers=runtime_model.controllers)
         for name in field_names:
             variable_history[name].append(np.asarray(sample_fields[name], dtype=np.float64))
         for name in feedback_names:
-            if column == 0:
-                continue
             feedback_history[name].append(np.asarray(sample_integrals[name], dtype=np.float64))
 
     return Recycling1DHistoryResult(
