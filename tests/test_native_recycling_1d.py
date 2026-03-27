@@ -835,3 +835,52 @@ def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_stat
     )
 
     assert integrals1 == pytest.approx(expected_integrals)
+
+
+def test_recycling_backward_euler_can_evolve_feedback_integrals_in_implicit_state() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    fields0 = _build_recycling_state_fields(runtime_model)
+    integrals0 = {name: 0.0 for name in runtime_model.feedback_names}
+
+    _, implicit_integrals, implicit_info = advance_recycling_1d_backward_euler_step(
+        config,
+        fields0,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals0,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+        evolve_feedback_integrals=True,
+    )
+    _, explicit_integrals, explicit_info = advance_recycling_1d_backward_euler_step(
+        config,
+        fields0,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals0,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+        evolve_feedback_integrals=False,
+    )
+
+    assert np.isfinite(np.asarray(list(implicit_integrals.values()), dtype=np.float64)).all()
+    assert implicit_info.active_size == explicit_info.active_size + len(runtime_model.feedback_names)

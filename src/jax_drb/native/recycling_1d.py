@@ -133,6 +133,7 @@ def compute_recycling_1d_rhs(
     field_overrides: dict[str, np.ndarray] | None = None,
     feedback_integrals: dict[str, float] | None = None,
     apply_sheath_boundaries: bool = True,
+    preserve_dump_target_state: bool = False,
 ) -> Recycling1DRhsResult:
     runtime_model = _build_recycling_runtime_model(
         config,
@@ -152,6 +153,7 @@ def compute_recycling_1d_rhs(
         feedback_integrals=feedback_integrals,
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
         apply_sheath_boundaries=apply_sheath_boundaries,
+        preserve_dump_target_state=preserve_dump_target_state,
     )
 
 
@@ -168,6 +170,7 @@ def _compute_recycling_1d_rhs_from_species(
     feedback_timestep: float | None = None,
     explicit_pressure_sources: dict[str, np.ndarray] | None = None,
     apply_sheath_boundaries: bool = True,
+    preserve_dump_target_state: bool = False,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
@@ -199,6 +202,7 @@ def _compute_recycling_1d_rhs_from_species(
         mesh=mesh,
         metrics=metrics,
         apply_sheath_boundaries=apply_sheath_boundaries,
+        preserve_dump_target_state=preserve_dump_target_state,
     )
     ion_velocity = ion_boundary.velocity
     for name, value in ion_boundary.energy_source.items():
@@ -915,6 +919,7 @@ def _prepare_open_field_states(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     apply_sheath_boundaries: bool = True,
+    preserve_dump_target_state: bool = False,
 ) -> tuple[dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult]:
     prepared = {name: _prepare_species_state(sp, mesh=mesh) for name, sp in species.items()}
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
@@ -942,6 +947,15 @@ def _prepare_open_field_states(
             mesh=mesh,
             metrics=metrics,
         )
+        if preserve_dump_target_state:
+            electron_boundary = _ElectronBoundaryResult(
+                density=np.asarray(prepared["e"].density, dtype=np.float64),
+                temperature=np.asarray(prepared["e"].temperature, dtype=np.float64),
+                pressure=np.asarray(prepared["e"].pressure, dtype=np.float64),
+                velocity=np.asarray(electron_velocity, dtype=np.float64),
+                momentum=np.asarray(species["e"].atomic_mass * prepared["e"].density * electron_velocity, dtype=np.float64),
+                energy_source=np.asarray(electron_boundary.energy_source, dtype=np.float64),
+            )
     else:
         electron_boundary = _ElectronBoundaryResult(
             density=np.asarray(prepared["e"].density, dtype=np.float64),
@@ -981,7 +995,7 @@ def _prepare_open_field_states(
         ),
     )
 
-    if apply_sheath_boundaries:
+    if apply_sheath_boundaries and not preserve_dump_target_state:
         ion_boundary = _apply_ion_sheath_boundary(
             ions,
             electron_pressure=prepared["e"].pressure,
@@ -3219,6 +3233,7 @@ def _advance_recycling_1d_output_interval(
                     solver_mode="sparse",
                     residual_tolerance=residual_tolerance,
                     max_nonlinear_iterations=max_nonlinear_iterations,
+                    evolve_feedback_integrals=True,
                 )
             else:
                 next_fields, next_integrals, info = advance_recycling_1d_bdf2_step(
@@ -3235,6 +3250,7 @@ def _advance_recycling_1d_output_interval(
                     solver_mode="sparse",
                     residual_tolerance=residual_tolerance,
                     max_nonlinear_iterations=max_nonlinear_iterations,
+                    evolve_feedback_integrals=True,
                 )
 
             last_info = info
@@ -3269,6 +3285,7 @@ def advance_recycling_1d_backward_euler_step(
     solver_mode: str = "sparse",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
+    evolve_feedback_integrals: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
@@ -3276,7 +3293,7 @@ def advance_recycling_1d_backward_euler_step(
         dataset_scalars=dataset_scalars,
     )
     field_names = runtime_model.field_names
-    packed_feedback_names: tuple[str, ...] = ()
+    packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
     previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
     packed_previous = _pack_recycling_active_state(
         fields,
@@ -3299,11 +3316,11 @@ def advance_recycling_1d_backward_euler_step(
             config,
             state_fields,
             sanitize_fields=False,
-            feedback_integrals=feedback_integrals,
+            feedback_integrals=state_integrals,
             feedback_previous_errors=previous_feedback_errors,
             feedback_timestep=timestep,
             field_names=field_names,
-            feedback_names=(),
+            feedback_names=packed_feedback_names,
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
@@ -3365,14 +3382,17 @@ def advance_recycling_1d_backward_euler_step(
         mesh=mesh,
     )
     sanitized_fields = _sanitize_recycling_fields(config, next_fields)
-    sanitized_integrals = _advance_feedback_integrals(
-        sanitized_fields,
-        controllers=runtime_model.controllers,
-        feedback_integrals=feedback_integrals,
-        feedback_previous_errors=previous_feedback_errors,
-        mesh=mesh,
-        timestep=timestep,
-    )
+    if evolve_feedback_integrals:
+        sanitized_integrals = _sanitize_feedback_integrals(next_integrals, controllers=runtime_model.controllers)
+    else:
+        sanitized_integrals = _advance_feedback_integrals(
+            sanitized_fields,
+            controllers=runtime_model.controllers,
+            feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            mesh=mesh,
+            timestep=timestep,
+        )
     return sanitized_fields, sanitized_integrals, _as_recycling_step_info(info)
 
 
@@ -3391,6 +3411,7 @@ def advance_recycling_1d_bdf2_step(
     solver_mode: str = "sparse",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
+    evolve_feedback_integrals: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
     runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
@@ -3398,7 +3419,7 @@ def advance_recycling_1d_bdf2_step(
         dataset_scalars=dataset_scalars,
     )
     field_names = runtime_model.field_names
-    packed_feedback_names: tuple[str, ...] = ()
+    packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
     previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
     packed_previous = _pack_recycling_active_state(
         fields,
@@ -3428,11 +3449,11 @@ def advance_recycling_1d_bdf2_step(
             config,
             state_fields,
             sanitize_fields=False,
-            feedback_integrals=feedback_integrals,
+            feedback_integrals=state_integrals,
             feedback_previous_errors=previous_feedback_errors,
             feedback_timestep=timestep,
             field_names=field_names,
-            feedback_names=(),
+            feedback_names=packed_feedback_names,
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
@@ -3496,14 +3517,17 @@ def advance_recycling_1d_bdf2_step(
         mesh=mesh,
     )
     sanitized_fields = _sanitize_recycling_fields(config, next_fields)
-    sanitized_integrals = _advance_feedback_integrals(
-        sanitized_fields,
-        controllers=runtime_model.controllers,
-        feedback_integrals=feedback_integrals,
-        feedback_previous_errors=previous_feedback_errors,
-        mesh=mesh,
-        timestep=timestep,
-    )
+    if evolve_feedback_integrals:
+        sanitized_integrals = _sanitize_feedback_integrals(next_integrals, controllers=runtime_model.controllers)
+    else:
+        sanitized_integrals = _advance_feedback_integrals(
+            sanitized_fields,
+            controllers=runtime_model.controllers,
+            feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            mesh=mesh,
+            timestep=timestep,
+        )
     return sanitized_fields, sanitized_integrals, _as_recycling_step_info(info)
 
 
@@ -3886,16 +3910,19 @@ def _build_recycling_mixed_be_residual(
     timestep: float,
 ) -> np.ndarray:
     field_size = np.asarray(previous_packed_state, dtype=np.float64).size - len(feedback_names)
+    rhs_array = np.asarray(rhs_fields, dtype=np.float64)
+    field_rhs = rhs_array[:field_size]
     field_block = backward_euler_residual(
         np.asarray(packed_state, dtype=np.float64)[:field_size],
         np.asarray(previous_packed_state, dtype=np.float64)[:field_size],
-        rhs_fields,
+        field_rhs,
         timestep=timestep,
     )
+    controller_rhs = rhs_array[field_size:]
     controller_block = backward_euler_residual(
         _feedback_integral_vector(feedback_integrals, feedback_names=feedback_names),
         _feedback_integral_vector(previous_feedback_integrals, feedback_names=feedback_names),
-        _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
+        controller_rhs if feedback_names else _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
         timestep=timestep,
     )
     return np.concatenate([field_block, controller_block]) if feedback_names else field_block
@@ -3917,18 +3944,21 @@ def _build_recycling_mixed_bdf2_residual(
     timestep: float,
 ) -> np.ndarray:
     field_size = np.asarray(previous_packed_state, dtype=np.float64).size - len(feedback_names)
+    rhs_array = np.asarray(rhs_fields, dtype=np.float64)
+    field_rhs = rhs_array[:field_size]
     field_block = bdf2_residual(
         np.asarray(packed_state, dtype=np.float64)[:field_size],
         np.asarray(previous_packed_state, dtype=np.float64)[:field_size],
         np.asarray(previous_previous_packed_state, dtype=np.float64)[:field_size],
-        rhs_fields,
+        field_rhs,
         timestep=timestep,
     )
+    controller_rhs = rhs_array[field_size:]
     controller_block = bdf2_residual(
         _feedback_integral_vector(feedback_integrals, feedback_names=feedback_names),
         _feedback_integral_vector(previous_feedback_integrals, feedback_names=feedback_names),
         _feedback_integral_vector(previous_previous_feedback_integrals, feedback_names=feedback_names),
-        _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
+        controller_rhs if feedback_names else _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
         timestep=timestep,
     )
     return np.concatenate([field_block, controller_block]) if feedback_names else field_block
