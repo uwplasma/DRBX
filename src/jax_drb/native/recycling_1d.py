@@ -137,6 +137,7 @@ def compute_recycling_1d_rhs(
         config,
         mesh=mesh,
         dataset_scalars=dataset_scalars,
+        field_overrides=field_overrides,
     )
     fields = _build_recycling_state_fields(runtime_model, field_overrides=field_overrides)
     species = _override_species_fields(runtime_model.species_templates, fields=fields, mesh=mesh)
@@ -501,8 +502,9 @@ def _build_recycling_runtime_model(
     *,
     mesh: StructuredMesh,
     dataset_scalars: dict[str, float],
+    field_overrides: dict[str, np.ndarray] | None = None,
 ) -> _RecyclingRuntimeModel:
-    species_templates = _initialize_species(config, mesh=mesh)
+    species_templates = _initialize_species(config, mesh=mesh, field_overrides=field_overrides)
     controllers = _load_density_feedback_controllers(
         config,
         species=species_templates,
@@ -2263,7 +2265,6 @@ def _apply_electron_sheath_boundary(
         copy=True,
     )
     momentum = np.asarray(electron_mass * density * velocity, dtype=np.float64)
-
     j = mesh.yend
     jp = j + 1
     jm = j - 1
