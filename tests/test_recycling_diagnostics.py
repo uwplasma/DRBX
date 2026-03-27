@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+import numpy as np
+from netCDF4 import Dataset
+
+
+_REPO = Path("/Users/rogerio/local/jax_drb")
+
+
+def _load_script_module(relative_path: str, module_name: str):
+    path = _REPO / relative_path
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_target_cell_indices_pick_upper_target_adjacent_row() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_target_cell_history.py",
+        "recycling_target_history_diag",
+    )
+    mesh = SimpleNamespace(xstart=2, xend=4, ystart=10, yend=14)
+
+    trimmed, global_index = module.target_cell_indices(
+        mesh,
+        x_index=1,
+        y_offset=0,
+        z_index=3,
+        target_edge="upper",
+    )
+
+    assert trimmed == (1, 4, 3)
+    assert global_index == (3, 14, 3)
+
+
+def test_extract_active_cell_series_reads_expected_history() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_target_cell_history.py",
+        "recycling_target_history_diag_extract",
+    )
+    mesh = SimpleNamespace(xstart=1, xend=2, ystart=4, yend=6)
+    values = np.zeros((3, 4, 8, 2), dtype=np.float64)
+    values[:, 1, 6, 0] = np.asarray([1.0, 2.0, 4.0], dtype=np.float64)
+
+    series = module.extract_active_cell_series(
+        values,
+        mesh,
+        x_index=0,
+        y_offset=0,
+        z_index=0,
+        target_edge="upper",
+    )
+
+    assert np.array_equal(series, np.asarray([1.0, 2.0, 4.0], dtype=np.float64))
+
+
+def test_controller_integral_series_from_term_divides_by_gain() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_controller_history.py",
+        "recycling_controller_history_diag",
+    )
+
+    values = module.controller_integral_series_from_term(
+        np.asarray([0.0, 0.25, 0.5], dtype=np.float64),
+        controller_gain=0.5,
+    )
+
+    assert np.array_equal(values, np.asarray([0.0, 0.5, 1.0], dtype=np.float64))
+
+
+def test_extract_scalar_series_reads_time_history(tmp_path: Path) -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_controller_history.py",
+        "recycling_controller_history_diag_scalar",
+    )
+    path = tmp_path / "diag.nc"
+    with Dataset(path, "w") as dataset:
+        dataset.createDimension("t", 3)
+        variable = dataset.createVariable("density_feedback_src_mult_d+", "f8", ("t",))
+        variable[:] = np.asarray([1.0, 1.5, 2.5], dtype=np.float64)
+
+    with Dataset(path) as dataset:
+        values = module.extract_scalar_series(dataset, "density_feedback_src_mult_d+")
+
+    assert np.array_equal(values, np.asarray([1.0, 1.5, 2.5], dtype=np.float64))
