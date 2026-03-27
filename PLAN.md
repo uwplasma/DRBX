@@ -353,6 +353,9 @@ Current Step 2 note:
   - shrinking the continuation substep (`suggested_dt = 500, 100, 50, 25, 10`) does not materially change the single-species first-output error, so Step 2 will not be finished by continuation-step tuning alone;
   - the accepted-step upstream-density controller history still undershoots the staged reference restart integral after the first output interval, but the source-term delta from that controller mismatch is too small to explain the remaining target-band state gap on its own;
   - reapplying the native sheath-preparation path to the evolved single-species output fixes most of the upper guard-cell discrepancy but leaves the target-adjacent active `Nd+` / `Pe` mismatch essentially unchanged, so the remaining defect is in the active transient evolution rather than only in output write-back semantics
+  - the cleaned SciPy `bdf` path now carries the controller integrals as explicit ODE state, which keeps the RHS pure during time integration; that is the correct formulation to preserve, but it does not materially improve the long single-species first-output result on its own;
+  - shrinking the internal BDF `max_step` from `25` to `10` or `5` leaves the long `recycling_1d_one_step` error essentially unchanged, so the remaining defect is not just coarse internal BDF stepping;
+  - direct `t = 25` and `t = 250` reference comparisons now show the same pattern: `Nd+`, `Pd+`, and `Pe` are already relatively tight on the BDF path, while `NVd+`, `Nd`, `Pd`, and especially near-zero `NVd` dominate the remaining short/medium-window error. The next Step 2 work should therefore target the neutral / neutral-momentum transient terms directly rather than another generic timestepper rewrite.
 
 Current Step 2/3 status markers:
 
