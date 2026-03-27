@@ -29,8 +29,12 @@ _INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/da
 _INPUT_DTHE = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
 
 
+def _has_staged_reference_files(path: Path) -> bool:
+    return path.exists() and (path / "BOUT.dmp.0.nc").exists() and (path / "BOUT.restart.0.nc").exists()
+
+
 def test_staged_reference_controller_snapshot_extracts_expected_1d_values() -> None:
-    if not _STAGED_REFERENCE_1D.exists():
+    if not _has_staged_reference_files(_STAGED_REFERENCE_1D):
         pytest.skip("staged 1D recycling reference artifacts are unavailable")
 
     snapshot = extract_recycling_controller_snapshot(
@@ -47,7 +51,7 @@ def test_staged_reference_controller_snapshot_extracts_expected_1d_values() -> N
 
 
 def test_staged_reference_controller_snapshot_extracts_expected_dthe_values() -> None:
-    if not _STAGED_REFERENCE_DTHE.exists():
+    if not _has_staged_reference_files(_STAGED_REFERENCE_DTHE):
         pytest.skip("staged multispecies recycling reference artifacts are unavailable")
 
     snapshot = extract_recycling_controller_snapshot(
@@ -64,7 +68,7 @@ def test_staged_reference_controller_snapshot_extracts_expected_dthe_values() ->
 
 
 def test_staged_recycling_1d_evolved_rhs_stays_within_locked_tolerances() -> None:
-    if not _STAGED_REFERENCE_1D.exists():
+    if not _has_staged_reference_files(_STAGED_REFERENCE_1D):
         pytest.skip("staged 1D recycling reference artifacts are unavailable")
 
     diffs = _staged_rhs_differences(
@@ -84,7 +88,7 @@ def test_staged_recycling_1d_evolved_rhs_stays_within_locked_tolerances() -> Non
 
 
 def test_staged_recycling_dthe_evolved_rhs_stays_within_locked_tolerances() -> None:
-    if not _STAGED_REFERENCE_DTHE.exists():
+    if not _has_staged_reference_files(_STAGED_REFERENCE_DTHE):
         pytest.skip("staged multispecies recycling reference artifacts are unavailable")
 
     diffs = _staged_rhs_differences(
