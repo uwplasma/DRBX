@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import numpy as np
 from netCDF4 import Dataset
+import pytest
 
 
 _REPO = Path("/Users/rogerio/local/jax_drb")
@@ -92,3 +93,24 @@ def test_extract_scalar_series_reads_time_history(tmp_path: Path) -> None:
         values = module.extract_scalar_series(dataset, "density_feedback_src_mult_d+")
 
     assert np.array_equal(values, np.asarray([1.0, 1.5, 2.5], dtype=np.float64))
+
+
+def test_relative_error_metrics_separates_small_denominator_artifacts() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_neutral_transient.py",
+        "recycling_neutral_transient_diag",
+    )
+
+    actual = np.asarray([1.2, 0.05, 2.0e-4], dtype=np.float64)
+    reference = np.asarray([1.0, 0.0, 1.0e-6], dtype=np.float64)
+    metrics = module.relative_error_metrics(
+        actual,
+        reference,
+        magnitude_floor_ratio=1.0e-2,
+        absolute_floor=1.0e-5,
+    )
+
+    assert metrics["max_abs"] == np.max(np.abs(actual - reference))
+    assert metrics["max_rel"] > metrics["max_rel_significant"]
+    assert metrics["significant_count"] == 1
+    assert metrics["max_rel_significant"] == pytest.approx(0.2)
