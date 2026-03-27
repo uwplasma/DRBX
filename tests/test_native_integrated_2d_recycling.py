@@ -257,6 +257,7 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
 
     def wrapper(*args, **kwargs):
         captured["apply_sheath_boundaries"] = kwargs["apply_sheath_boundaries"]
+        captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
         return original(*args, **kwargs)
 
     monkeypatch.setattr(native_runner, "compute_recycling_1d_rhs", wrapper)
@@ -278,4 +279,5 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert captured["apply_sheath_boundaries"] is False
+    assert captured["apply_sheath_boundaries"] is True
+    assert captured["preserve_dump_target_state"] is True
