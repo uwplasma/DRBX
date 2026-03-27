@@ -132,6 +132,7 @@ def compute_recycling_1d_rhs(
     dataset_scalars: dict[str, float],
     field_overrides: dict[str, np.ndarray] | None = None,
     feedback_integrals: dict[str, float] | None = None,
+    apply_sheath_boundaries: bool = True,
 ) -> Recycling1DRhsResult:
     runtime_model = _build_recycling_runtime_model(
         config,
@@ -150,6 +151,7 @@ def compute_recycling_1d_rhs(
         dataset_scalars=dataset_scalars,
         feedback_integrals=feedback_integrals,
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        apply_sheath_boundaries=apply_sheath_boundaries,
     )
 
 
@@ -165,6 +167,7 @@ def _compute_recycling_1d_rhs_from_species(
     feedback_previous_errors: dict[str, float] | None = None,
     feedback_timestep: float | None = None,
     explicit_pressure_sources: dict[str, np.ndarray] | None = None,
+    apply_sheath_boundaries: bool = True,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
@@ -195,6 +198,7 @@ def _compute_recycling_1d_rhs_from_species(
         species,
         mesh=mesh,
         metrics=metrics,
+        apply_sheath_boundaries=apply_sheath_boundaries,
     )
     ion_velocity = ion_boundary.velocity
     for name, value in ion_boundary.energy_source.items():
@@ -420,10 +424,12 @@ def _initialize_species(
     config: BoutConfig,
     *,
     mesh: StructuredMesh,
+    dataset_scalars: dict[str, float] | None = None,
     field_overrides: dict[str, np.ndarray] | None = None,
 ) -> dict[str, OpenFieldSpecies]:
     resolver = NumericResolver(config)
     overrides = field_overrides or {}
+    scalars = dataset_scalars or {}
     model_species = []
     for section in config.sections:
         if section == "e":
@@ -476,7 +482,11 @@ def _initialize_species(
             target_recycle=bool(config.parsed(name, "target_recycle")) if config.has_option(name, "target_recycle") else False,
             recycle_as=str(config.parsed(name, "recycle_as")) if config.has_option(name, "recycle_as") else None,
             target_recycle_multiplier=float(resolver.resolve(name, "target_recycle_multiplier")) if config.has_option(name, "target_recycle_multiplier") else 0.0,
-            target_recycle_energy=float(resolver.resolve(name, "target_recycle_energy")) if config.has_option(name, "target_recycle_energy") else 0.0,
+            target_recycle_energy=(
+                float(resolver.resolve(name, "target_recycle_energy")) / float(scalars.get("Tnorm", 1.0))
+                if config.has_option(name, "target_recycle_energy")
+                else 0.0
+            ),
             target_fast_recycle_fraction=float(resolver.resolve(name, "target_fast_recycle_fraction")) if config.has_option(name, "target_fast_recycle_fraction") else 0.0,
             target_fast_recycle_energy_factor=float(resolver.resolve(name, "target_fast_recycle_energy_factor")) if config.has_option(name, "target_fast_recycle_energy_factor") else 0.0,
         )
@@ -485,11 +495,11 @@ def _initialize_species(
         density = sp.density
         pressure = sp.pressure
         momentum = sp.momentum
-        if sp.noflow_lower_y:
+        if sp.noflow_lower_y and mesh.has_lower_y_target:
             density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
             pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
             momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-        if sp.noflow_upper_y:
+        if sp.noflow_upper_y and mesh.has_upper_y_target:
             density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
             pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
             momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
@@ -504,7 +514,12 @@ def _build_recycling_runtime_model(
     dataset_scalars: dict[str, float],
     field_overrides: dict[str, np.ndarray] | None = None,
 ) -> _RecyclingRuntimeModel:
-    species_templates = _initialize_species(config, mesh=mesh, field_overrides=field_overrides)
+    species_templates = _initialize_species(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+        field_overrides=field_overrides,
+    )
     controllers = _load_density_feedback_controllers(
         config,
         species=species_templates,
@@ -564,11 +579,11 @@ def _override_species_fields(
         density = np.asarray(fields.get(template.density_name, template.density), dtype=np.float64, copy=True)
         pressure = np.asarray(fields.get(template.pressure_name, template.pressure), dtype=np.float64, copy=True)
         momentum = np.asarray(fields.get(template.momentum_name, template.momentum), dtype=np.float64, copy=True)
-        if template.noflow_lower_y:
+        if template.noflow_lower_y and mesh.has_lower_y_target:
             density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
             pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
             momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-        if template.noflow_upper_y:
+        if template.noflow_upper_y and mesh.has_upper_y_target:
             density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
             pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
             momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
@@ -899,6 +914,7 @@ def _prepare_open_field_states(
     *,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    apply_sheath_boundaries: bool = True,
 ) -> tuple[dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult]:
     prepared = {name: _prepare_species_state(sp, mesh=mesh) for name, sp in species.items()}
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
@@ -913,18 +929,28 @@ def _prepare_open_field_states(
         electron_density=electron_density,
     )
 
-    electron_boundary = _apply_electron_sheath_boundary(
-        electron_pressure=prepared["e"].pressure,
-        electron_density=electron_density,
-        electron_velocity=electron_velocity,
-        electron_mass=species["e"].atomic_mass,
-        electron_density_floor=species["e"].density_floor,
-        ion_velocity={ion.name: prepared[ion.name].velocity for ion in ions},
-        ions=ions,
-        prepared_ions=prepared,
-        mesh=mesh,
-        metrics=metrics,
-    )
+    if apply_sheath_boundaries:
+        electron_boundary = _apply_electron_sheath_boundary(
+            electron_pressure=prepared["e"].pressure,
+            electron_density=electron_density,
+            electron_velocity=electron_velocity,
+            electron_mass=species["e"].atomic_mass,
+            electron_density_floor=species["e"].density_floor,
+            ion_velocity={ion.name: prepared[ion.name].velocity for ion in ions},
+            ions=ions,
+            prepared_ions=prepared,
+            mesh=mesh,
+            metrics=metrics,
+        )
+    else:
+        electron_boundary = _ElectronBoundaryResult(
+            density=np.asarray(prepared["e"].density, dtype=np.float64),
+            temperature=np.asarray(prepared["e"].temperature, dtype=np.float64),
+            pressure=np.asarray(prepared["e"].pressure, dtype=np.float64),
+            velocity=np.asarray(electron_velocity, dtype=np.float64),
+            momentum=np.asarray(species["e"].atomic_mass * prepared["e"].density * electron_velocity, dtype=np.float64),
+            energy_source=np.zeros_like(prepared["e"].density, dtype=np.float64),
+        )
     prepared["e"] = _PreparedSpeciesState(
         density=electron_boundary.density,
         pressure=electron_boundary.pressure,
@@ -955,14 +981,24 @@ def _prepare_open_field_states(
         ),
     )
 
-    ion_boundary = _apply_ion_sheath_boundary(
-        ions,
-        electron_pressure=prepared["e"].pressure,
-        electron_density=prepared["e"].density,
-        electron_density_floor=species["e"].density_floor,
-        mesh=mesh,
-        metrics=metrics,
-    )
+    if apply_sheath_boundaries:
+        ion_boundary = _apply_ion_sheath_boundary(
+            ions,
+            electron_pressure=prepared["e"].pressure,
+            electron_density=prepared["e"].density,
+            electron_density_floor=species["e"].density_floor,
+            mesh=mesh,
+            metrics=metrics,
+        )
+    else:
+        ion_boundary = _IonBoundaryResult(
+            density={ion.name: np.asarray(prepared[ion.name].density, dtype=np.float64) for ion in ions},
+            pressure={ion.name: np.asarray(prepared[ion.name].pressure, dtype=np.float64) for ion in ions},
+            temperature={ion.name: np.asarray(prepared[ion.name].temperature, dtype=np.float64) for ion in ions},
+            velocity={ion.name: np.asarray(prepared[ion.name].velocity, dtype=np.float64) for ion in ions},
+            momentum={ion.name: np.asarray(prepared[ion.name].momentum, dtype=np.float64) for ion in ions},
+            energy_source={ion.name: np.zeros_like(prepared[ion.name].density, dtype=np.float64) for ion in ions},
+        )
     for ion in ions:
         prepared[ion.name] = _PreparedSpeciesState(
             density=ion_boundary.density[ion.name],
@@ -2170,48 +2206,80 @@ def _apply_ion_sheath_boundary(
         density = ion.density.copy()
         pressure = ion.pressure.copy()
         temperature = _safe_temperature(pressure, density, ion.density_floor)
-        vel = ion.momentum / np.maximum(ion.atomic_mass * density, 1.0e-8)
+        vel = ion.momentum / np.maximum(
+            ion.atomic_mass * _soft_floor(density, ion.density_floor),
+            1.0e-8,
+        )
         if ion.noflow_lower_y:
             density = np.array(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
             temperature = np.array(apply_noflow_scalar_guards(temperature, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
             pressure = np.array(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
             vel = np.array(apply_noflow_flow_guards(vel, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
 
-        j = mesh.yend
-        jp = j + 1
-        jm = j - 1
-        ni_i = density[:, j, :]
-        ni_m = density[:, jm, :]
-        ne_i = electron_density[:, j, :]
-        ne_m = electron_density[:, jm, :]
-        density[:, jp, :] = np.asarray(limit_free(ni_m, ni_i, 0), dtype=np.float64)
-        temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
-        pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
-
-        nisheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-        nesheath = 0.5 * (electron_density[:, jp, :] + electron_density[:, j, :]) if jp < electron_density.shape[1] else 0.5 * (electron_density[:, j, :] + electron_density[:, j, :])
-        if jp >= electron_density.shape[1]:
-            nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
-        tesheath = np.maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
-        tisheath = np.maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
-        s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
-        grad_ne = electron_density[:, j, :] - nesheath
-        grad_ni = density[:, j, :] - nisheath
-        mask = np.abs(grad_ni) < 1.0e-3
-        grad_ne = np.where(mask, 1.0e-3, grad_ne)
-        grad_ni = np.where(mask, 1.0e-3, grad_ni)
-        c_i_sq = np.clip(((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
-        gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
-        visheath = np.sqrt(c_i_sq)
-        vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
         momentum_field = ion.momentum.copy()
-        momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+        if mesh.has_upper_y_target:
+            j = mesh.yend
+            jp = j + 1
+            jm = j - 1
+            ni_i = density[:, j, :]
+            ni_m = density[:, jm, :]
+            density[:, jp, :] = np.asarray(limit_free(ni_m, ni_i, 0), dtype=np.float64)
+            temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
+            pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
 
-        q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
-        q = np.maximum(q, 0.0)
-        flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
-        power = flux / (dy[:, j, :] * J[:, j, :])
-        energy_source[ion.name][:, j, :] -= power
+            nisheath = 0.5 * (density[:, jp, :] + density[:, j, :])
+            nesheath = 0.5 * (electron_density[:, jp, :] + electron_density[:, j, :]) if jp < electron_density.shape[1] else 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
+            tesheath = np.maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
+            tisheath = np.maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
+            s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
+            grad_ne = electron_density[:, j, :] - nesheath
+            grad_ni = density[:, j, :] - nisheath
+            mask = np.abs(grad_ni) < 1.0e-3
+            grad_ne = np.where(mask, 1.0e-3, grad_ne)
+            grad_ni = np.where(mask, 1.0e-3, grad_ni)
+            c_i_sq = np.clip(((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
+            gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
+            visheath = np.sqrt(c_i_sq)
+            vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
+            momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+
+            q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
+            q = np.maximum(q, 0.0)
+            flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
+            power = flux / (dy[:, j, :] * J[:, j, :])
+            energy_source[ion.name][:, j, :] -= power
+
+        if mesh.has_lower_y_target:
+            j = mesh.ystart
+            jm = j - 1
+            jp = j + 1
+            ni_i = density[:, j, :]
+            ni_p = density[:, jp, :]
+            density[:, jm, :] = np.asarray(limit_free(ni_p, ni_i, 0), dtype=np.float64)
+            temperature[:, jm, :] = np.asarray(limit_free(temperature[:, jp, :], temperature[:, j, :], 0), dtype=np.float64)
+            pressure[:, jm, :] = np.asarray(limit_free(pressure[:, jp, :], pressure[:, j, :], 0), dtype=np.float64)
+
+            nisheath = 0.5 * (density[:, jm, :] + density[:, j, :])
+            nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
+            tesheath = np.maximum(0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
+            tisheath = np.maximum(0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5)
+            s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
+            grad_ne = electron_density[:, j, :] - nesheath
+            grad_ni = density[:, j, :] - nisheath
+            mask = np.abs(grad_ni) < 1.0e-3
+            grad_ne = np.where(mask, 1.0e-3, grad_ne)
+            grad_ni = np.where(mask, 1.0e-3, grad_ni)
+            c_i_sq = np.clip(((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
+            gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
+            visheath = np.sqrt(c_i_sq)
+            vel[:, jm, :] = -2.0 * visheath - vel[:, j, :]
+            momentum_field[:, jm, :] = -2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+
+            q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
+            q = np.maximum(q, 0.0)
+            flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
+            power = flux / (dy[:, j, :] * J[:, j, :])
+            energy_source[ion.name][:, j, :] -= power
 
         boundary_density[ion.name] = density
         boundary_pressure[ion.name] = pressure
@@ -2265,56 +2333,106 @@ def _apply_electron_sheath_boundary(
         copy=True,
     )
     momentum = np.asarray(electron_mass * density * velocity, dtype=np.float64)
-    j = mesh.yend
-    jp = j + 1
-    jm = j - 1
-    density[:, jp, :] = np.asarray(limit_free(density[:, jm, :], density[:, j, :], 0), dtype=np.float64)
-    temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
-    pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
-
-    ion_sum = np.zeros_like(density[:, j, :], dtype=np.float64)
-    for ion in ions:
-        ion_state = prepared_ions[ion.name]
-        ti = np.asarray(ion_state.temperature, dtype=np.float64)
-        ni = np.asarray(ion_state.density, dtype=np.float64)
-        s_i = np.clip(0.5 * (3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12) - ni[:, jm, :] / np.maximum(density[:, jm, :], 1.0e-12)), 0.0, 1.0)
-        s_i = np.where(np.isfinite(s_i), s_i, 1.0)
-        grad_ne = density[:, j, :] - density[:, jm, :]
-        grad_ni = ni[:, j, :] - ni[:, jm, :]
-        mask = np.abs(grad_ni) < 2.0e-3
-        grad_ne = np.where(mask, 2.0e-3, grad_ne)
-        grad_ni = np.where(mask, 2.0e-3, grad_ni)
-        c_i_sq = np.clip(((5.0 / 3.0) * ti[:, j, :] + ion.charge * s_i * temperature[:, j, :] * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
-        ion_sum = ion_sum + s_i * ion.charge * np.sqrt(c_i_sq)
-
     me = 1.0 / 1836.0
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
     phi = np.zeros_like(density, dtype=np.float64)
-    valid = temperature[:, j, :] > 0.0
-    safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
-    log_argument = np.sqrt(safe_temperature / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)
-    phi[:, j, :] = np.where(valid, safe_temperature * np.log(np.maximum(log_argument, 1.0e-12)), 0.0)
-    phi[:, jp, :] = phi[:, j, :]
-    phi[:, j - 1, :] = phi[:, j, :]
-
-    phisheath = np.maximum(0.5 * (phi[:, jp, :] + phi[:, j, :]), 0.0)
-    tesheath = 0.5 * (temperature[:, jp, :] + temperature[:, j, :])
-    nesheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-    gamma_e = np.maximum(2.0 + phisheath / np.maximum(tesheath, 1.0e-5), 0.0)
-    vesheath = np.where(
-        tesheath < 1.0e-10,
-        0.0,
-        np.sqrt(tesheath / (2.0 * math.pi * me)) * np.exp(-phisheath / np.maximum(tesheath, 1.0e-12)),
-    )
-    velocity[:, jp, :] = 2.0 * vesheath - velocity[:, j, :]
-    momentum[:, jp, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-    q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
-    q = np.maximum(q, 0.0)
-    flux = q * (np.asarray(metrics.J)[:, j, :] + np.asarray(metrics.J)[:, jp, :]) / (
-        np.sqrt(np.asarray(metrics.g_22)[:, j, :]) + np.sqrt(np.asarray(metrics.g_22)[:, jp, :])
-    )
-    power = flux / (np.asarray(metrics.dy)[:, j, :] * np.asarray(metrics.J)[:, j, :])
     energy_source = np.zeros_like(density, dtype=np.float64)
-    energy_source[:, j, :] -= power
+
+    if mesh.has_upper_y_target:
+        j = mesh.yend
+        jp = j + 1
+        jm = j - 1
+        density[:, jp, :] = np.asarray(limit_free(density[:, jm, :], density[:, j, :], 0), dtype=np.float64)
+        temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
+        pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
+
+        ion_sum = np.zeros_like(density[:, j, :], dtype=np.float64)
+        for ion in ions:
+            ion_state = prepared_ions[ion.name]
+            ti = np.asarray(ion_state.temperature, dtype=np.float64)
+            ni = np.asarray(ion_state.density, dtype=np.float64)
+            s_i = np.clip(0.5 * (3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12) - ni[:, jm, :] / np.maximum(density[:, jm, :], 1.0e-12)), 0.0, 1.0)
+            s_i = np.where(np.isfinite(s_i), s_i, 1.0)
+            grad_ne = density[:, j, :] - density[:, jm, :]
+            grad_ni = ni[:, j, :] - ni[:, jm, :]
+            mask = np.abs(grad_ni) < 2.0e-3
+            grad_ne = np.where(mask, 2.0e-3, grad_ne)
+            grad_ni = np.where(mask, 2.0e-3, grad_ni)
+            c_i_sq = np.clip(((5.0 / 3.0) * ti[:, j, :] + ion.charge * s_i * temperature[:, j, :] * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
+            ion_sum = ion_sum + s_i * ion.charge * np.sqrt(c_i_sq)
+
+        valid = temperature[:, j, :] > 0.0
+        safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
+        log_argument = np.sqrt(safe_temperature / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)
+        phi[:, j, :] = np.where(valid, safe_temperature * np.log(np.maximum(log_argument, 1.0e-12)), 0.0)
+        phi[:, jp, :] = phi[:, j, :]
+        phi[:, j - 1, :] = phi[:, j, :]
+
+        phisheath = np.maximum(0.5 * (phi[:, jp, :] + phi[:, j, :]), 0.0)
+        tesheath = 0.5 * (temperature[:, jp, :] + temperature[:, j, :])
+        nesheath = 0.5 * (density[:, jp, :] + density[:, j, :])
+        gamma_e = np.maximum(2.0 + phisheath / np.maximum(tesheath, 1.0e-5), 0.0)
+        vesheath = np.where(
+            tesheath < 1.0e-10,
+            0.0,
+            np.sqrt(tesheath / (2.0 * math.pi * me)) * np.exp(-phisheath / np.maximum(tesheath, 1.0e-12)),
+        )
+        velocity[:, jp, :] = 2.0 * vesheath - velocity[:, j, :]
+        momentum[:, jp, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
+        q = np.maximum(q, 0.0)
+        flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
+        power = flux / (dy[:, j, :] * J[:, j, :])
+        energy_source[:, j, :] -= power
+
+    if mesh.has_lower_y_target:
+        j = mesh.ystart
+        jm = j - 1
+        jp = j + 1
+        density[:, jm, :] = np.asarray(limit_free(density[:, jp, :], density[:, j, :], 0), dtype=np.float64)
+        temperature[:, jm, :] = np.asarray(limit_free(temperature[:, jp, :], temperature[:, j, :], 0), dtype=np.float64)
+        pressure[:, jm, :] = np.asarray(limit_free(pressure[:, jp, :], pressure[:, j, :], 0), dtype=np.float64)
+
+        ion_sum = np.zeros_like(density[:, j, :], dtype=np.float64)
+        for ion in ions:
+            ion_state = prepared_ions[ion.name]
+            ti = np.asarray(ion_state.temperature, dtype=np.float64)
+            ni = np.asarray(ion_state.density, dtype=np.float64)
+            s_i = np.clip(0.5 * (3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12) - ni[:, jp, :] / np.maximum(density[:, jp, :], 1.0e-12)), 0.0, 1.0)
+            s_i = np.where(np.isfinite(s_i), s_i, 1.0)
+            grad_ne = density[:, j, :] - density[:, jp, :]
+            grad_ni = ni[:, j, :] - ni[:, jp, :]
+            mask = np.abs(grad_ni) < 2.0e-3
+            grad_ne = np.where(mask, 2.0e-3, grad_ne)
+            grad_ni = np.where(mask, 2.0e-3, grad_ni)
+            c_i_sq = np.clip(((5.0 / 3.0) * ti[:, j, :] + ion.charge * s_i * temperature[:, j, :] * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
+            ion_sum = ion_sum + s_i * ion.charge * np.sqrt(c_i_sq)
+
+        valid = temperature[:, j, :] > 0.0
+        safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
+        log_argument = np.sqrt(safe_temperature / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)
+        phi[:, j, :] = np.where(valid, safe_temperature * np.log(np.maximum(log_argument, 1.0e-12)), 0.0)
+        phi[:, jm, :] = phi[:, j, :]
+        phi[:, j + 1, :] = phi[:, j, :]
+
+        phisheath = np.maximum(0.5 * (phi[:, jm, :] + phi[:, j, :]), 0.0)
+        tesheath = 0.5 * (temperature[:, jm, :] + temperature[:, j, :])
+        nesheath = 0.5 * (density[:, jm, :] + density[:, j, :])
+        gamma_e = np.maximum(2.0 + phisheath / np.maximum(tesheath, 1.0e-5), 0.0)
+        vesheath = np.where(
+            tesheath < 1.0e-10,
+            0.0,
+            np.sqrt(tesheath / (2.0 * math.pi * me)) * np.exp(-phisheath / np.maximum(tesheath, 1.0e-12)),
+        )
+        velocity[:, jm, :] = -2.0 * vesheath - velocity[:, j, :]
+        momentum[:, jm, :] = -2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
+        q = np.maximum(q, 0.0)
+        flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
+        power = flux / (dy[:, j, :] * J[:, j, :])
+        energy_source[:, j, :] -= power
     return _ElectronBoundaryResult(
         density=density,
         temperature=temperature,
@@ -2366,8 +2484,8 @@ def _target_recycling_sources(
             gamma_i=0.0,
             target_fast_recycle_fraction=ion.target_fast_recycle_fraction,
             target_fast_recycle_energy_factor=ion.target_fast_recycle_energy_factor,
-            lower_y=False,
-            upper_y=True,
+            lower_y=mesh.has_lower_y_target,
+            upper_y=mesh.has_upper_y_target,
         )
         density_source[neutral.name] = density_source[neutral.name] + np.asarray(result.density_source, dtype=np.float64)
         energy_source[neutral.name] = energy_source[neutral.name] + np.asarray(result.energy_source, dtype=np.float64)
@@ -3414,6 +3532,11 @@ def _advance_recycling_1d_bdf_history(
         field_count=len(field_names),
         controller_count=len(feedback_names),
     )
+    color_groups = _build_recycling_color_groups(
+        active_shape=active_shape,
+        field_count=len(field_names),
+        controller_count=len(feedback_names),
+    )
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
     total_time = float(timestep) * float(steps)
@@ -3450,11 +3573,22 @@ def _advance_recycling_1d_bdf_history(
             runtime_model=runtime_model,
         )
 
+    def jacobian(_time: float, packed_state: np.ndarray):
+        rhs_value = rhs(_time, packed_state)
+        return build_sparse_difference_quotient_jacobian(
+            lambda state: rhs(_time, state),
+            packed_state,
+            base_residual=rhs_value,
+            sparsity=sparsity,
+            color_groups=color_groups,
+        )
+
     solution = solve_ivp(
         rhs,
         (0.0, total_time),
         y0,
         method="BDF",
+        jac=jacobian,
         t_eval=output_times,
         rtol=relative_tolerance,
         atol=absolute_tolerance,

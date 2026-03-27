@@ -316,6 +316,8 @@ def test_xz_exb_divergence_vectorized_kernel_matches_scalar_reference() -> None:
         jyseps1_2=1,
         jyseps2_2=1,
         ny_inner=1,
+        has_lower_y_target=False,
+        has_upper_y_target=True,
         x=jnp.arange(7, dtype=jnp.float64),
         y=jnp.arange(4, dtype=jnp.float64),
         z=jnp.arange(5, dtype=jnp.float64),

@@ -96,6 +96,8 @@ def _run_integrated_2d_recycling_rhs_case(
         snapshot = load_local_reference_snapshot(
             dump_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+            optional_field_names=("Ne", "Sd_target_recycle", "Ed_target_recycle", "is_pump"),
+            scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
         result = compute_recycling_1d_rhs(
             config,
@@ -103,6 +105,7 @@ def _run_integrated_2d_recycling_rhs_case(
             metrics=snapshot.metrics,
             dataset_scalars=dataset_scalars,
             field_overrides=snapshot.fields,
+            apply_sheath_boundaries=False,
         )
     trimmed_variables = _prepare_compare_variables(
         result.variables,
