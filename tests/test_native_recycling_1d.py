@@ -24,6 +24,7 @@ from jax_drb.native.recycling_1d import (
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     advance_recycling_1d_implicit_history,
+    _apply_ion_sheath_boundary,
     _initialize_species,
     _hydrogen_cx_sigmav,
     _load_amjuel_rate,
@@ -32,6 +33,7 @@ from jax_drb.native.recycling_1d import (
     _reaction_sources,
     _recycling_evolving_variable_names,
     _sanitize_recycling_fields,
+    _soft_floor,
     _target_recycling_sources,
     _ion_thermal_force_pair,
     advance_recycling_1d_backward_euler_step,
@@ -279,6 +281,42 @@ def test_target_recycling_sources_use_prepared_ion_state() -> None:
             rtol=0.0,
             atol=0.0,
         )
+
+
+def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    species = _initialize_species(config, mesh=mesh)
+    ion = species["d+"]
+
+    density = np.asarray(ion.density, dtype=np.float64, copy=True)
+    momentum = np.asarray(ion.momentum, dtype=np.float64, copy=True)
+    density[:, mesh.yend, :] = 0.5 * ion.density_floor
+    momentum[:, mesh.yend, :] = 3.0 * ion.atomic_mass * ion.density_floor
+    floored_ion = OpenFieldSpecies(
+        **{
+            **ion.__dict__,
+            "density": density,
+            "momentum": momentum,
+        }
+    )
+
+    electron_density = np.ones_like(density, dtype=np.float64)
+    electron_pressure = np.ones_like(density, dtype=np.float64)
+    result = _apply_ion_sheath_boundary(
+        (floored_ion,),
+        electron_pressure=electron_pressure,
+        electron_density=electron_density,
+        electron_density_floor=species["e"].density_floor,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    active = (mesh.xstart, mesh.yend, 0)
+    expected_velocity = momentum[active] / (ion.atomic_mass * _soft_floor(density[active], ion.density_floor))
+    assert result.velocity["d+"][active] == pytest.approx(expected_velocity)
 
 
 def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
@@ -643,6 +681,49 @@ def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
     assert history.variable_history["Nd+"].shape[0] == 2
     assert np.isfinite(history.variable_history["Nd+"]).all()
     assert np.isfinite(history.variable_history["Pe"]).all()
+
+
+def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    captured: dict[str, object] = {}
+
+    def fake_solve_ivp(fun, t_span, y0, **kwargs):
+        captured["kwargs"] = kwargs
+        rhs0 = np.asarray(fun(0.0, y0), dtype=np.float64)
+        jacobian = kwargs.get("jac")
+        assert callable(jacobian)
+        jac0 = jacobian(0.0, y0)
+        assert jac0.shape == (y0.size, y0.size)
+        return SimpleNamespace(
+            success=True,
+            message="ok",
+            y=np.stack([np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)], axis=1),
+        )
+
+    import scipy.integrate
+
+    monkeypatch.setattr(scipy.integrate, "solve_ivp", fake_solve_ivp)
+
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        steps=1,
+        solver_mode="bdf",
+    )
+
+    kwargs = captured["kwargs"]
+    assert callable(kwargs["jac"])
+    assert kwargs["jac_sparsity"] is not None
+    assert history.variable_history["Nd+"].shape[0] == 2
 
 
 def test_neutral_pressure_default_floor_is_zero_without_override() -> None:
