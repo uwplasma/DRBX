@@ -3520,7 +3520,13 @@ def _sanitize_recycling_fields(
             sanitized[name] = np.maximum(sanitized[name], density_floor)
         elif name.startswith("P"):
             species_name = name[1:]
-            temperature_floor = float(resolver.resolve(species_name, "temperature_floor")) if config.has_option(species_name, "temperature_floor") else 0.1
+            if config.has_option(species_name, "temperature_floor"):
+                temperature_floor = float(resolver.resolve(species_name, "temperature_floor"))
+            elif species_name == "e":
+                temperature_floor = 0.1
+            else:
+                charge = float(resolver.resolve(species_name, "charge")) if config.has_option(species_name, "charge") else 0.0
+                temperature_floor = 0.1 if charge != 0.0 else 0.0
             if species_name == "e" and electron_density is not None:
                 sanitized[name] = np.maximum(sanitized[name], temperature_floor * np.maximum(electron_density, 1.0e-7))
             else:
