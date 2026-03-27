@@ -594,6 +594,31 @@ def test_recycling_continuation_history_produces_finite_small_step() -> None:
     assert np.isfinite(history.variable_history["Pe"]).all()
 
 
+def test_recycling_adaptive_be_history_produces_finite_small_step() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        steps=1,
+        solver_mode="adaptive_be",
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+    )
+
+    assert history.variable_history["Nd+"].shape[0] == 2
+    assert np.isfinite(history.variable_history["Nd+"]).all()
+    assert np.isfinite(history.variable_history["Pe"]).all()
+
+
 def test_recycling_bdf2_step_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -641,3 +666,44 @@ def test_recycling_bdf2_step_produces_finite_small_step() -> None:
     assert np.isfinite(fields2["Nd+"]).all()
     assert np.isfinite(fields2["Pe"]).all()
     assert np.isfinite(np.asarray(list(integrals2.values()), dtype=np.float64)).all()
+
+
+def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_state() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    fields0 = _build_recycling_state_fields(runtime_model)
+    integrals0 = {name: 0.0 for name in runtime_model.feedback_names}
+    previous_errors = _current_feedback_errors(fields0, controllers=runtime_model.controllers, mesh=mesh)
+    fields1, integrals1, _ = advance_recycling_1d_backward_euler_step(
+        config,
+        fields0,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals0,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+    )
+    expected_integrals = _advance_feedback_integrals(
+        fields1,
+        controllers=runtime_model.controllers,
+        feedback_integrals=integrals0,
+        feedback_previous_errors=previous_errors,
+        mesh=mesh,
+        timestep=25.0,
+    )
+
+    assert integrals1 == pytest.approx(expected_integrals)
