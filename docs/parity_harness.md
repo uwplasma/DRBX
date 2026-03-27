@@ -136,6 +136,10 @@ Current support is intentionally narrow:
     - the visible short-step miss is concentrated in `NVd+`, `Nd`, `Pd`, and especially near-zero `NVd`;
     - by `t = 250`, the charged channels are down to roughly `1e-2`, while the neutral-side channels still dominate the relative error;
   - shrinking the internal SciPy BDF `max_step` from `25` to `10` or `5` leaves the long single-species one-step error essentially unchanged, so the remaining Step 2 blocker is not just coarse BDF internal stepping; the next work needs to tighten the neutral-side transient evolution itself;
+  - the new [diagnose_recycling_neutral_transient.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_neutral_transient.py) report now makes the denominator issue explicit:
+    - on the short `t = 25` probe, only `NVd` is mostly a near-zero-reference artifact;
+    - `Nd`, `Pd`, `NVd+`, `ddt(Nd)`, and `ddt(NVd+)` still carry real `O(5e-2 .. 1e-1)` significant relative error after applying a `1e-2 * max(|ref|)` magnitude floor;
+    - `SNVd+` and the dumped ionization / charge-exchange force terms are already tight there, which is why the next pass should stay focused on neutral diffusion / pressure / momentum evolution rather than revisiting charged-source bookkeeping;
   - `recycling_dthe_one_step`: the continuation path is still blocked by the sparse Jacobian inversion failure, but the existing native `bdf` path now reaches the first output interval successfully and is the current candidate route for the multi-species Step 2 milestone;
 - the drift-wave branch now also has a locked operator-scale regression on the committed `drift_wave_one_step` arrays, covering the small parallel momentum-flux, drag, and `phi`-damping terms that matter for longer transients;
 - the same branch now has a committed `one_step` diagnostics baseline with evolved-state `ddt(Ni)`, `ddt(NVe)`, and `ddt(Vort)` outputs, so density-operator regressions can be caught one step after the initial condition;

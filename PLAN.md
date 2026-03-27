@@ -356,6 +356,7 @@ Current Step 2 note:
   - the cleaned SciPy `bdf` path now carries the controller integrals as explicit ODE state, which keeps the RHS pure during time integration; that is the correct formulation to preserve, but it does not materially improve the long single-species first-output result on its own;
   - shrinking the internal BDF `max_step` from `25` to `10` or `5` leaves the long `recycling_1d_one_step` error essentially unchanged, so the remaining defect is not just coarse internal BDF stepping;
   - direct `t = 25` and `t = 250` reference comparisons now show the same pattern: `Nd+`, `Pd+`, and `Pe` are already relatively tight on the BDF path, while `NVd+`, `Nd`, `Pd`, and especially near-zero `NVd` dominate the remaining short/medium-window error. The next Step 2 work should therefore target the neutral / neutral-momentum transient terms directly rather than another generic timestepper rewrite.
+  - the new magnitude-aware neutral report confirms that this is not only a denominator problem: `NVd` is mostly near-zero-reference noise, but `Nd`, `Pd`, `NVd+`, `ddt(Nd)`, and `ddt(NVd+)` still carry real `O(5e-2 .. 1e-1)` significant relative error on cells above a `1e-2 * max(|ref|)` floor. That is the active Step 2 blocker now.
 
 Current Step 2/3 status markers:
 

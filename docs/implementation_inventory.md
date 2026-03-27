@@ -143,6 +143,10 @@ The next queued staged baselines are now committed as well:
   - that cleanup does not materially change the long `recycling_1d_one_step` result by itself, and shrinking the BDF `max_step` from `25` to `10` or `5` also leaves the final error essentially unchanged, so the current blocker is not just coarse internal BDF stepping;
   - on the other hand, a short `timestep = 25` reference comparison shows the charged channels are already close on that BDF path (`Nd+`, `Pd+`, `Pe` all in the `1e-4` relative range), while the visible remaining short-step mismatch is concentrated in `NVd+`, `Nd`, `Pd`, and especially near-zero `NVd`;
   - a medium `t = 250` probe keeps the same pattern: charged channels are down to roughly `1e-2`, while neutral-side channels still dominate the relative error. The next Step 2 work should therefore target the neutral / neutral-momentum transient terms directly rather than another generic recycling timestepper rewrite.
+- the new magnitude-aware short-window neutral diagnostic in [diagnose_recycling_neutral_transient.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_neutral_transient.py) confirms that the remaining short-step mismatch is not only a small-denominator artifact:
+  - `NVd` is mostly denominator-driven because the reference stays near zero;
+  - `Nd`, `Pd`, `NVd+`, `ddt(Nd)`, and `ddt(NVd+)` still show real `O(5e-2 .. 1e-1)` significant relative error on cells above a `1e-2 * max(|ref|)` magnitude floor;
+  - `SNVd+` and the currently dumped ionization / charge-exchange force diagnostics are already tight on that same probe, so the next fix should focus on the neutral diffusion / pressure / momentum transient evolution rather than the charged-source bookkeeping.
 - the next open-field blocker is no longer the 1D source stack; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
 Current native execution coverage:
