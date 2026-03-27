@@ -374,7 +374,7 @@ Current Step 2/3 status markers:
 | `recycling_1d_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `recycling_1d_long` | `blocked` | Long-run parity depends on the transient ladder. |
-| `integrated_2d_recycling_rhs` | `reference-staged` | Stable integrated 2D recycling target now runs in the harness with staged artifacts. |
+| `integrated_2d_recycling_rhs` | `native-scaffolded` | Native staged local-dump RHS path now runs; parity is not locked yet. |
 | `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is now the Step 3 entry point. |
 
 ### Step 3. Land the Full 2D Electrostatic Edge/SOL Stack
@@ -410,7 +410,8 @@ Exit criteria:
 Current Step 3 note:
 
 - the stable Step 3 reference target is now the integrated `2D-recycling` workflow, staged with its required external artifact bundle and `process_count = 10` in the harness; the remaining Step 3 work is the native 2D recycling implementation on top of that target, not more geometry staging
-- the current practical 2D validation set is `native-validated` for diffusion, vorticity, blob, and drift-wave, while 2D recycling remains `reference-staged` until the integrated artifact-backed workflow is promoted into the native runner
+- the native runner now has a staged local-dump-backed `integrated_2d_recycling_rhs` entry path: it no longer fails on missing `nx/ny/nz`, and it can ingest the staged local `BOUT.dmp.0.nc` mesh/metric/state slab to produce the public compare surface for the integrated case
+- that new Step 3 path is only scaffolding so far, not a locked parity milestone: the live comparison is still dominated by target-recycling and target-adjacent `ddt(...)` differences (`Sd_target_recycle`, `Ed_target_recycle`, `ddt(NVd+)`, `ddt(Pd+)`, `ddt(Pe)`), which means wall/SOL/PFR/pump recycling semantics and true 2D initialization still need to be lifted before `integrated_2d_recycling_rhs` can be promoted out of scaffold status
 
 ### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
 

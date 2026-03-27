@@ -91,7 +91,7 @@ The first parity ladder is recorded in [references/reference_case_ladder.toml](/
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
 | `recycling_1d_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
-| `integrated_2d_recycling_rhs` | `reference-staged` | Stable integrated 2D recycling target runs in the harness. |
+| `integrated_2d_recycling_rhs` | `native-scaffolded` | Staged local-dump RHS path now runs natively, but parity is not locked. |
 | `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is staged. |
 | `blob2d_short_window` | `native-validated` | Blob benchmark history is locked. |
 | `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
@@ -103,6 +103,8 @@ The next queued staged baselines are now committed as well:
 - staged one-step open-field recycling baselines for [recycling_1d_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_1d_one_step.json) and [recycling_dthe_one_step.json](/Users/rogerio/local/jax_drb/references/baselines/reference/recycling_dthe_one_step.json), so Step 2 now has low-iteration sheath/recycling targets for both the single-species and multi-species divertor workflows before any native recycling runner is exposed;
 - staged evolved-state RHS regressions against the live reference dumps for `recycling_1d_one_step` and `recycling_dthe_one_step`, so the open-field operator fixes are now locked before the transient runner is promoted;
 - staged manifest entries for `integrated_2d_recycling_rhs` and `integrated_2d_recycling_one_step`, including external artifact staging and `process_count = 10`, so the 2D recycling branch now has a stable integrated geometry target rather than the broken tokamak example;
+- the native runner now has a first integrated 2D recycling RHS scaffold: it stages the reference workdir, loads the local `BOUT.dmp.0.nc` mesh/metric/state slab through a NetCDF-backed snapshot loader, and reuses the existing open-field recycling RHS stack instead of failing immediately on missing `mesh:nx/ny/nz`;
+- that Step 3 scaffold is intentionally not counted as a parity win yet: live comparison is still dominated by target-recycling and target-adjacent `ddt(...)` differences, so wall/SOL/PFR/pump recycling semantics and a more faithful 2D initialization path are still required before `integrated_2d_recycling_rhs` can be promoted to `native-validated`;
 - `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the upcoming sheath-connected blob work starts from stored low-iteration targets instead of ad hoc runs.
 - `jax-drb validate-reference-baselines`, which re-runs committed reference cases and compares the live summaries to the stored baseline JSON files as a smoke-validation step.
 - `recycling_1d_rhs`: implemented and regression-tested against committed summary and full-array baselines, including target-recycling diagnostics, sheath boundary fluxes, AMJUEL-based ionization/recombination, hydrogenic charge exchange, literal section-reference resolution for source expressions, and the open-field electron-force-balance source path;

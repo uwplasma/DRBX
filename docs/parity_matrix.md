@@ -98,7 +98,7 @@ Deliverables:
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
 | `recycling_1d_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
-| `integrated_2d_recycling_rhs` | `reference-staged` | Stable integrated 2D recycling target is runnable in the harness. |
+| `integrated_2d_recycling_rhs` | `native-scaffolded` | Staged local-dump RHS path now runs natively, but parity is not locked. |
 | `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is staged. |
 
 ## Stage 3+: Physics Buildout
