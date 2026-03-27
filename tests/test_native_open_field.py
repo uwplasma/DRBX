@@ -31,6 +31,8 @@ def _mesh(*, nx: int = 1, ny: int = 4, nz: int = 1, myg: int = 2) -> StructuredM
         jyseps1_2=ny // 2,
         jyseps2_2=ny - 1,
         ny_inner=ny // 2,
+        has_lower_y_target=False,
+        has_upper_y_target=True,
         x=jnp.arange(nx, dtype=jnp.float64),
         y=jnp.arange(ny + 2 * myg, dtype=jnp.float64),
         z=jnp.arange(nz, dtype=jnp.float64),

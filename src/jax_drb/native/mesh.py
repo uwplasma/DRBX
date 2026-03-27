@@ -26,6 +26,8 @@ class StructuredMesh:
     jyseps1_2: int
     jyseps2_2: int
     ny_inner: int
+    has_lower_y_target: bool
+    has_upper_y_target: bool
     x: jnp.ndarray
     y: jnp.ndarray
     z: jnp.ndarray
@@ -104,6 +106,8 @@ def build_structured_mesh(config: BoutConfig, run_config: RunConfiguration) -> S
         jyseps1_2=jyseps1_2,
         jyseps2_2=jyseps2_2,
         ny_inner=ny_inner,
+        has_lower_y_target=False,
+        has_upper_y_target=True,
         x=x,
         y=y,
         z=z,

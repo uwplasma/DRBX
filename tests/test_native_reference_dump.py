@@ -26,8 +26,11 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
             "jyseps1_2": 2,
             "jyseps2_2": 2,
             "ny_inner": 3,
+            "PE_YIND": 0,
+            "NYPE": 4,
+            "Nnorm": 1.0e17,
         }.items():
-            variable = dataset.createVariable(name, "i4")
+            variable = dataset.createVariable(name, "f8" if name == "Nnorm" else "i4")
             variable.assignValue(value)
 
         field2d = np.arange(20, dtype=np.float64).reshape(4, 5)
@@ -39,9 +42,14 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
             variable = dataset.createVariable(name, "f8", ("t", "x", "y", "z"))
             variable[:] = np.arange(20, dtype=np.float64).reshape(1, 4, 5, 1)
 
+        optional = dataset.createVariable("is_pump", "f8", ("x", "y"))
+        optional[:] = np.eye(4, 5, dtype=np.float64)
+
     snapshot = load_local_reference_snapshot(
         dump_path,
         field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+        optional_field_names=("is_pump", "missing_field"),
+        scalar_names=("Nnorm", "missing_scalar"),
     )
 
     assert snapshot.mesh.nx == 4
@@ -49,7 +57,13 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
     assert snapshot.mesh.local_ny == 5
     assert snapshot.mesh.mxg == 1
     assert snapshot.mesh.myg == 1
+    assert snapshot.mesh.has_lower_y_target is True
+    assert snapshot.mesh.has_upper_y_target is False
     assert snapshot.metrics.dx.shape == (4, 5, 1)
     assert snapshot.metrics.g_22.shape == (4, 5, 1)
     np.testing.assert_allclose(np.asarray(snapshot.metrics.dx)[..., 0], field2d)
     np.testing.assert_allclose(np.asarray(snapshot.fields["Nd+"])[..., 0], np.arange(20, dtype=np.float64).reshape(4, 5))
+    np.testing.assert_allclose(np.asarray(snapshot.optional_fields["is_pump"])[..., 0], np.eye(4, 5, dtype=np.float64))
+    assert "missing_field" not in snapshot.optional_fields
+    assert snapshot.scalar_values["Nnorm"] == pytest.approx(1.0e17)
+    assert "missing_scalar" not in snapshot.scalar_values
