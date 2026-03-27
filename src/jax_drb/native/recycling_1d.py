@@ -314,7 +314,7 @@ def _compute_recycling_1d_rhs_from_species(
         )
         pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[ion.name]
         momentum_rhs = -ion.atomic_mass * _div_par_fvv_open(
-            np.maximum(ion_state.density, 1.0e-7),
+            _soft_floor(ion_state.density, ion.density_floor),
             ion_velocity[ion.name],
             fastest_wave,
             mesh=mesh,
@@ -323,6 +323,7 @@ def _compute_recycling_1d_rhs_from_species(
         )
         momentum_rhs = momentum_rhs - _grad_par_open(ion_state.pressure, mesh=mesh, metrics=metrics)
         momentum_rhs = momentum_rhs + momentum_source[ion.name]
+        momentum_rhs = momentum_rhs + ion_state.momentum_error
 
         variables[ion.density_name] = ion_state.density[None, ...]
         variables[ion.pressure_name] = ion_state.pressure[None, ...]
@@ -364,13 +365,46 @@ def _compute_recycling_1d_rhs_from_species(
 
     for neutral in neutrals:
         neutral_state = prepared[neutral.name]
+        temperature = neutral_state.temperature
+        fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / neutral.atomic_mass)
+        density_rhs = density_source[neutral.name] - _div_par_mod_open(
+            neutral_state.density,
+            neutral_state.velocity,
+            fastest_wave,
+            mesh=mesh,
+            metrics=metrics,
+        )
+        pressure_rhs = -(5.0 / 3.0) * _div_par_mod_open(
+            neutral_state.pressure,
+            neutral_state.velocity,
+            fastest_wave,
+            mesh=mesh,
+            metrics=metrics,
+        )
+        pressure_rhs = pressure_rhs + (2.0 / 3.0) * neutral_state.velocity * _grad_par_open(
+            neutral_state.pressure,
+            mesh=mesh,
+            metrics=metrics,
+        )
+        pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[neutral.name]
+        momentum_rhs = -neutral.atomic_mass * _div_par_fvv_open(
+            _soft_floor(neutral_state.density, neutral.density_floor),
+            neutral_state.velocity,
+            fastest_wave,
+            mesh=mesh,
+            metrics=metrics,
+            fix_flux=False,
+        )
+        momentum_rhs = momentum_rhs - _grad_par_open(neutral_state.pressure, mesh=mesh, metrics=metrics)
+        momentum_rhs = momentum_rhs + momentum_source[neutral.name]
+        momentum_rhs = momentum_rhs + neutral_state.momentum_error
         variables[neutral.density_name] = neutral_state.density[None, ...]
         variables[neutral.pressure_name] = neutral_state.pressure[None, ...]
         variables[neutral.momentum_name] = neutral_state.momentum[None, ...]
         variables[f"SNV{neutral.name}"] = momentum_source[neutral.name][None, ...]
-        variables[f"ddt({neutral.density_name})"] = density_source[neutral.name][None, ...]
-        variables[f"ddt({neutral.pressure_name})"] = ((2.0 / 3.0) * energy_source[neutral.name])[None, ...]
-        variables[f"ddt({neutral.momentum_name})"] = momentum_source[neutral.name][None, ...]
+        variables[f"ddt({neutral.density_name})"] = density_rhs[None, ...]
+        variables[f"ddt({neutral.pressure_name})"] = pressure_rhs[None, ...]
+        variables[f"ddt({neutral.momentum_name})"] = momentum_rhs[None, ...]
 
     for name, value in diagnostics.items():
         variables[name] = value[None, ...]
@@ -692,6 +726,7 @@ class _PreparedSpeciesState:
     temperature: np.ndarray
     velocity: np.ndarray
     momentum: np.ndarray
+    momentum_error: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -800,8 +835,9 @@ def _prepare_species_state(
     density = species.density.copy()
     pressure = species.pressure.copy()
     temperature = _safe_temperature(pressure, density, species.density_floor)
-    velocity = species.momentum / np.maximum(species.atomic_mass * density, 1.0e-8)
-    momentum = species.momentum.copy()
+    limited_density = _soft_floor(density, species.density_floor)
+    velocity = species.momentum / np.maximum(species.atomic_mass * limited_density, 1.0e-8)
+    momentum = species.atomic_mass * density * velocity
 
     if species.noflow_lower_y or species.noflow_upper_y:
         density = np.array(
@@ -844,12 +880,15 @@ def _prepare_species_state(
             dtype=np.float64,
             copy=True,
         )
+    momentum = np.asarray(species.atomic_mass * density * velocity, dtype=np.float64)
+    momentum_error = np.asarray(momentum - species.momentum, dtype=np.float64)
     return _PreparedSpeciesState(
         density=density,
         pressure=pressure,
         temperature=temperature,
         velocity=velocity,
         momentum=momentum,
+        momentum_error=momentum_error,
     )
 
 
@@ -888,8 +927,30 @@ def _prepare_open_field_states(
         density=electron_boundary.density,
         pressure=electron_boundary.pressure,
         temperature=electron_boundary.temperature,
-        velocity=electron_boundary.velocity,
-        momentum=electron_boundary.momentum,
+        velocity=np.asarray(
+            electron_boundary.momentum
+            / np.maximum(
+                species["e"].atomic_mass
+                * _soft_floor(electron_boundary.density, species["e"].density_floor),
+                1.0e-8,
+            ),
+            dtype=np.float64,
+        ),
+        momentum=np.asarray(electron_boundary.momentum, dtype=np.float64),
+        momentum_error=np.asarray(
+            species["e"].atomic_mass
+            * electron_boundary.density
+            * (
+                electron_boundary.momentum
+                / np.maximum(
+                    species["e"].atomic_mass
+                    * _soft_floor(electron_boundary.density, species["e"].density_floor),
+                    1.0e-8,
+                )
+            )
+            - electron_boundary.momentum,
+            dtype=np.float64,
+        ),
     )
 
     ion_boundary = _apply_ion_sheath_boundary(
@@ -905,8 +966,28 @@ def _prepare_open_field_states(
             density=ion_boundary.density[ion.name],
             pressure=ion_boundary.pressure[ion.name],
             temperature=ion_boundary.temperature[ion.name],
-            velocity=ion_boundary.velocity[ion.name],
-            momentum=ion_boundary.momentum[ion.name],
+            velocity=np.asarray(
+                ion_boundary.momentum[ion.name]
+                / np.maximum(
+                    ion.atomic_mass * _soft_floor(ion_boundary.density[ion.name], ion.density_floor),
+                    1.0e-8,
+                ),
+                dtype=np.float64,
+            ),
+            momentum=np.asarray(ion_boundary.momentum[ion.name], dtype=np.float64),
+            momentum_error=np.asarray(
+                ion.atomic_mass
+                * ion_boundary.density[ion.name]
+                * (
+                    ion_boundary.momentum[ion.name]
+                    / np.maximum(
+                        ion.atomic_mass * _soft_floor(ion_boundary.density[ion.name], ion.density_floor),
+                        1.0e-8,
+                    )
+                )
+                - ion_boundary.momentum[ion.name],
+                dtype=np.float64,
+            ),
         )
     return prepared, ion_boundary, electron_boundary
 

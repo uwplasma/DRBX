@@ -11,6 +11,7 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
     _div_par_k_grad_par_open,
+    _grad_par_open,
     advance_neutral_mixed_implicit_history,
     _prepare_neutral_mixed_state,
     _soft_floor,
@@ -579,3 +580,31 @@ def test_soft_floor_matches_reference_formula() -> None:
     expected = np.maximum(values, 0.0) + minimum * np.exp(-np.maximum(values, 0.0) / minimum)
 
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_grad_par_open_matches_centered_bout_metric_form() -> None:
+    _, _, mesh, metrics, state, _ = _build_case(nx=8, ny=4, nz=6)
+    field = np.asarray(state.pressure, dtype=np.float64)
+    actual = _grad_par_open(field, mesh=mesh, metrics=metrics)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+
+    i = mesh.xstart
+    k = 0
+    lower = mesh.ystart
+    upper = mesh.yend
+
+    expected_lower = 0.5 * (field[i, lower + 1, k] - field[i, lower - 1, k]) / (
+        dy[i, lower, k] * np.sqrt(g22[i, lower, k])
+    )
+    expected_upper = 0.5 * (field[i, upper + 1, k] - field[i, upper - 1, k]) / (
+        dy[i, upper, k] * np.sqrt(g22[i, upper, k])
+    )
+    interior = lower + 1
+    expected_interior = 0.5 * (field[i, interior + 1, k] - field[i, interior - 1, k]) / (
+        dy[i, interior, k] * np.sqrt(g22[i, interior, k])
+    )
+
+    assert actual[i, lower, k] == pytest.approx(expected_lower, rel=1e-12, abs=1e-12)
+    assert actual[i, upper, k] == pytest.approx(expected_upper, rel=1e-12, abs=1e-12)
+    assert actual[i, interior, k] == pytest.approx(expected_interior, rel=1e-12, abs=1e-12)
