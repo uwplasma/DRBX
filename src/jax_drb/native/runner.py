@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
 from typing import Any, Mapping
 
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver, load_bout_input
 from ..parity.portable import build_portable_summary_payload
-from ..parity.reference import make_default_overrides, merge_overrides
+from ..parity.reference import make_default_overrides, merge_overrides, run_reference_case
 from ..reference.cases import ReferenceCase
 from ..runtime.run_config import RunConfiguration
 from .blob2d import (
@@ -38,6 +39,7 @@ from .mesh import (
     build_structured_mesh,
 )
 from .neutral_mixed import compute_neutral_mixed_rhs, initialize_neutral_mixed_state
+from .reference_dump import load_local_reference_snapshot
 from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
@@ -63,12 +65,72 @@ def run_curated_case(
     from ..parity.reference import resolve_reference_case
 
     case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
+    if case.name == "integrated_2d_recycling_rhs":
+        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     return run_input_case(
         input_path,
         case_name=case.name,
         parity_mode=case.parity_mode,
         compare_variables=case.compare_variables,
         reference_case=case,
+    )
+
+
+def _run_integrated_2d_recycling_rhs_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-recycling-") as workdir:
+        execution = run_reference_case(
+            case.name,
+            reference_root=reference_root,
+            workdir=workdir,
+            keep_workdir=True,
+        )
+        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        snapshot = load_local_reference_snapshot(
+            dump_path,
+            field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+        )
+        result = compute_recycling_1d_rhs(
+            config,
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            dataset_scalars=dataset_scalars,
+            field_overrides=snapshot.fields,
+        )
+    trimmed_variables = _prepare_compare_variables(
+        result.variables,
+        snapshot.mesh,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+    )
+    payload = build_portable_summary_payload(
+        case_name=case.name,
+        parity_mode=case.parity_mode,
+        compare_variables=case.compare_variables,
+        component_labels=tuple(component.label for component in run_config.components),
+        dimensions={"t": 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=(0.0,),
+        dataset_scalars=dataset_scalars,
+        variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
+        overrides=_effective_overrides(case.parity_mode, reference_case=case),
+        configured_nout=run_config.time.nout,
+        configured_timestep=run_config.time.timestep,
+        producer="jax-drb",
+    )
+    return NativeRunResult(
+        payload=payload,
+        variables=trimmed_variables,
+        time_points=(0.0,),
+        run_config=run_config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
     )
 
 
