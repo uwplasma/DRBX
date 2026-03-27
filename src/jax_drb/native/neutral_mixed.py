@@ -1353,11 +1353,14 @@ def _grad_par_open(
 ) -> np.ndarray:
     result = np.zeros_like(field, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
-    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
 
     for i in range(mesh.xstart, mesh.xend + 1):
         for j in range(mesh.ystart, mesh.yend + 1):
             for k in range(mesh.nz):
-                spacing = dy[i, j, k] + dy[i, j - 1, k]
-                result[i, j, k] = (field[i, j + 1, k] - field[i, j - 1, k]) / (spacing * J[i, j, k])
+                result[i, j, k] = (
+                    0.5
+                    * (field[i, j + 1, k] - field[i, j - 1, k])
+                    / (dy[i, j, k] * np.sqrt(g22[i, j, k]))
+                )
     return result

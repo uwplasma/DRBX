@@ -147,6 +147,10 @@ The next queued staged baselines are now committed as well:
   - `NVd` is mostly denominator-driven because the reference stays near zero;
   - `Nd`, `Pd`, `NVd+`, `ddt(Nd)`, and `ddt(NVd+)` still show real `O(5e-2 .. 1e-1)` significant relative error on cells above a `1e-2 * max(|ref|)` magnitude floor;
   - `SNVd+` and the currently dumped ionization / charge-exchange force diagnostics are already tight on that same probe, so the next fix should focus on the neutral diffusion / pressure / momentum transient evolution rather than the charged-source bookkeeping.
+- the latest localized Step 2 RHS fix removed most of that short-window neutral-side error:
+  - the recycling neutrals now assemble `ddt(Nd)`, `ddt(Pd)`, and `ddt(NVd)` with the same final transport/compression pattern used by the evolving density/pressure/momentum components instead of treating those channels as pure source equations;
+  - [neutral_mixed.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/neutral_mixed.py) now follows the reference `DDY / sqrt(g_22)` centered metric form for `Grad_par` instead of the older `1 / (J * Δy)` approximation, which materially reduces the target-adjacent ion-momentum remainder in the recycling probe;
+  - on a fresh `timestep = 25` single-species recycling reference run, `Nd`, `Pd`, `Nd+`, `Pd+`, and `Pe` are now all below `1e-3` significant relative error, `NVd` remains dominated by near-zero denominators, and the only still-visible short-window mismatch is the target-band `NVd+` channel at roughly `5e-2` significant relative error.
 - the next open-field blocker is no longer the 1D source stack; it is the transient ladder above it, starting with `recycling_1d_one_step` and `recycling_dthe_one_step`, then moving to the short-window and long-run divertor cases on the shared implicit solver;
 
 Current native execution coverage:
