@@ -31,6 +31,7 @@ from jax_drb.native.recycling_1d import (
     _prepare_open_field_states,
     _reaction_sources,
     _recycling_evolving_variable_names,
+    _sanitize_recycling_fields,
     _target_recycling_sources,
     _ion_thermal_force_pair,
     advance_recycling_1d_backward_euler_step,
@@ -642,6 +643,27 @@ def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
     assert history.variable_history["Nd+"].shape[0] == 2
     assert np.isfinite(history.variable_history["Nd+"]).all()
     assert np.isfinite(history.variable_history["Pe"]).all()
+
+
+def test_neutral_pressure_default_floor_is_zero_without_override() -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    fields["Nd"][:] = 1.7e-2
+    fields["Pd"][:] = 1.0e-5
+    fields["Nd+"][:] = 1.7e-2
+    fields["Pd+"][:] = 1.0e-5
+
+    sanitized = _sanitize_recycling_fields(config, fields)
+
+    assert np.allclose(sanitized["Pd"], 1.0e-5)
+    assert np.allclose(sanitized["Pd+"], 1.7e-3)
 
 
 def test_recycling_bdf2_step_produces_finite_small_step() -> None:
