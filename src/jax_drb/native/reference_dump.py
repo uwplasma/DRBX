@@ -19,12 +19,16 @@ class LocalReferenceSnapshot:
     mesh: StructuredMesh
     metrics: StructuredMetrics
     fields: dict[str, np.ndarray]
+    optional_fields: dict[str, np.ndarray]
+    scalar_values: dict[str, float]
 
 
 def load_local_reference_snapshot(
     dump_path: str | Path,
     *,
     field_names: tuple[str, ...],
+    optional_field_names: tuple[str, ...] = (),
+    scalar_names: tuple[str, ...] = (),
     time_index: int = 0,
 ) -> LocalReferenceSnapshot:
     try:
@@ -54,6 +58,8 @@ def load_local_reference_snapshot(
             jyseps1_2=_read_scalar(dataset, "jyseps1_2", default=max(ny - 1, 0)),
             jyseps2_2=_read_scalar(dataset, "jyseps2_2", default=max(ny - 1, 0)),
             ny_inner=_read_scalar(dataset, "ny_inner", default=max(ny, 0)),
+            has_lower_y_target=_read_scalar(dataset, "PE_YIND", default=0) == 0,
+            has_upper_y_target=_read_scalar(dataset, "PE_YIND", default=0) == max(_read_scalar(dataset, "NYPE", default=1) - 1, 0),
             x=jnp.arange(nx, dtype=jnp.float64),
             y=jnp.arange(local_ny, dtype=jnp.float64) - float(myg),
             z=jnp.arange(nz, dtype=jnp.float64) / float(max(nz, 1)),
@@ -82,8 +88,24 @@ def load_local_reference_snapshot(
             name: _read_field(dataset, name, time_index=time_index, shape=(nx, local_ny, nz))
             for name in field_names
         }
+        optional_fields = {
+            name: value
+            for name in optional_field_names
+            if (value := _read_optional_field(dataset, name, time_index=time_index, shape=(nx, local_ny, nz))) is not None
+        }
+        scalar_values = {
+            name: _read_float_scalar(dataset, name)
+            for name in scalar_names
+            if _has_variable(dataset, name)
+        }
 
-    return LocalReferenceSnapshot(mesh=mesh, metrics=metrics, fields=fields)
+    return LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields=fields,
+        optional_fields=optional_fields,
+        scalar_values=scalar_values,
+    )
 
 
 def _read_scalar(dataset: object, name: str, *, default: int) -> int:
@@ -143,6 +165,32 @@ def _read_field(
     if array.ndim == 4:
         array = array[time_index]
     return np.asarray(_coerce_field_shape(array, shape=shape), dtype=np.float64)
+
+
+def _read_optional_field(
+    dataset: object,
+    name: str,
+    *,
+    time_index: int,
+    shape: tuple[int, int, int],
+) -> np.ndarray | None:
+    if not _has_variable(dataset, name):
+        return None
+    return _read_field(dataset, name, time_index=time_index, shape=shape)
+
+
+def _read_float_scalar(dataset: object, name: str) -> float:
+    variable = getattr(dataset, "variables", {}).get(name)
+    if variable is None:
+        raise KeyError(f"Missing scalar {name!r} in local reference dump.")
+    value = np.asarray(variable[:], dtype=np.float64)
+    if value.shape == ():
+        return float(value)
+    return float(value.reshape(-1)[0])
+
+
+def _has_variable(dataset: object, name: str) -> bool:
+    return name in getattr(dataset, "variables", {})
 
 
 def _coerce_field_shape(array: np.ndarray, *, shape: tuple[int, int, int]) -> np.ndarray:
