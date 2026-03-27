@@ -619,6 +619,31 @@ def test_recycling_adaptive_be_history_produces_finite_small_step() -> None:
     assert np.isfinite(history.variable_history["Pe"]).all()
 
 
+def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        steps=1,
+        solver_mode="adaptive_bdf",
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+    )
+
+    assert history.variable_history["Nd+"].shape[0] == 2
+    assert np.isfinite(history.variable_history["Nd+"]).all()
+    assert np.isfinite(history.variable_history["Pe"]).all()
+
+
 def test_recycling_bdf2_step_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
