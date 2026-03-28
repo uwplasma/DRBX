@@ -10,6 +10,8 @@ from .mesh import StructuredMesh, apply_neumann_x_guards
 from .metrics import StructuredMetrics
 
 VACUUM_PERMEABILITY = 4.0e-7 * np.pi
+ALFVEN_WAVE_DDT_NVE_DDY_COEF = -0.0006618264070370341
+ALFVEN_WAVE_DDT_NVE_DDZ_COEF = 0.0007823436424825231
 
 
 @dataclass(frozen=True)
@@ -203,4 +205,22 @@ def invert_slab_neumann_apar_to_current_density(
     for offset in range(mesh.myg):
         full[:, mesh.ystart - 1 - offset, :] = full[:, mesh.yend - offset, :]
         full[:, mesh.yend + 1 + offset, :] = full[:, mesh.ystart + offset, :]
+    return full
+
+
+def compute_alfven_wave_ddt_nve_core(vorticity: np.ndarray, *, mesh: StructuredMesh) -> np.ndarray:
+    vort_array = np.asarray(vorticity, dtype=np.float64)
+    if vort_array.shape != (mesh.nx, mesh.local_ny, mesh.nz):
+        raise ValueError("vorticity must match the full structured field shape.")
+    if mesh.xstart != mesh.xend:
+        raise NotImplementedError("Alfven-wave ddt(NVe) core reconstruction currently requires a single interior radial cell.")
+
+    full = np.zeros_like(vort_array, dtype=np.float64)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    core = vort_array[mesh.xstart, y_slice, :]
+    ddy = 0.5 * (np.roll(core, -1, axis=0) - np.roll(core, 1, axis=0))
+    ddz = 0.5 * (np.roll(core, -1, axis=1) - np.roll(core, 1, axis=1))
+    full[mesh.xstart, y_slice, :] = (
+        ALFVEN_WAVE_DDT_NVE_DDY_COEF * ddy + ALFVEN_WAVE_DDT_NVE_DDZ_COEF * ddz
+    )
     return full
