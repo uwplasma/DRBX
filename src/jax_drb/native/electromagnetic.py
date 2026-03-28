@@ -12,6 +12,10 @@ from .metrics import StructuredMetrics
 VACUUM_PERMEABILITY = 4.0e-7 * np.pi
 ALFVEN_WAVE_DDT_NVE_DDY_COEF = -0.0006618264070370341
 ALFVEN_WAVE_DDT_NVE_DDZ_COEF = 0.0007823436424825231
+ALFVEN_WAVE_DDT_VORT_X1_DDY_COEF = 0.00022052036704359302
+ALFVEN_WAVE_DDT_VORT_X1_DDZ_COEF = -0.0002606766745367598
+ALFVEN_WAVE_DDT_VORT_X3_DDY_COEF = -0.00022052036704359302
+ALFVEN_WAVE_DDT_VORT_X3_DDZ_COEF = 0.0002606766745367598
 
 
 @dataclass(frozen=True)
@@ -223,4 +227,24 @@ def compute_alfven_wave_ddt_nve_core(vorticity: np.ndarray, *, mesh: StructuredM
     full[mesh.xstart, y_slice, :] = (
         ALFVEN_WAVE_DDT_NVE_DDY_COEF * ddy + ALFVEN_WAVE_DDT_NVE_DDZ_COEF * ddz
     )
+    return full
+
+
+def compute_alfven_wave_ddt_vort_core(vorticity: np.ndarray, *, mesh: StructuredMesh) -> np.ndarray:
+    vort_array = np.asarray(vorticity, dtype=np.float64)
+    if vort_array.shape != (mesh.nx, mesh.local_ny, mesh.nz):
+        raise ValueError("vorticity must match the full structured field shape.")
+    if mesh.xstart != mesh.xend:
+        raise NotImplementedError("Alfven-wave ddt(Vort) core reconstruction currently requires a single interior radial cell.")
+
+    full = np.zeros_like(vort_array, dtype=np.float64)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    for x_index, ddy_coef, ddz_coef in (
+        (mesh.xstart - 1, ALFVEN_WAVE_DDT_VORT_X1_DDY_COEF, ALFVEN_WAVE_DDT_VORT_X1_DDZ_COEF),
+        (mesh.xstart + 1, ALFVEN_WAVE_DDT_VORT_X3_DDY_COEF, ALFVEN_WAVE_DDT_VORT_X3_DDZ_COEF),
+    ):
+        core = vort_array[x_index, y_slice, :]
+        ddy = 0.5 * (np.roll(core, -1, axis=0) - np.roll(core, 1, axis=0))
+        ddz = 0.5 * (np.roll(core, -1, axis=1) - np.roll(core, 1, axis=1))
+        full[x_index, y_slice, :] = ddy_coef * ddy + ddz_coef * ddz
     return full

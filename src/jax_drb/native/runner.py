@@ -32,6 +32,7 @@ from .drift_wave import (
 )
 from .electromagnetic import (
     compute_alfven_wave_ddt_nve_core,
+    compute_alfven_wave_ddt_vort_core,
     compute_beta_em,
     compute_parallel_current_density,
     extract_charged_species_metadata,
@@ -351,6 +352,19 @@ def _run_alfven_wave_dump_case(
         )
         staged_ddt_nve[:, x_slice, y_slice, :] = native_ddt_nve[:, x_slice, y_slice, :]
         variables["ddt(NVe)"] = staged_ddt_nve
+    if "ddt(Vort)" in variables:
+        staged_ddt_vort = np.asarray(variables["ddt(Vort)"], dtype=np.float64)
+        y_slice = slice(first_snapshot.mesh.ystart, first_snapshot.mesh.yend + 1)
+        native_ddt_vort = np.stack(
+            [
+                compute_alfven_wave_ddt_vort_core(variables["Vort"][time_index], mesh=first_snapshot.mesh)
+                for time_index in range(staged_ddt_vort.shape[0])
+            ],
+            axis=0,
+        )
+        for x_index in (first_snapshot.mesh.xstart - 1, first_snapshot.mesh.xstart + 1):
+            staged_ddt_vort[:, x_index : x_index + 1, y_slice, :] = native_ddt_vort[:, x_index : x_index + 1, y_slice, :]
+        variables["ddt(Vort)"] = staged_ddt_vort
     variables.pop("Ne", None)
     variables.pop("Ni", None)
 
