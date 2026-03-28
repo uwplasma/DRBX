@@ -149,7 +149,9 @@ def compute_recycling_1d_rhs(
     feedback_integrals: dict[str, float] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
+    momentum_source_overrides: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
     runtime_model = _build_recycling_runtime_model(
         config,
@@ -170,7 +172,9 @@ def compute_recycling_1d_rhs(
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
         apply_sheath_boundaries=apply_sheath_boundaries,
         preserve_dump_target_state=preserve_dump_target_state,
+        density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
+        momentum_source_overrides=momentum_source_overrides,
     )
 
 
@@ -188,7 +192,9 @@ def _compute_recycling_1d_rhs_from_species(
     explicit_pressure_sources: dict[str, np.ndarray] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
+    momentum_source_overrides: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
     if pressure_source_overrides:
@@ -293,6 +299,15 @@ def _compute_recycling_1d_rhs_from_species(
     for name, value in feedback_terms.energy_source.items():
         energy_source[name] = energy_source[name] + value
     diagnostics.update(feedback_terms.diagnostics)
+
+    if density_source_overrides:
+        for name, value in density_source_overrides.items():
+            if name in density_source:
+                density_source[name] = np.asarray(value, dtype=np.float64)
+    if momentum_source_overrides:
+        for name, value in momentum_source_overrides.items():
+            if name in momentum_source:
+                momentum_source[name] = np.asarray(value, dtype=np.float64)
 
     electron_force_density = -_grad_par_electron_force_balance_open(
         electron_boundary.pressure,
