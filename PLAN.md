@@ -795,6 +795,7 @@ Implementation tasks:
 - port `Apar` solve and canonical/mechanical momentum handling
 - preserve `Apar_flutter` and EM source bookkeeping
 - validate 3D stepping on representative annulus and tokamak cases
+- staged entry ladder is now `tests/integrated/alfven-wave` with committed `alfven_wave_rhs` and `alfven_wave_one_step` reference baselines before broader EM short-window and tokamak escalation work
 
 Required tests:
 
