@@ -309,6 +309,15 @@ rationale = "First-output electromagnetic state parity on the Alfvén-wave bench
 compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe"]
 
 [[case]]
+name = "alfven_wave_short_window"
+stage = "stage8"
+reference_path = "tests/integrated/alfven-wave/data/BOUT.inp"
+parity_mode = "short_window"
+rationale = "Multi-output electromagnetic parity and analytic Alfvén-wave validation on the finite-electron-mass slab benchmark."
+compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe"]
+extra_overrides = ["nout=20"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"

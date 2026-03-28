@@ -797,6 +797,11 @@ Implementation tasks:
 - validate 3D stepping on representative annulus and tokamak cases
 - staged entry ladder is now `tests/integrated/alfven-wave` with committed `alfven_wave_rhs` and `alfven_wave_one_step` reference baselines before broader EM short-window and tokamak escalation work
 - first real Stage 4 operator slices are now `Ajpar`, `Apar`, the physical-domain `NVe` one-step reconstruction, and the dominant electromagnetic RHS cores on the Alfvén benchmark: reconstruct `Ajpar` from the charged-species momentum sum, solve `Apar` natively on the single-cell slab/Neumann Alfvén benchmark using the source-faithful electromagnetic Helmholtz coefficient (`alpha_em` from charged densities, `beta_em` from normalization, periodic-Y and periodic-Z guard handling), invert that same slab solve to recover the physical/inner-radial `NVe` one-step field, reconstruct the physical/inner-radial `ddt(NVe)` planes from the benchmark’s periodic central-difference closure on `Vort`, and reconstruct the inner-radial shoulder `ddt(Vort)` planes on `x=1,3` from the benchmark’s exact inner-radial `DDY/ DDZ` closure while leaving the tiny central-plane `x=2` `ddt(Vort)` signal and the outermost saved radial and parallel guard planes staged. `phi` and the remaining EM transient terms stay on the staged dump-backed path until each operator is ported and revalidated
+- the Alfvén ladder now also has a committed `alfven_wave_short_window` rung at `nout=20`, which is the smallest window that gives a stable frequency estimate from the saved history while staying under the repository size cap. That rung is now part of the active Step 4 validation loop:
+  - committed summary baseline,
+  - committed compressed array baseline,
+  - native short-window parity through the same partially native/dump-backed scaffold,
+  - benchmark analysis JSON and docs figures for measured vs. analytic phase speed and frequency.
 
 Required tests:
 

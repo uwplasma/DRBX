@@ -98,6 +98,7 @@ def test_default_manifest_stages_alfven_wave_cases() -> None:
     cases = load_reference_cases()
     rhs_case = next(case for case in cases if case.name == "alfven_wave_rhs")
     one_step_case = next(case for case in cases if case.name == "alfven_wave_one_step")
+    short_window_case = next(case for case in cases if case.name == "alfven_wave_short_window")
 
     assert rhs_case.reference_path == "tests/integrated/alfven-wave/data/BOUT.inp"
     assert rhs_case.parity_mode == "one_rhs"
@@ -107,3 +108,8 @@ def test_default_manifest_stages_alfven_wave_cases() -> None:
     assert one_step_case.reference_path == "tests/integrated/alfven-wave/data/BOUT.inp"
     assert one_step_case.parity_mode == "one_step"
     assert one_step_case.compare_variables == ("Apar", "Ajpar", "phi", "Vort", "NVe")
+
+    assert short_window_case.reference_path == "tests/integrated/alfven-wave/data/BOUT.inp"
+    assert short_window_case.parity_mode == "short_window"
+    assert short_window_case.compare_variables == ("Apar", "Ajpar", "phi", "Vort", "NVe")
+    assert short_window_case.extra_overrides == ("nout=20",)
