@@ -493,6 +493,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
         captured["initial_fields"] = kwargs["initial_fields"]
         captured["density_source_overrides"] = kwargs["density_source_overrides"]
         captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
+        captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -530,6 +531,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     assert tuple(captured["initial_fields"]) == tuple(initial_fields)
     assert tuple(captured["density_source_overrides"]) == ("d+", "d")
     assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
+    assert captured["preserve_dump_target_state"] is True
     assert result.time_points == (0.0, 0.0001)
     assert result.variables["Nd+"].shape == (2, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (2, 2, 3, 1)

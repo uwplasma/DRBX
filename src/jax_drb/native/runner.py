@@ -232,6 +232,7 @@ def _run_integrated_2d_recycling_one_step_case(
         initial_fields=snapshot.fields,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
+        preserve_dump_target_state=True,
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
