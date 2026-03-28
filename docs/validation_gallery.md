@@ -13,6 +13,7 @@ This page collects the first curated parity figures from the active validation l
 | `Drift-Wave Short-Window Benchmark` | `native-validated` | Benchmark analysis is locked. |
 | `Blob2d Short-Window Parity` | `native-validated` | Blob benchmark history is locked. |
 | `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
+| `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
 
 ## Diffusion Short Window
 
@@ -90,6 +91,21 @@ What this locks down:
 - the derived center temperature `Ph / Nh`, which stays close to the expected `0.1` throughout the short window;
 - reviewer-facing compact metrics rather than large raw arrays: final total `Nh` about `7.86197875e+02`, final total `Ph` about `7.86184063e+01`, and final momentum RMS about `5.56121767e-08`.
 
+## Alfven-Wave Short-Window Benchmark
+
+![Alfven-wave short-window diagnostics](images/alfven_wave_short_window_diagnostics.png)
+
+What this locks down:
+
+- the first multi-output electromagnetic transient rung on the finite-electron-mass slab benchmark;
+- benchmark-quality phase-speed extraction from the committed `nout=20` history;
+- analytic-vs-measured validation on the same stored arrays used by the regression harness;
+- the current documented benchmark numbers:
+  - analytic phase speed about `9.48585409e+05 m/s`;
+  - measured phase speed about `9.42218662e+05 m/s`;
+  - relative phase-speed error about `6.71e-03`;
+- native/reference parity on that same short-window history, published from the exact committed comparison artifact.
+
 ## Regeneration
 
 These figures are generated from the committed baseline arrays plus native case runs. The current gallery uses:
@@ -99,9 +115,10 @@ These figures are generated from the committed baseline arrays plus native case 
 - `drift_wave_one_step`
 - `drift_wave_short_window`
 - `blob2d_short_window`
+- `alfven_wave_short_window`
 
 The next gallery pass should add:
 
 - periodic 1D fluid short-window figures;
 - native neutral transient parity figures once the stiff `neutral_mixed` path is benchmark-clean;
-- benchmark and validation plots for additional open-field-line cases as those stages land.
+- benchmark and validation plots for additional integrated 2D production and broader EM cases as those stages land.
