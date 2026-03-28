@@ -416,6 +416,7 @@ Current Step 3 note:
 - that new Step 3 path is still scaffolding, but it now honors slab-local physical targets, avoids double-applying sheath closures to dump-backed states, restores dump-preserving guard cells, injects dump-backed `SNd`/`SNd+` density sources and `SPd`/`SPd+` ion-pressure sources for the staged integrated case, restores staged `Sd_target_recycle` and `Ed_target_recycle` directly from the dump, and uses a source-faithful `sheath_boundary_simple` electron boundary closure; the remaining live mismatch is now limited to 9 strict summary issues, all in `ddt(Pd)`, `ddt(Pd+)`, and `ddt(Pe)` statistics. 
 - the same integrated workflow now has a native `short_window` rung and committed reference baselines. It is not locked parity yet, but it is the first multi-output Step 3 transient target that can be exercised end-to-end without relying on the broken tokamak examples.
 - the same integrated workflow now also has a native `medium_window` rung honoring the manifest `nout=20` override, so Step 3 can exercise a longer transient on the stable integrated geometry before the broader 2D production path is finalized.
+- the staged integrated transient path now also reuses dump-backed ion momentum-source fields (`SNVd+`, `SNVd`) in addition to the already staged density and ion-pressure sources. That keeps the integrated 2D march source-faithful without reintroducing the rejected staged `SPe` override, which made the medium-window `Pe` drift worse rather than better.
 
 ### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
 
