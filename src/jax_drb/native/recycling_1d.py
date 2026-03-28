@@ -275,6 +275,11 @@ def _compute_recycling_1d_rhs_from_species(
 
     energy_source["e"] = energy_source["e"] + electron_boundary.energy_source
 
+    simple_sheath_settings = _load_simple_sheath_settings(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
     recycling_terms = _target_recycling_sources(
         ions=ions,
         prepared=prepared,
@@ -282,6 +287,7 @@ def _compute_recycling_1d_rhs_from_species(
         ion_velocity=ion_velocity,
         mesh=mesh,
         metrics=metrics,
+        gamma_i=simple_sheath_settings.gamma_i,
     )
     for name, value in recycling_terms.density_source.items():
         density_source[name] = density_source[name] + value
@@ -2823,6 +2829,7 @@ def _target_recycling_sources(
     ion_velocity: dict[str, np.ndarray],
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    gamma_i: float,
 ) -> _RecyclingTerms:
     neutral_lookup = {sp.name: sp for sp in neutrals}
     density_source = {sp.name: np.zeros_like(sp.density, dtype=np.float64) for sp in (*ions, *neutrals)}
@@ -2846,7 +2853,7 @@ def _target_recycling_sources(
             g_22=np.asarray(metrics.g_22, dtype=np.float64),
             target_multiplier=ion.target_recycle_multiplier,
             target_energy=ion.target_recycle_energy,
-            gamma_i=0.0,
+            gamma_i=gamma_i,
             target_fast_recycle_fraction=ion.target_fast_recycle_fraction,
             target_fast_recycle_energy_factor=ion.target_fast_recycle_energy_factor,
             lower_y=mesh.has_lower_y_target,
