@@ -802,6 +802,7 @@ Implementation tasks:
   - committed compressed array baseline,
   - native short-window parity through the same partially native/dump-backed scaffold,
   - benchmark analysis JSON and docs figures for measured vs. analytic phase speed and frequency.
+- the same ladder now also has a committed `alfven_wave_medium_window` rung at the default `nout=50`, giving Step 4 a longer electromagnetic transient target that still fits under the repository size cap and preserves exact native/reference parity on the current scaffold.
 
 Required tests:
 
