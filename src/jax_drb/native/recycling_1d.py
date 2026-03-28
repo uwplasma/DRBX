@@ -125,6 +125,9 @@ class _RecyclingRuntimeModel:
     species_templates: dict[str, OpenFieldSpecies]
     controllers: dict[str, _DensityFeedbackController]
     explicit_pressure_sources: dict[str, np.ndarray]
+    density_source_overrides: dict[str, np.ndarray] | None
+    pressure_source_overrides: dict[str, np.ndarray] | None
+    momentum_source_overrides: dict[str, np.ndarray] | None
     field_names: tuple[str, ...]
     feedback_names: tuple[str, ...]
 
@@ -557,6 +560,9 @@ def _build_recycling_runtime_model(
     mesh: StructuredMesh,
     dataset_scalars: dict[str, float],
     field_overrides: dict[str, np.ndarray] | None = None,
+    density_source_overrides: dict[str, np.ndarray] | None = None,
+    pressure_source_overrides: dict[str, np.ndarray] | None = None,
+    momentum_source_overrides: dict[str, np.ndarray] | None = None,
 ) -> _RecyclingRuntimeModel:
     species_templates = _initialize_species(
         config,
@@ -580,6 +586,15 @@ def _build_recycling_runtime_model(
             mesh=mesh,
             dataset_scalars=dataset_scalars,
         ),
+        density_source_overrides=None
+        if density_source_overrides is None
+        else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in density_source_overrides.items()},
+        pressure_source_overrides=None
+        if pressure_source_overrides is None
+        else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in pressure_source_overrides.items()},
+        momentum_source_overrides=None
+        if momentum_source_overrides is None
+        else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in momentum_source_overrides.items()},
         field_names=field_names,
         feedback_names=tuple(sorted(controllers)),
     )
@@ -2887,6 +2902,9 @@ def advance_recycling_1d_implicit_history(
     steps: int,
     initial_fields: dict[str, np.ndarray] | None = None,
     initial_feedback_integrals: dict[str, float] | None = None,
+    density_source_overrides: dict[str, np.ndarray] | None = None,
+    pressure_source_overrides: dict[str, np.ndarray] | None = None,
+    momentum_source_overrides: dict[str, np.ndarray] | None = None,
     solver_mode: str = "bdf",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
@@ -2898,6 +2916,9 @@ def advance_recycling_1d_implicit_history(
         mesh=mesh,
         dataset_scalars=dataset_scalars,
         field_overrides=initial_fields,
+        density_source_overrides=density_source_overrides,
+        pressure_source_overrides=pressure_source_overrides,
+        momentum_source_overrides=momentum_source_overrides,
     )
     field_names = runtime_model.field_names
     feedback_names = runtime_model.feedback_names
@@ -4017,6 +4038,9 @@ def _compute_recycling_1d_packed_rhs(
         feedback_previous_errors=feedback_previous_errors,
         feedback_timestep=feedback_timestep,
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        density_source_overrides=runtime_model.density_source_overrides,
+        pressure_source_overrides=runtime_model.pressure_source_overrides,
+        momentum_source_overrides=runtime_model.momentum_source_overrides,
     )
     active_slices = _recycling_active_domain_slices(mesh)
     pieces = [

@@ -208,9 +208,19 @@ def _run_integrated_2d_recycling_one_step_case(
         snapshot = load_local_reference_snapshot(
             dump_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-            optional_field_names=(),
+            optional_field_names=("SNd+", "SPd+", "SNd", "SPd"),
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
+    density_source_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
+        if field_name in snapshot.optional_fields
+    } or None
+    pressure_source_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
+        if field_name in snapshot.optional_fields
+    } or None
     solver_mode = _select_recycling_transient_solver_mode(config, parity_mode="one_step")
     history = advance_recycling_1d_implicit_history(
         config,
@@ -220,6 +230,8 @@ def _run_integrated_2d_recycling_one_step_case(
         timestep=run_config.time.timestep,
         steps=1,
         initial_fields=snapshot.fields,
+        density_source_overrides=density_source_overrides,
+        pressure_source_overrides=pressure_source_overrides,
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
