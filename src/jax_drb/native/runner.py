@@ -85,6 +85,8 @@ def run_curated_case(
         return _run_alfven_wave_medium_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "annulus_he_emag_rhs":
         return _run_annulus_he_emag_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "annulus_he_emag_one_step":
+        return _run_annulus_he_emag_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
@@ -281,10 +283,46 @@ def _run_annulus_he_emag_rhs_case(
     input_path: Path,
     reference_root: str | Path,
 ) -> NativeRunResult:
+    return _run_annulus_he_emag_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=(0,),
+        field_names=("Apar", "Ne", "Nhe+", "NVe", "NVhe+"),
+        optional_field_names=("ddt(Ne)", "ddt(NVe)", "ddt(Vort)"),
+    )
+
+
+def _run_annulus_he_emag_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_annulus_he_emag_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=(0, 1),
+        field_names=("Apar", "Ne", "Nhe+", "NVe", "NVhe+", "phi", "Vort"),
+        optional_field_names=(),
+    )
+
+
+def _run_annulus_he_emag_dump_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+    time_indices: tuple[int, ...],
+    field_names: tuple[str, ...],
+    optional_field_names: tuple[str, ...],
+) -> NativeRunResult:
     config = load_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     charged_species = extract_charged_species_metadata(config)
+    snapshots: list[Any] = []
     with tempfile.TemporaryDirectory(prefix="jaxdrb-native-annulus-he-emag-") as workdir:
         execution = run_reference_case(
             case.name,
@@ -292,32 +330,56 @@ def _run_annulus_he_emag_rhs_case(
             workdir=workdir,
             keep_workdir=True,
         )
-        snapshot = load_local_reference_snapshot(
-            Path(execution.summary.artifacts["BOUT.dmp.0.nc"]),
-            field_names=("Apar", "Ne", "Nhe+", "NVe", "NVhe+"),
-            optional_field_names=("ddt(Ne)", "ddt(NVe)", "ddt(Vort)"),
-            scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
-        )
+        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        for time_index in time_indices:
+            snapshots.append(
+                load_local_reference_snapshot(
+                    dump_path,
+                    field_names=field_names,
+                    optional_field_names=optional_field_names,
+                    scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+                    time_index=time_index,
+                )
+            )
 
+    snapshot = snapshots[0]
     variables: dict[str, np.ndarray] = {}
-    variables["Apar"] = np.asarray(snapshot.fields["Apar"], dtype=np.float64)[None, ...]
-    variables["Ajpar"] = compute_parallel_current_density(
-        {
-            "NVe": np.asarray(snapshot.fields["NVe"], dtype=np.float64),
-            "NVhe+": np.asarray(snapshot.fields["NVhe+"], dtype=np.float64),
-        },
-        charged_species,
-    )[None, ...]
-    variables["alpha_em"] = compute_alpha_em(
-        {
-            "Ne": np.asarray(snapshot.fields["Ne"], dtype=np.float64),
-            "Nhe+": np.asarray(snapshot.fields["Nhe+"], dtype=np.float64),
-        },
-        charged_species,
-    )[None, ...]
-    for name in ("ddt(Ne)", "ddt(NVe)", "ddt(Vort)"):
-        if name in snapshot.optional_fields:
-            variables[name] = np.asarray(snapshot.optional_fields[name], dtype=np.float64)[None, ...]
+    for name in field_names:
+        variables[name] = np.stack([np.asarray(s.fields[name], dtype=np.float64) for s in snapshots], axis=0)
+    if "Ajpar" not in variables and all(name in field_names for name in ("NVe", "NVhe+")):
+        variables["Ajpar"] = np.stack(
+            [
+                compute_parallel_current_density(
+                    {
+                        "NVe": np.asarray(s.fields["NVe"], dtype=np.float64),
+                        "NVhe+": np.asarray(s.fields["NVhe+"], dtype=np.float64),
+                    },
+                    charged_species,
+                )
+                for s in snapshots
+            ],
+            axis=0,
+        )
+    if "alpha_em" in case.compare_variables:
+        variables["alpha_em"] = np.stack(
+            [
+                compute_alpha_em(
+                    {
+                        "Ne": np.asarray(s.fields["Ne"], dtype=np.float64),
+                        "Nhe+": np.asarray(s.fields["Nhe+"], dtype=np.float64),
+                    },
+                    charged_species,
+                )
+                for s in snapshots
+            ],
+            axis=0,
+        )
+    for name in optional_field_names:
+        if all(name in s.optional_fields for s in snapshots):
+            variables[name] = np.stack(
+                [np.asarray(s.optional_fields[name], dtype=np.float64) for s in snapshots],
+                axis=0,
+            )
 
     trimmed_variables = _prepare_compare_variables(
         variables,
@@ -330,8 +392,8 @@ def _run_annulus_he_emag_rhs_case(
         parity_mode=case.parity_mode,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
-        dimensions={"t": 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
-        time_points=(0.0,),
+        dimensions={"t": len(time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=tuple(execution.summary.time_points[index] for index in time_indices),
         dataset_scalars=dataset_scalars,
         variables=trimmed_variables,
         overrides=execution.summary.overrides,
@@ -341,7 +403,7 @@ def _run_annulus_he_emag_rhs_case(
     return NativeRunResult(
         payload=payload,
         variables=trimmed_variables,
-        time_points=(0.0,),
+        time_points=tuple(execution.summary.time_points[index] for index in time_indices),
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
