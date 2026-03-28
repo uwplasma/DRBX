@@ -92,7 +92,7 @@ The first parity ladder is recorded in [references/reference_case_ladder.toml](/
 | `recycling_1d_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `integrated_2d_recycling_rhs` | `native-scaffolded` | Staged local-dump RHS path now runs natively with slab-local target routing, dump-state preservation, dump-backed `SNd`/`SNd+` density-source replacement, dump-backed `SPd`/`SPd+` ion-pressure source replacement, restored staged target-recycling diagnostics, and a source-faithful `sheath_boundary_simple` electron boundary path; parity is not locked, but the earlier target-row `ddt(Pe)` miss is no longer the dominant defect. |
-| `integrated_2d_recycling_one_step` | `native-scaffolded` | First native transient scaffold now starts from the staged one-RHS dump state, marches one native recycling step on the shared implicit backbone, and rebuilds staged target-recycling diagnostics from the initial/final states. |
+| `integrated_2d_recycling_one_step` | `native-scaffolded` | First native transient scaffold now starts from the staged one-RHS dump state, marches one native recycling step on the shared implicit backbone, and rebuilds staged target-recycling diagnostics while preserving the evolved target state on the final diagnostic pass. |
 | `blob2d_short_window` | `native-validated` | Blob benchmark history is locked. |
 | `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
 
