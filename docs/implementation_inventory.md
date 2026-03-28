@@ -110,6 +110,7 @@ The next queued staged baselines are now committed as well:
 - the same staged workflow now extends through the full configured `nout=5` short window, so Step 3 transient work can move on the stable integrated geometry before the blocked tokamak examples are revived.
 - that same native transient path now also honors the staged `nout=20` medium-window override, so Step 3 can measure longer transient drift on the stable integrated geometry before the broader 2D production path is promoted.
 - the staged integrated transient path now also consumes dump-backed ion momentum-source fields (`SNVd+`, `SNVd`) in addition to the staged density and ion-pressure source fields. A direct attempt to stage `SPe` was measured and rejected because it worsened the medium-window `Pe` drift, which is a useful constraint for the next Step 3 slice.
+- the same dump-backed geometry lane now also has a committed `integrated_2d_production_rhs` reference baseline, widening Step 3 beyond the recycling-only benchmark while preserving the same stable artifact-staged workflow and 10-rank reference launch.
 - the staged integrated `2D-recycling` path now also has explicit performance and differentiability tracking:
   - on this machine, the full curated case run is about `3.89 s`, while loading the local dump is about `35 ms`, the first direct dump-backed RHS evaluation is about `4.2 ms`, and repeated direct RHS evaluations average about `4.5 ms`;
   - the staged path is therefore currently harness-bound rather than kernel-bound for Step 3 iteration;
