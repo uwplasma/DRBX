@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import jax.numpy as jnp
 import numpy as np
@@ -415,3 +416,111 @@ def test_integrated_2d_simple_sheath_preserve_mode_keeps_simple_guard_cells() ->
         prepared_preserve["e"].density[:, mesh.ystart, :],
         prepared_free["e"].density[:, mesh.ystart, :],
     )
+
+
+def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("integrated 2D recycling reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    initial_fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": 3.0 * np.ones((4, 5, 1), dtype=np.float64),
+    }
+    evolved_history = {name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()}
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "load_local_reference_snapshot",
+        lambda *args, **kwargs: LocalReferenceSnapshot(
+            mesh=mesh,
+            metrics=metrics,
+            fields=initial_fields,
+            optional_fields={},
+            scalar_values={"Nnorm": 1.0e17},
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_history(*args, **kwargs):
+        captured["initial_fields"] = kwargs["initial_fields"]
+        return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
+
+    def fake_rhs(*args, **kwargs):
+        fields = kwargs["field_overrides"]
+        density = np.asarray(fields["Nd+"], dtype=np.float64)
+        pressure = np.asarray(fields["Pd+"], dtype=np.float64)
+        return SimpleNamespace(
+            variables={
+                "Sd_target_recycle": density[None, ...],
+                "Ed_target_recycle": pressure[None, ...],
+            }
+        )
+
+    monkeypatch.setattr(native_runner, "compute_recycling_1d_rhs", fake_rhs)
+
+    case = ReferenceCase(
+        name="integrated_2d_recycling_one_step",
+        stage="stage7",
+        reference_path=str(_REFERENCE_INPUT),
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"),
+        trim_x_guards=True,
+        trim_y_guards=True,
+    )
+
+    result = native_runner._run_integrated_2d_recycling_one_step_case(
+        case,
+        input_path=_REFERENCE_INPUT,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert tuple(captured["initial_fields"]) == tuple(initial_fields)
+    assert result.time_points == (0.0, 0.0001)
+    assert result.variables["Nd+"].shape == (2, 2, 3, 1)
+    assert result.variables["Sd_target_recycle"].shape == (2, 2, 3, 1)

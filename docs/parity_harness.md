@@ -32,7 +32,7 @@ For a figure-first view of the currently locked cases, see [docs/validation_gall
 | `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `recycling_1d_long` | `blocked` | Depends on the transient ladder. |
 | `integrated_2d_recycling_rhs` | `native-scaffolded target` | Stable integrated 2D recycling geometry target with staged grid artifact, 10-rank launch, a native local-dump RHS scaffold, slab-local target routing, dump-state sheath preservation, dump-backed `SNd`/`SNd+` and `SPd`/`SPd+` staging for the integrated case, restored staged target-recycling diagnostics, and a source-faithful `sheath_boundary_simple` electron boundary path. |
-| `integrated_2d_recycling_one_step` | `reference-only target` | Stable integrated 2D recycling first-output target with staged grid artifact and 10-rank launch. |
+| `integrated_2d_recycling_one_step` | `native-scaffolded target` | Stable integrated 2D recycling first-output target with staged grid artifact, 10-rank launch, and a first native transient scaffold that starts from the staged one-RHS dump state and marches one native recycling step. |
 | `tokamak_recycling_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 | `tokamak_recycling_dthe_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 
