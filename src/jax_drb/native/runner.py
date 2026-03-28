@@ -133,6 +133,11 @@ def _run_integrated_2d_recycling_rhs_case(
             for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
             if field_name in snapshot.optional_fields
         } or None
+        momentum_source_overrides = {
+            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+            for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
+            if field_name in snapshot.optional_fields
+        } or None
         result = compute_recycling_1d_rhs(
             config,
             mesh=snapshot.mesh,
@@ -143,6 +148,7 @@ def _run_integrated_2d_recycling_rhs_case(
             preserve_dump_target_state=True,
             density_source_overrides=density_source_overrides,
             pressure_source_overrides=pressure_source_overrides,
+            momentum_source_overrides=momentum_source_overrides,
         )
         for name in ("Sd_target_recycle", "Ed_target_recycle"):
             if name in snapshot.optional_fields:
@@ -259,7 +265,16 @@ def _run_integrated_2d_recycling_transient_case(
         snapshot = load_local_reference_snapshot(
             dump_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-            optional_field_names=("SNd+", "SPd+", "SNd", "SPd", "Sd_target_recycle", "Ed_target_recycle"),
+            optional_field_names=(
+                "SNd+",
+                "SNVd+",
+                "SPd+",
+                "SNd",
+                "SNVd",
+                "SPd",
+                "Sd_target_recycle",
+                "Ed_target_recycle",
+            ),
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
     density_source_overrides = {
@@ -270,6 +285,11 @@ def _run_integrated_2d_recycling_transient_case(
     pressure_source_overrides = {
         name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
         for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
+        if field_name in snapshot.optional_fields
+    } or None
+    momentum_source_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
         if field_name in snapshot.optional_fields
     } or None
     solver_mode = _select_recycling_transient_solver_mode(config, parity_mode="one_step")
@@ -283,6 +303,7 @@ def _run_integrated_2d_recycling_transient_case(
         initial_fields=snapshot.fields,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
+        momentum_source_overrides=momentum_source_overrides,
         preserve_dump_target_state=True,
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
