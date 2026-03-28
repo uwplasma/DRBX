@@ -240,6 +240,7 @@ def _run_integrated_2d_recycling_one_step_case(
         dataset_scalars=dataset_scalars,
         field_overrides={name: np.asarray(values[-1], dtype=np.float64) for name, values in history.variable_history.items()},
         apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
     )
     variables = {
         name: np.asarray(value, dtype=np.float64)
