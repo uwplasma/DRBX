@@ -67,6 +67,7 @@ def _alfven_snapshot(*, time_index: int) -> LocalReferenceSnapshot:
         "Vort": np.full((5, 36, 27), 4.0 * scale, dtype=np.float64),
         "NVe": np.full((5, 36, 27), -(2.0 / 1836.0) * scale, dtype=np.float64),
         "Ne": np.ones((5, 36, 27), dtype=np.float64),
+        "Ni": np.ones((5, 36, 27), dtype=np.float64),
     }
     optional_fields = {
         "ddt(NVe)": np.full((5, 36, 27), 6.0 * scale, dtype=np.float64),
@@ -103,6 +104,11 @@ def test_alfven_wave_rhs_uses_dump_backed_snapshot(monkeypatch: pytest.MonkeyPat
         return _alfven_snapshot(time_index=time_index)
 
     monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+    monkeypatch.setattr(
+        native_runner,
+        "solve_slab_neumann_apar",
+        lambda *args, **kwargs: np.full((5, 36, 27), 9.0, dtype=np.float64),
+    )
 
     case = ReferenceCase(
         name="alfven_wave_rhs",
@@ -119,12 +125,12 @@ def test_alfven_wave_rhs_uses_dump_backed_snapshot(monkeypatch: pytest.MonkeyPat
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert captured["field_names"] == ("Apar", "phi", "Vort", "NVe", "Ne")
+    assert captured["field_names"] == ("Apar", "phi", "Vort", "NVe", "Ne", "Ni")
     assert captured["optional_field_names"] == ("ddt(NVe)", "ddt(Vort)")
     assert captured["time_index"] == 0
     assert result.payload["dimensions"] == {"t": 1, "x": 5, "y": 36, "z": 27}
     assert result.variables["ddt(NVe)"].shape == (1, 5, 36, 27)
-    assert float(result.variables["Apar"][0, 0, 0, 0]) == 1.0e-3
+    assert float(result.variables["Apar"][0, 0, 0, 0]) == 9.0
     assert float(result.variables["Ajpar"][0, 0, 0, 0]) == 0.0
     assert float(result.variables["Ajpar"][0, 2, 0, 0]) == pytest.approx(2.0)
 
@@ -148,6 +154,11 @@ def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: py
         return _alfven_snapshot(time_index=time_index)
 
     monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+    monkeypatch.setattr(
+        native_runner,
+        "solve_slab_neumann_apar",
+        lambda current_density, **kwargs: np.full_like(np.asarray(current_density, dtype=np.float64), np.max(np.abs(current_density))),
+    )
 
     case = ReferenceCase(
         name="alfven_wave_one_step",
@@ -167,8 +178,8 @@ def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: py
     assert captured_time_indices == [0, 1]
     assert result.time_points == (0.0, 10.0)
     assert result.variables["Apar"].shape == (2, 5, 36, 27)
-    assert float(result.variables["Apar"][0, 0, 0, 0]) == 1.0e-3
-    assert float(result.variables["Apar"][1, 0, 0, 0]) == 2.0e-3
+    assert float(result.variables["Apar"][0, 0, 0, 0]) == 2.0
+    assert float(result.variables["Apar"][1, 0, 0, 0]) == 4.0
     assert float(result.variables["Ajpar"][0, 0, 0, 0]) == 0.0
     assert float(result.variables["Ajpar"][1, 0, 0, 0]) == 0.0
     assert float(result.variables["Ajpar"][0, 2, 0, 0]) == pytest.approx(2.0)
