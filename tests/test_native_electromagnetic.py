@@ -95,6 +95,22 @@ def test_compute_apar_flutter_returns_zero_for_constant_field() -> None:
     np.testing.assert_allclose(flutter, 0.0)
 
 
+def test_compute_apar_flutter_subtracts_dc_component_on_requested_axis() -> None:
+    apar = np.array(
+        [
+            [[1.0, 3.0], [5.0, 7.0]],
+            [[2.0, 4.0], [6.0, 8.0]],
+        ],
+        dtype=np.float64,
+    )
+
+    flutter = compute_apar_flutter(apar, axis=2)
+
+    expected = apar - np.mean(apar, axis=2, keepdims=True)
+    np.testing.assert_allclose(flutter, expected)
+    np.testing.assert_allclose(np.mean(flutter, axis=2), 0.0)
+
+
 def test_solve_slab_neumann_apar_matches_single_mode_analytic_solution() -> None:
     mesh = StructuredMesh(
         nx=5,
