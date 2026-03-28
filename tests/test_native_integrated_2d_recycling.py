@@ -161,7 +161,10 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
             mesh=mesh,
             metrics=metrics,
             fields=fields,
-            optional_fields={"is_pump": np.zeros((4, 5, 1), dtype=np.float64)},
+            optional_fields={
+                "SPd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "is_pump": np.zeros((4, 5, 1), dtype=np.float64),
+            },
             scalar_values={"Nnorm": 1.0e17},
         )
 
@@ -185,7 +188,7 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
     )
 
     assert captured["field_names"] == ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
-    assert captured["optional_field_names"] == ("Ne", "Sd_target_recycle", "Ed_target_recycle", "is_pump")
+    assert captured["optional_field_names"] == ("Ne", "SPd+", "Sd_target_recycle", "Ed_target_recycle", "is_pump")
     assert captured["scalar_names"] == ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
 
 
@@ -247,7 +250,7 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
             mesh=mesh,
             metrics=metrics,
             fields=fields,
-            optional_fields={},
+            optional_fields={"SPd+": np.zeros((4, 5, 1), dtype=np.float64)},
             scalar_values={"Nnorm": 1.0e17},
         ),
     )
@@ -258,6 +261,7 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
     def wrapper(*args, **kwargs):
         captured["apply_sheath_boundaries"] = kwargs["apply_sheath_boundaries"]
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
+        captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
         return original(*args, **kwargs)
 
     monkeypatch.setattr(native_runner, "compute_recycling_1d_rhs", wrapper)
@@ -281,3 +285,4 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
 
     assert captured["apply_sheath_boundaries"] is True
     assert captured["preserve_dump_target_state"] is True
+    assert tuple(captured["pressure_source_overrides"]) == ("d+",)
