@@ -62,11 +62,11 @@ def _alfven_snapshot(*, time_index: int) -> LocalReferenceSnapshot:
     )
     scale = float(time_index + 1)
     fields = {
-        "Apar": np.full((5, 36, 27), 1.0 * scale, dtype=np.float64),
-        "Ajpar": np.full((5, 36, 27), 2.0 * scale, dtype=np.float64),
+        "Apar": np.full((5, 36, 27), 1.0e-3 * scale, dtype=np.float64),
         "phi": np.full((5, 36, 27), 3.0 * scale, dtype=np.float64),
         "Vort": np.full((5, 36, 27), 4.0 * scale, dtype=np.float64),
-        "NVe": np.full((5, 36, 27), 5.0 * scale, dtype=np.float64),
+        "NVe": np.full((5, 36, 27), -(2.0 / 1836.0) * scale, dtype=np.float64),
+        "Ne": np.ones((5, 36, 27), dtype=np.float64),
     }
     optional_fields = {
         "ddt(NVe)": np.full((5, 36, 27), 6.0 * scale, dtype=np.float64),
@@ -119,12 +119,14 @@ def test_alfven_wave_rhs_uses_dump_backed_snapshot(monkeypatch: pytest.MonkeyPat
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert captured["field_names"] == ("Apar", "Ajpar", "phi", "Vort", "NVe")
+    assert captured["field_names"] == ("Apar", "phi", "Vort", "NVe", "Ne")
     assert captured["optional_field_names"] == ("ddt(NVe)", "ddt(Vort)")
     assert captured["time_index"] == 0
     assert result.payload["dimensions"] == {"t": 1, "x": 5, "y": 36, "z": 27}
     assert result.variables["ddt(NVe)"].shape == (1, 5, 36, 27)
-    assert float(result.variables["Apar"][0, 0, 0, 0]) == 1.0
+    assert float(result.variables["Apar"][0, 0, 0, 0]) == 1.0e-3
+    assert float(result.variables["Ajpar"][0, 0, 0, 0]) == 0.0
+    assert float(result.variables["Ajpar"][0, 2, 0, 0]) == pytest.approx(2.0)
 
 
 def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -165,5 +167,9 @@ def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: py
     assert captured_time_indices == [0, 1]
     assert result.time_points == (0.0, 10.0)
     assert result.variables["Apar"].shape == (2, 5, 36, 27)
-    assert float(result.variables["Apar"][0, 0, 0, 0]) == 1.0
-    assert float(result.variables["Apar"][1, 0, 0, 0]) == 2.0
+    assert float(result.variables["Apar"][0, 0, 0, 0]) == 1.0e-3
+    assert float(result.variables["Apar"][1, 0, 0, 0]) == 2.0e-3
+    assert float(result.variables["Ajpar"][0, 0, 0, 0]) == 0.0
+    assert float(result.variables["Ajpar"][1, 0, 0, 0]) == 0.0
+    assert float(result.variables["Ajpar"][0, 2, 0, 0]) == pytest.approx(2.0)
+    assert float(result.variables["Ajpar"][1, 2, 0, 0]) == pytest.approx(4.0)
