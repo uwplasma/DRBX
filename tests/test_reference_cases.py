@@ -77,3 +77,18 @@ def test_default_manifest_stages_integrated_2d_recycling_case() -> None:
     assert case.artifact_bundle_url is not None
     assert case.artifact_bundle_sha256 == "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
     assert case.artifact_bundle_files == ("grid_test2.nc",)
+
+
+def test_default_manifest_stages_integrated_2d_recycling_medium_window_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "integrated_2d_recycling_medium_window")
+
+    assert case.reference_path == "tests/integrated/2D-recycling/data/BOUT.inp"
+    assert case.parity_mode == "short_window"
+    assert case.extra_overrides == ("nout=20",)
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 10
+    assert case.artifact_bundle_url is not None
+    assert case.artifact_bundle_sha256 == "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
+    assert case.artifact_bundle_files == ("grid_test2.nc",)
