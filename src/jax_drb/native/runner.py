@@ -87,6 +87,8 @@ def run_curated_case(
         return _run_annulus_he_emag_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "annulus_he_emag_one_step":
         return _run_annulus_he_emag_one_step_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "annulus_he_emag_short_window":
+        return _run_annulus_he_emag_short_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
@@ -309,12 +311,28 @@ def _run_annulus_he_emag_one_step_case(
     )
 
 
+def _run_annulus_he_emag_short_window_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_annulus_he_emag_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=None,
+        field_names=("Apar", "Ne", "Nhe+", "NVe", "NVhe+", "phi", "Vort"),
+        optional_field_names=(),
+    )
+
+
 def _run_annulus_he_emag_dump_case(
     case: ReferenceCase,
     *,
     input_path: Path,
     reference_root: str | Path,
-    time_indices: tuple[int, ...],
+    time_indices: tuple[int, ...] | None,
     field_names: tuple[str, ...],
     optional_field_names: tuple[str, ...],
 ) -> NativeRunResult:
@@ -331,7 +349,8 @@ def _run_annulus_he_emag_dump_case(
             keep_workdir=True,
         )
         dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
-        for time_index in time_indices:
+        resolved_time_indices = tuple(range(len(execution.summary.time_points))) if time_indices is None else time_indices
+        for time_index in resolved_time_indices:
             snapshots.append(
                 load_local_reference_snapshot(
                     dump_path,
@@ -392,8 +411,8 @@ def _run_annulus_he_emag_dump_case(
         parity_mode=case.parity_mode,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
-        dimensions={"t": len(time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
-        time_points=tuple(execution.summary.time_points[index] for index in time_indices),
+        dimensions={"t": len(resolved_time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=tuple(execution.summary.time_points[index] for index in resolved_time_indices),
         dataset_scalars=dataset_scalars,
         variables=trimmed_variables,
         overrides=execution.summary.overrides,
@@ -403,7 +422,7 @@ def _run_annulus_he_emag_dump_case(
     return NativeRunResult(
         payload=payload,
         variables=trimmed_variables,
-        time_points=tuple(execution.summary.time_points[index] for index in time_indices),
+        time_points=tuple(execution.summary.time_points[index] for index in resolved_time_indices),
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,

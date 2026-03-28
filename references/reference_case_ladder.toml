@@ -344,6 +344,15 @@ compare_variables = ["Apar", "Ne", "NVe", "phi", "Vort"]
 extra_overrides = ["timestep=10"]
 
 [[case]]
+name = "annulus_he_emag_short_window"
+stage = "stage8"
+reference_path = "examples/other/linear/annulus-isothermal-he-emag/BOUT.inp"
+parity_mode = "short_window"
+rationale = "Curated slim electromagnetic short-window parity on the annulus helium benchmark, using a reduced transient surface to stay under the repository artifact cap."
+compare_variables = ["Apar", "Ne", "phi"]
+extra_overrides = ["timestep=10", "nout=5"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"
