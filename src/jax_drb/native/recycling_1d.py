@@ -134,6 +134,7 @@ def compute_recycling_1d_rhs(
     feedback_integrals: dict[str, float] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    pressure_source_overrides: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
     runtime_model = _build_recycling_runtime_model(
         config,
@@ -154,6 +155,7 @@ def compute_recycling_1d_rhs(
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
         apply_sheath_boundaries=apply_sheath_boundaries,
         preserve_dump_target_state=preserve_dump_target_state,
+        pressure_source_overrides=pressure_source_overrides,
     )
 
 
@@ -171,8 +173,14 @@ def _compute_recycling_1d_rhs_from_species(
     explicit_pressure_sources: dict[str, np.ndarray] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    pressure_source_overrides: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
+    if pressure_source_overrides:
+        pressure_sources = {
+            **pressure_sources,
+            **{name: np.asarray(value, dtype=np.float64) for name, value in pressure_source_overrides.items()},
+        }
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     neutrals = tuple(sp for sp in species.values() if sp.charge == 0.0)
     electron = species["e"]
@@ -995,8 +1003,8 @@ def _prepare_open_field_states(
         ),
     )
 
-    if apply_sheath_boundaries and not preserve_dump_target_state:
-        ion_boundary = _apply_ion_sheath_boundary(
+    if apply_sheath_boundaries:
+        ion_boundary_state = _apply_ion_sheath_boundary(
             ions,
             electron_pressure=prepared["e"].pressure,
             electron_density=prepared["e"].density,
@@ -1004,6 +1012,11 @@ def _prepare_open_field_states(
             mesh=mesh,
             metrics=metrics,
         )
+    else:
+        ion_boundary_state = None
+
+    if apply_sheath_boundaries and not preserve_dump_target_state:
+        ion_boundary = ion_boundary_state
     else:
         ion_boundary = _IonBoundaryResult(
             density={ion.name: np.asarray(prepared[ion.name].density, dtype=np.float64) for ion in ions},
