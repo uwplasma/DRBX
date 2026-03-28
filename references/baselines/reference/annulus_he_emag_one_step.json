@@ -1,0 +1,155 @@
+{
+  "case_name": "annulus_he_emag_one_step",
+  "compare_variables": [
+    "Apar",
+    "Ne",
+    "NVe",
+    "phi",
+    "Vort"
+  ],
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_momentum",
+    "e:isothermal",
+    "he+:quasineutral",
+    "he+:evolve_momentum",
+    "he+:isothermal",
+    "electromagnetic",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange"
+  ],
+  "configured_nout": 500,
+  "configured_timestep": 1000.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 9787.151425755137,
+    "Nnorm": 1e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 1.0,
+    "rho_s0": 0.00010217477552952484
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 64,
+    "y": 20,
+    "z": 64
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1",
+    "timestep=10"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    10.0
+  ],
+  "variable_summaries": {
+    "Apar": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.0005659061799207233,
+      "maximum": 0.0005659061799207231,
+      "mean": -1.8317087484374246e-21,
+      "minimum": -0.0005659061799207233,
+      "name": "Apar",
+      "shape": [
+        2,
+        64,
+        20,
+        64
+      ]
+    },
+    "NVe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.004658260962349801,
+      "maximum": 0.032386941361404624,
+      "mean": -1.6263032587282566e-20,
+      "minimum": -0.032386941361404624,
+      "name": "NVe",
+      "shape": [
+        2,
+        64,
+        20,
+        64
+      ]
+    },
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.0006485460075030397,
+      "maximum": 0.10053323050299844,
+      "mean": 0.07435174754421855,
+      "minimum": 0.03702642832778888,
+      "name": "Ne",
+      "shape": [
+        2,
+        64,
+        20,
+        64
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.00035843087260305424,
+      "maximum": 0.00035843087260305424,
+      "mean": -1.5839752950346795e-06,
+      "minimum": -0.00035843087260305424,
+      "name": "Vort",
+      "shape": [
+        2,
+        64,
+        20,
+        64
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 1.0746376476462036,
+      "maximum": 1.0746376476462036,
+      "mean": 0.055477534720365096,
+      "minimum": -0.055293836439444896,
+      "name": "phi",
+      "shape": [
+        2,
+        64,
+        20,
+        64
+      ]
+    }
+  }
+}
