@@ -67,6 +67,8 @@ def run_curated_case(
     case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "integrated_2d_production_rhs":
+        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_short_window":
