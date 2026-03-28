@@ -292,6 +292,23 @@ artifact_bundle_sha256 = "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c
 artifact_bundle_files = ["grid_test2.nc"]
 
 [[case]]
+name = "alfven_wave_rhs"
+stage = "stage8"
+reference_path = "tests/integrated/alfven-wave/data/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Smallest electromagnetic reference rung: vector-potential, vorticity, and electron-momentum RHS parity on the finite-electron-mass Alfvén-wave benchmark."
+compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe", "ddt(NVe)", "ddt(Vort)"]
+extra_overrides = ["e:diagnose=true", "vorticity:diagnose=true"]
+
+[[case]]
+name = "alfven_wave_one_step"
+stage = "stage8"
+reference_path = "tests/integrated/alfven-wave/data/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First-output electromagnetic state parity on the Alfvén-wave benchmark before staging longer wave-propagation windows and dispersion validation."
+compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"

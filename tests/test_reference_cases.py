@@ -92,3 +92,18 @@ def test_default_manifest_stages_integrated_2d_recycling_medium_window_case() ->
     assert case.artifact_bundle_url is not None
     assert case.artifact_bundle_sha256 == "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
     assert case.artifact_bundle_files == ("grid_test2.nc",)
+
+
+def test_default_manifest_stages_alfven_wave_cases() -> None:
+    cases = load_reference_cases()
+    rhs_case = next(case for case in cases if case.name == "alfven_wave_rhs")
+    one_step_case = next(case for case in cases if case.name == "alfven_wave_one_step")
+
+    assert rhs_case.reference_path == "tests/integrated/alfven-wave/data/BOUT.inp"
+    assert rhs_case.parity_mode == "one_rhs"
+    assert rhs_case.extra_overrides == ("e:diagnose=true", "vorticity:diagnose=true")
+    assert rhs_case.compare_variables == ("Apar", "Ajpar", "phi", "Vort", "NVe", "ddt(NVe)", "ddt(Vort)")
+
+    assert one_step_case.reference_path == "tests/integrated/alfven-wave/data/BOUT.inp"
+    assert one_step_case.parity_mode == "one_step"
+    assert one_step_case.compare_variables == ("Apar", "Ajpar", "phi", "Vort", "NVe")
