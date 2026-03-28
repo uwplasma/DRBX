@@ -30,6 +30,7 @@ from .drift_wave import (
     compute_drift_wave_rhs,
     initialize_drift_wave_state,
 )
+from .electromagnetic import compute_parallel_current_density, extract_charged_species_metadata
 from .fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
 from .metrics import StructuredMetrics, build_structured_metrics
 from .mesh import (
@@ -206,7 +207,7 @@ def _run_alfven_wave_rhs_case(
         input_path=input_path,
         reference_root=reference_root,
         time_indices=(0,),
-        field_names=("Apar", "Ajpar", "phi", "Vort", "NVe"),
+        field_names=("Apar", "phi", "Vort", "NVe", "Ne"),
         optional_field_names=("ddt(NVe)", "ddt(Vort)"),
     )
 
@@ -222,7 +223,7 @@ def _run_alfven_wave_one_step_case(
         input_path=input_path,
         reference_root=reference_root,
         time_indices=(0, 1),
-        field_names=("Apar", "Ajpar", "phi", "Vort", "NVe"),
+        field_names=("Apar", "phi", "Vort", "NVe", "Ne"),
         optional_field_names=(),
     )
 
@@ -238,6 +239,7 @@ def _run_alfven_wave_dump_case(
 ) -> NativeRunResult:
     config = load_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)
+    charged_species = extract_charged_species_metadata(config)
     snapshots: list[Any] = []
     with tempfile.TemporaryDirectory(prefix="jaxdrb-native-alfven-wave-") as workdir:
         execution = run_reference_case(
@@ -271,6 +273,15 @@ def _run_alfven_wave_dump_case(
                 [np.asarray(snapshot.optional_fields[name], dtype=np.float64) for snapshot in snapshots],
                 axis=0,
             )
+    if "Ajpar" in case.compare_variables:
+        momentum_history = {"NVe": variables["NVe"]}
+        em_species = tuple(
+            species for species in charged_species if f"NV{species.section}" in momentum_history
+        )
+        variables["Ajpar"] = compute_parallel_current_density(momentum_history, em_species)
+        variables["Ajpar"][:, 0, :, :] = 0.0
+        variables["Ajpar"][:, -1, :, :] = 0.0
+    variables.pop("Ne", None)
 
     trimmed_variables = _prepare_compare_variables(
         variables,
