@@ -134,3 +134,13 @@ def test_default_manifest_stages_annulus_he_emag_rhs_case() -> None:
         "vorticity:diagnose=true",
         "electromagnetic:diagnose=true",
     )
+
+
+def test_default_manifest_stages_annulus_he_emag_one_step_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "annulus_he_emag_one_step")
+
+    assert case.reference_path == "examples/other/linear/annulus-isothermal-he-emag/BOUT.inp"
+    assert case.parity_mode == "one_step"
+    assert case.compare_variables == ("Apar", "Ne", "NVe", "phi", "Vort")
+    assert case.extra_overrides == ("timestep=10",)
