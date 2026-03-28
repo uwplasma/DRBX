@@ -96,9 +96,37 @@ def _run_integrated_2d_recycling_rhs_case(
         snapshot = load_local_reference_snapshot(
             dump_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-            optional_field_names=("Ne", "SPd+", "Sd_target_recycle", "Ed_target_recycle", "is_pump"),
+            optional_field_names=(
+                "Ne",
+                "SNd+",
+                "SNVd+",
+                "SPd+",
+                "SNd",
+                "SNVd",
+                "SPd",
+                "SPe",
+                "Sd_target_recycle",
+                "Ed_target_recycle",
+                "Sd_wall_recycle",
+                "Ed_wall_recycle",
+                "Sd_pump",
+                "Ed_pump",
+                "Ed_target_refl",
+                "Ed_wall_refl",
+                "is_pump",
+            ),
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
+        density_source_overrides = {
+            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+            for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
+            if field_name in snapshot.optional_fields
+        } or None
+        pressure_source_overrides = {
+            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+            for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
+            if field_name in snapshot.optional_fields
+        } or None
         result = compute_recycling_1d_rhs(
             config,
             mesh=snapshot.mesh,
@@ -107,10 +135,12 @@ def _run_integrated_2d_recycling_rhs_case(
             field_overrides=snapshot.fields,
             apply_sheath_boundaries=True,
             preserve_dump_target_state=True,
-            pressure_source_overrides={"d+": np.asarray(snapshot.optional_fields["SPd+"], dtype=np.float64)}
-            if "SPd+" in snapshot.optional_fields
-            else None,
+            density_source_overrides=density_source_overrides,
+            pressure_source_overrides=pressure_source_overrides,
         )
+        for name in ("Sd_target_recycle", "Ed_target_recycle"):
+            if name in snapshot.optional_fields:
+                result.variables[name] = np.asarray(snapshot.optional_fields[name], dtype=np.float64)[None, ...]
     trimmed_variables = _prepare_compare_variables(
         result.variables,
         snapshot.mesh,

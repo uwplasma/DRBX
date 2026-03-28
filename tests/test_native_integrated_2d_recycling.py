@@ -166,7 +166,21 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
             metrics=metrics,
             fields=fields,
             optional_fields={
+                "SNd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNVd+": np.zeros((4, 5, 1), dtype=np.float64),
                 "SPd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNVd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SPd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SPe": np.zeros((4, 5, 1), dtype=np.float64),
+                "Sd_target_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_target_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Sd_wall_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_wall_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Sd_pump": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_pump": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_target_refl": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_wall_refl": np.zeros((4, 5, 1), dtype=np.float64),
                 "is_pump": np.zeros((4, 5, 1), dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
@@ -192,7 +206,25 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
     )
 
     assert captured["field_names"] == ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
-    assert captured["optional_field_names"] == ("Ne", "SPd+", "Sd_target_recycle", "Ed_target_recycle", "is_pump")
+    assert captured["optional_field_names"] == (
+        "Ne",
+        "SNd+",
+        "SNVd+",
+        "SPd+",
+        "SNd",
+        "SNVd",
+        "SPd",
+        "SPe",
+        "Sd_target_recycle",
+        "Ed_target_recycle",
+        "Sd_wall_recycle",
+        "Ed_wall_recycle",
+        "Sd_pump",
+        "Ed_pump",
+        "Ed_target_refl",
+        "Ed_wall_refl",
+        "is_pump",
+    )
     assert captured["scalar_names"] == ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
 
 
@@ -254,7 +286,15 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
             mesh=mesh,
             metrics=metrics,
             fields=fields,
-            optional_fields={"SPd+": np.zeros((4, 5, 1), dtype=np.float64)},
+            optional_fields={
+                "SNd+": np.ones((4, 5, 1), dtype=np.float64),
+                "SNVd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+                "SPd+": np.full((4, 5, 1), 3.0, dtype=np.float64),
+                "SNd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+                "SNVd": np.full((4, 5, 1), 5.0, dtype=np.float64),
+                "SPd": np.full((4, 5, 1), 6.0, dtype=np.float64),
+                "SPe": np.full((4, 5, 1), 7.0, dtype=np.float64),
+            },
             scalar_values={"Nnorm": 1.0e17},
         ),
     )
@@ -265,6 +305,7 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
     def wrapper(*args, **kwargs):
         captured["apply_sheath_boundaries"] = kwargs["apply_sheath_boundaries"]
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
+        captured["density_source_overrides"] = kwargs["density_source_overrides"]
         captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
         return original(*args, **kwargs)
 
@@ -289,7 +330,8 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
 
     assert captured["apply_sheath_boundaries"] is True
     assert captured["preserve_dump_target_state"] is True
-    assert tuple(captured["pressure_source_overrides"]) == ("d+",)
+    assert tuple(captured["density_source_overrides"]) == ("d+", "d")
+    assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
 
 
 def test_integrated_2d_simple_sheath_preserve_mode_keeps_simple_guard_cells() -> None:
