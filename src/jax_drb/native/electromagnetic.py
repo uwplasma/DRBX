@@ -6,6 +6,8 @@ from typing import Mapping
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
+from .mesh import StructuredMesh, apply_neumann_x_guards
+from .metrics import StructuredMetrics
 
 VACUUM_PERMEABILITY = 4.0e-7 * np.pi
 
@@ -101,3 +103,54 @@ def apply_canonical_momentum_correction(
 def compute_apar_flutter(apar: np.ndarray, *, axis: int = 1) -> np.ndarray:
     apar_array = np.asarray(apar, dtype=np.float64)
     return apar_array - np.mean(apar_array, axis=axis, keepdims=True)
+
+
+def solve_slab_neumann_apar(
+    current_density: np.ndarray,
+    *,
+    density_fields: Mapping[str, np.ndarray],
+    species_metadata: tuple[ChargedSpeciesMetadata, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    beta_em: float,
+    density_floor: float = 1.0e-5,
+) -> np.ndarray:
+    current = np.asarray(current_density, dtype=np.float64)
+    if current.shape != (mesh.nx, mesh.local_ny, mesh.nz):
+        raise ValueError("current_density must match the full structured field shape.")
+    if mesh.xstart != mesh.xend:
+        raise NotImplementedError("Native slab Apar currently requires a single interior radial cell.")
+
+    alpha = compute_alpha_em(density_fields, species_metadata, density_floor=density_floor)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    interior_current = current[mesh.xstart, y_slice, :]
+    alpha_core = np.asarray(alpha[mesh.xstart, y_slice, :], dtype=np.float64)
+    g33_core = np.asarray(metrics.g33[mesh.xstart, y_slice, :], dtype=np.float64)
+    dz_core = np.asarray(metrics.dz[mesh.xstart, y_slice, :], dtype=np.float64)
+
+    alpha_row = alpha_core[:, 0]
+    g33_row = g33_core[:, 0]
+    dz_row = dz_core[:, 0]
+    if not np.allclose(alpha_core, alpha_row[:, None], rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native slab Apar currently requires alpha_em uniform along z.")
+    if not np.allclose(g33_core, g33_row[:, None], rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native slab Apar currently requires g33 uniform along z.")
+    if not np.allclose(dz_core, dz_row[:, None], rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native slab Apar currently requires dz uniform along z.")
+
+    wave_numbers = (2.0 * np.pi * np.arange(mesh.nz // 2 + 1, dtype=np.float64)[None, :]) / (
+        dz_row[:, None] * float(mesh.nz)
+    )
+    rhs_hat = np.fft.rfft((-float(beta_em)) * interior_current, axis=-1)
+    denominator = -(wave_numbers * wave_numbers) * g33_row[:, None] - (
+        float(beta_em) * alpha_row[:, None]
+    )
+    interior_apar = np.fft.irfft(rhs_hat / denominator, n=mesh.nz, axis=-1)
+
+    full = np.zeros_like(current, dtype=np.float64)
+    full[mesh.xstart, y_slice, :] = interior_apar
+    full = np.array(apply_neumann_x_guards(full, mesh), dtype=np.float64, copy=True)
+    for offset in range(mesh.myg):
+        full[:, mesh.ystart - 1 - offset, :] = full[:, mesh.yend - offset, :]
+        full[:, mesh.yend + 1 + offset, :] = full[:, mesh.ystart + offset, :]
+    return full
