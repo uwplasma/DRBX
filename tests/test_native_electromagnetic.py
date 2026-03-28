@@ -6,9 +6,14 @@ from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native.electromagnetic import (
     ALFVEN_WAVE_DDT_NVE_DDY_COEF,
     ALFVEN_WAVE_DDT_NVE_DDZ_COEF,
+    ALFVEN_WAVE_DDT_VORT_X1_DDY_COEF,
+    ALFVEN_WAVE_DDT_VORT_X1_DDZ_COEF,
+    ALFVEN_WAVE_DDT_VORT_X3_DDY_COEF,
+    ALFVEN_WAVE_DDT_VORT_X3_DDZ_COEF,
     ChargedSpeciesMetadata,
     apply_canonical_momentum_correction,
     compute_alfven_wave_ddt_nve_core,
+    compute_alfven_wave_ddt_vort_core,
     compute_alpha_em,
     compute_apar_flutter,
     compute_beta_em,
@@ -257,3 +262,52 @@ def test_compute_alfven_wave_ddt_nve_core_matches_periodic_vorticity_derivatives
     )
     np.testing.assert_allclose(ddt_nve[: mesh.xstart, :, :], 0.0, atol=1.0e-18)
     np.testing.assert_allclose(ddt_nve[mesh.xend + 1 :, :, :], 0.0, atol=1.0e-18)
+
+
+def test_compute_alfven_wave_ddt_vort_core_matches_inner_radial_periodic_derivatives() -> None:
+    mesh = StructuredMesh(
+        nx=5,
+        ny=4,
+        nz=8,
+        mxg=2,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=True,
+        jyseps1_1=-1,
+        jyseps2_1=3,
+        jyseps1_2=3,
+        jyseps2_2=3,
+        ny_inner=4,
+        has_lower_y_target=False,
+        has_upper_y_target=False,
+        x=np.arange(5, dtype=np.float64),
+        y=np.arange(6, dtype=np.float64),
+        z=np.arange(8, dtype=np.float64),
+    )
+    y_index = np.arange(mesh.ny, dtype=np.float64)[:, None]
+    z_index = np.arange(mesh.nz, dtype=np.float64)[None, :]
+    core = 1.0e-3 * np.sin(z_index - y_index)
+    vorticity = np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    vorticity[mesh.xstart - 1, mesh.ystart : mesh.yend + 1, :] = -core
+    vorticity[mesh.xstart, mesh.ystart : mesh.yend + 1, :] = core
+    vorticity[mesh.xstart + 1, mesh.ystart : mesh.yend + 1, :] = -core
+
+    ddt_vort = compute_alfven_wave_ddt_vort_core(vorticity, mesh=mesh)
+
+    ddy = 0.5 * (np.roll(core, -1, axis=0) - np.roll(core, 1, axis=0))
+    ddz = 0.5 * (np.roll(core, -1, axis=1) - np.roll(core, 1, axis=1))
+    expected_x1 = ALFVEN_WAVE_DDT_VORT_X1_DDY_COEF * (-ddy) + ALFVEN_WAVE_DDT_VORT_X1_DDZ_COEF * (-ddz)
+    expected_x3 = ALFVEN_WAVE_DDT_VORT_X3_DDY_COEF * (-ddy) + ALFVEN_WAVE_DDT_VORT_X3_DDZ_COEF * (-ddz)
+    np.testing.assert_allclose(
+        ddt_vort[mesh.xstart - 1, mesh.ystart : mesh.yend + 1, :],
+        expected_x1,
+        atol=1.0e-18,
+    )
+    np.testing.assert_allclose(
+        ddt_vort[mesh.xstart + 1, mesh.ystart : mesh.yend + 1, :],
+        expected_x3,
+        atol=1.0e-18,
+    )
+    np.testing.assert_allclose(ddt_vort[mesh.xstart, :, :], 0.0, atol=1.0e-18)
+    np.testing.assert_allclose(ddt_vort[0, :, :], 0.0, atol=1.0e-18)
+    np.testing.assert_allclose(ddt_vort[-1, :, :], 0.0, atol=1.0e-18)
