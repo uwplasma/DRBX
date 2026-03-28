@@ -582,6 +582,59 @@ def test_multispecies_feedback_controller_detects_initial_helium_density_error()
     assert np.allclose(source, 0.0, rtol=0.0, atol=0.0)
 
 
+def test_recycling_source_overrides_replace_total_density_momentum_and_pressure_sources() -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density_overrides = {
+        "d+": np.full(shape, 1.25, dtype=np.float64),
+        "d": np.full(shape, -0.75, dtype=np.float64),
+    }
+    momentum_overrides = {
+        "d+": np.full(shape, 2.5, dtype=np.float64),
+        "d": np.full(shape, -1.5, dtype=np.float64),
+    }
+    pressure_overrides = {
+        "d+": np.full(shape, 3.5, dtype=np.float64),
+        "d": np.full(shape, -2.0, dtype=np.float64),
+        "e": np.full(shape, 4.5, dtype=np.float64),
+    }
+    baseline = compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+
+    result = compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+        density_source_overrides=density_overrides,
+        pressure_source_overrides=pressure_overrides,
+        momentum_source_overrides=momentum_overrides,
+    )
+
+    active = (mesh.xstart, mesh.ystart, 0)
+    assert float(np.asarray(result.variables["SNVd+"])[0][active]) == pytest.approx(2.5)
+    assert float(np.asarray(result.variables["SNVd"])[0][active]) == pytest.approx(-1.5)
+    assert abs(
+        float(np.asarray(result.variables["ddt(Nd+)"])[0][active])
+        - float(np.asarray(baseline.variables["ddt(Nd+)"])[0][active])
+    ) > 0.5
+    assert abs(
+        float(np.asarray(result.variables["ddt(Nd)"])[0][active])
+        - float(np.asarray(baseline.variables["ddt(Nd)"])[0][active])
+    ) > 0.5
+    assert abs(
+        float(np.asarray(result.variables["ddt(Pe)"])[0][active])
+        - float(np.asarray(baseline.variables["ddt(Pe)"])[0][active])
+    ) > 1.0
+
+
 def test_feedback_integrals_advance_with_reference_trapezoid_rule() -> None:
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
