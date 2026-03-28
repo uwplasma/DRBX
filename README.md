@@ -106,6 +106,7 @@ pytest -q
 
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
 - Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
+- Alfven-wave benchmark: [docs/alfven_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_benchmark.md)
 - Neutral mixed benchmark: [docs/neutral_mixed_benchmark.md](/Users/rogerio/local/jax_drb/docs/neutral_mixed_benchmark.md)
 - Parity harness: [docs/parity_harness.md](/Users/rogerio/local/jax_drb/docs/parity_harness.md)
 - Parity matrix: [docs/parity_matrix.md](/Users/rogerio/local/jax_drb/docs/parity_matrix.md)
