@@ -43,6 +43,20 @@ class ArrayDiffReport:
 
 
 @dataclass(frozen=True)
+class ScaledArrayDiffEntry:
+    field: str
+    shape: tuple[int, ...]
+    max_abs_diff: float
+    max_abs_location: tuple[int, ...]
+    expected_value: float
+    actual_value: float
+    expected_abs_max: float
+    actual_abs_max: float
+    relative_to_expected_max: float | None
+    near_zero_expected: bool
+
+
+@dataclass(frozen=True)
 class RecyclingArtifactDiffReport:
     expected_path: Path
     actual_path: Path
@@ -183,6 +197,43 @@ def format_array_diff_report(report: ArrayDiffReport) -> str:
     if not lines:
         lines.append("comparison: ok")
     return "\n".join(lines)
+
+
+def build_scaled_array_diff_entries(
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    *,
+    compare_variables: tuple[str, ...] | None = None,
+    near_zero_atol: float = 1e-12,
+) -> tuple[ScaledArrayDiffEntry, ...]:
+    report = build_array_diff_report(expected, actual, compare_variables=compare_variables)
+    entries: list[ScaledArrayDiffEntry] = []
+    for entry in report.entries:
+        if entry.field not in expected or entry.field not in actual:
+            continue
+        expected_array = np.asarray(expected[entry.field], dtype=np.float64)
+        actual_array = np.asarray(actual[entry.field], dtype=np.float64)
+        expected_abs_max = float(np.max(np.abs(expected_array))) if expected_array.size else 0.0
+        actual_abs_max = float(np.max(np.abs(actual_array))) if actual_array.size else 0.0
+        near_zero_expected = expected_abs_max <= near_zero_atol
+        relative_to_expected_max = None
+        if not near_zero_expected:
+            relative_to_expected_max = float(entry.max_abs_diff / expected_abs_max)
+        entries.append(
+            ScaledArrayDiffEntry(
+                field=entry.field,
+                shape=entry.shape,
+                max_abs_diff=entry.max_abs_diff,
+                max_abs_location=entry.max_abs_location,
+                expected_value=entry.expected_value,
+                actual_value=entry.actual_value,
+                expected_abs_max=expected_abs_max,
+                actual_abs_max=actual_abs_max,
+                relative_to_expected_max=relative_to_expected_max,
+                near_zero_expected=near_zero_expected,
+            )
+        )
+    return tuple(entries)
 
 
 def compare_recycling_artifacts(

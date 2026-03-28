@@ -8,7 +8,13 @@ import pytest
 
 from jax_drb.cli import main
 from jax_drb.parity.compare import load_summary_json
-from jax_drb.parity.diff import build_array_diff_report, compare_recycling_artifacts, format_array_diff_report, format_recycling_diff_report
+from jax_drb.parity.diff import (
+    build_array_diff_report,
+    build_scaled_array_diff_entries,
+    compare_recycling_artifacts,
+    format_array_diff_report,
+    format_recycling_diff_report,
+)
 
 
 _BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference")
@@ -46,6 +52,31 @@ def test_array_diff_report_formats_locations() -> None:
 
     assert "a: max_abs_diff=1.00000000e+00" in text
     assert "@(1,)" in text
+
+
+def test_scaled_array_diff_entries_classify_small_denominator_fields() -> None:
+    expected = {
+        "large": np.array([100.0, 50.0], dtype=np.float64),
+        "tiny": np.array([0.0, 1.0e-14], dtype=np.float64),
+    }
+    actual = {
+        "large": np.array([100.2, 50.0], dtype=np.float64),
+        "tiny": np.array([0.0, 2.0e-14], dtype=np.float64),
+    }
+
+    entries = build_scaled_array_diff_entries(expected, actual, compare_variables=("large", "tiny"), near_zero_atol=1.0e-12)
+
+    large = next(entry for entry in entries if entry.field == "large")
+    assert large.max_abs_diff == pytest.approx(2.0e-1)
+    assert large.expected_abs_max == pytest.approx(1.0e2)
+    assert large.relative_to_expected_max == pytest.approx(2.0e-3)
+    assert large.near_zero_expected is False
+
+    tiny = next(entry for entry in entries if entry.field == "tiny")
+    assert tiny.max_abs_diff == pytest.approx(1.0e-14)
+    assert tiny.expected_abs_max == pytest.approx(1.0e-14)
+    assert tiny.relative_to_expected_max is None
+    assert tiny.near_zero_expected is True
 
 
 def test_recycling_summary_diff_report_localizes_worst_variable(tmp_path: Path) -> None:
