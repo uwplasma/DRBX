@@ -552,8 +552,10 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
             fields=initial_fields,
             optional_fields={
                 "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+                "SNVd+": np.full((4, 5, 1), 1.5, dtype=np.float64),
                 "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+                "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
                 "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
                 "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
@@ -568,6 +570,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
         captured["initial_fields"] = kwargs["initial_fields"]
         captured["density_source_overrides"] = kwargs["density_source_overrides"]
         captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
+        captured["momentum_source_overrides"] = kwargs["momentum_source_overrides"]
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
@@ -606,6 +609,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     assert tuple(captured["initial_fields"]) == tuple(initial_fields)
     assert tuple(captured["density_source_overrides"]) == ("d+", "d")
     assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
+    assert tuple(captured["momentum_source_overrides"]) == ("d+", "d")
     assert captured["preserve_dump_target_state"] is True
     assert result.time_points == (0.0, 0.0001)
     assert result.variables["Nd+"].shape == (2, 2, 3, 1)
@@ -675,8 +679,10 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
             fields=initial_fields,
             optional_fields={
                 "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+                "SNVd+": np.full((4, 5, 1), 1.5, dtype=np.float64),
                 "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+                "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
                 "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
                 "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
