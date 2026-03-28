@@ -30,7 +30,12 @@ from .drift_wave import (
     compute_drift_wave_rhs,
     initialize_drift_wave_state,
 )
-from .electromagnetic import compute_parallel_current_density, extract_charged_species_metadata
+from .electromagnetic import (
+    compute_beta_em,
+    compute_parallel_current_density,
+    extract_charged_species_metadata,
+    solve_slab_neumann_apar,
+)
 from .fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
 from .metrics import StructuredMetrics, build_structured_metrics
 from .mesh import (
@@ -207,7 +212,7 @@ def _run_alfven_wave_rhs_case(
         input_path=input_path,
         reference_root=reference_root,
         time_indices=(0,),
-        field_names=("Apar", "phi", "Vort", "NVe", "Ne"),
+        field_names=("Apar", "phi", "Vort", "NVe", "Ne", "Ni"),
         optional_field_names=("ddt(NVe)", "ddt(Vort)"),
     )
 
@@ -223,7 +228,7 @@ def _run_alfven_wave_one_step_case(
         input_path=input_path,
         reference_root=reference_root,
         time_indices=(0, 1),
-        field_names=("Apar", "phi", "Vort", "NVe", "Ne"),
+        field_names=("Apar", "phi", "Vort", "NVe", "Ne", "Ni"),
         optional_field_names=(),
     )
 
@@ -275,13 +280,35 @@ def _run_alfven_wave_dump_case(
             )
     if "Ajpar" in case.compare_variables:
         momentum_history = {"NVe": variables["NVe"]}
-        em_species = tuple(
-            species for species in charged_species if f"NV{species.section}" in momentum_history
-        )
+        em_species = tuple(species for species in charged_species if f"NV{species.section}" in momentum_history)
         variables["Ajpar"] = compute_parallel_current_density(momentum_history, em_species)
         variables["Ajpar"][:, 0, :, :] = 0.0
         variables["Ajpar"][:, -1, :, :] = 0.0
+        if "Apar" in case.compare_variables:
+            beta_em = compute_beta_em(
+                Nnorm=float(first_snapshot.scalar_values["Nnorm"]),
+                Tnorm=float(first_snapshot.scalar_values["Tnorm"]),
+                Bnorm=float(first_snapshot.scalar_values["Bnorm"]),
+            )
+            alpha_species = tuple(species for species in charged_species if f"N{species.section}" in variables)
+            apar_history = []
+            for time_index in range(variables["Ajpar"].shape[0]):
+                apar_history.append(
+                    solve_slab_neumann_apar(
+                        variables["Ajpar"][time_index],
+                        density_fields={
+                            f"N{species.section}": variables[f"N{species.section}"][time_index]
+                            for species in alpha_species
+                        },
+                        species_metadata=alpha_species,
+                        mesh=first_snapshot.mesh,
+                        metrics=first_snapshot.metrics,
+                        beta_em=beta_em,
+                    )
+                )
+            variables["Apar"] = np.stack(apar_history, axis=0)
     variables.pop("Ne", None)
+    variables.pop("Ni", None)
 
     trimmed_variables = _prepare_compare_variables(
         variables,

@@ -796,7 +796,7 @@ Implementation tasks:
 - preserve `Apar_flutter` and EM source bookkeeping
 - validate 3D stepping on representative annulus and tokamak cases
 - staged entry ladder is now `tests/integrated/alfven-wave` with committed `alfven_wave_rhs` and `alfven_wave_one_step` reference baselines before broader EM short-window and tokamak escalation work
-- first real Stage 4 operator slice is `Ajpar`: reconstruct it from the charged-species momentum sum on the Alfvén scaffold, while leaving `Apar`, `phi`, and the remaining EM RHS terms on the staged dump-backed path until each operator is ported and revalidated
+- first real Stage 4 operator slices are now `Ajpar` and `Apar`: reconstruct `Ajpar` from the charged-species momentum sum and solve `Apar` natively on the single-cell slab/Neumann Alfvén benchmark using the source-faithful electromagnetic Helmholtz coefficient (`alpha_em` from charged densities, `beta_em` from normalization, periodic-Y and periodic-Z guard handling), while leaving `phi`, `ddt(NVe)`, and the remaining EM RHS terms on the staged dump-backed path until each operator is ported and revalidated
 
 Required tests:
 
