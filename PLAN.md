@@ -417,6 +417,7 @@ Current Step 3 note:
 - the same integrated workflow now has a native `short_window` rung and committed reference baselines. It is not locked parity yet, but it is the first multi-output Step 3 transient target that can be exercised end-to-end without relying on the broken tokamak examples.
 - the same integrated workflow now also has a native `medium_window` rung honoring the manifest `nout=20` override, so Step 3 can exercise a longer transient on the stable integrated geometry before the broader 2D production path is finalized.
 - the staged integrated transient path now also reuses dump-backed ion momentum-source fields (`SNVd+`, `SNVd`) in addition to the already staged density and ion-pressure sources. That keeps the integrated 2D march source-faithful without reintroducing the rejected staged `SPe` override, which made the medium-window `Pe` drift worse rather than better.
+- the broader integrated `2D-production` workflow now also has a committed `one_rhs` rung on the same dump-backed geometry lane. Its first live native comparison is already limited to the same small `ddt(Pe)` / `ddt(Pd)` pressure-stat residuals seen in the integrated recycling RHS path, so it widens Step 3 without introducing a new geometry blocker.
 
 ### Step 4. Land the Full 3D Electromagnetic + Tokamak Capability
 
