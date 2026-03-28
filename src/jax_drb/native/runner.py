@@ -71,6 +71,8 @@ def run_curated_case(
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_short_window":
         return _run_integrated_2d_recycling_short_window_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "integrated_2d_recycling_medium_window":
+        return _run_integrated_2d_recycling_medium_window_case(case, input_path=input_path, reference_root=reference_root)
     return run_input_case(
         input_path,
         case_name=case.name,
@@ -201,7 +203,23 @@ def _run_integrated_2d_recycling_short_window_case(
         case,
         input_path=input_path,
         reference_root=reference_root,
-        steps=run_config.time.nout,
+        steps=_integrated_2d_recycling_transient_steps(case, run_config),
+    )
+
+
+def _run_integrated_2d_recycling_medium_window_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    return _run_integrated_2d_recycling_transient_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        steps=_integrated_2d_recycling_transient_steps(case, run_config),
     )
 
 
@@ -342,6 +360,15 @@ def _append_integrated_2d_recycling_diagnostics(
             diagnostic_history[diagnostic_name].append(np.asarray(rhs.variables[diagnostic_name][0], dtype=np.float64))
     for diagnostic_name, history in diagnostic_history.items():
         variables[diagnostic_name] = np.stack(history, axis=0)
+
+
+def _integrated_2d_recycling_transient_steps(case: ReferenceCase, run_config: RunConfiguration) -> int:
+    steps = run_config.time.nout
+    for override in case.extra_overrides:
+        key, separator, raw_value = override.partition("=")
+        if separator and key.strip() == "nout":
+            steps = int(float(raw_value.strip()))
+    return steps
 
 
 def run_input_case(
