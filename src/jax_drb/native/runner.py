@@ -34,6 +34,7 @@ from .electromagnetic import (
     compute_beta_em,
     compute_parallel_current_density,
     extract_charged_species_metadata,
+    invert_slab_neumann_apar_to_current_density,
     solve_slab_neumann_apar,
 )
 from .fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
@@ -307,6 +308,35 @@ def _run_alfven_wave_dump_case(
                     )
                 )
             variables["Apar"] = np.stack(apar_history, axis=0)
+            if "NVe" in case.compare_variables and len(em_species) == 1:
+                momentum_name = f"NV{em_species[0].section}"
+                current_history = []
+                for time_index in range(variables["Apar"].shape[0]):
+                    current_history.append(
+                        invert_slab_neumann_apar_to_current_density(
+                            variables["Apar"][time_index],
+                            density_fields={
+                                f"N{species.section}": variables[f"N{species.section}"][time_index]
+                                for species in alpha_species
+                            },
+                            species_metadata=alpha_species,
+                            mesh=first_snapshot.mesh,
+                            metrics=first_snapshot.metrics,
+                            beta_em=beta_em,
+                        )
+                    )
+                current_array = np.stack(current_history, axis=0)
+                native_momentum = current_array / float(em_species[0].current_factor)
+                staged_momentum = np.asarray(variables[momentum_name], dtype=np.float64)
+                x_slice = slice(first_snapshot.mesh.xstart, first_snapshot.mesh.xend + 1)
+                y_slice = slice(first_snapshot.mesh.ystart, first_snapshot.mesh.yend + 1)
+                staged_momentum[:, x_slice, y_slice, :] = native_momentum[
+                    :, x_slice, y_slice, :
+                ]
+                variables[momentum_name] = staged_momentum
+                staged_current = np.asarray(variables["Ajpar"], dtype=np.float64)
+                staged_current[:, x_slice, y_slice, :] = current_array[:, x_slice, y_slice, :]
+                variables["Ajpar"] = staged_current
     variables.pop("Ne", None)
     variables.pop("Ni", None)
 

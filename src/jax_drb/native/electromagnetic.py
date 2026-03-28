@@ -154,3 +154,53 @@ def solve_slab_neumann_apar(
         full[:, mesh.ystart - 1 - offset, :] = full[:, mesh.yend - offset, :]
         full[:, mesh.yend + 1 + offset, :] = full[:, mesh.ystart + offset, :]
     return full
+
+
+def invert_slab_neumann_apar_to_current_density(
+    apar: np.ndarray,
+    *,
+    density_fields: Mapping[str, np.ndarray],
+    species_metadata: tuple[ChargedSpeciesMetadata, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    beta_em: float,
+    density_floor: float = 1.0e-5,
+) -> np.ndarray:
+    apar_array = np.asarray(apar, dtype=np.float64)
+    if apar_array.shape != (mesh.nx, mesh.local_ny, mesh.nz):
+        raise ValueError("apar must match the full structured field shape.")
+    if mesh.xstart != mesh.xend:
+        raise NotImplementedError("Native slab Apar inversion currently requires a single interior radial cell.")
+
+    alpha = compute_alpha_em(density_fields, species_metadata, density_floor=density_floor)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    interior_apar = apar_array[mesh.xstart, y_slice, :]
+    alpha_core = np.asarray(alpha[mesh.xstart, y_slice, :], dtype=np.float64)
+    g33_core = np.asarray(metrics.g33[mesh.xstart, y_slice, :], dtype=np.float64)
+    dz_core = np.asarray(metrics.dz[mesh.xstart, y_slice, :], dtype=np.float64)
+
+    alpha_row = alpha_core[:, 0]
+    g33_row = g33_core[:, 0]
+    dz_row = dz_core[:, 0]
+    if not np.allclose(alpha_core, alpha_row[:, None], rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native slab Apar inversion currently requires alpha_em uniform along z.")
+    if not np.allclose(g33_core, g33_row[:, None], rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native slab Apar inversion currently requires g33 uniform along z.")
+    if not np.allclose(dz_core, dz_row[:, None], rtol=1.0e-12, atol=1.0e-12):
+        raise NotImplementedError("Native slab Apar inversion currently requires dz uniform along z.")
+
+    wave_numbers = (2.0 * np.pi * np.arange(mesh.nz // 2 + 1, dtype=np.float64)[None, :]) / (
+        dz_row[:, None] * float(mesh.nz)
+    )
+    apar_hat = np.fft.rfft(interior_apar, axis=-1)
+    laplace_hat = -(wave_numbers * wave_numbers) * g33_row[:, None] * apar_hat
+    current_hat = alpha_row[:, None] * apar_hat - laplace_hat / float(beta_em)
+    interior_current = np.fft.irfft(current_hat, n=mesh.nz, axis=-1)
+
+    full = np.zeros_like(apar_array, dtype=np.float64)
+    for x_index in range(mesh.xstart - 1, mesh.xend + 2):
+        full[x_index, y_slice, :] = interior_current
+    for offset in range(mesh.myg):
+        full[:, mesh.ystart - 1 - offset, :] = full[:, mesh.yend - offset, :]
+        full[:, mesh.yend + 1 + offset, :] = full[:, mesh.ystart + offset, :]
+    return full

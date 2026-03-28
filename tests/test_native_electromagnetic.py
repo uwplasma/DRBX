@@ -10,6 +10,7 @@ from jax_drb.native.electromagnetic import (
     compute_apar_flutter,
     compute_beta_em,
     compute_parallel_current_density,
+    invert_slab_neumann_apar_to_current_density,
     solve_slab_neumann_apar,
     extract_charged_species_metadata,
 )
@@ -146,3 +147,70 @@ def test_solve_slab_neumann_apar_matches_single_mode_analytic_solution() -> None
     np.testing.assert_allclose(apar[mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], expected_rows, atol=1.0e-18)
     np.testing.assert_allclose(apar[:, mesh.ystart - 1, :], apar[:, mesh.yend, :], atol=1.0e-18)
     np.testing.assert_allclose(apar[:, mesh.yend + 1, :], apar[:, mesh.ystart, :], atol=1.0e-18)
+
+
+def test_invert_slab_neumann_apar_to_current_density_recovers_current_on_physical_planes() -> None:
+    mesh = StructuredMesh(
+        nx=5,
+        ny=4,
+        nz=8,
+        mxg=2,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=True,
+        jyseps1_1=-1,
+        jyseps2_1=3,
+        jyseps1_2=3,
+        jyseps2_2=3,
+        ny_inner=4,
+        has_lower_y_target=False,
+        has_upper_y_target=False,
+        x=np.arange(5, dtype=np.float64),
+        y=np.arange(6, dtype=np.float64),
+        z=np.arange(8, dtype=np.float64),
+    )
+    ones = np.ones((5, 6, 8), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=0.25 * ones,
+        J=ones,
+        g11=ones,
+        g33=2.0 * ones,
+        g22=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=ones,
+    )
+    z = np.arange(mesh.nz, dtype=np.float64)
+    mode = np.sin((2.0 * np.pi * z) / float(mesh.nz))
+    current = np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    current[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :] = mode[None, None, :]
+    density = np.ones_like(current)
+    species = (ChargedSpeciesMetadata(section="e", charge=-1.0, atomic_mass=1.0 / 1836.0),)
+    beta_em = 0.2
+
+    apar = solve_slab_neumann_apar(
+        current,
+        density_fields={"Ne": density},
+        species_metadata=species,
+        mesh=mesh,
+        metrics=metrics,
+        beta_em=beta_em,
+    )
+    recovered = invert_slab_neumann_apar_to_current_density(
+        apar,
+        density_fields={"Ne": density},
+        species_metadata=species,
+        mesh=mesh,
+        metrics=metrics,
+        beta_em=beta_em,
+    )
+
+    np.testing.assert_allclose(
+        recovered[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+        current[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+        atol=1.0e-15,
+    )
+    np.testing.assert_allclose(recovered[:, mesh.ystart - 1, :], recovered[:, mesh.yend, :], atol=1.0e-18)
+    np.testing.assert_allclose(recovered[:, mesh.yend + 1, :], recovered[:, mesh.ystart, :], atol=1.0e-18)
