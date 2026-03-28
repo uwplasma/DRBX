@@ -106,6 +106,21 @@ class _DensityFeedbackController:
 
 
 @dataclass(frozen=True)
+class _SimpleSheathSettings:
+    gamma_e: float
+    gamma_i: float
+    secondary_electron_coef: float
+    sheath_ion_polytropic: float
+    lower_y: bool
+    upper_y: bool
+    no_flow: bool
+    density_boundary_mode: float
+    pressure_boundary_mode: float
+    temperature_boundary_mode: float
+    wall_potential: np.ndarray
+
+
+@dataclass(frozen=True)
 class _RecyclingRuntimeModel:
     species_templates: dict[str, OpenFieldSpecies]
     controllers: dict[str, _DensityFeedbackController]
@@ -207,8 +222,10 @@ def _compute_recycling_1d_rhs_from_species(
 
     prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
         species,
+        config=config,
         mesh=mesh,
         metrics=metrics,
+        dataset_scalars=dataset_scalars,
         apply_sheath_boundaries=apply_sheath_boundaries,
         preserve_dump_target_state=preserve_dump_target_state,
     )
@@ -651,6 +668,22 @@ def _explicit_pressure_source(
     return np.asarray(field, dtype=np.float64) / source_normalisation
 
 
+def _evaluate_option_field(
+    config: BoutConfig,
+    section: str,
+    option_name: str,
+    *,
+    mesh: StructuredMesh,
+) -> np.ndarray:
+    raw_value = config.raw(section, option_name)
+    resolved_reference = _try_literal_reference(config, raw_value)
+    if resolved_reference is not None:
+        return _evaluate_field_value(config, resolved_reference[0], mesh=mesh, option_name=resolved_reference[1])
+    evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
+    field = broadcast_to_field_shape(evaluator.resolve_option(section, option_name), mesh)
+    return np.asarray(field, dtype=np.float64)
+
+
 def _try_literal_reference(config: BoutConfig, raw_value: str) -> tuple[str, str] | None:
     value = raw_value.strip()
     if not (value.startswith("`") and value.endswith("`")):
@@ -662,6 +695,68 @@ def _try_literal_reference(config: BoutConfig, raw_value: str) -> tuple[str, str
     if not config.has_section(section) or not config.has_option(section, key):
         return None
     return section, key
+
+
+def _load_simple_sheath_settings(
+    config: BoutConfig,
+    *,
+    mesh: StructuredMesh,
+    dataset_scalars: dict[str, float],
+) -> _SimpleSheathSettings | None:
+    if not config.has_section("sheath_boundary_simple"):
+        return None
+    resolver = NumericResolver(config)
+    tnorm = float(dataset_scalars.get("Tnorm", 1.0))
+    wall_potential = (
+        _evaluate_option_field(config, "sheath_boundary_simple", "wall_potential", mesh=mesh) / tnorm
+        if config.has_option("sheath_boundary_simple", "wall_potential")
+        else np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    )
+    return _SimpleSheathSettings(
+        gamma_e=float(resolver.resolve("sheath_boundary_simple", "gamma_e"))
+        if config.has_option("sheath_boundary_simple", "gamma_e")
+        else 3.5,
+        gamma_i=float(resolver.resolve("sheath_boundary_simple", "gamma_i"))
+        if config.has_option("sheath_boundary_simple", "gamma_i")
+        else 3.5,
+        secondary_electron_coef=float(resolver.resolve("sheath_boundary_simple", "secondary_electron_coef"))
+        if config.has_option("sheath_boundary_simple", "secondary_electron_coef")
+        else 0.0,
+        sheath_ion_polytropic=float(resolver.resolve("sheath_boundary_simple", "sheath_ion_polytropic"))
+        if config.has_option("sheath_boundary_simple", "sheath_ion_polytropic")
+        else 1.0,
+        lower_y=bool(config.parsed("sheath_boundary_simple", "lower_y"))
+        if config.has_option("sheath_boundary_simple", "lower_y")
+        else True,
+        upper_y=bool(config.parsed("sheath_boundary_simple", "upper_y"))
+        if config.has_option("sheath_boundary_simple", "upper_y")
+        else True,
+        no_flow=bool(config.parsed("sheath_boundary_simple", "no_flow"))
+        if config.has_option("sheath_boundary_simple", "no_flow")
+        else False,
+        density_boundary_mode=float(resolver.resolve("sheath_boundary_simple", "density_boundary_mode"))
+        if config.has_option("sheath_boundary_simple", "density_boundary_mode")
+        else 1.0,
+        pressure_boundary_mode=float(resolver.resolve("sheath_boundary_simple", "pressure_boundary_mode"))
+        if config.has_option("sheath_boundary_simple", "pressure_boundary_mode")
+        else 1.0,
+        temperature_boundary_mode=float(resolver.resolve("sheath_boundary_simple", "temperature_boundary_mode"))
+        if config.has_option("sheath_boundary_simple", "temperature_boundary_mode")
+        else 1.0,
+        wall_potential=np.asarray(wall_potential, dtype=np.float64),
+    )
+
+
+def _merge_target_guard_cells(base: np.ndarray, boundary: np.ndarray, *, mesh: StructuredMesh) -> np.ndarray:
+    merged = np.asarray(base, dtype=np.float64, copy=True)
+    boundary_array = np.asarray(boundary, dtype=np.float64)
+    if mesh.myg <= 0:
+        return merged
+    if mesh.has_lower_y_target:
+        merged[:, mesh.ystart - 1, :] = boundary_array[:, mesh.ystart - 1, :]
+    if mesh.has_upper_y_target:
+        merged[:, mesh.yend + 1, :] = boundary_array[:, mesh.yend + 1, :]
+    return merged
 
 
 def _load_density_feedback_controllers(
@@ -924,8 +1019,10 @@ def _prepare_species_state(
 def _prepare_open_field_states(
     species: dict[str, OpenFieldSpecies],
     *,
+    config: BoutConfig,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
 ) -> tuple[dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult]:
@@ -943,6 +1040,11 @@ def _prepare_open_field_states(
     )
 
     if apply_sheath_boundaries:
+        simple_sheath_settings = _load_simple_sheath_settings(
+            config,
+            mesh=mesh,
+            dataset_scalars=dataset_scalars,
+        )
         electron_boundary = _apply_electron_sheath_boundary(
             electron_pressure=prepared["e"].pressure,
             electron_density=electron_density,
@@ -954,14 +1056,19 @@ def _prepare_open_field_states(
             prepared_ions=prepared,
             mesh=mesh,
             metrics=metrics,
+            simple_settings=simple_sheath_settings,
         )
         if preserve_dump_target_state:
             electron_boundary = _ElectronBoundaryResult(
-                density=np.asarray(prepared["e"].density, dtype=np.float64),
-                temperature=np.asarray(prepared["e"].temperature, dtype=np.float64),
-                pressure=np.asarray(prepared["e"].pressure, dtype=np.float64),
-                velocity=np.asarray(electron_velocity, dtype=np.float64),
-                momentum=np.asarray(species["e"].atomic_mass * prepared["e"].density * electron_velocity, dtype=np.float64),
+                density=_merge_target_guard_cells(prepared["e"].density, electron_boundary.density, mesh=mesh),
+                temperature=_merge_target_guard_cells(prepared["e"].temperature, electron_boundary.temperature, mesh=mesh),
+                pressure=_merge_target_guard_cells(prepared["e"].pressure, electron_boundary.pressure, mesh=mesh),
+                velocity=_merge_target_guard_cells(electron_velocity, electron_boundary.velocity, mesh=mesh),
+                momentum=_merge_target_guard_cells(
+                    species["e"].atomic_mass * prepared["e"].density * electron_velocity,
+                    electron_boundary.momentum,
+                    mesh=mesh,
+                ),
                 energy_source=np.asarray(electron_boundary.energy_source, dtype=np.float64),
             )
     else:
@@ -2345,7 +2452,22 @@ def _apply_electron_sheath_boundary(
     prepared_ions: dict[str, _PreparedSpeciesState],
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    simple_settings: _SimpleSheathSettings | None = None,
 ) -> _ElectronBoundaryResult:
+    if simple_settings is not None:
+        return _apply_electron_simple_sheath_boundary(
+            electron_pressure=electron_pressure,
+            electron_density=electron_density,
+            electron_velocity=electron_velocity,
+            electron_mass=electron_mass,
+            electron_density_floor=electron_density_floor,
+            ion_velocity=ion_velocity,
+            ions=ions,
+            prepared_ions=prepared_ions,
+            mesh=mesh,
+            metrics=metrics,
+            settings=simple_settings,
+        )
     density = np.array(apply_noflow_scalar_guards(electron_density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
     pressure = np.array(apply_noflow_scalar_guards(electron_pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
     temperature = _safe_temperature(pressure, density, electron_density_floor)
@@ -2460,6 +2582,189 @@ def _apply_electron_sheath_boundary(
         flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
         power = flux / (dy[:, j, :] * J[:, j, :])
         energy_source[:, j, :] -= power
+    return _ElectronBoundaryResult(
+        density=density,
+        temperature=temperature,
+        pressure=pressure,
+        velocity=velocity,
+        momentum=momentum,
+        energy_source=energy_source,
+    )
+
+
+def _apply_electron_simple_sheath_boundary(
+    *,
+    electron_pressure: np.ndarray,
+    electron_density: np.ndarray,
+    electron_velocity: np.ndarray,
+    electron_mass: float,
+    electron_density_floor: float,
+    ion_velocity: dict[str, np.ndarray],
+    ions: tuple[OpenFieldSpecies, ...],
+    prepared_ions: dict[str, _PreparedSpeciesState],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    settings: _SimpleSheathSettings,
+) -> _ElectronBoundaryResult:
+    density = np.array(
+        apply_noflow_scalar_guards(electron_density, mesh=mesh, lower_y=settings.lower_y, upper_y=settings.upper_y),
+        dtype=np.float64,
+        copy=True,
+    )
+    pressure = np.array(
+        apply_noflow_scalar_guards(electron_pressure, mesh=mesh, lower_y=settings.lower_y, upper_y=settings.upper_y),
+        dtype=np.float64,
+        copy=True,
+    )
+    temperature = _safe_temperature(pressure, density, electron_density_floor)
+    velocity = np.array(
+        apply_noflow_flow_guards(
+            np.asarray(electron_velocity, dtype=np.float64),
+            mesh=mesh,
+            lower_y=settings.lower_y,
+            upper_y=settings.upper_y,
+        ),
+        dtype=np.float64,
+        copy=True,
+    )
+    momentum = np.asarray(electron_mass * density * velocity, dtype=np.float64)
+    energy_source = np.zeros_like(density, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dz = np.asarray(metrics.dz, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    secondary_coef = float(settings.secondary_electron_coef)
+    ion_polytropic = float(settings.sheath_ion_polytropic)
+    gamma_e = float(settings.gamma_e)
+    wall_potential = np.asarray(settings.wall_potential, dtype=np.float64)
+
+    def _ion_sum_at_boundary(j: int, guard: int, *, sign: float) -> np.ndarray:
+        total = np.zeros_like(density[:, j, :], dtype=np.float64)
+        for ion in ions:
+            ion_state = prepared_ions[ion.name]
+            ni = np.asarray(ion_state.density, dtype=np.float64)
+            ti = np.asarray(ion_state.temperature, dtype=np.float64)
+            vi = np.asarray(ion_velocity[ion.name], dtype=np.float64)
+            ni_guard = np.asarray(
+                limit_free(ni[:, guard, :], ni[:, j, :], settings.density_boundary_mode),
+                dtype=np.float64,
+            )
+            ti_guard = np.asarray(
+                limit_free(ti[:, guard, :], ti[:, j, :], settings.temperature_boundary_mode),
+                dtype=np.float64,
+            )
+            te_guard = np.asarray(
+                limit_free(temperature[:, guard, :], temperature[:, j, :], settings.temperature_boundary_mode),
+                dtype=np.float64,
+            )
+            nisheath = 0.5 * (ni_guard + ni[:, j, :])
+            tesheath = np.maximum(0.5 * (te_guard + temperature[:, j, :]), 1.0e-5)
+            tisheath = np.maximum(0.5 * (ti_guard + ti[:, j, :]), 1.0e-5)
+            c_i_sq = (ion_polytropic * tisheath + ion.charge * tesheath) / ion.atomic_mass
+            c_i_sq = np.maximum(c_i_sq, 0.0)
+            if sign < 0.0:
+                visheath = np.minimum(vi[:, j, :], -np.sqrt(c_i_sq))
+                total = total - ion.charge * nisheath * visheath
+            else:
+                visheath = np.maximum(vi[:, j, :], np.sqrt(c_i_sq))
+                total = total + ion.charge * nisheath * visheath
+        return total
+
+    if settings.lower_y and mesh.has_lower_y_target:
+        j = mesh.ystart
+        guard = j + 1
+        ghost = j - 1
+        density[:, ghost, :] = np.asarray(
+            limit_free(density[:, guard, :], density[:, j, :], settings.density_boundary_mode),
+            dtype=np.float64,
+        )
+        temperature[:, ghost, :] = np.asarray(
+            limit_free(temperature[:, guard, :], temperature[:, j, :], settings.temperature_boundary_mode),
+            dtype=np.float64,
+        )
+        pressure[:, ghost, :] = np.asarray(
+            limit_free(pressure[:, guard, :], pressure[:, j, :], settings.pressure_boundary_mode),
+            dtype=np.float64,
+        )
+        nesheath = 0.5 * (density[:, ghost, :] + density[:, j, :])
+        tesheath = np.maximum(0.5 * (temperature[:, ghost, :] + temperature[:, j, :]), 1.0e-5)
+        ion_sum = np.maximum(_ion_sum_at_boundary(j, guard, sign=-1.0), 1.0e-5)
+        phi_boundary = tesheath * np.log(
+            np.sqrt(tesheath / (electron_mass * (2.0 * math.pi)))
+            * (1.0 - secondary_coef)
+            * np.maximum(nesheath, 1.0e-5)
+            / ion_sum
+        )
+        phi_boundary = phi_boundary + wall_potential[:, j, :]
+        phisheath = np.maximum(phi_boundary, wall_potential[:, j, :])
+        vesheath = -np.sqrt(tesheath / (2.0 * math.pi * electron_mass)) * (1.0 - secondary_coef) * np.exp(
+            -(phisheath - wall_potential[:, j, :]) / np.maximum(tesheath, 1.0e-5)
+        )
+        q = gamma_e * tesheath * nesheath * vesheath
+        if settings.no_flow:
+            vesheath = 0.0
+        velocity[:, ghost, :] = 2.0 * vesheath - velocity[:, j, :]
+        momentum[:, ghost, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        q = q - (2.5 * tesheath + 0.5 * electron_mass * np.square(vesheath)) * nesheath * vesheath
+        area = (
+            (J[:, j, :] + J[:, ghost, :])
+            / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, ghost, :]))
+            * 0.5
+            * (dx[:, j, :] + dx[:, ghost, :])
+            * 0.5
+            * (dz[:, j, :] + dz[:, ghost, :])
+        )
+        volume = dx[:, j, :] * dy[:, j, :] * dz[:, j, :] * J[:, j, :]
+        energy_source[:, j, :] = energy_source[:, j, :] + (q * area) / volume
+
+    if settings.upper_y and mesh.has_upper_y_target:
+        j = mesh.yend
+        guard = j - 1
+        ghost = j + 1
+        density[:, ghost, :] = np.asarray(
+            limit_free(density[:, guard, :], density[:, j, :], settings.density_boundary_mode),
+            dtype=np.float64,
+        )
+        temperature[:, ghost, :] = np.asarray(
+            limit_free(temperature[:, guard, :], temperature[:, j, :], settings.temperature_boundary_mode),
+            dtype=np.float64,
+        )
+        pressure[:, ghost, :] = np.asarray(
+            limit_free(pressure[:, guard, :], pressure[:, j, :], settings.pressure_boundary_mode),
+            dtype=np.float64,
+        )
+        nesheath = 0.5 * (density[:, ghost, :] + density[:, j, :])
+        tesheath = np.maximum(0.5 * (temperature[:, ghost, :] + temperature[:, j, :]), 1.0e-5)
+        ion_sum = np.maximum(_ion_sum_at_boundary(j, guard, sign=1.0), 1.0e-5)
+        phi_boundary = tesheath * np.log(
+            np.sqrt(tesheath / (electron_mass * (2.0 * math.pi)))
+            * (1.0 - secondary_coef)
+            * np.maximum(nesheath, 1.0e-5)
+            / ion_sum
+        )
+        phi_boundary = phi_boundary + wall_potential[:, j, :]
+        phisheath = np.maximum(phi_boundary, wall_potential[:, j, :])
+        vesheath = np.sqrt(tesheath / (2.0 * math.pi * electron_mass)) * (1.0 - secondary_coef) * np.exp(
+            -(phisheath - wall_potential[:, j, :]) / np.maximum(tesheath, 1.0e-5)
+        )
+        q = gamma_e * tesheath * nesheath * vesheath
+        if settings.no_flow:
+            vesheath = 0.0
+        velocity[:, ghost, :] = 2.0 * vesheath - velocity[:, j, :]
+        momentum[:, ghost, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        q = q - (2.5 * tesheath + 0.5 * electron_mass * np.square(vesheath)) * nesheath * vesheath
+        area = (
+            (J[:, j, :] + J[:, ghost, :])
+            / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, ghost, :]))
+            * 0.5
+            * (dx[:, j, :] + dx[:, ghost, :])
+            * 0.5
+            * (dz[:, j, :] + dz[:, ghost, :])
+        )
+        volume = dx[:, j, :] * dy[:, j, :] * dz[:, j, :] * J[:, j, :]
+        energy_source[:, j, :] = energy_source[:, j, :] - (q * area) / volume
+
     return _ElectronBoundaryResult(
         density=density,
         temperature=temperature,
