@@ -248,6 +248,20 @@ artifact_bundle_sha256 = "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c
 artifact_bundle_files = ["grid_test2.nc"]
 
 [[case]]
+name = "integrated_2d_production_one_step"
+stage = "stage7"
+reference_path = "tests/integrated/2D-production/data/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First-output integrated 2D production parity on the same dump-backed geometry lane, widening Step 3 beyond the recycling-specific transient benchmark."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 10
+artifact_bundle_url = "https://zenodo.org/records/18623307/files/test-2D-production-2026-02-12.zip"
+artifact_bundle_sha256 = "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
+artifact_bundle_files = ["grid_test2.nc"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"
