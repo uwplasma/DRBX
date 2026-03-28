@@ -318,6 +318,14 @@ compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe"]
 extra_overrides = ["nout=20"]
 
 [[case]]
+name = "alfven_wave_medium_window"
+stage = "stage8"
+reference_path = "tests/integrated/alfven-wave/data/BOUT.inp"
+parity_mode = "short_window"
+rationale = "Extended electromagnetic transient parity on the finite-electron-mass slab benchmark using the default output history."
+compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"

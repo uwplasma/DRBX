@@ -119,6 +119,7 @@ The next queued staged baselines are now committed as well:
   - `alfven_wave_rhs` locks `Apar`, `Ajpar`, `phi`, `Vort`, `NVe`, `ddt(NVe)`, and `ddt(Vort)` from an `nout=0` diagnostic run on `tests/integrated/alfven-wave`;
   - `alfven_wave_one_step` locks the first evolved EM state on the same benchmark through `Apar`, `Ajpar`, `phi`, `Vort`, and `NVe`;
   - `alfven_wave_short_window` now locks the first multi-output EM transient rung on the same benchmark at `nout=20`, which is the smallest saved history that yields a stable benchmark-quality phase-speed estimate while staying well under the repository artifact size cap;
+  - `alfven_wave_medium_window` now locks the longer default-history EM transient rung on the same benchmark at `nout=50`, which still fits under the repository artifact size cap and gives Step 4 a stronger transient parity surface;
   - both rungs now also run through a dump-backed native scaffold in [runner.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/runner.py), and the live `run-case` outputs compare exactly to the committed summary and array baselines;
   - the first real EM operator slices are now in-tree: `Ajpar` is computed natively from the charged-species momentum sum, `Apar` is solved natively on the single-cell slab/Neumann Alfvén benchmark from the source-faithful Helmholtz coefficients (`alpha_em` from charged densities, `beta_em` from normalization), the one-step physical/inner-radial `NVe` planes are reconstructed by inverting that same slab solve, the `nout=0` physical/inner-radial `ddt(NVe)` core is ported as the benchmark’s periodic central-difference closure on `Vort` in `y` and `z`, and the `nout=0` inner-radial shoulder `ddt(Vort)` planes on `x=1,3` are ported as the benchmark’s exact inner-radial `DDY/ DDZ` closure. The tiny central-plane `x=2` `ddt(Vort)` signal and the outermost saved radial and parallel guard planes remain staged where the reference dump is not current-consistent. The live `one_step` / `one_rhs` summary and array compares remain exact after those replacements;
   - the new validation layer now also postprocesses that short-window array baseline into an analytic-vs-measured Alfvén-wave benchmark report and a native/reference parity report through [validation/alfven_wave.py](/Users/rogerio/local/jax_drb/src/jax_drb/validation/alfven_wave.py), with CLI entrypoints in [cli.py](/Users/rogerio/local/jax_drb/src/jax_drb/cli.py);
@@ -126,7 +127,10 @@ The next queued staged baselines are now committed as well:
     - analytic phase speed about `9.48585409e+05 m/s`;
     - measured phase speed about `9.42218662e+05 m/s`;
     - relative phase-speed error about `6.71e-03`;
-    - native/reference parity on the committed short-window arrays is exact on the current scaffold.
+  - the longer medium-window history stays in the same band:
+    - measured phase speed about `9.42628846e+05 m/s`;
+    - relative phase-speed error about `6.28e-03`;
+  - native/reference parity on the committed short-window arrays is exact on the current scaffold.
   - that gives the EM/`Apar` branch the same staged `one_rhs -> one_step` ladder used earlier for electrostatic and recycling paths before wider short-window dispersion checks are added.
 - the staged integrated `2D-recycling` path now also has explicit performance and differentiability tracking:
   - on this machine, the full curated case run is about `3.89 s`, while loading the local dump is about `35 ms`, the first direct dump-backed RHS evaluation is about `4.2 ms`, and repeated direct RHS evaluations average about `4.5 ms`;
