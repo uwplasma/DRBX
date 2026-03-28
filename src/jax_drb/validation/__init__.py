@@ -1,3 +1,17 @@
+from .alfven_wave import (
+    AlfvenWaveAnalysisResult,
+    AlfvenWaveBenchmarkScalars,
+    AlfvenWaveParityResult,
+    analyze_alfven_wave_array_payload,
+    analyze_alfven_wave_npz,
+    compare_alfven_wave_array_payloads,
+    compare_alfven_wave_npz,
+    compute_alfven_wave_benchmark_scalars,
+    save_alfven_wave_diagnostic_plot,
+    save_alfven_wave_parity_plot,
+    write_alfven_wave_analysis_json,
+    write_alfven_wave_parity_json,
+)
 from .blob2d import (
     Blob2DAnalysisResult,
     Blob2DParityResult,
@@ -45,6 +59,18 @@ from .neutral_mixed import (
 )
 
 __all__ = [
+    "AlfvenWaveAnalysisResult",
+    "AlfvenWaveBenchmarkScalars",
+    "AlfvenWaveParityResult",
+    "analyze_alfven_wave_array_payload",
+    "analyze_alfven_wave_npz",
+    "compare_alfven_wave_array_payloads",
+    "compare_alfven_wave_npz",
+    "compute_alfven_wave_benchmark_scalars",
+    "save_alfven_wave_diagnostic_plot",
+    "save_alfven_wave_parity_plot",
+    "write_alfven_wave_analysis_json",
+    "write_alfven_wave_parity_json",
     "Blob2DAnalysisResult",
     "Blob2DParityResult",
     "analyze_blob2d_array_payload",

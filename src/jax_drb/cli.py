@@ -147,6 +147,31 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze_drift_wave_parser.add_argument("--plot-out", type=Path, default=None)
     analyze_drift_wave_parser.set_defaults(command=_analyze_drift_wave_command)
 
+    analyze_alfven_wave_parser = subparsers.add_parser(
+        "analyze-alfven-wave",
+        help="Analyze a stored Alfven-wave array payload and report measured vs. analytic benchmark scalars.",
+    )
+    analyze_alfven_wave_parser.add_argument("input_file", type=Path)
+    analyze_alfven_wave_parser.add_argument("arrays_npz", type=Path)
+    analyze_alfven_wave_parser.add_argument("--field-variable", default="phi")
+    analyze_alfven_wave_parser.add_argument("--x-index", type=int, default=2)
+    analyze_alfven_wave_parser.add_argument("--json-out", type=Path, default=None)
+    analyze_alfven_wave_parser.add_argument("--plot-out", type=Path, default=None)
+    analyze_alfven_wave_parser.set_defaults(command=_analyze_alfven_wave_command)
+
+    compare_alfven_wave_parser = subparsers.add_parser(
+        "compare-alfven-wave",
+        help="Compare two Alfven-wave array payloads and report benchmark plus transient parity metrics.",
+    )
+    compare_alfven_wave_parser.add_argument("input_file", type=Path)
+    compare_alfven_wave_parser.add_argument("expected_npz", type=Path)
+    compare_alfven_wave_parser.add_argument("actual_npz", type=Path)
+    compare_alfven_wave_parser.add_argument("--field-variable", default="phi")
+    compare_alfven_wave_parser.add_argument("--x-index", type=int, default=2)
+    compare_alfven_wave_parser.add_argument("--json-out", type=Path, default=None)
+    compare_alfven_wave_parser.add_argument("--plot-out", type=Path, default=None)
+    compare_alfven_wave_parser.set_defaults(command=_compare_alfven_wave_command)
+
     compare_drift_wave_parser = subparsers.add_parser(
         "compare-drift-wave",
         help="Compare two drift-wave array payloads and report benchmark plus field-error parity metrics.",
@@ -487,6 +512,71 @@ def _analyze_drift_wave_command(args: argparse.Namespace) -> int:
         print(f"json_out: {path}")
     if args.plot_out is not None:
         path = save_drift_wave_diagnostic_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
+    return 0
+
+
+def _analyze_alfven_wave_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        analyze_alfven_wave_npz,
+        save_alfven_wave_diagnostic_plot,
+        write_alfven_wave_analysis_json,
+    )
+
+    result = analyze_alfven_wave_npz(
+        args.arrays_npz,
+        input_file=args.input_file,
+        field_variable=args.field_variable,
+        x_index=args.x_index,
+    )
+    benchmark = result.benchmark
+    print(f"field_variable: {result.field_variable}")
+    print(f"x_index: {result.x_index}")
+    print(f"kpar: {benchmark.kpar:.8e}")
+    print(f"kperp: {benchmark.kperp:.8e}")
+    print(f"analytic_phase_speed: {benchmark.analytic_phase_speed:.8e}")
+    print(f"analytic_omega: {benchmark.analytic_omega:.8e}")
+    print(f"measured_phase_speed: {result.measured_phase_speed:.8e}")
+    print(f"measured_omega: {result.measured_omega:.8e}")
+    print(f"relative_phase_speed_error: {result.relative_phase_speed_error:.8e}")
+    if args.json_out is not None:
+        path = write_alfven_wave_analysis_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_alfven_wave_diagnostic_plot(result, args.plot_out)
+        print(f"plot_out: {path}")
+    return 0
+
+
+def _compare_alfven_wave_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        compare_alfven_wave_npz,
+        save_alfven_wave_parity_plot,
+        write_alfven_wave_parity_json,
+    )
+
+    result = compare_alfven_wave_npz(
+        args.expected_npz,
+        args.actual_npz,
+        input_file=args.input_file,
+        field_variable=args.field_variable,
+        x_index=args.x_index,
+    )
+    print(f"field_variable: {result.expected.field_variable}")
+    print(f"x_index: {result.expected.x_index}")
+    print(f"expected_phase_speed: {result.expected.measured_phase_speed:.8e}")
+    print(f"actual_phase_speed: {result.actual.measured_phase_speed:.8e}")
+    print(f"expected_omega: {result.expected.measured_omega:.8e}")
+    print(f"actual_omega: {result.actual.measured_omega:.8e}")
+    print(f"phase_speed_error: {result.phase_speed_error:.8e}")
+    print(f"omega_error: {result.omega_error:.8e}")
+    print(f"mean_square_max_abs_error: {result.mean_square_max_abs_error:.8e}")
+    print(f"mean_square_rms_error: {result.mean_square_rms_error:.8e}")
+    if args.json_out is not None:
+        path = write_alfven_wave_parity_json(result, args.json_out)
+        print(f"json_out: {path}")
+    if args.plot_out is not None:
+        path = save_alfven_wave_parity_plot(result, args.plot_out)
         print(f"plot_out: {path}")
     return 0
 

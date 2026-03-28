@@ -37,6 +37,7 @@ For a figure-first view of the currently locked cases, see [docs/validation_gall
 | `integrated_2d_recycling_medium_window` | `native-scaffolded target` | Stable integrated 2D recycling medium-window target with staged grid artifact, 10-rank launch, committed reference baselines, and a native multi-output transient scaffold over the staged `nout=20` window, again using the same dump-backed source staging and target-state preservation as the shorter transient paths. The remaining meaningful residuals are now led by `Sd_target_recycle` and `Pe`, after the staged recycling-energy path was corrected to use the configured sheath `gamma_i`. |
 | `alfven_wave_rhs` | `native-scaffolded target` | First Stage 4 electromagnetic rung on the finite-electron-mass Alfvén-wave benchmark, routed through a partially native scaffold that now reconstructs `Ajpar`, `Apar`, the physical/inner-radial `ddt(NVe)` core, and the inner-radial shoulder `ddt(Vort)` planes on `x=1,3`, with both RHS cores expressed as benchmark-exact `DDY/ DDZ` closures while preserving exact committed parity for the remaining staged diagnostic rows. |
 | `alfven_wave_one_step` | `native-scaffolded target` | First-output electromagnetic state rung on the same Alfvén-wave benchmark, routed through the same partially native scaffold, with `Ajpar` reconstructed from charged momentum, `Apar` solved natively from the EM Helmholtz equation on the slab/Neumann geometry, and the physical/inner-radial `NVe` planes reconstructed by inverting that same slab solve while the inconsistent outermost saved radial guard planes remain staged. |
+| `alfven_wave_short_window` | `native-scaffolded target` | Multi-output electromagnetic rung on the same Alfvén-wave benchmark, staged at `nout=20` so the stored history contains enough oscillation for stable benchmark-quality frequency extraction. The current native short-window summary and array comparisons are exact against the committed baseline on the partially native scaffold. |
 | `tokamak_recycling_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 | `tokamak_recycling_dthe_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 
@@ -118,6 +119,10 @@ Current support is intentionally narrow:
 - the same broader production lane now also has `integrated_2d_production_medium_window`, extending the wider production transient ladder through `nout=20`. It is likewise a scaffold target rather than a parity win, and it confirms the same residual ordering over a longer interval: `Pe` remains the dominant gap, followed by `Sd_target_recycle` and the neutral/momentum side (`NVd+`, `Nd`), while `Pd` stays relatively tighter.
 - Step 4 is now formally staged in the same harness with `alfven_wave_rhs` and `alfven_wave_one_step`, both driven by the smallest finite-electron-mass electromagnetic benchmark in the source test suite. Both now have a dump-backed native scaffold: the first rung reproduces the committed `Apar`, `Ajpar`, `phi`, `Vort`, `NVe`, `ddt(NVe)`, and `ddt(Vort)` `nout=0` baseline exactly, and the second does the same for the first evolved EM state before wider dispersion-history comparisons are added.
 - the first real electromagnetic operator slices are now ported inside that scaffold: `Ajpar` is no longer read from the dump, `Apar` is solved natively from the EM Helmholtz equation using charged-density `alpha_em`, normalization-derived `beta_em`, and the periodic-Y/Neumann-X slab guard conventions observed in the saved reference field, the one-step physical/inner-radial `NVe` planes are reconstructed by inverting that same slab solve, the `nout=0` physical/inner-radial `ddt(NVe)` core is ported as the benchmark’s periodic central-difference closure on `Vort`, and the `nout=0` inner-radial shoulder `ddt(Vort)` planes on `x=1,3` are ported as the benchmark’s exact inner-radial `DDY/ DDZ` closure while the tiny central-plane `x=2` signal remains staged. The live `alfven_wave_rhs` and `alfven_wave_one_step` summary and array comparisons remain exact after those replacements.
+- the same Stage 4 ladder now has a committed `alfven_wave_short_window` rung with `nout=20`, which is the smallest stable electromagnetic transient window for benchmark-quality frequency extraction on the saved history. The harness now supports:
+  - live reference summary and full-array baseline generation for that rung;
+  - live native summary and full-array comparison on the same partially native scaffold;
+  - compact benchmark analysis and parity reports through `jax-drb analyze-alfven-wave` and `jax-drb compare-alfven-wave`.
 - the older `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` manifest entries should still be treated as blocked reference-side geometry targets until their initialization conflicts are fixed upstream;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
 - the recycling transient branch now uses a continuation-based sparse implicit ladder on top of the shared backward-Euler stepper rather than the older generic adaptive BDF wrapper; the packed RHS still reuses the cached runtime model and the sparse Newton path still uses a direct sparse linear solve on these small active systems, but the full first-output recycling cases remain too slow to promote as parity-complete yet;
@@ -255,6 +260,8 @@ The compact benchmark-metric references are:
 - [blob2d_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/blob2d_short_window_metrics.json)
 - [neutral_mixed_rhs_diagnostics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_rhs_diagnostics.json)
 - [neutral_mixed_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json)
+- [docs/data/alfven_wave_short_window_analysis.json](/Users/rogerio/local/jax_drb/docs/data/alfven_wave_short_window_analysis.json)
+- [docs/data/alfven_wave_short_window_parity.json](/Users/rogerio/local/jax_drb/docs/data/alfven_wave_short_window_parity.json)
 
 These files are not full field dumps. They intentionally store:
 
@@ -348,4 +355,25 @@ PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \
   --z-index 5 \
   --json-out references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json \
   --plot-out docs/images/neutral_mixed_short_window_diagnostics.png
+```
+
+For the current electromagnetic short-window benchmark rung, use:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m jax_drb analyze-alfven-wave \
+  /Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp \
+  references/baselines/reference_arrays/alfven_wave_short_window.npz \
+  --json-out docs/data/alfven_wave_short_window_analysis.json \
+  --plot-out docs/images/alfven_wave_short_window_diagnostics.png
+```
+
+And for the corresponding native/reference parity report:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m jax_drb compare-alfven-wave \
+  /Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp \
+  references/baselines/reference_arrays/alfven_wave_short_window.npz \
+  /tmp/jax_drb_alfven_wave_short_window_native.npz \
+  --json-out docs/data/alfven_wave_short_window_parity.json \
+  --plot-out docs/images/alfven_wave_short_window_parity.png
 ```
