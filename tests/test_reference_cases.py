@@ -119,3 +119,18 @@ def test_default_manifest_stages_alfven_wave_cases() -> None:
     assert medium_window_case.parity_mode == "short_window"
     assert medium_window_case.compare_variables == ("Apar", "Ajpar", "phi", "Vort", "NVe")
     assert medium_window_case.extra_overrides == ()
+
+
+def test_default_manifest_stages_annulus_he_emag_rhs_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "annulus_he_emag_rhs")
+
+    assert case.reference_path == "examples/other/linear/annulus-isothermal-he-emag/BOUT.inp"
+    assert case.parity_mode == "one_rhs"
+    assert case.compare_variables == ("Apar", "alpha_em", "ddt(Ne)", "ddt(NVe)", "ddt(Vort)")
+    assert case.extra_overrides == (
+        "nout=0",
+        "e:diagnose=true",
+        "vorticity:diagnose=true",
+        "electromagnetic:diagnose=true",
+    )

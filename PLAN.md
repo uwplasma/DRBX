@@ -803,6 +803,7 @@ Implementation tasks:
   - native short-window parity through the same partially native/dump-backed scaffold,
   - benchmark analysis JSON and docs figures for measured vs. analytic phase speed and frequency.
 - the same ladder now also has a committed `alfven_wave_medium_window` rung at the default `nout=50`, giving Step 4 a longer electromagnetic transient target that still fits under the repository size cap and preserves exact native/reference parity on the current scaffold.
+- the next broader Stage 4 rung is now `examples/other/linear/annulus-isothermal-he-emag` with a committed `annulus_he_emag_rhs` baseline on a slim EM-only compare surface: `Apar`, `alpha_em`, `ddt(Ne)`, `ddt(NVe)`, and `ddt(Vort)`. That case widens the electromagnetic surface beyond the slab benchmark while staying under the repository size cap and keeping exact native/reference parity on the current dump-backed scaffold. `Ajpar` is computed natively for inspection on that lane, but it is not part of the locked parity surface because the saved `nout=0` reference dump keeps `Ajpar` identically zero on that example.
 
 Required tests:
 
