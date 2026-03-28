@@ -73,6 +73,8 @@ def run_curated_case(
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_short_window":
         return _run_integrated_2d_recycling_short_window_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "integrated_2d_production_medium_window":
+        return _run_integrated_2d_recycling_medium_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_short_window":
