@@ -4,8 +4,11 @@ import numpy as np
 
 from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native.electromagnetic import (
+    ALFVEN_WAVE_DDT_NVE_DDY_COEF,
+    ALFVEN_WAVE_DDT_NVE_DDZ_COEF,
     ChargedSpeciesMetadata,
     apply_canonical_momentum_correction,
+    compute_alfven_wave_ddt_nve_core,
     compute_alpha_em,
     compute_apar_flutter,
     compute_beta_em,
@@ -214,3 +217,43 @@ def test_invert_slab_neumann_apar_to_current_density_recovers_current_on_physica
     )
     np.testing.assert_allclose(recovered[:, mesh.ystart - 1, :], recovered[:, mesh.yend, :], atol=1.0e-18)
     np.testing.assert_allclose(recovered[:, mesh.yend + 1, :], recovered[:, mesh.ystart, :], atol=1.0e-18)
+
+
+def test_compute_alfven_wave_ddt_nve_core_matches_periodic_vorticity_derivatives() -> None:
+    mesh = StructuredMesh(
+        nx=5,
+        ny=4,
+        nz=8,
+        mxg=2,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=True,
+        jyseps1_1=-1,
+        jyseps2_1=3,
+        jyseps1_2=3,
+        jyseps2_2=3,
+        ny_inner=4,
+        has_lower_y_target=False,
+        has_upper_y_target=False,
+        x=np.arange(5, dtype=np.float64),
+        y=np.arange(6, dtype=np.float64),
+        z=np.arange(8, dtype=np.float64),
+    )
+    y_index = np.arange(mesh.ny, dtype=np.float64)[:, None]
+    z_index = np.arange(mesh.nz, dtype=np.float64)[None, :]
+    core = 1.0e-3 * np.sin(z_index - y_index)
+    vorticity = np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    vorticity[mesh.xstart, mesh.ystart : mesh.yend + 1, :] = core
+
+    ddt_nve = compute_alfven_wave_ddt_nve_core(vorticity, mesh=mesh)
+
+    ddy = 0.5 * (np.roll(core, -1, axis=0) - np.roll(core, 1, axis=0))
+    ddz = 0.5 * (np.roll(core, -1, axis=1) - np.roll(core, 1, axis=1))
+    expected = ALFVEN_WAVE_DDT_NVE_DDY_COEF * ddy + ALFVEN_WAVE_DDT_NVE_DDZ_COEF * ddz
+    np.testing.assert_allclose(
+        ddt_nve[mesh.xstart, mesh.ystart : mesh.yend + 1, :],
+        expected,
+        atol=1.0e-18,
+    )
+    np.testing.assert_allclose(ddt_nve[: mesh.xstart, :, :], 0.0, atol=1.0e-18)
+    np.testing.assert_allclose(ddt_nve[mesh.xend + 1 :, :, :], 0.0, atol=1.0e-18)
