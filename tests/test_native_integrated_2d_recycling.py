@@ -23,6 +23,27 @@ from jax_drb.reference.cases import ReferenceCase
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
 
 
+def test_integrated_2d_initial_rhs_case_name_maps_transient_rungs() -> None:
+    assert native_runner._integrated_2d_initial_rhs_case_name("integrated_2d_recycling_one_step") == "integrated_2d_recycling_rhs"
+    assert native_runner._integrated_2d_initial_rhs_case_name("integrated_2d_recycling_short_window") == "integrated_2d_recycling_rhs"
+    assert native_runner._integrated_2d_initial_rhs_case_name("integrated_2d_recycling_medium_window") == "integrated_2d_recycling_rhs"
+    assert native_runner._integrated_2d_initial_rhs_case_name("integrated_2d_production_one_step") == "integrated_2d_production_rhs"
+
+
+def test_integrated_2d_production_one_step_prefers_bdf_solver() -> None:
+    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp"))
+    assert native_runner._select_integrated_2d_transient_solver_mode(
+        "integrated_2d_production_one_step",
+        config=config,
+        parity_mode="one_step",
+    ) == "bdf"
+    assert native_runner._select_integrated_2d_transient_solver_mode(
+        "integrated_2d_recycling_one_step",
+        config=config,
+        parity_mode="one_step",
+    ) == native_runner._select_recycling_transient_solver_mode(config, parity_mode="one_step")
+
+
 @dataclass(frozen=True)
 class _FakeSummary:
     artifacts: dict[str, str]

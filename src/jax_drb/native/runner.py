@@ -244,7 +244,7 @@ def _run_integrated_2d_recycling_transient_case(
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     initial_case = ReferenceCase(
-        name="integrated_2d_recycling_rhs",
+        name=_integrated_2d_initial_rhs_case_name(case.name),
         stage=case.stage,
         reference_path=case.reference_path,
         parity_mode="one_rhs",
@@ -296,7 +296,7 @@ def _run_integrated_2d_recycling_transient_case(
         for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
         if field_name in snapshot.optional_fields
     } or None
-    solver_mode = _select_recycling_transient_solver_mode(config, parity_mode="one_step")
+    solver_mode = _select_integrated_2d_transient_solver_mode(case.name, config=config, parity_mode="one_step")
     history = advance_recycling_1d_implicit_history(
         config,
         mesh=snapshot.mesh,
@@ -357,6 +357,16 @@ def _run_integrated_2d_recycling_transient_case(
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
     )
+
+
+def _integrated_2d_initial_rhs_case_name(case_name: str) -> str:
+    if case_name.endswith("_one_step"):
+        return case_name[: -len("_one_step")] + "_rhs"
+    if case_name.endswith("_short_window"):
+        return case_name[: -len("_short_window")] + "_rhs"
+    if case_name.endswith("_medium_window"):
+        return case_name[: -len("_medium_window")] + "_rhs"
+    return "integrated_2d_recycling_rhs"
 
 
 def _append_integrated_2d_recycling_diagnostics(
@@ -676,6 +686,17 @@ def _select_recycling_transient_solver_mode(
             ion_species += 1
 
     return "bdf" if ion_species > 1 else "continuation"
+
+
+def _select_integrated_2d_transient_solver_mode(
+    case_name: str,
+    *,
+    config: BoutConfig,
+    parity_mode: str,
+) -> str:
+    if case_name == "integrated_2d_production_one_step":
+        return "bdf"
+    return _select_recycling_transient_solver_mode(config, parity_mode=parity_mode)
 
 
 def _execute_periodic_fluid_mms_case(
