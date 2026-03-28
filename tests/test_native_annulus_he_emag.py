@@ -208,3 +208,68 @@ def test_annulus_he_emag_one_step_stacks_initial_and_final_snapshots(monkeypatch
     np.testing.assert_allclose(result.variables["phi"][1], 1.5)
     np.testing.assert_allclose(result.variables["Vort"][0], -0.5)
     np.testing.assert_allclose(result.variables["Vort"][1], -1.0)
+
+
+def test_annulus_he_emag_short_window_uses_all_reference_time_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("annulus electromagnetic reference input is unavailable")
+
+    captured_time_indices: list[int] = []
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-annulus-he-emag.nc"},
+                time_points=(0.0, 10.0, 20.0, 30.0),
+                overrides=("nout=5", "timestep=10"),
+            )
+        ),
+    )
+
+    def fake_load_snapshot(*args, **kwargs):
+        time_index = kwargs["time_index"]
+        captured_time_indices.append(time_index)
+        snapshot = _annulus_snapshot()
+        scale = float(time_index + 1)
+        fields = dict(snapshot.fields)
+        fields["Apar"] = fields["Apar"] * scale
+        fields["Ne"] = fields["Ne"] * scale
+        fields["phi"] = np.full((8, 8, 6), 0.75 * scale, dtype=np.float64)
+        fields["Vort"] = np.full((8, 8, 6), -0.5 * scale, dtype=np.float64)
+        return LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields=fields,
+            optional_fields=snapshot.optional_fields,
+            scalar_values=snapshot.scalar_values,
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+
+    case = ReferenceCase(
+        name="annulus_he_emag_short_window",
+        stage="stage8",
+        reference_path=str(_REFERENCE_INPUT),
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Apar", "Ne", "phi"),
+        extra_overrides=("timestep=10", "nout=5"),
+    )
+
+    result = native_runner._run_annulus_he_emag_short_window_case(
+        case,
+        input_path=_REFERENCE_INPUT,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured_time_indices == [0, 1, 2, 3]
+    assert result.time_points == (0.0, 10.0, 20.0, 30.0)
+    assert result.variables["Apar"].shape == (4, 8, 8, 6)
+    np.testing.assert_allclose(result.variables["Apar"][0], 1.5e-3)
+    np.testing.assert_allclose(result.variables["Apar"][3], 6.0e-3)
+    np.testing.assert_allclose(result.variables["Ne"][0], 0.4)
+    np.testing.assert_allclose(result.variables["Ne"][3], 1.6)
+    np.testing.assert_allclose(result.variables["phi"][0], 0.75)
+    np.testing.assert_allclose(result.variables["phi"][3], 3.0)
