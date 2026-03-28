@@ -2885,6 +2885,8 @@ def advance_recycling_1d_implicit_history(
     dataset_scalars: dict[str, float],
     timestep: float,
     steps: int,
+    initial_fields: dict[str, np.ndarray] | None = None,
+    initial_feedback_integrals: dict[str, float] | None = None,
     solver_mode: str = "bdf",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
@@ -2895,11 +2897,12 @@ def advance_recycling_1d_implicit_history(
         config,
         mesh=mesh,
         dataset_scalars=dataset_scalars,
+        field_overrides=initial_fields,
     )
     field_names = runtime_model.field_names
     feedback_names = runtime_model.feedback_names
-    fields = _recycling_field_templates(runtime_model.species_templates, field_names=field_names)
-    integrals = {name: 0.0 for name in feedback_names}
+    fields = _build_recycling_state_fields(runtime_model, field_overrides=initial_fields)
+    integrals = {name: float((initial_feedback_integrals or {}).get(name, 0.0)) for name in feedback_names}
 
     if solver_mode == "continuation":
         return _advance_recycling_1d_continuation_history(
