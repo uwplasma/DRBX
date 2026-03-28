@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import parse_bout_input
+from jax_drb.config.boutinp import load_bout_input, parse_bout_input
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.arrays import load_portable_array_payload
 from jax_drb.runtime.run_config import RunConfiguration
@@ -60,6 +60,15 @@ def _build_validation_config():
     return config, resolved_dataset_scalars(run_config)
 
 
+def _load_committed_reference_config():
+    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp")
+    if not input_path.exists():
+        pytest.skip("alfven-wave reference input is unavailable")
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    return config, resolved_dataset_scalars(run_config)
+
+
 def test_analyze_alfven_wave_tracks_synthetic_frequency() -> None:
     config, dataset_scalars = _build_validation_config()
     benchmark = compute_alfven_wave_benchmark_scalars(config, dataset_scalars=dataset_scalars)
@@ -100,7 +109,7 @@ def test_analyze_alfven_wave_matches_committed_short_window_baseline() -> None:
     if not reference_npz.exists():
         pytest.skip("Committed Alfven-wave short-window baseline is unavailable")
 
-    config, dataset_scalars = _build_validation_config()
+    config, dataset_scalars = _load_committed_reference_config()
     payload = load_portable_array_payload(reference_npz)
     result = analyze_alfven_wave_array_payload(
         payload,
@@ -113,6 +122,32 @@ def test_analyze_alfven_wave_matches_committed_short_window_baseline() -> None:
     assert result.benchmark.analytic_phase_speed > 0.0
     assert result.measured_phase_speed > 0.0
     assert result.relative_phase_speed_error < 5e-2
+
+
+def test_analyze_alfven_wave_matches_committed_medium_window_baseline() -> None:
+    reference_npz = (
+        Path(__file__).resolve().parents[1]
+        / "references"
+        / "baselines"
+        / "reference_arrays"
+        / "alfven_wave_medium_window.npz"
+    )
+    if not reference_npz.exists():
+        pytest.skip("Committed Alfven-wave medium-window baseline is unavailable")
+
+    config, dataset_scalars = _load_committed_reference_config()
+    payload = load_portable_array_payload(reference_npz)
+    result = analyze_alfven_wave_array_payload(
+        payload,
+        config=config,
+        dataset_scalars=dataset_scalars,
+        field_variable="phi",
+        x_index=2,
+    )
+
+    assert result.benchmark.analytic_phase_speed > 0.0
+    assert result.measured_phase_speed > 0.0
+    assert result.relative_phase_speed_error < 2e-2
 
 
 def test_compare_alfven_wave_array_payloads_reports_small_history_errors() -> None:
