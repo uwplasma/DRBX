@@ -118,6 +118,7 @@ The next queued staged baselines are now committed as well:
 - Step 4 is now formally staged with the smallest electromagnetic benchmark in the source test suite:
   - `alfven_wave_rhs` locks `Apar`, `Ajpar`, `phi`, `Vort`, `NVe`, `ddt(NVe)`, and `ddt(Vort)` from an `nout=0` diagnostic run on `tests/integrated/alfven-wave`;
   - `alfven_wave_one_step` locks the first evolved EM state on the same benchmark through `Apar`, `Ajpar`, `phi`, `Vort`, and `NVe`;
+  - both rungs now also run through a dump-backed native scaffold in [runner.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/runner.py), and the live `run-case` outputs compare exactly to the committed summary and array baselines;
   - that gives the EM/`Apar` branch the same staged `one_rhs -> one_step` ladder used earlier for electrostatic and recycling paths before wider short-window dispersion checks are added.
 - the staged integrated `2D-recycling` path now also has explicit performance and differentiability tracking:
   - on this machine, the full curated case run is about `3.89 s`, while loading the local dump is about `35 ms`, the first direct dump-backed RHS evaluation is about `4.2 ms`, and repeated direct RHS evaluations average about `4.5 ms`;
