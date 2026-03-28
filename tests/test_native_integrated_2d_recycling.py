@@ -723,3 +723,118 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
     assert result.time_points == (0.0, 0.0001, 0.0002, 0.00030000000000000003, 0.0004, 0.0005)
     assert result.variables["Nd+"].shape == (6, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (6, 2, 3, 1)
+
+
+def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("integrated 2D recycling reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    initial_fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": 3.0 * np.ones((4, 5, 1), dtype=np.float64),
+    }
+    evolved_history = {name: np.stack([value + float(index) for index in range(21)], axis=0) for name, value in initial_fields.items()}
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "load_local_reference_snapshot",
+        lambda *args, **kwargs: LocalReferenceSnapshot(
+            mesh=mesh,
+            metrics=metrics,
+            fields=initial_fields,
+            optional_fields={
+                "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+                "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+                "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+                "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+            },
+            scalar_values={"Nnorm": 1.0e17},
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_history(*args, **kwargs):
+        captured["steps"] = kwargs["steps"]
+        return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
+
+    def fake_rhs(*args, **kwargs):
+        fields = kwargs["field_overrides"]
+        density = np.asarray(fields["Nd+"], dtype=np.float64)
+        pressure = np.asarray(fields["Pd+"], dtype=np.float64)
+        return SimpleNamespace(
+            variables={
+                "Sd_target_recycle": density[None, ...],
+                "Ed_target_recycle": pressure[None, ...],
+            }
+        )
+
+    monkeypatch.setattr(native_runner, "compute_recycling_1d_rhs", fake_rhs)
+
+    case = ReferenceCase(
+        name="integrated_2d_recycling_medium_window",
+        stage="stage7",
+        reference_path=str(_REFERENCE_INPUT),
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"),
+        extra_overrides=("nout=20",),
+        trim_x_guards=True,
+        trim_y_guards=True,
+    )
+
+    result = native_runner._run_integrated_2d_recycling_medium_window_case(
+        case,
+        input_path=_REFERENCE_INPUT,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured["steps"] == 20
+    assert len(result.time_points) == 21
+    assert result.time_points[-1] == pytest.approx(0.002)
+    assert result.variables["Nd+"].shape == (21, 2, 3, 1)
+    assert result.variables["Ed_target_recycle"].shape == (21, 2, 3, 1)
