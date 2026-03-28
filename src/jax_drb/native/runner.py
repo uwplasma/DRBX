@@ -69,6 +69,8 @@ def run_curated_case(
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "integrated_2d_recycling_short_window":
+        return _run_integrated_2d_recycling_short_window_case(case, input_path=input_path, reference_root=reference_root)
     return run_input_case(
         input_path,
         case_name=case.name,
@@ -179,6 +181,37 @@ def _run_integrated_2d_recycling_one_step_case(
     input_path: Path,
     reference_root: str | Path,
 ) -> NativeRunResult:
+    return _run_integrated_2d_recycling_transient_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        steps=1,
+    )
+
+
+def _run_integrated_2d_recycling_short_window_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    return _run_integrated_2d_recycling_transient_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        steps=run_config.time.nout,
+    )
+
+
+def _run_integrated_2d_recycling_transient_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+    steps: int,
+) -> NativeRunResult:
     config = load_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
@@ -228,7 +261,7 @@ def _run_integrated_2d_recycling_one_step_case(
         metrics=snapshot.metrics,
         dataset_scalars=dataset_scalars,
         timestep=run_config.time.timestep,
-        steps=1,
+        steps=steps,
         initial_fields=snapshot.fields,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
@@ -237,36 +270,17 @@ def _run_integrated_2d_recycling_one_step_case(
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
     )
-    initial_rhs = compute_recycling_1d_rhs(
-        config,
-        mesh=snapshot.mesh,
-        metrics=snapshot.metrics,
-        dataset_scalars=dataset_scalars,
-        field_overrides={name: np.asarray(values[0], dtype=np.float64) for name, values in history.variable_history.items()},
-        apply_sheath_boundaries=True,
-        preserve_dump_target_state=True,
-    )
-    final_rhs = compute_recycling_1d_rhs(
-        config,
-        mesh=snapshot.mesh,
-        metrics=snapshot.metrics,
-        dataset_scalars=dataset_scalars,
-        field_overrides={name: np.asarray(values[-1], dtype=np.float64) for name, values in history.variable_history.items()},
-        apply_sheath_boundaries=True,
-        preserve_dump_target_state=True,
-    )
     variables = {
         name: np.asarray(value, dtype=np.float64)
         for name, value in history.variable_history.items()
     }
-    for diagnostic_name in ("Sd_target_recycle", "Ed_target_recycle"):
-        variables[diagnostic_name] = np.stack(
-            [
-                np.asarray(initial_rhs.variables[diagnostic_name][0], dtype=np.float64),
-                np.asarray(final_rhs.variables[diagnostic_name][0], dtype=np.float64),
-            ],
-            axis=0,
-        )
+    _append_integrated_2d_recycling_diagnostics(
+        variables,
+        config=config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+    )
     trimmed_variables = _prepare_compare_variables(
         variables,
         snapshot.mesh,
@@ -278,8 +292,8 @@ def _run_integrated_2d_recycling_one_step_case(
         parity_mode=case.parity_mode,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
-        dimensions={"t": 2, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
-        time_points=(0.0, run_config.time.timestep),
+        dimensions={"t": steps + 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=tuple(index * run_config.time.timestep for index in range(steps + 1)),
         dataset_scalars=dataset_scalars,
         variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
         overrides=_effective_overrides(case.parity_mode, reference_case=case),
@@ -290,11 +304,44 @@ def _run_integrated_2d_recycling_one_step_case(
     return NativeRunResult(
         payload=payload,
         variables=trimmed_variables,
-        time_points=(0.0, run_config.time.timestep),
+        time_points=tuple(index * run_config.time.timestep for index in range(steps + 1)),
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
     )
+
+
+def _append_integrated_2d_recycling_diagnostics(
+    variables: dict[str, np.ndarray],
+    *,
+    config: BoutConfig,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> None:
+    diagnostic_history: dict[str, list[np.ndarray]] = {
+        "Sd_target_recycle": [],
+        "Ed_target_recycle": [],
+    }
+    field_names = tuple(name for name in variables if not name.startswith("S") and not name.startswith("E"))
+    for time_index in range(next(iter(variables.values())).shape[0]):
+        field_overrides = {
+            name: np.asarray(variables[name][time_index], dtype=np.float64)
+            for name in field_names
+        }
+        rhs = compute_recycling_1d_rhs(
+            config,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            field_overrides=field_overrides,
+            apply_sheath_boundaries=True,
+            preserve_dump_target_state=True,
+        )
+        for diagnostic_name in diagnostic_history:
+            diagnostic_history[diagnostic_name].append(np.asarray(rhs.variables[diagnostic_name][0], dtype=np.float64))
+    for diagnostic_name, history in diagnostic_history.items():
+        variables[diagnostic_name] = np.stack(history, axis=0)
 
 
 def run_input_case(

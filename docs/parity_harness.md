@@ -33,6 +33,7 @@ For a figure-first view of the currently locked cases, see [docs/validation_gall
 | `recycling_1d_long` | `blocked` | Depends on the transient ladder. |
 | `integrated_2d_recycling_rhs` | `native-scaffolded target` | Stable integrated 2D recycling geometry target with staged grid artifact, 10-rank launch, a native local-dump RHS scaffold, slab-local target routing, dump-state sheath preservation, dump-backed `SNd`/`SNd+` and `SPd`/`SPd+` staging for the integrated case, restored staged target-recycling diagnostics, and a source-faithful `sheath_boundary_simple` electron boundary path. |
 | `integrated_2d_recycling_one_step` | `native-scaffolded target` | Stable integrated 2D recycling first-output target with staged grid artifact, 10-rank launch, and a first native transient scaffold that starts from the staged one-RHS dump state, marches one native recycling step, preserves the dump-backed target state during transient RHS evaluations and when rebuilding the final staged recycling diagnostics, and uses the same dump-backed `SNd`/`SNd+` and `SPd`/`SPd+` staging during the step that already tightened the staged RHS path. |
+| `integrated_2d_recycling_short_window` | `native-scaffolded target` | Stable integrated 2D recycling short-window target with staged grid artifact, 10-rank launch, committed reference baselines, and a native multi-output transient scaffold over the full configured `nout=5` window using the same dump-backed source staging and target-state preservation as the one-step path. |
 | `tokamak_recycling_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 | `tokamak_recycling_dthe_one_step` | `blocked` | Reference-side geometry staging is not stable yet. |
 
@@ -101,7 +102,9 @@ Current support is intentionally narrow:
 - [diagnose_recycling_timeline.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_timeline.py) now gives a compact target-band timeline report for `recycling_1d_one_step` and `recycling_dthe_one_step`, so the first-output mismatch can be tracked field-by-field without writing large artifacts;
 - [diagnose_recycling_dense_history.py](/Users/rogerio/local/jax_drb/scripts/diagnose_recycling_dense_history.py) now stages a dense-output reference run (for example `nout=40`, `timestep=125`) and compares that trajectory directly to the native transient history, which is the fastest way to see whether drift is already present at each accepted step or only in the coarse first-output comparison;
 - the same ladder now stages `integrated_2d_recycling_rhs` and `integrated_2d_recycling_one_step` off the stable integrated `2D-recycling` workflow, with manifest-driven `process_count = 10` and explicit artifact staging for `grid_test2.nc` from the published reference bundle;
+- the integrated `2D-recycling` ladder now also includes `integrated_2d_recycling_short_window`, so Step 3 has a committed multi-output transient reference target on the stable integrated workflow rather than only `one_rhs` and `one_step`;
 - the native runner can now enter `integrated_2d_recycling_rhs` through a staged local-dump path, which loads the local `BOUT.dmp.0.nc` mesh/metric/state slab instead of failing on missing `mesh:nx/ny/nz`, honors whether the slab owns a physical lower or upper target, preserves dump-backed target states without reapplying sheath closures, keeps the sheath-generated guard cells needed by the transport stencil, injects dump-backed `SNd`/`SNd+` density sources and `SPd`/`SPd+` ion-pressure sources for the staged integrated case, restores staged `Sd_target_recycle` and `Ed_target_recycle` directly from the dump, and follows the reference `sheath_boundary_simple` electron closure closely enough to remove the large target-row `ddt(Pe)` deficit; this is still a Step 3 scaffolding milestone rather than a locked parity result;
+- the native runner can now enter `integrated_2d_recycling_short_window` through the same staged dump-backed workflow and march the full configured `nout=5` window; current native/reference differences are still visible in `Ed_target_recycle`, `Pe`, and tiny neutral-side residuals, so this is the main Step 3 transient parity target rather than a locked parity milestone;
 - the older `tokamak_recycling_one_step` and `tokamak_recycling_dthe_one_step` manifest entries should still be treated as blocked reference-side geometry targets until their initialization conflicts are fixed upstream;
 - shared open-field operator utilities are now available in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), covering no-flow guard fills, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly before these terms are wired into the coupled native recycling runner;
 - the recycling transient branch now uses a continuation-based sparse implicit ladder on top of the shared backward-Euler stepper rather than the older generic adaptive BDF wrapper; the packed RHS still reuses the cached runtime model and the sparse Newton path still uses a direct sparse linear solve on these small active systems, but the full first-output recycling cases remain too slow to promote as parity-complete yet;
@@ -156,6 +159,28 @@ Current support is intentionally narrow:
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
 - the resulting JSON can be compared directly against the committed baseline with `jax-drb compare-summary`.
+- the current staged `integrated_2d_recycling_rhs` runtime split is now measured explicitly:
+  - on this machine, the full curated case path takes about `3.89 s`;
+  - loading the already-written local dump takes about `35 ms`;
+  - the first direct dump-backed RHS evaluation takes about `4.2 ms`;
+  - repeated direct dump-backed RHS evaluations average about `4.5 ms`;
+  - that means near-term performance work should focus on avoiding unnecessary reference reruns during iteration, not on micro-optimizing the current staged RHS kernel first.
+- the current staged `integrated_2d_recycling_rhs` surface is also not end-to-end differentiable yet:
+  - the present `grad` barrier is a `TracerArrayConversionError` triggered by `np.asarray(..., copy=True)` in `_initialize_species()` inside [recycling_1d.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/recycling_1d.py);
+  - an xfailed regression now tracks that limitation directly in [test_native_integrated_2d_recycling.py](/Users/rogerio/local/jax_drb/tests/test_native_integrated_2d_recycling.py);
+  - the fastest near-term differentiability improvement is therefore to keep the staged harness as-is while gradually replacing the early NumPy materialization points in the dump-backed RHS path, rather than attempting a larger Step 3 solver rewrite.
+
+For a reproducible timing report on the staged integrated 2D RHS path, run:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/benchmark_integrated_2d_recycling_rhs.py
+```
+
+For a reproducible residual-classification report on the staged integrated 2D cases, run:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/diagnose_integrated_2d_recycling_parity.py --reference-root /Users/rogerio/local/hermes-3
+```
 
 For performance checks, Step 1 now distinguishes between:
 
