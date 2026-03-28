@@ -33,6 +33,7 @@ from .drift_wave import (
 from .electromagnetic import (
     compute_alfven_wave_ddt_nve_core,
     compute_alfven_wave_ddt_vort_core,
+    compute_alpha_em,
     compute_beta_em,
     compute_parallel_current_density,
     extract_charged_species_metadata,
@@ -82,6 +83,8 @@ def run_curated_case(
         return _run_alfven_wave_short_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "alfven_wave_medium_window":
         return _run_alfven_wave_medium_window_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "annulus_he_emag_rhs":
+        return _run_annulus_he_emag_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
@@ -269,6 +272,79 @@ def _run_alfven_wave_medium_window_case(
         time_indices=None,
         field_names=("Apar", "phi", "Vort", "NVe", "Ne", "Ni"),
         optional_field_names=(),
+    )
+
+
+def _run_annulus_he_emag_rhs_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    charged_species = extract_charged_species_metadata(config)
+    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-annulus-he-emag-") as workdir:
+        execution = run_reference_case(
+            case.name,
+            reference_root=reference_root,
+            workdir=workdir,
+            keep_workdir=True,
+        )
+        snapshot = load_local_reference_snapshot(
+            Path(execution.summary.artifacts["BOUT.dmp.0.nc"]),
+            field_names=("Apar", "Ne", "Nhe+", "NVe", "NVhe+"),
+            optional_field_names=("ddt(Ne)", "ddt(NVe)", "ddt(Vort)"),
+            scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+        )
+
+    variables: dict[str, np.ndarray] = {}
+    variables["Apar"] = np.asarray(snapshot.fields["Apar"], dtype=np.float64)[None, ...]
+    variables["Ajpar"] = compute_parallel_current_density(
+        {
+            "NVe": np.asarray(snapshot.fields["NVe"], dtype=np.float64),
+            "NVhe+": np.asarray(snapshot.fields["NVhe+"], dtype=np.float64),
+        },
+        charged_species,
+    )[None, ...]
+    variables["alpha_em"] = compute_alpha_em(
+        {
+            "Ne": np.asarray(snapshot.fields["Ne"], dtype=np.float64),
+            "Nhe+": np.asarray(snapshot.fields["Nhe+"], dtype=np.float64),
+        },
+        charged_species,
+    )[None, ...]
+    for name in ("ddt(Ne)", "ddt(NVe)", "ddt(Vort)"):
+        if name in snapshot.optional_fields:
+            variables[name] = np.asarray(snapshot.optional_fields[name], dtype=np.float64)[None, ...]
+
+    trimmed_variables = _prepare_compare_variables(
+        variables,
+        snapshot.mesh,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+    )
+    payload = build_portable_summary_payload(
+        case_name=case.name,
+        parity_mode=case.parity_mode,
+        compare_variables=case.compare_variables,
+        component_labels=tuple(component.label for component in run_config.components),
+        dimensions={"t": 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=(0.0,),
+        dataset_scalars=dataset_scalars,
+        variables=trimmed_variables,
+        overrides=execution.summary.overrides,
+        configured_nout=run_config.time.nout,
+        configured_timestep=run_config.time.timestep,
+    )
+    return NativeRunResult(
+        payload=payload,
+        variables=trimmed_variables,
+        time_points=(0.0,),
+        run_config=run_config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
     )
 
 

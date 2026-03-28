@@ -326,6 +326,15 @@ rationale = "Extended electromagnetic transient parity on the finite-electron-ma
 compare_variables = ["Apar", "Ajpar", "phi", "Vort", "NVe"]
 
 [[case]]
+name = "annulus_he_emag_rhs"
+stage = "stage8"
+reference_path = "examples/other/linear/annulus-isothermal-he-emag/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Broader electromagnetic RHS parity on the annulus helium benchmark, extending Step 4 beyond the minimal Alfven-wave slab while staying on a slim EM-only compare surface."
+compare_variables = ["Apar", "alpha_em", "ddt(Ne)", "ddt(NVe)", "ddt(Vort)"]
+extra_overrides = ["nout=0", "e:diagnose=true", "vorticity:diagnose=true", "electromagnetic:diagnose=true"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"
