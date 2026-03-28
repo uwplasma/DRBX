@@ -65,6 +65,10 @@ def run_curated_case(
     from ..parity.reference import resolve_reference_case
 
     case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
+    if case.name == "alfven_wave_rhs":
+        return _run_alfven_wave_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "alfven_wave_one_step":
+        return _run_alfven_wave_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
@@ -188,6 +192,119 @@ def _run_integrated_2d_recycling_rhs_case(
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
+    )
+
+
+def _run_alfven_wave_rhs_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_alfven_wave_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=(0,),
+        field_names=("Apar", "Ajpar", "phi", "Vort", "NVe"),
+        optional_field_names=("ddt(NVe)", "ddt(Vort)"),
+    )
+
+
+def _run_alfven_wave_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_alfven_wave_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=(0, 1),
+        field_names=("Apar", "Ajpar", "phi", "Vort", "NVe"),
+        optional_field_names=(),
+    )
+
+
+def _run_alfven_wave_dump_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+    time_indices: tuple[int, ...],
+    field_names: tuple[str, ...],
+    optional_field_names: tuple[str, ...],
+) -> NativeRunResult:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    snapshots: list[Any] = []
+    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-alfven-wave-") as workdir:
+        execution = run_reference_case(
+            case.name,
+            reference_root=reference_root,
+            workdir=workdir,
+            keep_workdir=True,
+        )
+        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        for time_index in time_indices:
+            snapshots.append(
+                load_local_reference_snapshot(
+                    dump_path,
+                    field_names=field_names,
+                    optional_field_names=optional_field_names,
+                    scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+                    time_index=time_index,
+                )
+            )
+
+    first_snapshot = snapshots[0]
+    variables: dict[str, np.ndarray] = {}
+    for name in field_names:
+        variables[name] = np.stack(
+            [np.asarray(snapshot.fields[name], dtype=np.float64) for snapshot in snapshots],
+            axis=0,
+        )
+    for name in optional_field_names:
+        if all(name in snapshot.optional_fields for snapshot in snapshots):
+            variables[name] = np.stack(
+                [np.asarray(snapshot.optional_fields[name], dtype=np.float64) for snapshot in snapshots],
+                axis=0,
+            )
+
+    trimmed_variables = _prepare_compare_variables(
+        variables,
+        first_snapshot.mesh,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+    )
+    time_points = tuple(execution.summary.time_points[index] for index in range(len(time_indices)))
+    payload = build_portable_summary_payload(
+        case_name=case.name,
+        parity_mode=case.parity_mode,
+        compare_variables=case.compare_variables,
+        component_labels=tuple(component.label for component in run_config.components),
+        dimensions={
+            "t": len(time_indices),
+            "x": first_snapshot.mesh.nx,
+            "y": first_snapshot.mesh.local_ny,
+            "z": first_snapshot.mesh.nz,
+        },
+        time_points=time_points,
+        dataset_scalars=first_snapshot.scalar_values or resolved_dataset_scalars(run_config),
+        variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
+        overrides=_effective_overrides(case.parity_mode, reference_case=case),
+        configured_nout=run_config.time.nout,
+        configured_timestep=run_config.time.timestep,
+        producer="jax-drb",
+    )
+    return NativeRunResult(
+        payload=payload,
+        variables=trimmed_variables,
+        time_points=time_points,
+        run_config=run_config,
+        mesh=first_snapshot.mesh,
+        metrics=first_snapshot.metrics,
     )
 
 
