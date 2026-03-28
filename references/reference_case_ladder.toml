@@ -205,6 +205,35 @@ artifact_bundle_sha256 = "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c
 artifact_bundle_files = ["grid_test2.nc"]
 
 [[case]]
+name = "integrated_2d_recycling_short_window"
+stage = "stage7"
+reference_path = "tests/integrated/2D-recycling/data/BOUT.inp"
+parity_mode = "short_window"
+rationale = "Multi-output 2D recycling geometry parity on the stable integrated recycling workflow before the broader 2D production path."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 10
+artifact_bundle_url = "https://zenodo.org/records/18623307/files/test-2D-production-2026-02-12.zip"
+artifact_bundle_sha256 = "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
+artifact_bundle_files = ["grid_test2.nc"]
+
+[[case]]
+name = "integrated_2d_recycling_medium_window"
+stage = "stage7"
+reference_path = "tests/integrated/2D-recycling/data/BOUT.inp"
+parity_mode = "short_window"
+rationale = "Extended 2D recycling geometry parity on the stable integrated recycling workflow after the short window and before the broader 2D production path."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"]
+extra_overrides = ["nout=20"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 10
+artifact_bundle_url = "https://zenodo.org/records/18623307/files/test-2D-production-2026-02-12.zip"
+artifact_bundle_sha256 = "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
+artifact_bundle_files = ["grid_test2.nc"]
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"
