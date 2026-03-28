@@ -7,10 +7,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native import runner as native_runner
 from jax_drb.native.reference_dump import LocalReferenceSnapshot
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.metrics import StructuredMetrics
+from jax_drb.native.recycling_1d import _initialize_species, _prepare_open_field_states
+from jax_drb.runtime.run_config import RunConfiguration
+from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.reference.cases import ReferenceCase
 
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
@@ -286,3 +290,86 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
     assert captured["apply_sheath_boundaries"] is True
     assert captured["preserve_dump_target_state"] is True
     assert tuple(captured["pressure_source_overrides"]) == ("d+",)
+
+
+def test_integrated_2d_simple_sheath_preserve_mode_keeps_simple_guard_cells() -> None:
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("integrated 2D recycling reference input is unavailable")
+
+    config = load_bout_input(_REFERENCE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": np.ones((4, 5, 1), dtype=np.float64),
+    }
+    species = _initialize_species(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+        field_overrides=fields,
+    )
+
+    prepared_free, _, boundary_free = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=False,
+    )
+    prepared_preserve, _, boundary_preserve = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+    )
+
+    ghost = mesh.ystart - 1
+    np.testing.assert_allclose(boundary_preserve.density[:, ghost, :], boundary_free.density[:, ghost, :])
+    np.testing.assert_allclose(boundary_preserve.pressure[:, ghost, :], boundary_free.pressure[:, ghost, :])
+    np.testing.assert_allclose(
+        prepared_preserve["e"].density[:, mesh.ystart, :],
+        prepared_free["e"].density[:, mesh.ystart, :],
+    )

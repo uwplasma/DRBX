@@ -173,7 +173,13 @@ def test_recycling_dthe_collision_rates_cover_asymmetric_ion_neutral_pairs() -> 
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
     collision_rates = _compute_collision_frequencies(
         config,
         species,
@@ -197,7 +203,13 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
     cx_rates = _charge_exchange_collision_rates(
         config,
         species=species,
@@ -235,7 +247,13 @@ def test_target_recycling_sources_use_prepared_ion_state() -> None:
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     neutrals = tuple(sp for sp in species.values() if sp.charge == 0.0 and sp.name != "e")
     ion_velocity = {ion.name: prepared[ion.name].velocity for ion in ions}
@@ -326,7 +344,13 @@ def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     ion_velocity = {ion.name: prepared[ion.name].velocity for ion in ions}
     electron_density = prepared["e"].density
@@ -394,7 +418,13 @@ def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isot
     metrics = build_structured_metrics(config, run_config, mesh)
     dataset_scalars = resolved_dataset_scalars(run_config)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
     cx_rates = _charge_exchange_collision_rates(
         config,
         species=species,
@@ -450,7 +480,13 @@ def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() ->
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
 
     pair = _ion_thermal_force_pair(
         "d+",
@@ -480,7 +516,13 @@ def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_densit
     metrics = build_structured_metrics(config, run_config, mesh)
     dataset_scalars = resolved_dataset_scalars(run_config)
     species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(species, mesh=mesh, metrics=metrics)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
     ionisation_rates = _neutral_ionisation_collision_rates(
         config,
         species=species,

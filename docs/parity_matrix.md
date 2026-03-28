@@ -98,7 +98,7 @@ Deliverables:
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
 | `recycling_1d_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
-| `integrated_2d_recycling_rhs` | `native-scaffolded` | Staged local-dump RHS path now runs natively with slab-local target routing, dump-state preservation, electron sheath sink restoration, and dumped `SPd+` injection into the ion pressure RHS, but parity is not locked. |
+| `integrated_2d_recycling_rhs` | `native-scaffolded` | Staged local-dump RHS path now runs natively with slab-local target routing, dump-state preservation, dumped `SPd+` injection into the ion pressure RHS, and a source-faithful `sheath_boundary_simple` electron boundary path; the remaining live mismatch is now confined to small edge statistics rather than the earlier target-row `ddt(Pe)` deficit. |
 | `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is staged. |
 
 ## Stage 3+: Physics Buildout
