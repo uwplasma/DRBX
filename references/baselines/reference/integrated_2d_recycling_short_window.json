@@ -1,0 +1,241 @@
+{
+  "case_name": "integrated_2d_recycling_short_window",
+  "compare_variables": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Pe",
+    "Sd_target_recycle",
+    "Ed_target_recycle"
+  ],
+  "component_labels": [
+    "d+:evolve_density",
+    "d+:evolve_momentum",
+    "d+:evolve_pressure",
+    "d+:anomalous_diffusion",
+    "d:neutral_mixed",
+    "d:neutral_boundary",
+    "e:quasineutral",
+    "e:evolve_pressure",
+    "e:zero_current",
+    "e:anomalous_diffusion",
+    "sheath_boundary_simple",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "reactions",
+    "electron_force_balance",
+    "braginskii_conduction",
+    "recycling"
+  ],
+  "configured_nout": 5,
+  "configured_timestep": 0.0001,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 97871.51425755137,
+    "Nnorm": 1e+17,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 100.0,
+    "rho_s0": 0.0010217477552952484
+  },
+  "dimensions": {
+    "t": 6,
+    "x": 20,
+    "y": 9,
+    "z": 1
+  },
+  "effective_output_points": 6,
+  "overrides": [],
+  "parity_mode": "short_window",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    0.0001,
+    0.0002,
+    0.00030000000000000003,
+    0.0004,
+    0.0005
+  ],
+  "variable_summaries": {
+    "Ed_target_recycle": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 6.025282563965062e-06,
+      "maximum": 0.16436802459806196,
+      "mean": 0.02014715941968436,
+      "minimum": 0.0,
+      "name": "Ed_target_recycle",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "NVd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 1.8423433489392168e-10,
+      "maximum": 1.8423433489392168e-10,
+      "mean": 9.715367976448804e-12,
+      "minimum": -4.9976937176443054e-15,
+      "name": "NVd",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.05744378239570151,
+      "maximum": 4.784221409488604e-13,
+      "mean": -0.0035156096195639278,
+      "minimum": -0.05744378239570151,
+      "name": "NVd+",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "Nd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.01172908886269712,
+      "maximum": 0.01172908886269712,
+      "mean": 0.0007183319770914675,
+      "minimum": 0.0,
+      "name": "Nd",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.01172908427031416,
+      "maximum": 700.0,
+      "mean": 699.9992816680186,
+      "minimum": 699.9882709157297,
+      "name": "Nd+",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "Pd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 5.4992519137693755e-05,
+      "maximum": 5.4992519137693755e-05,
+      "mean": 3.3809363471004856e-06,
+      "minimum": 0.0,
+      "name": "Pd",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.01741399488037132,
+      "maximum": 1050.000000173488,
+      "mean": 1049.99894253541,
+      "minimum": 1049.9825860051196,
+      "name": "Pd+",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.05062710404581594,
+      "maximum": 1050.0,
+      "mean": 1049.9967789515104,
+      "minimum": 1049.9493728959542,
+      "name": "Pe",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    },
+    "Sd_target_recycle": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.0008597188425802926,
+      "maximum": 23.45269091790424,
+      "mean": 2.8705230544829154,
+      "minimum": 0.0,
+      "name": "Sd_target_recycle",
+      "shape": [
+        6,
+        16,
+        5,
+        1
+      ]
+    }
+  }
+}
