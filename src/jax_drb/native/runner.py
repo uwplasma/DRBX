@@ -67,6 +67,8 @@ def run_curated_case(
     case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "integrated_2d_recycling_one_step":
+        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     return run_input_case(
         input_path,
         case_name=case.name,
@@ -165,6 +167,116 @@ def _run_integrated_2d_recycling_rhs_case(
         payload=payload,
         variables=trimmed_variables,
         time_points=(0.0,),
+        run_config=run_config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+    )
+
+
+def _run_integrated_2d_recycling_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    initial_case = ReferenceCase(
+        name="integrated_2d_recycling_rhs",
+        stage=case.stage,
+        reference_path=case.reference_path,
+        parity_mode="one_rhs",
+        rationale=case.rationale,
+        compare_variables=case.compare_variables,
+        extra_overrides=case.extra_overrides,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+        process_count=case.process_count,
+        artifact_bundle_url=case.artifact_bundle_url,
+        artifact_bundle_sha256=case.artifact_bundle_sha256,
+        artifact_bundle_files=case.artifact_bundle_files,
+    )
+    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-recycling-step-") as workdir:
+        execution = run_reference_case(
+            initial_case.name,
+            reference_root=reference_root,
+            workdir=workdir,
+            keep_workdir=True,
+        )
+        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        snapshot = load_local_reference_snapshot(
+            dump_path,
+            field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+            optional_field_names=(),
+            scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+        )
+    solver_mode = _select_recycling_transient_solver_mode(config, parity_mode="one_step")
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        timestep=run_config.time.timestep,
+        steps=1,
+        initial_fields=snapshot.fields,
+        solver_mode=solver_mode,
+        residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
+        max_nonlinear_iterations=30,
+    )
+    initial_rhs = compute_recycling_1d_rhs(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        field_overrides={name: np.asarray(values[0], dtype=np.float64) for name, values in history.variable_history.items()},
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+    )
+    final_rhs = compute_recycling_1d_rhs(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        field_overrides={name: np.asarray(values[-1], dtype=np.float64) for name, values in history.variable_history.items()},
+        apply_sheath_boundaries=True,
+    )
+    variables = {
+        name: np.asarray(value, dtype=np.float64)
+        for name, value in history.variable_history.items()
+    }
+    for diagnostic_name in ("Sd_target_recycle", "Ed_target_recycle"):
+        variables[diagnostic_name] = np.stack(
+            [
+                np.asarray(initial_rhs.variables[diagnostic_name][0], dtype=np.float64),
+                np.asarray(final_rhs.variables[diagnostic_name][0], dtype=np.float64),
+            ],
+            axis=0,
+        )
+    trimmed_variables = _prepare_compare_variables(
+        variables,
+        snapshot.mesh,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+    )
+    payload = build_portable_summary_payload(
+        case_name=case.name,
+        parity_mode=case.parity_mode,
+        compare_variables=case.compare_variables,
+        component_labels=tuple(component.label for component in run_config.components),
+        dimensions={"t": 2, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=(0.0, run_config.time.timestep),
+        dataset_scalars=dataset_scalars,
+        variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
+        overrides=_effective_overrides(case.parity_mode, reference_case=case),
+        configured_nout=run_config.time.nout,
+        configured_timestep=run_config.time.timestep,
+        producer="jax-drb",
+    )
+    return NativeRunResult(
+        payload=payload,
+        variables=trimmed_variables,
+        time_points=(0.0, run_config.time.timestep),
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,

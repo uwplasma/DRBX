@@ -99,7 +99,7 @@ Deliverables:
 | `recycling_1d_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native transient solve is not parity-clean yet. |
 | `integrated_2d_recycling_rhs` | `native-scaffolded` | Staged local-dump RHS path now runs natively with slab-local target routing, dump-state preservation, dump-backed `SNd`/`SNd+` density-source staging, dump-backed `SPd`/`SPd+` ion-pressure staging, restored staged target-recycling diagnostics, and a source-faithful `sheath_boundary_simple` electron boundary path; the remaining live mismatch is now confined to small pressure-statistics summaries rather than missing recycling channels or the earlier target-row `ddt(Pe)` deficit. |
-| `integrated_2d_recycling_one_step` | `reference-staged` | First-output integrated 2D recycling target is staged. |
+| `integrated_2d_recycling_one_step` | `native-scaffolded` | First native transient scaffold now runs from the staged one-RHS dump state through one native recycling step; parity is still loose, but the 2D one-step path is now in code rather than only in staging. |
 
 ## Stage 3+: Physics Buildout
 
