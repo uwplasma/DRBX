@@ -4,6 +4,8 @@ This page records the first electromagnetic transient benchmark on the active va
 
 The committed benchmark rung is [alfven_wave_short_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/alfven_wave_short_window.npz), generated from the finite-electron-mass slab case in `/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp` with `nout=20`. That is the smallest stored history that gives a stable frequency estimate from the saved outputs while staying comfortably below the repository artifact size cap.
 
+The longer transient rung is [alfven_wave_medium_window.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/alfven_wave_medium_window.npz), which keeps the default `nout=50` history and still stays below the repository size cap.
+
 ## Benchmark Diagnostics
 
 ![Alfven-wave short-window diagnostics](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_short_window_diagnostics.png)
@@ -28,6 +30,14 @@ Locked parity values from [alfven_wave_short_window_parity.json](/Users/rogerio/
 - mean-square RMS error: `0`
 
 That parity is exact on the current partially native electromagnetic scaffold. The scaffold is not yet a full native EM transient implementation, but it already includes native `Ajpar`, native `Apar`, the physical-domain `NVe` one-step reconstruction, the physical/inner-radial `ddt(NVe)` core, and the shoulder `ddt(Vort)` planes used by the benchmark.
+
+The longer committed `alfven_wave_medium_window` baseline produces:
+
+- measured phase speed: `9.42628846e+05 m/s`
+- measured angular frequency: `2.96135586e+06 rad/s`
+- relative phase-speed error: `6.27941615e-03`
+
+The current partially native scaffold also matches that longer history exactly at the summary and array level.
 
 ## Regeneration
 

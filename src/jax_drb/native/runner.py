@@ -80,6 +80,8 @@ def run_curated_case(
         return _run_alfven_wave_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "alfven_wave_short_window":
         return _run_alfven_wave_short_window_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "alfven_wave_medium_window":
+        return _run_alfven_wave_medium_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
@@ -239,6 +241,22 @@ def _run_alfven_wave_one_step_case(
 
 
 def _run_alfven_wave_short_window_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_alfven_wave_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=None,
+        field_names=("Apar", "phi", "Vort", "NVe", "Ne", "Ni"),
+        optional_field_names=(),
+    )
+
+
+def _run_alfven_wave_medium_window_case(
     case: ReferenceCase,
     *,
     input_path: Path,

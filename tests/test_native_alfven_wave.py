@@ -257,3 +257,59 @@ def test_alfven_wave_short_window_uses_all_reference_time_points(monkeypatch: py
     assert captured_time_indices == [0, 1, 2, 3]
     assert result.time_points == (0.0, 10.0, 20.0, 30.0)
     assert result.variables["Apar"].shape == (4, 5, 36, 27)
+
+
+def test_alfven_wave_medium_window_uses_all_reference_time_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("alfven-wave reference input is unavailable")
+
+    captured_time_indices: list[int] = []
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-alfven.nc"},
+                time_points=(0.0, 10.0, 20.0),
+            )
+        ),
+    )
+
+    def fake_load_snapshot(dump_path, *, field_names, optional_field_names=(), scalar_names=(), time_index=0):
+        captured_time_indices.append(time_index)
+        return _alfven_snapshot(time_index=time_index)
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+    monkeypatch.setattr(
+        native_runner,
+        "solve_slab_neumann_apar",
+        lambda current_density, **kwargs: np.full_like(
+            np.asarray(current_density, dtype=np.float64),
+            np.max(np.abs(current_density)),
+        ),
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "invert_slab_neumann_apar_to_current_density",
+        lambda apar, **kwargs: np.full_like(np.asarray(apar, dtype=np.float64), 8.0),
+    )
+
+    case = ReferenceCase(
+        name="alfven_wave_medium_window",
+        stage="stage8",
+        reference_path=str(_REFERENCE_INPUT),
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Apar", "Ajpar", "phi", "Vort", "NVe"),
+    )
+
+    result = native_runner._run_alfven_wave_medium_window_case(
+        case,
+        input_path=_REFERENCE_INPUT,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured_time_indices == [0, 1, 2]
+    assert result.time_points == (0.0, 10.0, 20.0)
+    assert result.variables["Apar"].shape == (3, 5, 36, 27)
