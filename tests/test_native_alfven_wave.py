@@ -140,6 +140,8 @@ def test_alfven_wave_rhs_uses_dump_backed_snapshot(monkeypatch: pytest.MonkeyPat
     assert float(result.variables["Ajpar"][0, 2, 0, 0]) == pytest.approx(2.0)
     assert float(result.variables["ddt(NVe)"][0, 2, 0, 0]) == 6.0
     assert float(result.variables["ddt(NVe)"][0, 2, 2, 0]) == 0.0
+    assert float(result.variables["ddt(Vort)"][0, 1, 0, 0]) == 7.0
+    assert float(result.variables["ddt(Vort)"][0, 1, 2, 0]) != 7.0
 
 
 def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:
