@@ -109,6 +109,11 @@ def test_alfven_wave_rhs_uses_dump_backed_snapshot(monkeypatch: pytest.MonkeyPat
         "solve_slab_neumann_apar",
         lambda *args, **kwargs: np.full((5, 36, 27), 9.0, dtype=np.float64),
     )
+    monkeypatch.setattr(
+        native_runner,
+        "invert_slab_neumann_apar_to_current_density",
+        lambda *args, **kwargs: np.full((5, 36, 27), 2.0, dtype=np.float64),
+    )
 
     case = ReferenceCase(
         name="alfven_wave_rhs",
@@ -159,6 +164,11 @@ def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: py
         "solve_slab_neumann_apar",
         lambda current_density, **kwargs: np.full_like(np.asarray(current_density, dtype=np.float64), np.max(np.abs(current_density))),
     )
+    monkeypatch.setattr(
+        native_runner,
+        "invert_slab_neumann_apar_to_current_density",
+        lambda apar, **kwargs: np.full_like(np.asarray(apar, dtype=np.float64), 8.0),
+    )
 
     case = ReferenceCase(
         name="alfven_wave_one_step",
@@ -182,5 +192,7 @@ def test_alfven_wave_one_step_stacks_initial_and_final_snapshots(monkeypatch: py
     assert float(result.variables["Apar"][1, 0, 0, 0]) == 4.0
     assert float(result.variables["Ajpar"][0, 0, 0, 0]) == 0.0
     assert float(result.variables["Ajpar"][1, 0, 0, 0]) == 0.0
-    assert float(result.variables["Ajpar"][0, 2, 0, 0]) == pytest.approx(2.0)
-    assert float(result.variables["Ajpar"][1, 2, 0, 0]) == pytest.approx(4.0)
+    assert float(result.variables["NVe"][0, 2, 0, 0]) == pytest.approx(-(2.0 / 1836.0))
+    assert float(result.variables["NVe"][1, 2, 0, 0]) == pytest.approx(-(4.0 / 1836.0))
+    assert float(result.variables["NVe"][0, 2, 2, 0]) == pytest.approx(-8.0 / 1836.0)
+    assert float(result.variables["NVe"][1, 2, 2, 0]) == pytest.approx(-8.0 / 1836.0)
