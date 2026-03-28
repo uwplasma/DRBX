@@ -11,6 +11,7 @@ import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native import run_curated_case
+from jax_drb.native.reference_dump import load_local_reference_snapshot
 from jax_drb.native.recycling_1d import (
     OpenFieldSpecies,
     _advance_feedback_integrals,
@@ -265,6 +266,7 @@ def test_target_recycling_sources_use_prepared_ion_state() -> None:
         ion_velocity=ion_velocity,
         mesh=mesh,
         metrics=metrics,
+        gamma_i=2.5,
     )
 
     distorted_ions = tuple(
@@ -284,6 +286,7 @@ def test_target_recycling_sources_use_prepared_ion_state() -> None:
         ion_velocity=ion_velocity,
         mesh=mesh,
         metrics=metrics,
+        gamma_i=2.5,
     )
 
     for neutral in ("d",):
@@ -299,6 +302,38 @@ def test_target_recycling_sources_use_prepared_ion_state() -> None:
             rtol=0.0,
             atol=0.0,
         )
+
+
+def test_recycling_rhs_passes_configured_sheath_gamma_i_to_target_recycling(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp"))
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    snapshot = load_local_reference_snapshot(
+        Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.dmp.0.nc"),
+        field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+        scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+    )
+
+    captured: list[float] = []
+    original = compute_recycling_1d_rhs.__globals__["compute_target_recycling_sources"]
+
+    def wrapper(*args, **kwargs):
+        captured.append(float(kwargs["gamma_i"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setitem(compute_recycling_1d_rhs.__globals__, "compute_target_recycling_sources", wrapper)
+
+    compute_recycling_1d_rhs(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        field_overrides=snapshot.fields,
+        preserve_dump_target_state=True,
+    )
+
+    assert captured
+    assert all(value == pytest.approx(2.5) for value in captured)
 
 
 def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:

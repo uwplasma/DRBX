@@ -555,6 +555,8 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
                 "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
         ),
@@ -608,6 +610,8 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     assert result.time_points == (0.0, 0.0001)
     assert result.variables["Nd+"].shape == (2, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (2, 2, 3, 1)
+    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
+    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
 
 
 def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -674,6 +678,8 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
                 "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
         ),
@@ -723,6 +729,8 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
     assert result.time_points == (0.0, 0.0001, 0.0002, 0.00030000000000000003, 0.0004, 0.0005)
     assert result.variables["Nd+"].shape == (6, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (6, 2, 3, 1)
+    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
+    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
 
 
 def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -789,6 +797,8 @@ def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(mon
                 "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
         ),
@@ -838,3 +848,5 @@ def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(mon
     assert result.time_points[-1] == pytest.approx(0.002)
     assert result.variables["Nd+"].shape == (21, 2, 3, 1)
     assert result.variables["Ed_target_recycle"].shape == (21, 2, 3, 1)
+    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
+    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)

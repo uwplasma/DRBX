@@ -259,7 +259,7 @@ def _run_integrated_2d_recycling_transient_case(
         snapshot = load_local_reference_snapshot(
             dump_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-            optional_field_names=("SNd+", "SPd+", "SNd", "SPd"),
+            optional_field_names=("SNd+", "SPd+", "SNd", "SPd", "Sd_target_recycle", "Ed_target_recycle"),
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
     density_source_overrides = {
@@ -298,6 +298,11 @@ def _run_integrated_2d_recycling_transient_case(
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
         dataset_scalars=dataset_scalars,
+        initial_diagnostic_overrides={
+            name: np.asarray(snapshot.optional_fields[name], dtype=np.float64)
+            for name in ("Sd_target_recycle", "Ed_target_recycle")
+            if name in snapshot.optional_fields
+        },
     )
     trimmed_variables = _prepare_compare_variables(
         variables,
@@ -336,6 +341,7 @@ def _append_integrated_2d_recycling_diagnostics(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
+    initial_diagnostic_overrides: Mapping[str, np.ndarray] | None = None,
 ) -> None:
     diagnostic_history: dict[str, list[np.ndarray]] = {
         "Sd_target_recycle": [],
@@ -357,7 +363,12 @@ def _append_integrated_2d_recycling_diagnostics(
             preserve_dump_target_state=True,
         )
         for diagnostic_name in diagnostic_history:
-            diagnostic_history[diagnostic_name].append(np.asarray(rhs.variables[diagnostic_name][0], dtype=np.float64))
+            if time_index == 0 and initial_diagnostic_overrides is not None and diagnostic_name in initial_diagnostic_overrides:
+                diagnostic_history[diagnostic_name].append(
+                    np.asarray(initial_diagnostic_overrides[diagnostic_name], dtype=np.float64)
+                )
+            else:
+                diagnostic_history[diagnostic_name].append(np.asarray(rhs.variables[diagnostic_name][0], dtype=np.float64))
     for diagnostic_name, history in diagnostic_history.items():
         variables[diagnostic_name] = np.stack(history, axis=0)
 
