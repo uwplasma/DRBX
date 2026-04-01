@@ -294,6 +294,8 @@ def _read_field(
     array = np.asarray(variable[:], dtype=np.float64)
     if array.ndim == 4:
         array = array[time_index]
+    elif array.ndim == 3 and array.shape[1:] == shape[:2]:
+        array = array[time_index]
     return np.asarray(_coerce_field_shape(array, shape=shape), dtype=np.float64)
 
 
