@@ -963,6 +963,7 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monke
     def fake_history(*args, **kwargs):
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
         captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
+        captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -997,6 +998,7 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monke
 
     assert captured["preserve_dump_target_state"] is True
     assert captured["preserve_dump_ion_target_state_only"] is True
+    assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
     assert captured["diagnostic_preserve_dump_ion_target_state_only"] is True
     expected_fields = native_runner._apply_species_velocity_overrides(
         load_bout_input(production_input),
