@@ -47,6 +47,7 @@ def test_integrated_2d_production_one_step_prefers_bdf_solver() -> None:
 @dataclass(frozen=True)
 class _FakeSummary:
     artifacts: dict[str, str]
+    time_points: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -232,6 +233,8 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
     assert captured["field_names"] == ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
     assert captured["optional_field_names"] == (
         "Ne",
+        "Vd+",
+        "Vd",
         "SNd+",
         "SNVd+",
         "SPd+",
@@ -654,12 +657,17 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     monkeypatch.setattr(
         native_runner,
         "run_reference_case",
-        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"},
+                time_points=(0.0, 1.0e-4),
+            )
+        ),
     )
-    monkeypatch.setattr(
-        native_runner,
-        "load_local_reference_snapshot",
-        lambda *args, **kwargs: LocalReferenceSnapshot(
+
+    def fake_snapshot_loader(*args, **kwargs):
+        time_index = int(kwargs.get("time_index", 0))
+        return LocalReferenceSnapshot(
             mesh=mesh,
             metrics=metrics,
             fields=initial_fields,
@@ -670,12 +678,14 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
                 "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
-                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
-                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0 + time_index, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0 + time_index, dtype=np.float64),
+                "Vd+": np.full((4, 5, 1), 3.0 + time_index, dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
-        ),
-    )
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_snapshot_loader)
 
     captured: dict[str, object] = {}
 
@@ -691,6 +701,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
 
     def fake_rhs(*args, **kwargs):
+        captured["diagnostic_preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         fields = kwargs["field_overrides"]
         density = np.asarray(fields["Nd+"], dtype=np.float64)
         pressure = np.asarray(fields["Pd+"], dtype=np.float64)
@@ -726,6 +737,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     assert tuple(captured["momentum_source_overrides"]) == ("d+", "d")
     assert captured["preserve_dump_target_state"] is True
     assert captured["preserve_dump_ion_target_state_only"] is False
+    assert captured["diagnostic_preserve_dump_ion_target_state_only"] is False
     assert result.time_points == (0.0, 0.0001)
     assert result.variables["Nd+"].shape == (2, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (2, 2, 3, 1)
@@ -783,12 +795,17 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
     monkeypatch.setattr(
         native_runner,
         "run_reference_case",
-        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"},
+                time_points=(0.0, 1.0e-4),
+            )
+        ),
     )
-    monkeypatch.setattr(
-        native_runner,
-        "load_local_reference_snapshot",
-        lambda *args, **kwargs: LocalReferenceSnapshot(
+
+    def fake_snapshot_loader(*args, **kwargs):
+        time_index = int(kwargs.get("time_index", 0))
+        return LocalReferenceSnapshot(
             mesh=mesh,
             metrics=metrics,
             fields=initial_fields,
@@ -799,12 +816,14 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
                 "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
-                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
-                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0 + time_index, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0 + time_index, dtype=np.float64),
+                "Vd+": np.full((4, 5, 1), 3.0 + time_index, dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
-        ),
-    )
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_snapshot_loader)
 
     captured: dict[str, object] = {}
 
@@ -817,6 +836,7 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
 
     def fake_rhs(*args, **kwargs):
+        captured["diagnostic_preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         fields = kwargs["field_overrides"]
         density = np.asarray(fields["Nd+"], dtype=np.float64)
         pressure = np.asarray(fields["Pd+"], dtype=np.float64)
@@ -849,6 +869,7 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
     assert captured["steps"] == 5
     assert captured["preserve_dump_target_state"] is True
     assert captured["preserve_dump_ion_target_state_only"] is False
+    assert captured["diagnostic_preserve_dump_ion_target_state_only"] is False
     assert result.time_points == (0.0, 0.0001, 0.0002, 0.00030000000000000003, 0.0004, 0.0005)
     assert result.variables["Nd+"].shape == (6, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (6, 2, 3, 1)
@@ -907,12 +928,17 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monke
     monkeypatch.setattr(
         native_runner,
         "run_reference_case",
-        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"},
+                time_points=(0.0, 1.0e-4),
+            )
+        ),
     )
-    monkeypatch.setattr(
-        native_runner,
-        "load_local_reference_snapshot",
-        lambda *args, **kwargs: LocalReferenceSnapshot(
+
+    def fake_snapshot_loader(*args, **kwargs):
+        time_index = int(kwargs.get("time_index", 0))
+        return LocalReferenceSnapshot(
             mesh=mesh,
             metrics=metrics,
             fields=initial_fields,
@@ -923,12 +949,14 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monke
                 "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
                 "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
                 "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
-                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
-                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0 + time_index, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0 + time_index, dtype=np.float64),
+                "Vd+": np.full((4, 5, 1), 3.0 + time_index, dtype=np.float64),
             },
             scalar_values={"Nnorm": 1.0e17},
-        ),
-    )
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_snapshot_loader)
 
     captured: dict[str, object] = {}
 
@@ -938,16 +966,17 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monke
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
-    monkeypatch.setattr(
-        native_runner,
-        "compute_recycling_1d_rhs",
-        lambda *args, **kwargs: SimpleNamespace(
+    def fake_rhs(*args, **kwargs):
+        captured["diagnostic_preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
+        captured["diagnostic_nvdp"] = np.asarray(kwargs["field_overrides"]["NVd+"], dtype=np.float64)
+        return SimpleNamespace(
             variables={
                 "Sd_target_recycle": np.ones((1, 4, 5, 1), dtype=np.float64),
                 "Ed_target_recycle": np.ones((1, 4, 5, 1), dtype=np.float64),
             }
-        ),
-    )
+        )
+
+    monkeypatch.setattr(native_runner, "compute_recycling_1d_rhs", fake_rhs)
 
     case = ReferenceCase(
         name="integrated_2d_production_one_step",
@@ -968,6 +997,13 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monke
 
     assert captured["preserve_dump_target_state"] is True
     assert captured["preserve_dump_ion_target_state_only"] is True
+    assert captured["diagnostic_preserve_dump_ion_target_state_only"] is True
+    expected_fields = native_runner._apply_species_velocity_overrides(
+        load_bout_input(production_input),
+        field_overrides={name: value[1] for name, value in evolved_history.items()},
+        velocity_field_overrides={"d+": np.full((4, 5, 1), 4.0, dtype=np.float64)},
+    )
+    np.testing.assert_allclose(captured["diagnostic_nvdp"], expected_fields["NVd+"])
 
 
 def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(monkeypatch: pytest.MonkeyPatch) -> None:

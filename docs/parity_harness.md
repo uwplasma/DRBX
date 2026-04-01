@@ -196,6 +196,10 @@ Current support is intentionally narrow:
   - the present `grad` barrier is a `TracerArrayConversionError` triggered by `np.asarray(..., copy=True)` in `_initialize_species()` inside [recycling_1d.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/recycling_1d.py);
   - an xfailed regression now tracks that limitation directly in [test_native_integrated_2d_recycling.py](/Users/rogerio/local/jax_drb/tests/test_native_integrated_2d_recycling.py);
   - the fastest near-term differentiability improvement is therefore to keep the staged harness as-is while gradually replacing the early NumPy materialization points in the dump-backed RHS path, rather than attempting a larger Step 3 solver rewrite.
+- the current staged integrated `2D-production` parity loop now also stages per-time dumped ion velocity diagnostics (`Vd+`, `Vd`) when rebuilding `Sd_target_recycle` / `Ed_target_recycle`:
+  - this does not change the native transient march itself;
+  - it does make the staged production comparison surface more source-faithful, because the production recycling diagnostic in the reference dump is keyed to the dumped ion-velocity field rather than only to raw `NV / (AA * N)`;
+  - on the current live production ladder, that cuts the `Sd_target_recycle` max abs residual from about `1.65e-1` to about `7.78e-2` for `integrated_2d_production_one_step`, and from about `7.81e-1` to about `3.75e-1` for `integrated_2d_production_short_window`.
 
 For a reproducible timing report on the staged integrated 2D RHS path, run:
 
