@@ -29,7 +29,13 @@ from ..solver import (
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
-from .neutral_mixed import _div_par_fvv_open, _div_par_k_grad_par_open, _div_par_mod_open, _grad_par_open
+from .neutral_mixed import (
+    _div_a_grad_perp_flows,
+    _div_par_fvv_open,
+    _div_par_k_grad_par_open,
+    _div_par_mod_open,
+    _grad_par_open,
+)
 from .open_field import (
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
@@ -242,6 +248,21 @@ def _compute_recycling_1d_rhs_from_species(
     for name, value in reaction_terms.momentum_source.items():
         momentum_source[name] = momentum_source[name] + value
     diagnostics.update(reaction_terms.diagnostics)
+
+    anomalous_terms = _apply_anomalous_diffusion(
+        config,
+        species=species,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+    for name, value in anomalous_terms.density_source.items():
+        density_source[name] = density_source[name] + value
+    for name, value in anomalous_terms.energy_source.items():
+        energy_source[name] = energy_source[name] + value
+    for name, value in anomalous_terms.momentum_source.items():
+        momentum_source[name] = momentum_source[name] + value
+    diagnostics.update(anomalous_terms.diagnostics)
 
     prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
         species,
@@ -914,6 +935,11 @@ def _soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
     return value_array + minimum_value * np.exp(-value_array / minimum_value)
 
 
+def _axisymmetric_profile(field: np.ndarray) -> np.ndarray:
+    field_array = np.asarray(field, dtype=np.float64)
+    mean = np.mean(field_array, axis=2, keepdims=True)
+    return np.repeat(mean, field_array.shape[2], axis=2)
+
 @dataclass(frozen=True)
 class _ReactionTerms:
     density_source: dict[str, np.ndarray]
@@ -954,6 +980,13 @@ class _DensityFeedbackTerms:
     diagnostics: dict[str, np.ndarray]
     feedback_integral_rhs: dict[str, float]
 
+
+@dataclass(frozen=True)
+class _AnomalousDiffusionTerms:
+    density_source: dict[str, np.ndarray]
+    energy_source: dict[str, np.ndarray]
+    momentum_source: dict[str, np.ndarray]
+    diagnostics: dict[str, np.ndarray]
 
 _QE = 1.602176634e-19
 _EPS0 = 8.8541878128e-12
@@ -1002,6 +1035,126 @@ def _reaction_sources(
             result = _charge_exchange(atom1, ion1, atom2, ion2, species=species, dataset_scalars=dataset_scalars)
             _accumulate_terms(result, density_source, energy_source, momentum_source, diagnostics)
     return _ReactionTerms(density_source=density_source, energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
+
+
+def _apply_anomalous_diffusion(
+    config: BoutConfig,
+    *,
+    species: dict[str, OpenFieldSpecies],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> _AnomalousDiffusionTerms:
+    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    diagnostics: dict[str, np.ndarray] = {}
+
+    if not np.allclose(np.asarray(metrics.g23, dtype=np.float64), 0.0, rtol=1.0e-12, atol=1.0e-12):
+        return _AnomalousDiffusionTerms(
+            density_source=density_source,
+            energy_source=energy_source,
+            momentum_source=momentum_source,
+            diagnostics=diagnostics,
+        )
+
+    resolver = NumericResolver(config)
+    diffusion_norm = float(dataset_scalars["rho_s0"]) ** 2 * float(dataset_scalars["Omega_ci"])
+
+    for name, sp in species.items():
+        if not config.has_section(name):
+            continue
+
+        include_d = config.has_option(name, "anomalous_D") and abs(float(resolver.resolve(name, "anomalous_D"))) > 0.0
+        include_chi = config.has_option(name, "anomalous_chi") and abs(float(resolver.resolve(name, "anomalous_chi"))) > 0.0
+        include_nu = config.has_option(name, "anomalous_nu") and abs(float(resolver.resolve(name, "anomalous_nu"))) > 0.0
+        if not (include_d or include_chi or include_nu):
+            continue
+
+        anomalous_sheath_flux = (
+            bool(config.parsed(name, "anomalous_sheath_flux"))
+            if config.has_option(name, "anomalous_sheath_flux")
+            else False
+        )
+        density_2d = _axisymmetric_profile(sp.density)
+        temperature_2d = _axisymmetric_profile(_safe_temperature(sp.pressure, sp.density, sp.density_floor))
+        if sp.has_momentum:
+            velocity_2d = _axisymmetric_profile(_raw_species_velocity(sp))
+        else:
+            velocity_2d = np.zeros_like(sp.density, dtype=np.float64)
+
+        if not anomalous_sheath_flux:
+            density_2d[:, mesh.ystart - 1, :] = density_2d[:, mesh.ystart, :]
+            density_2d[:, mesh.yend + 1, :] = density_2d[:, mesh.yend, :]
+            temperature_2d[:, mesh.ystart - 1, :] = temperature_2d[:, mesh.ystart, :]
+            temperature_2d[:, mesh.yend + 1, :] = temperature_2d[:, mesh.yend, :]
+            velocity_2d[:, mesh.ystart - 1, :] = velocity_2d[:, mesh.ystart, :]
+            velocity_2d[:, mesh.yend + 1, :] = velocity_2d[:, mesh.yend, :]
+
+        anomalous_d = (
+            np.full_like(sp.density, float(resolver.resolve(name, "anomalous_D")) / diffusion_norm, dtype=np.float64)
+            if include_d
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        anomalous_chi = (
+            np.full_like(sp.density, float(resolver.resolve(name, "anomalous_chi")) / diffusion_norm, dtype=np.float64)
+            if include_chi
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        anomalous_nu = (
+            np.full_like(sp.density, float(resolver.resolve(name, "anomalous_nu")) / diffusion_norm, dtype=np.float64)
+            if include_nu
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+
+        if include_d:
+            density_source[name] = density_source[name] + _div_a_grad_perp_flows(
+                anomalous_d,
+                density_2d,
+                mesh=mesh,
+                metrics=metrics,
+            )
+            if sp.has_momentum:
+                momentum_source[name] = momentum_source[name] + _div_a_grad_perp_flows(
+                    sp.atomic_mass * velocity_2d * anomalous_d,
+                    density_2d,
+                    mesh=mesh,
+                    metrics=metrics,
+                )
+            if sp.has_pressure:
+                energy_source[name] = energy_source[name] + _div_a_grad_perp_flows(
+                    1.5 * temperature_2d * anomalous_d,
+                    density_2d,
+                    mesh=mesh,
+                    metrics=metrics,
+                )
+        if include_chi and sp.has_pressure:
+            energy_source[name] = energy_source[name] + _div_a_grad_perp_flows(
+                anomalous_chi * density_2d,
+                temperature_2d,
+                mesh=mesh,
+                metrics=metrics,
+            )
+        if include_nu and sp.has_momentum:
+            momentum_source[name] = momentum_source[name] + _div_a_grad_perp_flows(
+                anomalous_nu * sp.atomic_mass * density_2d,
+                velocity_2d,
+                mesh=mesh,
+                metrics=metrics,
+            )
+        if include_d:
+            diagnostics[f"anomalous_D_{name}"] = anomalous_d
+        if include_chi:
+            diagnostics[f"anomalous_Chi_{name}"] = anomalous_chi
+        if include_nu:
+            diagnostics[f"anomalous_nu_{name}"] = anomalous_nu
+
+    return _AnomalousDiffusionTerms(
+        density_source=density_source,
+        energy_source=energy_source,
+        momentum_source=momentum_source,
+        diagnostics=diagnostics,
+    )
 
 
 def _is_charge_exchange_reaction(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> bool:
