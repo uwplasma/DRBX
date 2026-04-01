@@ -114,3 +114,15 @@ def test_relative_error_metrics_separates_small_denominator_artifacts() -> None:
     assert metrics["max_rel"] > metrics["max_rel_significant"]
     assert metrics["significant_count"] == 1
     assert metrics["max_rel_significant"] == pytest.approx(0.2)
+
+
+def test_production_target_band_cells_selects_lower_active_row() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_integrated_2d_production_ion_terms.py",
+        "integrated_2d_production_ion_terms_diag",
+    )
+    mesh = SimpleNamespace(ystart=7)
+
+    cells = module.production_target_band_cells(mesh, x_indices=(14, 15), z_index=2)
+
+    assert cells == ((14, 7, 2), (15, 7, 2))
