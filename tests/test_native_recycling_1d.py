@@ -336,6 +336,49 @@ def test_recycling_rhs_passes_configured_sheath_gamma_i_to_target_recycling(monk
     assert all(value == pytest.approx(2.5) for value in captured)
 
 
+def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_ion_target_state_only() -> None:
+    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp"))
+    snapshot = load_local_reference_snapshot(
+        Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.dmp.0.nc"),
+        field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+        scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+    )
+    mesh = snapshot.mesh
+    metrics = snapshot.metrics
+    species = _initialize_species(config, mesh=mesh, field_overrides=snapshot.fields)
+
+    prepared_default, ion_boundary_default, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=snapshot.scalar_values,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+        preserve_dump_ion_target_state_only=False,
+    )
+    prepared_ion_only, ion_boundary_ion_only, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=snapshot.scalar_values,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+        preserve_dump_ion_target_state_only=True,
+    )
+
+    lower_guard = (slice(None), mesh.ystart - 1, slice(None))
+    np.testing.assert_allclose(
+        ion_boundary_ion_only.velocity["d+"][lower_guard],
+        prepared_ion_only["d+"].velocity[lower_guard],
+    )
+    np.testing.assert_allclose(
+        ion_boundary_default.velocity["d+"][lower_guard],
+        prepared_default["d+"].velocity[lower_guard],
+    )
+    assert np.any(np.abs(ion_boundary_ion_only.energy_source["d+"]) > 0.0)
+
 def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
     config = load_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)

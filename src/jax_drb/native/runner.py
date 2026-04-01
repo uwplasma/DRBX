@@ -228,6 +228,7 @@ def _run_integrated_2d_recycling_rhs_case(
             field_overrides=field_overrides,
             velocity_field_overrides=velocity_field_overrides,
         )
+    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
     result = compute_recycling_1d_rhs(
         config,
         mesh=snapshot.mesh,
@@ -236,6 +237,7 @@ def _run_integrated_2d_recycling_rhs_case(
         field_overrides=field_overrides,
         apply_sheath_boundaries=True,
         preserve_dump_target_state=True,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,

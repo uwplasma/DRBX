@@ -292,7 +292,7 @@ def _compute_recycling_1d_rhs_from_species(
         ion_velocity=ion_velocity,
         mesh=mesh,
         metrics=metrics,
-        gamma_i=simple_sheath_settings.gamma_i,
+        gamma_i=0.0 if simple_sheath_settings is None else simple_sheath_settings.gamma_i,
     )
     for name, value in recycling_terms.density_source.items():
         density_source[name] = density_source[name] + value
@@ -1173,42 +1173,67 @@ def _prepare_open_field_states(
         if preserve_dump_target_state:
             ion_boundary = _IonBoundaryResult(
                 density={
-                    ion.name: _merge_target_guard_cells(
-                        prepared[ion.name].density,
-                        ion_boundary_state.density[ion.name],
-                        mesh=mesh,
+                    ion.name: np.asarray(
+                        prepared[ion.name].density
+                        if preserve_dump_ion_target_state_only
+                        else _merge_target_guard_cells(
+                            prepared[ion.name].density,
+                            ion_boundary_state.density[ion.name],
+                            mesh=mesh,
+                        ),
+                        dtype=np.float64,
                     )
                     for ion in ions
                 },
                 pressure={
-                    ion.name: _merge_target_guard_cells(
-                        prepared[ion.name].pressure,
-                        ion_boundary_state.pressure[ion.name],
-                        mesh=mesh,
+                    ion.name: np.asarray(
+                        prepared[ion.name].pressure
+                        if preserve_dump_ion_target_state_only
+                        else _merge_target_guard_cells(
+                            prepared[ion.name].pressure,
+                            ion_boundary_state.pressure[ion.name],
+                            mesh=mesh,
+                        ),
+                        dtype=np.float64,
                     )
                     for ion in ions
                 },
                 temperature={
-                    ion.name: _merge_target_guard_cells(
-                        prepared[ion.name].temperature,
-                        ion_boundary_state.temperature[ion.name],
-                        mesh=mesh,
+                    ion.name: np.asarray(
+                        prepared[ion.name].temperature
+                        if preserve_dump_ion_target_state_only
+                        else _merge_target_guard_cells(
+                            prepared[ion.name].temperature,
+                            ion_boundary_state.temperature[ion.name],
+                            mesh=mesh,
+                        ),
+                        dtype=np.float64,
                     )
                     for ion in ions
                 },
                 velocity={
-                    ion.name: _merge_target_guard_cells(
-                        prepared[ion.name].velocity,
-                        ion_boundary_state.velocity[ion.name],
-                        mesh=mesh,
+                    ion.name: np.asarray(
+                        prepared[ion.name].velocity
+                        if preserve_dump_ion_target_state_only
+                        else _merge_target_guard_cells(
+                            prepared[ion.name].velocity,
+                            ion_boundary_state.velocity[ion.name],
+                            mesh=mesh,
+                        ),
+                        dtype=np.float64,
                     )
                     for ion in ions
                 },
                 momentum={
-                    ion.name: _merge_target_guard_cells(
-                        prepared[ion.name].momentum,
-                        ion_boundary_state.momentum[ion.name],
-                        mesh=mesh,
+                    ion.name: np.asarray(
+                        prepared[ion.name].momentum
+                        if preserve_dump_ion_target_state_only
+                        else _merge_target_guard_cells(
+                            prepared[ion.name].momentum,
+                            ion_boundary_state.momentum[ion.name],
+                            mesh=mesh,
+                        ),
+                        dtype=np.float64,
                     )
                     for ion in ions
                 },
