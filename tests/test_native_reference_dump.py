@@ -2,10 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.native.reference_dump import load_local_reference_snapshot
+from jax_drb.native.mesh import StructuredMesh
+from jax_drb.native.metrics import StructuredMetrics
+from jax_drb.native.reference_dump import (
+    LocalReferenceSnapshot,
+    load_local_reference_snapshot,
+    load_local_reference_snapshot_cache,
+    load_optional_field_history_cache,
+    save_local_reference_snapshot_cache,
+    save_optional_field_history_cache,
+)
 
 
 def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: Path) -> None:
@@ -67,3 +77,79 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
     assert "missing_field" not in snapshot.optional_fields
     assert snapshot.scalar_values["Nnorm"] == pytest.approx(1.0e17)
     assert "missing_scalar" not in snapshot.scalar_values
+
+
+def test_local_reference_snapshot_cache_roundtrip(tmp_path: Path) -> None:
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones * 2.0,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones * 3.0,
+    )
+    snapshot = LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields={"Nd+": np.full((4, 5, 1), 2.0, dtype=np.float64)},
+        optional_fields={"SNd+": np.full((4, 5, 1), 4.0, dtype=np.float64)},
+        scalar_values={"Nnorm": 1.0e17},
+    )
+    cache_path = tmp_path / "snapshot.npz"
+    save_local_reference_snapshot_cache(snapshot, cache_path)
+
+    loaded = load_local_reference_snapshot_cache(
+        cache_path,
+        field_names=("Nd+",),
+        optional_field_names=("SNd+",),
+        scalar_names=("Nnorm",),
+    )
+
+    assert loaded.mesh.nx == 4
+    assert loaded.mesh.local_ny == 5
+    np.testing.assert_allclose(np.asarray(loaded.metrics.dy), np.asarray(metrics.dy))
+    np.testing.assert_allclose(loaded.fields["Nd+"], snapshot.fields["Nd+"])
+    np.testing.assert_allclose(loaded.optional_fields["SNd+"], snapshot.optional_fields["SNd+"])
+    assert loaded.scalar_values["Nnorm"] == pytest.approx(1.0e17)
+
+
+def test_optional_field_history_cache_roundtrip(tmp_path: Path) -> None:
+    history = {
+        "Vd+": np.arange(8, dtype=np.float64).reshape(2, 4, 1, 1),
+        "Sd_target_recycle": np.arange(8, dtype=np.float64).reshape(2, 4, 1, 1) + 10.0,
+    }
+    cache_path = tmp_path / "history.npz"
+    save_optional_field_history_cache(history, cache_path)
+
+    loaded = load_optional_field_history_cache(
+        cache_path,
+        field_names=("Vd+", "Sd_target_recycle", "missing"),
+    )
+
+    assert tuple(loaded) == ("Vd+", "Sd_target_recycle")
+    np.testing.assert_allclose(loaded["Vd+"], history["Vd+"])
+    np.testing.assert_allclose(loaded["Sd_target_recycle"], history["Sd_target_recycle"])
