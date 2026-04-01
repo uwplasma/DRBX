@@ -16,6 +16,7 @@ from jax_drb.parity.arrays import (
 from jax_drb.parity.compare import load_summary_json
 from jax_drb.parity.compare import compare_summary_payloads
 from jax_drb.parity.diff import build_scaled_array_diff_entries, filter_scaled_array_diff_entries_to_band
+from jax_drb.parity.diff import build_array_time_trace
 from jax_drb.parity.reference import build_case_baseline_payload, resolve_reference_case, run_reference_case
 
 
@@ -62,6 +63,15 @@ def main() -> None:
         "--target-band-only",
         action="store_true",
         help="Only report fields whose worst cell lies on the lower or upper active-y band.",
+    )
+    parser.add_argument(
+        "--trace-top",
+        type=int,
+        default=0,
+        help=(
+            "For the top N ranked fields, print the full time trace at the worst spatial location "
+            "(holding x/y/z fixed and varying only time)."
+        ),
     )
     args = parser.parse_args()
 
@@ -126,6 +136,24 @@ def main() -> None:
                 f"location={entry.max_abs_location} "
                 f"expected={entry.expected_value:.8e} actual={entry.actual_value:.8e}"
             )
+        for entry in ranked[: args.trace_top]:
+            if len(entry.shape) == 0 or len(entry.max_abs_location) == 0:
+                continue
+            spatial_location = entry.max_abs_location[1:]
+            trace = build_array_time_trace(
+                reference_arrays["variables"],
+                native_arrays["variables"],
+                field=entry.field,
+                spatial_location=spatial_location,
+            )
+            print(f"  trace {entry.field} spatial_location={spatial_location}")
+            for time_index, (expected_value, actual_value, abs_diff) in enumerate(
+                zip(trace.expected_series, trace.actual_series, trace.abs_diff_series, strict=True)
+            ):
+                print(
+                    "    "
+                    f"t={time_index}: expected={expected_value:.8e} actual={actual_value:.8e} abs_diff={abs_diff:.8e}"
+                )
         print()
 
 

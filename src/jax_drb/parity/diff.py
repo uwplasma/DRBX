@@ -57,6 +57,15 @@ class ScaledArrayDiffEntry:
 
 
 @dataclass(frozen=True)
+class ArrayTimeTrace:
+    field: str
+    spatial_location: tuple[int, ...]
+    expected_series: tuple[float, ...]
+    actual_series: tuple[float, ...]
+    abs_diff_series: tuple[float, ...]
+
+
+@dataclass(frozen=True)
 class RecyclingArtifactDiffReport:
     expected_path: Path
     actual_path: Path
@@ -249,6 +258,60 @@ def filter_scaled_array_diff_entries_to_band(
         if index == 0 or index == entry.shape[axis] - 1:
             filtered.append(entry)
     return tuple(filtered)
+
+
+def build_array_time_trace(
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    *,
+    field: str,
+    spatial_location: tuple[int, ...],
+    time_axis: int = 0,
+) -> ArrayTimeTrace:
+    expected_array = np.asarray(expected[field], dtype=np.float64)
+    actual_array = np.asarray(actual[field], dtype=np.float64)
+    if expected_array.shape != actual_array.shape:
+        raise ValueError(f"shape mismatch for field {field}: {expected_array.shape} != {actual_array.shape}")
+    if expected_array.ndim == 0:
+        expected_series = (float(expected_array),)
+        actual_series = (float(actual_array),)
+        abs_diff_series = (abs(expected_series[0] - actual_series[0]),)
+        return ArrayTimeTrace(
+            field=field,
+            spatial_location=(),
+            expected_series=expected_series,
+            actual_series=actual_series,
+            abs_diff_series=abs_diff_series,
+        )
+    if time_axis < 0 or time_axis >= expected_array.ndim:
+        raise ValueError(f"time_axis {time_axis} is out of bounds for field {field} with ndim {expected_array.ndim}")
+    if expected_array.ndim - 1 != len(spatial_location):
+        raise ValueError(
+            f"spatial_location {spatial_location} does not match field {field} shape {expected_array.shape} "
+            f"with time_axis {time_axis}"
+        )
+    slicer = [slice(None)] * expected_array.ndim
+    spatial_index = 0
+    for axis in range(expected_array.ndim):
+        if axis == time_axis:
+            continue
+        index = spatial_location[spatial_index]
+        if index < 0 or index >= expected_array.shape[axis]:
+            raise ValueError(
+                f"spatial index {index} out of bounds for axis {axis} in field {field} shape {expected_array.shape}"
+            )
+        slicer[axis] = index
+        spatial_index += 1
+    expected_series_array = np.asarray(expected_array[tuple(slicer)], dtype=np.float64)
+    actual_series_array = np.asarray(actual_array[tuple(slicer)], dtype=np.float64)
+    abs_diff_series_array = np.abs(actual_series_array - expected_series_array)
+    return ArrayTimeTrace(
+        field=field,
+        spatial_location=spatial_location,
+        expected_series=tuple(float(value) for value in expected_series_array.tolist()),
+        actual_series=tuple(float(value) for value in actual_series_array.tolist()),
+        abs_diff_series=tuple(float(value) for value in abs_diff_series_array.tolist()),
+    )
 
 
 def compare_recycling_artifacts(
