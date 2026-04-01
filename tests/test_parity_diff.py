@@ -12,6 +12,7 @@ from jax_drb.parity.diff import (
     build_array_diff_report,
     build_scaled_array_diff_entries,
     compare_recycling_artifacts,
+    filter_scaled_array_diff_entries_to_band,
     format_array_diff_report,
     format_recycling_diff_report,
 )
@@ -77,6 +78,27 @@ def test_scaled_array_diff_entries_classify_small_denominator_fields() -> None:
     assert tiny.expected_abs_max == pytest.approx(1.0e-14)
     assert tiny.relative_to_expected_max is None
     assert tiny.near_zero_expected is True
+
+
+def test_filter_scaled_array_diff_entries_to_band_keeps_y_edge_cells() -> None:
+    expected = {
+        "lower": np.zeros((2, 3, 4, 1), dtype=np.float64),
+        "middle": np.zeros((2, 3, 4, 1), dtype=np.float64),
+        "upper": np.zeros((2, 3, 4, 1), dtype=np.float64),
+    }
+    actual = {
+        "lower": np.zeros((2, 3, 4, 1), dtype=np.float64),
+        "middle": np.zeros((2, 3, 4, 1), dtype=np.float64),
+        "upper": np.zeros((2, 3, 4, 1), dtype=np.float64),
+    }
+    actual["lower"][1, 0, 0, 0] = 1.0
+    actual["middle"][1, 0, 1, 0] = 2.0
+    actual["upper"][1, 0, 3, 0] = 3.0
+
+    entries = build_scaled_array_diff_entries(expected, actual, compare_variables=("lower", "middle", "upper"))
+    filtered = filter_scaled_array_diff_entries_to_band(entries, axis=2)
+
+    assert tuple(entry.field for entry in filtered) == ("lower", "upper")
 
 
 def test_recycling_summary_diff_report_localizes_worst_variable(tmp_path: Path) -> None:
