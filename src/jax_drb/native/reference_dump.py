@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from jax import config as jax_config
 
@@ -21,6 +22,135 @@ class LocalReferenceSnapshot:
     fields: dict[str, np.ndarray]
     optional_fields: dict[str, np.ndarray]
     scalar_values: dict[str, float]
+
+
+def save_local_reference_snapshot_cache(
+    snapshot: LocalReferenceSnapshot,
+    path: str | Path,
+) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, np.ndarray] = {
+        "mesh:nx": np.asarray(snapshot.mesh.nx, dtype=np.int64),
+        "mesh:ny": np.asarray(snapshot.mesh.ny, dtype=np.int64),
+        "mesh:nz": np.asarray(snapshot.mesh.nz, dtype=np.int64),
+        "mesh:mxg": np.asarray(snapshot.mesh.mxg, dtype=np.int64),
+        "mesh:myg": np.asarray(snapshot.mesh.myg, dtype=np.int64),
+        "mesh:symmetric_global_x": np.asarray(int(snapshot.mesh.symmetric_global_x), dtype=np.int64),
+        "mesh:symmetric_global_y": np.asarray(int(snapshot.mesh.symmetric_global_y), dtype=np.int64),
+        "mesh:jyseps1_1": np.asarray(snapshot.mesh.jyseps1_1, dtype=np.int64),
+        "mesh:jyseps2_1": np.asarray(snapshot.mesh.jyseps2_1, dtype=np.int64),
+        "mesh:jyseps1_2": np.asarray(snapshot.mesh.jyseps1_2, dtype=np.int64),
+        "mesh:jyseps2_2": np.asarray(snapshot.mesh.jyseps2_2, dtype=np.int64),
+        "mesh:ny_inner": np.asarray(snapshot.mesh.ny_inner, dtype=np.int64),
+        "mesh:has_lower_y_target": np.asarray(int(snapshot.mesh.has_lower_y_target), dtype=np.int64),
+        "mesh:has_upper_y_target": np.asarray(int(snapshot.mesh.has_upper_y_target), dtype=np.int64),
+        "mesh:x": np.asarray(snapshot.mesh.x, dtype=np.float64),
+        "mesh:y": np.asarray(snapshot.mesh.y, dtype=np.float64),
+        "mesh:z": np.asarray(snapshot.mesh.z, dtype=np.float64),
+        "metrics:dx": np.asarray(snapshot.metrics.dx, dtype=np.float64),
+        "metrics:dy": np.asarray(snapshot.metrics.dy, dtype=np.float64),
+        "metrics:dz": np.asarray(snapshot.metrics.dz, dtype=np.float64),
+        "metrics:J": np.asarray(snapshot.metrics.J, dtype=np.float64),
+        "metrics:g11": np.asarray(snapshot.metrics.g11, dtype=np.float64),
+        "metrics:g33": np.asarray(snapshot.metrics.g33, dtype=np.float64),
+        "metrics:g22": np.asarray(snapshot.metrics.g22, dtype=np.float64),
+        "metrics:g_22": np.asarray(snapshot.metrics.g_22, dtype=np.float64),
+        "metrics:g23": np.asarray(snapshot.metrics.g23, dtype=np.float64),
+        "metrics:Bxy": np.asarray(snapshot.metrics.Bxy, dtype=np.float64),
+    }
+    for name, value in snapshot.fields.items():
+        payload[f"field:{name}"] = np.asarray(value, dtype=np.float64)
+    for name, value in snapshot.optional_fields.items():
+        payload[f"optional:{name}"] = np.asarray(value, dtype=np.float64)
+    for name, value in snapshot.scalar_values.items():
+        payload[f"scalar:{name}"] = np.asarray(value, dtype=np.float64)
+    np.savez_compressed(target, **payload)
+
+
+def load_local_reference_snapshot_cache(
+    path: str | Path,
+    *,
+    field_names: tuple[str, ...],
+    optional_field_names: tuple[str, ...] = (),
+    scalar_names: tuple[str, ...] = (),
+) -> LocalReferenceSnapshot:
+    with np.load(Path(path)) as dataset:
+        mesh = StructuredMesh(
+            nx=int(dataset["mesh:nx"]),
+            ny=int(dataset["mesh:ny"]),
+            nz=int(dataset["mesh:nz"]),
+            mxg=int(dataset["mesh:mxg"]),
+            myg=int(dataset["mesh:myg"]),
+            symmetric_global_x=bool(int(dataset["mesh:symmetric_global_x"])),
+            symmetric_global_y=bool(int(dataset["mesh:symmetric_global_y"])),
+            jyseps1_1=int(dataset["mesh:jyseps1_1"]),
+            jyseps2_1=int(dataset["mesh:jyseps2_1"]),
+            jyseps1_2=int(dataset["mesh:jyseps1_2"]),
+            jyseps2_2=int(dataset["mesh:jyseps2_2"]),
+            ny_inner=int(dataset["mesh:ny_inner"]),
+            has_lower_y_target=bool(int(dataset["mesh:has_lower_y_target"])),
+            has_upper_y_target=bool(int(dataset["mesh:has_upper_y_target"])),
+            x=jnp.asarray(dataset["mesh:x"], dtype=jnp.float64),
+            y=jnp.asarray(dataset["mesh:y"], dtype=jnp.float64),
+            z=jnp.asarray(dataset["mesh:z"], dtype=jnp.float64),
+        )
+        metrics = StructuredMetrics(
+            dx=jnp.asarray(dataset["metrics:dx"], dtype=jnp.float64),
+            dy=jnp.asarray(dataset["metrics:dy"], dtype=jnp.float64),
+            dz=jnp.asarray(dataset["metrics:dz"], dtype=jnp.float64),
+            J=jnp.asarray(dataset["metrics:J"], dtype=jnp.float64),
+            g11=jnp.asarray(dataset["metrics:g11"], dtype=jnp.float64),
+            g33=jnp.asarray(dataset["metrics:g33"], dtype=jnp.float64),
+            g22=jnp.asarray(dataset["metrics:g22"], dtype=jnp.float64),
+            g_22=jnp.asarray(dataset["metrics:g_22"], dtype=jnp.float64),
+            g23=jnp.asarray(dataset["metrics:g23"], dtype=jnp.float64),
+            Bxy=jnp.asarray(dataset["metrics:Bxy"], dtype=jnp.float64),
+        )
+        fields = {
+            name: np.asarray(dataset[f"field:{name}"], dtype=np.float64)
+            for name in field_names
+            if f"field:{name}" in dataset
+        }
+        optional_fields = {
+            name: np.asarray(dataset[f"optional:{name}"], dtype=np.float64)
+            for name in optional_field_names
+            if f"optional:{name}" in dataset
+        }
+        scalar_values = {
+            name: float(np.asarray(dataset[f"scalar:{name}"], dtype=np.float64))
+            for name in scalar_names
+            if f"scalar:{name}" in dataset
+        }
+    return LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields=fields,
+        optional_fields=optional_fields,
+        scalar_values=scalar_values,
+    )
+
+
+def save_optional_field_history_cache(
+    history: Mapping[str, np.ndarray],
+    path: str | Path,
+) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(target, **{name: np.asarray(value, dtype=np.float64) for name, value in history.items()})
+
+
+def load_optional_field_history_cache(
+    path: str | Path,
+    *,
+    field_names: tuple[str, ...],
+) -> dict[str, np.ndarray]:
+    with np.load(Path(path)) as dataset:
+        return {
+            name: np.asarray(dataset[name], dtype=np.float64)
+            for name in field_names
+            if name in dataset
+        }
 
 
 def load_local_reference_snapshot(

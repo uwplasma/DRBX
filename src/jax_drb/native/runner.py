@@ -50,6 +50,10 @@ from .mesh import (
 )
 from .neutral_mixed import compute_neutral_mixed_rhs, initialize_neutral_mixed_state
 from .reference_dump import load_local_reference_snapshot
+from .reference_dump import (
+    load_local_reference_snapshot_cache,
+    load_optional_field_history_cache,
+)
 from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
@@ -64,6 +68,17 @@ class NativeRunResult:
     run_config: RunConfiguration
     mesh: StructuredMesh
     metrics: StructuredMetrics
+
+
+_REFERENCE_SNAPSHOT_CACHE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_snapshots"
+
+
+def _integrated_2d_snapshot_cache_path(case_name: str) -> Path:
+    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
+
+
+def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
+    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_optional_history.npz"
 
 
 def run_curated_case(
@@ -123,16 +138,10 @@ def _run_integrated_2d_recycling_rhs_case(
     config = load_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
-    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-recycling-") as workdir:
-        execution = run_reference_case(
-            case.name,
-            reference_root=reference_root,
-            workdir=workdir,
-            keep_workdir=True,
-        )
-        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
-        snapshot = load_local_reference_snapshot(
-            dump_path,
+    snapshot_cache_path = _integrated_2d_snapshot_cache_path(case.name)
+    if case.name.startswith("integrated_2d_production") and snapshot_cache_path.exists():
+        snapshot = load_local_reference_snapshot_cache(
+            snapshot_cache_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
             optional_field_names=(
                 "Ne",
@@ -157,48 +166,83 @@ def _run_integrated_2d_recycling_rhs_case(
             ),
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
-        density_source_overrides = {
-            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-            for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
-            if field_name in snapshot.optional_fields
-        } or None
-        pressure_source_overrides = {
-            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-            for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
-            if field_name in snapshot.optional_fields
-        } or None
-        momentum_source_overrides = {
-            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-            for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
-            if field_name in snapshot.optional_fields
-        } or None
-        field_overrides = dict(snapshot.fields)
-        velocity_field_overrides = {
-            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-            for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
-            if field_name in snapshot.optional_fields
-        } or None
-        if case.name.startswith("integrated_2d_production") and velocity_field_overrides:
-            field_overrides = _apply_species_velocity_overrides(
-                config,
-                field_overrides=field_overrides,
-                velocity_field_overrides=velocity_field_overrides,
+    else:
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-recycling-") as workdir:
+            execution = run_reference_case(
+                case.name,
+                reference_root=reference_root,
+                workdir=workdir,
+                keep_workdir=True,
             )
-        result = compute_recycling_1d_rhs(
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            snapshot = load_local_reference_snapshot(
+                dump_path,
+                field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+                optional_field_names=(
+                    "Ne",
+                    "Vd+",
+                    "Vd",
+                    "SNd+",
+                    "SNVd+",
+                    "SPd+",
+                    "SNd",
+                    "SNVd",
+                    "SPd",
+                    "SPe",
+                    "Sd_target_recycle",
+                    "Ed_target_recycle",
+                    "Sd_wall_recycle",
+                    "Ed_wall_recycle",
+                    "Sd_pump",
+                    "Ed_pump",
+                    "Ed_target_refl",
+                    "Ed_wall_refl",
+                    "is_pump",
+                ),
+                scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+            )
+    density_source_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
+        if field_name in snapshot.optional_fields
+    } or None
+    pressure_source_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
+        if field_name in snapshot.optional_fields
+    } or None
+    momentum_source_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
+        if field_name in snapshot.optional_fields
+    } or None
+    field_overrides = dict(snapshot.fields)
+    velocity_field_overrides = {
+        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+        if field_name in snapshot.optional_fields
+    } or None
+    if case.name.startswith("integrated_2d_production") and velocity_field_overrides:
+        field_overrides = _apply_species_velocity_overrides(
             config,
-            mesh=snapshot.mesh,
-            metrics=snapshot.metrics,
-            dataset_scalars=dataset_scalars,
             field_overrides=field_overrides,
-            apply_sheath_boundaries=True,
-            preserve_dump_target_state=True,
-            density_source_overrides=density_source_overrides,
-            pressure_source_overrides=pressure_source_overrides,
-            momentum_source_overrides=momentum_source_overrides,
+            velocity_field_overrides=velocity_field_overrides,
         )
-        for name in ("Sd_target_recycle", "Ed_target_recycle"):
-            if name in snapshot.optional_fields:
-                result.variables[name] = np.asarray(snapshot.optional_fields[name], dtype=np.float64)[None, ...]
+    result = compute_recycling_1d_rhs(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        field_overrides=field_overrides,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+        density_source_overrides=density_source_overrides,
+        pressure_source_overrides=pressure_source_overrides,
+        momentum_source_overrides=momentum_source_overrides,
+    )
+    for name in ("Sd_target_recycle", "Ed_target_recycle"):
+        if name in snapshot.optional_fields:
+            result.variables[name] = np.asarray(snapshot.optional_fields[name], dtype=np.float64)[None, ...]
     trimmed_variables = _prepare_compare_variables(
         result.variables,
         snapshot.mesh,
@@ -685,16 +729,10 @@ def _run_integrated_2d_recycling_transient_case(
         artifact_bundle_sha256=case.artifact_bundle_sha256,
         artifact_bundle_files=case.artifact_bundle_files,
     )
-    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-recycling-step-") as workdir:
-        execution = run_reference_case(
-            initial_case.name,
-            reference_root=reference_root,
-            workdir=workdir,
-            keep_workdir=True,
-        )
-        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
-        snapshot = load_local_reference_snapshot(
-            dump_path,
+    initial_snapshot_cache_path = _integrated_2d_snapshot_cache_path(initial_case.name)
+    if initial_case.name.startswith("integrated_2d_production") and initial_snapshot_cache_path.exists():
+        snapshot = load_local_reference_snapshot_cache(
+            initial_snapshot_cache_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
             optional_field_names=(
                 "SNd+",
@@ -708,6 +746,30 @@ def _run_integrated_2d_recycling_transient_case(
             ),
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
+    else:
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-recycling-step-") as workdir:
+            execution = run_reference_case(
+                initial_case.name,
+                reference_root=reference_root,
+                workdir=workdir,
+                keep_workdir=True,
+            )
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            snapshot = load_local_reference_snapshot(
+                dump_path,
+                field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+                optional_field_names=(
+                    "SNd+",
+                    "SNVd+",
+                    "SPd+",
+                    "SNd",
+                    "SNVd",
+                    "SPd",
+                    "Sd_target_recycle",
+                    "Ed_target_recycle",
+                ),
+                scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+            )
     density_source_overrides = {
         name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
         for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
@@ -753,43 +815,67 @@ def _run_integrated_2d_recycling_transient_case(
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
     if case.name.startswith("integrated_2d_production"):
-        with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-production-diag-") as workdir:
-            execution = run_reference_case(
-                case.name,
-                reference_root=reference_root,
-                workdir=workdir,
-                keep_workdir=True,
+        history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
+        if history_cache_path.exists():
+            optional_history = load_optional_field_history_cache(
+                history_cache_path,
+                field_names=("Vd+", "Vd", "Sd_target_recycle", "Ed_target_recycle"),
             )
-            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
-            summary_time_points = getattr(execution.summary, "time_points", None)
-            resolved_time_count = (
-                steps + 1 if not summary_time_points else min(steps + 1, len(summary_time_points))
-            )
-            resolved_time_indices = tuple(range(resolved_time_count))
-            snapshots = tuple(
-                load_local_reference_snapshot(
-                    dump_path,
-                    field_names=(),
-                    optional_field_names=("Vd+", "Vd", "Sd_target_recycle", "Ed_target_recycle"),
-                    scalar_names=(),
-                    time_index=time_index,
-                )
-                for time_index in resolved_time_indices
-            )
-        initial_diagnostic_overrides = {
-            name: np.asarray(snapshots[0].optional_fields[name], dtype=np.float64)
-            for name in ("Sd_target_recycle", "Ed_target_recycle")
-            if name in snapshots[0].optional_fields
-        }
-        velocity_field_overrides_history = tuple(
-            {
-                name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-                for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
-                if field_name in snapshot.optional_fields
+            resolved_time_count = next(iter(optional_history.values())).shape[0] if optional_history else steps + 1
+            initial_diagnostic_overrides = {
+                name: np.asarray(optional_history[name][0], dtype=np.float64)
+                for name in ("Sd_target_recycle", "Ed_target_recycle")
+                if name in optional_history
             }
-            or None
-            for snapshot in snapshots
-        )
+            velocity_field_overrides_history = tuple(
+                (
+                    {
+                        name: np.asarray(optional_history[field_name][time_index], dtype=np.float64)
+                        for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+                        if field_name in optional_history
+                    }
+                    or None
+                )
+                for time_index in range(resolved_time_count)
+            )
+        else:
+            with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-production-diag-") as workdir:
+                execution = run_reference_case(
+                    case.name,
+                    reference_root=reference_root,
+                    workdir=workdir,
+                    keep_workdir=True,
+                )
+                dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+                summary_time_points = getattr(execution.summary, "time_points", None)
+                resolved_time_count = (
+                    steps + 1 if not summary_time_points else min(steps + 1, len(summary_time_points))
+                )
+                resolved_time_indices = tuple(range(resolved_time_count))
+                snapshots = tuple(
+                    load_local_reference_snapshot(
+                        dump_path,
+                        field_names=(),
+                        optional_field_names=("Vd+", "Vd", "Sd_target_recycle", "Ed_target_recycle"),
+                        scalar_names=(),
+                        time_index=time_index,
+                    )
+                    for time_index in resolved_time_indices
+                )
+            initial_diagnostic_overrides = {
+                name: np.asarray(snapshots[0].optional_fields[name], dtype=np.float64)
+                for name in ("Sd_target_recycle", "Ed_target_recycle")
+                if name in snapshots[0].optional_fields
+            }
+            velocity_field_overrides_history = tuple(
+                {
+                    name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+                    for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+                    if field_name in snapshot.optional_fields
+                }
+                or None
+                for snapshot in snapshots
+            )
     _append_integrated_2d_recycling_diagnostics(
         variables,
         config=config,
