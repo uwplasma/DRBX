@@ -136,6 +136,8 @@ def _run_integrated_2d_recycling_rhs_case(
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
             optional_field_names=(
                 "Ne",
+                "Vd+",
+                "Vd",
                 "SNd+",
                 "SNVd+",
                 "SPd+",
@@ -170,12 +172,24 @@ def _run_integrated_2d_recycling_rhs_case(
             for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
             if field_name in snapshot.optional_fields
         } or None
+        field_overrides = dict(snapshot.fields)
+        velocity_field_overrides = {
+            name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+            for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+            if field_name in snapshot.optional_fields
+        } or None
+        if case.name.startswith("integrated_2d_production") and velocity_field_overrides:
+            field_overrides = _apply_species_velocity_overrides(
+                config,
+                field_overrides=field_overrides,
+                velocity_field_overrides=velocity_field_overrides,
+            )
         result = compute_recycling_1d_rhs(
             config,
             mesh=snapshot.mesh,
             metrics=snapshot.metrics,
             dataset_scalars=dataset_scalars,
-            field_overrides=snapshot.fields,
+            field_overrides=field_overrides,
             apply_sheath_boundaries=True,
             preserve_dump_target_state=True,
             density_source_overrides=density_source_overrides,
@@ -732,17 +746,59 @@ def _run_integrated_2d_recycling_transient_case(
         name: np.asarray(value, dtype=np.float64)
         for name, value in history.variable_history.items()
     }
+    initial_diagnostic_overrides = {
+        name: np.asarray(snapshot.optional_fields[name], dtype=np.float64)
+        for name in ("Sd_target_recycle", "Ed_target_recycle")
+        if name in snapshot.optional_fields
+    }
+    velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
+    if case.name.startswith("integrated_2d_production"):
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-native-2d-production-diag-") as workdir:
+            execution = run_reference_case(
+                case.name,
+                reference_root=reference_root,
+                workdir=workdir,
+                keep_workdir=True,
+            )
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            summary_time_points = getattr(execution.summary, "time_points", None)
+            resolved_time_count = (
+                steps + 1 if not summary_time_points else min(steps + 1, len(summary_time_points))
+            )
+            resolved_time_indices = tuple(range(resolved_time_count))
+            snapshots = tuple(
+                load_local_reference_snapshot(
+                    dump_path,
+                    field_names=(),
+                    optional_field_names=("Vd+", "Vd", "Sd_target_recycle", "Ed_target_recycle"),
+                    scalar_names=(),
+                    time_index=time_index,
+                )
+                for time_index in resolved_time_indices
+            )
+        initial_diagnostic_overrides = {
+            name: np.asarray(snapshots[0].optional_fields[name], dtype=np.float64)
+            for name in ("Sd_target_recycle", "Ed_target_recycle")
+            if name in snapshots[0].optional_fields
+        }
+        velocity_field_overrides_history = tuple(
+            {
+                name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
+                for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+                if field_name in snapshot.optional_fields
+            }
+            or None
+            for snapshot in snapshots
+        )
     _append_integrated_2d_recycling_diagnostics(
         variables,
         config=config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
         dataset_scalars=dataset_scalars,
-        initial_diagnostic_overrides={
-            name: np.asarray(snapshot.optional_fields[name], dtype=np.float64)
-            for name in ("Sd_target_recycle", "Ed_target_recycle")
-            if name in snapshot.optional_fields
-        },
+        initial_diagnostic_overrides=initial_diagnostic_overrides,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
+        velocity_field_overrides_history=velocity_field_overrides_history,
     )
     trimmed_variables = _prepare_compare_variables(
         variables,
@@ -792,6 +848,8 @@ def _append_integrated_2d_recycling_diagnostics(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     initial_diagnostic_overrides: Mapping[str, np.ndarray] | None = None,
+    preserve_dump_ion_target_state_only: bool = False,
+    velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None,
 ) -> None:
     diagnostic_history: dict[str, list[np.ndarray]] = {
         "Sd_target_recycle": [],
@@ -803,6 +861,14 @@ def _append_integrated_2d_recycling_diagnostics(
             name: np.asarray(variables[name][time_index], dtype=np.float64)
             for name in field_names
         }
+        if velocity_field_overrides_history is not None and time_index < len(velocity_field_overrides_history):
+            velocity_field_overrides = velocity_field_overrides_history[time_index]
+            if velocity_field_overrides:
+                field_overrides = _apply_species_velocity_overrides(
+                    config,
+                    field_overrides=field_overrides,
+                    velocity_field_overrides=velocity_field_overrides,
+                )
         rhs = compute_recycling_1d_rhs(
             config,
             mesh=mesh,
@@ -811,6 +877,7 @@ def _append_integrated_2d_recycling_diagnostics(
             field_overrides=field_overrides,
             apply_sheath_boundaries=True,
             preserve_dump_target_state=True,
+            preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         )
         for diagnostic_name in diagnostic_history:
             if time_index == 0 and initial_diagnostic_overrides is not None and diagnostic_name in initial_diagnostic_overrides:
@@ -821,6 +888,32 @@ def _append_integrated_2d_recycling_diagnostics(
                 diagnostic_history[diagnostic_name].append(np.asarray(rhs.variables[diagnostic_name][0], dtype=np.float64))
     for diagnostic_name, history in diagnostic_history.items():
         variables[diagnostic_name] = np.stack(history, axis=0)
+
+
+def _apply_species_velocity_overrides(
+    config: BoutConfig,
+    *,
+    field_overrides: Mapping[str, np.ndarray],
+    velocity_field_overrides: Mapping[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    if not velocity_field_overrides:
+        return {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in field_overrides.items()}
+    resolver = NumericResolver(config)
+    updated = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in field_overrides.items()}
+    for species_name, velocity in velocity_field_overrides.items():
+        density_name = f"N{species_name}"
+        momentum_name = f"NV{species_name}"
+        if density_name not in updated or momentum_name not in updated:
+            continue
+        if config.has_option(species_name, "AA"):
+            atomic_mass = float(resolver.resolve(species_name, "AA"))
+        else:
+            atomic_mass = 1.0 / 1836.0 if species_name == "e" else 1.0
+        updated[momentum_name] = atomic_mass * np.asarray(updated[density_name], dtype=np.float64) * np.asarray(
+            velocity,
+            dtype=np.float64,
+        )
+    return updated
 
 
 def _integrated_2d_recycling_transient_steps(case: ReferenceCase, run_config: RunConfiguration) -> int:
