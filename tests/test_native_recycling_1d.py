@@ -17,6 +17,7 @@ from jax_drb.native.recycling_1d import (
     ElectronPressureRhsTerms,
     OpenFieldSpecies,
     _SimpleSheathSettings,
+    _apply_anomalous_diffusion,
     _assemble_electron_pressure_rhs_terms,
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
@@ -665,6 +666,69 @@ def test_compute_recycling_1d_rhs_uses_boundary_conditioned_electron_velocity_fo
     )
 
     np.testing.assert_allclose(captured["electron_velocity"], electron_boundary.velocity)
+
+
+def test_apply_anomalous_diffusion_adds_momentum_source_for_anomalous_nu() -> None:
+    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp"))
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.linspace(-1.0, 1.0, 20, dtype=np.float64).reshape(4, 5, 1),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": np.ones((4, 5, 1), dtype=np.float64),
+    }
+    species = _initialize_species(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+        field_overrides=fields,
+    )
+    terms = _apply_anomalous_diffusion(
+        config,
+        species=species,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+    assert np.max(np.abs(terms.momentum_source["d+"])) > 0.0
+    assert np.allclose(terms.density_source["d+"], 0.0)
+    assert np.allclose(terms.energy_source["d+"], 0.0)
 
 
 def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil() -> None:

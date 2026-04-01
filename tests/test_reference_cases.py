@@ -79,6 +79,15 @@ def test_default_manifest_stages_integrated_2d_recycling_case() -> None:
     assert case.artifact_bundle_files == ("grid_test2.nc",)
 
 
+def test_integrated_2d_production_case_includes_anomalous_diffusion_components() -> None:
+    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    resolved_case = next(case for case in resolved if case.case.name == "integrated_2d_production_rhs")
+    assert resolved_case.run_config is not None
+    labels = tuple(component.label for component in resolved_case.run_config.components)
+    assert "d+:anomalous_diffusion" in labels
+    assert "e:anomalous_diffusion" in labels
+
+
 def test_default_manifest_stages_integrated_2d_recycling_medium_window_case() -> None:
     cases = load_reference_cases()
     case = next(case for case in cases if case.name == "integrated_2d_recycling_medium_window")
