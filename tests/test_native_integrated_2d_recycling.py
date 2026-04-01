@@ -536,6 +536,19 @@ def test_integrated_2d_simple_sheath_ion_only_preserve_uses_sheath_electron_stat
         ion_ion_only.pressure["d+"][:, mesh.ystart, :],
         ion_preserve.pressure["d+"][:, mesh.ystart, :],
     )
+    ghost = mesh.ystart - 1
+    np.testing.assert_allclose(
+        ion_ion_only.pressure["d+"][:, ghost, :],
+        ion_free.pressure["d+"][:, ghost, :],
+    )
+    np.testing.assert_allclose(
+        ion_ion_only.velocity["d+"][:, ghost, :],
+        ion_free.velocity["d+"][:, ghost, :],
+    )
+    np.testing.assert_allclose(
+        ion_ion_only.energy_source["d+"][:, mesh.ystart, :],
+        ion_free.energy_source["d+"][:, mesh.ystart, :],
+    )
 @pytest.mark.xfail(
     raises=TracerArrayConversionError,
     reason="The staged integrated 2D recycling RHS still materializes NumPy arrays in _initialize_species.",
