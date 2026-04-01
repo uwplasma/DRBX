@@ -129,6 +129,7 @@ class _RecyclingRuntimeModel:
     pressure_source_overrides: dict[str, np.ndarray] | None
     momentum_source_overrides: dict[str, np.ndarray] | None
     preserve_dump_target_state: bool
+    preserve_dump_ion_target_state_only: bool
     field_names: tuple[str, ...]
     feedback_names: tuple[str, ...]
 
@@ -153,6 +154,7 @@ def compute_recycling_1d_rhs(
     feedback_integrals: dict[str, float] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    preserve_dump_ion_target_state_only: bool = False,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
@@ -176,6 +178,7 @@ def compute_recycling_1d_rhs(
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
         apply_sheath_boundaries=apply_sheath_boundaries,
         preserve_dump_target_state=preserve_dump_target_state,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,
@@ -196,6 +199,7 @@ def _compute_recycling_1d_rhs_from_species(
     explicit_pressure_sources: dict[str, np.ndarray] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    preserve_dump_ion_target_state_only: bool = False,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
@@ -238,6 +242,7 @@ def _compute_recycling_1d_rhs_from_species(
         dataset_scalars=dataset_scalars,
         apply_sheath_boundaries=apply_sheath_boundaries,
         preserve_dump_target_state=preserve_dump_target_state,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
     )
     ion_velocity = ion_boundary.velocity
     for name, value in ion_boundary.energy_source.items():
@@ -571,6 +576,7 @@ def _build_recycling_runtime_model(
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
     preserve_dump_target_state: bool = False,
+    preserve_dump_ion_target_state_only: bool = False,
 ) -> _RecyclingRuntimeModel:
     species_templates = _initialize_species(
         config,
@@ -604,6 +610,7 @@ def _build_recycling_runtime_model(
         if momentum_source_overrides is None
         else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in momentum_source_overrides.items()},
         preserve_dump_target_state=preserve_dump_target_state,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         field_names=field_names,
         feedback_names=tuple(sorted(controllers)),
     )
@@ -1064,6 +1071,7 @@ def _prepare_open_field_states(
     dataset_scalars: dict[str, float],
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
+    preserve_dump_ion_target_state_only: bool = False,
 ) -> tuple[dict[str, _PreparedSpeciesState], _IonBoundaryResult, _ElectronBoundaryResult]:
     prepared = {name: _prepare_species_state(sp, mesh=mesh) for name, sp in species.items()}
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
@@ -1097,7 +1105,7 @@ def _prepare_open_field_states(
             metrics=metrics,
             simple_settings=simple_sheath_settings,
         )
-        if preserve_dump_target_state:
+        if preserve_dump_target_state and not preserve_dump_ion_target_state_only:
             electron_boundary = _ElectronBoundaryResult(
                 density=_merge_target_guard_cells(prepared["e"].density, electron_boundary.density, mesh=mesh),
                 temperature=_merge_target_guard_cells(prepared["e"].temperature, electron_boundary.temperature, mesh=mesh),
@@ -2916,6 +2924,7 @@ def advance_recycling_1d_implicit_history(
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
     preserve_dump_target_state: bool = False,
+    preserve_dump_ion_target_state_only: bool = False,
     solver_mode: str = "bdf",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
@@ -2931,6 +2940,7 @@ def advance_recycling_1d_implicit_history(
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,
         preserve_dump_target_state=preserve_dump_target_state,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
     )
     field_names = runtime_model.field_names
     feedback_names = runtime_model.feedback_names
@@ -4054,6 +4064,7 @@ def _compute_recycling_1d_packed_rhs(
         pressure_source_overrides=runtime_model.pressure_source_overrides,
         momentum_source_overrides=runtime_model.momentum_source_overrides,
         preserve_dump_target_state=runtime_model.preserve_dump_target_state,
+        preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
     )
     active_slices = _recycling_active_domain_slices(mesh)
     pieces = [
