@@ -612,6 +612,61 @@ def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
 
     np.testing.assert_allclose(distorted, baseline, rtol=0.0, atol=0.0)
 
+
+def test_compute_recycling_1d_rhs_uses_boundary_conditioned_electron_velocity_for_pe_rhs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    species = _initialize_species(config, mesh=mesh)
+    captured: dict[str, np.ndarray] = {}
+
+    _, _, electron_boundary = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+
+    def _capture_electron_pressure_rhs_terms(
+        *,
+        explicit_pressure_source: np.ndarray,
+        electron_pressure: np.ndarray,
+        electron_velocity: np.ndarray,
+        electron_fastest_wave: np.ndarray,
+        electron_energy_source: np.ndarray,
+        mesh,
+        metrics,
+    ) -> ElectronPressureRhsTerms:
+        captured["electron_velocity"] = np.asarray(electron_velocity, dtype=np.float64)
+        zeros = np.zeros_like(np.asarray(electron_pressure, dtype=np.float64))
+        return ElectronPressureRhsTerms(
+            explicit_pressure_source=zeros,
+            parallel_divergence=zeros,
+            parallel_advection=zeros,
+            energy_source=zeros,
+            total=zeros,
+        )
+
+    monkeypatch.setattr(
+        "jax_drb.native.recycling_1d._assemble_electron_pressure_rhs_terms",
+        _capture_electron_pressure_rhs_terms,
+    )
+
+    compute_recycling_1d_rhs(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+
+    np.testing.assert_allclose(captured["electron_velocity"], electron_boundary.velocity)
+
+
 def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil() -> None:
     config = load_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
