@@ -19,7 +19,14 @@ from jax_drb.native.reference_dump import (
 )
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.metrics import StructuredMetrics
-from jax_drb.native.recycling_1d import _initialize_species, _prepare_open_field_states
+from jax_drb.native.recycling_1d import (
+    OpenFieldSpecies,
+    _PreparedSpeciesState,
+    _SimpleSheathSettings,
+    _apply_electron_simple_sheath_boundary,
+    _initialize_species,
+    _prepare_open_field_states,
+)
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.reference.cases import ReferenceCase
@@ -698,6 +705,124 @@ def test_integrated_2d_simple_sheath_ion_only_preserve_uses_sheath_electron_stat
         ion_ion_only.energy_source["d+"][:, mesh.ystart, :],
         ion_free.energy_source["d+"][:, mesh.ystart, :],
     )
+
+
+def test_integrated_2d_simple_sheath_electron_energy_source_matches_hermes_formula() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(1, dtype=jnp.float64),
+        y=jnp.arange(3, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((1, 3, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    electron_density = 2.0 * np.ones((1, 3, 1), dtype=np.float64)
+    electron_pressure = 4.0 * np.ones((1, 3, 1), dtype=np.float64)
+    electron_velocity = np.zeros((1, 3, 1), dtype=np.float64)
+    ion_density = 2.0 * np.ones((1, 3, 1), dtype=np.float64)
+    ion_temperature = np.ones((1, 3, 1), dtype=np.float64)
+    ion_velocity = -3.0 * np.ones((1, 3, 1), dtype=np.float64)
+    zero = np.zeros((1, 3, 1), dtype=np.float64)
+
+    ion = OpenFieldSpecies(
+        name="d+",
+        density=ion_density,
+        pressure=ion_density * ion_temperature,
+        momentum=2.0 * ion_density * ion_velocity,
+        charge=1.0,
+        atomic_mass=2.0,
+        density_floor=1.0e-8,
+        has_pressure=True,
+        has_momentum=True,
+        noflow_lower_y=False,
+        noflow_upper_y=False,
+        target_recycle=False,
+        recycle_as=None,
+        target_recycle_multiplier=0.0,
+        target_recycle_energy=0.0,
+        target_fast_recycle_fraction=0.0,
+        target_fast_recycle_energy_factor=1.0,
+    )
+    prepared_ions = {
+        "d+": _PreparedSpeciesState(
+            density=ion_density,
+            pressure=ion_density * ion_temperature,
+            temperature=ion_temperature,
+            velocity=ion_velocity,
+            momentum=2.0 * ion_density * ion_velocity,
+            momentum_error=zero,
+        )
+    }
+    settings = _SimpleSheathSettings(
+        gamma_e=4.5,
+        gamma_i=3.5,
+        secondary_electron_coef=0.0,
+        sheath_ion_polytropic=1.0,
+        lower_y=True,
+        upper_y=False,
+        no_flow=False,
+        density_boundary_mode=1.0,
+        pressure_boundary_mode=1.0,
+        temperature_boundary_mode=1.0,
+        wall_potential=np.zeros((1, 3, 1), dtype=np.float64),
+    )
+
+    result = _apply_electron_simple_sheath_boundary(
+        electron_pressure=electron_pressure,
+        electron_density=electron_density,
+        electron_velocity=electron_velocity,
+        electron_mass=1.0,
+        electron_density_floor=1.0e-8,
+        ion_velocity={"d+": ion_velocity},
+        ions=(ion,),
+        prepared_ions=prepared_ions,
+        mesh=mesh,
+        metrics=metrics,
+        settings=settings,
+    )
+
+    nesheath = 2.0
+    tesheath = 2.0
+    ion_sum = 6.0
+    phi_boundary = tesheath * np.log(
+        np.sqrt(tesheath / (1.0 * (2.0 * np.pi)))
+        * (1.0 - settings.secondary_electron_coef)
+        * nesheath
+        / ion_sum
+    )
+    phisheath = max(phi_boundary, 0.0)
+    vesheath = -np.sqrt(tesheath / (2.0 * np.pi * 1.0)) * (1.0 - settings.secondary_electron_coef) * np.exp(
+        -(phisheath - 0.0) / tesheath
+    )
+    expected_q = settings.gamma_e * tesheath * nesheath * vesheath
+    expected_q -= (2.5 * tesheath + 0.5 * 1.0 * vesheath * vesheath) * nesheath * vesheath
+
+    assert result.energy_source[0, mesh.ystart, 0] == pytest.approx(expected_q)
+    assert result.velocity[0, mesh.ystart - 1, 0] == pytest.approx(2.0 * vesheath)
 @pytest.mark.xfail(
     raises=TracerArrayConversionError,
     reason="The staged integrated 2D recycling RHS still materializes NumPy arrays in _initialize_species.",
