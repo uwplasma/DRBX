@@ -1169,8 +1169,56 @@ def _prepare_open_field_states(
     else:
         ion_boundary_state = None
 
-    if apply_sheath_boundaries and not preserve_dump_target_state:
-        ion_boundary = ion_boundary_state
+    if apply_sheath_boundaries and ion_boundary_state is not None:
+        if preserve_dump_target_state:
+            ion_boundary = _IonBoundaryResult(
+                density={
+                    ion.name: _merge_target_guard_cells(
+                        prepared[ion.name].density,
+                        ion_boundary_state.density[ion.name],
+                        mesh=mesh,
+                    )
+                    for ion in ions
+                },
+                pressure={
+                    ion.name: _merge_target_guard_cells(
+                        prepared[ion.name].pressure,
+                        ion_boundary_state.pressure[ion.name],
+                        mesh=mesh,
+                    )
+                    for ion in ions
+                },
+                temperature={
+                    ion.name: _merge_target_guard_cells(
+                        prepared[ion.name].temperature,
+                        ion_boundary_state.temperature[ion.name],
+                        mesh=mesh,
+                    )
+                    for ion in ions
+                },
+                velocity={
+                    ion.name: _merge_target_guard_cells(
+                        prepared[ion.name].velocity,
+                        ion_boundary_state.velocity[ion.name],
+                        mesh=mesh,
+                    )
+                    for ion in ions
+                },
+                momentum={
+                    ion.name: _merge_target_guard_cells(
+                        prepared[ion.name].momentum,
+                        ion_boundary_state.momentum[ion.name],
+                        mesh=mesh,
+                    )
+                    for ion in ions
+                },
+                energy_source={
+                    ion.name: np.asarray(ion_boundary_state.energy_source[ion.name], dtype=np.float64)
+                    for ion in ions
+                },
+            )
+        else:
+            ion_boundary = ion_boundary_state
     else:
         ion_boundary = _IonBoundaryResult(
             density={ion.name: np.asarray(prepared[ion.name].density, dtype=np.float64) for ion in ions},
