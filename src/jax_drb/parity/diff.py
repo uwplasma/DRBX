@@ -236,6 +236,21 @@ def build_scaled_array_diff_entries(
     return tuple(entries)
 
 
+def filter_scaled_array_diff_entries_to_band(
+    entries: tuple[ScaledArrayDiffEntry, ...] | list[ScaledArrayDiffEntry],
+    *,
+    axis: int,
+) -> tuple[ScaledArrayDiffEntry, ...]:
+    filtered: list[ScaledArrayDiffEntry] = []
+    for entry in entries:
+        if axis < 0 or axis >= len(entry.shape) or axis >= len(entry.max_abs_location):
+            continue
+        index = entry.max_abs_location[axis]
+        if index == 0 or index == entry.shape[axis] - 1:
+            filtered.append(entry)
+    return tuple(filtered)
+
+
 def compare_recycling_artifacts(
     expected_artifact: str | Path,
     actual_artifact: str | Path,
