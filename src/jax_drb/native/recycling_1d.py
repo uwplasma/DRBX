@@ -1212,9 +1212,7 @@ def _prepare_open_field_states(
             ion_boundary = _IonBoundaryResult(
                 density={
                     ion.name: np.asarray(
-                        prepared[ion.name].density
-                        if preserve_dump_ion_target_state_only
-                        else _merge_target_guard_cells(
+                        _merge_target_guard_cells(
                             prepared[ion.name].density,
                             ion_boundary_state.density[ion.name],
                             mesh=mesh,
@@ -1225,9 +1223,7 @@ def _prepare_open_field_states(
                 },
                 pressure={
                     ion.name: np.asarray(
-                        prepared[ion.name].pressure
-                        if preserve_dump_ion_target_state_only
-                        else _merge_target_guard_cells(
+                        _merge_target_guard_cells(
                             prepared[ion.name].pressure,
                             ion_boundary_state.pressure[ion.name],
                             mesh=mesh,
@@ -1238,9 +1234,7 @@ def _prepare_open_field_states(
                 },
                 temperature={
                     ion.name: np.asarray(
-                        prepared[ion.name].temperature
-                        if preserve_dump_ion_target_state_only
-                        else _merge_target_guard_cells(
+                        _merge_target_guard_cells(
                             prepared[ion.name].temperature,
                             ion_boundary_state.temperature[ion.name],
                             mesh=mesh,
@@ -1251,9 +1245,7 @@ def _prepare_open_field_states(
                 },
                 velocity={
                     ion.name: np.asarray(
-                        prepared[ion.name].velocity
-                        if preserve_dump_ion_target_state_only
-                        else _merge_target_guard_cells(
+                        _merge_target_guard_cells(
                             prepared[ion.name].velocity,
                             ion_boundary_state.velocity[ion.name],
                             mesh=mesh,
@@ -1264,9 +1256,7 @@ def _prepare_open_field_states(
                 },
                 momentum={
                     ion.name: np.asarray(
-                        prepared[ion.name].momentum
-                        if preserve_dump_ion_target_state_only
-                        else _merge_target_guard_cells(
+                        _merge_target_guard_cells(
                             prepared[ion.name].momentum,
                             ion_boundary_state.momentum[ion.name],
                             mesh=mesh,

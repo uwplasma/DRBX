@@ -126,3 +126,27 @@ def test_production_target_band_cells_selects_lower_active_row() -> None:
     cells = module.production_target_band_cells(mesh, x_indices=(14, 15), z_index=2)
 
     assert cells == ((14, 7, 2), (15, 7, 2))
+
+
+def test_strip_anomalous_diffusion_from_boutinp_text_removes_only_target_component() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_integrated_2d_production_anomalous_diffusion.py",
+        "integrated_2d_production_anom_diag",
+    )
+    text = (
+        "[d+]\n"
+        "type = evolve_density, evolve_momentum, evolve_pressure, anomalous_diffusion\n"
+        "\n"
+        "[e]\n"
+        "type = quasineutral, evolve_pressure, zero_current, anomalous_diffusion\n"
+        "\n"
+        "[d]\n"
+        "type = neutral_mixed, neutral_boundary\n"
+    )
+
+    rewritten = module.strip_anomalous_diffusion_from_boutinp_text(text)
+
+    assert "evolve_density, evolve_momentum, evolve_pressure" in rewritten
+    assert "quasineutral, evolve_pressure, zero_current" in rewritten
+    assert rewritten.count("anomalous_diffusion") == 0
+    assert "[d]\n" in rewritten
