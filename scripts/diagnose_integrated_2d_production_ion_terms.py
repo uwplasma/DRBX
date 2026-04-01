@@ -34,6 +34,8 @@ STATE_FIELDS = ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
 SOURCE_FIELDS = ("SNd+", "SPd+", "SNVd+", "SNd", "SPd", "SNVd")
 DIAGNOSTIC_FIELDS = ("Vd+", "Vd")
 SCALAR_FIELDS = ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REFERENCE_SNAPSHOT_DIR = _REPO_ROOT / "references" / "baselines" / "reference_snapshots"
 
 
 def production_target_band_cells(mesh, *, x_indices: tuple[int, ...] = (14, 15), z_index: int = 0) -> tuple[tuple[int, int, int], ...]:
@@ -46,6 +48,11 @@ def main() -> None:
     )
     parser.add_argument("--reference-root", type=Path, required=True)
     parser.add_argument("--case", default="integrated_2d_production_one_step", choices=("integrated_2d_production_one_step",))
+    parser.add_argument(
+        "--use-committed-baselines",
+        action="store_true",
+        help="Use the committed final diagnostic snapshot instead of rerunning the reference code.",
+    )
     args = parser.parse_args()
 
     input_path = args.reference_root / "tests" / "integrated" / "2D-production" / "data" / "BOUT.inp"
@@ -60,21 +67,32 @@ def main() -> None:
         scalar_names=SCALAR_FIELDS,
     )
 
-    with tempfile.TemporaryDirectory(prefix="jaxdrb-prod-ion-terms-") as workdir:
-        execution = run_reference_case(
-            args.case,
-            reference_root=args.reference_root,
-            workdir=workdir,
-            keep_workdir=True,
-        )
-        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
-        reference_final = load_local_reference_snapshot(
-            dump_path,
+    if args.use_committed_baselines:
+        final_cache_path = _REFERENCE_SNAPSHOT_DIR / f"{args.case}_final_snapshot.npz"
+        if not final_cache_path.exists():
+            raise FileNotFoundError(f"Missing committed final diagnostic snapshot: {final_cache_path}")
+        reference_final = load_local_reference_snapshot_cache(
+            final_cache_path,
             field_names=STATE_FIELDS + ("ddt(Nd+)", "ddt(Pd+)", "ddt(NVd+)"),
             optional_field_names=SOURCE_FIELDS + DIAGNOSTIC_FIELDS,
             scalar_names=(),
-            time_index=1,
         )
+    else:
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-prod-ion-terms-") as workdir:
+            execution = run_reference_case(
+                args.case,
+                reference_root=args.reference_root,
+                workdir=workdir,
+                keep_workdir=True,
+            )
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            reference_final = load_local_reference_snapshot(
+                dump_path,
+                field_names=STATE_FIELDS + ("ddt(Nd+)", "ddt(Pd+)", "ddt(NVd+)"),
+                optional_field_names=SOURCE_FIELDS + DIAGNOSTIC_FIELDS,
+                scalar_names=(),
+                time_index=1,
+            )
 
     field_overrides = {
         name: np.asarray(value, dtype=np.float64)

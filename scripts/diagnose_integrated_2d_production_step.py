@@ -29,6 +29,8 @@ RHS_FIELDS = ("ddt(Nd+)", "ddt(Pd+)", "ddt(NVd+)", "ddt(Nd)", "ddt(Pd)", "ddt(NV
 SOURCE_FIELDS = ("SNd+", "SNVd+", "SPd+", "SNd", "SNVd", "SPd")
 DIAGNOSTIC_FIELDS = ("Sd_target_recycle", "Ed_target_recycle", "Vd+", "Vd")
 SCALAR_FIELDS = ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REFERENCE_SNAPSHOT_DIR = _REPO_ROOT / "references" / "baselines" / "reference_snapshots"
 BOUNDARY_MODES = {
     "prod_mixed": {
         "preserve_dump_target_state": True,
@@ -57,6 +59,11 @@ def main() -> None:
     )
     parser.add_argument("--reference-root", type=Path, required=True)
     parser.add_argument("--case", default="integrated_2d_production_one_step", choices=("integrated_2d_production_one_step",))
+    parser.add_argument(
+        "--use-committed-baselines",
+        action="store_true",
+        help="Use the committed final diagnostic snapshot instead of rerunning the reference code.",
+    )
     args = parser.parse_args()
 
     initial_case_name = _integrated_2d_initial_rhs_case_name(args.case)
@@ -71,28 +78,40 @@ def main() -> None:
         scalar_names=SCALAR_FIELDS,
     )
 
-    with tempfile.TemporaryDirectory(prefix="jaxdrb-integrated-2d-production-step-") as workdir:
-        execution = run_reference_case(
-            args.case,
-            reference_root=args.reference_root,
-            workdir=workdir,
-            keep_workdir=True,
-        )
-        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
-        reference_initial = load_local_reference_snapshot(
-            dump_path,
-            field_names=STATE_FIELDS,
-            optional_field_names=DIAGNOSTIC_FIELDS,
-            scalar_names=(),
-            time_index=0,
-        )
-        reference_final = load_local_reference_snapshot(
-            dump_path,
+    reference_initial = initial_snapshot
+    if args.use_committed_baselines:
+        final_cache_path = _REFERENCE_SNAPSHOT_DIR / f"{args.case}_final_snapshot.npz"
+        if not final_cache_path.exists():
+            raise FileNotFoundError(f"Missing committed final diagnostic snapshot: {final_cache_path}")
+        reference_final = load_local_reference_snapshot_cache(
+            final_cache_path,
             field_names=STATE_FIELDS + RHS_FIELDS,
             optional_field_names=SOURCE_FIELDS + DIAGNOSTIC_FIELDS,
             scalar_names=(),
-            time_index=1,
         )
+    else:
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-integrated-2d-production-step-") as workdir:
+            execution = run_reference_case(
+                args.case,
+                reference_root=args.reference_root,
+                workdir=workdir,
+                keep_workdir=True,
+            )
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            reference_initial = load_local_reference_snapshot(
+                dump_path,
+                field_names=STATE_FIELDS,
+                optional_field_names=DIAGNOSTIC_FIELDS,
+                scalar_names=(),
+                time_index=0,
+            )
+            reference_final = load_local_reference_snapshot(
+                dump_path,
+                field_names=STATE_FIELDS + RHS_FIELDS,
+                optional_field_names=SOURCE_FIELDS + DIAGNOSTIC_FIELDS,
+                scalar_names=(),
+                time_index=1,
+            )
 
     config = load_bout_input(args.reference_root / "tests" / "integrated" / "2D-production" / "data" / "BOUT.inp")
     run_config = RunConfiguration.from_config(config)
