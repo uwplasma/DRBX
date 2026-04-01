@@ -79,7 +79,7 @@ def main() -> None:
         reference_final = load_local_reference_snapshot(
             dump_path,
             field_names=STATE_FIELDS + RHS_FIELDS,
-            optional_field_names=DIAGNOSTIC_FIELDS,
+            optional_field_names=SOURCE_FIELDS + DIAGNOSTIC_FIELDS,
             scalar_names=(),
             time_index=1,
         )
@@ -149,6 +149,21 @@ def main() -> None:
             field_overrides=rhs_field_overrides,
             velocity_field_overrides=final_velocity_overrides,
         )
+    rhs_density_source_overrides = {
+        name: np.asarray(reference_final.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
+        if field_name in reference_final.optional_fields
+    } or density_source_overrides
+    rhs_pressure_source_overrides = {
+        name: np.asarray(reference_final.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
+        if field_name in reference_final.optional_fields
+    } or pressure_source_overrides
+    rhs_momentum_source_overrides = {
+        name: np.asarray(reference_final.optional_fields[field_name], dtype=np.float64)
+        for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
+        if field_name in reference_final.optional_fields
+    } or momentum_source_overrides
     rhs_on_reference = compute_recycling_1d_rhs(
         config,
         mesh=reference_final.mesh,
@@ -158,9 +173,9 @@ def main() -> None:
         apply_sheath_boundaries=True,
         preserve_dump_target_state=True,
         preserve_dump_ion_target_state_only=True,
-        density_source_overrides=density_source_overrides,
-        pressure_source_overrides=pressure_source_overrides,
-        momentum_source_overrides=momentum_source_overrides,
+        density_source_overrides=rhs_density_source_overrides,
+        pressure_source_overrides=rhs_pressure_source_overrides,
+        momentum_source_overrides=rhs_momentum_source_overrides,
     ).variables
 
     active = (
