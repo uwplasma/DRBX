@@ -50,7 +50,10 @@ def expand_component_requests(config: BoutConfig) -> tuple[ComponentRequest, ...
 
     for name in component_names:
         if config.has_section(name) and config.has_option(name, "type") and _is_species_component(config, name):
-            for implementation in _as_tuple(config.parsed(name, "type")):
+            implementations = list(_as_tuple(config.parsed(name, "type")))
+            if _has_anomalous_diffusion_component(config, name) and "anomalous_diffusion" not in implementations:
+                implementations.append("anomalous_diffusion")
+            for implementation in implementations:
                 requests.append(
                     ComponentRequest(
                         label=f"{name}:{implementation}",
@@ -84,3 +87,13 @@ def _as_tuple(value: bool | int | float | str | tuple[str, ...]) -> tuple[str, .
 def _is_species_component(config: BoutConfig, section: str) -> bool:
     type_value = config.parsed(section, "type")
     return all(_COMPONENT_TYPE_PATTERN.fullmatch(item) for item in _as_tuple(type_value))
+
+
+def _has_anomalous_diffusion_component(config: BoutConfig, section: str) -> bool:
+    for option_name in ("anomalous_D", "anomalous_chi", "anomalous_nu"):
+        if not config.has_option(section, option_name):
+            continue
+        raw_value = str(config.get(section, option_name).raw).strip()
+        if raw_value not in {"0", "0.0", "0.", "false", "False"}:
+            return True
+    return False
