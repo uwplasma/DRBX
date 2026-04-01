@@ -262,6 +262,12 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
         "Ed_target_refl",
         "Ed_wall_refl",
         "is_pump",
+        "anomalous_D_d+",
+        "anomalous_Chi_d+",
+        "anomalous_nu_d+",
+        "anomalous_D_e",
+        "anomalous_Chi_e",
+        "anomalous_nu_e",
     )
     assert captured["scalar_names"] == ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
 
