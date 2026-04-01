@@ -1203,6 +1203,7 @@ def _prepare_open_field_states(
             electron_density_floor=species["e"].density_floor,
             mesh=mesh,
             metrics=metrics,
+            simple_settings=simple_sheath_settings,
         )
     else:
         ion_boundary_state = None
@@ -2472,8 +2473,11 @@ def _apply_ion_sheath_boundary(
     electron_density_floor: float,
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
+    simple_settings: _SimpleSheathSettings | None = None,
 ) -> _IonBoundaryResult:
     te = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dz = np.asarray(metrics.dz, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     J = np.asarray(metrics.J, dtype=np.float64)
@@ -2505,31 +2509,78 @@ def _apply_ion_sheath_boundary(
             jm = j - 1
             ni_i = density[:, j, :]
             ni_m = density[:, jm, :]
-            density[:, jp, :] = np.asarray(limit_free(ni_m, ni_i, 0), dtype=np.float64)
-            temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
-            pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
+            density[:, jp, :] = np.asarray(
+                limit_free(ni_m, ni_i, 0.0 if simple_settings is None else simple_settings.density_boundary_mode),
+                dtype=np.float64,
+            )
+            temperature[:, jp, :] = np.asarray(
+                limit_free(
+                    temperature[:, jm, :],
+                    temperature[:, j, :],
+                    0.0 if simple_settings is None else simple_settings.temperature_boundary_mode,
+                ),
+                dtype=np.float64,
+            )
+            pressure[:, jp, :] = np.asarray(
+                limit_free(
+                    pressure[:, jm, :],
+                    pressure[:, j, :],
+                    0.0 if simple_settings is None else simple_settings.pressure_boundary_mode,
+                ),
+                dtype=np.float64,
+            )
 
             nisheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-            nesheath = 0.5 * (electron_density[:, jp, :] + electron_density[:, j, :]) if jp < electron_density.shape[1] else 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
             tesheath = np.maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
             tisheath = np.maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
-            s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
-            grad_ne = electron_density[:, j, :] - nesheath
-            grad_ni = density[:, j, :] - nisheath
-            mask = np.abs(grad_ni) < 1.0e-3
-            grad_ne = np.where(mask, 1.0e-3, grad_ne)
-            grad_ni = np.where(mask, 1.0e-3, grad_ni)
-            c_i_sq = np.clip(((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
-            gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
-            visheath = np.sqrt(c_i_sq)
-            vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
-            momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
-
-            q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
-            q = np.maximum(q, 0.0)
-            flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
-            power = flux / (dy[:, j, :] * J[:, j, :])
-            energy_source[ion.name][:, j, :] -= power
+            if simple_settings is not None:
+                c_i_sq = np.maximum(
+                    (simple_settings.sheath_ion_polytropic * tisheath + ion.charge * tesheath) / ion.atomic_mass,
+                    0.0,
+                )
+                visheath = np.maximum(vel[:, j, :], np.sqrt(c_i_sq))
+                if simple_settings.no_flow:
+                    visheath = np.zeros_like(visheath)
+                vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
+                momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+                q = simple_settings.gamma_i * tisheath * nisheath * visheath
+                q = q - (2.5 * tisheath + 0.5 * ion.atomic_mass * np.square(visheath)) * nisheath * visheath
+                da = (
+                    (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
+                    * 0.5
+                    * (dx[:, j, :] + dx[:, jp, :])
+                    * 0.5
+                    * (dz[:, j, :] + dz[:, jp, :])
+                )
+                dv = dx[:, j, :] * dy[:, j, :] * dz[:, j, :] * J[:, j, :]
+                power = q * da / np.maximum(dv, 1.0e-30)
+                energy_source[ion.name][:, j, :] -= power
+            else:
+                nesheath = (
+                    0.5 * (electron_density[:, jp, :] + electron_density[:, j, :])
+                    if jp < electron_density.shape[1]
+                    else 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
+                )
+                s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
+                grad_ne = electron_density[:, j, :] - nesheath
+                grad_ni = density[:, j, :] - nisheath
+                mask = np.abs(grad_ni) < 1.0e-3
+                grad_ne = np.where(mask, 1.0e-3, grad_ne)
+                grad_ni = np.where(mask, 1.0e-3, grad_ni)
+                c_i_sq = np.clip(
+                    ((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass,
+                    0.0,
+                    100.0,
+                )
+                gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
+                visheath = np.sqrt(c_i_sq)
+                vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
+                momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+                q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
+                q = np.maximum(q, 0.0)
+                flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
+                power = flux / (dy[:, j, :] * J[:, j, :])
+                energy_source[ion.name][:, j, :] -= power
 
         if mesh.has_lower_y_target:
             j = mesh.ystart
@@ -2537,31 +2588,74 @@ def _apply_ion_sheath_boundary(
             jp = j + 1
             ni_i = density[:, j, :]
             ni_p = density[:, jp, :]
-            density[:, jm, :] = np.asarray(limit_free(ni_p, ni_i, 0), dtype=np.float64)
-            temperature[:, jm, :] = np.asarray(limit_free(temperature[:, jp, :], temperature[:, j, :], 0), dtype=np.float64)
-            pressure[:, jm, :] = np.asarray(limit_free(pressure[:, jp, :], pressure[:, j, :], 0), dtype=np.float64)
+            density[:, jm, :] = np.asarray(
+                limit_free(ni_p, ni_i, 0.0 if simple_settings is None else simple_settings.density_boundary_mode),
+                dtype=np.float64,
+            )
+            temperature[:, jm, :] = np.asarray(
+                limit_free(
+                    temperature[:, jp, :],
+                    temperature[:, j, :],
+                    0.0 if simple_settings is None else simple_settings.temperature_boundary_mode,
+                ),
+                dtype=np.float64,
+            )
+            pressure[:, jm, :] = np.asarray(
+                limit_free(
+                    pressure[:, jp, :],
+                    pressure[:, j, :],
+                    0.0 if simple_settings is None else simple_settings.pressure_boundary_mode,
+                ),
+                dtype=np.float64,
+            )
 
             nisheath = 0.5 * (density[:, jm, :] + density[:, j, :])
-            nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
             tesheath = np.maximum(0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
             tisheath = np.maximum(0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5)
-            s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
-            grad_ne = electron_density[:, j, :] - nesheath
-            grad_ni = density[:, j, :] - nisheath
-            mask = np.abs(grad_ni) < 1.0e-3
-            grad_ne = np.where(mask, 1.0e-3, grad_ne)
-            grad_ni = np.where(mask, 1.0e-3, grad_ni)
-            c_i_sq = np.clip(((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
-            gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
-            visheath = np.sqrt(c_i_sq)
-            vel[:, jm, :] = -2.0 * visheath - vel[:, j, :]
-            momentum_field[:, jm, :] = -2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
-
-            q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
-            q = np.maximum(q, 0.0)
-            flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
-            power = flux / (dy[:, j, :] * J[:, j, :])
-            energy_source[ion.name][:, j, :] -= power
+            if simple_settings is not None:
+                c_i_sq = np.maximum(
+                    (simple_settings.sheath_ion_polytropic * tisheath + ion.charge * tesheath) / ion.atomic_mass,
+                    0.0,
+                )
+                visheath = np.minimum(vel[:, j, :], -np.sqrt(c_i_sq))
+                if simple_settings.no_flow:
+                    visheath = np.zeros_like(visheath)
+                vel[:, jm, :] = 2.0 * visheath - vel[:, j, :]
+                momentum_field[:, jm, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+                q = simple_settings.gamma_i * tisheath * nisheath * visheath
+                q = q - (2.5 * tisheath + 0.5 * ion.atomic_mass * np.square(visheath)) * nisheath * visheath
+                da = (
+                    (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
+                    * 0.5
+                    * (dx[:, j, :] + dx[:, jm, :])
+                    * 0.5
+                    * (dz[:, j, :] + dz[:, jm, :])
+                )
+                dv = dx[:, j, :] * dy[:, j, :] * dz[:, j, :] * J[:, j, :]
+                power = q * da / np.maximum(dv, 1.0e-30)
+                energy_source[ion.name][:, j, :] += power
+            else:
+                nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
+                s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
+                grad_ne = electron_density[:, j, :] - nesheath
+                grad_ni = density[:, j, :] - nisheath
+                mask = np.abs(grad_ni) < 1.0e-3
+                grad_ne = np.where(mask, 1.0e-3, grad_ne)
+                grad_ni = np.where(mask, 1.0e-3, grad_ni)
+                c_i_sq = np.clip(
+                    ((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass,
+                    0.0,
+                    100.0,
+                )
+                gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
+                visheath = np.sqrt(c_i_sq)
+                vel[:, jm, :] = -2.0 * visheath - vel[:, j, :]
+                momentum_field[:, jm, :] = -2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
+                q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
+                q = np.maximum(q, 0.0)
+                flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
+                power = flux / (dy[:, j, :] * J[:, j, :])
+                energy_source[ion.name][:, j, :] -= power
 
         boundary_density[ion.name] = density
         boundary_pressure[ion.name] = pressure

@@ -16,6 +16,7 @@ from jax_drb.native.reference_dump import load_local_reference_snapshot
 from jax_drb.native.recycling_1d import (
     ElectronPressureRhsTerms,
     OpenFieldSpecies,
+    _SimpleSheathSettings,
     _assemble_electron_pressure_rhs_terms,
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
@@ -429,12 +430,12 @@ def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_
 
     lower_guard = (slice(None), mesh.ystart - 1, slice(None))
     np.testing.assert_allclose(
-        ion_boundary_ion_only.velocity["d+"][lower_guard],
-        prepared_ion_only["d+"].velocity[lower_guard],
+        ion_boundary_ion_only.momentum["d+"][lower_guard],
+        prepared_ion_only["d+"].momentum[lower_guard],
     )
     np.testing.assert_allclose(
-        ion_boundary_default.velocity["d+"][lower_guard],
-        prepared_default["d+"].velocity[lower_guard],
+        ion_boundary_default.momentum["d+"][lower_guard],
+        prepared_default["d+"].momentum[lower_guard],
     )
     assert np.any(np.abs(ion_boundary_ion_only.energy_source["d+"]) > 0.0)
 
@@ -472,6 +473,100 @@ def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
     active = (mesh.xstart, mesh.yend, 0)
     expected_velocity = momentum[active] / (ion.atomic_mass * _soft_floor(density[active], ion.density_floor))
     assert result.velocity["d+"][active] == pytest.approx(expected_velocity)
+
+
+def test_ion_simple_sheath_energy_source_matches_hermes_formula() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(1, dtype=jnp.float64),
+        y=jnp.arange(3, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((1, 3, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    ion_density = 2.0 * np.ones((1, 3, 1), dtype=np.float64)
+    ion_temperature = np.ones((1, 3, 1), dtype=np.float64)
+    ion_velocity = np.zeros((1, 3, 1), dtype=np.float64)
+    electron_density = 2.0 * np.ones((1, 3, 1), dtype=np.float64)
+    electron_pressure = 4.0 * np.ones((1, 3, 1), dtype=np.float64)
+
+    ion = OpenFieldSpecies(
+        name="d+",
+        density=ion_density,
+        pressure=ion_density * ion_temperature,
+        momentum=2.0 * ion_density * ion_velocity,
+        charge=1.0,
+        atomic_mass=2.0,
+        density_floor=1.0e-8,
+        has_pressure=True,
+        has_momentum=True,
+        noflow_lower_y=False,
+        noflow_upper_y=False,
+        target_recycle=False,
+        recycle_as=None,
+        target_recycle_multiplier=0.0,
+        target_recycle_energy=0.0,
+        target_fast_recycle_fraction=0.0,
+        target_fast_recycle_energy_factor=1.0,
+    )
+    settings = _SimpleSheathSettings(
+        gamma_e=4.5,
+        gamma_i=2.5,
+        secondary_electron_coef=0.0,
+        sheath_ion_polytropic=1.0,
+        lower_y=True,
+        upper_y=False,
+        no_flow=False,
+        density_boundary_mode=1.0,
+        pressure_boundary_mode=1.0,
+        temperature_boundary_mode=1.0,
+        wall_potential=np.zeros((1, 3, 1), dtype=np.float64),
+    )
+
+    result = _apply_ion_sheath_boundary(
+        (ion,),
+        electron_pressure=electron_pressure,
+        electron_density=electron_density,
+        electron_density_floor=1.0e-8,
+        mesh=mesh,
+        metrics=metrics,
+        simple_settings=settings,
+    )
+
+    nisheath = 2.0
+    tesheath = 2.0
+    tisheath = 1.0
+    c_i_sq = (settings.sheath_ion_polytropic * tisheath + tesheath) / ion.atomic_mass
+    visheath = -np.sqrt(c_i_sq)
+    expected_q = settings.gamma_i * tisheath * nisheath * visheath
+    expected_q -= (2.5 * tisheath + 0.5 * ion.atomic_mass * visheath * visheath) * nisheath * visheath
+
+    assert result.energy_source["d+"][0, mesh.ystart, 0] == pytest.approx(expected_q)
+    assert result.velocity["d+"][0, mesh.ystart - 1, 0] == pytest.approx(2.0 * visheath)
 
 
 def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
@@ -516,7 +611,6 @@ def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:
     )
 
     np.testing.assert_allclose(distorted, baseline, rtol=0.0, atol=0.0)
-
 
 def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil() -> None:
     config = load_bout_input(_INPUT_1D)
