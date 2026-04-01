@@ -29,6 +29,16 @@ RHS_FIELDS = ("ddt(Nd+)", "ddt(Pd+)", "ddt(NVd+)", "ddt(Nd)", "ddt(Pd)", "ddt(NV
 SOURCE_FIELDS = ("SNd+", "SNVd+", "SPd+", "SNd", "SNVd", "SPd")
 DIAGNOSTIC_FIELDS = ("Sd_target_recycle", "Ed_target_recycle", "Vd+", "Vd")
 SCALAR_FIELDS = ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
+BOUNDARY_MODES = {
+    "prod_mixed": {
+        "preserve_dump_target_state": True,
+        "preserve_dump_ion_target_state_only": True,
+    },
+    "all_sheath": {
+        "preserve_dump_target_state": False,
+        "preserve_dump_ion_target_state_only": False,
+    },
+}
 
 
 def _max_abs_diff(a: np.ndarray, b: np.ndarray, active: tuple[slice, slice, slice]) -> tuple[float, tuple[int, ...]]:
@@ -123,25 +133,6 @@ def main() -> None:
         )
 
     solver_mode = _select_integrated_2d_transient_solver_mode(args.case, config=config, parity_mode="one_step")
-    history = advance_recycling_1d_implicit_history(
-        config,
-        mesh=initial_snapshot.mesh,
-        metrics=initial_snapshot.metrics,
-        dataset_scalars=dataset_scalars,
-        timestep=run_config.time.timestep,
-        steps=1,
-        initial_fields=initial_fields,
-        density_source_overrides=density_source_overrides,
-        pressure_source_overrides=pressure_source_overrides,
-        momentum_source_overrides=momentum_source_overrides,
-        preserve_dump_target_state=True,
-        preserve_dump_ion_target_state_only=True,
-        solver_mode=solver_mode,
-        residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
-        max_nonlinear_iterations=30,
-    )
-    native_final_fields = {name: np.asarray(value[1], dtype=np.float64) for name, value in history.variable_history.items()}
-
     rhs_field_overrides = {name: np.asarray(value, dtype=np.float64) for name, value in reference_final.fields.items() if name in STATE_FIELDS}
     if final_velocity_overrides:
         rhs_field_overrides = _apply_species_velocity_overrides(
@@ -164,19 +155,41 @@ def main() -> None:
         for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
         if field_name in reference_final.optional_fields
     } or momentum_source_overrides
-    rhs_on_reference = compute_recycling_1d_rhs(
-        config,
-        mesh=reference_final.mesh,
-        metrics=reference_final.metrics,
-        dataset_scalars=dataset_scalars,
-        field_overrides=rhs_field_overrides,
-        apply_sheath_boundaries=True,
-        preserve_dump_target_state=True,
-        preserve_dump_ion_target_state_only=True,
-        density_source_overrides=rhs_density_source_overrides,
-        pressure_source_overrides=rhs_pressure_source_overrides,
-        momentum_source_overrides=rhs_momentum_source_overrides,
-    ).variables
+
+    mode_histories: dict[str, dict[str, np.ndarray]] = {}
+    mode_rhs: dict[str, dict[str, np.ndarray]] = {}
+    for mode_name, boundary_kwargs in BOUNDARY_MODES.items():
+        history = advance_recycling_1d_implicit_history(
+            config,
+            mesh=initial_snapshot.mesh,
+            metrics=initial_snapshot.metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=run_config.time.timestep,
+            steps=1,
+            initial_fields=initial_fields,
+            density_source_overrides=density_source_overrides,
+            pressure_source_overrides=pressure_source_overrides,
+            momentum_source_overrides=momentum_source_overrides,
+            solver_mode=solver_mode,
+            residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
+            max_nonlinear_iterations=30,
+            **boundary_kwargs,
+        )
+        mode_histories[mode_name] = {
+            name: np.asarray(value[1], dtype=np.float64) for name, value in history.variable_history.items()
+        }
+        mode_rhs[mode_name] = compute_recycling_1d_rhs(
+            config,
+            mesh=reference_final.mesh,
+            metrics=reference_final.metrics,
+            dataset_scalars=dataset_scalars,
+            field_overrides=rhs_field_overrides,
+            apply_sheath_boundaries=True,
+            density_source_overrides=rhs_density_source_overrides,
+            pressure_source_overrides=rhs_pressure_source_overrides,
+            momentum_source_overrides=rhs_momentum_source_overrides,
+            **boundary_kwargs,
+        ).variables
 
     active = (
         slice(reference_final.mesh.xstart, reference_final.mesh.xend + 1),
@@ -185,22 +198,39 @@ def main() -> None:
     )
     print(f"case={args.case}")
     print(f"solver_mode={solver_mode}")
-    print("state max_abs_diff on active domain")
-    for name in STATE_FIELDS:
-        diff, location = _max_abs_diff(native_final_fields[name], reference_final.fields[name], active)
-        print(f"{name} diff={diff:.12e} location={location}")
-    print("rhs_on_reference_state max_abs_diff on active domain")
-    for name in RHS_FIELDS:
-        if name not in reference_final.fields:
-            continue
-        diff, location = _max_abs_diff(rhs_on_reference[name][0], reference_final.fields[name], active)
-        print(f"{name} diff={diff:.12e} location={location}")
-    print("diagnostics_on_reference_state max_abs_diff on active domain")
-    for name in ("Sd_target_recycle", "Ed_target_recycle"):
-        if name not in reference_final.optional_fields or name not in rhs_on_reference:
-            continue
-        diff, location = _max_abs_diff(rhs_on_reference[name][0], reference_final.optional_fields[name], active)
-        print(f"{name} diff={diff:.12e} location={location}")
+    for mode_name in BOUNDARY_MODES:
+        print(f"state max_abs_diff on active domain [{mode_name}]")
+        for name in STATE_FIELDS:
+            diff, location = _max_abs_diff(mode_histories[mode_name][name], reference_final.fields[name], active)
+            print(f"{name} diff={diff:.12e} location={location}")
+        print(f"rhs_on_reference_state max_abs_diff on active domain [{mode_name}]")
+        for name in RHS_FIELDS:
+            if name not in reference_final.fields:
+                continue
+            diff, location = _max_abs_diff(mode_rhs[mode_name][name][0], reference_final.fields[name], active)
+            print(f"{name} diff={diff:.12e} location={location}")
+        print(f"diagnostics_on_reference_state max_abs_diff on active domain [{mode_name}]")
+        for name in ("Sd_target_recycle", "Ed_target_recycle"):
+            if name not in reference_final.optional_fields or name not in mode_rhs[mode_name]:
+                continue
+            diff, location = _max_abs_diff(mode_rhs[mode_name][name][0], reference_final.optional_fields[name], active)
+            print(f"{name} diff={diff:.12e} location={location}")
+    print("target_band rhs error sweep")
+    for cell in ((14, reference_final.mesh.ystart, 0), (15, reference_final.mesh.ystart, 0)):
+        i, j, k = cell
+        print(f"cell={cell}")
+        for field in ("ddt(Pe)", "ddt(Pd+)", "ddt(NVd+)", "ddt(Nd+)"):
+            if field not in reference_final.fields:
+                continue
+            prod_value = mode_rhs["prod_mixed"][field][0][i, j, k]
+            sheath_value = mode_rhs["all_sheath"][field][0][i, j, k]
+            ref_value = reference_final.fields[field][i, j, k]
+            print(
+                f"  {field}: "
+                f"prod_err={prod_value - ref_value:.12e} "
+                f"sheath_err={sheath_value - ref_value:.12e} "
+                f"bc_delta={prod_value - sheath_value:.12e}"
+            )
     print("reference_initial_vs_cache max_abs_diff on active domain")
     for name in STATE_FIELDS:
         diff, location = _max_abs_diff(initial_snapshot.fields[name], reference_initial.fields[name], active)
