@@ -3,17 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from jax_drb.config.boutinp import load_bout_input
 import jax_drb.native.runner as native_runner
-from jax_drb.native.mesh import build_structured_mesh
-from jax_drb.native.metrics import build_structured_metrics
+from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
+from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native import run_curated_case
 from jax_drb.native.reference_dump import load_local_reference_snapshot
 from jax_drb.native.recycling_1d import (
+    ElectronPressureRhsTerms,
     OpenFieldSpecies,
+    _assemble_electron_pressure_rhs_terms,
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
     _compute_collision_frequencies,
@@ -68,6 +71,62 @@ def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
     assert helium_rec_energy_coeffs.shape == (9, 9)
     assert np.isfinite(hydrogen_iz_heating)
     assert np.isfinite(helium_rec_heating)
+
+
+def test_electron_pressure_rhs_terms_sum_to_total() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=jnp.array([0.0], dtype=jnp.float64),
+        y=jnp.array([-1.0, 0.0, 1.0], dtype=jnp.float64),
+        z=jnp.array([0.0], dtype=jnp.float64),
+    )
+    ones = jnp.ones((1, 3, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    explicit = np.full((1, 3, 1), 2.0, dtype=np.float64)
+    pressure = np.array([[[3.0], [4.0], [5.0]]], dtype=np.float64)
+    velocity = np.array([[[-1.0], [-0.5], [0.0]]], dtype=np.float64)
+    fastest_wave = np.full((1, 3, 1), 1.5, dtype=np.float64)
+    energy_source = np.full((1, 3, 1), 0.75, dtype=np.float64)
+
+    terms = _assemble_electron_pressure_rhs_terms(
+        explicit_pressure_source=explicit,
+        electron_pressure=pressure,
+        electron_velocity=velocity,
+        electron_fastest_wave=fastest_wave,
+        electron_energy_source=energy_source,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    assert isinstance(terms, ElectronPressureRhsTerms)
+    np.testing.assert_allclose(
+        terms.total,
+        terms.explicit_pressure_source + terms.parallel_divergence + terms.parallel_advection + terms.energy_source,
+    )
 
 
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:
