@@ -8,7 +8,11 @@ import tempfile
 import numpy as np
 
 from jax_drb.native.runner import run_curated_case
-from jax_drb.parity.arrays import build_array_payload_from_summary_payload, build_dataset_array_payload
+from jax_drb.parity.arrays import (
+    build_array_payload_from_summary_payload,
+    build_dataset_array_payload,
+    load_portable_array_payload,
+)
 from jax_drb.parity.compare import load_summary_json
 from jax_drb.parity.compare import compare_summary_payloads
 from jax_drb.parity.diff import build_scaled_array_diff_entries, filter_scaled_array_diff_entries_to_band
@@ -76,12 +80,7 @@ def main() -> None:
 
         if args.use_committed_baselines:
             reference_summary = load_summary_json(summary_baseline_dir / f"{case_name}.json")
-            reference_arrays = {
-                "variables": {
-                    key: np.asarray(value, dtype=np.float64)
-                    for key, value in np.load(array_baseline_dir / f"{case_name}.npz").items()
-                }
-            }
+            reference_arrays = load_portable_array_payload(array_baseline_dir / f"{case_name}.npz")
         else:
             with tempfile.TemporaryDirectory(prefix=f"jaxdrb-{case_name}-") as workdir:
                 reference = run_reference_case(case_name, reference_root=args.reference_root, workdir=workdir, keep_workdir=True)
