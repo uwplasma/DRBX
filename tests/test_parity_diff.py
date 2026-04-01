@@ -9,6 +9,7 @@ import pytest
 from jax_drb.cli import main
 from jax_drb.parity.compare import load_summary_json
 from jax_drb.parity.diff import (
+    build_array_time_trace,
     build_array_diff_report,
     build_scaled_array_diff_entries,
     compare_recycling_artifacts,
@@ -99,6 +100,37 @@ def test_filter_scaled_array_diff_entries_to_band_keeps_y_edge_cells() -> None:
     filtered = filter_scaled_array_diff_entries_to_band(entries, axis=2)
 
     assert tuple(entry.field for entry in filtered) == ("lower", "upper")
+
+
+def test_build_array_time_trace_tracks_spatial_cell_over_time() -> None:
+    expected = {
+        "field": np.array(
+            [
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[1.5, 2.5], [3.5, 4.5]],
+                [[2.0, 3.0], [4.0, 5.0]],
+            ],
+            dtype=np.float64,
+        )
+    }
+    actual = {
+        "field": np.array(
+            [
+                [[1.0, 2.2], [3.0, 4.0]],
+                [[1.5, 2.7], [3.5, 4.0]],
+                [[2.0, 2.8], [4.0, 5.2]],
+            ],
+            dtype=np.float64,
+        )
+    }
+
+    trace = build_array_time_trace(expected, actual, field="field", spatial_location=(0, 1))
+
+    assert trace.field == "field"
+    assert trace.spatial_location == (0, 1)
+    assert trace.expected_series == pytest.approx((2.0, 2.5, 3.0))
+    assert trace.actual_series == pytest.approx((2.2, 2.7, 2.8))
+    assert trace.abs_diff_series == pytest.approx((0.2, 0.2, 0.2))
 
 
 def test_recycling_summary_diff_report_localizes_worst_variable(tmp_path: Path) -> None:
