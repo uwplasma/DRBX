@@ -80,6 +80,15 @@ class Recycling1DRhsResult:
 
 
 @dataclass(frozen=True)
+class ElectronPressureRhsTerms:
+    explicit_pressure_source: np.ndarray
+    parallel_divergence: np.ndarray
+    parallel_advection: np.ndarray
+    energy_source: np.ndarray
+    total: np.ndarray
+
+
+@dataclass(frozen=True)
 class Recycling1DHistoryResult:
     variable_history: dict[str, np.ndarray]
     feedback_integral_history: dict[str, np.ndarray]
@@ -404,28 +413,23 @@ def _compute_recycling_1d_rhs_from_species(
         electron_density=prepared["e"].density,
     )
     electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
-    electron_pressure_rhs = np.asarray(
-        pressure_sources.get(
-            "e",
-            _explicit_pressure_source(config, "e", mesh=mesh, dataset_scalars=dataset_scalars),
+    electron_pressure_rhs_terms = _assemble_electron_pressure_rhs_terms(
+        explicit_pressure_source=np.asarray(
+            pressure_sources.get(
+                "e",
+                _explicit_pressure_source(config, "e", mesh=mesh, dataset_scalars=dataset_scalars),
+            ),
+            dtype=np.float64,
         ),
-        dtype=np.float64,
-    )
-    electron_pressure_rhs = electron_pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
-        electron_boundary.pressure,
-        electron_velocity,
-        electron_fastest_wave,
+        electron_pressure=electron_boundary.pressure,
+        electron_velocity=electron_velocity,
+        electron_fastest_wave=electron_fastest_wave,
+        electron_energy_source=energy_source["e"],
         mesh=mesh,
         metrics=metrics,
     )
-    electron_pressure_rhs = electron_pressure_rhs + (2.0 / 3.0) * electron_velocity * _grad_par_open(
-        electron_boundary.pressure,
-        mesh=mesh,
-        metrics=metrics,
-    )
-    electron_pressure_rhs = electron_pressure_rhs + (2.0 / 3.0) * energy_source["e"]
     variables[electron.pressure_name] = electron_boundary.pressure[None, ...]
-    variables[f"ddt({electron.pressure_name})"] = electron_pressure_rhs[None, ...]
+    variables[f"ddt({electron.pressure_name})"] = electron_pressure_rhs_terms.total[None, ...]
 
     for neutral in neutrals:
         neutral_state = prepared[neutral.name]
@@ -476,6 +480,40 @@ def _compute_recycling_1d_rhs_from_species(
     return Recycling1DRhsResult(
         variables=variables,
         feedback_integral_rhs=feedback_terms.feedback_integral_rhs,
+    )
+
+
+def _assemble_electron_pressure_rhs_terms(
+    *,
+    explicit_pressure_source: np.ndarray,
+    electron_pressure: np.ndarray,
+    electron_velocity: np.ndarray,
+    electron_fastest_wave: np.ndarray,
+    electron_energy_source: np.ndarray,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> ElectronPressureRhsTerms:
+    explicit = np.asarray(explicit_pressure_source, dtype=np.float64)
+    parallel_divergence = -(5.0 / 3.0) * _div_par_mod_open(
+        electron_pressure,
+        electron_velocity,
+        electron_fastest_wave,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    parallel_advection = (2.0 / 3.0) * electron_velocity * _grad_par_open(
+        electron_pressure,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    energy_source = (2.0 / 3.0) * np.asarray(electron_energy_source, dtype=np.float64)
+    total = explicit + parallel_divergence + parallel_advection + energy_source
+    return ElectronPressureRhsTerms(
+        explicit_pressure_source=explicit,
+        parallel_divergence=parallel_divergence,
+        parallel_advection=parallel_advection,
+        energy_source=energy_source,
+        total=total,
     )
 
 

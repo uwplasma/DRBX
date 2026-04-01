@@ -220,6 +220,10 @@ The remaining work should now proceed in this order:
 1. Finish the Step 3 integrated 2D production lane.
    - Close `Pe` / recycling-source residuals on the broader production ladder.
    - Promote the integrated 2D path from scaffolded parity to final parity on the selected production rungs.
+   - Current blocker is now localized: on the reference-evolved one-step state, `Sd_target_recycle` / `Ed_target_recycle` are exact and `ddt(NVd+)` is already small, but target-band `ddt(Pe)` plus `ddt(Nd+)` / `ddt(Pd+)` / `ddt(Nd)` are still wrong on the first accepted step.
+   - The next physics slice should be chosen between:
+     - target-band pressure/density RHS assembly around the electron compression term, and
+     - the still-missing `anomalous_diffusion` component on the integrated production lane, which the reference enables for both `d+` and `e`.
 
 2. Promote direct tokamak geometry from staged support to native production support.
    - Use the already-stable integrated lanes to reduce risk.
