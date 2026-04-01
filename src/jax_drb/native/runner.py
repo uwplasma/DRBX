@@ -709,6 +709,7 @@ def _run_integrated_2d_recycling_transient_case(
         for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
         if field_name in snapshot.optional_fields
     } or None
+    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
     solver_mode = _select_integrated_2d_transient_solver_mode(case.name, config=config, parity_mode="one_step")
     history = advance_recycling_1d_implicit_history(
         config,
@@ -722,6 +723,7 @@ def _run_integrated_2d_recycling_transient_case(
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,
         preserve_dump_target_state=True,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,

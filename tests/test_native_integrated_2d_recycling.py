@@ -441,6 +441,98 @@ def test_integrated_2d_simple_sheath_preserve_mode_keeps_simple_guard_cells() ->
     )
 
 
+def test_integrated_2d_simple_sheath_ion_only_preserve_uses_sheath_electron_state() -> None:
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("integrated 2D recycling reference input is unavailable")
+
+    config = load_bout_input(_REFERENCE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": np.ones((4, 5, 1), dtype=np.float64),
+    }
+    species = _initialize_species(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+        field_overrides=fields,
+    )
+
+    prepared_free, ion_free, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=False,
+    )
+    prepared_preserve, ion_preserve, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+    )
+    prepared_ion_only, ion_ion_only, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+        preserve_dump_target_state=True,
+        preserve_dump_ion_target_state_only=True,
+    )
+
+    np.testing.assert_allclose(
+        prepared_ion_only["e"].pressure[:, mesh.ystart, :],
+        prepared_free["e"].pressure[:, mesh.ystart, :],
+    )
+    np.testing.assert_allclose(
+        ion_ion_only.pressure["d+"][:, mesh.ystart, :],
+        ion_preserve.pressure["d+"][:, mesh.ystart, :],
+    )
 @pytest.mark.xfail(
     raises=TracerArrayConversionError,
     reason="The staged integrated 2D recycling RHS still materializes NumPy arrays in _initialize_species.",
@@ -593,6 +685,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
         captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
         captured["momentum_source_overrides"] = kwargs["momentum_source_overrides"]
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
+        captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -632,6 +725,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
     assert tuple(captured["momentum_source_overrides"]) == ("d+", "d")
     assert captured["preserve_dump_target_state"] is True
+    assert captured["preserve_dump_ion_target_state_only"] is False
     assert result.time_points == (0.0, 0.0001)
     assert result.variables["Nd+"].shape == (2, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (2, 2, 3, 1)
@@ -717,6 +811,7 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
     def fake_history(*args, **kwargs):
         captured["steps"] = kwargs["steps"]
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
+        captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -753,11 +848,126 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(monke
 
     assert captured["steps"] == 5
     assert captured["preserve_dump_target_state"] is True
+    assert captured["preserve_dump_ion_target_state_only"] is False
     assert result.time_points == (0.0, 0.0001, 0.0002, 0.00030000000000000003, 0.0004, 0.0005)
     assert result.variables["Nd+"].shape == (6, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (6, 2, 3, 1)
     np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
     np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
+
+
+def test_integrated_2d_production_one_step_preserves_only_ion_target_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    if not production_input.exists():
+        pytest.skip("integrated 2D production reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    initial_fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": 3.0 * np.ones((4, 5, 1), dtype=np.float64),
+    }
+    evolved_history = {name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()}
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "load_local_reference_snapshot",
+        lambda *args, **kwargs: LocalReferenceSnapshot(
+            mesh=mesh,
+            metrics=metrics,
+            fields=initial_fields,
+            optional_fields={
+                "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+                "SNVd+": np.full((4, 5, 1), 1.5, dtype=np.float64),
+                "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+                "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+                "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
+                "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+                "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+                "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+            },
+            scalar_values={"Nnorm": 1.0e17},
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_history(*args, **kwargs):
+        captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
+        captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
+        return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
+    monkeypatch.setattr(
+        native_runner,
+        "compute_recycling_1d_rhs",
+        lambda *args, **kwargs: SimpleNamespace(
+            variables={
+                "Sd_target_recycle": np.ones((1, 4, 5, 1), dtype=np.float64),
+                "Ed_target_recycle": np.ones((1, 4, 5, 1), dtype=np.float64),
+            }
+        ),
+    )
+
+    case = ReferenceCase(
+        name="integrated_2d_production_one_step",
+        stage="stage7",
+        reference_path=str(production_input),
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"),
+        trim_x_guards=True,
+        trim_y_guards=True,
+    )
+
+    native_runner._run_integrated_2d_recycling_one_step_case(
+        case,
+        input_path=production_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured["preserve_dump_target_state"] is True
+    assert captured["preserve_dump_ion_target_state_only"] is True
 
 
 def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(monkeypatch: pytest.MonkeyPatch) -> None:
