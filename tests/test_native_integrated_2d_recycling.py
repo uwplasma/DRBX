@@ -1162,6 +1162,7 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(
         captured["preserve_dump_target_state"] = kwargs["preserve_dump_target_state"]
         captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         captured["pressure_source_overrides"] = kwargs["pressure_source_overrides"]
+        captured["initial_fields"] = kwargs["initial_fields"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -1197,6 +1198,12 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(
     assert captured["preserve_dump_target_state"] is True
     assert captured["preserve_dump_ion_target_state_only"] is True
     assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
+    expected_initial_fields = native_runner._apply_species_velocity_overrides(
+        load_bout_input(production_input),
+        field_overrides=initial_fields,
+        velocity_field_overrides={"d+": np.full((4, 5, 1), 3.0, dtype=np.float64)},
+    )
+    np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
     assert captured["diagnostic_preserve_dump_ion_target_state_only"] is True
     expected_fields = native_runner._apply_species_velocity_overrides(
         load_bout_input(production_input),
@@ -1354,7 +1361,12 @@ def test_integrated_2d_production_one_step_uses_committed_snapshot_caches(
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert tuple(captured["initial_fields"]) == tuple(initial_fields)
+    expected_initial_fields = native_runner._apply_species_velocity_overrides(
+        load_bout_input(production_input),
+        field_overrides=initial_fields,
+        velocity_field_overrides={"d+": np.full((4, 5, 1), 3.0, dtype=np.float64)},
+    )
+    np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
     expected_fields = native_runner._apply_species_velocity_overrides(
         load_bout_input(production_input),
         field_overrides={name: value[1] for name, value in evolved_history.items()},
@@ -1516,7 +1528,12 @@ def test_integrated_2d_production_short_window_uses_committed_history_cache(
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert tuple(captured["initial_fields"]) == tuple(initial_fields)
+    expected_initial_fields = native_runner._apply_species_velocity_overrides(
+        load_bout_input(production_input),
+        field_overrides=initial_fields,
+        velocity_field_overrides={"d+": np.full((4, 5, 1), 3.0, dtype=np.float64)},
+    )
+    np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
     assert len(captured["diagnostic_nvdp_history"]) == 6
     expected_fields = native_runner._apply_species_velocity_overrides(
         load_bout_input(production_input),
