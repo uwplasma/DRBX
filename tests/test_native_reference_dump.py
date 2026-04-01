@@ -54,11 +54,13 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
 
         optional = dataset.createVariable("is_pump", "f8", ("x", "y"))
         optional[:] = np.eye(4, 5, dtype=np.float64)
+        anomalous = dataset.createVariable("anomalous_nu_e", "f8", ("t", "x", "y"))
+        anomalous[:] = np.arange(20, dtype=np.float64).reshape(1, 4, 5) + 100.0
 
     snapshot = load_local_reference_snapshot(
         dump_path,
         field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-        optional_field_names=("is_pump", "missing_field"),
+        optional_field_names=("is_pump", "anomalous_nu_e", "missing_field"),
         scalar_names=("Nnorm", "missing_scalar"),
     )
 
@@ -74,6 +76,10 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
     np.testing.assert_allclose(np.asarray(snapshot.metrics.dx)[..., 0], field2d)
     np.testing.assert_allclose(np.asarray(snapshot.fields["Nd+"])[..., 0], np.arange(20, dtype=np.float64).reshape(4, 5))
     np.testing.assert_allclose(np.asarray(snapshot.optional_fields["is_pump"])[..., 0], np.eye(4, 5, dtype=np.float64))
+    np.testing.assert_allclose(
+        np.asarray(snapshot.optional_fields["anomalous_nu_e"])[..., 0],
+        np.arange(20, dtype=np.float64).reshape(4, 5) + 100.0,
+    )
     assert "missing_field" not in snapshot.optional_fields
     assert snapshot.scalar_values["Nnorm"] == pytest.approx(1.0e17)
     assert "missing_scalar" not in snapshot.scalar_values
