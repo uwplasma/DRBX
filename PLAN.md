@@ -1,6 +1,6 @@
 # jax_drb Plan
 
-Date: 2026-03-11
+Date: 2026-04-01
 
 ## 1. Mission
 
@@ -87,6 +87,173 @@ Explicitly out of scope until parity is achieved:
 - new physics not already in reference solver,
 - optimization/inverse-design workflows beyond smoke tests,
 - aggressive performance tuning that changes semantics.
+
+## 4A. Current Readiness Assessment (2026-04-01)
+
+This section is the current decision point for the remaining port. It answers what `jax_drb` can already claim, what it cannot yet claim, and what must be finished before the code is ship-ready as a standalone DRB solver.
+
+The five-step finish plan in [8A](#8a-five-step-finish-plan) is still the active execution plan. The older stage-by-stage sections later in this file remain useful as a detailed dependency map, but the project should now be driven by the five broad finish steps plus the ship blockers listed below.
+
+### What Can Be Claimed Now
+
+- Thorough comparison with the private reference implementation is already possible on a broad and growing curated ladder:
+  - `one_rhs`
+  - `one_step`
+  - `short_window`
+  - `medium_window`
+  - compact physics/benchmark metrics where full arrays would be too large
+- The parity harness is strong enough for reviewer-facing evidence on the currently locked benchmarks:
+  - exact summary and array comparisons for the implemented/staged benchmark rungs
+  - live rerun against the private reference binary
+  - compact benchmark analysis for drift-wave, blob, and Alfvén-wave behavior
+  - committed artifacts small enough to keep in-repo
+- Electrostatic capability is already substantial on selected benchmark ladders:
+  - diffusion
+  - 1D fluid MMS
+  - vorticity
+  - drift-wave
+  - blob
+  - staged integrated 2D recycling/production lanes
+- Electromagnetic capability now has a real benchmark ladder rather than a single smoke case:
+  - `alfven_wave_rhs`
+  - `alfven_wave_one_step`
+  - `alfven_wave_short_window`
+  - `alfven_wave_medium_window`
+  - `annulus_he_emag_rhs`
+  - `annulus_he_emag_one_step`
+  - `annulus_he_emag_short_window`
+- The numerical backbone is good enough to support the remaining port:
+  - shared implicit/transient substrate
+  - shared elliptic/inversion layer
+  - portable summary/array parity tooling
+  - JAX compilation cache
+  - differentiability smoke checks on the major active branches
+
+### What Cannot Yet Be Claimed
+
+- `jax_drb` is not yet a fully standalone replacement covering the full intended DRB matrix in one production path.
+- We cannot yet make a complete parity claim for:
+  - full open-field plasma + neutrals + recycling transients at production output intervals
+  - full 2D production/recycling transients on real tokamak geometry without staging shortcuts
+  - full electromagnetic coupled transient evolution beyond the current benchmark ladders
+  - selected reduced 3D tokamak electromagnetic runs through the main production path
+  - full multi-species/reaction/impurity breadth
+  - output/restart/log compatibility at the level needed for an external release and paper package
+- We do not yet have a complete convergence story across the final intended workflow matrix. We do have benchmark-quality transient/convergence evidence on selected ladders, but not yet a final unified convergence/validation campaign across:
+  - open-field recycling/detachment
+  - broader 2D production turbulence
+  - electromagnetic annulus/tokamak cases
+  - multi-species neutral/reaction workflows
+
+### Capability Matrix
+
+- Open field lines:
+  - partially ready
+  - strong RHS/source parity and localized transient evidence exist
+  - still blocked for a strict final parity claim by the remaining 1D recycling startup-transient defect
+- Closed / periodic / annulus-like field lines:
+  - benchmark-ready on selected electrostatic and electromagnetic ladders
+  - not yet a general production claim for all closed-field workflows
+- Bohm/sheath boundary conditions:
+  - implemented on the active open-field path
+  - not yet fully ship-ready because the long-interval open-field transient parity is still not fully closed
+- Neutrals:
+  - partially ready
+  - `neutral_mixed` and recycling-related neutral paths are substantially traced
+  - full neutral transient/reaction breadth is not yet done
+- Electrostatic physics:
+  - strong on selected benchmark ladders
+  - still incomplete as a full tokamak production claim
+- Electromagnetic physics:
+  - benchmark-ready on Alfvén and annulus ladders
+  - not yet a full coupled 3D/tokamak production claim
+- Tokamak / analytic / other geometries:
+  - analytic/slab/annulus and staged integrated 2D lanes are in good shape
+  - direct reduced tokamak production geometry remains a main remaining blocker
+- Cold / hot ions:
+  - partial
+  - enough slices exist to continue efficiently, but not yet broad release-level coverage
+- Boussinesq / non-Boussinesq:
+  - partial and not yet presented as a final public capability matrix
+  - needs explicit final coverage/validation in the ship-ready pass
+- Linear / nonlinear:
+  - yes on selected ladders
+  - not yet as a final broad code claim across all target geometries and closures
+- Alternate boundary-condition matrix for the full DRB system:
+  - not yet
+  - still needs a curated final ladder and documentation pass
+
+### Ship Blockers
+
+The remaining blockers are now narrow enough to list explicitly:
+
+1. Open-field transient parity is not fully closed.
+   - Treat Step 2 as operationally complete for project flow, but not final for a paper/release claim.
+   - The remaining issue is the accepted startup transient in 1D recycling, not broad RHS/source reconstruction.
+
+2. The broader 2D production path is not yet parity-clean.
+   - The integrated 2D production transient ladder exists.
+   - The remaining gaps are localized, but they are still real and must be closed before claiming ship-ready 2D SOL capability.
+
+3. Tokamak geometry is still not a first-class native production path.
+   - Current progress is strongest on staged integrated geometry and benchmark annulus lanes.
+   - Reduced 3D tokamak EM and 2D tokamak production/recycling still need direct native parity closure.
+
+4. EM capability is benchmark-strong but not yet full-system complete.
+   - The benchmark ladder is good.
+   - The fully coupled EM production path, including remaining transient operators and selected 3D cases, is still unfinished.
+
+5. Full neutral/reaction/impurity breadth is still open.
+   - This includes the remaining neutral models, reaction families, and mixed-species/impurity workflows needed for a complete standalone DRB code.
+
+6. Ship surfaces are not done.
+   - output/restart/log compatibility
+   - full Read the Docs information architecture
+   - example gallery
+   - convergence and validation campaign
+   - CPU/GPU production smoke on the final selected ladder
+
+### Best Next Steps
+
+The remaining work should now proceed in this order:
+
+1. Finish the Step 3 integrated 2D production lane.
+   - Close `Pe` / recycling-source residuals on the broader production ladder.
+   - Promote the integrated 2D path from scaffolded parity to final parity on the selected production rungs.
+
+2. Promote direct tokamak geometry from staged support to native production support.
+   - Use the already-stable integrated lanes to reduce risk.
+   - Add the smallest reduced tokamak production/recycling cases that can be locked cleanly.
+
+3. Keep widening the EM ladder only where parity remains exact.
+   - Prefer benchmark-first additions like the annulus lane over inexact operator substitutions.
+   - Then port the next exact EM transient operator slice or the next reduced tokamak EM rung.
+
+4. Close the remaining open-field transient defect.
+   - Keep this as a focused sidecar task rather than the main critical path.
+   - The blocker is narrow enough now that it should be solved with targeted transient work, not another broad rewrite.
+
+5. Finish the remaining neutral/reaction/impurity breadth and ship surfaces.
+   - reaction families
+   - impurity workflows
+   - output/restart compatibility
+   - docs/examples/validation package
+   - reviewer-facing convergence matrix
+
+### Ship-Ready Definition
+
+`jax_drb` should be considered ship-ready only when all of the following are true:
+
+- It can be presented as a standalone code, not a parity prototype.
+- The selected 1D, 2D, and reduced 3D comparison ladder is parity-clean enough for a paper claim.
+- The supported public capability matrix is explicit and honest:
+  - geometry families
+  - closures
+  - boundary conditions
+  - electrostatic / electromagnetic
+  - neutral / reaction / impurity support
+- Output, restart, diagnostics, CLI, Python API, docs, and examples are complete enough for external users.
+- The benchmark and convergence campaign can be rerun from versioned scripts and committed artifacts.
 
 ## 5. Target Architecture
 
