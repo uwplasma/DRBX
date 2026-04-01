@@ -406,12 +406,7 @@ def _compute_recycling_1d_rhs_from_species(
         variables[f"ddt({ion.pressure_name})"] = pressure_rhs[None, ...]
         variables[f"ddt({ion.momentum_name})"] = momentum_rhs[None, ...]
 
-    electron_velocity = _electron_zero_current_velocity(
-        ions,
-        prepared=prepared,
-        ion_velocity=ion_velocity,
-        electron_density=prepared["e"].density,
-    )
+    electron_velocity = np.asarray(electron_boundary.velocity, dtype=np.float64)
     electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
     electron_pressure_rhs_terms = _assemble_electron_pressure_rhs_terms(
         explicit_pressure_source=np.asarray(
