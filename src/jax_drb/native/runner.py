@@ -787,28 +787,9 @@ def _run_integrated_2d_recycling_transient_case(
         for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
         if field_name in snapshot.optional_fields
     } or None
-    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
-    solver_mode = _select_integrated_2d_transient_solver_mode(case.name, config=config, parity_mode="one_step")
-    history = advance_recycling_1d_implicit_history(
-        config,
-        mesh=snapshot.mesh,
-        metrics=snapshot.metrics,
-        dataset_scalars=dataset_scalars,
-        timestep=run_config.time.timestep,
-        steps=steps,
-        initial_fields=snapshot.fields,
-        density_source_overrides=density_source_overrides,
-        pressure_source_overrides=pressure_source_overrides,
-        momentum_source_overrides=momentum_source_overrides,
-        preserve_dump_target_state=True,
-        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
-        solver_mode=solver_mode,
-        residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
-        max_nonlinear_iterations=30,
-    )
-    variables = {
+    initial_fields = {
         name: np.asarray(value, dtype=np.float64)
-        for name, value in history.variable_history.items()
+        for name, value in snapshot.fields.items()
     }
     initial_diagnostic_overrides = {
         name: np.asarray(snapshot.optional_fields[name], dtype=np.float64)
@@ -816,6 +797,7 @@ def _run_integrated_2d_recycling_transient_case(
         if name in snapshot.optional_fields
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
+    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
     if case.name.startswith("integrated_2d_production"):
         history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
         if history_cache_path.exists():
@@ -878,6 +860,34 @@ def _run_integrated_2d_recycling_transient_case(
                 or None
                 for snapshot in snapshots
             )
+        if velocity_field_overrides_history and velocity_field_overrides_history[0]:
+            initial_fields = _apply_species_velocity_overrides(
+                config,
+                field_overrides=initial_fields,
+                velocity_field_overrides=velocity_field_overrides_history[0],
+            )
+    solver_mode = _select_integrated_2d_transient_solver_mode(case.name, config=config, parity_mode="one_step")
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        timestep=run_config.time.timestep,
+        steps=steps,
+        initial_fields=initial_fields,
+        density_source_overrides=density_source_overrides,
+        pressure_source_overrides=pressure_source_overrides,
+        momentum_source_overrides=momentum_source_overrides,
+        preserve_dump_target_state=True,
+        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
+        solver_mode=solver_mode,
+        residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
+        max_nonlinear_iterations=30,
+    )
+    variables = {
+        name: np.asarray(value, dtype=np.float64)
+        for name, value in history.variable_history.items()
+    }
     _append_integrated_2d_recycling_diagnostics(
         variables,
         config=config,
