@@ -411,6 +411,134 @@ def test_integrated_2d_production_rhs_preserves_only_ion_target_state(
     np.testing.assert_allclose(captured["field_overrides"]["NVd+"], expected_fields["NVd+"])
 
 
+def test_integrated_2d_production_rhs_requests_anomalous_coefficients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    if not production_input.exists():
+        pytest.skip("integrated 2D production reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": np.ones((4, 5, 1), dtype=np.float64),
+    }
+    captured: dict[str, tuple[str, ...]] = {}
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(summary=_FakeSummary(artifacts={"BOUT.dmp.0.nc": "/tmp/fake-dump.nc"})),
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_integrated_2d_snapshot_cache_path",
+        lambda case_name: Path("/tmp") / f"{case_name}.missing",
+    )
+
+    def fake_load_snapshot(dump_path, *, field_names, optional_field_names=(), scalar_names=(), time_index=0):
+        del dump_path, time_index
+        captured["field_names"] = tuple(field_names)
+        captured["optional_field_names"] = tuple(optional_field_names)
+        captured["scalar_names"] = tuple(scalar_names)
+        return LocalReferenceSnapshot(
+            mesh=mesh,
+            metrics=metrics,
+            fields=fields,
+            optional_fields={
+                "Vd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "Vd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNVd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "SPd+": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SNVd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SPd": np.zeros((4, 5, 1), dtype=np.float64),
+                "SPe": np.zeros((4, 5, 1), dtype=np.float64),
+                "Sd_target_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_target_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Sd_wall_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_wall_recycle": np.zeros((4, 5, 1), dtype=np.float64),
+                "Sd_pump": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_pump": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_target_refl": np.zeros((4, 5, 1), dtype=np.float64),
+                "Ed_wall_refl": np.zeros((4, 5, 1), dtype=np.float64),
+                "is_pump": np.zeros((4, 5, 1), dtype=np.float64),
+                "anomalous_D_d+": np.full((4, 5, 1), 1.0e-2, dtype=np.float64),
+                "anomalous_Chi_d+": np.full((4, 5, 1), 3.0e-2, dtype=np.float64),
+                "anomalous_nu_d+": np.full((4, 5, 1), 2.0e-3, dtype=np.float64),
+                "anomalous_D_e": np.full((4, 5, 1), 1.0e-2, dtype=np.float64),
+                "anomalous_Chi_e": np.full((4, 5, 1), 3.0e-2, dtype=np.float64),
+                "anomalous_nu_e": np.full((4, 5, 1), 2.0e-3, dtype=np.float64),
+            },
+            scalar_values={"Nnorm": 1.0e17, "Tnorm": 1.0, "Bnorm": 1.0, "Cs0": 1.0, "Omega_ci": 1.0, "rho_s0": 1.0},
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+
+    case = ReferenceCase(
+        name="integrated_2d_production_rhs",
+        stage="stage7",
+        reference_path=str(production_input),
+        parity_mode="one_rhs",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "ddt(Nd+)", "ddt(Pe)"),
+        trim_x_guards=True,
+        trim_y_guards=True,
+    )
+
+    native_runner._run_integrated_2d_recycling_rhs_case(
+        case,
+        input_path=production_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured["field_names"] == ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
+    assert captured["scalar_names"] == ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
+    assert "anomalous_D_d+" in captured["optional_field_names"]
+    assert "anomalous_Chi_d+" in captured["optional_field_names"]
+    assert "anomalous_nu_d+" in captured["optional_field_names"]
+    assert "anomalous_D_e" in captured["optional_field_names"]
+    assert "anomalous_Chi_e" in captured["optional_field_names"]
+    assert "anomalous_nu_e" in captured["optional_field_names"]
+
+
 def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: pytest.MonkeyPatch) -> None:
     if not _REFERENCE_INPUT.exists():
         pytest.skip("integrated 2D recycling reference input is unavailable")

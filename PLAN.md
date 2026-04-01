@@ -224,6 +224,7 @@ The remaining work should now proceed in this order:
    - The next physics slice should be chosen between:
      - target-band pressure/density RHS assembly around the electron compression term, and
      - the still-missing `anomalous_diffusion` component on the integrated production lane, which the reference enables for both `d+` and `e`.
+   - The production harness is now ready for that anomalous-diffusion slice: the committed `integrated_2d_production_rhs` snapshot cache now carries the dumped `anomalous_D`, `anomalous_Chi`, and `anomalous_nu` fields for both `d+` and `e`, and the local reference loader now accepts the `(t, x, y)` dump shape used by those coefficient outputs.
 
 2. Promote direct tokamak geometry from staged support to native production support.
    - Use the already-stable integrated lanes to reduce risk.
