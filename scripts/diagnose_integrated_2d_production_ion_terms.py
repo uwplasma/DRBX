@@ -149,6 +149,7 @@ def main() -> None:
         energy_source[name] = energy_source[name] + value
     for name, value in reaction_terms.momentum_source.items():
         momentum_source[name] = momentum_source[name] + value
+    reaction_energy_source = {name: np.asarray(value, dtype=np.float64) for name, value in reaction_terms.energy_source.items()}
 
     prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
         species,
@@ -160,6 +161,9 @@ def main() -> None:
         preserve_dump_target_state=True,
         preserve_dump_ion_target_state_only=True,
     )
+    ion_boundary_energy_source = {
+        name: np.asarray(value, dtype=np.float64) for name, value in ion_boundary.energy_source.items()
+    }
     for name, value in ion_boundary.energy_source.items():
         energy_source[name] = energy_source[name] + value
 
@@ -175,6 +179,7 @@ def main() -> None:
         energy_source[name] = energy_source[name] + value
     for name, value in collision_terms.momentum_source.items():
         momentum_source[name] = momentum_source[name] + value
+    collision_energy_source = {name: np.asarray(value, dtype=np.float64) for name, value in collision_terms.energy_source.items()}
 
     neutral_diffusion_terms = _apply_neutral_parallel_diffusion(
         config,
@@ -206,6 +211,7 @@ def main() -> None:
         density_source[name] = density_source[name] + value
     for name, value in recycling_terms.energy_source.items():
         energy_source[name] = energy_source[name] + value
+    recycling_energy_source = {name: np.asarray(value, dtype=np.float64) for name, value in recycling_terms.energy_source.items()}
 
     feedback_terms = _apply_upstream_density_feedback(
         species,
@@ -218,6 +224,7 @@ def main() -> None:
         density_source[name] = density_source[name] + value
     for name, value in feedback_terms.energy_source.items():
         energy_source[name] = energy_source[name] + value
+    feedback_energy_source = {name: np.asarray(value, dtype=np.float64) for name, value in feedback_terms.energy_source.items()}
 
     density_source["d+"] = np.asarray(reference_final.optional_fields["SNd+"], dtype=np.float64)
     energy_source["d+"] = np.asarray(energy_source["d+"], dtype=np.float64)
@@ -283,6 +290,14 @@ def main() -> None:
             f"cell={cell} "
             f"Nd+: source={density_source['d+'][i, j, k]:.12e} div={density_divergence[i, j, k]:.12e} "
             f"total={density_total:.12e} ref={reference_final.fields['ddt(Nd+)'][i, j, k]:.12e}"
+        )
+        print(
+            f"cell={cell} "
+            f"Pd+ energy breakdown: reaction={reaction_energy_source['d+'][i, j, k]:.12e} "
+            f"sheath={ion_boundary_energy_source['d+'][i, j, k]:.12e} "
+            f"collision={collision_energy_source['d+'][i, j, k]:.12e} "
+            f"recycle={recycling_energy_source['d+'][i, j, k]:.12e} "
+            f"feedback={feedback_energy_source['d+'][i, j, k]:.12e}"
         )
         print(
             f"cell={cell} "
