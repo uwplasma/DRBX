@@ -22,7 +22,11 @@ from jax_drb.native.recycling_1d import (
     _reaction_sources,
     _target_recycling_sources,
 )
-from jax_drb.native.reference_dump import load_local_reference_snapshot, load_local_reference_snapshot_cache
+from jax_drb.native.reference_dump import (
+    load_local_reference_snapshot,
+    load_local_reference_snapshot_cache,
+    synthesize_local_reference_snapshot_from_active_history,
+)
 from jax_drb.native.runner import _apply_species_velocity_overrides, _integrated_2d_snapshot_cache_path
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.reference import run_reference_case
@@ -58,14 +62,23 @@ def main() -> None:
 
     if args.use_committed_baselines:
         final_cache_path = _REFERENCE_SNAPSHOT_DIR / f"{args.case}_final_snapshot.npz"
-        if not final_cache_path.exists():
-            raise FileNotFoundError(f"Missing committed final diagnostic snapshot: {final_cache_path}")
-        reference_final = load_local_reference_snapshot_cache(
-            final_cache_path,
-            field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Ve", "ddt(Pe)"),
-            optional_field_names=("Vd+", "Vd", "SNd+", "SPd+", "SNVd+", "SNd", "SPd", "SNVd"),
-            scalar_names=(),
-        )
+        if final_cache_path.exists():
+            reference_final = load_local_reference_snapshot_cache(
+                final_cache_path,
+                field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Ve", "ddt(Pe)"),
+                optional_field_names=("Vd+", "Vd", "SNd+", "SPd+", "SNVd+", "SNd", "SPd", "SNVd"),
+                scalar_names=(),
+            )
+        else:
+            reference_final = synthesize_local_reference_snapshot_from_active_history(
+                initial_snapshot=initial_snapshot,
+                array_history_path=_REPO_ROOT / "references" / "baselines" / "reference_arrays" / f"{args.case}.npz",
+                optional_history_path=_REFERENCE_SNAPSHOT_DIR / f"{args.case}_optional_history.npz",
+                timestep=float(run_config.time.timestep),
+                state_field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+                rhs_field_names=("ddt(Pe)",),
+                optional_field_names=("Vd+", "Vd", "SNd+", "SPd+", "SNVd+", "SNd", "SPd", "SNVd", "Sd_target_recycle", "Ed_target_recycle"),
+            )
     else:
         with tempfile.TemporaryDirectory(prefix="jaxdrb-prod-pe-terms-") as workdir:
             execution = run_reference_case(
