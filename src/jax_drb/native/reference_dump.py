@@ -153,6 +153,76 @@ def load_optional_field_history_cache(
         }
 
 
+def synthesize_local_reference_snapshot_from_active_history(
+    *,
+    initial_snapshot: LocalReferenceSnapshot,
+    array_history_path: str | Path,
+    timestep: float,
+    state_field_names: tuple[str, ...],
+    rhs_field_names: tuple[str, ...] = (),
+    optional_history_path: str | Path | None = None,
+    optional_field_names: tuple[str, ...] = (),
+) -> LocalReferenceSnapshot:
+    active = (
+        slice(initial_snapshot.mesh.xstart, initial_snapshot.mesh.xend + 1),
+        slice(initial_snapshot.mesh.ystart, initial_snapshot.mesh.yend + 1),
+        slice(None),
+    )
+    with np.load(Path(array_history_path), allow_pickle=True) as dataset:
+        fields: dict[str, np.ndarray] = {}
+        for name in state_field_names:
+            history_name = f"var__{name}"
+            if history_name not in dataset or name not in initial_snapshot.fields:
+                continue
+            final_active = np.asarray(dataset[history_name][-1], dtype=np.float64)
+            full = np.asarray(initial_snapshot.fields[name], dtype=np.float64, copy=True)
+            full[active] = final_active
+            fields[name] = full
+            rhs_name = f"ddt({name})"
+            if rhs_name in rhs_field_names:
+                rhs = np.zeros_like(full, dtype=np.float64)
+                rhs[active] = (
+                    final_active - np.asarray(initial_snapshot.fields[name][active], dtype=np.float64)
+                ) / float(timestep)
+                fields[rhs_name] = rhs
+        for rhs_name in rhs_field_names:
+            if rhs_name not in fields:
+                base_name = rhs_name.removeprefix("ddt(").removesuffix(")")
+                template = fields.get(base_name, initial_snapshot.fields.get(base_name))
+                if template is not None:
+                    fields[rhs_name] = np.zeros_like(np.asarray(template, dtype=np.float64), dtype=np.float64)
+
+    optional_fields: dict[str, np.ndarray] = {}
+    if optional_history_path is not None and optional_field_names:
+        history = load_optional_field_history_cache(optional_history_path, field_names=optional_field_names)
+        template = next(iter(fields.values()), next(iter(initial_snapshot.fields.values())))
+        for name in optional_field_names:
+            if name in history:
+                history_final = np.asarray(history[name][-1], dtype=np.float64)
+                if history_final.shape == np.asarray(template).shape:
+                    full = history_final.copy()
+                else:
+                    full = np.asarray(
+                        initial_snapshot.optional_fields.get(name, np.zeros_like(template, dtype=np.float64)),
+                        dtype=np.float64,
+                        copy=True,
+                    )
+                    full[active] = history_final
+            elif name in initial_snapshot.optional_fields:
+                full = np.asarray(initial_snapshot.optional_fields[name], dtype=np.float64, copy=True)
+            else:
+                continue
+            optional_fields[name] = full
+
+    return LocalReferenceSnapshot(
+        mesh=initial_snapshot.mesh,
+        metrics=initial_snapshot.metrics,
+        fields=fields,
+        optional_fields=optional_fields,
+        scalar_values={},
+    )
+
+
 def load_local_reference_snapshot(
     dump_path: str | Path,
     *,
