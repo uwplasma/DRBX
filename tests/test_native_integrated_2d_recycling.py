@@ -837,8 +837,9 @@ def test_integrated_2d_simple_sheath_ion_only_preserve_uses_sheath_electron_stat
     )
     np.testing.assert_allclose(
         ion_ion_only.energy_source["d+"][:, mesh.ystart, :],
-        ion_free.energy_source["d+"][:, mesh.ystart, :],
+        0.0,
     )
+    assert np.any(np.abs(ion_free.energy_source["d+"][:, mesh.ystart, :]) > 0.0)
 
 
 def test_integrated_2d_simple_sheath_electron_energy_source_matches_hermes_formula() -> None:
