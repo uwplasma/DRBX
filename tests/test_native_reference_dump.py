@@ -15,6 +15,7 @@ from jax_drb.native.reference_dump import (
     load_optional_field_history_cache,
     save_local_reference_snapshot_cache,
     save_optional_field_history_cache,
+    synthesize_local_reference_snapshot_from_active_history,
 )
 
 
@@ -159,3 +160,78 @@ def test_optional_field_history_cache_roundtrip(tmp_path: Path) -> None:
     assert tuple(loaded) == ("Vd+", "Sd_target_recycle")
     np.testing.assert_allclose(loaded["Vd+"], history["Vd+"])
     np.testing.assert_allclose(loaded["Sd_target_recycle"], history["Sd_target_recycle"])
+
+
+def test_synthesize_local_reference_snapshot_from_active_history(tmp_path: Path) -> None:
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    initial = np.zeros((4, 5, 1), dtype=np.float64)
+    snapshot = LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields={"Pe": initial.copy()},
+        optional_fields={"Vd+": initial.copy()},
+        scalar_values={},
+    )
+    arrays_path = tmp_path / "case.npz"
+    np.savez_compressed(
+        arrays_path,
+        __metadata__="{}",
+        var__Pe=np.stack(
+            [
+                np.zeros((mesh.nx - 2 * mesh.mxg, mesh.local_ny - 2 * mesh.myg, 1), dtype=np.float64),
+                np.full((mesh.nx - 2 * mesh.mxg, mesh.local_ny - 2 * mesh.myg, 1), 2.0, dtype=np.float64),
+            ],
+            axis=0,
+        ),
+    )
+    history_path = tmp_path / "history.npz"
+    np.savez_compressed(
+        history_path,
+        **{"Vd+": np.stack([np.zeros((2, 3, 1), dtype=np.float64), np.ones((2, 3, 1), dtype=np.float64)], axis=0)}
+    )
+
+    synthesized = synthesize_local_reference_snapshot_from_active_history(
+        initial_snapshot=snapshot,
+        array_history_path=arrays_path,
+        optional_history_path=history_path,
+        timestep=0.5,
+        state_field_names=("Pe",),
+        rhs_field_names=("ddt(Pe)",),
+        optional_field_names=("Vd+",),
+    )
+
+    active = (slice(mesh.xstart, mesh.xend + 1), slice(mesh.ystart, mesh.yend + 1), slice(None))
+    np.testing.assert_allclose(synthesized.fields["Pe"][active], 2.0)
+    np.testing.assert_allclose(synthesized.fields["ddt(Pe)"][active], 4.0)
+    np.testing.assert_allclose(synthesized.optional_fields["Vd+"][active], 1.0)
