@@ -1415,7 +1415,12 @@ def _prepare_open_field_states(
                     for ion in ions
                 },
                 energy_source={
-                    ion.name: np.asarray(ion_boundary_state.energy_source[ion.name], dtype=np.float64)
+                    ion.name: np.asarray(
+                        np.zeros_like(ion_boundary_state.energy_source[ion.name], dtype=np.float64)
+                        if preserve_dump_ion_target_state_only
+                        else ion_boundary_state.energy_source[ion.name],
+                        dtype=np.float64,
+                    )
                     for ion in ions
                 },
             )
