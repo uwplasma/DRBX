@@ -1,0 +1,202 @@
+{
+  "case_name": "tokamak_recycling_one_step",
+  "compare_variables": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Pe"
+  ],
+  "component_labels": [
+    "d+:evolve_density",
+    "d+:evolve_momentum",
+    "d+:evolve_pressure",
+    "d+:anomalous_diffusion",
+    "d:neutral_mixed",
+    "e:quasineutral",
+    "e:evolve_pressure",
+    "e:zero_current",
+    "e:anomalous_diffusion",
+    "sheath_boundary_simple",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "sound_speed",
+    "reactions",
+    "electron_force_balance",
+    "braginskii_conduction",
+    "recycling"
+  ],
+  "configured_nout": 1,
+  "configured_timestep": 1.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 84759.21765389037,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 75.0,
+    "rho_s0": 0.0008848595123454113
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 36,
+    "y": 12,
+    "z": 1
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1",
+    "timestep=1",
+    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/tokamak.nc",
+    "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    1.0
+  ],
+  "variable_summaries": {
+    "NVd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 4.4503522847294627e-07,
+      "maximum": 4.4503522847294627e-07,
+      "mean": 3.6770037981261126e-08,
+      "minimum": -3.7461531046505354e-13,
+      "name": "NVd",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.033438764984832246,
+      "maximum": 9.739598597511224e-07,
+      "mean": -0.0020150869315813122,
+      "minimum": -0.033438764984832246,
+      "name": "NVd+",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.008409668170593552,
+      "maximum": 0.008409668170593552,
+      "mean": 0.0005065371950058357,
+      "minimum": 0.0,
+      "name": "Nd",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.00850392297639746,
+      "maximum": 1.0,
+      "mean": 0.9994883004692706,
+      "minimum": 0.9914960770236025,
+      "name": "Nd+",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.00023798829291664516,
+      "maximum": 0.00023798829291664516,
+      "mean": 1.43731913848453e-05,
+      "minimum": 0.0,
+      "name": "Pd",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.012369684097760292,
+      "maximum": 1.0,
+      "mean": 0.9991586828317488,
+      "minimum": 0.9876303159022397,
+      "name": "Pd+",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.013191342115219218,
+      "maximum": 1.0,
+      "mean": 0.9984486770987047,
+      "minimum": 0.9868086578847808,
+      "name": "Pe",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    }
+  }
+}

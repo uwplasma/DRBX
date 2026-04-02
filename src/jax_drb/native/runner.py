@@ -936,7 +936,9 @@ def _run_integrated_2d_recycling_transient_case(
         if name in snapshot.optional_fields
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
-    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
+    preserve_dump_ion_target_state_only = (
+        case.name.startswith("integrated_2d_production") or case.name == "tokamak_recycling_one_step"
+    )
     if _uses_optional_history_cache(case.name):
         history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
         if history_cache_path.exists():
@@ -1439,7 +1441,7 @@ def _select_integrated_2d_transient_solver_mode(
     config: BoutConfig,
     parity_mode: str,
 ) -> str:
-    if case_name == "integrated_2d_production_one_step":
+    if case_name in {"integrated_2d_production_one_step", "tokamak_recycling_one_step"}:
         return "bdf"
     return _select_recycling_transient_solver_mode(config, parity_mode=parity_mode)
 
