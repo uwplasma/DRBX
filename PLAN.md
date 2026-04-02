@@ -220,6 +220,11 @@ The remaining work should now proceed in this order:
 1. Promote direct tokamak geometry from staged support to native production support.
    - Use the already-stable integrated lanes to reduce risk.
    - Add the smallest reduced tokamak production/recycling cases that can be locked cleanly.
+   - `tokamak_recycling_rhs` is now the active next rung on that lane:
+     - live reference execution on `examples/tokamak-2D/recycling` is running again through the shared harness at `process_count = 6`;
+     - committed direct-tokamak snapshot cache and summary/array baselines are now in-tree for `tokamak_recycling_rhs`;
+     - the native direct tokamak RHS path now matches those committed baselines exactly after fixing the native species initializer to keep `neutral_mixed` species when `type` parses as a scalar string and after restoring explicit neutral pressure-source assembly;
+     - the next concrete deliverable is `tokamak_recycling_one_step`, then the multispecies `tokamak_recycling_dthe_one_step` rung.
    - Treat the integrated Step 3 production lane as operationally complete for project flow.
    - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
      - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)

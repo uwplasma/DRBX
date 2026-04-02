@@ -81,6 +81,10 @@ def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
     return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_optional_history.npz"
 
 
+def _uses_snapshot_cache(case_name: str) -> bool:
+    return case_name.startswith("integrated_2d_production") or case_name == "tokamak_recycling_rhs"
+
+
 def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
     return input_path.parents[len(Path(case.reference_path).parts) - 1]
 
@@ -161,7 +165,7 @@ def _run_integrated_2d_recycling_rhs_case(
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     snapshot_cache_path = _integrated_2d_snapshot_cache_path(case.name)
-    if case.name.startswith("integrated_2d_production") and snapshot_cache_path.exists():
+    if _uses_snapshot_cache(case.name) and snapshot_cache_path.exists():
         snapshot = load_local_reference_snapshot_cache(
             snapshot_cache_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
@@ -851,7 +855,7 @@ def _run_integrated_2d_recycling_transient_case(
         artifact_bundle_files=case.artifact_bundle_files,
     )
     initial_snapshot_cache_path = _integrated_2d_snapshot_cache_path(initial_case.name)
-    if initial_case.name.startswith("integrated_2d_production") and initial_snapshot_cache_path.exists():
+    if _uses_snapshot_cache(initial_case.name) and initial_snapshot_cache_path.exists():
         snapshot = load_local_reference_snapshot_cache(
             initial_snapshot_cache_path,
             field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),

@@ -458,7 +458,14 @@ def _compute_recycling_1d_rhs_from_species(
             mesh=mesh,
             metrics=metrics,
         )
-        pressure_rhs = -(5.0 / 3.0) * _div_par_mod_open(
+        pressure_rhs = np.asarray(
+            pressure_sources.get(
+                neutral.name,
+                _explicit_pressure_source(config, neutral.name, mesh=mesh, dataset_scalars=dataset_scalars),
+            ),
+            dtype=np.float64,
+        )
+        pressure_rhs = pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
             neutral_state.pressure,
             neutral_state.velocity,
             fastest_wave,

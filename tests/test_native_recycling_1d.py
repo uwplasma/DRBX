@@ -12,7 +12,7 @@ import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native import run_curated_case
-from jax_drb.native.reference_dump import load_local_reference_snapshot
+from jax_drb.native.reference_dump import load_local_reference_snapshot, load_local_reference_snapshot_cache
 from jax_drb.native.recycling_1d import (
     ElectronPressureRhsTerms,
     OpenFieldSpecies,
@@ -171,6 +171,42 @@ def test_initialize_species_keeps_neutral_mixed_species_from_string_type() -> No
     assert species["d"].has_momentum
 
 
+def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() -> None:
+    config = load_bout_input(_TOKAMAK_RECYCLING_INPUT)
+    snapshot = load_local_reference_snapshot_cache(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_rhs_snapshot.npz"),
+        field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
+        optional_field_names=("SNd+", "SNVd+", "SPd+", "SNd", "SNVd", "SPd", "SPe"),
+        scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+    )
+    override = np.full_like(snapshot.fields["Pd"], 0.125, dtype=np.float64)
+
+    base = compute_recycling_1d_rhs(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=snapshot.scalar_values,
+        field_overrides=snapshot.fields,
+        pressure_source_overrides={"d+": np.asarray(snapshot.optional_fields["SPd+"], dtype=np.float64)},
+    )
+    overridden = compute_recycling_1d_rhs(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=snapshot.scalar_values,
+        field_overrides=snapshot.fields,
+        pressure_source_overrides={
+            "d+": np.asarray(snapshot.optional_fields["SPd+"], dtype=np.float64),
+            "d": override,
+        },
+    )
+
+    np.testing.assert_allclose(
+        np.asarray(overridden.variables["ddt(Pd)"][0]) - np.asarray(base.variables["ddt(Pd)"][0]),
+        override,
+    )
+
+
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_1d_rhs.json")
     actual = run_curated_case("recycling_1d_rhs", reference_root=_REFERENCE_ROOT).payload
@@ -183,6 +219,25 @@ def test_recycling_1d_rhs_matches_summary_baseline() -> None:
 def test_recycling_1d_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "recycling_1d_rhs.npz")
     result = run_curated_case("recycling_1d_rhs", reference_root=_REFERENCE_ROOT)
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert comparison.ok, comparison.issues
+
+
+def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
+    expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_rhs.json")
+    actual = run_curated_case("tokamak_recycling_rhs", reference_root=_REFERENCE_ROOT).payload
+
+    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+
+    assert comparison.ok, comparison.issues
+
+
+def test_tokamak_recycling_rhs_matches_array_baseline() -> None:
+    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_rhs.npz")
+    result = run_curated_case("tokamak_recycling_rhs", reference_root=_REFERENCE_ROOT)
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
