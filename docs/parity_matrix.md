@@ -124,7 +124,7 @@ The remaining stages stay as defined in [PLAN.md](/Users/rogerio/local/jax_drb/P
 - sheath, recycling, and control terms;
 - 2D electrostatic drifts and density-vorticity coupling beyond the current drift-wave `one_step` branch, with staged integrated `2D-recycling` geometry targets now waiting on native implementation rather than harness work;
 - 2D open-field recycling geometry is now staged off the integrated artifact-backed `2D-recycling` workflow rather than the broken tokamak example;
-- the first direct tokamak-2D geometry rung is still `tokamak_diffusion_flow_one_step`, and the next recycling lane is now active instead of blocked: `tokamak_recycling_rhs` launches live through the same shared `process_count = 6` harness path, has committed baselines plus a committed snapshot cache, and already matches its direct-tokamak RHS baselines natively;
+- the first direct tokamak-2D geometry rung is still `tokamak_diffusion_flow_one_step`, and the next recycling lane is now active instead of blocked: `tokamak_recycling_rhs` launches live through the same shared `process_count = 6` harness path, has committed baselines plus a committed snapshot cache, and already matches its direct-tokamak RHS baselines natively; the next transient rung is now explicitly a curated small-step `tokamak_recycling_one_step` target (`timestep=1`) with optional-history cache support rather than the full default-output interval;
 - 3D electromagnetic capabilities;
 - neutrals, reactions, and impurities;
 - performance, packaging, validation, and documentation.
