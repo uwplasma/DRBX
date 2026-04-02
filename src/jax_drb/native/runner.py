@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from ..config.boutinp import BoutConfig, NumericResolver, load_bout_input
+from ..config.boutinp import BoutConfig, NumericResolver, apply_bout_overrides, load_bout_input
 from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import make_default_overrides, merge_overrides, run_reference_case
 from ..reference.cases import ReferenceCase
@@ -81,6 +81,22 @@ def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
     return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_optional_history.npz"
 
 
+def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
+    return input_path.parents[len(Path(case.reference_path).parts) - 1]
+
+
+def _load_curated_case_config(case: ReferenceCase, input_path: Path) -> BoutConfig:
+    config = load_bout_input(input_path)
+    if not case.extra_overrides:
+        return config
+    reference_root = _reference_root_from_input_path(case, input_path)
+    resolved_overrides = tuple(
+        override.format(reference_root=str(reference_root))
+        for override in case.extra_overrides
+    )
+    return apply_bout_overrides(config, resolved_overrides)
+
+
 def run_curated_case(
     case_name: str,
     *,
@@ -104,10 +120,16 @@ def run_curated_case(
         return _run_annulus_he_emag_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "annulus_he_emag_short_window":
         return _run_annulus_he_emag_short_window_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_diffusion_flow_one_step":
+        return _run_tokamak_diffusion_flow_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
+        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_recycling_one_step":
+        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_short_window":
@@ -135,7 +157,7 @@ def _run_integrated_2d_recycling_rhs_case(
     input_path: Path,
     reference_root: str | Path,
 ) -> NativeRunResult:
-    config = load_bout_input(input_path)
+    config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     snapshot_cache_path = _integrated_2d_snapshot_cache_path(case.name)
@@ -399,6 +421,21 @@ def _run_annulus_he_emag_short_window_case(
     )
 
 
+def _run_tokamak_diffusion_flow_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_tokamak_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=(0, 1),
+        field_names=("Nh", "Ph", "NVh"),
+    )
+
+
 def _run_annulus_he_emag_dump_case(
     case: ReferenceCase,
     *,
@@ -495,6 +532,76 @@ def _run_annulus_he_emag_dump_case(
         payload=payload,
         variables=trimmed_variables,
         time_points=tuple(execution.summary.time_points[index] for index in resolved_time_indices),
+        run_config=run_config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+    )
+
+
+def _run_tokamak_dump_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+    time_indices: tuple[int, ...] | None,
+    field_names: tuple[str, ...],
+) -> NativeRunResult:
+    config = _load_curated_case_config(case, input_path)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    snapshots: list[Any] = []
+    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-tokamak-") as workdir:
+        execution = run_reference_case(
+            case.name,
+            reference_root=reference_root,
+            workdir=workdir,
+            keep_workdir=True,
+        )
+        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        resolved_time_indices = (
+            tuple(range(len(execution.summary.time_points))) if time_indices is None else time_indices
+        )
+        for time_index in resolved_time_indices:
+            snapshots.append(
+                load_local_reference_snapshot(
+                    dump_path,
+                    field_names=field_names,
+                    optional_field_names=(),
+                    scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+                    time_index=time_index,
+                )
+            )
+
+    snapshot = snapshots[0]
+    variables = {
+        name: np.stack([np.asarray(item.fields[name], dtype=np.float64) for item in snapshots], axis=0)
+        for name in field_names
+    }
+    trimmed_variables = _prepare_compare_variables(
+        variables,
+        snapshot.mesh,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+    )
+    time_points = tuple(execution.summary.time_points[index] for index in resolved_time_indices)
+    payload = build_portable_summary_payload(
+        case_name=case.name,
+        parity_mode=case.parity_mode,
+        compare_variables=case.compare_variables,
+        component_labels=tuple(component.label for component in run_config.components),
+        dimensions={"t": len(resolved_time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=time_points,
+        dataset_scalars=snapshot.scalar_values or dataset_scalars,
+        variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
+        overrides=execution.summary.overrides,
+        configured_nout=run_config.time.nout,
+        configured_timestep=run_config.time.timestep,
+        producer="jax-drb",
+    )
+    return NativeRunResult(
+        payload=payload,
+        variables=trimmed_variables,
+        time_points=time_points,
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
@@ -692,7 +799,7 @@ def _run_integrated_2d_recycling_short_window_case(
     input_path: Path,
     reference_root: str | Path,
 ) -> NativeRunResult:
-    config = load_bout_input(input_path)
+    config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     return _run_integrated_2d_recycling_transient_case(
         case,
@@ -708,7 +815,7 @@ def _run_integrated_2d_recycling_medium_window_case(
     input_path: Path,
     reference_root: str | Path,
 ) -> NativeRunResult:
-    config = load_bout_input(input_path)
+    config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     return _run_integrated_2d_recycling_transient_case(
         case,
@@ -725,7 +832,7 @@ def _run_integrated_2d_recycling_transient_case(
     reference_root: str | Path,
     steps: int,
 ) -> NativeRunResult:
-    config = load_bout_input(input_path)
+    config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     initial_case = ReferenceCase(

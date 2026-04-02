@@ -551,7 +551,8 @@ def _initialize_species(
         if not config.has_option(section, "type"):
             continue
         type_values = config.parsed(section, "type")
-        if isinstance(type_values, tuple) and any(str(item).startswith("evolve_") or str(item) in {"quasineutral", "neutral_mixed"} for item in type_values):
+        type_items = type_values if isinstance(type_values, tuple) else (type_values,)
+        if any(str(item).startswith("evolve_") or str(item) in {"quasineutral", "neutral_mixed"} for item in type_items):
             model_species.append(section)
 
     species: dict[str, OpenFieldSpecies] = {}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from jax_drb.config.boutinp import ROOT_SECTION, NumericResolver, parse_bout_input
+from jax_drb.config.boutinp import ROOT_SECTION, NumericResolver, apply_bout_overrides, parse_bout_input
 
 
 def test_parser_preserves_section_and_key_order() -> None:
@@ -91,3 +91,27 @@ def test_non_numeric_expressions_remain_symbolic_until_resolved() -> None:
     value = config.get("Ne", "function")
     assert value.kind == "expression"
     assert value.raw == "exp(-(x - 0.5)^2 - (mesh:yn - 0.5)^2)"
+
+
+def test_apply_bout_overrides_replaces_existing_values_and_adds_new_ones() -> None:
+    config = parse_bout_input(
+        """
+        nout = 5
+
+        [mesh]
+        file = "grid.nc"
+        """
+    )
+
+    updated = apply_bout_overrides(
+        config,
+        (
+            "nout=1",
+            "mesh:file=/tmp/tokamak.nc",
+            "mesh:nx=64",
+        ),
+    )
+
+    assert updated.parsed(ROOT_SECTION, "nout") == 1
+    assert updated.parsed("mesh", "file") == "/tmp/tokamak.nc"
+    assert updated.parsed("mesh", "nx") == 64
