@@ -17,6 +17,7 @@ import numpy as np
 from netCDF4 import Dataset
 
 from ..reference.cases import ReferenceCase, load_reference_cases
+from ..config.boutinp import load_bout_input
 from ..runtime.run_config import RunConfiguration
 
 DEFAULT_REQUIRED_ARTIFACTS = (
@@ -156,7 +157,12 @@ def run_reference_case(
     binary = discover_reference_binary(reference_binary=reference_binary, reference_root=reference_root)
     staged_workdir = _prepare_workdir(case, input_path, workdir=workdir)
     stdout_path = staged_workdir / "run.stdout"
-    overrides = merge_overrides(make_default_overrides(case.parity_mode), case.extra_overrides, tuple(extra_overrides))
+    reference_root_path = Path(reference_root).expanduser().resolve()
+    overrides = merge_overrides(
+        make_default_overrides(case.parity_mode),
+        _resolve_override_placeholders(case.extra_overrides, reference_root=reference_root_path),
+        _resolve_override_placeholders(tuple(extra_overrides), reference_root=reference_root_path),
+    )
 
     try:
         _run_reference_binary(
@@ -295,6 +301,7 @@ def _prepare_workdir(case: ReferenceCase, input_path: Path, *, workdir: str | Pa
         staged = Path(workdir).expanduser().resolve()
         staged.mkdir(parents=True, exist_ok=True)
     _stage_case_directory(input_path.parent, staged)
+    _stage_referenced_mesh_files(input_path, staged)
     _stage_case_artifacts(case, staged)
     return staged
 
@@ -309,6 +316,60 @@ def _stage_case_directory(source_dir: Path, target_dir: Path) -> None:
         if target.exists():
             continue
         target.symlink_to(child, target_is_directory=child.is_dir())
+
+
+def _stage_referenced_mesh_files(input_path: Path, target_dir: Path) -> None:
+    config = load_bout_input(input_path)
+    if not config.has_section("mesh") or not config.has_option("mesh", "file"):
+        return
+
+    mesh_file = str(config.parsed("mesh", "file")).strip().strip('"').strip("'")
+    if not mesh_file:
+        return
+
+    mesh_path = Path(mesh_file)
+    if mesh_path.is_absolute():
+        if not mesh_path.exists():
+            raise FileNotFoundError(f"Configured mesh file does not exist: {mesh_path}")
+        return
+
+    if len(mesh_path.parts) > 1:
+        candidate = (input_path.parent / mesh_path).resolve()
+        if not candidate.exists():
+            raise FileNotFoundError(f"Configured mesh file does not exist: {candidate}")
+        _stage_mesh_file(candidate, target_dir / mesh_path)
+        return
+
+    candidate = (input_path.parent / mesh_path.name).resolve()
+    if candidate.exists():
+        _stage_mesh_file(candidate, target_dir / mesh_path.name)
+        return
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for parent in input_path.parents[1:]:
+        resolved = (parent / mesh_path.name).resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.exists():
+            candidates.append(resolved)
+
+    if not candidates:
+        raise FileNotFoundError(f"Could not locate mesh file {mesh_path.name!r} for {input_path}")
+    if len(candidates) > 1:
+        formatted = ", ".join(str(candidate) for candidate in candidates)
+        raise RuntimeError(f"Ambiguous mesh file {mesh_path.name!r} for {input_path}: {formatted}")
+    _stage_mesh_file(candidates[0], target_dir / mesh_path.name)
+
+
+def _stage_mesh_file(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if target.resolve() == source.resolve():
+            return
+        raise RuntimeError(f"Staged mesh target already exists with a different source: {target}")
+    target.symlink_to(source, target_is_directory=source.is_dir())
 
 
 def _stage_case_artifacts(case: ReferenceCase, target_dir: Path) -> None:
@@ -493,6 +554,14 @@ def _summarize_variable(
 
 def _override_key(override: str) -> str:
     return override.split("=", 1)[0].strip()
+
+
+def _resolve_override_placeholders(
+    overrides: Iterable[str],
+    *,
+    reference_root: Path,
+) -> tuple[str, ...]:
+    return tuple(str(override).format(reference_root=str(reference_root)) for override in overrides)
 
 
 def _maybe_trim_guards(

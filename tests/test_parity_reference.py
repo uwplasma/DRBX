@@ -280,3 +280,63 @@ def test_prepare_workdir_rejects_artifact_bundle_hash_mismatch(tmp_path: Path) -
 
     with pytest.raises(RuntimeError, match="sha256 mismatch"):
         _prepare_workdir(case, input_path, workdir=tmp_path / "run")
+
+
+def test_prepare_workdir_stages_mesh_file_from_parent_directory(tmp_path: Path) -> None:
+    tokamak_root = tmp_path / "source" / "examples" / "tokamak-2D"
+    case_dir = tokamak_root / "diffusion-flow-evolveT"
+    case_dir.mkdir(parents=True)
+    mesh_path = tokamak_root / "tokamak.nc"
+    mesh_path.write_text("mesh-data", encoding="utf-8")
+    input_path = case_dir / "BOUT.inp"
+    input_path.write_text(
+        """
+        nout = 1
+
+        [mesh]
+        file = tokamak.nc
+        """,
+        encoding="utf-8",
+    )
+
+    case = ReferenceCase(
+        name="tokamak_diffusion_flow_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp",
+        parity_mode="one_step",
+        rationale="Stable direct tokamak staging target.",
+        process_count=6,
+    )
+
+    workdir = _prepare_workdir(case, input_path, workdir=tmp_path / "run")
+
+    assert (workdir / "BOUT.inp").is_symlink()
+    assert (workdir / "tokamak.nc").is_symlink()
+    assert (workdir / "tokamak.nc").resolve() == mesh_path.resolve()
+
+
+def test_prepare_workdir_raises_when_parent_mesh_file_is_missing(tmp_path: Path) -> None:
+    case_dir = tmp_path / "source" / "examples" / "tokamak-2D" / "diffusion-flow-evolveT"
+    case_dir.mkdir(parents=True)
+    input_path = case_dir / "BOUT.inp"
+    input_path.write_text(
+        """
+        nout = 1
+
+        [mesh]
+        file = tokamak.nc
+        """,
+        encoding="utf-8",
+    )
+
+    case = ReferenceCase(
+        name="tokamak_diffusion_flow_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp",
+        parity_mode="one_step",
+        rationale="Stable direct tokamak staging target.",
+        process_count=6,
+    )
+
+    with pytest.raises(FileNotFoundError, match="tokamak.nc"):
+        _prepare_workdir(case, input_path, workdir=tmp_path / "run")

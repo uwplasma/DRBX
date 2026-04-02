@@ -353,14 +353,45 @@ compare_variables = ["Apar", "Ne", "phi"]
 extra_overrides = ["timestep=10", "nout=5"]
 
 [[case]]
+name = "tokamak_recycling_rhs"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/recycling/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Initial direct 2D tokamak recycling RHS parity on the single-species tokamak geometry before the first output step."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle", "ddt(Nd+)", "ddt(Pd+)", "ddt(NVd+)", "ddt(Nd)", "ddt(Pd)", "ddt(NVd)", "ddt(Pe)"]
+extra_overrides = [
+  "mesh:file={reference_root}/examples/tokamak-2D/recycling/tokamak.nc",
+  "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_recycling_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling/BOUT.inp"
 parity_mode = "one_step"
 rationale = "First-output 2D tokamak recycling parity on the single-species open-field stack before longer geometric transients."
 compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"]
+extra_overrides = [
+  "mesh:file={reference_root}/examples/tokamak-2D/recycling/tokamak.nc",
+  "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)",
+]
 trim_x_guards = true
 trim_y_guards = true
+process_count = 6
+
+[[case]]
+name = "tokamak_diffusion_flow_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First stable direct tokamak-2D geometry rung on the single-species diffusion-flow stack, used to start native tokamak support before the broken recycling examples."
+compare_variables = ["Nh", "Ph", "NVh"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
 
 [[case]]
 name = "tokamak_recycling_dthe_one_step"
