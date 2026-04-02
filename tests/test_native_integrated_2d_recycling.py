@@ -12,6 +12,8 @@ import pytest
 
 from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native import runner as native_runner
+from jax_drb.parity.arrays import build_array_payload_from_summary_payload, load_portable_array_payload
+from jax_drb.parity.diff import build_scaled_array_diff_entries
 from jax_drb.native.reference_dump import (
     LocalReferenceSnapshot,
     save_local_reference_snapshot_cache,
@@ -29,9 +31,51 @@ from jax_drb.native.recycling_1d import (
 )
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
-from jax_drb.reference.cases import ReferenceCase
+from jax_drb.reference.cases import ReferenceCase, load_reference_cases
 
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
+_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_BASELINE_ARRAY_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
+
+
+def _reference_case_by_name(name: str) -> ReferenceCase:
+    return next(case for case in load_reference_cases() if case.name == name)
+
+
+def _run_integrated_2d_case_against_committed_baseline(case_name: str):
+    case = _reference_case_by_name(case_name)
+    input_path = _REFERENCE_ROOT / case.reference_path
+    if case_name.endswith("_rhs"):
+        result = native_runner._run_integrated_2d_recycling_rhs_case(
+            case,
+            input_path=input_path,
+            reference_root=_REFERENCE_ROOT,
+        )
+    elif case_name.endswith("_one_step"):
+        result = native_runner._run_integrated_2d_recycling_transient_case(
+            case,
+            input_path=input_path,
+            reference_root=_REFERENCE_ROOT,
+            steps=1,
+        )
+    elif case_name.endswith("_short_window"):
+        result = native_runner._run_integrated_2d_recycling_transient_case(
+            case,
+            input_path=input_path,
+            reference_root=_REFERENCE_ROOT,
+            steps=5,
+        )
+    else:
+        raise ValueError(f"Unsupported committed-baseline test case {case_name!r}")
+
+    expected = load_portable_array_payload(_BASELINE_ARRAY_DIR / f"{case_name}.npz")
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    entries = build_scaled_array_diff_entries(
+        expected["variables"],
+        actual["variables"],
+        compare_variables=case.compare_variables,
+    )
+    return {entry.field: entry for entry in entries}
 
 
 def test_integrated_2d_initial_rhs_case_name_maps_transient_rungs() -> None:
@@ -1923,3 +1967,35 @@ def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(mon
     assert result.variables["Ed_target_recycle"].shape == (21, 2, 3, 1)
     np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
     np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
+
+
+def test_integrated_2d_production_one_step_stays_within_operational_target_band() -> None:
+    entries = _run_integrated_2d_case_against_committed_baseline("integrated_2d_production_one_step")
+
+    assert entries["Pe"].max_abs_diff < 1.7e-1
+    assert entries["Nd"].max_abs_diff < 1.2e-2
+    assert entries["Pd+"].max_abs_diff < 6.0e-3
+    assert entries["Nd+"].max_abs_diff < 5.0e-3
+    assert entries["Sd_target_recycle"].max_abs_diff < 2.0e-3
+    assert entries["NVd+"].max_abs_diff < 1.0e-3
+    assert entries["Ed_target_recycle"].max_abs_diff < 1.0e-5
+
+
+def test_integrated_2d_production_short_window_stays_within_operational_target_band() -> None:
+    entries = _run_integrated_2d_case_against_committed_baseline("integrated_2d_production_short_window")
+
+    assert entries["Pe"].max_abs_diff < 1.5
+    assert entries["NVd+"].max_abs_diff < 5.5e-1
+    assert entries["Nd"].max_abs_diff < 3.0e-1
+    assert entries["Nd+"].max_abs_diff < 7.5e-2
+    assert entries["Pd"].max_abs_diff < 3.5e-2
+    assert entries["Sd_target_recycle"].max_abs_diff < 6.0e-3
+    assert entries["Ed_target_recycle"].max_abs_diff < 5.0e-5
+
+
+def test_integrated_2d_production_rhs_stays_within_operational_summary_band() -> None:
+    entries = _run_integrated_2d_case_against_committed_baseline("integrated_2d_production_rhs")
+
+    assert entries["ddt(Pe)"].max_abs_diff < 9.0e-2
+    assert entries["ddt(Pd)"].max_abs_diff < 2.0e-3
+    assert entries["ddt(NVd+)"].max_abs_diff == pytest.approx(0.0)
