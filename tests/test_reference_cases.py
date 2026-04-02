@@ -163,3 +163,45 @@ def test_default_manifest_stages_annulus_he_emag_short_window_case() -> None:
     assert case.parity_mode == "short_window"
     assert case.compare_variables == ("Apar", "Ne", "phi")
     assert case.extra_overrides == ("timestep=10", "nout=5")
+
+
+def test_default_manifest_stages_tokamak_recycling_cases() -> None:
+    cases = load_reference_cases()
+    rhs_case = next(case for case in cases if case.name == "tokamak_recycling_rhs")
+    one_step_case = next(case for case in cases if case.name == "tokamak_recycling_one_step")
+
+    assert rhs_case.reference_path == "examples/tokamak-2D/recycling/BOUT.inp"
+    assert rhs_case.parity_mode == "one_rhs"
+    assert rhs_case.process_count == 6
+    assert rhs_case.extra_overrides == (
+        "mesh:file={reference_root}/examples/tokamak-2D/recycling/tokamak.nc",
+        "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)",
+    )
+
+    assert one_step_case.reference_path == "examples/tokamak-2D/recycling/BOUT.inp"
+    assert one_step_case.parity_mode == "one_step"
+    assert one_step_case.process_count == 6
+    assert one_step_case.extra_overrides == rhs_case.extra_overrides
+
+
+def test_default_manifest_stages_tokamak_diffusion_flow_one_step_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "tokamak_diffusion_flow_one_step")
+
+    assert case.reference_path == "examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp"
+    assert case.parity_mode == "one_step"
+    assert case.compare_variables == ("Nh", "Ph", "NVh")
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 6
+
+
+def test_tokamak_diffusion_flow_case_includes_momentum_and_anomalous_diffusion_components() -> None:
+    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_flow_one_step")
+    assert resolved_case.run_config is not None
+    labels = tuple(component.label for component in resolved_case.run_config.components)
+    assert "h:evolve_density" in labels
+    assert "h:evolve_pressure" in labels
+    assert "h:evolve_momentum" in labels
+    assert "h:anomalous_diffusion" in labels

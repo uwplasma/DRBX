@@ -61,6 +61,7 @@ _BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/referenc
 _ARRAY_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
 _DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
 _INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
+_TOKAMAK_RECYCLING_INPUT = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
 
 
 def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
@@ -129,6 +130,45 @@ def test_electron_pressure_rhs_terms_sum_to_total() -> None:
         terms.total,
         terms.explicit_pressure_source + terms.parallel_divergence + terms.parallel_advection + terms.energy_source,
     )
+
+
+def test_initialize_species_keeps_neutral_mixed_species_from_string_type() -> None:
+    config = load_bout_input(_TOKAMAK_RECYCLING_INPUT)
+    mesh = StructuredMesh(
+        nx=1,
+        ny=2,
+        nz=1,
+        mxg=0,
+        myg=0,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=2,
+        has_lower_y_target=False,
+        has_upper_y_target=False,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([0.0, 1.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    field_overrides = {
+        "Nd+": np.ones((1, 2, 1), dtype=np.float64),
+        "Pd+": np.ones((1, 2, 1), dtype=np.float64),
+        "NVd+": np.zeros((1, 2, 1), dtype=np.float64),
+        "Nd": np.ones((1, 2, 1), dtype=np.float64),
+        "Pd": np.ones((1, 2, 1), dtype=np.float64),
+        "NVd": np.zeros((1, 2, 1), dtype=np.float64),
+        "Pe": np.ones((1, 2, 1), dtype=np.float64),
+    }
+
+    species = _initialize_species(config, mesh=mesh, field_overrides=field_overrides)
+
+    assert "d+" in species
+    assert "d" in species
+    assert species["d"].has_pressure
+    assert species["d"].has_momentum
 
 
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:

@@ -5,7 +5,7 @@ import math
 import operator
 import re
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
@@ -117,6 +117,36 @@ class BoutConfig:
 
     def parsed(self, section: str, key: str) -> bool | int | float | str | tuple[str, ...]:
         return self.entry(section, key).value.parsed
+
+
+def apply_bout_overrides(config: BoutConfig, overrides: Iterable[str]) -> BoutConfig:
+    sections: "OrderedDict[str, OrderedDict[str, OptionEntry]]" = OrderedDict(
+        (name, OrderedDict(section.entries)) for name, section in config.sections.items()
+    )
+    for index, override in enumerate(overrides, start=1):
+        if "=" not in override:
+            raise ValueError(f"Override must be an assignment: {override!r}")
+        raw_key, raw_value = override.split("=", 1)
+        key = raw_key.strip()
+        value = raw_value.strip()
+        if ":" in key:
+            section_name, option_name = key.split(":", 1)
+        else:
+            section_name, option_name = ROOT_SECTION, key
+        sections.setdefault(section_name, OrderedDict())
+        existing = sections[section_name].get(option_name)
+        line = existing.line if existing is not None else -index
+        sections[section_name][option_name] = OptionEntry(
+            key=option_name,
+            value=_parse_value(value),
+            line=line,
+        )
+    return BoutConfig(
+        OrderedDict(
+            (name, replace(config.sections.get(name, OptionSection(name=name, entries=OrderedDict())), entries=entries))
+            for name, entries in sections.items()
+        )
+    )
 
 
 def load_bout_input(path: str | Path) -> BoutConfig:
