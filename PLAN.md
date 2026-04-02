@@ -217,29 +217,29 @@ The remaining blockers are now narrow enough to list explicitly:
 
 The remaining work should now proceed in this order:
 
-1. Finish the Step 3 integrated 2D production lane.
-   - Close the remaining target-band `Pe` / neutral-side residuals on the broader production ladder.
-   - Promote the integrated 2D path from scaffolded parity to final parity on the selected production rungs.
-   - Current blocker is now localized: on the reference-evolved one-step state, `Sd_target_recycle` / `Ed_target_recycle` are exact, `ddt(Nd+)` and `ddt(NVd+)` collapse once the diagnosis uses the evolved one-step source/velocity fields, and the remaining meaningful target-band RHS leaders are `ddt(Pe)` first, then a much smaller `ddt(Pd+)`, with `ddt(Nd)` still visible. The ion-side blocker that used to dominate `Pd+` was a preserved-target sequencing defect: the ion-only preserve path was still carrying the sheath-generated ion `energy_source` into the preserved target cell. Zeroing that carried ion energy source while still keeping the sheath-generated ion guard cells collapses the one-step `Pd+` state residual from about `1.76` to about `5.0e-3`.
-   - The next physics slice should be chosen between:
-     - target-band pressure/density RHS assembly around the electron compression term and the coupled neutral-side transient update, and
-     - the still-missing `anomalous_diffusion` component on the integrated production lane, which the reference enables for both `d+` and `e`.
-   - The production harness is now ready for that anomalous-diffusion slice: the committed `integrated_2d_production_rhs` snapshot cache now carries the dumped `anomalous_D`, `anomalous_Chi`, and `anomalous_nu` fields for both `d+` and `e`, the runtime scheduler now infers `*:anomalous_diffusion` when those options are present, and the local reference loader now accepts the `(t, x, y)` dump shape used by those coefficient outputs.
-   - The first native anomalous-diffusion groundwork is orthogonal-only for now. It is enough to make the component graph truthful and to cover simple `g23 = 0` unit cases, but it is intentionally a no-op on the integrated production lane because the current metric payload does not yet include the non-orthogonal data needed to reproduce Hermes `Div_a_Grad_perp_upwind_flows(...)` with `g23/g_23`.
-
-2. Promote direct tokamak geometry from staged support to native production support.
+1. Promote direct tokamak geometry from staged support to native production support.
    - Use the already-stable integrated lanes to reduce risk.
    - Add the smallest reduced tokamak production/recycling cases that can be locked cleanly.
+   - Treat the integrated Step 3 production lane as operationally complete for project flow.
+   - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
+     - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)
+     - `Pd+`: about `5.0e-3` on a `~1.05e3` field (`~4.8e-6`)
+     - `Nd+`: about `4.1e-3` on a `~7.0e2` field (`~5.9e-6`)
+     - `Sd_target_recycle`: about `1.0e-3` on a `~2.33e1` field (`~4.4e-5`)
+   - The broader `short_window` / `medium_window` production rungs remain useful calibration surfaces, but they should no longer block the main path while the residuals are localized and the selected one-step production rung is already parity-credible.
+   - Keep the remaining integrated-lane work as a sidecar:
+     - target-band `Pe` / neutral-side transient cleanup on the broader windows
+     - non-orthogonal `anomalous_diffusion` for the integrated production lane once `g23/g_23` is available in the native metric payload
 
-3. Keep widening the EM ladder only where parity remains exact.
+2. Keep widening the EM ladder only where parity remains exact.
    - Prefer benchmark-first additions like the annulus lane over inexact operator substitutions.
    - Then port the next exact EM transient operator slice or the next reduced tokamak EM rung.
 
-4. Close the remaining open-field transient defect.
+3. Close the remaining open-field transient defect.
    - Keep this as a focused sidecar task rather than the main critical path.
    - The blocker is narrow enough now that it should be solved with targeted transient work, not another broad rewrite.
 
-5. Finish the remaining neutral/reaction/impurity breadth and ship surfaces.
+4. Finish the remaining neutral/reaction/impurity breadth and ship surfaces.
    - reaction families
    - impurity workflows
    - output/restart compatibility
