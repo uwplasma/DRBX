@@ -78,6 +78,20 @@ def _run_integrated_2d_case_against_committed_baseline(case_name: str):
     return {entry.field: entry for entry in entries}
 
 
+def _run_direct_tokamak_case_against_committed_baseline(case_name: str):
+    case = _reference_case_by_name(case_name)
+    input_path = _REFERENCE_ROOT / case.reference_path
+    result = native_runner.run_curated_case(case_name, reference_root=_REFERENCE_ROOT)
+    expected = load_portable_array_payload(_BASELINE_ARRAY_DIR / f"{case_name}.npz")
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    entries = build_scaled_array_diff_entries(
+        expected["variables"],
+        actual["variables"],
+        compare_variables=case.compare_variables,
+    )
+    return {entry.field: entry for entry in entries}
+
+
 def test_integrated_2d_initial_rhs_case_name_maps_transient_rungs() -> None:
     assert native_runner._integrated_2d_initial_rhs_case_name("integrated_2d_recycling_one_step") == "integrated_2d_recycling_rhs"
     assert native_runner._integrated_2d_initial_rhs_case_name("integrated_2d_recycling_short_window") == "integrated_2d_recycling_rhs"
@@ -1633,6 +1647,8 @@ def test_integrated_2d_production_one_step_uses_committed_snapshot_caches(
 
     def fake_history(*args, **kwargs):
         captured["initial_fields"] = kwargs["initial_fields"]
+        captured["solver_mode"] = kwargs["solver_mode"]
+        captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -1888,6 +1904,8 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
 
     def fake_history(*args, **kwargs):
         captured["initial_fields"] = kwargs["initial_fields"]
+        captured["solver_mode"] = kwargs["solver_mode"]
+        captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
     monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
@@ -1936,6 +1954,8 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     )
     np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVd"], expected_initial_fields["NVd"])
+    assert captured["solver_mode"] == "bdf"
+    assert captured["preserve_dump_ion_target_state_only"] is True
 
     expected_fields = native_runner._apply_species_velocity_overrides(
         native_runner._load_curated_case_config(case, tokamak_input),
@@ -2268,3 +2288,15 @@ def test_integrated_2d_production_rhs_stays_within_operational_summary_band() ->
     assert entries["ddt(Pe)"].max_abs_diff < 9.0e-2
     assert entries["ddt(Pd)"].max_abs_diff < 2.0e-3
     assert entries["ddt(NVd+)"].max_abs_diff == pytest.approx(0.0)
+
+
+def test_tokamak_recycling_one_step_stays_within_operational_target_band() -> None:
+    entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_one_step")
+
+    assert entries["Pe"].max_abs_diff < 7.0e-3
+    assert entries["Pd+"].max_abs_diff < 2.0e-5
+    assert entries["Nd+"].max_abs_diff < 3.0e-5
+    assert entries["NVd+"].max_abs_diff < 5.0e-5
+    assert entries["Nd"].max_abs_diff < 1.1e-4
+    assert entries["Pd"].max_abs_diff < 4.0e-6
+    assert entries["NVd"].max_abs_diff < 3.0e-7

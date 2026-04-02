@@ -224,8 +224,13 @@ The remaining work should now proceed in this order:
      - live reference execution on `examples/tokamak-2D/recycling` is running again through the shared harness at `process_count = 6`;
      - committed direct-tokamak snapshot cache and summary/array baselines are now in-tree for `tokamak_recycling_rhs`;
      - the native direct tokamak RHS path now matches those committed baselines exactly after fixing the native species initializer to keep `neutral_mixed` species when `type` parses as a scalar string and after restoring explicit neutral pressure-source assembly;
-     - `tokamak_recycling_one_step` is now explicitly curated as a small-step transient rung with `timestep=1`, and the native runner now supports an optional-history cache for it on top of the committed `tokamak_recycling_rhs` snapshot cache;
-     - the next concrete deliverable is the first committed summary/array baselines plus optional-history cache for `tokamak_recycling_one_step`, then the multispecies `tokamak_recycling_dthe_one_step` rung.
+     - `tokamak_recycling_one_step` is now explicitly curated as a small-step transient rung with `timestep=1`, and now has committed summary/array baselines plus a committed optional-history cache on top of the committed `tokamak_recycling_rhs` snapshot cache;
+     - the native direct tokamak one-step runner now uses `bdf` plus the ion-only target-preservation split on this rung, which collapses the transient mismatch to a small operational band against the committed baseline:
+       - `Pe`: about `5.41e-4`
+       - `Pd+`: about `9.41e-6`
+       - `Nd+`: about `2.03e-5`
+       - `NVd+`: about `1.45e-6`
+     - the next concrete deliverable is the multispecies `tokamak_recycling_dthe_one_step` rung, then the next richer direct tokamak transport case on top of the same shared geometry path.
    - Treat the integrated Step 3 production lane as operationally complete for project flow.
    - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
      - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)
