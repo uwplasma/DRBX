@@ -106,6 +106,8 @@ What this locks down:
   - relative phase-speed error about `6.71e-03`;
 - native/reference parity on that same short-window history, published from the exact committed comparison artifact.
 
+The same short-window rung now also drives the meeting-ready visual package in [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md), which adds 2D and 3D movies plus a snapshot panel from a live native run.
+
 ## Regeneration
 
 These figures are generated from the committed baseline arrays plus native case runs. The current gallery uses:

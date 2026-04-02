@@ -74,6 +74,13 @@ PYTHONPATH=src python -m jax_drb compare-blob2d \
   --plot-out docs/images/blob2d_short_window_parity.png
 ```
 
+Generate a meeting-ready Alfven-wave package with 2D and 3D movies plus publication figures:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
+  --reference-root /path/to/reference-checkout
+```
+
 Generate the compact neutral short-window benchmark report and figure:
 
 ```bash
@@ -105,6 +112,7 @@ pytest -q
 ## Docs Map
 
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
+- Alfven-wave meeting demo: [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md)
 - Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
 - Alfven-wave benchmark: [docs/alfven_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_benchmark.md)
 - Neutral mixed benchmark: [docs/neutral_mixed_benchmark.md](/Users/rogerio/local/jax_drb/docs/neutral_mixed_benchmark.md)
