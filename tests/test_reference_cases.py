@@ -181,7 +181,11 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     assert one_step_case.reference_path == "examples/tokamak-2D/recycling/BOUT.inp"
     assert one_step_case.parity_mode == "one_step"
     assert one_step_case.process_count == 6
-    assert one_step_case.extra_overrides == rhs_case.extra_overrides
+    assert one_step_case.extra_overrides == (
+        "timestep=1",
+        "mesh:file={reference_root}/examples/tokamak-2D/recycling/tokamak.nc",
+        "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)",
+    )
 
 
 def test_default_manifest_stages_tokamak_diffusion_flow_one_step_case() -> None:
