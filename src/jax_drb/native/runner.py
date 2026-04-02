@@ -85,6 +85,10 @@ def _uses_snapshot_cache(case_name: str) -> bool:
     return case_name.startswith("integrated_2d_production") or case_name == "tokamak_recycling_rhs"
 
 
+def _uses_optional_history_cache(case_name: str) -> bool:
+    return case_name.startswith("integrated_2d_production") or case_name == "tokamak_recycling_one_step"
+
+
 def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
     return input_path.parents[len(Path(case.reference_path).parts) - 1]
 
@@ -933,7 +937,7 @@ def _run_integrated_2d_recycling_transient_case(
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
     preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
-    if case.name.startswith("integrated_2d_production"):
+    if _uses_optional_history_cache(case.name):
         history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
         if history_cache_path.exists():
             optional_history = load_optional_field_history_cache(
