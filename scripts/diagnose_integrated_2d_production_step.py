@@ -67,6 +67,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    config = load_bout_input(args.reference_root / "tests" / "integrated" / "2D-production" / "data" / "BOUT.inp")
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+
     initial_case_name = _integrated_2d_initial_rhs_case_name(args.case)
     snapshot_cache_path = _integrated_2d_snapshot_cache_path(initial_case_name)
     if not snapshot_cache_path.exists():
@@ -122,10 +126,6 @@ def main() -> None:
                 scalar_names=(),
                 time_index=1,
             )
-
-    config = load_bout_input(args.reference_root / "tests" / "integrated" / "2D-production" / "data" / "BOUT.inp")
-    run_config = RunConfiguration.from_config(config)
-    dataset_scalars = resolved_dataset_scalars(run_config)
 
     density_source_overrides = {
         name: np.asarray(initial_snapshot.optional_fields[field_name], dtype=np.float64)
