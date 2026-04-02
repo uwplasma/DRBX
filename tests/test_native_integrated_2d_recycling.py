@@ -1681,6 +1681,90 @@ def test_integrated_2d_production_one_step_uses_committed_snapshot_caches(
     np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 7.0)
 
 
+def test_tokamak_recycling_rhs_uses_committed_snapshot_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
+    if not tokamak_input.exists():
+        pytest.skip("tokamak recycling reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    snapshot = LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields={
+            "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+            "Pd+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+            "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+            "Nd": np.ones((4, 5, 1), dtype=np.float64),
+            "Pd": np.ones((4, 5, 1), dtype=np.float64),
+            "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+            "Pe": 3.0 * np.ones((4, 5, 1), dtype=np.float64),
+        },
+        optional_fields={
+            "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+            "SNVd+": np.full((4, 5, 1), 1.5, dtype=np.float64),
+            "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+            "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+            "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
+            "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+            "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+            "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+        },
+        scalar_values={"Nnorm": 1.0e17, "Tnorm": 1.0, "Bnorm": 1.0, "Cs0": 1.0, "Omega_ci": 1.0, "rho_s0": 1.0},
+    )
+    snapshot_cache = tmp_path / "tokamak_recycling_rhs_snapshot.npz"
+    save_local_reference_snapshot_cache(snapshot, snapshot_cache)
+
+    monkeypatch.setattr(
+        native_runner,
+        "_integrated_2d_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "tokamak_recycling_rhs" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("reference run should not be used when tokamak cache is present")),
+    )
+
+    result = native_runner.run_curated_case("tokamak_recycling_rhs", reference_root=_REFERENCE_ROOT)
+
+    assert result.time_points == (0.0,)
+    assert np.asarray(result.variables["ddt(Nd+)"]).shape == (1, 2, 3, 1)
+
+
 def test_integrated_2d_production_short_window_uses_committed_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
