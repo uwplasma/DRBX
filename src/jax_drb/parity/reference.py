@@ -17,7 +17,7 @@ import numpy as np
 from netCDF4 import Dataset
 
 from ..reference.cases import ReferenceCase, load_reference_cases
-from ..config.boutinp import load_bout_input
+from ..config.boutinp import apply_bout_overrides, load_bout_input
 from ..runtime.run_config import RunConfiguration
 
 DEFAULT_REQUIRED_ARTIFACTS = (
@@ -452,7 +452,11 @@ def _summarize_run(
     workdir: Path,
     overrides: tuple[str, ...],
 ) -> ReferenceRunSummary:
-    run_config = RunConfiguration.from_config(load_bout_input(input_path))
+    run_config = RunConfiguration.from_config(
+        apply_bout_overrides(load_bout_input(input_path), overrides)
+        if overrides
+        else load_bout_input(input_path)
+    )
     dmp_path = workdir / "BOUT.dmp.0.nc"
     artifacts = {name: str(workdir / name) for name in DEFAULT_REQUIRED_ARTIFACTS}
     _assert_artifacts_exist(artifacts)
