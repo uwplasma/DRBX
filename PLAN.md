@@ -242,7 +242,8 @@ The remaining work should now proceed in this order:
      - the live Hermes reference path for the dthe tokamak lane required a narrow local fix in `BraginskiiCollisions`: add explicit positive-ion cross-collision write permission so the multispecies tokamak case can populate `species:*:collision_frequencies:*_he_coll` without aborting during solver initialisation; this is permission bookkeeping only, not a collision-formula change;
          - `NVt+`: about `5.37e-2`
          - `Phe+`: about `2.95e-5`
-     - the next concrete deliverable is now the next richer direct tokamak transport case on top of the same shared geometry path.
+     - the next richer direct tokamak transport rung is now also in-tree: `tokamak_diffusion_transport_one_step` on `examples/tokamak-2D/diffusion-transport` has committed summary/array baselines and the native direct tokamak path matches them exactly on `Nh+`, `Ph+`, `NVh+`, and `Pe`;
+     - the next concrete deliverable is now a multi-output direct tokamak transport rung on top of the same shared geometry path, most likely a curated `short_window` on `tokamak_diffusion_transport_one_step` or the neighboring `heat-transport` example.
    - Treat the integrated Step 3 production lane as operationally complete for project flow.
    - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
      - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)
