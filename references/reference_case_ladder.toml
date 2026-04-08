@@ -411,6 +411,17 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_diffusion_transport_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/diffusion-transport/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Next richer direct tokamak-2D transport rung, adding coupled ion-electron pressure transport and sheath-connected electron dynamics on the shared tokamak geometry lane."
+compare_variables = ["Nh+", "Ph+", "NVh+", "Pe"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_recycling_dthe_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"

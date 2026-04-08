@@ -259,6 +259,8 @@ def run_curated_case(
         return _run_annulus_he_emag_short_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_diffusion_flow_one_step":
         return _run_tokamak_diffusion_flow_one_step_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_diffusion_transport_one_step":
+        return _run_tokamak_diffusion_transport_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_rhs":
@@ -508,6 +510,21 @@ def _run_tokamak_diffusion_flow_one_step_case(
         reference_root=reference_root,
         time_indices=(0, 1),
         field_names=("Nh", "Ph", "NVh"),
+    )
+
+
+def _run_tokamak_diffusion_transport_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_tokamak_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=(0, 1),
+        field_names=("Nh+", "Ph+", "NVh+", "Pe"),
     )
 
 
