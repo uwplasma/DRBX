@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import platform
 import sys
 import time
 from typing import Any
@@ -496,6 +497,7 @@ def _run_command(args: argparse.Namespace) -> int:
             precision=resolved_precision,
             backend=jax.default_backend(),
             device=str(jax.devices()[0]) if jax.devices() else None,
+            jax_version=getattr(jax, "__version__", None),
             cache_dir=cache_dir,
             elapsed_seconds=elapsed_seconds,
             output_directory=output_dir,
@@ -503,6 +505,7 @@ def _run_command(args: argparse.Namespace) -> int:
             logging_quiet=emit_terminal_log is False,
             restart_in=restart_in,
             resume_steps=resume_steps,
+            working_directory=Path.cwd(),
         ),
         restart_info=_serialize_restart_info(
             restart_in=restart_in,
@@ -536,6 +539,8 @@ def _serialize_run_configuration(
     logging_quiet: bool | None = None,
     restart_in: Path | None = None,
     resume_steps: int | None = None,
+    jax_version: str | None = None,
+    working_directory: Path | None = None,
 ) -> dict[str, object]:
     return {
         "time": {
@@ -563,6 +568,10 @@ def _serialize_run_configuration(
             "precision": precision,
             "backend": backend,
             "device": device,
+            "jax_version": jax_version,
+            "python_version": platform.python_version(),
+            "platform": platform.platform(),
+            "process_id": os.getpid(),
             "compilation_cache_dir": None if cache_dir is None else str(cache_dir),
             "elapsed_seconds": elapsed_seconds,
             "logging": {
@@ -572,6 +581,7 @@ def _serialize_run_configuration(
         },
         "output": {
             "directory": None if output_directory is None else str(output_directory),
+            "working_directory": None if working_directory is None else str(working_directory),
         },
         "restart_request": {
             "restart_in": None if restart_in is None else str(restart_in),
