@@ -231,7 +231,7 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
         g33=ones,
         g22=ones,
         g_22=ones,
-        g23=jnp.zeros_like(ones),
+        g23=ones,
         Bxy=ones,
     )
     fields = {
@@ -366,7 +366,7 @@ def test_integrated_2d_production_rhs_preserves_only_ion_target_state(
         g33=ones,
         g22=ones,
         g_22=ones,
-        g23=jnp.zeros_like(ones),
+        g23=ones,
         Bxy=ones,
     )
     fields = {
@@ -1781,6 +1781,121 @@ def test_tokamak_recycling_rhs_uses_committed_snapshot_cache(
     assert np.asarray(result.variables["ddt(Nd+)"]).shape == (1, 2, 3, 1)
 
 
+def test_tokamak_recycling_dthe_rhs_uses_committed_snapshot_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp")
+    if not tokamak_input.exists():
+        pytest.skip("tokamak recycling dthe reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=ones,
+        Bxy=ones,
+    )
+    snapshot = LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields={
+            "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+            "Pd+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+            "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+            "Nd": np.ones((4, 5, 1), dtype=np.float64),
+            "Pd": np.ones((4, 5, 1), dtype=np.float64),
+            "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+            "Nt+": np.ones((4, 5, 1), dtype=np.float64),
+            "Pt+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+            "NVt+": np.zeros((4, 5, 1), dtype=np.float64),
+            "Nt": np.ones((4, 5, 1), dtype=np.float64),
+            "Pt": np.ones((4, 5, 1), dtype=np.float64),
+            "NVt": np.zeros((4, 5, 1), dtype=np.float64),
+            "Nhe+": 0.01 * np.ones((4, 5, 1), dtype=np.float64),
+            "Phe+": 0.02 * np.ones((4, 5, 1), dtype=np.float64),
+            "NVhe+": np.zeros((4, 5, 1), dtype=np.float64),
+            "Nhe": np.ones((4, 5, 1), dtype=np.float64),
+            "Phe": np.ones((4, 5, 1), dtype=np.float64),
+            "NVhe": np.zeros((4, 5, 1), dtype=np.float64),
+            "Pe": 3.0 * np.ones((4, 5, 1), dtype=np.float64),
+        },
+        optional_fields={
+            "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+            "SNVd+": np.full((4, 5, 1), 1.5, dtype=np.float64),
+            "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+            "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+            "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
+            "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+            "SNt+": np.full((4, 5, 1), 1.1, dtype=np.float64),
+            "SNVt+": np.full((4, 5, 1), 1.6, dtype=np.float64),
+            "SPt+": np.full((4, 5, 1), 2.1, dtype=np.float64),
+            "SNt": np.full((4, 5, 1), 3.1, dtype=np.float64),
+            "SNVt": np.full((4, 5, 1), 3.6, dtype=np.float64),
+            "SPt": np.full((4, 5, 1), 4.1, dtype=np.float64),
+            "SNhe+": np.full((4, 5, 1), 1.2, dtype=np.float64),
+            "SNVhe+": np.full((4, 5, 1), 1.7, dtype=np.float64),
+            "SPhe+": np.full((4, 5, 1), 2.2, dtype=np.float64),
+            "SNhe": np.full((4, 5, 1), 3.2, dtype=np.float64),
+            "SNVhe": np.full((4, 5, 1), 3.7, dtype=np.float64),
+            "SPhe": np.full((4, 5, 1), 4.2, dtype=np.float64),
+            "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+            "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+            "anomalous_D_d+": np.zeros((4, 5, 1), dtype=np.float64),
+            "anomalous_Chi_d+": np.zeros((4, 5, 1), dtype=np.float64),
+            "anomalous_nu_d+": np.zeros((4, 5, 1), dtype=np.float64),
+            "anomalous_D_e": np.zeros((4, 5, 1), dtype=np.float64),
+            "anomalous_Chi_e": np.zeros((4, 5, 1), dtype=np.float64),
+            "anomalous_nu_e": np.zeros((4, 5, 1), dtype=np.float64),
+        },
+        scalar_values={"Nnorm": 1.0e17, "Tnorm": 1.0, "Bnorm": 1.0, "Cs0": 1.0, "Omega_ci": 1.0, "rho_s0": 1.0},
+    )
+    snapshot_cache = tmp_path / "tokamak_recycling_dthe_rhs_snapshot.npz"
+    save_local_reference_snapshot_cache(snapshot, snapshot_cache)
+
+    monkeypatch.setattr(
+        native_runner,
+        "_integrated_2d_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "tokamak_recycling_dthe_rhs" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("reference run should not be used when tokamak dthe cache is present")),
+    )
+
+    result = native_runner.run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_REFERENCE_ROOT)
+
+    assert result.time_points == (0.0,)
+    assert np.asarray(result.variables["Nd+"]).shape == (1, 2, 3, 1)
+    assert np.asarray(result.variables["Pe"]).shape == (1, 2, 3, 1)
+
+
 def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2300,3 +2415,26 @@ def test_tokamak_recycling_one_step_stays_within_operational_target_band() -> No
     assert entries["Nd"].max_abs_diff < 1.1e-4
     assert entries["Pd"].max_abs_diff < 4.0e-6
     assert entries["NVd"].max_abs_diff < 3.0e-7
+
+
+def test_tokamak_recycling_dthe_rhs_matches_committed_baseline_exactly() -> None:
+    entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_dthe_rhs")
+
+    for entry in entries.values():
+        assert entry.max_abs_diff == pytest.approx(0.0)
+
+
+def test_tokamak_recycling_dthe_one_step_stays_within_operational_target_band() -> None:
+    entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_dthe_one_step")
+
+    assert entries["Pe"].max_abs_diff < 3.0e-4
+    assert entries["Pd+"].max_abs_diff < 1.5e-2
+    assert entries["NVd+"].max_abs_diff < 5.0e-2
+    assert entries["Pt+"].max_abs_diff < 1.5e-2
+    assert entries["NVt+"].max_abs_diff < 7.0e-2
+    assert entries["Phe+"].max_abs_diff < 5.0e-5
+    assert entries["NVhe+"].max_abs_diff < 1.0e-4
+    assert entries["Nd+"].max_abs_diff < 5.0e-5
+    assert entries["Nt+"].max_abs_diff < 5.0e-5
+    assert entries["Nd"].max_abs_diff < 5.0e-6
+    assert entries["Nt"].max_abs_diff < 5.0e-6
