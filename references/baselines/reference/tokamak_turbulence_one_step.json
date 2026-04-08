@@ -1,0 +1,220 @@
+{
+  "case_name": "tokamak_turbulence_one_step",
+  "compare_variables": [
+    "Ne",
+    "Nd+",
+    "NVe",
+    "NVd+",
+    "Pe",
+    "Pd+",
+    "phi",
+    "Vort"
+  ],
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_pressure",
+    "e:evolve_momentum",
+    "d+:quasineutral",
+    "d+:evolve_pressure",
+    "d+:evolve_momentum",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift",
+    "classical_diffusion",
+    "polarisation_drift",
+    "braginskii_conduction"
+  ],
+  "configured_nout": 1,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 36,
+    "y": 12,
+    "z": 81
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1",
+    "timestep=0.1",
+    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/tokamak.nc",
+    "input:error_on_unused_options=false"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    0.1
+  ],
+  "variable_summaries": {
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.19434212832206985,
+      "maximum": 0.0009957987200005928,
+      "mean": -0.004441455069058665,
+      "minimum": -0.19434212832206985,
+      "name": "NVd+",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "NVe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.0008980798224739323,
+      "maximum": 0.0,
+      "mean": -8.005614989824371e-05,
+      "minimum": -0.0008980798224739323,
+      "name": "NVe",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.03317437818269964,
+      "maximum": 2.959999865111026,
+      "mean": 1.6496846097920896,
+      "minimum": 0.3400762783371339,
+      "name": "Nd+",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.03317437818269786,
+      "maximum": 2.9599998651110266,
+      "mean": 1.6496846097920896,
+      "minimum": 0.3400762783371339,
+      "name": "Ne",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.06159545791864618,
+      "maximum": 2.916880344680942,
+      "mean": 1.109313420981313,
+      "minimum": 0.03899780153035976,
+      "name": "Pd+",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.051425885423222795,
+      "maximum": 2.9168389207697114,
+      "mean": 1.1092804894471295,
+      "minimum": 0.03888535971668383,
+      "name": "Pe",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.030222815127314267,
+      "maximum": 0.00035203101613954043,
+      "mean": -0.00027365920407235536,
+      "minimum": -0.030222815127314267,
+      "name": "Vort",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 1.2074132179045745,
+      "maximum": 1.2074132179045745,
+      "mean": 0.14730142898592202,
+      "minimum": -0.2660253502424784,
+      "name": "phi",
+      "shape": [
+        2,
+        32,
+        8,
+        81
+      ]
+    }
+  }
+}
