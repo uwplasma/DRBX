@@ -59,9 +59,9 @@ jax_drb path/to/input.toml \
 
 The native run path now supports:
 
-- ordered TOML input decks with `[time]`, `[runtime]`, `[mesh]`, `[solver]`, `[model]`, `[species.*]`, and `[fields.*]`;
+- ordered TOML input decks with `[time]`, `[runtime]`, `[runtime.logging]`, `[mesh]`, `[solver]`, `[model]`, `[output]`, `[restart]`, `[species.*]`, and `[fields.*]`;
 - runtime precision selection through `[runtime].precision = "float32" | "float64"` or `--precision` on the standalone CLI;
-- rich terminal summaries plus a plain-text fallback with the same key metadata;
+- rich Hermes-style run events plus a final summary, with a plain-text fallback carrying the same metadata;
 - portable output artifacts: summary JSON, arrays NPZ, restart NPZ, and verbose run-log JSON.
 
 Inspect the curated ladder:

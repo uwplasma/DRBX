@@ -144,6 +144,7 @@ Both versions report the same core metadata:
 - case name
 - runtime precision
 - runtime backend/device/cache
+- runtime library and machine metadata (`jax_version`, `python_version`, platform, process id)
 - time/mesh/solver settings
 - scheduled components
 - compare variables
@@ -152,6 +153,7 @@ Both versions report the same core metadata:
 - variable min/max/mean/delta summaries
 
 The verbose run-log JSON now also stores the ordered event stream, so a downstream plotting or workflow script can reconstruct what happened during the run.
+The same JSON also stores the working directory and machine/runtime metadata so a saved run can be audited later without guessing the execution environment.
 
 ## Restart / Resume
 

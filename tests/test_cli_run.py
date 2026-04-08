@@ -268,6 +268,10 @@ def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_pa
     run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     assert run_log["run_configuration"]["runtime"]["backend"]
+    assert run_log["run_configuration"]["runtime"]["jax_version"]
+    assert run_log["run_configuration"]["runtime"]["python_version"]
+    assert run_log["run_configuration"]["runtime"]["platform"]
+    assert run_log["run_configuration"]["runtime"]["process_id"] > 0
     assert run_log["run_configuration"]["runtime"]["elapsed_seconds"] is not None
 
 
@@ -381,6 +385,7 @@ def test_run_command_reads_output_and_logging_from_toml(tmp_path: Path, capsys) 
     assert run_log["run_configuration"]["runtime"]["logging"]["verbosity"] == "detailed"
     assert run_log["run_configuration"]["runtime"]["logging"]["quiet"] is False
     assert run_log["run_configuration"]["output"]["directory"] == str(output_dir)
+    assert run_log["run_configuration"]["output"]["working_directory"]
     assert len(run_log["events"]) >= 3
     assert run_log["events"][0]["stage"] == "configuration"
 
