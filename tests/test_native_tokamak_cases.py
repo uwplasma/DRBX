@@ -831,3 +831,81 @@ def test_tokamak_linear_transport_one_step_matches_committed_baselines() -> None
 
     assert summary_comparison.ok, summary_comparison.issues
     assert array_comparison.ok, array_comparison.issues
+
+
+def test_tokamak_linear_transport_one_step_uses_committed_snapshot_and_history_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    if not linear_input.exists():
+        pytest.skip("tokamak linear-transport reference input is unavailable")
+
+    snapshot = _tokamak_snapshot(time_index=0)
+    snapshot_cache = tmp_path / "tokamak_linear_transport_one_step_snapshot.npz"
+    save_local_reference_snapshot_cache(
+        LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields={},
+            optional_fields={},
+            scalar_values=snapshot.scalar_values,
+        ),
+        snapshot_cache,
+    )
+    history_cache = tmp_path / "tokamak_linear_transport_one_step_field_history.npz"
+    save_optional_field_history_cache(
+        {
+            "Pe": np.stack(
+                [
+                    np.full((6, 12, 1), 7.0, dtype=np.float64),
+                    np.full((6, 12, 1), 9.0, dtype=np.float64),
+                ],
+                axis=0,
+            )
+        },
+        history_cache,
+    )
+
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "tokamak_linear_transport_one_step" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_field_history_cache_path",
+        lambda case_name: history_cache if case_name == "tokamak_linear_transport_one_step" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("reference run should not be used when tokamak caches are present")
+        ),
+    )
+
+    case = ReferenceCase(
+        name="tokamak_linear_transport_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/linear-transport/BOUT.inp",
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Pe",),
+        extra_overrides=("e:diagnose=false",),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_linear_transport_one_step_case(
+        case,
+        input_path=linear_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert result.time_points == (0.0, 10000.0)
+    assert result.payload["overrides"] == ["nout=1", "e:diagnose=false"]
+    assert np.asarray(result.variables["Pe"]).shape == (2, 2, 8, 1)
+    np.testing.assert_allclose(result.variables["Pe"][0], 7.0)
+    np.testing.assert_allclose(result.variables["Pe"][1], 9.0)
