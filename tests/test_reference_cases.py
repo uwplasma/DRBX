@@ -169,6 +169,8 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     cases = load_reference_cases()
     rhs_case = next(case for case in cases if case.name == "tokamak_recycling_rhs")
     one_step_case = next(case for case in cases if case.name == "tokamak_recycling_one_step")
+    dthe_rhs_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_rhs")
+    dthe_one_step_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_one_step")
 
     assert rhs_case.reference_path == "examples/tokamak-2D/recycling/BOUT.inp"
     assert rhs_case.parity_mode == "one_rhs"
@@ -185,6 +187,25 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
         "timestep=1",
         "mesh:file={reference_root}/examples/tokamak-2D/recycling/tokamak.nc",
         "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)",
+    )
+
+    assert dthe_rhs_case.reference_path == "examples/tokamak-2D/recycling-dthe/BOUT.inp"
+    assert dthe_rhs_case.parity_mode == "one_rhs"
+    assert dthe_rhs_case.process_count == 6
+    assert dthe_rhs_case.extra_overrides == (
+        "mesh:file={reference_root}/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+        "he+:diagnose=false",
+        "input:error_on_unused_options=false",
+    )
+
+    assert dthe_one_step_case.reference_path == "examples/tokamak-2D/recycling-dthe/BOUT.inp"
+    assert dthe_one_step_case.parity_mode == "one_step"
+    assert dthe_one_step_case.process_count == 6
+    assert dthe_one_step_case.extra_overrides == (
+        "timestep=0.1",
+        "mesh:file={reference_root}/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+        "he+:diagnose=false",
+        "input:error_on_unused_options=false",
     )
 
 

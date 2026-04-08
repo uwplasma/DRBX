@@ -82,11 +82,17 @@ def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
 
 
 def _uses_snapshot_cache(case_name: str) -> bool:
-    return case_name.startswith("integrated_2d_production") or case_name == "tokamak_recycling_rhs"
+    return case_name.startswith("integrated_2d_production") or case_name in {
+        "tokamak_recycling_rhs",
+        "tokamak_recycling_dthe_rhs",
+    }
 
 
 def _uses_optional_history_cache(case_name: str) -> bool:
-    return case_name.startswith("integrated_2d_production") or case_name == "tokamak_recycling_one_step"
+    return case_name.startswith("integrated_2d_production") or case_name in {
+        "tokamak_recycling_one_step",
+        "tokamak_recycling_dthe_one_step",
+    }
 
 
 def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
@@ -103,6 +109,129 @@ def _load_curated_case_config(case: ReferenceCase, input_path: Path) -> BoutConf
         for override in case.extra_overrides
     )
     return apply_bout_overrides(config, resolved_overrides)
+
+
+def _direct_recycling_species_names(config: BoutConfig) -> tuple[str, ...]:
+    names: list[str] = []
+    for section_name in config.section_names():
+        if section_name == "e":
+            names.append(section_name)
+            continue
+        if not config.has_option(section_name, "type"):
+            continue
+        type_values = config.parsed(section_name, "type")
+        type_items = type_values if isinstance(type_values, tuple) else (type_values,)
+        if any(
+            str(item).startswith("evolve_") or str(item) in {"quasineutral", "neutral_mixed"}
+            for item in type_items
+        ):
+            names.append(section_name)
+    return tuple(names)
+
+
+def _direct_recycling_state_field_names(config: BoutConfig) -> tuple[str, ...]:
+    names: list[str] = []
+    for species_name in _direct_recycling_species_names(config):
+        if species_name == "e":
+            names.append("Pe")
+        else:
+            names.extend((f"N{species_name}", f"P{species_name}", f"NV{species_name}"))
+    return tuple(names)
+
+
+def _species_optional_velocity_field_map(config: BoutConfig) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (species_name, f"V{species_name}")
+        for species_name in _direct_recycling_species_names(config)
+        if species_name != "e"
+    )
+
+
+def _direct_recycling_velocity_optional_field_names(config: BoutConfig) -> tuple[str, ...]:
+    return tuple(field_name for _, field_name in _species_optional_velocity_field_map(config))
+
+
+def _direct_recycling_optional_field_names(config: BoutConfig) -> tuple[str, ...]:
+    names: list[str] = list(_direct_recycling_velocity_optional_field_names(config))
+    for species_name in _direct_recycling_species_names(config):
+        if species_name == "e":
+            continue
+        names.extend((f"SN{species_name}", f"SNV{species_name}", f"SP{species_name}"))
+    names.extend(
+        (
+            "SPe",
+            "Sd_target_recycle",
+            "Ed_target_recycle",
+            "Sd_wall_recycle",
+            "Ed_wall_recycle",
+            "Sd_pump",
+            "Ed_pump",
+            "Ed_target_refl",
+            "Ed_wall_refl",
+            "is_pump",
+            "anomalous_D_d+",
+            "anomalous_Chi_d+",
+            "anomalous_nu_d+",
+            "anomalous_D_e",
+            "anomalous_Chi_e",
+            "anomalous_nu_e",
+        )
+    )
+    return tuple(dict.fromkeys(names))
+
+
+def _snapshot_density_source_overrides(
+    config: BoutConfig,
+    optional_fields: Mapping[str, np.ndarray],
+) -> dict[str, np.ndarray] | None:
+    overrides = {
+        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
+        for species_name in _direct_recycling_species_names(config)
+        if species_name != "e"
+        for field_name in (f"SN{species_name}",)
+        if field_name in optional_fields
+    }
+    return overrides or None
+
+
+def _snapshot_pressure_source_overrides(
+    config: BoutConfig,
+    optional_fields: Mapping[str, np.ndarray],
+) -> dict[str, np.ndarray] | None:
+    overrides = {
+        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
+        for species_name in _direct_recycling_species_names(config)
+        if species_name != "e"
+        for field_name in (f"SP{species_name}",)
+        if field_name in optional_fields
+    }
+    return overrides or None
+
+
+def _snapshot_momentum_source_overrides(
+    config: BoutConfig,
+    optional_fields: Mapping[str, np.ndarray],
+) -> dict[str, np.ndarray] | None:
+    overrides = {
+        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
+        for species_name in _direct_recycling_species_names(config)
+        if species_name != "e"
+        for field_name in (f"SNV{species_name}",)
+        if field_name in optional_fields
+    }
+    return overrides or None
+
+
+def _snapshot_velocity_overrides(
+    config: BoutConfig,
+    optional_fields: Mapping[str, np.ndarray],
+) -> dict[str, np.ndarray] | None:
+    overrides = {
+        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
+        for species_name, field_name in _species_optional_velocity_field_map(config)
+        if field_name in optional_fields
+    }
+    return overrides or None
 
 
 def run_curated_case(
@@ -134,9 +263,13 @@ def run_curated_case(
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_recycling_dthe_rhs":
+        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_one_step":
+        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_recycling_dthe_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
@@ -168,38 +301,14 @@ def _run_integrated_2d_recycling_rhs_case(
     config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
+    state_field_names = _direct_recycling_state_field_names(config)
+    optional_field_names = _direct_recycling_optional_field_names(config)
     snapshot_cache_path = _integrated_2d_snapshot_cache_path(case.name)
     if _uses_snapshot_cache(case.name) and snapshot_cache_path.exists():
         snapshot = load_local_reference_snapshot_cache(
             snapshot_cache_path,
-            field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-            optional_field_names=(
-                "Ne",
-                "Vd+",
-                "Vd",
-                "SNd+",
-                "SNVd+",
-                "SPd+",
-                "SNd",
-                "SNVd",
-                "SPd",
-                "SPe",
-                "Sd_target_recycle",
-                "Ed_target_recycle",
-                "Sd_wall_recycle",
-                "Ed_wall_recycle",
-                "Sd_pump",
-                "Ed_pump",
-                "Ed_target_refl",
-                "Ed_wall_refl",
-                "is_pump",
-                "anomalous_D_d+",
-                "anomalous_Chi_d+",
-                "anomalous_nu_d+",
-                "anomalous_D_e",
-                "anomalous_Chi_e",
-                "anomalous_nu_e",
-            ),
+            field_names=state_field_names,
+            optional_field_names=optional_field_names,
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
     else:
@@ -213,57 +322,15 @@ def _run_integrated_2d_recycling_rhs_case(
             dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
             snapshot = load_local_reference_snapshot(
                 dump_path,
-                field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-                optional_field_names=(
-                    "Ne",
-                    "Vd+",
-                    "Vd",
-                    "SNd+",
-                    "SNVd+",
-                    "SPd+",
-                    "SNd",
-                    "SNVd",
-                    "SPd",
-                    "SPe",
-                    "Sd_target_recycle",
-                    "Ed_target_recycle",
-                    "Sd_wall_recycle",
-                    "Ed_wall_recycle",
-                    "Sd_pump",
-                    "Ed_pump",
-                    "Ed_target_refl",
-                    "Ed_wall_refl",
-                    "is_pump",
-                    "anomalous_D_d+",
-                    "anomalous_Chi_d+",
-                    "anomalous_nu_d+",
-                    "anomalous_D_e",
-                    "anomalous_Chi_e",
-                    "anomalous_nu_e",
-                ),
+                field_names=state_field_names,
+                optional_field_names=optional_field_names,
                 scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
             )
-    density_source_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
-        if field_name in snapshot.optional_fields
-    } or None
-    pressure_source_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
-        if field_name in snapshot.optional_fields
-    } or None
-    momentum_source_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
-        if field_name in snapshot.optional_fields
-    } or None
+    density_source_overrides = _snapshot_density_source_overrides(config, snapshot.optional_fields)
+    pressure_source_overrides = _snapshot_pressure_source_overrides(config, snapshot.optional_fields)
+    momentum_source_overrides = _snapshot_momentum_source_overrides(config, snapshot.optional_fields)
     field_overrides = dict(snapshot.fields)
-    velocity_field_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
-        if field_name in snapshot.optional_fields
-    } or None
+    velocity_field_overrides = _snapshot_velocity_overrides(config, snapshot.optional_fields)
     if case.name.startswith("integrated_2d_production") and velocity_field_overrides:
         field_overrides = _apply_species_velocity_overrides(
             config,
@@ -600,7 +667,7 @@ def _run_tokamak_dump_case(
         dimensions={"t": len(resolved_time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
         time_points=time_points,
         dataset_scalars=snapshot.scalar_values or dataset_scalars,
-        variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
+        variables=_select_payload_variables(trimmed_variables, compare_variables=case.compare_variables),
         overrides=execution.summary.overrides,
         configured_nout=run_config.time.nout,
         configured_timestep=run_config.time.timestep,
@@ -843,6 +910,8 @@ def _run_integrated_2d_recycling_transient_case(
     config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
+    state_field_names = _direct_recycling_state_field_names(config)
+    optional_field_names = _direct_recycling_optional_field_names(config)
     initial_case = ReferenceCase(
         name=_integrated_2d_initial_rhs_case_name(case.name),
         stage=case.stage,
@@ -862,23 +931,8 @@ def _run_integrated_2d_recycling_transient_case(
     if _uses_snapshot_cache(initial_case.name) and initial_snapshot_cache_path.exists():
         snapshot = load_local_reference_snapshot_cache(
             initial_snapshot_cache_path,
-            field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-            optional_field_names=(
-                "SNd+",
-                "SNVd+",
-                "SPd+",
-                "SNd",
-                "SNVd",
-                "SPd",
-                "Sd_target_recycle",
-                "Ed_target_recycle",
-                "anomalous_D_d+",
-                "anomalous_Chi_d+",
-                "anomalous_nu_d+",
-                "anomalous_D_e",
-                "anomalous_Chi_e",
-                "anomalous_nu_e",
-            ),
+            field_names=state_field_names,
+            optional_field_names=optional_field_names,
             scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
     else:
@@ -892,40 +946,13 @@ def _run_integrated_2d_recycling_transient_case(
             dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
             snapshot = load_local_reference_snapshot(
                 dump_path,
-                field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
-                optional_field_names=(
-                    "SNd+",
-                    "SNVd+",
-                    "SPd+",
-                    "SNd",
-                    "SNVd",
-                    "SPd",
-                    "Sd_target_recycle",
-                    "Ed_target_recycle",
-                    "anomalous_D_d+",
-                    "anomalous_Chi_d+",
-                    "anomalous_nu_d+",
-                    "anomalous_D_e",
-                    "anomalous_Chi_e",
-                    "anomalous_nu_e",
-                ),
+                field_names=state_field_names,
+                optional_field_names=optional_field_names,
                 scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
             )
-    density_source_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "SNd+"), ("d", "SNd"))
-        if field_name in snapshot.optional_fields
-    } or None
-    pressure_source_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "SPd+"), ("d", "SPd"))
-        if field_name in snapshot.optional_fields
-    } or None
-    momentum_source_overrides = {
-        name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-        for name, field_name in (("d+", "SNVd+"), ("d", "SNVd"))
-        if field_name in snapshot.optional_fields
-    } or None
+    density_source_overrides = _snapshot_density_source_overrides(config, snapshot.optional_fields)
+    pressure_source_overrides = _snapshot_pressure_source_overrides(config, snapshot.optional_fields)
+    momentum_source_overrides = _snapshot_momentum_source_overrides(config, snapshot.optional_fields)
     initial_fields = {
         name: np.asarray(value, dtype=np.float64)
         for name, value in snapshot.fields.items()
@@ -936,15 +963,17 @@ def _run_integrated_2d_recycling_transient_case(
         if name in snapshot.optional_fields
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
-    preserve_dump_ion_target_state_only = (
-        case.name.startswith("integrated_2d_production") or case.name == "tokamak_recycling_one_step"
-    )
+    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production") or case.name in {
+        "tokamak_recycling_one_step",
+        "tokamak_recycling_dthe_one_step",
+    }
     if _uses_optional_history_cache(case.name):
         history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
         if history_cache_path.exists():
             optional_history = load_optional_field_history_cache(
                 history_cache_path,
-                field_names=("Vd+", "Vd", "Sd_target_recycle", "Ed_target_recycle"),
+                field_names=_direct_recycling_velocity_optional_field_names(config)
+                + ("Sd_target_recycle", "Ed_target_recycle"),
             )
             resolved_time_count = next(iter(optional_history.values())).shape[0] if optional_history else steps + 1
             initial_diagnostic_overrides = {
@@ -956,7 +985,7 @@ def _run_integrated_2d_recycling_transient_case(
                 (
                     {
                         name: np.asarray(optional_history[field_name][time_index], dtype=np.float64)
-                        for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+                        for name, field_name in _species_optional_velocity_field_map(config)
                         if field_name in optional_history
                     }
                     or None
@@ -981,7 +1010,8 @@ def _run_integrated_2d_recycling_transient_case(
                     load_local_reference_snapshot(
                         dump_path,
                         field_names=(),
-                        optional_field_names=("Vd+", "Vd", "Sd_target_recycle", "Ed_target_recycle"),
+                        optional_field_names=_direct_recycling_velocity_optional_field_names(config)
+                        + ("Sd_target_recycle", "Ed_target_recycle"),
                         scalar_names=(),
                         time_index=time_index,
                     )
@@ -995,7 +1025,7 @@ def _run_integrated_2d_recycling_transient_case(
             velocity_field_overrides_history = tuple(
                 {
                     name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
-                    for name, field_name in (("d+", "Vd+"), ("d", "Vd"))
+                    for name, field_name in _species_optional_velocity_field_map(config)
                     if field_name in snapshot.optional_fields
                 }
                 or None
@@ -1053,7 +1083,7 @@ def _run_integrated_2d_recycling_transient_case(
         dimensions={"t": steps + 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
         time_points=tuple(index * run_config.time.timestep for index in range(steps + 1)),
         dataset_scalars=dataset_scalars,
-        variables={name: np.asarray(value, dtype=np.float64) for name, value in trimmed_variables.items()},
+        variables=_select_payload_variables(trimmed_variables, compare_variables=case.compare_variables),
         overrides=_effective_overrides(case.parity_mode, reference_case=case),
         configured_nout=run_config.time.nout,
         configured_timestep=run_config.time.timestep,
@@ -1441,7 +1471,7 @@ def _select_integrated_2d_transient_solver_mode(
     config: BoutConfig,
     parity_mode: str,
 ) -> str:
-    if case_name in {"integrated_2d_production_one_step", "tokamak_recycling_one_step"}:
+    if case_name in {"integrated_2d_production_one_step", "tokamak_recycling_one_step", "tokamak_recycling_dthe_one_step"}:
         return "bdf"
     return _select_recycling_transient_solver_mode(config, parity_mode=parity_mode)
 
@@ -1871,6 +1901,20 @@ def _prepare_compare_variables(
             array = array[:, :, mesh.myg : -mesh.myg, ...]
         prepared[name] = array
     return prepared
+
+
+def _select_payload_variables(
+    variables: Mapping[str, Any],
+    *,
+    compare_variables: tuple[str, ...],
+) -> dict[str, Any]:
+    if not compare_variables:
+        return {name: np.asarray(value, dtype=np.float64) for name, value in variables.items()}
+    return {
+        name: np.asarray(variables[name], dtype=np.float64)
+        for name in compare_variables
+        if name in variables
+    }
 
 
 def _effective_overrides(parity_mode: str, *, reference_case: ReferenceCase | None) -> tuple[str, ...]:

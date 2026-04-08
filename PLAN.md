@@ -230,7 +230,19 @@ The remaining work should now proceed in this order:
        - `Pd+`: about `9.41e-6`
        - `Nd+`: about `2.03e-5`
        - `NVd+`: about `1.45e-6`
-     - the next concrete deliverable is the multispecies `tokamak_recycling_dthe_one_step` rung, then the next richer direct tokamak transport case on top of the same shared geometry path.
+     - the multispecies direct-tokamak recycling lane is now unblocked too:
+     - `tokamak_recycling_dthe_rhs` now has committed summary/array baselines plus a committed direct-tokamak snapshot cache and the native RHS path matches those baselines exactly;
+     - that dthe RHS rung required a narrow Hermes-side permission fix in `src/braginskii_collisions.cxx` so the multispecies tokamak case can populate `*_coll` collision-frequency entries without aborting during solver initialization; this changes permission bookkeeping only, not the collision formulas;
+     - `tokamak_recycling_dthe_one_step` is now a landed curated transient rung too: the manifest stages it at `timestep=0.1`, the committed summary/array baselines and optional-history cache are now in-tree, and the native multispecies one-step runner stays inside an operational band against that committed baseline:
+       - `Pe`: about `1.89e-4`
+       - `Pd+`: about `9.23e-3`
+       - `NVd+`: about `3.60e-2`
+       - `Pt+`: about `1.12e-2`
+       - `NVt+`: about `5.37e-2`
+     - the live Hermes reference path for the dthe tokamak lane required a narrow local fix in `BraginskiiCollisions`: add explicit positive-ion cross-collision write permission so the multispecies tokamak case can populate `species:*:collision_frequencies:*_he_coll` without aborting during solver initialisation; this is permission bookkeeping only, not a collision-formula change;
+         - `NVt+`: about `5.37e-2`
+         - `Phe+`: about `2.95e-5`
+     - the next concrete deliverable is now the next richer direct tokamak transport case on top of the same shared geometry path.
    - Treat the integrated Step 3 production lane as operationally complete for project flow.
    - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
      - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)
