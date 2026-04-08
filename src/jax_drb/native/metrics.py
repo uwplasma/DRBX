@@ -4,14 +4,11 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
 from ..config.model import has_model_section, locate_model_section
+from ..runtime import runtime_jax_dtype
 from ..runtime.run_config import RunConfiguration
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
@@ -37,6 +34,7 @@ def build_structured_metrics(
     run_config: RunConfiguration,
     mesh: StructuredMesh,
 ) -> StructuredMetrics:
+    dtype = runtime_jax_dtype()
     evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
     scalars = resolved_dataset_scalars(run_config)
     rho_s0 = scalars["rho_s0"]
@@ -53,7 +51,7 @@ def build_structured_metrics(
     if config.has_section("mesh") and config.has_option("mesh", "g_22"):
         raw_g_22 = _metric_value(config, evaluator, "g_22", default=1.0)
     else:
-        raw_g_22 = 1.0 / jnp.asarray(raw_g22, dtype=jnp.float64)
+        raw_g_22 = 1.0 / jnp.asarray(raw_g22, dtype=dtype)
     raw_g23 = _metric_value(config, evaluator, "g23", default=0.0)
     raw_Bxy = _metric_value(config, evaluator, "Bxy", default=1.0)
 
@@ -155,7 +153,7 @@ def _recalculate_orthogonal_metrics(
     normalized_Bxy = broadcast_to_field_shape(raw_Bxy, mesh) / Bnorm
 
     if run_parallel_transform_type(config) == "shifted":
-        normalized_sinty = jnp.zeros_like(normalized_sinty, dtype=jnp.float64)
+        normalized_sinty = jnp.zeros_like(normalized_sinty, dtype=dtype)
 
     sign_Bp = jnp.where(jnp.min(normalized_Bpxy) < 0.0, -1.0, 1.0)
     g11_normalized = jnp.square(normalized_Rxy * normalized_Bpxy)

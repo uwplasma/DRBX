@@ -47,15 +47,22 @@ Run a curated native case:
 PYTHONPATH=src python -m jax_drb run-case diffusion_short_window --reference-root /path/to/reference-checkout
 ```
 
-Run a native input directly, write JSON/NPZ/log/restart artifacts, and then continue from restart:
+Run a native TOML input directly, write JSON/NPZ/log/restart artifacts, and then continue from restart. After `pip install -e .[dev,validation]`, both `jax_drb` and `jax-drb` work as console commands:
 
 ```bash
-PYTHONPATH=src python -m jax_drb run path/to/BOUT.inp --output-dir /tmp/jax_drb_run
-PYTHONPATH=src python -m jax_drb run path/to/BOUT.inp \
+jax_drb path/to/input.toml --output-dir /tmp/jax_drb_run
+jax_drb path/to/input.toml \
   --output-dir /tmp/jax_drb_run_resume \
   --restart-in /tmp/jax_drb_run/<case>_restart.npz \
   --resume-steps 2
 ```
+
+The native run path now supports:
+
+- ordered TOML input decks with `[time]`, `[runtime]`, `[mesh]`, `[solver]`, `[model]`, `[species.*]`, and `[fields.*]`;
+- runtime precision selection through `[runtime].precision = "float32" | "float64"` or `--precision` on the standalone CLI;
+- rich terminal summaries plus a plain-text fallback with the same key metadata;
+- portable output artifacts: summary JSON, arrays NPZ, restart NPZ, and verbose run-log JSON.
 
 Inspect the curated ladder:
 
@@ -108,11 +115,22 @@ PYTHONPATH=src .venv/bin/python examples/blob2d_meeting_demo.py \
   --skip-parity
 ```
 
-Run the explicit restart tutorial example with input generation, saved artifacts, restart/resume, and Matplotlib outputs:
+Run the explicit restart tutorial example with TOML input generation, saved artifacts, restart/resume, precision selection, and Matplotlib outputs:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py
 ```
+
+Benchmark `float32` vs `float64` on the same restartable diffusion rung:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/diffusion_precision_benchmark.py
+```
+
+The committed example benchmark artifacts live in:
+
+- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
+- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
 
 The current QA-checked tutorial output package lives in:
 
@@ -149,6 +167,7 @@ pytest -q
 ## Docs Map
 
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
+- Native runtime CLI: [docs/native_runtime_cli.md](/Users/rogerio/local/jax_drb/docs/native_runtime_cli.md)
 - Alfven-wave meeting demo: [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md)
 - Blob2D meeting demo: [docs/blob2d_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/blob2d_meeting_demo.md)
 - Restartable diffusion tutorial: [docs/restartable_diffusion_tutorial.md](/Users/rogerio/local/jax_drb/docs/restartable_diffusion_tutorial.md)

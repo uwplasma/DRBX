@@ -7,10 +7,6 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, Mapping
 
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig, ROOT_SECTION

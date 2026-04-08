@@ -3,10 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
-
 import numpy as np
 
 from ..config.boutinp import BoutConfig

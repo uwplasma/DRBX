@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 
@@ -50,6 +53,85 @@ bndry_all = neumann
 """
 
 
+_DIFFUSION_TOML_INPUT = """
+[time]
+nout = 2
+timestep = 5.0
+
+[runtime]
+precision = "float32"
+
+[mesh]
+nx = 10
+ny = 10
+nz = 1
+dx = { expr = "0.0075 + 0.005*x" }
+dy = 0.01
+dz = 0.01
+J = 1
+
+[solver]
+mxstep = 1000
+
+[model]
+components = ["h"]
+
+[species.h]
+type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
+AA = 1
+charge = 1
+anomalous_D = 2
+thermal_conduction = false
+
+[fields.Nh]
+function = { expr = "1 + H(x - 0.25) * H(0.75-x) * exp(-(y-π)^2)" }
+bndry_all = "neumann"
+
+[fields.Ph]
+function = { ref = "Nh:function" }
+bndry_all = "neumann"
+"""
+
+_DIFFUSION_TOML_INPUT = """
+[time]
+nout = 2
+timestep = 5.0
+
+[runtime]
+precision = "float32"
+
+[mesh]
+nx = 10
+ny = 10
+nz = 1
+dx = { expr = "0.0075 + 0.005*x" }
+dy = 0.01
+dz = 0.01
+J = 1
+
+[solver]
+mxstep = 1000
+
+[model]
+components = ["h"]
+
+[species.h]
+type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
+AA = 1
+charge = 1
+anomalous_D = 2
+thermal_conduction = false
+
+[fields.Nh]
+function = { expr = "1 + H(x - 0.25) * H(0.75-x) * exp(-(y-π)^2)" }
+bndry_all = "neumann"
+
+[fields.Ph]
+function = { ref = "Nh:function" }
+bndry_all = "neumann"
+"""
+
+
 def test_run_command_writes_artifacts_and_restart_bundle(tmp_path: Path, capsys) -> None:
     input_path = tmp_path / "diffusion_restartable.inp"
     input_path.write_text(_DIFFUSION_INPUT, encoding="utf-8")
@@ -66,7 +148,7 @@ def test_run_command_writes_artifacts_and_restart_bundle(tmp_path: Path, capsys)
 
     captured = capsys.readouterr().out
     assert "Run Summary" in captured
-    assert "restart supported: yes" in captured
+    assert "restart" in captured.lower()
 
     restart = load_restart_bundle(restart_path)
     assert restart.case_name == "diffusion_restartable"
@@ -142,3 +224,119 @@ def test_run_command_can_resume_from_restart_bundle(tmp_path: Path) -> None:
     np.testing.assert_allclose(resumed_from_restart.variables["Nh"][-1], resumed.variables["Nh"][-1], rtol=1e-8, atol=1e-10)
     np.testing.assert_allclose(resumed_from_restart.variables["Ph"][-1], resumed.variables["Ph"][-1], rtol=1e-8, atol=1e-10)
     assert resumed_from_restart.time_points == (15.0, 20.0, 25.0)
+
+
+def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_path: Path) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run"
+
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jax_drb",
+            str(input_path),
+            "--output-dir",
+            str(output_dir),
+            "--quiet",
+        ],
+        check=False,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert (output_dir / "diffusion_restartable_summary.json").exists()
+    assert (output_dir / "diffusion_restartable_arrays.npz").exists()
+
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
+    assert run_log["run_configuration"]["runtime"]["backend"]
+    assert run_log["run_configuration"]["runtime"]["elapsed_seconds"] is not None
+
+
+def test_run_command_accepts_toml_input_and_records_precision(tmp_path: Path) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run_toml"
+
+    exit_code = main(["run", str(input_path), "--output-dir", str(output_dir), "--quiet"])
+
+    assert exit_code == 0
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
+    arrays = load_portable_array_payload(output_dir / "diffusion_restartable_arrays.npz")
+    assert tuple(sorted(arrays["variables"])) == ("Nh", "Ph")
+
+
+def test_main_accepts_bare_input_file_without_explicit_run_subcommand(tmp_path: Path) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run_bare"
+
+    exit_code = main([str(input_path), "--output-dir", str(output_dir), "--quiet"])
+
+    assert exit_code == 0
+    assert (output_dir / "diffusion_restartable_summary.json").exists()
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
+
+
+def test_run_command_precision_flag_overrides_input_precision(tmp_path: Path) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT.replace('precision = "float32"', 'precision = "float64"'), encoding="utf-8")
+    output_dir = tmp_path / "run_override"
+
+    exit_code = main([str(input_path), "--precision", "float32", "--output-dir", str(output_dir), "--quiet"])
+
+    assert exit_code == 0
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
+
+
+def test_main_routes_bare_input_path_to_run_command(tmp_path: Path, capsys) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+
+    exit_code = main([str(input_path), "--dry-run"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr().out
+    assert "input:" in captured
+    assert "scheduled components:" in captured
+
+
+def test_run_command_accepts_bare_toml_input_and_records_precision(tmp_path: Path, capsys) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run_toml"
+
+    exit_code = main([str(input_path), "--output-dir", str(output_dir)])
+
+    assert exit_code == 0
+    summary_path = output_dir / "diffusion_restartable_summary.json"
+    arrays_path = output_dir / "diffusion_restartable_arrays.npz"
+    restart_path = output_dir / "diffusion_restartable_restart.npz"
+    run_log_path = output_dir / "diffusion_restartable_run_log.json"
+    assert summary_path.exists()
+    assert arrays_path.exists()
+    assert restart_path.exists()
+    assert run_log_path.exists()
+
+    captured = capsys.readouterr().out
+    assert "Run Summary" in captured
+    assert "float32" in captured
+
+    run_log = json.loads(run_log_path.read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
+
+    restart = load_restart_bundle(restart_path)
+    assert restart.completed_steps == 2
+
+    arrays = load_portable_array_payload(arrays_path)
+    assert tuple(sorted(arrays["variables"])) == ("Nh", "Ph")

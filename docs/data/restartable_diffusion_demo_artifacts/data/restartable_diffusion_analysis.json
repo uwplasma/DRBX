@@ -1,5 +1,7 @@
 {
   "case_name": "restartable_diffusion",
+  "cli_precision_override": null,
+  "configured_precision": "float64",
   "first_segment_completed_steps": 3,
   "max_abs_density_diff_vs_uninterrupted": 0.0,
   "max_abs_pressure_diff_vs_uninterrupted": 0.0,
