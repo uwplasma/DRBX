@@ -265,7 +265,7 @@ def test_default_manifest_stages_tokamak_heat_transport_short_window_case() -> N
     assert case.reference_path == "examples/tokamak-2D/heat-transport/BOUT.inp"
     assert case.parity_mode == "short_window"
     assert case.compare_variables == ("Pe",)
-    assert case.extra_overrides == ("nout=5",)
+    assert case.extra_overrides == ("nout=5", "e:diagnose=false")
     assert case.trim_x_guards is True
     assert case.trim_y_guards is True
     assert case.process_count == 6
@@ -278,6 +278,7 @@ def test_default_manifest_stages_tokamak_diffusion_conduction_one_step_case() ->
     assert case.reference_path == "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
     assert case.parity_mode == "one_step"
     assert case.compare_variables == ("Nh+", "Ph+", "Pe")
+    assert case.extra_overrides == ("h+:diagnose=false", "e:diagnose=false")
     assert case.trim_x_guards is True
     assert case.trim_y_guards is True
     assert case.process_count == 6
