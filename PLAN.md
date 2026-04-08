@@ -243,6 +243,14 @@ The remaining work should now proceed in this order:
        - `NVd+`: about `3.60e-2`
        - `Pt+`: about `1.12e-2`
        - `NVt+`: about `5.37e-2`
+     - the same lane is now widened to the D/T/He/Ne transient surface too: `tokamak_recycling_dthene_one_step` is now curated at `timestep=0.1`, has committed summary/array baselines plus a committed optional-history cache, and the native multispecies one-step runner is already in a tighter operational band than the dthe rung:
+       - `Pe`: about `2.05e-3`
+       - `Pd+`: about `2.79e-3`
+       - `Nd+`: about `2.09e-3`
+       - `Pt+`: about `2.79e-3`
+       - `Nt+`: about `2.09e-3`
+       - `NVd+` / `NVt+`: about `2.1e-6`
+       - helium and neon channels: `O(1e-8 .. 1e-10)` on the committed one-step surface
      - the live Hermes reference path for the dthe tokamak lane required a narrow local fix in `BraginskiiCollisions`: add explicit positive-ion cross-collision write permission so the multispecies tokamak case can populate `species:*:collision_frequencies:*_he_coll` without aborting during solver initialisation; this is permission bookkeeping only, not a collision-formula change;
          - `NVt+`: about `5.37e-2`
          - `Phe+`: about `2.95e-5`

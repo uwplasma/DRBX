@@ -2024,6 +2024,239 @@ def test_tokamak_recycling_dthene_rhs_uses_committed_snapshot_cache(
     assert np.asarray(result.variables["Pe"]).shape == (1, 2, 3, 1)
 
 
+def test_tokamak_recycling_dthene_one_step_uses_committed_optional_history_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthene/BOUT.inp")
+    if not tokamak_input.exists():
+        pytest.skip("tokamak recycling dthene reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=4,
+        ny=3,
+        nz=1,
+        mxg=1,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=jnp.arange(4, dtype=jnp.float64),
+        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
+        z=jnp.arange(1, dtype=jnp.float64),
+    )
+    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g33=ones,
+        g22=ones,
+        g_22=ones,
+        g23=jnp.zeros_like(ones),
+        Bxy=ones,
+    )
+    initial_fields = {
+        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd+": 2.0 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nd": np.ones((4, 5, 1), dtype=np.float64),
+        "Pd": np.ones((4, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nt+": np.ones((4, 5, 1), dtype=np.float64),
+        "Pt+": 2.5 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVt+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nt": np.ones((4, 5, 1), dtype=np.float64),
+        "Pt": np.ones((4, 5, 1), dtype=np.float64),
+        "NVt": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nhe+": 0.1 * np.ones((4, 5, 1), dtype=np.float64),
+        "Phe+": 0.2 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVhe+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nhe": 0.1 * np.ones((4, 5, 1), dtype=np.float64),
+        "Phe": 0.1 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVhe": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nne+": 0.01 * np.ones((4, 5, 1), dtype=np.float64),
+        "Pne+": 0.02 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVne+": np.zeros((4, 5, 1), dtype=np.float64),
+        "Nne": 0.01 * np.ones((4, 5, 1), dtype=np.float64),
+        "Pne": 0.01 * np.ones((4, 5, 1), dtype=np.float64),
+        "NVne": np.zeros((4, 5, 1), dtype=np.float64),
+        "Pe": 3.0 * np.ones((4, 5, 1), dtype=np.float64),
+    }
+    snapshot = LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields=initial_fields,
+        optional_fields={
+            "Vd+": np.full((4, 5, 1), 3.0, dtype=np.float64),
+            "Vd": np.full((4, 5, 1), 1.5, dtype=np.float64),
+            "Vt+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+            "Vt": np.full((4, 5, 1), 1.0, dtype=np.float64),
+            "Vhe+": np.full((4, 5, 1), 0.3, dtype=np.float64),
+            "Vhe": np.full((4, 5, 1), 0.2, dtype=np.float64),
+            "Vne+": np.full((4, 5, 1), 0.03, dtype=np.float64),
+            "Vne": np.full((4, 5, 1), 0.02, dtype=np.float64),
+            "SNd+": np.full((4, 5, 1), 1.0, dtype=np.float64),
+            "SNVd+": np.full((4, 5, 1), 1.5, dtype=np.float64),
+            "SPd+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+            "SNd": np.full((4, 5, 1), 3.0, dtype=np.float64),
+            "SNVd": np.full((4, 5, 1), 3.5, dtype=np.float64),
+            "SPd": np.full((4, 5, 1), 4.0, dtype=np.float64),
+            "SNt+": np.full((4, 5, 1), 1.1, dtype=np.float64),
+            "SNVt+": np.full((4, 5, 1), 1.6, dtype=np.float64),
+            "SPt+": np.full((4, 5, 1), 2.1, dtype=np.float64),
+            "SNt": np.full((4, 5, 1), 3.1, dtype=np.float64),
+            "SNVt": np.full((4, 5, 1), 3.6, dtype=np.float64),
+            "SPt": np.full((4, 5, 1), 4.1, dtype=np.float64),
+            "SNhe+": np.full((4, 5, 1), 1.2, dtype=np.float64),
+            "SNVhe+": np.full((4, 5, 1), 1.7, dtype=np.float64),
+            "SPhe+": np.full((4, 5, 1), 2.2, dtype=np.float64),
+            "SNhe": np.full((4, 5, 1), 3.2, dtype=np.float64),
+            "SNVhe": np.full((4, 5, 1), 3.7, dtype=np.float64),
+            "SPhe": np.full((4, 5, 1), 4.2, dtype=np.float64),
+            "SNne+": np.full((4, 5, 1), 1.3, dtype=np.float64),
+            "SNVne+": np.full((4, 5, 1), 1.8, dtype=np.float64),
+            "SPne+": np.full((4, 5, 1), 2.3, dtype=np.float64),
+            "SNne": np.full((4, 5, 1), 3.3, dtype=np.float64),
+            "SNVne": np.full((4, 5, 1), 3.8, dtype=np.float64),
+            "SPne": np.full((4, 5, 1), 4.3, dtype=np.float64),
+            "Sd_target_recycle": np.full((4, 5, 1), 5.0, dtype=np.float64),
+            "Ed_target_recycle": np.full((4, 5, 1), 6.0, dtype=np.float64),
+        },
+        scalar_values={"Nnorm": 1.0e17, "Tnorm": 1.0, "Bnorm": 1.0, "Cs0": 1.0, "Omega_ci": 1.0, "rho_s0": 1.0},
+    )
+    snapshot_cache = tmp_path / "tokamak_recycling_dthene_rhs_snapshot.npz"
+    save_local_reference_snapshot_cache(snapshot, snapshot_cache)
+    history_cache = tmp_path / "tokamak_recycling_dthene_one_step_optional_history.npz"
+    save_optional_field_history_cache(
+        {
+            "Vd+": np.stack([np.full((4, 5, 1), 3.0), np.full((4, 5, 1), 4.0)], axis=0),
+            "Vd": np.stack([np.full((4, 5, 1), 1.5), np.full((4, 5, 1), 2.5)], axis=0),
+            "Vt+": np.stack([np.full((4, 5, 1), 2.0), np.full((4, 5, 1), 3.0)], axis=0),
+            "Vt": np.stack([np.full((4, 5, 1), 1.0), np.full((4, 5, 1), 2.0)], axis=0),
+            "Vhe+": np.stack([np.full((4, 5, 1), 0.3), np.full((4, 5, 1), 0.4)], axis=0),
+            "Vhe": np.stack([np.full((4, 5, 1), 0.2), np.full((4, 5, 1), 0.3)], axis=0),
+            "Vne+": np.stack([np.full((4, 5, 1), 0.03), np.full((4, 5, 1), 0.04)], axis=0),
+            "Vne": np.stack([np.full((4, 5, 1), 0.02), np.full((4, 5, 1), 0.03)], axis=0),
+            "Sd_target_recycle": np.stack([np.full((4, 5, 1), 5.0), np.full((4, 5, 1), 6.0)], axis=0),
+            "Ed_target_recycle": np.stack([np.full((4, 5, 1), 7.0), np.full((4, 5, 1), 8.0)], axis=0),
+        },
+        history_cache,
+    )
+
+    monkeypatch.setattr(
+        native_runner,
+        "_integrated_2d_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "tokamak_recycling_dthene_rhs" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_integrated_2d_optional_history_cache_path",
+        lambda case_name: history_cache if case_name == "tokamak_recycling_dthene_one_step" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("reference run should not be used when tokamak caches are present")),
+    )
+
+    evolved_history = {name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()}
+    captured: dict[str, object] = {}
+
+    def fake_history(*args, **kwargs):
+        captured["initial_fields"] = kwargs["initial_fields"]
+        captured["solver_mode"] = kwargs["solver_mode"]
+        captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
+        return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
+
+    def fake_rhs(*args, **kwargs):
+        captured["diagnostic_nvene"] = np.asarray(kwargs["field_overrides"]["NVne+"], dtype=np.float64)
+        return SimpleNamespace(
+            variables={
+                "Sd_target_recycle": np.ones((1, 4, 5, 1), dtype=np.float64),
+                "Ed_target_recycle": np.ones((1, 4, 5, 1), dtype=np.float64),
+            }
+        )
+
+    monkeypatch.setattr(native_runner, "compute_recycling_1d_rhs", fake_rhs)
+
+    case = ReferenceCase(
+        name="tokamak_recycling_dthene_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/recycling-dthene/BOUT.inp",
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Nne+", "Pne+", "NVne+", "Nne", "Pne", "NVne", "Pe"),
+        extra_overrides=(
+            "timestep=0.1",
+            "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+            "json_database_dir={reference_root}/json_database",
+            "he+:diagnose=false",
+            "ne+:diagnose=false",
+            "input:error_on_unused_options=false",
+        ),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_integrated_2d_recycling_one_step_case(
+        case,
+        input_path=tokamak_input,
+        reference_root=_REFERENCE_ROOT,
+    )
+
+    expected_initial_fields = native_runner._apply_species_velocity_overrides(
+        native_runner._load_curated_case_config(case, tokamak_input),
+        field_overrides=initial_fields,
+        velocity_field_overrides={
+            "d+": np.full((4, 5, 1), 3.0, dtype=np.float64),
+            "d": np.full((4, 5, 1), 1.5, dtype=np.float64),
+            "t+": np.full((4, 5, 1), 2.0, dtype=np.float64),
+            "t": np.full((4, 5, 1), 1.0, dtype=np.float64),
+            "he+": np.full((4, 5, 1), 0.3, dtype=np.float64),
+            "he": np.full((4, 5, 1), 0.2, dtype=np.float64),
+            "ne+": np.full((4, 5, 1), 0.03, dtype=np.float64),
+            "ne": np.full((4, 5, 1), 0.02, dtype=np.float64),
+        },
+    )
+    np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
+    np.testing.assert_allclose(captured["initial_fields"]["NVt+"], expected_initial_fields["NVt+"])
+    np.testing.assert_allclose(captured["initial_fields"]["NVhe+"], expected_initial_fields["NVhe+"])
+    np.testing.assert_allclose(captured["initial_fields"]["NVne+"], expected_initial_fields["NVne+"])
+    assert captured["solver_mode"] == "bdf"
+    assert captured["preserve_dump_ion_target_state_only"] is True
+
+    expected_fields = native_runner._apply_species_velocity_overrides(
+        native_runner._load_curated_case_config(case, tokamak_input),
+        field_overrides={name: value[1] for name, value in evolved_history.items()},
+        velocity_field_overrides={
+            "d+": np.full((4, 5, 1), 4.0, dtype=np.float64),
+            "d": np.full((4, 5, 1), 2.5, dtype=np.float64),
+            "t+": np.full((4, 5, 1), 3.0, dtype=np.float64),
+            "t": np.full((4, 5, 1), 2.0, dtype=np.float64),
+            "he+": np.full((4, 5, 1), 0.4, dtype=np.float64),
+            "he": np.full((4, 5, 1), 0.3, dtype=np.float64),
+            "ne+": np.full((4, 5, 1), 0.04, dtype=np.float64),
+            "ne": np.full((4, 5, 1), 0.03, dtype=np.float64),
+        },
+    )
+    np.testing.assert_allclose(captured["diagnostic_nvene"], expected_fields["NVne+"])
+    assert result.time_points == (0.0, 0.1)
+    assert np.asarray(result.variables["Nne+"]).shape == (2, 2, 3, 1)
+    assert np.asarray(result.variables["Pe"]).shape == (2, 2, 3, 1)
+
+
 def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2573,3 +2806,25 @@ def test_tokamak_recycling_dthe_one_step_stays_within_operational_target_band() 
     assert entries["Nt+"].max_abs_diff < 5.0e-5
     assert entries["Nd"].max_abs_diff < 5.0e-6
     assert entries["Nt"].max_abs_diff < 5.0e-6
+
+
+def test_tokamak_recycling_dthene_one_step_stays_within_operational_target_band() -> None:
+    entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_dthene_one_step")
+
+    assert entries["Pe"].max_abs_diff < 3.0e-3
+    assert entries["Pd+"].max_abs_diff < 3.5e-3
+    assert entries["NVd+"].max_abs_diff < 1.0e-5
+    assert entries["Nd+"].max_abs_diff < 3.0e-3
+    assert entries["Pd"].max_abs_diff < 1.0e-4
+    assert entries["Nd"].max_abs_diff < 5.0e-7
+    assert entries["Pt+"].max_abs_diff < 3.5e-3
+    assert entries["NVt+"].max_abs_diff < 1.0e-5
+    assert entries["Nt+"].max_abs_diff < 3.0e-3
+    assert entries["Pt"].max_abs_diff < 1.0e-4
+    assert entries["Nt"].max_abs_diff < 5.0e-7
+    assert entries["Phe+"].max_abs_diff < 5.0e-8
+    assert entries["NVhe+"].max_abs_diff < 1.0e-8
+    assert entries["Nhe+"].max_abs_diff < 2.0e-8
+    assert entries["Pne+"].max_abs_diff < 1.0e-9
+    assert entries["NVne+"].max_abs_diff < 1.0e-9
+    assert entries["Nne+"].max_abs_diff < 1.0e-9
