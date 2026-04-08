@@ -12,6 +12,7 @@ This page collects the first curated parity figures from the active validation l
 | `Drift-Wave Short-Window Parity` | `native-validated` | Drift-wave benchmark history is locked. |
 | `Drift-Wave Short-Window Benchmark` | `native-validated` | Benchmark analysis is locked. |
 | `Blob2d Short-Window Parity` | `native-validated` | Blob benchmark history is locked. |
+| `Blob2d Meeting Movie` | `saved-payload visualization` | Fast one-step Blob2D visualization from a committed `.npz` payload. |
 | `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
 
@@ -80,6 +81,19 @@ What this locks down:
 - benchmark-level parity on reviewer-facing blob diagnostics rather than only pointwise field maxima: peak density excess plus radial and binormal center-of-mass trajectories;
 - the current documented native/reference envelope: peak-excess max error about `1.41e-2`, radial COM max error about `6.29e-1` active cells, and binormal COM max error about `7.32e-1` active cells.
 
+## Blob2d Meeting Movie
+
+![Blob2D meeting snapshots](images/blob2d_meeting_snapshots.png)
+
+![Blob2D meeting poster](images/blob2d_meeting_movie_poster.png)
+
+What this locks down:
+
+- a fast saved-result visualization workflow using [examples/blob2d_meeting_demo.py](/Users/rogerio/local/jax_drb/examples/blob2d_meeting_demo.py);
+- a real 2D movie artifact from [blob2d_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_one_step.npz), written to [docs/movies/blob2d_meeting_2d.mp4](/Users/rogerio/local/jax_drb/docs/movies/blob2d_meeting_2d.mp4);
+- a matching 3D surface movie and poster for presentation use;
+- an explicit `--skip-parity` mode for saved payloads whose output timeline does not match the short-window parity metrics.
+
 ## Neutral Mixed Short-Window Benchmark Target
 
 ![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
@@ -117,6 +131,7 @@ These figures are generated from the committed baseline arrays plus native case 
 - `drift_wave_one_step`
 - `drift_wave_short_window`
 - `blob2d_short_window`
+- `blob2d_one_step` saved-payload visualization
 - `alfven_wave_short_window`
 
 The next gallery pass should add:

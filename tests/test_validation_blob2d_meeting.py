@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -77,3 +80,54 @@ def test_create_blob2d_meeting_package_writes_expected_artifacts(tmp_path: Path)
     ):
         assert path.exists()
         assert path.stat().st_size > 0
+
+
+def test_blob2d_example_skip_parity_visualizes_saved_payload(tmp_path: Path) -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is unavailable")
+
+    payload = _synthetic_blob_payload()
+    native_arrays = tmp_path / "native_blob.npz"
+    from jax_drb.parity.arrays import write_portable_array_payload
+
+    write_portable_array_payload(
+        {
+            "case_name": "synthetic_blob",
+            "parity_mode": "one_step",
+            "producer": "test",
+            "overrides": [],
+            "compare_variables": ["Ne"],
+            "component_labels": [],
+            "dimensions": {"t": 4, "x": 8, "y": 1, "z": 8},
+            "time_points": payload["time_points"],
+            "dataset_scalars": {},
+            "variable_dimensions": {"Ne": ["t", "x", "y", "z"]},
+            "variables": {"Ne": payload["variables"]["Ne"]},
+            "effective_output_points": 4,
+        },
+        native_arrays,
+    )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repo_root / "src")
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "examples" / "blob2d_meeting_demo.py"),
+            "--arrays-in",
+            str(native_arrays),
+            "--output-root",
+            str(tmp_path / "out"),
+            "--skip-parity",
+            "--quiet",
+        ],
+        check=True,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert (tmp_path / "out" / "data" / "blob2d_meeting_parity_skipped.json").exists()
+    assert (tmp_path / "out" / "movies" / "blob2d_meeting_2d.mp4").stat().st_size > 0

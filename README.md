@@ -81,6 +81,23 @@ PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
   --reference-root /path/to/reference-checkout
 ```
 
+Regenerate those figures and movies from a saved `.npz` payload without rerunning the case:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
+  --arrays-in docs/data/alfven_wave_short_window_native.npz \
+  --output-root docs
+```
+
+Generate a fast Blob2D movie from a saved one-step payload:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/blob2d_meeting_demo.py \
+  --arrays-in references/baselines/reference_arrays/blob2d_one_step.npz \
+  --output-root docs \
+  --skip-parity
+```
+
 Generate the compact neutral short-window benchmark report and figure:
 
 ```bash
@@ -113,6 +130,7 @@ pytest -q
 
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
 - Alfven-wave meeting demo: [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md)
+- Blob2D meeting demo: [docs/blob2d_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/blob2d_meeting_demo.md)
 - Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
 - Alfven-wave benchmark: [docs/alfven_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_benchmark.md)
 - Neutral mixed benchmark: [docs/neutral_mixed_benchmark.md](/Users/rogerio/local/jax_drb/docs/neutral_mixed_benchmark.md)
