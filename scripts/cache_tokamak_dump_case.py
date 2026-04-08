@@ -12,6 +12,7 @@ from jax_drb.native.reference_dump import (
     save_optional_field_history_cache,
 )
 from jax_drb.native.runner import (
+    _direct_recycling_velocity_optional_field_names,
     _direct_recycling_optional_field_names,
     _direct_recycling_state_field_names,
     _load_curated_case_config,
@@ -95,9 +96,42 @@ def main() -> int:
         _SNAPSHOT_DIR / f"{case.name}_field_history.npz",
     )
 
+    if case.name.startswith("tokamak_recycling") and case.parity_mode == "one_step":
+        optional_history_names = _direct_recycling_velocity_optional_field_names(config) + (
+            "Sd_target_recycle",
+            "Ed_target_recycle",
+        )
+        optional_history = {
+            name: []
+            for name in optional_history_names
+        }
+        for time_index in range(time_count):
+            snapshot = load_local_reference_snapshot(
+                dump_path,
+                field_names=(),
+                optional_field_names=optional_history_names,
+                scalar_names=(),
+                time_index=time_index,
+            )
+            for name in optional_history_names:
+                if name in snapshot.optional_fields:
+                    optional_history[name].append(snapshot.optional_fields[name])
+        populated_history = {
+            name: np.stack(values, axis=0)
+            for name, values in optional_history.items()
+            if values
+        }
+        if populated_history:
+            save_optional_field_history_cache(
+                populated_history,
+                _SNAPSHOT_DIR / f"{case.name}_optional_history.npz",
+            )
+
     print(f"cached: {case.name}")
     print(f"  snapshot: {_SNAPSHOT_DIR / f'{case.name}_snapshot.npz'}")
     print(f"  history:  {_SNAPSHOT_DIR / f'{case.name}_field_history.npz'}")
+    if case.name.startswith("tokamak_recycling") and case.parity_mode == "one_step":
+        print(f"  optional: {_SNAPSHOT_DIR / f'{case.name}_optional_history.npz'}")
     print(f"  dump:     {dump_path}")
     print(f"  points:   {time_count}")
     return 0
