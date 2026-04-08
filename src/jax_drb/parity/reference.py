@@ -302,6 +302,7 @@ def _prepare_workdir(case: ReferenceCase, input_path: Path, *, workdir: str | Pa
         staged.mkdir(parents=True, exist_ok=True)
     _stage_case_directory(input_path.parent, staged)
     _stage_referenced_mesh_files(input_path, staged)
+    _stage_shared_reference_support_directories(input_path, staged)
     _stage_case_artifacts(case, staged)
     return staged
 
@@ -370,6 +371,26 @@ def _stage_mesh_file(source: Path, target: Path) -> None:
             return
         raise RuntimeError(f"Staged mesh target already exists with a different source: {target}")
     target.symlink_to(source, target_is_directory=source.is_dir())
+
+
+def _stage_shared_reference_support_directories(input_path: Path, target_dir: Path) -> None:
+    for directory_name in ("json_database",):
+        source = _find_shared_support_directory(input_path, directory_name)
+        if source is None:
+            continue
+        _stage_mesh_file(source, target_dir / directory_name)
+
+
+def _find_shared_support_directory(input_path: Path, directory_name: str) -> Path | None:
+    seen: set[Path] = set()
+    for parent in input_path.parents:
+        candidate = (parent / directory_name).resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
 
 
 def _stage_case_artifacts(case: ReferenceCase, target_dir: Path) -> None:
