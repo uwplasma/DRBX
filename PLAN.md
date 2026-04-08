@@ -245,7 +245,8 @@ The remaining work should now proceed in this order:
      - the next richer direct tokamak transport rung is now also in-tree: `tokamak_diffusion_transport_one_step` on `examples/tokamak-2D/diffusion-transport` has committed summary/array baselines and the native direct tokamak path matches them exactly on `Nh+`, `Ph+`, `NVh+`, and `Pe`;
      - that same direct tokamak transport lane is now widened to a first multi-output transient rung too: `tokamak_diffusion_transport_short_window` has committed summary/array baselines, carries the curated `nout=5` history, and the native direct tokamak path matches it exactly on the same compare surface;
      - the next neighboring direct tokamak physics family is now in-tree as well: `tokamak_heat_transport_one_step` on `examples/tokamak-2D/heat-transport` has committed summary/array baselines and the native direct tokamak path matches them exactly on `Pe`;
-     - the next concrete deliverable is now either a multi-output `tokamak_heat_transport_short_window` rung or the next broader direct tokamak transport family beyond the current diffusion/heat cases, before returning to harder drift or turbulence cases.
+     - `tokamak_heat_transport_short_window` is now wired as the next staged target on the same family, with manifest/runner/tests in place and the long reference history generation still pending completion;
+     - the next concrete deliverable after that is the next broader direct tokamak transport family beyond the current diffusion/heat cases, most likely `diffusion-conduction`, before returning to harder drift or turbulence cases.
    - Treat the integrated Step 3 production lane as operationally complete for project flow.
    - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
      - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)
