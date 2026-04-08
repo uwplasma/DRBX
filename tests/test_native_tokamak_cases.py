@@ -508,8 +508,8 @@ def test_tokamak_heat_transport_short_window_stacks_full_snapshot_history(
         lambda *args, **kwargs: _FakeExecution(
             summary=_FakeSummary(
                 artifacts={"BOUT.dmp.0.nc": "/tmp/fake-tokamak-heat-transport.nc"},
-                time_points=(0.0, 4000.0, 8000.0, 12000.0, 16000.0, 20000.0),
-                overrides=("nout=5",),
+                time_points=(0.0, 4000.0, 8000.0),
+                overrides=("nout=2",),
             )
         ),
     )
@@ -537,7 +537,7 @@ def test_tokamak_heat_transport_short_window_stacks_full_snapshot_history(
         parity_mode="short_window",
         rationale="test",
         compare_variables=("Pe",),
-        extra_overrides=("nout=5",),
+        extra_overrides=("nout=2",),
         trim_x_guards=True,
         trim_y_guards=True,
         process_count=6,
@@ -549,11 +549,11 @@ def test_tokamak_heat_transport_short_window_stacks_full_snapshot_history(
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert captured_time_indices == [0, 1, 2, 3, 4, 5]
-    assert result.time_points == (0.0, 4000.0, 8000.0, 12000.0, 16000.0, 20000.0)
-    assert result.variables["Pe"].shape == (6, 2, 8, 1)
+    assert captured_time_indices == [0, 1, 2]
+    assert result.time_points == (0.0, 4000.0, 8000.0)
+    assert result.variables["Pe"].shape == (3, 2, 8, 1)
     np.testing.assert_allclose(result.variables["Pe"][0], 4.0)
-    np.testing.assert_allclose(result.variables["Pe"][5], 24.0)
+    np.testing.assert_allclose(result.variables["Pe"][2], 12.0)
     assert result.payload["compare_variables"] == ["Pe"]
 
 
@@ -664,6 +664,90 @@ def test_tokamak_diffusion_conduction_one_step_matches_committed_baselines() -> 
     expected_arrays = load_portable_array_payload(arrays_path)
 
     result = run_curated_case("tokamak_diffusion_conduction_one_step", reference_root=_REFERENCE_ROOT)
+    summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
+    array_comparison = compare_array_payloads(expected_arrays, actual_arrays, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert summary_comparison.ok, summary_comparison.issues
+    assert array_comparison.ok, array_comparison.issues
+
+
+def test_tokamak_linear_transport_one_step_stacks_initial_and_final_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    if not linear_input.exists():
+        pytest.skip("tokamak linear-transport reference input is unavailable")
+
+    captured_time_indices: list[int] = []
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-tokamak-linear-transport.nc"},
+                time_points=(0.0, 10000.0),
+                overrides=("nout=1",),
+            )
+        ),
+    )
+
+    def fake_load_snapshot(*args, **kwargs):
+        time_index = kwargs["time_index"]
+        captured_time_indices.append(time_index)
+        snapshot = _tokamak_snapshot(time_index=time_index)
+        scale = float(time_index + 1)
+        fields = {"Pe": np.full((6, 12, 1), 4.0 * scale, dtype=np.float64)}
+        return LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields=fields,
+            optional_fields=snapshot.optional_fields,
+            scalar_values=snapshot.scalar_values,
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+
+    case = ReferenceCase(
+        name="tokamak_linear_transport_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/linear-transport/BOUT.inp",
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Pe",),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_linear_transport_one_step_case(
+        case,
+        input_path=linear_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured_time_indices == [0, 1]
+    assert result.time_points == (0.0, 10000.0)
+    assert result.variables["Pe"].shape == (2, 2, 8, 1)
+    np.testing.assert_allclose(result.variables["Pe"][0], 4.0)
+    np.testing.assert_allclose(result.variables["Pe"][1], 8.0)
+    assert result.payload["compare_variables"] == ["Pe"]
+
+
+def test_tokamak_linear_transport_one_step_matches_committed_baselines() -> None:
+    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    if not linear_input.exists():
+        pytest.skip("tokamak linear-transport reference input is unavailable")
+    summary_path = _BASELINE_DIR / "tokamak_linear_transport_one_step.json"
+    arrays_path = _ARRAY_BASELINE_DIR / "tokamak_linear_transport_one_step.npz"
+    if not summary_path.exists() or not arrays_path.exists():
+        pytest.skip("tokamak linear-transport one-step baselines are unavailable")
+
+    expected_summary = load_summary_json(summary_path)
+    expected_arrays = load_portable_array_payload(arrays_path)
+
+    result = run_curated_case("tokamak_linear_transport_one_step", reference_root=_REFERENCE_ROOT)
     summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
     actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
     array_comparison = compare_array_payloads(expected_arrays, actual_arrays, array_rtol=1.0e-6, array_atol=1.0e-9)

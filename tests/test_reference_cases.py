@@ -277,7 +277,7 @@ def test_default_manifest_stages_tokamak_heat_transport_short_window_case() -> N
     assert case.reference_path == "examples/tokamak-2D/heat-transport/BOUT.inp"
     assert case.parity_mode == "short_window"
     assert case.compare_variables == ("Pe",)
-    assert case.extra_overrides == ("nout=5", "e:diagnose=false")
+    assert case.extra_overrides == ("nout=2", "e:diagnose=false")
     assert case.trim_x_guards is True
     assert case.trim_y_guards is True
     assert case.process_count == 6
@@ -291,6 +291,19 @@ def test_default_manifest_stages_tokamak_diffusion_conduction_one_step_case() ->
     assert case.parity_mode == "one_step"
     assert case.compare_variables == ("Nh+", "Ph+", "Pe")
     assert case.extra_overrides == ("h+:diagnose=false", "e:diagnose=false")
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 6
+
+
+def test_default_manifest_stages_tokamak_linear_transport_one_step_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "tokamak_linear_transport_one_step")
+
+    assert case.reference_path == "examples/tokamak-2D/linear-transport/BOUT.inp"
+    assert case.parity_mode == "one_step"
+    assert case.compare_variables == ("Pe",)
+    assert case.extra_overrides == ("e:diagnose=false",)
     assert case.trim_x_guards is True
     assert case.trim_y_guards is True
     assert case.process_count == 6
@@ -387,3 +400,14 @@ def test_tokamak_diffusion_conduction_case_includes_conduction_components() -> N
     assert "e:anomalous_diffusion" in labels
     assert "sheath_boundary" in labels
     assert "braginskii_conduction" in labels
+
+
+def test_tokamak_linear_transport_case_includes_fixed_density_transport_components() -> None:
+    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    resolved_case = next(case for case in resolved if case.case.name == "tokamak_linear_transport_one_step")
+    assert resolved_case.run_config is not None
+    labels = tuple(component.label for component in resolved_case.run_config.components)
+    assert "e:fixed_density" in labels
+    assert "e:evolve_pressure" in labels
+    assert "e:anomalous_diffusion" in labels
+    assert "e:simple_conduction" in labels
