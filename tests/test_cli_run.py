@@ -92,13 +92,17 @@ function = { ref = "Nh:function" }
 bndry_all = "neumann"
 """
 
-_DIFFUSION_TOML_INPUT = """
+_DIFFUSION_TOML_CONFIGURED_RUN = """
 [time]
 nout = 2
 timestep = 5.0
 
 [runtime]
 precision = "float32"
+
+[runtime.logging]
+verbosity = "detailed"
+quiet = false
 
 [mesh]
 nx = 10
@@ -129,6 +133,13 @@ bndry_all = "neumann"
 [fields.Ph]
 function = { ref = "Nh:function" }
 bndry_all = "neumann"
+
+[output]
+directory = "__OUTPUT_DIR__"
+write_summary = true
+write_arrays = true
+write_restart = true
+write_log = true
 """
 
 
@@ -340,3 +351,59 @@ def test_run_command_accepts_bare_toml_input_and_records_precision(tmp_path: Pat
 
     arrays = load_portable_array_payload(arrays_path)
     assert tuple(sorted(arrays["variables"])) == ("Nh", "Ph")
+
+
+def test_run_command_reads_output_and_logging_from_toml(tmp_path: Path, capsys) -> None:
+    output_dir = tmp_path / "configured_output"
+    input_path = tmp_path / "diffusion_configured.toml"
+    input_path.write_text(_DIFFUSION_TOML_CONFIGURED_RUN.replace("__OUTPUT_DIR__", output_dir.as_posix()), encoding="utf-8")
+
+    exit_code = main([str(input_path)])
+
+    assert exit_code == 0
+    summary_path = output_dir / "diffusion_configured_summary.json"
+    arrays_path = output_dir / "diffusion_configured_arrays.npz"
+    restart_path = output_dir / "diffusion_configured_restart.npz"
+    run_log_path = output_dir / "diffusion_configured_run_log.json"
+    assert summary_path.exists()
+    assert arrays_path.exists()
+    assert restart_path.exists()
+    assert run_log_path.exists()
+
+    captured = capsys.readouterr().out
+    assert "Loaded input configuration" in captured
+    assert "Launching native run" in captured
+    assert "Planned run artifacts" in captured
+    assert "Run Summary" in captured
+
+    run_log = json.loads(run_log_path.read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
+    assert run_log["run_configuration"]["runtime"]["logging"]["verbosity"] == "detailed"
+    assert run_log["run_configuration"]["runtime"]["logging"]["quiet"] is False
+    assert run_log["run_configuration"]["output"]["directory"] == str(output_dir)
+    assert len(run_log["events"]) >= 3
+    assert run_log["events"][0]["stage"] == "configuration"
+
+
+def test_run_command_reads_restart_request_from_toml(tmp_path: Path) -> None:
+    input_path = tmp_path / "diffusion_restartable.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    first_output_dir = tmp_path / "run_first"
+    assert main(["run", str(input_path), "--output-dir", str(first_output_dir), "--quiet"]) == 0
+
+    resume_output_dir = tmp_path / "run_resume_from_toml"
+    resume_restart = first_output_dir / "diffusion_restartable_restart.npz"
+    resume_input = tmp_path / "diffusion_resume.toml"
+    resume_input.write_text(
+        _DIFFUSION_TOML_CONFIGURED_RUN.replace("__OUTPUT_DIR__", resume_output_dir.as_posix())
+        + f'\n[restart]\ninput = "{resume_restart.as_posix()}"\nresume_steps = 2\n',
+        encoding="utf-8",
+    )
+
+    assert main([str(resume_input), "--case-name", "diffusion_resume_from_toml", "--quiet"]) == 0
+
+    resume_log = json.loads((resume_output_dir / "diffusion_resume_from_toml_run_log.json").read_text(encoding="utf-8"))
+    assert resume_log["restart_info"]["loaded_from"] == str(resume_restart)
+    assert resume_log["restart_info"]["requested_additional_steps"] == 2
+    assert resume_log["run_configuration"]["restart_request"]["restart_in"] == str(resume_restart)
+    assert resume_log["run_configuration"]["restart_request"]["resume_steps"] == 2
