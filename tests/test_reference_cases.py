@@ -172,6 +172,7 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     dthe_rhs_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_rhs")
     dthe_one_step_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_one_step")
     dthene_rhs_case = next(case for case in cases if case.name == "tokamak_recycling_dthene_rhs")
+    dthene_one_step_case = next(case for case in cases if case.name == "tokamak_recycling_dthene_one_step")
 
     assert rhs_case.reference_path == "examples/tokamak-2D/recycling/BOUT.inp"
     assert rhs_case.parity_mode == "one_rhs"
@@ -213,6 +214,18 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     assert dthene_rhs_case.parity_mode == "one_rhs"
     assert dthene_rhs_case.process_count == 6
     assert dthene_rhs_case.extra_overrides == (
+        "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+        "json_database_dir={reference_root}/json_database",
+        "he+:diagnose=false",
+        "ne+:diagnose=false",
+        "input:error_on_unused_options=false",
+    )
+
+    assert dthene_one_step_case.reference_path == "examples/tokamak-2D/recycling-dthene/BOUT.inp"
+    assert dthene_one_step_case.parity_mode == "one_step"
+    assert dthene_one_step_case.process_count == 6
+    assert dthene_one_step_case.extra_overrides == (
+        "timestep=0.1",
         "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
         "json_database_dir={reference_root}/json_database",
         "he+:diagnose=false",
