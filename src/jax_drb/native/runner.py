@@ -131,6 +131,7 @@ def _uses_optional_history_cache(case_name: str) -> bool:
     return case_name.startswith("integrated_2d_production") or case_name in {
         "tokamak_recycling_one_step",
         "tokamak_recycling_dthe_one_step",
+        "tokamak_recycling_dthene_one_step",
     }
 
 
@@ -325,6 +326,8 @@ def run_curated_case(
     if case.name == "tokamak_recycling_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthe_one_step":
+        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_recycling_dthene_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
@@ -1148,6 +1151,7 @@ def _run_integrated_2d_recycling_transient_case(
     preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production") or case.name in {
         "tokamak_recycling_one_step",
         "tokamak_recycling_dthe_one_step",
+        "tokamak_recycling_dthene_one_step",
     }
     if _uses_optional_history_cache(case.name):
         history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
@@ -1718,7 +1722,12 @@ def _select_integrated_2d_transient_solver_mode(
     config: BoutConfig,
     parity_mode: str,
 ) -> str:
-    if case_name in {"integrated_2d_production_one_step", "tokamak_recycling_one_step", "tokamak_recycling_dthe_one_step"}:
+    if case_name in {
+        "integrated_2d_production_one_step",
+        "tokamak_recycling_one_step",
+        "tokamak_recycling_dthe_one_step",
+        "tokamak_recycling_dthene_one_step",
+    }:
         return "bdf"
     return _select_recycling_transient_solver_mode(config, parity_mode=parity_mode)
 
