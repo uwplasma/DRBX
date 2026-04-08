@@ -107,17 +107,19 @@ def advance_mms_history(
     timestep: float,
     steps: int,
     substeps: int,
+    initial_state: Fluid1DState | None = None,
+    start_time: float = 0.0,
 ) -> Fluid1DHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
     if substeps <= 0:
         raise ValueError("substeps must be positive")
 
-    state = initialize_mms_state(config, section=section, mesh=mesh)
+    state = initial_state if initial_state is not None else initialize_mms_state(config, section=section, mesh=mesh)
     density_history = [state.density]
     pressure_history = [state.pressure]
     momentum_history = [state.momentum]
-    current_time = 0.0
+    current_time = float(start_time)
     sub_timestep = timestep / float(substeps)
 
     for _ in range(steps):

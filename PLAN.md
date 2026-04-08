@@ -696,6 +696,11 @@ Scope:
   - reproducible parity and physics figures
   - user-facing examples and API/CLI docs
 - complete the journal-grade validation matrix across selected 1D, 2D, and 3D cases
+- keep the user-facing native runtime usable while parity broadens:
+  - `jax-drb run` should write summary JSON, arrays NPZ, restart NPZ, and verbose run-log JSON for supported native inputs;
+  - restart/resume should be demonstrated by a runnable tutorial example rather than only internal tests;
+  - examples should show explicit input-deck construction, CLI invocation, saved artifacts, and Matplotlib postprocessing.
+  - this is now landed for the native-supported diffusion path via [examples/restartable_diffusion_tutorial.py](/Users/rogerio/local/jax_drb/examples/restartable_diffusion_tutorial.py); the remaining work is to widen the same output/restart surface across the broader production cases.
 
 Tests required in this step:
 

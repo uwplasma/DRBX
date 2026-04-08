@@ -5,14 +5,17 @@ from pathlib import Path
 import tempfile
 from typing import Any, Mapping
 
+import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver, apply_bout_overrides, load_bout_input
 from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import make_default_overrides, merge_overrides, run_reference_case
 from ..reference.cases import ReferenceCase
+from ..runtime.output import RestartBundle
 from ..runtime.run_config import RunConfiguration
 from .blob2d import (
+    Blob2DState,
     advance_blob2d_history,
     build_blob2d_benchmark,
     build_blob2d_potential_operator,
@@ -21,6 +24,7 @@ from .blob2d import (
 )
 from .expression import ArrayExpressionEvaluator
 from .drift_wave import (
+    DriftWaveState,
     DriftWaveBenchmark,
     _assemble_density_field,
     _assemble_zero_dirichlet_field,
@@ -40,7 +44,7 @@ from .electromagnetic import (
     invert_slab_neumann_apar_to_current_density,
     solve_slab_neumann_apar,
 )
-from .fluid_1d import advance_mms_history, compute_mms_rhs, initialize_mms_state
+from .fluid_1d import Fluid1DState, advance_mms_history, compute_mms_rhs, initialize_mms_state
 from .metrics import StructuredMetrics, build_structured_metrics
 from .mesh import (
     StructuredMesh,
@@ -68,6 +72,14 @@ class NativeRunResult:
     run_config: RunConfiguration
     mesh: StructuredMesh
     metrics: StructuredMetrics
+
+
+@dataclass(frozen=True)
+class NativeRestartState:
+    time_offset: float
+    completed_steps: int
+    configured_timestep: float
+    variables: Mapping[str, np.ndarray]
 
 
 _REFERENCE_SNAPSHOT_CACHE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_snapshots"
@@ -1320,6 +1332,8 @@ def run_input_case(
     parity_mode: str = "manual",
     compare_variables: tuple[str, ...] = (),
     reference_case: ReferenceCase | None = None,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> NativeRunResult:
     config = load_bout_input(input_path)
     return run_config_case(
@@ -1328,6 +1342,8 @@ def run_input_case(
         parity_mode=parity_mode,
         compare_variables=compare_variables,
         reference_case=reference_case,
+        restart_state=restart_state,
+        output_steps=output_steps,
     )
 
 
@@ -1338,11 +1354,21 @@ def run_config_case(
     parity_mode: str,
     compare_variables: tuple[str, ...] = (),
     reference_case: ReferenceCase | None = None,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> NativeRunResult:
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
-    time_points, variables = _execute_supported_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+    time_points, variables = _execute_supported_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode=parity_mode,
+        restart_state=restart_state,
+        output_steps=output_steps,
+    )
     compare_names = compare_variables or tuple(variables)
     trimmed_variables = _prepare_compare_variables(
         variables,
@@ -1382,6 +1408,8 @@ def _execute_supported_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     implementations = tuple(component.implementation for component in run_config.components)
     if len(run_config.components) == 1 and implementations == ("evolve_density",):
@@ -1393,13 +1421,37 @@ def _execute_supported_case(
         return (0.0,), {variable_name: field[None, ...]}
 
     if _is_supported_diffusion_case(run_config):
-        return _execute_diffusion_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_diffusion_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            restart_state=restart_state,
+            output_steps=output_steps,
+        )
 
     if _is_supported_periodic_fluid_mms_case(config, run_config, mesh, metrics):
-        return _execute_periodic_fluid_mms_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_periodic_fluid_mms_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            restart_state=restart_state,
+            output_steps=output_steps,
+        )
 
     if _is_supported_electrostatic_vorticity_case(config, run_config, mesh, metrics):
-        return _execute_electrostatic_vorticity_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_electrostatic_vorticity_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            restart_state=restart_state,
+            output_steps=output_steps,
+        )
 
     if _is_supported_neutral_mixed_case(run_config):
         return _execute_neutral_mixed_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
@@ -1408,10 +1460,26 @@ def _execute_supported_case(
         return _execute_recycling_1d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     if _is_supported_blob2d_case(config, run_config, mesh, metrics):
-        return _execute_blob2d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_blob2d_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            restart_state=restart_state,
+            output_steps=output_steps,
+        )
 
     if _is_supported_drift_wave_case(config, run_config, mesh, metrics):
-        return _execute_drift_wave_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_drift_wave_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            restart_state=restart_state,
+            output_steps=output_steps,
+        )
 
     raise NotImplementedError(
         "Native execution is not implemented for the configured component set: "
@@ -1426,12 +1494,20 @@ def _execute_diffusion_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     section = run_config.components[0].section
     density_name = f"N{section}"
     pressure_name = f"P{section}"
-    density = _initialize_species_field(config, density_name, mesh)
-    pressure = _initialize_species_field(config, pressure_name, mesh)
+    if restart_state is None:
+        density = _initialize_species_field(config, density_name, mesh)
+        pressure = _initialize_species_field(config, pressure_name, mesh)
+        time_offset = 0.0
+    else:
+        density = np.asarray(restart_state.variables[density_name], dtype=np.float64)
+        pressure = np.asarray(restart_state.variables[pressure_name], dtype=np.float64)
+        time_offset = restart_state.time_offset
     if not np.allclose(np.asarray(density), np.asarray(pressure), rtol=1e-12, atol=1e-12):
         raise NotImplementedError(
             "Native anomalous diffusion currently requires identical density and pressure initial states."
@@ -1452,7 +1528,7 @@ def _execute_diffusion_case(
     if config.has_option(section, "anomalous_nu") and abs(resolver.resolve(section, "anomalous_nu")) > 0.0:
         raise NotImplementedError("Native one-step anomalous diffusion does not yet support anomalous_nu.")
 
-    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    steps = output_steps if output_steps is not None else _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
     history = advance_anomalous_diffusion_history(
         density,
         pressure,
@@ -1464,7 +1540,7 @@ def _execute_diffusion_case(
         timestep=run_config.time.timestep,
         steps=steps,
     )
-    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    time_points = tuple(time_offset + run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {
         density_name: np.asarray(history.density_history, dtype=np.float64),
         pressure_name: np.asarray(history.pressure_history, dtype=np.float64),
@@ -1602,6 +1678,8 @@ def _execute_periodic_fluid_mms_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     section = run_config.components[0].section
     atomic_mass = float(config.parsed(section, "AA"))
@@ -1614,7 +1692,17 @@ def _execute_periodic_fluid_mms_case(
             f"ddt(NV{section})": np.asarray(rhs.momentum[None, ...], dtype=np.float64),
         }
 
-    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    steps = output_steps if output_steps is not None else _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    initial_state = (
+        None
+        if restart_state is None
+        else Fluid1DState(
+            density=jnp.asarray(restart_state.variables[f"N{section}"], dtype=jnp.float64),
+            pressure=jnp.asarray(restart_state.variables[f"P{section}"], dtype=jnp.float64),
+            momentum=jnp.asarray(restart_state.variables[f"NV{section}"], dtype=jnp.float64),
+        )
+    )
+    time_offset = 0.0 if restart_state is None else restart_state.time_offset
     history = advance_mms_history(
         config,
         section=section,
@@ -1624,8 +1712,10 @@ def _execute_periodic_fluid_mms_case(
         timestep=run_config.time.timestep,
         steps=steps,
         substeps=20,
+        initial_state=initial_state,
+        start_time=time_offset,
     )
-    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    time_points = tuple(time_offset + run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {
         f"N{section}": np.asarray(history.density_history, dtype=np.float64),
         f"P{section}": np.asarray(history.pressure_history, dtype=np.float64),
@@ -1640,8 +1730,15 @@ def _execute_electrostatic_vorticity_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
-    initial = apply_vorticity_boundaries(_initialize_species_field(config, "Vort", mesh), mesh)
+    initial = (
+        apply_vorticity_boundaries(_initialize_species_field(config, "Vort", mesh), mesh)
+        if restart_state is None
+        else apply_vorticity_boundaries(np.asarray(restart_state.variables["Vort"], dtype=np.float64), mesh)
+    )
+    time_offset = 0.0 if restart_state is None else restart_state.time_offset
     average_atomic_mass = float(config.parsed("vorticity", "average_atomic_mass")) if config.has_option("vorticity", "average_atomic_mass") else 2.0
     operator = build_vorticity_operator(mesh=mesh, metrics=metrics, average_atomic_mass=average_atomic_mass)
 
@@ -1649,7 +1746,7 @@ def _execute_electrostatic_vorticity_case(
         rhs = compute_vorticity_rhs(initial, mesh=mesh, metrics=metrics, operator=operator)
         return (0.0,), {"ddt(Vort)": np.asarray(rhs.vorticity[None, ...], dtype=np.float64)}
 
-    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    steps = output_steps if output_steps is not None else _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
     history = advance_vorticity_history(
         initial,
         mesh=mesh,
@@ -1657,11 +1754,12 @@ def _execute_electrostatic_vorticity_case(
         operator=operator,
         timestep=run_config.time.timestep,
         steps=steps,
+        start_time=time_offset,
         rtol=1e-6,
         atol=1e-8,
         mxstep=20000,
     )
-    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    time_points = tuple(time_offset + run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {
         "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
         "phi": np.asarray(history.potential_history, dtype=np.float64),
@@ -1787,6 +1885,8 @@ def _execute_drift_wave_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     if parity_mode not in {"one_rhs", "one_step", "short_window"}:
         raise NotImplementedError(
@@ -1799,7 +1899,16 @@ def _execute_drift_wave_case(
         metrics=metrics,
         dataset_scalars=resolved_dataset_scalars(run_config),
     )
-    initial_state = initialize_drift_wave_state(config, mesh=mesh)
+    initial_state = (
+        initialize_drift_wave_state(config, mesh=mesh)
+        if restart_state is None
+        else DriftWaveState(
+            ion_density=np.asarray(restart_state.variables["Ni"], dtype=np.float64)[mesh.xstart, mesh.ystart : mesh.yend + 1, :],
+            electron_momentum=np.asarray(restart_state.variables["NVe"], dtype=np.float64)[mesh.xstart, mesh.ystart : mesh.yend + 1, :],
+            vorticity=np.asarray(restart_state.variables["Vort"], dtype=np.float64)[mesh.xstart, mesh.ystart : mesh.yend + 1, :],
+        )
+    )
+    time_offset = 0.0 if restart_state is None else restart_state.time_offset
 
     if parity_mode == "one_rhs":
         rhs = compute_drift_wave_rhs(initial_state, mesh=mesh, benchmark=benchmark)
@@ -1822,8 +1931,9 @@ def _execute_drift_wave_case(
             timestep=run_config.time.timestep,
             steps=1,
             substeps=10,
+            start_time=time_offset,
         )
-        return (0.0, run_config.time.timestep), {
+        return (time_offset, time_offset + run_config.time.timestep), {
             "Ni": np.asarray(history.ion_density_history, dtype=np.float64),
             "Ne": np.asarray(history.ion_density_history, dtype=np.float64),
             "NVe": np.asarray(history.electron_momentum_history, dtype=np.float64),
@@ -1831,13 +1941,14 @@ def _execute_drift_wave_case(
             "phi": np.asarray(history.potential_history, dtype=np.float64),
         }
 
-    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    steps = output_steps if output_steps is not None else _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
     history = advance_drift_wave_history_adaptive(
         initial_state,
         mesh=mesh,
         benchmark=benchmark,
         timestep=run_config.time.timestep,
         steps=steps,
+        start_time=time_offset,
         rtol=1e-6,
         atol=1e-8,
         max_step=1.0,
@@ -1845,7 +1956,7 @@ def _execute_drift_wave_case(
         include_parallel_transport=False,
         include_phi_dissipation=False,
     )
-    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    time_points = tuple(time_offset + run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {
         "Ni": np.asarray(history.ion_density_history, dtype=np.float64),
         "Ne": np.asarray(history.ion_density_history, dtype=np.float64),
@@ -1862,6 +1973,8 @@ def _execute_blob2d_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    restart_state: NativeRestartState | None = None,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     benchmark = build_blob2d_benchmark(
         config,
@@ -1869,7 +1982,15 @@ def _execute_blob2d_case(
         metrics=metrics,
         dataset_scalars=resolved_dataset_scalars(run_config),
     )
-    initial_state = initialize_blob2d_state(config, mesh=mesh)
+    initial_state = (
+        initialize_blob2d_state(config, mesh=mesh)
+        if restart_state is None
+        else Blob2DState(
+            electron_density=np.asarray(restart_state.variables["Ne"], dtype=np.float64),
+            vorticity=np.asarray(restart_state.variables["Vort"], dtype=np.float64),
+        )
+    )
+    time_offset = 0.0 if restart_state is None else restart_state.time_offset
 
     if parity_mode == "one_rhs":
         rhs = compute_blob2d_rhs(initial_state, mesh=mesh, benchmark=benchmark, operator=None)
@@ -1889,7 +2010,7 @@ def _execute_blob2d_case(
         metrics=metrics,
         average_atomic_mass=NumericResolver(config).resolve("vorticity", "average_atomic_mass"),
     )
-    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    steps = output_steps if output_steps is not None else _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
     substeps = 14 if parity_mode == "short_window" else 10
     history = advance_blob2d_history(
         initial_state,
@@ -1899,8 +2020,9 @@ def _execute_blob2d_case(
         timestep=run_config.time.timestep,
         steps=steps,
         substeps=substeps,
+        start_time=time_offset,
     )
-    return tuple(run_config.time.timestep * index for index in range(steps + 1)), {
+    return tuple(time_offset + run_config.time.timestep * index for index in range(steps + 1)), {
         "Ne": np.asarray(history.electron_density_history, dtype=np.float64),
         "Pe": np.asarray(history.electron_pressure_history, dtype=np.float64),
         "Vort": np.asarray(history.vorticity_history, dtype=np.float64),
@@ -2047,3 +2169,78 @@ def _effective_output_steps(parity_mode: str, *, configured_nout: int) -> int:
     if parity_mode == "one_step":
         return 1
     return configured_nout
+
+
+def restart_variable_names(run_config: RunConfiguration) -> tuple[str, ...]:
+    if _is_supported_diffusion_case(run_config):
+        section = run_config.components[0].section
+        return (f"N{section}", f"P{section}")
+    if _is_supported_periodic_fluid_mms_case_placeholder(run_config):
+        section = run_config.components[0].section
+        return (f"N{section}", f"P{section}", f"NV{section}")
+    if _is_supported_electrostatic_vorticity_case_placeholder(run_config):
+        return ("Vort",)
+    if _is_supported_blob2d_case_placeholder(run_config):
+        return ("Ne", "Vort")
+    if _is_supported_drift_wave_case_placeholder(run_config):
+        return ("Ni", "NVe", "Vort")
+    return ()
+
+
+def build_restart_state(
+    result: NativeRunResult,
+    *,
+    parity_mode: str,
+) -> RestartBundle | None:
+    names = restart_variable_names(result.run_config)
+    if not names:
+        return None
+    final_state = {
+        name: np.asarray(result.variables[name][-1], dtype=np.float64)
+        for name in names
+        if name in result.variables
+    }
+    if tuple(final_state) != names:
+        return None
+    return RestartBundle(
+        case_name=str(result.payload.get("case_name", "run")),
+        parity_mode=parity_mode,
+        component_labels=tuple(request.label for request in result.run_config.components),
+        current_time=float(result.time_points[-1]) if result.time_points else 0.0,
+        completed_steps=max(len(result.time_points) - 1, 0),
+        configured_timestep=float(result.run_config.time.timestep),
+        state_variables=final_state,
+    )
+
+
+def _is_supported_periodic_fluid_mms_case_placeholder(run_config: RunConfiguration) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    return implementations == ("evolve_density", "evolve_pressure", "evolve_momentum")
+
+
+def _is_supported_electrostatic_vorticity_case_placeholder(run_config: RunConfiguration) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    return implementations == ("vorticity",)
+
+
+def _is_supported_blob2d_case_placeholder(run_config: RunConfiguration) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    return implementations == ("evolve_density", "isothermal", "vorticity", "sheath_closure")
+
+
+def _is_supported_drift_wave_case_placeholder(run_config: RunConfiguration) -> bool:
+    implementations = tuple(component.implementation for component in run_config.components)
+    expected = (
+        "evolve_density",
+        "fixed_velocity",
+        "fixed_temperature",
+        "quasineutral",
+        "evolve_momentum",
+        "fixed_temperature",
+        "vorticity",
+        "sound_speed",
+        "braginskii_collisions",
+        "braginskii_friction",
+        "braginskii_heat_exchange",
+    )
+    return implementations == expected
