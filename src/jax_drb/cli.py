@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from typing import Any
 
 from .config.boutinp import load_bout_input
 from .reference.cases import resolve_reference_cases
@@ -341,6 +342,7 @@ def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
     config = load_bout_input(args.input_file)
+    run_config = RunConfiguration.from_config(config)
     resolved_precision = resolve_runtime_precision(requested=args.precision, config=config)
     cache_dir = configure_jax_runtime(precision=resolved_precision)
     import jax
@@ -349,39 +351,100 @@ def _run_command(args: argparse.Namespace) -> int:
     from .parity.arrays import build_portable_array_payload, write_portable_array_payload
     from .parity.portable import write_portable_summary_payload
     from .runtime import build_run_log_payload, load_restart_bundle, print_run_log, write_restart_bundle, write_run_log_payload
+    from .runtime.output import build_run_event, print_run_event
 
-    output_dir = args.output_dir
-    case_name = args.case_name or args.input_file.stem
+    command_started_at = time.perf_counter()
+    output_dir = args.output_dir or _config_path(config, "output", "directory")
+    case_name = args.case_name or _config_string(config, "output", "case_name") or args.input_file.stem
+    restart_in = args.restart_in or _config_path(config, "restart", "input")
+    resume_steps = args.resume_steps if args.resume_steps is not None else _config_int(config, "restart", "resume_steps")
+    logging_quiet = _config_bool(config, "runtime:logging", "quiet", default=False)
+    logging_verbosity = _config_string(config, "runtime:logging", "verbosity") or "summary"
+    emit_terminal_log = not args.quiet and not logging_quiet
+    write_summary = _config_bool(config, "output", "write_summary", default=True)
+    write_arrays = _config_bool(config, "output", "write_arrays", default=True)
+    write_restart = _config_bool(config, "output", "write_restart", default=True)
+    write_log = _config_bool(config, "output", "write_log", default=True)
+    if args.json_out is None:
+        args.json_out = _config_path(config, "output", "summary_json")
+    if args.arrays_out is None:
+        args.arrays_out = _config_path(config, "output", "arrays_npz")
+    if args.restart_out is None:
+        args.restart_out = _config_path(config, "output", "restart_npz")
+    if args.log_out is None:
+        args.log_out = _config_path(config, "output", "run_log_json")
+    events: list[dict[str, Any]] = []
+
+    def record_event(stage: str, message: str, **details: Any) -> None:
+        event = build_run_event(
+            stage=stage,
+            message=message,
+            elapsed_seconds=time.perf_counter() - command_started_at,
+            details=details or None,
+        )
+        events.append(event)
+        if emit_terminal_log:
+            print_run_event(event)
+
+    record_event(
+        "configuration",
+        "Loaded input configuration",
+        input_file=args.input_file,
+        case_name=case_name,
+        precision=resolved_precision,
+        nout=run_config.time.nout,
+        timestep=run_config.time.timestep,
+        output_dir=output_dir if output_dir is not None else "(none)",
+        verbosity=logging_verbosity,
+    )
     restart_state = None
-    if args.restart_in is not None:
-        bundle = load_restart_bundle(args.restart_in)
+    bundle = None
+    if restart_in is not None:
+        bundle = load_restart_bundle(restart_in)
         restart_state = NativeRestartState(
             time_offset=bundle.current_time,
             completed_steps=bundle.completed_steps,
             configured_timestep=bundle.configured_timestep,
             variables=bundle.state_variables,
         )
+        record_event(
+            "restart",
+            "Loaded restart bundle",
+            restart_in=restart_in,
+            current_time=bundle.current_time,
+            completed_steps=bundle.completed_steps,
+            variables=",".join(sorted(bundle.state_variables)),
+            requested_resume_steps=resume_steps if resume_steps is not None else "(default)",
+        )
 
     started_at = time.perf_counter()
+    record_event("run", "Launching native run", mode="run", restart=restart_state is not None)
     result = run_input_case(
         args.input_file,
         case_name=case_name,
         parity_mode="run",
         restart_state=restart_state,
-        output_steps=args.resume_steps,
+        output_steps=resume_steps,
     )
     elapsed_seconds = time.perf_counter() - started_at
+    record_event(
+        "run",
+        "Native run completed",
+        elapsed_seconds=f"{elapsed_seconds:.3f}",
+        stored_states=len(result.time_points),
+        compare_variables=",".join(result.variables),
+    )
 
     output_paths: dict[str, str] = {}
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        if args.json_out is None:
+        if args.json_out is None and write_summary:
             args.json_out = output_dir / f"{case_name}_summary.json"
-        if args.arrays_out is None:
+        if args.arrays_out is None and write_arrays:
             args.arrays_out = output_dir / f"{case_name}_arrays.npz"
-        if args.restart_out is None:
+        if args.restart_out is None and write_restart:
             args.restart_out = output_dir / f"{case_name}_restart.npz"
-        if args.log_out is None:
+        if args.log_out is None and write_log:
             args.log_out = output_dir / f"{case_name}_run_log.json"
 
     if args.json_out is not None:
@@ -412,6 +475,11 @@ def _run_command(args: argparse.Namespace) -> int:
     elif args.restart_out is not None and restart_bundle is None:
         output_paths["restart_npz"] = "(unsupported for this component set)"
 
+    if args.log_out is not None:
+        output_paths["run_log_json"] = str(args.log_out)
+    if output_paths:
+        record_event("artifacts", "Planned run artifacts", **output_paths)
+
     log_payload = build_run_log_payload(
         input_file=args.input_file,
         case_name=case_name,
@@ -424,26 +492,33 @@ def _run_command(args: argparse.Namespace) -> int:
         outputs=output_paths,
         variable_summaries=result.payload.get("variable_summaries", {}),
         run_configuration=_serialize_run_configuration(
-            result.run_config,
+            run_config,
             precision=resolved_precision,
             backend=jax.default_backend(),
             device=str(jax.devices()[0]) if jax.devices() else None,
             cache_dir=cache_dir,
             elapsed_seconds=elapsed_seconds,
+            output_directory=output_dir,
+            logging_verbosity=logging_verbosity,
+            logging_quiet=emit_terminal_log is False,
+            restart_in=restart_in,
+            resume_steps=resume_steps,
         ),
         restart_info=_serialize_restart_info(
-            restart_in=args.restart_in,
-            loaded_bundle=bundle if args.restart_in is not None else None,
-            requested_additional_steps=args.resume_steps,
+            restart_in=restart_in,
+            loaded_bundle=bundle if restart_in is not None else None,
+            requested_additional_steps=resume_steps,
             saved_bundle=restart_bundle,
         ),
+        events=tuple(events),
     )
     if args.log_out is not None:
         path = write_run_log_payload(log_payload, args.log_out)
         output_paths["run_log_json"] = str(path)
         log_payload["outputs"] = output_paths
+        log_payload["events"] = list(events)
 
-    if not args.quiet:
+    if emit_terminal_log:
         print_run_log(log_payload)
     return 0
 
@@ -456,6 +531,11 @@ def _serialize_run_configuration(
     device: str | None = None,
     cache_dir: Path | None = None,
     elapsed_seconds: float | None = None,
+    output_directory: Path | None = None,
+    logging_verbosity: str | None = None,
+    logging_quiet: bool | None = None,
+    restart_in: Path | None = None,
+    resume_steps: int | None = None,
 ) -> dict[str, object]:
     return {
         "time": {
@@ -485,6 +565,17 @@ def _serialize_run_configuration(
             "device": device,
             "compilation_cache_dir": None if cache_dir is None else str(cache_dir),
             "elapsed_seconds": elapsed_seconds,
+            "logging": {
+                "verbosity": logging_verbosity,
+                "quiet": logging_quiet,
+            },
+        },
+        "output": {
+            "directory": None if output_directory is None else str(output_directory),
+        },
+        "restart_request": {
+            "restart_in": None if restart_in is None else str(restart_in),
+            "resume_steps": resume_steps,
         },
         "components": [request.label for request in run_config.components],
         "root_scalars": dict(run_config.root_scalars),
@@ -517,6 +608,38 @@ def _serialize_restart_info(
 def _default_reference_root() -> Path | None:
     value = os.environ.get("JAX_DRB_REFERENCE_ROOT")
     return Path(value) if value else None
+
+
+def _config_value(config, section: str, key: str, default: Any = None) -> Any:
+    if config.has_option(section, key):
+        return config.parsed(section, key)
+    return default
+
+
+def _config_string(config, section: str, key: str, default: str | None = None) -> str | None:
+    value = _config_value(config, section, key, default)
+    if value is None:
+        return None
+    return str(value)
+
+
+def _config_int(config, section: str, key: str, default: int | None = None) -> int | None:
+    value = _config_value(config, section, key, default)
+    if value is None:
+        return None
+    return int(value)
+
+
+def _config_bool(config, section: str, key: str, default: bool = False) -> bool:
+    value = _config_value(config, section, key, default)
+    return bool(value)
+
+
+def _config_path(config, section: str, key: str) -> Path | None:
+    value = _config_value(config, section, key)
+    if value in (None, ""):
+        return None
+    return Path(str(value))
 
 
 def _default_reference_binary() -> Path | None:

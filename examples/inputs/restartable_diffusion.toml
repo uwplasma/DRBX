@@ -5,6 +5,10 @@ timestep = 5.0
 [runtime]
 precision = "float64"
 
+[runtime.logging]
+verbosity = "detailed"
+quiet = false
+
 [mesh]
 nx = 16
 ny = 24
@@ -16,6 +20,13 @@ J = 1
 
 [solver]
 mxstep = 1000
+
+[output]
+directory = "output/restartable_diffusion"
+write_summary = true
+write_arrays = true
+write_restart = true
+write_log = true
 
 [model]
 components = ["h"]
