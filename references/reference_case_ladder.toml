@@ -525,6 +525,22 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_turbulence_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/turbulence/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First direct tokamak turbulence rung on the electrostatic drift stack after the isothermal case."
+compare_variables = ["Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort"]
+extra_overrides = [
+  "timestep=0.1",
+  "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+  "input:error_on_unused_options=false",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_recycling_dthe_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"
