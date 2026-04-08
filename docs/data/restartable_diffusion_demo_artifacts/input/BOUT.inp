@@ -1,0 +1,34 @@
+nout = 3
+timestep = 5
+
+[mesh]
+nx = 16
+ny = 24
+nz = 1
+
+dx = 0.0075 + 0.005*x
+dy = 0.01
+dz = 0.01
+
+J = 1
+
+[solver]
+mxstep = 1000
+
+[model]
+components = h
+
+[h]
+type = evolve_density, evolve_pressure, anomalous_diffusion
+AA = 1
+charge = 1
+anomalous_D = 2
+thermal_conduction = false
+
+[Nh]
+function = 1 + H(x - 0.25) * H(0.75-x) * exp(-(y-π)^2)
+bndry_all = neumann
+
+[Ph]
+function = Nh:function
+bndry_all = neumann

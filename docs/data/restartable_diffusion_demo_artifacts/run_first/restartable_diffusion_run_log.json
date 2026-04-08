@@ -1,0 +1,113 @@
+{
+  "case_name": "restartable_diffusion",
+  "compare_variables": [
+    "Nh",
+    "Ph"
+  ],
+  "component_labels": [
+    "h:evolve_density",
+    "h:evolve_pressure",
+    "h:anomalous_diffusion"
+  ],
+  "dimensions": {
+    "t": 4,
+    "x": 16,
+    "y": 28,
+    "z": 1
+  },
+  "input_file": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/input/BOUT.inp",
+  "outputs": {
+    "arrays_npz": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_arrays.npz",
+    "restart_npz": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_restart.npz",
+    "summary_json": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_summary.json"
+  },
+  "parity_mode": "run",
+  "restart_info": {
+    "saved_completed_steps": 3,
+    "saved_current_time": 15.0,
+    "saved_state_variables": [
+      "Nh",
+      "Ph"
+    ]
+  },
+  "restart_supported": true,
+  "run_configuration": {
+    "components": [
+      "h:evolve_density",
+      "h:evolve_pressure",
+      "h:anomalous_diffusion"
+    ],
+    "mesh": {
+      "file": null,
+      "mxg": 2,
+      "myg": 2,
+      "nx": 16,
+      "ny": 24,
+      "nz": 1,
+      "parallel_transform": "identity"
+    },
+    "model_scalars": {},
+    "root_scalars": {
+      "nout": 3.0,
+      "timestep": 5.0
+    },
+    "solver": {
+      "atol": null,
+      "cvode_max_order": null,
+      "mxstep": 1000,
+      "rtol": null,
+      "type": null,
+      "use_precon": null
+    },
+    "time": {
+      "nout": 3,
+      "timestep": 5.0
+    }
+  },
+  "time_points": [
+    0.0,
+    5.0,
+    10.0,
+    15.0
+  ],
+  "variable_summaries": {
+    "Nh": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.004093432414379539,
+      "maximum": 1.9830112347436453,
+      "mean": 1.0906905648749607,
+      "minimum": 1.0,
+      "name": "Nh",
+      "shape": [
+        4,
+        16,
+        28,
+        1
+      ]
+    },
+    "Ph": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.004093432414379539,
+      "maximum": 1.9830112347436453,
+      "mean": 1.0906905648749607,
+      "minimum": 1.0,
+      "name": "Ph",
+      "shape": [
+        4,
+        16,
+        28,
+        1
+      ]
+    }
+  }
+}
