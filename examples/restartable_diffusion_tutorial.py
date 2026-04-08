@@ -29,6 +29,8 @@ class RestartableDiffusionSettings:
     timestep: float
     first_nout: int
     resume_nout: int
+    precision: str
+    cli_precision_override: str | None
     diffusion_coefficient: float
     dx_expression: str
     dy_expression: str
@@ -48,19 +50,30 @@ def parse_args() -> argparse.Namespace:
     repo_root = _repo_root()
     parser = argparse.ArgumentParser(
         description=(
-            "Tutorial-style restartable diffusion example. It writes a BOUT-style input file, "
+            "Tutorial-style restartable diffusion example. It writes a TOML input file, "
             "runs jax_drb, saves summary/arrays/restart/log outputs, resumes from the restart bundle, "
             "and renders Matplotlib QA plots from the saved .npz results."
         )
     )
     parser.add_argument("--case-name", default="restartable_diffusion")
-    parser.add_argument("--output-root", type=Path, default=repo_root / "docs" / "restartable_diffusion_demo")
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=repo_root / "docs" / "data" / "restartable_diffusion_demo_artifacts",
+    )
     parser.add_argument("--nx", type=int, default=16)
     parser.add_argument("--ny", type=int, default=24)
     parser.add_argument("--nz", type=int, default=1)
     parser.add_argument("--timestep", type=float, default=5.0)
     parser.add_argument("--first-nout", type=int, default=3)
     parser.add_argument("--resume-nout", type=int, default=2)
+    parser.add_argument("--precision", choices=("float32", "float64"), default="float64")
+    parser.add_argument(
+        "--cli-precision-override",
+        choices=("float32", "float64"),
+        default=None,
+        help="Override the input-file precision with the explicit jax_drb --precision flag.",
+    )
     parser.add_argument("--diffusion-coefficient", type=float, default=2.0)
     parser.add_argument("--fps", type=int, default=4)
     parser.add_argument("--skip-movie", action="store_true")
@@ -78,6 +91,8 @@ def build_settings(args: argparse.Namespace) -> RestartableDiffusionSettings:
         timestep=args.timestep,
         first_nout=args.first_nout,
         resume_nout=args.resume_nout,
+        precision=args.precision,
+        cli_precision_override=args.cli_precision_override,
         diffusion_coefficient=args.diffusion_coefficient,
         dx_expression="0.0075 + 0.005*x",
         dy_expression="0.01",
@@ -106,15 +121,19 @@ def print_mapping(settings: RestartableDiffusionSettings, mapping: Mapping[str, 
 
 def build_input_text(settings: RestartableDiffusionSettings) -> str:
     return f"""
+[time]
 nout = {settings.first_nout}
 timestep = {settings.timestep:g}
+
+[runtime]
+precision = "{settings.precision}"
 
 [mesh]
 nx = {settings.nx}
 ny = {settings.ny}
 nz = {settings.nz}
 
-dx = {settings.dx_expression}
+dx = {{ expr = "{settings.dx_expression}" }}
 dy = {settings.dy_expression}
 dz = {settings.dz_expression}
 
@@ -124,31 +143,53 @@ J = 1
 mxstep = 1000
 
 [model]
-components = h
+components = ["h"]
 
-[h]
-type = evolve_density, evolve_pressure, anomalous_diffusion
+[species.h]
+type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
 AA = 1
 charge = 1
 anomalous_D = {settings.diffusion_coefficient:g}
 thermal_conduction = false
 
-[Nh]
-function = {settings.density_function}
-bndry_all = neumann
+[fields.Nh]
+function = {{ expr = "{settings.density_function}" }}
+bndry_all = "neumann"
 
-[Ph]
-function = {settings.pressure_function}
-bndry_all = neumann
+[fields.Ph]
+function = {{ ref = "{settings.pressure_function}" }}
+bndry_all = "neumann"
 """.strip() + "\n"
 
 
 def write_input_file(settings: RestartableDiffusionSettings) -> Path:
     input_dir = settings.output_root / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
-    input_path = input_dir / "BOUT.inp"
+    input_path = input_dir / "input.toml"
     input_path.write_text(build_input_text(settings), encoding="utf-8")
     return input_path
+
+
+def build_run_argv(
+    settings: RestartableDiffusionSettings,
+    *,
+    input_path: Path,
+    case_name: str,
+    output_dir: Path,
+    restart_in: Path | None = None,
+    resume_steps: int | None = None,
+    quiet: bool | None = None,
+) -> list[str]:
+    argv = [str(input_path), "--case-name", case_name, "--output-dir", str(output_dir)]
+    if settings.cli_precision_override is not None:
+        argv.extend(["--precision", settings.cli_precision_override])
+    if restart_in is not None:
+        argv.extend(["--restart-in", str(restart_in)])
+    if resume_steps is not None:
+        argv.extend(["--resume-steps", str(resume_steps)])
+    if quiet if quiet is not None else settings.quiet:
+        argv.append("--quiet")
+    return argv
 
 
 def run_segment(
@@ -161,13 +202,16 @@ def run_segment(
     resume_steps: int | None = None,
     quiet: bool | None = None,
 ) -> None:
-    argv = ["run", str(input_path), "--case-name", case_name, "--output-dir", str(output_dir)]
-    if restart_in is not None:
-        argv.extend(["--restart-in", str(restart_in)])
-    if resume_steps is not None:
-        argv.extend(["--resume-steps", str(resume_steps)])
-    if quiet if quiet is not None else settings.quiet:
-        argv.append("--quiet")
+    argv = build_run_argv(
+        settings,
+        input_path=input_path,
+        case_name=case_name,
+        output_dir=output_dir,
+        restart_in=restart_in,
+        resume_steps=resume_steps,
+        quiet=quiet,
+    )
+    print_mapping(settings, {"cli_argv": "jax_drb " + " ".join(argv)})
     exit_code = cli_main(argv)
     if exit_code != 0:
         raise RuntimeError(f"jax_drb run failed for {case_name} with exit code {exit_code}")
@@ -250,6 +294,8 @@ def write_analysis_json(
     )
     payload = {
         "case_name": settings.case_name,
+        "configured_precision": settings.precision,
+        "cli_precision_override": settings.cli_precision_override,
         "restart_case_name": restart_bundle.case_name,
         "first_segment_completed_steps": restart_bundle.completed_steps,
         "restart_current_time": restart_bundle.current_time,
@@ -418,6 +464,7 @@ def main() -> int:
             "output_root": settings.output_root,
             "mesh": f"{settings.nx} x {settings.ny} x {settings.nz}",
             "timestep": settings.timestep,
+            "precision": settings.precision,
             "first_nout": settings.first_nout,
             "resume_nout": settings.resume_nout,
             "anomalous_D": settings.diffusion_coefficient,
