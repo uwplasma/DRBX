@@ -245,6 +245,25 @@ def test_tokamak_recycling_rhs_matches_array_baseline() -> None:
     assert comparison.ok, comparison.issues
 
 
+def test_tokamak_recycling_dthe_rhs_matches_summary_baseline() -> None:
+    expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_dthe_rhs.json")
+    actual = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_REFERENCE_ROOT).payload
+
+    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+
+    assert comparison.ok, comparison.issues
+
+
+def test_tokamak_recycling_dthe_rhs_matches_array_baseline() -> None:
+    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthe_rhs.npz")
+    result = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_REFERENCE_ROOT)
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert comparison.ok, comparison.issues
+
+
 def test_recycling_dthe_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_dthe_rhs.json")
     actual = run_curated_case("recycling_dthe_rhs", reference_root=_REFERENCE_ROOT).payload

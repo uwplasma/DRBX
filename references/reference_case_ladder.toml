@@ -384,6 +384,22 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_recycling_dthe_rhs"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Initial direct 2D tokamak recycling RHS parity on the multi-species divertor stack before the first output step."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"]
+extra_overrides = [
+  "mesh:file={reference_root}/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+  "he+:diagnose=false",
+  "input:error_on_unused_options=false",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_diffusion_flow_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp"
@@ -401,8 +417,15 @@ reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"
 parity_mode = "one_step"
 rationale = "First-output 2D tokamak recycling parity on the multi-species divertor stack before longer geometric transients."
 compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"]
+extra_overrides = [
+  "timestep=0.1",
+  "mesh:file={reference_root}/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+  "he+:diagnose=false",
+  "input:error_on_unused_options=false",
+]
 trim_x_guards = true
 trim_y_guards = true
+process_count = 6
 
 [[case]]
 name = "blob2d_rhs"
