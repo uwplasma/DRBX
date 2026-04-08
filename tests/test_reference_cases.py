@@ -246,6 +246,18 @@ def test_default_manifest_stages_tokamak_diffusion_transport_short_window_case()
     assert case.process_count == 6
 
 
+def test_default_manifest_stages_tokamak_heat_transport_one_step_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "tokamak_heat_transport_one_step")
+
+    assert case.reference_path == "examples/tokamak-2D/heat-transport/BOUT.inp"
+    assert case.parity_mode == "one_step"
+    assert case.compare_variables == ("Pe",)
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 6
+
+
 def test_tokamak_diffusion_flow_case_includes_momentum_and_anomalous_diffusion_components() -> None:
     resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
     resolved_case = next(case for case in resolved if case.case.name == "tokamak_diffusion_flow_one_step")
@@ -285,3 +297,17 @@ def test_tokamak_diffusion_transport_short_window_case_includes_coupled_transpor
     assert "e:evolve_pressure" in labels
     assert "e:zero_current" in labels
     assert "e:anomalous_diffusion" in labels
+
+
+def test_tokamak_heat_transport_case_includes_heat_transport_components() -> None:
+    resolved = resolve_reference_cases(Path("/Users/rogerio/local/hermes-3"))
+    resolved_case = next(case for case in resolved if case.case.name == "tokamak_heat_transport_one_step")
+    assert resolved_case.run_config is not None
+    labels = tuple(component.label for component in resolved_case.run_config.components)
+    assert "e:fixed_density" in labels
+    assert "e:evolve_pressure" in labels
+    assert "e:anomalous_diffusion" in labels
+    assert "h+:quasineutral" in labels
+    assert "h+:set_temperature" in labels
+    assert "sheath_boundary_simple" in labels
+    assert "braginskii_conduction" in labels
