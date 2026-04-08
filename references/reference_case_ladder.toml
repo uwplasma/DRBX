@@ -434,6 +434,17 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_heat_transport_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/heat-transport/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First direct tokamak electron-pressure transport rung on the shared geometry lane, isolating sheath-connected heat transport before adding more tokamak drift physics."
+compare_variables = ["Pe"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_recycling_dthe_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"
