@@ -256,6 +256,30 @@ def test_prepare_workdir_extracts_required_bundle_artifacts(tmp_path: Path) -> N
     assert not (workdir / "unused.txt").exists()
 
 
+def test_prepare_workdir_stages_shared_json_database_directory(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source" / "examples" / "tokamak-2D" / "recycling-dthene"
+    source_dir.mkdir(parents=True)
+    input_path = source_dir / "BOUT.inp"
+    input_path.write_text("nout = 0\n", encoding="utf-8")
+    json_database = tmp_path / "source" / "json_database"
+    json_database.mkdir()
+    (json_database / "scd96_ne.json").write_text("{\"mock\": true}\n", encoding="utf-8")
+
+    case = ReferenceCase(
+        name="tokamak_recycling_dthene_rhs",
+        stage="stage8",
+        reference_path="examples/tokamak-2D/recycling-dthene/BOUT.inp",
+        parity_mode="one_rhs",
+        rationale="Tokamak multispecies recycling with neon.",
+        process_count=6,
+    )
+
+    workdir = _prepare_workdir(case, input_path, workdir=tmp_path / "run")
+
+    assert (workdir / "json_database").is_symlink()
+    assert (workdir / "json_database" / "scd96_ne.json").read_text(encoding="utf-8") == "{\"mock\": true}\n"
+
+
 def test_prepare_workdir_rejects_artifact_bundle_hash_mismatch(tmp_path: Path) -> None:
     source_dir = tmp_path / "source" / "tests" / "integrated" / "2D-recycling" / "data"
     source_dir.mkdir(parents=True)

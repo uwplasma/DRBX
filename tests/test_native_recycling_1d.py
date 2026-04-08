@@ -34,6 +34,8 @@ from jax_drb.native.recycling_1d import (
     _initialize_species,
     _hydrogen_cx_sigmav,
     _load_amjuel_rate,
+    _load_openadas_rate,
+    _eval_openadas_rate,
     _neutral_ionisation_collision_rates,
     _prepare_open_field_states,
     _reaction_sources,
@@ -74,6 +76,26 @@ def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
     assert helium_rec_energy_coeffs.shape == (9, 9)
     assert np.isfinite(hydrogen_iz_heating)
     assert np.isfinite(helium_rec_heating)
+
+
+def test_openadas_neon_rate_tables_are_packaged_for_recycling_branch() -> None:
+    ionisation_coeffs, radiation_coeffs, log_temperature, log_density, electron_heating = _load_openadas_rate("ne", "iz")
+
+    assert ionisation_coeffs.shape == (30, 24)
+    assert radiation_coeffs.shape == (30, 24)
+    assert log_temperature.shape == (30,)
+    assert log_density.shape == (24,)
+    assert electron_heating < 0.0
+
+    evaluated = _eval_openadas_rate(
+        np.full((2, 2, 1), 5.0, dtype=np.float64),
+        np.full((2, 2, 1), 2.0e18, dtype=np.float64),
+        ionisation_coeffs,
+        log_temperature=log_temperature,
+        log_density=log_density,
+    )
+    assert np.all(np.isfinite(evaluated))
+    assert np.all(evaluated > 0.0)
 
 
 def test_electron_pressure_rhs_terms_sum_to_total() -> None:
@@ -257,6 +279,25 @@ def test_tokamak_recycling_dthe_rhs_matches_summary_baseline() -> None:
 def test_tokamak_recycling_dthe_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthe_rhs.npz")
     result = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_REFERENCE_ROOT)
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+
+    comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert comparison.ok, comparison.issues
+
+
+def test_tokamak_recycling_dthene_rhs_matches_summary_baseline() -> None:
+    expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_dthene_rhs.json")
+    actual = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_REFERENCE_ROOT).payload
+
+    comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+
+    assert comparison.ok, comparison.issues
+
+
+def test_tokamak_recycling_dthene_rhs_matches_array_baseline() -> None:
+    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthene_rhs.npz")
+    result = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_REFERENCE_ROOT)
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
