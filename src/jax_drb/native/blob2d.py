@@ -178,11 +178,13 @@ def advance_blob2d_history(
     timestep: float,
     steps: int,
     substeps: int,
+    start_time: float = 0.0,
 ) -> Blob2DHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
     if substeps <= 0:
         raise ValueError("substeps must be positive")
+    del start_time
 
     state = Blob2DState(
         electron_density=jnp.asarray(apply_zero_dirichlet_x_guards(initial_state.electron_density, mesh), dtype=jnp.float64),

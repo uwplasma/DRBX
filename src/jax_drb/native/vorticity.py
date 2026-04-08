@@ -192,6 +192,7 @@ def advance_vorticity_history(
     operator: VorticityOperator,
     timestep: float,
     steps: int,
+    start_time: float = 0.0,
     rtol: float = 1e-6,
     atol: float = 1e-8,
     mxstep: int = 20000,
@@ -200,7 +201,7 @@ def advance_vorticity_history(
         raise ValueError("steps must be non-negative")
 
     y0 = jnp.ravel(jnp.asarray(initial_vorticity[mesh.xstart : mesh.xend + 1, mesh.ystart, :], dtype=jnp.float64))
-    times = jnp.asarray([timestep * index for index in range(steps + 1)], dtype=jnp.float64)
+    times = jnp.asarray([start_time + timestep * index for index in range(steps + 1)], dtype=jnp.float64)
 
     def rhs_flat(interior_state: jnp.ndarray, time: jnp.ndarray) -> jnp.ndarray:
         del time

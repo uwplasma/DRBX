@@ -230,9 +230,18 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_neutral_mixed_parser.add_argument("--plot-out", type=Path, default=None)
     compare_neutral_mixed_parser.set_defaults(command=_compare_neutral_mixed_command)
 
-    run_parser = subparsers.add_parser("run", help="Prepare a run plan. Full time integration is not implemented yet.")
+    run_parser = subparsers.add_parser("run", help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
+    run_parser.add_argument("--case-name", type=str, default=None, help="Optional case label for output metadata.")
+    run_parser.add_argument("--output-dir", type=Path, default=None, help="Write standard run artifacts into this directory.")
+    run_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary JSON.")
+    run_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the portable array NPZ.")
+    run_parser.add_argument("--restart-out", type=Path, default=None, help="Write the restart NPZ bundle.")
+    run_parser.add_argument("--log-out", type=Path, default=None, help="Write a verbose run log JSON.")
+    run_parser.add_argument("--restart-in", type=Path, default=None, help="Resume from a previously written restart NPZ bundle.")
+    run_parser.add_argument("--resume-steps", type=int, default=None, help="Additional output intervals to run after loading --restart-in.")
+    run_parser.add_argument("--quiet", action="store_true", help="Suppress the pretty terminal run summary.")
     run_parser.set_defaults(command=_run_command)
 
     parser.set_defaults(command=_default_command)
@@ -300,8 +309,150 @@ def _reference_cases_command(args: argparse.Namespace) -> int:
 def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
-    print("Transient execution is not implemented yet. Use --dry-run for configuration parity checks.")
-    return 1
+    from .native import run_input_case
+    from .native.runner import NativeRestartState, build_restart_state
+    from .parity.arrays import build_portable_array_payload, write_portable_array_payload
+    from .parity.portable import write_portable_summary_payload
+    from .runtime import build_run_log_payload, format_run_log_text, load_restart_bundle, write_restart_bundle, write_run_log_payload
+
+    output_dir = args.output_dir
+    case_name = args.case_name or args.input_file.stem
+    restart_state = None
+    if args.restart_in is not None:
+        bundle = load_restart_bundle(args.restart_in)
+        restart_state = NativeRestartState(
+            time_offset=bundle.current_time,
+            completed_steps=bundle.completed_steps,
+            configured_timestep=bundle.configured_timestep,
+            variables=bundle.state_variables,
+        )
+
+    result = run_input_case(
+        args.input_file,
+        case_name=case_name,
+        parity_mode="run",
+        restart_state=restart_state,
+        output_steps=args.resume_steps,
+    )
+
+    output_paths: dict[str, str] = {}
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if args.json_out is None:
+            args.json_out = output_dir / f"{case_name}_summary.json"
+        if args.arrays_out is None:
+            args.arrays_out = output_dir / f"{case_name}_arrays.npz"
+        if args.restart_out is None:
+            args.restart_out = output_dir / f"{case_name}_restart.npz"
+        if args.log_out is None:
+            args.log_out = output_dir / f"{case_name}_run_log.json"
+
+    if args.json_out is not None:
+        path = write_portable_summary_payload(result.payload, args.json_out)
+        output_paths["summary_json"] = str(path)
+    if args.arrays_out is not None:
+        array_payload = build_portable_array_payload(
+            case_name=str(result.payload["case_name"]),
+            parity_mode=str(result.payload["parity_mode"]),
+            compare_variables=tuple(str(name) for name in result.variables),
+            component_labels=tuple(result.payload.get("component_labels", [])),
+            dimensions=result.payload.get("dimensions", {}),
+            time_points=tuple(float(value) for value in result.time_points),
+            dataset_scalars=result.payload.get("dataset_scalars", {}),
+            variables=result.variables,
+            overrides=tuple(result.payload.get("overrides", [])),
+            configured_nout=result.payload.get("configured_nout"),
+            configured_timestep=result.payload.get("configured_timestep"),
+            producer=str(result.payload.get("producer", "jax-drb")),
+        )
+        path = write_portable_array_payload(array_payload, args.arrays_out)
+        output_paths["arrays_npz"] = str(path)
+
+    restart_bundle = build_restart_state(result, parity_mode="run")
+    if args.restart_out is not None and restart_bundle is not None:
+        path = write_restart_bundle(restart_bundle, args.restart_out)
+        output_paths["restart_npz"] = str(path)
+    elif args.restart_out is not None and restart_bundle is None:
+        output_paths["restart_npz"] = "(unsupported for this component set)"
+
+    log_payload = build_run_log_payload(
+        input_file=args.input_file,
+        case_name=case_name,
+        parity_mode="run",
+        component_labels=tuple(result.payload.get("component_labels", [])),
+        time_points=tuple(float(value) for value in result.time_points),
+        dimensions=result.payload.get("dimensions", {}),
+        compare_variables=tuple(result.payload.get("compare_variables", [])),
+        restart_supported=restart_bundle is not None,
+        outputs=output_paths,
+        variable_summaries=result.payload.get("variable_summaries", {}),
+        run_configuration=_serialize_run_configuration(result.run_config),
+        restart_info=_serialize_restart_info(
+            restart_in=args.restart_in,
+            loaded_bundle=bundle if args.restart_in is not None else None,
+            requested_additional_steps=args.resume_steps,
+            saved_bundle=restart_bundle,
+        ),
+    )
+    if args.log_out is not None:
+        path = write_run_log_payload(log_payload, args.log_out)
+        output_paths["run_log_json"] = str(path)
+        log_payload["outputs"] = output_paths
+
+    if not args.quiet:
+        print(format_run_log_text(log_payload))
+    return 0
+
+
+def _serialize_run_configuration(run_config: RunConfiguration) -> dict[str, object]:
+    return {
+        "time": {
+            "nout": run_config.time.nout,
+            "timestep": run_config.time.timestep,
+        },
+        "mesh": {
+            "nx": run_config.mesh.nx,
+            "ny": run_config.mesh.ny,
+            "nz": run_config.mesh.nz,
+            "mxg": run_config.mesh.mxg,
+            "myg": run_config.mesh.myg,
+            "file": run_config.mesh.file,
+            "parallel_transform": run_config.mesh.parallel_transform.type,
+        },
+        "solver": {
+            "type": run_config.solver.type,
+            "mxstep": run_config.solver.mxstep,
+            "rtol": run_config.solver.rtol,
+            "atol": run_config.solver.atol,
+            "use_precon": run_config.solver.use_precon,
+            "cvode_max_order": run_config.solver.cvode_max_order,
+        },
+        "components": [request.label for request in run_config.components],
+        "root_scalars": dict(run_config.root_scalars),
+        "model_scalars": dict(run_config.model_scalars),
+    }
+
+
+def _serialize_restart_info(
+    *,
+    restart_in: Path | None,
+    loaded_bundle,
+    requested_additional_steps: int | None,
+    saved_bundle,
+) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if restart_in is not None and loaded_bundle is not None:
+        payload["loaded_from"] = str(restart_in)
+        payload["start_time"] = loaded_bundle.current_time
+        payload["input_completed_steps"] = loaded_bundle.completed_steps
+        payload["loaded_state_variables"] = sorted(loaded_bundle.state_variables)
+    if requested_additional_steps is not None:
+        payload["requested_additional_steps"] = requested_additional_steps
+    if saved_bundle is not None:
+        payload["saved_completed_steps"] = saved_bundle.completed_steps
+        payload["saved_current_time"] = saved_bundle.current_time
+        payload["saved_state_variables"] = sorted(saved_bundle.state_variables)
+    return payload
 
 
 def _default_reference_root() -> Path | None:

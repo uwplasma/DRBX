@@ -237,6 +237,7 @@ def advance_drift_wave_history(
     timestep: float,
     steps: int,
     substeps: int,
+    start_time: float = 0.0,
     include_parallel_transport: bool = False,
     include_phi_dissipation: bool = False,
 ) -> DriftWaveHistoryResult:
@@ -244,6 +245,7 @@ def advance_drift_wave_history(
         raise ValueError("steps must be non-negative")
     if substeps <= 0:
         raise ValueError("substeps must be positive")
+    del start_time
 
     state = initial_state
     density_history = [_assemble_density_field(state.ion_density, benchmark=benchmark, mesh=mesh)]
@@ -287,6 +289,7 @@ def advance_drift_wave_history_adaptive(
     benchmark: DriftWaveBenchmark,
     timestep: float,
     steps: int,
+    start_time: float = 0.0,
     rtol: float = 1.0e-6,
     atol: float = 1.0e-8,
     max_step: float | None = None,
@@ -299,10 +302,10 @@ def advance_drift_wave_history_adaptive(
     if timestep <= 0.0 and steps > 0:
         raise ValueError("timestep must be positive when steps > 0")
 
-    target_times = np.asarray([timestep * index for index in range(steps + 1)], dtype=np.float64)
+    target_times = np.asarray([start_time + timestep * index for index in range(steps + 1)], dtype=np.float64)
     state_shape = initial_state.ion_density.shape
     state_flat = _flatten_state(initial_state)
-    current_time = 0.0
+    current_time = float(start_time)
     step_size = float(initial_step if initial_step is not None else min(timestep, 1.0))
     max_step_size = float(max_step if max_step is not None else timestep)
 
