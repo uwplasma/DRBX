@@ -11,6 +11,14 @@ PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
   --reference-root /Users/rogerio/local/hermes-3
 ```
 
+To regenerate plots and movies from an existing `.npz` payload without rerunning the case:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
+  --arrays-in docs/data/alfven_wave_short_window_native.npz \
+  --output-root docs
+```
+
 By default this writes:
 
 - [analysis JSON](/Users/rogerio/local/jax_drb/docs/data/alfven_wave_meeting_analysis.json)
@@ -37,3 +45,4 @@ By default this writes:
 - It runs quickly enough to regenerate during a meeting-prep pass.
 - The same transient supports both benchmark-grade diagnostics and readable 2D/3D visualizations.
 - The committed short-window ladder already has exact summary and array parity on the current native scaffold.
+- The example is intentionally tutorial-style: setup, run/load, `.npz` saving, payload summaries, plotting, and artifact reporting are separate functions users can copy and customize.
