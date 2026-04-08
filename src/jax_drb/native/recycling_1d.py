@@ -154,6 +154,11 @@ _AMJUEL_FILENAMES = {
     ("he", "rec"): "rec_AMJUEL_H.x_2.3.13a.json",
 }
 
+_OPENADAS_FILENAMES = {
+    ("ne", "iz"): ("scd96_ne.json", "plt96_ne.json", 0, -21.56),
+    ("ne", "rec"): ("acd96_ne.json", "prb96_ne.json", 0, 21.56),
+}
+
 
 def compute_recycling_1d_rhs(
     config: BoutConfig,
@@ -2350,9 +2355,21 @@ def _amjuel_ionisation(
         species["e"].density_floor,
     )
     atom_temperature = _safe_temperature(atom.pressure, atom.density, atom.density_floor)
-    sigma_v, sigma_v_E, electron_heating = _load_amjuel_rate(atom_name, "iz")
-    rate = _amjuel_reaction_rate(atom.density, electron_density, electron_temperature, sigma_v, dataset_scalars)
-    radiation = _amjuel_energy_loss(atom.density, electron_density, electron_temperature, sigma_v_E, electron_heating, rate, dataset_scalars)
+    if (atom_name, "iz") in _OPENADAS_FILENAMES:
+        rate = _openadas_reaction_rate(atom.density, electron_density, electron_temperature, atom_name, "iz", dataset_scalars)
+        radiation = _openadas_energy_loss(
+            atom.density,
+            electron_density,
+            electron_temperature,
+            atom_name,
+            "iz",
+            reaction_rate=rate,
+            dataset_scalars=dataset_scalars,
+        )
+    else:
+        sigma_v, sigma_v_E, electron_heating = _load_amjuel_rate(atom_name, "iz")
+        rate = _amjuel_reaction_rate(atom.density, electron_density, electron_temperature, sigma_v, dataset_scalars)
+        radiation = _amjuel_energy_loss(atom.density, electron_density, electron_temperature, sigma_v_E, electron_heating, rate, dataset_scalars)
 
     density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
@@ -2393,9 +2410,21 @@ def _amjuel_recombination(
         species["e"].density_floor,
     )
     ion_temperature = _safe_temperature(ion.pressure, ion.density, ion.density_floor)
-    sigma_v, sigma_v_E, electron_heating = _load_amjuel_rate(atom_name, "rec")
-    rate = _amjuel_reaction_rate(ion.density, electron_density, electron_temperature, sigma_v, dataset_scalars)
-    radiation = _amjuel_energy_loss(ion.density, electron_density, electron_temperature, sigma_v_E, electron_heating, rate, dataset_scalars)
+    if (atom_name, "rec") in _OPENADAS_FILENAMES:
+        rate = _openadas_reaction_rate(ion.density, electron_density, electron_temperature, atom_name, "rec", dataset_scalars)
+        radiation = _openadas_energy_loss(
+            ion.density,
+            electron_density,
+            electron_temperature,
+            atom_name,
+            "rec",
+            reaction_rate=rate,
+            dataset_scalars=dataset_scalars,
+        )
+    else:
+        sigma_v, sigma_v_E, electron_heating = _load_amjuel_rate(atom_name, "rec")
+        rate = _amjuel_reaction_rate(ion.density, electron_density, electron_temperature, sigma_v, dataset_scalars)
+        radiation = _amjuel_energy_loss(ion.density, electron_density, electron_temperature, sigma_v_E, electron_heating, rate, dataset_scalars)
 
     density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
@@ -2575,6 +2604,58 @@ def _amjuel_energy_loss(
     return energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * reaction_rate
 
 
+def _openadas_reaction_rate(
+    heavy_density: np.ndarray,
+    electron_density: np.ndarray,
+    electron_temperature: np.ndarray,
+    species_name: str,
+    reaction_kind: str,
+    dataset_scalars: dict[str, float],
+) -> np.ndarray:
+    rate_coeff, _, log_temperature, log_density, electron_heating = _load_openadas_rate(species_name, reaction_kind)
+    rate = _eval_openadas_rate(
+        np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
+        np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
+        rate_coeff,
+        log_temperature=log_temperature,
+        log_density=log_density,
+    )
+    return (
+        np.maximum(np.asarray(heavy_density, dtype=np.float64), 0.0)
+        * np.maximum(np.asarray(electron_density, dtype=np.float64), 0.0)
+        * rate
+        * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
+    )
+
+
+def _openadas_energy_loss(
+    heavy_density: np.ndarray,
+    electron_density: np.ndarray,
+    electron_temperature: np.ndarray,
+    species_name: str,
+    reaction_kind: str,
+    *,
+    reaction_rate: np.ndarray,
+    dataset_scalars: dict[str, float],
+) -> np.ndarray:
+    _, radiation_coeff, log_temperature, log_density, electron_heating = _load_openadas_rate(species_name, reaction_kind)
+    energy_loss_coeff = _eval_openadas_rate(
+        np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
+        np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
+        radiation_coeff,
+        log_temperature=log_temperature,
+        log_density=log_density,
+    )
+    energy_loss = (
+        np.maximum(np.asarray(heavy_density, dtype=np.float64), 0.0)
+        * np.maximum(np.asarray(electron_density, dtype=np.float64), 0.0)
+        * energy_loss_coeff
+        * dataset_scalars["Nnorm"]
+        / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+    )
+    return energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * reaction_rate
+
+
 @lru_cache(maxsize=None)
 def _load_amjuel_rate(species_name: str, reaction_kind: str) -> tuple[np.ndarray, np.ndarray, float]:
     filename = _AMJUEL_FILENAMES[(species_name, reaction_kind)]
@@ -2583,6 +2664,25 @@ def _load_amjuel_rate(species_name: str, reaction_kind: str) -> tuple[np.ndarray
         np.asarray(payload["sigma_v_coeffs"], dtype=np.float64),
         np.asarray(payload["sigma_v_E_coeffs"], dtype=np.float64),
         float(payload["electron_heating"]),
+    )
+
+
+@lru_cache(maxsize=None)
+def _load_openadas_rate(
+    species_name: str,
+    reaction_kind: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+    rate_filename, radiation_filename, level, electron_heating = _OPENADAS_FILENAMES[(species_name, reaction_kind)]
+    rate_payload = json.loads(resources.files("jax_drb.data.atomic_rates").joinpath(rate_filename).read_text(encoding="utf-8"))
+    radiation_payload = json.loads(resources.files("jax_drb.data.atomic_rates").joinpath(radiation_filename).read_text(encoding="utf-8"))
+    log_temperature = np.asarray(rate_payload["log_temperature"], dtype=np.float64)
+    log_density = np.asarray(rate_payload["log_density"], dtype=np.float64)
+    return (
+        np.asarray(rate_payload["log_coeff"][level], dtype=np.float64),
+        np.asarray(radiation_payload["log_coeff"][level], dtype=np.float64),
+        log_temperature,
+        log_density,
+        float(electron_heating),
     )
 
 
@@ -2600,6 +2700,41 @@ def _eval_amjuel_fit(temperature_ev: np.ndarray, density_m3: np.ndarray, coeffs:
             logn_power = logn_power * logn
         logt_power = logt_power * logt
     return np.exp(result) * 1.0e-6
+
+
+def _eval_openadas_rate(
+    temperature_ev: np.ndarray,
+    density_m3: np.ndarray,
+    coeffs: np.ndarray,
+    *,
+    log_temperature: np.ndarray,
+    log_density: np.ndarray,
+) -> np.ndarray:
+    temperature = np.asarray(temperature_ev, dtype=np.float64)
+    density = np.asarray(density_m3, dtype=np.float64)
+    tmin = 10.0 ** float(log_temperature[0])
+    tmax = 10.0 ** float(log_temperature[-1])
+    nmin = 10.0 ** float(log_density[0])
+    nmax = 10.0 ** float(log_density[-1])
+
+    log10_t = np.log10(np.clip(temperature, tmin, tmax))
+    log10_n = np.log10(np.clip(density, nmin, nmax))
+
+    high_t = np.searchsorted(log_temperature, log10_t, side="left")
+    high_t = np.clip(high_t, 1, log_temperature.size - 1)
+    low_t = high_t - 1
+    high_n = np.searchsorted(log_density, log10_n, side="left")
+    high_n = np.clip(high_n, 1, log_density.size - 1)
+    low_n = high_n - 1
+
+    x = (log10_t - log_temperature[low_t]) / (log_temperature[high_t] - log_temperature[low_t])
+    y = (log10_n - log_density[low_n]) / (log_density[high_n] - log_density[low_n])
+
+    eval_log_coeff = (
+        (coeffs[low_t, low_n] * (1.0 - y) + coeffs[low_t, high_n] * y) * (1.0 - x)
+        + (coeffs[high_t, low_n] * (1.0 - y) + coeffs[high_t, high_n] * y) * x
+    )
+    return np.power(10.0, eval_log_coeff)
 
 
 def _hydrogen_cx_sigmav(teff_ev: np.ndarray, dataset_scalars: dict[str, float]) -> np.ndarray:
