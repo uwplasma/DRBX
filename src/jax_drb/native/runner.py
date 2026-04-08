@@ -94,6 +94,31 @@ def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
     return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_optional_history.npz"
 
 
+def _tokamak_snapshot_cache_path(case_name: str) -> Path:
+    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
+
+
+def _tokamak_field_history_cache_path(case_name: str) -> Path:
+    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_field_history.npz"
+
+
+def _uses_tokamak_snapshot_cache(case_name: str) -> bool:
+    return case_name in {
+        "tokamak_diffusion_flow_one_step",
+        "tokamak_diffusion_one_step",
+        "tokamak_diffusion_transport_one_step",
+        "tokamak_diffusion_transport_short_window",
+        "tokamak_heat_transport_one_step",
+        "tokamak_heat_transport_short_window",
+        "tokamak_diffusion_conduction_one_step",
+        "tokamak_linear_transport_one_step",
+    }
+
+
+def _uses_tokamak_field_history_cache(case_name: str) -> bool:
+    return _uses_tokamak_snapshot_cache(case_name)
+
+
 def _uses_snapshot_cache(case_name: str) -> bool:
     return case_name.startswith("integrated_2d_production") or case_name in {
         "tokamak_recycling_rhs",
@@ -756,41 +781,63 @@ def _run_tokamak_dump_case(
     config = _load_curated_case_config(case, input_path)
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
+    snapshot_cache_path = _tokamak_snapshot_cache_path(case.name)
+    history_cache_path = _tokamak_field_history_cache_path(case.name)
     snapshots: list[Any] = []
-    with tempfile.TemporaryDirectory(prefix="jaxdrb-native-tokamak-") as workdir:
-        execution = run_reference_case(
-            case.name,
-            reference_root=reference_root,
-            workdir=workdir,
-            keep_workdir=True,
+    execution = None
+    if _uses_tokamak_snapshot_cache(case.name) and _uses_tokamak_field_history_cache(case.name) and snapshot_cache_path.exists() and history_cache_path.exists():
+        snapshot = load_local_reference_snapshot_cache(
+            snapshot_cache_path,
+            field_names=(),
+            optional_field_names=(),
+            scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
         )
-        dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        history = load_optional_field_history_cache(history_cache_path, field_names=field_names)
+        if not history:
+            raise ValueError(f"Tokamak field-history cache {history_cache_path} does not contain requested fields {field_names!r}")
         resolved_time_indices = (
-            tuple(range(len(execution.summary.time_points))) if time_indices is None else time_indices
+            tuple(range(next(iter(history.values())).shape[0])) if time_indices is None else time_indices
         )
-        for time_index in resolved_time_indices:
-            snapshots.append(
-                load_local_reference_snapshot(
-                    dump_path,
-                    field_names=field_names,
-                    optional_field_names=(),
-                    scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
-                    time_index=time_index,
-                )
+        variables = {
+            name: np.asarray(history[name][resolved_time_indices, ...], dtype=np.float64)
+            for name in field_names
+        }
+        time_points = tuple(float(index) * float(run_config.time.timestep) for index in resolved_time_indices)
+    else:
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-native-tokamak-") as workdir:
+            execution = run_reference_case(
+                case.name,
+                reference_root=reference_root,
+                workdir=workdir,
+                keep_workdir=True,
             )
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            resolved_time_indices = (
+                tuple(range(len(execution.summary.time_points))) if time_indices is None else time_indices
+            )
+            for time_index in resolved_time_indices:
+                snapshots.append(
+                    load_local_reference_snapshot(
+                        dump_path,
+                        field_names=field_names,
+                        optional_field_names=(),
+                        scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+                        time_index=time_index,
+                    )
+                )
+        snapshot = snapshots[0]
+        variables = {
+            name: np.stack([np.asarray(item.fields[name], dtype=np.float64) for item in snapshots], axis=0)
+            for name in field_names
+        }
+        time_points = tuple(execution.summary.time_points[index] for index in resolved_time_indices)
 
-    snapshot = snapshots[0]
-    variables = {
-        name: np.stack([np.asarray(item.fields[name], dtype=np.float64) for item in snapshots], axis=0)
-        for name in field_names
-    }
     trimmed_variables = _prepare_compare_variables(
         variables,
         snapshot.mesh,
         trim_x_guards=case.trim_x_guards,
         trim_y_guards=case.trim_y_guards,
     )
-    time_points = tuple(execution.summary.time_points[index] for index in resolved_time_indices)
     payload = build_portable_summary_payload(
         case_name=case.name,
         parity_mode=case.parity_mode,
@@ -800,7 +847,7 @@ def _run_tokamak_dump_case(
         time_points=time_points,
         dataset_scalars=snapshot.scalar_values or dataset_scalars,
         variables=_select_payload_variables(trimmed_variables, compare_variables=case.compare_variables),
-        overrides=execution.summary.overrides,
+        overrides=execution.summary.overrides if execution is not None else _effective_overrides(case.parity_mode, reference_case=case),
         configured_nout=run_config.time.nout,
         configured_timestep=run_config.time.timestep,
         producer="jax-drb",
