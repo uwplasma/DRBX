@@ -291,6 +291,103 @@ The remaining work should now proceed in this order:
 - Output, restart, diagnostics, CLI, Python API, docs, and examples are complete enough for external users.
 - The benchmark and convergence campaign can be rerun from versioned scripts and committed artifacts.
 
+### Publication-Grade Readiness
+
+For the intended public claim against the private reference implementation, "ship-ready" is necessary but not sufficient. A publication-grade `jax_drb` should satisfy all of the following:
+
+- The supported capability matrix is broad enough to be scientifically interesting on its own:
+  - open-field and tokamak geometry
+  - electrostatic and reduced electromagnetic benchmark ladders
+  - Bohm/simple sheath boundary conditions
+  - neutrals and recycling on selected divertor workflows
+  - hot-ion and cold-ion reduced workflows where the reference supports them
+  - Boussinesq / non-Boussinesq coverage stated explicitly, with only the supported surfaces claimed
+- The codebase is maintainable by researchers and graduate students:
+  - examples are tutorial-like rather than opaque wrappers
+  - restart/output/plotting/movie generation are part of the standard workflow
+  - runtime configuration is explicit, typed, and documented
+  - new solvers and physics slices can be added without bypassing the parity harness
+- The paper evidence is layered rather than anecdotal:
+  - unit tests for low-level operators and semantics
+  - regression tests for curated summary/array baselines
+  - physics tests and benchmark diagnostics
+  - convergence studies on selected ladders
+  - reviewer-facing figures and tables regenerated from versioned scripts
+
+### Distance To Publication-Grade Standalone Status
+
+Current estimate:
+
+- curated, benchmarked, regression-locked parity: roughly `70-80%`
+- broad standalone code ready for a strong public claim: roughly `45-60%`
+
+This means the project is already beyond the "prototype" stage, but not yet at the point where a broad public claim would be technically honest without caveats.
+
+### Remaining Workstreams Before A Strong Public Claim
+
+1. Direct tokamak widening and hardening.
+   - Keep expanding the exact direct tokamak ladder from the current diffusion/transport/conduction/linear/recycling set.
+   - Add committed caches so exact direct tokamak parity no longer depends on repeated live reference launches.
+   - Promote the current operational recycling transients toward tighter locked parity where that is practical.
+
+2. Integrated/open-field residual closure.
+   - Finish the remaining open-field transient defect.
+   - Close the non-orthogonal anomalous-diffusion gap on the integrated production lane.
+   - Keep broader integrated production windows as calibration surfaces, but close the ones that matter for public evidence.
+
+3. Electromagnetic widening beyond the benchmark ladder.
+   - Keep the current exact benchmark-first EM workflow.
+   - Add the next reduced tokamak EM ladders only where exact or tightly controlled parity is maintainable.
+   - Avoid making a broad EM claim from benchmark-only coverage.
+
+4. Validation and convergence campaign.
+   - Build a reviewer-facing matrix of:
+     - exact parity cases
+     - operational-band cases
+     - benchmark metrics
+     - convergence figures
+   - Ensure every figure in the paper can be regenerated from committed scripts and saved artifacts.
+
+5. Research-user surfaces.
+   - Keep the CLI/TOML/restart/output path stable.
+   - Add more example decks and tutorial scripts showing:
+     - setup
+     - runtime control
+     - restart
+     - output analysis
+     - 2D/3D plotting and movies
+   - Keep public APIs and solver extension points explicit enough for future physics additions.
+
+### Estimated Iterations Remaining
+
+Best current estimate, assuming focused iterations that each land with tests/docs/commits:
+
+- To reach "strong, defensible parity on selected core workflows suitable for a paper":
+  - about `10-15` good iterations
+- To reach "broad standalone code ready for a strong public claim against the private reference":
+  - about `20-35` good iterations
+
+Those iterations are not all equal. The highest-value ones are the ones that reduce uncertainty in the capability matrix, not the ones that only polish already-good ladders.
+
+### Main Critical Path
+
+The main critical path should stay:
+
+1. widen exact direct tokamak support efficiently;
+2. reduce reference rerun cost with committed caches and deterministic artifacts;
+3. close the remaining open-field / integrated production residuals that would weaken a public claim;
+4. widen EM only where exact parity remains possible;
+5. finish the reviewer-facing convergence and validation package.
+
+### What Should Not Happen
+
+To stay publication-focused, avoid:
+
+- spending many iterations on cases that are known to stall or have poor cost/signal ratio before a safer curated rung exists;
+- broad refactors that do not improve parity, validation, maintainability, or user-facing runtime quality;
+- making capability claims ahead of the current test and benchmark surface;
+- adding new physics branches before the base research-grade matrix is stable enough to carry them.
+
 ## 5. Target Architecture
 
 The clean JAX implementation should be built around the reference execution model, not around the old archived code.
