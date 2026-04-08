@@ -25,9 +25,12 @@ The native CLI accepts the original BOUT-style `.inp` files and now also accepts
 
 - `[time]`
 - `[runtime]`
+- `[runtime.logging]`
 - `[mesh]`
 - `[solver]`
 - `[model]`
+- `[output]`
+- `[restart]`
 - `[species.<name>]`
 - `[fields.<name>]`
 
@@ -58,6 +61,17 @@ Precision can be chosen in the input file:
 ```toml
 [runtime]
 precision = "float64"
+
+[runtime.logging]
+verbosity = "detailed"
+quiet = false
+
+[output]
+directory = "output/my_case"
+write_summary = true
+write_arrays = true
+write_restart = true
+write_log = true
 ```
 
 or overridden at the terminal:
@@ -98,36 +112,64 @@ Example:
 
 ```bash
 jax_drb examples/inputs/restartable_diffusion.toml \
-  --output-dir /tmp/jax_drb_run
+  --precision float32
+```
+
+If the deck includes an `[output]` section, the bare `jax_drb input.toml` form is enough. CLI flags still override the deck when you need an ad hoc run location. A typical deck-controlled output block is:
+
+```toml
+[output]
+directory = "output/restartable_diffusion"
+write_summary = true
+write_arrays = true
+write_restart = true
+write_log = true
 ```
 
 This writes:
 
-- `/tmp/jax_drb_run/<case>_summary.json`
-- `/tmp/jax_drb_run/<case>_arrays.npz`
-- `/tmp/jax_drb_run/<case>_restart.npz`
-- `/tmp/jax_drb_run/<case>_run_log.json`
+- `<output-dir>/<case>_summary.json`
+- `<output-dir>/<case>_arrays.npz`
+- `<output-dir>/<case>_restart.npz`
+- `<output-dir>/<case>_run_log.json`
 
-The terminal summary is rich-formatted when `rich` is available and falls back to plain text otherwise. Both versions report the same core metadata:
+The terminal output is rich-formatted when `rich` is available and falls back to plain text otherwise. It now has two layers:
+
+- event-style run messages while the simulation is being configured, restarted, launched, and written out
+- the final run summary table
+
+Both versions report the same core metadata:
 
 - input file
 - case name
 - runtime precision
+- runtime backend/device/cache
 - time/mesh/solver settings
 - scheduled components
 - compare variables
 - restart provenance
 - output artifact paths
+- variable min/max/mean/delta summaries
+
+The verbose run-log JSON now also stores the ordered event stream, so a downstream plotting or workflow script can reconstruct what happened during the run.
 
 ## Restart / Resume
 
-To resume from a saved restart bundle:
+To resume from a saved restart bundle from the CLI:
 
 ```bash
 jax_drb input.toml \
   --output-dir /tmp/jax_drb_run_resume \
   --restart-in /tmp/jax_drb_run/<case>_restart.npz \
   --resume-steps 2
+```
+
+The same workflow can also be encoded in the deck:
+
+```toml
+[restart]
+input = "output/restartable_diffusion/restartable_diffusion_restart.npz"
+resume_steps = 2
 ```
 
 The runnable tutorial for the full flow is:
