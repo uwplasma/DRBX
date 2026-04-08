@@ -62,6 +62,10 @@ The script writes:
 - `images/<case>_restart_consistency.png`
 - `images/<case>_density_surface.png`
 - `movies/<case>_density.gif`
+
+A QA-checked example output package from a local run is currently staged under:
+
+- [docs/data/restartable_diffusion_demo_artifacts](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts)
 - `images/<case>_density_surface.png`
 - `movies/<case>_density.gif`
 

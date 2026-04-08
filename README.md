@@ -114,6 +114,10 @@ Run the explicit restart tutorial example with input generation, saved artifacts
 PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py
 ```
 
+The current QA-checked tutorial output package lives in:
+
+- [docs/data/restartable_diffusion_demo_artifacts](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts)
+
 Generate the compact neutral short-window benchmark report and figure:
 
 ```bash
