@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
+from ..runtime import runtime_jax_dtype
 from ..runtime.run_config import RunConfiguration
 
 
@@ -53,6 +50,7 @@ class StructuredMesh:
         return self.ny + 2 * self.myg
 
     def expression_context(self, *, time: float = 0.0) -> dict[str, jnp.ndarray]:
+        dtype = runtime_jax_dtype()
         x3 = self.x[:, None, None]
         y3 = self.y[None, :, None]
         z3 = self.z[None, None, :]
@@ -60,7 +58,7 @@ class StructuredMesh:
             "x": x3,
             "y": 2.0 * jnp.pi * y3,
             "z": 2.0 * jnp.pi * z3,
-            "t": jnp.array(time, dtype=jnp.float64),
+            "t": jnp.array(time, dtype=dtype),
         }
 
 
@@ -92,7 +90,8 @@ def build_structured_mesh(config: BoutConfig, run_config: RunConfiguration) -> S
         jyseps2_2=jyseps2_2,
         ny_inner=ny_inner,
     )
-    z = jnp.arange(nz, dtype=jnp.float64) / float(nz)
+    dtype = runtime_jax_dtype()
+    z = jnp.arange(nz, dtype=dtype) / float(nz)
     return StructuredMesh(
         nx=nx,
         ny=ny,
@@ -115,7 +114,8 @@ def build_structured_mesh(config: BoutConfig, run_config: RunConfiguration) -> S
 
 
 def broadcast_to_field_shape(value: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
-    array = jnp.asarray(value, dtype=jnp.float64)
+    dtype = runtime_jax_dtype()
+    array = jnp.asarray(value, dtype=dtype)
     target_shape = (mesh.nx, mesh.local_ny, mesh.nz)
     if array.shape == target_shape:
         return array
@@ -123,7 +123,8 @@ def broadcast_to_field_shape(value: jnp.ndarray, mesh: StructuredMesh) -> jnp.nd
 
 
 def apply_zero_dirichlet_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
-    result = jnp.asarray(field, dtype=jnp.float64)
+    dtype = runtime_jax_dtype()
+    result = jnp.asarray(field, dtype=dtype)
     y_slice = slice(mesh.ystart, mesh.yend + 1)
     if mesh.mxg <= 0:
         return result
@@ -137,7 +138,8 @@ def apply_zero_dirichlet_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> j
 
 
 def apply_neumann_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
-    result = jnp.asarray(field, dtype=jnp.float64)
+    dtype = runtime_jax_dtype()
+    result = jnp.asarray(field, dtype=dtype)
     y_slice = slice(mesh.ystart, mesh.yend + 1)
     if mesh.mxg <= 0:
         return result
@@ -149,7 +151,8 @@ def apply_neumann_x_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndar
 
 
 def communicate_y_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
-    result = jnp.asarray(field, dtype=jnp.float64)
+    dtype = runtime_jax_dtype()
+    result = jnp.asarray(field, dtype=dtype)
     for offset in range(mesh.myg):
         result = result.at[:, mesh.ystart - 1 - offset, :].set(result[:, mesh.ystart + offset, :])
         result = result.at[:, mesh.yend + 1 + offset, :].set(result[:, mesh.yend - offset, :])
@@ -157,7 +160,8 @@ def communicate_y_guards(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarra
 
 
 def project_nonnegative_x_boundaries(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
-    result = jnp.asarray(field, dtype=jnp.float64)
+    dtype = runtime_jax_dtype()
+    result = jnp.asarray(field, dtype=dtype)
     y_slice = slice(mesh.ystart, mesh.yend + 1)
     if mesh.mxg > 0:
         left = result[:mesh.xstart, y_slice, :]
@@ -185,8 +189,9 @@ def apply_field_boundaries(field: jnp.ndarray, mesh: StructuredMesh, *, x_bounda
 
 
 def _global_x_coordinates(*, nx: int, mxg: int, symmetric: bool) -> jnp.ndarray:
+    dtype = runtime_jax_dtype()
     mx = nx - 2 * mxg
-    global_indices = jnp.arange(nx, dtype=jnp.float64)
+    global_indices = jnp.arange(nx, dtype=dtype)
     if symmetric:
         return (0.5 + global_indices - (nx - mx) * 0.5) / float(mx)
     return global_indices / float(mx)
@@ -203,7 +208,8 @@ def _global_y_coordinates(
     jyseps2_2: int,
     ny_inner: int,
 ) -> jnp.ndarray:
-    local_indices = jnp.arange(ny + 2 * myg, dtype=jnp.float64) - float(myg)
+    dtype = runtime_jax_dtype()
+    local_indices = jnp.arange(ny + 2 * myg, dtype=dtype) - float(myg)
     nycore = float((jyseps2_1 - jyseps1_1) + (jyseps2_2 - jyseps1_2))
     if symmetric:
         before = (local_indices - (jyseps1_1 + 0.5)) / nycore

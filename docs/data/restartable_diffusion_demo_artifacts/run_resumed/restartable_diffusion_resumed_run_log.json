@@ -15,7 +15,7 @@
     "y": 28,
     "z": 1
   },
-  "input_file": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/input/BOUT.inp",
+  "input_file": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/input/input.toml",
   "outputs": {
     "arrays_npz": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_resumed/restartable_diffusion_resumed_arrays.npz",
     "restart_npz": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_resumed/restartable_diffusion_resumed_restart.npz",
@@ -58,6 +58,13 @@
     "root_scalars": {
       "nout": 3.0,
       "timestep": 5.0
+    },
+    "runtime": {
+      "backend": "cpu",
+      "compilation_cache_dir": "/Users/rogerio/Library/Caches/jax_drb/jax_compilation_cache",
+      "device": "TFRT_CPU_0",
+      "elapsed_seconds": 0.028892958000142244,
+      "precision": "float64"
     },
     "solver": {
       "atol": null,

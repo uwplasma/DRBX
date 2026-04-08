@@ -8,9 +8,10 @@ Entry point:
 
 What it demonstrates:
 
-- how to define a small BOUT-style input deck directly in Python;
+- how to define a small TOML input deck directly in Python;
 - how to choose mesh resolution, timestep, `nout`, diffusion coefficient, and initial conditions explicitly;
-- how to call `jax_drb run` programmatically;
+- how to choose runtime precision explicitly (`float64` or `float32`);
+- how to call the bare `jax_drb input.toml` CLI programmatically;
 - how to write summary JSON, full-result `.npz`, restart `.npz`, and verbose run-log JSON artifacts;
 - how to resume from a saved restart bundle;
 - how to read the saved `.npz` files back in and make Matplotlib 2D, 3D, and movie outputs.
@@ -42,11 +43,33 @@ PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
   --skip-movie
 ```
 
+Run the same tutorial in `float32`:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
+  --precision float32
+```
+
+Keep `float64` in the input deck but force the CLI/runtime override path explicitly:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
+  --cli-precision-override float32
+```
+
+Keep `float64` in the input deck but force a driver-side CLI override:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py \
+  --precision float64 \
+  --cli-precision-override float32
+```
+
 ## Generated Artifacts
 
 The script writes:
 
-- `input/BOUT.inp`
+- `input/input.toml`
 - `run_first/<case>_summary.json`
 - `run_first/<case>_arrays.npz`
 - `run_first/<case>_restart.npz`
@@ -66,8 +89,15 @@ The script writes:
 A QA-checked example output package from a local run is currently staged under:
 
 - [docs/data/restartable_diffusion_demo_artifacts](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts)
-- `images/<case>_density_surface.png`
-- `movies/<case>_density.gif`
+- [docs/data/restartable_diffusion_demo_artifacts/input/input.toml](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/input/input.toml)
+- [docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png)
+- [docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif)
+
+The companion precision benchmark is:
+
+- [examples/diffusion_precision_benchmark.py](/Users/rogerio/local/jax_drb/examples/diffusion_precision_benchmark.py)
+- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
+- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
 
 ## What To Edit First
 
@@ -75,6 +105,7 @@ The tutorial is meant to be modified by users directly. The most important funct
 
 - `build_settings(...)`
 - `build_input_text(...)`
+- `write_input_file(...)`
 - `run_segment(...)`
 - `stitch_histories(...)`
 - `plot_density_snapshots(...)`
@@ -82,4 +113,4 @@ The tutorial is meant to be modified by users directly. The most important funct
 - `plot_density_surface(...)`
 - `render_density_movie(...)`
 
-That is the intended learning surface for custom cases: change the input-deck text, rerun, inspect the saved `.npz` files, then adapt the plotting functions to your own fields.
+That is the intended learning surface for custom cases: change the TOML deck text, rerun, inspect the saved `.npz` files and run-log JSON, then adapt the plotting functions to your own fields.

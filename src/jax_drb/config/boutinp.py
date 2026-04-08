@@ -4,6 +4,7 @@ import ast
 import math
 import operator
 import re
+import tomllib
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -150,7 +151,50 @@ def apply_bout_overrides(config: BoutConfig, overrides: Iterable[str]) -> BoutCo
 
 
 def load_bout_input(path: str | Path) -> BoutConfig:
-    return parse_bout_input(Path(path).read_text(encoding="utf-8"))
+    source = Path(path)
+    text = source.read_text(encoding="utf-8")
+    if source.suffix.lower() == ".toml":
+        return parse_toml_input(text)
+    return parse_bout_input(text)
+
+
+def parse_toml_input(text: str) -> BoutConfig:
+    parsed = tomllib.loads(text)
+    raw_sections: "OrderedDict[str, OrderedDict[str, OptionEntry]]" = OrderedDict()
+    raw_sections[ROOT_SECTION] = OrderedDict()
+    next_line = -1
+
+    def add_entry(section_name: str, key: str, value: Any) -> None:
+        nonlocal next_line
+        raw_sections.setdefault(section_name, OrderedDict())
+        raw_sections[section_name][key] = OptionEntry(
+            key=key,
+            value=_parse_value(_serialize_toml_value(value)),
+            line=next_line,
+        )
+        next_line -= 1
+
+    def visit_table(prefix: tuple[str, ...], table: Mapping[str, Any]) -> None:
+        for key, value in table.items():
+            path = (*prefix, key)
+            if isinstance(value, Mapping):
+                if _looks_like_scalar_wrapper(value):
+                    add_entry(_toml_section_name(prefix), key, value)
+                    continue
+                visit_table(path, value)
+                continue
+            add_entry(_toml_section_name(prefix), key, value)
+
+    for key, value in parsed.items():
+        if isinstance(value, Mapping):
+            visit_table((key,), value)
+            continue
+        add_entry(ROOT_SECTION, key, value)
+
+    sections: "OrderedDict[str, OptionSection]" = OrderedDict(
+        (name, OptionSection(name=name, entries=entries)) for name, entries in raw_sections.items()
+    )
+    return BoutConfig(sections=sections)
 
 
 def parse_bout_input(text: str) -> BoutConfig:
@@ -345,6 +389,71 @@ def _parse_value(raw: str) -> OptionValue:
     except ValueError:
         return OptionValue(raw=value, parsed=value, kind="expression")
     return OptionValue(raw=value, parsed=parsed_float, kind="float")
+
+
+def _looks_like_scalar_wrapper(value: Mapping[str, Any]) -> bool:
+    return any(key in value for key in ("expr", "raw", "ref", "value", "string"))
+
+
+def _toml_section_name(path: tuple[str, ...]) -> str:
+    if not path:
+        return ROOT_SECTION
+    head, *tail = path
+    if head in {"root", "time"}:
+        return ROOT_SECTION
+    if head in {"species", "fields"} and tail:
+        return tail[0]
+    if head == "runtime":
+        return "runtime" if not tail else ":".join((head, *tail))
+    return ":".join(path)
+
+
+def _serialize_toml_value(value: Any) -> str:
+    if isinstance(value, Mapping):
+        if "expr" in value:
+            return str(value["expr"])
+        if "raw" in value:
+            return str(value["raw"])
+        if "ref" in value:
+            return str(value["ref"])
+        if "value" in value:
+            return _serialize_toml_value(value["value"])
+        if "string" in value:
+            return _quote_toml_string(str(value["string"]))
+        raise TypeError(f"Unsupported TOML scalar wrapper keys: {tuple(value)}")
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return format(value, ".16g")
+    if isinstance(value, str):
+        return _quote_toml_string(value)
+    if isinstance(value, tuple | list):
+        items = ", ".join(_serialize_toml_sequence_item(item) for item in value)
+        if len(value) == 1:
+            items = f"{items},"
+        return f"({items})"
+    raise TypeError(f"Unsupported TOML input value type: {type(value)!r}")
+
+
+def _serialize_toml_sequence_item(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return format(value, ".16g")
+    if isinstance(value, Mapping):
+        return _serialize_toml_value(value)
+    raise TypeError(f"Unsupported TOML sequence item type: {type(value)!r}")
+
+
+def _quote_toml_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _parse_sequence(value: str) -> tuple[str, ...] | None:

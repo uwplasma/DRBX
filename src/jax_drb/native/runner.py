@@ -14,6 +14,7 @@ from ..parity.reference import make_default_overrides, merge_overrides, run_refe
 from ..reference.cases import ReferenceCase
 from ..runtime.output import RestartBundle
 from ..runtime.run_config import RunConfiguration
+from ..runtime import runtime_numpy_dtype
 from .blob2d import (
     Blob2DState,
     advance_blob2d_history,
@@ -1497,6 +1498,7 @@ def _execute_diffusion_case(
     restart_state: NativeRestartState | None = None,
     output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
+    dtype = runtime_numpy_dtype()
     section = run_config.components[0].section
     density_name = f"N{section}"
     pressure_name = f"P{section}"
@@ -1505,8 +1507,8 @@ def _execute_diffusion_case(
         pressure = _initialize_species_field(config, pressure_name, mesh)
         time_offset = 0.0
     else:
-        density = np.asarray(restart_state.variables[density_name], dtype=np.float64)
-        pressure = np.asarray(restart_state.variables[pressure_name], dtype=np.float64)
+        density = np.asarray(restart_state.variables[density_name], dtype=dtype)
+        pressure = np.asarray(restart_state.variables[pressure_name], dtype=dtype)
         time_offset = restart_state.time_offset
     if not np.allclose(np.asarray(density), np.asarray(pressure), rtol=1e-12, atol=1e-12):
         raise NotImplementedError(
@@ -1542,8 +1544,8 @@ def _execute_diffusion_case(
     )
     time_points = tuple(time_offset + run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {
-        density_name: np.asarray(history.density_history, dtype=np.float64),
-        pressure_name: np.asarray(history.pressure_history, dtype=np.float64),
+        density_name: np.asarray(history.density_history, dtype=dtype),
+        pressure_name: np.asarray(history.pressure_history, dtype=dtype),
     }
 
 
@@ -2195,8 +2197,9 @@ def build_restart_state(
     names = restart_variable_names(result.run_config)
     if not names:
         return None
+    dtype = runtime_numpy_dtype()
     final_state = {
-        name: np.asarray(result.variables[name][-1], dtype=np.float64)
+        name: np.asarray(result.variables[name][-1], dtype=dtype)
         for name in names
         if name in result.variables
     }

@@ -51,7 +51,7 @@ Primary reference solver references:
 
 reference implementation facts that must be preserved early:
 
-- `BOUT.inp`-driven runtime configuration with ordered `[model] components`
+- ordered runtime configuration through legacy `BOUT.inp` parsing and native TOML decks with ordered `[model] components`
 - species/type expansion through `ComponentScheduler`
 - scheduler execution order is `transform()` for all components followed by `finally()` for all components
 - normalizations from `Tnorm`, `Nnorm`, `Bnorm`, then `Cs0`, `Omega_ci`, `rho_s0`
@@ -700,7 +700,12 @@ Scope:
   - `jax-drb run` should write summary JSON, arrays NPZ, restart NPZ, and verbose run-log JSON for supported native inputs;
   - restart/resume should be demonstrated by a runnable tutorial example rather than only internal tests;
   - examples should show explicit input-deck construction, CLI invocation, saved artifacts, and Matplotlib postprocessing.
-  - this is now landed for the native-supported diffusion path via [examples/restartable_diffusion_tutorial.py](/Users/rogerio/local/jax_drb/examples/restartable_diffusion_tutorial.py); the remaining work is to widen the same output/restart surface across the broader production cases.
+  - this is now landed for the native-supported diffusion path via [examples/restartable_diffusion_tutorial.py](/Users/rogerio/local/jax_drb/examples/restartable_diffusion_tutorial.py) and [docs/native_runtime_cli.md](/Users/rogerio/local/jax_drb/docs/native_runtime_cli.md):
+    - users can now run supported inputs directly as `jax_drb input.toml` or `jax-drb input.toml` without an explicit `run` subcommand;
+    - the intended native input surface is now organized TOML with `[time]`, `[runtime]`, `[mesh]`, `[solver]`, `[model]`, `[species.*]`, and `[fields.*]`;
+    - runtime precision is now user-selectable in both the input deck and the driver/CLI layer;
+    - the supported diffusion executable path now runs cleanly in both `float64` and `float32`, with committed benchmark scripts and artifacts in-tree; on the current local CPU rung the warm second-run `float32` diffusion path is about `1.24x` faster than `float64`, so precision is now a real supported knob on that native slice, but it is still not the global default until broader production paths drop their remaining explicit `float64` assumptions;
+    - the remaining work is to widen the same output/restart/precision surface across the broader production cases.
 
 Tests required in this step:
 
@@ -769,6 +774,7 @@ Implementation tasks:
 - implement normalization and metric normalization switches
 - define diagnostics metadata storage with reference naming conventions
 - implement a minimal CLI:
+  - `jax_drb path/to/input.toml`
   - `jax_drb run path/to/BOUT.inp`
   - `jax_drb compare --reference-run ...`
 - implement the Python API entry point around the same config/state model
