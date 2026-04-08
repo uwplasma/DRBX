@@ -47,6 +47,16 @@ Run a curated native case:
 PYTHONPATH=src python -m jax_drb run-case diffusion_short_window --reference-root /path/to/reference-checkout
 ```
 
+Run a native input directly, write JSON/NPZ/log/restart artifacts, and then continue from restart:
+
+```bash
+PYTHONPATH=src python -m jax_drb run path/to/BOUT.inp --output-dir /tmp/jax_drb_run
+PYTHONPATH=src python -m jax_drb run path/to/BOUT.inp \
+  --output-dir /tmp/jax_drb_run_resume \
+  --restart-in /tmp/jax_drb_run/<case>_restart.npz \
+  --resume-steps 2
+```
+
 Inspect the curated ladder:
 
 ```bash
@@ -98,6 +108,12 @@ PYTHONPATH=src .venv/bin/python examples/blob2d_meeting_demo.py \
   --skip-parity
 ```
 
+Run the explicit restart tutorial example with input generation, saved artifacts, restart/resume, and Matplotlib outputs:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py
+```
+
 Generate the compact neutral short-window benchmark report and figure:
 
 ```bash
@@ -131,6 +147,7 @@ pytest -q
 - Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
 - Alfven-wave meeting demo: [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md)
 - Blob2D meeting demo: [docs/blob2d_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/blob2d_meeting_demo.md)
+- Restartable diffusion tutorial: [docs/restartable_diffusion_tutorial.md](/Users/rogerio/local/jax_drb/docs/restartable_diffusion_tutorial.md)
 - Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
 - Alfven-wave benchmark: [docs/alfven_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_benchmark.md)
 - Neutral mixed benchmark: [docs/neutral_mixed_benchmark.md](/Users/rogerio/local/jax_drb/docs/neutral_mixed_benchmark.md)
