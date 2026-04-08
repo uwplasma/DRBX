@@ -510,6 +510,21 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_isothermal_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/isothermal/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First direct tokamak electrostatic/vorticity rung on the isothermal tokamak stack before broader drift/turbulence families."
+compare_variables = ["Ne", "Ni", "NVe", "NVi", "phi", "Vort"]
+extra_overrides = [
+  "timestep=0.1",
+  "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_recycling_dthe_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"
