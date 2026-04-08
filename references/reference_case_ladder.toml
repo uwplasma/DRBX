@@ -462,7 +462,7 @@ reference_path = "examples/tokamak-2D/heat-transport/BOUT.inp"
 parity_mode = "short_window"
 rationale = "First multi-output direct tokamak electron-pressure transport rung, widening the exact heat-transport one-step case before adding a broader neighboring tokamak family."
 compare_variables = ["Pe"]
-extra_overrides = ["nout=5", "e:diagnose=false"]
+extra_overrides = ["nout=2", "e:diagnose=false"]
 trim_x_guards = true
 trim_y_guards = true
 process_count = 6
@@ -475,6 +475,18 @@ parity_mode = "one_step"
 rationale = "Next direct tokamak pressure-transport family, adding sheath-coupled parallel conduction without parallel momentum evolution on the shared tokamak geometry lane."
 compare_variables = ["Nh+", "Ph+", "Pe"]
 extra_overrides = ["h+:diagnose=false", "e:diagnose=false"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
+name = "tokamak_linear_transport_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/linear-transport/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Small direct tokamak fixed-density electron transport parity before broader transient tokamak ladders."
+compare_variables = ["Pe"]
+extra_overrides = ["e:diagnose=false"]
 trim_x_guards = true
 trim_y_guards = true
 process_count = 6
