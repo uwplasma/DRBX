@@ -82,6 +82,7 @@ def build_run_log_payload(
     variable_summaries: Mapping[str, Any],
     run_configuration: Mapping[str, Any] | None = None,
     restart_info: Mapping[str, Any] | None = None,
+    events: tuple[Mapping[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "input_file": str(input_file),
@@ -99,6 +100,8 @@ def build_run_log_payload(
         payload["run_configuration"] = dict(run_configuration)
     if restart_info is not None:
         payload["restart_info"] = dict(restart_info)
+    if events is not None:
+        payload["events"] = [dict(event) for event in events]
     return payload
 
 
@@ -233,3 +236,61 @@ def print_run_log(payload: Mapping[str, Any]) -> None:
     console.print(restart_table)
     console.print(outputs)
     console.print(variable_table)
+
+
+def build_run_event(
+    *,
+    stage: str,
+    message: str,
+    elapsed_seconds: float | None = None,
+    details: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "stage": stage,
+        "message": message,
+    }
+    if elapsed_seconds is not None:
+        event["elapsed_seconds"] = elapsed_seconds
+    if details:
+        event["details"] = {str(key): _jsonify_event_value(value) for key, value in details.items()}
+    return event
+
+
+def print_run_event(event: Mapping[str, Any]) -> None:
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.table import Table
+    except Exception:
+        elapsed = event.get("elapsed_seconds")
+        prefix = f"[{float(elapsed):8.3f}s] " if elapsed is not None else ""
+        print(f"{prefix}{event.get('stage', 'event')}: {event.get('message', '')}")
+        details = event.get("details", {})
+        if isinstance(details, Mapping):
+            for key, value in details.items():
+                print(f"  - {key}: {value}")
+        return
+
+    console = Console()
+    details = event.get("details", {})
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan")
+    table.add_column()
+    table.add_row("stage", str(event.get("stage", "")))
+    table.add_row("message", str(event.get("message", "")))
+    if event.get("elapsed_seconds") is not None:
+        table.add_row("elapsed", f"{float(event['elapsed_seconds']):.3f} s")
+    if isinstance(details, Mapping):
+        for key, value in details.items():
+            table.add_row(str(key), str(value))
+    console.print(Panel(table, border_style="blue"))
+
+
+def _jsonify_event_value(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _jsonify_event_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonify_event_value(item) for item in value]
+    return value

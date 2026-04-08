@@ -292,7 +292,6 @@ def test_tokamak_diffusion_transport_one_step_matches_committed_baselines() -> N
     assert summary_comparison.ok, summary_comparison.issues
     assert array_comparison.ok, array_comparison.issues
 
-
 def test_tokamak_diffusion_one_step_matches_committed_baselines() -> None:
     diffusion_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion/BOUT.inp")
     if not diffusion_input.exists():

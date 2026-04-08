@@ -249,6 +249,7 @@ The remaining work should now proceed in this order:
      - the next broader direct tokamak transport family is now also locked at the one-step level: `tokamak_diffusion_conduction_one_step` on `examples/tokamak-2D/diffusion-conduction` now has committed summary/array baselines and matches them exactly once `h+:diagnose=false` and `e:diagnose=false` are applied as explicit case overrides, which removes a broken Hermes diagnostic-only `particle_flow_ylow` path without changing the compared physics surface;
      - the smallest neighboring direct tokamak family is now also locked at the one-step level: `tokamak_diffusion_one_step` on `examples/tokamak-2D/diffusion` has committed summary/array baselines and the native direct tokamak path matches them exactly on `Nh`;
      - the next low-risk direct tokamak fixed-density transport family is now also locked at the one-step level: `tokamak_linear_transport_one_step` on `examples/tokamak-2D/linear-transport` has committed summary/array baselines, is curated only with `e:diagnose=false`, and the native direct tokamak path now matches it exactly on `Pe`;
+     - a first probe of `examples/tokamak-2D/isothermal` was intentionally rejected as the immediate next rung because the reference first-output run stalled in the shared `process_count = 6` launcher before producing a practical one-step artifact; this should stay a sidecar investigation, not the main lane, until a smaller curated window or safer override set is identified;
    - Treat the integrated Step 3 production lane as operationally complete for project flow.
    - The current committed-baseline target-band `integrated_2d_production_one_step` residuals are already small in a meaningful norm:
      - `Pe`: about `1.63e-1` on a `~1.05e3` field (`~1.55e-4` relative to expected max)
@@ -702,7 +703,9 @@ Scope:
   - examples should show explicit input-deck construction, CLI invocation, saved artifacts, and Matplotlib postprocessing.
   - this is now landed for the native-supported diffusion path via [examples/restartable_diffusion_tutorial.py](/Users/rogerio/local/jax_drb/examples/restartable_diffusion_tutorial.py) and [docs/native_runtime_cli.md](/Users/rogerio/local/jax_drb/docs/native_runtime_cli.md):
     - users can now run supported inputs directly as `jax_drb input.toml` or `jax-drb input.toml` without an explicit `run` subcommand;
-    - the intended native input surface is now organized TOML with `[time]`, `[runtime]`, `[mesh]`, `[solver]`, `[model]`, `[species.*]`, and `[fields.*]`;
+    - the intended native input surface is now organized TOML with `[time]`, `[runtime]`, `[runtime.logging]`, `[mesh]`, `[solver]`, `[model]`, `[output]`, `[restart]`, `[species.*]`, and `[fields.*]`;
+    - output destinations, restart/resume requests, and logging verbosity can now be declared in the deck itself instead of only on the CLI;
+    - the run-log JSON now includes an ordered event stream for configuration, restart loading, launch, completion, and artifact planning, and the terminal path mirrors that with rich event panels before the final summary table;
     - runtime precision is now user-selectable in both the input deck and the driver/CLI layer;
     - the supported diffusion executable path now runs cleanly in both `float64` and `float32`, with committed benchmark scripts and artifacts in-tree; on the current local CPU rung the warm second-run `float32` diffusion path is about `1.24x` faster than `float64`, so precision is now a real supported knob on that native slice, but it is still not the global default until broader production paths drop their remaining explicit `float64` assumptions;
     - the remaining work is to widen the same output/restart/precision surface across the broader production cases.
