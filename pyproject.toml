@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Fresh JAX edge/SOL plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "PLAN.md"
 requires-python = ">=3.11"
-dependencies = ["jax>=0.7"]
+dependencies = ["jax>=0.7", "rich>=13.9"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4"]
@@ -18,6 +18,7 @@ validation = ["matplotlib>=3.9", "netCDF4>=1.7"]
 
 [project.scripts]
 jax-drb = "jax_drb.cli:main"
+jax_drb = "jax_drb.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

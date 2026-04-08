@@ -1,6 +1,6 @@
-from jax import config as jax_config
+from ..runtime import configure_jax_runtime
 
-jax_config.update("jax_enable_x64", True)
+configure_jax_runtime()
 
 from .runner import NativeRunResult, run_config_case, run_curated_case, run_input_case
 

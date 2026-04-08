@@ -3,23 +3,25 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import sys
+import time
 
 from .config.boutinp import load_bout_input
 from .reference.cases import resolve_reference_cases
-from .runtime import configure_jax_runtime
+from .runtime import configure_jax_runtime, resolve_runtime_precision
 from .runtime.run_config import RunConfiguration
 
 
 def main(argv: list[str] | None = None) -> int:
-    configure_jax_runtime()
+    normalized_argv = _normalize_cli_argv(sys.argv[1:] if argv is None else argv)
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(normalized_argv)
     return args.command(args)
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="jax-drb",
+        prog="jax_drb",
         description="Inspect or run JAX-DRB inputs using the native model configuration structure.",
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=False)
@@ -233,6 +235,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
+    run_parser.add_argument("--precision", choices=("float32", "float64"), default=None, help="Override runtime floating-point precision for this run.")
     run_parser.add_argument("--case-name", type=str, default=None, help="Optional case label for output metadata.")
     run_parser.add_argument("--output-dir", type=Path, default=None, help="Write standard run artifacts into this directory.")
     run_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary JSON.")
@@ -250,12 +253,40 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _default_command(args: argparse.Namespace) -> int:
     if getattr(args, "subcommand", None) is None:
-        raise SystemExit("Use `jax-drb inspect <BOUT.inp>` or `jax-drb run <BOUT.inp> --dry-run`.")
+        raise SystemExit("Use `jax_drb inspect <input>` or `jax_drb <input> --dry-run`.")
     return args.command(args)
+
+
+def _normalize_cli_argv(argv: list[str]) -> list[str]:
+    if not argv:
+        return argv
+    known_subcommands = {
+        "inspect",
+        "reference-cases",
+        "run-reference-case",
+        "compare-summary",
+        "compare-arrays",
+        "compare-recycling",
+        "run-case",
+        "validate-reference-baselines",
+        "analyze-drift-wave",
+        "analyze-alfven-wave",
+        "compare-alfven-wave",
+        "compare-drift-wave",
+        "compare-blob2d",
+        "analyze-neutral-mixed",
+        "compare-neutral-mixed",
+        "run",
+    }
+    head = argv[0]
+    if head in known_subcommands or head.startswith("-"):
+        return argv
+    return ["run", *argv]
 
 
 def _inspect_command(args: argparse.Namespace) -> int:
     config = load_bout_input(args.input_file)
+    configure_jax_runtime(precision=resolve_runtime_precision(config=config))
     run_config = RunConfiguration.from_config(config)
 
     print(f"input: {args.input_file}")
@@ -309,11 +340,15 @@ def _reference_cases_command(args: argparse.Namespace) -> int:
 def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
+    config = load_bout_input(args.input_file)
+    resolved_precision = resolve_runtime_precision(requested=args.precision, config=config)
+    cache_dir = configure_jax_runtime(precision=resolved_precision)
+    import jax
     from .native import run_input_case
     from .native.runner import NativeRestartState, build_restart_state
     from .parity.arrays import build_portable_array_payload, write_portable_array_payload
     from .parity.portable import write_portable_summary_payload
-    from .runtime import build_run_log_payload, format_run_log_text, load_restart_bundle, write_restart_bundle, write_run_log_payload
+    from .runtime import build_run_log_payload, load_restart_bundle, print_run_log, write_restart_bundle, write_run_log_payload
 
     output_dir = args.output_dir
     case_name = args.case_name or args.input_file.stem
@@ -327,6 +362,7 @@ def _run_command(args: argparse.Namespace) -> int:
             variables=bundle.state_variables,
         )
 
+    started_at = time.perf_counter()
     result = run_input_case(
         args.input_file,
         case_name=case_name,
@@ -334,6 +370,7 @@ def _run_command(args: argparse.Namespace) -> int:
         restart_state=restart_state,
         output_steps=args.resume_steps,
     )
+    elapsed_seconds = time.perf_counter() - started_at
 
     output_paths: dict[str, str] = {}
     if output_dir is not None:
@@ -386,7 +423,14 @@ def _run_command(args: argparse.Namespace) -> int:
         restart_supported=restart_bundle is not None,
         outputs=output_paths,
         variable_summaries=result.payload.get("variable_summaries", {}),
-        run_configuration=_serialize_run_configuration(result.run_config),
+        run_configuration=_serialize_run_configuration(
+            result.run_config,
+            precision=resolved_precision,
+            backend=jax.default_backend(),
+            device=str(jax.devices()[0]) if jax.devices() else None,
+            cache_dir=cache_dir,
+            elapsed_seconds=elapsed_seconds,
+        ),
         restart_info=_serialize_restart_info(
             restart_in=args.restart_in,
             loaded_bundle=bundle if args.restart_in is not None else None,
@@ -400,11 +444,19 @@ def _run_command(args: argparse.Namespace) -> int:
         log_payload["outputs"] = output_paths
 
     if not args.quiet:
-        print(format_run_log_text(log_payload))
+        print_run_log(log_payload)
     return 0
 
 
-def _serialize_run_configuration(run_config: RunConfiguration) -> dict[str, object]:
+def _serialize_run_configuration(
+    run_config: RunConfiguration,
+    *,
+    precision: str,
+    backend: str | None = None,
+    device: str | None = None,
+    cache_dir: Path | None = None,
+    elapsed_seconds: float | None = None,
+) -> dict[str, object]:
     return {
         "time": {
             "nout": run_config.time.nout,
@@ -426,6 +478,13 @@ def _serialize_run_configuration(run_config: RunConfiguration) -> dict[str, obje
             "atol": run_config.solver.atol,
             "use_precon": run_config.solver.use_precon,
             "cvode_max_order": run_config.solver.cvode_max_order,
+        },
+        "runtime": {
+            "precision": precision,
+            "backend": backend,
+            "device": device,
+            "compilation_cache_dir": None if cache_dir is None else str(cache_dir),
+            "elapsed_seconds": elapsed_seconds,
         },
         "components": [request.label for request in run_config.components],
         "root_scalars": dict(run_config.root_scalars),
@@ -578,6 +637,7 @@ def _compare_recycling_command(args: argparse.Namespace) -> int:
 
 
 def _run_case_command(args: argparse.Namespace) -> int:
+    configure_jax_runtime()
     from .native import run_curated_case
     from .parity.arrays import build_array_payload_from_summary_payload, write_portable_array_payload
     from .parity.portable import write_portable_summary_payload
@@ -863,3 +923,7 @@ def _compare_neutral_mixed_command(args: argparse.Namespace) -> int:
         path = save_neutral_mixed_parity_plot(result, args.plot_out)
         print(f"plot_out: {path}")
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

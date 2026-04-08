@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
 from jax.scipy.linalg import expm
 
+from ..runtime import runtime_jax_dtype
 from .mesh import StructuredMesh, apply_field_boundaries
 from .metrics import StructuredMetrics
 
@@ -36,15 +33,17 @@ def advance_anomalous_diffusion_one_step(
     pressure_boundary: str,
     timestep: float,
 ) -> OneStepDiffusionResult:
+    dtype = runtime_jax_dtype()
     if mesh.nz != 1:
         raise NotImplementedError("Native one-step anomalous diffusion currently supports nz = 1 only.")
     if density_boundary.strip().lower() != "neumann" or pressure_boundary.strip().lower() != "neumann":
         raise NotImplementedError("Native one-step anomalous diffusion currently supports Neumann X boundaries only.")
-    if not jnp.allclose(density, pressure, rtol=1e-12, atol=1e-12):
+    tolerance = 1e-6 if dtype == jnp.float32 else 1e-12
+    if not jnp.allclose(density, pressure, rtol=tolerance, atol=tolerance):
         raise NotImplementedError(
             "Native one-step anomalous diffusion currently requires identical density and pressure initial states."
         )
-    if not jnp.allclose(metrics.g23, 0.0, rtol=1e-12, atol=1e-12):
+    if not jnp.allclose(metrics.g23, 0.0, rtol=tolerance, atol=tolerance):
         raise NotImplementedError("Native one-step anomalous diffusion currently supports g23 = 0 structured metrics only.")
 
     operator = _build_radial_diffusion_operator(mesh, metrics, anomalous_D)
@@ -73,10 +72,11 @@ def advance_anomalous_diffusion_history(
     if density_boundary.strip().lower() != "neumann" or pressure_boundary.strip().lower() != "neumann":
         raise NotImplementedError("Native anomalous diffusion history currently supports Neumann X boundaries only.")
 
+    dtype = runtime_jax_dtype()
     operator = _build_radial_diffusion_operator(mesh, metrics, anomalous_D)
     propagator = expm(operator * timestep)
-    density_history = [jnp.asarray(density, dtype=jnp.float64)]
-    pressure_history = [jnp.asarray(pressure, dtype=jnp.float64)]
+    density_history = [jnp.asarray(density, dtype=dtype)]
+    pressure_history = [jnp.asarray(pressure, dtype=dtype)]
     current_density = density_history[0]
     current_pressure = pressure_history[0]
     for _ in range(steps):
@@ -100,9 +100,10 @@ def _build_radial_diffusion_operator(
     dx = metrics.dx[:, y_index, z_index]
     J = metrics.J[:, y_index, z_index]
     g11 = metrics.g11[:, y_index, z_index]
+    dtype = runtime_jax_dtype()
 
     interior_nx = mesh.xend - mesh.xstart + 1
-    matrix = jnp.zeros((interior_nx, interior_nx), dtype=jnp.float64)
+    matrix = jnp.zeros((interior_nx, interior_nx), dtype=dtype)
 
     for global_index in range(mesh.xstart, mesh.xend):
         left = global_index - mesh.xstart
@@ -125,7 +126,7 @@ def _advance_field_with_operator(
     *,
     boundary_kind: str,
 ) -> jnp.ndarray:
-    result = jnp.asarray(field, dtype=jnp.float64)
+    result = jnp.asarray(field, dtype=runtime_jax_dtype())
     interior = result[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, 0]
     updated = propagator @ interior
     result = result.at[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, 0].set(updated)

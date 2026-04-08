@@ -28,7 +28,7 @@ def test_restartable_diffusion_tutorial_writes_restart_and_plots(tmp_path: Path)
     )
 
     output_root = tmp_path / "demo"
-    assert (output_root / "input" / "BOUT.inp").exists()
+    assert (output_root / "input" / "input.toml").exists()
     assert (output_root / "run_first" / "restartable_diffusion_summary.json").exists()
     assert (output_root / "run_first" / "restartable_diffusion_arrays.npz").exists()
     assert (output_root / "run_first" / "restartable_diffusion_restart.npz").exists()
@@ -44,6 +44,8 @@ def test_restartable_diffusion_tutorial_writes_restart_and_plots(tmp_path: Path)
     assert (output_root / "movies" / "restartable_diffusion_density.gif").stat().st_size > 0
 
     analysis = json.loads((output_root / "data" / "restartable_diffusion_analysis.json").read_text(encoding="utf-8"))
+    assert analysis["configured_precision"] == "float64"
+    assert analysis["cli_precision_override"] is None
     assert analysis["restart_current_time"] == 15.0
     assert analysis["first_segment_completed_steps"] == 3
     assert analysis["max_abs_density_diff_vs_uninterrupted"] < 1.0e-8
