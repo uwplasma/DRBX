@@ -445,6 +445,29 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_heat_transport_short_window"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/heat-transport/BOUT.inp"
+parity_mode = "short_window"
+rationale = "First multi-output direct tokamak electron-pressure transport rung, widening the exact heat-transport one-step case before adding a broader neighboring tokamak family."
+compare_variables = ["Pe"]
+extra_overrides = ["nout=5"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
+name = "tokamak_diffusion_conduction_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Next direct tokamak pressure-transport family, adding sheath-coupled parallel conduction without parallel momentum evolution on the shared tokamak geometry lane."
+compare_variables = ["Nh+", "Ph+", "Pe"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_recycling_dthe_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/recycling-dthe/BOUT.inp"
