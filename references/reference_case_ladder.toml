@@ -411,6 +411,17 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_diffusion_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/diffusion/BOUT.inp"
+parity_mode = "one_step"
+rationale = "Minimal direct tokamak density-diffusion rung on the shared geometry path, giving the cheapest exact starter surface before pressure and sheath-coupled transport families."
+compare_variables = ["Nh"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_diffusion_transport_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/diffusion-transport/BOUT.inp"

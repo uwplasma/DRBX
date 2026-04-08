@@ -138,6 +138,66 @@ def test_tokamak_diffusion_flow_one_step_stacks_initial_and_final_snapshots(monk
     assert result.payload["compare_variables"] == ["Nh", "Ph", "NVh"]
 
 
+def test_tokamak_diffusion_one_step_stacks_initial_and_final_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:
+    diffusion_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion/BOUT.inp")
+    if not diffusion_input.exists():
+        pytest.skip("tokamak diffusion reference input is unavailable")
+
+    captured_time_indices: list[int] = []
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-tokamak-diffusion.nc"},
+                time_points=(0.0, 50.0),
+                overrides=("nout=1",),
+            )
+        ),
+    )
+
+    def fake_load_snapshot(*args, **kwargs):
+        time_index = kwargs["time_index"]
+        captured_time_indices.append(time_index)
+        snapshot = _tokamak_snapshot(time_index=time_index)
+        scale = float(time_index + 1)
+        return LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields={"Nh": np.full((6, 12, 1), 1.0 * scale, dtype=np.float64)},
+            optional_fields=snapshot.optional_fields,
+            scalar_values=snapshot.scalar_values,
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+
+    case = ReferenceCase(
+        name="tokamak_diffusion_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/diffusion/BOUT.inp",
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Nh",),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_diffusion_one_step_case(
+        case,
+        input_path=diffusion_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured_time_indices == [0, 1]
+    assert result.time_points == (0.0, 50.0)
+    assert result.variables["Nh"].shape == (2, 2, 8, 1)
+    np.testing.assert_allclose(result.variables["Nh"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Nh"][1], 2.0)
+    assert result.payload["compare_variables"] == ["Nh"]
+
+
 def test_tokamak_diffusion_transport_one_step_stacks_initial_and_final_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -225,6 +285,27 @@ def test_tokamak_diffusion_transport_one_step_matches_committed_baselines() -> N
     expected_arrays = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_diffusion_transport_one_step.npz")
 
     result = run_curated_case("tokamak_diffusion_transport_one_step", reference_root=_REFERENCE_ROOT)
+    summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
+    array_comparison = compare_array_payloads(expected_arrays, actual_arrays, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert summary_comparison.ok, summary_comparison.issues
+    assert array_comparison.ok, array_comparison.issues
+
+
+def test_tokamak_diffusion_one_step_matches_committed_baselines() -> None:
+    diffusion_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion/BOUT.inp")
+    if not diffusion_input.exists():
+        pytest.skip("tokamak diffusion reference input is unavailable")
+    summary_path = _BASELINE_DIR / "tokamak_diffusion_one_step.json"
+    arrays_path = _ARRAY_BASELINE_DIR / "tokamak_diffusion_one_step.npz"
+    if not summary_path.exists() or not arrays_path.exists():
+        pytest.skip("tokamak diffusion one-step baselines are unavailable")
+
+    expected_summary = load_summary_json(summary_path)
+    expected_arrays = load_portable_array_payload(arrays_path)
+
+    result = run_curated_case("tokamak_diffusion_one_step", reference_root=_REFERENCE_ROOT)
     summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
     actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
     array_comparison = compare_array_payloads(expected_arrays, actual_arrays, array_rtol=1.0e-6, array_atol=1.0e-9)
