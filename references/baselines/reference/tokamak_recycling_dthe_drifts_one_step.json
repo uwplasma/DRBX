@@ -10,9 +10,7 @@
     "Nhe+",
     "Phe+",
     "NVhe+",
-    "Pe",
-    "phi",
-    "Vort"
+    "Pe"
   ],
   "component_labels": [
     "d+:evolve_density",
@@ -268,44 +266,6 @@
       "mean": 0.9996790705324484,
       "minimum": 0.9943382779774705,
       "name": "Pt+",
-      "shape": [
-        2,
-        32,
-        8,
-        1
-      ]
-    },
-    "Vort": {
-      "dimensions": [
-        "t",
-        "x",
-        "y",
-        "z"
-      ],
-      "max_abs_delta_last_first": 0.0018098572461299866,
-      "maximum": 2.3671920188568515e-05,
-      "mean": -0.00010760569028704553,
-      "minimum": -0.0018098572461299866,
-      "name": "Vort",
-      "shape": [
-        2,
-        32,
-        8,
-        1
-      ]
-    },
-    "phi": {
-      "dimensions": [
-        "t",
-        "x",
-        "y",
-        "z"
-      ],
-      "max_abs_delta_last_first": 9.666999251035242e-07,
-      "maximum": 9.666999251035242e-07,
-      "mean": 5.352420688802495e-08,
-      "minimum": -2.1399466068498864e-08,
-      "name": "phi",
       "shape": [
         2,
         32,

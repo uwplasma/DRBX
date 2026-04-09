@@ -150,3 +150,16 @@ def test_strip_anomalous_diffusion_from_boutinp_text_removes_only_target_compone
     assert "quasineutral, evolve_pressure, zero_current" in rewritten
     assert rewritten.count("anomalous_diffusion") == 0
     assert "[d]\n" in rewritten
+
+
+def test_default_tokamak_recycling_cases_include_three_direct_one_step_lanes() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_one_step.py",
+        "tokamak_recycling_one_step_diag",
+    )
+
+    assert module.default_tokamak_recycling_cases() == (
+        "tokamak_recycling_dthe_one_step",
+        "tokamak_recycling_dthe_drifts_one_step",
+        "tokamak_recycling_dthene_one_step",
+    )
