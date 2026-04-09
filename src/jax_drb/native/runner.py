@@ -114,6 +114,7 @@ def _uses_tokamak_snapshot_cache(case_name: str) -> bool:
         "tokamak_linear_transport_one_step",
         "tokamak_isothermal_one_step",
         "tokamak_isothermal_short_window",
+        "tokamak_isothermal_medium_window",
         "tokamak_turbulence_rhs",
         "tokamak_turbulence_one_step",
         "tokamak_turbulence_short_window",
@@ -324,6 +325,8 @@ def run_curated_case(
         return _run_tokamak_isothermal_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_isothermal_short_window":
         return _run_tokamak_isothermal_short_window_case(case, input_path=input_path, reference_root=reference_root)
+    if case.name == "tokamak_isothermal_medium_window":
+        return _run_tokamak_isothermal_medium_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_turbulence_rhs":
         return _run_tokamak_turbulence_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_turbulence_one_step":
@@ -711,6 +714,21 @@ def _run_tokamak_isothermal_one_step_case(
 
 
 def _run_tokamak_isothermal_short_window_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_tokamak_dump_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        time_indices=None,
+        field_names=("Ne", "Ni", "NVe", "NVi", "phi", "Vort"),
+    )
+
+
+def _run_tokamak_isothermal_medium_window_case(
     case: ReferenceCase,
     *,
     input_path: Path,
