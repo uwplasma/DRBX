@@ -516,6 +516,18 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_diffusion_conduction_short_window"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/diffusion-conduction/BOUT.inp"
+parity_mode = "short_window"
+rationale = "First exact transient rung on the direct tokamak diffusion-conduction stack before broader coupled transport histories."
+compare_variables = ["Nh+", "Ph+", "Pe"]
+extra_overrides = ["nout=5", "h+:diagnose=false", "e:diagnose=false"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_linear_transport_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/linear-transport/BOUT.inp"
