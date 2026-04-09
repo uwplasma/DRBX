@@ -22,6 +22,7 @@ The exact direct tokamak ladder is now also substantial rather than placeholder-
 - `tokamak_diffusion_conduction_one_step`
 - `tokamak_linear_transport_one_step`
 - `tokamak_isothermal_one_step`
+- `tokamak_turbulence_rhs`
 - `tokamak_turbulence_one_step`
 - `tokamak_turbulence_short_window`
 
@@ -179,6 +180,7 @@ Re-run the exact direct tokamak turbulence ladder:
 ```bash
 PYTHONPATH=src python -m jax_drb validate-reference-baselines \
   --reference-root /path/to/reference-checkout \
+  --case tokamak_turbulence_rhs \
   --case tokamak_turbulence_one_step \
   --case tokamak_turbulence_short_window
 ```
