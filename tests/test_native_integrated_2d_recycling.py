@@ -2825,8 +2825,8 @@ def test_tokamak_recycling_dthe_drifts_one_step_stays_within_operational_target_
     assert entries["NVt+"].max_abs_diff < 1.0e-2
     assert entries["Phe+"].max_abs_diff < 1.0e-4
     assert entries["NVhe+"].max_abs_diff < 1.0e-4
-    assert "phi" not in entries or entries["phi"].max_abs_diff < 1.0e-4
-    assert "Vort" not in entries or entries["Vort"].max_abs_diff < 1.0e-4
+    assert "phi" not in entries
+    assert "Vort" not in entries
 
 
 def test_tokamak_recycling_dthene_one_step_stays_within_operational_target_band() -> None:

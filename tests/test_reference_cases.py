@@ -215,6 +215,18 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     assert dthe_drifts_rhs_case.reference_path == "examples/tokamak-2D/recycling-dthe-drifts/BOUT.inp"
     assert dthe_drifts_rhs_case.parity_mode == "one_rhs"
     assert dthe_drifts_rhs_case.process_count == 6
+    assert dthe_drifts_rhs_case.compare_variables == (
+        "Nd+",
+        "Pd+",
+        "NVd+",
+        "Nt+",
+        "Pt+",
+        "NVt+",
+        "Nhe+",
+        "Phe+",
+        "NVhe+",
+        "Pe",
+    )
     assert dthe_drifts_rhs_case.extra_overrides == (
         "timestep=0.1",
         "solver:type=cvode",
@@ -226,6 +238,18 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     assert dthe_drifts_one_step_case.reference_path == "examples/tokamak-2D/recycling-dthe-drifts/BOUT.inp"
     assert dthe_drifts_one_step_case.parity_mode == "one_step"
     assert dthe_drifts_one_step_case.process_count == 6
+    assert dthe_drifts_one_step_case.compare_variables == (
+        "Nd+",
+        "Pd+",
+        "NVd+",
+        "Nt+",
+        "Pt+",
+        "NVt+",
+        "Nhe+",
+        "Phe+",
+        "NVhe+",
+        "Pe",
+    )
     assert dthe_drifts_one_step_case.extra_overrides == (
         "timestep=0.1",
         "solver:type=cvode",
