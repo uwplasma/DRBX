@@ -1754,6 +1754,171 @@ def test_tokamak_isothermal_rhs_uses_committed_snapshot_and_history_cache(
     np.testing.assert_allclose(result.variables["ddt(Vort)"][0], 10.0)
 
 
+def test_tokamak_linear_transport_short_window_stacks_full_snapshot_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    if not linear_input.exists():
+        pytest.skip("tokamak linear-transport reference input is unavailable")
+
+    captured_time_indices: list[int] = []
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-tokamak-linear-transport-short.nc"},
+                time_points=(0.0, 10000.0, 20000.0, 30000.0, 40000.0, 50000.0),
+                overrides=("nout=5", "e:diagnose=false"),
+            )
+        ),
+    )
+
+    def fake_load_snapshot(*args, **kwargs):
+        time_index = kwargs["time_index"]
+        captured_time_indices.append(time_index)
+        snapshot = _tokamak_snapshot(time_index=time_index)
+        scale = float(time_index + 1)
+        return LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields={"Pe": np.full((6, 12, 1), 1.0 * scale, dtype=np.float64)},
+            optional_fields=snapshot.optional_fields,
+            scalar_values=snapshot.scalar_values,
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_snapshot_cache_path",
+        lambda case_name: Path("/tmp") / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_field_history_cache_path",
+        lambda case_name: Path("/tmp") / f"{case_name}.missing",
+    )
+
+    case = ReferenceCase(
+        name="tokamak_linear_transport_short_window",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/linear-transport/BOUT.inp",
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Pe",),
+        extra_overrides=("nout=5", "e:diagnose=false"),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_linear_transport_short_window_case(
+        case,
+        input_path=linear_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured_time_indices == [0, 1, 2, 3, 4, 5]
+    assert result.time_points == (0.0, 10000.0, 20000.0, 30000.0, 40000.0, 50000.0)
+    assert np.asarray(result.variables["Pe"]).shape == (6, 2, 8, 1)
+    np.testing.assert_allclose(result.variables["Pe"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Pe"][5], 6.0)
+
+
+def test_tokamak_linear_transport_short_window_matches_committed_baselines() -> None:
+    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    if not linear_input.exists():
+        pytest.skip("tokamak linear-transport reference input is unavailable")
+
+    summary_path = _BASELINE_DIR / "tokamak_linear_transport_short_window.json"
+    arrays_path = _ARRAY_BASELINE_DIR / "tokamak_linear_transport_short_window.npz"
+    if not summary_path.exists() or not arrays_path.exists():
+        pytest.skip("tokamak linear-transport short-window baselines are unavailable")
+
+    expected_summary = load_summary_json(summary_path)
+    expected_arrays = load_portable_array_payload(arrays_path)
+
+    result = run_curated_case("tokamak_linear_transport_short_window", reference_root=_REFERENCE_ROOT)
+    summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
+    array_comparison = compare_array_payloads(expected_arrays, actual_arrays, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert summary_comparison.ok, summary_comparison.issues
+    assert array_comparison.ok, array_comparison.issues
+
+
+def test_tokamak_linear_transport_short_window_uses_committed_snapshot_and_history_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    linear_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/linear-transport/BOUT.inp")
+    if not linear_input.exists():
+        pytest.skip("tokamak linear-transport reference input is unavailable")
+
+    snapshot = _tokamak_snapshot(time_index=0)
+    snapshot_cache = tmp_path / "tokamak_linear_transport_short_window_snapshot.npz"
+    save_local_reference_snapshot_cache(
+        LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields={},
+            optional_fields={},
+            scalar_values=snapshot.scalar_values,
+        ),
+        snapshot_cache,
+    )
+    history_cache = tmp_path / "tokamak_linear_transport_short_window_field_history.npz"
+    save_optional_field_history_cache(
+        {
+            "Pe": np.stack([np.full((6, 12, 1), float(i + 1)) for i in range(6)], axis=0),
+        },
+        history_cache,
+    )
+
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "tokamak_linear_transport_short_window" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_field_history_cache_path",
+        lambda case_name: history_cache if case_name == "tokamak_linear_transport_short_window" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("reference run should not be used when tokamak caches are present")
+        ),
+    )
+
+    case = ReferenceCase(
+        name="tokamak_linear_transport_short_window",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/linear-transport/BOUT.inp",
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Pe",),
+        extra_overrides=("nout=5", "e:diagnose=false"),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_linear_transport_short_window_case(
+        case,
+        input_path=linear_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert result.time_points == (0.0, 10000.0, 20000.0, 30000.0, 40000.0, 50000.0)
+    assert result.payload["overrides"] == ["nout=5", "e:diagnose=false"]
+    np.testing.assert_allclose(result.variables["Pe"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Pe"][5], 6.0)
+
+
 def test_tokamak_turbulence_rhs_stacks_initial_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
