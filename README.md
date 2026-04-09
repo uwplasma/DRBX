@@ -20,6 +20,7 @@ The exact direct tokamak ladder is now also substantial rather than placeholder-
 - `tokamak_heat_transport_one_step`
 - `tokamak_heat_transport_short_window`
 - `tokamak_diffusion_conduction_one_step`
+- `tokamak_diffusion_conduction_short_window`
 - `tokamak_linear_transport_one_step`
 - `tokamak_linear_transport_short_window`
 - `tokamak_isothermal_rhs`
