@@ -22,11 +22,14 @@ The exact direct tokamak ladder is now also substantial rather than placeholder-
 - `tokamak_diffusion_conduction_one_step`
 - `tokamak_linear_transport_one_step`
 - `tokamak_isothermal_one_step`
+- `tokamak_isothermal_short_window`
 - `tokamak_turbulence_rhs`
 - `tokamak_turbulence_one_step`
 - `tokamak_turbulence_short_window`
+- `tokamak_recycling_dthe_drifts_rhs`
+- `tokamak_recycling_dthe_drifts_one_step`
 
-These run through the same staged tokamak geometry path and have committed summary/array baselines. The transient subset also has committed snapshot/history caches so repeated exact checks do not require a fresh Hermes launch.
+These run through the same staged tokamak geometry path and have committed summary/array baselines. The transient subset also has committed snapshot/history caches so repeated exact checks do not require a fresh Hermes launch. The drift-enabled D/T/He recycling lane is now promoted too at the curated `rhs` and `one_step` level, using deterministic `sound_speed` plus `solver:type=cvode` curation in the manifest.
 
 ## Validation Snapshots
 
@@ -183,6 +186,16 @@ PYTHONPATH=src python -m jax_drb validate-reference-baselines \
   --case tokamak_turbulence_rhs \
   --case tokamak_turbulence_one_step \
   --case tokamak_turbulence_short_window
+```
+
+Re-run the newest exact/curated direct tokamak additions:
+
+```bash
+PYTHONPATH=src python -m jax_drb validate-reference-baselines \
+  --reference-root /path/to/reference-checkout \
+  --case tokamak_isothermal_short_window \
+  --case tokamak_recycling_dthe_drifts_rhs \
+  --case tokamak_recycling_dthe_drifts_one_step
 ```
 
 Run the regression suite:
