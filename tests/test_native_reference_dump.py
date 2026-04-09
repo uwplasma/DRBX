@@ -45,7 +45,7 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
             variable.assignValue(value)
 
         field2d = np.arange(20, dtype=np.float64).reshape(4, 5)
-        for name in ("dx", "dy", "J", "g11", "g22", "g_22", "g33", "g23", "Bxy"):
+        for name in ("dx", "dy", "J", "g11", "g22", "g_22", "g33", "g23", "g_23", "Bxy"):
             variable = dataset.createVariable(name, "f8", ("x", "y"))
             variable[:] = field2d + (0.0 if name != "g_22" else 100.0)
 
@@ -74,6 +74,7 @@ def test_load_local_reference_snapshot_reads_mesh_metrics_and_fields(tmp_path: P
     assert snapshot.mesh.has_upper_y_target is False
     assert snapshot.metrics.dx.shape == (4, 5, 1)
     assert snapshot.metrics.g_22.shape == (4, 5, 1)
+    assert snapshot.metrics.g_23 is not None
     np.testing.assert_allclose(np.asarray(snapshot.metrics.dx)[..., 0], field2d)
     np.testing.assert_allclose(np.asarray(snapshot.fields["Nd+"])[..., 0], np.arange(20, dtype=np.float64).reshape(4, 5))
     np.testing.assert_allclose(np.asarray(snapshot.optional_fields["is_pump"])[..., 0], np.eye(4, 5, dtype=np.float64))
@@ -118,6 +119,7 @@ def test_local_reference_snapshot_cache_roundtrip(tmp_path: Path) -> None:
         g_22=ones,
         g23=jnp.zeros_like(ones),
         Bxy=ones * 3.0,
+        g_23=ones * 4.0,
     )
     snapshot = LocalReferenceSnapshot(
         mesh=mesh,
@@ -139,6 +141,7 @@ def test_local_reference_snapshot_cache_roundtrip(tmp_path: Path) -> None:
     assert loaded.mesh.nx == 4
     assert loaded.mesh.local_ny == 5
     np.testing.assert_allclose(np.asarray(loaded.metrics.dy), np.asarray(metrics.dy))
+    np.testing.assert_allclose(np.asarray(loaded.metrics.g_23), np.asarray(metrics.g_23))
     np.testing.assert_allclose(loaded.fields["Nd+"], snapshot.fields["Nd+"])
     np.testing.assert_allclose(loaded.optional_fields["SNd+"], snapshot.optional_fields["SNd+"])
     assert loaded.scalar_values["Nnorm"] == pytest.approx(1.0e17)
@@ -194,6 +197,7 @@ def test_synthesize_local_reference_snapshot_from_active_history(tmp_path: Path)
         g_22=ones,
         g23=jnp.zeros_like(ones),
         Bxy=ones,
+        g_23=ones * 0.5,
     )
     initial = np.zeros((4, 5, 1), dtype=np.float64)
     snapshot = LocalReferenceSnapshot(

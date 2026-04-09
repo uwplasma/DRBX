@@ -777,6 +777,22 @@ def _explicit_pressure_source(
     return np.asarray(field, dtype=np.float64) / source_normalisation
 
 
+def _resolve_species_numeric_option(config: BoutConfig, section: str, option_name: str) -> float:
+    raw_value = config.raw(section, option_name).strip()
+    resolved_reference = _try_literal_reference(config, raw_value)
+    if resolved_reference is None and raw_value.startswith("`") and "`:" in raw_value:
+        section_end = raw_value.find("`:", 1)
+        if section_end > 1:
+            referenced_section = raw_value[1:section_end]
+            referenced_option = raw_value[section_end + 2 :]
+            if config.has_section(referenced_section) and config.has_option(referenced_section, referenced_option):
+                resolved_reference = (referenced_section, referenced_option)
+    resolver = NumericResolver(config)
+    if resolved_reference is not None:
+        return float(resolver.resolve(resolved_reference[0], resolved_reference[1]))
+    return float(resolver.resolve(section, option_name))
+
+
 def _evaluate_option_field(
     config: BoutConfig,
     section: str,
@@ -1059,7 +1075,11 @@ def _apply_anomalous_diffusion(
     momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     diagnostics: dict[str, np.ndarray] = {}
 
-    if not np.allclose(np.asarray(metrics.g23, dtype=np.float64), 0.0, rtol=1.0e-12, atol=1.0e-12):
+    supports_nz1_nonorthogonal = mesh.nz == 1 and getattr(metrics, "g_23", None) is not None
+    if (
+        not np.allclose(np.asarray(metrics.g23, dtype=np.float64), 0.0, rtol=1.0e-12, atol=1.0e-12)
+        and not supports_nz1_nonorthogonal
+    ):
         return _AnomalousDiffusionTerms(
             density_source=density_source,
             energy_source=energy_source,
@@ -1067,16 +1087,20 @@ def _apply_anomalous_diffusion(
             diagnostics=diagnostics,
         )
 
-    resolver = NumericResolver(config)
     diffusion_norm = float(dataset_scalars["rho_s0"]) ** 2 * float(dataset_scalars["Omega_ci"])
+    anomalous_operator = (
+        _div_a_grad_perp_upwind_flows_nz1
+        if supports_nz1_nonorthogonal
+        else _div_a_grad_perp_flows
+    )
 
     for name, sp in species.items():
         if not config.has_section(name):
             continue
 
-        include_d = config.has_option(name, "anomalous_D") and abs(float(resolver.resolve(name, "anomalous_D"))) > 0.0
-        include_chi = config.has_option(name, "anomalous_chi") and abs(float(resolver.resolve(name, "anomalous_chi"))) > 0.0
-        include_nu = config.has_option(name, "anomalous_nu") and abs(float(resolver.resolve(name, "anomalous_nu"))) > 0.0
+        include_d = config.has_option(name, "anomalous_D") and abs(_resolve_species_numeric_option(config, name, "anomalous_D")) > 0.0
+        include_chi = config.has_option(name, "anomalous_chi") and abs(_resolve_species_numeric_option(config, name, "anomalous_chi")) > 0.0
+        include_nu = config.has_option(name, "anomalous_nu") and abs(_resolve_species_numeric_option(config, name, "anomalous_nu")) > 0.0
         if not (include_d or include_chi or include_nu):
             continue
 
@@ -1101,51 +1125,51 @@ def _apply_anomalous_diffusion(
             velocity_2d[:, mesh.yend + 1, :] = velocity_2d[:, mesh.yend, :]
 
         anomalous_d = (
-            np.full_like(sp.density, float(resolver.resolve(name, "anomalous_D")) / diffusion_norm, dtype=np.float64)
+            np.full_like(sp.density, _resolve_species_numeric_option(config, name, "anomalous_D") / diffusion_norm, dtype=np.float64)
             if include_d
             else np.zeros_like(sp.density, dtype=np.float64)
         )
         anomalous_chi = (
-            np.full_like(sp.density, float(resolver.resolve(name, "anomalous_chi")) / diffusion_norm, dtype=np.float64)
+            np.full_like(sp.density, _resolve_species_numeric_option(config, name, "anomalous_chi") / diffusion_norm, dtype=np.float64)
             if include_chi
             else np.zeros_like(sp.density, dtype=np.float64)
         )
         anomalous_nu = (
-            np.full_like(sp.density, float(resolver.resolve(name, "anomalous_nu")) / diffusion_norm, dtype=np.float64)
+            np.full_like(sp.density, _resolve_species_numeric_option(config, name, "anomalous_nu") / diffusion_norm, dtype=np.float64)
             if include_nu
             else np.zeros_like(sp.density, dtype=np.float64)
         )
 
         if include_d:
-            density_source[name] = density_source[name] + _div_a_grad_perp_flows(
+            density_source[name] = density_source[name] + anomalous_operator(
                 anomalous_d,
                 density_2d,
                 mesh=mesh,
                 metrics=metrics,
             )
             if sp.has_momentum:
-                momentum_source[name] = momentum_source[name] + _div_a_grad_perp_flows(
+                momentum_source[name] = momentum_source[name] + anomalous_operator(
                     sp.atomic_mass * velocity_2d * anomalous_d,
                     density_2d,
                     mesh=mesh,
                     metrics=metrics,
                 )
             if sp.has_pressure:
-                energy_source[name] = energy_source[name] + _div_a_grad_perp_flows(
+                energy_source[name] = energy_source[name] + anomalous_operator(
                     1.5 * temperature_2d * anomalous_d,
                     density_2d,
                     mesh=mesh,
                     metrics=metrics,
                 )
         if include_chi and sp.has_pressure:
-            energy_source[name] = energy_source[name] + _div_a_grad_perp_flows(
+            energy_source[name] = energy_source[name] + anomalous_operator(
                 anomalous_chi * density_2d,
                 temperature_2d,
                 mesh=mesh,
                 metrics=metrics,
             )
         if include_nu and sp.has_momentum:
-            momentum_source[name] = momentum_source[name] + _div_a_grad_perp_flows(
+            momentum_source[name] = momentum_source[name] + anomalous_operator(
                 anomalous_nu * sp.atomic_mass * density_2d,
                 velocity_2d,
                 mesh=mesh,
@@ -1164,6 +1188,78 @@ def _apply_anomalous_diffusion(
         momentum_source=momentum_source,
         diagnostics=diagnostics,
     )
+
+
+def _div_a_grad_perp_upwind_flows_nz1(
+    coefficient: np.ndarray,
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+) -> np.ndarray:
+    """Subset of Hermes Div_a_Grad_perp_upwind_flows for nz=1 tokamak meshes.
+
+    This keeps the existing upwind radial flux and adds the non-orthogonal Y flux
+    driven by g23/g_23. That is the missing anomalous-diffusion slice on the
+    direct tokamak recycling lane.
+    """
+    result = np.zeros_like(field, dtype=np.float64)
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g23 = np.asarray(metrics.g23, dtype=np.float64)
+    g_23 = np.asarray(
+        metrics.g_23 if metrics.g_23 is not None else np.zeros_like(g23),
+        dtype=np.float64,
+    )
+    Bxy = np.asarray(metrics.Bxy, dtype=np.float64)
+
+    k = 0
+
+    for i in range(mesh.xstart - 1, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            gradient = (
+                (J[i, j, k] * g11[i, j, k] + J[i + 1, j, k] * g11[i + 1, j, k])
+                * (field[i + 1, j, k] - field[i, j, k])
+                / (dx[i, j, k] + dx[i + 1, j, k])
+            )
+            flux = gradient * (coefficient[i + 1, j, k] if gradient > 0.0 else coefficient[i, j, k])
+            result[i, j, k] += flux / (dx[i, j, k] * J[i, j, k])
+            result[i + 1, j, k] -= flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+
+    if np.allclose(g23, 0.0, rtol=1.0e-12, atol=1.0e-12):
+        return result
+
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            coef_up = 0.5 * (
+                g_23[i, j, k] / np.square(J[i, j, k] * Bxy[i, j, k])
+                + g_23[i, j + 1, k] / np.square(J[i, j + 1, k] * Bxy[i, j + 1, k])
+            )
+            dfdy_up = 2.0 * (field[i, j + 1, k] - field[i, j, k]) / (dy[i, j + 1, k] + dy[i, j, k])
+            flux = (
+                0.25
+                * (coefficient[i, j, k] + coefficient[i, j + 1, k])
+                * (J[i, j, k] * g23[i, j, k] + J[i, j + 1, k] * g23[i, j + 1, k])
+                * (-coef_up * dfdy_up)
+            )
+            result[i, j, k] += flux / (dy[i, j, k] * J[i, j, k])
+
+            coef_down = 0.5 * (
+                g_23[i, j, k] / np.square(J[i, j, k] * Bxy[i, j, k])
+                + g_23[i, j - 1, k] / np.square(J[i, j - 1, k] * Bxy[i, j - 1, k])
+            )
+            dfdy_down = 2.0 * (field[i, j, k] - field[i, j - 1, k]) / (dy[i, j, k] + dy[i, j - 1, k])
+            flux = (
+                0.25
+                * (coefficient[i, j, k] + coefficient[i, j - 1, k])
+                * (J[i, j, k] * g23[i, j, k] + J[i, j - 1, k] * g23[i, j - 1, k])
+                * (-coef_down * dfdy_down)
+            )
+            result[i, j, k] -= flux / (dy[i, j, k] * J[i, j, k])
+
+    return result
 
 
 def _is_charge_exchange_reaction(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> bool:
