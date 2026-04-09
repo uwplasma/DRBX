@@ -1,0 +1,258 @@
+{
+  "case_name": "tokamak_isothermal_rhs",
+  "compare_variables": [
+    "Ne",
+    "Ni",
+    "NVe",
+    "NVi",
+    "phi",
+    "Vort",
+    "ddt(Ne)",
+    "ddt(NVe)",
+    "ddt(NVi)",
+    "ddt(Vort)"
+  ],
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_momentum",
+    "e:isothermal",
+    "i:quasineutral",
+    "i:evolve_momentum",
+    "i:isothermal",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift"
+  ],
+  "configured_nout": 0,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 1,
+    "x": 36,
+    "y": 12,
+    "z": 27
+  },
+  "effective_output_points": 1,
+  "overrides": [
+    "nout=0",
+    "timestep=0.1",
+    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/tokamak.nc",
+    "e:diagnose=true",
+    "i:diagnose=true",
+    "vorticity:diagnose=true"
+  ],
+  "parity_mode": "one_rhs",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0
+  ],
+  "variable_summaries": {
+    "NVe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVe",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "NVi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVi",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.9859375000000001,
+      "mean": 0.5499999999999999,
+      "minimum": 0.11406249999999994,
+      "name": "Ne",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "Ni": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.9859375000000001,
+      "mean": 0.5499999999999999,
+      "minimum": 0.11406249999999993,
+      "name": "Ni",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "Vort",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "ddt(NVe)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": -6.858649362597137e-08,
+      "mean": -0.0001222484225765676,
+      "minimum": -0.0011054653176698942,
+      "name": "ddt(NVe)",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "ddt(NVi)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0005796401911990261,
+      "mean": -0.0023248581260011023,
+      "minimum": -0.03537231660800491,
+      "name": "ddt(NVi)",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "ddt(Ne)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 9.007775373761059e-06,
+      "mean": -0.0006477480106863253,
+      "minimum": -0.009638370433408438,
+      "name": "ddt(Ne)",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "ddt(Vort)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 3.5202669199738436e-05,
+      "mean": -0.0003205084143442689,
+      "minimum": -0.004625910485125949,
+      "name": "ddt(Vort)",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "phi",
+      "shape": [
+        1,
+        32,
+        8,
+        27
+      ]
+    }
+  }
+}
