@@ -34,6 +34,7 @@ The exact direct tokamak ladder is now also substantial rather than placeholder-
 - `tokamak_recycling_dthe_drifts_one_step`
 
 These run through the same staged tokamak geometry path and have committed summary/array baselines. The transient subset also has committed snapshot/history caches so repeated exact checks do not require a fresh Hermes launch. The drift-enabled D/T/He recycling lane is now promoted too at the curated `rhs` and `one_step` level, using deterministic `sound_speed` plus `solver:type=cvode` curation in the manifest.
+On that drift-enabled recycling lane, the current native compare surface is intentionally limited to the ion density/pressure/momentum channels plus `Pe`; `phi` and `Vort` are still a follow-on item for the recycling path and are no longer advertised as if they were already checked there.
 
 ## Validation Snapshots
 
@@ -203,6 +204,13 @@ PYTHONPATH=src python -m jax_drb validate-reference-baselines \
   --case tokamak_isothermal_short_window \
   --case tokamak_recycling_dthe_drifts_rhs \
   --case tokamak_recycling_dthe_drifts_one_step
+```
+
+For the current direct tokamak recycling one-step blocker review, use:
+```bash
+PYTHONPATH=src .venv/bin/python scripts/diagnose_tokamak_recycling_one_step.py \
+  --reference-root /Users/rogerio/local/hermes-3 \
+  --use-committed-baselines
 ```
 
 Run the regression suite:
