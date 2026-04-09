@@ -1361,3 +1361,201 @@ def test_tokamak_turbulence_one_step_uses_committed_snapshot_and_history_cache(
     np.testing.assert_allclose(result.variables["Nd+"][1], 4.0)
     np.testing.assert_allclose(result.variables["phi"][0], 13.0)
     np.testing.assert_allclose(result.variables["Vort"][1], 16.0)
+
+
+def test_tokamak_turbulence_short_window_stacks_full_snapshot_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    if not turbulence_input.exists():
+        pytest.skip("tokamak turbulence reference input is unavailable")
+
+    captured_time_indices: list[int] = []
+
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: _FakeExecution(
+            summary=_FakeSummary(
+                artifacts={"BOUT.dmp.0.nc": "/tmp/fake-tokamak-turbulence-short.nc"},
+                time_points=(0.0, 0.1, 0.2),
+                overrides=("nout=2", "timestep=0.1", "input:error_on_unused_options=false"),
+            )
+        ),
+    )
+
+    def fake_load_snapshot(*args, **kwargs):
+        time_index = kwargs["time_index"]
+        captured_time_indices.append(time_index)
+        snapshot = _tokamak_snapshot(time_index=time_index)
+        scale = float(time_index + 1)
+        return LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields={
+                "Ne": np.full((6, 12, 1), 1.0 * scale, dtype=np.float64),
+                "Nd+": np.full((6, 12, 1), 2.0 * scale, dtype=np.float64),
+                "NVe": np.full((6, 12, 1), 3.0 * scale, dtype=np.float64),
+                "NVd+": np.full((6, 12, 1), 4.0 * scale, dtype=np.float64),
+                "Pe": np.full((6, 12, 1), 5.0 * scale, dtype=np.float64),
+                "Pd+": np.full((6, 12, 1), 6.0 * scale, dtype=np.float64),
+                "phi": np.full((6, 12, 1), 7.0 * scale, dtype=np.float64),
+                "Vort": np.full((6, 12, 1), 8.0 * scale, dtype=np.float64),
+            },
+            optional_fields=snapshot.optional_fields,
+            scalar_values=snapshot.scalar_values,
+        )
+
+    monkeypatch.setattr(native_runner, "load_local_reference_snapshot", fake_load_snapshot)
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_snapshot_cache_path",
+        lambda case_name: Path("/tmp") / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_field_history_cache_path",
+        lambda case_name: Path("/tmp") / f"{case_name}.missing",
+    )
+
+    case = ReferenceCase(
+        name="tokamak_turbulence_short_window",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/turbulence/BOUT.inp",
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort"),
+        extra_overrides=(
+            "nout=2",
+            "timestep=0.1",
+            "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+            "input:error_on_unused_options=false",
+        ),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_turbulence_short_window_case(
+        case,
+        input_path=turbulence_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert captured_time_indices == [0, 1, 2]
+    assert result.time_points == (0.0, 0.1, 0.2)
+    assert result.variables["Ne"].shape == (3, 2, 8, 1)
+    np.testing.assert_allclose(result.variables["Ne"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Ne"][2], 3.0)
+    np.testing.assert_allclose(result.variables["Vort"][1], 16.0)
+
+
+def test_tokamak_turbulence_short_window_matches_committed_baselines() -> None:
+    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    if not turbulence_input.exists():
+        pytest.skip("tokamak turbulence reference input is unavailable")
+
+    summary_path = _BASELINE_DIR / "tokamak_turbulence_short_window.json"
+    arrays_path = _ARRAY_BASELINE_DIR / "tokamak_turbulence_short_window.npz"
+    if not summary_path.exists() or not arrays_path.exists():
+        pytest.skip("tokamak turbulence short-window baselines are unavailable")
+
+    expected_summary = load_summary_json(summary_path)
+    expected_arrays = load_portable_array_payload(arrays_path)
+
+    result = run_curated_case("tokamak_turbulence_short_window", reference_root=_REFERENCE_ROOT)
+    summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
+    actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
+    array_comparison = compare_array_payloads(expected_arrays, actual_arrays, array_rtol=1.0e-6, array_atol=1.0e-9)
+
+    assert summary_comparison.ok, summary_comparison.issues
+    assert array_comparison.ok, array_comparison.issues
+
+
+def test_tokamak_turbulence_short_window_uses_committed_snapshot_and_history_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    turbulence_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/turbulence/BOUT.inp")
+    if not turbulence_input.exists():
+        pytest.skip("tokamak turbulence reference input is unavailable")
+
+    snapshot = _tokamak_snapshot(time_index=0)
+    snapshot_cache = tmp_path / "tokamak_turbulence_short_window_snapshot.npz"
+    save_local_reference_snapshot_cache(
+        LocalReferenceSnapshot(
+            mesh=snapshot.mesh,
+            metrics=snapshot.metrics,
+            fields={},
+            optional_fields={},
+            scalar_values=snapshot.scalar_values,
+        ),
+        snapshot_cache,
+    )
+    history_cache = tmp_path / "tokamak_turbulence_short_window_field_history.npz"
+    save_optional_field_history_cache(
+        {
+            "Ne": np.stack([np.full((6, 12, 1), 1.0), np.full((6, 12, 1), 2.0), np.full((6, 12, 1), 3.0)], axis=0),
+            "Nd+": np.stack([np.full((6, 12, 1), 4.0), np.full((6, 12, 1), 5.0), np.full((6, 12, 1), 6.0)], axis=0),
+            "NVe": np.stack([np.full((6, 12, 1), 7.0), np.full((6, 12, 1), 8.0), np.full((6, 12, 1), 9.0)], axis=0),
+            "NVd+": np.stack([np.full((6, 12, 1), 10.0), np.full((6, 12, 1), 11.0), np.full((6, 12, 1), 12.0)], axis=0),
+            "Pe": np.stack([np.full((6, 12, 1), 13.0), np.full((6, 12, 1), 14.0), np.full((6, 12, 1), 15.0)], axis=0),
+            "Pd+": np.stack([np.full((6, 12, 1), 16.0), np.full((6, 12, 1), 17.0), np.full((6, 12, 1), 18.0)], axis=0),
+            "phi": np.stack([np.full((6, 12, 1), 19.0), np.full((6, 12, 1), 20.0), np.full((6, 12, 1), 21.0)], axis=0),
+            "Vort": np.stack([np.full((6, 12, 1), 22.0), np.full((6, 12, 1), 23.0), np.full((6, 12, 1), 24.0)], axis=0),
+        },
+        history_cache,
+    )
+
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "tokamak_turbulence_short_window" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "_tokamak_field_history_cache_path",
+        lambda case_name: history_cache if case_name == "tokamak_turbulence_short_window" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("reference run should not be used when tokamak caches are present")
+        ),
+    )
+
+    case = ReferenceCase(
+        name="tokamak_turbulence_short_window",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/turbulence/BOUT.inp",
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort"),
+        extra_overrides=(
+            "nout=2",
+            "timestep=0.1",
+            "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+            "input:error_on_unused_options=false",
+        ),
+        trim_x_guards=True,
+        trim_y_guards=True,
+        process_count=6,
+    )
+
+    result = native_runner._run_tokamak_turbulence_short_window_case(
+        case,
+        input_path=turbulence_input,
+        reference_root=Path("/Users/rogerio/local/hermes-3"),
+    )
+
+    assert result.time_points == (0.0, 0.1, 0.2)
+    assert result.payload["overrides"] == [
+        "nout=2",
+        "timestep=0.1",
+        "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+        "input:error_on_unused_options=false",
+    ]
+    np.testing.assert_allclose(result.variables["Ne"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Ne"][2], 3.0)
+    np.testing.assert_allclose(result.variables["Vort"][1], 23.0)
