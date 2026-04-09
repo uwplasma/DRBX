@@ -11,6 +11,22 @@ The current validated slices are small on purpose. Each one is locked to committ
 - blob2d curvature-driven `one_rhs`, `one_step`, and `short_window`;
 - coupled 2D drift-wave `one_rhs`, `one_step`, and `short_window`.
 
+The exact direct tokamak ladder is now also substantial rather than placeholder-only. The committed direct-geometry rungs include:
+
+- `tokamak_diffusion_flow_one_step`
+- `tokamak_diffusion_one_step`
+- `tokamak_diffusion_transport_one_step`
+- `tokamak_diffusion_transport_short_window`
+- `tokamak_heat_transport_one_step`
+- `tokamak_heat_transport_short_window`
+- `tokamak_diffusion_conduction_one_step`
+- `tokamak_linear_transport_one_step`
+- `tokamak_isothermal_one_step`
+- `tokamak_turbulence_one_step`
+- `tokamak_turbulence_short_window`
+
+These run through the same staged tokamak geometry path and have committed summary/array baselines. The transient subset also has committed snapshot/history caches so repeated exact checks do not require a fresh Hermes launch.
+
 ## Validation Snapshots
 
 The figures below come from the committed validation ladder. They compare native `jax_drb` outputs against the stored baseline artifacts used by the regression harness.
@@ -156,6 +172,15 @@ PYTHONPATH=src python -m jax_drb validate-reference-baselines \
   --case evolve_density_rhs \
   --case diffusion_one_step \
   --case vorticity_rhs
+```
+
+Re-run the exact direct tokamak turbulence ladder:
+
+```bash
+PYTHONPATH=src python -m jax_drb validate-reference-baselines \
+  --reference-root /path/to/reference-checkout \
+  --case tokamak_turbulence_one_step \
+  --case tokamak_turbulence_short_window
 ```
 
 Run the regression suite:
