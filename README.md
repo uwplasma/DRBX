@@ -21,6 +21,7 @@ The exact direct tokamak ladder is now also substantial rather than placeholder-
 - `tokamak_heat_transport_short_window`
 - `tokamak_diffusion_conduction_one_step`
 - `tokamak_linear_transport_one_step`
+- `tokamak_linear_transport_short_window`
 - `tokamak_isothermal_rhs`
 - `tokamak_isothermal_one_step`
 - `tokamak_isothermal_short_window`
@@ -195,6 +196,7 @@ Re-run the newest exact/curated direct tokamak additions:
 ```bash
 PYTHONPATH=src python -m jax_drb validate-reference-baselines \
   --reference-root /path/to/reference-checkout \
+  --case tokamak_linear_transport_short_window \
   --case tokamak_isothermal_rhs \
   --case tokamak_isothermal_medium_window \
   --case tokamak_isothermal_short_window \

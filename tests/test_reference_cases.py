@@ -342,6 +342,19 @@ def test_default_manifest_stages_tokamak_isothermal_rhs_case() -> None:
     assert case.process_count == 6
 
 
+def test_default_manifest_stages_tokamak_linear_transport_short_window_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "tokamak_linear_transport_short_window")
+
+    assert case.reference_path == "examples/tokamak-2D/linear-transport/BOUT.inp"
+    assert case.parity_mode == "short_window"
+    assert case.compare_variables == ("Pe",)
+    assert case.extra_overrides == ("nout=5", "e:diagnose=false")
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 6
+
+
 def test_default_manifest_stages_tokamak_isothermal_short_window_case() -> None:
     cases = load_reference_cases()
     case = next(case for case in cases if case.name == "tokamak_isothermal_short_window")

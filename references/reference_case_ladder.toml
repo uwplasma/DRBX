@@ -528,6 +528,18 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_linear_transport_short_window"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/linear-transport/BOUT.inp"
+parity_mode = "short_window"
+rationale = "First exact transient rung on the direct tokamak fixed-density electron transport stack before broader coupled transients."
+compare_variables = ["Pe"]
+extra_overrides = ["nout=5", "e:diagnose=false"]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_isothermal_rhs"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/isothermal/BOUT.inp"
