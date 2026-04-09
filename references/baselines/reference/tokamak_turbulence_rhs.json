@@ -1,0 +1,279 @@
+{
+  "case_name": "tokamak_turbulence_rhs",
+  "compare_variables": [
+    "Ne",
+    "Nd+",
+    "NVe",
+    "NVd+",
+    "Pe",
+    "Pd+",
+    "phi",
+    "Vort",
+    "ddt(Ne)",
+    "ddt(NVe)",
+    "ddt(Pe)"
+  ],
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_pressure",
+    "e:evolve_momentum",
+    "d+:quasineutral",
+    "d+:evolve_pressure",
+    "d+:evolve_momentum",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift",
+    "classical_diffusion",
+    "polarisation_drift",
+    "braginskii_conduction"
+  ],
+  "configured_nout": 0,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 1,
+    "x": 36,
+    "y": 12,
+    "z": 81
+  },
+  "effective_output_points": 1,
+  "overrides": [
+    "nout=0",
+    "timestep=0.1",
+    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/tokamak.nc",
+    "input:error_on_unused_options=false"
+  ],
+  "parity_mode": "one_rhs",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0
+  ],
+  "variable_summaries": {
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVd+",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "NVe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVe",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 2.9593538181644363,
+      "mean": 1.6500171973431874,
+      "minimum": 0.34081523266839303,
+      "name": "Nd+",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 2.9593538181644363,
+      "mean": 1.6500171973431874,
+      "minimum": 0.34081523266839314,
+      "name": "Ne",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 2.91621826171875,
+      "mean": 1.1098022460937498,
+      "minimum": 0.039030761718749966,
+      "name": "Pd+",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 2.91621826171875,
+      "mean": 1.1098022460937498,
+      "minimum": 0.039030761718749966,
+      "name": "Pe",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "Vort",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "ddt(NVe)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": -1.7183647516865059e-06,
+      "mean": -0.0014582741896641436,
+      "minimum": -0.014589247581178164,
+      "name": "ddt(NVe)",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "ddt(Ne)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.012102875644996703,
+      "mean": -0.011255334148242147,
+      "minimum": -0.35268733030937205,
+      "name": "ddt(Ne)",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "ddt(Pe)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.012021366942544125,
+      "mean": -0.015552957916893716,
+      "minimum": -0.5794435486178963,
+      "name": "ddt(Pe)",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "phi",
+      "shape": [
+        1,
+        32,
+        8,
+        81
+      ]
+    }
+  }
+}
