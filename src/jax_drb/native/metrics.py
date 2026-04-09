@@ -27,6 +27,7 @@ class StructuredMetrics:
     g_22: jnp.ndarray
     g23: jnp.ndarray
     Bxy: jnp.ndarray
+    g_23: jnp.ndarray | None = None
 
 
 def build_structured_metrics(
@@ -53,6 +54,7 @@ def build_structured_metrics(
     else:
         raw_g_22 = 1.0 / jnp.asarray(raw_g22, dtype=dtype)
     raw_g23 = _metric_value(config, evaluator, "g23", default=0.0)
+    raw_g_23 = _metric_value(config, evaluator, "g_23", default=0.0)
     raw_Bxy = _metric_value(config, evaluator, "Bxy", default=1.0)
 
     if _recalculate_metric_enabled(run_config):
@@ -76,6 +78,7 @@ def build_structured_metrics(
         raw_g22 = recalculated.g22
         raw_g_22 = recalculated.g_22
         raw_g23 = recalculated.g23
+        raw_g_23 = recalculated.g_23
         raw_Bxy = recalculated.Bxy
 
     normalized_g22 = _normalize_g22(
@@ -98,6 +101,7 @@ def build_structured_metrics(
         g22=normalized_g22,
         g_22=normalized_g_22,
         g23=broadcast_to_field_shape(raw_g23, mesh),
+        g_23=broadcast_to_field_shape(raw_g_23, mesh),
         Bxy=_normalize_Bxy(broadcast_to_field_shape(raw_Bxy, mesh), normalize_metric=normalize_metric, Bnorm=Bnorm),
     )
 
@@ -173,6 +177,7 @@ def _recalculate_orthogonal_metrics(
         g22=g22,
         g_22=g_22,
         g23=g23,
+        g_23=broadcast_to_field_shape(raw_g_23, mesh),
         Bxy=broadcast_to_field_shape(raw_Bxy, mesh),
     )
 

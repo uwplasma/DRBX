@@ -54,6 +54,10 @@ def save_local_reference_snapshot_cache(
         "metrics:g_22": np.asarray(snapshot.metrics.g_22, dtype=np.float64),
         "metrics:g23": np.asarray(snapshot.metrics.g23, dtype=np.float64),
         "metrics:Bxy": np.asarray(snapshot.metrics.Bxy, dtype=np.float64),
+        "metrics:g_23": np.asarray(
+            snapshot.metrics.g_23 if snapshot.metrics.g_23 is not None else np.zeros_like(snapshot.metrics.g23),
+            dtype=np.float64,
+        ),
     }
     for name, value in snapshot.fields.items():
         payload[f"field:{name}"] = np.asarray(value, dtype=np.float64)
@@ -102,6 +106,10 @@ def load_local_reference_snapshot_cache(
             g_22=jnp.asarray(dataset["metrics:g_22"], dtype=jnp.float64),
             g23=jnp.asarray(dataset["metrics:g23"], dtype=jnp.float64),
             Bxy=jnp.asarray(dataset["metrics:Bxy"], dtype=jnp.float64),
+            g_23=jnp.asarray(
+                dataset["metrics:g_23"] if "metrics:g_23" in dataset else np.zeros_like(dataset["metrics:g23"]),
+                dtype=jnp.float64,
+            ),
         )
         fields = {
             name: np.asarray(dataset[f"field:{name}"], dtype=np.float64)
@@ -278,6 +286,7 @@ def load_local_reference_snapshot(
             ),
             g23=_read_metric(dataset, "g23", shape=(nx, local_ny, nz), default=0.0),
             Bxy=_read_metric(dataset, "Bxy", shape=(nx, local_ny, nz), default=1.0),
+            g_23=_read_metric(dataset, "g_23", shape=(nx, local_ny, nz), default=0.0),
         )
 
         fields = {

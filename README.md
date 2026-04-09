@@ -211,6 +211,9 @@ For the current direct tokamak recycling one-step blocker review, use:
 PYTHONPATH=src .venv/bin/python scripts/diagnose_tokamak_recycling_one_step.py \
   --reference-root /Users/rogerio/local/hermes-3 \
   --use-committed-baselines
+
+PYTHONPATH=src .venv/bin/python scripts/diagnose_tokamak_recycling_ion_viscosity.py \
+  --reference-root /Users/rogerio/local/hermes-3
 ```
 
 Run the regression suite:
