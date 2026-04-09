@@ -171,6 +171,8 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
     one_step_case = next(case for case in cases if case.name == "tokamak_recycling_one_step")
     dthe_rhs_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_rhs")
     dthe_one_step_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_one_step")
+    dthe_drifts_rhs_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_drifts_rhs")
+    dthe_drifts_one_step_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_drifts_one_step")
     dthene_rhs_case = next(case for case in cases if case.name == "tokamak_recycling_dthene_rhs")
     dthene_one_step_case = next(case for case in cases if case.name == "tokamak_recycling_dthene_one_step")
 
@@ -207,6 +209,28 @@ def test_default_manifest_stages_tokamak_recycling_cases() -> None:
         "timestep=0.1",
         "mesh:file={reference_root}/examples/tokamak-2D/recycling-dthe/tokamak.nc",
         "he+:diagnose=false",
+        "input:error_on_unused_options=false",
+    )
+
+    assert dthe_drifts_rhs_case.reference_path == "examples/tokamak-2D/recycling-dthe-drifts/BOUT.inp"
+    assert dthe_drifts_rhs_case.parity_mode == "one_rhs"
+    assert dthe_drifts_rhs_case.process_count == 6
+    assert dthe_drifts_rhs_case.extra_overrides == (
+        "timestep=0.1",
+        "solver:type=cvode",
+        "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+        "hermes:components=(d+, d, t+, t, he+, he, e, sound_speed, relax_potential, sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, braginskii_thermal_force, reactions, braginskii_ion_viscosity, diamagnetic_drift, braginskii_conduction, recycling)",
+        "input:error_on_unused_options=false",
+    )
+
+    assert dthe_drifts_one_step_case.reference_path == "examples/tokamak-2D/recycling-dthe-drifts/BOUT.inp"
+    assert dthe_drifts_one_step_case.parity_mode == "one_step"
+    assert dthe_drifts_one_step_case.process_count == 6
+    assert dthe_drifts_one_step_case.extra_overrides == (
+        "timestep=0.1",
+        "solver:type=cvode",
+        "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+        "hermes:components=(d+, d, t+, t, he+, he, e, sound_speed, relax_potential, sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, braginskii_thermal_force, reactions, braginskii_ion_viscosity, diamagnetic_drift, braginskii_conduction, recycling)",
         "input:error_on_unused_options=false",
     )
 
@@ -291,6 +315,23 @@ def test_default_manifest_stages_tokamak_isothermal_one_step_case() -> None:
     assert case.parity_mode == "one_step"
     assert case.compare_variables == ("Ne", "Ni", "NVe", "NVi", "phi", "Vort")
     assert case.extra_overrides == (
+        "timestep=0.1",
+        "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+    )
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 6
+
+
+def test_default_manifest_stages_tokamak_isothermal_short_window_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "tokamak_isothermal_short_window")
+
+    assert case.reference_path == "examples/tokamak-2D/isothermal/BOUT.inp"
+    assert case.parity_mode == "short_window"
+    assert case.compare_variables == ("Ne", "Ni", "NVe", "NVi", "phi", "Vort")
+    assert case.extra_overrides == (
+        "nout=2",
         "timestep=0.1",
         "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
     )
