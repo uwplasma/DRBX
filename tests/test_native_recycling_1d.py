@@ -7,12 +7,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import load_bout_input
+from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
 import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native import run_curated_case
 from jax_drb.native.reference_dump import load_local_reference_snapshot, load_local_reference_snapshot_cache
+from jax_drb.native.reference_dump import synthesize_local_reference_snapshot_from_active_history
 from jax_drb.native.recycling_1d import (
     ElectronPressureRhsTerms,
     OpenFieldSpecies,
@@ -40,6 +41,7 @@ from jax_drb.native.recycling_1d import (
     _prepare_open_field_states,
     _reaction_sources,
     _recycling_evolving_variable_names,
+    _resolve_species_numeric_option,
     _sanitize_recycling_fields,
     _soft_floor,
     _target_recycling_sources,
@@ -152,6 +154,107 @@ def test_electron_pressure_rhs_terms_sum_to_total() -> None:
         terms.total,
         terms.explicit_pressure_source + terms.parallel_divergence + terms.parallel_advection + terms.energy_source,
     )
+
+
+def test_resolve_species_numeric_option_handles_literal_reference() -> None:
+    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
+
+    assert _resolve_species_numeric_option(config, "e", "anomalous_D") == pytest.approx(
+        _resolve_species_numeric_option(config, "d+", "anomalous_D")
+    )
+
+
+def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved_state() -> None:
+    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
+    config = apply_bout_overrides(
+        config,
+        (
+            "timestep=0.1",
+            "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+            "he+:diagnose=false",
+            "input:error_on_unused_options=false",
+        ),
+    )
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    snapshot = load_local_reference_snapshot_cache(
+        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_dthe_rhs_snapshot.npz"),
+        field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"),
+        scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+    )
+    evolved = synthesize_local_reference_snapshot_from_active_history(
+        initial_snapshot=snapshot,
+        array_history_path=Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/tokamak_recycling_dthe_one_step.npz"),
+        optional_history_path=Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_dthe_one_step_optional_history.npz"),
+        timestep=0.1,
+        state_field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"),
+        optional_field_names=(),
+    )
+    species = _initialize_species(
+        config,
+        mesh=evolved.mesh,
+        dataset_scalars=dataset_scalars,
+        field_overrides=evolved.fields,
+    )
+    netcdf4 = pytest.importorskip("netCDF4")
+    with netcdf4.Dataset("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc") as mesh_dataset:
+        g23 = np.asarray(mesh_dataset.variables["g23"][:], dtype=np.float64)[..., None]
+        g_23 = np.asarray(mesh_dataset.variables["g_23"][:], dtype=np.float64)[..., None]
+    nonorthogonal_metrics = StructuredMetrics(
+        dx=evolved.metrics.dx,
+        dy=evolved.metrics.dy,
+        dz=evolved.metrics.dz,
+        J=evolved.metrics.J,
+        g11=evolved.metrics.g11,
+        g22=evolved.metrics.g22,
+        g33=evolved.metrics.g33,
+        g_22=evolved.metrics.g_22,
+        g23=g23,
+        Bxy=evolved.metrics.Bxy,
+        g_23=g_23,
+    )
+    orthogonal_metrics = StructuredMetrics(
+        dx=evolved.metrics.dx,
+        dy=evolved.metrics.dy,
+        dz=evolved.metrics.dz,
+        J=evolved.metrics.J,
+        g11=evolved.metrics.g11,
+        g22=evolved.metrics.g22,
+        g33=evolved.metrics.g33,
+        g_22=evolved.metrics.g_22,
+        g23=np.zeros_like(g23),
+        Bxy=evolved.metrics.Bxy,
+        g_23=np.zeros_like(g_23),
+    )
+
+    nonorthogonal_terms = _apply_anomalous_diffusion(
+        config,
+        species=species,
+        mesh=evolved.mesh,
+        metrics=nonorthogonal_metrics,
+        dataset_scalars=dataset_scalars,
+    )
+    orthogonal_terms = _apply_anomalous_diffusion(
+        config,
+        species=species,
+        mesh=evolved.mesh,
+        metrics=orthogonal_metrics,
+        dataset_scalars=dataset_scalars,
+    )
+
+    d_momentum_delta = np.asarray(
+        nonorthogonal_terms.momentum_source["d+"] - orthogonal_terms.momentum_source["d+"],
+        dtype=np.float64,
+    )
+    d_energy_delta = np.asarray(
+        nonorthogonal_terms.energy_source["d+"] - orthogonal_terms.energy_source["d+"],
+        dtype=np.float64,
+    )
+
+    assert np.isfinite(d_momentum_delta).all()
+    assert np.isfinite(d_energy_delta).all()
+    assert float(np.nanmax(np.abs(d_momentum_delta))) > 1.0e-10
+    assert float(np.nanmax(np.abs(d_energy_delta))) > 1.0e-10
 
 
 def test_initialize_species_keeps_neutral_mixed_species_from_string_type() -> None:
@@ -593,7 +696,8 @@ def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_
         ion_boundary_default.momentum["d+"][lower_guard],
         prepared_default["d+"].momentum[lower_guard],
     )
-    assert np.any(np.abs(ion_boundary_ion_only.energy_source["d+"]) > 0.0)
+    assert np.any(np.abs(ion_boundary_default.energy_source["d+"]) > 0.0)
+    np.testing.assert_allclose(ion_boundary_ion_only.energy_source["d+"], 0.0)
 
 def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
     config = load_bout_input(_INPUT_1D)

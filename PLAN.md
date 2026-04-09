@@ -243,6 +243,13 @@ The remaining work should now proceed in this order:
        - `NVd+`: about `3.60e-2`
        - `Pt+`: about `1.12e-2`
        - `NVt+`: about `5.37e-2`
+     - the remaining blocker on that D/T direct-tokamak rung is now localized and script-backed rather than inferred:
+       - [diagnose_tokamak_recycling_one_step.py](/Users/rogerio/local/jax_drb/scripts/diagnose_tokamak_recycling_one_step.py) ranks the committed-baseline one-step residuals and confirms they are concentrated at the lower target corner;
+       - [diagnose_tokamak_recycling_ion_viscosity.py](/Users/rogerio/local/jax_drb/scripts/diagnose_tokamak_recycling_ion_viscosity.py) drills into the same full-grid blocker cell `(x=2, y=2, z=0)` on the reference-evolved state and shows the local collision stack is dominated by the ion-viscosity term itself, with `DivPiPar_d+ ≈ -4.12` and `DivPiPar_t+ ≈ -5.29`;
+     - the dead ends are explicit now and should not stay on the critical path:
+       - the committed cache does not carry tokamak recycling `SN*` / `SP*` / `SNV*` source histories, so source-override A/Bs are inert on `tokamak_recycling_dthe_one_step`;
+       - the tested local toggles (`eta` Neumann guards, removing viscosity boundary flux, and skipping initial velocity overrides) do not improve the D/T one-step mismatch;
+       - the new `g_23` metric plumbing and anomalous-coefficient literal-reference fix are worthwhile support work, but they are not the main explanation for the current D/T one-step residual;
      - the same lane is now widened to the D/T/He/Ne transient surface too: `tokamak_recycling_dthene_one_step` is now curated at `timestep=0.1`, has committed summary/array baselines plus a committed optional-history cache, and the native multispecies one-step runner is already in a tighter operational band than the dthe rung:
        - `Pe`: about `2.05e-3`
        - `Pd+`: about `2.79e-3`
@@ -252,8 +259,6 @@ The remaining work should now proceed in this order:
        - `NVd+` / `NVt+`: about `2.1e-6`
        - helium and neon channels: `O(1e-8 .. 1e-10)` on the committed one-step surface
      - the live Hermes reference path for the dthe tokamak lane required a narrow local fix in `BraginskiiCollisions`: add explicit positive-ion cross-collision write permission so the multispecies tokamak case can populate `species:*:collision_frequencies:*_he_coll` without aborting during solver initialisation; this is permission bookkeeping only, not a collision-formula change;
-         - `NVt+`: about `5.37e-2`
-         - `Phe+`: about `2.95e-5`
      - the next richer direct tokamak transport rung is now also in-tree: `tokamak_diffusion_transport_one_step` on `examples/tokamak-2D/diffusion-transport` has committed summary/array baselines and the native direct tokamak path matches them exactly on `Nh+`, `Ph+`, `NVh+`, and `Pe`;
      - that same direct tokamak transport lane is now widened to a first multi-output transient rung too: `tokamak_diffusion_transport_short_window` has committed summary/array baselines, carries the curated `nout=5` history, and the native direct tokamak path matches it exactly on the same compare surface;
      - the next neighboring direct tokamak physics family is now in-tree as well: `tokamak_heat_transport_one_step` on `examples/tokamak-2D/heat-transport` has committed summary/array baselines and the native direct tokamak path matches them exactly on `Pe`;
