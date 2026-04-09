@@ -525,6 +525,23 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_turbulence_rhs"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/turbulence/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "Direct tokamak turbulence operator rung on the electrostatic drift stack before the exact one-step and short-window history surfaces."
+compare_variables = ["Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort", "ddt(Ne)", "ddt(NVe)", "ddt(Pe)"]
+extra_overrides = [
+  "nout=0",
+  "timestep=0.1",
+  "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+  "input:error_on_unused_options=false",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_turbulence_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/turbulence/BOUT.inp"

@@ -299,6 +299,24 @@ def test_default_manifest_stages_tokamak_isothermal_one_step_case() -> None:
     assert case.process_count == 6
 
 
+def test_default_manifest_stages_tokamak_turbulence_rhs_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "tokamak_turbulence_rhs")
+
+    assert case.reference_path == "examples/tokamak-2D/turbulence/BOUT.inp"
+    assert case.parity_mode == "one_rhs"
+    assert case.compare_variables == ("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort", "ddt(Ne)", "ddt(NVe)", "ddt(Pe)")
+    assert case.extra_overrides == (
+        "nout=0",
+        "timestep=0.1",
+        "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+        "input:error_on_unused_options=false",
+    )
+    assert case.trim_x_guards is True
+    assert case.trim_y_guards is True
+    assert case.process_count == 6
+
+
 def test_default_manifest_stages_tokamak_turbulence_one_step_case() -> None:
     cases = load_reference_cases()
     case = next(case for case in cases if case.name == "tokamak_turbulence_one_step")
