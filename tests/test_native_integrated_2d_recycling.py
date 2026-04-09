@@ -2792,6 +2792,13 @@ def test_tokamak_recycling_dthene_rhs_matches_committed_baseline_exactly() -> No
         assert entry.max_abs_diff == pytest.approx(0.0)
 
 
+def test_tokamak_recycling_dthe_drifts_rhs_matches_committed_baseline_exactly() -> None:
+    entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_dthe_drifts_rhs")
+
+    for entry in entries.values():
+        assert entry.max_abs_diff == pytest.approx(0.0)
+
+
 def test_tokamak_recycling_dthe_one_step_stays_within_operational_target_band() -> None:
     entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_dthe_one_step")
 
@@ -2806,6 +2813,20 @@ def test_tokamak_recycling_dthe_one_step_stays_within_operational_target_band() 
     assert entries["Nt+"].max_abs_diff < 5.0e-5
     assert entries["Nd"].max_abs_diff < 5.0e-6
     assert entries["Nt"].max_abs_diff < 5.0e-6
+
+
+def test_tokamak_recycling_dthe_drifts_one_step_stays_within_operational_target_band() -> None:
+    entries = _run_direct_tokamak_case_against_committed_baseline("tokamak_recycling_dthe_drifts_one_step")
+
+    assert entries["Pe"].max_abs_diff < 1.0e-2
+    assert entries["Pd+"].max_abs_diff < 1.0e-2
+    assert entries["NVd+"].max_abs_diff < 1.0e-2
+    assert entries["Pt+"].max_abs_diff < 1.0e-2
+    assert entries["NVt+"].max_abs_diff < 1.0e-2
+    assert entries["Phe+"].max_abs_diff < 1.0e-4
+    assert entries["NVhe+"].max_abs_diff < 1.0e-4
+    assert "phi" not in entries or entries["phi"].max_abs_diff < 1.0e-4
+    assert "Vort" not in entries or entries["Vort"].max_abs_diff < 1.0e-4
 
 
 def test_tokamak_recycling_dthene_one_step_stays_within_operational_target_band() -> None:

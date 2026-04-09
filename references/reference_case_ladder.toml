@@ -418,6 +418,24 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_recycling_dthe_drifts_rhs"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/recycling-dthe-drifts/BOUT.inp"
+parity_mode = "one_rhs"
+rationale = "First direct tokamak drift-enabled multispecies recycling RHS rung on the D/T/He divertor stack before transient promotion."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nt+", "Pt+", "NVt+", "Nhe+", "Phe+", "NVhe+", "Pe", "phi", "Vort"]
+extra_overrides = [
+  "timestep=0.1",
+  "solver:type=cvode",
+  "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+  "hermes:components=(d+, d, t+, t, he+, he, e, sound_speed, relax_potential, sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, braginskii_thermal_force, reactions, braginskii_ion_viscosity, diamagnetic_drift, braginskii_conduction, recycling)",
+  "input:error_on_unused_options=false",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_diffusion_flow_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp"
@@ -525,6 +543,22 @@ trim_y_guards = true
 process_count = 6
 
 [[case]]
+name = "tokamak_isothermal_short_window"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/isothermal/BOUT.inp"
+parity_mode = "short_window"
+rationale = "First exact transient rung on the direct tokamak electrostatic/vorticity isothermal stack before broader drift and turbulence histories."
+compare_variables = ["Ne", "Ni", "NVe", "NVi", "phi", "Vort"]
+extra_overrides = [
+  "nout=2",
+  "timestep=0.1",
+  "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
 name = "tokamak_turbulence_rhs"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/turbulence/BOUT.inp"
@@ -585,6 +619,24 @@ extra_overrides = [
   "timestep=0.1",
   "mesh:file={reference_root}/examples/tokamak-2D/recycling-dthe/tokamak.nc",
   "he+:diagnose=false",
+  "input:error_on_unused_options=false",
+]
+trim_x_guards = true
+trim_y_guards = true
+process_count = 6
+
+[[case]]
+name = "tokamak_recycling_dthe_drifts_one_step"
+stage = "stage7"
+reference_path = "examples/tokamak-2D/recycling-dthe-drifts/BOUT.inp"
+parity_mode = "one_step"
+rationale = "First direct tokamak drift-enabled multispecies recycling transient rung on the D/T/He divertor stack before broader drift windows."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nt+", "Pt+", "NVt+", "Nhe+", "Phe+", "NVhe+", "Pe", "phi", "Vort"]
+extra_overrides = [
+  "timestep=0.1",
+  "solver:type=cvode",
+  "mesh:file={reference_root}/examples/tokamak-2D/tokamak.nc",
+  "hermes:components=(d+, d, t+, t, he+, he, e, sound_speed, relax_potential, sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, braginskii_thermal_force, reactions, braginskii_ion_viscosity, diamagnetic_drift, braginskii_conduction, recycling)",
   "input:error_on_unused_options=false",
 ]
 trim_x_guards = true
