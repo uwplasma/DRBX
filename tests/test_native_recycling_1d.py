@@ -769,6 +769,76 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
     assert float(cx_rates["d"][active]) != float(cx_rates["d+"][active])
 
 
+def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None:
+    config = apply_bout_overrides(load_bout_input(_DTHE_INPUT), ("d:K_cx_multiplier=3.0",))
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    cx_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=scalars,
+    )
+
+    active = (mesh.xstart, mesh.ystart, 0)
+    atom_temperature = prepared["d"].temperature
+    other_atom_temperature = prepared["t"].temperature
+    ion_temperature_same = prepared["d+"].temperature
+    ion_temperature_cross = prepared["t+"].temperature
+    sigma_same = _hydrogen_cx_sigmav(
+        np.clip(
+            (atom_temperature / species["d"].atomic_mass + ion_temperature_same / species["d+"].atomic_mass)
+            * scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        scalars,
+    )
+    sigma_cross = _hydrogen_cx_sigmav(
+        np.clip(
+            (atom_temperature / species["d"].atomic_mass + ion_temperature_cross / species["t+"].atomic_mass)
+            * scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        scalars,
+    )
+    sigma_cross_into_d = _hydrogen_cx_sigmav(
+        np.clip(
+            (other_atom_temperature / species["t"].atomic_mass + ion_temperature_same / species["d+"].atomic_mass)
+            * scalars["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        scalars,
+    )
+    expected_d_atom = 3.0 * (
+        prepared["d+"].density[active] * sigma_same[active]
+        + prepared["t+"].density[active] * sigma_cross[active]
+    )
+    expected_d_ion = 3.0 * (
+        prepared["d"].density[active] * sigma_same[active]
+    ) + (
+        prepared["t"].density[active] * sigma_cross_into_d[active]
+    )
+    expected_t_ion_from_d = 3.0 * prepared["d"].density[active] * sigma_cross[active]
+
+    assert float(cx_rates["d"][active]) == pytest.approx(float(expected_d_atom))
+    assert float(cx_rates["d+"][active]) == pytest.approx(float(expected_d_ion))
+    assert float(cx_rates["t+"][active]) >= float(expected_t_ion_from_d)
+
+
 def test_target_recycling_sources_use_prepared_ion_state() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)

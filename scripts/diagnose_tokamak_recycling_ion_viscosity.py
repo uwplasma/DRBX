@@ -67,9 +67,6 @@ STATE_FIELDS = (
     "Pe",
 )
 SCALAR_FIELDS = ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
-OPTIONAL_VELOCITY_FIELDS = ("Vd", "Vt", "Vhe")
-
-
 def default_tokamak_recycling_blocker_cells(mesh) -> tuple[tuple[int, int, int], ...]:
     return ((mesh.xstart, mesh.ystart, 0), (mesh.xstart + 1, mesh.ystart, 0))
 
@@ -115,6 +112,14 @@ def _hermes_collision_field_name(species_name: str, other_name: str) -> str:
     return f"K{species_name}{other_name}_coll"
 
 
+def _charged_collision_partner_names(species: dict[str, object]) -> tuple[str, ...]:
+    return tuple(name for name in species if name == "e" or name.endswith("+"))
+
+
+def _neutral_collision_partner_names(species: dict[str, object]) -> tuple[str, ...]:
+    return tuple(name for name in species if name != "e" and not name.endswith("+"))
+
+
 def _load_hermes_operator_diagnostics(
     case_name: str,
     *,
@@ -147,7 +152,7 @@ def _load_hermes_operator_diagnostics(
                     result[field_name] = _read_last_time_field(dataset_path, field_name)
         if include_collisions:
             for species_name in ("d+", "t+", "he+"):
-                for other_name in ("d+", "t+", "he+", "e"):
+                for other_name in ("d+", "t+", "he+", "d", "t", "he", "e"):
                     field_name = _hermes_collision_field_name(species_name, other_name)
                     if field_name in variable_names:
                         result[field_name] = _read_last_time_field(dataset_path, field_name)
@@ -200,7 +205,10 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     optional_history = load_optional_field_history_cache(
         repo_root / "references" / "baselines" / "reference_snapshots" / f"{args.case}_optional_history.npz",
-        field_names=OPTIONAL_VELOCITY_FIELDS,
+        field_names=tuple(
+            field_name
+            for _, field_name in _species_optional_velocity_field_map(config)
+        ),
     )
     velocity_field_overrides = {
         name: np.asarray(optional_history[field_name][1], dtype=np.float64)
@@ -417,14 +425,15 @@ def main() -> None:
                     f"DivPiPar={hermes_div_pi:.8e} "
                     f"native_minus_hermes={div_pi - hermes_div_pi:.8e}"
                 )
-            collisionality_subtotal = 0.0
+            charged_collisionality_subtotal = 0.0
+            neutral_collisionality_subtotal = 0.0
             print("    collision_rates:")
-            for other_name in ("d+", "t+", "he+", "e"):
+            for other_name in _charged_collision_partner_names(species):
                 rate = collision_rates.get((species_name, other_name))
                 if rate is None:
                     continue
                 native_rate = float(rate[x_index, y_index, z_index])
-                collisionality_subtotal += native_rate
+                charged_collisionality_subtotal += native_rate
                 hermes_collision_name = _hermes_collision_field_name(species_name, other_name)
                 if hermes_collision_name in hermes_operator_fields:
                     hermes_rate = float(hermes_operator_fields[hermes_collision_name][x_index, y_index, z_index])
@@ -436,10 +445,32 @@ def main() -> None:
                     )
                 else:
                     print(f"      {hermes_collision_name}: native={native_rate:.8e}")
-            cx_rate = float(viscosity_inputs.total_collisionality[x_index, y_index, z_index] - collisionality_subtotal)
+            for other_name in _neutral_collision_partner_names(species):
+                rate = collision_rates.get((species_name, other_name))
+                if rate is None:
+                    continue
+                native_rate = float(rate[x_index, y_index, z_index])
+                neutral_collisionality_subtotal += native_rate
+                hermes_collision_name = _hermes_collision_field_name(species_name, other_name)
+                if hermes_collision_name in hermes_operator_fields:
+                    hermes_rate = float(hermes_operator_fields[hermes_collision_name][x_index, y_index, z_index])
+                    print(
+                        f"      {hermes_collision_name}: "
+                        f"native={native_rate:.8e} "
+                        f"hermes={hermes_rate:.8e} "
+                        f"native_minus_hermes={native_rate - hermes_rate:.8e}"
+                    )
+                else:
+                    print(f"      {hermes_collision_name}: native={native_rate:.8e}")
+            cx_rate = float(
+                viscosity_inputs.total_collisionality[x_index, y_index, z_index]
+                - charged_collisionality_subtotal
+                - neutral_collisionality_subtotal
+            )
             print(
                 f"    collisionality_split: "
-                f"coll_subtotal={collisionality_subtotal:.8e} "
+                f"charged_coll_subtotal={charged_collisionality_subtotal:.8e} "
+                f"neutral_coll_subtotal={neutral_collisionality_subtotal:.8e} "
                 f"cx_subtotal={cx_rate:.8e} "
                 f"nu_total={viscosity_inputs.total_collisionality[x_index, y_index, z_index]:.8e}"
             )
