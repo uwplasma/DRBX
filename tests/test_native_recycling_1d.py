@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
+import jax_drb.native.recycling_1d as recycling_1d_mod
 import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
@@ -25,11 +26,13 @@ from jax_drb.native.recycling_1d import (
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
     _compute_collision_frequencies,
+    _compute_recycling_1d_rhs_from_species,
     _compute_recycling_1d_packed_rhs,
     _current_feedback_errors,
     _electron_zero_current_velocity,
     _electron_density,
     _grad_par_electron_force_balance_open,
+    _ion_parallel_viscosity_inputs,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     advance_recycling_1d_implicit_history,
@@ -1089,6 +1092,80 @@ def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil()
     np.testing.assert_allclose(gradient[active], expected[active], rtol=1.0e-12, atol=1.0e-12)
 
 
+def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    species = _initialize_species(config, mesh=mesh)
+
+    prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+    )
+
+    sentinel_density = np.full_like(prepared["d+"].density, 7.0, dtype=np.float64)
+    sentinel_electron_density = np.full_like(electron_boundary.density, 11.0, dtype=np.float64)
+    d_state = prepared["d+"]
+    modified_prepared = dict(prepared)
+    modified_prepared["d+"] = d_state.__class__(
+        density=sentinel_density,
+        pressure=d_state.pressure,
+        temperature=d_state.temperature,
+        velocity=d_state.velocity,
+        momentum=species["d+"].atomic_mass * sentinel_density * d_state.velocity,
+        momentum_error=d_state.momentum_error,
+    )
+    modified_electron_boundary = electron_boundary.__class__(
+        density=sentinel_electron_density,
+        temperature=electron_boundary.temperature,
+        pressure=electron_boundary.pressure,
+        velocity=electron_boundary.velocity,
+        momentum=electron_boundary.momentum,
+        energy_source=electron_boundary.energy_source,
+    )
+
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_prepare_open_field_states",
+        lambda *args, **kwargs: (modified_prepared, ion_boundary, modified_electron_boundary),
+    )
+    monkeypatch.setattr(
+        recycling_1d_mod,
+        "_grad_par_electron_force_balance_open",
+        lambda pressure, *, mesh, metrics: np.zeros_like(pressure, dtype=np.float64),
+    )
+
+    captured_densities: list[np.ndarray] = []
+
+    def capture_parallel_electric_force(density, *, charge, epar):
+        captured_densities.append(np.asarray(density, dtype=np.float64))
+        return np.zeros_like(np.asarray(density, dtype=np.float64))
+
+    monkeypatch.setattr(recycling_1d_mod, "apply_parallel_electric_force", capture_parallel_electric_force)
+
+    _compute_recycling_1d_rhs_from_species(
+        config,
+        species=species,
+        controllers={},
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        feedback_integrals=None,
+    )
+
+    assert captured_densities
+    np.testing.assert_allclose(captured_densities[0], sentinel_density)
+    assert not np.allclose(captured_densities[0], species["d+"].density)
+
+
 def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> None:
     config = load_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
@@ -1150,6 +1227,58 @@ def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isot
 
     assert float(cx_rates["d"][active]) == pytest.approx(d_same + d_cross, rel=1.0e-12, abs=1.0e-12)
     assert float(cx_rates["t"][active]) == pytest.approx(t_same + t_cross, rel=1.0e-12, abs=1.0e-12)
+
+
+def test_ion_parallel_viscosity_inputs_match_pressure_tau_formula() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        apply_sheath_boundaries=True,
+    )
+
+    collision_rates = _compute_collision_frequencies(
+        config,
+        species,
+        prepared,
+        dataset_scalars=dataset_scalars,
+    )
+    cx_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+
+    inputs = _ion_parallel_viscosity_inputs(
+        species_name="d+",
+        species=species,
+        prepared=prepared,
+        collision_rates=collision_rates,
+        cx_rates=cx_rates,
+    )
+
+    expected_collisionality = np.zeros_like(prepared["d+"].density, dtype=np.float64)
+    for other_name in species:
+        rate = collision_rates.get(("d+", other_name))
+        if rate is not None:
+            expected_collisionality = expected_collisionality + rate
+    expected_collisionality = expected_collisionality + cx_rates["d+"]
+    expected_collisionality = np.maximum(expected_collisionality, 1.0e-12)
+    expected_tau = 1.0 / expected_collisionality
+    expected_eta = 1.28 * np.asarray(prepared["d+"].pressure, dtype=np.float64) * expected_tau
+
+    np.testing.assert_allclose(inputs.total_collisionality, expected_collisionality)
+    np.testing.assert_allclose(inputs.tau, expected_tau)
+    np.testing.assert_allclose(inputs.eta, expected_eta)
 
 
 def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() -> None:
