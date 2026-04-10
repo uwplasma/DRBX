@@ -71,7 +71,7 @@
   "effective_output_points": 1,
   "overrides": [
     "nout=0",
-    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc",
+    "mesh:file=/path/to/reference-suite/examples/tokamak-2D/recycling-dthe/tokamak.nc",
     "he+:diagnose=false",
     "input:error_on_unused_options=false"
   ],

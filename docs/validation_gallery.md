@@ -89,8 +89,8 @@ What this locks down:
 
 What this locks down:
 
-- a fast saved-result visualization workflow using [examples/blob2d_meeting_demo.py](/Users/rogerio/local/jax_drb/examples/blob2d_meeting_demo.py);
-- a real 2D movie artifact from [blob2d_one_step.npz](/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_one_step.npz), written to [docs/movies/blob2d_meeting_2d.mp4](/Users/rogerio/local/jax_drb/docs/movies/blob2d_meeting_2d.mp4);
+- a fast saved-result visualization workflow using [examples/blob2d_meeting_demo.py](examples/blob2d_meeting_demo.py);
+- a real 2D movie artifact from [blob2d_one_step.npz](references/baselines/reference_arrays/blob2d_one_step.npz), written to [docs/movies/blob2d_meeting_2d.mp4](docs/movies/blob2d_meeting_2d.mp4);
 - a matching 3D surface movie and poster for presentation use;
 - an explicit `--skip-parity` mode for saved payloads whose output timeline does not match the short-window parity metrics.
 
@@ -120,7 +120,7 @@ What this locks down:
   - relative phase-speed error about `6.71e-03`;
 - native/reference parity on that same short-window history, published from the exact committed comparison artifact.
 
-The same short-window rung now also drives the meeting-ready visual package in [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md), which adds 2D and 3D movies plus a snapshot panel from a live native run.
+The same short-window rung now also drives the meeting-ready visual package in [docs/alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md), which adds 2D and 3D movies plus a snapshot panel from a live native run.
 
 ## Regeneration
 
