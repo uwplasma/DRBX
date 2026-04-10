@@ -11,6 +11,7 @@ from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native import run_curated_case
 from jax_drb.native.recycling_1d import compute_recycling_1d_rhs
 from jax_drb.native.reference_dump import load_local_reference_snapshot
+from jax_drb.reference.paths import default_reference_root
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 
@@ -90,28 +91,33 @@ def main() -> None:
     parser.add_argument(
         "--reference-root",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3"),
+        default=default_reference_root(),
         help="Reference checkout used by the staged integrated 2D case.",
     )
     parser.add_argument(
         "--input-path",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp"),
+        default=None,
         help="Integrated 2D recycling input file.",
     )
     parser.add_argument(
         "--dump-path",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.dmp.0.nc"),
+        default=None,
         help="Local reference dump used for the direct staged benchmark.",
     )
     parser.add_argument("--repeats", type=int, default=5, help="Number of repeated direct RHS evaluations.")
     args = parser.parse_args()
 
+    if args.reference_root is None:
+        raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT before running this benchmark.")
+    input_path = args.input_path or (args.reference_root / "tests" / "integrated" / "2D-recycling" / "data" / "BOUT.inp")
+    dump_path = args.dump_path or (args.reference_root / "tests" / "integrated" / "2D-recycling" / "data" / "BOUT.dmp.0.nc")
+
     payload = benchmark_integrated_2d_recycling_rhs(
         reference_root=args.reference_root,
-        dump_path=args.dump_path,
-        input_path=args.input_path,
+        dump_path=dump_path,
+        input_path=input_path,
         repeats=args.repeats,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))

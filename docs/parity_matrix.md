@@ -1,6 +1,6 @@
 # Parity Matrix
 
-This document tracks the parity buildout against the private reference implementation. `legacy/` is archival only and is not part of the active implementation plan. For visual snapshots of the validated slices, see [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md).
+This document tracks the parity buildout against the private reference implementation. `legacy/` is archival only and is not part of the active implementation plan. For visual snapshots of the validated slices, see [docs/validation_gallery.md](docs/validation_gallery.md).
 
 ## Stage 1: Configuration And Runtime Skeleton
 
@@ -54,11 +54,11 @@ Deliverables:
 - native benchmark-specific `one_step` execution for `drift_wave_one_step`, including coupled density, electron momentum, vorticity, and potential output parity on the first 2D density-vorticity benchmark;
 - native benchmark-specific `short_window` execution for `drift_wave_short_window`, using the validated reduced adaptive branch over the full 50-output benchmark window;
 - native `one_rhs` execution for `neutral_mixed_rhs`, including the reference neutral diffusivity formula, mirror-style communicated scalar `y` guards at RHS time, traced covariant `g_22` metric usage in the parallel FV operators, exact local `Div_par_mod` / `Div_par_fvv` flux formulas, and active-domain parity against trimmed neutral baselines with documented field-level tolerances;
-- compact diagnosed-reference regression for `neutral_mixed_rhs`, including the live reference centerline state, isolated parallel density term, parallel advective flows, neutral sound speed, and `g22` / `g_22` metric values from [neutral_mixed_rhs_diagnostics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_rhs_diagnostics.json);
+- compact diagnosed-reference regression for `neutral_mixed_rhs`, including the live reference centerline state, isolated parallel density term, parallel advective flows, neutral sound speed, and `g22` / `g_22` metric values from [neutral_mixed_rhs_diagnostics.json](references/baselines/reference_metrics/neutral_mixed_rhs_diagnostics.json);
 - source-traced neutral low-level semantics for the soft floor, locked by a direct unit test so the later transient/recycling work inherits the same floor rule as the reference implementation;
-- shared active-domain solver substrate in [src/jax_drb/solver](/Users/rogerio/local/jax_drb/src/jax_drb/solver), including reusable pack/unpack, backward-Euler/BDF2 residuals, sparse locality/color grouping, grouped difference-quotient Jacobians, sparse Newton/GMRES, and matrix-free Newton-Krylov helpers.
-- shared electrostatic inversion substrate in [elliptic.py](/Users/rogerio/local/jax_drb/src/jax_drb/solver/elliptic.py), including the common Fourier-Helmholtz / tridiagonal backend now used by both the vorticity and blob branches.
-- shared open-field operator utilities in [open_field.py](/Users/rogerio/local/jax_drb/src/jax_drb/native/open_field.py), including traced no-flow guard semantics, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly for the upcoming Step 2 recycling runner.
+- shared active-domain solver substrate in [src/jax_drb/solver](src/jax_drb/solver), including reusable pack/unpack, backward-Euler/BDF2 residuals, sparse locality/color grouping, grouped difference-quotient Jacobians, sparse Newton/GMRES, and matrix-free Newton-Krylov helpers.
+- shared electrostatic inversion substrate in [elliptic.py](src/jax_drb/solver/elliptic.py), including the common Fourier-Helmholtz / tridiagonal backend now used by both the vorticity and blob branches.
+- shared open-field operator utilities in [open_field.py](src/jax_drb/native/open_field.py), including traced no-flow guard semantics, limited free extrapolation, electron force balance, parallel electric-force deposition, and target-recycling source assembly for the upcoming Step 2 recycling runner.
 - neutral implicit stepping now runs on that shared substrate, including both validated matrix-free convergence tests and a stable `solver_mode="sparse"` backward-Euler regression on the small active domain.
 - the recycling transient branch now also reuses a cached runtime model during packed RHS evaluation, and the shared sparse Newton backend supports direct sparse linear solves for these small active systems; this is enough to keep the transient development work moving, but not enough yet to promote the public one-step recycling cases.
 - the remaining neutral transient work is now specifically the reference-style adaptive multistep driver, not another round of private Jacobian/stepper infrastructure.
@@ -116,7 +116,7 @@ Deliverables:
 
 ## Stage 3+: Physics Buildout
 
-The remaining stages stay as defined in [PLAN.md](/Users/rogerio/local/jax_drb/PLAN.md):
+The remaining stages stay as defined in [PLAN.md](PLAN.md):
 
 - mesh and metric parity;
 - finite-volume operators and MMS parity beyond the periodic 1D fluid branch;

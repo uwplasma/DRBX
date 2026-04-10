@@ -64,10 +64,10 @@ PYTHONPATH=src python -m jax_drb analyze-drift-wave \
 
 Artifacts:
 
-- analysis JSON: [docs/data/drift_wave_short_window_analysis.json](/Users/rogerio/local/jax_drb/docs/data/drift_wave_short_window_analysis.json)
-- diagnostic figure: [docs/images/drift_wave_short_window_diagnostics.png](/Users/rogerio/local/jax_drb/docs/images/drift_wave_short_window_diagnostics.png)
-- parity JSON: [docs/data/drift_wave_short_window_parity.json](/Users/rogerio/local/jax_drb/docs/data/drift_wave_short_window_parity.json)
-- parity figure: [docs/images/drift_wave_short_window_parity.png](/Users/rogerio/local/jax_drb/docs/images/drift_wave_short_window_parity.png)
+- analysis JSON: [docs/data/drift_wave_short_window_analysis.json](docs/data/drift_wave_short_window_analysis.json)
+- diagnostic figure: [docs/images/drift_wave_short_window_diagnostics.png](docs/images/drift_wave_short_window_diagnostics.png)
+- parity JSON: [docs/data/drift_wave_short_window_parity.json](docs/data/drift_wave_short_window_parity.json)
+- parity figure: [docs/images/drift_wave_short_window_parity.png](docs/images/drift_wave_short_window_parity.png)
 
 The CLI command is source-neutral: it operates on any compatible input file plus any portable drift-wave array payload with `Ni` time history and normalization metadata.
 

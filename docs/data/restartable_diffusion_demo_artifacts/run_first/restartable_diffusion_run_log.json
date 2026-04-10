@@ -15,11 +15,11 @@
     "y": 28,
     "z": 1
   },
-  "input_file": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/input/input.toml",
+  "input_file": "docs/data/restartable_diffusion_demo_artifacts/input/input.toml",
   "outputs": {
-    "arrays_npz": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_arrays.npz",
-    "restart_npz": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_restart.npz",
-    "summary_json": "/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_summary.json"
+    "arrays_npz": "docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_arrays.npz",
+    "restart_npz": "docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_restart.npz",
+    "summary_json": "docs/data/restartable_diffusion_demo_artifacts/run_first/restartable_diffusion_summary.json"
   },
   "parity_mode": "run",
   "restart_info": {
@@ -53,7 +53,7 @@
     },
     "runtime": {
       "backend": "cpu",
-      "compilation_cache_dir": "/Users/rogerio/Library/Caches/jax_drb/jax_compilation_cache",
+      "compilation_cache_dir": "~/Library/Caches/jax_drb/jax_compilation_cache",
       "device": "TFRT_CPU_0",
       "elapsed_seconds": 0.5164945420001459,
       "precision": "float64"

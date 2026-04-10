@@ -9,7 +9,7 @@ The benchmark is extracted from the committed short-window neutral array baselin
 - total neutral density and pressure histories;
 - momentum RMS decay.
 
-These metrics are stored in [references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json](/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json) and generated with:
+These metrics are stored in [references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json](references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json) and generated with:
 
 ```bash
 PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \

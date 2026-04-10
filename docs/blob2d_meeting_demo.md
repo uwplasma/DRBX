@@ -17,18 +17,18 @@ The `--skip-parity` option is intentional for this quick movie path: `blob2d_one
 
 ## Outputs
 
-- [analysis JSON](/Users/rogerio/local/jax_drb/docs/data/blob2d_meeting_analysis.json)
-- [parity-skipped JSON](/Users/rogerio/local/jax_drb/docs/data/blob2d_meeting_parity_skipped.json)
-- [snapshot panel](/Users/rogerio/local/jax_drb/docs/images/blob2d_meeting_snapshots.png)
-- [movie poster](/Users/rogerio/local/jax_drb/docs/images/blob2d_meeting_movie_poster.png)
-- [2D movie](/Users/rogerio/local/jax_drb/docs/movies/blob2d_meeting_2d.mp4)
-- [3D movie](/Users/rogerio/local/jax_drb/docs/movies/blob2d_meeting_3d.mp4)
+- [analysis JSON](docs/data/blob2d_meeting_analysis.json)
+- [parity-skipped JSON](docs/data/blob2d_meeting_parity_skipped.json)
+- [snapshot panel](docs/images/blob2d_meeting_snapshots.png)
+- [movie poster](docs/images/blob2d_meeting_movie_poster.png)
+- [2D movie](docs/movies/blob2d_meeting_2d.mp4)
+- [3D movie](docs/movies/blob2d_meeting_3d.mp4)
 
 ## Figures
 
-![Blob2D meeting snapshots](/Users/rogerio/local/jax_drb/docs/images/blob2d_meeting_snapshots.png)
+![Blob2D meeting snapshots](docs/images/blob2d_meeting_snapshots.png)
 
-![Blob2D meeting poster](/Users/rogerio/local/jax_drb/docs/images/blob2d_meeting_movie_poster.png)
+![Blob2D meeting poster](docs/images/blob2d_meeting_movie_poster.png)
 
 ## How To Customize
 
