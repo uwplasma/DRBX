@@ -49,6 +49,12 @@ Latest blocker evidence on that lane:
   - `electron_epar` uses boundary-conditioned electron density
   - ion electric-force deposition uses boundary-conditioned ion density
 - that change is safe and test-covered, but it does not materially change the `tokamak_recycling_dthe_one_step` residual ordering
+- the native full `sheath_boundary` electron branch has now also been corrected to follow the Hermes full-sheath semantics more closely:
+  - `[sheath_boundary]` defaults are now loaded explicitly on the native path
+  - zero-current `phi` now includes `sin_alpha`, `(1 - Ge)`, `wall_potential`, and `floor_potential`
+  - lower-boundary `vesheath` / `gamma_e` and electron energy-source signs now match the Hermes full-branch formulas
+- that full-sheath correction is also safe and unit-tested, but it likewise does not materially change the `tokamak_recycling_dthe_one_step` residual ordering
+- a direct probe of Neumann-guarding the ion-viscosity coefficient `eta` before `DivPiPar` was tested and rejected because it worsens the D/T one-step lane, especially `NVhe+`
 - the remaining blocker is therefore still the sheath-conditioned lower-target-corner `DivPiPar` boundary state/operator, not the electric-force density path
 
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.

@@ -12,6 +12,7 @@ import jax_drb.native.recycling_1d as recycling_1d_mod
 import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
+from jax_drb.native.open_field import limit_free
 from jax_drb.native import run_curated_case
 from jax_drb.native.reference_dump import load_local_reference_snapshot, load_local_reference_snapshot_cache
 from jax_drb.native.reference_dump import synthesize_local_reference_snapshot_from_active_history
@@ -19,8 +20,11 @@ from jax_drb.native.recycling_1d import (
     ElectronPressureRhsTerms,
     IonRhsTerms,
     OpenFieldSpecies,
+    _FullSheathSettings,
+    _PreparedSpeciesState,
     _SimpleSheathSettings,
     _apply_anomalous_diffusion,
+    _apply_electron_sheath_boundary,
     _assemble_electron_pressure_rhs_terms,
     _assemble_ion_rhs_terms,
     _advance_feedback_integrals,
@@ -228,6 +232,139 @@ def test_ion_rhs_terms_sum_to_total() -> None:
     )
 
 
+def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formula() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([-1.0, 0.0, 1.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    ones = np.ones((1, 3, 1), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=ones,
+    )
+    electron_density = np.array([[[0.0], [4.0], [2.0]]], dtype=np.float64)
+    electron_pressure = np.array([[[0.0], [8.0], [4.0]]], dtype=np.float64)
+    electron_velocity = np.zeros((1, 3, 1), dtype=np.float64)
+    ion_density = np.array([[[0.0], [3.0], [1.5]]], dtype=np.float64)
+    ion_temperature = np.array([[[0.0], [1.5], [0.75]]], dtype=np.float64)
+    zero = np.zeros((1, 3, 1), dtype=np.float64)
+    ion = OpenFieldSpecies(
+        name="d+",
+        density=ion_density,
+        pressure=ion_density * ion_temperature,
+        momentum=zero,
+        charge=1.0,
+        atomic_mass=2.0,
+        density_floor=1.0e-8,
+        has_pressure=True,
+        has_momentum=True,
+        noflow_lower_y=False,
+        noflow_upper_y=False,
+        target_recycle=False,
+        recycle_as=None,
+        target_recycle_multiplier=0.0,
+        target_recycle_energy=0.0,
+        target_fast_recycle_fraction=0.0,
+        target_fast_recycle_energy_factor=1.0,
+    )
+    prepared_ions = {
+        "d+": _PreparedSpeciesState(
+            density=ion_density,
+            pressure=ion_density * ion_temperature,
+            temperature=ion_temperature,
+            velocity=zero,
+            momentum=zero,
+            momentum_error=zero,
+        )
+    }
+    full_settings = _FullSheathSettings(
+        secondary_electron_coef=0.2,
+        sin_alpha=np.array([[[1.0], [1.0], [0.4]]], dtype=np.float64),
+        lower_y=True,
+        upper_y=False,
+        wall_potential=np.array([[[0.0], [0.3], [0.0]]], dtype=np.float64),
+        floor_potential=True,
+    )
+
+    result = _apply_electron_sheath_boundary(
+        electron_pressure=electron_pressure,
+        electron_density=electron_density,
+        electron_velocity=electron_velocity,
+        electron_mass=1.0 / 1836.0,
+        electron_density_floor=1.0e-8,
+        ion_velocity={"d+": zero},
+        ions=(ion,),
+        prepared_ions=prepared_ions,
+        mesh=mesh,
+        metrics=metrics,
+        simple_settings=None,
+        full_settings=full_settings,
+    )
+
+    j = mesh.ystart
+    jp = j + 1
+    jm = j - 1
+    ne_center = float(electron_density[0, j, 0])
+    ne_guard = float(limit_free(electron_density[0, jp, 0], electron_density[0, j, 0], 0.0))
+    te_center = float(electron_pressure[0, j, 0] / electron_density[0, j, 0])
+    te_neighbor = float((electron_pressure[0, jp, 0] / electron_density[0, jp, 0]))
+    te_guard = float(limit_free(te_neighbor, te_center, 0.0))
+    ni_center = float(ion_density[0, j, 0])
+    ni_neighbor = float(ion_density[0, jp, 0])
+    grad_ne = float(electron_density[0, jp, 0] - electron_density[0, j, 0])
+    grad_ni = float(ni_neighbor - ni_center)
+    if abs(grad_ni) < 2.0e-3:
+        grad_ne = 2.0e-3
+        grad_ni = 2.0e-3
+    s_i = float(np.clip(0.5 * (3.0 * ni_center / ne_center - ni_neighbor / electron_density[0, jp, 0]), 0.0, 1.0))
+    c_i_sq = float(
+        np.clip(((5.0 / 3.0) * ion_temperature[0, j, 0] + s_i * te_center * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
+    )
+    me = 1.0 / 1836.0
+    ion_sum = float(s_i * ion.charge * full_settings.sin_alpha[0, jp, 0] * np.sqrt(c_i_sq))
+    phi_center = te_center * np.log(
+        np.sqrt(te_center / (me * (2.0 * np.pi))) * (1.0 - full_settings.secondary_electron_coef) / ion_sum
+    ) + full_settings.wall_potential[0, j, 0]
+    tesheath = 0.5 * (te_guard + te_center)
+    nesheath = 0.5 * (ne_guard + ne_center)
+    phisheath = max(phi_center, full_settings.wall_potential[0, j, 0])
+    gamma_e = max(
+        2.0 / (1.0 - full_settings.secondary_electron_coef)
+        + (phisheath - full_settings.wall_potential[0, j, 0]) / max(tesheath, 1.0e-5),
+        0.0,
+    )
+    vesheath = -np.sqrt(tesheath / (2.0 * np.pi * me)) * (1.0 - full_settings.secondary_electron_coef) * np.exp(
+        -(phisheath - full_settings.wall_potential[0, j, 0]) / tesheath
+    )
+    expected_q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * vesheath * vesheath)
+    expected_q *= nesheath * vesheath
+    expected_q = min(expected_q, 0.0)
+
+    assert result.velocity[0, jm, 0] == pytest.approx(2.0 * vesheath)
+    assert result.energy_source[0, j, 0] == pytest.approx(expected_q)
 def test_resolve_species_numeric_option_handles_literal_reference() -> None:
     config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
 
