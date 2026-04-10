@@ -37,6 +37,17 @@ def compare_summary_payloads(
     for field in ("case_name", "parity_mode", "compare_variables", "component_labels", "dimensions"):
         if _normalize_summary_field(field, actual.get(field)) != _normalize_summary_field(field, expected.get(field)):
             issues.append(ComparisonIssue(field=field, message=f"expected {expected.get(field)!r}, got {actual.get(field)!r}"))
+    if "capability_tier" in expected and "capability_tier" in actual:
+        if _normalize_summary_field("capability_tier", actual.get("capability_tier")) != _normalize_summary_field(
+            "capability_tier",
+            expected.get("capability_tier"),
+        ):
+            issues.append(
+                ComparisonIssue(
+                    field="capability_tier",
+                    message=f"expected {expected.get('capability_tier')!r}, got {actual.get('capability_tier')!r}",
+                )
+            )
 
     _compare_float_sequences(
         issues,

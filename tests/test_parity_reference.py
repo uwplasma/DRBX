@@ -85,6 +85,7 @@ def test_write_run_summary_json_serializes_payload(tmp_path: Path) -> None:
     summary = ReferenceRunSummary(
         case_name="toy",
         parity_mode="one_rhs",
+        capability_tier="native_exact",
         reference_binary="/tmp/reference-binary",
         overrides=("nout=0",),
         workdir="/tmp/run",
@@ -112,6 +113,7 @@ def test_write_run_summary_json_serializes_payload(tmp_path: Path) -> None:
     path = write_run_summary_json(summary, tmp_path / "summary.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["case_name"] == "toy"
+    assert payload["capability_tier"] == "native_exact"
     assert payload["variable_summaries"]["Ne"]["maximum"] == 3.0
 
 
@@ -119,6 +121,7 @@ def test_write_case_baseline_json_omits_machine_specific_paths(tmp_path: Path) -
     summary = ReferenceRunSummary(
         case_name="toy",
         parity_mode="one_rhs",
+        capability_tier="native_exact",
         reference_binary="/tmp/build/reference-binary",
         overrides=("nout=0",),
         workdir="/tmp/run",
@@ -145,6 +148,7 @@ def test_write_case_baseline_json_omits_machine_specific_paths(tmp_path: Path) -
 
     path = write_case_baseline_json(summary, tmp_path / "baseline.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["capability_tier"] == "native_exact"
     assert payload["reference_runner"] == "external-reference"
     assert payload["required_artifacts"] == ["BOUT.dmp.0.nc", "BOUT.settings"]
     assert "workdir" not in payload
@@ -154,6 +158,7 @@ def test_build_case_baseline_payload_serializes_sequence_metadata_as_lists() -> 
     summary = ReferenceRunSummary(
         case_name="toy",
         parity_mode="one_rhs",
+        capability_tier="native_exact",
         reference_binary="/tmp/build/reference-binary",
         overrides=("nout=0",),
         workdir="/tmp/run",
@@ -179,6 +184,7 @@ def test_build_case_baseline_payload_serializes_sequence_metadata_as_lists() -> 
     )
 
     payload = build_case_baseline_payload(summary)
+    assert payload["capability_tier"] == "native_exact"
     assert payload["compare_variables"] == ["Ne"]
     assert payload["component_labels"] == ["e:evolve_density"]
     assert payload["variable_summaries"]["Ne"]["dimensions"] == ["t", "x"]

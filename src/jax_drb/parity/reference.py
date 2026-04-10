@@ -44,6 +44,7 @@ class VariableSummary:
 class ReferenceRunSummary:
     case_name: str
     parity_mode: str
+    capability_tier: str
     reference_binary: str
     overrides: tuple[str, ...]
     workdir: str
@@ -185,6 +186,7 @@ def run_reference_case(
         sanitized_summary = ReferenceRunSummary(
             case_name=summary.case_name,
             parity_mode=summary.parity_mode,
+            capability_tier=summary.capability_tier,
             reference_binary=summary.reference_binary,
             overrides=summary.overrides,
             workdir=summary_workdir,
@@ -223,6 +225,7 @@ def build_case_baseline_payload(summary: ReferenceRunSummary) -> dict[str, Any]:
     return {
         "case_name": summary.case_name,
         "parity_mode": summary.parity_mode,
+        "capability_tier": summary.capability_tier,
         "reference_runner": "external-reference",
         "overrides": list(summary.overrides),
         "required_artifacts": sorted(summary.artifacts),
@@ -492,6 +495,7 @@ def _summarize_run(
     return ReferenceRunSummary(
         case_name=case.name,
         parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
         reference_binary=str(binary),
         overrides=overrides,
         workdir=str(workdir),

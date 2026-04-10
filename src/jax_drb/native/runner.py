@@ -86,6 +86,12 @@ class NativeRestartState:
 _REFERENCE_SNAPSHOT_CACHE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_snapshots"
 
 
+def _resolved_capability_tier(reference_case: ReferenceCase | None) -> str:
+    if reference_case is None:
+        return "native_exact"
+    return reference_case.capability_tier
+
+
 def _integrated_2d_snapshot_cache_path(case_name: str) -> Path:
     return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
 
@@ -454,6 +460,7 @@ def _run_integrated_2d_recycling_rhs_case(
     payload = build_portable_summary_payload(
         case_name=case.name,
         parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
         dimensions={"t": 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
@@ -924,6 +931,7 @@ def _run_annulus_he_emag_dump_case(
     payload = build_portable_summary_payload(
         case_name=case.name,
         parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
         dimensions={"t": len(resolved_time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
@@ -1015,6 +1023,7 @@ def _run_tokamak_dump_case(
     payload = build_portable_summary_payload(
         case_name=case.name,
         parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
         dimensions={"t": len(resolved_time_indices), "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
@@ -1181,6 +1190,7 @@ def _run_alfven_wave_dump_case(
     payload = build_portable_summary_payload(
         case_name=case.name,
         parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
         dimensions={
@@ -1433,6 +1443,7 @@ def _run_integrated_2d_recycling_transient_case(
     payload = build_portable_summary_payload(
         case_name=case.name,
         parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
         compare_variables=case.compare_variables,
         component_labels=tuple(component.label for component in run_config.components),
         dimensions={"t": steps + 1, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
@@ -1604,6 +1615,7 @@ def run_config_case(
     payload = build_portable_summary_payload(
         case_name=case_name,
         parity_mode=parity_mode,
+        capability_tier=_resolved_capability_tier(reference_case),
         compare_variables=compare_names,
         component_labels=tuple(component.label for component in run_config.components),
         dimensions={"t": len(time_points), "x": mesh.nx, "y": mesh.local_ny, "z": mesh.nz},

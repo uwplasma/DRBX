@@ -8,6 +8,11 @@ from ..config.boutinp import load_bout_input
 from ..runtime.run_config import RunConfiguration
 
 DEFAULT_CASE_MANIFEST = Path(__file__).resolve().parents[3] / "references" / "reference_case_ladder.toml"
+_VALID_CAPABILITY_TIERS = {
+    "native_exact",
+    "native_operational",
+    "scaffolded_reference_backed",
+}
 
 
 @dataclass(frozen=True)
@@ -17,6 +22,7 @@ class ReferenceCase:
     reference_path: str
     parity_mode: str
     rationale: str
+    capability_tier: str = "native_exact"
     compare_variables: tuple[str, ...] = ()
     extra_overrides: tuple[str, ...] = ()
     trim_x_guards: bool = False
@@ -48,6 +54,10 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
             reference_path=entry["reference_path"],
             parity_mode=entry["parity_mode"],
             rationale=entry["rationale"],
+            capability_tier=_resolve_capability_tier(
+                entry["name"],
+                entry.get("capability_tier"),
+            ),
             compare_variables=tuple(entry.get("compare_variables", [])),
             extra_overrides=tuple(entry.get("extra_overrides", [])),
             trim_x_guards=bool(entry.get("trim_x_guards", False)),
@@ -59,6 +69,23 @@ def load_reference_cases(manifest_path: str | Path | None = None) -> tuple[Refer
         )
         for entry in payload.get("case", [])
     )
+
+
+def _resolve_capability_tier(case_name: str, configured_tier: str | None) -> str:
+    if configured_tier is not None:
+        tier = str(configured_tier).strip()
+        if tier not in _VALID_CAPABILITY_TIERS:
+            raise ValueError(
+                f"unknown capability_tier {tier!r} for reference case {case_name!r}; "
+                f"expected one of {sorted(_VALID_CAPABILITY_TIERS)}"
+            )
+        return tier
+
+    if case_name.startswith(("tokamak_", "integrated_2d_", "alfven_wave_", "annulus_he_emag_")):
+        return "scaffolded_reference_backed"
+    if case_name.startswith(("recycling_1d_", "recycling_dthe_")):
+        return "native_operational"
+    return "native_exact"
 
 
 def resolve_reference_cases(
