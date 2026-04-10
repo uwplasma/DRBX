@@ -389,6 +389,7 @@ def test_run_command_reads_output_and_logging_from_toml(tmp_path: Path, capsys) 
     assert run_log["run_configuration"]["runtime"]["logging"]["quiet"] is False
     assert run_log["run_configuration"]["output"]["directory"] == str(output_dir)
     assert run_log["run_configuration"]["output"]["working_directory"]
+    assert "/Users/" not in json.dumps(run_log, sort_keys=True)
     assert len(run_log["events"]) >= 3
     assert run_log["events"][0]["stage"] == "configuration"
 

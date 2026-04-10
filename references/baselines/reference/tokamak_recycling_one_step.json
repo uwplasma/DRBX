@@ -49,7 +49,7 @@
   "overrides": [
     "nout=1",
     "timestep=1",
-    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/tokamak.nc",
+    "mesh:file=/path/to/reference-suite/examples/tokamak-2D/recycling/tokamak.nc",
     "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)"
   ],
   "parity_mode": "one_step",

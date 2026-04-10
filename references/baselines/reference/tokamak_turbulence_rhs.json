@@ -51,7 +51,7 @@
   "overrides": [
     "nout=0",
     "timestep=0.1",
-    "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/tokamak.nc",
+    "mesh:file=/path/to/reference-suite/examples/tokamak-2D/tokamak.nc",
     "input:error_on_unused_options=false"
   ],
   "parity_mode": "one_rhs",

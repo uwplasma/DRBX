@@ -4,6 +4,8 @@ import argparse
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from jax_drb.reference.paths import default_reference_root
 from typing import Any, Mapping
 
 import numpy as np
@@ -31,7 +33,7 @@ from jax_drb.validation import (
 class Blob2DMeetingSettings:
     """User-editable knobs for the Blob2D movie/plot example."""
 
-    reference_root: Path
+    reference_root: Path | None
     case_name: str
     arrays_in: Path | None
     output_root: Path
@@ -56,7 +58,7 @@ def parse_args() -> argparse.Namespace:
             "Matplotlib 2D/3D movies, and publication figures."
         )
     )
-    parser.add_argument("--reference-root", type=Path, default=Path("/Users/rogerio/local/hermes-3"))
+    parser.add_argument("--reference-root", type=Path, default=default_reference_root())
     parser.add_argument("--case-name", default="blob2d_short_window")
     parser.add_argument(
         "--arrays-in",
@@ -84,6 +86,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_demo_settings(args: argparse.Namespace) -> Blob2DMeetingSettings:
+    if args.arrays_in is None and args.reference_root is None:
+        raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT when --arrays-in is not used.")
     return Blob2DMeetingSettings(
         reference_root=args.reference_root,
         case_name=args.case_name,
@@ -119,7 +123,7 @@ def describe_requested_case(settings: Blob2DMeetingSettings) -> None:
     )
     if settings.arrays_in is None:
         case, input_path = resolve_reference_case(settings.case_name, reference_root=settings.reference_root)
-        _print_section("Curated Reference-Case Metadata")
+        _print_section("Curated Benchmark-Case Metadata")
         _print_kv(
             {
                 "stage": case.stage,

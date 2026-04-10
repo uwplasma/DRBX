@@ -4,6 +4,8 @@ import argparse
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from jax_drb.reference.paths import default_reference_root
 from typing import Any, Mapping
 
 import numpy as np
@@ -22,9 +24,9 @@ from jax_drb.validation import create_alfven_wave_meeting_package
 
 @dataclass(frozen=True)
 class AlfvenMeetingSettings:
-    """User-editable knobs for this example, similar to the top of a Hermes-3 input deck."""
+    """User-editable knobs for this native tutorial example."""
 
-    reference_root: Path
+    reference_root: Path | None
     case_name: str
     field_variable: str
     x_index: int
@@ -49,7 +51,7 @@ def parse_args() -> argparse.Namespace:
             "a saved .npz result payload, publication figures, and Matplotlib movies."
         )
     )
-    parser.add_argument("--reference-root", type=Path, default=Path("/Users/rogerio/local/hermes-3"))
+    parser.add_argument("--reference-root", type=Path, default=default_reference_root())
     parser.add_argument("--case-name", default="alfven_wave_short_window")
     parser.add_argument("--field-variable", default="phi")
     parser.add_argument("--x-index", type=int, default=2)
@@ -69,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-file",
         type=Path,
-        default=Path("/Users/rogerio/local/hermes-3/tests/integrated/alfven-wave/data/BOUT.inp"),
+        default=None,
     )
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--quiet", action="store_true", help="Suppress the verbose tutorial log.")
@@ -77,8 +79,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_demo_settings(args: argparse.Namespace) -> AlfvenMeetingSettings:
+    reference_root = args.reference_root
+    if args.input_file is None:
+        if reference_root is None:
+            raise SystemExit("Set --reference-root or JAX_DRB_REFERENCE_ROOT when --arrays-in is not used.")
+        _, resolved_input = resolve_reference_case(args.case_name, reference_root=reference_root)
+        input_file = resolved_input
+    else:
+        input_file = args.input_file
     return AlfvenMeetingSettings(
-        reference_root=args.reference_root,
+        reference_root=reference_root,
         case_name=args.case_name,
         field_variable=args.field_variable,
         x_index=args.x_index,
@@ -86,14 +96,14 @@ def build_demo_settings(args: argparse.Namespace) -> AlfvenMeetingSettings:
         output_root=args.output_root,
         native_arrays_out=args.native_arrays_out,
         expected_arrays_in=args.expected_arrays_in,
-        input_file=args.input_file,
+        input_file=input_file,
         fps=args.fps,
         verbose=not args.quiet,
     )
 
 
 def describe_requested_case(settings: AlfvenMeetingSettings) -> None:
-    """Print the curated case, selected variables, and resolved BOUT-style setup."""
+    """Print the curated case, selected variables, and resolved run setup."""
     if not settings.verbose:
         return
 
@@ -114,7 +124,7 @@ def describe_requested_case(settings: AlfvenMeetingSettings) -> None:
 
     if settings.arrays_in is None:
         case, input_path = resolve_reference_case(settings.case_name, reference_root=settings.reference_root)
-        _print_section("Curated Reference-Case Metadata")
+        _print_section("Curated Benchmark-Case Metadata")
         _print_kv(
             {
                 "stage": case.stage,
@@ -134,7 +144,7 @@ def describe_requested_case(settings: AlfvenMeetingSettings) -> None:
 
 def describe_run_configuration(run_config: RunConfiguration) -> None:
     """Show users where time steps, grid resolution, solver options, and physics components enter."""
-    _print_section("Resolved BOUT-Style Run Configuration")
+    _print_section("Resolved Run Configuration")
     _print_kv(
         {
             "time:nout": run_config.time.nout,
