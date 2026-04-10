@@ -175,3 +175,35 @@ def test_default_tokamak_recycling_blocker_cells_pick_lower_target_corner_pair()
     cells = module.default_tokamak_recycling_blocker_cells(mesh)
 
     assert cells == ((2, 5, 0), (3, 5, 0))
+
+
+def test_read_last_time_field_uses_last_time_plane(tmp_path: Path) -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag_field",
+    )
+    path = tmp_path / "diag.nc"
+    with Dataset(path, "w") as dataset:
+        dataset.createDimension("t", 2)
+        dataset.createDimension("x", 1)
+        dataset.createDimension("y", 2)
+        dataset.createDimension("z", 1)
+        variable = dataset.createVariable("DivPiPar_d+", "f8", ("t", "x", "y", "z"))
+        values = np.zeros((2, 1, 2, 1), dtype=np.float64)
+        values[1, 0, 1, 0] = 3.5
+        variable[:] = values
+
+    extracted = module._read_last_time_field(path, "DivPiPar_d+")
+
+    assert extracted.shape == (1, 2, 1)
+    assert extracted[0, 1, 0] == pytest.approx(3.5)
+
+
+def test_hermes_collision_field_name_matches_bout_diagnostic_convention() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag_collision_name",
+    )
+
+    assert module._hermes_collision_field_name("d+", "t+") == "Kd+t+_coll"
+    assert module._hermes_collision_field_name("t+", "e") == "Kt+e_coll"

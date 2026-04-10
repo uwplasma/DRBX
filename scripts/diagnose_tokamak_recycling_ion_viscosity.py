@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import tempfile
 
+from netCDF4 import Dataset
 import numpy as np
 
 from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
@@ -37,6 +39,7 @@ from jax_drb.parity.reference import (
     make_default_overrides,
     merge_overrides,
     resolve_reference_case,
+    run_reference_case,
     _resolve_override_placeholders,
 )
 from jax_drb.runtime.run_config import RunConfiguration
@@ -99,6 +102,58 @@ def _load_reference_final_snapshot(case_name: str, *, reference_root: Path):
     )
 
 
+def _read_last_time_field(dataset_path: Path, field_name: str) -> np.ndarray:
+    with Dataset(dataset_path) as dataset:
+        variable = dataset.variables[field_name]
+        values = np.asarray(variable[:], dtype=np.float64)
+    if values.ndim == 4:
+        values = values[-1]
+    return np.asarray(values, dtype=np.float64)
+
+
+def _hermes_collision_field_name(species_name: str, other_name: str) -> str:
+    return f"K{species_name}{other_name}_coll"
+
+
+def _load_hermes_operator_diagnostics(
+    case_name: str,
+    *,
+    reference_root: Path,
+    include_divpi: bool,
+    include_collisions: bool,
+) -> dict[str, np.ndarray]:
+    if not include_divpi and not include_collisions:
+        return {}
+    with tempfile.TemporaryDirectory(prefix=f"jaxdrb-{case_name}-visc-") as workdir:
+        extra_overrides = []
+        if include_divpi:
+            extra_overrides.append("braginskii_ion_viscosity:diagnose=true")
+        if include_collisions:
+            extra_overrides.append("braginskii_collisions:diagnose=true")
+        execution = run_reference_case(
+            case_name,
+            reference_root=reference_root,
+            workdir=workdir,
+            keep_workdir=True,
+            extra_overrides=tuple(extra_overrides),
+        )
+        dataset_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+        result: dict[str, np.ndarray] = {}
+        with Dataset(dataset_path) as dataset:
+            variable_names = set(dataset.variables)
+        if include_divpi:
+            for field_name in ("DivPiPar_d+", "DivPiPar_t+", "DivPiPar_he+"):
+                if field_name in variable_names:
+                    result[field_name] = _read_last_time_field(dataset_path, field_name)
+        if include_collisions:
+            for species_name in ("d+", "t+", "he+"):
+                for other_name in ("d+", "t+", "he+", "e"):
+                    field_name = _hermes_collision_field_name(species_name, other_name)
+                    if field_name in variable_names:
+                        result[field_name] = _read_last_time_field(dataset_path, field_name)
+        return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -123,6 +178,16 @@ def main() -> None:
         action="append",
         default=[],
         help="Full-grid cell as x,y,z. Repeat to inspect multiple cells. Defaults to the first two lower-target corner cells.",
+    )
+    parser.add_argument(
+        "--run-hermes-diagnostics",
+        action="store_true",
+        help="Rerun Hermes once with braginskii_ion_viscosity:diagnose=true and print reference DivPiPar_* values.",
+    )
+    parser.add_argument(
+        "--run-hermes-collision-diagnostics",
+        action="store_true",
+        help="Rerun Hermes once with braginskii_collisions:diagnose=true and print reference K*_coll values.",
     )
     args = parser.parse_args()
 
@@ -291,6 +356,13 @@ def main() -> None:
     else:
         cells = default_tokamak_recycling_blocker_cells(reference_final.mesh)
 
+    hermes_operator_fields = _load_hermes_operator_diagnostics(
+        args.case,
+        reference_root=reference_root,
+        include_divpi=args.run_hermes_diagnostics,
+        include_collisions=args.run_hermes_collision_diagnostics,
+    )
+
     for cell in cells:
         x_index, y_index, z_index = cell
         print(f"CELL x={x_index} y={y_index} z={z_index}")
@@ -336,6 +408,40 @@ def main() -> None:
                 f"energy_source={energy:.8e} "
                 f"velocity={velocity:.8e} "
                 f"pressure={pressure:.8e}"
+            )
+            hermes_field_name = f"DivPiPar_{species_name}"
+            if hermes_field_name in hermes_operator_fields:
+                hermes_div_pi = float(hermes_operator_fields[hermes_field_name][x_index, y_index, z_index])
+                print(
+                    f"    hermes_diagnose: "
+                    f"DivPiPar={hermes_div_pi:.8e} "
+                    f"native_minus_hermes={div_pi - hermes_div_pi:.8e}"
+                )
+            collisionality_subtotal = 0.0
+            print("    collision_rates:")
+            for other_name in ("d+", "t+", "he+", "e"):
+                rate = collision_rates.get((species_name, other_name))
+                if rate is None:
+                    continue
+                native_rate = float(rate[x_index, y_index, z_index])
+                collisionality_subtotal += native_rate
+                hermes_collision_name = _hermes_collision_field_name(species_name, other_name)
+                if hermes_collision_name in hermes_operator_fields:
+                    hermes_rate = float(hermes_operator_fields[hermes_collision_name][x_index, y_index, z_index])
+                    print(
+                        f"      {hermes_collision_name}: "
+                        f"native={native_rate:.8e} "
+                        f"hermes={hermes_rate:.8e} "
+                        f"native_minus_hermes={native_rate - hermes_rate:.8e}"
+                    )
+                else:
+                    print(f"      {hermes_collision_name}: native={native_rate:.8e}")
+            cx_rate = float(viscosity_inputs.total_collisionality[x_index, y_index, z_index] - collisionality_subtotal)
+            print(
+                f"    collisionality_split: "
+                f"coll_subtotal={collisionality_subtotal:.8e} "
+                f"cx_subtotal={cx_rate:.8e} "
+                f"nu_total={viscosity_inputs.total_collisionality[x_index, y_index, z_index]:.8e}"
             )
             print(
                 f"    sheath_state: "
