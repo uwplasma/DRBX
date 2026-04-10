@@ -43,6 +43,14 @@ Immediate strategy change:
 
 The current highest-probability live mismatch remains the D/T tokamak recycling transient at the lower target corner, with ion-viscosity / `DivPiPar` still the main operator suspect on the reference-evolved state. That operator-closure work is now the critical path, not another rung-collection pass.
 
+Latest blocker evidence on that lane:
+
+- the post-boundary electric-force density consistency fix is now landed in the native recycling path:
+  - `electron_epar` uses boundary-conditioned electron density
+  - ion electric-force deposition uses boundary-conditioned ion density
+- that change is safe and test-covered, but it does not materially change the `tokamak_recycling_dthe_one_step` residual ordering
+- the remaining blocker is therefore still the sheath-conditioned lower-target-corner `DivPiPar` boundary state/operator, not the electric-force density path
+
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
 
 ## 2. Non-Negotiable Requirements

@@ -34,6 +34,12 @@ Before a family is promoted to `native_exact`, it should satisfy:
 6. restart/resume equivalence if the family is user-facing
 7. output/log/provenance artifact coverage if the family is exposed in CLI/examples
 
+Current recycling blocker note:
+
+- the direct tokamak D/T recycling one-step lane has now had the small electric-force density consistency fix applied on the native side;
+- that did not materially change the residual ordering on the committed one-step surface;
+- the next physics patch should therefore target the sheath-conditioned lower-target-corner `DivPiPar` boundary state/operator directly.
+
 ## Step Status
 
 | Case | Status | Meaning |
