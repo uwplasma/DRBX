@@ -168,6 +168,7 @@ def test_run_command_writes_artifacts_and_restart_bundle(tmp_path: Path, capsys)
     assert tuple(sorted(restart.state_variables)) == ("Nh", "Ph")
 
     run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["capability_tier"] == "native_exact"
     assert run_log["restart_supported"] is True
     assert run_log["run_configuration"]["time"] == {"nout": 3, "timestep": 5.0}
     assert run_log["run_configuration"]["mesh"]["nx"] == 10
@@ -266,6 +267,7 @@ def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_pa
     assert (output_dir / "diffusion_restartable_arrays.npz").exists()
 
     run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["capability_tier"] == "native_exact"
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     assert run_log["run_configuration"]["runtime"]["backend"]
     assert run_log["run_configuration"]["runtime"]["jax_version"]
@@ -348,6 +350,7 @@ def test_run_command_accepts_bare_toml_input_and_records_precision(tmp_path: Pat
     assert "float32" in captured
 
     run_log = json.loads(run_log_path.read_text(encoding="utf-8"))
+    assert run_log["capability_tier"] == "native_exact"
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
 
     restart = load_restart_bundle(restart_path)

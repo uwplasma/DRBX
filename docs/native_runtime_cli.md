@@ -108,6 +108,14 @@ A native run can write four main artifact types:
 - restart NPZ
 - verbose run-log JSON
 
+Each emitted payload is also expected to carry the current capability-tier label for that run:
+
+- `native_exact`
+- `native_operational`
+- `scaffolded_reference_backed`
+
+For direct deck-driven native runs, the current default is `native_exact` unless a curated reference case explicitly supplies a different tier.
+
 Example:
 
 ```bash
@@ -148,6 +156,7 @@ Both versions report the same core metadata:
 - time/mesh/solver settings
 - scheduled components
 - compare variables
+- capability tier
 - restart provenance
 - output artifact paths
 - variable min/max/mean/delta summaries

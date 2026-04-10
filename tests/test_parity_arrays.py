@@ -19,6 +19,7 @@ def test_portable_array_payload_round_trips_npz(tmp_path: Path) -> None:
     payload = build_portable_array_payload(
         case_name="toy",
         parity_mode="one_step",
+        capability_tier="native_exact",
         compare_variables=("Ne",),
         component_labels=("e:evolve_density",),
         dimensions={"t": 2, "x": 3},
@@ -34,6 +35,7 @@ def test_portable_array_payload_round_trips_npz(tmp_path: Path) -> None:
     loaded = load_portable_array_payload(path)
 
     assert loaded["case_name"] == "toy"
+    assert loaded["capability_tier"] == "native_exact"
     np.testing.assert_allclose(loaded["variables"]["Ne"], payload["variables"]["Ne"])
 
 
@@ -41,6 +43,7 @@ def test_compare_array_payloads_reports_array_mismatch() -> None:
     expected = build_portable_array_payload(
         case_name="toy",
         parity_mode="one_step",
+        capability_tier="native_exact",
         compare_variables=("Ne",),
         component_labels=("e:evolve_density",),
         dimensions={"t": 2, "x": 2},
@@ -51,6 +54,7 @@ def test_compare_array_payloads_reports_array_mismatch() -> None:
     actual = build_portable_array_payload(
         case_name="toy",
         parity_mode="one_step",
+        capability_tier="native_exact",
         compare_variables=("Ne",),
         component_labels=("e:evolve_density",),
         dimensions={"t": 2, "x": 2},
@@ -63,6 +67,30 @@ def test_compare_array_payloads_reports_array_mismatch() -> None:
 
     assert result.ok is False
     assert result.issues[0].field == "variables.Ne"
+
+
+def test_compare_array_payloads_tolerates_missing_capability_tier_in_older_baselines() -> None:
+    expected = build_portable_array_payload(
+        case_name="toy",
+        parity_mode="one_step",
+        capability_tier="native_exact",
+        compare_variables=("Ne",),
+        component_labels=("e:evolve_density",),
+        dimensions={"t": 2, "x": 2},
+        time_points=(0.0, 1.0),
+        dataset_scalars={"Nnorm": 1.0},
+        variables={"Ne": np.array([[1.0, 2.0], [1.5, 2.5]])},
+    )
+    actual = dict(expected)
+    actual["variables"] = dict(expected["variables"])
+    actual["capability_tier"] = "native_exact"
+    expected_without_tier = dict(expected)
+    expected_without_tier.pop("capability_tier")
+
+    result = compare_array_payloads(expected_without_tier, actual)
+
+    assert result.ok is True
+    assert result.issues == ()
 
 
 def test_build_dataset_array_payload_reads_full_variable_arrays(tmp_path: Path) -> None:

@@ -15,6 +15,7 @@ def build_portable_array_payload(
     *,
     case_name: str,
     parity_mode: str,
+    capability_tier: str,
     compare_variables: tuple[str, ...],
     component_labels: tuple[str, ...],
     dimensions: Mapping[str, int],
@@ -46,6 +47,7 @@ def build_portable_array_payload(
     payload: dict[str, Any] = {
         "case_name": case_name,
         "parity_mode": parity_mode,
+        "capability_tier": capability_tier,
         "producer": producer,
         "overrides": list(overrides),
         "compare_variables": list(compare_variables),
@@ -108,6 +110,7 @@ def build_dataset_array_payload(
     return build_portable_array_payload(
         case_name=case_name,
         parity_mode=parity_mode,
+        capability_tier="scaffolded_reference_backed",
         compare_variables=compare_variables,
         component_labels=component_labels,
         dimensions=dimensions,
@@ -131,6 +134,7 @@ def build_array_payload_from_summary_payload(
     return build_portable_array_payload(
         case_name=str(summary_payload["case_name"]),
         parity_mode=str(summary_payload["parity_mode"]),
+        capability_tier=str(summary_payload.get("capability_tier", "native_exact")),
         compare_variables=tuple(summary_payload.get("compare_variables", [])),
         component_labels=tuple(summary_payload.get("component_labels", [])),
         dimensions=summary_payload.get("dimensions", {}),
@@ -186,6 +190,14 @@ def compare_array_payloads(
         if actual.get(field) != expected.get(field):
             issues.append(
                 ComparisonIssue(field=field, message=f"expected {expected.get(field)!r}, got {actual.get(field)!r}")
+            )
+    if "capability_tier" in expected and "capability_tier" in actual:
+        if actual.get("capability_tier") != expected.get("capability_tier"):
+            issues.append(
+                ComparisonIssue(
+                    field="capability_tier",
+                    message=f"expected {expected.get('capability_tier')!r}, got {actual.get('capability_tier')!r}",
+                )
             )
 
     _compare_float_sequences(

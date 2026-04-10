@@ -14,6 +14,7 @@ def build_portable_summary_payload(
     *,
     case_name: str,
     parity_mode: str,
+    capability_tier: str,
     compare_variables: tuple[str, ...],
     component_labels: tuple[str, ...],
     dimensions: Mapping[str, int],
@@ -34,6 +35,7 @@ def build_portable_summary_payload(
     payload: dict[str, Any] = {
         "case_name": case_name,
         "parity_mode": parity_mode,
+        "capability_tier": capability_tier,
         "producer": producer,
         "overrides": list(overrides),
         "compare_variables": list(compare_variables),
