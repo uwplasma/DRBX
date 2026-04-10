@@ -38,6 +38,9 @@ Current recycling blocker note:
 
 - the direct tokamak D/T recycling one-step lane has now had the small electric-force density consistency fix applied on the native side;
 - that did not materially change the residual ordering on the committed one-step surface;
+- the native full `sheath_boundary` electron path now also follows the Hermes full-branch formulas much more closely, including explicit `[sheath_boundary]` defaults, `sin_alpha`, `(1 - Ge)`, `wall_potential`, `floor_potential`, and the corrected lower-boundary `vesheath` / energy-source signs;
+- that fix is necessary and now unit-locked, but it also does not materially change the residual ordering on `tokamak_recycling_dthe_one_step`;
+- a direct `eta`-guard Neumannization probe for `DivPiPar` was tested and rejected because it worsened the one-step residuals, especially `NVhe+`;
 - the next physics patch should therefore target the sheath-conditioned lower-target-corner `DivPiPar` boundary state/operator directly.
 
 ## Step Status

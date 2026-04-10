@@ -149,6 +149,16 @@ class _SimpleSheathSettings:
 
 
 @dataclass(frozen=True)
+class _FullSheathSettings:
+    secondary_electron_coef: float
+    sin_alpha: np.ndarray
+    lower_y: bool
+    upper_y: bool
+    wall_potential: np.ndarray
+    floor_potential: bool
+
+
+@dataclass(frozen=True)
 class _RecyclingRuntimeModel:
     species_templates: dict[str, OpenFieldSpecies]
     controllers: dict[str, _DensityFeedbackController]
@@ -947,6 +957,43 @@ def _load_simple_sheath_settings(
     )
 
 
+def _load_full_sheath_settings(
+    config: BoutConfig,
+    *,
+    mesh: StructuredMesh,
+    dataset_scalars: dict[str, float],
+) -> _FullSheathSettings:
+    resolver = NumericResolver(config)
+    section = "sheath_boundary"
+    tnorm = float(dataset_scalars.get("Tnorm", 1.0))
+    wall_potential = (
+        _evaluate_option_field(config, section, "wall_potential", mesh=mesh) / tnorm
+        if config.has_section(section) and config.has_option(section, "wall_potential")
+        else np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    )
+    sin_alpha = (
+        _evaluate_option_field(config, section, "sin_alpha", mesh=mesh)
+        if config.has_section(section) and config.has_option(section, "sin_alpha")
+        else np.ones((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    )
+    return _FullSheathSettings(
+        secondary_electron_coef=float(resolver.resolve(section, "secondary_electron_coef"))
+        if config.has_section(section) and config.has_option(section, "secondary_electron_coef")
+        else 0.0,
+        sin_alpha=np.asarray(sin_alpha, dtype=np.float64),
+        lower_y=bool(config.parsed(section, "lower_y"))
+        if config.has_section(section) and config.has_option(section, "lower_y")
+        else True,
+        upper_y=bool(config.parsed(section, "upper_y"))
+        if config.has_section(section) and config.has_option(section, "upper_y")
+        else True,
+        wall_potential=np.asarray(wall_potential, dtype=np.float64),
+        floor_potential=bool(config.parsed(section, "floor_potential"))
+        if config.has_section(section) and config.has_option(section, "floor_potential")
+        else True,
+    )
+
+
 def _merge_target_guard_cells(base: np.ndarray, boundary: np.ndarray, *, mesh: StructuredMesh) -> np.ndarray:
     merged = np.asarray(base, dtype=np.float64, copy=True)
     boundary_array = np.asarray(boundary, dtype=np.float64)
@@ -1475,6 +1522,11 @@ def _prepare_open_field_states(
             mesh=mesh,
             dataset_scalars=dataset_scalars,
         )
+        full_sheath_settings = _load_full_sheath_settings(
+            config,
+            mesh=mesh,
+            dataset_scalars=dataset_scalars,
+        )
         electron_boundary = _apply_electron_sheath_boundary(
             electron_pressure=prepared["e"].pressure,
             electron_density=electron_density,
@@ -1487,6 +1539,7 @@ def _prepare_open_field_states(
             mesh=mesh,
             metrics=metrics,
             simple_settings=simple_sheath_settings,
+            full_settings=full_sheath_settings,
         )
         if preserve_dump_target_state and not preserve_dump_ion_target_state_only:
             electron_boundary = _ElectronBoundaryResult(
@@ -1549,6 +1602,7 @@ def _prepare_open_field_states(
             mesh=mesh,
             metrics=metrics,
             simple_settings=simple_sheath_settings,
+            full_settings=full_sheath_settings,
         )
     else:
         ion_boundary_state = None
@@ -2976,6 +3030,7 @@ def _apply_ion_sheath_boundary(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     simple_settings: _SimpleSheathSettings | None = None,
+    full_settings: _FullSheathSettings | None = None,
 ) -> _IonBoundaryResult:
     te = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
     dx = np.asarray(metrics.dx, dtype=np.float64)
@@ -3005,7 +3060,18 @@ def _apply_ion_sheath_boundary(
             vel = np.array(apply_noflow_flow_guards(vel, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
 
         momentum_field = ion.momentum.copy()
-        if mesh.has_upper_y_target:
+        lower_y_enabled = (
+            simple_settings.lower_y
+            if simple_settings is not None
+            else True if full_settings is None else full_settings.lower_y
+        )
+        upper_y_enabled = (
+            simple_settings.upper_y
+            if simple_settings is not None
+            else True if full_settings is None else full_settings.upper_y
+        )
+
+        if mesh.has_upper_y_target and upper_y_enabled:
             j = mesh.yend
             jp = j + 1
             jm = j - 1
@@ -3084,7 +3150,7 @@ def _apply_ion_sheath_boundary(
                 power = flux / (dy[:, j, :] * J[:, j, :])
                 energy_source[ion.name][:, j, :] -= power
 
-        if mesh.has_lower_y_target:
+        if mesh.has_lower_y_target and lower_y_enabled:
             j = mesh.ystart
             jm = j - 1
             jp = j + 1
@@ -3197,6 +3263,7 @@ def _apply_electron_sheath_boundary(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     simple_settings: _SimpleSheathSettings | None = None,
+    full_settings: _FullSheathSettings | None = None,
 ) -> _ElectronBoundaryResult:
     if simple_settings is not None:
         return _apply_electron_simple_sheath_boundary(
@@ -3212,15 +3279,41 @@ def _apply_electron_sheath_boundary(
             metrics=metrics,
             settings=simple_settings,
         )
-    density = np.array(apply_noflow_scalar_guards(electron_density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
-    pressure = np.array(apply_noflow_scalar_guards(electron_pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
+    settings = full_settings or _FullSheathSettings(
+        secondary_electron_coef=0.0,
+        sin_alpha=np.ones_like(electron_density, dtype=np.float64),
+        lower_y=True,
+        upper_y=True,
+        wall_potential=np.zeros_like(electron_density, dtype=np.float64),
+        floor_potential=True,
+    )
+    density = np.array(
+        apply_noflow_scalar_guards(
+            electron_density,
+            mesh=mesh,
+            lower_y=settings.lower_y,
+            upper_y=settings.upper_y,
+        ),
+        dtype=np.float64,
+        copy=True,
+    )
+    pressure = np.array(
+        apply_noflow_scalar_guards(
+            electron_pressure,
+            mesh=mesh,
+            lower_y=settings.lower_y,
+            upper_y=settings.upper_y,
+        ),
+        dtype=np.float64,
+        copy=True,
+    )
     temperature = _safe_temperature(pressure, density, electron_density_floor)
     velocity = np.array(
         apply_noflow_flow_guards(
             np.asarray(electron_velocity, dtype=np.float64),
             mesh=mesh,
-            lower_y=True,
-            upper_y=False,
+            lower_y=settings.lower_y,
+            upper_y=settings.upper_y,
         ),
         dtype=np.float64,
         copy=True,
@@ -3232,100 +3325,125 @@ def _apply_electron_sheath_boundary(
     J = np.asarray(metrics.J, dtype=np.float64)
     phi = np.zeros_like(density, dtype=np.float64)
     energy_source = np.zeros_like(density, dtype=np.float64)
+    secondary_coef = float(settings.secondary_electron_coef)
+    sin_alpha = np.asarray(settings.sin_alpha, dtype=np.float64)
+    wall_potential = np.asarray(settings.wall_potential, dtype=np.float64)
+    electron_adiabatic = 5.0 / 3.0
 
-    if mesh.has_upper_y_target:
+    def _full_ion_sum_at_boundary(*, j: int, neighbor: int) -> np.ndarray:
+        total = np.zeros_like(density[:, j, :], dtype=np.float64)
+        for ion in ions:
+            ion_state = prepared_ions[ion.name]
+            ti = np.asarray(ion_state.temperature, dtype=np.float64)
+            ni = np.asarray(ion_state.density, dtype=np.float64)
+            s_i = np.clip(
+                0.5
+                * (
+                    3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12)
+                    - ni[:, neighbor, :] / np.maximum(density[:, neighbor, :], 1.0e-12)
+                ),
+                0.0,
+                1.0,
+            )
+            s_i = np.where(np.isfinite(s_i), s_i, 1.0)
+            grad_ne = density[:, neighbor, :] - density[:, j, :]
+            grad_ni = ni[:, neighbor, :] - ni[:, j, :]
+            use_floor = np.abs(grad_ni) < 2.0e-3
+            grad_ne = np.where(use_floor, 2.0e-3, grad_ne)
+            grad_ni = np.where(use_floor, 2.0e-3, grad_ni)
+            c_i_sq = np.clip(
+                ((5.0 / 3.0) * ti[:, j, :] + ion.charge * s_i * temperature[:, j, :] * grad_ne / grad_ni)
+                / ion.atomic_mass,
+                0.0,
+                100.0,
+            )
+            total = total + s_i * ion.charge * sin_alpha[:, neighbor, :] * np.sqrt(c_i_sq)
+        return total
+
+    def _set_zero_current_phi(*, j: int, neighbor: int, ghost: int) -> None:
+        valid = temperature[:, j, :] > 0.0
+        safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
+        ion_sum = np.maximum(_full_ion_sum_at_boundary(j=j, neighbor=neighbor), 1.0e-12)
+        phi[:, j, :] = np.where(
+            valid,
+            safe_temperature
+            * np.log(
+                np.maximum(
+                    np.sqrt(safe_temperature / (me * (2.0 * math.pi))) * (1.0 - secondary_coef) / ion_sum,
+                    1.0e-12,
+                )
+            ),
+            0.0,
+        )
+        phi[:, j, :] = phi[:, j, :] + wall_potential[:, j, :]
+        phi[:, neighbor, :] = phi[:, j, :]
+        phi[:, ghost, :] = phi[:, j, :]
+
+    if mesh.has_upper_y_target and settings.upper_y:
         j = mesh.yend
         jp = j + 1
         jm = j - 1
         density[:, jp, :] = np.asarray(limit_free(density[:, jm, :], density[:, j, :], 0), dtype=np.float64)
         temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
         pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
-
-        ion_sum = np.zeros_like(density[:, j, :], dtype=np.float64)
-        for ion in ions:
-            ion_state = prepared_ions[ion.name]
-            ti = np.asarray(ion_state.temperature, dtype=np.float64)
-            ni = np.asarray(ion_state.density, dtype=np.float64)
-            s_i = np.clip(0.5 * (3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12) - ni[:, jm, :] / np.maximum(density[:, jm, :], 1.0e-12)), 0.0, 1.0)
-            s_i = np.where(np.isfinite(s_i), s_i, 1.0)
-            grad_ne = density[:, j, :] - density[:, jm, :]
-            grad_ni = ni[:, j, :] - ni[:, jm, :]
-            mask = np.abs(grad_ni) < 2.0e-3
-            grad_ne = np.where(mask, 2.0e-3, grad_ne)
-            grad_ni = np.where(mask, 2.0e-3, grad_ni)
-            c_i_sq = np.clip(((5.0 / 3.0) * ti[:, j, :] + ion.charge * s_i * temperature[:, j, :] * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
-            ion_sum = ion_sum + s_i * ion.charge * np.sqrt(c_i_sq)
-
-        valid = temperature[:, j, :] > 0.0
-        safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
-        log_argument = np.sqrt(safe_temperature / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)
-        phi[:, j, :] = np.where(valid, safe_temperature * np.log(np.maximum(log_argument, 1.0e-12)), 0.0)
-        phi[:, jp, :] = phi[:, j, :]
-        phi[:, j - 1, :] = phi[:, j, :]
-
-        phisheath = np.maximum(0.5 * (phi[:, jp, :] + phi[:, j, :]), 0.0)
+        _set_zero_current_phi(j=j, neighbor=jm, ghost=jp)
+        phi[:, jp, :] = 2.0 * phi[:, j, :] - phi[:, jm, :]
+        phi_wall = wall_potential[:, j, :]
+        phisheath_raw = 0.5 * (phi[:, jp, :] + phi[:, j, :])
+        phisheath = np.maximum(phisheath_raw, phi_wall) if settings.floor_potential else phisheath_raw
         tesheath = 0.5 * (temperature[:, jp, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-        gamma_e = np.maximum(2.0 + phisheath / np.maximum(tesheath, 1.0e-5), 0.0)
+        gamma_e = np.maximum(
+            2.0 / (1.0 - secondary_coef) + (phisheath - phi_wall) / np.maximum(tesheath, 1.0e-5),
+            0.0,
+        )
         vesheath = np.where(
             tesheath < 1.0e-10,
             0.0,
-            np.sqrt(tesheath / (2.0 * math.pi * me)) * np.exp(-phisheath / np.maximum(tesheath, 1.0e-12)),
+            np.sqrt(tesheath / (2.0 * math.pi * me))
+            * (1.0 - secondary_coef)
+            * np.exp(-(phisheath - phi_wall) / np.maximum(tesheath, 1.0e-12)),
         )
         velocity[:, jp, :] = 2.0 * vesheath - velocity[:, j, :]
         momentum[:, jp, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-        q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
+        q = ((gamma_e - 1.0 - 1.0 / (electron_adiabatic - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
         q = np.maximum(q, 0.0)
         flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
         power = flux / (dy[:, j, :] * J[:, j, :])
         energy_source[:, j, :] -= power
 
-    if mesh.has_lower_y_target:
+    if mesh.has_lower_y_target and settings.lower_y:
         j = mesh.ystart
         jm = j - 1
         jp = j + 1
         density[:, jm, :] = np.asarray(limit_free(density[:, jp, :], density[:, j, :], 0), dtype=np.float64)
         temperature[:, jm, :] = np.asarray(limit_free(temperature[:, jp, :], temperature[:, j, :], 0), dtype=np.float64)
         pressure[:, jm, :] = np.asarray(limit_free(pressure[:, jp, :], pressure[:, j, :], 0), dtype=np.float64)
-
-        ion_sum = np.zeros_like(density[:, j, :], dtype=np.float64)
-        for ion in ions:
-            ion_state = prepared_ions[ion.name]
-            ti = np.asarray(ion_state.temperature, dtype=np.float64)
-            ni = np.asarray(ion_state.density, dtype=np.float64)
-            s_i = np.clip(0.5 * (3.0 * ni[:, j, :] / np.maximum(density[:, j, :], 1.0e-12) - ni[:, jp, :] / np.maximum(density[:, jp, :], 1.0e-12)), 0.0, 1.0)
-            s_i = np.where(np.isfinite(s_i), s_i, 1.0)
-            grad_ne = density[:, j, :] - density[:, jp, :]
-            grad_ni = ni[:, j, :] - ni[:, jp, :]
-            mask = np.abs(grad_ni) < 2.0e-3
-            grad_ne = np.where(mask, 2.0e-3, grad_ne)
-            grad_ni = np.where(mask, 2.0e-3, grad_ni)
-            c_i_sq = np.clip(((5.0 / 3.0) * ti[:, j, :] + ion.charge * s_i * temperature[:, j, :] * grad_ne / grad_ni) / ion.atomic_mass, 0.0, 100.0)
-            ion_sum = ion_sum + s_i * ion.charge * np.sqrt(c_i_sq)
-
-        valid = temperature[:, j, :] > 0.0
-        safe_temperature = np.maximum(temperature[:, j, :], 1.0e-12)
-        log_argument = np.sqrt(safe_temperature / (me * (2.0 * math.pi))) / np.maximum(ion_sum, 1.0e-12)
-        phi[:, j, :] = np.where(valid, safe_temperature * np.log(np.maximum(log_argument, 1.0e-12)), 0.0)
-        phi[:, jm, :] = phi[:, j, :]
-        phi[:, j + 1, :] = phi[:, j, :]
-
-        phisheath = np.maximum(0.5 * (phi[:, jm, :] + phi[:, j, :]), 0.0)
+        _set_zero_current_phi(j=j, neighbor=jp, ghost=jm)
+        phi[:, jm, :] = 2.0 * phi[:, j, :] - phi[:, jp, :]
+        phi_wall = wall_potential[:, j, :]
+        phisheath_raw = 0.5 * (phi[:, jm, :] + phi[:, j, :])
+        phisheath = np.maximum(phisheath_raw, phi_wall) if settings.floor_potential else phisheath_raw
         tesheath = 0.5 * (temperature[:, jm, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jm, :] + density[:, j, :])
-        gamma_e = np.maximum(2.0 + phisheath / np.maximum(tesheath, 1.0e-5), 0.0)
+        gamma_e = np.maximum(
+            2.0 / (1.0 - secondary_coef) + (phisheath - phi_wall) / np.maximum(tesheath, 1.0e-5),
+            0.0,
+        )
         vesheath = np.where(
             tesheath < 1.0e-10,
             0.0,
-            np.sqrt(tesheath / (2.0 * math.pi * me)) * np.exp(-phisheath / np.maximum(tesheath, 1.0e-12)),
+            -np.sqrt(tesheath / (2.0 * math.pi * me))
+            * (1.0 - secondary_coef)
+            * np.exp(-(phisheath - phi_wall) / np.maximum(tesheath, 1.0e-12)),
         )
-        velocity[:, jm, :] = -2.0 * vesheath - velocity[:, j, :]
-        momentum[:, jm, :] = -2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-        q = ((gamma_e - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
-        q = np.maximum(q, 0.0)
+        velocity[:, jm, :] = 2.0 * vesheath - velocity[:, j, :]
+        momentum[:, jm, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
+        q = ((gamma_e - 1.0 - 1.0 / (electron_adiabatic - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
+        q = np.minimum(q, 0.0)
         flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
         power = flux / (dy[:, j, :] * J[:, j, :])
-        energy_source[:, j, :] -= power
+        energy_source[:, j, :] += power
     return _ElectronBoundaryResult(
         density=density,
         temperature=temperature,
