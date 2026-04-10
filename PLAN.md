@@ -56,6 +56,7 @@ Latest blocker evidence on that lane:
 - that full-sheath correction is also safe and unit-tested, but it likewise does not materially change the `tokamak_recycling_dthe_one_step` residual ordering
 - a direct probe of Neumann-guarding the ion-viscosity coefficient `eta` before `DivPiPar` was tested and rejected because it worsens the D/T one-step lane, especially `NVhe+`
 - the remaining blocker is therefore still the sheath-conditioned lower-target-corner `DivPiPar` boundary state/operator, not the electric-force density path
+- a direct Hermes-vs-native collision diagnostic now also shows that the Coulomb `K*_coll` inputs at the bad D/T cells already match to roundoff, so the remaining gap is downstream of `_compute_collision_frequencies`: either charge-exchange collisionality or the boundary-conditioned viscosity stencil/state itself
 
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
 
@@ -290,6 +291,7 @@ The remaining work should now proceed in this order:
      - the remaining blocker on that D/T direct-tokamak rung is now localized and script-backed rather than inferred:
        - [diagnose_tokamak_recycling_one_step.py](/Users/rogerio/local/jax_drb/scripts/diagnose_tokamak_recycling_one_step.py) ranks the committed-baseline one-step residuals and confirms they are concentrated at the lower target corner;
        - [diagnose_tokamak_recycling_ion_viscosity.py](/Users/rogerio/local/jax_drb/scripts/diagnose_tokamak_recycling_ion_viscosity.py) drills into the same full-grid blocker cell `(x=2, y=2, z=0)` on the reference-evolved state and shows the local collision stack is dominated by the ion-viscosity term itself, with `DivPiPar_d+ ≈ -4.12` and `DivPiPar_t+ ≈ -5.29`;
+       - that same script can now rerun Hermes with `braginskii_collisions:diagnose=true` and compare the local `K*_coll` fields directly; at the blocker cells the native D/T Coulomb collision frequencies match Hermes to roundoff, which rules out `_compute_collision_frequencies` as the main cause of the residual and narrows the next patch surface to charge exchange or the sheath-conditioned `DivPiPar` boundary state/operator;
      - the dead ends are explicit now and should not stay on the critical path:
        - the committed cache does not carry tokamak recycling `SN*` / `SP*` / `SNV*` source histories, so source-override A/Bs are inert on `tokamak_recycling_dthe_one_step`;
        - the tested local toggles (`eta` Neumann guards, removing viscosity boundary flux, and skipping initial velocity overrides) do not improve the D/T one-step mismatch;
