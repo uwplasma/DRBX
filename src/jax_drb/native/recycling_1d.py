@@ -378,11 +378,15 @@ def _compute_recycling_1d_rhs_from_species(
         metrics=metrics,
     )
     electron_force_density = electron_force_density + momentum_source["e"]
-    electron_epar = electron_force_density / np.maximum(electron_density, 1.0e-5)
+    electron_parallel_density = np.maximum(
+        np.asarray(electron_boundary.density, dtype=np.float64),
+        1.0e-5,
+    )
+    electron_epar = electron_force_density / electron_parallel_density
     for ion in ions:
         momentum_source[ion.name] = momentum_source[ion.name] + np.asarray(
             apply_parallel_electric_force(
-                ion.density,
+                prepared[ion.name].density,
                 charge=ion.charge,
                 epar=electron_epar,
             ),
@@ -1013,6 +1017,16 @@ def _electron_density(ions: tuple[OpenFieldSpecies, ...]) -> np.ndarray:
     return density
 
 
+def _prepared_electron_density(
+    ions: tuple[OpenFieldSpecies, ...],
+    prepared: Mapping[str, _PreparedSpeciesState],
+) -> np.ndarray:
+    density = np.zeros_like(prepared[ions[0].name].density, dtype=np.float64)
+    for ion in ions:
+        density = density + ion.charge * np.asarray(prepared[ion.name].density, dtype=np.float64)
+    return density
+
+
 def _raw_species_velocity(species: OpenFieldSpecies) -> np.ndarray:
     return np.asarray(
         species.momentum / np.maximum(species.atomic_mass * species.density, 1.0e-8),
@@ -1059,6 +1073,13 @@ class _CollisionClosureTerms:
     energy_source: dict[str, np.ndarray]
     momentum_source: dict[str, np.ndarray]
     diagnostics: dict[str, np.ndarray]
+
+
+@dataclass(frozen=True)
+class _IonParallelViscosityInputs:
+    total_collisionality: np.ndarray
+    tau: np.ndarray
+    eta: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -2086,18 +2107,15 @@ def _apply_collision_closure(
         for name, sp in species.items():
             if name == "e" or sp.charge == 0.0:
                 continue
-            total_collisionality = np.zeros_like(prepared[name].density, dtype=np.float64)
-            for other_name in species:
-                rate = collision_rates.get((name, other_name))
-                if rate is not None:
-                    total_collisionality = total_collisionality + rate
-            if name in cx_rates:
-                total_collisionality = total_collisionality + cx_rates[name]
-            total_collisionality = np.maximum(total_collisionality, 1.0e-12)
-            tau = 1.0 / total_collisionality
-            eta = 1.28 * prepared[name].pressure * tau
+            viscosity_inputs = _ion_parallel_viscosity_inputs(
+                species_name=name,
+                species=species,
+                prepared=prepared,
+                collision_rates=collision_rates,
+                cx_rates=cx_rates,
+            )
             viscosity_source = _div_par_parallel_ion_viscosity_open(
-                eta,
+                viscosity_inputs.eta,
                 prepared[name].velocity,
                 mesh=mesh,
                 metrics=metrics,
@@ -2138,6 +2156,31 @@ def _apply_collision_closure(
             )
 
     return _CollisionClosureTerms(energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
+
+
+def _ion_parallel_viscosity_inputs(
+    *,
+    species_name: str,
+    species: Mapping[str, OpenFieldSpecies],
+    prepared: Mapping[str, _PreparedSpeciesState],
+    collision_rates: Mapping[tuple[str, str], np.ndarray],
+    cx_rates: Mapping[str, np.ndarray],
+) -> _IonParallelViscosityInputs:
+    total_collisionality = np.zeros_like(prepared[species_name].density, dtype=np.float64)
+    for other_name in species:
+        rate = collision_rates.get((species_name, other_name))
+        if rate is not None:
+            total_collisionality = total_collisionality + rate
+    if species_name in cx_rates:
+        total_collisionality = total_collisionality + cx_rates[species_name]
+    total_collisionality = np.maximum(total_collisionality, 1.0e-12)
+    tau = 1.0 / total_collisionality
+    eta = 1.28 * np.asarray(prepared[species_name].pressure, dtype=np.float64) * tau
+    return _IonParallelViscosityInputs(
+        total_collisionality=total_collisionality,
+        tau=tau,
+        eta=eta,
+    )
 
 
 def _div_par_parallel_ion_viscosity_open(

@@ -13,7 +13,10 @@ from jax_drb.native.recycling_1d import (
     _apply_upstream_density_feedback,
     _assemble_ion_rhs_terms,
     _build_recycling_runtime_model,
+    _charge_exchange_collision_rates,
+    _compute_collision_frequencies,
     _electron_density,
+    _ion_parallel_viscosity_inputs,
     _override_species_fields,
     _prepare_open_field_states,
     _reaction_sources,
@@ -180,6 +183,18 @@ def main() -> None:
         metrics=reference_final.metrics,
         dataset_scalars=dataset_scalars,
     )
+    collision_rates = _compute_collision_frequencies(
+        config,
+        species,
+        prepared,
+        dataset_scalars=dataset_scalars,
+    )
+    cx_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
     electron_density = _electron_density(ions)
     reaction_terms = _reaction_sources(
         config,
@@ -227,7 +242,8 @@ def main() -> None:
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    for name in species:
+    tracked_species = tuple(name for name in species if name != "e")
+    for name in tracked_species:
         density_source[name] = (
             density_source[name]
             + reaction_terms.density_source[name]
@@ -281,6 +297,13 @@ def main() -> None:
         for species_name in ("d+", "t+", "he+"):
             if species_name not in species:
                 continue
+            viscosity_inputs = _ion_parallel_viscosity_inputs(
+                species_name=species_name,
+                species=species,
+                prepared=prepared,
+                collision_rates=collision_rates,
+                cx_rates=cx_rates,
+            )
             rhs_terms = _assemble_ion_rhs_terms(
                 density_source=density_source[species_name],
                 explicit_pressure_source=runtime_model.explicit_pressure_sources.get(
@@ -302,6 +325,10 @@ def main() -> None:
             energy = float(collision_terms.energy_source[species_name][x_index, y_index, z_index])
             velocity = float(prepared[species_name].velocity[x_index, y_index, z_index])
             pressure = float(prepared[species_name].pressure[x_index, y_index, z_index])
+            lower_guard = max(reference_final.mesh.ystart - 1, 0)
+            upper_guard = min(reference_final.mesh.yend + 1, prepared[species_name].density.shape[1] - 1)
+            lower_neighbor = lower_guard if y_index == reference_final.mesh.ystart else y_index - 1
+            upper_neighbor = upper_guard if y_index == reference_final.mesh.yend else y_index + 1
             print(
                 f"  {species_name}: "
                 f"DivPiPar={div_pi:.8e} "
@@ -309,6 +336,21 @@ def main() -> None:
                 f"energy_source={energy:.8e} "
                 f"velocity={velocity:.8e} "
                 f"pressure={pressure:.8e}"
+            )
+            print(
+                f"    sheath_state: "
+                f"lower_neighbor_density={prepared[species_name].density[x_index, lower_neighbor, z_index]:.8e} "
+                f"center_density={prepared[species_name].density[x_index, y_index, z_index]:.8e} "
+                f"upper_neighbor_density={prepared[species_name].density[x_index, upper_neighbor, z_index]:.8e} "
+                f"lower_neighbor_velocity={prepared[species_name].velocity[x_index, lower_neighbor, z_index]:.8e} "
+                f"center_velocity={prepared[species_name].velocity[x_index, y_index, z_index]:.8e} "
+                f"upper_neighbor_velocity={prepared[species_name].velocity[x_index, upper_neighbor, z_index]:.8e}"
+            )
+            print(
+                f"    viscosity_inputs: "
+                f"nu_total={viscosity_inputs.total_collisionality[x_index, y_index, z_index]:.8e} "
+                f"tau={viscosity_inputs.tau[x_index, y_index, z_index]:.8e} "
+                f"eta={viscosity_inputs.eta[x_index, y_index, z_index]:.8e}"
             )
             print(
                 f"    density: source={rhs_terms.density_source[x_index, y_index, z_index]:.8e} "
