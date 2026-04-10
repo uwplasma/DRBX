@@ -4,7 +4,7 @@ This example is the first end-to-end runtime tutorial for `jax_drb` as a standal
 
 Entry point:
 
-- [examples/restartable_diffusion_tutorial.py](/Users/rogerio/local/jax_drb/examples/restartable_diffusion_tutorial.py)
+- [examples/restartable_diffusion_tutorial.py](examples/restartable_diffusion_tutorial.py)
 
 What it demonstrates:
 
@@ -88,16 +88,16 @@ The script writes:
 
 A QA-checked example output package from a local run is currently staged under:
 
-- [docs/data/restartable_diffusion_demo_artifacts](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts)
-- [docs/data/restartable_diffusion_demo_artifacts/input/input.toml](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/input/input.toml)
-- [docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png)
-- [docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif)
+- [docs/data/restartable_diffusion_demo_artifacts](docs/data/restartable_diffusion_demo_artifacts)
+- [docs/data/restartable_diffusion_demo_artifacts/input/input.toml](docs/data/restartable_diffusion_demo_artifacts/input/input.toml)
+- [docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png](docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png)
+- [docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif](docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif)
 
 The companion precision benchmark is:
 
-- [examples/diffusion_precision_benchmark.py](/Users/rogerio/local/jax_drb/examples/diffusion_precision_benchmark.py)
-- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
-- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
+- [examples/diffusion_precision_benchmark.py](examples/diffusion_precision_benchmark.py)
+- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
+- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
 
 ## What To Edit First
 

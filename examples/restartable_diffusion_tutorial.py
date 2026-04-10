@@ -251,6 +251,7 @@ def save_combined_payload(settings: RestartableDiffusionSettings, payload: Mappi
     array_payload = build_portable_array_payload(
         case_name=str(payload["case_name"]),
         parity_mode=str(payload["parity_mode"]),
+        capability_tier=str(payload.get("capability_tier", "native_exact")),
         compare_variables=tuple(sorted(payload["variables"])),
         component_labels=tuple(payload.get("component_labels", [])),
         dimensions=payload.get("dimensions", {}),

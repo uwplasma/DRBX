@@ -21,7 +21,7 @@ jax_drb run path/to/input.toml
 
 ## Input Layout
 
-The native CLI accepts the original BOUT-style `.inp` files and now also accepts organized TOML decks. The intended TOML layout is:
+The native CLI accepts organized TOML decks and also keeps compatibility with legacy `.inp` decks used by the curated benchmark harness. The intended TOML layout is:
 
 - `[time]`
 - `[runtime]`
@@ -94,8 +94,8 @@ PYTHONPATH=src .venv/bin/python examples/diffusion_precision_benchmark.py
 
 The committed example benchmark artifacts are in:
 
-- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
-- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
+- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
+- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
 
 On the current machine, the warm second-run `float32` diffusion path is about `1.23x` faster than `float64` (`2.096s` vs `2.584s`) on the same input.
 
@@ -114,7 +114,7 @@ Each emitted payload is also expected to carry the current capability-tier label
 - `native_operational`
 - `scaffolded_reference_backed`
 
-For direct deck-driven native runs, the current default is `native_exact` unless a curated reference case explicitly supplies a different tier.
+For direct deck-driven native runs, the current default is `native_exact` unless a curated benchmark case explicitly supplies a different tier.
 
 Example:
 
@@ -162,7 +162,7 @@ Both versions report the same core metadata:
 - variable min/max/mean/delta summaries
 
 The verbose run-log JSON now also stores the ordered event stream, so a downstream plotting or workflow script can reconstruct what happened during the run.
-The same JSON also stores the working directory and machine/runtime metadata so a saved run can be audited later without guessing the execution environment.
+The same JSON also stores sanitized working-directory and machine/runtime metadata so a saved run can be audited later without leaking workstation-specific absolute paths.
 
 ## Restart / Resume
 
@@ -185,8 +185,8 @@ resume_steps = 2
 
 The runnable tutorial for the full flow is:
 
-- [examples/restartable_diffusion_tutorial.py](/Users/rogerio/local/jax_drb/examples/restartable_diffusion_tutorial.py)
+- [examples/restartable_diffusion_tutorial.py](examples/restartable_diffusion_tutorial.py)
 
 And the simplest shipped example deck is:
 
-- [examples/inputs/restartable_diffusion.toml](/Users/rogerio/local/jax_drb/examples/inputs/restartable_diffusion.toml)
+- [examples/inputs/restartable_diffusion.toml](examples/inputs/restartable_diffusion.toml)

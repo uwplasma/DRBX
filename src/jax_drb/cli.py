@@ -10,6 +10,7 @@ from typing import Any
 
 from .config.boutinp import load_bout_input
 from .reference.cases import resolve_reference_cases
+from .reference.paths import default_reference_root as resolve_default_reference_root
 from .runtime import configure_jax_runtime, resolve_runtime_precision
 from .runtime.run_config import RunConfiguration
 
@@ -28,7 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=False)
 
-    inspect_parser = subparsers.add_parser("inspect", help="Inspect a BOUT.inp file and print the resolved plan.")
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect an input deck and print the resolved plan.")
     inspect_parser.add_argument("input_file", type=Path)
     inspect_parser.set_defaults(command=_inspect_command)
 
@@ -40,7 +41,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reference-root",
         type=Path,
         default=_default_reference_root(),
-        help="Path to the local reference checkout used for case inspection.",
+        help="Path to the external benchmark checkout used for curated-case inspection.",
     )
     cases_parser.set_defaults(command=_reference_cases_command)
 
@@ -53,7 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reference-root",
         type=Path,
         default=_default_reference_root(),
-        help="Path to the local reference checkout used for case lookup and default binary discovery.",
+        help="Path to the external benchmark checkout used for case lookup and default binary discovery.",
     )
     run_case_parser.add_argument("--reference-binary", type=Path, default=_default_reference_binary())
     run_case_parser.add_argument("--workdir", type=Path, default=None)
@@ -111,7 +112,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reference-root",
         type=Path,
         default=_default_reference_root(),
-        help="Path to the local private reference checkout used to locate the curated input file.",
+        help="Path to the external benchmark checkout used to locate the curated input file.",
     )
     run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary to JSON.")
     run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
@@ -125,7 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reference-root",
         type=Path,
         default=_default_reference_root(),
-        help="Path to the local private reference checkout used for case lookup and binary discovery.",
+        help="Path to the external benchmark checkout used for case lookup and binary discovery.",
     )
     validate_reference_parser.add_argument("--reference-binary", type=Path, default=_default_reference_binary())
     validate_reference_parser.add_argument("--case", action="append", default=[], help="Specific case name to validate. Repeat to validate multiple cases.")
@@ -451,7 +452,7 @@ def _run_command(args: argparse.Namespace) -> int:
 
     if args.json_out is not None:
         path = write_portable_summary_payload(result.payload, args.json_out)
-        output_paths["summary_json"] = str(path)
+        output_paths["summary_json"] = _sanitize_logged_path(path) or str(path)
     if args.arrays_out is not None:
         array_payload = build_portable_array_payload(
             case_name=str(result.payload["case_name"]),
@@ -469,22 +470,22 @@ def _run_command(args: argparse.Namespace) -> int:
             producer=str(result.payload.get("producer", "jax-drb")),
         )
         path = write_portable_array_payload(array_payload, args.arrays_out)
-        output_paths["arrays_npz"] = str(path)
+        output_paths["arrays_npz"] = _sanitize_logged_path(path) or str(path)
 
     restart_bundle = build_restart_state(result, parity_mode="run")
     if args.restart_out is not None and restart_bundle is not None:
         path = write_restart_bundle(restart_bundle, args.restart_out)
-        output_paths["restart_npz"] = str(path)
+        output_paths["restart_npz"] = _sanitize_logged_path(path) or str(path)
     elif args.restart_out is not None and restart_bundle is None:
         output_paths["restart_npz"] = "(unsupported for this component set)"
 
     if args.log_out is not None:
-        output_paths["run_log_json"] = str(args.log_out)
+        output_paths["run_log_json"] = _sanitize_logged_path(args.log_out) or str(args.log_out)
     if output_paths:
         record_event("artifacts", "Planned run artifacts", **output_paths)
 
     log_payload = build_run_log_payload(
-        input_file=args.input_file,
+        input_file=_sanitize_logged_path(args.input_file) or args.input_file,
         case_name=case_name,
         parity_mode="run",
         capability_tier=str(result.payload.get("capability_tier", "native_exact")),
@@ -520,7 +521,7 @@ def _run_command(args: argparse.Namespace) -> int:
     )
     if args.log_out is not None:
         path = write_run_log_payload(log_payload, args.log_out)
-        output_paths["run_log_json"] = str(path)
+        output_paths["run_log_json"] = _sanitize_logged_path(path) or str(path)
         log_payload["outputs"] = output_paths
         log_payload["events"] = list(events)
 
@@ -575,7 +576,7 @@ def _serialize_run_configuration(
             "python_version": platform.python_version(),
             "platform": platform.platform(),
             "process_id": os.getpid(),
-            "compilation_cache_dir": None if cache_dir is None else str(cache_dir),
+            "compilation_cache_dir": _sanitize_logged_path(cache_dir),
             "elapsed_seconds": elapsed_seconds,
             "logging": {
                 "verbosity": logging_verbosity,
@@ -583,11 +584,11 @@ def _serialize_run_configuration(
             },
         },
         "output": {
-            "directory": None if output_directory is None else str(output_directory),
-            "working_directory": None if working_directory is None else str(working_directory),
+            "directory": _sanitize_logged_path(output_directory),
+            "working_directory": _sanitize_logged_path(working_directory),
         },
         "restart_request": {
-            "restart_in": None if restart_in is None else str(restart_in),
+            "restart_in": _sanitize_logged_path(restart_in),
             "resume_steps": resume_steps,
         },
         "components": [request.label for request in run_config.components],
@@ -605,7 +606,7 @@ def _serialize_restart_info(
 ) -> dict[str, object]:
     payload: dict[str, object] = {}
     if restart_in is not None and loaded_bundle is not None:
-        payload["loaded_from"] = str(restart_in)
+        payload["loaded_from"] = _sanitize_logged_path(restart_in)
         payload["start_time"] = loaded_bundle.current_time
         payload["input_completed_steps"] = loaded_bundle.completed_steps
         payload["loaded_state_variables"] = sorted(loaded_bundle.state_variables)
@@ -619,8 +620,25 @@ def _serialize_restart_info(
 
 
 def _default_reference_root() -> Path | None:
-    value = os.environ.get("JAX_DRB_REFERENCE_ROOT")
-    return Path(value) if value else None
+    return resolve_default_reference_root()
+
+
+def _sanitize_logged_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    resolved = Path(path).expanduser()
+    try:
+        resolved = resolved.resolve()
+    except FileNotFoundError:
+        resolved = resolved.absolute()
+    try:
+        return resolved.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        pass
+    try:
+        return f"~/{resolved.relative_to(Path.home()).as_posix()}"
+    except ValueError:
+        return resolved.as_posix()
 
 
 def _config_value(config, section: str, key: str, default: Any = None) -> Any:

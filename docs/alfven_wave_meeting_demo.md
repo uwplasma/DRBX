@@ -8,7 +8,7 @@ Run the demo from the repository root:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
-  --reference-root /Users/rogerio/local/hermes-3
+  --reference-root /path/to/reference-suite
 ```
 
 To regenerate plots and movies from an existing `.npz` payload without rerunning the case:
@@ -21,24 +21,24 @@ PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
 
 By default this writes:
 
-- [analysis JSON](/Users/rogerio/local/jax_drb/docs/data/alfven_wave_meeting_analysis.json)
-- [parity JSON](/Users/rogerio/local/jax_drb/docs/data/alfven_wave_meeting_parity.json)
-- [snapshot panel](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_snapshots.png)
-- [diagnostics plot](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_diagnostics.png)
-- [parity plot](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_parity.png)
-- [movie poster](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_movie_poster.png)
-- [2D movie](/Users/rogerio/local/jax_drb/docs/movies/alfven_wave_meeting_2d.mp4)
-- [3D movie](/Users/rogerio/local/jax_drb/docs/movies/alfven_wave_meeting_3d.mp4)
+- [analysis JSON](docs/data/alfven_wave_meeting_analysis.json)
+- [parity JSON](docs/data/alfven_wave_meeting_parity.json)
+- [snapshot panel](docs/images/alfven_wave_meeting_snapshots.png)
+- [diagnostics plot](docs/images/alfven_wave_meeting_diagnostics.png)
+- [parity plot](docs/images/alfven_wave_meeting_parity.png)
+- [movie poster](docs/images/alfven_wave_meeting_movie_poster.png)
+- [2D movie](docs/movies/alfven_wave_meeting_2d.mp4)
+- [3D movie](docs/movies/alfven_wave_meeting_3d.mp4)
 
 ## Figures
 
-![Alfven-wave meeting snapshots](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_snapshots.png)
+![Alfven-wave meeting snapshots](docs/images/alfven_wave_meeting_snapshots.png)
 
-![Alfven-wave meeting diagnostics](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_diagnostics.png)
+![Alfven-wave meeting diagnostics](docs/images/alfven_wave_meeting_diagnostics.png)
 
-![Alfven-wave meeting parity](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_parity.png)
+![Alfven-wave meeting parity](docs/images/alfven_wave_meeting_parity.png)
 
-![Alfven-wave meeting poster](/Users/rogerio/local/jax_drb/docs/images/alfven_wave_meeting_movie_poster.png)
+![Alfven-wave meeting poster](docs/images/alfven_wave_meeting_movie_poster.png)
 
 ## Why This Case
 

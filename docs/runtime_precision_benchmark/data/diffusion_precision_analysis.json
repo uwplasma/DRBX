@@ -1,6 +1,6 @@
 {
   "case_name": "diffusion_precision",
-  "input_template": "/Users/rogerio/local/jax_drb/examples/inputs/restartable_diffusion.toml",
+  "input_template": "examples/inputs/restartable_diffusion.toml",
   "repeats": 2,
   "speedup_last_float32_vs_float64": 1.1555754652249162,
   "summary": {

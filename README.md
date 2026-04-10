@@ -1,251 +1,242 @@
 # jax_drb
 
-`jax_drb` is a fresh JAX plasma codebase for edge and scrape-off-layer modeling. The active tree is being built from a clean implementation plan: differentiable solver kernels, CPU/GPU portability, a Python API, and a CLI that can run curated validation cases end to end.
+`jax_drb` is a JAX-native edge and scrape-off-layer plasma code for drift-reduced Braginskii, electrostatic turbulence, neutral transport, and curated tokamak geometry workflows.
 
-The current program is intentionally centered on a strong-subset publication claim rather than on advertising every staged parity rung as if it were equally mature. The scientific target is a documented, restartable, performant native code with a clearly labeled supported matrix, exact or tightly bounded parity on that matrix, and reviewer-facing validation evidence.
+The project is being shipped around a strong-subset research claim:
 
-The current validated slices are small on purpose. Each one is locked to committed baselines before the next layer of physics is added:
+- a documented standalone CLI and Python API
+- restartable native runs with rich terminal output
+- portable result artifacts for analysis and visualization
+- explicit capability tiers for every promoted workflow
+- curated validation against external benchmark runs, analytic limits, and physics diagnostics
 
-- density-only `one_rhs`;
-- anomalous diffusion `one_step` and `short_window`;
-- periodic 1D manufactured fluid `one_rhs`, `one_step`, and `short_window`;
-- standalone electrostatic vorticity `one_rhs`, `one_step`, and `short_window`;
-- blob2d curvature-driven `one_rhs`, `one_step`, and `short_window`;
-- coupled 2D drift-wave `one_rhs`, `one_step`, and `short_window`.
-
-The direct tokamak ladder is now also substantial rather than placeholder-only. The committed direct-geometry rungs include:
-
-- `tokamak_diffusion_flow_one_step`
-- `tokamak_diffusion_one_step`
-- `tokamak_diffusion_transport_one_step`
-- `tokamak_diffusion_transport_short_window`
-- `tokamak_heat_transport_one_step`
-- `tokamak_heat_transport_short_window`
-- `tokamak_diffusion_conduction_one_step`
-- `tokamak_diffusion_conduction_short_window`
-- `tokamak_linear_transport_one_step`
-- `tokamak_linear_transport_short_window`
-- `tokamak_isothermal_rhs`
-- `tokamak_isothermal_one_step`
-- `tokamak_isothermal_short_window`
-- `tokamak_isothermal_medium_window`
-- `tokamak_turbulence_rhs`
-- `tokamak_turbulence_one_step`
-- `tokamak_turbulence_short_window`
-- `tokamak_recycling_dthe_drifts_rhs`
-- `tokamak_recycling_dthe_drifts_one_step`
-
-These run through the same tokamak geometry parity harness and have committed summary/array baselines. Many of them are still explicitly labeled as scaffolded reference-backed evidence rather than final native-closure evidence. The transient subset also has committed snapshot/history caches so repeated checks do not require a fresh reference launch. The drift-enabled D/T/He recycling lane is now promoted too at the curated `rhs` and `one_step` level, using deterministic `sound_speed` plus `solver:type=cvode` curation in the manifest. On that drift-enabled recycling lane, the current native compare surface is intentionally limited to the ion density/pressure/momentum channels plus `Pe`; `phi` and `Vort` are still a follow-on item for the recycling path and are no longer advertised as if they were already checked there.
-
-## Capability Tiers
-
-Every curated rung now carries a capability tier in the manifest, CLI, and run logs:
-
-- `native_exact`: fully native path, clean enough to anchor a public parity claim
-- `native_operational`: native path with bounded residuals, useful and documented, but not headline evidence
-- `scaffolded_reference_backed`: replay/dump/history-assisted path, kept for diagnostics and bridge coverage, not counted the same as native closure
-
-The active parity reset is to promote a small number of end-to-end native lanes into `native_exact`, especially on open-field recycling/transient workflows, before widening the matrix further.
-
-For the current reviewer-facing validation program, see [docs/research_grade_validation_matrix.md](/Users/rogerio/local/jax_drb/docs/research_grade_validation_matrix.md).
-
-## Validation Snapshots
-
-The figures below come from the committed validation ladder. They compare native `jax_drb` outputs against the stored baseline artifacts used by the regression harness.
-
-![Diffusion short-window parity](docs/images/diffusion_short_window_parity.png)
-
-![Vorticity short-window parity](docs/images/vorticity_short_window_parity.png)
-
-![Drift-wave one-step parity](docs/images/drift_wave_one_step_parity.png)
-
-![Drift-wave short-window parity](docs/images/drift_wave_short_window_parity.png)
-
-![Blob2d short-window parity](docs/images/blob2d_short_window_parity.png)
-
-The current benchmark diagnostics page also includes a short-window drift-wave validation figure with measured growth/frequency extraction against the analytic dispersion target:
-
-![Drift-wave short-window diagnostics](docs/images/drift_wave_short_window_diagnostics.png)
-
-The staged neutral branch now also has a compact short-window benchmark target that locks the reference transient before the native stiff integrator is exposed:
-
-![Neutral mixed short-window diagnostics](docs/images/neutral_mixed_short_window_diagnostics.png)
-
-## Running Cases
+## Install
 
 Editable install:
 
 ```bash
-pip install -e .[dev,validation]
+pip install -e .[dev,integrators,models,validation]
 ```
 
-Run a curated native case:
+Minimal runtime install:
 
 ```bash
-PYTHONPATH=src python -m jax_drb run-case diffusion_short_window --reference-root /path/to/reference-checkout
+pip install -e .
 ```
 
-Run a native TOML input directly, write JSON/NPZ/log/restart artifacts, and then continue from restart. After `pip install -e .[dev,validation]`, both `jax_drb` and `jax-drb` work as console commands:
+## Quick Start
+
+Run a native TOML deck:
 
 ```bash
-jax_drb path/to/input.toml --output-dir /tmp/jax_drb_run
+jax_drb path/to/input.toml
+```
+
+The bare form is equivalent to:
+
+```bash
+jax_drb run path/to/input.toml
+```
+
+Choose precision explicitly:
+
+```bash
+jax_drb path/to/input.toml --precision float32
+```
+
+Resume from a saved restart bundle:
+
+```bash
 jax_drb path/to/input.toml \
-  --output-dir /tmp/jax_drb_run_resume \
-  --restart-in /tmp/jax_drb_run/<case>_restart.npz \
+  --output-dir output/restarted_case \
+  --restart-in output/base_case/my_case_restart.npz \
   --resume-steps 2
 ```
 
-The native run path now supports:
-
-- ordered TOML input decks with `[time]`, `[runtime]`, `[runtime.logging]`, `[mesh]`, `[solver]`, `[model]`, `[output]`, `[restart]`, `[species.*]`, and `[fields.*]`;
-- runtime precision selection through `[runtime].precision = "float32" | "float64"` or `--precision` on the standalone CLI;
-- rich Hermes-style run events plus a final summary, with a plain-text fallback carrying the same metadata;
-- portable output artifacts: summary JSON, arrays NPZ, restart NPZ, and verbose run-log JSON.
-
-Inspect the curated ladder:
+Inspect a deck without running it:
 
 ```bash
-PYTHONPATH=src python -m jax_drb reference-cases --reference-root /path/to/reference-checkout
+jax_drb inspect path/to/input.toml
 ```
 
-Generate the drift-wave short-window parity report and figure:
+## Python API
 
-```bash
-PYTHONPATH=src python -m jax_drb compare-drift-wave \
-  /path/to/curated/drift_wave/BOUT.inp \
-  references/baselines/reference_arrays/drift_wave_short_window.npz \
-  /tmp/jax_drb_drift_wave_short_window_native.npz \
-  --json-out docs/data/drift_wave_short_window_parity.json \
-  --plot-out docs/images/drift_wave_short_window_parity.png
+The simplest programmatic entry points are:
+
+```python
+from pathlib import Path
+
+from jax_drb.cli import main
+from jax_drb.native import run_curated_case
+
+# Deck-driven standalone run
+main(["run", "examples/inputs/restartable_diffusion.toml", "--quiet"])
+
+# Curated validation case
+result = run_curated_case("tokamak_isothermal_one_step", reference_root=Path("/path/to/reference-suite"))
+print(result.payload["capability_tier"])
+print(sorted(result.variables))
 ```
 
-Generate the blob2d short-window parity report and figure:
+## Input Model
 
-```bash
-PYTHONPATH=src python -m jax_drb compare-blob2d \
-  references/baselines/reference_metrics/blob2d_short_window_metrics.json \
-  /tmp/jax_drb_blob2d_short_window_native.npz \
-  --json-out docs/data/blob2d_short_window_parity.json \
-  --plot-out docs/images/blob2d_short_window_parity.png
+`jax_drb` supports organized TOML decks with the following top-level sections:
+
+- `[time]`
+- `[runtime]`
+- `[runtime.logging]`
+- `[mesh]`
+- `[solver]`
+- `[model]`
+- `[output]`
+- `[restart]`
+- `[species.<name>]`
+- `[fields.<name>]`
+
+Example:
+
+```toml
+[time]
+nout = 2
+timestep = 0.1
+
+[runtime]
+precision = "float64"
+
+[runtime.logging]
+verbosity = "detailed"
+quiet = false
+
+[mesh]
+nx = 32
+ny = 1
+nz = 1
+dx = 0.03125
+
+[solver]
+type = "native"
+
+[model]
+components = ["h"]
+
+[species.h]
+type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
+
+[fields.Nh]
+function = { expr = "1 + 0.2 * exp(-((x-0.5)^2)/0.01)" }
+
+[fields.Ph]
+function = { expr = "0.1" }
+
+[output]
+directory = "output/my_case"
+write_summary = true
+write_arrays = true
+write_restart = true
+write_log = true
 ```
 
-Generate a meeting-ready Alfven-wave package with 2D and 3D movies plus publication figures:
+## Output Artifacts
 
-```bash
-PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
-  --reference-root /path/to/reference-checkout
-```
+Promoted native runs write:
 
-Regenerate those figures and movies from a saved `.npz` payload without rerunning the case:
+- summary JSON
+- arrays NPZ
+- restart NPZ
+- verbose run-log JSON
 
-```bash
-PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
-  --arrays-in docs/data/alfven_wave_short_window_native.npz \
-  --output-root docs
-```
+The run log stores:
 
-Generate a fast Blob2D movie from a saved one-step payload:
+- capability tier
+- runtime precision and backend
+- mesh, solver, and time configuration
+- ordered event stream
+- restart provenance
+- output artifact locations
+- variable min/max/mean/delta summaries
 
-```bash
-PYTHONPATH=src .venv/bin/python examples/blob2d_meeting_demo.py \
-  --arrays-in references/baselines/reference_arrays/blob2d_one_step.npz \
-  --output-root docs \
-  --skip-parity
-```
+## Capability Tiers
 
-Run the explicit restart tutorial example with TOML input generation, saved artifacts, restart/resume, precision selection, and Matplotlib outputs:
+Every curated validation case is labeled explicitly:
 
-```bash
-PYTHONPATH=src .venv/bin/python examples/restartable_diffusion_tutorial.py
-```
+- `native_exact`: fully native and clean enough to anchor a public claim
+- `native_operational`: native and useful, but still carrying bounded residuals
+- `scaffolded_reference_backed`: replay or cached-reference assisted, useful for diagnostics but not counted as native closure
 
-Benchmark `float32` vs `float64` on the same restartable diffusion rung:
+The active release strategy is to promote a smaller number of end-to-end native lanes into `native_exact` before widening the matrix further.
 
-```bash
-PYTHONPATH=src .venv/bin/python examples/diffusion_precision_benchmark.py
-```
+## What To Run First
 
-The committed example benchmark artifacts live in:
+If you want a tutorial-style standalone workflow:
 
-- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
-- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](/Users/rogerio/local/jax_drb/docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
+- [restartable_diffusion_tutorial.py](docs/restartable_diffusion_tutorial.md)
 
-The current QA-checked tutorial output package lives in:
+If you want meeting-ready figures and movies:
 
-- [docs/data/restartable_diffusion_demo_artifacts](/Users/rogerio/local/jax_drb/docs/data/restartable_diffusion_demo_artifacts)
+- [alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md)
+- [blob2d_meeting_demo.md](docs/blob2d_meeting_demo.md)
 
-Generate the compact neutral short-window benchmark report and figure:
+If you want the current validation gallery:
 
-```bash
-PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \
-  references/baselines/reference_arrays/neutral_mixed_short_window.npz \
-  --x-index 5 \
-  --y-index 3 \
-  --z-index 5 \
-  --json-out references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json \
-  --plot-out docs/images/neutral_mixed_short_window_diagnostics.png
-```
+- [validation_gallery.md](docs/validation_gallery.md)
 
-Re-run committed reference baselines as a smoke check:
+If you want the reviewer-facing validation contract:
 
-```bash
-PYTHONPATH=src python -m jax_drb validate-reference-baselines \
-  --reference-root /path/to/reference-checkout \
-  --case evolve_density_rhs \
-  --case diffusion_one_step \
-  --case vorticity_rhs
-```
+- [research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
 
-Re-run the exact direct tokamak turbulence ladder:
+If you want the physics and source-code map:
 
-```bash
-PYTHONPATH=src python -m jax_drb validate-reference-baselines \
-  --reference-root /path/to/reference-checkout \
-  --case tokamak_turbulence_rhs \
-  --case tokamak_turbulence_one_step \
-  --case tokamak_turbulence_short_window
-```
+- [physics_models.md](docs/physics_models.md)
 
-Re-run the newest exact/curated direct tokamak additions:
+If you want the current performance and differentiability status:
 
-```bash
-PYTHONPATH=src python -m jax_drb validate-reference-baselines \
-  --reference-root /path/to/reference-checkout \
-  --case tokamak_linear_transport_short_window \
-  --case tokamak_isothermal_rhs \
-  --case tokamak_isothermal_medium_window \
-  --case tokamak_isothermal_short_window \
-  --case tokamak_recycling_dthe_drifts_rhs \
-  --case tokamak_recycling_dthe_drifts_one_step
-```
+- [performance_and_differentiability.md](docs/performance_and_differentiability.md)
 
-For the current direct tokamak recycling one-step blocker review, use:
-```bash
-PYTHONPATH=src .venv/bin/python scripts/diagnose_tokamak_recycling_one_step.py \
-  --reference-root /Users/rogerio/local/hermes-3 \
-  --use-committed-baselines
+If you want current research directions and benchmark targets:
 
-PYTHONPATH=src .venv/bin/python scripts/diagnose_tokamak_recycling_ion_viscosity.py \
-  --reference-root /Users/rogerio/local/hermes-3
-```
+- [research_directions.md](docs/research_directions.md)
 
-Run the regression suite:
+## Current Research Connections
+
+The active roadmap is tied to current edge/SOL validation themes:
+
+- seeded-blob and filament dynamics motivated by TORPEX-style validation and multi-code comparisons
+- diverted L-mode validation campaigns in the spirit of TCV-X21
+- detachment-scaling studies for open-field and divertor credibility
+- impurity, radiation, and X-point physics as staged follow-on workflows
+
+The current research-facing roadmap is documented here:
+
+- [research_directions.md](docs/research_directions.md)
+
+## Documentation Map
+
+- Runtime and deck guide: [native_runtime_cli.md](docs/native_runtime_cli.md)
+- Validation gallery: [validation_gallery.md](docs/validation_gallery.md)
+- Physics models and source map: [physics_models.md](docs/physics_models.md)
+- Performance and differentiability: [performance_and_differentiability.md](docs/performance_and_differentiability.md)
+- Research roadmap and links: [research_directions.md](docs/research_directions.md)
+- Reviewer-facing validation matrix: [research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
+- Active implementation status: [PLAN.md](PLAN.md)
+
+## Notes On Validation
+
+`jax_drb` keeps external benchmark comparisons separate from the standalone user workflow:
+
+- standalone users should start from TOML decks, restart bundles, and the plotting/movie examples
+- benchmark comparisons are maintained as curated validation workflows and documented in the docs
+- public evidence should be anchored in promoted `native_exact` or clearly labeled `native_operational` workflows
+
+## Tests
+
+Run the test suite:
 
 ```bash
 pytest -q
 ```
 
-## Docs Map
+Run coverage:
 
-- Validation gallery: [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md)
-- Native runtime CLI: [docs/native_runtime_cli.md](/Users/rogerio/local/jax_drb/docs/native_runtime_cli.md)
-- Alfven-wave meeting demo: [docs/alfven_wave_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_meeting_demo.md)
-- Blob2D meeting demo: [docs/blob2d_meeting_demo.md](/Users/rogerio/local/jax_drb/docs/blob2d_meeting_demo.md)
-- Restartable diffusion tutorial: [docs/restartable_diffusion_tutorial.md](/Users/rogerio/local/jax_drb/docs/restartable_diffusion_tutorial.md)
-- Drift-wave benchmark: [docs/drift_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/drift_wave_benchmark.md)
-- Alfven-wave benchmark: [docs/alfven_wave_benchmark.md](/Users/rogerio/local/jax_drb/docs/alfven_wave_benchmark.md)
-- Neutral mixed benchmark: [docs/neutral_mixed_benchmark.md](/Users/rogerio/local/jax_drb/docs/neutral_mixed_benchmark.md)
-- Parity harness: [docs/parity_harness.md](/Users/rogerio/local/jax_drb/docs/parity_harness.md)
-- Parity matrix: [docs/parity_matrix.md](/Users/rogerio/local/jax_drb/docs/parity_matrix.md)
-- Implementation inventory: [docs/implementation_inventory.md](/Users/rogerio/local/jax_drb/docs/implementation_inventory.md)
-- Full staged roadmap: [PLAN.md](/Users/rogerio/local/jax_drb/PLAN.md)
+```bash
+pytest --cov=src/jax_drb --cov-report=term-missing
+```
