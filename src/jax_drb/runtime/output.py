@@ -73,6 +73,7 @@ def build_run_log_payload(
     input_file: str | Path,
     case_name: str,
     parity_mode: str,
+    capability_tier: str,
     component_labels: tuple[str, ...],
     time_points: tuple[float, ...],
     dimensions: Mapping[str, int],
@@ -88,6 +89,7 @@ def build_run_log_payload(
         "input_file": str(input_file),
         "case_name": case_name,
         "parity_mode": parity_mode,
+        "capability_tier": capability_tier,
         "component_labels": list(component_labels),
         "time_points": list(time_points),
         "dimensions": dict(dimensions),
@@ -140,6 +142,7 @@ def format_run_log_text(payload: Mapping[str, Any]) -> str:
         f"  input: {payload.get('input_file')}\n"
         f"  case: {payload.get('case_name')}\n"
         f"  mode: {payload.get('parity_mode')}\n"
+        f"  capability tier: {payload.get('capability_tier', '(unknown)')}\n"
         f"  precision: {runtime_cfg.get('precision', '(default)')}\n"
         f"  configured nout/timestep: {time_cfg.get('nout', '(unknown)')} / {time_cfg.get('timestep', '(unknown)')}\n"
         f"  runtime: precision={runtime_cfg.get('precision', '(default)')}, backend={runtime_cfg.get('backend', '(unknown)')}, device={runtime_cfg.get('device', '(unknown)')}, elapsed={runtime_cfg.get('elapsed_seconds', '(unknown)')}\n"
@@ -178,6 +181,7 @@ def print_run_log(payload: Mapping[str, Any]) -> None:
     summary.add_row("input", str(payload.get("input_file")))
     summary.add_row("case", str(payload.get("case_name")))
     summary.add_row("mode", str(payload.get("parity_mode")))
+    summary.add_row("tier", str(payload.get("capability_tier", "(unknown)")))
     summary.add_row("precision", str(runtime_cfg.get("precision", "(default)")))
     summary.add_row("backend", str(runtime_cfg.get("backend", "(unknown)")))
     summary.add_row("device", str(runtime_cfg.get("device", "(unknown)")))

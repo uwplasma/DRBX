@@ -4,6 +4,36 @@ The first executable parity harness is centered on the curated case ladder in [r
 
 For a figure-first view of the currently locked cases, see [docs/validation_gallery.md](/Users/rogerio/local/jax_drb/docs/validation_gallery.md).
 
+## Capability Tiers
+
+Case status and capability tier are now intentionally separate concepts.
+
+- status describes where a rung sits in the harness workflow, for example `native-validated`, `blocked`, or `reference-only target`
+- capability tier describes what kind of scientific claim that rung can support
+
+The tier vocabulary is:
+
+- `native_exact`
+  - fully native solve path, suitable for a public parity claim once the family-level promotion gate is satisfied
+- `native_operational`
+  - native path with bounded residuals, useful for research and internal iteration, but not headline evidence
+- `scaffolded_reference_backed`
+  - replay/dump/history-assisted path, useful for diagnostics and bridge coverage, not counted the same as native closure
+
+The manifest carries this tier explicitly, and the CLI/run-log surface now exposes it as well.
+
+## Promotion Gate
+
+Before a family is promoted to `native_exact`, it should satisfy:
+
+1. one-RHS parity on the smallest exercising case
+2. one-step parity on the same family
+3. short-window parity for transient workflows
+4. unit tests for every new operator or boundary branch used on that family
+5. at least one physics-facing diagnostic test
+6. restart/resume equivalence if the family is user-facing
+7. output/log/provenance artifact coverage if the family is exposed in CLI/examples
+
 ## Step Status
 
 | Case | Status | Meaning |

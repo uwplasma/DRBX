@@ -12,6 +12,7 @@ def test_build_portable_summary_payload_matches_expected_shape() -> None:
     payload = build_portable_summary_payload(
         case_name="toy",
         parity_mode="one_step",
+        capability_tier="native_exact",
         compare_variables=("Ne",),
         component_labels=("e:evolve_density",),
         dimensions={"t": 2, "x": 3},
@@ -24,6 +25,7 @@ def test_build_portable_summary_payload_matches_expected_shape() -> None:
     )
 
     assert payload["case_name"] == "toy"
+    assert payload["capability_tier"] == "native_exact"
     assert payload["variable_summaries"]["Ne"]["max_abs_delta_last_first"] == 0.5
     assert payload["effective_output_points"] == 2
 

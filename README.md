@@ -2,6 +2,8 @@
 
 `jax_drb` is a fresh JAX plasma codebase for edge and scrape-off-layer modeling. The active tree is being built from a clean implementation plan: differentiable solver kernels, CPU/GPU portability, a Python API, and a CLI that can run curated validation cases end to end.
 
+The current program is intentionally centered on a strong-subset publication claim rather than on advertising every staged parity rung as if it were equally mature. The scientific target is a documented, restartable, performant native code with a clearly labeled supported matrix, exact or tightly bounded parity on that matrix, and reviewer-facing validation evidence.
+
 The current validated slices are small on purpose. Each one is locked to committed baselines before the next layer of physics is added:
 
 - density-only `one_rhs`;
@@ -11,7 +13,7 @@ The current validated slices are small on purpose. Each one is locked to committ
 - blob2d curvature-driven `one_rhs`, `one_step`, and `short_window`;
 - coupled 2D drift-wave `one_rhs`, `one_step`, and `short_window`.
 
-The exact direct tokamak ladder is now also substantial rather than placeholder-only. The committed direct-geometry rungs include:
+The direct tokamak ladder is now also substantial rather than placeholder-only. The committed direct-geometry rungs include:
 
 - `tokamak_diffusion_flow_one_step`
 - `tokamak_diffusion_one_step`
@@ -33,8 +35,19 @@ The exact direct tokamak ladder is now also substantial rather than placeholder-
 - `tokamak_recycling_dthe_drifts_rhs`
 - `tokamak_recycling_dthe_drifts_one_step`
 
-These run through the same staged tokamak geometry path and have committed summary/array baselines. The transient subset also has committed snapshot/history caches so repeated exact checks do not require a fresh Hermes launch. The drift-enabled D/T/He recycling lane is now promoted too at the curated `rhs` and `one_step` level, using deterministic `sound_speed` plus `solver:type=cvode` curation in the manifest.
-On that drift-enabled recycling lane, the current native compare surface is intentionally limited to the ion density/pressure/momentum channels plus `Pe`; `phi` and `Vort` are still a follow-on item for the recycling path and are no longer advertised as if they were already checked there.
+These run through the same tokamak geometry parity harness and have committed summary/array baselines. Many of them are still explicitly labeled as scaffolded reference-backed evidence rather than final native-closure evidence. The transient subset also has committed snapshot/history caches so repeated checks do not require a fresh reference launch. The drift-enabled D/T/He recycling lane is now promoted too at the curated `rhs` and `one_step` level, using deterministic `sound_speed` plus `solver:type=cvode` curation in the manifest. On that drift-enabled recycling lane, the current native compare surface is intentionally limited to the ion density/pressure/momentum channels plus `Pe`; `phi` and `Vort` are still a follow-on item for the recycling path and are no longer advertised as if they were already checked there.
+
+## Capability Tiers
+
+Every curated rung now carries a capability tier in the manifest, CLI, and run logs:
+
+- `native_exact`: fully native path, clean enough to anchor a public parity claim
+- `native_operational`: native path with bounded residuals, useful and documented, but not headline evidence
+- `scaffolded_reference_backed`: replay/dump/history-assisted path, kept for diagnostics and bridge coverage, not counted the same as native closure
+
+The active parity reset is to promote a small number of end-to-end native lanes into `native_exact`, especially on open-field recycling/transient workflows, before widening the matrix further.
+
+For the current reviewer-facing validation program, see [docs/research_grade_validation_matrix.md](/Users/rogerio/local/jax_drb/docs/research_grade_validation_matrix.md).
 
 ## Validation Snapshots
 

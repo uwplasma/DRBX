@@ -80,6 +80,14 @@ Representative reference inputs require support for:
 
 The first parity ladder is recorded in [references/reference_case_ladder.toml](/Users/rogerio/local/jax_drb/references/reference_case_ladder.toml). It starts with one-RHS and one-step cases from integrated tests, then grows into blobs, recycling, turbulence, and the TCV X-point example.
 
+The same manifest now also carries a `capability_tier` field for each curated rung so the codebase can distinguish:
+
+- `native_exact`
+- `native_operational`
+- `scaffolded_reference_backed`
+
+That tier is propagated into portable payloads, CLI listings, and native run logs so staged bridge coverage is not presented as equivalent to native closure.
+
 ### Step 2/3 Status Markers
 
 | Case | Status | Note |

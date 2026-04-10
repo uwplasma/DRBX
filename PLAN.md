@@ -1,6 +1,6 @@
 # jax_drb Plan
 
-Date: 2026-04-01
+Date: 2026-04-09
 
 ## 1. Mission
 
@@ -12,6 +12,36 @@ Build `jax_drb` as a standalone JAX edge/SOL plasma code with a private parity t
 - CPU/GPU portable with a pure-JAX runtime path,
 - end-to-end differentiable through production solver paths,
 - minimal runtime dependencies.
+
+## 1A. Research-Grade Reset (2026-04-09)
+
+The project is now explicitly centered on a strong-subset publication claim, not on treating every staged parity rung as equal evidence.
+
+Locked defaults:
+
+- paper scope: strong subset first
+- differentiability: architectural requirement, but not a blocker for the first publication-grade release
+
+Capability tiers are now part of the manifest, CLI, and run logs:
+
+- `native_exact`
+  - fully native solve path
+  - clean enough to anchor a public parity claim
+- `native_operational`
+  - native path with bounded residuals
+  - useful internally and for research iteration, but not headline evidence
+- `scaffolded_reference_backed`
+  - replay/dump/history-assisted path
+  - diagnostic only and must not be presented as equivalent to native closure
+
+Immediate strategy change:
+
+1. stop treating more dump-backed ladders as the main progress metric
+2. finish one fully native open-field recycling transient lane end to end
+3. reuse that backbone for integrated and direct-tokamak recycling/production lanes
+4. widen the matrix only after that native closure is stable
+
+The current highest-probability live mismatch remains the D/T tokamak recycling transient at the lower target corner, with ion-viscosity / `DivPiPar` still the main operator suspect on the reference-evolved state. That operator-closure work is now the critical path, not another rung-collection pass.
 
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
 
