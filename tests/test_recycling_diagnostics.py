@@ -218,3 +218,25 @@ def test_tokamak_recycling_collision_partner_groups_split_charged_and_neutral() 
 
     assert module._charged_collision_partner_names(species) == ("d+", "t+", "he+", "e")
     assert module._neutral_collision_partner_names(species) == ("d", "t", "he")
+
+
+def test_required_collisionality_from_divpi_quantifies_implied_missing_cx() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag_required_nu",
+    )
+
+    result = module._required_collisionality_from_divpi(
+        native_divpi=-4.12032601,
+        reference_divpi=-2.52607806,
+        native_nu_total=1.30239909e-05,
+        charged_coll_subtotal=1.08551854e-05,
+        neutral_coll_subtotal=0.0,
+        cx_subtotal=2.16880546e-06,
+    )
+
+    assert result["required_nu_total"] == pytest.approx(2.124363823470812e-05)
+    assert result["required_cx_subtotal"] == pytest.approx(1.0388452834708119e-05)
+    assert result["required_cx_factor"] == pytest.approx(4.789942217642756)
+    assert result["missing_nu_total"] == pytest.approx(8.219647334708119e-06)
+    assert result["missing_cx_subtotal"] == pytest.approx(8.219647374708118e-06)
