@@ -207,3 +207,14 @@ def test_hermes_collision_field_name_matches_bout_diagnostic_convention() -> Non
 
     assert module._hermes_collision_field_name("d+", "t+") == "Kd+t+_coll"
     assert module._hermes_collision_field_name("t+", "e") == "Kt+e_coll"
+
+
+def test_tokamak_recycling_collision_partner_groups_split_charged_and_neutral() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag_partner_groups",
+    )
+    species = {"d+": object(), "d": object(), "t+": object(), "t": object(), "he+": object(), "he": object(), "e": object()}
+
+    assert module._charged_collision_partner_names(species) == ("d+", "t+", "he+", "e")
+    assert module._neutral_collision_partner_names(species) == ("d", "t", "he")

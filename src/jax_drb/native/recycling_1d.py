@@ -1196,7 +1196,15 @@ def _reaction_sources(
             ion1 = lhs[1]
             ion2 = rhs[0]
             atom2 = rhs[1]
-            result = _charge_exchange(atom1, ion1, atom2, ion2, species=species, dataset_scalars=dataset_scalars)
+            result = _charge_exchange(
+                atom1,
+                ion1,
+                atom2,
+                ion2,
+                config=config,
+                species=species,
+                dataset_scalars=dataset_scalars,
+            )
             _accumulate_terms(result, density_source, energy_source, momentum_source, diagnostics)
     return _ReactionTerms(density_source=density_source, energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
 
@@ -2718,6 +2726,7 @@ def _charge_exchange(
     atom2_name: str,
     ion2_name: str,
     *,
+    config: BoutConfig,
     species: dict[str, OpenFieldSpecies],
     dataset_scalars: dict[str, float],
 ) -> _ReactionTerms:
@@ -2728,7 +2737,10 @@ def _charge_exchange(
     atom_temperature = _safe_temperature(atom1.pressure, atom1.density, atom1.density_floor)
     ion_temperature = _safe_temperature(ion1.pressure, ion1.density, ion1.density_floor)
     teff = np.clip((atom_temperature / atom1.atomic_mass + ion_temperature / ion1.atomic_mass) * dataset_scalars["Tnorm"], 0.01, 10000.0)
-    sigmav = _hydrogen_cx_sigmav(teff, dataset_scalars)
+    sigmav = _hydrogen_cx_sigmav(teff, dataset_scalars) * _charge_exchange_rate_multiplier(
+        config,
+        atom_name=atom1_name,
+    )
     rate = atom1.density * ion1.density * sigmav
 
     density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
@@ -2813,7 +2825,10 @@ def _charge_exchange_collision_rates(
             0.01,
             10000.0,
         )
-        sigmav = _hydrogen_cx_sigmav(teff, dataset_scalars)
+        sigmav = _hydrogen_cx_sigmav(teff, dataset_scalars) * _charge_exchange_rate_multiplier(
+            config,
+            atom_name=atom1_name,
+        )
         atom_rate = prepared[ion1_name].density * sigmav
         ion_rate = prepared[atom1_name].density * sigmav
         if atom1_name in totals:
@@ -2825,6 +2840,12 @@ def _charge_exchange_collision_rates(
         else:
             totals[ion1_name] = np.asarray(ion_rate, dtype=np.float64)
     return totals
+
+
+def _charge_exchange_rate_multiplier(config: BoutConfig, *, atom_name: str) -> float:
+    if not config.has_section(atom_name) or not config.has_option(atom_name, "K_cx_multiplier"):
+        return 1.0
+    return float(NumericResolver(config).resolve(atom_name, "K_cx_multiplier"))
 
 
 def _amjuel_reaction_rate(
