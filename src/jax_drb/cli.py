@@ -327,7 +327,7 @@ def _reference_cases_command(args: argparse.Namespace) -> int:
     resolved_cases = resolve_reference_cases(args.reference_root)
     for resolved in resolved_cases:
         status = "missing" if not resolved.exists else resolved.case.parity_mode
-        print(f"{resolved.case.name}: {status} -> {resolved.input_path}")
+        print(f"{resolved.case.name}: {status} [{resolved.case.capability_tier}] -> {resolved.input_path}")
         if resolved.run_config is None:
             continue
         print(
@@ -392,6 +392,7 @@ def _run_command(args: argparse.Namespace) -> int:
         "Loaded input configuration",
         input_file=args.input_file,
         case_name=case_name,
+        capability_tier="native_exact",
         precision=resolved_precision,
         nout=run_config.time.nout,
         timestep=run_config.time.timestep,
@@ -455,6 +456,7 @@ def _run_command(args: argparse.Namespace) -> int:
         array_payload = build_portable_array_payload(
             case_name=str(result.payload["case_name"]),
             parity_mode=str(result.payload["parity_mode"]),
+            capability_tier=str(result.payload.get("capability_tier", "native_exact")),
             compare_variables=tuple(str(name) for name in result.variables),
             component_labels=tuple(result.payload.get("component_labels", [])),
             dimensions=result.payload.get("dimensions", {}),
@@ -485,6 +487,7 @@ def _run_command(args: argparse.Namespace) -> int:
         input_file=args.input_file,
         case_name=case_name,
         parity_mode="run",
+        capability_tier=str(result.payload.get("capability_tier", "native_exact")),
         component_labels=tuple(result.payload.get("component_labels", [])),
         time_points=tuple(float(value) for value in result.time_points),
         dimensions=result.payload.get("dimensions", {}),

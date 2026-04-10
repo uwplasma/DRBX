@@ -18,6 +18,7 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
         reference_path = "tests/integrated/toy/data/BOUT.inp"
         parity_mode = "one_rhs"
         rationale = "Minimal reference."
+        capability_tier = "native_exact"
         extra_overrides = ["e:diagnose=true"]
         trim_y_guards = true
         process_count = 4
@@ -57,6 +58,7 @@ def test_reference_case_manifest_loads_and_resolves(tmp_path: Path) -> None:
 
     assert cases[0].name == "toy_case"
     assert cases[0].extra_overrides == ("e:diagnose=true",)
+    assert cases[0].capability_tier == "native_exact"
     assert cases[0].trim_y_guards is True
     assert cases[0].process_count == 4
     assert cases[0].artifact_bundle_url == "file:///tmp/reference-bundle.zip"
@@ -77,6 +79,18 @@ def test_default_manifest_stages_integrated_2d_recycling_case() -> None:
     assert case.artifact_bundle_url is not None
     assert case.artifact_bundle_sha256 == "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
     assert case.artifact_bundle_files == ("grid_test2.nc",)
+
+
+def test_default_manifest_assigns_research_grade_capability_tiers() -> None:
+    cases = load_reference_cases()
+
+    diffusion_case = next(case for case in cases if case.name == "diffusion_one_step")
+    recycling_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_one_step")
+    tokamak_case = next(case for case in cases if case.name == "tokamak_turbulence_short_window")
+
+    assert diffusion_case.capability_tier == "native_exact"
+    assert recycling_case.capability_tier == "native_operational"
+    assert tokamak_case.capability_tier == "scaffolded_reference_backed"
 
 
 def test_integrated_2d_production_case_includes_anomalous_diffusion_components() -> None:

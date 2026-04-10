@@ -91,6 +91,23 @@ class ElectronPressureRhsTerms:
 
 
 @dataclass(frozen=True)
+class IonRhsTerms:
+    density_source: np.ndarray
+    density_transport: np.ndarray
+    density_total: np.ndarray
+    explicit_pressure_source: np.ndarray
+    parallel_divergence: np.ndarray
+    parallel_advection: np.ndarray
+    energy_source: np.ndarray
+    pressure_total: np.ndarray
+    momentum_advection: np.ndarray
+    pressure_gradient: np.ndarray
+    momentum_source: np.ndarray
+    momentum_error: np.ndarray
+    momentum_total: np.ndarray
+
+
+@dataclass(frozen=True)
 class Recycling1DHistoryResult:
     variable_history: dict[str, np.ndarray]
     feedback_integral_history: dict[str, np.ndarray]
@@ -381,52 +398,33 @@ def _compute_recycling_1d_rhs_from_species(
         ion_state = prepared[ion.name]
         temperature = ion_state.temperature
         fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / ion.atomic_mass)
-        density_rhs = density_source[ion.name] - _div_par_mod_open(
-            ion_state.density,
-            ion_velocity[ion.name],
-            fastest_wave,
-            mesh=mesh,
-            metrics=metrics,
-        )
-        pressure_rhs = np.asarray(
-            pressure_sources.get(
-                ion.name,
-                _explicit_pressure_source(config, ion.name, mesh=mesh, dataset_scalars=dataset_scalars),
+        ion_rhs_terms = _assemble_ion_rhs_terms(
+            density_source=np.asarray(density_source[ion.name], dtype=np.float64),
+            explicit_pressure_source=np.asarray(
+                pressure_sources.get(
+                    ion.name,
+                    _explicit_pressure_source(config, ion.name, mesh=mesh, dataset_scalars=dataset_scalars),
+                ),
+                dtype=np.float64,
             ),
-            dtype=np.float64,
-        )
-        pressure_rhs = pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
-            ion_state.pressure,
-            ion_velocity[ion.name],
-            fastest_wave,
+            momentum_source=np.asarray(momentum_source[ion.name], dtype=np.float64),
+            atomic_mass=ion.atomic_mass,
+            density_floor=ion.density_floor,
+            ion_state=ion_state,
+            ion_velocity=np.asarray(ion_velocity[ion.name], dtype=np.float64),
+            fastest_wave=np.asarray(fastest_wave, dtype=np.float64),
             mesh=mesh,
             metrics=metrics,
+            energy_source=np.asarray(energy_source[ion.name], dtype=np.float64),
         )
-        pressure_rhs = pressure_rhs + (2.0 / 3.0) * ion_velocity[ion.name] * _grad_par_open(
-            ion_state.pressure,
-            mesh=mesh,
-            metrics=metrics,
-        )
-        pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[ion.name]
-        momentum_rhs = -ion.atomic_mass * _div_par_fvv_open(
-            _soft_floor(ion_state.density, ion.density_floor),
-            ion_velocity[ion.name],
-            fastest_wave,
-            mesh=mesh,
-            metrics=metrics,
-            fix_flux=False,
-        )
-        momentum_rhs = momentum_rhs - _grad_par_open(ion_state.pressure, mesh=mesh, metrics=metrics)
-        momentum_rhs = momentum_rhs + momentum_source[ion.name]
-        momentum_rhs = momentum_rhs + ion_state.momentum_error
 
         variables[ion.density_name] = ion_state.density[None, ...]
         variables[ion.pressure_name] = ion_state.pressure[None, ...]
         variables[ion.momentum_name] = ion_state.momentum[None, ...]
         variables[f"SNV{ion.name}"] = momentum_source[ion.name][None, ...]
-        variables[f"ddt({ion.density_name})"] = density_rhs[None, ...]
-        variables[f"ddt({ion.pressure_name})"] = pressure_rhs[None, ...]
-        variables[f"ddt({ion.momentum_name})"] = momentum_rhs[None, ...]
+        variables[f"ddt({ion.density_name})"] = ion_rhs_terms.density_total[None, ...]
+        variables[f"ddt({ion.pressure_name})"] = ion_rhs_terms.pressure_total[None, ...]
+        variables[f"ddt({ion.momentum_name})"] = ion_rhs_terms.momentum_total[None, ...]
 
     electron_velocity = np.asarray(electron_boundary.velocity, dtype=np.float64)
     electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
@@ -538,6 +536,79 @@ def _assemble_electron_pressure_rhs_terms(
         parallel_advection=parallel_advection,
         energy_source=energy_source,
         total=total,
+    )
+
+
+def _assemble_ion_rhs_terms(
+    *,
+    density_source: np.ndarray,
+    explicit_pressure_source: np.ndarray,
+    momentum_source: np.ndarray,
+    atomic_mass: float,
+    density_floor: float,
+    ion_state: _PreparedSpeciesState,
+    ion_velocity: np.ndarray,
+    fastest_wave: np.ndarray,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    energy_source: np.ndarray,
+) -> IonRhsTerms:
+    density_source_array = np.asarray(density_source, dtype=np.float64)
+    ion_velocity_array = np.asarray(ion_velocity, dtype=np.float64)
+    fastest_wave_array = np.asarray(fastest_wave, dtype=np.float64)
+    explicit_pressure_source_array = np.asarray(explicit_pressure_source, dtype=np.float64)
+    momentum_source_array = np.asarray(momentum_source, dtype=np.float64)
+    pressure_gradient = -_grad_par_open(ion_state.pressure, mesh=mesh, metrics=metrics)
+    density_transport = -_div_par_mod_open(
+        ion_state.density,
+        ion_velocity_array,
+        fastest_wave_array,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    parallel_divergence = -(5.0 / 3.0) * _div_par_mod_open(
+        ion_state.pressure,
+        ion_velocity_array,
+        fastest_wave_array,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    parallel_advection = (2.0 / 3.0) * ion_velocity_array * _grad_par_open(
+        ion_state.pressure,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    energy_source_term = (2.0 / 3.0) * np.asarray(energy_source, dtype=np.float64)
+    momentum_advection = -float(atomic_mass) * _div_par_fvv_open(
+        _soft_floor(ion_state.density, density_floor),
+        ion_velocity_array,
+        fastest_wave_array,
+        mesh=mesh,
+        metrics=metrics,
+        fix_flux=False,
+    )
+    density_total = density_source_array + density_transport
+    pressure_total = explicit_pressure_source_array + parallel_divergence + parallel_advection + energy_source_term
+    momentum_total = (
+        momentum_advection
+        + pressure_gradient
+        + momentum_source_array
+        + np.asarray(ion_state.momentum_error, dtype=np.float64)
+    )
+    return IonRhsTerms(
+        density_source=density_source_array,
+        density_transport=density_transport,
+        density_total=density_total,
+        explicit_pressure_source=explicit_pressure_source_array,
+        parallel_divergence=parallel_divergence,
+        parallel_advection=parallel_advection,
+        energy_source=energy_source_term,
+        pressure_total=pressure_total,
+        momentum_advection=momentum_advection,
+        pressure_gradient=pressure_gradient,
+        momentum_source=momentum_source_array,
+        momentum_error=np.asarray(ion_state.momentum_error, dtype=np.float64),
+        momentum_total=momentum_total,
     )
 
 

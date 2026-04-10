@@ -163,3 +163,15 @@ def test_default_tokamak_recycling_cases_include_three_direct_one_step_lanes() -
         "tokamak_recycling_dthe_drifts_one_step",
         "tokamak_recycling_dthene_one_step",
     )
+
+
+def test_default_tokamak_recycling_blocker_cells_pick_lower_target_corner_pair() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag",
+    )
+    mesh = SimpleNamespace(xstart=2, ystart=5)
+
+    cells = module.default_tokamak_recycling_blocker_cells(mesh)
+
+    assert cells == ((2, 5, 0), (3, 5, 0))
