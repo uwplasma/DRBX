@@ -67,6 +67,8 @@ STATE_FIELDS = (
     "Pe",
 )
 SCALAR_FIELDS = ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
+
+
 def default_tokamak_recycling_blocker_cells(mesh) -> tuple[tuple[int, int, int], ...]:
     return ((mesh.xstart, mesh.ystart, 0), (mesh.xstart + 1, mesh.ystart, 0))
 
@@ -118,6 +120,33 @@ def _charged_collision_partner_names(species: dict[str, object]) -> tuple[str, .
 
 def _neutral_collision_partner_names(species: dict[str, object]) -> tuple[str, ...]:
     return tuple(name for name in species if name != "e" and not name.endswith("+"))
+
+
+def _required_collisionality_from_divpi(
+    *,
+    native_divpi: float,
+    reference_divpi: float,
+    native_nu_total: float,
+    charged_coll_subtotal: float,
+    neutral_coll_subtotal: float,
+    cx_subtotal: float,
+) -> dict[str, float]:
+    if not np.isfinite(native_divpi) or not np.isfinite(reference_divpi) or abs(reference_divpi) < 1.0e-15:
+        return {}
+    if abs(native_divpi) < 1.0e-15:
+        return {}
+    required_nu_total = native_nu_total * abs(native_divpi / reference_divpi)
+    required_cx_subtotal = max(required_nu_total - charged_coll_subtotal - neutral_coll_subtotal, 0.0)
+    cx_factor = float("inf") if cx_subtotal <= 0.0 and required_cx_subtotal > 0.0 else (
+        1.0 if cx_subtotal <= 0.0 else required_cx_subtotal / cx_subtotal
+    )
+    return {
+        "required_nu_total": required_nu_total,
+        "required_cx_subtotal": required_cx_subtotal,
+        "required_cx_factor": cx_factor,
+        "missing_nu_total": required_nu_total - native_nu_total,
+        "missing_cx_subtotal": required_cx_subtotal - cx_subtotal,
+    }
 
 
 def _load_hermes_operator_diagnostics(
@@ -474,6 +503,24 @@ def main() -> None:
                 f"cx_subtotal={cx_rate:.8e} "
                 f"nu_total={viscosity_inputs.total_collisionality[x_index, y_index, z_index]:.8e}"
             )
+            if hermes_field_name in hermes_operator_fields:
+                required = _required_collisionality_from_divpi(
+                    native_divpi=div_pi,
+                    reference_divpi=hermes_div_pi,
+                    native_nu_total=float(viscosity_inputs.total_collisionality[x_index, y_index, z_index]),
+                    charged_coll_subtotal=charged_collisionality_subtotal,
+                    neutral_coll_subtotal=neutral_collisionality_subtotal,
+                    cx_subtotal=cx_rate,
+                )
+                if required:
+                    print(
+                        f"    implied_from_reference_divpi: "
+                        f"required_nu_total={required['required_nu_total']:.8e} "
+                        f"required_cx_subtotal={required['required_cx_subtotal']:.8e} "
+                        f"required_cx_factor={required['required_cx_factor']:.8e} "
+                        f"missing_nu_total={required['missing_nu_total']:.8e} "
+                        f"missing_cx_subtotal={required['missing_cx_subtotal']:.8e}"
+                    )
             print(
                 f"    sheath_state: "
                 f"lower_neighbor_density={prepared[species_name].density[x_index, lower_neighbor, z_index]:.8e} "
