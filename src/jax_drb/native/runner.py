@@ -1328,6 +1328,7 @@ def _run_integrated_2d_recycling_transient_case(
         if name in snapshot.optional_fields
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
+    field_template_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
     preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production") or case.name in {
         "tokamak_recycling_one_step",
         "tokamak_recycling_dthe_one_step",
@@ -1339,7 +1340,8 @@ def _run_integrated_2d_recycling_transient_case(
         if history_cache_path.exists():
             optional_history = load_optional_field_history_cache(
                 history_cache_path,
-                field_names=_direct_recycling_velocity_optional_field_names(config)
+                field_names=state_field_names
+                + _direct_recycling_velocity_optional_field_names(config)
                 + ("Sd_target_recycle", "Ed_target_recycle"),
             )
             resolved_time_count = next(iter(optional_history.values())).shape[0] if optional_history else steps + 1
@@ -1348,6 +1350,17 @@ def _run_integrated_2d_recycling_transient_case(
                 for name in ("Sd_target_recycle", "Ed_target_recycle")
                 if name in optional_history
             }
+            field_template_overrides_history = tuple(
+                (
+                    {
+                        name: np.asarray(optional_history[name][time_index], dtype=np.float64)
+                        for name in state_field_names
+                        if name in optional_history
+                    }
+                    or None
+                )
+                for time_index in range(resolved_time_count)
+            )
             velocity_field_overrides_history = tuple(
                 (
                     {
@@ -1376,7 +1389,7 @@ def _run_integrated_2d_recycling_transient_case(
                 snapshots = tuple(
                     load_local_reference_snapshot(
                         dump_path,
-                        field_names=(),
+                        field_names=state_field_names,
                         optional_field_names=_direct_recycling_velocity_optional_field_names(config)
                         + ("Sd_target_recycle", "Ed_target_recycle"),
                         scalar_names=(),
@@ -1389,6 +1402,17 @@ def _run_integrated_2d_recycling_transient_case(
                 for name in ("Sd_target_recycle", "Ed_target_recycle")
                 if name in snapshots[0].optional_fields
             }
+            field_template_overrides_history = tuple(
+                (
+                    {
+                        name: np.asarray(snapshot.fields[name], dtype=np.float64)
+                        for name in state_field_names
+                        if name in snapshot.fields
+                    }
+                    or None
+                )
+                for snapshot in snapshots
+            )
             velocity_field_overrides_history = tuple(
                 {
                     name: np.asarray(snapshot.optional_fields[field_name], dtype=np.float64)
@@ -1418,6 +1442,7 @@ def _run_integrated_2d_recycling_transient_case(
         momentum_source_overrides=momentum_source_overrides,
         preserve_dump_target_state=True,
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
+        field_template_overrides=None if not field_template_overrides_history else field_template_overrides_history[-1],
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,

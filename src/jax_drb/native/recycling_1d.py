@@ -194,6 +194,7 @@ def compute_recycling_1d_rhs(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     field_overrides: dict[str, np.ndarray] | None = None,
+    field_template_overrides: dict[str, np.ndarray] | None = None,
     feedback_integrals: dict[str, float] | None = None,
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
@@ -207,6 +208,7 @@ def compute_recycling_1d_rhs(
         mesh=mesh,
         dataset_scalars=dataset_scalars,
         field_overrides=field_overrides,
+        field_template_overrides=field_template_overrides,
     )
     fields = _build_recycling_state_fields(runtime_model, field_overrides=field_overrides)
     species = _override_species_fields(runtime_model.species_templates, fields=fields, mesh=mesh)
@@ -720,6 +722,7 @@ def _build_recycling_runtime_model(
     mesh: StructuredMesh,
     dataset_scalars: dict[str, float],
     field_overrides: dict[str, np.ndarray] | None = None,
+    field_template_overrides: dict[str, np.ndarray] | None = None,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
@@ -730,7 +733,7 @@ def _build_recycling_runtime_model(
         config,
         mesh=mesh,
         dataset_scalars=dataset_scalars,
-        field_overrides=field_overrides,
+        field_overrides=field_template_overrides if field_template_overrides is not None else field_overrides,
     )
     controllers = _load_density_feedback_controllers(
         config,
@@ -3841,6 +3844,7 @@ def advance_recycling_1d_implicit_history(
     timestep: float,
     steps: int,
     initial_fields: dict[str, np.ndarray] | None = None,
+    field_template_overrides: dict[str, np.ndarray] | None = None,
     initial_feedback_integrals: dict[str, float] | None = None,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
@@ -3858,6 +3862,7 @@ def advance_recycling_1d_implicit_history(
         mesh=mesh,
         dataset_scalars=dataset_scalars,
         field_overrides=initial_fields,
+        field_template_overrides=field_template_overrides,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,
