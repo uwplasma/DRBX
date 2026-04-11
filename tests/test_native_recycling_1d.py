@@ -711,6 +711,52 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
     assert "Nd+" in variables
 
 
+def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = apply_bout_overrides(
+        load_bout_input(_INPUT_1D),
+        ("runtime:recycling_transient_solver_mode=adaptive_bdf",),
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    calls: list[str] = []
+
+    def fake_advance(*args, **kwargs):
+        calls.append(kwargs["solver_mode"])
+        field_history = {
+            "Nd+": np.zeros((2, mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64),
+        }
+        return SimpleNamespace(variable_history=field_history)
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_advance)
+
+    native_runner._execute_recycling_1d_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode="one_step",
+    )
+
+    assert calls == ["adaptive_bdf"]
+
+
+def test_integrated_recycling_runtime_override_supersedes_default_bdf() -> None:
+    config = apply_bout_overrides(
+        load_bout_input(_INPUT_1D),
+        ("runtime:recycling_transient_solver_mode=adaptive_be",),
+    )
+
+    assert native_runner._select_integrated_2d_transient_solver_mode(
+        "tokamak_recycling_dthe_one_step",
+        config=config,
+        parity_mode="one_step",
+    ) == "adaptive_be"
+
+
 def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
