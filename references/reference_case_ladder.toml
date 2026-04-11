@@ -164,6 +164,17 @@ compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"]
 trim_y_guards = true
 
 [[case]]
+name = "recycling_1d_short_window"
+stage = "stage7"
+reference_path = "tests/integrated/1D-recycling/data/BOUT.inp"
+parity_mode = "short_window"
+capability_tier = "native_operational"
+rationale = "First curated multi-output open-field recycling transient on the local single-species divertor stack."
+compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"]
+extra_overrides = ["nout=5"]
+trim_y_guards = true
+
+[[case]]
 name = "recycling_dthe_rhs"
 stage = "stage7"
 reference_path = "tests/integrated/1D-recycling-dthe/data/BOUT.inp"

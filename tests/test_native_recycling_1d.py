@@ -67,6 +67,8 @@ from jax_drb.parity.arrays import (
     load_portable_array_payload,
 )
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
+from jax_drb.parity.diff import build_scaled_array_diff_entries
+from jax_drb.reference.cases import load_reference_cases
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 
@@ -77,6 +79,19 @@ _ARRAY_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/re
 _DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
 _INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
 _TOKAMAK_RECYCLING_INPUT = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
+
+
+def _run_open_field_case_against_committed_baseline(case_name: str):
+    case = next(case for case in load_reference_cases() if case.name == case_name)
+    result = run_curated_case(case_name, reference_root=_REFERENCE_ROOT)
+    expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / f"{case_name}.npz")
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    entries = build_scaled_array_diff_entries(
+        expected["variables"],
+        actual["variables"],
+        compare_variables=case.compare_variables,
+    )
+    return {entry.field: entry for entry in entries}
 
 
 def test_amjuel_rate_tables_are_packaged_for_recycling_branch() -> None:
@@ -562,6 +577,18 @@ def test_recycling_1d_rhs_matches_array_baseline() -> None:
     assert comparison.ok, comparison.issues
 
 
+def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> None:
+    entries = _run_open_field_case_against_committed_baseline("recycling_1d_short_window")
+
+    assert entries["Nd+"].max_abs_diff < 5.0e-2
+    assert entries["Pd+"].max_abs_diff < 7.0e-2
+    assert entries["NVd+"].max_abs_diff < 1.2e-1
+    assert entries["Nd"].max_abs_diff < 3.0e-2
+    assert entries["Pd"].max_abs_diff < 1.0e-2
+    assert entries["NVd"].max_abs_diff < 5.0e-3
+    assert entries["Pe"].max_abs_diff < 2.5e-2
+
+
 def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_rhs.json")
     actual = run_curated_case("tokamak_recycling_rhs", reference_root=_REFERENCE_ROOT).payload
@@ -677,6 +704,33 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
     assert calls == [expected_solver_mode]
     assert time_points == (0.0, run_config.time.timestep)
     assert "Nd+" in variables
+
+
+def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_config_case(config, **kwargs):
+        captured["config"] = config
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            payload={"case_name": kwargs["case_name"], "parity_mode": kwargs["parity_mode"]},
+            variables={},
+            time_points=(0.0,),
+            run_config=RunConfiguration.from_config(config),
+            mesh=SimpleNamespace(),
+            metrics=SimpleNamespace(),
+        )
+
+    monkeypatch.setattr(native_runner, "run_config_case", fake_run_config_case)
+
+    native_runner.run_curated_case("recycling_1d_short_window", reference_root=_REFERENCE_ROOT)
+
+    applied_config = captured["config"]
+    applied_run_config = RunConfiguration.from_config(applied_config)
+    assert applied_run_config.time.nout == 5
+    assert captured["kwargs"]["parity_mode"] == "short_window"
 
 
 def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange() -> None:
