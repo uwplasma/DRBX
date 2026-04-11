@@ -59,6 +59,7 @@ from .reference_dump import load_local_reference_snapshot
 from .reference_dump import (
     load_local_reference_snapshot_cache,
     load_optional_field_history_cache,
+    synthesize_local_reference_snapshot_from_active_history,
 )
 from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
 from .transport import advance_anomalous_diffusion_history
@@ -85,6 +86,7 @@ class NativeRestartState:
 
 
 _REFERENCE_SNAPSHOT_CACHE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_snapshots"
+_REFERENCE_ARRAY_BASELINE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_arrays"
 
 
 def _resolved_capability_tier(reference_case: ReferenceCase | None) -> str:
@@ -99,6 +101,17 @@ def _integrated_2d_snapshot_cache_path(case_name: str) -> Path:
 
 def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
     return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_optional_history.npz"
+
+
+def _open_field_snapshot_cache_path(case_name: str) -> Path:
+    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
+
+
+def _uses_open_field_snapshot_cache(case_name: str) -> bool:
+    return case_name in {
+        "recycling_1d_rhs",
+        "recycling_dthe_rhs",
+    }
 
 
 def _tokamak_snapshot_cache_path(case_name: str) -> Path:
@@ -1500,6 +1513,108 @@ def _integrated_2d_initial_rhs_case_name(case_name: str) -> str:
     if case_name.endswith("_medium_window"):
         return case_name[: -len("_medium_window")] + "_rhs"
     return "integrated_2d_recycling_rhs"
+
+
+def _open_field_initial_rhs_case_name(case_name: str) -> str:
+    if case_name.endswith("_one_step"):
+        return case_name[: -len("_one_step")] + "_rhs"
+    if case_name.endswith("_short_window"):
+        return case_name[: -len("_short_window")] + "_rhs"
+    return "recycling_1d_rhs"
+
+
+def _run_open_field_recycling_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    config = _load_curated_case_config(case, input_path)
+    run_config = RunConfiguration.from_config(config)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    state_field_names = _direct_recycling_state_field_names(config)
+    initial_case_name = _open_field_initial_rhs_case_name(case.name)
+    snapshot_cache_path = _open_field_snapshot_cache_path(initial_case_name)
+    if _uses_open_field_snapshot_cache(initial_case_name) and snapshot_cache_path.exists():
+        snapshot = load_local_reference_snapshot_cache(
+            snapshot_cache_path,
+            field_names=state_field_names,
+            scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+        )
+    else:
+        with tempfile.TemporaryDirectory(prefix="jaxdrb-native-open-field-") as workdir:
+            execution = run_reference_case(
+                initial_case_name,
+                reference_root=reference_root,
+                workdir=workdir,
+                keep_workdir=True,
+            )
+            dump_path = Path(execution.summary.artifacts["BOUT.dmp.0.nc"])
+            snapshot = load_local_reference_snapshot(
+                dump_path,
+                field_names=state_field_names,
+                scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
+            )
+    field_template_overrides = None
+    array_history_path = _REFERENCE_ARRAY_BASELINE_DIR / f"{case.name}.npz"
+    if array_history_path.exists():
+        synthesized = synthesize_local_reference_snapshot_from_active_history(
+            initial_snapshot=snapshot,
+            array_history_path=array_history_path,
+            timestep=run_config.time.timestep,
+            state_field_names=state_field_names,
+            optional_field_names=(),
+        )
+        field_template_overrides = {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in synthesized.fields.items()
+            if name in state_field_names
+        }
+    history = advance_recycling_1d_implicit_history(
+        config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+        dataset_scalars=dataset_scalars,
+        timestep=run_config.time.timestep,
+        steps=1,
+        field_template_overrides=field_template_overrides,
+        solver_mode=_select_recycling_transient_solver_mode(config, parity_mode=case.parity_mode),
+        residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
+        max_nonlinear_iterations=30,
+    )
+    variables = {
+        name: np.asarray(value, dtype=np.float64)
+        for name, value in history.variable_history.items()
+    }
+    trimmed_variables = _prepare_compare_variables(
+        variables,
+        snapshot.mesh,
+        trim_x_guards=case.trim_x_guards,
+        trim_y_guards=case.trim_y_guards,
+    )
+    payload = build_portable_summary_payload(
+        case_name=case.name,
+        parity_mode=case.parity_mode,
+        capability_tier=case.capability_tier,
+        compare_variables=case.compare_variables,
+        component_labels=tuple(component.label for component in run_config.components),
+        dimensions={"t": 2, "x": snapshot.mesh.nx, "y": snapshot.mesh.local_ny, "z": snapshot.mesh.nz},
+        time_points=(0.0, run_config.time.timestep),
+        dataset_scalars=dataset_scalars,
+        variables=_select_payload_variables(trimmed_variables, compare_variables=case.compare_variables),
+        overrides=_effective_overrides(case.parity_mode, reference_case=case),
+        configured_nout=run_config.time.nout,
+        configured_timestep=run_config.time.timestep,
+        producer="jax-drb",
+    )
+    return NativeRunResult(
+        payload=payload,
+        variables=trimmed_variables,
+        time_points=(0.0, run_config.time.timestep),
+        run_config=run_config,
+        mesh=snapshot.mesh,
+        metrics=snapshot.metrics,
+    )
 
 
 def _append_integrated_2d_recycling_diagnostics(
