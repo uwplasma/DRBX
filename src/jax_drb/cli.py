@@ -247,6 +247,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--log-out", type=Path, default=None, help="Write a verbose run log JSON.")
     run_parser.add_argument("--restart-in", type=Path, default=None, help="Resume from a previously written restart NPZ bundle.")
     run_parser.add_argument("--resume-steps", type=int, default=None, help="Additional output intervals to run after loading --restart-in.")
+    run_parser.add_argument("--verbose", action="store_true", help="Emit detailed staged terminal output for this run.")
     run_parser.add_argument("--quiet", action="store_true", help="Suppress the pretty terminal run summary.")
     run_parser.set_defaults(command=_run_command)
 
@@ -361,7 +362,12 @@ def _run_command(args: argparse.Namespace) -> int:
     restart_in = args.restart_in or _config_path(config, "restart", "input")
     resume_steps = args.resume_steps if args.resume_steps is not None else _config_int(config, "restart", "resume_steps")
     logging_quiet = _config_bool(config, "runtime:logging", "quiet", default=False)
-    logging_verbosity = _config_string(config, "runtime:logging", "verbosity") or "summary"
+    logging_verbose = _config_optional_bool(config, "runtime:logging", "verbose")
+    logging_verbosity = _config_string(config, "runtime:logging", "verbosity")
+    if logging_verbosity is None:
+        logging_verbosity = "detailed" if logging_verbose else "summary"
+    if args.verbose:
+        logging_verbosity = "detailed"
     emit_terminal_log = not args.quiet and not logging_quiet
     write_summary = _config_bool(config, "output", "write_summary", default=True)
     write_arrays = _config_bool(config, "output", "write_arrays", default=True)
@@ -386,7 +392,7 @@ def _run_command(args: argparse.Namespace) -> int:
         )
         events.append(event)
         if emit_terminal_log:
-            print_run_event(event)
+            print_run_event(event, verbosity=logging_verbosity)
 
     record_event(
         "configuration",
@@ -399,6 +405,7 @@ def _run_command(args: argparse.Namespace) -> int:
         timestep=run_config.time.timestep,
         output_dir=output_dir if output_dir is not None else "(none)",
         verbosity=logging_verbosity,
+        verbose=logging_verbosity == "detailed",
     )
     restart_state = None
     bundle = None
@@ -428,6 +435,7 @@ def _run_command(args: argparse.Namespace) -> int:
         parity_mode="run",
         restart_state=restart_state,
         output_steps=resume_steps,
+        verbose=False,
     )
     elapsed_seconds = time.perf_counter() - started_at
     record_event(
@@ -526,7 +534,7 @@ def _run_command(args: argparse.Namespace) -> int:
         log_payload["events"] = list(events)
 
     if emit_terminal_log:
-        print_run_log(log_payload)
+        print_run_log(log_payload, verbosity=logging_verbosity)
     return 0
 
 
@@ -580,6 +588,7 @@ def _serialize_run_configuration(
             "elapsed_seconds": elapsed_seconds,
             "logging": {
                 "verbosity": logging_verbosity,
+                "verbose": logging_verbosity == "detailed",
                 "quiet": logging_quiet,
             },
         },
@@ -666,6 +675,12 @@ def _config_bool(config, section: str, key: str, default: bool = False) -> bool:
     return bool(value)
 
 
+def _config_optional_bool(config, section: str, key: str) -> bool | None:
+    if not config.has_option(section, key):
+        return None
+    return bool(config.parsed(section, key))
+
+
 def _config_path(config, section: str, key: str) -> Path | None:
     value = _config_value(config, section, key)
     if value in (None, ""):
@@ -717,6 +732,7 @@ def _run_reference_case_command(args: argparse.Namespace) -> int:
             summary.artifacts["BOUT.dmp.0.nc"],
             case_name=summary.case_name,
             parity_mode=summary.parity_mode,
+            capability_tier=summary.capability_tier,
             compare_variables=summary.compare_variables,
             component_labels=summary.component_labels,
             overrides=summary.overrides,

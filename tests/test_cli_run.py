@@ -102,6 +102,7 @@ precision = "float32"
 
 [runtime.logging]
 verbosity = "detailed"
+verbose = true
 quiet = false
 
 [mesh]
@@ -167,7 +168,7 @@ def test_run_command_writes_artifacts_and_restart_bundle(tmp_path: Path, capsys)
     assert restart.current_time == 15.0
     assert tuple(sorted(restart.state_variables)) == ("Nh", "Ph")
 
-    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
     assert run_log["capability_tier"] == "native_exact"
     assert run_log["restart_supported"] is True
     assert run_log["run_configuration"]["time"] == {"nout": 3, "timestep": 5.0}
@@ -266,7 +267,7 @@ def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_pa
     assert (output_dir / "diffusion_restartable_summary.json").exists()
     assert (output_dir / "diffusion_restartable_arrays.npz").exists()
 
-    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
     assert run_log["capability_tier"] == "native_exact"
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     assert run_log["run_configuration"]["runtime"]["backend"]
@@ -285,7 +286,7 @@ def test_run_command_accepts_toml_input_and_records_precision(tmp_path: Path) ->
     exit_code = main(["run", str(input_path), "--output-dir", str(output_dir), "--quiet"])
 
     assert exit_code == 0
-    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     arrays = load_portable_array_payload(output_dir / "diffusion_restartable_arrays.npz")
     assert tuple(sorted(arrays["variables"])) == ("Nh", "Ph")
@@ -300,7 +301,7 @@ def test_main_accepts_bare_input_file_without_explicit_run_subcommand(tmp_path: 
 
     assert exit_code == 0
     assert (output_dir / "diffusion_restartable_summary.json").exists()
-    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
 
 
@@ -386,12 +387,49 @@ def test_run_command_reads_output_and_logging_from_toml(tmp_path: Path, capsys) 
     run_log = json.loads(run_log_path.read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     assert run_log["run_configuration"]["runtime"]["logging"]["verbosity"] == "detailed"
+    assert run_log["run_configuration"]["runtime"]["logging"]["verbose"] is True
     assert run_log["run_configuration"]["runtime"]["logging"]["quiet"] is False
     assert run_log["run_configuration"]["output"]["directory"] == str(output_dir)
     assert run_log["run_configuration"]["output"]["working_directory"]
     assert "/Users/" not in json.dumps(run_log, sort_keys=True)
     assert len(run_log["events"]) >= 3
     assert run_log["events"][0]["stage"] == "configuration"
+
+
+def test_run_command_verbose_flag_enables_detailed_terminal_events(tmp_path: Path, capsys) -> None:
+    input_path = tmp_path / "diffusion_verbose.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run_verbose"
+
+    exit_code = main([str(input_path), "--output-dir", str(output_dir), "--verbose"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr().out
+    assert "Loaded input configuration" in captured
+    assert "Launching native run" in captured
+    assert "Planned run artifacts" in captured
+
+    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
+    assert run_log["run_configuration"]["runtime"]["logging"]["verbosity"] == "detailed"
+    assert run_log["run_configuration"]["runtime"]["logging"]["verbose"] is True
+
+
+def test_run_input_case_verbose_emits_python_driver_events(tmp_path: Path) -> None:
+    input_path = tmp_path / "diffusion_restartable.inp"
+    input_path.write_text(_DIFFUSION_INPUT, encoding="utf-8")
+    events: list[dict[str, object]] = []
+
+    result = run_input_case(
+        input_path,
+        case_name="diffusion_driver_verbose",
+        parity_mode="run",
+        output_steps=1,
+        verbose=True,
+        event_logger=events.append,
+    )
+
+    assert result.time_points == (0.0, 5.0)
+    assert [str(event["stage"]) for event in events] == ["configuration", "mesh", "run", "summary"]
 
 
 def test_run_command_reads_restart_request_from_toml(tmp_path: Path) -> None:

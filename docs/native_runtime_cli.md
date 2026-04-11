@@ -64,6 +64,7 @@ precision = "float64"
 
 [runtime.logging]
 verbosity = "detailed"
+verbose = true
 quiet = false
 
 [output]
@@ -79,6 +80,20 @@ or overridden at the terminal:
 ```bash
 jax_drb input.toml --precision float32
 ```
+
+The terminal logging mode can also be controlled directly:
+
+```bash
+jax_drb input.toml --verbose
+```
+
+The logging rules are:
+
+- `[runtime.logging].verbose = true` means detailed staged event output
+- `[runtime.logging].verbose = false` means the concise summary path
+- `[runtime.logging].verbosity = "summary"` or `"detailed"` pins the level explicitly
+- `[runtime.logging].quiet = true` suppresses terminal output entirely
+- `--verbose` overrides the deck for a one-off detailed run
 
 Current status:
 
@@ -145,6 +160,21 @@ The terminal output is rich-formatted when `rich` is available and falls back to
 
 - event-style run messages while the simulation is being configured, restarted, launched, and written out
 - the final run summary table
+
+For Python driver scripts, the same native entry point now exposes a matching verbose switch:
+
+```python
+from jax_drb.native import run_input_case
+
+result = run_input_case(
+    "examples/inputs/restartable_diffusion.toml",
+    case_name="diffusion_driver",
+    parity_mode="run",
+    verbose=True,
+)
+```
+
+`verbose=True` emits the same staged event stream through the native runner, and `event_logger=` can be supplied if a script wants to capture those events instead of printing them.
 
 Both versions report the same core metadata:
 
