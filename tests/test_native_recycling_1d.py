@@ -37,6 +37,8 @@ from jax_drb.native.recycling_1d import (
     _electron_density,
     _grad_par_electron_force_balance_open,
     _ion_parallel_viscosity_inputs,
+    _parallel_ion_viscous_stress_open,
+    _apply_neutral_target_density_guards,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     advance_recycling_1d_implicit_history,
@@ -1486,6 +1488,202 @@ def test_ion_parallel_viscosity_inputs_match_pressure_tau_formula() -> None:
     np.testing.assert_allclose(inputs.total_collisionality, expected_collisionality)
     np.testing.assert_allclose(inputs.tau, expected_tau)
     np.testing.assert_allclose(inputs.eta, expected_eta)
+
+
+def test_parallel_ion_viscous_stress_matches_braginskii_formula() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([-1.0, 0.0, 1.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    ones = np.ones((1, 3, 1), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=np.array([[[2.0], [4.0], [8.0]]], dtype=np.float64),
+    )
+    pressure = np.array([[[3.0], [5.0], [7.0]]], dtype=np.float64)
+    tau = np.array([[[0.5], [0.25], [0.125]]], dtype=np.float64)
+    velocity = np.array([[[1.0], [2.0], [4.0]]], dtype=np.float64)
+
+    stress = _parallel_ion_viscous_stress_open(
+        pressure,
+        tau,
+        velocity,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    expected = -0.96 * pressure * tau * (
+        2.0 * recycling_1d_mod._grad_par_open(velocity, mesh=mesh, metrics=metrics)
+        + velocity * recycling_1d_mod._grad_par_open(np.log(metrics.Bxy), mesh=mesh, metrics=metrics)
+    )
+    np.testing.assert_allclose(stress, expected)
+
+
+def test_apply_neutral_target_density_guards_extrapolates_boundary_density() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=2,
+        nz=1,
+        mxg=0,
+        myg=2,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=1,
+        jyseps1_2=1,
+        jyseps2_2=1,
+        ny_inner=2,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.arange(6, dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    field = np.zeros((1, 6, 1), dtype=np.float64)
+    field[0, 2, 0] = 1.5
+    field[0, 3, 0] = 0.25
+
+    guarded = _apply_neutral_target_density_guards(
+        field,
+        mesh=mesh,
+        lower_y=True,
+        upper_y=True,
+    )
+
+    assert guarded[0, 1, 0] == pytest.approx(2.75)
+    assert guarded[0, 4, 0] == pytest.approx(0.0)
+
+
+def test_prepare_species_state_reconstructs_neutral_target_guards_from_active_cells() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=2,
+        nz=1,
+        mxg=0,
+        myg=2,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=1,
+        jyseps1_2=1,
+        jyseps2_2=1,
+        ny_inner=2,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.arange(6, dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    density = np.zeros((1, 6, 1), dtype=np.float64)
+    pressure = np.zeros((1, 6, 1), dtype=np.float64)
+    momentum = np.zeros((1, 6, 1), dtype=np.float64)
+    density[0, 2, 0] = 2.0
+    density[0, 3, 0] = 0.5
+    pressure[0, 2, 0] = 6.0
+    pressure[0, 3, 0] = 1.0
+    momentum[0, 2, 0] = -4.0
+    momentum[0, 3, 0] = 0.25
+    species = OpenFieldSpecies(
+        name="d",
+        density=density,
+        pressure=pressure,
+        momentum=momentum,
+        charge=0.0,
+        atomic_mass=2.0,
+        density_floor=1.0e-8,
+        has_pressure=True,
+        has_momentum=True,
+        noflow_lower_y=False,
+        noflow_upper_y=False,
+        target_recycle=False,
+        recycle_as=None,
+        target_recycle_multiplier=0.0,
+        target_recycle_energy=0.0,
+        target_fast_recycle_fraction=0.0,
+        target_fast_recycle_energy_factor=0.0,
+    )
+
+    prepared = recycling_1d_mod._prepare_species_state(species, mesh=mesh)
+
+    assert prepared.density[0, 1, 0] == pytest.approx(3.5)
+    assert prepared.pressure[0, 1, 0] == pytest.approx(6.0)
+    assert prepared.momentum[0, 1, 0] == pytest.approx(4.0)
+    assert prepared.velocity[0, 1, 0] == pytest.approx(4.0 / (2.0 * 3.5))
+
+
+def test_prepare_species_state_only_applies_noflow_guards_on_local_targets() -> None:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=2,
+        nz=1,
+        mxg=0,
+        myg=2,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=1,
+        jyseps1_2=1,
+        jyseps2_2=1,
+        ny_inner=2,
+        has_lower_y_target=True,
+        has_upper_y_target=False,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.arange(6, dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    density = np.ones((1, 6, 1), dtype=np.float64)
+    pressure = np.full((1, 6, 1), 2.0, dtype=np.float64)
+    momentum = np.zeros((1, 6, 1), dtype=np.float64)
+    momentum[0, 2, 0] = -0.5
+    momentum[0, 3, 0] = 0.25
+    momentum[0, 4, 0] = 0.75
+    species = OpenFieldSpecies(
+        name="d+",
+        density=density,
+        pressure=pressure,
+        momentum=momentum,
+        charge=1.0,
+        atomic_mass=2.0,
+        density_floor=1.0e-8,
+        has_pressure=True,
+        has_momentum=True,
+        noflow_lower_y=False,
+        noflow_upper_y=True,
+        target_recycle=False,
+        recycle_as=None,
+        target_recycle_multiplier=0.0,
+        target_recycle_energy=0.0,
+        target_fast_recycle_fraction=0.0,
+        target_fast_recycle_energy_factor=0.0,
+    )
+
+    prepared = recycling_1d_mod._prepare_species_state(species, mesh=mesh)
+
+    assert prepared.velocity[0, 4, 0] == pytest.approx(0.75 / 2.0)
+    assert prepared.momentum[0, 4, 0] == pytest.approx(0.75)
 
 
 def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() -> None:

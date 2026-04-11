@@ -1444,16 +1444,51 @@ def _prepare_species_state(
     pressure = species.pressure.copy()
     temperature = _safe_temperature(pressure, density, species.density_floor)
     limited_density = _soft_floor(density, species.density_floor)
-    velocity = species.momentum / np.maximum(species.atomic_mass * limited_density, 1.0e-8)
-    momentum = species.atomic_mass * density * velocity
+    momentum = np.asarray(species.momentum, dtype=np.float64, copy=True)
+    velocity = momentum / np.maximum(species.atomic_mass * limited_density, 1.0e-8)
 
-    if species.noflow_lower_y or species.noflow_upper_y:
+    if species.charge == 0.0 and (mesh.has_lower_y_target or mesh.has_upper_y_target):
+        density = _apply_neutral_target_density_guards(
+            density,
+            mesh=mesh,
+            lower_y=mesh.has_lower_y_target,
+            upper_y=mesh.has_upper_y_target,
+        )
+        pressure = np.array(
+            apply_noflow_scalar_guards(
+                pressure,
+                mesh=mesh,
+                lower_y=mesh.has_lower_y_target,
+                upper_y=mesh.has_upper_y_target,
+            ),
+            dtype=np.float64,
+            copy=True,
+        )
+        momentum = np.array(
+            apply_noflow_flow_guards(
+                momentum,
+                mesh=mesh,
+                lower_y=mesh.has_lower_y_target,
+                upper_y=mesh.has_upper_y_target,
+            ),
+            dtype=np.float64,
+            copy=True,
+        )
+        temperature = _safe_temperature(pressure, density, species.density_floor)
+        velocity = momentum / np.maximum(
+            species.atomic_mass * _soft_floor(density, species.density_floor),
+            1.0e-8,
+        )
+
+    effective_noflow_lower_y = bool(species.noflow_lower_y and mesh.has_lower_y_target)
+    effective_noflow_upper_y = bool(species.noflow_upper_y and mesh.has_upper_y_target)
+    if effective_noflow_lower_y or effective_noflow_upper_y:
         density = np.array(
             apply_noflow_scalar_guards(
                 density,
                 mesh=mesh,
-                lower_y=species.noflow_lower_y,
-                upper_y=species.noflow_upper_y,
+                lower_y=effective_noflow_lower_y,
+                upper_y=effective_noflow_upper_y,
             ),
             dtype=np.float64,
             copy=True,
@@ -1462,8 +1497,8 @@ def _prepare_species_state(
             apply_noflow_scalar_guards(
                 pressure,
                 mesh=mesh,
-                lower_y=species.noflow_lower_y,
-                upper_y=species.noflow_upper_y,
+                lower_y=effective_noflow_lower_y,
+                upper_y=effective_noflow_upper_y,
             ),
             dtype=np.float64,
             copy=True,
@@ -1472,8 +1507,8 @@ def _prepare_species_state(
             apply_noflow_scalar_guards(
                 temperature,
                 mesh=mesh,
-                lower_y=species.noflow_lower_y,
-                upper_y=species.noflow_upper_y,
+                lower_y=effective_noflow_lower_y,
+                upper_y=effective_noflow_upper_y,
             ),
             dtype=np.float64,
             copy=True,
@@ -1482,8 +1517,8 @@ def _prepare_species_state(
             apply_noflow_flow_guards(
                 velocity,
                 mesh=mesh,
-                lower_y=species.noflow_lower_y,
-                upper_y=species.noflow_upper_y,
+                lower_y=effective_noflow_lower_y,
+                upper_y=effective_noflow_upper_y,
             ),
             dtype=np.float64,
             copy=True,
@@ -1498,6 +1533,29 @@ def _prepare_species_state(
         momentum=momentum,
         momentum_error=momentum_error,
     )
+
+
+def _apply_neutral_target_density_guards(
+    field: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    lower_y: bool,
+    upper_y: bool,
+) -> np.ndarray:
+    result = np.array(field, dtype=np.float64, copy=True)
+    if mesh.myg <= 0:
+        return result
+    if lower_y and mesh.ystart + 1 <= mesh.yend:
+        result[:, mesh.ystart - 1, :] = np.maximum(
+            2.0 * result[:, mesh.ystart, :] - result[:, mesh.ystart + 1, :],
+            0.0,
+        )
+    if upper_y and mesh.yend - 1 >= mesh.ystart:
+        result[:, mesh.yend + 1, :] = np.maximum(
+            2.0 * result[:, mesh.yend, :] - result[:, mesh.yend - 1, :],
+            0.0,
+        )
+    return result
 
 
 def _prepare_open_field_states(
@@ -2242,6 +2300,34 @@ def _ion_parallel_viscosity_inputs(
         total_collisionality=total_collisionality,
         tau=tau,
         eta=eta,
+    )
+
+
+def _parallel_ion_viscous_stress_open(
+    pressure: np.ndarray,
+    tau: np.ndarray,
+    velocity: np.ndarray,
+    *,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    bounce_factor: np.ndarray | None = None,
+) -> np.ndarray:
+    bxy = np.maximum(np.asarray(metrics.Bxy, dtype=np.float64), 1.0e-12)
+    grad_par_logb = _grad_par_open(np.log(bxy), mesh=mesh, metrics=metrics)
+    effective_bounce_factor = (
+        np.ones_like(np.asarray(pressure, dtype=np.float64), dtype=np.float64)
+        if bounce_factor is None
+        else np.asarray(bounce_factor, dtype=np.float64)
+    )
+    return (
+        -0.96
+        * np.asarray(pressure, dtype=np.float64)
+        * np.asarray(tau, dtype=np.float64)
+        * effective_bounce_factor
+        * (
+            2.0 * _grad_par_open(np.asarray(velocity, dtype=np.float64), mesh=mesh, metrics=metrics)
+            + np.asarray(velocity, dtype=np.float64) * grad_par_logb
+        )
     )
 
 
