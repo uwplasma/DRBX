@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping as ABCMapping
 from dataclasses import dataclass
 from pathlib import Path
 import tempfile
@@ -12,7 +13,7 @@ from ..config.boutinp import BoutConfig, NumericResolver, apply_bout_overrides, 
 from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import make_default_overrides, merge_overrides, run_reference_case
 from ..reference.cases import ReferenceCase
-from ..runtime.output import RestartBundle
+from ..runtime.output import RestartBundle, build_run_event, print_run_event
 from ..runtime.run_config import RunConfiguration
 from ..runtime import runtime_numpy_dtype
 from .blob2d import (
@@ -380,8 +381,9 @@ def run_curated_case(
         return _run_integrated_2d_recycling_short_window_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_recycling_medium_window":
         return _run_integrated_2d_recycling_medium_window_case(case, input_path=input_path, reference_root=reference_root)
-    return run_input_case(
-        input_path,
+    config = _load_curated_case_config(case, input_path)
+    return run_config_case(
+        config,
         case_name=case.name,
         parity_mode=case.parity_mode,
         compare_variables=case.compare_variables,
@@ -1569,6 +1571,9 @@ def run_input_case(
     reference_case: ReferenceCase | None = None,
     restart_state: NativeRestartState | None = None,
     output_steps: int | None = None,
+    verbose: bool = False,
+    verbosity: str = "detailed",
+    event_logger: Callable[[ABCMapping[str, Any]], None] | None = None,
 ) -> NativeRunResult:
     config = load_bout_input(input_path)
     return run_config_case(
@@ -1579,6 +1584,9 @@ def run_input_case(
         reference_case=reference_case,
         restart_state=restart_state,
         output_steps=output_steps,
+        verbose=verbose,
+        verbosity=verbosity,
+        event_logger=event_logger,
     )
 
 
@@ -1591,10 +1599,43 @@ def run_config_case(
     reference_case: ReferenceCase | None = None,
     restart_state: NativeRestartState | None = None,
     output_steps: int | None = None,
+    verbose: bool = False,
+    verbosity: str = "detailed",
+    event_logger: Callable[[ABCMapping[str, Any]], None] | None = None,
 ) -> NativeRunResult:
+    event_sink = event_logger
+    if event_sink is None and verbose:
+        event_sink = lambda event: print_run_event(event, verbosity=verbosity)
+
+    def emit(stage: str, message: str, **details: Any) -> None:
+        if event_sink is None:
+            return
+        event_sink(build_run_event(stage=stage, message=message, details=details or None))
+
     run_config = RunConfiguration.from_config(config)
+    emit(
+        "configuration",
+        "Resolved native run configuration",
+        case_name=case_name,
+        parity_mode=parity_mode,
+        capability_tier=_resolved_capability_tier(reference_case),
+        nout=run_config.time.nout,
+        timestep=run_config.time.timestep,
+        components=",".join(component.label for component in run_config.components),
+        restart=restart_state is not None,
+    )
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
+    emit(
+        "mesh",
+        "Built structured mesh and metrics",
+        nx=mesh.nx,
+        ny=mesh.local_ny,
+        nz=mesh.nz,
+        mxg=mesh.mxg,
+        myg=mesh.myg,
+        file=run_config.mesh.file or "<analytic mesh>",
+    )
     time_points, variables = _execute_supported_case(
         config,
         run_config,
@@ -1603,6 +1644,12 @@ def run_config_case(
         parity_mode=parity_mode,
         restart_state=restart_state,
         output_steps=output_steps,
+    )
+    emit(
+        "run",
+        "Native solver completed",
+        stored_states=len(time_points),
+        compare_variables=",".join(compare_variables or tuple(variables)),
     )
     compare_names = compare_variables or tuple(variables)
     trimmed_variables = _prepare_compare_variables(
@@ -1626,6 +1673,13 @@ def run_config_case(
         configured_nout=run_config.time.nout,
         configured_timestep=run_config.time.timestep,
         producer="jax-drb",
+    )
+    emit(
+        "summary",
+        "Prepared portable summary payload",
+        variables=",".join(sorted(trimmed_variables)),
+        time_start=time_points[0] if time_points else 0.0,
+        time_end=time_points[-1] if time_points else 0.0,
     )
     return NativeRunResult(
         payload=payload,

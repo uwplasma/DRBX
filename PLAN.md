@@ -49,6 +49,8 @@ Fast validation policy:
 - new operator work should land with a focused slice in that runner rather than relying on an unmanaged long-tail suite invocation
 - longer transient-history solver checks should be marked `slow` and kept out of the default fast gate unless they are the active target of the current pass
 - the reviewer-facing convergence lane now starts from a reproducible manufactured-solution script, `scripts/run_fluid_1d_mms_convergence.py`, which reports refinement errors and observed order on the native 1D fluid operator path
+- the local open-field recycling ladder now includes `recycling_1d_short_window` (`nout=5`) as the first repeated-output transient rung for the native backbone
+- the standalone runtime now accepts `[runtime.logging].verbose = true|false` in TOML and the same detail switch is exposed through `jax_drb --verbose` and `run_input_case(..., verbose=True)`
 
 The current highest-probability live mismatch remains the D/T tokamak recycling transient, but the blocker is now split more honestly:
 
@@ -771,6 +773,7 @@ Current Step 2/3 status markers:
 | `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
 | `recycling_1d_rhs` | `native-validated` | RHS parity and controller bookkeeping are locked. |
 | `recycling_dthe_rhs` | `native-validated` | RHS parity and multispecies collision bookkeeping are locked. |
+| `recycling_1d_short_window` | `native operational target` | First curated repeated-output open-field recycling rung (`nout=5`); the local native backbone stays within bounded residuals but is not yet exact. |
 | `recycling_1d_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `recycling_dthe_one_step` | `blocked` | Native first-step transient is not parity-clean yet. |
 | `recycling_1d_long` | `blocked` | Long-run parity depends on the transient ladder. |

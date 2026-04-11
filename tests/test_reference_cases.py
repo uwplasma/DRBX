@@ -85,10 +85,12 @@ def test_default_manifest_assigns_research_grade_capability_tiers() -> None:
     cases = load_reference_cases()
 
     diffusion_case = next(case for case in cases if case.name == "diffusion_one_step")
+    open_field_recycling_case = next(case for case in cases if case.name == "recycling_1d_short_window")
     recycling_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_one_step")
     tokamak_case = next(case for case in cases if case.name == "tokamak_turbulence_short_window")
 
     assert diffusion_case.capability_tier == "native_exact"
+    assert open_field_recycling_case.capability_tier == "native_operational"
     assert recycling_case.capability_tier == "native_operational"
     assert tokamak_case.capability_tier == "scaffolded_reference_backed"
 
@@ -115,6 +117,17 @@ def test_default_manifest_stages_integrated_2d_recycling_medium_window_case() ->
     assert case.artifact_bundle_url is not None
     assert case.artifact_bundle_sha256 == "167410a1768c2805acdd28895d4327fa448bc742107ddf82b9062c02800b0cbe"
     assert case.artifact_bundle_files == ("grid_test2.nc",)
+
+
+def test_default_manifest_stages_recycling_1d_short_window_case() -> None:
+    cases = load_reference_cases()
+    case = next(case for case in cases if case.name == "recycling_1d_short_window")
+
+    assert case.reference_path == "tests/integrated/1D-recycling/data/BOUT.inp"
+    assert case.parity_mode == "short_window"
+    assert case.capability_tier == "native_operational"
+    assert case.extra_overrides == ("nout=5",)
+    assert case.trim_y_guards is True
 
 
 def test_default_manifest_stages_alfven_wave_cases() -> None:
