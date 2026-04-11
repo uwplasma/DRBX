@@ -31,6 +31,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: longer-running solver or history tests that are excluded from the default fast research gate",
+]
 
 [tool.coverage.run]
 branch = true

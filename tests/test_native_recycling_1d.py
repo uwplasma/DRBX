@@ -1915,6 +1915,7 @@ def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
     assert np.allclose(cached, uncached, rtol=1.0e-12, atol=1.0e-12)
 
 
+@pytest.mark.slow
 def test_recycling_continuation_history_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -1940,6 +1941,7 @@ def test_recycling_continuation_history_produces_finite_small_step() -> None:
     assert np.isfinite(history.variable_history["Pe"]).all()
 
 
+@pytest.mark.slow
 def test_recycling_adaptive_be_history_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -1965,6 +1967,7 @@ def test_recycling_adaptive_be_history_produces_finite_small_step() -> None:
     assert np.isfinite(history.variable_history["Pe"]).all()
 
 
+@pytest.mark.slow
 def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -1990,6 +1993,7 @@ def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
     assert np.isfinite(history.variable_history["Pe"]).all()
 
 
+@pytest.mark.slow
 def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -2054,6 +2058,7 @@ def test_neutral_pressure_default_floor_is_zero_without_override() -> None:
     assert np.allclose(sanitized["Pd+"], 1.7e-3)
 
 
+@pytest.mark.slow
 def test_recycling_bdf2_step_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -2103,6 +2108,7 @@ def test_recycling_bdf2_step_produces_finite_small_step() -> None:
     assert np.isfinite(np.asarray(list(integrals2.values()), dtype=np.float64)).all()
 
 
+@pytest.mark.slow
 def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_state() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -2144,6 +2150,7 @@ def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_stat
     assert integrals1 == pytest.approx(expected_integrals)
 
 
+@pytest.mark.slow
 def test_recycling_backward_euler_can_evolve_feedback_integrals_in_implicit_state() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
