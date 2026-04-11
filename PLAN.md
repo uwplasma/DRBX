@@ -51,6 +51,16 @@ Fast validation policy:
 - the reviewer-facing convergence lane now starts from a reproducible manufactured-solution script, `scripts/run_fluid_1d_mms_convergence.py`, which reports refinement errors and observed order on the native 1D fluid operator path
 - the local open-field recycling ladder now includes `recycling_1d_short_window` (`nout=5`) as the first repeated-output transient rung for the native backbone
 - the standalone runtime now accepts `[runtime.logging].verbose = true|false` in TOML and the same detail switch is exposed through `jax_drb --verbose` and `run_input_case(..., verbose=True)`
+- the compact native diffusion lane now also carries the first publication-oriented autodiff/scaling artifact package:
+  - `examples/autodiff_diffusion_sensitivity_demo.py`
+  - `examples/autodiff_diffusion_inverse_design_demo.py`
+  - `examples/strong_scaling_diffusion_demo.py`
+  - committed figures and JSON payloads under `docs/data/*autodiff*` and `docs/data/strong_scaling_diffusion_artifacts`
+- current committed differentiable artifact results:
+  - inverse-design objective drops from about `2.95e-3` to about `5.52e-5`
+  - autodiff and finite-difference gradients match closely on the compact four-parameter sensitivity study
+  - GPU strong scaling on the fixed differentiable workload is now about `2.19x` from `1 -> 2` GPUs on the office host
+  - the local CPU curve remains a modest single-node process-parallel reference and should not be oversold in the paper text
 
 The current highest-probability live mismatch remains the D/T tokamak recycling transient, but the blocker is now split more honestly:
 
