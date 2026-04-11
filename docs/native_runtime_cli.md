@@ -95,6 +95,22 @@ The logging rules are:
 - `[runtime.logging].quiet = true` suppresses terminal output entirely
 - `--verbose` overrides the deck for a one-off detailed run
 
+For the recycling transient lanes, the same deck can now pin the native one-step transient solver explicitly:
+
+```toml
+[runtime]
+recycling_transient_solver_mode = "adaptive_bdf"
+```
+
+Allowed values are:
+
+- `continuation`
+- `bdf`
+- `adaptive_be`
+- `adaptive_bdf`
+
+That switch is meant for controlled solver sweeps on the open-field/tokamak recycling one-step lanes. The curated runner still keeps its default case-specific solver choice unless the deck asks for a different mode.
+
 Current status:
 
 - `float64` is the default and the most complete runtime mode.
@@ -175,6 +191,8 @@ result = run_input_case(
 ```
 
 `verbose=True` emits the same staged event stream through the native runner, and `event_logger=` can be supplied if a script wants to capture those events instead of printing them.
+
+The same deck-level `recycling_transient_solver_mode` override is honored by the native runner when a Python driver script loads the deck through `run_input_case(...)`.
 
 Both versions report the same core metadata:
 
