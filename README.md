@@ -237,7 +237,15 @@ Run the fast research-grade gate first:
 python scripts/run_fast_research_checks.py
 ```
 
-This gate runs curated operator/runtime/MMS/recycling slices with a hard 5-minute timeout per slice. Longer transient-solver tests are marked `slow` and excluded from the default recycling slice, so the gate stays useful for day-to-day research iteration. If a slice exceeds the timeout, it is terminated and the run fails immediately instead of leaving a long background pytest process alive.
+This gate runs curated operator/runtime/MMS/recycling slices with a hard 5-minute timeout per slice. Longer transient-solver tests are marked `slow` and excluded from the default recycling slice, so the gate stays useful for day-to-day research iteration. Coverage is opt-in with `--with-coverage`; the default fast loop prioritizes bounded wall time. If a slice exceeds the timeout, it is terminated and the run fails immediately instead of leaving a long background pytest process alive.
+
+For reviewer-facing manufactured-solution convergence evidence, run:
+
+```bash
+python scripts/run_fluid_1d_mms_convergence.py --output docs/data/fluid_1d_mms_convergence.json
+```
+
+That script produces a small JSON report with refinement errors and observed order on the native 1D fluid MMS lane. It is intentionally separate from the default fast gate so convergence evidence stays reproducible without slowing the everyday iteration loop.
 
 Run the full test suite when you intentionally want the broader surface:
 
@@ -248,5 +256,5 @@ pytest -q
 Run coverage on the curated fast gate:
 
 ```bash
-python scripts/run_fast_research_checks.py
+python scripts/run_fast_research_checks.py --with-coverage
 ```

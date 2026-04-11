@@ -32,6 +32,23 @@ def test_default_fast_research_slices_include_mms_and_recycling() -> None:
         "precision_surface",
         "portable_parity",
         "mms_operator",
+        "native_operator",
+        "recycling_operator",
+    }
+
+
+def test_all_research_slices_include_optional_convergence_campaign() -> None:
+    module = _load_script_module("scripts/run_fast_research_checks.py", "fast_research_checks_all_slices")
+
+    slices = module.all_slices()
+
+    assert {slice_.name for slice_ in slices} == {
+        "runtime_surface",
+        "precision_surface",
+        "portable_parity",
+        "mms_operator",
+        "native_operator",
+        "convergence_campaign",
         "recycling_operator",
     }
 
