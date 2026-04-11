@@ -173,6 +173,15 @@ For terminal logging, `jax_drb` now supports both a boolean switch and an explic
 - `[runtime.logging].quiet = true` suppresses terminal output entirely
 - `jax_drb input.toml --verbose` forces detailed CLI output for a one-off run
 
+The same runtime section can also pin the native recycling one-step transient solver when you are sweeping the open-field transient blocker:
+
+```toml
+[runtime]
+recycling_transient_solver_mode = "adaptive_bdf"
+```
+
+Allowed values are `continuation`, `bdf`, `adaptive_be`, and `adaptive_bdf`. This override is intended for bounded solver studies and publication diagnostics, not as a hidden case-specific patch.
+
 ## Capability Tiers
 
 Every curated validation case is labeled explicitly:
