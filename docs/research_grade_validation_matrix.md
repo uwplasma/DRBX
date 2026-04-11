@@ -55,6 +55,7 @@ Before any case family is promoted to `native_exact`, it must have:
 
 - timestep refinement on promoted transient lanes
 - spatial refinement where practical on promoted benchmark families
+- manufactured-solution order-of-accuracy reports on promoted operator lanes, starting with `scripts/run_fluid_1d_mms_convergence.py`
 
 ### Runtime
 
@@ -74,12 +75,17 @@ It runs curated slices covering:
 
 - runtime / CLI / restart surfaces
 - portable parity payload helpers
-- manufactured-solution and operator tests
+- manufactured-solution convergence/history checks
+- open-field and implicit-operator checks
 - recycling operator and blocker diagnostics
 
 Each slice has a hard 5-minute timeout by default. If a slice exceeds that limit, the gate fails immediately and the underlying pytest process is terminated. The point is to keep research iteration bounded and avoid stale long-running local checks from replacing focused evidence.
 
+Coverage is opt-in on this gate. The default run is intentionally a fast no-coverage pass; use `--with-coverage` when you are explicitly measuring coverage rather than iterating on operator changes.
+
 Longer transient-solver history tests should be marked `slow` and kept out of this default gate unless they are the specific subject of the current iteration.
+
+Reviewer-facing convergence campaigns should live outside the default gate and be run explicitly, for example through the optional `convergence_campaign` slice or the standalone `scripts/run_fluid_1d_mms_convergence.py` report.
 
 ## Current Strategic Focus
 

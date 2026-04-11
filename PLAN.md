@@ -48,6 +48,7 @@ Fast validation policy:
 - broad raw `pytest -q` sweeps are still useful, but they are no longer the default iteration loop
 - new operator work should land with a focused slice in that runner rather than relying on an unmanaged long-tail suite invocation
 - longer transient-history solver checks should be marked `slow` and kept out of the default fast gate unless they are the active target of the current pass
+- the reviewer-facing convergence lane now starts from a reproducible manufactured-solution script, `scripts/run_fluid_1d_mms_convergence.py`, which reports refinement errors and observed order on the native 1D fluid operator path
 
 The current highest-probability live mismatch remains the D/T tokamak recycling transient, but the blocker is now split more honestly:
 
