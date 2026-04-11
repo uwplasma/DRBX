@@ -231,14 +231,22 @@ The current research-facing roadmap is documented here:
 
 ## Tests
 
-Run the test suite:
+Run the fast research-grade gate first:
+
+```bash
+python scripts/run_fast_research_checks.py
+```
+
+This gate runs curated operator/runtime/MMS/recycling slices with a hard 5-minute timeout per slice. Longer transient-solver tests are marked `slow` and excluded from the default recycling slice, so the gate stays useful for day-to-day research iteration. If a slice exceeds the timeout, it is terminated and the run fails immediately instead of leaving a long background pytest process alive.
+
+Run the full test suite when you intentionally want the broader surface:
 
 ```bash
 pytest -q
 ```
 
-Run coverage:
+Run coverage on the curated fast gate:
 
 ```bash
-pytest --cov=src/jax_drb --cov-report=term-missing
+python scripts/run_fast_research_checks.py
 ```
