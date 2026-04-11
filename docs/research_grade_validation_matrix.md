@@ -104,6 +104,7 @@ The current critical path is not “add more staged cases.” It is:
 - TCV-X21 diverted L-mode benchmark package
 - detachment-scaling package
 - performance and memory benchmark package on promoted native paths
+- differentiable sensitivity / inverse-design / scaling artifact package on promoted native paths
 
 ## Publication Scope
 

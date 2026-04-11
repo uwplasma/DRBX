@@ -211,6 +211,7 @@ If you want the physics and source-code map:
 If you want the current performance and differentiability status:
 
 - [performance_and_differentiability.md](docs/performance_and_differentiability.md)
+- [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
 
 If you want current research directions and benchmark targets:
 
@@ -229,12 +230,29 @@ The current research-facing roadmap is documented here:
 
 - [research_directions.md](docs/research_directions.md)
 
+## Autodiff And Scaling Examples
+
+The current publication-oriented differentiable examples are:
+
+- [examples/autodiff_diffusion_sensitivity_demo.py](examples/autodiff_diffusion_sensitivity_demo.py)
+- [examples/autodiff_diffusion_inverse_design_demo.py](examples/autodiff_diffusion_inverse_design_demo.py)
+- [examples/strong_scaling_diffusion_demo.py](examples/strong_scaling_diffusion_demo.py)
+
+They generate the current committed artifacts:
+
+- sensitivity figure: [docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png](docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+- inverse-design figure: [docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png](docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+- strong-scaling figure: [docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png](docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+
+These examples follow the same differentiable-simulation surfaces commonly used in projects such as [JAX-FEM](https://github.com/deepmodeling/jax-fem), [JAX-MD](https://github.com/jax-md/jax-md), and the JAX parallel map model documented in [JAX `pmap`](https://docs.jax.dev/en/latest/_autosummary/jax.pmap.html): parameter sensitivities, inverse parameter recovery, and fixed-workload scaling on a gradient-enabled kernel.
+
 ## Documentation Map
 
 - Runtime and deck guide: [native_runtime_cli.md](docs/native_runtime_cli.md)
 - Validation gallery: [validation_gallery.md](docs/validation_gallery.md)
 - Physics models and source map: [physics_models.md](docs/physics_models.md)
 - Performance and differentiability: [performance_and_differentiability.md](docs/performance_and_differentiability.md)
+- Autodiff and scaling examples: [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
 - Research roadmap and links: [research_directions.md](docs/research_directions.md)
 - Reviewer-facing validation matrix: [research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
 - Active implementation status: [PLAN.md](PLAN.md)

@@ -30,6 +30,30 @@ The intended end-to-end differentiable lane is:
 
 The compact diffusion, vorticity, and drift-wave-style native paths are the best starting points for this today because they avoid the heaviest SciPy-only transient machinery used by the recycling backbone.
 
+The diffusion lane now also has committed publication-oriented differentiable examples:
+
+- sensitivity analysis: [examples/autodiff_diffusion_sensitivity_demo.py](../examples/autodiff_diffusion_sensitivity_demo.py)
+- inverse design: [examples/autodiff_diffusion_inverse_design_demo.py](../examples/autodiff_diffusion_inverse_design_demo.py)
+- fixed-workload CPU/GPU scaling: [examples/strong_scaling_diffusion_demo.py](../examples/strong_scaling_diffusion_demo.py)
+
+The current artifact bundle is documented in [autodiff_and_scaling_examples.md](autodiff_and_scaling_examples.md).
+
+## Current Differentiable Example Results
+
+On the committed diffusion examples:
+
+- autodiff and finite-difference gradients match closely on the compact four-parameter sensitivity study
+- the inverse-design example reduces the objective from about `2.95e-3` to about `5.52e-5`
+- the current fixed-workload scaling artifact shows:
+  - local CPU process-parallel reference: about `1.13x` speedup from `1 -> 8`
+  - remote GPU device-parallel reference: about `2.19x` speedup from `1 -> 2`
+
+Those scaling numbers are intentionally framed narrowly:
+
+- the GPU curve is the meaningful accelerator result on the current artifact
+- the CPU curve is a local single-node reference, not the main performance claim
+- both are measured on a differentiable objective, not only on a forward solve
+
 ## Current Performance And Differentiability Blockers
 
 The main blockers are concentrated in the promoted recycling/tokamak transient backbone:
