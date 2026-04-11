@@ -97,7 +97,7 @@ def main() -> int:
     )
 
     if case.name.startswith("tokamak_recycling") and case.parity_mode == "one_step":
-        optional_history_names = _direct_recycling_velocity_optional_field_names(config) + (
+        optional_history_names = _direct_recycling_state_field_names(config) + _direct_recycling_velocity_optional_field_names(config) + (
             "Sd_target_recycle",
             "Ed_target_recycle",
         )
@@ -108,13 +108,15 @@ def main() -> int:
         for time_index in range(time_count):
             snapshot = load_local_reference_snapshot(
                 dump_path,
-                field_names=(),
+                field_names=_direct_recycling_state_field_names(config),
                 optional_field_names=optional_history_names,
                 scalar_names=(),
                 time_index=time_index,
             )
             for name in optional_history_names:
-                if name in snapshot.optional_fields:
+                if name in snapshot.fields:
+                    optional_history[name].append(snapshot.fields[name])
+                elif name in snapshot.optional_fields:
                     optional_history[name].append(snapshot.optional_fields[name])
         populated_history = {
             name: np.stack(values, axis=0)

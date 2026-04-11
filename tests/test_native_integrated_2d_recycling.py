@@ -2138,6 +2138,7 @@ def test_tokamak_recycling_dthene_one_step_uses_committed_optional_history_cache
     history_cache = tmp_path / "tokamak_recycling_dthene_one_step_optional_history.npz"
     save_optional_field_history_cache(
         {
+            **{name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()},
             "Vd+": np.stack([np.full((4, 5, 1), 3.0), np.full((4, 5, 1), 4.0)], axis=0),
             "Vd": np.stack([np.full((4, 5, 1), 1.5), np.full((4, 5, 1), 2.5)], axis=0),
             "Vt+": np.stack([np.full((4, 5, 1), 2.0), np.full((4, 5, 1), 3.0)], axis=0),
@@ -2173,6 +2174,7 @@ def test_tokamak_recycling_dthene_one_step_uses_committed_optional_history_cache
 
     def fake_history(*args, **kwargs):
         captured["initial_fields"] = kwargs["initial_fields"]
+        captured["field_template_overrides"] = kwargs["field_template_overrides"]
         captured["solver_mode"] = kwargs["solver_mode"]
         captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
@@ -2234,6 +2236,8 @@ def test_tokamak_recycling_dthene_one_step_uses_committed_optional_history_cache
     np.testing.assert_allclose(captured["initial_fields"]["NVt+"], expected_initial_fields["NVt+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVhe+"], expected_initial_fields["NVhe+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVne+"], expected_initial_fields["NVne+"])
+    for name, value in evolved_history.items():
+        np.testing.assert_allclose(captured["field_template_overrides"][name], value[1])
     assert captured["solver_mode"] == "bdf"
     assert captured["preserve_dump_ion_target_state_only"] is True
 
@@ -2327,6 +2331,7 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     history_cache = tmp_path / "tokamak_recycling_one_step_optional_history.npz"
     save_optional_field_history_cache(
         {
+            **{name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()},
             "Vd+": np.stack(
                 [
                     np.full((4, 5, 1), 3.0, dtype=np.float64),
@@ -2380,6 +2385,7 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
 
     def fake_history(*args, **kwargs):
         captured["initial_fields"] = kwargs["initial_fields"]
+        captured["field_template_overrides"] = kwargs["field_template_overrides"]
         captured["solver_mode"] = kwargs["solver_mode"]
         captured["preserve_dump_ion_target_state_only"] = kwargs["preserve_dump_ion_target_state_only"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
@@ -2430,6 +2436,8 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     )
     np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVd"], expected_initial_fields["NVd"])
+    for name, value in evolved_history.items():
+        np.testing.assert_allclose(captured["field_template_overrides"][name], value[1])
     assert captured["solver_mode"] == "bdf"
     assert captured["preserve_dump_ion_target_state_only"] is True
 
