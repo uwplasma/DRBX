@@ -30,7 +30,7 @@ class CommandResult:
     timed_out: bool = False
 
 
-def default_slices() -> tuple[PytestSlice, ...]:
+def all_slices() -> tuple[PytestSlice, ...]:
     return (
         PytestSlice(
             name="runtime_surface",
@@ -61,11 +61,24 @@ def default_slices() -> tuple[PytestSlice, ...]:
         ),
         PytestSlice(
             name="mms_operator",
-            description="manufactured-solution and operator-level native checks",
+            description="manufactured-solution history checks",
             pytest_args=(
                 "tests/test_native_fluid_1d.py",
+            ),
+        ),
+        PytestSlice(
+            name="native_operator",
+            description="open-field utilities and implicit-operator checks",
+            pytest_args=(
                 "tests/test_native_open_field.py",
                 "tests/test_solver_implicit.py",
+            ),
+        ),
+        PytestSlice(
+            name="convergence_campaign",
+            description="reviewer-facing manufactured-solution convergence campaign",
+            pytest_args=(
+                "tests/test_mms_convergence.py",
             ),
         ),
         PytestSlice(
@@ -81,8 +94,12 @@ def default_slices() -> tuple[PytestSlice, ...]:
     )
 
 
+def default_slices() -> tuple[PytestSlice, ...]:
+    return tuple(slice_ for slice_ in all_slices() if slice_.name != "convergence_campaign")
+
+
 def _slice_map() -> dict[str, PytestSlice]:
-    return {slice_.name: slice_ for slice_ in default_slices()}
+    return {slice_.name: slice_ for slice_ in all_slices()}
 
 
 def resolve_slices(requested_names: tuple[str, ...] | None) -> tuple[PytestSlice, ...]:
@@ -200,9 +217,9 @@ def main() -> int:
         help=f"Hard timeout per slice in seconds. Default: {DEFAULT_TIMEOUT_SECONDS}.",
     )
     parser.add_argument(
-        "--no-coverage",
+        "--with-coverage",
         action="store_true",
-        help="Skip coverage collection/reporting and run the slices as plain pytest commands.",
+        help="Enable coverage collection/reporting for the selected slices.",
     )
     parser.add_argument(
         "--extra-pytest-arg",
@@ -221,7 +238,7 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     slices = resolve_slices(tuple(args.slice_names) if args.slice_names else None)
     python_executable = sys.executable
-    with_coverage = not args.no_coverage
+    with_coverage = bool(args.with_coverage)
 
     if with_coverage:
         subprocess.run((python_executable, "-m", "coverage", "erase"), cwd=repo_root, check=False)
