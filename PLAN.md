@@ -51,6 +51,7 @@ Fast validation policy:
 - the reviewer-facing convergence lane now starts from a reproducible manufactured-solution script, `scripts/run_fluid_1d_mms_convergence.py`, which reports refinement errors and observed order on the native 1D fluid operator path
 - the local open-field recycling ladder now includes `recycling_1d_short_window` (`nout=5`) as the first repeated-output transient rung for the native backbone
 - the standalone runtime now accepts `[runtime.logging].verbose = true|false` in TOML and the same detail switch is exposed through `jax_drb --verbose` and `run_input_case(..., verbose=True)`
+- the same runtime layer now also exposes `[runtime].recycling_transient_solver_mode = "continuation" | "bdf" | "adaptive_be" | "adaptive_bdf"` so the open-field recycling one-step blocker can be swept from a deck or Python driver without patching source code
 - the compact native diffusion lane now also carries the first publication-oriented autodiff/scaling artifact package:
   - `examples/autodiff_diffusion_sensitivity_demo.py`
   - `examples/autodiff_diffusion_inverse_design_demo.py`
@@ -97,6 +98,7 @@ Latest blocker evidence on that lane:
 - a direct Hermes-vs-native collision diagnostic now also shows that the Coulomb `K*_coll` inputs at the bad D/T cells already match to roundoff, so the remaining gap is downstream of `_compute_collision_frequencies`: either charge-exchange collisionality or the boundary-conditioned viscosity stencil/state itself
 - the newer blocker pass also shows that the lower-target-corner part of that story is no longer the whole problem: once the lower neutral guard is reconstructed, the worst surviving `tokamak_recycling_dthe_one_step` residual moves to the upper active row on a side where `mesh.has_upper_y_target` is false. On that side the missing guard row is a communicated neighbor state, not a local sheath boundary.
 - the current one-step path now replays those communicated non-target guard rows from the committed optional-history cache as fixed field templates inside the implicit residual. That is enough to shrink the upper-edge `tokamak_recycling_dthe_one_step` residuals materially, down to about `NVd+ ≈ 6.75e-3`, `NVt+ ≈ 5.87e-3`, `Pd+ ≈ 5.22e-3`, `Pt+ ≈ 4.04e-3`, and `Pe ≈ 1.67e-4` on the committed compare surface, but it is still not the same thing as native distributed guard evolution.
+- the new bounded mode-sweep path for open-field one-step recycling is now explicit: [compare_recycling_transient_modes.py](scripts/compare_recycling_transient_modes.py) compares `continuation`, `bdf`, `adaptive_be`, and `adaptive_bdf` directly against the committed `recycling_*_one_step` baselines using the curated deck overrides. That is now the intended gate before changing the transient controller again.
 
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
 

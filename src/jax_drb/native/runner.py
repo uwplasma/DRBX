@@ -2073,6 +2073,10 @@ def _select_recycling_transient_solver_mode(
     *,
     parity_mode: str,
 ) -> str:
+    configured_mode = _configured_recycling_transient_solver_mode(config)
+    if configured_mode is not None:
+        return configured_mode
+
     if parity_mode != "one_step":
         return "continuation"
 
@@ -2091,12 +2095,31 @@ def _select_recycling_transient_solver_mode(
     return "bdf" if ion_species > 1 else "continuation"
 
 
+def _configured_recycling_transient_solver_mode(config: BoutConfig) -> str | None:
+    for section_name in ("runtime", "jax_drb"):
+        if not config.has_option(section_name, "recycling_transient_solver_mode"):
+            continue
+        mode = str(config.parsed(section_name, "recycling_transient_solver_mode")).strip()
+        allowed = {"continuation", "bdf", "adaptive_be", "adaptive_bdf"}
+        if mode not in allowed:
+            raise ValueError(
+                f"Unsupported {section_name}.recycling_transient_solver_mode={mode!r}; "
+                f"expected one of {sorted(allowed)!r}."
+            )
+        return mode
+    return None
+
+
 def _select_integrated_2d_transient_solver_mode(
     case_name: str,
     *,
     config: BoutConfig,
     parity_mode: str,
 ) -> str:
+    configured_mode = _configured_recycling_transient_solver_mode(config)
+    if configured_mode is not None:
+        return configured_mode
+
     if case_name in {
         "integrated_2d_production_one_step",
         "tokamak_recycling_one_step",
