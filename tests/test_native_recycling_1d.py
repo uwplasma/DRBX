@@ -14,8 +14,13 @@ from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native.open_field import limit_free
 from jax_drb.native import run_curated_case
-from jax_drb.native.reference_dump import load_local_reference_snapshot, load_local_reference_snapshot_cache
-from jax_drb.native.reference_dump import synthesize_local_reference_snapshot_from_active_history
+from jax_drb.native.reference_dump import (
+    LocalReferenceSnapshot,
+    load_local_reference_snapshot,
+    load_local_reference_snapshot_cache,
+    save_local_reference_snapshot_cache,
+    synthesize_local_reference_snapshot_from_active_history,
+)
 from jax_drb.native.recycling_1d import (
     ElectronPressureRhsTerms,
     IonRhsTerms,
@@ -704,6 +709,117 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
     assert calls == [expected_solver_mode]
     assert time_points == (0.0, run_config.time.timestep)
     assert "Nd+" in variables
+
+
+def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    input_path = _INPUT_1D
+    if not input_path.exists():
+        pytest.skip("open-field recycling reference input is unavailable")
+
+    mesh = StructuredMesh(
+        nx=1,
+        ny=3,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=2,
+        jyseps1_2=2,
+        jyseps2_2=2,
+        ny_inner=3,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([-1.0, 0.0, 1.0, 2.0, 3.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    ones = np.ones((1, 5, 1), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=ones,
+    )
+    initial_fields = {
+        "Nd+": np.ones((1, 5, 1), dtype=np.float64),
+        "Pd+": 2.0 * np.ones((1, 5, 1), dtype=np.float64),
+        "NVd+": np.zeros((1, 5, 1), dtype=np.float64),
+        "Nd": np.ones((1, 5, 1), dtype=np.float64),
+        "Pd": 0.5 * np.ones((1, 5, 1), dtype=np.float64),
+        "NVd": np.zeros((1, 5, 1), dtype=np.float64),
+        "Pe": 3.0 * np.ones((1, 5, 1), dtype=np.float64),
+    }
+    snapshot = LocalReferenceSnapshot(
+        mesh=mesh,
+        metrics=metrics,
+        fields=initial_fields,
+        optional_fields={},
+        scalar_values={"Nnorm": 1.0e17, "Tnorm": 1.0, "Bnorm": 1.0, "Cs0": 1.0, "Omega_ci": 1.0, "rho_s0": 1.0},
+    )
+    snapshot_cache = tmp_path / "recycling_1d_rhs_snapshot.npz"
+    save_local_reference_snapshot_cache(snapshot, snapshot_cache)
+    array_history_path = tmp_path / "recycling_1d_one_step.npz"
+    active = (slice(mesh.xstart, mesh.xend + 1), slice(mesh.ystart, mesh.yend + 1), slice(None))
+    np.savez_compressed(
+        array_history_path,
+        **{
+            "__metadata__": np.array([], dtype=np.float64),
+            "var__Nd+": np.stack([initial_fields["Nd+"][active], 2.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__Pd+": np.stack([initial_fields["Pd+"][active], 4.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__NVd+": np.stack([initial_fields["NVd+"][active], 5.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__Nd": np.stack([initial_fields["Nd"][active], 6.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__Pd": np.stack([initial_fields["Pd"][active], 7.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__NVd": np.stack([initial_fields["NVd"][active], 8.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+            "var__Pe": np.stack([initial_fields["Pe"][active], 9.0 * np.ones((1, 3, 1), dtype=np.float64)], axis=0),
+        },
+    )
+
+    monkeypatch.setattr(
+        native_runner,
+        "_open_field_snapshot_cache_path",
+        lambda case_name: snapshot_cache if case_name == "recycling_1d_rhs" else tmp_path / f"{case_name}.missing",
+    )
+    monkeypatch.setattr(native_runner, "_REFERENCE_ARRAY_BASELINE_DIR", tmp_path)
+    monkeypatch.setattr(
+        native_runner,
+        "run_reference_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("reference run should not be used when open-field cache is present")),
+    )
+
+    captured: dict[str, object] = {}
+    evolved_history = {name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()}
+
+    def fake_history(*args, **kwargs):
+        captured["field_template_overrides"] = kwargs["field_template_overrides"]
+        captured["solver_mode"] = kwargs["solver_mode"]
+        return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_history)
+
+    case = next(case for case in load_reference_cases() if case.name == "recycling_1d_one_step")
+    result = native_runner._run_open_field_recycling_one_step_case(
+        case,
+        input_path=input_path,
+        reference_root=_REFERENCE_ROOT,
+    )
+
+    assert captured["solver_mode"] == "continuation"
+    np.testing.assert_allclose(captured["field_template_overrides"]["Nd+"][0, 0, 0], initial_fields["Nd+"][0, 0, 0])
+    np.testing.assert_allclose(captured["field_template_overrides"]["Nd+"][0, 1:4, 0], 2.0)
+    np.testing.assert_allclose(captured["field_template_overrides"]["Pe"][0, 1:4, 0], 9.0)
+    assert result.time_points == (0.0, 5000.0)
+    assert np.asarray(result.variables["Nd+"]).shape == (2, 1, 3, 1)
 
 
 def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
