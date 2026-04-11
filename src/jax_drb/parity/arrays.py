@@ -71,6 +71,7 @@ def build_dataset_array_payload(
     *,
     case_name: str,
     parity_mode: str,
+    capability_tier: str = "scaffolded_reference_backed",
     compare_variables: tuple[str, ...],
     component_labels: tuple[str, ...],
     overrides: tuple[str, ...] = (),
@@ -110,7 +111,7 @@ def build_dataset_array_payload(
     return build_portable_array_payload(
         case_name=case_name,
         parity_mode=parity_mode,
-        capability_tier="scaffolded_reference_backed",
+        capability_tier=capability_tier,
         compare_variables=compare_variables,
         component_labels=component_labels,
         dimensions=dimensions,

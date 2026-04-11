@@ -67,7 +67,7 @@ The simplest programmatic entry points are:
 from pathlib import Path
 
 from jax_drb.cli import main
-from jax_drb.native import run_curated_case
+from jax_drb.native import run_curated_case, run_input_case
 
 # Deck-driven standalone run
 main(["run", "examples/inputs/restartable_diffusion.toml", "--quiet"])
@@ -76,6 +76,15 @@ main(["run", "examples/inputs/restartable_diffusion.toml", "--quiet"])
 result = run_curated_case("tokamak_isothermal_one_step", reference_root=Path("/path/to/reference-suite"))
 print(result.payload["capability_tier"])
 print(sorted(result.variables))
+
+# Native Python driver with staged verbose events
+driver_result = run_input_case(
+    "examples/inputs/restartable_diffusion.toml",
+    case_name="diffusion_driver",
+    parity_mode="run",
+    verbose=True,
+)
+print(driver_result.time_points[-1])
 ```
 
 ## Input Model
@@ -105,6 +114,7 @@ precision = "float64"
 
 [runtime.logging]
 verbosity = "detailed"
+verbose = true
 quiet = false
 
 [mesh]
@@ -154,6 +164,14 @@ The run log stores:
 - restart provenance
 - output artifact locations
 - variable min/max/mean/delta summaries
+
+For terminal logging, `jax_drb` now supports both a boolean switch and an explicit level:
+
+- `[runtime.logging].verbose = true` enables detailed staged terminal events
+- `[runtime.logging].verbose = false` keeps the concise summary path
+- `[runtime.logging].verbosity = "summary"` or `"detailed"` pins the level explicitly
+- `[runtime.logging].quiet = true` suppresses terminal output entirely
+- `jax_drb input.toml --verbose` forces detailed CLI output for a one-off run
 
 ## Capability Tiers
 

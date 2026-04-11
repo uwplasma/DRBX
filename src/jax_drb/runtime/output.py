@@ -158,7 +158,7 @@ def format_run_log_text(payload: Mapping[str, Any]) -> str:
     )
 
 
-def print_run_log(payload: Mapping[str, Any]) -> None:
+def print_run_log(payload: Mapping[str, Any], *, verbosity: str = "summary") -> None:
     try:
         from rich.console import Console
         from rich.panel import Panel
@@ -237,9 +237,10 @@ def print_run_log(payload: Mapping[str, Any]) -> None:
         )
 
     console.print(Panel(summary, title="Run Summary", border_style="cyan"))
-    console.print(restart_table)
     console.print(outputs)
-    console.print(variable_table)
+    if verbosity == "detailed":
+        console.print(restart_table)
+        console.print(variable_table)
 
 
 def build_run_event(
@@ -260,7 +261,7 @@ def build_run_event(
     return event
 
 
-def print_run_event(event: Mapping[str, Any]) -> None:
+def print_run_event(event: Mapping[str, Any], *, verbosity: str = "summary") -> None:
     try:
         from rich.console import Console
         from rich.panel import Panel
@@ -270,12 +271,18 @@ def print_run_event(event: Mapping[str, Any]) -> None:
         prefix = f"[{float(elapsed):8.3f}s] " if elapsed is not None else ""
         print(f"{prefix}{event.get('stage', 'event')}: {event.get('message', '')}")
         details = event.get("details", {})
-        if isinstance(details, Mapping):
+        if verbosity == "detailed" and isinstance(details, Mapping):
             for key, value in details.items():
                 print(f"  - {key}: {value}")
         return
 
     console = Console()
+    if verbosity != "detailed":
+        elapsed = event.get("elapsed_seconds")
+        prefix = f"[{float(elapsed):8.3f}s] " if elapsed is not None else ""
+        console.print(f"{prefix}[bold blue]{event.get('stage', 'event')}[/bold blue]: {event.get('message', '')}")
+        return
+
     details = event.get("details", {})
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold cyan")
