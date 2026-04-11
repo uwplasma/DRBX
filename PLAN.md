@@ -41,7 +41,13 @@ Immediate strategy change:
 3. reuse that backbone for integrated and direct-tokamak recycling/production lanes
 4. widen the matrix only after that native closure is stable
 
-The current highest-probability live mismatch remains the D/T tokamak recycling transient at the lower target corner, with ion-viscosity / `DivPiPar` still the main operator suspect on the reference-evolved state. That operator-closure work is now the critical path, not another rung-collection pass.
+The current highest-probability live mismatch remains the D/T tokamak recycling transient, but the blocker is now split more honestly:
+
+- the lower-target-corner D/T mismatch was materially reduced by reconstructing the missing lower neutral guard state before charge-exchange / viscosity closure;
+- the remaining worst one-step residual now sits on the opposite active edge of the local slab, where this rank does not own an upper physical target;
+- that upper-side guard row is therefore a communicated neighbor state, not a local sheath boundary, so the current direct tokamak dump-backed lane cannot be promoted by more target-boundary heuristics alone.
+
+That means the critical path is still native recycling operator closure, but it also means the direct tokamak D/T one-step rung should stay explicitly operational/scaffolded until the fully native open-field recycling backbone carries its own distributed guard-state evolution.
 
 ## 1B. v1.0 Release Hardening (2026-04-10)
 
@@ -68,6 +74,7 @@ Latest blocker evidence on that lane:
 - a direct probe of Neumann-guarding the ion-viscosity coefficient `eta` before `DivPiPar` was tested and rejected because it worsens the D/T one-step lane, especially `NVhe+`
 - the remaining blocker is therefore still the sheath-conditioned lower-target-corner `DivPiPar` boundary state/operator, not the electric-force density path
 - a direct Hermes-vs-native collision diagnostic now also shows that the Coulomb `K*_coll` inputs at the bad D/T cells already match to roundoff, so the remaining gap is downstream of `_compute_collision_frequencies`: either charge-exchange collisionality or the boundary-conditioned viscosity stencil/state itself
+- the newer blocker pass also shows that the lower-target-corner part of that story is no longer the whole problem: once the lower neutral guard is reconstructed, the worst surviving `tokamak_recycling_dthe_one_step` residual moves to the upper active row on a side where `mesh.has_upper_y_target` is false. On that side the missing guard row is a communicated neighbor state, not a local sheath boundary, so the remaining D/T tokamak one-step miss cannot be retired honestly without the broader native/distributed recycling transient backbone.
 
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
 
