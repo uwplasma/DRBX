@@ -62,6 +62,24 @@ Before any case family is promoted to `native_exact`, it must have:
 - output/log completeness
 - precision-mode behavior
 - verbose logging coverage
+- fast-gate execution with bounded wall time for curated research slices
+
+## Fast Validation Policy
+
+The default developer/research gate is now:
+
+- [scripts/run_fast_research_checks.py](/Users/rogerio/local/jax_drb/scripts/run_fast_research_checks.py)
+
+It runs curated slices covering:
+
+- runtime / CLI / restart surfaces
+- portable parity payload helpers
+- manufactured-solution and operator tests
+- recycling operator and blocker diagnostics
+
+Each slice has a hard 5-minute timeout by default. If a slice exceeds that limit, the gate fails immediately and the underlying pytest process is terminated. The point is to keep research iteration bounded and avoid stale long-running local checks from replacing focused evidence.
+
+Longer transient-solver history tests should be marked `slow` and kept out of this default gate unless they are the specific subject of the current iteration.
 
 ## Current Strategic Focus
 

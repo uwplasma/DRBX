@@ -41,6 +41,14 @@ Immediate strategy change:
 3. reuse that backbone for integrated and direct-tokamak recycling/production lanes
 4. widen the matrix only after that native closure is stable
 
+Fast validation policy:
+
+- the default local research gate is now the curated fast slice runner in `scripts/run_fast_research_checks.py`
+- each slice has a hard 5-minute timeout by default
+- broad raw `pytest -q` sweeps are still useful, but they are no longer the default iteration loop
+- new operator work should land with a focused slice in that runner rather than relying on an unmanaged long-tail suite invocation
+- longer transient-history solver checks should be marked `slow` and kept out of the default fast gate unless they are the active target of the current pass
+
 The current highest-probability live mismatch remains the D/T tokamak recycling transient, but the blocker is now split more honestly:
 
 - the lower-target-corner D/T mismatch was materially reduced by reconstructing the missing lower neutral guard state before charge-exchange / viscosity closure;
