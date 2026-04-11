@@ -1,0 +1,354 @@
+{
+  "cpu": [
+    {
+      "backend": "cpu",
+      "device_count": 1,
+      "efficiency": 1.0,
+      "elapsed_seconds": 1.0560938339913264,
+      "speedup": 1.0
+    },
+    {
+      "backend": "cpu",
+      "device_count": 2,
+      "efficiency": 0.5438165310607175,
+      "elapsed_seconds": 0.9710019589983858,
+      "speedup": 1.087633062121435
+    },
+    {
+      "backend": "cpu",
+      "device_count": 4,
+      "efficiency": 0.26543811090889885,
+      "elapsed_seconds": 0.9946705000038492,
+      "speedup": 1.0617524436355954
+    },
+    {
+      "backend": "cpu",
+      "device_count": 8,
+      "efficiency": 0.14164246047550774,
+      "elapsed_seconds": 0.9320067499938887,
+      "speedup": 1.133139683804062
+    }
+  ],
+  "gpu": [
+    {
+      "backend": "gpu",
+      "device_count": 1,
+      "efficiency": 1.0,
+      "elapsed_seconds": 10.213164983986644,
+      "speedup": 1.0
+    },
+    {
+      "backend": "gpu",
+      "device_count": 2,
+      "efficiency": 1.0947544285241448,
+      "elapsed_seconds": 4.664591765002115,
+      "speedup": 2.1895088570482897
+    }
+  ],
+  "raw_results": {
+    "cpu": [
+      {
+        "backend": "cpu",
+        "best_seconds": 1.0560938339913264,
+        "device_count": 1,
+        "local_batch": 64,
+        "mean_seconds": 1.0643632779974723,
+        "parallel_kind": "process_group",
+        "total_batch": 64,
+        "worker_results": [
+          {
+            "backend": "cpu",
+            "best_seconds": 1.0560938339913264,
+            "device_count": 1,
+            "local_batch": 64,
+            "mean_seconds": 1.0643632779974723,
+            "parallel_kind": "single_device",
+            "timings": [
+              1.0560938339913264,
+              1.0710628749948228,
+              1.0659331250062678
+            ],
+            "total_batch": 64
+          }
+        ]
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.9710019589983858,
+        "device_count": 2,
+        "local_batch": 32,
+        "mean_seconds": 1.0012162363370105,
+        "parallel_kind": "process_group",
+        "total_batch": 64,
+        "worker_results": [
+          {
+            "backend": "cpu",
+            "best_seconds": 0.9540837920067133,
+            "device_count": 1,
+            "local_batch": 32,
+            "mean_seconds": 1.0010444586660014,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.9857946249976521,
+              0.9540837920067133,
+              1.0632549589936389
+            ],
+            "total_batch": 32
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.9710019589983858,
+            "device_count": 1,
+            "local_batch": 32,
+            "mean_seconds": 1.0012162363370105,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.9894257910054876,
+              0.9710019589983858,
+              1.043220959007158
+            ],
+            "total_batch": 32
+          }
+        ]
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.9946705000038492,
+        "device_count": 4,
+        "local_batch": 16,
+        "mean_seconds": 1.138752792001469,
+        "parallel_kind": "process_group",
+        "total_batch": 64,
+        "worker_results": [
+          {
+            "backend": "cpu",
+            "best_seconds": 0.9302826249913778,
+            "device_count": 1,
+            "local_batch": 16,
+            "mean_seconds": 1.115113819328447,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.9498872499971185,
+              0.9302826249913778,
+              1.4651715829968452
+            ],
+            "total_batch": 16
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.9651570419955533,
+            "device_count": 1,
+            "local_batch": 16,
+            "mean_seconds": 1.1057801946638695,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.9842745420028223,
+              0.9651570419955533,
+              1.367908999993233
+            ],
+            "total_batch": 16
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.8686638329963898,
+            "device_count": 1,
+            "local_batch": 16,
+            "mean_seconds": 1.058922625001287,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.9762898750050226,
+              1.3318141670024488,
+              0.8686638329963898
+            ],
+            "total_batch": 16
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.9946705000038492,
+            "device_count": 1,
+            "local_batch": 16,
+            "mean_seconds": 1.138752792001469,
+            "parallel_kind": "single_device",
+            "timings": [
+              1.002799416994094,
+              0.9946705000038492,
+              1.418788459006464
+            ],
+            "total_batch": 16
+          }
+        ]
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.9320067499938887,
+        "device_count": 8,
+        "local_batch": 8,
+        "mean_seconds": 0.9710339860030217,
+        "parallel_kind": "process_group",
+        "total_batch": 64,
+        "worker_results": [
+          {
+            "backend": "cpu",
+            "best_seconds": 0.9320067499938887,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.9674548053299077,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.9732028750004247,
+              0.9971547909954097,
+              0.9320067499938887
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.7593820000038249,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.8566200833350498,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.8993591250036843,
+              0.91111912499764,
+              0.7593820000038249
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.8795098749978933,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.9663772916683229,
+            "parallel_kind": "single_device",
+            "timings": [
+              1.1126692920079222,
+              0.8795098749978933,
+              0.9069527079991531
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.8866528749931604,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.9710339860030217,
+            "parallel_kind": "single_device",
+            "timings": [
+              1.0458946660073707,
+              0.8866528749931604,
+              0.9805544170085341
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.8920850419963244,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.952185569665744,
+            "parallel_kind": "single_device",
+            "timings": [
+              1.0142904999956954,
+              0.950181167005212,
+              0.8920850419963244
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.8441606249980396,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.9431592636634983,
+            "parallel_kind": "single_device",
+            "timings": [
+              1.0680477080022683,
+              0.9172694579901872,
+              0.8441606249980396
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.7489430000132415,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.8725285420029346,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.916852583992295,
+              0.9517900420032674,
+              0.7489430000132415
+            ],
+            "total_batch": 8
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.36038229199766647,
+            "device_count": 1,
+            "local_batch": 8,
+            "mean_seconds": 0.7000324719992932,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.911636290999013,
+              0.8280788330012001,
+              0.36038229199766647
+            ],
+            "total_batch": 8
+          }
+        ]
+      }
+    ],
+    "gpu": [
+      {
+        "backend": "gpu",
+        "best_seconds": 10.213164983986644,
+        "device_count": 1,
+        "local_batch": 64,
+        "mean_seconds": 11.982449695341833,
+        "parallel_kind": "single_device",
+        "timings": [
+          10.213164983986644,
+          11.76494689201354,
+          13.969237210025312
+        ],
+        "total_batch": 64
+      },
+      {
+        "backend": "gpu",
+        "best_seconds": 4.664591765002115,
+        "device_count": 2,
+        "local_batch": 32,
+        "mean_seconds": 5.2886324946690975,
+        "parallel_kind": "pmap",
+        "timings": [
+          6.51231272998848,
+          4.664591765002115,
+          4.688992989016697
+        ],
+        "total_batch": 64
+      }
+    ]
+  },
+  "settings": {
+    "cpu_device_counts": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "gpu_device_counts": [
+      1,
+      2
+    ],
+    "nx": 256,
+    "ny": 32,
+    "repeats": 3,
+    "steps": 8,
+    "timestep": 3.0,
+    "total_batch": 64
+  }
+}

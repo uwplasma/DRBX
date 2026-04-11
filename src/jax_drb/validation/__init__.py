@@ -73,6 +73,22 @@ from .neutral_mixed import (
     write_neutral_mixed_analysis_json,
     write_neutral_mixed_parity_json,
 )
+from .autodiff_diffusion import (
+    DiffusionAutodiffSetup,
+    StrongScalingPoint,
+    build_diffusion_autodiff_setup,
+    compute_strong_scaling_points,
+    design_field,
+    design_field_from_physical,
+    finite_difference_gradient,
+    objective_for_parameter_vector,
+    objective_for_physical_parameters,
+    optimize_inverse_design,
+    physical_to_theta,
+    simulate_density_history,
+    simulate_density_history_from_physical,
+    theta_to_physical,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -138,4 +154,18 @@ __all__ = [
     "save_neutral_mixed_parity_plot",
     "write_neutral_mixed_analysis_json",
     "write_neutral_mixed_parity_json",
+    "DiffusionAutodiffSetup",
+    "StrongScalingPoint",
+    "build_diffusion_autodiff_setup",
+    "compute_strong_scaling_points",
+    "design_field",
+    "design_field_from_physical",
+    "finite_difference_gradient",
+    "objective_for_parameter_vector",
+    "objective_for_physical_parameters",
+    "optimize_inverse_design",
+    "physical_to_theta",
+    "simulate_density_history",
+    "simulate_density_history_from_physical",
+    "theta_to_physical",
 ]

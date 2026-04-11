@@ -4,11 +4,15 @@ import ast
 import math
 import operator
 import re
-import tomllib
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python < 3.11
+    import tomli as tomllib
 
 ROOT_SECTION = "__root__"
 
