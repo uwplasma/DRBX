@@ -165,6 +165,8 @@ Every curated validation case is labeled explicitly:
 
 The active release strategy is to promote a smaller number of end-to-end native lanes into `native_exact` before widening the matrix further.
 
+One consequence of that policy is that some direct tokamak recycling rungs remain intentionally labeled `native_operational` or `scaffolded_reference_backed`: when a local slab does not own a physical target on one side, the missing guard row is a communicated neighbor state rather than a local sheath boundary. Those rungs remain valuable for diagnostics and regression tracking, but they are not counted as native closure until the fully native distributed recycling backbone is in place.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
