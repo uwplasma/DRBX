@@ -177,6 +177,20 @@ def test_default_tokamak_recycling_blocker_cells_pick_lower_target_corner_pair()
     assert cells == ((2, 5, 0), (3, 5, 0))
 
 
+def test_tokamak_recycling_cell_boundary_context_flags_non_target_upper_side() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag_boundary_context",
+    )
+    mesh = SimpleNamespace(ystart=2, yend=9, has_lower_y_target=True, has_upper_y_target=False)
+
+    notes = module._cell_boundary_context_notes(mesh, (2, 9, 0))
+
+    assert notes == (
+        "upper active row on a non-target side: the next guard row is a communicated neighbor state, not a local sheath boundary",
+    )
+
+
 def test_read_last_time_field_uses_last_time_plane(tmp_path: Path) -> None:
     module = _load_script_module(
         "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
@@ -240,3 +254,34 @@ def test_required_collisionality_from_divpi_quantifies_implied_missing_cx() -> N
     assert result["required_cx_factor"] == pytest.approx(4.789942217642756)
     assert result["missing_nu_total"] == pytest.approx(8.219647334708119e-06)
     assert result["missing_cx_subtotal"] == pytest.approx(8.219647374708118e-06)
+
+
+def test_tokamak_recycling_ion_viscosity_diagnostic_loads_parallel_stress_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_script_module(
+        "scripts/diagnose_tokamak_recycling_ion_viscosity.py",
+        "tokamak_recycling_ion_viscosity_diag_pi_fields",
+    )
+    dataset_path = tmp_path / "diag.nc"
+    with Dataset(dataset_path, "w") as dataset:
+        dataset.createDimension("t", 2)
+        dataset.createDimension("x", 1)
+        dataset.createDimension("y", 1)
+        dataset.createDimension("z", 1)
+        for name in ("DivPiPar_d+", "Pd+_cipar"):
+            variable = dataset.createVariable(name, "f8", ("t", "x", "y", "z"))
+            variable[:] = np.ones((2, 1, 1, 1), dtype=np.float64)
+
+    class _Execution:
+        summary = SimpleNamespace(artifacts={"BOUT.dmp.0.nc": str(dataset_path)})
+
+    monkeypatch.setattr(module, "run_reference_case", lambda *args, **kwargs: _Execution())
+
+    result = module._load_hermes_operator_diagnostics(
+        "tokamak_recycling_dthe_one_step",
+        reference_root=Path("/tmp/reference"),
+        include_divpi=True,
+        include_collisions=False,
+    )
+
+    assert "DivPiPar_d+" in result
+    assert "Pd+_cipar" in result

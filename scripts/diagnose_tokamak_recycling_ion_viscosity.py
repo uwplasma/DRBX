@@ -19,6 +19,7 @@ from jax_drb.native.recycling_1d import (
     _compute_collision_frequencies,
     _electron_density,
     _ion_parallel_viscosity_inputs,
+    _parallel_ion_viscous_stress_open,
     _override_species_fields,
     _prepare_open_field_states,
     _reaction_sources,
@@ -71,6 +72,21 @@ SCALAR_FIELDS = ("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0")
 
 def default_tokamak_recycling_blocker_cells(mesh) -> tuple[tuple[int, int, int], ...]:
     return ((mesh.xstart, mesh.ystart, 0), (mesh.xstart + 1, mesh.ystart, 0))
+
+
+def _cell_boundary_context_notes(mesh, cell: tuple[int, int, int]) -> tuple[str, ...]:
+    _, y_index, _ = cell
+    notes: list[str] = []
+    if y_index == mesh.ystart and getattr(mesh, "has_lower_y_target", False):
+        notes.append("lower target row: local sheath/recycling boundary is owned on this rank")
+    if y_index == mesh.yend and not getattr(mesh, "has_upper_y_target", False):
+        notes.append(
+            "upper active row on a non-target side: the next guard row is a communicated neighbor state, "
+            "not a local sheath boundary"
+        )
+    if y_index == mesh.yend and getattr(mesh, "has_upper_y_target", False):
+        notes.append("upper target row: local sheath/recycling boundary is owned on this rank")
+    return tuple(notes)
 
 
 def _load_case_config(case_name: str, *, reference_root: Path):
@@ -176,7 +192,14 @@ def _load_hermes_operator_diagnostics(
         with Dataset(dataset_path) as dataset:
             variable_names = set(dataset.variables)
         if include_divpi:
-            for field_name in ("DivPiPar_d+", "DivPiPar_t+", "DivPiPar_he+"):
+            for field_name in (
+                "DivPiPar_d+",
+                "DivPiPar_t+",
+                "DivPiPar_he+",
+                "Pd+_cipar",
+                "Pt+_cipar",
+                "Phe+_cipar",
+            ):
                 if field_name in variable_names:
                     result[field_name] = _read_last_time_field(dataset_path, field_name)
         if include_collisions:
@@ -403,6 +426,8 @@ def main() -> None:
     for cell in cells:
         x_index, y_index, z_index = cell
         print(f"CELL x={x_index} y={y_index} z={z_index}")
+        for note in _cell_boundary_context_notes(reference_final.mesh, cell):
+            print(f"  context: {note}")
         for species_name in ("d+", "t+", "he+"):
             if species_name not in species:
                 continue
@@ -412,6 +437,13 @@ def main() -> None:
                 prepared=prepared,
                 collision_rates=collision_rates,
                 cx_rates=cx_rates,
+            )
+            native_pi_cipar = _parallel_ion_viscous_stress_open(
+                prepared[species_name].pressure,
+                viscosity_inputs.tau,
+                prepared[species_name].velocity,
+                mesh=reference_final.mesh,
+                metrics=reference_final.metrics,
             )
             rhs_terms = _assemble_ion_rhs_terms(
                 density_source=density_source[species_name],
@@ -453,6 +485,30 @@ def main() -> None:
                     f"    hermes_diagnose: "
                     f"DivPiPar={hermes_div_pi:.8e} "
                     f"native_minus_hermes={div_pi - hermes_div_pi:.8e}"
+                )
+            hermes_pi_field_name = f"P{species_name}_cipar"
+            native_pi_center = float(native_pi_cipar[x_index, y_index, z_index])
+            native_pi_lower = float(native_pi_cipar[x_index, lower_neighbor, z_index])
+            native_pi_upper = float(native_pi_cipar[x_index, upper_neighbor, z_index])
+            if hermes_pi_field_name in hermes_operator_fields:
+                hermes_pi_center = float(hermes_operator_fields[hermes_pi_field_name][x_index, y_index, z_index])
+                hermes_pi_lower = float(hermes_operator_fields[hermes_pi_field_name][x_index, lower_neighbor, z_index])
+                hermes_pi_upper = float(hermes_operator_fields[hermes_pi_field_name][x_index, upper_neighbor, z_index])
+                print(
+                    f"    Pi_cipar: "
+                    f"native_lower={native_pi_lower:.8e} "
+                    f"hermes_lower={hermes_pi_lower:.8e} "
+                    f"native_center={native_pi_center:.8e} "
+                    f"hermes_center={hermes_pi_center:.8e} "
+                    f"native_upper={native_pi_upper:.8e} "
+                    f"hermes_upper={hermes_pi_upper:.8e}"
+                )
+            else:
+                print(
+                    f"    Pi_cipar: "
+                    f"native_lower={native_pi_lower:.8e} "
+                    f"native_center={native_pi_center:.8e} "
+                    f"native_upper={native_pi_upper:.8e}"
                 )
             charged_collisionality_subtotal = 0.0
             neutral_collisionality_subtotal = 0.0
