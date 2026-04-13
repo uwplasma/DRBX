@@ -101,6 +101,164 @@ Latest blocker evidence on that lane:
 - the new bounded mode-sweep path for open-field one-step recycling is now explicit: [compare_recycling_transient_modes.py](scripts/compare_recycling_transient_modes.py) compares `continuation`, `bdf`, `adaptive_be`, and `adaptive_bdf` directly against the committed `recycling_*_one_step` baselines using the curated deck overrides. That is now the intended gate before changing the transient controller again.
 - the first bounded sweep on `recycling_1d_one_step` now closes the solver-choice question enough to move on: `continuation` takes about `66.7 s` and lands at about `Nd+ ≈ 1.878e-2`, `Pd+ ≈ 1.736e-2`, `NVd+ ≈ 1.723e-2`, while `bdf` takes about `34.5 s` and only shifts that to about `Nd+ ≈ 1.887e-2`, `Pd+ ≈ 1.366e-2`, `NVd+ ≈ 1.383e-2`. So `bdf` is faster and modestly helps momentum/pressure, but it does not remove the leading density miss. A bounded `adaptive_bdf` probe also failed to finish within the five-minute local gate, so the next fix should stay on active transient/controller closure rather than solver proliferation.
 
+## 1C. Concrete Finish Sequence (2026-04-13)
+
+The remaining work is now ordered explicitly. The project should follow this sequence rather than widening more staged ladders opportunistically.
+
+### Phase A. Final reference audit and operator lock
+
+Purpose:
+
+- make one last source-of-truth pass over the private reference implementation before more solver refactors land
+- keep the parity-critical operator semantics tied to the actual documented equations and source ordering
+
+Required reference surfaces:
+
+- docs:
+  - `docs/sphinx/boundary_conditions.rst`
+  - `docs/sphinx/closure.rst`
+  - `docs/sphinx/feedback_control.rst`
+  - `docs/sphinx/solver_numerics.rst`
+  - `docs/sphinx/examples.rst`
+- source:
+  - `src/sheath_closure.cxx`
+  - `src/braginskii_collisions.cxx`
+  - `src/braginskii_friction.cxx`
+  - `src/evolve_momentum.cxx`
+  - `src/upstream_density_feedback.cxx`
+
+Exit criteria:
+
+- every open recycling/transient mismatch has a named operator owner
+- every operator owner has a matching diagnostic script and a focused fast-gate slice
+
+### Phase B. Close the open-field native recycling transient backbone
+
+Purpose:
+
+- finish one truly native transient lane end to end
+- stop treating dump-backed or communicated-guard replay as a substitute for native closure
+
+Implementation order:
+
+1. finish active transient/controller closure on `recycling_1d_one_step`
+2. promote `recycling_dthe_one_step` using the same corrected backbone
+3. promote `recycling_1d_short_window`
+4. only then unlock `recycling_1d_long`
+
+Required technical work:
+
+- replace finite-difference Jacobian assembly with JAX linearization/JVP-driven residual derivatives on the promoted 1D recycling lane
+- reduce or remove `np.asarray(...)` and host-copy barriers in the hot transient path
+- move accepted-step state/history layout to a backend-stable packed form
+- keep plotting/output/logging outside the hot residual path
+
+Validation gate:
+
+- one-RHS parity
+- one-step parity
+- short-window parity
+- restart equivalence
+- operator diagnostics for `DivPiPar`, sheath state, reactions, controller source
+- bounded fast-gate slice under the local five-minute policy
+
+### Phase C. Reuse the native backbone for 2D recycling lanes
+
+Purpose:
+
+- stop carrying integrated/direct recycling as mostly replay-assisted lanes
+
+Implementation order:
+
+1. integrated 2D recycling:
+   - `integrated_2d_recycling_one_step`
+   - `integrated_2d_recycling_short_window`
+   - `integrated_2d_recycling_medium_window`
+2. direct tokamak recycling:
+   - `tokamak_recycling_one_step`
+   - `tokamak_recycling_dthe_one_step`
+   - `tokamak_recycling_dthe_drifts_one_step`
+   - `tokamak_recycling_dthene_one_step`
+
+Specific closure target:
+
+- replace communicated-guard replay with native distributed guard-state evolution on the recycling transient backbone
+
+Promotion rule:
+
+- no direct tokamak recycling family is promoted beyond `native_operational` while communicated-guard replay remains in the active transient solve
+
+### Phase D. Close the remaining 2D production and neutral breadth
+
+Purpose:
+
+- finish the strongest 2D paper matrix before moving to selected 3D claims
+
+Implementation order:
+
+1. close the remaining production-side `Pe` / neutral transient defects
+2. finish non-orthogonal anomalous-diffusion support using the full metric payload including `g_23`
+3. promote `neutral_mixed_one_step` and `neutral_mixed_short_window`
+4. widen direct tokamak transport/turbulence only where the path is already native rather than replay-backed
+
+### Phase E. Promote the selected 3D and EM publication lanes
+
+Purpose:
+
+- make a strong selected 3D/EM claim rather than a vague broad one
+
+Implementation order:
+
+1. keep the benchmark EM ladders exact and documented:
+   - `alfven_wave_*`
+   - `annulus_he_emag_*`
+2. promote operator-isolated closures for:
+   - `Apar`
+   - `Apar_flutter`
+   - `phi` / vorticity coupling
+   - Boussinesq vs non-Boussinesq choices on the selected lane
+3. add the first selected reduced 3D tokamak ladder:
+   - `examples/tokamak-3D/tcv-x21`
+4. only then widen to richer 3D statistics and runtime/performance claims
+
+Publication rule:
+
+- 3D/EM claims stay restricted to selected benchmark and reduced tokamak ladders until the fully coupled transient path is closed on those families
+
+### Phase F. Run the reviewer-facing campaign set
+
+Required campaign bundle:
+
+1. operator-focused recycling / ion-viscosity campaign
+2. direct tokamak convergence campaign
+3. TORPEX seeded-blob validation package
+4. TCV-X21 diverted L-mode benchmark package
+5. detachment-scaling package
+6. performance and memory campaign on promoted native paths
+7. differentiable sensitivity / inverse-design / scaling package on promoted native paths
+
+Each campaign must ship with:
+
+- committed script entry points
+- JSON analysis payloads
+- publication-ready figures
+- a short methods note in `docs/`
+
+### Phase G. Draft the paper from the supported matrix, not the aspirational matrix
+
+The first paper should claim:
+
+- a research-grade, restartable, JAX-native edge/SOL code
+- a clearly stated supported matrix
+- exact or tightly bounded parity on that matrix
+- explicit capability-tier labeling for anything still operational or scaffolded
+
+The first paper should not claim:
+
+- full parity on every tokamak and 3D workflow
+- full differentiability on the heavy recycling backbone before the SciPy/FD barriers are removed
+- fully native closure on any lane still depending on replayed guard-state or dump-backed transient state
+
 This repository has been reset for that purpose. All pre-existing contents were archived into `legacy/` on 2026-03-11. `legacy/` is reference material only; it is not the active implementation base.
 
 ## 2. Non-Negotiable Requirements
