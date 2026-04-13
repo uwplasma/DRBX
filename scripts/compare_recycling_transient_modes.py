@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import time
 
 import numpy as np
 
@@ -51,6 +52,7 @@ def _summarize_mode_errors(
     expected_variables: dict[str, np.ndarray],
     *,
     fields: tuple[str, ...],
+    mesh=None,
 ) -> list[tuple[str, float]]:
     rows: list[tuple[str, float]] = []
     for field in fields:
@@ -58,6 +60,9 @@ def _summarize_mode_errors(
             continue
         actual = np.asarray(actual_variables[field], dtype=np.float64)
         expected = np.asarray(expected_variables[field], dtype=np.float64)
+        if mesh is not None and actual.ndim == 4 and expected.ndim == 4:
+            if actual.shape[1] >= mesh.xend + 1 and actual.shape[2] >= mesh.yend + 1:
+                actual = actual[:, mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
         if actual.shape != expected.shape:
             rows.append((field, float("inf")))
             continue
@@ -86,6 +91,7 @@ def main() -> int:
     print(f"fields={fields}")
     print(f"modes={modes}")
     for mode in modes:
+        started = time.perf_counter()
         history = advance_recycling_1d_implicit_history(
             config,
             mesh=mesh,
@@ -97,12 +103,13 @@ def main() -> int:
             residual_tolerance=rtol,
             max_nonlinear_iterations=30,
         )
+        elapsed = time.perf_counter() - started
         actual = {
             name: np.asarray(value, dtype=np.float64)
             for name, value in history.variable_history.items()
         }
-        rows = _summarize_mode_errors(actual, expected, fields=fields)
-        print(f"mode={mode}")
+        rows = _summarize_mode_errors(actual, expected, fields=fields, mesh=mesh)
+        print(f"mode={mode} elapsed={elapsed:.3f}s")
         for field, max_abs in rows:
             print(f"  {field}: max_abs_diff={max_abs:.8e}")
         if rows:
