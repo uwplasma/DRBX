@@ -4624,7 +4624,10 @@ def advance_recycling_1d_backward_euler_step(
             sanitize_fields=False,
             feedback_integrals=state_integrals,
             feedback_previous_errors=previous_feedback_errors,
-            feedback_timestep=timestep,
+            # When controller integrals are part of the implicit state, the source
+            # path should consume that state directly rather than applying a second
+            # trapezoid predictor to the same integral.
+            feedback_timestep=None if packed_feedback_names else timestep,
             field_names=field_names,
             feedback_names=packed_feedback_names,
             mesh=mesh,
@@ -4757,7 +4760,10 @@ def advance_recycling_1d_bdf2_step(
             sanitize_fields=False,
             feedback_integrals=state_integrals,
             feedback_previous_errors=previous_feedback_errors,
-            feedback_timestep=timestep,
+            # When controller integrals are part of the implicit state, the source
+            # path should consume that state directly rather than applying a second
+            # trapezoid predictor to the same integral.
+            feedback_timestep=None if packed_feedback_names else timestep,
             field_names=field_names,
             feedback_names=packed_feedback_names,
             mesh=mesh,
