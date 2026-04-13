@@ -4,6 +4,13 @@ This page connects the current `jax_drb` roadmap to active edge and scrape-off-l
 
 ## Near-Term Validation Targets
 
+The near-term execution order is:
+
+1. finish the native open-field recycling transient backbone
+2. reuse that backbone for integrated and direct-tokamak recycling lanes
+3. run the external benchmark campaigns on the already-promoted native lanes
+4. widen the selected 3D and electromagnetic publication matrix only after the recycling backbone is stable
+
 ### Seeded Blob And Filament Dynamics
 
 Priority use case:
@@ -80,9 +87,23 @@ These links are useful context for the current roadmap:
   - [Validation of SOLPS-ITER simulations against the TCV-X21 reference case](https://arxiv.org/abs/2310.17390)
 - detachment physics background:
   - [Physics of ultimate detachment of a tokamak divertor plasma](https://www.cambridge.org/core/product/B1A927D0F8DD3BB9C19A436C25C6FF31/core-reader)
+  - [Detachment scalings derived from 1D scrape-off-layer simulations](https://arxiv.org/abs/2406.16375)
+  - [SPLEND1D: a reduced one-dimensional model to investigate plasma detachment](https://arxiv.org/abs/2402.04656)
 - blob and filament validation context:
   - [Blob dynamics in the TORPEX experiment: a multi-code validation](https://graphsearch.epfl.ch/fr/publication/e67955ef-d60f-4897-8271-fde5dfb50c2e)
   - [Blob dynamics in TORPEX poloidal null configurations](https://arxiv.org/abs/1605.00963)
+- related code and benchmark context:
+  - [UEDGE](https://github.com/LLNL/UEDGE)
+  - [ReMKiT1D publication context](https://scientific-publications.ukaea.uk/wp-content/uploads/UKAEA-CCFE-PR23145.PDF)
+
+## What The Literature Implies For `jax_drb`
+
+The current roadmap should be interpreted conservatively:
+
+- TORPEX-style seeded blob work is the right external benchmark for the already-strong compact electrostatic lane
+- TCV-X21 is the right reviewer-facing diverted benchmark after the native recycling/tokamak transient backbone is stable
+- 1D detachment scaling should be treated as a required publication package, not optional polish, because it stresses sources, sinks, reactions, sheath closure, restart, and scan workflows simultaneously
+- 3D and broader EM claims should stay selected and benchmark-first until the native recycling/tokamak transient backbone no longer depends on replayed or scaffolded state
 
 ## What To Contribute Next
 
