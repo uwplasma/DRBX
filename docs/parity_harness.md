@@ -44,6 +44,7 @@ Current recycling blocker note:
 - the direct Hermes-vs-native `K*_coll` comparison at the blocker cells now matches to roundoff, so the remaining gap is not in the Coulomb collision-frequency builder;
 - reconstructing the missing lower neutral guard state materially tightened the lower-target D/T mismatch, but the worst one-step residual now sits on the opposite active edge of the local slab where `mesh.has_upper_y_target` is false;
 - on that side the next guard row is a communicated neighbor state, not a local sheath boundary, so this rung should remain `native_operational` until the broader native/distributed recycling transient backbone owns that guard evolution directly.
+- the open-field one-step blocker is now narrower too: the implicit recycling residual no longer double-advances density-feedback integrals when those integrals are already part of the packed solve state, and that behavior is unit-locked; bounded probes also ruled out smaller continuation startup `dt`, dropping one-step field-template replay, and forcing sanitized implicit residual fields as first-order fixes for the leading `recycling_1d_one_step` `Nd+` miss. The remaining blocker is still the active transient evolution itself near the target-adjacent cell.
 
 ## Step Status
 
