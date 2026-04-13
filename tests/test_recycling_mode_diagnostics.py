@@ -44,3 +44,22 @@ def test_summarize_mode_errors_marks_shape_mismatch_as_infinite() -> None:
     assert len(rows) == 1
     assert rows[0][0] == "Nd+"
     assert np.isinf(rows[0][1])
+
+
+def test_summarize_mode_errors_trims_guard_cells_with_mesh() -> None:
+    class Mesh:
+        xstart = 1
+        xend = 1
+        ystart = 1
+        yend = 2
+
+    actual = {
+        "Nd+": np.arange(2 * 3 * 4 * 1, dtype=np.float64).reshape(2, 3, 4, 1),
+    }
+    expected = {
+        "Nd+": actual["Nd+"][:, 1:2, 1:3, :].copy(),
+    }
+
+    rows = _summarize_mode_errors(actual, expected, fields=("Nd+",), mesh=Mesh())
+
+    assert rows == [("Nd+", 0.0)]
