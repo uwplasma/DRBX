@@ -1,0 +1,20 @@
+{
+  "artifact_bundle_files": [],
+  "available": false,
+  "capability_tier": "scaffolded_reference_backed",
+  "case_name": "tokamak_tcv_x21_escalation",
+  "compare_variables": [
+    "Ne",
+    "Pe",
+    "Pi",
+    "NVi",
+    "phi"
+  ],
+  "extra_overrides": [],
+  "parity_mode": "long_run",
+  "parse_status": "missing_input",
+  "process_count": 1,
+  "rationale": "Late-stage 3D X-point and turbulence reference case.",
+  "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp",
+  "stage": "stage8"
+}

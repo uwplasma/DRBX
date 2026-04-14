@@ -230,6 +230,15 @@ Implementation order:
    - `examples/tokamak-3D/tcv-x21`
 4. only then widen to richer 3D statistics and runtime/performance claims
 
+Current checkpoint:
+
+- the first TCV-X21 scaffold package is now in-tree with a committed preview movie bundle
+- the next concrete 3D deliverable is a structured deck/input report alongside that bundle so the selected 3D lane already exposes time, mesh, solver, component, and compare-surface metadata before the native 3D solver is promoted
+- after that report lands, the next three 3D deliverables are:
+  - bind a real external TCV-X21 workdir/mesh into the same artifact path and keep the figure package reproducible
+  - add the first reduced 3D selected-field parity rung on a compact compare surface
+  - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists
+
 Publication rule:
 
 - 3D/EM claims stay restricted to selected benchmark and reduced tokamak ladders until the fully coupled transient path is closed on those families

@@ -8,7 +8,10 @@ from pathlib import Path
 import numpy as np
 from netCDF4 import Dataset
 
+from ..config.boutinp import BoutConfig, load_bout_input
+from ..config.model import has_model_section, locate_model_section
 from ..reference.cases import ReferenceCase, load_reference_cases
+from ..runtime.run_config import RunConfiguration
 from .diverted_tokamak_movie import (
     DivertedTokamakMovieArtifacts,
     create_diverted_tokamak_movie_package,
@@ -20,6 +23,7 @@ DEFAULT_TCV_X21_CASE_NAME = "tokamak_tcv_x21_escalation"
 @dataclass(frozen=True)
 class TcvX21ScaffoldArtifacts:
     manifest_json_path: Path
+    input_report_json_path: Path
     arrays_npz_path: Path
     analysis_json_path: Path
     snapshots_png_path: Path
@@ -68,7 +72,6 @@ def create_tcv_x21_scaffold_package(
     movies_dir.mkdir(parents=True, exist_ok=True)
 
     resolved = resolve_tcv_x21_reference_case(reference_root, case_name=case_name)
-    reference_input_path = str(resolved.case.reference_path)
     resolved_workdir = Path(workdir_in) if workdir_in is not None else None
     resolved_mesh = Path(mesh_path) if mesh_path is not None else None
     if resolved_workdir is not None and resolved_mesh is None:
@@ -95,11 +98,9 @@ def create_tcv_x21_scaffold_package(
                 preview_artifacts,
                 output_root=root,
                 data_dir=data_dir,
-                case_name=case_name,
                 case_label=case_label,
                 field_name=field_name,
-                reference_input_path=reference_input_path,
-                reference_exists=resolved.exists,
+                reference_status=resolved,
                 preview_mode=True,
                 workdir_mode="synthetic_preview",
             )
@@ -120,11 +121,9 @@ def create_tcv_x21_scaffold_package(
         preview_artifacts,
         output_root=root,
         data_dir=data_dir,
-        case_name=case_name,
         case_label=case_label,
         field_name=field_name,
-        reference_input_path=reference_input_path,
-        reference_exists=resolved.exists,
+        reference_status=resolved,
         preview_mode=False,
         workdir_mode="external_workdir",
     )
@@ -135,24 +134,26 @@ def _finalize_scaffold_artifacts(
     *,
     output_root: Path,
     data_dir: Path,
-    case_name: str,
     case_label: str,
     field_name: str,
-    reference_input_path: str,
-    reference_exists: bool,
+    reference_status: TcvX21ReferenceStatus,
     preview_mode: bool,
     workdir_mode: str,
 ) -> TcvX21ScaffoldArtifacts:
+    input_report = _build_input_report(reference_status)
+    input_report_json_path = data_dir / f"{case_label}_input_report.json"
+    input_report_json_path.write_text(json.dumps(input_report, indent=2, sort_keys=True), encoding="utf-8")
     report = {
-        "case_name": case_name,
+        "case_name": reference_status.case.name,
         "case_label": case_label,
         "field_name": field_name,
-        "capability_tier": "scaffolded_reference_backed",
+        "capability_tier": reference_status.case.capability_tier,
         "preview_mode": preview_mode,
         "workdir_mode": workdir_mode,
-        "reference_input_path": reference_input_path,
-        "reference_exists": reference_exists,
+        "reference_input_path": reference_status.case.reference_path,
+        "reference_exists": reference_status.exists,
         "artifacts": {
+            "input_report_json": str(input_report_json_path.relative_to(output_root)),
             "arrays_npz": str(artifacts.arrays_npz_path.relative_to(output_root)),
             "analysis_json": str(artifacts.analysis_json_path.relative_to(output_root)),
             "snapshots_png": str(artifacts.snapshots_png_path.relative_to(output_root)),
@@ -164,6 +165,7 @@ def _finalize_scaffold_artifacts(
     manifest_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return TcvX21ScaffoldArtifacts(
         manifest_json_path=manifest_json_path,
+        input_report_json_path=input_report_json_path,
         arrays_npz_path=artifacts.arrays_npz_path,
         analysis_json_path=artifacts.analysis_json_path,
         snapshots_png_path=artifacts.snapshots_png_path,
@@ -237,3 +239,166 @@ def _write_synthetic_dump(path: Path, *, field_name: str, pe_yind: int) -> None:
                             + 0.02 * z_index
                         )
         field[:] = values
+
+
+def _build_input_report(reference_status: TcvX21ReferenceStatus) -> dict[str, object]:
+    case = reference_status.case
+    report: dict[str, object] = {
+        "available": reference_status.exists,
+        "case_name": case.name,
+        "reference_input_path": case.reference_path,
+        "capability_tier": case.capability_tier,
+        "parity_mode": case.parity_mode,
+        "stage": case.stage,
+        "rationale": case.rationale,
+        "compare_variables": list(case.compare_variables),
+        "extra_overrides": list(case.extra_overrides),
+        "process_count": case.process_count,
+        "artifact_bundle_files": list(case.artifact_bundle_files),
+    }
+    if not reference_status.exists:
+        report["parse_status"] = "missing_input"
+        return report
+
+    try:
+        config = load_bout_input(reference_status.input_path)
+    except Exception as exc:
+        report["parse_status"] = "parse_failed"
+        report["parse_error"] = f"{type(exc).__name__}: {exc}"
+        return report
+
+    report["parse_status"] = "ok"
+    report["section_names"] = list(config.section_names())
+    report["model_section"] = _resolve_model_section(config)
+    report["declared_components"] = _resolve_declared_components(config)
+
+    try:
+        run_config = RunConfiguration.from_config(config)
+    except Exception as exc:
+        report["run_config_status"] = "partial"
+        report["run_config_error"] = f"{type(exc).__name__}: {exc}"
+        run_config = None
+    else:
+        report["run_config_status"] = "ok"
+
+    report["time"] = _resolve_time_summary(config, run_config)
+    report["mesh"] = _resolve_mesh_summary(config, run_config)
+    report["solver"] = _resolve_solver_summary(config, run_config)
+    report["components"] = _resolve_component_summary(run_config)
+    return report
+
+
+def _resolve_model_section(config: BoutConfig) -> str | None:
+    if not has_model_section(config):
+        return None
+    try:
+        return locate_model_section(config)
+    except KeyError:
+        return None
+
+
+def _resolve_declared_components(config: BoutConfig) -> list[str]:
+    model_section = _resolve_model_section(config)
+    if model_section is None or not config.has_option(model_section, "components"):
+        return []
+    value = config.parsed(model_section, "components")
+    if isinstance(value, tuple):
+        return [_normalize_component_name(item) for item in value]
+    return [_normalize_component_name(value)]
+
+
+def _resolve_component_summary(run_config: RunConfiguration | None) -> dict[str, object]:
+    if run_config is None:
+        return {"count": 0, "labels": [], "sections": []}
+    sections = sorted({_normalize_component_name(component.section) for component in run_config.components})
+    return {
+        "count": len(run_config.components),
+        "labels": [_normalize_component_name(component.label) for component in run_config.components],
+        "sections": sections,
+    }
+
+
+def _resolve_time_summary(
+    config: BoutConfig,
+    run_config: RunConfiguration | None,
+) -> dict[str, object]:
+    if run_config is not None:
+        return {
+            "nout": run_config.time.nout,
+            "timestep": run_config.time.timestep,
+        }
+    return {
+        "nout": _parsed_option(config, "__root__", "nout"),
+        "timestep": _parsed_option(config, "__root__", "timestep"),
+    }
+
+
+def _resolve_mesh_summary(
+    config: BoutConfig,
+    run_config: RunConfiguration | None,
+) -> dict[str, object]:
+    if run_config is not None:
+        mesh = run_config.mesh
+        return {
+            "nx": mesh.nx,
+            "ny": mesh.ny,
+            "nz": mesh.nz,
+            "mxg": mesh.mxg,
+            "myg": mesh.myg,
+            "mz": mesh.mz,
+            "zperiod": mesh.zperiod,
+            "file": mesh.file,
+            "extrapolate_y": mesh.extrapolate_y,
+            "parallel_transform_type": mesh.parallel_transform.type,
+        }
+    return {
+        "nx": _parsed_option(config, "mesh", "nx"),
+        "ny": _parsed_option(config, "mesh", "ny"),
+        "nz": _parsed_option(config, "mesh", "nz"),
+        "mxg": _parsed_option(config, "__root__", "MXG"),
+        "myg": _parsed_option(config, "__root__", "MYG"),
+        "mz": _parsed_option(config, "__root__", "MZ"),
+        "zperiod": _parsed_option(config, "__root__", "zperiod"),
+        "file": _parsed_option(config, "mesh", "file"),
+        "extrapolate_y": _parsed_option(config, "mesh", "extrapolate_y"),
+        "parallel_transform_type": _parsed_option(config, "mesh:paralleltransform", "type"),
+    }
+
+
+def _resolve_solver_summary(
+    config: BoutConfig,
+    run_config: RunConfiguration | None,
+) -> dict[str, object]:
+    if run_config is not None:
+        solver = run_config.solver
+        return {
+            "type": solver.type,
+            "mxstep": solver.mxstep,
+            "rtol": solver.rtol,
+            "atol": solver.atol,
+            "use_precon": solver.use_precon,
+            "cvode_max_order": solver.cvode_max_order,
+            "mms": solver.mms,
+        }
+    return {
+        "type": _parsed_option(config, "solver", "type"),
+        "mxstep": _parsed_option(config, "solver", "mxstep"),
+        "rtol": _parsed_option(config, "solver", "rtol"),
+        "atol": _parsed_option(config, "solver", "atol"),
+        "use_precon": _parsed_option(config, "solver", "use_precon"),
+        "cvode_max_order": _parsed_option(config, "solver", "cvode_max_order"),
+        "mms": _parsed_option(config, "solver", "mms"),
+    }
+
+
+def _parsed_option(config: BoutConfig, section: str, key: str) -> bool | int | float | str | tuple[str, ...] | None:
+    if not config.has_option(section, key):
+        return None
+    return config.parsed(section, key)
+
+
+def _normalize_component_name(value: object) -> str:
+    text = str(value).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        return text[1:-1]
+    return text
