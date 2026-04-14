@@ -104,6 +104,11 @@ from .diverted_tokamak_movie import (
     write_diverted_tokamak_analysis_json,
     write_diverted_tokamak_arrays_npz,
 )
+from .geometry_profiles import (
+    build_diagnostic_profile_report,
+    save_diagnostic_profile_summary_plot,
+    write_diagnostic_profile_arrays_npz,
+)
 from .tokamak_tcv_x21_scaffold import (
     DEFAULT_TCV_X21_CASE_NAME,
     TcvX21ScaffoldArtifacts,
@@ -213,6 +218,9 @@ __all__ = [
     "toroidal_mean_fluctuation",
     "write_diverted_tokamak_analysis_json",
     "write_diverted_tokamak_arrays_npz",
+    "build_diagnostic_profile_report",
+    "save_diagnostic_profile_summary_plot",
+    "write_diagnostic_profile_arrays_npz",
     "DEFAULT_TCV_X21_CASE_NAME",
     "TcvX21ScaffoldArtifacts",
     "TcvX21ReferenceStatus",

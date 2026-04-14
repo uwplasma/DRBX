@@ -27,6 +27,10 @@ This benchmark-specific methodology sits on top of the broader geometry plan in
 [geometry_roadmap.md](geometry_roadmap.md). TCV-X21 is the first serious 3D
 benchmark adapter, not the definition of the whole 3D code path.
 
+The current scaffold implementation now consumes a shared 3D diagnostic-profile
+layer for report building, NPZ export, and publication plotting. That is the
+intended direction for future benchmark adapters too.
+
 ## Observable Families
 
 The first selected 3D benchmark lane should be organized around the same

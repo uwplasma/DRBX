@@ -35,6 +35,14 @@ Current reusable pieces already in tree:
 
 These pieces should be treated as the seed of a general 3D diagnostics layer, even if some names still reflect the first benchmark package built on top of them.
 
+The current shared layer now includes:
+
+- a reusable profile-report builder
+- a reusable diagnostic-profile NPZ writer
+- a reusable publication-style profile plotting path
+
+The current TCV-X21 scaffold consumes those shared pieces instead of owning a private benchmark-specific implementation.
+
 ### Current Benchmark Adapter
 
 The current 3D benchmark adapter is the TCV-X21 scaffold package:
