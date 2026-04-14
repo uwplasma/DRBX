@@ -237,6 +237,7 @@ Current checkpoint:
 - the first TCV-X21 scaffold package is now in-tree with a committed preview movie bundle
 - the next concrete 3D deliverable is a structured deck/input report alongside that bundle so the selected 3D lane already exposes time, mesh, solver, component, and compare-surface metadata before the native 3D solver is promoted
 - the same scaffold package now also needs to carry an explicit benchmark validation contract, keyed to the TCV-X21 observable families (`FHRP`, `LFS-LP`, `HFS-LP`) and to the staged promotion gates from scaffold -> real external workdir -> reduced selected-field parity -> benchmark comparison bundle
+- the scaffold package now also carries a staged profile report, compact profile arrays, and a publication-style profile summary figure for those same observable families, so the 3D benchmark lane already has a reviewer-facing data product before the native selected-field rung lands
 - after that report lands, the next three 3D deliverables are:
   - bind a real external TCV-X21 workdir/mesh into the same artifact path and keep the figure package reproducible
   - add the first reduced 3D selected-field parity rung on a compact compare surface
