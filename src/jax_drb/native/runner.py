@@ -1804,6 +1804,13 @@ def run_config_case(
             return
         event_sink(build_run_event(stage=stage, message=message, details=details or None))
 
+    def emit_progress(details: ABCMapping[str, Any]) -> None:
+        emit(
+            "progress",
+            "Completed recycling transient interval",
+            **dict(details),
+        )
+
     run_config = RunConfiguration.from_config(config)
     emit(
         "configuration",
@@ -1836,6 +1843,7 @@ def run_config_case(
         parity_mode=parity_mode,
         restart_state=restart_state,
         output_steps=output_steps,
+        progress_callback=emit_progress,
     )
     emit(
         "run",
@@ -1892,6 +1900,7 @@ def _execute_supported_case(
     parity_mode: str,
     restart_state: NativeRestartState | None = None,
     output_steps: int | None = None,
+    progress_callback: Callable[[ABCMapping[str, Any]], None] | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     implementations = tuple(component.implementation for component in run_config.components)
     if len(run_config.components) == 1 and implementations == ("evolve_density",):
@@ -1939,7 +1948,14 @@ def _execute_supported_case(
         return _execute_neutral_mixed_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
 
     if _is_supported_recycling_1d_case(run_config, mesh):
-        return _execute_recycling_1d_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_recycling_1d_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            progress_callback=progress_callback,
+        )
 
     if _is_supported_blob2d_case(config, run_config, mesh, metrics):
         return _execute_blob2d_case(
@@ -2089,6 +2105,7 @@ def _execute_recycling_1d_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    progress_callback: Callable[[ABCMapping[str, Any]], None] | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     dataset_scalars = resolved_dataset_scalars(run_config)
     if parity_mode == "one_rhs":
@@ -2112,6 +2129,7 @@ def _execute_recycling_1d_case(
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
+        progress_callback=progress_callback,
     )
     time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
     return time_points, {

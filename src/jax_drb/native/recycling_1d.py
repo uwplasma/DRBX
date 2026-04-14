@@ -6,6 +6,7 @@ import json
 from importlib import resources
 import math
 import re
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
@@ -119,6 +120,9 @@ class Recycling1DImplicitStepInfo:
     active_size: int
     nonlinear_iterations: int
     linear_iterations: int
+
+
+RecyclingProgressCallback = Callable[[Mapping[str, Any]], None]
 
 
 @dataclass(frozen=True)
@@ -3854,6 +3858,7 @@ def advance_recycling_1d_implicit_history(
     solver_mode: str = "bdf",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
+    progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative.")
@@ -3889,6 +3894,7 @@ def advance_recycling_1d_implicit_history(
             steps=steps,
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+            progress_callback=progress_callback,
         )
 
     if solver_mode == "adaptive_be":
@@ -3906,6 +3912,7 @@ def advance_recycling_1d_implicit_history(
             steps=steps,
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+            progress_callback=progress_callback,
         )
 
     if solver_mode == "adaptive_bdf":
@@ -3923,6 +3930,7 @@ def advance_recycling_1d_implicit_history(
             steps=steps,
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+            progress_callback=progress_callback,
         )
 
     if solver_mode == "bdf":
@@ -3938,6 +3946,7 @@ def advance_recycling_1d_implicit_history(
             dataset_scalars=dataset_scalars,
             timestep=timestep,
             steps=steps,
+            progress_callback=progress_callback,
         )
 
     variable_history = {name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names}
@@ -3961,6 +3970,16 @@ def advance_recycling_1d_implicit_history(
             variable_history[name].append(np.asarray(fields[name], dtype=np.float64))
         for name in feedback_names:
             feedback_history[name].append(np.asarray(integrals[name], dtype=np.float64))
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "interval_index": len(next(iter(variable_history.values()))) - 1,
+                    "steps": steps,
+                    "solver_mode": solver_mode,
+                    "accepted_dt": float(timestep),
+                    "stored_states": len(next(iter(variable_history.values()))),
+                }
+            )
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -3983,6 +4002,7 @@ def _advance_recycling_1d_continuation_history(
     steps: int,
     residual_tolerance: float,
     max_nonlinear_iterations: int,
+    progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
@@ -4009,6 +4029,16 @@ def _advance_recycling_1d_continuation_history(
             variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
         for name in feedback_names:
             feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "interval_index": interval_index + 1,
+                    "steps": steps,
+                    "solver_mode": "continuation",
+                    "accepted_dt": float(suggested_dt),
+                    "stored_states": len(next(iter(variable_history.values()))),
+                }
+            )
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -4031,6 +4061,7 @@ def _advance_recycling_1d_adaptive_be_history(
     steps: int,
     residual_tolerance: float,
     max_nonlinear_iterations: int,
+    progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
@@ -4038,7 +4069,7 @@ def _advance_recycling_1d_adaptive_be_history(
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = min(float(timestep), 10.0 if len(field_names) > 10 else 5.0)
 
-    for _ in range(steps):
+    for interval_index in range(steps):
         current_fields, current_integrals, suggested_dt = _advance_recycling_1d_adaptive_be_interval(
             config,
             current_fields,
@@ -4058,6 +4089,16 @@ def _advance_recycling_1d_adaptive_be_history(
             variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
         for name in feedback_names:
             feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "interval_index": interval_index + 1,
+                    "steps": steps,
+                    "solver_mode": "adaptive_be",
+                    "accepted_dt": float(suggested_dt),
+                    "stored_states": len(next(iter(variable_history.values()))),
+                }
+            )
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -4080,6 +4121,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
     steps: int,
     residual_tolerance: float,
     max_nonlinear_iterations: int,
+    progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
@@ -4090,7 +4132,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
 
-    for _ in range(steps):
+    for interval_index in range(steps):
         (
             current_fields,
             current_integrals,
@@ -4120,6 +4162,16 @@ def _advance_recycling_1d_adaptive_bdf_history(
             variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
         for name in feedback_names:
             feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "interval_index": interval_index + 1,
+                    "steps": steps,
+                    "solver_mode": "adaptive_bdf",
+                    "accepted_dt": float(suggested_dt),
+                    "stored_states": len(next(iter(variable_history.values()))),
+                }
+            )
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -4893,6 +4945,7 @@ def _advance_recycling_1d_bdf_history(
     dataset_scalars: dict[str, float],
     timestep: float,
     steps: int,
+    progress_callback: RecyclingProgressCallback | None = None,
 ) -> Recycling1DHistoryResult:
     try:
         from scipy.integrate import solve_ivp
@@ -4988,6 +5041,16 @@ def _advance_recycling_1d_bdf_history(
             variable_history[name].append(np.asarray(sample_fields[name], dtype=np.float64))
         for name in feedback_names:
             feedback_history[name].append(np.asarray(sample_integrals[name], dtype=np.float64))
+        if progress_callback is not None and column > 0:
+            progress_callback(
+                {
+                    "interval_index": column,
+                    "steps": steps,
+                    "solver_mode": "bdf",
+                    "accepted_dt": float(timestep),
+                    "stored_states": column + 1,
+                }
+            )
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},

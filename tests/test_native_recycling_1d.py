@@ -742,6 +742,55 @@ def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
     assert calls == ["adaptive_bdf"]
 
 
+def test_recycling_one_step_progress_callback_receives_interval_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+
+    progress_events: list[dict[str, object]] = []
+
+    def fake_advance(*args, **kwargs):
+        progress_callback = kwargs["progress_callback"]
+        assert progress_callback is not None
+        progress_callback(
+            {
+                "interval_index": 1,
+                "steps": 1,
+                "solver_mode": kwargs["solver_mode"],
+                "accepted_dt": float(run_config.time.timestep),
+                "stored_states": 2,
+            }
+        )
+        field_history = {
+            "Nd+": np.zeros((2, mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64),
+        }
+        return SimpleNamespace(variable_history=field_history)
+
+    monkeypatch.setattr(native_runner, "advance_recycling_1d_implicit_history", fake_advance)
+
+    native_runner._execute_recycling_1d_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode="one_step",
+        progress_callback=progress_events.append,
+    )
+
+    assert progress_events == [
+        {
+            "interval_index": 1,
+            "steps": 1,
+            "solver_mode": "continuation",
+            "accepted_dt": float(run_config.time.timestep),
+            "stored_states": 2,
+        }
+    ]
+
+
 def test_integrated_recycling_runtime_override_supersedes_default_bdf() -> None:
     config = apply_bout_overrides(
         load_bout_input(_INPUT_1D),

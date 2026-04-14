@@ -51,6 +51,8 @@ Fast validation policy:
 - the reviewer-facing convergence lane now starts from a reproducible manufactured-solution script, `scripts/run_fluid_1d_mms_convergence.py`, which reports refinement errors and observed order on the native 1D fluid operator path
 - the local open-field recycling ladder now includes `recycling_1d_short_window` (`nout=5`) as the first repeated-output transient rung for the native backbone
 - the standalone runtime now accepts `[runtime.logging].verbose = true|false` in TOML and the same detail switch is exposed through `jax_drb --verbose` and `run_input_case(..., verbose=True)`
+- the detailed runtime stream now also forwards interval-level `progress` events from the native recycling transient backbone into the CLI, so long implicit recycling steps no longer look hung while accepted intervals are being advanced
+- the verbose run-log JSON now stores `event_count` and `event_stages` in addition to the ordered `events` list, which makes downstream audit checks cheaper than replaying the full payload
 - the same runtime layer now also exposes `[runtime].recycling_transient_solver_mode = "continuation" | "bdf" | "adaptive_be" | "adaptive_bdf"` so the open-field recycling one-step blocker can be swept from a deck or Python driver without patching source code
 - the compact native diffusion lane now also carries the first publication-oriented autodiff/scaling artifact package:
   - `examples/autodiff_diffusion_sensitivity_demo.py`
@@ -1098,7 +1100,7 @@ Scope:
     - users can now run supported inputs directly as `jax_drb input.toml` or `jax-drb input.toml` without an explicit `run` subcommand;
     - the intended native input surface is now organized TOML with `[time]`, `[runtime]`, `[runtime.logging]`, `[mesh]`, `[solver]`, `[model]`, `[output]`, `[restart]`, `[species.*]`, and `[fields.*]`;
     - output destinations, restart/resume requests, and logging verbosity can now be declared in the deck itself instead of only on the CLI;
-    - the run-log JSON now includes an ordered event stream for configuration, restart loading, launch, completion, and artifact planning, and the terminal path mirrors that with rich event panels before the final summary table;
+    - the run-log JSON now includes an ordered event stream for configuration, restart loading, launch, recycling progress, completion, and artifact planning, and the terminal path mirrors that with rich event panels before the final summary table;
     - the run-log JSON also now records execution-environment metadata (`jax_version`, `python_version`, platform, pid, working directory) so standalone runs are easier to audit and reproduce;
     - runtime precision is now user-selectable in both the input deck and the driver/CLI layer;
     - the supported diffusion executable path now runs cleanly in both `float64` and `float32`, with committed benchmark scripts and artifacts in-tree; on the current local CPU rung the warm second-run `float32` diffusion path is about `1.24x` faster than `float64`, so precision is now a real supported knob on that native slice, but it is still not the global default until broader production paths drop their remaining explicit `float64` assumptions;
