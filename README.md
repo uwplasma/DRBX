@@ -230,6 +230,7 @@ If you want meeting-ready figures and movies:
 - [blob2d_meeting_demo.md](docs/blob2d_meeting_demo.md)
 - [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
 - [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
+- [tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
 - [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
 
 If you want the current validation gallery:
