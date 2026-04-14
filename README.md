@@ -165,6 +165,7 @@ The run log stores:
 - runtime precision and backend
 - mesh, solver, and time configuration
 - ordered event stream
+- event count and stage inventory
 - restart provenance
 - output artifact locations
 - variable min/max/mean/delta summaries
@@ -176,6 +177,15 @@ For terminal logging, `jax_drb` now supports both a boolean switch and an explic
 - `[runtime.logging].verbosity = "summary"` or `"detailed"` pins the level explicitly
 - `[runtime.logging].quiet = true` suppresses terminal output entirely
 - `jax_drb input.toml --verbose` forces detailed CLI output for a one-off run
+
+Detailed mode is meant to keep long runs from looking hung. The CLI now reports:
+
+- configuration and restart loading
+- run launch and completion
+- recycling transient interval progress on the native recycling lanes
+- artifact resolution and per-artifact writes
+
+The saved run-log JSON mirrors that same stream through `events`, `event_count`, and `event_stages`, so workflow scripts can reconstruct what happened without scraping terminal output.
 
 The same runtime section can also pin the native recycling one-step transient solver when you are sweeping the open-field transient blocker:
 

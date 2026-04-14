@@ -103,7 +103,10 @@ def build_run_log_payload(
     if restart_info is not None:
         payload["restart_info"] = dict(restart_info)
     if events is not None:
-        payload["events"] = [dict(event) for event in events]
+        rendered_events = [dict(event) for event in events]
+        payload["events"] = rendered_events
+        payload["event_count"] = len(rendered_events)
+        payload["event_stages"] = [str(event.get("stage", "")) for event in rendered_events]
     return payload
 
 
@@ -152,6 +155,7 @@ def format_run_log_text(payload: Mapping[str, Any]) -> str:
         f"  compare variables: {compare_variables}\n"
         f"  dimensions: {payload.get('dimensions')}\n"
         f"  time: {time_line}\n"
+        f"  events: {payload.get('event_count', 0)}\n"
         f"  restart supported: {'yes' if payload.get('restart_supported') else 'no'}\n"
         f"  restart:\n{restart_block}\n"
         f"  outputs:\n{output_lines}"
@@ -202,6 +206,7 @@ def print_run_log(payload: Mapping[str, Any], *, verbosity: str = "summary") -> 
     summary.add_row("components", ", ".join(payload.get("component_labels", [])) or "(none)")
     summary.add_row("compare vars", ", ".join(payload.get("compare_variables", [])) or "(none)")
     summary.add_row("dimensions", json.dumps(payload.get("dimensions", {}), sort_keys=True))
+    summary.add_row("events", str(payload.get("event_count", 0)))
     summary.add_row("restart", "yes" if payload.get("restart_supported") else "no")
 
     outputs = Table(title="Outputs", show_header=True, header_style="bold magenta")

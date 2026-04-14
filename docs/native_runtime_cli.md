@@ -211,6 +211,17 @@ Both versions report the same core metadata:
 
 The verbose run-log JSON now also stores the ordered event stream, so a downstream plotting or workflow script can reconstruct what happened during the run.
 The same JSON also stores sanitized working-directory and machine/runtime metadata so a saved run can be audited later without leaking workstation-specific absolute paths.
+It now also carries `event_count` and `event_stages`, and the native recycling lanes emit interval-level `progress` events so long implicit steps do not appear idle in the CLI.
+
+In practice, the detailed runtime stream now covers:
+
+- configuration loading
+- restart loading
+- native run launch/completion
+- recycling transient interval progress
+- artifact destination resolution
+- per-artifact write completion
+- final run summary
 
 ## Restart / Resume
 

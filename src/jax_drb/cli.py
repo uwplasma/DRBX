@@ -6,7 +6,7 @@ from pathlib import Path
 import platform
 import sys
 import time
-from typing import Any
+from typing import Any, Mapping
 
 from .config.boutinp import load_bout_input
 from .reference.cases import resolve_reference_cases
@@ -427,6 +427,15 @@ def _run_command(args: argparse.Namespace) -> int:
             requested_resume_steps=resume_steps if resume_steps is not None else "(default)",
         )
 
+    def relay_native_event(event: Mapping[str, Any]) -> None:
+        if str(event.get("stage", "")) != "progress":
+            return
+        details = event.get("details")
+        if isinstance(details, Mapping):
+            record_event(str(event.get("stage", "progress")), str(event.get("message", "Native progress update")), **dict(details))
+        else:
+            record_event(str(event.get("stage", "progress")), str(event.get("message", "Native progress update")))
+
     started_at = time.perf_counter()
     record_event("run", "Launching native run", mode="run", restart=restart_state is not None)
     result = run_input_case(
@@ -436,6 +445,7 @@ def _run_command(args: argparse.Namespace) -> int:
         restart_state=restart_state,
         output_steps=resume_steps,
         verbose=False,
+        event_logger=relay_native_event,
     )
     elapsed_seconds = time.perf_counter() - started_at
     record_event(
@@ -457,10 +467,19 @@ def _run_command(args: argparse.Namespace) -> int:
             args.restart_out = output_dir / f"{case_name}_restart.npz"
         if args.log_out is None and write_log:
             args.log_out = output_dir / f"{case_name}_run_log.json"
+        record_event(
+            "artifacts",
+            "Resolved artifact destinations",
+            summary_json=args.json_out if args.json_out is not None else "(disabled)",
+            arrays_npz=args.arrays_out if args.arrays_out is not None else "(disabled)",
+            restart_npz=args.restart_out if args.restart_out is not None else "(disabled)",
+            run_log_json=args.log_out if args.log_out is not None else "(disabled)",
+        )
 
     if args.json_out is not None:
         path = write_portable_summary_payload(result.payload, args.json_out)
         output_paths["summary_json"] = _sanitize_logged_path(path) or str(path)
+        record_event("artifacts", "Wrote summary JSON", path=path)
     if args.arrays_out is not None:
         array_payload = build_portable_array_payload(
             case_name=str(result.payload["case_name"]),
@@ -479,13 +498,22 @@ def _run_command(args: argparse.Namespace) -> int:
         )
         path = write_portable_array_payload(array_payload, args.arrays_out)
         output_paths["arrays_npz"] = _sanitize_logged_path(path) or str(path)
+        record_event("artifacts", "Wrote arrays NPZ", path=path, variables=len(result.variables))
 
     restart_bundle = build_restart_state(result, parity_mode="run")
     if args.restart_out is not None and restart_bundle is not None:
         path = write_restart_bundle(restart_bundle, args.restart_out)
         output_paths["restart_npz"] = _sanitize_logged_path(path) or str(path)
+        record_event(
+            "artifacts",
+            "Wrote restart bundle",
+            path=path,
+            completed_steps=restart_bundle.completed_steps,
+            current_time=restart_bundle.current_time,
+        )
     elif args.restart_out is not None and restart_bundle is None:
         output_paths["restart_npz"] = "(unsupported for this component set)"
+        record_event("artifacts", "Restart bundle unsupported for this run", path=args.restart_out)
 
     if args.log_out is not None:
         output_paths["run_log_json"] = _sanitize_logged_path(args.log_out) or str(args.log_out)
@@ -528,10 +556,16 @@ def _run_command(args: argparse.Namespace) -> int:
         events=tuple(events),
     )
     if args.log_out is not None:
+        record_event("artifacts", "Writing verbose run log JSON", path=args.log_out, event_count=len(events))
+        log_payload["events"] = list(events)
+        log_payload["event_count"] = len(events)
+        log_payload["event_stages"] = [str(event.get("stage", "")) for event in events]
         path = write_run_log_payload(log_payload, args.log_out)
         output_paths["run_log_json"] = _sanitize_logged_path(path) or str(path)
         log_payload["outputs"] = output_paths
         log_payload["events"] = list(events)
+        log_payload["event_count"] = len(events)
+        log_payload["event_stages"] = [str(event.get("stage", "")) for event in events]
 
     if emit_terminal_log:
         print_run_log(log_payload, verbosity=logging_verbosity)
