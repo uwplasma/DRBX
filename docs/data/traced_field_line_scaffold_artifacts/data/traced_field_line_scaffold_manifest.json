@@ -1,0 +1,13 @@
+{
+  "artifacts": {
+    "input_report_json": "data/traced_field_line_scaffold_input_report.json",
+    "metric_arrays_npz": "data/traced_field_line_scaffold_metric_arrays.npz",
+    "metric_plot_png": "images/traced_field_line_scaffold_metrics.png",
+    "metric_report_json": "data/traced_field_line_scaffold_metric_report.json",
+    "validation_contract_json": "data/traced_field_line_scaffold_validation_contract.json"
+  },
+  "benchmark_adapter": "stellarator_traced_field_line_scaffold",
+  "case_label": "traced_field_line_scaffold",
+  "geometry_family": "traced_field_line_3d",
+  "preview_mode": true
+}

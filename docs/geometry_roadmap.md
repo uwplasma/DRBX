@@ -53,6 +53,15 @@ The current 3D benchmark adapter is the TCV-X21 scaffold package:
 
 That package is useful and should stay, but it is an adapter, not the architecture.
 
+The first second-adapter scaffold is now also in tree:
+
+- [src/jax_drb/validation/traced_field_line_scaffold.py](../src/jax_drb/validation/traced_field_line_scaffold.py)
+- [docs/traced_field_line_scaffold_demo.md](traced_field_line_scaffold_demo.md)
+
+It is intentionally lighter than the TCV package. Its purpose is to pressure-test
+the general geometry and diagnostics layer on a non-diverted geometry family
+before a real external traced-field-line mesh is wired in.
+
 ## Required Next Geometry Families
 
 ### Diverted Tokamak Benchmark Adapters

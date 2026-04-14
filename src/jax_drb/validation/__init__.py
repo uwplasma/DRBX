@@ -126,6 +126,10 @@ from .tokamak_tcv_x21_selected_field import (
     write_tcv_x21_selected_field_parity_arrays,
     write_tcv_x21_selected_field_parity_json,
 )
+from .traced_field_line_scaffold import (
+    TracedFieldLineScaffoldArtifacts,
+    create_traced_field_line_scaffold_package,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -234,4 +238,6 @@ __all__ = [
     "save_tcv_x21_selected_field_parity_plot",
     "write_tcv_x21_selected_field_parity_arrays",
     "write_tcv_x21_selected_field_parity_json",
+    "TracedFieldLineScaffoldArtifacts",
+    "create_traced_field_line_scaffold_package",
 ]

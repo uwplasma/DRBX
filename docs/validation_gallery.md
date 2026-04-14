@@ -130,6 +130,18 @@ What this documents:
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.
 - the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from two 3D workdirs.
 
+## Traced-Field-Line Geometry Scaffold
+
+![Traced-field-line scaffold metrics](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_metrics.png)
+
+What this documents:
+
+- the second 3D geometry-adapter scaffold in the tree;
+- a non-diverted, traced-field-line geometry family riding on the same general 3D infrastructure;
+- a reusable metric summary JSON and compact NPZ metric bundle;
+- a publication-style metric summary plot that can be regenerated from either a synthetic preview or an explicit mesh/metric JSON specification;
+- an explicit geometry-adapter validation contract before any native non-tokamak 3D claim is made.
+
 ## Neutral Mixed Short-Window Benchmark Target
 
 ![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
