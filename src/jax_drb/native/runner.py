@@ -59,7 +59,6 @@ from .reference_dump import load_local_reference_snapshot
 from .reference_dump import (
     load_local_reference_snapshot_cache,
     load_optional_field_history_cache,
-    synthesize_local_reference_snapshot_from_active_history,
 )
 from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
 from .transport import advance_anomalous_diffusion_history
@@ -470,6 +469,10 @@ def _run_integrated_2d_recycling_rhs_case(
     density_source_overrides = _snapshot_density_source_overrides(config, snapshot.optional_fields)
     pressure_source_overrides = _snapshot_pressure_source_overrides(config, snapshot.optional_fields)
     momentum_source_overrides = _snapshot_momentum_source_overrides(config, snapshot.optional_fields)
+    if case.name.startswith("integrated_2d_recycling"):
+        density_source_overrides = None
+        pressure_source_overrides = None
+        momentum_source_overrides = None
     field_overrides = dict(snapshot.fields)
     velocity_field_overrides = _snapshot_velocity_overrides(config, snapshot.optional_fields)
     if case.name.startswith("integrated_2d_production") and velocity_field_overrides:
@@ -1360,6 +1363,10 @@ def _run_integrated_2d_recycling_transient_case(
     density_source_overrides = _snapshot_density_source_overrides(config, snapshot.optional_fields)
     pressure_source_overrides = _snapshot_pressure_source_overrides(config, snapshot.optional_fields)
     momentum_source_overrides = _snapshot_momentum_source_overrides(config, snapshot.optional_fields)
+    if case.name.startswith("integrated_2d_recycling"):
+        density_source_overrides = None
+        pressure_source_overrides = None
+        momentum_source_overrides = None
     initial_fields = {
         name: np.asarray(value, dtype=np.float64)
         for name, value in snapshot.fields.items()
@@ -1472,11 +1479,7 @@ def _run_integrated_2d_recycling_transient_case(
             )
     field_template_overrides = None if not field_template_overrides_history else field_template_overrides_history[-1]
     if case.name.startswith("tokamak_recycling"):
-        field_template_overrides = _restrict_field_template_overrides_to_non_owned_y_guards(
-            initial_fields,
-            field_template_overrides,
-            mesh=snapshot.mesh,
-        )
+        field_template_overrides = None
     solver_mode = _select_integrated_2d_transient_solver_mode(case.name, config=config, parity_mode="one_step")
     history = advance_recycling_1d_implicit_history(
         config,
@@ -1593,21 +1596,6 @@ def _run_open_field_recycling_one_step_case(
                 field_names=state_field_names,
                 scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
             )
-    field_template_overrides = None
-    array_history_path = _REFERENCE_ARRAY_BASELINE_DIR / f"{case.name}.npz"
-    if array_history_path.exists():
-        synthesized = synthesize_local_reference_snapshot_from_active_history(
-            initial_snapshot=snapshot,
-            array_history_path=array_history_path,
-            timestep=run_config.time.timestep,
-            state_field_names=state_field_names,
-            optional_field_names=(),
-        )
-        field_template_overrides = {
-            name: np.asarray(value, dtype=np.float64)
-            for name, value in synthesized.fields.items()
-            if name in state_field_names
-        }
     history = advance_recycling_1d_implicit_history(
         config,
         mesh=snapshot.mesh,
@@ -1620,7 +1608,7 @@ def _run_open_field_recycling_one_step_case(
             for name, value in snapshot.fields.items()
             if name in state_field_names
         },
-        field_template_overrides=field_template_overrides,
+        field_template_overrides=None,
         solver_mode=_select_recycling_transient_solver_mode(config, parity_mode=case.parity_mode),
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
