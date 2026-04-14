@@ -264,6 +264,8 @@ Current checkpoint:
   - add a second geometry adapter that is not tokamak-X-point-specific, so the 3D infrastructure is pressure-tested on a different metric/mesh family before any broad 3D claim
   - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists
 
+- the first second-adapter scaffold is now also in-tree: a traced-field-line geometry bundle with metric reports, compact metric arrays, and a geometry-adapter validation contract, intended as the bridge from generic 3D diagnostics to later real stellarator/traced-field-line execution work
+
 Publication rule:
 
 - 3D/EM claims stay restricted to selected benchmark and reduced ladders until the fully coupled transient path is closed on those families

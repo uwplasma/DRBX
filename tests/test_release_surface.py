@@ -13,10 +13,13 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "physics_models.md",
     REPO_ROOT / "docs" / "research_directions.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_scaffold_demo.md",
+    REPO_ROOT / "docs" / "traced_field_line_scaffold_demo.md",
     REPO_ROOT / "examples" / "alfven_wave_meeting_demo.py",
     REPO_ROOT / "examples" / "blob2d_meeting_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "scaffold_demo.py",
+    REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "scaffold_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_scaffold.py",
 )
 
 PUBLIC_RUN_LOGS = (
@@ -24,11 +27,14 @@ PUBLIC_RUN_LOGS = (
     REPO_ROOT / "docs" / "data" / "restartable_diffusion_demo_artifacts" / "run_full" / "restartable_diffusion_full_run_log.json",
     REPO_ROOT / "docs" / "data" / "restartable_diffusion_demo_artifacts" / "run_resumed" / "restartable_diffusion_resumed_run_log.json",
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_manifest.json",
+    REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_manifest.json",
 )
 
 PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_input_report.json",
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_validation_contract.json",
+    REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_input_report.json",
+    REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_validation_contract.json",
 )
 
 
