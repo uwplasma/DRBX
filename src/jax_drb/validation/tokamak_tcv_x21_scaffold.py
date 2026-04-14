@@ -21,6 +21,7 @@ from .diverted_tokamak_movie import (
     create_diverted_tokamak_movie_package,
     load_diverted_tokamak_geometry,
 )
+from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
 from .geometry_profiles import (
     build_diagnostic_profile_report,
     save_diagnostic_profile_summary_plot,
@@ -177,18 +178,12 @@ def _finalize_scaffold_artifacts(
         data_dir=data_dir,
         images_dir=output_root / "images",
     )
-    report = {
-        "case_name": reference_status.case.name,
-        "case_label": case_label,
-        "geometry_family": "diverted_tokamak_3d",
-        "benchmark_adapter": "tcv_x21",
-        "field_name": field_name,
-        "capability_tier": reference_status.case.capability_tier,
-        "preview_mode": preview_mode,
-        "workdir_mode": workdir_mode,
-        "reference_input_path": reference_status.case.reference_path,
-        "reference_exists": reference_status.exists,
-        "artifacts": {
+    report = build_geometry_adapter_manifest(
+        case_label=case_label,
+        geometry_family="diverted_tokamak_3d",
+        benchmark_adapter="tcv_x21",
+        preview_mode=preview_mode,
+        artifacts={
             "input_report_json": str(input_report_json_path.relative_to(output_root)),
             "validation_contract_json": str(validation_contract_json_path.relative_to(output_root)),
             "profile_report_json": str(profile_bundle["profile_report_json_path"].relative_to(output_root)),
@@ -200,7 +195,15 @@ def _finalize_scaffold_artifacts(
             "poster_png": str(artifacts.poster_png_path.relative_to(output_root)),
             "movie_gif": str(artifacts.movie_gif_path.relative_to(output_root)),
         },
-    }
+        metadata={
+            "case_name": reference_status.case.name,
+            "field_name": field_name,
+            "capability_tier": reference_status.case.capability_tier,
+            "workdir_mode": workdir_mode,
+            "reference_input_path": reference_status.case.reference_path,
+            "reference_exists": reference_status.exists,
+        },
+    )
     manifest_json_path = data_dir / f"{case_label}_manifest.json"
     manifest_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return TcvX21ScaffoldArtifacts(
@@ -623,44 +626,69 @@ def _normalize_component_name(value: object) -> str:
 
 def _build_validation_contract(reference_status: TcvX21ReferenceStatus) -> dict[str, object]:
     case = reference_status.case
-    return {
-        "case_name": case.name,
-        "capability_tier": case.capability_tier,
-        "geometry_family": "diverted_tokamak_3d",
-        "benchmark_adapter": "tcv_x21",
-        "diagnostic_layer": "benchmark_adapter_on_general_3d_geometry",
-        "benchmark": {
-            "name": "TCV-X21 diverted L-mode reference case",
-            "dataset_summary": "45 one- and two-dimensional observables across two toroidal-field directions.",
-            "references": [
-                {
-                    "label": "TCV-X21 validation benchmark",
-                    "url": "https://arxiv.org/abs/2109.01618",
-                },
-                {
-                    "label": "TCV-X21 turbulence validation follow-up",
-                    "url": "https://arxiv.org/abs/2506.12180",
-                },
-                {
-                    "label": "GBS code verification and MMS reference",
-                    "url": "https://arxiv.org/abs/2112.03573",
-                },
-                {
-                    "label": "Detachment-scaling 1D SOL benchmark",
-                    "url": "https://arxiv.org/abs/2406.16375",
-                },
-            ],
-        },
-        "reference_inputs": {
-            "input_exists": reference_status.exists,
-            "reference_input_path": case.reference_path,
-            "reference_helper_scripts": [
-                "examples/tokamak-3D/tcv-x21/gather_data.py",
-                "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",
-                "examples/tokamak-3D/tcv-x21/make_tcvx21_plots.py",
-            ],
-        },
-        "diagnostic_sets": [
+    return build_geometry_adapter_contract(
+        geometry_family="diverted_tokamak_3d",
+        benchmark_adapter="tcv_x21",
+        diagnostic_layer="benchmark_adapter_on_general_3d_geometry",
+        references=[
+            {
+                "label": "TCV-X21 validation benchmark",
+                "url": "https://arxiv.org/abs/2109.01618",
+            },
+            {
+                "label": "TCV-X21 turbulence validation follow-up",
+                "url": "https://arxiv.org/abs/2506.12180",
+            },
+            {
+                "label": "GBS code verification and MMS reference",
+                "url": "https://arxiv.org/abs/2112.03573",
+            },
+            {
+                "label": "Detachment-scaling 1D SOL benchmark",
+                "url": "https://arxiv.org/abs/2406.16375",
+            },
+        ],
+        promotion_gates=[
+            "scaffold_gate",
+            "external_workdir_gate",
+            "selected_field_parity_gate",
+            "benchmark_validation_gate",
+        ],
+        metadata={
+            "case_name": case.name,
+            "capability_tier": case.capability_tier,
+            "benchmark": {
+                "name": "TCV-X21 diverted L-mode reference case",
+                "dataset_summary": "45 one- and two-dimensional observables across two toroidal-field directions.",
+                "references": [
+                    {
+                        "label": "TCV-X21 validation benchmark",
+                        "url": "https://arxiv.org/abs/2109.01618",
+                    },
+                    {
+                        "label": "TCV-X21 turbulence validation follow-up",
+                        "url": "https://arxiv.org/abs/2506.12180",
+                    },
+                    {
+                        "label": "GBS code verification and MMS reference",
+                        "url": "https://arxiv.org/abs/2112.03573",
+                    },
+                    {
+                        "label": "Detachment-scaling 1D SOL benchmark",
+                        "url": "https://arxiv.org/abs/2406.16375",
+                    },
+                ],
+            },
+            "reference_inputs": {
+                "input_exists": reference_status.exists,
+                "reference_input_path": case.reference_path,
+                "reference_helper_scripts": [
+                    "examples/tokamak-3D/tcv-x21/gather_data.py",
+                    "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",
+                    "examples/tokamak-3D/tcv-x21/make_tcvx21_plots.py",
+                ],
+            },
+            "diagnostic_sets": [
             {
                 "name": "FHRP",
                 "description": "Outboard midplane reciprocating probe profiles.",
@@ -676,77 +704,78 @@ def _build_validation_contract(reference_status: TcvX21ReferenceStatus) -> dict[
                 "description": "High-field-side target Langmuir probe profiles.",
                 "observables": ["density", "electron_temp", "ion_temp", "potential", "current", "vfloat"],
             },
-        ],
-        "profile_metrics": [
-            {
-                "name": "absolute_profile_agreement",
-                "description": "Match absolute magnitude and profile shape at OMP and divertor targets.",
-            },
-            {
-                "name": "omp_length_scales",
-                "description": "Fit density and temperature decay lengths on the outboard midplane profile window.",
-            },
-            {
-                "name": "target_peak_location",
-                "description": "Track LFS/HFS target peak position shifts under field reversal when the benchmark bundle is extended.",
-            },
-        ],
-        "verification_requirements": [
-            {
-                "name": "manufactured_solution_convergence",
-                "status": "required_before_native_3d_promotion",
-                "description": "Require MMS/order-of-accuracy evidence on the promoted operators before claiming native 3D closure.",
-            },
-            {
-                "name": "field_parity_surface",
-                "status": "required_before_selected_field_rung",
-                "description": "Require a reduced selected-field compare surface before broad benchmark claims.",
-            },
-            {
-                "name": "restart_and_provenance",
-                "status": "required_before_public_3d_release",
-                "description": "Require restart equivalence and artifact provenance alongside benchmark plots.",
-            },
-        ],
-        "promotion_gates": [
-            {
-                "name": "scaffold_gate",
-                "status": "landed",
-                "required_artifacts": [
-                    "manifest_json",
-                    "input_report_json",
-                    "validation_contract_json",
-                    "snapshots_png",
-                    "poster_png",
-                    "movie_gif",
-                ],
-            },
-            {
-                "name": "external_workdir_gate",
-                "status": "next",
-                "required_artifacts": [
-                    "real_workdir_movie_bundle",
-                    "real_input_report_json",
-                    "profile_summary_json",
-                ],
-            },
-            {
-                "name": "selected_field_parity_gate",
-                "status": "planned",
-                "required_artifacts": [
-                    "compact_reference_baseline_json",
-                    "compact_reference_arrays_npz",
-                    "bounded_parity_test",
-                ],
-            },
-            {
-                "name": "benchmark_validation_gate",
-                "status": "planned",
-                "required_artifacts": [
-                    "tcv_x21_observable_package",
-                    "publication_ready_profile_plots",
-                    "methods_note",
-                ],
-            },
-        ],
-    }
+            ],
+            "profile_metrics": [
+                {
+                    "name": "absolute_profile_agreement",
+                    "description": "Match absolute magnitude and profile shape at OMP and divertor targets.",
+                },
+                {
+                    "name": "omp_length_scales",
+                    "description": "Fit density and temperature decay lengths on the outboard midplane profile window.",
+                },
+                {
+                    "name": "target_peak_location",
+                    "description": "Track LFS/HFS target peak position shifts under field reversal when the benchmark bundle is extended.",
+                },
+            ],
+            "verification_requirements": [
+                {
+                    "name": "manufactured_solution_convergence",
+                    "status": "required_before_native_3d_promotion",
+                    "description": "Require MMS/order-of-accuracy evidence on the promoted operators before claiming native 3D closure.",
+                },
+                {
+                    "name": "field_parity_surface",
+                    "status": "required_before_selected_field_rung",
+                    "description": "Require a reduced selected-field compare surface before broad benchmark claims.",
+                },
+                {
+                    "name": "restart_and_provenance",
+                    "status": "required_before_public_3d_release",
+                    "description": "Require restart equivalence and artifact provenance alongside benchmark plots.",
+                },
+            ],
+            "promotion_gates": [
+                {
+                    "name": "scaffold_gate",
+                    "status": "landed",
+                    "required_artifacts": [
+                        "manifest_json",
+                        "input_report_json",
+                        "validation_contract_json",
+                        "snapshots_png",
+                        "poster_png",
+                        "movie_gif",
+                    ],
+                },
+                {
+                    "name": "external_workdir_gate",
+                    "status": "next",
+                    "required_artifacts": [
+                        "real_workdir_movie_bundle",
+                        "real_input_report_json",
+                        "profile_summary_json",
+                    ],
+                },
+                {
+                    "name": "selected_field_parity_gate",
+                    "status": "planned",
+                    "required_artifacts": [
+                        "compact_reference_baseline_json",
+                        "compact_reference_arrays_npz",
+                        "bounded_parity_test",
+                    ],
+                },
+                {
+                    "name": "benchmark_validation_gate",
+                    "status": "planned",
+                    "required_artifacts": [
+                        "tcv_x21_observable_package",
+                        "publication_ready_profile_plots",
+                        "methods_note",
+                    ],
+                },
+            ],
+        },
+    )
