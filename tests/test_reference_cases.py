@@ -87,13 +87,15 @@ def test_default_manifest_assigns_research_grade_capability_tiers() -> None:
     diffusion_case = next(case for case in cases if case.name == "diffusion_one_step")
     open_field_exact_case = next(case for case in cases if case.name == "recycling_1d_one_step")
     open_field_recycling_case = next(case for case in cases if case.name == "recycling_1d_short_window")
+    integrated_recycling_case = next(case for case in cases if case.name == "integrated_2d_recycling_one_step")
     recycling_case = next(case for case in cases if case.name == "tokamak_recycling_dthe_one_step")
     tokamak_case = next(case for case in cases if case.name == "tokamak_turbulence_short_window")
 
     assert diffusion_case.capability_tier == "native_exact"
     assert open_field_exact_case.capability_tier == "native_exact"
     assert open_field_recycling_case.capability_tier == "native_operational"
-    assert recycling_case.capability_tier == "native_operational"
+    assert integrated_recycling_case.capability_tier == "native_exact"
+    assert recycling_case.capability_tier == "native_exact"
     assert tokamak_case.capability_tier == "scaffolded_reference_backed"
 
 

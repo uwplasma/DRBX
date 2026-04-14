@@ -1,4 +1,5 @@
 {
+  "capability_tier": "native_exact",
   "case_name": "integrated_2d_recycling_short_window",
   "compare_variables": [
     "Nd+",

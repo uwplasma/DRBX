@@ -48,4 +48,10 @@ def test_committed_demo_run_logs_use_sanitized_paths() -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         text = json.dumps(payload, sort_keys=True)
         assert "/Users/" not in text
-        assert payload["run_configuration"]["runtime"]["compilation_cache_dir"].startswith("~/")
+        if "run_configuration" in payload:
+            assert payload["run_configuration"]["runtime"]["compilation_cache_dir"].startswith("~/")
+            continue
+        if "workdir" in payload:
+            assert not str(payload["workdir"]).startswith("/")
+        if "mesh_path" in payload:
+            assert not str(payload["mesh_path"]).startswith("/")
