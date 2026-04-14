@@ -120,6 +120,7 @@ What this documents:
 - the first 3D tokamak kickoff package in the tree;
 - manifest resolution for `tokamak_tcv_x21_escalation`;
 - a structured deck/input report alongside the preview figure bundle;
+- an explicit benchmark validation contract covering FHRP, HFS-LP, and LFS-LP observable families;
 - a reference-backed preview mode that can be generated without a heavy 3D solve;
 - LCFS, wall, and divertor overlays in the same diverted-geometry style as the existing tokamak visualizations.
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.

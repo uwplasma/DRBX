@@ -206,7 +206,7 @@ The direct multispecies tokamak recycling one-step lane is now promoted on the s
 
 Those promoted 2D gates are now regression-locked behind a bounded parity slice too: set `JAX_DRB_RUN_RECYCLING_2D_PARITY=1` to run the exact-grade integrated/direct recycling parity checks without turning on the whole heavy ladder.
 
-The first 3D tokamak kickoff is now more than a movie stub. The TCV-X21 scaffold package publishes a structured deck report alongside the preview geometry/movie bundle, so the 3D lane already exposes manifest metadata, compare variables, time controls, solver settings, mesh metadata, and declared component layout before the first native 3D solver promotion.
+The first 3D tokamak kickoff is now more than a movie stub. The TCV-X21 scaffold package publishes a structured deck report and a benchmark validation contract alongside the preview geometry/movie bundle, so the 3D lane already exposes manifest metadata, compare variables, time controls, solver settings, mesh metadata, declared component layout, and the planned FHRP/LFS-LP/HFS-LP benchmark gates before the first native 3D solver promotion.
 
 ## What To Run First
 
@@ -220,6 +220,7 @@ If you want meeting-ready figures and movies:
 - [blob2d_meeting_demo.md](docs/blob2d_meeting_demo.md)
 - [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
 - [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
+- [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
 
 If you want the current validation gallery:
 
