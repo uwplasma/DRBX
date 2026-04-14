@@ -60,6 +60,8 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
 
     manifest = json.loads(artifacts.manifest_json_path.read_text(encoding="utf-8"))
     assert manifest["case_name"] == "tokamak_tcv_x21_escalation"
+    assert manifest["geometry_family"] == "diverted_tokamak_3d"
+    assert manifest["benchmark_adapter"] == "tcv_x21"
     assert manifest["capability_tier"] == "scaffolded_reference_backed"
     assert manifest["preview_mode"] is True
     assert manifest["workdir_mode"] == "synthetic_preview"
@@ -85,6 +87,9 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert input_report["compare_variables"] == ["Ne", "Pe", "Pi", "NVi", "phi"]
 
     validation_contract = json.loads(artifacts.validation_contract_json_path.read_text(encoding="utf-8"))
+    assert validation_contract["geometry_family"] == "diverted_tokamak_3d"
+    assert validation_contract["benchmark_adapter"] == "tcv_x21"
+    assert validation_contract["diagnostic_layer"] == "benchmark_adapter_on_general_3d_geometry"
     assert validation_contract["benchmark"]["name"] == "TCV-X21 diverted L-mode reference case"
     assert validation_contract["promotion_gates"][0]["name"] == "scaffold_gate"
     assert validation_contract["diagnostic_sets"][0]["name"] == "FHRP"
@@ -119,6 +124,7 @@ def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> N
     assert input_report["declared_components"] == ["e", "i", "vorticity"]
 
     validation_contract = json.loads(artifacts.validation_contract_json_path.read_text(encoding="utf-8"))
+    assert validation_contract["geometry_family"] == "diverted_tokamak_3d"
     assert validation_contract["reference_inputs"]["input_exists"] is True
     assert validation_contract["reference_inputs"]["reference_helper_scripts"] == [
         "examples/tokamak-3D/tcv-x21/gather_data.py",
