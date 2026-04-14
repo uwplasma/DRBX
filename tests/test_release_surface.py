@@ -28,6 +28,7 @@ PUBLIC_RUN_LOGS = (
 
 PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_input_report.json",
+    REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_validation_contract.json",
 )
 
 
