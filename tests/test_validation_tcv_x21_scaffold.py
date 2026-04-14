@@ -9,7 +9,32 @@ from jax_drb.validation import create_tcv_x21_scaffold_package
 def _write_reference_tree(root: Path) -> None:
     target = root / "examples" / "tokamak-3D" / "tcv-x21" / "data"
     target.mkdir(parents=True, exist_ok=True)
-    (target / "BOUT.inp").write_text("[dummy]\nvalue = 1\n", encoding="utf-8")
+    (target / "BOUT.inp").write_text(
+        "\n".join(
+            [
+                "nout = 4",
+                "timestep = 0.25",
+                "MZ = 32",
+                "zperiod = 1.0",
+                "",
+                "[mesh]",
+                "file = tokamak.nc",
+                "nx = 32",
+                "ny = 64",
+                "nz = 32",
+                "",
+                "[solver]",
+                "type = cvode",
+                "rtol = 1e-6",
+                "atol = 1e-9",
+                "",
+                "[model]",
+                'components = ("e", "i", "vorticity")',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
@@ -20,6 +45,7 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
 
     for path in (
         artifacts.manifest_json_path,
+        artifacts.input_report_json_path,
         artifacts.arrays_npz_path,
         artifacts.analysis_json_path,
         artifacts.snapshots_png_path,
@@ -34,7 +60,13 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert manifest["preview_mode"] is True
     assert manifest["workdir_mode"] == "synthetic_preview"
     assert manifest["reference_exists"] is False
+    assert manifest["artifacts"]["input_report_json"].endswith("data/tokamak_tcv_x21_scaffold_input_report.json")
     assert manifest["artifacts"]["movie_gif"].endswith("movies/tokamak_tcv_x21_scaffold.gif")
+
+    input_report = json.loads(artifacts.input_report_json_path.read_text(encoding="utf-8"))
+    assert input_report["available"] is False
+    assert input_report["parse_status"] == "missing_input"
+    assert input_report["compare_variables"] == ["Ne", "Pe", "Pi", "NVi", "phi"]
 
 
 def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> None:
@@ -47,3 +79,13 @@ def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> N
     manifest = json.loads(artifacts.manifest_json_path.read_text(encoding="utf-8"))
     assert manifest["reference_exists"] is True
     assert manifest["reference_input_path"].endswith("examples/tokamak-3D/tcv-x21/data/BOUT.inp")
+
+    input_report = json.loads(artifacts.input_report_json_path.read_text(encoding="utf-8"))
+    assert input_report["parse_status"] == "ok"
+    assert input_report["run_config_status"] == "ok"
+    assert input_report["time"] == {"nout": 4, "timestep": 0.25}
+    assert input_report["mesh"]["file"] == "tokamak.nc"
+    assert input_report["mesh"]["mz"] == 32
+    assert input_report["solver"]["type"] == "cvode"
+    assert input_report["components"]["labels"] == ["e", "i", "vorticity"]
+    assert input_report["declared_components"] == ["e", "i", "vorticity"]

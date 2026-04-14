@@ -36,6 +36,7 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 ## Output Files
 
 - manifest report: [tokamak_tcv_x21_scaffold_manifest.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_manifest.json)
+- input/deck report: [tokamak_tcv_x21_scaffold_input_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_input_report.json)
 - assembled arrays: [tokamak_tcv_x21_scaffold_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz)
 - analysis JSON: [tokamak_tcv_x21_scaffold_analysis.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_analysis.json)
 - snapshot panel: [tokamak_tcv_x21_scaffold_snapshots.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
@@ -50,13 +51,16 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 
 1. resolves the `tokamak_tcv_x21_escalation` manifest entry;
 2. records whether a local 3D reference tree is actually present;
-3. reuses the existing diverted-tokamak geometry/movie pipeline;
-4. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
+3. parses the reference deck into a structured input report with time, mesh,
+   solver, component, and compare-surface metadata when the deck is present;
+4. reuses the existing diverted-tokamak geometry/movie pipeline;
+5. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
    divertor overlays;
-5. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
+6. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
 
 ## What It Does Not Do Yet
 
 - it does not claim a native 3D tokamak solver path;
 - it does not replace the future TCV-X21 execution lane;
 - it does not depend on a heavy 3D solve for the first visual deliverable.
+- it does not yet turn the deck report into a live native 3D run configuration.
