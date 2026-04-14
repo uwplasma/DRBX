@@ -192,6 +192,8 @@ Every curated validation case is labeled explicitly:
 
 The active release strategy is to promote a smaller number of end-to-end native lanes into `native_exact` before widening the matrix further.
 
+That policy is also why the current open-field recycling work is focused on transient closure rather than on adding more rungs: the first output interval on the native continuation controller now uses a small startup warmup (`4 x 6.25` sparse implicit substeps across the first `25` time units), which materially tightens the short-step blocker on both the single-species and D/T open-field recycling lanes. Those lanes are still documented honestly as in-progress until the full transient backbone is clean, but the startup controller is no longer the weak point it was a few checkpoints ago.
+
 One consequence of that policy is that some direct tokamak recycling rungs remain intentionally labeled `native_operational` or `scaffolded_reference_backed`: when a local slab does not own a physical target on one side, the missing guard row is a communicated neighbor state rather than a local sheath boundary. The current `tokamak_recycling_dthe_one_step` rung now replays those communicated guard rows from the committed one-step history cache, which tightens the compare surface materially, but it is still not counted as native closure until the fully native distributed recycling backbone is in place.
 
 ## What To Run First

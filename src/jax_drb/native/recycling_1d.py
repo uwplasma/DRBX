@@ -3990,7 +3990,7 @@ def _advance_recycling_1d_continuation_history(
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
 
-    for _ in range(steps):
+    for interval_index in range(steps):
         current_fields, current_integrals, suggested_dt = _advance_recycling_1d_output_interval(
             config,
             current_fields,
@@ -4003,6 +4003,7 @@ def _advance_recycling_1d_continuation_history(
             suggested_dt=suggested_dt,
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+            startup_warmup=(interval_index == 0),
         )
         for name in field_names:
             variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
@@ -4508,24 +4509,33 @@ def _advance_recycling_1d_output_interval(
     suggested_dt: float,
     residual_tolerance: float,
     max_nonlinear_iterations: int,
+    startup_warmup: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
     trial_dt = min(float(suggested_dt), float(output_timestep))
     minimum_dt = max(float(output_timestep) / 4096.0, 1.0)
     acceptance_residual = max(1.0e4 * residual_tolerance, 5.0e-3)
+    startup_window = (
+        min(25.0, float(output_timestep))
+        if startup_warmup
+        else 0.0
+    )
+    startup_dt = min(6.25, startup_window) if startup_window > 0.0 else 0.0
+    remaining = float(output_timestep)
+    elapsed = 0.0
+    current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
+    current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in runtime_model.feedback_names}
+    previous_fields: dict[str, np.ndarray] | None = None
+    previous_integrals: dict[str, float] | None = None
+    last_info: Recycling1DImplicitStepInfo | None = None
+    last_dt = trial_dt
 
-    while True:
-        step_count = max(1, int(math.ceil(float(output_timestep) / trial_dt)))
-        step_dt = float(output_timestep) / float(step_count)
-        start_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
-        start_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in runtime_model.feedback_names}
-        current_fields = start_fields
-        current_integrals = start_integrals
-        previous_fields: dict[str, np.ndarray] | None = None
-        previous_integrals: dict[str, float] | None = None
-        failed = False
-        last_info: Recycling1DImplicitStepInfo | None = None
+    while remaining > 1.0e-12:
+        if startup_window > elapsed + 1.0e-12:
+            step_dt = min(startup_dt, startup_window - elapsed, remaining)
+        else:
+            step_dt = min(trial_dt, remaining)
 
-        for _ in range(step_count):
+        while True:
             if previous_fields is None or previous_integrals is None:
                 next_fields, next_integrals, info = advance_recycling_1d_backward_euler_step(
                     config,
@@ -4560,22 +4570,23 @@ def _advance_recycling_1d_output_interval(
                 )
 
             last_info = info
-            if not np.isfinite(info.residual_inf_norm) or info.residual_inf_norm > acceptance_residual:
-                failed = True
+            if np.isfinite(info.residual_inf_norm) and info.residual_inf_norm <= acceptance_residual:
                 break
+            if step_dt <= minimum_dt:
+                raise RuntimeError(
+                    f"Recycling continuation interval failed at dt={step_dt:g}; residual={float('nan') if last_info is None else last_info.residual_inf_norm:g}"
+                )
+            step_dt = 0.5 * step_dt
 
-            previous_fields = current_fields
-            previous_integrals = current_integrals
-            current_fields = next_fields
-            current_integrals = next_integrals
+        previous_fields = current_fields
+        previous_integrals = current_integrals
+        current_fields = next_fields
+        current_integrals = next_integrals
+        remaining -= step_dt
+        elapsed += step_dt
+        last_dt = step_dt
 
-        if not failed:
-            return current_fields, current_integrals, step_dt
-        if step_dt <= minimum_dt:
-            raise RuntimeError(
-                f"Recycling continuation interval failed at dt={step_dt:g}; residual={float('nan') if last_info is None else last_info.residual_inf_norm:g}"
-            )
-        trial_dt = 0.5 * step_dt
+    return current_fields, current_integrals, last_dt
 
 
 def advance_recycling_1d_backward_euler_step(

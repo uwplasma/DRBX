@@ -252,8 +252,6 @@ def test_ion_rhs_terms_sum_to_total() -> None:
         terms.momentum_total,
         terms.momentum_advection + terms.pressure_gradient + terms.momentum_source + terms.momentum_error,
     )
-
-
 def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formula() -> None:
     mesh = StructuredMesh(
         nx=1,
@@ -869,6 +867,64 @@ def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
     np.testing.assert_allclose(captured["field_template_overrides"]["Pe"][0, 1:4, 0], 9.0)
     assert result.time_points == (0.0, 5000.0)
     assert np.asarray(result.variables["Nd+"]).shape == (2, 1, 3, 1)
+
+
+def test_continuation_output_interval_uses_small_startup_substeps_on_first_open_field_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    observed_steps: list[tuple[str, float]] = []
+
+    def fake_be(*args, **kwargs):
+        observed_steps.append(("be", float(kwargs["timestep"])))
+        return (
+            {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()},
+            dict(kwargs["feedback_integrals"]),
+            SimpleNamespace(residual_inf_norm=0.0, active_size=1, nonlinear_iterations=1, linear_iterations=1),
+        )
+
+    def fake_bdf2(*args, **kwargs):
+        observed_steps.append(("bdf2", float(kwargs["timestep"])))
+        return (
+            {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()},
+            dict(kwargs["feedback_integrals"]),
+            SimpleNamespace(residual_inf_norm=0.0, active_size=1, nonlinear_iterations=1, linear_iterations=1),
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_backward_euler_step", fake_be)
+    monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_bdf2_step", fake_bdf2)
+
+    recycling_1d_mod._advance_recycling_1d_output_interval(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals={},
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        output_timestep=25.0,
+        suggested_dt=25.0,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=10,
+        startup_warmup=True,
+    )
+
+    assert observed_steps == [
+        ("be", 6.25),
+        ("bdf2", 6.25),
+        ("bdf2", 6.25),
+        ("bdf2", 6.25),
+    ]
 
 
 def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
