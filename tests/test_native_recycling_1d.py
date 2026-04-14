@@ -755,7 +755,7 @@ def test_integrated_recycling_runtime_override_supersedes_default_bdf() -> None:
     ) == "adaptive_be"
 
 
-def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
+def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -834,7 +834,6 @@ def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
         "_open_field_snapshot_cache_path",
         lambda case_name: snapshot_cache if case_name == "recycling_1d_rhs" else tmp_path / f"{case_name}.missing",
     )
-    monkeypatch.setattr(native_runner, "_REFERENCE_ARRAY_BASELINE_DIR", tmp_path)
     monkeypatch.setattr(
         native_runner,
         "run_reference_case",
@@ -846,7 +845,6 @@ def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
 
     def fake_history(*args, **kwargs):
         captured["initial_fields"] = kwargs["initial_fields"]
-        captured["field_template_overrides"] = kwargs["field_template_overrides"]
         captured["solver_mode"] = kwargs["solver_mode"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
 
@@ -862,9 +860,6 @@ def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
     assert captured["solver_mode"] == "continuation"
     np.testing.assert_allclose(captured["initial_fields"]["Nd+"], initial_fields["Nd+"])
     np.testing.assert_allclose(captured["initial_fields"]["Pe"], initial_fields["Pe"])
-    np.testing.assert_allclose(captured["field_template_overrides"]["Nd+"][0, 0, 0], initial_fields["Nd+"][0, 0, 0])
-    np.testing.assert_allclose(captured["field_template_overrides"]["Nd+"][0, 1:4, 0], 2.0)
-    np.testing.assert_allclose(captured["field_template_overrides"]["Pe"][0, 1:4, 0], 9.0)
     assert result.time_points == (0.0, 5000.0)
     assert np.asarray(result.variables["Nd+"]).shape == (2, 1, 3, 1)
 
