@@ -1,0 +1,68 @@
+{
+  "available": true,
+  "coordinate_system": "field_aligned",
+  "dimensions": {
+    "nphi": 16,
+    "ns": 24,
+    "ntheta": 32
+  },
+  "geometry_name": "synthetic_traced_field_line_preview",
+  "metric_fields": {
+    "Bmag": {
+      "finite": true,
+      "maximum": 1.3094252027323998,
+      "mean": 1.0975,
+      "minimum": 0.8901643431389519,
+      "shape": [
+        24,
+        32,
+        16
+      ]
+    },
+    "g_11": {
+      "finite": true,
+      "maximum": 0.9198973864678379,
+      "mean": 0.8493750000000001,
+      "minimum": 0.78,
+      "shape": [
+        24,
+        32,
+        16
+      ]
+    },
+    "g_22": {
+      "finite": true,
+      "maximum": 1.4299614952151316,
+      "mean": 1.3,
+      "minimum": 1.1700385047848685,
+      "shape": [
+        24,
+        32,
+        16
+      ]
+    },
+    "g_33": {
+      "finite": true,
+      "maximum": 1.6400000000000001,
+      "mean": 1.5525,
+      "minimum": 1.4608740959706479,
+      "shape": [
+        24,
+        32,
+        16
+      ]
+    },
+    "jacobian": {
+      "finite": true,
+      "maximum": 1.069999543551076,
+      "mean": 0.9510478940217392,
+      "minimum": 0.88,
+      "shape": [
+        24,
+        32,
+        16
+      ]
+    }
+  },
+  "parse_status": "ok"
+}

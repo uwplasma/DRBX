@@ -220,6 +220,8 @@ The first 3D tokamak kickoff is now more than a movie stub. The TCV-X21 scaffold
 
 That said, TCV-X21 is treated as the first benchmark adapter, not as the whole 3D architecture. The 3D program is being organized around reusable mesh, metric, diagnostics, movie, and selected-field parity primitives so the same infrastructure can be used for other geometry families, including traced-field-line and stellarator-style meshes. The current geometry direction is tracked in [geometry_roadmap.md](docs/geometry_roadmap.md). The shared 3D diagnostics layer now owns the profile-report, profile-NPZ, and publication-plot path used by the current scaffold package, so future geometry adapters do not need to duplicate that logic.
 
+The first non-diverted second adapter is now in-tree too: a traced-field-line geometry scaffold that writes a metric report, compact metric arrays, and a validation contract on the same public artifact model. That keeps the 3D program honest by pressure-testing the geometry and diagnostics layer beyond a single tokamak benchmark family.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -234,6 +236,7 @@ If you want meeting-ready figures and movies:
 - [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
 - [tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
 - [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
+- [traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
 
 If you want the current validation gallery:
 
