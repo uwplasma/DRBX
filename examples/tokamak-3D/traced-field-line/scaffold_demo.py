@@ -40,6 +40,9 @@ def main() -> None:
     print(f"  - metric_report_json: {artifacts.metric_report_json_path}")
     print(f"  - metric_arrays_npz: {artifacts.metric_arrays_npz_path}")
     print(f"  - metric_plot_png: {artifacts.metric_plot_png_path}")
+    print(f"  - line_report_json: {artifacts.line_report_json_path}")
+    print(f"  - line_arrays_npz: {artifacts.line_arrays_npz_path}")
+    print(f"  - line_plot_png: {artifacts.line_plot_png_path}")
 
 
 if __name__ == "__main__":

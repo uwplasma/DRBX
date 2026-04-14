@@ -40,6 +40,7 @@ The current shared layer now includes:
 - a reusable profile-report builder
 - a reusable diagnostic-profile NPZ writer
 - a reusable publication-style profile plotting path
+- a reusable line-diagnostic builder and lineout plotting/export path
 
 The current TCV-X21 scaffold consumes those shared pieces instead of owning a private benchmark-specific implementation.
 

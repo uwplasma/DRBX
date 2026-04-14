@@ -18,6 +18,9 @@ def test_traced_field_line_scaffold_preview_generates_artifacts(tmp_path: Path) 
         artifacts.metric_report_json_path,
         artifacts.metric_arrays_npz_path,
         artifacts.metric_plot_png_path,
+        artifacts.line_report_json_path,
+        artifacts.line_arrays_npz_path,
+        artifacts.line_plot_png_path,
     ):
         assert path.exists()
 
@@ -38,6 +41,9 @@ def test_traced_field_line_scaffold_preview_generates_artifacts(tmp_path: Path) 
     metric_report = json.loads(artifacts.metric_report_json_path.read_text(encoding="utf-8"))
     assert metric_report["metric_fields"]["Bmag"]["finite"] is True
     assert metric_report["metric_fields"]["jacobian"]["minimum"] > 0.0
+    line_report = json.loads(artifacts.line_report_json_path.read_text(encoding="utf-8"))
+    assert sorted(line_report["diagnostics"]) == ["poloidal_cut", "radial_midplane", "toroidal_cut"]
+    assert "Bmag" in line_report["diagnostics"]["radial_midplane"]
 
 
 def test_traced_field_line_scaffold_reads_netcdf_fci_grid(tmp_path: Path) -> None:
@@ -73,3 +79,5 @@ def test_traced_field_line_scaffold_reads_netcdf_fci_grid(tmp_path: Path) -> Non
     metric_report = json.loads(artifacts.metric_report_json_path.read_text(encoding="utf-8"))
     assert metric_report["source_format"] == "netcdf_fci_grid"
     assert metric_report["metric_fields"]["Bxy"]["mean"] == 1.5
+    line_report = json.loads(artifacts.line_report_json_path.read_text(encoding="utf-8"))
+    assert line_report["diagnostics"]["radial_midplane"]["Bxy"]["mean"] == [1.5, 1.5, 1.5]
