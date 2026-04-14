@@ -85,6 +85,11 @@ Required before any native 3D claim:
 
 This is where the 3D lane first becomes comparable to the promoted 2D gates.
 
+The reduced selected-field parity package now exists in-tree for compact
+`Ne`/`Pe`/`phi` surfaces between two 3D workdirs. What is still missing is the
+real benchmark use of that package: either a real external-workdir pair or the
+first selected native 3D rung that can be compared against a benchmark workdir.
+
 ### 4. Benchmark Validation Gate
 
 Required before publication-grade 3D benchmark claims:
