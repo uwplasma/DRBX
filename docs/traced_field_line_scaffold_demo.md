@@ -42,6 +42,9 @@ The scaffold writes:
 - a publication-style metric summary figure
 - a line-diagnostic JSON/NPZ bundle for radial, toroidal, and poloidal cuts
 - a publication-style lineout summary figure
+- a toroidal-slice summary JSON/NPZ bundle
+- a publication-style toroidal-slice summary figure
+- an animated GIF across the toroidal slice index for one selected metric field
 
 The input report records whether the source came from a JSON mesh spec or a
 NetCDF FCI grid.
