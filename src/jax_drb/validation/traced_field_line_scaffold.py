@@ -11,6 +11,12 @@ from netCDF4 import Dataset
 
 from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
 from .geometry_lineouts import LineoutSpec, build_lineout_report, save_lineout_summary_plot, write_lineout_arrays_npz
+from .geometry_observables import (
+    build_geometry_observable_report,
+    line_group_from_report,
+    slice_group_from_report,
+    write_geometry_observable_report,
+)
 from .geometry_slices import SliceSpec, build_slice_report, save_slice_gif, save_slice_summary_plot, write_slice_arrays_npz, write_slice_report_json
 
 
@@ -25,6 +31,7 @@ class TracedFieldLineScaffoldArtifacts:
     line_report_json_path: Path
     line_arrays_npz_path: Path
     line_plot_png_path: Path
+    observable_report_json_path: Path
     slice_report_json_path: Path
     slice_arrays_npz_path: Path
     slice_plot_png_path: Path
@@ -115,6 +122,27 @@ def create_traced_field_line_scaffold_package(
         spec=slice_spec,
         path=images_dir / f"{case_label}_slice_movie.gif",
     )
+    observable_report = build_geometry_observable_report(
+        geometry_family="traced_field_line_3d",
+        benchmark_adapter="stellarator_traced_field_line_scaffold",
+        observable_groups=(
+            line_group_from_report(
+                line_report,
+                name="metric_lineouts",
+                description="Reusable radial, toroidal, and poloidal cuts on selected metric fields.",
+            ),
+            slice_group_from_report(
+                slice_report,
+                name="metric_plane_family",
+                description="Automatically selected radial, toroidal, or poloidal plane family for the staged movie field.",
+            ),
+        ),
+        metadata={"source_format": mesh_source.source_format},
+    )
+    observable_report_json_path = write_geometry_observable_report(
+        observable_report,
+        data_dir / f"{case_label}_observable_report.json",
+    )
 
     manifest = build_geometry_adapter_manifest(
         case_label=case_label,
@@ -130,6 +158,7 @@ def create_traced_field_line_scaffold_package(
             "line_report_json": str(line_report_json_path.relative_to(root)),
             "line_arrays_npz": str(line_arrays_npz_path.relative_to(root)),
             "line_plot_png": str(line_plot_png_path.relative_to(root)),
+            "observable_report_json": str(observable_report_json_path.relative_to(root)),
             "slice_report_json": str(slice_report_json_path.relative_to(root)),
             "slice_arrays_npz": str(slice_arrays_npz_path.relative_to(root)),
             "slice_plot_png": str(slice_plot_png_path.relative_to(root)),
@@ -149,6 +178,7 @@ def create_traced_field_line_scaffold_package(
         line_report_json_path=line_report_json_path,
         line_arrays_npz_path=line_arrays_npz_path,
         line_plot_png_path=line_plot_png_path,
+        observable_report_json_path=observable_report_json_path,
         slice_report_json_path=slice_report_json_path,
         slice_arrays_npz_path=slice_arrays_npz_path,
         slice_plot_png_path=slice_plot_png_path,

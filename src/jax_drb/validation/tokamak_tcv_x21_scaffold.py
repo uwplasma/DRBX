@@ -22,6 +22,11 @@ from .diverted_tokamak_movie import (
     load_diverted_tokamak_geometry,
 )
 from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
+from .geometry_observables import (
+    build_geometry_observable_report,
+    profile_group_from_report,
+    write_geometry_observable_report,
+)
 from .geometry_profiles import (
     build_diagnostic_profile_report,
     save_diagnostic_profile_summary_plot,
@@ -36,6 +41,7 @@ class TcvX21ScaffoldArtifacts:
     manifest_json_path: Path
     input_report_json_path: Path
     validation_contract_json_path: Path
+    observable_report_json_path: Path
     profile_report_json_path: Path
     profile_arrays_npz_path: Path
     profile_plot_png_path: Path
@@ -178,6 +184,22 @@ def _finalize_scaffold_artifacts(
         data_dir=data_dir,
         images_dir=output_root / "images",
     )
+    observable_report = build_geometry_observable_report(
+        geometry_family="diverted_tokamak_3d",
+        benchmark_adapter="tcv_x21",
+        observable_groups=(
+            profile_group_from_report(
+                profile_bundle["profile_report"],
+                name="benchmark_profiles",
+                description="Named TCV-X21 benchmark probe and divertor profile families.",
+            ),
+        ),
+        metadata={"case_name": reference_status.case.name},
+    )
+    observable_report_json_path = write_geometry_observable_report(
+        observable_report,
+        data_dir / f"{case_label}_observable_report.json",
+    )
     report = build_geometry_adapter_manifest(
         case_label=case_label,
         geometry_family="diverted_tokamak_3d",
@@ -186,6 +208,7 @@ def _finalize_scaffold_artifacts(
         artifacts={
             "input_report_json": str(input_report_json_path.relative_to(output_root)),
             "validation_contract_json": str(validation_contract_json_path.relative_to(output_root)),
+            "observable_report_json": str(observable_report_json_path.relative_to(output_root)),
             "profile_report_json": str(profile_bundle["profile_report_json_path"].relative_to(output_root)),
             "profile_arrays_npz": str(profile_bundle["profile_arrays_npz_path"].relative_to(output_root)),
             "profile_plot_png": str(profile_bundle["profile_plot_png_path"].relative_to(output_root)),
@@ -210,6 +233,7 @@ def _finalize_scaffold_artifacts(
         manifest_json_path=manifest_json_path,
         input_report_json_path=input_report_json_path,
         validation_contract_json_path=validation_contract_json_path,
+        observable_report_json_path=observable_report_json_path,
         profile_report_json_path=profile_bundle["profile_report_json_path"],
         profile_arrays_npz_path=profile_bundle["profile_arrays_npz_path"],
         profile_plot_png_path=profile_bundle["profile_plot_png_path"],
@@ -328,6 +352,7 @@ def _build_profile_bundle(
         images_dir / f"{case_label}_profiles.png",
     )
     return {
+        "profile_report": profile_report,
         "profile_report_json_path": profile_report_json_path,
         "profile_arrays_npz_path": profile_arrays_npz_path,
         "profile_plot_png_path": profile_plot_png_path,
