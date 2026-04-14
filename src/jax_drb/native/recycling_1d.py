@@ -4608,6 +4608,19 @@ def advance_recycling_1d_backward_euler_step(
         feedback_names=packed_feedback_names,
         mesh=mesh,
     )
+    packed_initial_guess = _predict_recycling_packed_state(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        feedback_previous_errors=previous_feedback_errors,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        timestep=timestep,
+    )
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
@@ -4651,7 +4664,7 @@ def advance_recycling_1d_backward_euler_step(
     if solver_mode == "sparse":
         solved, info = solve_sparse_newton_system(
             residual,
-            packed_previous,
+            packed_initial_guess,
             active_shape=(packed_previous.size,),
             sparsity=_build_recycling_residual_sparsity(
                 active_shape=_recycling_active_shape(mesh),
@@ -4744,6 +4757,19 @@ def advance_recycling_1d_bdf2_step(
         feedback_names=packed_feedback_names,
         mesh=mesh,
     )
+    packed_initial_guess = _predict_recycling_packed_state(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        feedback_previous_errors=previous_feedback_errors,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        timestep=timestep,
+    )
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
@@ -4789,7 +4815,7 @@ def advance_recycling_1d_bdf2_step(
     if solver_mode == "sparse":
         solved, info = solve_sparse_newton_system(
             residual,
-            packed_previous,
+            packed_initial_guess,
             active_shape=(packed_previous.size,),
             sparsity=_build_recycling_residual_sparsity(
                 active_shape=_recycling_active_shape(mesh),
@@ -5006,6 +5032,61 @@ def _compute_recycling_1d_packed_rhs(
     ]
     pieces.extend(np.asarray(result.feedback_integral_rhs.get(name, 0.0), dtype=np.float64).reshape(1) for name in feedback_names)
     return np.concatenate(pieces) if pieces else np.array([], dtype=np.float64)
+
+
+def _predict_recycling_packed_state(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    feedback_integrals: dict[str, float],
+    feedback_previous_errors: dict[str, float] | None,
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+) -> np.ndarray:
+    packed_previous = _pack_recycling_active_state(
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
+    rhs = _compute_recycling_1d_packed_rhs(
+        config,
+        fields,
+        sanitize_fields=False,
+        feedback_integrals=feedback_integrals,
+        feedback_previous_errors=feedback_previous_errors,
+        feedback_timestep=None if feedback_names else timestep,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        runtime_model=runtime_model,
+    )
+    predicted = np.asarray(packed_previous, dtype=np.float64) + float(timestep) * np.asarray(rhs, dtype=np.float64)
+    predicted_fields, predicted_integrals = _unpack_recycling_active_state(
+        predicted,
+        field_templates=fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
+    sanitized_fields = _sanitize_recycling_fields(config, predicted_fields)
+    sanitized_integrals = _sanitize_feedback_integrals(predicted_integrals, controllers=runtime_model.controllers)
+    return _pack_recycling_active_state(
+        sanitized_fields,
+        feedback_integrals=sanitized_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
 
 
 def _pack_recycling_active_state(

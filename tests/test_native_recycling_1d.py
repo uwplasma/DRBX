@@ -2199,6 +2199,130 @@ def test_backward_euler_explicit_controller_update_keeps_trapezoid_predictor(
     assert all(value == 25.0 for value in captured_feedback_timestep)
 
 
+def test_backward_euler_sparse_solver_uses_explicit_rhs_predictor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    field_names = runtime_model.field_names
+    integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    packed_previous = recycling_1d_mod._pack_recycling_active_state(
+        fields,
+        feedback_integrals=integrals,
+        field_names=field_names,
+        feedback_names=(),
+        mesh=mesh,
+    )
+    rhs = np.full_like(packed_previous, 0.25)
+    captured_initial_states: list[np.ndarray] = []
+
+    def fake_packed_rhs(*args, **kwargs):
+        return rhs
+
+    def fake_sparse_newton_system(residual, initial_state, **kwargs):
+        captured_initial_states.append(np.asarray(initial_state, dtype=np.float64))
+        return np.asarray(initial_state, dtype=np.float64), SimpleNamespace(
+            residual_inf_norm=0.0,
+            active_shape=(initial_state.size,),
+            nonlinear_iterations=0,
+            linear_iterations=0,
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
+    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system)
+
+    advance_recycling_1d_backward_euler_step(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        solver_mode="sparse",
+        evolve_feedback_integrals=False,
+    )
+
+    assert captured_initial_states
+    expected = packed_previous + 25.0 * rhs
+    np.testing.assert_allclose(captured_initial_states[0], expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_bdf2_sparse_solver_uses_explicit_rhs_predictor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    previous_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True) * 0.99
+        for name, value in fields.items()
+    }
+    field_names = runtime_model.field_names
+    integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    packed_previous = recycling_1d_mod._pack_recycling_active_state(
+        fields,
+        feedback_integrals=integrals,
+        field_names=field_names,
+        feedback_names=(),
+        mesh=mesh,
+    )
+    rhs = np.full_like(packed_previous, 0.125)
+    captured_initial_states: list[np.ndarray] = []
+
+    def fake_packed_rhs(*args, **kwargs):
+        return rhs
+
+    def fake_sparse_newton_system(residual, initial_state, **kwargs):
+        captured_initial_states.append(np.asarray(initial_state, dtype=np.float64))
+        return np.asarray(initial_state, dtype=np.float64), SimpleNamespace(
+            residual_inf_norm=0.0,
+            active_shape=(initial_state.size,),
+            nonlinear_iterations=0,
+            linear_iterations=0,
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
+    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse_newton_system)
+
+    advance_recycling_1d_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals,
+        previous_feedback_integrals=integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=25.0,
+        solver_mode="sparse",
+        evolve_feedback_integrals=False,
+    )
+
+    assert captured_initial_states
+    expected = packed_previous + 25.0 * rhs
+    np.testing.assert_allclose(captured_initial_states[0], expected, rtol=1.0e-12, atol=1.0e-12)
+
+
 def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
