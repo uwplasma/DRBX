@@ -4,6 +4,7 @@
     "arrays_npz": "data/tokamak_tcv_x21_scaffold_arrays.npz",
     "input_report_json": "data/tokamak_tcv_x21_scaffold_input_report.json",
     "movie_gif": "movies/tokamak_tcv_x21_scaffold.gif",
+    "observable_report_json": "data/tokamak_tcv_x21_scaffold_observable_report.json",
     "poster_png": "images/tokamak_tcv_x21_scaffold_poster.png",
     "profile_arrays_npz": "data/tokamak_tcv_x21_scaffold_profile_arrays.npz",
     "profile_plot_png": "images/tokamak_tcv_x21_scaffold_profiles.png",
@@ -18,7 +19,7 @@
   "field_name": "phi",
   "geometry_family": "diverted_tokamak_3d",
   "preview_mode": true,
-  "reference_exists": true,
+  "reference_exists": false,
   "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp",
   "workdir_mode": "synthetic_preview"
 }

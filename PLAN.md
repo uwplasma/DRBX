@@ -254,6 +254,7 @@ Current checkpoint:
     - traced-field-line / stellarator-style mesh support informed by Zoidberg-style metric workflows and `bsting_files`-style mesh bundles
 - the current scaffold package already carries:
   - a benchmark validation contract
+  - a shared observable report on the generic 3D adapter schema
   - a staged profile report and compact profile arrays
   - a publication-style profile summary figure
   - a reduced selected-field parity package for compact `Ne`/`Pe`/`phi` surfaces
@@ -265,6 +266,7 @@ Current checkpoint:
   - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists
 
 - the first second-adapter scaffold is now also in-tree: a traced-field-line geometry bundle with metric reports, compact metric arrays, and a geometry-adapter validation contract, intended as the bridge from generic 3D diagnostics to later real stellarator/traced-field-line execution work
+- that same traced-field-line adapter now also publishes a shared observable report for line and plane families, so benchmark-observable extraction is no longer trapped inside the tokamak benchmark adapter
 - that second adapter now also emits reusable radial, toroidal, and poloidal line diagnostics from both synthetic preview specs and real external NetCDF FCI grids, so the generic probe/target extraction layer is no longer only a plan item
 - that same adapter now also emits automatically selected radial/toroidal/poloidal plane summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
 

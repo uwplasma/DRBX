@@ -21,6 +21,7 @@ def test_traced_field_line_scaffold_preview_generates_artifacts(tmp_path: Path) 
         artifacts.line_report_json_path,
         artifacts.line_arrays_npz_path,
         artifacts.line_plot_png_path,
+        artifacts.observable_report_json_path,
         artifacts.slice_report_json_path,
         artifacts.slice_arrays_npz_path,
         artifacts.slice_plot_png_path,
@@ -49,6 +50,9 @@ def test_traced_field_line_scaffold_preview_generates_artifacts(tmp_path: Path) 
     assert sorted(line_report["diagnostics"]) == ["poloidal_cut", "radial_midplane", "toroidal_cut"]
     assert "Bmag" in line_report["diagnostics"]["radial_midplane"]
     assert "jacobian" in line_report["diagnostics"]["radial_midplane"]
+    observable_report = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
+    assert observable_report["geometry_family"] == "traced_field_line_3d"
+    assert observable_report["observable_groups"][0]["families"][0]["kind"] == "lineout"
     slice_report = json.loads(artifacts.slice_report_json_path.read_text(encoding="utf-8"))
     assert slice_report["field_name"] in {"Bmag", "jacobian", "g_33"}
     assert slice_report["slice_name"] in {"radial_index_planes", "toroidal_index_planes", "poloidal_index_planes"}
@@ -98,6 +102,8 @@ def test_traced_field_line_scaffold_reads_netcdf_fci_grid(tmp_path: Path) -> Non
     line_report = json.loads(artifacts.line_report_json_path.read_text(encoding="utf-8"))
     assert "J" in line_report["diagnostics"]["radial_midplane"]
     assert line_report["diagnostics"]["radial_midplane"]["J"]["mean"] == [0.9, 0.9, 0.9]
+    observable_report = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
+    assert observable_report["metadata"]["source_format"] == "netcdf_fci_grid"
     slice_report = json.loads(artifacts.slice_report_json_path.read_text(encoding="utf-8"))
     assert slice_report["field_name"] in {"Bxy", "J", "g11", "g22", "g33"}
     assert slice_report["slice_name"] in {"radial_index_planes", "toroidal_index_planes", "poloidal_index_planes"}
