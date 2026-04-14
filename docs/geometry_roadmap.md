@@ -86,6 +86,11 @@ Requirements:
 - field and diagnostic extraction on traced-field-line meshes
 - reusable plotting and parity bundles on that geometry family
 
+The current scaffold now already supports both:
+
+- synthetic JSON mesh specifications for lightweight preview artifacts
+- NetCDF FCI grids for real external metric bundles
+
 Relevant external references:
 
 - [BSTING mesh/script bundle search](https://github.com/search?q=bsting_files&type=repositories)

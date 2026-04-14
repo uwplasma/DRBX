@@ -9,5 +9,6 @@
   "benchmark_adapter": "stellarator_traced_field_line_scaffold",
   "case_label": "traced_field_line_scaffold",
   "geometry_family": "traced_field_line_3d",
-  "preview_mode": true
+  "preview_mode": false,
+  "source_format": "netcdf_fci_grid"
 }

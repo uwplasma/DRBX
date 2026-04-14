@@ -7,6 +7,7 @@ from pathlib import Path
 
 from matplotlib import pyplot as plt
 import numpy as np
+from netCDF4 import Dataset
 
 from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
 
@@ -19,6 +20,12 @@ class TracedFieldLineScaffoldArtifacts:
     metric_report_json_path: Path
     metric_arrays_npz_path: Path
     metric_plot_png_path: Path
+
+
+@dataclass(frozen=True)
+class TracedFieldLineMeshSource:
+    payload: dict[str, object]
+    source_format: str
 
 
 def create_traced_field_line_scaffold_package(
@@ -41,9 +48,14 @@ def create_traced_field_line_scaffold_package(
         if spec_path is None:
             spec_path = temp_root / "synthetic_traced_field_line_mesh.json"
             _write_synthetic_mesh_spec(spec_path)
-        mesh_spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        mesh_source = _load_traced_field_line_source(spec_path)
+        mesh_spec = mesh_source.payload
 
-    input_report = _build_input_report(mesh_spec=mesh_spec, preview_mode=preview_mode)
+    input_report = _build_input_report(
+        mesh_spec=mesh_spec,
+        preview_mode=preview_mode,
+        source_format=mesh_source.source_format,
+    )
     input_report_json_path = data_dir / f"{case_label}_input_report.json"
     input_report_json_path.write_text(json.dumps(input_report, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -54,7 +66,7 @@ def create_traced_field_line_scaffold_package(
         encoding="utf-8",
     )
 
-    metric_report, metric_arrays = _build_metric_report(mesh_spec)
+    metric_report, metric_arrays = _build_metric_report(mesh_spec, source_format=mesh_source.source_format)
     metric_report_json_path = data_dir / f"{case_label}_metric_report.json"
     metric_report_json_path.write_text(json.dumps(metric_report, indent=2, sort_keys=True), encoding="utf-8")
     metric_arrays_npz_path = data_dir / f"{case_label}_metric_arrays.npz"
@@ -73,6 +85,7 @@ def create_traced_field_line_scaffold_package(
             "metric_arrays_npz": str(metric_arrays_npz_path.relative_to(root)),
             "metric_plot_png": str(metric_plot_png_path.relative_to(root)),
         },
+        metadata={"source_format": mesh_source.source_format},
     )
     manifest_json_path = data_dir / f"{case_label}_manifest.json"
     manifest_json_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
@@ -107,13 +120,49 @@ def _write_synthetic_mesh_spec(path: Path) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _build_input_report(*, mesh_spec: dict[str, object], preview_mode: bool) -> dict[str, object]:
+def _load_traced_field_line_source(path: Path) -> TracedFieldLineMeshSource:
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return TracedFieldLineMeshSource(
+            payload=json.loads(path.read_text(encoding="utf-8")),
+            source_format="json_mesh_spec",
+        )
+    if suffix == ".nc":
+        return TracedFieldLineMeshSource(
+            payload=_load_netcdf_mesh_spec(path),
+            source_format="netcdf_fci_grid",
+        )
+    raise ValueError(f"Unsupported traced-field-line mesh specification: {path}")
+
+
+def _load_netcdf_mesh_spec(path: Path) -> dict[str, object]:
+    with Dataset(path) as dataset:
+        dims = {name: len(value) for name, value in dataset.dimensions.items()}
+        profiles: dict[str, object] = {}
+        for name in ("Bxy", "J", "g11", "g22", "g33", "g_11", "g_22", "g_33", "dx", "dy", "dz"):
+            if name in dataset.variables:
+                profiles[name] = np.asarray(dataset.variables[name][:], dtype=np.float64).tolist()
+        return {
+            "geometry_name": path.stem,
+            "coordinate_system": "field_aligned",
+            "dimensions": {
+                "ns": int(dims.get("x", 0)),
+                "ntheta": int(dims.get("z", 0)),
+                "nphi": int(dims.get("y", 0)),
+            },
+            "periodicity": {"poloidal": True, "toroidal": True},
+            "profiles": profiles,
+        }
+
+
+def _build_input_report(*, mesh_spec: dict[str, object], preview_mode: bool, source_format: str) -> dict[str, object]:
     dimensions = mesh_spec.get("dimensions", {})
     periodicity = mesh_spec.get("periodicity", {})
     return {
         "available": True,
         "parse_status": "ok",
         "preview_mode": preview_mode,
+        "source_format": source_format,
         "geometry_name": mesh_spec.get("geometry_name", "unknown"),
         "geometry_family": "traced_field_line_3d",
         "coordinate_system": mesh_spec.get("coordinate_system", "unknown"),
@@ -159,12 +208,17 @@ def _build_validation_contract() -> dict[str, object]:
     )
 
 
-def _build_metric_report(mesh_spec: dict[str, object]) -> tuple[dict[str, object], dict[str, np.ndarray]]:
+def _build_metric_report(
+    mesh_spec: dict[str, object],
+    *,
+    source_format: str,
+) -> tuple[dict[str, object], dict[str, np.ndarray]]:
     profiles = mesh_spec.get("profiles", {})
     arrays = {name: np.asarray(values, dtype=np.float64) for name, values in profiles.items()}
     report = {
         "available": True,
         "parse_status": "ok",
+        "source_format": source_format,
         "geometry_name": mesh_spec.get("geometry_name", "unknown"),
         "coordinate_system": mesh_spec.get("coordinate_system", "unknown"),
         "dimensions": mesh_spec.get("dimensions", {}),
