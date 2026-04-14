@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
         "--mesh-spec",
         type=Path,
         default=None,
-        help="Optional JSON mesh/metric specification. If omitted, uses a synthetic preview bundle.",
+        help="Optional JSON or NetCDF mesh/metric specification. If omitted, uses a synthetic preview bundle.",
     )
     return parser.parse_args()
 

@@ -22,6 +22,14 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/traced-field-line/scaffold_d
   --output-root docs/data/traced_field_line_scaffold_artifacts
 ```
 
+With an external NetCDF FCI grid, including Zoidberg-style metric outputs:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/tokamak-3D/traced-field-line/scaffold_demo.py \
+  --mesh-spec /path/to/grid.fci.nc \
+  --output-root docs/data/traced_field_line_scaffold_artifacts
+```
+
 ## Artifacts
 
 The scaffold writes:
@@ -33,9 +41,15 @@ The scaffold writes:
 - a compact metric NPZ bundle
 - a publication-style metric summary figure
 
+The input report records whether the source came from a JSON mesh spec or a
+NetCDF FCI grid.
+
 ## Why It Exists
 
 The current 3D program should not be defined by a single diverted tokamak
 benchmark. This scaffold is the first explicit second adapter family, intended
 to pressure-test the general mesh/metric and diagnostics interfaces against a
 traced-field-line geometry family before broader 3D claims are made.
+
+That includes real external metric grids from traced-field-line workflows, not
+just synthetic preview metadata.
