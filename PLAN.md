@@ -228,25 +228,45 @@ Implementation order:
    - `Apar_flutter`
    - `phi` / vorticity coupling
    - Boussinesq vs non-Boussinesq choices on the selected lane
-3. add the first selected reduced 3D tokamak ladder:
+3. finish a geometry-agnostic 3D infrastructure layer:
+   - mesh and metric ingestion
+   - field-history assembly across toroidal ranks
+   - geometry-aware surface, probe, and target extraction
+   - selected-field parity on compact compare surfaces
+   - benchmark/workflow adapters layered above those primitives
+4. keep the first benchmark adapters narrow and explicit:
    - `examples/tokamak-3D/tcv-x21`
-4. only then widen to richer 3D statistics and runtime/performance claims
+   - traced-field-line / stellarator-style mesh adapters
+5. only then widen to richer 3D statistics, runtime/performance claims, and broader benchmark families
 
 Current checkpoint:
 
-- the first TCV-X21 scaffold package is now in-tree with a committed preview movie bundle
-- the next concrete 3D deliverable is a structured deck/input report alongside that bundle so the selected 3D lane already exposes time, mesh, solver, component, and compare-surface metadata before the native 3D solver is promoted
-- the same scaffold package now also needs to carry an explicit benchmark validation contract, keyed to the TCV-X21 observable families (`FHRP`, `LFS-LP`, `HFS-LP`) and to the staged promotion gates from scaffold -> real external workdir -> reduced selected-field parity -> benchmark comparison bundle
-- the scaffold package now also carries a staged profile report, compact profile arrays, and a publication-style profile summary figure for those same observable families, so the 3D benchmark lane already has a reviewer-facing data product before the native selected-field rung lands
-- the reduced selected-field parity package now exists too: compact `Ne`/`Pe`/`phi` surfaces can be compared between two 3D workdirs, with saved JSON/NPZ parity metrics and a publication-style parity summary plot
-- after that report lands, the next three 3D deliverables are:
+- the first benchmark adapter package is now in-tree with a committed preview movie bundle
+- the current selected benchmark is TCV-X21, but it is now treated as an adapter that sits on top of reusable 3D geometry and diagnostics utilities, not as the defining architecture for the whole 3D program
+- the next concrete 3D deliverables are therefore split in two tracks:
+  - general infrastructure:
+    - structured deck/input reports
+    - mesh, solver, component, and compare-surface metadata
+    - compact selected-field parity bundles
+    - generic probe/target/profile extraction interfaces
+  - benchmark adapters:
+    - TCV-X21 observable families (`FHRP`, `LFS-LP`, `HFS-LP`)
+    - traced-field-line / stellarator-style mesh support informed by Zoidberg-style metric workflows and `bsting_files`-style mesh bundles
+- the current scaffold package already carries:
+  - a benchmark validation contract
+  - a staged profile report and compact profile arrays
+  - a publication-style profile summary figure
+  - a reduced selected-field parity package for compact `Ne`/`Pe`/`phi` surfaces
+- after that checkpoint, the next 3D deliverables are:
   - bind a real external TCV-X21 workdir/mesh into the same artifact path and keep the figure package reproducible
-  - add the first reduced 3D selected-field parity rung on a compact compare surface
+  - factor the current benchmark-specific profile logic behind a generic 3D diagnostics layer
+  - add a second geometry adapter that is not tokamak-X-point-specific, so the 3D infrastructure is pressure-tested on a different metric/mesh family before any broad 3D claim
   - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists
 
 Publication rule:
 
-- 3D/EM claims stay restricted to selected benchmark and reduced tokamak ladders until the fully coupled transient path is closed on those families
+- 3D/EM claims stay restricted to selected benchmark and reduced ladders until the fully coupled transient path is closed on those families
+- no single benchmark geometry is allowed to define the public 3D architecture; every benchmark package must sit on reusable mesh, metric, diagnostics, and parity primitives
 
 ### Phase F. Run the reviewer-facing campaign set
 

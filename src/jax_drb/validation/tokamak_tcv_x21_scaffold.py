@@ -176,6 +176,8 @@ def _finalize_scaffold_artifacts(
     report = {
         "case_name": reference_status.case.name,
         "case_label": case_label,
+        "geometry_family": "diverted_tokamak_3d",
+        "benchmark_adapter": "tcv_x21",
         "field_name": field_name,
         "capability_tier": reference_status.case.capability_tier,
         "preview_mode": preview_mode,
@@ -692,6 +694,9 @@ def _build_validation_contract(reference_status: TcvX21ReferenceStatus) -> dict[
     return {
         "case_name": case.name,
         "capability_tier": case.capability_tier,
+        "geometry_family": "diverted_tokamak_3d",
+        "benchmark_adapter": "tcv_x21",
+        "diagnostic_layer": "benchmark_adapter_on_general_3d_geometry",
         "benchmark": {
             "name": "TCV-X21 diverted L-mode reference case",
             "dataset_summary": "45 one- and two-dimensional observables across two toroidal-field directions.",
