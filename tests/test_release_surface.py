@@ -26,6 +26,10 @@ PUBLIC_RUN_LOGS = (
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_manifest.json",
 )
 
+PUBLIC_JSON_ARTIFACTS = (
+    REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_input_report.json",
+)
+
 
 def test_public_release_surface_avoids_local_path_leaks() -> None:
     forbidden = ("/Users/", "rogeriojorge", "local/hermes", "local/jax_drb")
@@ -55,3 +59,10 @@ def test_committed_demo_run_logs_use_sanitized_paths() -> None:
             assert not str(payload["workdir"]).startswith("/")
         if "mesh_path" in payload:
             assert not str(payload["mesh_path"]).startswith("/")
+
+
+def test_public_json_artifacts_use_sanitized_paths() -> None:
+    for path in PUBLIC_JSON_ARTIFACTS:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        text = json.dumps(payload, sort_keys=True)
+        assert "/Users/" not in text
