@@ -1,0 +1,24 @@
+{
+  "available": true,
+  "coordinate_system": "field_aligned",
+  "declared_metric_fields": [
+    "Bmag",
+    "g_11",
+    "g_22",
+    "g_33",
+    "jacobian"
+  ],
+  "dimensions": {
+    "nphi": 16,
+    "ns": 24,
+    "ntheta": 32
+  },
+  "geometry_family": "traced_field_line_3d",
+  "geometry_name": "synthetic_traced_field_line_preview",
+  "parse_status": "ok",
+  "periodicity": {
+    "poloidal": true,
+    "toroidal": true
+  },
+  "preview_mode": true
+}
