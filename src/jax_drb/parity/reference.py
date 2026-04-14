@@ -304,9 +304,9 @@ def _prepare_workdir(case: ReferenceCase, input_path: Path, *, workdir: str | Pa
         staged = Path(workdir).expanduser().resolve()
         staged.mkdir(parents=True, exist_ok=True)
     _stage_case_directory(input_path.parent, staged)
+    _stage_case_artifacts(case, staged)
     _stage_referenced_mesh_files(input_path, staged)
     _stage_shared_reference_support_directories(input_path, staged)
-    _stage_case_artifacts(case, staged)
     return staged
 
 
@@ -347,6 +347,10 @@ def _stage_referenced_mesh_files(input_path: Path, target_dir: Path) -> None:
     candidate = (input_path.parent / mesh_path.name).resolve()
     if candidate.exists():
         _stage_mesh_file(candidate, target_dir / mesh_path.name)
+        return
+
+    staged_candidate = (target_dir / mesh_path.name).resolve()
+    if staged_candidate.exists():
         return
 
     candidates: list[Path] = []

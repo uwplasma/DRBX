@@ -65,6 +65,12 @@ def _run_integrated_2d_case_against_committed_baseline(case_name: str):
             reference_root=_REFERENCE_ROOT,
             steps=5,
         )
+    elif case_name.endswith("_medium_window"):
+        result = native_runner._run_integrated_2d_recycling_medium_window_case(
+            case,
+            input_path=input_path,
+            reference_root=_REFERENCE_ROOT,
+        )
     else:
         raise ValueError(f"Unsupported committed-baseline test case {case_name!r}")
 
@@ -2752,6 +2758,48 @@ def test_integrated_2d_production_one_step_stays_within_operational_target_band(
     assert entries["Sd_target_recycle"].max_abs_diff < 2.0e-3
     assert entries["NVd+"].max_abs_diff < 1.0e-3
     assert entries["Ed_target_recycle"].max_abs_diff < 1.0e-5
+
+
+def test_integrated_2d_recycling_one_step_stays_within_operational_target_band() -> None:
+    entries = _run_integrated_2d_case_against_committed_baseline("integrated_2d_recycling_one_step")
+
+    assert entries["Sd_target_recycle"].max_abs_diff < 1.1
+    assert entries["Ed_target_recycle"].max_abs_diff < 1.0e-2
+    assert entries["Pd+"].max_abs_diff < 3.0e-3
+    assert entries["NVd+"].max_abs_diff < 2.0e-3
+    assert entries["Nd+"].max_abs_diff < 2.0e-4
+    assert entries["Pe"].max_abs_diff < 5.0e-5
+    assert entries["Pd"].max_abs_diff < 2.0e-5
+    assert entries["Nd"].max_abs_diff < 5.0e-7
+    assert entries["NVd"].max_abs_diff < 1.0e-9
+
+
+def test_integrated_2d_recycling_short_window_stays_within_operational_target_band() -> None:
+    entries = _run_integrated_2d_case_against_committed_baseline("integrated_2d_recycling_short_window")
+
+    assert entries["Sd_target_recycle"].max_abs_diff < 1.1
+    assert entries["Ed_target_recycle"].max_abs_diff < 1.0e-2
+    assert entries["Pd+"].max_abs_diff < 1.5e-2
+    assert entries["NVd+"].max_abs_diff < 6.0e-3
+    assert entries["Nd+"].max_abs_diff < 6.0e-4
+    assert entries["Pe"].max_abs_diff < 2.0e-3
+    assert entries["Pd"].max_abs_diff < 1.0e-4
+    assert entries["Nd"].max_abs_diff < 1.0e-6
+    assert entries["NVd"].max_abs_diff < 1.0e-8
+
+
+def test_integrated_2d_recycling_medium_window_stays_within_operational_target_band() -> None:
+    entries = _run_integrated_2d_case_against_committed_baseline("integrated_2d_recycling_medium_window")
+
+    assert entries["Sd_target_recycle"].max_abs_diff < 1.1
+    assert entries["Ed_target_recycle"].max_abs_diff < 1.0e-2
+    assert entries["Pd+"].max_abs_diff < 5.0e-2
+    assert entries["NVd+"].max_abs_diff < 2.5e-2
+    assert entries["Nd+"].max_abs_diff < 3.0e-3
+    assert entries["Pe"].max_abs_diff < 1.5e-2
+    assert entries["Pd"].max_abs_diff < 3.0e-4
+    assert entries["Nd"].max_abs_diff < 1.0e-5
+    assert entries["NVd"].max_abs_diff < 1.0e-8
 
 
 def test_integrated_2d_production_short_window_stays_within_operational_target_band() -> None:
