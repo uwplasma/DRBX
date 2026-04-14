@@ -128,6 +128,7 @@ What this documents:
 - a reference-backed preview mode that can be generated without a heavy 3D solve;
 - LCFS, wall, and divertor overlays in the same diverted-geometry style as the existing tokamak visualizations.
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.
+- the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from two 3D workdirs.
 
 ## Neutral Mixed Short-Window Benchmark Target
 

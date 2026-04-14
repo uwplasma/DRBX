@@ -111,6 +111,16 @@ from .tokamak_tcv_x21_scaffold import (
     create_tcv_x21_scaffold_package,
     resolve_tcv_x21_reference_case,
 )
+from .tokamak_tcv_x21_selected_field import (
+    TcvX21SelectedFieldParityArtifacts,
+    TcvX21SelectedFieldParityResult,
+    TcvX21SelectedFieldVariableError,
+    compare_tcv_x21_selected_field_workdirs,
+    create_tcv_x21_selected_field_parity_package,
+    save_tcv_x21_selected_field_parity_plot,
+    write_tcv_x21_selected_field_parity_arrays,
+    write_tcv_x21_selected_field_parity_json,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -208,4 +218,12 @@ __all__ = [
     "TcvX21ReferenceStatus",
     "create_tcv_x21_scaffold_package",
     "resolve_tcv_x21_reference_case",
+    "TcvX21SelectedFieldParityArtifacts",
+    "TcvX21SelectedFieldParityResult",
+    "TcvX21SelectedFieldVariableError",
+    "compare_tcv_x21_selected_field_workdirs",
+    "create_tcv_x21_selected_field_parity_package",
+    "save_tcv_x21_selected_field_parity_plot",
+    "write_tcv_x21_selected_field_parity_arrays",
+    "write_tcv_x21_selected_field_parity_json",
 ]
