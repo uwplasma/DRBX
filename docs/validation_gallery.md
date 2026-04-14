@@ -146,7 +146,7 @@ What this documents:
 - a non-diverted, traced-field-line geometry family riding on the same general 3D infrastructure;
 - a reusable metric summary JSON and compact NPZ metric bundle;
 - reusable radial, toroidal, and poloidal line diagnostics on the same artifact model;
-- reusable toroidal-slice summaries and a first geometry-family GIF on the same artifact model;
+- reusable selected-plane summaries and a first geometry-family GIF on the same artifact model;
 - a publication-style metric summary plot that can be regenerated from either a synthetic preview or an explicit mesh/metric JSON specification;
 - an explicit geometry-adapter validation contract before any native non-tokamak 3D claim is made.
 
