@@ -82,6 +82,7 @@ def main() -> None:
             {
                 "manifest_json": artifacts.manifest_json_path,
                 "input_report_json": artifacts.input_report_json_path,
+                "validation_contract_json": artifacts.validation_contract_json_path,
                 "arrays_npz": artifacts.arrays_npz_path,
                 "analysis_json": artifacts.analysis_json_path,
                 "snapshots_png": artifacts.snapshots_png_path,

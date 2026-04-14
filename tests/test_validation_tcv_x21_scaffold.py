@@ -46,6 +46,7 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     for path in (
         artifacts.manifest_json_path,
         artifacts.input_report_json_path,
+        artifacts.validation_contract_json_path,
         artifacts.arrays_npz_path,
         artifacts.analysis_json_path,
         artifacts.snapshots_png_path,
@@ -61,12 +62,21 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert manifest["workdir_mode"] == "synthetic_preview"
     assert manifest["reference_exists"] is False
     assert manifest["artifacts"]["input_report_json"].endswith("data/tokamak_tcv_x21_scaffold_input_report.json")
+    assert manifest["artifacts"]["validation_contract_json"].endswith(
+        "data/tokamak_tcv_x21_scaffold_validation_contract.json"
+    )
     assert manifest["artifacts"]["movie_gif"].endswith("movies/tokamak_tcv_x21_scaffold.gif")
 
     input_report = json.loads(artifacts.input_report_json_path.read_text(encoding="utf-8"))
     assert input_report["available"] is False
     assert input_report["parse_status"] == "missing_input"
     assert input_report["compare_variables"] == ["Ne", "Pe", "Pi", "NVi", "phi"]
+
+    validation_contract = json.loads(artifacts.validation_contract_json_path.read_text(encoding="utf-8"))
+    assert validation_contract["benchmark"]["name"] == "TCV-X21 diverted L-mode reference case"
+    assert validation_contract["promotion_gates"][0]["name"] == "scaffold_gate"
+    assert validation_contract["diagnostic_sets"][0]["name"] == "FHRP"
+    assert "density" in validation_contract["diagnostic_sets"][0]["observables"]
 
 
 def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> None:
@@ -89,3 +99,11 @@ def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> N
     assert input_report["solver"]["type"] == "cvode"
     assert input_report["components"]["labels"] == ["e", "i", "vorticity"]
     assert input_report["declared_components"] == ["e", "i", "vorticity"]
+
+    validation_contract = json.loads(artifacts.validation_contract_json_path.read_text(encoding="utf-8"))
+    assert validation_contract["reference_inputs"]["input_exists"] is True
+    assert validation_contract["reference_inputs"]["reference_helper_scripts"] == [
+        "examples/tokamak-3D/tcv-x21/gather_data.py",
+        "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",
+        "examples/tokamak-3D/tcv-x21/make_tcvx21_plots.py",
+    ]

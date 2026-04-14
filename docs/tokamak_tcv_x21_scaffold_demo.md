@@ -37,6 +37,7 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 
 - manifest report: [tokamak_tcv_x21_scaffold_manifest.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_manifest.json)
 - input/deck report: [tokamak_tcv_x21_scaffold_input_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_input_report.json)
+- validation contract: [tokamak_tcv_x21_scaffold_validation_contract.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_validation_contract.json)
 - assembled arrays: [tokamak_tcv_x21_scaffold_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz)
 - analysis JSON: [tokamak_tcv_x21_scaffold_analysis.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_analysis.json)
 - snapshot panel: [tokamak_tcv_x21_scaffold_snapshots.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
@@ -53,10 +54,28 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 2. records whether a local 3D reference tree is actually present;
 3. parses the reference deck into a structured input report with time, mesh,
    solver, component, and compare-surface metadata when the deck is present;
-4. reuses the existing diverted-tokamak geometry/movie pipeline;
-5. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
+4. writes a benchmark validation contract that records the planned TCV-X21
+   observables, profile metrics, and promotion gates for the 3D lane;
+5. reuses the existing diverted-tokamak geometry/movie pipeline;
+6. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
    divertor overlays;
-6. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
+7. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
+
+## Benchmark Gate Design
+
+The validation contract follows the same observable families used in the local
+TCV-X21 helper workflow:
+
+- `FHRP`: outboard-midplane density, temperature, potential, and floating-potential profiles
+- `LFS-LP`: low-field-side target density, temperature, potential, current, and floating-potential profiles
+- `HFS-LP`: high-field-side target density, temperature, potential, current, and floating-potential profiles
+
+The immediate promotion gates are:
+
+1. scaffold gate: manifest, deck report, validation contract, and geometry figure bundle
+2. external-workdir gate: the same artifact bundle driven by a real 3D workdir and mesh
+3. selected-field parity gate: a compact native/reference compare surface on a reduced 3D rung
+4. benchmark validation gate: publication-ready TCV-X21 profile plots and methods note
 
 ## What It Does Not Do Yet
 
