@@ -5,6 +5,9 @@
     "input_report_json": "data/tokamak_tcv_x21_scaffold_input_report.json",
     "movie_gif": "movies/tokamak_tcv_x21_scaffold.gif",
     "poster_png": "images/tokamak_tcv_x21_scaffold_poster.png",
+    "profile_arrays_npz": "data/tokamak_tcv_x21_scaffold_profile_arrays.npz",
+    "profile_plot_png": "images/tokamak_tcv_x21_scaffold_profiles.png",
+    "profile_report_json": "data/tokamak_tcv_x21_scaffold_profile_report.json",
     "snapshots_png": "images/tokamak_tcv_x21_scaffold_snapshots.png",
     "validation_contract_json": "data/tokamak_tcv_x21_scaffold_validation_contract.json"
   },
@@ -13,7 +16,7 @@
   "case_name": "tokamak_tcv_x21_escalation",
   "field_name": "phi",
   "preview_mode": true,
-  "reference_exists": false,
+  "reference_exists": true,
   "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp",
   "workdir_mode": "synthetic_preview"
 }
