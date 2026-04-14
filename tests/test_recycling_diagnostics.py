@@ -95,6 +95,42 @@ def test_extract_scalar_series_reads_time_history(tmp_path: Path) -> None:
     assert np.array_equal(values, np.asarray([1.0, 1.5, 2.5], dtype=np.float64))
 
 
+def test_default_recycling_boundary_cells_pick_upper_two_active_rows() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_boundary_cell.py",
+        "recycling_boundary_cell_diag",
+    )
+    mesh = SimpleNamespace(xstart=3, yend=11)
+
+    cells = module.default_recycling_boundary_cells(mesh)
+
+    assert cells == ((3, 11, 0), (3, 10, 0))
+
+
+def test_recycling_boundary_cell_value_reads_3d_and_4d_fields() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_boundary_cell.py",
+        "recycling_boundary_cell_diag_value",
+    )
+    field3 = np.zeros((2, 5, 1), dtype=np.float64)
+    field3[1, 4, 0] = 2.5
+    field4 = np.zeros((1, 2, 5, 1), dtype=np.float64)
+    field4[0, 1, 4, 0] = -3.0
+
+    assert module._cell_value(field3, (1, 4, 0)) == pytest.approx(2.5)
+    assert module._cell_value(field4, (1, 4, 0)) == pytest.approx(-3.0)
+
+
+def test_default_recycling_boundary_ion_terms_include_momentum_advection() -> None:
+    module = _load_script_module(
+        "scripts/diagnose_recycling_boundary_cell.py",
+        "recycling_boundary_cell_diag_terms",
+    )
+
+    assert "momentum_advection" in module.DEFAULT_ION_TERM_NAMES
+    assert "momentum_total" in module.DEFAULT_ION_TERM_NAMES
+
+
 def test_relative_error_metrics_separates_small_denominator_artifacts() -> None:
     module = _load_script_module(
         "scripts/diagnose_recycling_neutral_transient.py",
