@@ -136,12 +136,17 @@ What this documents:
 
 ![Traced-field-line scaffold lineouts](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_lineouts.png)
 
+![Traced-field-line scaffold slice summary](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_slice_summary.png)
+
+![Traced-field-line scaffold slice movie](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_slice_movie.gif)
+
 What this documents:
 
 - the second 3D geometry-adapter scaffold in the tree;
 - a non-diverted, traced-field-line geometry family riding on the same general 3D infrastructure;
 - a reusable metric summary JSON and compact NPZ metric bundle;
 - reusable radial, toroidal, and poloidal line diagnostics on the same artifact model;
+- reusable toroidal-slice summaries and a first geometry-family GIF on the same artifact model;
 - a publication-style metric summary plot that can be regenerated from either a synthetic preview or an explicit mesh/metric JSON specification;
 - an explicit geometry-adapter validation contract before any native non-tokamak 3D claim is made.
 

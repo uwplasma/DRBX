@@ -11,6 +11,7 @@ from netCDF4 import Dataset
 
 from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
 from .geometry_lineouts import LineoutSpec, build_lineout_report, save_lineout_summary_plot, write_lineout_arrays_npz
+from .geometry_slices import SliceSpec, build_slice_report, save_slice_gif, save_slice_summary_plot, write_slice_arrays_npz, write_slice_report_json
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,10 @@ class TracedFieldLineScaffoldArtifacts:
     line_report_json_path: Path
     line_arrays_npz_path: Path
     line_plot_png_path: Path
+    slice_report_json_path: Path
+    slice_arrays_npz_path: Path
+    slice_plot_png_path: Path
+    slice_gif_path: Path
 
 
 @dataclass(frozen=True)
@@ -91,6 +96,35 @@ def create_traced_field_line_scaffold_package(
         field_names=preferred_line_fields,
         title="Traced-field-line line diagnostics",
     )
+    movie_field_name, movie_field_values = _select_slice_field(metric_arrays)
+    slice_spec = SliceSpec(
+        name="toroidal_index_planes",
+        axis=1,
+        coordinate_name="phi_index",
+        coordinate_values=np.linspace(0.0, 1.0, movie_field_values.shape[1], dtype=np.float64),
+    )
+    slice_report = build_slice_report(field_name=movie_field_name, values=movie_field_values, spec=slice_spec)
+    slice_report_json_path = write_slice_report_json(
+        slice_report,
+        data_dir / f"{case_label}_slice_report.json",
+    )
+    slice_arrays_npz_path = write_slice_arrays_npz(
+        field_name=movie_field_name,
+        values=movie_field_values,
+        spec=slice_spec,
+        path=data_dir / f"{case_label}_slice_arrays.npz",
+    )
+    slice_plot_png_path = save_slice_summary_plot(
+        slice_report,
+        images_dir / f"{case_label}_slice_summary.png",
+        title=f"{movie_field_name} toroidal slice summary",
+    )
+    slice_gif_path = save_slice_gif(
+        field_name=movie_field_name,
+        values=movie_field_values,
+        spec=slice_spec,
+        path=images_dir / f"{case_label}_slice_movie.gif",
+    )
 
     manifest = build_geometry_adapter_manifest(
         case_label=case_label,
@@ -106,6 +140,10 @@ def create_traced_field_line_scaffold_package(
             "line_report_json": str(line_report_json_path.relative_to(root)),
             "line_arrays_npz": str(line_arrays_npz_path.relative_to(root)),
             "line_plot_png": str(line_plot_png_path.relative_to(root)),
+            "slice_report_json": str(slice_report_json_path.relative_to(root)),
+            "slice_arrays_npz": str(slice_arrays_npz_path.relative_to(root)),
+            "slice_plot_png": str(slice_plot_png_path.relative_to(root)),
+            "slice_gif": str(slice_gif_path.relative_to(root)),
         },
         metadata={"source_format": mesh_source.source_format},
     )
@@ -121,14 +159,18 @@ def create_traced_field_line_scaffold_package(
         line_report_json_path=line_report_json_path,
         line_arrays_npz_path=line_arrays_npz_path,
         line_plot_png_path=line_plot_png_path,
+        slice_report_json_path=slice_report_json_path,
+        slice_arrays_npz_path=slice_arrays_npz_path,
+        slice_plot_png_path=slice_plot_png_path,
+        slice_gif_path=slice_gif_path,
     )
 
 
 def _write_synthetic_mesh_spec(path: Path) -> None:
     s = np.linspace(0.0, 1.0, 24)
-    theta = np.linspace(-np.pi, np.pi, 32)
     phi = np.linspace(0.0, 2.0 * np.pi, 16)
-    ss, tt, pp = np.meshgrid(s, theta, phi, indexing="ij")
+    theta = np.linspace(-np.pi, np.pi, 32)
+    ss, pp, tt = np.meshgrid(s, phi, theta, indexing="ij")
     payload = {
         "geometry_name": "synthetic_traced_field_line_preview",
         "coordinate_system": "field_aligned",
@@ -277,6 +319,14 @@ def _build_line_report(metric_arrays: dict[str, np.ndarray]) -> dict[str, object
         LineoutSpec("poloidal_cut", axis=2, coordinate_name="theta_index", coordinate_values=coords[2], fixed_indices=(center0, center1)),
     )
     return build_lineout_report(fields=metric_arrays, specs=specs)
+
+
+def _select_slice_field(metric_arrays: dict[str, np.ndarray]) -> tuple[str, np.ndarray]:
+    for name in ("Bxy", "Bmag", "J", "jacobian", "g11", "g_11"):
+        if name in metric_arrays:
+            return name, metric_arrays[name]
+    fallback_name, fallback_values = next(iter(metric_arrays.items()))
+    return fallback_name, fallback_values
 
 
 def _save_metric_summary_plot(metric_report: dict[str, object], path: Path) -> Path:
