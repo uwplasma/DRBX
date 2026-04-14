@@ -274,6 +274,79 @@ def test_recycling_dthe_one_step_native_parity_stays_within_exact_relative_band(
     )
     assert worst_relative < 5.0e-2, entries
 
+
+def _assert_mixed_exact_band(
+    *,
+    case_name: str,
+    env_flag: str,
+    near_zero_atol: float,
+    max_relative: float,
+    max_near_zero_abs_diff: float,
+) -> None:
+    if os.environ.get(env_flag) != "1":
+        pytest.skip(f"set {env_flag}=1 to run the bounded parity gate for {case_name}")
+
+    expected = load_portable_array_payload(_BASELINE_DIR / f"{case_name}.npz")
+    result = run_curated_case(case_name, reference_root=_REFERENCE_ROOT)
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    entries = build_scaled_array_diff_entries(
+        expected["variables"],
+        actual["variables"],
+        compare_variables=tuple(expected["compare_variables"]),
+        near_zero_atol=near_zero_atol,
+    )
+
+    assert entries
+    non_near_zero_entries = tuple(entry for entry in entries if not entry.near_zero_expected)
+    near_zero_entries = tuple(entry for entry in entries if entry.near_zero_expected)
+
+    worst_relative = max((entry.relative_to_expected_max or 0.0) for entry in non_near_zero_entries)
+    worst_near_zero_abs_diff = max((entry.max_abs_diff for entry in near_zero_entries), default=0.0)
+
+    assert worst_relative < max_relative, entries
+    assert worst_near_zero_abs_diff < max_near_zero_abs_diff, near_zero_entries
+
+
+def test_integrated_2d_recycling_one_step_native_parity_stays_within_exact_mixed_band() -> None:
+    _assert_mixed_exact_band(
+        case_name="integrated_2d_recycling_one_step",
+        env_flag="JAX_DRB_RUN_RECYCLING_2D_PARITY",
+        near_zero_atol=1.0e-6,
+        max_relative=2.0e-2,
+        max_near_zero_abs_diff=1.0e-8,
+    )
+
+
+def test_integrated_2d_recycling_short_window_native_parity_stays_within_exact_mixed_band() -> None:
+    _assert_mixed_exact_band(
+        case_name="integrated_2d_recycling_short_window",
+        env_flag="JAX_DRB_RUN_RECYCLING_2D_PARITY",
+        near_zero_atol=1.0e-6,
+        max_relative=2.0e-2,
+        max_near_zero_abs_diff=1.0e-8,
+    )
+
+
+def test_integrated_2d_recycling_medium_window_native_parity_stays_within_exact_mixed_band() -> None:
+    _assert_mixed_exact_band(
+        case_name="integrated_2d_recycling_medium_window",
+        env_flag="JAX_DRB_RUN_RECYCLING_2D_PARITY",
+        near_zero_atol=1.0e-6,
+        max_relative=2.0e-2,
+        max_near_zero_abs_diff=1.0e-8,
+    )
+
+
+def test_tokamak_recycling_dthe_one_step_native_parity_stays_within_exact_mixed_band() -> None:
+    _assert_mixed_exact_band(
+        case_name="tokamak_recycling_dthe_one_step",
+        env_flag="JAX_DRB_RUN_RECYCLING_2D_PARITY",
+        near_zero_atol=2.0e-5,
+        max_relative=5.0e-2,
+        max_near_zero_abs_diff=2.0e-5,
+    )
+
+
 def test_recycling_array_diff_report_localizes_worst_cell(tmp_path: Path) -> None:
     expected_path = _BASELINE_DIR / "recycling_dthe_one_step.npz"
     actual_path = tmp_path / "recycling_dthe_one_step.npz"

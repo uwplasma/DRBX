@@ -14,6 +14,7 @@ from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native import runner as native_runner
 from jax_drb.parity.arrays import build_array_payload_from_summary_payload, load_portable_array_payload
 from jax_drb.parity.diff import build_scaled_array_diff_entries
+from jax_drb.parity import reference as parity_reference
 from jax_drb.native.reference_dump import (
     LocalReferenceSnapshot,
     save_local_reference_snapshot_cache,
@@ -36,6 +37,54 @@ from jax_drb.reference.cases import ReferenceCase, load_reference_cases
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
 _BASELINE_ARRAY_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
+
+
+def test_run_curated_case_dispatches_tokamak_recycling_rhs_to_dedicated_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = ReferenceCase(
+        name="tokamak_recycling_dthe_rhs",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/recycling-dthe/BOUT.inp",
+        parity_mode="one_rhs",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+"),
+    )
+    sentinel = object()
+
+    monkeypatch.setattr(parity_reference, "resolve_reference_case", lambda *args, **kwargs: (case, _REFERENCE_INPUT))
+    monkeypatch.setattr(native_runner, "_run_tokamak_recycling_rhs_case", lambda *args, **kwargs: sentinel)
+    monkeypatch.setattr(
+        native_runner,
+        "_run_integrated_2d_recycling_rhs_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("integrated helper should not be dispatched")),
+    )
+
+    assert native_runner.run_curated_case(case.name, reference_root=_REFERENCE_ROOT) is sentinel
+
+
+def test_run_curated_case_dispatches_tokamak_recycling_one_step_to_dedicated_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = ReferenceCase(
+        name="tokamak_recycling_dthe_one_step",
+        stage="stage7",
+        reference_path="examples/tokamak-2D/recycling-dthe/BOUT.inp",
+        parity_mode="one_step",
+        rationale="test",
+        compare_variables=("Nd+", "Pd+", "NVd+"),
+    )
+    sentinel = object()
+
+    monkeypatch.setattr(parity_reference, "resolve_reference_case", lambda *args, **kwargs: (case, _REFERENCE_INPUT))
+    monkeypatch.setattr(native_runner, "_run_tokamak_recycling_one_step_case", lambda *args, **kwargs: sentinel)
+    monkeypatch.setattr(
+        native_runner,
+        "_run_integrated_2d_recycling_one_step_case",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("integrated helper should not be dispatched")),
+    )
+
+    assert native_runner.run_curated_case(case.name, reference_root=_REFERENCE_ROOT) is sentinel
 
 
 def _reference_case_by_name(name: str) -> ReferenceCase:
