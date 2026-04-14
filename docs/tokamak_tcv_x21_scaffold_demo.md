@@ -38,8 +38,11 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 - manifest report: [tokamak_tcv_x21_scaffold_manifest.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_manifest.json)
 - input/deck report: [tokamak_tcv_x21_scaffold_input_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_input_report.json)
 - validation contract: [tokamak_tcv_x21_scaffold_validation_contract.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_validation_contract.json)
+- profile report: [tokamak_tcv_x21_scaffold_profile_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_report.json)
+- profile arrays: [tokamak_tcv_x21_scaffold_profile_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_arrays.npz)
 - assembled arrays: [tokamak_tcv_x21_scaffold_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz)
 - analysis JSON: [tokamak_tcv_x21_scaffold_analysis.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_analysis.json)
+- profile summary plot: [tokamak_tcv_x21_scaffold_profiles.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
 - snapshot panel: [tokamak_tcv_x21_scaffold_snapshots.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
 - poster frame: [tokamak_tcv_x21_scaffold_poster.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_poster.png)
 - GIF: [tokamak_tcv_x21_scaffold.gif](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
@@ -47,6 +50,8 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 ## Preview
 
 ![TCV-X21 scaffold movie](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+
+![TCV-X21 scaffold profiles](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
 
 ## What This Package Does
 
@@ -56,10 +61,13 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
    solver, component, and compare-surface metadata when the deck is present;
 4. writes a benchmark validation contract that records the planned TCV-X21
    observables, profile metrics, and promotion gates for the 3D lane;
-5. reuses the existing diverted-tokamak geometry/movie pipeline;
-6. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
+5. extracts the staged `FHRP`, `LFS-LP`, and `HFS-LP` profile families into a
+   structured report and compact NPZ bundle;
+6. renders a publication-style profile summary figure from that same bundle;
+7. reuses the existing diverted-tokamak geometry/movie pipeline;
+8. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
    divertor overlays;
-7. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
+9. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
 
 ## Benchmark Gate Design
 

@@ -47,6 +47,9 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
         artifacts.manifest_json_path,
         artifacts.input_report_json_path,
         artifacts.validation_contract_json_path,
+        artifacts.profile_report_json_path,
+        artifacts.profile_arrays_npz_path,
+        artifacts.profile_plot_png_path,
         artifacts.arrays_npz_path,
         artifacts.analysis_json_path,
         artifacts.snapshots_png_path,
@@ -65,6 +68,15 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert manifest["artifacts"]["validation_contract_json"].endswith(
         "data/tokamak_tcv_x21_scaffold_validation_contract.json"
     )
+    assert manifest["artifacts"]["profile_report_json"].endswith(
+        "data/tokamak_tcv_x21_scaffold_profile_report.json"
+    )
+    assert manifest["artifacts"]["profile_arrays_npz"].endswith(
+        "data/tokamak_tcv_x21_scaffold_profile_arrays.npz"
+    )
+    assert manifest["artifacts"]["profile_plot_png"].endswith(
+        "images/tokamak_tcv_x21_scaffold_profiles.png"
+    )
     assert manifest["artifacts"]["movie_gif"].endswith("movies/tokamak_tcv_x21_scaffold.gif")
 
     input_report = json.loads(artifacts.input_report_json_path.read_text(encoding="utf-8"))
@@ -77,6 +89,12 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert validation_contract["promotion_gates"][0]["name"] == "scaffold_gate"
     assert validation_contract["diagnostic_sets"][0]["name"] == "FHRP"
     assert "density" in validation_contract["diagnostic_sets"][0]["observables"]
+
+    profile_report = json.loads(artifacts.profile_report_json_path.read_text(encoding="utf-8"))
+    assert profile_report["available"] is True
+    assert profile_report["parse_status"] == "ok"
+    assert profile_report["diagnostics"]["FHRP"]["density"]["units"] == "1/m^3"
+    assert len(profile_report["diagnostics"]["LFS-LP"]["current"]["mean"]) == 4
 
 
 def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> None:
@@ -107,3 +125,7 @@ def test_tcv_x21_scaffold_marks_reference_tree_when_present(tmp_path: Path) -> N
         "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",
         "examples/tokamak-3D/tcv-x21/make_tcvx21_plots.py",
     ]
+
+    profile_report = json.loads(artifacts.profile_report_json_path.read_text(encoding="utf-8"))
+    assert profile_report["normalization"]["status"] == "physical_units"
+    assert sorted(profile_report["diagnostics"]) == ["FHRP", "HFS-LP", "LFS-LP"]
