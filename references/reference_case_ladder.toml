@@ -243,7 +243,7 @@ name = "integrated_2d_recycling_medium_window"
 stage = "stage7"
 reference_path = "tests/integrated/2D-recycling/data/BOUT.inp"
 parity_mode = "short_window"
-capability_tier = "scaffolded_reference_backed"
+capability_tier = "native_operational"
 rationale = "Extended 2D recycling geometry parity on the stable integrated recycling workflow after the short window and before the broader 2D production path."
 compare_variables = ["Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe", "Sd_target_recycle", "Ed_target_recycle"]
 extra_overrides = ["nout=20"]
