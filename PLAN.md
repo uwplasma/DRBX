@@ -105,6 +105,7 @@ Latest blocker evidence on that lane:
   - dropping the one-step field-template replay on the single-species open-field lane makes no measurable difference;
   - forcing sanitized fields inside the implicit residual changes only roundoff-level details.
   So the current Step 2 blocker remains the active transient evolution itself near the target-adjacent cell, not another controller bookkeeping bug or a simple startup-parameter choice.
+- the next bounded solver-side pass is narrower now too: forcing the continuation interval to stay backward-Euler-only slightly improves `Nd+` but makes `Pd+`, `NVd+`, and `Pe` worse, so the BE-to-BDF2 handoff is not the main blocker. Adding an explicit-RHS startup predictor for the sparse BE/BDF2 Newton solve is now unit-locked and materially tightens `Pd+` / `NVd+` on the committed one-step compare (`Pd+ ≈ 1.365e-2`, `NVd+ ≈ 1.383e-2`), but it still leaves the leading density miss at `Nd+ ≈ 1.888e-2`. A fresh full-interval `adaptive_be` probe still times out under the five-minute local gate even after that predictor improvement, so the next fix still belongs in the active transient evolution itself rather than another solver-startup variant.
 
 ## 1C. Concrete Finish Sequence (2026-04-13)
 
