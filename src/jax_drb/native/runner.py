@@ -393,23 +393,23 @@ def run_curated_case(
     if case.name == "integrated_2d_recycling_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_rhs":
-        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthe_rhs":
-        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthe_drifts_rhs":
-        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthene_rhs":
-        return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_rhs":
         return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_one_step":
-        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthe_one_step":
-        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthe_drifts_one_step":
-        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "tokamak_recycling_dthene_one_step":
-        return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
+        return _run_tokamak_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_one_step":
         return _run_integrated_2d_recycling_one_step_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "integrated_2d_production_short_window":
@@ -527,6 +527,15 @@ def _run_integrated_2d_recycling_rhs_case(
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
     )
+
+
+def _run_tokamak_recycling_rhs_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_integrated_2d_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
 
 
 def _run_alfven_wave_rhs_case(
@@ -1265,6 +1274,20 @@ def _run_alfven_wave_dump_case(
 
 
 def _run_integrated_2d_recycling_one_step_case(
+    case: ReferenceCase,
+    *,
+    input_path: Path,
+    reference_root: str | Path,
+) -> NativeRunResult:
+    return _run_integrated_2d_recycling_transient_case(
+        case,
+        input_path=input_path,
+        reference_root=reference_root,
+        steps=1,
+    )
+
+
+def _run_tokamak_recycling_one_step_case(
     case: ReferenceCase,
     *,
     input_path: Path,
