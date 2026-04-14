@@ -1577,6 +1577,11 @@ def _run_open_field_recycling_one_step_case(
         dataset_scalars=dataset_scalars,
         timestep=run_config.time.timestep,
         steps=1,
+        initial_fields={
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in snapshot.fields.items()
+            if name in state_field_names
+        },
         field_template_overrides=field_template_overrides,
         solver_mode=_select_recycling_transient_solver_mode(config, parity_mode=case.parity_mode),
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
