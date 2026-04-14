@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from matplotlib import pyplot as plt
 import numpy as np
 from netCDF4 import Dataset
 
@@ -21,6 +20,11 @@ from .diverted_tokamak_movie import (
     assemble_tokamak_rank_history,
     create_diverted_tokamak_movie_package,
     load_diverted_tokamak_geometry,
+)
+from .geometry_profiles import (
+    build_diagnostic_profile_report,
+    save_diagnostic_profile_summary_plot,
+    write_diagnostic_profile_arrays_npz,
 )
 
 DEFAULT_TCV_X21_CASE_NAME = "tokamak_tcv_x21_escalation"
@@ -351,19 +355,12 @@ def _extract_tcv_x21_profile_report(*, workdir: Path, mesh_path: Path) -> dict[s
     }
     geometry = load_diverted_tokamak_geometry(mesh_path, active_nx=histories["Ne"].history_4d.shape[1])
     norms = _load_profile_normalization(first_dump)
-    diagnostics = _build_tcv_x21_diagnostic_profiles(histories=histories, geometry=geometry, norms=norms)
-    time_points = np.asarray(histories["Ne"].time_points, dtype=np.float64)
-    return {
-        "available": True,
-        "parse_status": "ok",
-        "normalization": norms,
-        "time_window": {
-            "tmin": float(time_points[0]),
-            "tmax": float(time_points[-1]),
-            "stored_states": int(time_points.size),
-        },
-        "diagnostics": diagnostics,
-    }
+    return build_diagnostic_profile_report(
+        diagnostic_positions=_build_tcv_x21_diagnostic_positions(geometry),
+        derived_histories=_build_tcv_x21_derived_histories(histories=histories, norms=norms),
+        time_points=np.asarray(histories["Ne"].time_points, dtype=np.float64),
+        normalization=norms,
+    )
 
 
 def _missing_dump_fields(dump_path: Path, field_names: tuple[str, ...]) -> list[str]:
@@ -390,12 +387,11 @@ def _read_optional_scalar(dataset: Dataset, name: str, *, default: float) -> flo
     return float(np.asarray(dataset.variables[name][:]).item())
 
 
-def _build_tcv_x21_diagnostic_profiles(
+def _build_tcv_x21_derived_histories(
     *,
     histories: dict[str, DivertedTokamakFieldHistory],
-    geometry: DivertedTokamakGeometry,
     norms: dict[str, float | str],
-) -> dict[str, dict[str, dict[str, object]]]:
+) -> dict[str, tuple[str, np.ndarray]]:
     qe = 1.602e-19
     aa_ion = 2.0
     aa_me = 1.0 / 1836.0
@@ -410,7 +406,7 @@ def _build_tcv_x21_diagnostic_profiles(
     nve = np.asarray(histories["NVe"].history_4d, dtype=np.float64)
     ne_floor = np.clip(ne, 1.0e-8, None)
 
-    derived_histories = {
+    return {
         "density": ("1/m^3", ne * nnorm),
         "electron_temp": ("eV", pe / ne_floor * tnorm),
         "ion_temp": ("eV", pi / ne_floor * tnorm),
@@ -418,25 +414,6 @@ def _build_tcv_x21_diagnostic_profiles(
         "vfloat": ("V", (phi - 3.0 * pe / ne_floor) * tnorm),
         "current": ("A/m^2", (nvi / aa_ion - nve / aa_me) * qe * nnorm * cs0),
     }
-
-    diagnostic_positions = _build_tcv_x21_diagnostic_positions(geometry)
-    result: dict[str, dict[str, dict[str, object]]] = {}
-    for diagnostic_name, (y_index, positions_cm) in diagnostic_positions.items():
-        result[diagnostic_name] = {}
-        for observable_name, (units, history_4d) in derived_histories.items():
-            tx = np.asarray(history_4d[:, :, y_index, :], dtype=np.float64)
-            mean = np.mean(tx, axis=(0, -1))
-            std = np.std(tx, axis=(0, -1))
-            result[diagnostic_name][observable_name] = {
-                "units": units,
-                "position_units": "cm",
-                "positions": positions_cm.tolist(),
-                "mean": mean.tolist(),
-                "std": std.tolist(),
-                "minimum": float(np.min(tx)),
-                "maximum": float(np.max(tx)),
-            }
-    return result
 
 
 def _build_tcv_x21_diagnostic_positions(
@@ -462,68 +439,23 @@ def _build_tcv_x21_diagnostic_positions(
 
 
 def write_tcv_x21_profile_arrays_npz(profile_report: dict[str, object], path: str | Path) -> Path:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, np.ndarray] = {}
-    diagnostics = profile_report.get("diagnostics", {})
-    if isinstance(diagnostics, dict):
-        for diagnostic_name, observables in diagnostics.items():
-            if not isinstance(observables, dict):
-                continue
-            for observable_name, observable in observables.items():
-                if not isinstance(observable, dict):
-                    continue
-                key_prefix = f"{diagnostic_name}:{observable_name}"
-                payload[f"{key_prefix}:positions"] = np.asarray(observable.get("positions", []), dtype=np.float64)
-                payload[f"{key_prefix}:mean"] = np.asarray(observable.get("mean", []), dtype=np.float64)
-                payload[f"{key_prefix}:std"] = np.asarray(observable.get("std", []), dtype=np.float64)
-    payload["__metadata__"] = np.asarray(json.dumps(profile_report, sort_keys=True), dtype=np.str_)
-    np.savez_compressed(target, **payload)
-    return target
+    return write_diagnostic_profile_arrays_npz(profile_report, path)
 
 
 def save_tcv_x21_profile_summary_plot(profile_report: dict[str, object], path: str | Path) -> Path:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    diagnostics = profile_report.get("diagnostics", {})
-    diagnostic_order = ("FHRP", "LFS-LP", "HFS-LP")
-    observable_order = (
-        ("density", "Density"),
-        ("electron_temp", "Electron Temp"),
-        ("ion_temp", "Ion Temp"),
-        ("potential", "Potential"),
-        ("current", "Current"),
+    return save_diagnostic_profile_summary_plot(
+        profile_report,
+        path,
+        diagnostic_order=("FHRP", "LFS-LP", "HFS-LP"),
+        observable_order=(
+            ("density", "Density"),
+            ("electron_temp", "Electron Temp"),
+            ("ion_temp", "Ion Temp"),
+            ("potential", "Potential"),
+            ("current", "Current"),
+        ),
+        title="TCV-X21 Scaffold Profile Families",
     )
-    figure, axes = plt.subplots(
-        len(observable_order),
-        len(diagnostic_order),
-        figsize=(13.5, 14.5),
-        constrained_layout=True,
-        sharex="col",
-    )
-    for column, diagnostic_name in enumerate(diagnostic_order):
-        diagnostic = diagnostics.get(diagnostic_name, {}) if isinstance(diagnostics, dict) else {}
-        for row, (observable_name, label) in enumerate(observable_order):
-            axis = axes[row, column]
-            observable = diagnostic.get(observable_name)
-            if not isinstance(observable, dict):
-                axis.set_visible(False)
-                continue
-            positions = np.asarray(observable.get("positions", []), dtype=np.float64)
-            mean = np.asarray(observable.get("mean", []), dtype=np.float64)
-            std = np.asarray(observable.get("std", []), dtype=np.float64)
-            axis.plot(positions, mean, color="#005f73", linewidth=2.0)
-            axis.fill_between(positions, mean - std, mean + std, color="#94d2bd", alpha=0.35)
-            axis.axvline(0.0, color="#ae2012", linestyle="--", linewidth=1.0, alpha=0.8)
-            axis.grid(alpha=0.25, linewidth=0.5)
-            axis.set_title(f"{diagnostic_name} · {label}", fontsize=10)
-            axis.set_ylabel(str(observable.get("units", "")))
-            if row == len(observable_order) - 1:
-                axis.set_xlabel("R - R_sep [cm]")
-    figure.suptitle("TCV-X21 Scaffold Profile Families", fontsize=16, fontweight="bold")
-    figure.savefig(target, dpi=180)
-    plt.close(figure)
-    return target
 
 
 def _build_input_report(reference_status: TcvX21ReferenceStatus) -> dict[str, object]:
