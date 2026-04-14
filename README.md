@@ -204,6 +204,8 @@ The same promotion logic now closes the integrated 2D recycling transient family
 
 The direct multispecies tokamak recycling one-step lane is now promoted on the same mixed-band rule. `tokamak_recycling_dthe_one_step` clears a `5e-2` scaled band on the non-negligible ion/electron fields while the near-zero neutral channels stay inside a small absolute band, and the active solve is routed through its own direct-tokamak runner entry rather than the integrated 2D dispatch path.
 
+Those promoted 2D gates are now regression-locked behind a bounded parity slice too: set `JAX_DRB_RUN_RECYCLING_2D_PARITY=1` to run the exact-grade integrated/direct recycling parity checks without turning on the whole heavy ladder.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:

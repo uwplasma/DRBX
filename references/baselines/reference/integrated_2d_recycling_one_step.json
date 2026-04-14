@@ -1,5 +1,5 @@
 {
-  "capability_tier": "scaffolded_reference_backed",
+  "capability_tier": "native_exact",
   "case_name": "integrated_2d_recycling_one_step",
   "compare_variables": [
     "Nd+",
