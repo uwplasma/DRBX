@@ -47,6 +47,7 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
         artifacts.manifest_json_path,
         artifacts.input_report_json_path,
         artifacts.validation_contract_json_path,
+        artifacts.observable_report_json_path,
         artifacts.profile_report_json_path,
         artifacts.profile_arrays_npz_path,
         artifacts.profile_plot_png_path,
@@ -69,6 +70,9 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert manifest["artifacts"]["input_report_json"].endswith("data/tokamak_tcv_x21_scaffold_input_report.json")
     assert manifest["artifacts"]["validation_contract_json"].endswith(
         "data/tokamak_tcv_x21_scaffold_validation_contract.json"
+    )
+    assert manifest["artifacts"]["observable_report_json"].endswith(
+        "data/tokamak_tcv_x21_scaffold_observable_report.json"
     )
     assert manifest["artifacts"]["profile_report_json"].endswith(
         "data/tokamak_tcv_x21_scaffold_profile_report.json"
@@ -94,6 +98,9 @@ def test_tcv_x21_scaffold_preview_generates_artifacts(tmp_path: Path) -> None:
     assert validation_contract["promotion_gates"][0]["name"] == "scaffold_gate"
     assert validation_contract["diagnostic_sets"][0]["name"] == "FHRP"
     assert "density" in validation_contract["diagnostic_sets"][0]["observables"]
+    observable_report = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
+    assert observable_report["geometry_family"] == "diverted_tokamak_3d"
+    assert observable_report["observable_groups"][0]["families"][0]["kind"] == "profile"
 
     profile_report = json.loads(artifacts.profile_report_json_path.read_text(encoding="utf-8"))
     assert profile_report["available"] is True

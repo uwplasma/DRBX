@@ -37,6 +37,7 @@ The scaffold writes:
 - a manifest
 - an input/mesh report
 - a validation contract
+- an observable report on the shared 3D geometry-adapter schema
 - a metric summary JSON
 - a compact metric NPZ bundle
 - a publication-style metric summary figure
@@ -45,6 +46,16 @@ The scaffold writes:
 - a selected-plane summary JSON/NPZ bundle
 - a publication-style selected-plane summary figure
 - an animated GIF across the most informative radial, toroidal, or poloidal plane family for one selected metric field
+
+Committed public JSON entry points:
+
+- [traced_field_line_scaffold_manifest.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_manifest.json)
+- [traced_field_line_scaffold_input_report.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_input_report.json)
+- [traced_field_line_scaffold_validation_contract.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_validation_contract.json)
+- [traced_field_line_scaffold_observable_report.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_observable_report.json)
+- [traced_field_line_scaffold_metric_report.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_metric_report.json)
+- [traced_field_line_scaffold_line_report.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_line_report.json)
+- [traced_field_line_scaffold_slice_report.json](data/traced_field_line_scaffold_artifacts/data/traced_field_line_scaffold_slice_report.json)
 
 The input report records whether the source came from a JSON mesh spec or a
 NetCDF FCI grid. The slice report records which plane family was selected for

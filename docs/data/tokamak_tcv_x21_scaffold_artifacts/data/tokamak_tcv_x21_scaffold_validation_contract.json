@@ -119,7 +119,7 @@
     }
   ],
   "reference_inputs": {
-    "input_exists": true,
+    "input_exists": false,
     "reference_helper_scripts": [
       "examples/tokamak-3D/tcv-x21/gather_data.py",
       "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",
@@ -127,6 +127,24 @@
     ],
     "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp"
   },
+  "references": [
+    {
+      "label": "TCV-X21 validation benchmark",
+      "url": "https://arxiv.org/abs/2109.01618"
+    },
+    {
+      "label": "TCV-X21 turbulence validation follow-up",
+      "url": "https://arxiv.org/abs/2506.12180"
+    },
+    {
+      "label": "GBS code verification and MMS reference",
+      "url": "https://arxiv.org/abs/2112.03573"
+    },
+    {
+      "label": "Detachment-scaling 1D SOL benchmark",
+      "url": "https://arxiv.org/abs/2406.16375"
+    }
+  ],
   "verification_requirements": [
     {
       "description": "Require MMS/order-of-accuracy evidence on the promoted operators before claiming native 3D closure.",

@@ -83,6 +83,7 @@ def main() -> None:
                 "manifest_json": artifacts.manifest_json_path,
                 "input_report_json": artifacts.input_report_json_path,
                 "validation_contract_json": artifacts.validation_contract_json_path,
+                "observable_report_json": artifacts.observable_report_json_path,
                 "profile_report_json": artifacts.profile_report_json_path,
                 "profile_arrays_npz": artifacts.profile_arrays_npz_path,
                 "profile_plot_png": artifacts.profile_plot_png_path,

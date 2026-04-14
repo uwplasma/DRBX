@@ -7,6 +7,7 @@
     "metric_arrays_npz": "data/traced_field_line_scaffold_metric_arrays.npz",
     "metric_plot_png": "images/traced_field_line_scaffold_metrics.png",
     "metric_report_json": "data/traced_field_line_scaffold_metric_report.json",
+    "observable_report_json": "data/traced_field_line_scaffold_observable_report.json",
     "slice_arrays_npz": "data/traced_field_line_scaffold_slice_arrays.npz",
     "slice_gif": "images/traced_field_line_scaffold_slice_movie.gif",
     "slice_plot_png": "images/traced_field_line_scaffold_slice_summary.png",
