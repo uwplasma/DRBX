@@ -7,8 +7,10 @@ import subprocess
 import sys
 
 import numpy as np
+import pytest
 
 from jax_drb.cli import main
+import jax_drb.native as native_module
 from jax_drb.native import run_input_case
 from jax_drb.native.runner import NativeRestartState
 from jax_drb.parity.arrays import load_portable_array_payload
@@ -168,9 +170,11 @@ def test_run_command_writes_artifacts_and_restart_bundle(tmp_path: Path, capsys)
     assert restart.current_time == 15.0
     assert tuple(sorted(restart.state_variables)) == ("Nh", "Ph")
 
-    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
     assert run_log["capability_tier"] == "native_exact"
     assert run_log["restart_supported"] is True
+    assert run_log["event_count"] == len(run_log["events"])
+    assert "artifacts" in run_log["event_stages"]
     assert run_log["run_configuration"]["time"] == {"nout": 3, "timestep": 5.0}
     assert run_log["run_configuration"]["mesh"]["nx"] == 10
     assert run_log["run_configuration"]["solver"]["mxstep"] == 1000
@@ -381,7 +385,8 @@ def test_run_command_reads_output_and_logging_from_toml(tmp_path: Path, capsys) 
     captured = capsys.readouterr().out
     assert "Loaded input configuration" in captured
     assert "Launching native run" in captured
-    assert "Planned run artifacts" in captured
+    assert "Resolved artifact destinations" in captured
+    assert "Wrote summary JSON" in captured
     assert "Run Summary" in captured
 
     run_log = json.loads(run_log_path.read_text(encoding="utf-8"))
@@ -393,6 +398,8 @@ def test_run_command_reads_output_and_logging_from_toml(tmp_path: Path, capsys) 
     assert run_log["run_configuration"]["output"]["working_directory"]
     assert "/Users/" not in json.dumps(run_log, sort_keys=True)
     assert len(run_log["events"]) >= 3
+    assert run_log["event_count"] == len(run_log["events"])
+    assert "artifacts" in run_log["event_stages"]
     assert run_log["events"][0]["stage"] == "configuration"
 
 
@@ -407,11 +414,49 @@ def test_run_command_verbose_flag_enables_detailed_terminal_events(tmp_path: Pat
     captured = capsys.readouterr().out
     assert "Loaded input configuration" in captured
     assert "Launching native run" in captured
-    assert "Planned run artifacts" in captured
+    assert "Resolved artifact destinations" in captured
+    assert "Wrote arrays NPZ" in captured
 
     run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["logging"]["verbosity"] == "detailed"
     assert run_log["run_configuration"]["runtime"]["logging"]["verbose"] is True
+    assert run_log["event_count"] == len(run_log["events"])
+
+
+def test_run_command_verbose_relay_prints_progress_updates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    input_path = tmp_path / "diffusion_verbose.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run_progress"
+    baseline_run_input_case = native_module.run_input_case
+
+    def fake_run_input_case(*args, **kwargs):
+        event_logger = kwargs.get("event_logger")
+        if event_logger is not None:
+            event_logger(
+                {
+                    "stage": "progress",
+                    "message": "Completed recycling transient interval",
+                    "details": {
+                        "interval_index": 1,
+                        "steps": 2,
+                        "solver_mode": "continuation",
+                        "accepted_dt": 6.25,
+                        "stored_states": 2,
+                    },
+                }
+            )
+        return baseline_run_input_case(*args, **kwargs)
+
+    monkeypatch.setattr(native_module, "run_input_case", fake_run_input_case)
+
+    exit_code = main([str(input_path), "--output-dir", str(output_dir), "--verbose"])
+
+    assert exit_code == 0
+    captured = capsys.readouterr().out
+    assert "Completed recycling transient interval" in captured
+    assert "solver_mode" in captured
+    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
+    assert "progress" in run_log["event_stages"]
 
 
 def test_run_input_case_verbose_emits_python_driver_events(tmp_path: Path) -> None:
