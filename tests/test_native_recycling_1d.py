@@ -847,6 +847,7 @@ def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
     evolved_history = {name: np.stack([value, value + 1.0], axis=0) for name, value in initial_fields.items()}
 
     def fake_history(*args, **kwargs):
+        captured["initial_fields"] = kwargs["initial_fields"]
         captured["field_template_overrides"] = kwargs["field_template_overrides"]
         captured["solver_mode"] = kwargs["solver_mode"]
         return SimpleNamespace(variable_history=evolved_history, feedback_integral_history={})
@@ -861,6 +862,8 @@ def test_recycling_1d_one_step_uses_committed_snapshot_and_field_templates(
     )
 
     assert captured["solver_mode"] == "continuation"
+    np.testing.assert_allclose(captured["initial_fields"]["Nd+"], initial_fields["Nd+"])
+    np.testing.assert_allclose(captured["initial_fields"]["Pe"], initial_fields["Pe"])
     np.testing.assert_allclose(captured["field_template_overrides"]["Nd+"][0, 0, 0], initial_fields["Nd+"][0, 0, 0])
     np.testing.assert_allclose(captured["field_template_overrides"]["Nd+"][0, 1:4, 0], 2.0)
     np.testing.assert_allclose(captured["field_template_overrides"]["Pe"][0, 1:4, 0], 9.0)
