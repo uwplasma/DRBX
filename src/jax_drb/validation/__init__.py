@@ -104,6 +104,13 @@ from .diverted_tokamak_movie import (
     write_diverted_tokamak_analysis_json,
     write_diverted_tokamak_arrays_npz,
 )
+from .tokamak_tcv_x21_scaffold import (
+    DEFAULT_TCV_X21_CASE_NAME,
+    TcvX21ScaffoldArtifacts,
+    TcvX21ReferenceStatus,
+    create_tcv_x21_scaffold_package,
+    resolve_tcv_x21_reference_case,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -196,4 +203,9 @@ __all__ = [
     "toroidal_mean_fluctuation",
     "write_diverted_tokamak_analysis_json",
     "write_diverted_tokamak_arrays_npz",
+    "DEFAULT_TCV_X21_CASE_NAME",
+    "TcvX21ScaffoldArtifacts",
+    "TcvX21ReferenceStatus",
+    "create_tcv_x21_scaffold_package",
+    "resolve_tcv_x21_reference_case",
 ]

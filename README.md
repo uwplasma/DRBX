@@ -12,6 +12,8 @@ The project is being shipped around a strong-subset research claim:
 
 ![Diverted tokamak turbulence movie](docs/data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
 
+![TCV-X21 scaffold movie](docs/data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+
 ## Install
 
 Editable install:
@@ -198,9 +200,9 @@ That policy is also why the current open-field recycling work is focused on tran
 
 In practice, that means the open-field one-step recycling lanes now clear a tighter exact-grade recycling gate: `recycling_1d_one_step` and `recycling_dthe_one_step` both stay below a scaled one-step diff band of `5e-2` against their committed baselines, and the one-step runner no longer relies on a synthesized final-state template for non-active cells. The longer open-field recycling windows remain `native_operational`, but the first-output open-field lane is now strong enough to count as `native_exact` on its promoted compare surface.
 
-One consequence of that policy is that some direct tokamak recycling rungs remain intentionally labeled `native_operational`: when a local slab does not own a physical target on one side, the missing guard row is a communicated neighbor state rather than a local sheath boundary. The current `tokamak_recycling_dthe_one_step` rung no longer depends on committed guard-row replay or dump target preservation inside the active solve, but it is still not counted as exact native closure until the fully native distributed recycling backbone is in place.
+The same promotion logic now closes the integrated 2D recycling transient family too. `integrated_2d_recycling_one_step`, `integrated_2d_recycling_short_window`, and `integrated_2d_recycling_medium_window` all clear an exact-grade mixed gate: non-negligible fields stay inside a scaled diff band while the effectively silent neutral momentum channel is held to a tiny absolute band. The transient no longer replays dump-backed density, pressure, or momentum source fields and no longer preserves dump target state during the transient or diagnostic replay.
 
-The same cleanup is now applied on the integrated 2D recycling lane too: its transient path no longer depends on dump-backed density, pressure, or momentum source replay, and it no longer relies on dump target preservation during the transient or diagnostic replay. It still starts from a dump-seeded initial state, so it is now tracked as `native_operational` rather than fully exact native closure.
+The direct multispecies tokamak recycling one-step lane is now promoted on the same mixed-band rule. `tokamak_recycling_dthe_one_step` clears a `5e-2` scaled band on the non-negligible ion/electron fields while the near-zero neutral channels stay inside a small absolute band, and the active solve is routed through its own direct-tokamak runner entry rather than the integrated 2D dispatch path.
 
 ## What To Run First
 
@@ -213,6 +215,7 @@ If you want meeting-ready figures and movies:
 - [alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md)
 - [blob2d_meeting_demo.md](docs/blob2d_meeting_demo.md)
 - [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
+- [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
 
 If you want the current validation gallery:
 
@@ -269,6 +272,7 @@ These examples follow the same differentiable-simulation surfaces commonly used 
 - Runtime and deck guide: [native_runtime_cli.md](docs/native_runtime_cli.md)
 - Validation gallery: [validation_gallery.md](docs/validation_gallery.md)
 - Diverted tokamak movie demo: [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
+- TCV-X21 tokamak scaffold demo: [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
 - Physics models and source map: [physics_models.md](docs/physics_models.md)
 - Performance and differentiability: [performance_and_differentiability.md](docs/performance_and_differentiability.md)
 - Autodiff and scaling examples: [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
