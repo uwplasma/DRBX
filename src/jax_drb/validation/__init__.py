@@ -109,6 +109,13 @@ from .geometry_profiles import (
     save_diagnostic_profile_summary_plot,
     write_diagnostic_profile_arrays_npz,
 )
+from .geometry_observables import (
+    build_geometry_observable_report,
+    line_group_from_report,
+    profile_group_from_report,
+    slice_group_from_report,
+    write_geometry_observable_report,
+)
 from .geometry_lineouts import (
     LineoutSpec,
     build_lineout_report,
@@ -241,9 +248,13 @@ __all__ = [
     "write_diverted_tokamak_analysis_json",
     "write_diverted_tokamak_arrays_npz",
     "build_diagnostic_profile_report",
+    "build_geometry_observable_report",
     "LineoutSpec",
     "SliceSpec",
     "build_lineout_report",
+    "line_group_from_report",
+    "profile_group_from_report",
+    "slice_group_from_report",
     "build_slice_report",
     "build_geometry_adapter_contract",
     "build_geometry_adapter_manifest",
@@ -251,6 +262,7 @@ __all__ = [
     "save_slice_summary_plot",
     "save_lineout_summary_plot",
     "save_diagnostic_profile_summary_plot",
+    "write_geometry_observable_report",
     "write_lineout_arrays_npz",
     "write_slice_arrays_npz",
     "write_slice_report_json",

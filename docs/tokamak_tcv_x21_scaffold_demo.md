@@ -38,6 +38,7 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 - manifest report: [tokamak_tcv_x21_scaffold_manifest.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_manifest.json)
 - input/deck report: [tokamak_tcv_x21_scaffold_input_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_input_report.json)
 - validation contract: [tokamak_tcv_x21_scaffold_validation_contract.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_validation_contract.json)
+- observable report: [tokamak_tcv_x21_scaffold_observable_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_observable_report.json)
 - profile report: [tokamak_tcv_x21_scaffold_profile_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_report.json)
 - profile arrays: [tokamak_tcv_x21_scaffold_profile_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_arrays.npz)
 - assembled arrays: [tokamak_tcv_x21_scaffold_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz)
@@ -61,13 +62,15 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
    solver, component, and compare-surface metadata when the deck is present;
 4. writes a benchmark validation contract that records the planned TCV-X21
    observables, profile metrics, and promotion gates for the 3D lane;
-5. extracts the staged `FHRP`, `LFS-LP`, and `HFS-LP` profile families into a
+5. writes a geometry-adapter observable report that lifts the named benchmark
+   profile families onto the shared 3D observable schema;
+6. extracts the staged `FHRP`, `LFS-LP`, and `HFS-LP` profile families into a
    structured report and compact NPZ bundle;
-6. renders a publication-style profile summary figure from that same bundle;
-7. reuses the existing diverted-tokamak geometry/movie pipeline;
-8. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
+7. renders a publication-style profile summary figure from that same bundle;
+8. reuses the existing diverted-tokamak geometry/movie pipeline;
+9. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
    divertor overlays;
-9. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
+10. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
 
 ## Benchmark Gate Design
 

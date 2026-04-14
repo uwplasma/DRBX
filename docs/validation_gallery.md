@@ -123,6 +123,7 @@ What this documents:
 - manifest resolution for `tokamak_tcv_x21_escalation`;
 - a structured deck/input report alongside the preview figure bundle;
 - an explicit benchmark validation contract covering FHRP, HFS-LP, and LFS-LP observable families;
+- a shared observable report that describes those profile families on the generic 3D adapter schema;
 - a staged profile report and compact NPZ bundle for those observable families;
 - a publication-style profile summary plot derived from the same staged bundle;
 - a reference-backed preview mode that can be generated without a heavy 3D solve;
@@ -145,6 +146,7 @@ What this documents:
 - the second 3D geometry-adapter scaffold in the tree;
 - a non-diverted, traced-field-line geometry family riding on the same general 3D infrastructure;
 - a reusable metric summary JSON and compact NPZ metric bundle;
+- a shared observable report covering the line-diagnostic and selected-plane families on the same adapter schema;
 - reusable radial, toroidal, and poloidal line diagnostics on the same artifact model;
 - reusable selected-plane summaries and a first geometry-family GIF on the same artifact model;
 - a publication-style metric summary plot that can be regenerated from either a synthetic preview or an explicit mesh/metric JSON specification;
