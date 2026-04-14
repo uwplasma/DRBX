@@ -8,6 +8,8 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 import numpy as np
 
+from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
+
 
 @dataclass(frozen=True)
 class TracedFieldLineScaffoldArtifacts:
@@ -59,19 +61,19 @@ def create_traced_field_line_scaffold_package(
     np.savez_compressed(metric_arrays_npz_path, **metric_arrays)
     metric_plot_png_path = _save_metric_summary_plot(metric_report, images_dir / f"{case_label}_metrics.png")
 
-    manifest = {
-        "case_label": case_label,
-        "geometry_family": "traced_field_line_3d",
-        "benchmark_adapter": "stellarator_traced_field_line_scaffold",
-        "preview_mode": preview_mode,
-        "artifacts": {
+    manifest = build_geometry_adapter_manifest(
+        case_label=case_label,
+        geometry_family="traced_field_line_3d",
+        benchmark_adapter="stellarator_traced_field_line_scaffold",
+        preview_mode=preview_mode,
+        artifacts={
             "input_report_json": str(input_report_json_path.relative_to(root)),
             "validation_contract_json": str(validation_contract_json_path.relative_to(root)),
             "metric_report_json": str(metric_report_json_path.relative_to(root)),
             "metric_arrays_npz": str(metric_arrays_npz_path.relative_to(root)),
             "metric_plot_png": str(metric_plot_png_path.relative_to(root)),
         },
-    }
+    )
     manifest_json_path = data_dir / f"{case_label}_manifest.json"
     manifest_json_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     return TracedFieldLineScaffoldArtifacts(
@@ -122,11 +124,11 @@ def _build_input_report(*, mesh_spec: dict[str, object], preview_mode: bool) -> 
 
 
 def _build_validation_contract() -> dict[str, object]:
-    return {
-        "geometry_family": "traced_field_line_3d",
-        "benchmark_adapter": "stellarator_traced_field_line_scaffold",
-        "diagnostic_layer": "geometry_adapter_on_general_3d_geometry",
-        "references": [
+    return build_geometry_adapter_contract(
+        geometry_family="traced_field_line_3d",
+        benchmark_adapter="stellarator_traced_field_line_scaffold",
+        diagnostic_layer="geometry_adapter_on_general_3d_geometry",
+        references=[
             {
                 "label": "Zoidberg traced-field-line metrics branch",
                 "url": "https://github.com/boutproject/zoidberg/tree/better-metric",
@@ -140,19 +142,21 @@ def _build_validation_contract() -> dict[str, object]:
                 "url": "https://github.com/search?q=bsting_files&type=repositories",
             },
         ],
-        "metric_checks": [
-            "positive_jacobian",
-            "finite_metric_tensors",
-            "periodic_toroidal_indexing",
-            "field_line_coordinate_metadata",
-        ],
-        "promotion_gates": [
+        promotion_gates=[
             "scaffold_metric_bundle",
             "external_metric_workdir_bundle",
             "selected_field_parity_bundle",
             "native_execution_bundle",
         ],
-    }
+        metadata={
+            "metric_checks": [
+                "positive_jacobian",
+                "finite_metric_tensors",
+                "periodic_toroidal_indexing",
+                "field_line_coordinate_metadata",
+            ],
+        },
+    )
 
 
 def _build_metric_report(mesh_spec: dict[str, object]) -> tuple[dict[str, object], dict[str, np.ndarray]]:
