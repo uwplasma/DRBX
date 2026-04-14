@@ -266,7 +266,7 @@ Current checkpoint:
 
 - the first second-adapter scaffold is now also in-tree: a traced-field-line geometry bundle with metric reports, compact metric arrays, and a geometry-adapter validation contract, intended as the bridge from generic 3D diagnostics to later real stellarator/traced-field-line execution work
 - that second adapter now also emits reusable radial, toroidal, and poloidal line diagnostics from both synthetic preview specs and real external NetCDF FCI grids, so the generic probe/target extraction layer is no longer only a plan item
-- that same adapter now also emits toroidal-slice summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
+- that same adapter now also emits automatically selected radial/toroidal/poloidal plane summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
 
 Publication rule:
 
