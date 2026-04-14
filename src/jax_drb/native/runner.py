@@ -167,7 +167,11 @@ def _uses_optional_history_cache(case_name: str) -> bool:
 
 
 def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
-    return input_path.parents[len(Path(case.reference_path).parts) - 1]
+    reference_path = Path(case.reference_path)
+    offset = len(reference_path.parts) - 1
+    if reference_path.is_absolute():
+        offset -= 1
+    return input_path.parents[offset]
 
 
 def _load_curated_case_config(case: ReferenceCase, input_path: Path) -> BoutConfig:
@@ -249,6 +253,31 @@ def _direct_recycling_optional_field_names(config: BoutConfig) -> tuple[str, ...
         )
     )
     return tuple(dict.fromkeys(names))
+
+
+def _restrict_field_template_overrides_to_non_owned_y_guards(
+    base_fields: Mapping[str, np.ndarray],
+    override_fields: Mapping[str, np.ndarray] | None,
+    *,
+    mesh: StructuredMesh,
+) -> dict[str, np.ndarray] | None:
+    if override_fields is None:
+        return None
+    restricted = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in base_fields.items()
+    }
+    if mesh.myg <= 0:
+        return restricted
+    for name, override in override_fields.items():
+        if name not in restricted:
+            continue
+        override_array = np.asarray(override, dtype=np.float64)
+        if not mesh.has_lower_y_target:
+            restricted[name][:, : mesh.ystart, :] = override_array[:, : mesh.ystart, :]
+        if not mesh.has_upper_y_target:
+            restricted[name][:, mesh.yend + 1 :, :] = override_array[:, mesh.yend + 1 :, :]
+    return restricted
 
 
 def _snapshot_density_source_overrides(
@@ -1441,6 +1470,13 @@ def _run_integrated_2d_recycling_transient_case(
                 field_overrides=initial_fields,
                 velocity_field_overrides=velocity_field_overrides_history[0],
             )
+    field_template_overrides = None if not field_template_overrides_history else field_template_overrides_history[-1]
+    if case.name.startswith("tokamak_recycling"):
+        field_template_overrides = _restrict_field_template_overrides_to_non_owned_y_guards(
+            initial_fields,
+            field_template_overrides,
+            mesh=snapshot.mesh,
+        )
     solver_mode = _select_integrated_2d_transient_solver_mode(case.name, config=config, parity_mode="one_step")
     history = advance_recycling_1d_implicit_history(
         config,
@@ -1455,7 +1491,7 @@ def _run_integrated_2d_recycling_transient_case(
         momentum_source_overrides=momentum_source_overrides,
         preserve_dump_target_state=True,
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
-        field_template_overrides=None if not field_template_overrides_history else field_template_overrides_history[-1],
+        field_template_overrides=field_template_overrides,
         solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
@@ -1470,7 +1506,9 @@ def _run_integrated_2d_recycling_transient_case(
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
         dataset_scalars=dataset_scalars,
-        initial_diagnostic_overrides=initial_diagnostic_overrides,
+        initial_diagnostic_overrides=(
+            None if case.name.startswith("integrated_2d_recycling") else initial_diagnostic_overrides
+        ),
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         velocity_field_overrides_history=velocity_field_overrides_history,
     )

@@ -10,6 +10,8 @@ The project is being shipped around a strong-subset research claim:
 - explicit capability tiers for every promoted workflow
 - curated validation against external benchmark runs, analytic limits, and physics diagnostics
 
+![Diverted tokamak turbulence movie](docs/data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
+
 ## Install
 
 Editable install:
@@ -198,6 +200,8 @@ In practice, that means both open-field one-step recycling lanes are now treated
 
 One consequence of that policy is that some direct tokamak recycling rungs remain intentionally labeled `native_operational` or `scaffolded_reference_backed`: when a local slab does not own a physical target on one side, the missing guard row is a communicated neighbor state rather than a local sheath boundary. The current `tokamak_recycling_dthe_one_step` rung now replays those communicated guard rows from the committed one-step history cache, which tightens the compare surface materially, but it is still not counted as native closure until the fully native distributed recycling backbone is in place.
 
+That replay path is now narrower than it used to be: the one-step solve only reuses the non-owned communicated Y-side guard rows from the cached history, while owned targets and active cells stay on the native side of the solve. That is the right `native_operational` boundary for the current 2D tokamak recycling lane, but it is still not a substitute for full native distributed guard evolution.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -208,6 +212,7 @@ If you want meeting-ready figures and movies:
 
 - [alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md)
 - [blob2d_meeting_demo.md](docs/blob2d_meeting_demo.md)
+- [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
 
 If you want the current validation gallery:
 
@@ -263,6 +268,7 @@ These examples follow the same differentiable-simulation surfaces commonly used 
 
 - Runtime and deck guide: [native_runtime_cli.md](docs/native_runtime_cli.md)
 - Validation gallery: [validation_gallery.md](docs/validation_gallery.md)
+- Diverted tokamak movie demo: [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
 - Physics models and source map: [physics_models.md](docs/physics_models.md)
 - Performance and differentiability: [performance_and_differentiability.md](docs/performance_and_differentiability.md)
 - Autodiff and scaling examples: [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
