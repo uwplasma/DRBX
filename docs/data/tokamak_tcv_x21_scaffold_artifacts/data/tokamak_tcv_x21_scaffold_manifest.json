@@ -1,0 +1,17 @@
+{
+  "artifacts": {
+    "analysis_json": "data/tokamak_tcv_x21_scaffold_analysis.json",
+    "arrays_npz": "data/tokamak_tcv_x21_scaffold_arrays.npz",
+    "movie_gif": "movies/tokamak_tcv_x21_scaffold.gif",
+    "poster_png": "images/tokamak_tcv_x21_scaffold_poster.png",
+    "snapshots_png": "images/tokamak_tcv_x21_scaffold_snapshots.png"
+  },
+  "capability_tier": "scaffolded_reference_backed",
+  "case_label": "tokamak_tcv_x21_scaffold",
+  "case_name": "tokamak_tcv_x21_escalation",
+  "field_name": "phi",
+  "preview_mode": true,
+  "reference_exists": false,
+  "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp",
+  "workdir_mode": "synthetic_preview"
+}
