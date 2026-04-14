@@ -257,6 +257,7 @@ Current checkpoint:
   - a staged profile report and compact profile arrays
   - a publication-style profile summary figure
   - a reduced selected-field parity package for compact `Ne`/`Pe`/`phi` surfaces
+- the reusable 3D diagnostics layer now includes a shared profile-report/NPZ/plot path, and the TCV-X21 scaffold consumes that shared layer instead of owning its own benchmark-specific implementation
 - after that checkpoint, the next 3D deliverables are:
   - bind a real external TCV-X21 workdir/mesh into the same artifact path and keep the figure package reproducible
   - factor the current benchmark-specific profile logic behind a generic 3D diagnostics layer
