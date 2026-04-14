@@ -233,7 +233,7 @@ def test_staged_recycling_dthe_evolved_diagnostics_stay_within_locked_tolerances
     assert diffs["Ftt+_cx"] <= 1.0e-9
 
 
-def test_recycling_1d_one_step_native_parity_stays_within_operational_relative_band() -> None:
+def test_recycling_1d_one_step_native_parity_stays_within_exact_relative_band() -> None:
     if os.environ.get("JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY") != "1":
         pytest.skip("set JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1 to run the bounded recycling one-step parity gate")
 
@@ -251,10 +251,10 @@ def test_recycling_1d_one_step_native_parity_stays_within_operational_relative_b
         entry.relative_to_expected_max or 0.0
         for entry in entries
     )
-    assert worst_relative < 2.0e-1, entries
+    assert worst_relative < 5.0e-2, entries
 
 
-def test_recycling_dthe_one_step_native_parity_stays_within_operational_relative_band() -> None:
+def test_recycling_dthe_one_step_native_parity_stays_within_exact_relative_band() -> None:
     if os.environ.get("JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY") != "1":
         pytest.skip("set JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1 to run the bounded multispecies recycling one-step parity gate")
 
@@ -272,7 +272,7 @@ def test_recycling_dthe_one_step_native_parity_stays_within_operational_relative
         entry.relative_to_expected_max or 0.0
         for entry in entries
     )
-    assert worst_relative < 2.0e-1, entries
+    assert worst_relative < 5.0e-2, entries
 
 def test_recycling_array_diff_report_localizes_worst_cell(tmp_path: Path) -> None:
     expected_path = _BASELINE_DIR / "recycling_dthe_one_step.npz"

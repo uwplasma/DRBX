@@ -1378,12 +1378,8 @@ def _run_integrated_2d_recycling_transient_case(
     }
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
     field_template_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None
-    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production") or case.name in {
-        "tokamak_recycling_one_step",
-        "tokamak_recycling_dthe_one_step",
-        "tokamak_recycling_dthe_drifts_one_step",
-        "tokamak_recycling_dthene_one_step",
-    }
+    preserve_dump_target_state = case.name.startswith("integrated_2d_production")
+    preserve_dump_ion_target_state_only = case.name.startswith("integrated_2d_production")
     if _uses_optional_history_cache(case.name):
         history_cache_path = _integrated_2d_optional_history_cache_path(case.name)
         if history_cache_path.exists():
@@ -1492,7 +1488,7 @@ def _run_integrated_2d_recycling_transient_case(
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,
-        preserve_dump_target_state=True,
+        preserve_dump_target_state=preserve_dump_target_state,
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         field_template_overrides=field_template_overrides,
         solver_mode=solver_mode,
@@ -1512,6 +1508,7 @@ def _run_integrated_2d_recycling_transient_case(
         initial_diagnostic_overrides=(
             None if case.name.startswith("integrated_2d_recycling") else initial_diagnostic_overrides
         ),
+        preserve_dump_target_state=preserve_dump_target_state,
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         velocity_field_overrides_history=velocity_field_overrides_history,
     )
@@ -1656,6 +1653,7 @@ def _append_integrated_2d_recycling_diagnostics(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     initial_diagnostic_overrides: Mapping[str, np.ndarray] | None = None,
+    preserve_dump_target_state: bool = False,
     preserve_dump_ion_target_state_only: bool = False,
     velocity_field_overrides_history: tuple[Mapping[str, np.ndarray] | None, ...] | None = None,
 ) -> None:
@@ -1684,7 +1682,7 @@ def _append_integrated_2d_recycling_diagnostics(
             dataset_scalars=dataset_scalars,
             field_overrides=field_overrides,
             apply_sheath_boundaries=True,
-            preserve_dump_target_state=True,
+            preserve_dump_target_state=preserve_dump_target_state,
             preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         )
         for diagnostic_name in diagnostic_history:
