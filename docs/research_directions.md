@@ -28,6 +28,27 @@ Current code surface:
 - [src/jax_drb/native/blob2d.py](../src/jax_drb/native/blob2d.py)
 - [src/jax_drb/validation/blob2d.py](../src/jax_drb/validation/blob2d.py)
 
+### General 3D Geometry Infrastructure
+
+Priority use cases:
+
+- benchmark adapters for diverted tokamaks
+- traced-field-line and stellarator-style meshes
+- reusable 3D diagnostics, parity, and movie pipelines across geometry families
+
+Why it matters:
+
+- the 3D architecture should not be defined by a single benchmark geometry
+- new research programs will need mesh and metric ingestion beyond one diverted tokamak case
+- geometry portability is part of the maintainability story for researchers and graduate students
+
+Current code surface:
+
+- [src/jax_drb/validation/diverted_tokamak_movie.py](../src/jax_drb/validation/diverted_tokamak_movie.py)
+- [src/jax_drb/validation/tokamak_tcv_x21_scaffold.py](../src/jax_drb/validation/tokamak_tcv_x21_scaffold.py)
+- [src/jax_drb/validation/tokamak_tcv_x21_selected_field.py](../src/jax_drb/validation/tokamak_tcv_x21_selected_field.py)
+- [docs/geometry_roadmap.md](geometry_roadmap.md)
+
 ### Diverted Tokamak Validation
 
 Priority use case:
@@ -77,6 +98,7 @@ To stay maintainable for researchers and graduate students, the highest-value ar
 - keep runtime/output/restart behavior uniform across promoted cases
 - keep capability tiers explicit in docs, logs, and validation reports
 - make plotting/movie scripts part of the normal workflow rather than post-hoc notebooks
+- factor benchmark-specific geometry logic behind reusable 3D mesh, metric, and diagnostics layers
 
 ## External Reading And Active Context
 
@@ -95,6 +117,9 @@ These links are useful context for the current roadmap:
 - related code and benchmark context:
   - [UEDGE](https://github.com/LLNL/UEDGE)
   - [ReMKiT1D publication context](https://scientific-publications.ukaea.uk/wp-content/uploads/UKAEA-CCFE-PR23145.PDF)
+  - [BSTING mesh/script bundle search](https://github.com/search?q=bsting_files&type=repositories)
+  - [Zoidberg traced-field-line metrics branch](https://github.com/boutproject/zoidberg/tree/better-metric)
+  - [Zoidberg metric pull request discussion](https://github.com/boutproject/zoidberg/pull/62)
 
 ## What The Literature Implies For `jax_drb`
 
@@ -102,6 +127,8 @@ The current roadmap should be interpreted conservatively:
 
 - TORPEX-style seeded blob work is the right external benchmark for the already-strong compact electrostatic lane
 - TCV-X21 is the right reviewer-facing diverted benchmark after the native recycling/tokamak transient backbone is stable
+- TCV-X21 should remain a benchmark adapter, not the definition of the whole 3D architecture
+- traced-field-line and stellarator-style meshes should be treated as the second pressure test for the 3D infrastructure, because they force the code to separate geometry ingestion from benchmark-specific diagnostics
 - 1D detachment scaling should be treated as a required publication package, not optional polish, because it stresses sources, sinks, reactions, sheath closure, restart, and scan workflows simultaneously
 - 3D and broader EM claims should stay selected and benchmark-first until the native recycling/tokamak transient backbone no longer depends on replayed or scaffolded state
 
@@ -112,5 +139,7 @@ If you want to contribute to the current release program, the most useful next t
 - operator-focused recycling and viscosity tests
 - direct tokamak convergence campaigns
 - publication-ready blob and divertor figures
+- geometry-agnostic 3D diagnostics and metric-validation tools
+- a second 3D geometry adapter beyond the current diverted tokamak benchmark
 - performance and memory benchmarks for promoted native lanes
 - differentiable solver-path cleanup on the strongest native-exact workflows

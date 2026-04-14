@@ -218,6 +218,8 @@ Those promoted 2D gates are now regression-locked behind a bounded parity slice 
 
 The first 3D tokamak kickoff is now more than a movie stub. The TCV-X21 scaffold package publishes a structured deck report, a benchmark validation contract, and a staged profile bundle alongside the preview geometry/movie bundle, so the 3D lane already exposes manifest metadata, compare variables, time controls, solver settings, mesh metadata, declared component layout, FHRP/LFS-LP/HFS-LP profile families, and the planned benchmark gates before the first native 3D solver promotion.
 
+That said, TCV-X21 is treated as the first benchmark adapter, not as the whole 3D architecture. The 3D program is being organized around reusable mesh, metric, diagnostics, movie, and selected-field parity primitives so the same infrastructure can be used for other geometry families, including traced-field-line and stellarator-style meshes. The current geometry direction is tracked in [geometry_roadmap.md](docs/geometry_roadmap.md).
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -253,6 +255,7 @@ If you want the current performance and differentiability status:
 If you want current research directions and benchmark targets:
 
 - [research_directions.md](docs/research_directions.md)
+- [geometry_roadmap.md](docs/geometry_roadmap.md)
 
 ## Current Research Connections
 

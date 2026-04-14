@@ -21,8 +21,10 @@
       }
     ]
   },
+  "benchmark_adapter": "tcv_x21",
   "capability_tier": "scaffolded_reference_backed",
   "case_name": "tokamak_tcv_x21_escalation",
+  "diagnostic_layer": "benchmark_adapter_on_general_3d_geometry",
   "diagnostic_sets": [
     {
       "description": "Outboard midplane reciprocating probe profiles.",
@@ -60,6 +62,7 @@
       ]
     }
   ],
+  "geometry_family": "diverted_tokamak_3d",
   "profile_metrics": [
     {
       "description": "Match absolute magnitude and profile shape at OMP and divertor targets.",

@@ -1,9 +1,10 @@
 # TCV-X21 Validation Methodology
 
-This page records the validation logic for the selected 3D tokamak kickoff lane
-in `jax_drb`. The current lane is still `scaffolded_reference_backed`, so the
-goal here is not to overclaim a native 3D solver. The goal is to make the gate
-design explicit before the native 3D solver surface is promoted.
+This page records the validation logic for one selected 3D tokamak benchmark
+adapter in `jax_drb`. The current lane is still `scaffolded_reference_backed`,
+so the goal here is not to overclaim a native 3D solver. The goal is to make
+the gate design explicit before the native 3D solver surface is promoted and to
+keep this benchmark package clearly separate from the general 3D architecture.
 
 ## External Context
 
@@ -21,6 +22,10 @@ These references motivate a layered gate structure:
 2. compact native/reference parity on selected fields
 3. benchmark-facing observable comparisons
 4. publication-ready uncertainty and methods reporting
+
+This benchmark-specific methodology sits on top of the broader geometry plan in
+[geometry_roadmap.md](geometry_roadmap.md). TCV-X21 is the first serious 3D
+benchmark adapter, not the definition of the whole 3D code path.
 
 ## Observable Families
 
@@ -125,3 +130,7 @@ The current public artifact bundle lives in:
 The current geometry rendering path reused by the scaffold lives in:
 
 - `src/jax_drb/validation/diverted_tokamak_movie.py`
+
+The broader geometry direction for 3D support is tracked in:
+
+- `docs/geometry_roadmap.md`
