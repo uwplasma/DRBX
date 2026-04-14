@@ -85,24 +85,14 @@ def create_traced_field_line_scaffold_package(
     line_report_json_path = data_dir / f"{case_label}_line_report.json"
     line_report_json_path.write_text(json.dumps(line_report, indent=2, sort_keys=True), encoding="utf-8")
     line_arrays_npz_path = write_lineout_arrays_npz(line_report, data_dir / f"{case_label}_line_arrays.npz")
-    preferred_line_fields = tuple(
-        name
-        for name in ("Bxy", "Bmag", "J", "jacobian", "g11", "g22", "g33")
-        if name in metric_arrays
-    )
+    preferred_line_fields = _select_line_fields(metric_arrays)
     line_plot_png_path = save_lineout_summary_plot(
         line_report,
         images_dir / f"{case_label}_lineouts.png",
         field_names=preferred_line_fields,
         title="Traced-field-line line diagnostics",
     )
-    movie_field_name, movie_field_values = _select_slice_field(metric_arrays)
-    slice_spec = SliceSpec(
-        name="toroidal_index_planes",
-        axis=1,
-        coordinate_name="phi_index",
-        coordinate_values=np.linspace(0.0, 1.0, movie_field_values.shape[1], dtype=np.float64),
-    )
+    movie_field_name, movie_field_values, slice_spec = _select_slice_diagnostic(metric_arrays)
     slice_report = build_slice_report(field_name=movie_field_name, values=movie_field_values, spec=slice_spec)
     slice_report_json_path = write_slice_report_json(
         slice_report,
@@ -117,7 +107,7 @@ def create_traced_field_line_scaffold_package(
     slice_plot_png_path = save_slice_summary_plot(
         slice_report,
         images_dir / f"{case_label}_slice_summary.png",
-        title=f"{movie_field_name} toroidal slice summary",
+        title=f"{movie_field_name} {_slice_display_title(slice_spec.name)}",
     )
     slice_gif_path = save_slice_gif(
         field_name=movie_field_name,
@@ -321,12 +311,93 @@ def _build_line_report(metric_arrays: dict[str, np.ndarray]) -> dict[str, object
     return build_lineout_report(fields=metric_arrays, specs=specs)
 
 
-def _select_slice_field(metric_arrays: dict[str, np.ndarray]) -> tuple[str, np.ndarray]:
-    for name in ("Bxy", "Bmag", "J", "jacobian", "g11", "g_11"):
-        if name in metric_arrays:
-            return name, metric_arrays[name]
+def _select_slice_diagnostic(metric_arrays: dict[str, np.ndarray]) -> tuple[str, np.ndarray, SliceSpec]:
+    sample_field = next(iter(metric_arrays.values()))
+    sample_shape = np.asarray(sample_field).shape
+    slice_specs = (
+        SliceSpec(
+            name="radial_index_planes",
+            axis=0,
+            coordinate_name="s_index",
+            coordinate_values=np.linspace(0.0, 1.0, sample_shape[0], dtype=np.float64),
+        ),
+        SliceSpec(
+            name="toroidal_index_planes",
+            axis=1,
+            coordinate_name="phi_index",
+            coordinate_values=np.linspace(0.0, 1.0, sample_shape[1], dtype=np.float64),
+        ),
+        SliceSpec(
+            name="poloidal_index_planes",
+            axis=2,
+            coordinate_name="theta_index",
+            coordinate_values=np.linspace(0.0, 1.0, sample_shape[2], dtype=np.float64),
+        ),
+    )
+    preferred_names = ("J", "jacobian", "Bmag", "Bxy", "g33", "g11", "g22", "g_33", "g_11", "g_22")
+    best_choice: tuple[float, int, int, str, SliceSpec] | None = None
+    for preferred_order, name in enumerate(preferred_names):
+        if name not in metric_arrays:
+            continue
+        values = np.asarray(metric_arrays[name], dtype=np.float64)
+        for spec_order, spec in enumerate(slice_specs):
+            score = _slice_variation_score(values, axis=spec.axis)
+            choice = (score, -preferred_order, -spec_order, name, spec)
+            if best_choice is None or choice > best_choice:
+                best_choice = choice
+    if best_choice is not None:
+        _, _, _, field_name, spec = best_choice
+        return field_name, metric_arrays[field_name], spec
     fallback_name, fallback_values = next(iter(metric_arrays.items()))
-    return fallback_name, fallback_values
+    fallback_spec = slice_specs[0]
+    return fallback_name, fallback_values, fallback_spec
+
+
+def _select_line_fields(metric_arrays: dict[str, np.ndarray], *, max_fields: int = 4) -> tuple[str, ...]:
+    ranked = _rank_metric_fields(metric_arrays)
+    if not ranked:
+        return tuple(metric_arrays.keys())[:max_fields]
+    return tuple(ranked[:max_fields])
+
+
+def _rank_metric_fields(metric_arrays: dict[str, np.ndarray]) -> list[str]:
+    preferred_names = ("J", "jacobian", "Bmag", "Bxy", "g33", "g11", "g22")
+    scores: list[tuple[int, float, str]] = []
+    for order, name in enumerate(preferred_names):
+        if name not in metric_arrays:
+            continue
+        values = metric_arrays[name]
+        array = np.asarray(values, dtype=np.float64)
+        span = float(np.max(array) - np.min(array))
+        scale = max(abs(float(np.mean(array))), 1.0e-12)
+        relative_span = span / scale
+        if relative_span <= 1.0e-12:
+            continue
+        scores.append((order, -relative_span, name))
+    scores.sort()
+    return [name for _, _, name in scores]
+
+
+def _slice_variation_score(values: np.ndarray, *, axis: int) -> float:
+    if values.ndim != 3 or values.shape[axis] <= 1:
+        return 0.0
+    reference = np.take(values, indices=0, axis=axis)
+    deltas = []
+    for index in range(values.shape[axis]):
+        plane = np.take(values, indices=index, axis=axis)
+        delta = plane - reference
+        deltas.append(float(np.sqrt(np.mean(delta**2))))
+    scale = max(float(np.sqrt(np.mean(reference**2))), 1.0e-12)
+    return max(deltas) / scale
+
+
+def _slice_display_title(name: str) -> str:
+    titles = {
+        "radial_index_planes": "radial slice summary",
+        "toroidal_index_planes": "toroidal slice summary",
+        "poloidal_index_planes": "poloidal slice summary",
+    }
+    return titles.get(name, name.replace("_", " "))
 
 
 def _save_metric_summary_plot(metric_report: dict[str, object], path: Path) -> Path:
@@ -334,21 +405,41 @@ def _save_metric_summary_plot(metric_report: dict[str, object], path: Path) -> P
     target.parent.mkdir(parents=True, exist_ok=True)
     fields = metric_report.get("metric_fields", {})
     names = list(fields.keys())
+    labels = [_metric_display_label(name) for name in names]
     means = [fields[name]["mean"] for name in names]
     mins = [fields[name]["minimum"] for name in names]
     maxs = [fields[name]["maximum"] for name in names]
     figure, axes = plt.subplots(2, 1, figsize=(10.5, 8.0), constrained_layout=True)
-    axes[0].bar(names, means, color="#005f73")
+    axes[0].bar(labels, means, color="#005f73")
     axes[0].set_ylabel("Mean value")
     axes[0].set_title("Traced-field-line metric summary")
     axes[0].grid(alpha=0.25, axis="y")
     x = np.arange(len(names))
     axes[1].plot(x, mins, marker="o", color="#ae2012", label="min")
     axes[1].plot(x, maxs, marker="o", color="#0a9396", label="max")
-    axes[1].set_xticks(x, names, rotation=20)
+    axes[1].set_xticks(x, labels, rotation=20)
     axes[1].set_ylabel("Field range")
     axes[1].grid(alpha=0.25)
     axes[1].legend(frameon=False)
     figure.savefig(target, dpi=180)
     plt.close(figure)
     return target
+
+
+def _metric_display_label(name: str) -> str:
+    labels = {
+        "Bxy": "B",
+        "Bmag": "|B|",
+        "J": "Jacobian",
+        "jacobian": "Jacobian",
+        "g11": "g11",
+        "g22": "g22",
+        "g33": "g33",
+        "g_11": "g^11",
+        "g_22": "g^22",
+        "g_33": "g^33",
+        "dx": "dx",
+        "dy": "dy",
+        "dz": "dz",
+    }
+    return labels.get(name, name)

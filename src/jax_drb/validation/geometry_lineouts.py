@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 from matplotlib import pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 import numpy as np
 
 
@@ -71,7 +72,7 @@ def save_lineout_summary_plot(
     figure, axes = plt.subplots(
         len(field_names),
         max(1, len(diagnostic_names)),
-        figsize=(13.0, 9.0),
+        figsize=(13.5, max(6.0, 2.35 * len(field_names))),
         constrained_layout=True,
         squeeze=False,
     )
@@ -85,11 +86,18 @@ def save_lineout_summary_plot(
                 continue
             coords = np.asarray(field_report.get("coordinate_values", []), dtype=np.float64)
             line = np.asarray(field_report.get("mean", []), dtype=np.float64)
-            axis.plot(coords, line, color="#005f73", linewidth=2.0)
+            axis.plot(coords, line, color="#005f73", linewidth=2.2)
             axis.grid(alpha=0.25)
-            axis.set_title(f"{diagnostic_name} · {field_name}")
+            axis.set_title(f"{_display_label(diagnostic_name)} · {_display_label(field_name)}", fontsize=10)
             axis.set_xlabel(str(field_report.get("coordinate_name", "coord")))
-            axis.set_ylabel(field_name)
+            axis.set_ylabel(_display_label(field_name))
+            span = float(np.ptp(line))
+            scale = max(float(np.max(np.abs(line))), 1.0e-12)
+            formatter = ScalarFormatter(useOffset=False)
+            formatter.set_powerlimits((-2, 2))
+            if span / scale < 1.0e-3:
+                formatter.set_scientific(False)
+            axis.yaxis.set_major_formatter(formatter)
     figure.suptitle(title, fontsize=16, fontweight="bold")
     figure.savefig(target, dpi=180)
     plt.close(figure)
@@ -107,3 +115,22 @@ def _extract_line(values: np.ndarray, spec: LineoutSpec) -> np.ndarray:
     if spec.axis == 2:
         return array[spec.fixed_indices[0], spec.fixed_indices[1], :]
     raise ValueError(f"Unsupported axis {spec.axis}")
+
+
+def _display_label(name: str) -> str:
+    labels = {
+        "radial_midplane": "Radial midplane",
+        "toroidal_cut": "Toroidal cut",
+        "poloidal_cut": "Poloidal cut",
+        "Bxy": "B",
+        "Bmag": "|B|",
+        "J": "Jacobian",
+        "jacobian": "Jacobian",
+        "g11": "g11",
+        "g22": "g22",
+        "g33": "g33",
+        "g_11": "g^11",
+        "g_22": "g^22",
+        "g_33": "g^33",
+    }
+    return labels.get(name, name.replace("_", " "))

@@ -1,27 +1,51 @@
 {
   "available": true,
-  "coordinate_name": "phi_index",
+  "coordinate_name": "s_index",
   "coordinate_values": [
     0.0,
+    0.3333333333333333,
+    0.6666666666666666,
     1.0
   ],
-  "field_name": "Bxy",
+  "field_name": "g_33",
   "frames": [
     {
       "coordinate_value": 0.0,
       "index": 0,
-      "maximum": 1.0,
-      "mean": 1.0,
-      "minimum": 1.0
+      "maximum": 1.137777777777774,
+      "mean": 0.5444444444444436,
+      "minimum": 0.28444444444444394,
+      "rms_delta_from_first": 0.0,
+      "standard_deviation": 0.34467375879228007
+    },
+    {
+      "coordinate_value": 0.3333333333333333,
+      "index": 1,
+      "maximum": 6.194567901234568,
+      "mean": 2.9641975308641997,
+      "minimum": 1.548641975308642,
+      "rms_delta_from_first": 2.863891001051647,
+      "standard_deviation": 1.8765571312024218
+    },
+    {
+      "coordinate_value": 0.6666666666666666,
+      "index": 2,
+      "maximum": 15.296790123456796,
+      "mean": 7.319753086419758,
+      "minimum": 3.824197530864199,
+      "rms_delta_from_first": 8.01889480294461,
+      "standard_deviation": 4.6339472015406775
     },
     {
       "coordinate_value": 1.0,
-      "index": 1,
-      "maximum": 1.0,
-      "mean": 1.0,
-      "minimum": 1.0
+      "index": 3,
+      "maximum": 28.444444444444432,
+      "mean": 13.61111111111111,
+      "minimum": 7.111111111111108,
+      "rms_delta_from_first": 15.465011405678874,
+      "standard_deviation": 8.616843969807038
     }
   ],
   "parse_status": "ok",
-  "slice_name": "toroidal_index_planes"
+  "slice_name": "radial_index_planes"
 }

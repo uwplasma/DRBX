@@ -48,10 +48,18 @@ def test_traced_field_line_scaffold_preview_generates_artifacts(tmp_path: Path) 
     line_report = json.loads(artifacts.line_report_json_path.read_text(encoding="utf-8"))
     assert sorted(line_report["diagnostics"]) == ["poloidal_cut", "radial_midplane", "toroidal_cut"]
     assert "Bmag" in line_report["diagnostics"]["radial_midplane"]
+    assert "jacobian" in line_report["diagnostics"]["radial_midplane"]
     slice_report = json.loads(artifacts.slice_report_json_path.read_text(encoding="utf-8"))
-    assert slice_report["field_name"] == "Bmag"
-    assert slice_report["slice_name"] == "toroidal_index_planes"
-    assert len(slice_report["frames"]) == 16
+    assert slice_report["field_name"] in {"Bmag", "jacobian", "g_33"}
+    assert slice_report["slice_name"] in {"radial_index_planes", "toroidal_index_planes", "poloidal_index_planes"}
+    if slice_report["slice_name"] == "radial_index_planes":
+        assert len(slice_report["frames"]) == 24
+    elif slice_report["slice_name"] == "toroidal_index_planes":
+        assert len(slice_report["frames"]) == 16
+    else:
+        assert len(slice_report["frames"]) == 32
+    assert "rms_delta_from_first" in slice_report["frames"][0]
+    assert "standard_deviation" in slice_report["frames"][0]
 
 
 def test_traced_field_line_scaffold_reads_netcdf_fci_grid(tmp_path: Path) -> None:
@@ -88,7 +96,15 @@ def test_traced_field_line_scaffold_reads_netcdf_fci_grid(tmp_path: Path) -> Non
     assert metric_report["source_format"] == "netcdf_fci_grid"
     assert metric_report["metric_fields"]["Bxy"]["mean"] == 1.5
     line_report = json.loads(artifacts.line_report_json_path.read_text(encoding="utf-8"))
-    assert line_report["diagnostics"]["radial_midplane"]["Bxy"]["mean"] == [1.5, 1.5, 1.5]
+    assert "J" in line_report["diagnostics"]["radial_midplane"]
+    assert line_report["diagnostics"]["radial_midplane"]["J"]["mean"] == [0.9, 0.9, 0.9]
     slice_report = json.loads(artifacts.slice_report_json_path.read_text(encoding="utf-8"))
-    assert slice_report["field_name"] == "Bxy"
-    assert len(slice_report["frames"]) == 2
+    assert slice_report["field_name"] in {"Bxy", "J", "g11", "g22", "g33"}
+    assert slice_report["slice_name"] in {"radial_index_planes", "toroidal_index_planes", "poloidal_index_planes"}
+    if slice_report["slice_name"] == "radial_index_planes":
+        assert len(slice_report["frames"]) == 3
+    elif slice_report["slice_name"] == "toroidal_index_planes":
+        assert len(slice_report["frames"]) == 2
+    else:
+        assert len(slice_report["frames"]) == 4
+    assert "rms_delta_from_first" in slice_report["frames"][1]

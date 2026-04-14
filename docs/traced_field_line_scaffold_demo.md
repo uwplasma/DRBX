@@ -42,12 +42,14 @@ The scaffold writes:
 - a publication-style metric summary figure
 - a line-diagnostic JSON/NPZ bundle for radial, toroidal, and poloidal cuts
 - a publication-style lineout summary figure
-- a toroidal-slice summary JSON/NPZ bundle
-- a publication-style toroidal-slice summary figure
-- an animated GIF across the toroidal slice index for one selected metric field
+- a selected-plane summary JSON/NPZ bundle
+- a publication-style selected-plane summary figure
+- an animated GIF across the most informative radial, toroidal, or poloidal plane family for one selected metric field
 
 The input report records whether the source came from a JSON mesh spec or a
-NetCDF FCI grid.
+NetCDF FCI grid. The slice report records which plane family was selected for
+the summary and GIF, so the artifact stays useful even when a given geometry
+has little or no toroidal variation.
 
 ## Why It Exists
 
