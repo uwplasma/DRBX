@@ -10,6 +10,7 @@ import numpy as np
 from netCDF4 import Dataset
 
 from .geometry_adapter import build_geometry_adapter_contract, build_geometry_adapter_manifest
+from .geometry_lineouts import LineoutSpec, build_lineout_report, save_lineout_summary_plot, write_lineout_arrays_npz
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,9 @@ class TracedFieldLineScaffoldArtifacts:
     metric_report_json_path: Path
     metric_arrays_npz_path: Path
     metric_plot_png_path: Path
+    line_report_json_path: Path
+    line_arrays_npz_path: Path
+    line_plot_png_path: Path
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,21 @@ def create_traced_field_line_scaffold_package(
     metric_arrays_npz_path = data_dir / f"{case_label}_metric_arrays.npz"
     np.savez_compressed(metric_arrays_npz_path, **metric_arrays)
     metric_plot_png_path = _save_metric_summary_plot(metric_report, images_dir / f"{case_label}_metrics.png")
+    line_report = _build_line_report(metric_arrays)
+    line_report_json_path = data_dir / f"{case_label}_line_report.json"
+    line_report_json_path.write_text(json.dumps(line_report, indent=2, sort_keys=True), encoding="utf-8")
+    line_arrays_npz_path = write_lineout_arrays_npz(line_report, data_dir / f"{case_label}_line_arrays.npz")
+    preferred_line_fields = tuple(
+        name
+        for name in ("Bxy", "Bmag", "J", "jacobian", "g11", "g22", "g33")
+        if name in metric_arrays
+    )
+    line_plot_png_path = save_lineout_summary_plot(
+        line_report,
+        images_dir / f"{case_label}_lineouts.png",
+        field_names=preferred_line_fields,
+        title="Traced-field-line line diagnostics",
+    )
 
     manifest = build_geometry_adapter_manifest(
         case_label=case_label,
@@ -84,6 +103,9 @@ def create_traced_field_line_scaffold_package(
             "metric_report_json": str(metric_report_json_path.relative_to(root)),
             "metric_arrays_npz": str(metric_arrays_npz_path.relative_to(root)),
             "metric_plot_png": str(metric_plot_png_path.relative_to(root)),
+            "line_report_json": str(line_report_json_path.relative_to(root)),
+            "line_arrays_npz": str(line_arrays_npz_path.relative_to(root)),
+            "line_plot_png": str(line_plot_png_path.relative_to(root)),
         },
         metadata={"source_format": mesh_source.source_format},
     )
@@ -96,6 +118,9 @@ def create_traced_field_line_scaffold_package(
         metric_report_json_path=metric_report_json_path,
         metric_arrays_npz_path=metric_arrays_npz_path,
         metric_plot_png_path=metric_plot_png_path,
+        line_report_json_path=line_report_json_path,
+        line_arrays_npz_path=line_arrays_npz_path,
+        line_plot_png_path=line_plot_png_path,
     )
 
 
@@ -233,6 +258,25 @@ def _build_metric_report(
             "finite": bool(np.isfinite(values).all()),
         }
     return report, arrays
+
+
+def _build_line_report(metric_arrays: dict[str, np.ndarray]) -> dict[str, object]:
+    sample_field = next(iter(metric_arrays.values()))
+    shape = np.asarray(sample_field).shape
+    coords = {
+        0: np.linspace(0.0, 1.0, shape[0], dtype=np.float64),
+        1: np.linspace(0.0, 1.0, shape[1], dtype=np.float64),
+        2: np.linspace(0.0, 1.0, shape[2], dtype=np.float64),
+    }
+    center0 = shape[0] // 2
+    center1 = shape[1] // 2
+    center2 = shape[2] // 2
+    specs = (
+        LineoutSpec("radial_midplane", axis=0, coordinate_name="s", coordinate_values=coords[0], fixed_indices=(center1, center2)),
+        LineoutSpec("toroidal_cut", axis=1, coordinate_name="phi_index", coordinate_values=coords[1], fixed_indices=(center0, center2)),
+        LineoutSpec("poloidal_cut", axis=2, coordinate_name="theta_index", coordinate_values=coords[2], fixed_indices=(center0, center1)),
+    )
+    return build_lineout_report(fields=metric_arrays, specs=specs)
 
 
 def _save_metric_summary_plot(metric_report: dict[str, object], path: Path) -> Path:

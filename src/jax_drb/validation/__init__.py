@@ -109,6 +109,12 @@ from .geometry_profiles import (
     save_diagnostic_profile_summary_plot,
     write_diagnostic_profile_arrays_npz,
 )
+from .geometry_lineouts import (
+    LineoutSpec,
+    build_lineout_report,
+    save_lineout_summary_plot,
+    write_lineout_arrays_npz,
+)
 from .geometry_adapter import (
     build_geometry_adapter_contract,
     build_geometry_adapter_manifest,
@@ -227,9 +233,13 @@ __all__ = [
     "write_diverted_tokamak_analysis_json",
     "write_diverted_tokamak_arrays_npz",
     "build_diagnostic_profile_report",
+    "LineoutSpec",
+    "build_lineout_report",
     "build_geometry_adapter_contract",
     "build_geometry_adapter_manifest",
+    "save_lineout_summary_plot",
     "save_diagnostic_profile_summary_plot",
+    "write_lineout_arrays_npz",
     "write_diagnostic_profile_arrays_npz",
     "DEFAULT_TCV_X21_CASE_NAME",
     "TcvX21ScaffoldArtifacts",
