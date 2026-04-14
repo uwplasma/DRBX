@@ -11,10 +11,12 @@
     "snapshots_png": "images/tokamak_tcv_x21_scaffold_snapshots.png",
     "validation_contract_json": "data/tokamak_tcv_x21_scaffold_validation_contract.json"
   },
+  "benchmark_adapter": "tcv_x21",
   "capability_tier": "scaffolded_reference_backed",
   "case_label": "tokamak_tcv_x21_scaffold",
   "case_name": "tokamak_tcv_x21_escalation",
   "field_name": "phi",
+  "geometry_family": "diverted_tokamak_3d",
   "preview_mode": true,
   "reference_exists": true,
   "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp",
