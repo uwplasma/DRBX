@@ -1,6 +1,9 @@
 {
   "artifacts": {
     "input_report_json": "data/traced_field_line_scaffold_input_report.json",
+    "line_arrays_npz": "data/traced_field_line_scaffold_line_arrays.npz",
+    "line_plot_png": "images/traced_field_line_scaffold_lineouts.png",
+    "line_report_json": "data/traced_field_line_scaffold_line_report.json",
     "metric_arrays_npz": "data/traced_field_line_scaffold_metric_arrays.npz",
     "metric_plot_png": "images/traced_field_line_scaffold_metrics.png",
     "metric_report_json": "data/traced_field_line_scaffold_metric_report.json",

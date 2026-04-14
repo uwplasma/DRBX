@@ -40,6 +40,8 @@ The scaffold writes:
 - a metric summary JSON
 - a compact metric NPZ bundle
 - a publication-style metric summary figure
+- a line-diagnostic JSON/NPZ bundle for radial, toroidal, and poloidal cuts
+- a publication-style lineout summary figure
 
 The input report records whether the source came from a JSON mesh spec or a
 NetCDF FCI grid.
