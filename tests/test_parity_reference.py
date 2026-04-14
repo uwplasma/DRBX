@@ -262,6 +262,42 @@ def test_prepare_workdir_extracts_required_bundle_artifacts(tmp_path: Path) -> N
     assert not (workdir / "unused.txt").exists()
 
 
+def test_prepare_workdir_uses_bundle_artifact_for_declared_mesh_file(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source" / "tests" / "integrated" / "2D-recycling" / "data"
+    source_dir.mkdir(parents=True)
+    input_path = source_dir / "BOUT.inp"
+    input_path.write_text(
+        """
+        nout = 1
+
+        [mesh]
+        file = grid_test2.nc
+        """,
+        encoding="utf-8",
+    )
+
+    bundle_path = tmp_path / "artifacts.zip"
+    with zipfile.ZipFile(bundle_path, "w") as archive:
+        archive.writestr("grid_test2.nc", "grid-data")
+    digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+
+    case = ReferenceCase(
+        name="integrated_2d_recycling_one_step",
+        stage="stage7",
+        reference_path="tests/integrated/2D-recycling/data/BOUT.inp",
+        parity_mode="one_step",
+        rationale="Stable 2D recycling staging target.",
+        process_count=10,
+        artifact_bundle_url=bundle_path.as_uri(),
+        artifact_bundle_sha256=digest,
+        artifact_bundle_files=("grid_test2.nc",),
+    )
+
+    workdir = _prepare_workdir(case, input_path, workdir=tmp_path / "run")
+
+    assert (workdir / "grid_test2.nc").read_text(encoding="utf-8") == "grid-data"
+
+
 def test_prepare_workdir_stages_shared_json_database_directory(tmp_path: Path) -> None:
     source_dir = tmp_path / "source" / "examples" / "tokamak-2D" / "recycling-dthene"
     source_dir.mkdir(parents=True)
