@@ -1237,8 +1237,8 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     assert result.time_points == (0.0, 0.0001)
     assert result.variables["Nd+"].shape == (2, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (2, 2, 3, 1)
-    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
-    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
+    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 2.0)
 
 
 def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(
@@ -1382,8 +1382,8 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(
     assert result.time_points == (0.0, 0.0001, 0.0002, 0.00030000000000000003, 0.0004, 0.0005)
     assert result.variables["Nd+"].shape == (6, 2, 3, 1)
     assert result.variables["Sd_target_recycle"].shape == (6, 2, 3, 1)
-    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
-    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
+    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 2.0)
 
 
 def test_integrated_2d_production_one_step_preserves_only_ion_target_state(
@@ -2242,8 +2242,13 @@ def test_tokamak_recycling_dthene_one_step_uses_committed_optional_history_cache
     np.testing.assert_allclose(captured["initial_fields"]["NVt+"], expected_initial_fields["NVt+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVhe+"], expected_initial_fields["NVhe+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVne+"], expected_initial_fields["NVne+"])
-    for name, value in evolved_history.items():
-        np.testing.assert_allclose(captured["field_template_overrides"][name], value[1])
+    expected_template_overrides = native_runner._restrict_field_template_overrides_to_non_owned_y_guards(
+        expected_initial_fields,
+        {name: value[1] for name, value in evolved_history.items()},
+        mesh=mesh,
+    )
+    for name, value in expected_template_overrides.items():
+        np.testing.assert_allclose(captured["field_template_overrides"][name], value)
     assert captured["solver_mode"] == "bdf"
     assert captured["preserve_dump_ion_target_state_only"] is True
 
@@ -2442,8 +2447,13 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     )
     np.testing.assert_allclose(captured["initial_fields"]["NVd+"], expected_initial_fields["NVd+"])
     np.testing.assert_allclose(captured["initial_fields"]["NVd"], expected_initial_fields["NVd"])
-    for name, value in evolved_history.items():
-        np.testing.assert_allclose(captured["field_template_overrides"][name], value[1])
+    expected_template_overrides = native_runner._restrict_field_template_overrides_to_non_owned_y_guards(
+        expected_initial_fields,
+        {name: value[1] for name, value in evolved_history.items()},
+        mesh=mesh,
+    )
+    for name, value in expected_template_overrides.items():
+        np.testing.assert_allclose(captured["field_template_overrides"][name], value)
     assert captured["solver_mode"] == "bdf"
     assert captured["preserve_dump_ion_target_state_only"] is True
 
@@ -2744,8 +2754,8 @@ def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(mon
     assert result.time_points[-1] == pytest.approx(0.002)
     assert result.variables["Nd+"].shape == (21, 2, 3, 1)
     assert result.variables["Ed_target_recycle"].shape == (21, 2, 3, 1)
-    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 5.0)
-    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 6.0)
+    np.testing.assert_allclose(result.variables["Sd_target_recycle"][0], 1.0)
+    np.testing.assert_allclose(result.variables["Ed_target_recycle"][0], 2.0)
 
 
 def test_integrated_2d_production_one_step_stays_within_operational_target_band() -> None:

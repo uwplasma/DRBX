@@ -89,6 +89,21 @@ from .autodiff_diffusion import (
     simulate_density_history_from_physical,
     theta_to_physical,
 )
+from .diverted_tokamak_movie import (
+    DivertedTokamakFieldHistory,
+    DivertedTokamakGeometry,
+    DivertedTokamakMovieArtifacts,
+    assemble_tokamak_rank_history,
+    build_diverted_tokamak_analysis,
+    create_diverted_tokamak_movie_package,
+    load_diverted_tokamak_geometry,
+    save_diverted_tokamak_gif,
+    save_diverted_tokamak_poster_frame,
+    save_diverted_tokamak_snapshot_panel,
+    toroidal_mean_fluctuation,
+    write_diverted_tokamak_analysis_json,
+    write_diverted_tokamak_arrays_npz,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -168,4 +183,17 @@ __all__ = [
     "simulate_density_history",
     "simulate_density_history_from_physical",
     "theta_to_physical",
+    "DivertedTokamakFieldHistory",
+    "DivertedTokamakGeometry",
+    "DivertedTokamakMovieArtifacts",
+    "assemble_tokamak_rank_history",
+    "build_diverted_tokamak_analysis",
+    "create_diverted_tokamak_movie_package",
+    "load_diverted_tokamak_geometry",
+    "save_diverted_tokamak_gif",
+    "save_diverted_tokamak_poster_frame",
+    "save_diverted_tokamak_snapshot_panel",
+    "toroidal_mean_fluctuation",
+    "write_diverted_tokamak_analysis_json",
+    "write_diverted_tokamak_arrays_npz",
 ]
