@@ -43,6 +43,10 @@ def main() -> None:
     print(f"  - line_report_json: {artifacts.line_report_json_path}")
     print(f"  - line_arrays_npz: {artifacts.line_arrays_npz_path}")
     print(f"  - line_plot_png: {artifacts.line_plot_png_path}")
+    print(f"  - slice_report_json: {artifacts.slice_report_json_path}")
+    print(f"  - slice_arrays_npz: {artifacts.slice_arrays_npz_path}")
+    print(f"  - slice_plot_png: {artifacts.slice_plot_png_path}")
+    print(f"  - slice_gif: {artifacts.slice_gif_path}")
 
 
 if __name__ == "__main__":

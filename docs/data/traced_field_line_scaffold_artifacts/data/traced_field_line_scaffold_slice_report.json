@@ -1,0 +1,27 @@
+{
+  "available": true,
+  "coordinate_name": "phi_index",
+  "coordinate_values": [
+    0.0,
+    1.0
+  ],
+  "field_name": "Bxy",
+  "frames": [
+    {
+      "coordinate_value": 0.0,
+      "index": 0,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0
+    },
+    {
+      "coordinate_value": 1.0,
+      "index": 1,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0
+    }
+  ],
+  "parse_status": "ok",
+  "slice_name": "toroidal_index_planes"
+}
