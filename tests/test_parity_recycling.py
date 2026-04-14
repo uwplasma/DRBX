@@ -14,7 +14,13 @@ from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import compute_recycling_1d_rhs
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.arrays import build_array_payload_from_summary_payload, load_portable_array_payload
-from jax_drb.parity.diff import build_array_diff_report, compare_recycling_artifacts, format_array_diff_report, format_recycling_diff_report
+from jax_drb.parity.diff import (
+    build_array_diff_report,
+    build_scaled_array_diff_entries,
+    compare_recycling_artifacts,
+    format_array_diff_report,
+    format_recycling_diff_report,
+)
 from jax_drb.parity.arrays import write_portable_array_payload
 from jax_drb.parity.recycling import extract_recycling_controller_snapshot
 from jax_drb.runtime.run_config import RunConfiguration
@@ -227,26 +233,37 @@ def test_staged_recycling_dthe_evolved_diagnostics_stay_within_locked_tolerances
     assert diffs["Ftt+_cx"] <= 1.0e-9
 
 
-@pytest.mark.parametrize(
-    ("case_name", "baseline_name"),
-    [
-        ("recycling_1d_one_step", "recycling_1d_one_step.npz"),
-        ("recycling_dthe_one_step", "recycling_dthe_one_step.npz"),
-    ],
-)
-def test_recycling_one_step_native_parity_is_blocked_but_ready_for_diff_reporting(
-    case_name: str,
-    baseline_name: str,
-) -> None:
+def test_recycling_1d_one_step_native_parity_stays_within_operational_relative_band() -> None:
     if os.environ.get("JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY") != "1":
-        pytest.xfail("native recycling one-step transient is still blocked; set JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1 to probe it")
+        pytest.skip("set JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1 to run the bounded recycling one-step parity gate")
 
-    expected = load_portable_array_payload(_BASELINE_DIR / baseline_name)
+    expected = load_portable_array_payload(_BASELINE_DIR / "recycling_1d_one_step.npz")
+    result = run_curated_case("recycling_1d_one_step", reference_root=_REFERENCE_ROOT)
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    entries = build_scaled_array_diff_entries(
+        expected["variables"],
+        actual["variables"],
+        compare_variables=tuple(expected["compare_variables"]),
+    )
+
+    assert entries
+    worst_relative = max(
+        entry.relative_to_expected_max or 0.0
+        for entry in entries
+    )
+    assert worst_relative < 2.0e-1, entries
+
+
+def test_recycling_dthe_one_step_native_parity_is_still_blocked_but_ready_for_diff_reporting() -> None:
+    if os.environ.get("JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY") != "1":
+        pytest.xfail("native multispecies recycling one-step transient is still blocked; set JAX_DRB_RUN_RECYCLING_ONE_STEP_PARITY=1 to probe it")
+
+    expected = load_portable_array_payload(_BASELINE_DIR / "recycling_dthe_one_step.npz")
 
     try:
-        result = run_curated_case(case_name, reference_root=_REFERENCE_ROOT)
+        result = run_curated_case("recycling_dthe_one_step", reference_root=_REFERENCE_ROOT)
     except Exception as exc:
-        pytest.xfail(f"native recycling one-step run is blocked: {exc}")
+        pytest.xfail(f"native multispecies recycling one-step run is blocked: {exc}")
 
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
     report = build_array_diff_report(
