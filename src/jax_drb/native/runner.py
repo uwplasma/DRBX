@@ -54,7 +54,11 @@ from .mesh import (
     broadcast_to_field_shape,
     build_structured_mesh,
 )
-from .neutral_mixed import compute_neutral_mixed_rhs, initialize_neutral_mixed_state
+from .neutral_mixed import (
+    advance_neutral_mixed_implicit_history,
+    compute_neutral_mixed_rhs,
+    initialize_neutral_mixed_state,
+)
 from .reference_dump import load_local_reference_snapshot
 from .reference_dump import (
     load_local_reference_snapshot_cache,
@@ -2304,28 +2308,56 @@ def _execute_neutral_mixed_case(
     *,
     parity_mode: str,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
-    if parity_mode != "one_rhs":
-        raise NotImplementedError("Native neutral mixed execution currently supports one_rhs parity only.")
-
     section = run_config.components[0].section
     scalars = resolved_dataset_scalars(run_config)
-    state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
-    rhs = compute_neutral_mixed_rhs(
+    if parity_mode == "one_rhs":
+        state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
+        rhs = compute_neutral_mixed_rhs(
+            config,
+            state,
+            section=section,
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=float(scalars["rho_s0"]),
+            tnorm=float(scalars["Tnorm"]),
+        )
+        return (0.0,), {
+            f"N{section}": np.asarray(state.density[None, ...], dtype=np.float64),
+            f"P{section}": np.asarray(state.pressure[None, ...], dtype=np.float64),
+            f"NV{section}": np.asarray(state.momentum[None, ...], dtype=np.float64),
+            f"ddt(N{section})": np.asarray(rhs.density[None, ...], dtype=np.float64),
+            f"ddt(P{section})": np.asarray(rhs.pressure[None, ...], dtype=np.float64),
+            f"ddt(NV{section})": np.asarray(rhs.momentum[None, ...], dtype=np.float64),
+        }
+
+    if parity_mode not in {"one_step", "short_window"}:
+        raise NotImplementedError(
+            "Native neutral mixed execution currently supports one_rhs, one_step, and short_window parity only."
+        )
+
+    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    history = advance_neutral_mixed_implicit_history(
         config,
-        state,
         section=section,
         mesh=mesh,
         metrics=metrics,
         meters_scale=float(scalars["rho_s0"]),
         tnorm=float(scalars["Tnorm"]),
+        timestep=run_config.time.timestep,
+        steps=steps,
+        solver_mode="sparse",
+        residual_tolerance=1.0e-8,
+        step_tolerance=1.0e-10,
+        max_nonlinear_iterations=8,
+        linear_restart=20,
+        linear_maxiter=200,
+        linear_rtol=1.0e-8,
     )
-    return (0.0,), {
-        f"N{section}": np.asarray(state.density[None, ...], dtype=np.float64),
-        f"P{section}": np.asarray(state.pressure[None, ...], dtype=np.float64),
-        f"NV{section}": np.asarray(state.momentum[None, ...], dtype=np.float64),
-        f"ddt(N{section})": np.asarray(rhs.density[None, ...], dtype=np.float64),
-        f"ddt(P{section})": np.asarray(rhs.pressure[None, ...], dtype=np.float64),
-        f"ddt(NV{section})": np.asarray(rhs.momentum[None, ...], dtype=np.float64),
+    time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
+    return time_points, {
+        f"N{section}": np.asarray(history.density_history, dtype=np.float64),
+        f"P{section}": np.asarray(history.pressure_history, dtype=np.float64),
+        f"NV{section}": np.asarray(history.momentum_history, dtype=np.float64),
     }
 
 

@@ -138,10 +138,26 @@ Required reference surfaces:
   - `src/evolve_momentum.cxx`
   - `src/upstream_density_feedback.cxx`
 
+The maintained grouped source-family audit is now generated in
+`docs/data/hermes_capability_audit.json` from
+`src/jax_drb/validation/hermes_capability_audit.py`. That audit keeps the
+remaining families visible against the local `hermes-3` tree instead of letting
+them drift into undocumented backlog.
+One immediate audit result is now explicit as well: `neutral_mixed` is no
+longer blocked at the runner-dispatch layer, but it is still not a promoted
+lane. The native implicit runner now executes both `neutral_mixed_one_step` and
+`neutral_mixed_short_window`, and a direct one-step compare still misses the
+committed baseline on `NVh` by about `3.0e-3`, so this family remains an open
+transient-closure task.
+
 Exit criteria:
 
 - every open recycling/transient mismatch has a named operator owner
 - every operator owner has a matching diagnostic script and a focused fast-gate slice
+- every major grouped `hermes-3` family is either:
+  - closed on a promoted `jax_drb` lane,
+  - explicitly scoped to a reduced benchmark surface, or
+  - still listed as an open family in the capability audit JSON
 
 ### Phase B. Close the open-field native recycling transient backbone
 
