@@ -269,6 +269,8 @@ Current checkpoint:
 - that same traced-field-line adapter now also publishes a shared observable report for line and plane families, so benchmark-observable extraction is no longer trapped inside the tokamak benchmark adapter
 - that second adapter now also emits reusable radial, toroidal, and poloidal line diagnostics from both synthetic preview specs and real external NetCDF FCI grids, so the generic probe/target extraction layer is no longer only a plan item
 - that same adapter now also emits automatically selected radial/toroidal/poloidal plane summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
+- the non-tokamak adapter family now also has its first reduced parity gate: `traced_field_line_selected_field_parity` compares a compact metric-field surface and publishes `max|Δ|`, RMS, and relative-L2 errors plus an observable report on the shared geometry-adapter schema
+- the next non-tokamak 3D step after that gate is to drive the same selected-field parity package from a real external traced-field-line reference/candidate pair instead of only the synthetic preview bundle
 
 Publication rule:
 

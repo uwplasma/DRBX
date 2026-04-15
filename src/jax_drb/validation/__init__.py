@@ -116,6 +116,14 @@ from .geometry_observables import (
     slice_group_from_report,
     write_geometry_observable_report,
 )
+from .geometry_selected_field import (
+    GeometrySelectedFieldParityResult,
+    GeometrySelectedFieldVariableError,
+    compare_geometry_selected_fields,
+    save_geometry_selected_field_parity_plot,
+    write_geometry_selected_field_parity_arrays,
+    write_geometry_selected_field_parity_json,
+)
 from .geometry_lineouts import (
     LineoutSpec,
     build_lineout_report,
@@ -154,6 +162,11 @@ from .tokamak_tcv_x21_selected_field import (
 from .traced_field_line_scaffold import (
     TracedFieldLineScaffoldArtifacts,
     create_traced_field_line_scaffold_package,
+)
+from .traced_field_line_selected_field import (
+    TracedFieldLineSelectedFieldParityArtifacts,
+    compare_traced_field_line_selected_fields,
+    create_traced_field_line_selected_field_parity_package,
 )
 
 __all__ = [
@@ -263,6 +276,12 @@ __all__ = [
     "save_lineout_summary_plot",
     "save_diagnostic_profile_summary_plot",
     "write_geometry_observable_report",
+    "GeometrySelectedFieldParityResult",
+    "GeometrySelectedFieldVariableError",
+    "compare_geometry_selected_fields",
+    "save_geometry_selected_field_parity_plot",
+    "write_geometry_selected_field_parity_arrays",
+    "write_geometry_selected_field_parity_json",
     "write_lineout_arrays_npz",
     "write_slice_arrays_npz",
     "write_slice_report_json",
@@ -282,4 +301,7 @@ __all__ = [
     "write_tcv_x21_selected_field_parity_json",
     "TracedFieldLineScaffoldArtifacts",
     "create_traced_field_line_scaffold_package",
+    "TracedFieldLineSelectedFieldParityArtifacts",
+    "compare_traced_field_line_selected_fields",
+    "create_traced_field_line_selected_field_parity_package",
 ]

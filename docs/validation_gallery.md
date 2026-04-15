@@ -152,6 +152,17 @@ What this documents:
 - a publication-style metric summary plot that can be regenerated from either a synthetic preview or an explicit mesh/metric JSON specification;
 - an explicit geometry-adapter validation contract before any native non-tokamak 3D claim is made.
 
+## Traced-Field-Line Selected-Field Parity
+
+![Traced-field-line selected-field parity](data/traced_field_line_selected_field_artifacts/images/traced_field_line_selected_field_parity.png)
+
+What this documents:
+
+- the first reduced parity gate on the second 3D geometry family;
+- a compact selected-field compare surface on traced-field-line metric fields;
+- shared observable-report publication on the same geometry-adapter schema used by the scaffold packages;
+- a non-tokamak counterpart to the tokamak selected-field parity lane.
+
 ## Neutral Mixed Short-Window Benchmark Target
 
 ![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
