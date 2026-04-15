@@ -3,9 +3,9 @@
   "benchmark_adapter": "stellarator_traced_field_line_scaffold",
   "geometry_family": "traced_field_line_3d",
   "metadata": {
-    "candidate_origin": "materialized_from_reference_input",
+    "candidate_origin": "provided_external_input",
     "compare_surface": "static_metric_field_bundle",
-    "source_mode": "external_explicit_pair"
+    "source_mode": "explicit_pair"
   },
   "observable_groups": [
     {
@@ -14,7 +14,6 @@
         {
           "coordinate_name": "full_domain",
           "field_names": [
-            "J",
             "g11",
             "g33"
           ],

@@ -1,27 +1,20 @@
 {
   "field_names": [
-    "J",
     "g11",
     "g33"
   ],
   "variable_errors": {
-    "J": {
-      "max_abs_error": 0.06399999999999917,
-      "name": "J",
-      "relative_l2_error": 0.014999999999999895,
-      "rms_error": 0.023676376840677582
-    },
     "g11": {
-      "max_abs_error": 0.03689236111111116,
+      "max_abs_error": 0.17361109339453895,
       "name": "g11",
-      "relative_l2_error": 0.010000000000000004,
-      "rms_error": 0.036034762538520546
+      "relative_l2_error": 0.034067204877267374,
+      "rms_error": 0.1227603638103458
     },
     "g33": {
-      "max_abs_error": 0.0703125,
+      "max_abs_error": 1.878416674420195,
       "name": "g33",
-      "relative_l2_error": 0.01999999999999999,
-      "rms_error": 0.02726332960745213
+      "relative_l2_error": 0.3775247670634279,
+      "rms_error": 0.5146291079713414
     }
   }
 }
