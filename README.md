@@ -226,9 +226,11 @@ The tokamak 3D lane now has the same kind of honest reduced gate too: the commit
 
 The next 3D step is now also in-tree as a real native execution artifact bundle: `tokamak_native_selected_field` runs a promoted native tokamak one-step case, compares the compact `Ne`/`Pe`/`phi` history surface against the committed reference arrays, and writes both a shared observable report and a runtime/provenance summary. That is the first honest native 3D reduced rung in the repository.
 
-That second geometry family now also has its first reduced parity gate: a traced-field-line selected-field package that compares a compact metric-field surface, publishes `max|Δ|`, RMS, and relative-L2 errors, and writes the result through the same shared observable schema as the other 3D adapters. The committed selected-field bundle now runs from a real external FCI grid when one is available locally and derives the candidate deterministically from that reference grid, so the non-tokamak gate is no longer limited to a synthetic preview pair.
+That second geometry family now also has its first reduced parity gate: a traced-field-line selected-field package that compares a compact metric-field surface, publishes `max|Δ|`, RMS, and relative-L2 errors, and writes the result through the same shared observable schema as the other 3D adapters. The committed selected-field bundle now runs from a real external FCI grid when one is available locally and materializes an explicit candidate pair from that source, so the non-tokamak gate is no longer limited to a synthetic preview pair.
 
 The third 3D adapter is now in-tree too: `stellarator_vmec_scaffold` consumes VMEC-style equilibrium data on the same public artifact model, writing a manifest, validation contract, equilibrium profile bundle, shared observable report, and sampled `R`/`Z` flux-surface figure/movie package. That is the current pressure test that the 3D architecture can handle a stellarator-style family without introducing another bespoke benchmark stack.
+
+That third geometry family now also has its first reduced parity gate: `stellarator_vmec_selected_field` compares compact `iota`/`pressure`/`toroidal_flux` profiles and writes the same public parity plus source-report surface used by the other 3D adapters. On the tokamak side, the native reduced rung is no longer only a one-step proof point: there is now a second committed short-window native bundle on `tokamak_isothermal_short_window` for `Ne`/`phi`/`Vort`.
 
 ## What To Run First
 
@@ -248,6 +250,7 @@ If you want meeting-ready figures and movies:
 - [traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
 - [traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
 - [stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
+- [stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
 
 If you want the current validation gallery:
 

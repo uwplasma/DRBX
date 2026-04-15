@@ -1,0 +1,27 @@
+{
+  "field_names": [
+    "iota",
+    "pressure",
+    "toroidal_flux"
+  ],
+  "variable_errors": {
+    "iota": {
+      "max_abs_error": 0.005299999999999971,
+      "name": "iota",
+      "relative_l2_error": 0.01,
+      "rms_error": 0.004619575422579284
+    },
+    "pressure": {
+      "max_abs_error": 24.0,
+      "name": "pressure",
+      "relative_l2_error": 0.020000000000000014,
+      "rms_error": 16.480240601724255
+    },
+    "toroidal_flux": {
+      "max_abs_error": 0.03149999999999986,
+      "name": "toroidal_flux",
+      "relative_l2_error": 0.014999999999999918,
+      "rms_error": 0.015025307351490663
+    }
+  }
+}
