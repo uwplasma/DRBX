@@ -146,9 +146,13 @@ them drift into undocumented backlog.
 One immediate audit result is now explicit as well: `neutral_mixed` is no
 longer blocked at the runner-dispatch layer, but it is still not a promoted
 lane. The native implicit runner now executes both `neutral_mixed_one_step` and
-`neutral_mixed_short_window`, and a direct one-step compare still misses the
-committed baseline on `NVh` by about `3.0e-3`, so this family remains an open
-transient-closure task.
+`neutral_mixed_short_window`, and the latest bounded native one-step compare is
+materially tighter after fixing the neutral density wall-guard reconstruction:
+the committed centerline gate now lands around `center Nh ≈ 8.0e-3`,
+`center Ph ≈ 5.7e-4`, `center NVh ≈ 8.6e-4`, `center T ≈ 2.9e-4`, and
+`momentum RMS ≈ 1.7e-3` max-abs error against the committed baseline. This
+family still remains an open transient-closure task because the full
+short-window compare did not finish inside the local five-minute gate.
 
 Exit criteria:
 
@@ -1037,8 +1041,8 @@ Current Step 2/3 status markers:
 | Case | Status | Note |
 | --- | --- | --- |
 | `neutral_mixed_rhs` | `native-validated` | Active-domain RHS parity is locked. |
-| `neutral_mixed_one_step` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
-| `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `neutral_mixed_one_step` | `open native runner target` | Baseline exists; the native implicit runner now executes this lane and the bounded centerline gate is materially tighter, but the family is not promoted yet. |
+| `neutral_mixed_short_window` | `open native runner target` | Baseline exists; the native implicit runner now executes this lane, but the parity gate is still open and the bounded short-window compare did not finish inside the local five-minute probe. |
 | `recycling_1d_rhs` | `native-validated` | RHS parity and controller bookkeeping are locked. |
 | `recycling_dthe_rhs` | `native-validated` | RHS parity and multispecies collision bookkeeping are locked. |
 | `recycling_1d_short_window` | `native operational target` | First curated repeated-output open-field recycling rung (`nout=5`); the local native backbone stays within bounded residuals but is not yet exact. |

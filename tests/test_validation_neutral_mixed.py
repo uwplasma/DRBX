@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from jax_drb.native import run_curated_case
 from jax_drb.parity.arrays import load_portable_array_payload
 from jax_drb.validation import (
     analyze_neutral_mixed_array_payload,
@@ -18,6 +20,8 @@ from jax_drb.validation import (
     write_neutral_mixed_analysis_json,
     write_neutral_mixed_parity_json,
 )
+
+_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
 
 
 def _reference_analysis():
@@ -163,3 +167,32 @@ def test_neutral_mixed_analysis_json_and_plot_outputs(tmp_path: Path) -> None:
     assert diagnostic_plot.stat().st_size > 0
     assert parity_plot.exists()
     assert parity_plot.stat().st_size > 0
+
+
+def test_neutral_mixed_one_step_native_parity_stays_within_operational_center_band() -> None:
+    if os.environ.get("JAX_DRB_RUN_NEUTRAL_MIXED_ONE_STEP_PARITY") != "1":
+        pytest.skip("set JAX_DRB_RUN_NEUTRAL_MIXED_ONE_STEP_PARITY=1 to run the bounded neutral one-step parity gate")
+
+    expected = _small_reference_payload()
+    result = run_curated_case("neutral_mixed_one_step", reference_root=_REFERENCE_ROOT)
+    actual = {
+        **expected,
+        "time_points": list(result.payload["time_points"]),
+        "variables": {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()},
+    }
+
+    parity = compare_neutral_mixed_array_payloads(
+        expected,
+        actual,
+        x_index=5,
+        y_index=3,
+        z_index=5,
+    )
+
+    assert parity.series_errors["center_density"].max_abs_error <= 8.5e-3
+    assert parity.series_errors["center_pressure"].max_abs_error <= 6.5e-4
+    assert parity.series_errors["center_momentum"].max_abs_error <= 1.0e-3
+    assert parity.series_errors["center_temperature"].max_abs_error <= 3.5e-4
+    assert parity.series_errors["total_density"].max_abs_error <= 3.5e-1
+    assert parity.series_errors["total_pressure"].max_abs_error <= 3.5e-2
+    assert parity.series_errors["momentum_rms"].max_abs_error <= 2.0e-3
