@@ -6,6 +6,8 @@
     "compare_surface": "native_selected_field_history",
     "native_capability_tier": "native_exact",
     "reference_capability_tier": "native_exact",
+    "reference_producer": "external-reference",
+    "reference_source": "committed_reference_arrays",
     "source_case": "tokamak_isothermal_short_window"
   },
   "observable_groups": [

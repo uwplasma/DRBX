@@ -138,6 +138,7 @@ What this documents:
 - the first reduced native 3D execution rung in the tree;
 - a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface;
 - parity JSON/NPZ artifacts on the same compact surface used by the benchmark-backed gate;
+- a direct native-vs-reference selected-field history comparison bundle on the same committed artifact path;
 - a shared observable report plus a runtime/provenance report for the native run.
 
 ## Traced-Field-Line Geometry Scaffold
