@@ -18,6 +18,8 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--case-name", default="tokamak_turbulence_one_step")
+    parser.add_argument("--case-label", default="tokamak_native_selected_field")
+    parser.add_argument("--field-name", action="append", default=None)
     parser.add_argument("--reference-root", type=Path, required=True)
     parser.add_argument(
         "--output-root",
@@ -32,14 +34,18 @@ def main() -> None:
     args = parse_args()
     artifacts = create_native_tokamak_selected_field_package(
         case_name=args.case_name,
+        case_label=args.case_label,
         reference_root=args.reference_root,
         output_root=args.output_root,
+        field_names=tuple(args.field_name) if args.field_name else ("Ne", "Pe", "phi"),
     )
     if args.quiet:
         return
     print("\n== Native Tokamak Selected-Field Parity ==")
     print(f"  - case_name: {args.case_name}")
+    print(f"  - case_label: {args.case_label}")
     print(f"  - reference_root: {args.reference_root}")
+    print(f"  - field_names: {tuple(args.field_name) if args.field_name else ('Ne', 'Pe', 'phi')}")
     print(f"  - parity_json: {artifacts.parity_json_path}")
     print(f"  - parity_arrays: {artifacts.parity_arrays_npz_path}")
     print(f"  - parity_plot: {artifacts.parity_plot_png_path}")

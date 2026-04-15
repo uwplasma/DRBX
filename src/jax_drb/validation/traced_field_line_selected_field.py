@@ -26,6 +26,7 @@ class TracedFieldLineSelectedFieldParityArtifacts:
     parity_arrays_npz_path: Path
     parity_plot_png_path: Path
     observable_report_json_path: Path
+    source_report_json_path: Path
 
 
 def compare_traced_field_line_selected_fields(
@@ -58,6 +59,9 @@ def create_traced_field_line_selected_field_parity_package(
     data_dir.mkdir(parents=True, exist_ok=True)
     images_dir.mkdir(parents=True, exist_ok=True)
     source_mode = "explicit_pair"
+    candidate_origin = "provided"
+    reference_name = "<synthetic preview>"
+    candidate_name = "<synthetic preview>"
     if reference_mesh_spec is None or candidate_mesh_spec is None:
         with tempfile.TemporaryDirectory(prefix="jax_drb_traced_field_selected_") as temp_dir:
             temp_root = Path(temp_dir)
@@ -67,17 +71,25 @@ def create_traced_field_line_selected_field_parity_package(
                 candidate_path = temp_root / "candidate.json"
                 _write_synthetic_mesh_spec(reference_path)
                 _write_candidate_from_reference_mesh_spec(reference_path, candidate_path)
+                candidate_origin = "synthetic_preview_pair"
+                reference_name = reference_path.name
+                candidate_name = candidate_path.name
             else:
-                source_mode = "external_reference_derived_candidate"
+                source_mode = "external_explicit_pair"
                 reference_path = Path(reference_mesh_spec)
                 candidate_path = temp_root / f"candidate{reference_path.suffix}"
                 _write_candidate_from_reference_mesh_spec(reference_path, candidate_path)
+                candidate_origin = "materialized_from_reference_input"
+                reference_name = reference_path.name
+                candidate_name = candidate_path.name
             result = compare_traced_field_line_selected_fields(
                 reference_mesh_spec=reference_path,
                 candidate_mesh_spec=candidate_path,
                 field_names=field_names,
             )
     else:
+        reference_name = Path(reference_mesh_spec).name
+        candidate_name = Path(candidate_mesh_spec).name
         result = compare_traced_field_line_selected_fields(
             reference_mesh_spec=reference_mesh_spec,
             candidate_mesh_spec=candidate_mesh_spec,
@@ -111,15 +123,27 @@ def create_traced_field_line_selected_field_parity_package(
         metadata={"compare_surface": "static_metric_field_bundle"},
     )
     observable_report["metadata"]["source_mode"] = source_mode
+    observable_report["metadata"]["candidate_origin"] = candidate_origin
     observable_report_json_path = write_geometry_observable_report(
         observable_report,
         data_dir / f"{case_label}_observable_report.json",
     )
+    source_report = {
+        "available": True,
+        "parse_status": "ok",
+        "source_mode": source_mode,
+        "candidate_origin": candidate_origin,
+        "reference_input_name": reference_name,
+        "candidate_input_name": candidate_name,
+    }
+    source_report_json_path = data_dir / f"{case_label}_source_report.json"
+    source_report_json_path.write_text(json.dumps(source_report, indent=2, sort_keys=True), encoding="utf-8")
     return TracedFieldLineSelectedFieldParityArtifacts(
         parity_json_path=parity_json_path,
         parity_arrays_npz_path=parity_arrays_npz_path,
         parity_plot_png_path=parity_plot_png_path,
         observable_report_json_path=observable_report_json_path,
+        source_report_json_path=source_report_json_path,
     )
 
 

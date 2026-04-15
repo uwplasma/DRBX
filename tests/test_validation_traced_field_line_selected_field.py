@@ -37,11 +37,14 @@ def test_create_traced_field_line_selected_field_parity_package_writes_artifacts
     assert artifacts.parity_arrays_npz_path.exists()
     assert artifacts.parity_plot_png_path.exists()
     assert artifacts.observable_report_json_path.exists()
+    assert artifacts.source_report_json_path.exists()
     payload = json.loads(artifacts.parity_json_path.read_text(encoding="utf-8"))
     assert payload["field_names"] == ["jacobian", "g_11", "g_33"]
     observable = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
     assert observable["observable_groups"][0]["families"][0]["kind"] == "selected_field_parity"
     assert observable["metadata"]["source_mode"] == "synthetic_preview"
+    source = json.loads(artifacts.source_report_json_path.read_text(encoding="utf-8"))
+    assert source["candidate_origin"] == "synthetic_preview_pair"
 
 
 def test_create_traced_field_line_selected_field_parity_package_derives_candidate_from_external_grid(
@@ -67,4 +70,6 @@ def test_create_traced_field_line_selected_field_parity_package_derives_candidat
     assert payload["field_names"] == ["J", "g_11", "g_33"]
     assert payload["variable_errors"]["J"]["max_abs_error"] > 0.0
     observable = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
-    assert observable["metadata"]["source_mode"] == "external_reference_derived_candidate"
+    assert observable["metadata"]["source_mode"] == "external_explicit_pair"
+    source = json.loads(artifacts.source_report_json_path.read_text(encoding="utf-8"))
+    assert source["candidate_origin"] == "materialized_from_reference_input"

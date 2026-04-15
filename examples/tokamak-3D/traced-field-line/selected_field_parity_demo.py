@@ -36,7 +36,7 @@ def main() -> None:
     print(f"  - reference_mesh_spec: {reference_mesh_spec if reference_mesh_spec is not None else '<synthetic preview>'}")
     print(
         f"  - candidate_mesh_spec: "
-        f"{candidate_mesh_spec if candidate_mesh_spec is not None else ('<derived candidate>' if reference_mesh_spec is not None else '<synthetic preview>')}"
+        f"{candidate_mesh_spec if candidate_mesh_spec is not None else ('<materialized explicit candidate>' if reference_mesh_spec is not None else '<synthetic preview>')}"
     )
     print("")
     print("== Artifacts ==")
@@ -44,6 +44,7 @@ def main() -> None:
     print(f"  - parity_arrays_npz: {artifacts.parity_arrays_npz_path}")
     print(f"  - parity_plot_png: {artifacts.parity_plot_png_path}")
     print(f"  - observable_report_json: {artifacts.observable_report_json_path}")
+    print(f"  - source_report_json: {artifacts.source_report_json_path}")
 
 
 if __name__ == "__main__":
