@@ -170,7 +170,8 @@ What this documents:
 - the first reduced parity gate on the second 3D geometry family;
 - a compact selected-field compare surface on traced-field-line metric fields;
 - shared observable-report publication on the same geometry-adapter schema used by the scaffold packages;
-- a non-tokamak counterpart to the tokamak selected-field parity lane.
+- a non-tokamak counterpart to the tokamak selected-field parity lane;
+- an explicit external-pair source report when the public external FCI sample is available locally.
 
 ## Stellarator VMEC Scaffold
 
@@ -187,6 +188,16 @@ What this documents:
 - reusable profile diagnostics for `iota`, `pressure`, and `toroidal_flux`;
 - sampled `R`/`Z` flux-surface cross-sections across toroidal angle, with a publication-style summary figure and a compact movie path;
 - a pressure test for the general 3D artifact model on a geometry family that is neither diverted tokamak nor FCI-grid-only.
+
+## Stellarator VMEC Selected-Field Parity
+
+![Stellarator VMEC selected-field parity](data/stellarator_vmec_selected_field_artifacts/images/stellarator_vmec_selected_field_parity.png)
+
+What this documents:
+
+- the first reduced selected-field parity gate on the VMEC-style stellarator family;
+- a compact compare surface on `iota`, `pressure`, and `toroidal_flux`;
+- the same shared observable-report and source-report contract used by the other 3D parity packages.
 
 ## Neutral Mixed Short-Window Benchmark Target
 

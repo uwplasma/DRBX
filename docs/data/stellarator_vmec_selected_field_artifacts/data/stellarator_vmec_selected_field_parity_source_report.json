@@ -1,0 +1,8 @@
+{
+  "available": true,
+  "candidate_input_name": "candidate_wout.nc",
+  "candidate_origin": "synthetic_preview_pair",
+  "parse_status": "ok",
+  "reference_input_name": "reference_wout.nc",
+  "source_mode": "synthetic_preview"
+}

@@ -281,15 +281,18 @@ Current checkpoint:
 - that second adapter now also emits reusable radial, toroidal, and poloidal line diagnostics from both synthetic preview specs and real external NetCDF FCI grids, so the generic probe/target extraction layer is no longer only a plan item
 - that same adapter now also emits automatically selected radial/toroidal/poloidal plane summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
 - the non-tokamak adapter family now also has its first reduced parity gate: `traced_field_line_selected_field_parity` compares a compact metric-field surface and publishes `max|Δ|`, RMS, and relative-L2 errors plus an observable report on the shared geometry-adapter schema
-- that selected-field gate now also runs from a real external traced-field-line reference input when an external FCI grid is available locally, deriving the candidate deterministically from that reference so the public bundle is no longer preview-only
+- that selected-field gate now also runs from a real external traced-field-line reference input when an external FCI grid is available locally, materializing a candidate and recording explicit external-pair execution through a public source report
 - the next non-tokamak 3D step after that gate is to drive the same selected-field parity package from an independent traced-field-line reference/candidate pair instead of a reference-derived candidate
 - that third geometry adapter is now also in-tree:
   - `stellarator_vmec_scaffold` consumes VMEC-style equilibrium data on the same generic 3D adapter schema
   - it publishes a manifest, input report, validation contract, equilibrium profile bundle, shared observable report, sampled `R`/`Z` flux-surface summary figure, and a toroidal-angle movie
   - the committed public bundle is generated from a deterministic VMEC-compatible synthetic equilibrium, while the regression surface also locks support for real `wout*.nc`-style inputs
+- that same third geometry family now also has its first reduced parity gate:
+  - `stellarator_vmec_selected_field_parity` compares compact `iota`, `pressure`, and `toroidal_flux` profiles
+  - it publishes parity JSON/NPZ, a publication-style figure, a shared observable report, and a source report on the same public artifact path
 - the next 3D deliverables after that are now:
-  - add the first stellarator/traced-field-line selected-field parity gate driven by an independent external reference/candidate pair
-  - widen the first native tokamak reduced rung beyond its initial one-step compact surface
+  - drive the traced-field-line selected-field gate from a truly independent external reference/candidate pair rather than a materialized candidate from one external source
+  - widen the native tokamak reduced rung beyond its initial one-step compact surface with an additional promoted short-window bundle
   - keep runtime/provenance summaries on every promoted native 3D artifact bundle and on the shared observable schema
 
 Publication rule:
