@@ -263,6 +263,10 @@ Current checkpoint:
   - the committed artifact bundle is generated from public `TCV_forward_field.nc`, `TCV_ortho.nc`, `snaps00000.nc`, and `vgrid.nc` files
   - the tokamak profile report is now built from the public benchmark observable record instead of only from a synthetic preview or private workdir
   - the tokamak movie/poster/snapshot bundle is now reproducible from the public sample geometry/snapshot files on the same artifact path
+- the tokamak reduced selected-field gate now also supports a real public benchmark-data mode:
+  - the committed compact parity bundle is generated from the public TCV-X21 sample benchmark-data root instead of only from two workdirs or a synthetic preview pair
+  - the compact parity bundle now writes a benchmark-data report plus a shared observable report on the same public artifact path as the other 3D adapters
+  - the current reproducible public path uses the benchmark bundle as the reference side and a deterministic derived candidate as the compact compare target
 - the next 3D deliverables are now:
   - promote the first reduced native 3D selected-field rung on a compact compare surface
   - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists

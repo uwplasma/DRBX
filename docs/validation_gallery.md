@@ -129,7 +129,7 @@ What this documents:
 - a public benchmark-data mode that can be regenerated without a heavy local 3D solve;
 - LCFS, wall, and divertor overlays in the same diverted-geometry style as the existing tokamak visualizations, now driven by the public sample geometry/snapshot files.
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.
-- the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from two 3D workdirs.
+- the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from either two 3D workdirs or the public TCV-X21 benchmark-data root plus a reproducible derived candidate.
 
 ## Traced-Field-Line Geometry Scaffold
 
