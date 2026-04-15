@@ -95,6 +95,8 @@ def test_create_tcv_x21_selected_field_parity_package_supports_public_benchmark_
     payload = json.loads(artifacts.parity_json_path.read_text(encoding="utf-8"))
     assert payload["field_names"] == ["Ne", "Pe", "phi"]
     assert payload["variable_errors"]["phi"]["max_abs_error"] > 0.0
+    assert np.isfinite(payload["variable_errors"]["phi"]["max_abs_error"])
+    assert np.isfinite(payload["variable_errors"]["Ne"]["rms_error_history"]).all()
 
     observable = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
     assert observable["metadata"]["source_mode"] == "external_benchmark_reference_derived_candidate"
