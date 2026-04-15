@@ -4,8 +4,8 @@
   "geometry_family": "diverted_tokamak_3d",
   "metadata": {
     "compare_surface": "native_selected_field_history",
-    "native_capability_tier": "scaffolded_reference_backed",
-    "reference_capability_tier": "scaffolded_reference_backed",
+    "native_capability_tier": "native_exact",
+    "reference_capability_tier": "native_exact",
     "source_case": "tokamak_isothermal_short_window"
   },
   "observable_groups": [

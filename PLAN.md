@@ -281,8 +281,8 @@ Current checkpoint:
 - that second adapter now also emits reusable radial, toroidal, and poloidal line diagnostics from both synthetic preview specs and real external NetCDF FCI grids, so the generic probe/target extraction layer is no longer only a plan item
 - that same adapter now also emits automatically selected radial/toroidal/poloidal plane summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
 - the non-tokamak adapter family now also has its first reduced parity gate: `traced_field_line_selected_field_parity` compares a compact metric-field surface and publishes `max|Δ|`, RMS, and relative-L2 errors plus an observable report on the shared geometry-adapter schema
-- that selected-field gate now also runs from a real external traced-field-line reference input when an external FCI grid is available locally, materializing a candidate and recording explicit external-pair execution through a public source report
-- the next non-tokamak 3D step after that gate is to drive the same selected-field parity package from an independent traced-field-line reference/candidate pair instead of a reference-derived candidate
+- that selected-field gate now also runs from a real local two-file traced-field-line external pair when those FCI inputs are available, currently on the shared `g11`/`g33` surface common to the staged reference and candidate grids, while the source report still records when it falls back to a materialized candidate
+- the next non-tokamak 3D step after that gate is to replace the current paired external fixture with a genuinely independent upstream reference/candidate dataset rather than two locally staged files from the same source family
 - that third geometry adapter is now also in-tree:
   - `stellarator_vmec_scaffold` consumes VMEC-style equilibrium data on the same generic 3D adapter schema
   - it publishes a manifest, input report, validation contract, equilibrium profile bundle, shared observable report, sampled `R`/`Z` flux-surface summary figure, and a toroidal-angle movie

@@ -73,3 +73,32 @@ def test_create_traced_field_line_selected_field_parity_package_derives_candidat
     assert observable["metadata"]["source_mode"] == "external_explicit_pair"
     source = json.loads(artifacts.source_report_json_path.read_text(encoding="utf-8"))
     assert source["candidate_origin"] == "materialized_from_reference_input"
+
+
+def test_create_traced_field_line_selected_field_parity_package_supports_explicit_external_pair(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.fci.nc"
+    candidate = tmp_path / "candidate.fci.nc"
+    for path, offset in ((reference, 0.0), (candidate, 0.25)):
+        with Dataset(path, "w") as dataset:
+            dataset.createDimension("x", 4)
+            dataset.createDimension("y", 3)
+            dataset.createDimension("z", 2)
+            for name, scale in (("g11", 2.0), ("g33", 3.0)):
+                variable = dataset.createVariable(name, "f8", ("x", "y", "z"))
+                values = np.arange(24, dtype=np.float64).reshape(4, 3, 2)
+                variable[:] = scale + values + offset
+
+    artifacts = create_traced_field_line_selected_field_parity_package(
+        reference_mesh_spec=reference,
+        candidate_mesh_spec=candidate,
+        output_root=tmp_path / "output",
+        field_names=("g11", "g33"),
+    )
+
+    payload = json.loads(artifacts.parity_json_path.read_text(encoding="utf-8"))
+    assert payload["field_names"] == ["g11", "g33"]
+    source = json.loads(artifacts.source_report_json_path.read_text(encoding="utf-8"))
+    assert source["source_mode"] == "explicit_pair"
+    assert source["candidate_origin"] == "provided_external_input"

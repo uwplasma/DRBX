@@ -429,6 +429,7 @@ def test_default_manifest_stages_tokamak_isothermal_short_window_case() -> None:
 
     assert case.reference_path == "examples/tokamak-2D/isothermal/BOUT.inp"
     assert case.parity_mode == "short_window"
+    assert case.capability_tier == "native_exact"
     assert case.compare_variables == ("Ne", "Ni", "NVe", "NVi", "phi", "Vort")
     assert case.extra_overrides == (
         "nout=2",

@@ -612,6 +612,7 @@ name = "tokamak_isothermal_short_window"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/isothermal/BOUT.inp"
 parity_mode = "short_window"
+capability_tier = "native_exact"
 rationale = "First exact transient rung on the direct tokamak electrostatic/vorticity isothermal stack before broader drift and turbulence histories."
 compare_variables = ["Ne", "Ni", "NVe", "NVi", "phi", "Vort"]
 extra_overrides = [
