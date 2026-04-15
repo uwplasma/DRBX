@@ -234,6 +234,8 @@ That third geometry family now also has its first reduced parity gate: `stellara
 
 The next publication-facing layer is now also in-tree: `publication_ready_3d_campaign` assembles the promoted native tokamak reduced rungs, the traced-field-line and stellarator explicit external-pair gates, and the committed manufactured-solution convergence report into one reviewer-facing summary JSON plus figure bundle. That package is intentionally honest about what is still missing: a first native non-tokamak 3D reduced rung and a broader 3D native convergence/performance campaign.
 
+The engineering closeout surface is now also explicit: `hermes_capability_audit` records the grouped source-family comparison against the local `hermes-3` tree and keeps the remaining open families visible as machine-readable JSON rather than only as free-form plan notes. That audit currently keeps `neutral_mixed`, richer recycling windows, non-tokamak native 3D execution, dedicated collisionality/reaction verification, and impurity/radiation/detachment work on the active list.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -254,6 +256,7 @@ If you want meeting-ready figures and movies:
 - [stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
 - [stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
 - [publication_ready_3d_campaign.md](docs/publication_ready_3d_campaign.md)
+- [hermes_capability_audit.md](docs/hermes_capability_audit.md)
 
 If you want the current validation gallery:
 
