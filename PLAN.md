@@ -273,7 +273,7 @@ Current checkpoint:
   - add a third geometry adapter/workflow so the 3D infrastructure is pressure-tested beyond tokamak plus traced-field-line
 - the first reduced native 3D selected-field rung is now also in-tree:
   - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
-  - the artifact bundle now carries parity JSON/NPZ, a shared observable report, and a runtime/provenance report
+  - the artifact bundle now carries parity JSON/NPZ, a shared observable report, a direct native-vs-reference comparison JSON/plot bundle, and a runtime/provenance report
   - this is still a reduced rung, not a full native 3D benchmark claim
 
 - the first second-adapter scaffold is now also in-tree: a traced-field-line geometry bundle with metric reports, compact metric arrays, and a geometry-adapter validation contract, intended as the bridge from generic 3D diagnostics to later real stellarator/traced-field-line execution work

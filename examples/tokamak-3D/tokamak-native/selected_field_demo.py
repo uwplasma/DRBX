@@ -49,6 +49,8 @@ def main() -> None:
     print(f"  - parity_json: {artifacts.parity_json_path}")
     print(f"  - parity_arrays: {artifacts.parity_arrays_npz_path}")
     print(f"  - parity_plot: {artifacts.parity_plot_png_path}")
+    print(f"  - comparison_json: {artifacts.comparison_json_path}")
+    print(f"  - comparison_plot: {artifacts.comparison_plot_png_path}")
     print(f"  - observable_report: {artifacts.observable_report_json_path}")
     print(f"  - runtime_report: {artifacts.runtime_report_json_path}")
 

@@ -36,13 +36,16 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tokamak-native/selected_fiel
 
 - parity JSON: `data/tokamak_native_selected_field.json`
 - parity arrays: `data/tokamak_native_selected_field.npz`
+- comparison JSON: `data/tokamak_native_selected_field_comparison.json`
 - observable report: `data/tokamak_native_selected_field_observable_report.json`
 - runtime report: `data/tokamak_native_selected_field_runtime_report.json`
 - parity plot: `images/tokamak_native_selected_field.png`
+- comparison plot: `images/tokamak_native_selected_field_comparison.png`
 
 Second committed bundle:
 
 - parity JSON: `docs/data/tokamak_native_selected_field_short_window_artifacts/data/tokamak_native_selected_field_short_window.json`
+- comparison JSON: `docs/data/tokamak_native_selected_field_short_window_artifacts/data/tokamak_native_selected_field_short_window_comparison.json`
 - observable report: `docs/data/tokamak_native_selected_field_short_window_artifacts/data/tokamak_native_selected_field_short_window_observable_report.json`
 - runtime report: `docs/data/tokamak_native_selected_field_short_window_artifacts/data/tokamak_native_selected_field_short_window_runtime_report.json`
 
@@ -53,4 +56,5 @@ This package is the next step after the benchmark-backed compact compare gates:
 1. run a real native tokamak case on the promoted compact surface;
 2. compare that native history against the committed reference arrays;
 3. publish a compact machine-readable parity bundle;
-4. record runtime/provenance metadata before widening the 3D claim.
+4. publish a direct native-vs-reference history overlay for the selected fields;
+5. record runtime/provenance metadata before widening the 3D claim.
