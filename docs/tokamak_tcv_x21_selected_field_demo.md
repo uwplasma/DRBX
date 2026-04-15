@@ -13,7 +13,24 @@ that the native 3D lane will need before broader benchmark claims:
 
 ## Run It
 
-Synthetic scaffold-to-scaffold demo:
+Preferred public benchmark-data demo:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py \
+  --benchmark-data-root /tmp/tcv_x21_public_benchmark \
+  --output-root docs/data/tokamak_tcv_x21_selected_field_artifacts
+```
+
+If you do not have the public benchmark files locally yet:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py \
+  --download-public-benchmark-data \
+  --benchmark-data-root /tmp/tcv_x21_public_benchmark \
+  --output-root docs/data/tokamak_tcv_x21_selected_field_artifacts
+```
+
+Synthetic scaffold-to-scaffold fallback:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py \
@@ -42,7 +59,13 @@ This package is the reduced 3D gate the plan calls for:
 
 - parity JSON: `data/tokamak_tcv_x21_selected_field_parity.json`
 - parity arrays: `data/tokamak_tcv_x21_selected_field_parity.npz`
+- benchmark-data report: `data/tokamak_tcv_x21_selected_field_parity_benchmark_data_report.json`
+- observable report: `data/tokamak_tcv_x21_selected_field_parity_observable_report.json`
 - parity plot: `images/tokamak_tcv_x21_selected_field_parity.png`
+
+The committed public bundle is now generated from the public TCV-X21 sample
+files, using the benchmark data root as the reference side and a deterministic
+derived candidate as the reproducible compare target.
 
 ## What It Does Not Do Yet
 

@@ -1,0 +1,76 @@
+{
+  "field_names": [
+    "Ne",
+    "Pe",
+    "phi"
+  ],
+  "time_points": [
+    1218.2000201713809,
+    1218.3000201715831,
+    1218.4000201717854,
+    1218.5000201719877,
+    1218.60002017219
+  ],
+  "variable_errors": {
+    "Ne": {
+      "max_abs_error": NaN,
+      "max_abs_error_history": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "name": "Ne",
+      "relative_l2_error": NaN,
+      "rms_error": NaN,
+      "rms_error_history": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ]
+    },
+    "Pe": {
+      "max_abs_error": NaN,
+      "max_abs_error_history": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "name": "Pe",
+      "relative_l2_error": NaN,
+      "rms_error": NaN,
+      "rms_error_history": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ]
+    },
+    "phi": {
+      "max_abs_error": NaN,
+      "max_abs_error_history": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "name": "phi",
+      "relative_l2_error": NaN,
+      "rms_error": NaN,
+      "rms_error_history": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ]
+    }
+  }
+}

@@ -100,12 +100,14 @@ Required before any native 3D claim:
 This is where the 3D lane first becomes comparable to the promoted 2D gates.
 
 The reduced selected-field parity package now exists in-tree for compact
-`Ne`/`Pe`/`phi` surfaces between two 3D workdirs. What is still missing is the
-real benchmark use of that package on the tokamak lane: either a real external
-workdir pair or the first selected native 3D rung that can be compared against
-the public benchmark data root. The non-tokamak traced-field-line lane has
-already moved beyond synthetic-only operation by running the same reduced gate
-from a real external FCI grid with a deterministic derived candidate.
+`Ne`/`Pe`/`phi` surfaces. On the tokamak lane, that reduced gate now also runs
+from the real public TCV-X21 benchmark-data root, using the public sample
+bundle as the reference side and a deterministic derived candidate as the
+reproducible compact compare target. What is still missing is the first reduced
+native 3D rung or a real external reference/candidate workdir pair on that same
+selected-field surface. The non-tokamak traced-field-line lane has already
+moved beyond synthetic-only operation by running the same reduced gate from a
+real external FCI grid with a deterministic derived candidate.
 
 ### 4. Benchmark Validation Gate
 
