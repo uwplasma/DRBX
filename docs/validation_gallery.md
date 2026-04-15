@@ -131,6 +131,15 @@ What this documents:
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.
 - the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from either two 3D workdirs or the public TCV-X21 benchmark-data root plus a reproducible derived candidate.
 
+## Native Tokamak Selected-Field Rung
+
+What this documents:
+
+- the first reduced native 3D execution rung in the tree;
+- a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface;
+- parity JSON/NPZ artifacts on the same compact surface used by the benchmark-backed gate;
+- a shared observable report plus a runtime/provenance report for the native run.
+
 ## Traced-Field-Line Geometry Scaffold
 
 ![Traced-field-line scaffold metrics](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_metrics.png)
