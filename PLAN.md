@@ -268,9 +268,13 @@ Current checkpoint:
   - the compact parity bundle now writes a benchmark-data report plus a shared observable report on the same public artifact path as the other 3D adapters
   - the current reproducible public path uses the benchmark bundle as the reference side and a deterministic derived candidate as the compact compare target
 - the next 3D deliverables are now:
-  - promote the first reduced native 3D selected-field rung on a compact compare surface
-  - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists
+  - extend the first reduced native 3D selected-field rung beyond its initial compact tokamak short-window surface
+  - widen the public artifact bundle with runtime/provenance summaries on each promoted native 3D rung
   - add a third geometry adapter/workflow so the 3D infrastructure is pressure-tested beyond tokamak plus traced-field-line
+- the first reduced native 3D selected-field rung is now also in-tree:
+  - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
+  - the artifact bundle now carries parity JSON/NPZ, a shared observable report, and a runtime/provenance report
+  - this is still a reduced rung, not a full native 3D benchmark claim
 
 - the first second-adapter scaffold is now also in-tree: a traced-field-line geometry bundle with metric reports, compact metric arrays, and a geometry-adapter validation contract, intended as the bridge from generic 3D diagnostics to later real stellarator/traced-field-line execution work
 - that same traced-field-line adapter now also publishes a shared observable report for line and plane families, so benchmark-observable extraction is no longer trapped inside the tokamak benchmark adapter
