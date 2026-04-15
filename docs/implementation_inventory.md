@@ -93,8 +93,8 @@ That tier is propagated into portable payloads, CLI listings, and native run log
 | Case | Status | Note |
 | --- | --- | --- |
 | `neutral_mixed_rhs` | `native-validated` | Active-domain RHS parity is locked. |
-| `neutral_mixed_one_step` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane, but the committed parity gate is not yet clean enough for promotion. |
-| `neutral_mixed_short_window` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane, but the committed parity gate is not yet clean enough for promotion. |
+| `neutral_mixed_one_step` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane; the bounded centerline compare tightened materially after fixing the neutral density wall guard, but the case is not promoted yet. |
+| `neutral_mixed_short_window` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane, but the short-window parity gate is still open and remains too heavy for the local five-minute bounded probe. |
 | `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
 | `recycling_1d_short_window` | `native-operational` | First repeated-output open-field recycling rung is committed and tracked as bounded native evidence. |
@@ -110,7 +110,7 @@ That tier is propagated into portable payloads, CLI listings, and native run log
 The next queued staged baselines are now committed as well:
 
 - `neutral_mixed_rhs`, `neutral_mixed_one_step`, and `neutral_mixed_short_window`, with corrected `h`-species compare variables and an explicit `output_ddt` RHS baseline;
-- the native runner now also executes `neutral_mixed_one_step` and `neutral_mixed_short_window` through the shared implicit neutral backbone, but the lane is still honestly open: a direct one-step compare against the committed baseline still fails on `NVh` at about `3.0e-3`, so runner support should not be confused with parity promotion;
+- the native runner now also executes `neutral_mixed_one_step` and `neutral_mixed_short_window` through the shared implicit neutral backbone, and the one-step surface tightened materially after fixing the neutral density wall-guard reconstruction to match the reference wall extrapolation (`center NVh` max-abs error now about `8.6e-4`, with `center Nh ≈ 8.0e-3` and `momentum RMS ≈ 1.7e-3`); the family is still honestly open because the short-window compare remains outside the current bounded local gate and the one-step lane is not yet promoted;
 - staged RHS baselines for [recycling_1d_rhs.json](references/baselines/reference/recycling_1d_rhs.json) and [recycling_dthe_rhs.json](references/baselines/reference/recycling_dthe_rhs.json), so the divertor branch now has explicit target-recycling source and `ddt(...)` parity checkpoints before the first output step;
 - staged one-step open-field recycling baselines for [recycling_1d_one_step.json](references/baselines/reference/recycling_1d_one_step.json) and [recycling_dthe_one_step.json](references/baselines/reference/recycling_dthe_one_step.json), so Step 2 now has low-iteration sheath/recycling targets for both the single-species and multi-species divertor workflows before any native recycling runner is exposed;
 - staged evolved-state RHS regressions against the live reference dumps for `recycling_1d_one_step` and `recycling_dthe_one_step`, so the open-field operator fixes are now locked before the transient runner is promoted;

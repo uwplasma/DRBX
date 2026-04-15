@@ -9,6 +9,7 @@ from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.neutral_mixed import (
+    _apply_density_y_boundaries,
     _div_a_grad_perp_flows,
     _div_par_k_grad_par_open,
     _grad_par_open,
@@ -615,6 +616,34 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     assert time_points[-1] == run_config.time.nout * run_config.time.timestep
     assert variables["NVh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
     assert captured[-1] == run_config.time.nout
+
+
+def test_density_y_boundaries_match_reference_wall_extrapolation() -> None:
+    _, _, mesh, _, state, _ = _build_case(nx=8, ny=4, nz=6)
+
+    bounded = _apply_density_y_boundaries(state.density, mesh)
+
+    lower_wall = np.maximum(
+        0.5 * (3.0 * state.density[:, mesh.ystart, :] - state.density[:, mesh.ystart + 1, :]),
+        0.0,
+    )
+    upper_wall = np.maximum(
+        0.5 * (3.0 * state.density[:, mesh.yend, :] - state.density[:, mesh.yend - 1, :]),
+        0.0,
+    )
+
+    np.testing.assert_allclose(
+        bounded[:, mesh.ystart - 1, :],
+        2.0 * lower_wall - state.density[:, mesh.ystart, :],
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        bounded[:, mesh.yend + 1, :],
+        2.0 * upper_wall - state.density[:, mesh.yend, :],
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
 
 def test_soft_floor_matches_reference_formula() -> None:

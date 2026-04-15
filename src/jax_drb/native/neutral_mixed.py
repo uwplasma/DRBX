@@ -956,7 +956,7 @@ def _apply_dirichlet_x_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np
 
 def _apply_density_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
     result = _apply_neumann_x_boundaries(field, mesh)
-    return _apply_zero_gradient_y_boundaries(result, mesh)
+    return _apply_density_y_boundaries(result, mesh)
 
 
 def _apply_pressure_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
@@ -993,7 +993,19 @@ def _apply_zero_gradient_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -
 
 
 def _apply_density_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    return _apply_zero_gradient_y_boundaries(field, mesh)
+    result = np.asarray(field, dtype=np.float64).copy()
+    for offset in range(1, mesh.myg + 1):
+        lower_wall = np.maximum(
+            0.5 * (3.0 * result[:, mesh.ystart, :] - result[:, mesh.ystart + 1, :]),
+            0.0,
+        )
+        upper_wall = np.maximum(
+            0.5 * (3.0 * result[:, mesh.yend, :] - result[:, mesh.yend - 1, :]),
+            0.0,
+        )
+        result[:, mesh.ystart - offset, :] = 2.0 * lower_wall - result[:, mesh.ystart - offset + 1, :]
+        result[:, mesh.yend + offset, :] = 2.0 * upper_wall - result[:, mesh.yend + offset - 1, :]
+    return result
 
 
 def _soft_floor(field: np.ndarray, minimum: float) -> np.ndarray:
