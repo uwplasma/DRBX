@@ -39,6 +39,8 @@ class NativeTokamakSelectedFieldArtifacts:
     parity_json_path: Path
     parity_arrays_npz_path: Path
     parity_plot_png_path: Path
+    comparison_json_path: Path
+    comparison_plot_png_path: Path
     observable_report_json_path: Path
     runtime_report_json_path: Path
 
@@ -83,6 +85,19 @@ def create_native_tokamak_selected_field_package(
         parity_result,
         images_dir / f"{case_label}.png",
     )
+    comparison_json_path = _write_native_tokamak_selected_field_comparison_json(
+        parity_result,
+        expected_fields=expected_payload["variables"],
+        actual_fields=result.variables,
+        reference_metadata=expected_payload,
+        path=data_dir / f"{case_label}_comparison.json",
+    )
+    comparison_plot_png_path = _save_native_tokamak_selected_field_comparison_plot(
+        parity_result,
+        expected_fields=expected_payload["variables"],
+        actual_fields=result.variables,
+        path=images_dir / f"{case_label}_comparison.png",
+    )
     observable_report = build_geometry_observable_report(
         geometry_family="diverted_tokamak_3d",
         benchmark_adapter="native_tokamak_selected_field",
@@ -103,6 +118,8 @@ def create_native_tokamak_selected_field_package(
         metadata={
             "compare_surface": "native_selected_field_history",
             "source_case": case_name,
+            "reference_source": "committed_reference_arrays",
+            "reference_producer": expected_payload.get("producer", "external-reference"),
             "reference_capability_tier": reference_case.capability_tier,
             "native_capability_tier": result.payload.get("capability_tier", "unknown"),
         },
@@ -122,6 +139,8 @@ def create_native_tokamak_selected_field_package(
         parity_json_path=parity_json_path,
         parity_arrays_npz_path=parity_arrays_npz_path,
         parity_plot_png_path=parity_plot_png_path,
+        comparison_json_path=comparison_json_path,
+        comparison_plot_png_path=comparison_plot_png_path,
         observable_report_json_path=observable_report_json_path,
         runtime_report_json_path=runtime_report_json_path,
     )
@@ -250,6 +269,78 @@ def _save_native_tokamak_selected_field_plot(
     figure.savefig(target, dpi=180)
     plt.close(figure)
     return target
+
+
+def _write_native_tokamak_selected_field_comparison_json(
+    result: NativeTokamakSelectedFieldParityResult,
+    *,
+    expected_fields: dict[str, np.ndarray],
+    actual_fields: dict[str, np.ndarray],
+    reference_metadata: dict[str, object],
+    path: str | Path,
+) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "case_name": result.case_name,
+        "field_names": list(result.field_names),
+        "time_points": result.time_points.tolist(),
+        "reference_source": "committed_reference_arrays",
+        "reference_producer": reference_metadata.get("producer", "external-reference"),
+        "reference_capability_tier": reference_metadata.get("capability_tier", "unknown"),
+        "comparison_histories": {
+            field_name: _build_domain_mean_history_payload(
+                reference_history=np.asarray(expected_fields[field_name], dtype=np.float64),
+                native_history=np.asarray(actual_fields[field_name], dtype=np.float64),
+            )
+            for field_name in result.field_names
+        },
+    }
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
+def _save_native_tokamak_selected_field_comparison_plot(
+    result: NativeTokamakSelectedFieldParityResult,
+    *,
+    expected_fields: dict[str, np.ndarray],
+    actual_fields: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    figure, axes = plt.subplots(len(result.field_names), 1, figsize=(10.5, 3.0 * len(result.field_names)), constrained_layout=True)
+    if len(result.field_names) == 1:
+        axes = [axes]
+    time_points = np.asarray(result.time_points, dtype=np.float64)
+    for axis, field_name in zip(axes, result.field_names, strict=False):
+        histories = _build_domain_mean_history_payload(
+            reference_history=np.asarray(expected_fields[field_name], dtype=np.float64),
+            native_history=np.asarray(actual_fields[field_name], dtype=np.float64),
+        )
+        axis.plot(time_points, histories["reference_domain_mean"], label="Reference", linewidth=2.2, color="#005f73")
+        axis.plot(time_points, histories["native_domain_mean"], label="Native", linewidth=2.0, color="#bb3e03", linestyle="--")
+        axis.set_ylabel(field_name)
+        axis.grid(alpha=0.25, linewidth=0.5)
+        axis.legend(frameon=False, ncol=2)
+    axes[0].set_title(f"Native vs reference selected-field histories · {result.case_name}")
+    axes[-1].set_xlabel("Time")
+    figure.savefig(target, dpi=180)
+    plt.close(figure)
+    return target
+
+
+def _build_domain_mean_history_payload(
+    *,
+    reference_history: np.ndarray,
+    native_history: np.ndarray,
+) -> dict[str, list[float]]:
+    reference = np.asarray(reference_history, dtype=np.float64)
+    native = np.asarray(native_history, dtype=np.float64)
+    return {
+        "reference_domain_mean": np.mean(reference, axis=tuple(range(1, reference.ndim)), dtype=np.float64).tolist(),
+        "native_domain_mean": np.mean(native, axis=tuple(range(1, native.ndim)), dtype=np.float64).tolist(),
+    }
 
 
 def _write_native_tokamak_runtime_report(

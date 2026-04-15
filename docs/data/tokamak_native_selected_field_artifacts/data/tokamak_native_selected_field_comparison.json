@@ -1,0 +1,47 @@
+{
+  "case_name": "tokamak_turbulence_one_step",
+  "comparison_histories": {
+    "Ne": {
+      "native_domain_mean": [
+        1.6500171973431874,
+        1.6493520222409919
+      ],
+      "reference_domain_mean": [
+        1.6500171973431874,
+        1.6493520222409919
+      ]
+    },
+    "Pe": {
+      "native_domain_mean": [
+        1.1098022460937498,
+        1.1087587328005093
+      ],
+      "reference_domain_mean": [
+        1.1098022460937498,
+        1.1087587328005093
+      ]
+    },
+    "phi": {
+      "native_domain_mean": [
+        0.0,
+        0.29460285797184405
+      ],
+      "reference_domain_mean": [
+        0.0,
+        0.29460285797184405
+      ]
+    }
+  },
+  "field_names": [
+    "Ne",
+    "Pe",
+    "phi"
+  ],
+  "reference_capability_tier": "unknown",
+  "reference_producer": "external-reference",
+  "reference_source": "committed_reference_arrays",
+  "time_points": [
+    0.0,
+    0.1
+  ]
+}

@@ -35,7 +35,7 @@
     "y": 12,
     "z": 81
   },
-  "elapsed_seconds": 0.03238687499833759,
+  "elapsed_seconds": 0.02174266698420979,
   "parity_mode": "one_step",
   "producer": "jax-drb",
   "selected_fields": [
