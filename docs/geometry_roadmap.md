@@ -63,6 +63,15 @@ It is intentionally lighter than the TCV package. Its purpose is to pressure-tes
 the general geometry and diagnostics layer on a non-diverted geometry family
 before a real external traced-field-line mesh is wired in.
 
+The first third-adapter scaffold is now also in tree:
+
+- [src/jax_drb/validation/stellarator_vmec_scaffold.py](../src/jax_drb/validation/stellarator_vmec_scaffold.py)
+- [docs/stellarator_vmec_scaffold_demo.md](stellarator_vmec_scaffold_demo.md)
+
+It pressure-tests the same public 3D artifact model on a VMEC-style stellarator
+equilibrium source, so the general layer is forced to support sampled
+flux-surface figures and movies as well as profile bundles.
+
 ## Required Next Geometry Families
 
 ### Diverted Tokamak Benchmark Adapters
@@ -100,6 +109,19 @@ Relevant external references:
 
 These references are useful because they show the kind of metric bookkeeping and traced-field-line mesh handling that a general 3D plasma-edge code needs to accommodate.
 
+### VMEC / Stellarator Equilibrium Adapters
+
+This is the next pressure test for whether the 3D infrastructure can support
+equilibrium-driven geometry families that are not naturally framed as tokamak
+benchmark workdirs or FCI metric grids.
+
+Requirements:
+
+- equilibrium/profile ingestion from VMEC-style `wout*.nc` data
+- sampled flux-surface cross-sections and geometry movies on the shared artifact model
+- explicit validation of finite profiles and finite sampled surfaces
+- observable and provenance publication on the same adapter schema used elsewhere
+
 ## Validation Gates
 
 Every new geometry family should pass the same staged gate sequence:
@@ -120,5 +142,5 @@ The next architectural refactor should therefore:
 
 - separate reusable 3D diagnostics from benchmark-specific observable definitions
 - add a geometry adapter interface for mesh/metric/probe extraction
-- add a second geometry family after TCV-X21 so the abstractions get pressure-tested
+- add a second and third geometry family after TCV-X21 so the abstractions get pressure-tested
 - keep publication claims tied to the supported geometry matrix, not to aspirational generality
