@@ -197,7 +197,19 @@ What this documents:
 
 - the first reduced selected-field parity gate on the VMEC-style stellarator family;
 - a compact compare surface on `iota`, `pressure`, and `toroidal_flux`;
-- the same shared observable-report and source-report contract used by the other 3D parity packages.
+- the same shared observable-report and source-report contract used by the other 3D parity packages;
+- a real explicit external VMEC-pair regeneration path in addition to the synthetic preview mode.
+
+## Publication-Ready 3D Campaign
+
+![Publication-ready 3D campaign](data/publication_ready_3d_artifacts/images/publication_ready_3d_campaign.png)
+
+What this documents:
+
+- one reviewer-facing summary package assembled from the already committed 3D reduced-lane artifacts;
+- the promoted native tokamak one-step and short-window reduced rungs on the same figure as the traced-field-line and stellarator explicit external-pair gates;
+- the current manufactured-solution convergence floor from the committed `fluid_1d_mms_convergence` report;
+- the remaining blockers before a full publication-ready 3D claim, stated explicitly rather than implied.
 
 ## Neutral Mixed Short-Window Benchmark Target
 

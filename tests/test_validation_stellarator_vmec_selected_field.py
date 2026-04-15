@@ -78,3 +78,22 @@ def test_create_stellarator_vmec_selected_field_parity_package_materializes_exte
     source = json.loads(artifacts.source_report_json_path.read_text(encoding="utf-8"))
     assert source["source_mode"] == "external_explicit_pair"
     assert source["candidate_origin"] == "materialized_from_reference_input"
+
+
+def test_create_stellarator_vmec_selected_field_parity_package_supports_explicit_external_pair(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.nc"
+    candidate = tmp_path / "candidate.nc"
+    _write_vmec_case(reference, scale=1.0)
+    _write_vmec_case(candidate, scale=1.2)
+    artifacts = create_stellarator_vmec_selected_field_parity_package(
+        reference_equilibrium_path=reference,
+        candidate_equilibrium_path=candidate,
+        output_root=tmp_path / "output",
+    )
+    payload = json.loads(artifacts.parity_json_path.read_text(encoding="utf-8"))
+    assert payload["variable_errors"]["pressure"]["max_abs_error"] > 0.0
+    source = json.loads(artifacts.source_report_json_path.read_text(encoding="utf-8"))
+    assert source["source_mode"] == "explicit_pair"
+    assert source["candidate_origin"] == "provided_external_input"
