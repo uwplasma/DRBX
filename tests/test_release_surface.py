@@ -20,6 +20,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "stellarator_vmec_scaffold_demo.md",
     REPO_ROOT / "docs" / "stellarator_vmec_selected_field_demo.md",
     REPO_ROOT / "docs" / "publication_ready_3d_campaign.md",
+    REPO_ROOT / "docs" / "hermes_capability_audit.md",
     REPO_ROOT / "examples" / "alfven_wave_meeting_demo.py",
     REPO_ROOT / "examples" / "blob2d_meeting_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "scaffold_demo.py",
@@ -30,6 +31,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "selected_field_parity_demo.py",
     REPO_ROOT / "examples" / "publication" / "three_d_campaign_demo.py",
+    REPO_ROOT / "examples" / "engineering" / "hermes_capability_audit_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_native_selected_field.py",
@@ -38,6 +40,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "stellarator_vmec_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "stellarator_vmec_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "publication_ready_3d.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_capability_audit.py",
 )
 
 PUBLIC_RUN_LOGS = (
@@ -82,6 +85,7 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "stellarator_vmec_selected_field_artifacts" / "data" / "stellarator_vmec_selected_field_parity_observable_report.json",
     REPO_ROOT / "docs" / "data" / "stellarator_vmec_selected_field_artifacts" / "data" / "stellarator_vmec_selected_field_parity_source_report.json",
     REPO_ROOT / "docs" / "data" / "publication_ready_3d_artifacts" / "data" / "publication_ready_3d_campaign.json",
+    REPO_ROOT / "docs" / "data" / "hermes_capability_audit.json",
 )
 
 
