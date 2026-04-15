@@ -17,6 +17,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "tokamak_native_selected_field_demo.md",
     REPO_ROOT / "docs" / "traced_field_line_scaffold_demo.md",
     REPO_ROOT / "docs" / "traced_field_line_selected_field_demo.md",
+    REPO_ROOT / "docs" / "stellarator_vmec_scaffold_demo.md",
     REPO_ROOT / "examples" / "alfven_wave_meeting_demo.py",
     REPO_ROOT / "examples" / "blob2d_meeting_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "scaffold_demo.py",
@@ -24,11 +25,13 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "tokamak-3D" / "tokamak-native" / "selected_field_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "selected_field_parity_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "scaffold_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_native_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_selected_field.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "stellarator_vmec_scaffold.py",
 )
 
 PUBLIC_RUN_LOGS = (
@@ -37,6 +40,7 @@ PUBLIC_RUN_LOGS = (
     REPO_ROOT / "docs" / "data" / "restartable_diffusion_demo_artifacts" / "run_resumed" / "restartable_diffusion_resumed_run_log.json",
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_scaffold_artifacts" / "data" / "tokamak_tcv_x21_scaffold_manifest.json",
     REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_manifest.json",
+    REPO_ROOT / "docs" / "data" / "stellarator_vmec_scaffold_artifacts" / "data" / "stellarator_vmec_scaffold_manifest.json",
 )
 
 PUBLIC_JSON_ARTIFACTS = (
@@ -57,6 +61,11 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_slice_report.json",
     REPO_ROOT / "docs" / "data" / "traced_field_line_selected_field_artifacts" / "data" / "traced_field_line_selected_field_parity_observable_report.json",
     REPO_ROOT / "docs" / "data" / "traced_field_line_selected_field_artifacts" / "data" / "traced_field_line_selected_field_parity.json",
+    REPO_ROOT / "docs" / "data" / "stellarator_vmec_scaffold_artifacts" / "data" / "stellarator_vmec_scaffold_input_report.json",
+    REPO_ROOT / "docs" / "data" / "stellarator_vmec_scaffold_artifacts" / "data" / "stellarator_vmec_scaffold_validation_contract.json",
+    REPO_ROOT / "docs" / "data" / "stellarator_vmec_scaffold_artifacts" / "data" / "stellarator_vmec_scaffold_profile_report.json",
+    REPO_ROOT / "docs" / "data" / "stellarator_vmec_scaffold_artifacts" / "data" / "stellarator_vmec_scaffold_surface_report.json",
+    REPO_ROOT / "docs" / "data" / "stellarator_vmec_scaffold_artifacts" / "data" / "stellarator_vmec_scaffold_observable_report.json",
 )
 
 

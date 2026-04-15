@@ -228,6 +228,8 @@ The next 3D step is now also in-tree as a real native execution artifact bundle:
 
 That second geometry family now also has its first reduced parity gate: a traced-field-line selected-field package that compares a compact metric-field surface, publishes `max|Δ|`, RMS, and relative-L2 errors, and writes the result through the same shared observable schema as the other 3D adapters. The committed selected-field bundle now runs from a real external FCI grid when one is available locally and derives the candidate deterministically from that reference grid, so the non-tokamak gate is no longer limited to a synthetic preview pair.
 
+The third 3D adapter is now in-tree too: `stellarator_vmec_scaffold` consumes VMEC-style equilibrium data on the same public artifact model, writing a manifest, validation contract, equilibrium profile bundle, shared observable report, and sampled `R`/`Z` flux-surface figure/movie package. That is the current pressure test that the 3D architecture can handle a stellarator-style family without introducing another bespoke benchmark stack.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -245,6 +247,7 @@ If you want meeting-ready figures and movies:
 - [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
 - [traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
 - [traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
+- [stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
 
 If you want the current validation gallery:
 

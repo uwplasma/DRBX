@@ -174,6 +174,10 @@ from .traced_field_line_selected_field import (
     compare_traced_field_line_selected_fields,
     create_traced_field_line_selected_field_parity_package,
 )
+from .stellarator_vmec_scaffold import (
+    StellaratorVmecScaffoldArtifacts,
+    create_stellarator_vmec_scaffold_package,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -314,4 +318,6 @@ __all__ = [
     "TracedFieldLineSelectedFieldParityArtifacts",
     "compare_traced_field_line_selected_fields",
     "create_traced_field_line_selected_field_parity_package",
+    "StellaratorVmecScaffoldArtifacts",
+    "create_stellarator_vmec_scaffold_package",
 ]
