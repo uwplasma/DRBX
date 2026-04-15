@@ -224,6 +224,8 @@ The first non-diverted second adapter is now in-tree too: a traced-field-line ge
 
 The tokamak 3D lane now has the same kind of honest reduced gate too: the committed `tokamak_tcv_x21_selected_field` bundle is generated from the public TCV-X21 sample benchmark-data root, writes both a benchmark-data report and a shared observable report, and compares compact `Ne`/`Pe`/`phi` histories on a reproducible derived-candidate path instead of staying synthetic-only. That gives the 3D tokamak lane a real public-data compact parity surface before the first native selected-field rung lands.
 
+The next 3D step is now also in-tree as a real native execution artifact bundle: `tokamak_native_selected_field` runs a promoted native tokamak one-step case, compares the compact `Ne`/`Pe`/`phi` history surface against the committed reference arrays, and writes both a shared observable report and a runtime/provenance summary. That is the first honest native 3D reduced rung in the repository.
+
 That second geometry family now also has its first reduced parity gate: a traced-field-line selected-field package that compares a compact metric-field surface, publishes `max|Δ|`, RMS, and relative-L2 errors, and writes the result through the same shared observable schema as the other 3D adapters. The committed selected-field bundle now runs from a real external FCI grid when one is available locally and derives the candidate deterministically from that reference grid, so the non-tokamak gate is no longer limited to a synthetic preview pair.
 
 ## What To Run First
@@ -239,6 +241,7 @@ If you want meeting-ready figures and movies:
 - [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
 - [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
 - [tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
+- [tokamak_native_selected_field_demo.md](docs/tokamak_native_selected_field_demo.md)
 - [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
 - [traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
 - [traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)

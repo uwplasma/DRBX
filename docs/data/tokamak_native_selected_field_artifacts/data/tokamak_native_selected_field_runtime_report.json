@@ -1,0 +1,47 @@
+{
+  "capability_tier": "native_exact",
+  "case_name": "tokamak_turbulence_one_step",
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_pressure",
+    "e:evolve_momentum",
+    "d+:quasineutral",
+    "d+:evolve_pressure",
+    "d+:evolve_momentum",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift",
+    "classical_diffusion",
+    "polarisation_drift",
+    "braginskii_conduction"
+  ],
+  "configured_nout": 10,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 36,
+    "y": 12,
+    "z": 81
+  },
+  "elapsed_seconds": 0.03238687499833759,
+  "parity_mode": "one_step",
+  "producer": "jax-drb",
+  "selected_fields": [
+    "Ne",
+    "Pe",
+    "phi"
+  ],
+  "time_point_count": 2
+}
