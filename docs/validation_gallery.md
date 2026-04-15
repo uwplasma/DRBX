@@ -121,13 +121,13 @@ What this documents:
 
 - the first 3D tokamak kickoff package in the tree;
 - manifest resolution for `tokamak_tcv_x21_escalation`;
-- a structured deck/input report alongside the preview figure bundle;
+- a structured deck/input report plus a benchmark-data report alongside the public figure bundle;
 - an explicit benchmark validation contract covering FHRP, HFS-LP, and LFS-LP observable families;
 - a shared observable report that describes those profile families on the generic 3D adapter schema;
-- a staged profile report and compact NPZ bundle for those observable families;
+- a staged profile report and compact NPZ bundle for those observable families, now populated from the public benchmark observable record;
 - a publication-style profile summary plot derived from the same staged bundle;
-- a reference-backed preview mode that can be generated without a heavy 3D solve;
-- LCFS, wall, and divertor overlays in the same diverted-geometry style as the existing tokamak visualizations.
+- a public benchmark-data mode that can be regenerated without a heavy local 3D solve;
+- LCFS, wall, and divertor overlays in the same diverted-geometry style as the existing tokamak visualizations, now driven by the public sample geometry/snapshot files.
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.
 - the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from two 3D workdirs.
 

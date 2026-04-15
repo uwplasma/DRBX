@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from matplotlib import pyplot as plt
 import numpy as np
 from netCDF4 import Dataset
 
@@ -32,6 +33,7 @@ from .geometry_profiles import (
     save_diagnostic_profile_summary_plot,
     write_diagnostic_profile_arrays_npz,
 )
+from .geometry_slices import SliceSpec, save_slice_gif
 
 DEFAULT_TCV_X21_CASE_NAME = "tokamak_tcv_x21_escalation"
 
@@ -41,6 +43,7 @@ class TcvX21ScaffoldArtifacts:
     manifest_json_path: Path
     input_report_json_path: Path
     validation_contract_json_path: Path
+    benchmark_data_report_json_path: Path | None
     observable_report_json_path: Path
     profile_report_json_path: Path
     profile_arrays_npz_path: Path
@@ -81,6 +84,7 @@ def create_tcv_x21_scaffold_package(
     field_name: str = "phi",
     workdir_in: str | Path | None = None,
     mesh_path: str | Path | None = None,
+    benchmark_data_root: str | Path | None = None,
     fps: int = 10,
     frames_per_interval: int = 8,
 ) -> TcvX21ScaffoldArtifacts:
@@ -95,10 +99,37 @@ def create_tcv_x21_scaffold_package(
     resolved = resolve_tcv_x21_reference_case(reference_root, case_name=case_name)
     resolved_workdir = Path(workdir_in) if workdir_in is not None else None
     resolved_mesh = Path(mesh_path) if mesh_path is not None else None
+    resolved_benchmark_root = Path(benchmark_data_root) if benchmark_data_root is not None else None
     if resolved_workdir is not None and resolved_mesh is None:
         inferred_mesh = resolved_workdir / "tokamak.nc"
         if inferred_mesh.exists():
             resolved_mesh = inferred_mesh
+
+    if resolved_benchmark_root is not None:
+        benchmark_artifacts, profile_bundle, benchmark_data_report_json_path = _build_public_benchmark_bundle(
+            benchmark_root=resolved_benchmark_root,
+            output_root=root,
+            data_dir=data_dir,
+            images_dir=images_dir,
+            movies_dir=movies_dir,
+            case_label=case_label,
+            field_name=field_name,
+            fps=fps,
+        )
+        return _finalize_scaffold_artifacts(
+            benchmark_artifacts,
+            workdir=None,
+            mesh_path=None,
+            output_root=root,
+            data_dir=data_dir,
+            case_label=case_label,
+            field_name=field_name,
+            reference_status=resolved,
+            preview_mode=False,
+            workdir_mode="external_benchmark_data",
+            profile_bundle=profile_bundle,
+            benchmark_data_report_json_path=benchmark_data_report_json_path,
+        )
 
     preview_mode = resolved_workdir is None or resolved_mesh is None
 
@@ -121,12 +152,14 @@ def create_tcv_x21_scaffold_package(
                 mesh_path=workdir.mesh_path,
                 output_root=root,
                 data_dir=data_dir,
-                case_label=case_label,
-                field_name=field_name,
-                reference_status=resolved,
-                preview_mode=True,
-                workdir_mode="synthetic_preview",
-            )
+            case_label=case_label,
+            field_name=field_name,
+            reference_status=resolved,
+            preview_mode=True,
+            workdir_mode="synthetic_preview",
+            profile_bundle=None,
+            benchmark_data_report_json_path=None,
+        )
 
     workdir = resolved_workdir
     if workdir is None or resolved_mesh is None:
@@ -151,14 +184,16 @@ def create_tcv_x21_scaffold_package(
         reference_status=resolved,
         preview_mode=False,
         workdir_mode="external_workdir",
+        profile_bundle=None,
+        benchmark_data_report_json_path=None,
     )
 
 
 def _finalize_scaffold_artifacts(
     artifacts: DivertedTokamakMovieArtifacts,
     *,
-    workdir: Path,
-    mesh_path: Path,
+    workdir: Path | None,
+    mesh_path: Path | None,
     output_root: Path,
     data_dir: Path,
     case_label: str,
@@ -166,8 +201,13 @@ def _finalize_scaffold_artifacts(
     reference_status: TcvX21ReferenceStatus,
     preview_mode: bool,
     workdir_mode: str,
+    profile_bundle: dict[str, object] | None,
+    benchmark_data_report_json_path: Path | None,
 ) -> TcvX21ScaffoldArtifacts:
     input_report = _build_input_report(reference_status)
+    if benchmark_data_report_json_path is not None:
+        input_report["benchmark_data_mode"] = "external_public_tcv_x21_sample"
+        input_report["benchmark_data_report_json"] = str(benchmark_data_report_json_path.relative_to(output_root))
     input_report_json_path = data_dir / f"{case_label}_input_report.json"
     input_report_json_path.write_text(json.dumps(input_report, indent=2, sort_keys=True), encoding="utf-8")
     validation_contract = _build_validation_contract(reference_status)
@@ -176,14 +216,17 @@ def _finalize_scaffold_artifacts(
         json.dumps(validation_contract, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    profile_bundle = _build_profile_bundle(
-        workdir=workdir,
-        mesh_path=mesh_path,
-        case_label=case_label,
-        output_root=output_root,
-        data_dir=data_dir,
-        images_dir=output_root / "images",
-    )
+    if profile_bundle is None:
+        if workdir is None or mesh_path is None:
+            raise ValueError("workdir and mesh_path are required when profile_bundle is not supplied")
+        profile_bundle = _build_profile_bundle(
+            workdir=workdir,
+            mesh_path=mesh_path,
+            case_label=case_label,
+            output_root=output_root,
+            data_dir=data_dir,
+            images_dir=output_root / "images",
+        )
     observable_report = build_geometry_observable_report(
         geometry_family="diverted_tokamak_3d",
         benchmark_adapter="tcv_x21",
@@ -217,6 +260,11 @@ def _finalize_scaffold_artifacts(
             "snapshots_png": str(artifacts.snapshots_png_path.relative_to(output_root)),
             "poster_png": str(artifacts.poster_png_path.relative_to(output_root)),
             "movie_gif": str(artifacts.movie_gif_path.relative_to(output_root)),
+            **(
+                {"benchmark_data_report_json": str(benchmark_data_report_json_path.relative_to(output_root))}
+                if benchmark_data_report_json_path is not None
+                else {}
+            ),
         },
         metadata={
             "case_name": reference_status.case.name,
@@ -233,6 +281,7 @@ def _finalize_scaffold_artifacts(
         manifest_json_path=manifest_json_path,
         input_report_json_path=input_report_json_path,
         validation_contract_json_path=validation_contract_json_path,
+        benchmark_data_report_json_path=benchmark_data_report_json_path,
         observable_report_json_path=observable_report_json_path,
         profile_report_json_path=profile_bundle["profile_report_json_path"],
         profile_arrays_npz_path=profile_bundle["profile_arrays_npz_path"],
@@ -329,6 +378,328 @@ def _write_synthetic_dump(path: Path, *, field_name: str, pe_yind: int) -> None:
         for name, field_values in field_specs.items():
             field = dataset.createVariable(name, "f8", ("t", "x", "y", "z"))
             field[:] = field_values
+
+
+def _build_public_benchmark_bundle(
+    *,
+    benchmark_root: Path,
+    output_root: Path,
+    data_dir: Path,
+    images_dir: Path,
+    movies_dir: Path,
+    case_label: str,
+    field_name: str,
+    fps: int,
+) -> tuple[DivertedTokamakMovieArtifacts, dict[str, object], Path]:
+    benchmark_data_report = _build_public_benchmark_data_report(benchmark_root, requested_field_name=field_name)
+    benchmark_data_report_json_path = data_dir / f"{case_label}_benchmark_data_report.json"
+    benchmark_data_report_json_path.write_text(
+        json.dumps(benchmark_data_report, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    profile_bundle = _build_public_benchmark_profile_bundle(
+        benchmark_root=benchmark_root,
+        case_label=case_label,
+        output_root=output_root,
+        data_dir=data_dir,
+        images_dir=images_dir,
+    )
+    artifacts = _build_public_benchmark_movie_artifacts(
+        benchmark_root=benchmark_root,
+        case_label=case_label,
+        data_dir=data_dir,
+        images_dir=images_dir,
+        movies_dir=movies_dir,
+        field_name=field_name,
+        fps=fps,
+    )
+    return artifacts, profile_bundle, benchmark_data_report_json_path
+
+
+def _build_public_benchmark_profile_bundle(
+    *,
+    benchmark_root: Path,
+    case_label: str,
+    output_root: Path,
+    data_dir: Path,
+    images_dir: Path,
+) -> dict[str, object]:
+    profile_report = _extract_public_benchmark_profile_report(benchmark_root=benchmark_root)
+    profile_report_json_path = data_dir / f"{case_label}_profile_report.json"
+    profile_report_json_path.write_text(json.dumps(profile_report, indent=2, sort_keys=True), encoding="utf-8")
+    profile_arrays_npz_path = write_tcv_x21_profile_arrays_npz(
+        profile_report,
+        data_dir / f"{case_label}_profile_arrays.npz",
+    )
+    profile_plot_png_path = save_tcv_x21_profile_summary_plot(
+        profile_report,
+        images_dir / f"{case_label}_profiles.png",
+    )
+    return {
+        "profile_report": profile_report,
+        "profile_report_json_path": profile_report_json_path,
+        "profile_arrays_npz_path": profile_arrays_npz_path,
+        "profile_plot_png_path": profile_plot_png_path,
+    }
+
+
+def _extract_public_benchmark_profile_report(*, benchmark_root: Path) -> dict[str, object]:
+    record_path = benchmark_root / "TCV_forward_field.nc"
+    if not record_path.exists():
+        return {
+            "available": False,
+            "parse_status": "missing_benchmark_record",
+            "required_file": "TCV_forward_field.nc",
+        }
+    diagnostics: dict[str, dict[str, dict[str, object]]] = {}
+    with Dataset(record_path) as dataset:
+        for diagnostic_name in ("FHRP", "LFS-LP", "HFS-LP"):
+            diagnostic_group = dataset.groups.get(diagnostic_name)
+            observable_root = diagnostic_group.groups.get("observables") if diagnostic_group is not None else None
+            if observable_root is None:
+                continue
+            diagnostics[diagnostic_name] = {}
+            for observable_name in ("density", "electron_temp", "ion_temp", "potential", "current", "vfloat"):
+                observable_group = observable_root.groups.get(observable_name)
+                if observable_group is None:
+                    continue
+                value_var = observable_group.variables.get("value")
+                position_var = observable_group.variables.get("Rsep_omp")
+                if value_var is None or position_var is None:
+                    continue
+                error_var = observable_group.variables.get("error")
+                values = np.asarray(value_var[:], dtype=np.float64)
+                errors = (
+                    np.asarray(error_var[:], dtype=np.float64)
+                    if error_var is not None
+                    else np.zeros_like(values, dtype=np.float64)
+                )
+                positions = np.asarray(position_var[:], dtype=np.float64)
+                diagnostics[diagnostic_name][observable_name] = {
+                    "units": str(getattr(value_var, "units", "arb")),
+                    "position_units": str(getattr(position_var, "units", "cm")),
+                    "positions": positions.tolist(),
+                    "mean": values.tolist(),
+                    "std": errors.tolist(),
+                    "minimum": float(np.min(values)),
+                    "maximum": float(np.max(values)),
+                }
+    return {
+        "available": True,
+        "parse_status": "ok",
+        "normalization": {
+            "status": "benchmark_record",
+            "record_path": "TCV_forward_field.nc",
+        },
+        "time_window": {
+            "tmin": 0.0,
+            "tmax": 0.0,
+            "stored_states": 1,
+        },
+        "diagnostics": diagnostics,
+    }
+
+
+def _build_public_benchmark_data_report(benchmark_root: Path, *, requested_field_name: str) -> dict[str, object]:
+    field_name = _resolve_public_sample_field_name(requested_field_name)
+    return {
+        "available": True,
+        "parse_status": "ok",
+        "benchmark_dataset": "TCV-X21 public sample bundle",
+        "required_files": {
+            "benchmark_record": "TCV_forward_field.nc",
+            "sample_geometry": "TCV_ortho.nc",
+            "sample_snapshot": "snaps00000.nc",
+            "sample_vgrid": "vgrid.nc",
+        },
+        "present_files": {
+            name: (benchmark_root / name).exists()
+            for name in ("TCV_forward_field.nc", "GBS_forward_field.nc", "TCV_ortho.nc", "snaps00000.nc", "vgrid.nc")
+        },
+        "requested_field_name": requested_field_name,
+        "resolved_sample_field_name": field_name,
+    }
+
+
+def _build_public_benchmark_movie_artifacts(
+    *,
+    benchmark_root: Path,
+    case_label: str,
+    data_dir: Path,
+    images_dir: Path,
+    movies_dir: Path,
+    field_name: str,
+    fps: int,
+) -> DivertedTokamakMovieArtifacts:
+    history, time_points, resolved_field_name = _load_public_benchmark_history(
+        benchmark_root=benchmark_root,
+        field_name=field_name,
+    )
+    arrays_npz_path = data_dir / f"{case_label}_arrays.npz"
+    np.savez_compressed(
+        arrays_npz_path,
+        time_points=np.asarray(time_points, dtype=np.float64),
+        field_history=np.asarray(history, dtype=np.float64),
+        field_name=np.asarray(resolved_field_name, dtype=np.str_),
+    )
+    analysis_json_path = data_dir / f"{case_label}_analysis.json"
+    analysis_json_path.write_text(
+        json.dumps(
+            {
+                "available": True,
+                "parse_status": "ok",
+                "field_name": resolved_field_name,
+                "time_points": np.asarray(time_points, dtype=np.float64).tolist(),
+                "grid_shape": list(history.shape[1:]),
+                "minimum": float(np.nanmin(history)),
+                "maximum": float(np.nanmax(history)),
+                "mean": float(np.nanmean(history)),
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    snapshots_png_path = images_dir / f"{case_label}_snapshots.png"
+    _save_public_benchmark_snapshots(history, time_points, resolved_field_name, snapshots_png_path)
+    poster_png_path = images_dir / f"{case_label}_poster.png"
+    _save_public_benchmark_poster(
+        benchmark_root=benchmark_root,
+        history=history,
+        time_points=time_points,
+        field_name=resolved_field_name,
+        path=poster_png_path,
+    )
+    movie_gif_path = movies_dir / f"{case_label}.gif"
+    save_slice_gif(
+        field_name=resolved_field_name,
+        values=history,
+        spec=SliceSpec(
+            name="time_planes",
+            axis=0,
+            coordinate_name="tau",
+            coordinate_values=np.asarray(time_points, dtype=np.float64),
+        ),
+        path=movie_gif_path,
+        fps=fps,
+    )
+    return DivertedTokamakMovieArtifacts(
+        arrays_npz_path=arrays_npz_path,
+        analysis_json_path=analysis_json_path,
+        snapshots_png_path=snapshots_png_path,
+        poster_png_path=poster_png_path,
+        movie_gif_path=movie_gif_path,
+    )
+
+
+def _load_public_benchmark_history(*, benchmark_root: Path, field_name: str) -> tuple[np.ndarray, np.ndarray, str]:
+    snapshot_path = benchmark_root / "snaps00000.nc"
+    vgrid_path = benchmark_root / "vgrid.nc"
+    if not snapshot_path.exists() or not vgrid_path.exists():
+        raise FileNotFoundError("TCV-X21 public benchmark sample data requires snaps00000.nc and vgrid.nc")
+    resolved_field_name = _resolve_public_sample_field_name(field_name)
+    with Dataset(snapshot_path) as snapshot, Dataset(vgrid_path) as vgrid:
+        if resolved_field_name not in snapshot.variables:
+            raise KeyError(f"Field {resolved_field_name!r} not found in public TCV-X21 sample data")
+        tau = np.asarray(snapshot.variables["tau"][:], dtype=np.float64)
+        values = np.asarray(snapshot.variables[resolved_field_name][:], dtype=np.float64)
+        li = np.asarray(vgrid.variables["li"][:], dtype=np.int64)
+        lj = np.asarray(vgrid.variables["lj"][:], dtype=np.int64)
+        x_index = li - int(np.min(li))
+        y_index = lj - int(np.min(lj))
+        history = np.full((values.shape[0], int(x_index.max()) + 1, int(y_index.max()) + 1), np.nan, dtype=np.float64)
+        for time_index in range(values.shape[0]):
+            history[time_index, x_index, y_index] = values[time_index]
+    return history, tau, resolved_field_name
+
+
+def _resolve_public_sample_field_name(field_name: str) -> str:
+    aliases = {
+        "phi": "potxx",
+        "Ne": "logne",
+        "Pe": "logte",
+        "Pi": "logti",
+        "NVi": "uparx",
+    }
+    return aliases.get(field_name, field_name)
+
+
+def _save_public_benchmark_snapshots(
+    history: np.ndarray,
+    time_points: np.ndarray,
+    field_name: str,
+    path: Path,
+) -> None:
+    indices = [0, history.shape[0] // 2, history.shape[0] - 1]
+    figure, axes = plt.subplots(1, 3, figsize=(13.2, 4.5), constrained_layout=True)
+    vmin = float(np.nanmin(history))
+    vmax = float(np.nanmax(history))
+    for axis, index in zip(axes, indices, strict=True):
+        image = axis.imshow(history[index], origin="lower", aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
+        axis.set_title(f"{field_name} · tau={time_points[index]:.3f}")
+        axis.set_xlabel("poloidal index")
+        axis.set_ylabel("radial index")
+    figure.colorbar(image, ax=axes, shrink=0.82, pad=0.02)
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
+
+
+def _save_public_benchmark_poster(
+    *,
+    benchmark_root: Path,
+    history: np.ndarray,
+    time_points: np.ndarray,
+    field_name: str,
+    path: Path,
+) -> None:
+    mesh_path = benchmark_root / "TCV_ortho.nc"
+    if not mesh_path.exists():
+        _save_public_benchmark_snapshots(history, time_points, field_name, path)
+        return
+    with Dataset(mesh_path) as dataset:
+        magnetic = dataset.groups["Magnetic_geometry"]
+        r_values = np.asarray(magnetic.variables["R"][:], dtype=np.float64)
+        z_values = np.asarray(magnetic.variables["Z"][:], dtype=np.float64)
+        psi = np.asarray(magnetic.variables["psi"][:], dtype=np.float64)
+        divertor = dataset.groups.get("divertor_polygon")
+        exclusion = dataset.groups.get("exclusion_polygon")
+        divertor_r = np.asarray(divertor.variables["R_points"][:], dtype=np.float64) if divertor is not None else None
+        divertor_z = np.asarray(divertor.variables["Z_points"][:], dtype=np.float64) if divertor is not None else None
+        exclusion_r = np.asarray(exclusion.variables["R_points"][:], dtype=np.float64) if exclusion is not None else None
+        exclusion_z = np.asarray(exclusion.variables["Z_points"][:], dtype=np.float64) if exclusion is not None else None
+
+    figure, axes = plt.subplots(1, 3, figsize=(14.5, 4.8), constrained_layout=True)
+    rr, zz = np.meshgrid(r_values, z_values)
+    contour = axes[0].contour(rr, zz, psi, levels=14, linewidths=0.8, cmap="cividis")
+    if divertor_r is not None and divertor_z is not None:
+        axes[0].plot(divertor_r, divertor_z, color="#ae2012", linewidth=1.6, label="divertor / wall")
+    if exclusion_r is not None and exclusion_z is not None:
+        axes[0].plot(exclusion_r, exclusion_z, color="#005f73", linewidth=1.2, linestyle="--", label="excluded core")
+    axes[0].set_title("TCV-X21 sample geometry")
+    axes[0].set_xlabel("R [m]")
+    axes[0].set_ylabel("Z [m]")
+    axes[0].grid(alpha=0.2)
+    axes[0].legend(frameon=False, loc="upper right")
+    figure.colorbar(contour, ax=axes[0], shrink=0.82, pad=0.02)
+
+    mid_index = history.shape[0] // 2
+    image = axes[1].imshow(history[mid_index], origin="lower", aspect="auto", cmap="viridis")
+    axes[1].set_title(f"{field_name} · tau={time_points[mid_index]:.3f}")
+    axes[1].set_xlabel("poloidal index")
+    axes[1].set_ylabel("radial index")
+    figure.colorbar(image, ax=axes[1], shrink=0.82, pad=0.02)
+
+    means = np.nanmean(history, axis=(1, 2))
+    spreads = np.nanstd(history, axis=(1, 2))
+    axes[2].plot(time_points, means, color="#005f73", linewidth=2.0, label="mean")
+    axes[2].plot(time_points, spreads, color="#bb3e03", linewidth=2.0, label="std")
+    axes[2].set_title("Sample snapshot statistics")
+    axes[2].set_xlabel("tau")
+    axes[2].set_ylabel(field_name)
+    axes[2].grid(alpha=0.25)
+    axes[2].legend(frameon=False)
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
 
 
 def _build_profile_bundle(

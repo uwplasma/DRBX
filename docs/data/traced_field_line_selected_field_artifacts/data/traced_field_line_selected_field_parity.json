@@ -1,27 +1,27 @@
 {
   "field_names": [
-    "jacobian",
-    "g_11",
-    "g_33"
+    "J",
+    "g11",
+    "g33"
   ],
   "variable_errors": {
-    "g_11": {
-      "max_abs_error": 0.009198973864678384,
-      "name": "g_11",
-      "relative_l2_error": 0.010000000000000009,
-      "rms_error": 0.008500291448541343
+    "J": {
+      "max_abs_error": 0.06399999999999917,
+      "name": "J",
+      "relative_l2_error": 0.014999999999999895,
+      "rms_error": 0.023676376840677582
     },
-    "g_33": {
-      "max_abs_error": 0.03279999999999994,
-      "name": "g_33",
-      "relative_l2_error": 0.020000000000000018,
-      "rms_error": 0.03106126718021307
+    "g11": {
+      "max_abs_error": 0.03689236111111116,
+      "name": "g11",
+      "relative_l2_error": 0.010000000000000004,
+      "rms_error": 0.036034762538520546
     },
-    "jacobian": {
-      "max_abs_error": 0.0,
-      "name": "jacobian",
-      "relative_l2_error": 0.0,
-      "rms_error": 0.0
+    "g33": {
+      "max_abs_error": 0.0703125,
+      "name": "g33",
+      "relative_l2_error": 0.01999999999999999,
+      "rms_error": 0.02726332960745213
     }
   }
 }
