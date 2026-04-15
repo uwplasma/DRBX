@@ -183,6 +183,12 @@ from .stellarator_vmec_selected_field import (
     compare_stellarator_vmec_selected_fields,
     create_stellarator_vmec_selected_field_parity_package,
 )
+from .publication_ready_3d import (
+    PublicationReady3DArtifacts,
+    build_publication_ready_3d_report,
+    create_publication_ready_3d_campaign_package,
+    save_publication_ready_3d_summary_plot,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -328,4 +334,8 @@ __all__ = [
     "StellaratorVmecSelectedFieldParityArtifacts",
     "compare_stellarator_vmec_selected_fields",
     "create_stellarator_vmec_selected_field_parity_package",
+    "PublicationReady3DArtifacts",
+    "build_publication_ready_3d_report",
+    "create_publication_ready_3d_campaign_package",
+    "save_publication_ready_3d_summary_plot",
 ]

@@ -1,8 +1,8 @@
 {
   "available": true,
-  "candidate_input_name": "candidate_wout.nc",
-  "candidate_origin": "synthetic_preview_pair",
+  "candidate_input_name": "jax_drb_wout_candidate.nc",
+  "candidate_origin": "provided_external_input",
   "parse_status": "ok",
-  "reference_input_name": "reference_wout.nc",
-  "source_mode": "synthetic_preview"
+  "reference_input_name": "jax_drb_wout_reference.nc",
+  "source_mode": "explicit_pair"
 }
