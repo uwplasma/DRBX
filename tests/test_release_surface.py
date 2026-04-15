@@ -14,12 +14,15 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "research_directions.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_scaffold_demo.md",
     REPO_ROOT / "docs" / "traced_field_line_scaffold_demo.md",
+    REPO_ROOT / "docs" / "traced_field_line_selected_field_demo.md",
     REPO_ROOT / "examples" / "alfven_wave_meeting_demo.py",
     REPO_ROOT / "examples" / "blob2d_meeting_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "scaffold_demo.py",
+    REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "selected_field_parity_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_scaffold.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_selected_field.py",
 )
 
 PUBLIC_RUN_LOGS = (
@@ -39,6 +42,8 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_observable_report.json",
     REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_line_report.json",
     REPO_ROOT / "docs" / "data" / "traced_field_line_scaffold_artifacts" / "data" / "traced_field_line_scaffold_slice_report.json",
+    REPO_ROOT / "docs" / "data" / "traced_field_line_selected_field_artifacts" / "data" / "traced_field_line_selected_field_parity_observable_report.json",
+    REPO_ROOT / "docs" / "data" / "traced_field_line_selected_field_artifacts" / "data" / "traced_field_line_selected_field_parity.json",
 )
 
 
