@@ -35,4 +35,12 @@ The current locked target values at the final stored output are:
 - total `Ph`: `7.86184063e+01`
 - momentum RMS: `5.56121767e-08`
 
-This benchmark exists to keep the next neutral transient implementation honest: the public runner should not expose `neutral_mixed_one_step` or `neutral_mixed_short_window` until it reproduces these compact histories closely enough for review material and regression tests.
+This benchmark exists to keep the next neutral transient implementation honest. The public runner now executes both `neutral_mixed_one_step` and `neutral_mixed_short_window`, and the latest bounded one-step compare is materially tighter after fixing the neutral density wall-guard reconstruction to match the reference wall extrapolation:
+
+- center `Nh` max-abs error: about `8.03e-3`
+- center `Ph` max-abs error: about `5.66e-4`
+- center `NVh` max-abs error: about `8.60e-4`
+- center temperature max-abs error: about `2.91e-4`
+- momentum RMS max-abs error: about `1.71e-3`
+
+That is good enough to lock an operational centerline gate, but not to promote the family yet. The short-window transient remains open because the bounded local probe did not finish inside the five-minute validation gate.
