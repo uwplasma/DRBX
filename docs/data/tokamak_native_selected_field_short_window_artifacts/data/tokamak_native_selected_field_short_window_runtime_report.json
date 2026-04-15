@@ -1,5 +1,5 @@
 {
-  "capability_tier": "scaffolded_reference_backed",
+  "capability_tier": "native_exact",
   "case_name": "tokamak_isothermal_short_window",
   "component_labels": [
     "e:evolve_density",
@@ -32,7 +32,7 @@
     "y": 12,
     "z": 27
   },
-  "elapsed_seconds": 0.010761750003439374,
+  "elapsed_seconds": 0.025844374991720542,
   "parity_mode": "short_window",
   "producer": "jax-drb",
   "selected_fields": [

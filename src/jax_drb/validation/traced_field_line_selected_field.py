@@ -59,7 +59,7 @@ def create_traced_field_line_selected_field_parity_package(
     data_dir.mkdir(parents=True, exist_ok=True)
     images_dir.mkdir(parents=True, exist_ok=True)
     source_mode = "explicit_pair"
-    candidate_origin = "provided"
+    candidate_origin = "provided_external_input"
     reference_name = "<synthetic preview>"
     candidate_name = "<synthetic preview>"
     if reference_mesh_spec is None or candidate_mesh_spec is None:
