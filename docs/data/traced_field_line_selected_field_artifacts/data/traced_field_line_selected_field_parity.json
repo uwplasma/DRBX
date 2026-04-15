@@ -1,0 +1,27 @@
+{
+  "field_names": [
+    "jacobian",
+    "g_11",
+    "g_33"
+  ],
+  "variable_errors": {
+    "g_11": {
+      "max_abs_error": 0.009198973864678384,
+      "name": "g_11",
+      "relative_l2_error": 0.010000000000000009,
+      "rms_error": 0.008500291448541343
+    },
+    "g_33": {
+      "max_abs_error": 0.03279999999999994,
+      "name": "g_33",
+      "relative_l2_error": 0.020000000000000018,
+      "rms_error": 0.03106126718021307
+    },
+    "jacobian": {
+      "max_abs_error": 0.0,
+      "name": "jacobian",
+      "relative_l2_error": 0.0,
+      "rms_error": 0.0
+    }
+  }
+}
