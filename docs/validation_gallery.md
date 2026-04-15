@@ -172,6 +172,22 @@ What this documents:
 - shared observable-report publication on the same geometry-adapter schema used by the scaffold packages;
 - a non-tokamak counterpart to the tokamak selected-field parity lane.
 
+## Stellarator VMEC Scaffold
+
+![Stellarator VMEC profiles](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_profiles.png)
+
+![Stellarator VMEC surface summary](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_surface_summary.png)
+
+![Stellarator VMEC surface movie](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_surface_movie.gif)
+
+What this documents:
+
+- the third 3D geometry adapter in the tree;
+- a VMEC-style stellarator equilibrium bundle on the same manifest and observable schema as the tokamak and traced-field-line adapters;
+- reusable profile diagnostics for `iota`, `pressure`, and `toroidal_flux`;
+- sampled `R`/`Z` flux-surface cross-sections across toroidal angle, with a publication-style summary figure and a compact movie path;
+- a pressure test for the general 3D artifact model on a geometry family that is neither diverted tokamak nor FCI-grid-only.
+
 ## Neutral Mixed Short-Window Benchmark Target
 
 ![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
