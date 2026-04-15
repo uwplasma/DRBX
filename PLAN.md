@@ -259,18 +259,22 @@ Current checkpoint:
   - a publication-style profile summary figure
   - a reduced selected-field parity package for compact `Ne`/`Pe`/`phi` surfaces
 - the reusable 3D diagnostics layer now includes a shared profile-report/NPZ/plot path, and the TCV-X21 scaffold consumes that shared layer instead of owning its own benchmark-specific implementation
-- after that checkpoint, the next 3D deliverables are:
-  - bind a real external TCV-X21 workdir/mesh into the same artifact path and keep the figure package reproducible
-  - factor the current benchmark-specific profile logic behind a generic 3D diagnostics layer
-  - add a second geometry adapter that is not tokamak-X-point-specific, so the 3D infrastructure is pressure-tested on a different metric/mesh family before any broad 3D claim
+- the TCV-X21 scaffold now also supports a real public benchmark-data mode:
+  - the committed artifact bundle is generated from public `TCV_forward_field.nc`, `TCV_ortho.nc`, `snaps00000.nc`, and `vgrid.nc` files
+  - the tokamak profile report is now built from the public benchmark observable record instead of only from a synthetic preview or private workdir
+  - the tokamak movie/poster/snapshot bundle is now reproducible from the public sample geometry/snapshot files on the same artifact path
+- the next 3D deliverables are now:
+  - promote the first reduced native 3D selected-field rung on a compact compare surface
   - extend the public artifact bundle with runtime/provenance summaries once a native 3D execution path exists
+  - add a third geometry adapter/workflow so the 3D infrastructure is pressure-tested beyond tokamak plus traced-field-line
 
 - the first second-adapter scaffold is now also in-tree: a traced-field-line geometry bundle with metric reports, compact metric arrays, and a geometry-adapter validation contract, intended as the bridge from generic 3D diagnostics to later real stellarator/traced-field-line execution work
 - that same traced-field-line adapter now also publishes a shared observable report for line and plane families, so benchmark-observable extraction is no longer trapped inside the tokamak benchmark adapter
 - that second adapter now also emits reusable radial, toroidal, and poloidal line diagnostics from both synthetic preview specs and real external NetCDF FCI grids, so the generic probe/target extraction layer is no longer only a plan item
 - that same adapter now also emits automatically selected radial/toroidal/poloidal plane summaries, compact slice arrays, and a geometry-family GIF on the real external NetCDF path, so the non-tokamak 3D lane has a real movie/figure workflow instead of only static metric summaries
 - the non-tokamak adapter family now also has its first reduced parity gate: `traced_field_line_selected_field_parity` compares a compact metric-field surface and publishes `max|Δ|`, RMS, and relative-L2 errors plus an observable report on the shared geometry-adapter schema
-- the next non-tokamak 3D step after that gate is to drive the same selected-field parity package from a real external traced-field-line reference/candidate pair instead of only the synthetic preview bundle
+- that selected-field gate now also runs from a real external traced-field-line reference input when an external FCI grid is available locally, deriving the candidate deterministically from that reference so the public bundle is no longer preview-only
+- the next non-tokamak 3D step after that gate is to drive the same selected-field parity package from an independent traced-field-line reference/candidate pair instead of a reference-derived candidate
 
 Publication rule:
 

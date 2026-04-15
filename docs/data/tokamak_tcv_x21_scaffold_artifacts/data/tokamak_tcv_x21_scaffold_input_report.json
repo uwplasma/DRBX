@@ -1,6 +1,8 @@
 {
   "artifact_bundle_files": [],
-  "available": false,
+  "available": true,
+  "benchmark_data_mode": "external_public_tcv_x21_sample",
+  "benchmark_data_report_json": "data/tokamak_tcv_x21_scaffold_benchmark_data_report.json",
   "capability_tier": "scaffolded_reference_backed",
   "case_name": "tokamak_tcv_x21_escalation",
   "compare_variables": [
@@ -10,11 +12,105 @@
     "NVi",
     "phi"
   ],
+  "components": {
+    "count": 17,
+    "labels": [
+      "e:evolve_density",
+      "e:evolve_pressure",
+      "e:evolve_momentum",
+      "i:quasineutral",
+      "i:evolve_pressure",
+      "i:evolve_momentum",
+      "sound_speed",
+      "vorticity",
+      "sheath_boundary",
+      "braginskii_collisions",
+      "braginskii_friction",
+      "braginskii_heat_exchange",
+      "diamagnetic_drift",
+      "classical_diffusion",
+      "braginskii_ion_viscosity",
+      "polarisation_drift",
+      "braginskii_conduction"
+    ],
+    "sections": [
+      "braginskii_collisions",
+      "braginskii_conduction",
+      "braginskii_friction",
+      "braginskii_heat_exchange",
+      "braginskii_ion_viscosity",
+      "classical_diffusion",
+      "diamagnetic_drift",
+      "e",
+      "i",
+      "polarisation_drift",
+      "sheath_boundary",
+      "sound_speed",
+      "vorticity"
+    ]
+  },
+  "declared_components": [
+    "e",
+    "i",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift",
+    "classical_diffusion",
+    "braginskii_ion_viscosity",
+    "polarisation_drift",
+    "braginskii_conduction"
+  ],
   "extra_overrides": [],
+  "mesh": {
+    "extrapolate_y": false,
+    "file": "65402_68x32_revIp_wide_fixBp_curv.nc",
+    "mxg": 2,
+    "myg": 2,
+    "mz": 81,
+    "nx": null,
+    "ny": null,
+    "nz": null,
+    "parallel_transform_type": "shifted",
+    "zperiod": 5.0
+  },
+  "model_section": "hermes",
   "parity_mode": "long_run",
-  "parse_status": "missing_input",
+  "parse_status": "ok",
   "process_count": 1,
   "rationale": "Late-stage 3D X-point and turbulence reference case.",
   "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp",
-  "stage": "stage8"
+  "run_config_status": "ok",
+  "section_names": [
+    "mesh",
+    "mesh:paralleltransform",
+    "solver",
+    "hermes",
+    "polarisation_drift",
+    "braginskii_ion_viscosity",
+    "diamagnetic_drift",
+    "vorticity",
+    "e",
+    "Ne",
+    "Pe",
+    "i",
+    "Pi"
+  ],
+  "solver": {
+    "atol": null,
+    "cvode_max_order": 3,
+    "mms": null,
+    "mxstep": 100000,
+    "rtol": null,
+    "type": null,
+    "use_precon": true
+  },
+  "stage": "stage8",
+  "time": {
+    "nout": 200,
+    "timestep": 100.0
+  }
 }

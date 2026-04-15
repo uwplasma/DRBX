@@ -5,9 +5,15 @@ family. It is not a native 3D solve. It is a compact selected-field comparison
 on traced-field-line metric fields, intended to prove that the general 3D
 parity/reporting surface is no longer tokamak-only.
 
+The committed artifact bundle in this repository is now generated from a real
+external FCI grid when one is available locally. If a reference mesh spec is
+provided but no candidate is given, the package derives the candidate
+deterministically from the reference input so the external-data gate is runnable
+without a second handcrafted mesh file.
+
 ## Run It
 
-Synthetic preview:
+Automatic external-grid mode, if the local external FCI grid is available:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/tokamak-3D/traced-field-line/selected_field_parity_demo.py \
@@ -39,3 +45,4 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/traced-field-line/selected_f
 1. compares a compact selected metric-field surface on a non-tokamak 3D geometry;
 2. publishes `max|Δ|`, RMS, and relative-L2 errors on the same public artifact model as the tokamak selected-field gate;
 3. writes a shared observable report so the selected-field surface can be consumed through the same geometry-adapter schema as line, plane, and benchmark-profile families.
+4. can now use a real external traced-field-line reference input and a deterministic derived candidate instead of only a synthetic preview pair.

@@ -73,16 +73,21 @@ Required now:
 
 This is the current in-tree state.
 
-### 2. External Workdir Gate
+### 2. External Benchmark-Data Gate
 
-Required next:
+Now landed in a reproducible public-data form:
 
-- same artifact bundle produced from a real external workdir and mesh
-- profile-summary JSON built from actual 3D output
-- reproducible publication-style figures from that workdir
+- the same artifact bundle can be produced from a real public TCV-X21 benchmark-data root
+- the profile-summary JSON is built from the public benchmark observable record
+- the movie/poster/snapshot figures are built from the public sample geometry and snapshot files
 
 This gate is still `scaffolded_reference_backed`, but it turns the 3D lane from
-synthetic preview into an honest benchmark-preparation path.
+synthetic preview into an honest public benchmark-preparation path.
+
+Still missing after that checkpoint:
+
+- a reduced native 3D compare surface against the same benchmark families
+- runtime/provenance summaries from an actual native 3D execution rung
 
 ### 3. Selected-Field Parity Gate
 
@@ -96,8 +101,11 @@ This is where the 3D lane first becomes comparable to the promoted 2D gates.
 
 The reduced selected-field parity package now exists in-tree for compact
 `Ne`/`Pe`/`phi` surfaces between two 3D workdirs. What is still missing is the
-real benchmark use of that package: either a real external-workdir pair or the
-first selected native 3D rung that can be compared against a benchmark workdir.
+real benchmark use of that package on the tokamak lane: either a real external
+workdir pair or the first selected native 3D rung that can be compared against
+the public benchmark data root. The non-tokamak traced-field-line lane has
+already moved beyond synthetic-only operation by running the same reduced gate
+from a real external FCI grid with a deterministic derived candidate.
 
 ### 4. Benchmark Validation Gate
 

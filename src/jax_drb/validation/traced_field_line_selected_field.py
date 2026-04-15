@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from netCDF4 import Dataset
 
 from .geometry_observables import build_geometry_observable_report, write_geometry_observable_report
 from .geometry_selected_field import (
@@ -55,20 +57,21 @@ def create_traced_field_line_selected_field_parity_package(
     images_dir = root / "images"
     data_dir.mkdir(parents=True, exist_ok=True)
     images_dir.mkdir(parents=True, exist_ok=True)
+    source_mode = "explicit_pair"
     if reference_mesh_spec is None or candidate_mesh_spec is None:
         with tempfile.TemporaryDirectory(prefix="jax_drb_traced_field_selected_") as temp_dir:
             temp_root = Path(temp_dir)
-            reference_path = temp_root / "reference.json"
-            candidate_path = temp_root / "candidate.json"
-            _write_synthetic_mesh_spec(reference_path)
-            _write_synthetic_mesh_spec(candidate_path)
-            payload = json.loads(candidate_path.read_text(encoding="utf-8"))
-            profiles = payload["profiles"]
-            for field_name, delta in (("J", 0.015), ("g_11", 0.01), ("g_33", -0.02)):
-                if field_name in profiles:
-                    values = np.asarray(profiles[field_name], dtype=np.float64)
-                    profiles[field_name] = (values * (1.0 + delta)).tolist()
-            candidate_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            if reference_mesh_spec is None:
+                source_mode = "synthetic_preview"
+                reference_path = temp_root / "reference.json"
+                candidate_path = temp_root / "candidate.json"
+                _write_synthetic_mesh_spec(reference_path)
+                _write_candidate_from_reference_mesh_spec(reference_path, candidate_path)
+            else:
+                source_mode = "external_reference_derived_candidate"
+                reference_path = Path(reference_mesh_spec)
+                candidate_path = temp_root / f"candidate{reference_path.suffix}"
+                _write_candidate_from_reference_mesh_spec(reference_path, candidate_path)
             result = compare_traced_field_line_selected_fields(
                 reference_mesh_spec=reference_path,
                 candidate_mesh_spec=candidate_path,
@@ -107,6 +110,7 @@ def create_traced_field_line_selected_field_parity_package(
         ),
         metadata={"compare_surface": "static_metric_field_bundle"},
     )
+    observable_report["metadata"]["source_mode"] = source_mode
     observable_report_json_path = write_geometry_observable_report(
         observable_report,
         data_dir / f"{case_label}_observable_report.json",
@@ -144,3 +148,27 @@ def _resolve_field_alias(
         if candidate_name in reference_fields and candidate_name in candidate_fields:
             return candidate_name
     raise KeyError(f"Missing selected field {requested_name!r} in traced-field-line parity comparison.")
+
+
+def _write_candidate_from_reference_mesh_spec(reference_path: Path, candidate_path: Path) -> None:
+    if reference_path.suffix.lower() == ".json":
+        payload = json.loads(reference_path.read_text(encoding="utf-8"))
+        profiles = payload.get("profiles", {})
+        for field_name, delta in (("J", 0.015), ("g_11", 0.01), ("g_33", -0.02)):
+            if field_name in profiles:
+                values = np.asarray(profiles[field_name], dtype=np.float64)
+                profiles[field_name] = (values * (1.0 + delta)).tolist()
+        candidate_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        return
+
+    if reference_path.suffix.lower() == ".nc":
+        shutil.copy2(reference_path, candidate_path)
+        with Dataset(candidate_path, "r+") as dataset:
+            for field_name, delta in (("J", 0.015), ("jacobian", 0.015), ("g11", 0.01), ("g_11", 0.01), ("g33", -0.02), ("g_33", -0.02)):
+                if field_name not in dataset.variables:
+                    continue
+                values = np.asarray(dataset.variables[field_name][:], dtype=np.float64)
+                dataset.variables[field_name][:] = values * (1.0 + delta)
+        return
+
+    raise ValueError(f"Unsupported traced-field-line mesh specification: {reference_path}")
