@@ -1,8 +1,8 @@
 {
   "available": true,
-  "candidate_input_name": "candidate.nc",
-  "candidate_origin": "materialized_from_reference_input",
+  "candidate_input_name": "radial_const_4_2_4_1.fci.nc",
+  "candidate_origin": "provided_external_input",
   "parse_status": "ok",
   "reference_input_name": "poloidal_const_4_2_4_1.fci.nc",
-  "source_mode": "external_explicit_pair"
+  "source_mode": "explicit_pair"
 }
