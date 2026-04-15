@@ -5,7 +5,10 @@ from pathlib import Path
 
 import numpy as np
 
-from jax_drb.validation.tokamak_native_selected_field import create_native_tokamak_selected_field_package
+from jax_drb.validation.tokamak_native_selected_field import (
+    _compare_native_selected_field_histories,
+    create_native_tokamak_selected_field_package,
+)
 
 
 class _FakeResult:
@@ -98,6 +101,8 @@ def test_create_native_tokamak_selected_field_package_writes_artifacts(
     assert artifacts.parity_json_path.exists()
     assert artifacts.parity_arrays_npz_path.exists()
     assert artifacts.parity_plot_png_path.exists()
+    assert artifacts.comparison_json_path.exists()
+    assert artifacts.comparison_plot_png_path.exists()
     assert artifacts.observable_report_json_path.exists()
     assert artifacts.runtime_report_json_path.exists()
 
@@ -108,8 +113,65 @@ def test_create_native_tokamak_selected_field_package_writes_artifacts(
     observable = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
     assert observable["benchmark_adapter"] == "native_tokamak_selected_field"
     assert observable["metadata"]["native_capability_tier"] == "native_exact"
+    assert observable["metadata"]["reference_source"] == "committed_reference_arrays"
 
     runtime = json.loads(artifacts.runtime_report_json_path.read_text(encoding="utf-8"))
     assert runtime["case_name"] == "tokamak_turbulence_short_window"
     assert runtime["selected_fields"] == ["Ne", "Pe", "phi"]
     assert runtime["component_labels"] == ["component_a", "component_b"]
+
+    comparison = json.loads(artifacts.comparison_json_path.read_text(encoding="utf-8"))
+    assert comparison["reference_source"] == "committed_reference_arrays"
+    assert comparison["reference_producer"] == "external-reference"
+    assert comparison["comparison_histories"]["Ne"]["reference_domain_mean"] == [1.5, 1.7000000000000002]
+    assert comparison["comparison_histories"]["Ne"]["native_domain_mean"] == [1.6500000000000001, 1.85]
+
+
+def test_compare_native_tokamak_selected_field_histories_rejects_mismatched_time_points() -> None:
+    expected = {"Ne": np.ones((2, 1, 1, 1), dtype=np.float64)}
+    actual = {"Ne": np.ones((2, 1, 1, 1), dtype=np.float64)}
+    try:
+        _compare_native_selected_field_histories(
+            case_name="tokamak_turbulence_one_step",
+            expected_fields=expected,
+            actual_fields=actual,
+            expected_time_points=[0.0, 1.0],
+            actual_time_points=(0.0, 2.0),
+            field_names=("Ne",),
+        )
+    except ValueError as exc:
+        assert "time points do not match" in str(exc)
+    else:
+        raise AssertionError("Expected mismatched time points to raise ValueError")
+
+
+def test_compare_native_tokamak_selected_field_histories_rejects_missing_field() -> None:
+    try:
+        _compare_native_selected_field_histories(
+            case_name="tokamak_turbulence_one_step",
+            expected_fields={"Ne": np.ones((1, 1, 1, 1), dtype=np.float64)},
+            actual_fields={"Pe": np.ones((1, 1, 1, 1), dtype=np.float64)},
+            expected_time_points=[0.0],
+            actual_time_points=(0.0,),
+            field_names=("Ne",),
+        )
+    except KeyError as exc:
+        assert "missing" in str(exc).lower()
+    else:
+        raise AssertionError("Expected missing selected field to raise KeyError")
+
+
+def test_compare_native_tokamak_selected_field_histories_rejects_shape_mismatch() -> None:
+    try:
+        _compare_native_selected_field_histories(
+            case_name="tokamak_turbulence_one_step",
+            expected_fields={"Ne": np.ones((1, 1, 1, 1), dtype=np.float64)},
+            actual_fields={"Ne": np.ones((1, 1, 2, 1), dtype=np.float64)},
+            expected_time_points=[0.0],
+            actual_time_points=(0.0,),
+            field_names=("Ne",),
+        )
+    except ValueError as exc:
+        assert "shape mismatch" in str(exc)
+    else:
+        raise AssertionError("Expected selected-field shape mismatch to raise ValueError")
