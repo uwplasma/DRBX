@@ -189,6 +189,10 @@ from .publication_ready_3d import (
     create_publication_ready_3d_campaign_package,
     save_publication_ready_3d_summary_plot,
 )
+from .hermes_capability_audit import (
+    build_hermes_capability_audit,
+    write_hermes_capability_audit,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -338,4 +342,6 @@ __all__ = [
     "build_publication_ready_3d_report",
     "create_publication_ready_3d_campaign_package",
     "save_publication_ready_3d_summary_plot",
+    "build_hermes_capability_audit",
+    "write_hermes_capability_audit",
 ]

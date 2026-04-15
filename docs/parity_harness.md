@@ -70,8 +70,8 @@ Current recycling blocker note:
 | `drift_wave_one_step` | `native-validated` | First drift-wave output interval is locked. |
 | `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
 | `neutral_mixed_rhs` | `native-validated` | Neutral active-domain RHS is locked. |
-| `neutral_mixed_one_step` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
-| `neutral_mixed_short_window` | `reference-only target` | Baseline exists; native transient is not runner-promoted. |
+| `neutral_mixed_one_step` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane, but the parity gate is still open. |
+| `neutral_mixed_short_window` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane, but the parity gate is still open. |
 | `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
 | `recycling_1d_short_window` | `native operational target` | First curated repeated-output open-field recycling transient rung on the local native backbone, staged with `nout=5`; the committed baseline shows bounded residuals led by `NVd+`, `Pd+`, and `Nd+`, so this remains evidence for operational closure rather than an exact promotion. |
@@ -164,9 +164,10 @@ Current support is intentionally narrow:
 - the active-domain implicit machinery is now centralized in the shared [solver](src/jax_drb/solver) package rather than living only inside the neutral model, so future fluid/recycling/EM branches can reuse the same pack/unpack, Jacobian, and Newton infrastructure;
 - the electrostatic inversion path is now centralized there as well through the shared Fourier-Helmholtz backend, which both blob and vorticity now use;
 - the neutral branch now regression-tests both the validated matrix-free backward-Euler path and a stable sparse-backend backward-Euler solve on a small active-domain case;
-- the public runner still keeps `neutral_mixed_one_step` and `neutral_mixed_short_window` disabled until the shared backbone is driven by a reference-faithful adaptive multistep transient, but the low-level stepper/Jacobian substrate is now frozen into common code rather than staged as a private prototype;
+- the public runner no longer blocks `neutral_mixed_one_step` and `neutral_mixed_short_window` at the dispatch layer: both lanes now run through the shared implicit neutral backbone, but they remain explicitly unpromoted because the committed parity gate is still open;
 - the current neutral transient mismatch is localized to the target-adjacent active `y` cells in the neutral momentum RHS, with the dominant error sitting in the parallel viscosity/conduction neighborhood rather than the core interior transport operators;
 - staged reference-only baselines are now also committed for `neutral_mixed_rhs`, `neutral_mixed_one_step`, `neutral_mixed_short_window`, `blob2d_rhs`, `blob2d_one_step`, and `blob2d_short_window`, so the next transport/sheath implementation passes start from stored low-iteration targets rather than fresh local runs;
+- the neutral runner path is now enabled for `neutral_mixed_one_step` and `neutral_mixed_short_window`, but the parity gate remains open on purpose: the latest direct one-step compare still misses the committed baseline on `NVh` by about `3.0e-3`, so this family stays out of the promoted matrix until the transient is actually closed;
 - the reference ladder now also includes committed `one_rhs` and `one_step` baselines for the single-species and multi-species 1D recycling workflows, so the sheath/recycling branch can lock target-recycling sources and `ddt(...)` fields before the first output-step state comparison;
 - `recycling_1d_rhs` is now implemented natively and locked against both the committed portable summary baseline and the committed full-array NPZ baseline;
 - the native recycling branch currently vendors its active hydrogen/helium AMJUEL fits inside the package, so the staged open-field parity path does not depend on a separate external rate-data checkout;

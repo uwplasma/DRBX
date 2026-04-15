@@ -28,6 +28,7 @@ from jax_drb.native.neutral_mixed import (
     pack_neutral_mixed_active_state,
     unpack_neutral_mixed_active_state,
 )
+from jax_drb.native.runner import _execute_neutral_mixed_case
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 
@@ -571,6 +572,49 @@ def test_neutral_mixed_implicit_history_returns_finite_step_sequence() -> None:
     assert np.all(np.isfinite(history.density_history))
     assert np.all(np.isfinite(history.pressure_history))
     assert np.all(np.isfinite(history.momentum_history))
+
+
+def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+
+    class _History:
+        density_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 1.0, dtype=np.float64)
+        pressure_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
+        momentum_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
+
+    captured: list[int] = []
+
+    def _fake_history(*args, **kwargs):
+        captured.append(kwargs["steps"])
+        return _History()
+
+    monkeypatch.setattr(
+        "jax_drb.native.runner.advance_neutral_mixed_implicit_history",
+        _fake_history,
+    )
+
+    time_points, variables = _execute_neutral_mixed_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode="one_step",
+    )
+    assert time_points == (0.0, 20.0)
+    assert variables["Nh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
+    assert captured[-1] == 1
+
+    time_points, variables = _execute_neutral_mixed_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode="short_window",
+    )
+    assert time_points[0] == 0.0
+    assert time_points[-1] == run_config.time.nout * run_config.time.timestep
+    assert variables["NVh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
+    assert captured[-1] == run_config.time.nout
 
 
 def test_soft_floor_matches_reference_formula() -> None:
