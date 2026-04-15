@@ -119,7 +119,7 @@
     }
   ],
   "reference_inputs": {
-    "input_exists": false,
+    "input_exists": true,
     "reference_helper_scripts": [
       "examples/tokamak-3D/tcv-x21/gather_data.py",
       "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",

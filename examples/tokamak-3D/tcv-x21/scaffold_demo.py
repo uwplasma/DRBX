@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import urllib.request
 
 from jax_drb.validation import (
     DEFAULT_TCV_X21_CASE_NAME,
     create_tcv_x21_scaffold_package,
     resolve_tcv_x21_reference_case,
 )
+
+
+PUBLIC_BENCHMARK_FILES = {
+    "TCV_forward_field.nc": "https://raw.githubusercontent.com/SPCData/TCV-X21/main/1.experimental_data/TCV_forward_field.nc",
+    "TCV_ortho.nc": "https://raw.githubusercontent.com/SPCData/TCV-X21/main/tests/sample_data/TCV_ortho.nc",
+    "snaps00000.nc": "https://raw.githubusercontent.com/SPCData/TCV-X21/main/tests/sample_data/snaps00000.nc",
+    "vgrid.nc": "https://raw.githubusercontent.com/SPCData/TCV-X21/main/tests/sample_data/vgrid.nc",
+}
 
 
 def _repo_root() -> Path:
@@ -32,6 +41,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--workdir-in", type=Path, default=None)
     parser.add_argument("--mesh-path", type=Path, default=None)
+    parser.add_argument("--benchmark-data-root", type=Path, default=None)
+    parser.add_argument("--download-public-benchmark-data", action="store_true")
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--frames-per-interval", type=int, default=8)
     parser.add_argument("--quiet", action="store_true")
@@ -42,6 +53,10 @@ def main() -> None:
     args = parse_args()
     verbose = not args.quiet
     resolved = resolve_tcv_x21_reference_case(args.reference_root, case_name=args.case_name)
+    benchmark_data_root = args.benchmark_data_root
+    if args.download_public_benchmark_data:
+        benchmark_data_root = benchmark_data_root or Path("/tmp/tcv_x21_public_benchmark")
+        _download_public_benchmark_data(benchmark_data_root)
     mesh_path = args.mesh_path
     if mesh_path is None and args.workdir_in is not None:
         inferred = args.workdir_in / "tokamak.nc"
@@ -59,6 +74,7 @@ def main() -> None:
                 "output_root": args.output_root,
                 "workdir_in": args.workdir_in if args.workdir_in is not None else "<synthetic preview>",
                 "mesh_path": mesh_path if mesh_path is not None else "<synthetic preview>",
+                "benchmark_data_root": benchmark_data_root if benchmark_data_root is not None else "<none>",
                 "field_name": args.field_name,
                 "fps": args.fps,
                 "frames_per_interval": args.frames_per_interval,
@@ -72,6 +88,7 @@ def main() -> None:
         field_name=args.field_name,
         workdir_in=args.workdir_in,
         mesh_path=mesh_path,
+        benchmark_data_root=benchmark_data_root,
         fps=args.fps,
         frames_per_interval=args.frames_per_interval,
     )
@@ -83,6 +100,7 @@ def main() -> None:
                 "manifest_json": artifacts.manifest_json_path,
                 "input_report_json": artifacts.input_report_json_path,
                 "validation_contract_json": artifacts.validation_contract_json_path,
+                "benchmark_data_report_json": artifacts.benchmark_data_report_json_path,
                 "observable_report_json": artifacts.observable_report_json_path,
                 "profile_report_json": artifacts.profile_report_json_path,
                 "profile_arrays_npz": artifacts.profile_arrays_npz_path,
@@ -94,6 +112,15 @@ def main() -> None:
                 "movie_gif": artifacts.movie_gif_path,
             }
         )
+
+
+def _download_public_benchmark_data(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    for name, url in PUBLIC_BENCHMARK_FILES.items():
+        target = root / name
+        if target.exists():
+            continue
+        urllib.request.urlretrieve(url, target)
 
 
 def _print_section(title: str) -> None:

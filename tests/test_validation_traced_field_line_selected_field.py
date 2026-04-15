@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+from netCDF4 import Dataset
+
 from jax_drb.validation import (
     compare_traced_field_line_selected_fields,
     create_traced_field_line_selected_field_parity_package,
@@ -38,3 +41,30 @@ def test_create_traced_field_line_selected_field_parity_package_writes_artifacts
     assert payload["field_names"] == ["jacobian", "g_11", "g_33"]
     observable = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
     assert observable["observable_groups"][0]["families"][0]["kind"] == "selected_field_parity"
+    assert observable["metadata"]["source_mode"] == "synthetic_preview"
+
+
+def test_create_traced_field_line_selected_field_parity_package_derives_candidate_from_external_grid(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "reference.fci.nc"
+    with Dataset(reference, "w") as dataset:
+        dataset.createDimension("x", 4)
+        dataset.createDimension("y", 3)
+        dataset.createDimension("z", 2)
+        for name, scale in (("J", 1.0), ("g_11", 2.0), ("g_33", 3.0)):
+            variable = dataset.createVariable(name, "f8", ("x", "y", "z"))
+            values = np.arange(24, dtype=np.float64).reshape(4, 3, 2)
+            variable[:] = scale + values
+
+    artifacts = create_traced_field_line_selected_field_parity_package(
+        reference_mesh_spec=reference,
+        candidate_mesh_spec=None,
+        output_root=tmp_path / "output",
+    )
+
+    payload = json.loads(artifacts.parity_json_path.read_text(encoding="utf-8"))
+    assert payload["field_names"] == ["J", "g_11", "g_33"]
+    assert payload["variable_errors"]["J"]["max_abs_error"] > 0.0
+    observable = json.loads(artifacts.observable_report_json_path.read_text(encoding="utf-8"))
+    assert observable["metadata"]["source_mode"] == "external_reference_derived_candidate"

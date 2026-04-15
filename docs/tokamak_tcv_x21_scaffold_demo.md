@@ -3,19 +3,31 @@
 This page documents the first honest 3D tokamak kickoff package in `jax_drb`.
 It is intentionally labeled `scaffolded_reference_backed`: the package resolves
 the manifest hook for `tokamak_tcv_x21_escalation`, records whether a local
-TCV-X21 reference tree is present, and can generate a polished diverted-geometry
-preview from either:
+TCV-X21 reference tree is present, and can generate a polished 3D benchmark
+bundle from either:
 
-- a real local reference workdir with `BOUT.dmp.*.nc` files and `tokamak.nc`;
-- or a tiny synthetic preview workdir when no 3D output tree is available yet.
+- a real public TCV-X21 benchmark-data root containing `TCV_forward_field.nc`,
+  `TCV_ortho.nc`, `snaps00000.nc`, and `vgrid.nc`;
+- a real local reference workdir with dump files and mesh;
+- or a tiny synthetic preview workdir when no external data root is available yet.
 
-The preview mode is the default in this repository. It exists so the 3D launch
-path is testable now without pretending the full TCV-X21 solver lane is already
-native-exact.
+The committed artifact bundle in this repository is generated from the real
+public benchmark-data mode. The synthetic preview mode still exists so the 3D
+launch path remains testable when no external data root is available.
 
 ## Run It
 
-Preview mode, which is the default if no external 3D workdir is provided:
+Public benchmark-data mode, which is now the preferred reproducible path:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
+  --reference-root /path/to/reference-suite \
+  --download-public-benchmark-data \
+  --benchmark-data-root /tmp/tcv_x21_public_benchmark \
+  --output-root docs/data/tokamak_tcv_x21_scaffold_artifacts
+```
+
+Preview mode, if no external benchmark or workdir tree is available:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
@@ -37,6 +49,7 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 
 - manifest report: [tokamak_tcv_x21_scaffold_manifest.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_manifest.json)
 - input/deck report: [tokamak_tcv_x21_scaffold_input_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_input_report.json)
+- benchmark-data report: [tokamak_tcv_x21_scaffold_benchmark_data_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_benchmark_data_report.json)
 - validation contract: [tokamak_tcv_x21_scaffold_validation_contract.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_validation_contract.json)
 - observable report: [tokamak_tcv_x21_scaffold_observable_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_observable_report.json)
 - profile report: [tokamak_tcv_x21_scaffold_profile_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_report.json)
@@ -60,16 +73,17 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 2. records whether a local 3D reference tree is actually present;
 3. parses the reference deck into a structured input report with time, mesh,
    solver, component, and compare-surface metadata when the deck is present;
-4. writes a benchmark validation contract that records the planned TCV-X21
+4. writes a benchmark-data report that records which public TCV-X21 benchmark
+   files are present and which sample field is being visualized;
+5. writes a benchmark validation contract that records the planned TCV-X21
    observables, profile metrics, and promotion gates for the 3D lane;
-5. writes a geometry-adapter observable report that lifts the named benchmark
+6. writes a geometry-adapter observable report that lifts the named benchmark
    profile families onto the shared 3D observable schema;
-6. extracts the staged `FHRP`, `LFS-LP`, and `HFS-LP` profile families into a
-   structured report and compact NPZ bundle;
-7. renders a publication-style profile summary figure from that same bundle;
-8. reuses the existing diverted-tokamak geometry/movie pipeline;
-9. renders a publication-style 2D GIF plus a poster frame with LCFS, wall, and
-   divertor overlays;
+7. extracts the staged `FHRP`, `LFS-LP`, and `HFS-LP` profile families from the
+   public benchmark observable record into a structured report and compact NPZ bundle;
+8. renders a publication-style profile summary figure from that same bundle;
+9. renders a publication-style GIF, snapshot panel, and poster from the public
+   sample geometry and snapshot files;
 10. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
 
 ## Benchmark Gate Design
@@ -81,10 +95,10 @@ TCV-X21 helper workflow:
 - `LFS-LP`: low-field-side target density, temperature, potential, current, and floating-potential profiles
 - `HFS-LP`: high-field-side target density, temperature, potential, current, and floating-potential profiles
 
-The immediate promotion gates are:
+The immediate promotion gates are now:
 
 1. scaffold gate: manifest, deck report, validation contract, and geometry figure bundle
-2. external-workdir gate: the same artifact bundle driven by a real 3D workdir and mesh
+2. external benchmark-data gate: the same artifact bundle driven by the public TCV-X21 benchmark data root
 3. selected-field parity gate: a compact native/reference compare surface on a reduced 3D rung
 4. benchmark validation gate: publication-ready TCV-X21 profile plots and methods note
 
@@ -92,5 +106,5 @@ The immediate promotion gates are:
 
 - it does not claim a native 3D tokamak solver path;
 - it does not replace the future TCV-X21 execution lane;
-- it does not depend on a heavy 3D solve for the first visual deliverable.
+- it does not depend on a heavy local 3D solve for the first public benchmark deliverable.
 - it does not yet turn the deck report into a live native 3D run configuration.
