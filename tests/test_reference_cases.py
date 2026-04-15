@@ -481,6 +481,7 @@ def test_default_manifest_stages_tokamak_turbulence_one_step_case() -> None:
 
     assert case.reference_path == "examples/tokamak-2D/turbulence/BOUT.inp"
     assert case.parity_mode == "one_step"
+    assert case.capability_tier == "native_exact"
     assert case.compare_variables == ("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort")
     assert case.extra_overrides == (
         "timestep=0.1",

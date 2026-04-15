@@ -104,10 +104,14 @@ The reduced selected-field parity package now exists in-tree for compact
 from the real public TCV-X21 benchmark-data root, using the public sample
 bundle as the reference side and a deterministic derived candidate as the
 reproducible compact compare target. What is still missing is the first reduced
-native 3D rung or a real external reference/candidate workdir pair on that same
-selected-field surface. The non-tokamak traced-field-line lane has already
-moved beyond synthetic-only operation by running the same reduced gate from a
-real external FCI grid with a deterministic derived candidate.
+native 3D rung beyond that benchmark-backed gate or a real external
+reference/candidate workdir pair on that same selected-field surface. The first
+native reduced rung is now also in-tree as `tokamak_native_selected_field`,
+which runs a promoted native tokamak one-step case on the same compact
+surface and writes runtime/provenance metadata alongside the parity bundle. The
+non-tokamak traced-field-line lane has already moved beyond synthetic-only
+operation by running the same reduced gate from a real external FCI grid with a
+deterministic derived candidate.
 
 ### 4. Benchmark Validation Gate
 

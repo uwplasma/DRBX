@@ -662,6 +662,7 @@ name = "tokamak_turbulence_one_step"
 stage = "stage7"
 reference_path = "examples/tokamak-2D/turbulence/BOUT.inp"
 parity_mode = "one_step"
+capability_tier = "native_exact"
 rationale = "First direct tokamak turbulence rung on the electrostatic drift stack after the isothermal case."
 compare_variables = ["Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort"]
 extra_overrides = [
