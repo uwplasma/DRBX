@@ -222,6 +222,8 @@ That said, TCV-X21 is treated as the first benchmark adapter, not as the whole 3
 
 The first non-diverted second adapter is now in-tree too: a traced-field-line geometry scaffold that writes a metric report, compact metric arrays, a shared observable report, reusable line diagnostics, an automatically selected plane-summary bundle and GIF, and a validation contract on the same public artifact model. The slice/movie path now chooses the most informative radial, toroidal, or poloidal plane family for the staged metric field instead of hardwiring a tokamak-style view. That keeps the 3D program honest by pressure-testing the geometry and diagnostics layer beyond a single tokamak benchmark family.
 
+That second geometry family now also has its first reduced parity gate: a traced-field-line selected-field package that compares a compact metric-field surface, publishes `max|Δ|`, RMS, and relative-L2 errors, and writes the result through the same shared observable schema as the other 3D adapters.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -237,6 +239,7 @@ If you want meeting-ready figures and movies:
 - [tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
 - [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
 - [traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
+- [traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
 
 If you want the current validation gallery:
 

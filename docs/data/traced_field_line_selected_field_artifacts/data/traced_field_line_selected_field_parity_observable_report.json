@@ -1,0 +1,27 @@
+{
+  "available": true,
+  "benchmark_adapter": "stellarator_traced_field_line_scaffold",
+  "geometry_family": "traced_field_line_3d",
+  "metadata": {
+    "compare_surface": "static_metric_field_bundle"
+  },
+  "observable_groups": [
+    {
+      "description": "Compact selected-field parity surface on traced-field-line metric fields.",
+      "families": [
+        {
+          "coordinate_name": "full_domain",
+          "field_names": [
+            "jacobian",
+            "g_11",
+            "g_33"
+          ],
+          "kind": "selected_field_parity",
+          "name": "selected_metric_fields"
+        }
+      ],
+      "name": "selected_metric_parity"
+    }
+  ],
+  "parse_status": "ok"
+}
