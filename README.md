@@ -230,7 +230,9 @@ That second geometry family now also has its first reduced parity gate: a traced
 
 The third 3D adapter is now in-tree too: `stellarator_vmec_scaffold` consumes VMEC-style equilibrium data on the same public artifact model, writing a manifest, validation contract, equilibrium profile bundle, shared observable report, and sampled `R`/`Z` flux-surface figure/movie package. That is the current pressure test that the 3D architecture can handle a stellarator-style family without introducing another bespoke benchmark stack.
 
-That third geometry family now also has its first reduced parity gate: `stellarator_vmec_selected_field` compares compact `iota`/`pressure`/`toroidal_flux` profiles and writes the same public parity plus source-report surface used by the other 3D adapters. On the tokamak side, the native reduced rung is no longer only a one-step proof point: there is now a second committed short-window native bundle on `tokamak_isothermal_short_window` for `Ne`/`phi`/`Vort`.
+That third geometry family now also has its first reduced parity gate: `stellarator_vmec_selected_field` compares compact `iota`/`pressure`/`toroidal_flux` profiles and writes the same public parity plus source-report surface used by the other 3D adapters. The committed bundle can now be regenerated from a real explicit external VMEC pair, not only from the synthetic preview path. On the tokamak side, the native reduced rung is no longer only a one-step proof point: there is now a second committed short-window native bundle on `tokamak_isothermal_short_window` for `Ne`/`phi`/`Vort`.
+
+The next publication-facing layer is now also in-tree: `publication_ready_3d_campaign` assembles the promoted native tokamak reduced rungs, the traced-field-line and stellarator explicit external-pair gates, and the committed manufactured-solution convergence report into one reviewer-facing summary JSON plus figure bundle. That package is intentionally honest about what is still missing: a first native non-tokamak 3D reduced rung and a broader 3D native convergence/performance campaign.
 
 ## What To Run First
 
@@ -251,6 +253,7 @@ If you want meeting-ready figures and movies:
 - [traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
 - [stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
 - [stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
+- [publication_ready_3d_campaign.md](docs/publication_ready_3d_campaign.md)
 
 If you want the current validation gallery:
 

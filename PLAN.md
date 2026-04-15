@@ -290,10 +290,14 @@ Current checkpoint:
 - that same third geometry family now also has its first reduced parity gate:
   - `stellarator_vmec_selected_field_parity` compares compact `iota`, `pressure`, and `toroidal_flux` profiles
   - it publishes parity JSON/NPZ, a publication-style figure, a shared observable report, and a source report on the same public artifact path
-- the next 3D deliverables after that are now:
-  - drive the traced-field-line selected-field gate from a truly independent external reference/candidate pair rather than a materialized candidate from one external source
-  - widen the native tokamak reduced rung beyond its initial one-step compact surface with an additional promoted short-window bundle
-  - keep runtime/provenance summaries on every promoted native 3D artifact bundle and on the shared observable schema
+- that same third geometry family now also supports a real explicit external VMEC pair path when two compatible `wout*.nc` inputs are provided, so the selected-field lane is no longer restricted to a synthetic preview or a materialized candidate fallback
+- the first manuscript-facing 3D campaign package is now also in-tree:
+  - `publication_ready_3d_campaign` assembles the promoted native tokamak reduced rungs, the traced-field-line explicit external-pair gate, the stellarator explicit external-pair gate, and the committed fluid MMS convergence report
+  - it writes one reviewer-facing summary JSON plus a publication-style figure from already committed artifacts instead of introducing a separate ad hoc analysis path
+- the remaining 3D deliverables after that are now:
+  - replace the current traced-field-line paired fixture with a genuinely independent upstream reference/candidate dataset
+  - add the first native non-tokamak 3D reduced rung
+  - expand the 3D native convergence/scaling/runtime campaign beyond the current reduced tokamak bundle
 
 Publication rule:
 

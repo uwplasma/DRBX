@@ -1,0 +1,84 @@
+{
+  "campaign_status": {
+    "native_non_tokamak_rungs": 0,
+    "native_tokamak_rungs": 2,
+    "non_tokamak_external_pair_gates": 2,
+    "remaining_blockers": [
+      "first_native_non_tokamak_3d_reduced_rung",
+      "expanded_3d_native_convergence_and_scaling_campaign"
+    ]
+  },
+  "case": "publication_ready_3d_campaign",
+  "convergence_summary": {
+    "case": "fluid_1d_mms_convergence",
+    "min_density_order": 1.627538381515247,
+    "min_momentum_order": 1.8991131696761343,
+    "min_pressure_order": 1.945817141685118,
+    "resolutions": [
+      32,
+      64,
+      128
+    ]
+  },
+  "lane_summaries": [
+    {
+      "capability_tier": "native_exact",
+      "elapsed_seconds": 0.03238687499833759,
+      "geometry_family": "diverted_tokamak_3d",
+      "lane_kind": "native_selected_field",
+      "lane_name": "tokamak_native_one_step",
+      "selected_fields": [
+        "Ne",
+        "Pe",
+        "phi"
+      ],
+      "worst_field": "Ne",
+      "worst_relative_l2_error": 0.0
+    },
+    {
+      "capability_tier": "native_exact",
+      "elapsed_seconds": 0.025844374991720542,
+      "geometry_family": "diverted_tokamak_3d",
+      "lane_kind": "native_selected_field",
+      "lane_name": "tokamak_native_short_window",
+      "selected_fields": [
+        "Ne",
+        "phi",
+        "Vort"
+      ],
+      "worst_field": "Ne",
+      "worst_relative_l2_error": 0.0
+    },
+    {
+      "candidate_origin": "provided_external_input",
+      "capability_tier": "external_pair_validation",
+      "elapsed_seconds": null,
+      "geometry_family": "traced_field_line_3d",
+      "lane_kind": "external_selected_field",
+      "lane_name": "traced_field_line_selected_field",
+      "selected_fields": [
+        "g11",
+        "g33"
+      ],
+      "source_mode": "explicit_pair",
+      "worst_field": "g33",
+      "worst_relative_l2_error": 0.3775247670634279
+    },
+    {
+      "candidate_origin": "provided_external_input",
+      "capability_tier": "external_pair_validation",
+      "elapsed_seconds": null,
+      "geometry_family": "stellarator_vmec_3d",
+      "lane_kind": "external_selected_field",
+      "lane_name": "stellarator_vmec_selected_field",
+      "selected_fields": [
+        "iota",
+        "pressure",
+        "toroidal_flux"
+      ],
+      "source_mode": "explicit_pair",
+      "worst_field": "toroidal_flux",
+      "worst_relative_l2_error": 0.4745023299999996
+    }
+  ]
+}
