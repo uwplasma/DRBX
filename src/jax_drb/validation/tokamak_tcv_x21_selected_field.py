@@ -337,16 +337,32 @@ def _compare_selected_field_histories(
         candidate_history = np.asarray(candidate["fields"][field_name], dtype=np.float64)
         if reference_history.shape != candidate_history.shape:
             raise ValueError(f"Field {field_name!r} shape mismatch: {reference_history.shape} vs {candidate_history.shape}")
+        valid = np.isfinite(reference_history) & np.isfinite(candidate_history)
+        if not np.any(valid):
+            raise ValueError(f"Field {field_name!r} has no finite overlap on the selected compare surface.")
         diff = candidate_history - reference_history
-        axes = tuple(range(1, diff.ndim))
-        max_abs_error_history = np.max(np.abs(diff), axis=axes)
-        rms_error_history = np.sqrt(np.mean(np.square(diff), axis=axes))
-        reference_norm = float(np.linalg.norm(reference_history.ravel()))
-        relative_l2_error = float(np.linalg.norm(diff.ravel()) / max(reference_norm, np.finfo(np.float64).tiny))
+        max_abs_error_history = np.array(
+            [
+                float(np.max(np.abs(diff[time_index][valid[time_index]])))
+                for time_index in range(diff.shape[0])
+            ],
+            dtype=np.float64,
+        )
+        rms_error_history = np.array(
+            [
+                float(np.sqrt(np.mean(np.square(diff[time_index][valid[time_index]]))))
+                for time_index in range(diff.shape[0])
+            ],
+            dtype=np.float64,
+        )
+        reference_values = reference_history[valid]
+        diff_values = diff[valid]
+        reference_norm = float(np.linalg.norm(reference_values))
+        relative_l2_error = float(np.linalg.norm(diff_values) / max(reference_norm, np.finfo(np.float64).tiny))
         variable_errors[field_name] = TcvX21SelectedFieldVariableError(
             name=field_name,
-            max_abs_error=float(np.max(np.abs(diff))),
-            rms_error=float(np.sqrt(np.mean(np.square(diff)))),
+            max_abs_error=float(np.max(np.abs(diff_values))),
+            rms_error=float(np.sqrt(np.mean(np.square(diff_values)))),
             relative_l2_error=relative_l2_error,
             max_abs_error_history=np.asarray(max_abs_error_history, dtype=np.float64),
             rms_error_history=np.asarray(rms_error_history, dtype=np.float64),
