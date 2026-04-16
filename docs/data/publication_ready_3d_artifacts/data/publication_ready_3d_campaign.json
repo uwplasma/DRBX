@@ -4,7 +4,7 @@
     "native_tokamak_rungs": 2,
     "non_tokamak_external_pair_gates": 2,
     "remaining_blockers": [
-      "expanded_3d_native_convergence_and_scaling_campaign"
+      "broader_full-field_native_3d_execution_matrix"
     ]
   },
   "case": "publication_ready_3d_campaign",
@@ -106,5 +106,16 @@
       "worst_field": "toroidal_flux",
       "worst_relative_l2_error": 0.4745023299999996
     }
-  ]
+  ],
+  "native_3d_convergence_summary": {
+    "case": "native_3d_convergence_campaign",
+    "min_observed_order": 1.9999999996654085,
+    "operator": "native_traced_field_line_radial_profile",
+    "resolutions": [
+      8,
+      16,
+      32,
+      64
+    ]
+  }
 }

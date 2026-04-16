@@ -301,6 +301,14 @@ Current checkpoint:
   - widen the public artifact bundle with runtime/provenance summaries on each promoted native 3D rung
   - run a broader native 3D convergence and scaling campaign on the promoted reduced matrix
   - publish one combined native-vs-reference comparison summary figure and one combined dynamics gallery page so the reviewer-facing visual surface is not fragmented across lane-specific docs
+- that broader reduced-matrix closeout is now materially in-tree:
+  - `native_3d_runtime_campaign` aggregates committed native tokamak, traced-field-line, and stellarator runtime reports and adds compact scaling sweeps for the promoted non-tokamak native reduction kernels
+  - `native_3d_convergence_campaign` adds an operator-level convergence gate on the promoted traced-field-line native reduction path against an analytic radial-average target
+  - `hermes_comparison_summary` aggregates the committed native-vs-reference comparison surfaces across the promoted reduced 3D matrix
+- the first controller-oriented validation lane is also explicit now:
+  - `controller_feedback_campaign` compares the native upstream-density feedback controller history against the reference dense-history surface on `recycling_1d_one_step`
+  - the gate covers controller multiplier, proportional term, integral term, reconstructed controller integral, and target recycling source
+  - this closes the first honest controller-feedback lane without overstating `temperature_feedback` or `detachment_controller`
 - the first reduced native 3D selected-field rung is now also in-tree:
   - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
   - the artifact bundle now carries parity JSON/NPZ, a shared observable report, a direct native-vs-reference comparison JSON/plot bundle, and a runtime/provenance report

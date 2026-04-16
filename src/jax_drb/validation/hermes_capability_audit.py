@@ -157,12 +157,13 @@ def build_hermes_capability_audit() -> dict[str, object]:
             "family": "impurity_radiation_and_detachment_control",
             "reference_surfaces": ["fixed_fraction_radiation", "temperature_feedback", "detachment_controller", "ADAS carbon/neon"],
             "jax_status": "partially_closed",
-            "jax_capability": "dedicated_campaign_plus_neon_rhs_lane",
+            "jax_capability": "dedicated_campaign_plus_neon_rhs_lane_plus_feedback_controller_gate",
             "evidence": [
                 "dedicated impurity/radiation validation campaign committed for neon OpenADAS and D/T/He/Ne RHS closure",
+                "dedicated controller-feedback campaign committed for the native upstream-density feedback history on recycling_1d_one_step",
                 "controller-oriented temperature/detachment surfaces are still not promoted",
             ],
-            "next_gate": "add the first promoted temperature/detachment control native lane beyond the neon radiation package",
+            "next_gate": "add the first promoted temperature-feedback or detachment-control native lane beyond the upstream-density feedback controller gate",
         },
         {
             "family": "sod_shock_and_2d_energy_regression_surfaces",

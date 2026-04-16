@@ -30,6 +30,7 @@ def create_publication_ready_3d_campaign_package(
     stellarator_native_runtime_report: str | Path | None = None,
     stellarator_native_parity_json: str | Path | None = None,
     convergence_report_json: str | Path | None = None,
+    native_3d_convergence_report_json: str | Path | None = None,
     case_label: str = "publication_ready_3d_campaign",
 ) -> PublicationReady3DArtifacts:
     root = Path(output_root)
@@ -91,6 +92,10 @@ def create_publication_ready_3d_campaign_package(
             convergence_report_json,
             "docs/data/fluid_1d_mms_convergence.json",
         ),
+        native_3d_convergence_report_json=_resolve_or_default(
+            native_3d_convergence_report_json,
+            "docs/data/native_3d_convergence_campaign_artifacts/data/native_3d_convergence_campaign.json",
+        ),
     )
     summary_json_path = data_dir / f"{case_label}.json"
     summary_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -119,6 +124,7 @@ def build_publication_ready_3d_report(
     stellarator_native_runtime_report: str | Path,
     stellarator_native_parity_json: str | Path,
     convergence_report_json: str | Path,
+    native_3d_convergence_report_json: str | Path,
 ) -> dict[str, object]:
     tokamak_one_step_runtime = _load_json(tokamak_one_step_runtime_report)
     tokamak_one_step_parity = _load_json(tokamak_one_step_parity_json)
@@ -133,6 +139,7 @@ def build_publication_ready_3d_report(
     stellarator_native_runtime = _load_json(stellarator_native_runtime_report)
     stellarator_native_parity = _load_json(stellarator_native_parity_json)
     convergence = _load_json(convergence_report_json)
+    native_3d_convergence = _load_json(native_3d_convergence_report_json)
 
     lane_summaries = [
         _native_lane_summary(
@@ -181,7 +188,7 @@ def build_publication_ready_3d_report(
         "non_tokamak_external_pair_gates": 2,
         "native_non_tokamak_rungs": 2,
         "remaining_blockers": [
-            "expanded_3d_native_convergence_and_scaling_campaign",
+            "broader_full-field_native_3d_execution_matrix",
         ],
     }
     return {
@@ -193,6 +200,12 @@ def build_publication_ready_3d_report(
             "min_momentum_order": float(min(momentum_orders)),
             "min_pressure_order": float(min(pressure_orders)),
             "resolutions": list(convergence.get("resolutions", [])),
+        },
+        "native_3d_convergence_summary": {
+            "case": native_3d_convergence.get("case"),
+            "operator": native_3d_convergence.get("operator"),
+            "min_observed_order": float(native_3d_convergence.get("min_observed_order", 0.0)),
+            "resolutions": [int(entry["resolution"]) for entry in native_3d_convergence.get("entries", [])],
         },
         "campaign_status": campaign_status,
     }
@@ -238,7 +251,8 @@ def save_publication_ready_3d_summary_plot(report: dict[str, object], path: str 
         "Publication-ready 3D campaign summary\n"
         f"MMS min orders: density={orders['min_density_order']:.2f}, "
         f"momentum={orders['min_momentum_order']:.2f}, "
-        f"pressure={orders['min_pressure_order']:.2f}",
+        f"pressure={orders['min_pressure_order']:.2f}; "
+        f"native-3D operator min order={report['native_3d_convergence_summary']['min_observed_order']:.2f}",
         fontsize=12,
     )
     figure.savefig(target, dpi=180)

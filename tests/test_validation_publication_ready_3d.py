@@ -25,6 +25,7 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
     stellarator_native_runtime = tmp_path / "stellarator_native_runtime.json"
     stellarator_native_parity = tmp_path / "stellarator_native_parity.json"
     convergence = tmp_path / "convergence.json"
+    native_3d_convergence = tmp_path / "native_3d_convergence.json"
 
     _write_json(
         tokamak_one_step_runtime,
@@ -139,6 +140,18 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
         },
     )
     _write_json(
+        native_3d_convergence,
+        {
+            "case": "native_3d_convergence_campaign",
+            "operator": "native_traced_field_line_radial_profile",
+            "entries": [
+                {"resolution": 8, "g11_error": 1.0e-2, "g33_error": 2.0e-2},
+                {"resolution": 16, "g11_error": 5.0e-3, "g33_error": 1.0e-2},
+            ],
+            "min_observed_order": 1.0,
+        },
+    )
+    _write_json(
         convergence,
         {
             "case": "fluid_1d_mms_convergence",
@@ -165,6 +178,7 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
         stellarator_native_runtime_report=stellarator_native_runtime,
         stellarator_native_parity_json=stellarator_native_parity,
         convergence_report_json=convergence,
+        native_3d_convergence_report_json=native_3d_convergence,
     )
 
     assert artifacts.summary_json_path.exists()
@@ -175,3 +189,5 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
     assert len(summary["lane_summaries"]) == 6
     assert summary["campaign_status"]["native_non_tokamak_rungs"] == 2
     assert summary["convergence_summary"]["min_density_order"] == 1.8
+    assert summary["native_3d_convergence_summary"]["min_observed_order"] == 1.0
+    assert summary["campaign_status"]["remaining_blockers"] == ["broader_full-field_native_3d_execution_matrix"]

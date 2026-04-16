@@ -4,7 +4,7 @@ This page assembles the current reviewer-facing 3D evidence into one reproducibl
 bundle. It does not widen the claim boundary. It summarizes the promoted native
 tokamak reduced rungs, the traced-field-line and stellarator native reduced rungs,
 the explicit external-pair non-tokamak parity gates, and the current
-manufactured-solution convergence evidence that supports the publication story.
+manufactured-solution plus reduced-native-operator convergence evidence that supports the publication story.
 
 Run it with:
 
@@ -23,12 +23,13 @@ The summary JSON reports:
 - reduced-lane parity summaries for the native tokamak one-step and short-window rungs;
 - reduced-lane parity summaries for the native traced-field-line and native stellarator rungs plus the traced-field-line and stellarator explicit external-pair gates;
 - minimum observed manufactured-solution orders from the committed 1D fluid convergence campaign;
+- the explicit operator-level convergence floor from the committed native 3D convergence campaign;
 - the remaining campaign blockers before a full publication-ready 3D claim.
 
 Current explicit blocker in that report is:
 
-- a broader native 3D convergence, scaling, and runtime campaign beyond the
-  current reduced tokamak plus non-tokamak bundles.
+- a broader full-field native 3D execution matrix beyond the current reduced
+  tokamak plus non-tokamak bundles.
 
 Preview:
 

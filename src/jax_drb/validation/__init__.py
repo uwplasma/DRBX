@@ -209,6 +209,12 @@ from .native_3d_runtime_campaign import (
     create_native_3d_runtime_campaign_package,
     save_native_3d_runtime_campaign_plot,
 )
+from .native_3d_convergence_campaign import (
+    Native3DConvergenceCampaignArtifacts,
+    build_native_3d_convergence_campaign_report,
+    create_native_3d_convergence_campaign_package,
+    save_native_3d_convergence_campaign_plot,
+)
 from .hermes_capability_audit import (
     build_hermes_capability_audit,
     write_hermes_capability_audit,
@@ -218,6 +224,12 @@ from .hermes_comparison_summary import (
     build_hermes_comparison_summary_report,
     create_hermes_comparison_summary_package,
     save_hermes_comparison_summary_plot,
+)
+from .controller_feedback_campaign import (
+    ControllerFeedbackCampaignArtifacts,
+    ControllerFeedbackMetric,
+    build_controller_feedback_campaign,
+    create_controller_feedback_campaign_package,
 )
 from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignArtifacts,
