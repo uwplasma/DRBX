@@ -242,6 +242,8 @@ The native 3D runtime/scaling surface is now explicit as well. `native_3d_runtim
 
 The controller-oriented closeout surface is explicit too. `controller_feedback_campaign` turns the native upstream-density feedback path into a dense-history reference-backed gate on controller multiplier, proportional/integral terms, reconstructed controller integral, and target recycling source. `temperature_feedback_campaign` now adds the matching reduced Hermes-backed PI-controller-law package, but the bounded local `1D-recycling-with-Tt-control` example still exceeds the current ten-minute policy here, so neither `temperature_feedback` nor `detachment_controller` is being overstated as promoted.
 
+The final ship/publication decision record is now also explicit in [docs/jcp_readiness_audit.md](docs/jcp_readiness_audit.md). That page maps the current `jax_drb` state to the verification/validation expectations visible in the relevant reference-code literature, and it states the remaining blockers plainly: broader neutral/transient closure, a promoted temperature/detachment-control lane, wider direct tokamak recycling windows, and substantially higher coverage before the strongest JCP claim boundary is defensible.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:

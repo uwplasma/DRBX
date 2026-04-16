@@ -25,6 +25,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "impurity_radiation_campaign.md",
     REPO_ROOT / "docs" / "controller_feedback_campaign.md",
     REPO_ROOT / "docs" / "temperature_feedback_campaign.md",
+    REPO_ROOT / "docs" / "jcp_readiness_audit.md",
     REPO_ROOT / "docs" / "native_3d_runtime_campaign.md",
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",
     REPO_ROOT / "docs" / "hermes_comparison_gallery.md",
