@@ -618,6 +618,39 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     assert captured[-1] == run_config.time.nout
 
 
+def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+
+    class _History:
+        density_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 1.0, dtype=np.float64)
+        pressure_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
+        momentum_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
+
+    captured: list[int] = []
+
+    def _fake_history(*args, **kwargs):
+        captured.append(kwargs["steps"])
+        return _History()
+
+    monkeypatch.setattr(
+        "jax_drb.native.runner.advance_neutral_mixed_implicit_history",
+        _fake_history,
+    )
+
+    time_points, variables = _execute_neutral_mixed_case(
+        config,
+        run_config,
+        mesh,
+        metrics,
+        parity_mode="short_window",
+        output_steps=4,
+    )
+
+    assert captured == [4]
+    assert time_points == (0.0, 20.0, 40.0, 60.0, 80.0)
+    assert variables["Nh"].shape == (5, mesh.nx, mesh.local_ny, mesh.nz)
+
+
 def test_density_y_boundaries_match_reference_wall_extrapolation() -> None:
     _, _, mesh, _, state, _ = _build_case(nx=8, ny=4, nz=6)
 

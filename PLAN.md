@@ -151,8 +151,13 @@ materially tighter after fixing the neutral density wall-guard reconstruction:
 the committed centerline gate now lands around `center Nh ≈ 8.0e-3`,
 `center Ph ≈ 5.7e-4`, `center NVh ≈ 8.6e-4`, `center T ≈ 2.9e-4`, and
 `momentum RMS ≈ 1.7e-3` max-abs error against the committed baseline. This
-family still remains an open transient-closure task because the full
-short-window compare did not finish inside the local five-minute gate.
+family still remains an open transient-closure task because the heavier global
+short-window surface is not yet clean enough for promotion. The first bounded
+short-window prefix gate now finishes inside the local five-minute policy on
+the first two saved intervals and lands around `center Nh ≈ 9.24e-2`,
+`center Ph ≈ 9.24e-3`, `center NVh ≈ 2.66e-3`, `center T ≈ 1.17e-4`, and
+`momentum RMS ≈ 1.93e-3`, which is enough to keep the transient backbone under
+continuous native regression while the broader short-window surface remains open.
 - the next bounded neutral gate is now a short-window prefix compare on the
   first few saved outputs, using the same native runner path but an explicit
   `output_steps` override so the local gate stays under five minutes while
@@ -1053,7 +1058,7 @@ Current Step 2/3 status markers:
 | --- | --- | --- |
 | `neutral_mixed_rhs` | `native-validated` | Active-domain RHS parity is locked. |
 | `neutral_mixed_one_step` | `open native runner target` | Baseline exists; the native implicit runner now executes this lane and the bounded centerline gate is materially tighter, but the family is not promoted yet. |
-| `neutral_mixed_short_window` | `open native runner target` | Baseline exists; the native implicit runner now executes this lane, but the parity gate is still open and the bounded short-window compare did not finish inside the local five-minute probe. |
+| `neutral_mixed_short_window` | `open native runner target` | Baseline exists; the native implicit runner now executes this lane, and a bounded native prefix gate now covers the first two saved intervals inside the local five-minute policy, but the broader short-window surface is still too loose for promotion. |
 | `recycling_1d_rhs` | `native-validated` | RHS parity and controller bookkeeping are locked. |
 | `recycling_dthe_rhs` | `native-validated` | RHS parity and multispecies collision bookkeeping are locked. |
 | `recycling_1d_short_window` | `native operational target` | First curated repeated-output open-field recycling rung (`nout=5`); the local native backbone stays within bounded residuals but is not yet exact. |
