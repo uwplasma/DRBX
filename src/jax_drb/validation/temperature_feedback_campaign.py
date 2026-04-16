@@ -60,7 +60,7 @@ def create_temperature_feedback_campaign_package(
     nout: int = 4,
     timestep: float = 100.0,
     ny: int = 80,
-    timeout_seconds: int = 180,
+    timeout_seconds: int = 600,
 ) -> TemperatureFeedbackCampaignArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -114,7 +114,7 @@ def build_temperature_feedback_campaign(
     nout: int = 4,
     timestep: float = 100.0,
     ny: int = 80,
-    timeout_seconds: int = 180,
+    timeout_seconds: int = 600,
 ) -> dict[str, object]:
     resolved_reference_root = Path(reference_root) if reference_root is not None else require_reference_root()
     series = _build_temperature_feedback_series(
@@ -293,7 +293,7 @@ def _stage_temperature_feedback_example(
 
 def _replace_bout_setting(text: str, key: str, value: str) -> str:
     pattern = rf"(?m)^({re.escape(key)}\s*=\s*).*$"
-    replaced, count = re.subn(pattern, rf"\1{value}", text, count=1)
+    replaced, count = re.subn(pattern, lambda match: f"{match.group(1)}{value}", text, count=1)
     if count != 1:
         raise ValueError(f"Could not replace {key!r} in patched BOUT.inp")
     return replaced

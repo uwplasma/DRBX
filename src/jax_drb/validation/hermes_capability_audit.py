@@ -161,7 +161,7 @@ def build_hermes_capability_audit() -> dict[str, object]:
             "evidence": [
                 "dedicated impurity/radiation validation campaign committed for neon OpenADAS and D/T/He/Ne RHS closure",
                 "dedicated controller-feedback campaign committed for the native upstream-density feedback history on recycling_1d_one_step",
-                "reduced temperature-feedback campaign package is in-tree, but the bounded local Hermes Tt-control example still exceeds the five-minute validation policy",
+                "reduced temperature-feedback campaign package is in-tree, but the bounded local Hermes Tt-control example still exceeds the current ten-minute validation policy",
                 "controller-oriented temperature/detachment surfaces are still not promoted",
             ],
             "next_gate": "add the first promoted temperature-feedback or detachment-control native lane beyond the upstream-density feedback controller gate",

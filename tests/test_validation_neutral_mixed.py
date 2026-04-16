@@ -215,13 +215,13 @@ def test_neutral_mixed_short_window_prefix_native_parity_stays_within_operationa
     if not _REFERENCE_INPUT.exists():
         pytest.skip("local neutral_mixed reference input is unavailable")
 
-    expected = _cropped_payload(_reference_payload(), output_points=3)
+    expected = _cropped_payload(_reference_payload(), output_points=4)
     result = run_input_case(
         _REFERENCE_INPUT,
         case_name="neutral_mixed_short_window_prefix",
         parity_mode="short_window",
         compare_variables=("Nh", "Ph", "NVh"),
-        output_steps=2,
+        output_steps=3,
     )
     actual = {
         **expected,
