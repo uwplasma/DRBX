@@ -43,4 +43,12 @@ This benchmark exists to keep the next neutral transient implementation honest. 
 - center temperature max-abs error: about `2.91e-4`
 - momentum RMS max-abs error: about `1.71e-3`
 
-That is good enough to lock an operational centerline gate, but not to promote the family yet. The short-window transient remains open because the bounded local probe did not finish inside the five-minute validation gate.
+That is good enough to lock an operational centerline gate, but not to promote the family yet. The same native runner path now also finishes a bounded short-window prefix gate on the first two saved intervals inside the five-minute validation policy, with roughly:
+
+- `center Nh ≈ 9.24e-2`
+- `center Ph ≈ 9.24e-3`
+- `center NVh ≈ 2.66e-3`
+- `center T ≈ 1.17e-4`
+- `momentum RMS ≈ 1.93e-3`
+
+That keeps the heavier transient under native regression, but the broader short-window surface remains open because the global mass and pressure totals are still too loose for promotion.
