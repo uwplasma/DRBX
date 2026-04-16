@@ -504,6 +504,10 @@ The five-step finish plan in [8A](#8a-five-step-finish-plan) is still the active
   - JAX compilation cache
   - differentiability smoke checks on the major active branches
 
+The external publication/ship boundary is now summarized separately in
+[docs/jcp_readiness_audit.md](docs/jcp_readiness_audit.md), so the current
+decision is not hidden across many stage notes.
+
 ### What Cannot Yet Be Claimed
 
 - `jax_drb` is not yet a fully standalone replacement covering the full intended DRB matrix in one production path.
