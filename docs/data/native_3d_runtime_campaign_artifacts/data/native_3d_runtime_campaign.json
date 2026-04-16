@@ -1,0 +1,76 @@
+{
+  "case": "native_3d_runtime_campaign",
+  "native_lane_runtimes": [
+    {
+      "capability_tier": "native_exact",
+      "elapsed_seconds": 0.02174266698420979,
+      "geometry_family": null,
+      "lane_name": "tokamak_native_one_step",
+      "selected_fields": [
+        "Ne",
+        "Pe",
+        "phi"
+      ]
+    },
+    {
+      "capability_tier": "native_exact",
+      "elapsed_seconds": 0.018782125000143424,
+      "geometry_family": null,
+      "lane_name": "tokamak_native_short_window",
+      "selected_fields": [
+        "Ne",
+        "phi",
+        "Vort"
+      ]
+    },
+    {
+      "capability_tier": "native_exact_reduced",
+      "elapsed_seconds": 0.03748241701396182,
+      "geometry_family": "traced_field_line_3d",
+      "lane_name": "traced_field_line_native_selected_field",
+      "selected_fields": [
+        "g11",
+        "g33"
+      ]
+    },
+    {
+      "capability_tier": "native_exact_reduced",
+      "elapsed_seconds": 0.030320457997731864,
+      "geometry_family": "stellarator_vmec_3d",
+      "lane_name": "stellarator_vmec_native_selected_field",
+      "selected_fields": [
+        "iota",
+        "pressure",
+        "toroidal_flux"
+      ]
+    }
+  ],
+  "scaling_sweeps": [
+    {
+      "elapsed_seconds": [
+        0.0022508330002892762,
+        0.0015602079802192748,
+        0.0018364589777775109
+      ],
+      "lane_name": "traced_field_line_native_selected_field",
+      "problem_sizes": [
+        24,
+        96,
+        384
+      ]
+    },
+    {
+      "elapsed_seconds": [
+        0.004754082998260856,
+        0.005996583990054205,
+        0.004189917002804577
+      ],
+      "lane_name": "stellarator_vmec_native_selected_field",
+      "problem_sizes": [
+        6,
+        24,
+        96
+      ]
+    }
+  ]
+}
