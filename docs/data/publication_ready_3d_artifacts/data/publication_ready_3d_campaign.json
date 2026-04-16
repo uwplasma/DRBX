@@ -1,11 +1,10 @@
 {
   "campaign_status": {
-    "native_non_tokamak_rungs": 1,
+    "native_non_tokamak_rungs": 2,
     "native_tokamak_rungs": 2,
     "non_tokamak_external_pair_gates": 2,
     "remaining_blockers": [
-      "expanded_3d_native_convergence_and_scaling_campaign",
-      "second_native_non_tokamak_3d_reduced_rung"
+      "expanded_3d_native_convergence_and_scaling_campaign"
     ]
   },
   "case": "publication_ready_3d_campaign",
@@ -65,7 +64,7 @@
       "worst_relative_l2_error": 0.3775247670634279
     },
     {
-      "capability_tier": null,
+      "capability_tier": "native_exact_reduced",
       "elapsed_seconds": 0.03748241701396182,
       "geometry_family": "traced_field_line_3d",
       "lane_kind": "native_selected_field",
@@ -90,6 +89,20 @@
         "toroidal_flux"
       ],
       "source_mode": "explicit_pair",
+      "worst_field": "toroidal_flux",
+      "worst_relative_l2_error": 0.4745023299999996
+    },
+    {
+      "capability_tier": "native_exact_reduced",
+      "elapsed_seconds": 0.030320457997731864,
+      "geometry_family": "stellarator_vmec_3d",
+      "lane_kind": "native_selected_field",
+      "lane_name": "stellarator_vmec_native_selected_field",
+      "selected_fields": [
+        "iota",
+        "pressure",
+        "toroidal_flux"
+      ],
       "worst_field": "toroidal_flux",
       "worst_relative_l2_error": 0.4745023299999996
     }

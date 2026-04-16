@@ -214,6 +214,19 @@ What this documents:
 - the same shared observable-report and source-report contract used by the other 3D parity packages;
 - a real explicit external VMEC-pair regeneration path in addition to the synthetic preview mode.
 
+## Stellarator VMEC Native Reduced Selected-Field
+
+![Stellarator VMEC native selected-field parity](data/stellarator_vmec_native_selected_field_artifacts/images/stellarator_vmec_native_selected_field.png)
+
+![Stellarator VMEC native selected-field comparison](data/stellarator_vmec_native_selected_field_artifacts/images/stellarator_vmec_native_selected_field_comparison.png)
+
+What this documents:
+
+- the second native reduced rung on a non-tokamak 3D geometry family;
+- a JAX-native profile reduction on `iota`, `pressure`, and `toroidal_flux`;
+- the same parity, comparison, observable, and runtime artifact surface used by the traced-field-line native rung;
+- a stronger general-geometry 3D story than a single non-tokamak native proof point.
+
 ## Publication-Ready 3D Campaign
 
 ![Publication-ready 3D campaign](data/publication_ready_3d_artifacts/images/publication_ready_3d_campaign.png)
@@ -234,6 +247,17 @@ What this documents:
 - a dedicated engineering and physics gate for reactions, collisions, and atomic-data breadth;
 - explicit native checks for charge exchange, isotope coupling, CX multipliers, ionisation, ion-viscosity collisionality closure, and neon OpenADAS loading;
 - a machine-readable JSON/NPZ/plot package instead of leaving this breadth implied only by low-level unit tests.
+
+## Impurity And Radiation Campaign
+
+![Impurity and radiation campaign](data/impurity_radiation_campaign_artifacts/images/impurity_radiation_campaign.png)
+
+What this documents:
+
+- the first explicit impurity/radiation validation bundle rather than only an audit placeholder;
+- neon OpenADAS ionisation/recombination loading plus finite radiation-loss evaluation on the native path;
+- exact direct tokamak `D/T/He/Ne` RHS closure on the committed `Nne+`, `Pne+`, and `Pe` compare surface;
+- an honest claim boundary that still leaves controller-oriented temperature/detachment workflows open.
 
 ## Neutral Mixed Short-Window Benchmark Target
 

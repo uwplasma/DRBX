@@ -297,9 +297,9 @@ Current checkpoint:
   - the compact parity bundle now writes a benchmark-data report plus a shared observable report on the same public artifact path as the other 3D adapters
   - the current reproducible public path uses the benchmark bundle as the reference side and a deterministic derived candidate as the compact compare target
 - the next 3D deliverables are now:
-  - extend the first reduced native 3D selected-field rung beyond its initial compact tokamak short-window surface
+  - extend the promoted native 3D selected-field matrix beyond the current reduced tokamak plus non-tokamak bundle
   - widen the public artifact bundle with runtime/provenance summaries on each promoted native 3D rung
-  - add a third geometry adapter/workflow so the 3D infrastructure is pressure-tested beyond tokamak plus traced-field-line
+  - run a broader native 3D convergence and scaling campaign on the promoted reduced matrix
 - the first reduced native 3D selected-field rung is now also in-tree:
   - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
   - the artifact bundle now carries parity JSON/NPZ, a shared observable report, a direct native-vs-reference comparison JSON/plot bundle, and a runtime/provenance report
@@ -318,6 +318,10 @@ Current checkpoint:
   - the committed public bundle is generated from a deterministic VMEC-compatible synthetic equilibrium, while the regression surface also locks support for real `wout*.nc`-style inputs
 - that same third geometry family now also has its first reduced parity gate:
   - `stellarator_vmec_selected_field_parity` compares compact `iota`, `pressure`, and `toroidal_flux` profiles
+  - that same family now also has its first native reduced rung:
+    - `stellarator_vmec_native_selected_field` publishes parity, direct comparison, observable, and runtime reports on the shared 3D artifact model
+    - this removes the “second native non-tokamak reduced rung” blocker from the 3D campaign summary
+  - the current main 3D engineering blocker is now the broader native convergence/scaling/runtime campaign rather than missing geometry diversity at the reduced-rung level
   - it publishes parity JSON/NPZ, a publication-style figure, a shared observable report, and a source report on the same public artifact path
 - that same third geometry family now also supports a real explicit external VMEC pair path when two compatible `wout*.nc` inputs are provided, so the selected-field lane is no longer restricted to a synthetic preview or a materialized candidate fallback
 - the first manuscript-facing 3D campaign package is now also in-tree:

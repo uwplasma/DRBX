@@ -134,13 +134,13 @@ def build_hermes_capability_audit() -> dict[str, object]:
         {
             "family": "non_tokamak_3d_geometry_adapters",
             "reference_surfaces": ["traced-field-line selected-field", "stellarator VMEC selected-field"],
-            "jax_status": "partially_closed",
-            "jax_capability": "native_exact_reduced_first_rung",
+            "jax_status": "closed_selected",
+            "jax_capability": "native_exact_reduced_selected_matrix",
             "evidence": [
                 "explicit external-pair parity gates committed for traced-field-line and VMEC families",
-                "first native reduced traced-field-line rung committed on the shared 3D artifact surface",
+                "native reduced traced-field-line and VMEC rungs committed on the shared 3D artifact surface",
             ],
-            "next_gate": "add a second native non-tokamak reduced rung and broaden the native 3D campaign",
+            "next_gate": "broaden the native 3D convergence, scaling, and runtime campaign on the promoted reduced matrix",
         },
         {
             "family": "reactions_collisions_and_atomic_data",
@@ -156,12 +156,13 @@ def build_hermes_capability_audit() -> dict[str, object]:
         {
             "family": "impurity_radiation_and_detachment_control",
             "reference_surfaces": ["fixed_fraction_radiation", "temperature_feedback", "detachment_controller", "ADAS carbon/neon"],
-            "jax_status": "open",
-            "jax_capability": "missing",
+            "jax_status": "partially_closed",
+            "jax_capability": "dedicated_campaign_plus_neon_rhs_lane",
             "evidence": [
-                "no promoted impurity/radiation/detachment native lane yet",
+                "dedicated impurity/radiation validation campaign committed for neon OpenADAS and D/T/He/Ne RHS closure",
+                "controller-oriented temperature/detachment surfaces are still not promoted",
             ],
-            "next_gate": "build first detachment/radiation validation package before claiming full research parity",
+            "next_gate": "add the first promoted temperature/detachment control native lane beyond the neon radiation package",
         },
         {
             "family": "sod_shock_and_2d_energy_regression_surfaces",

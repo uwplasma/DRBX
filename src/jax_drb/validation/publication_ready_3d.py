@@ -27,6 +27,8 @@ def create_publication_ready_3d_campaign_package(
     traced_field_line_native_parity_json: str | Path | None = None,
     stellarator_parity_json: str | Path | None = None,
     stellarator_source_report: str | Path | None = None,
+    stellarator_native_runtime_report: str | Path | None = None,
+    stellarator_native_parity_json: str | Path | None = None,
     convergence_report_json: str | Path | None = None,
     case_label: str = "publication_ready_3d_campaign",
 ) -> PublicationReady3DArtifacts:
@@ -77,6 +79,14 @@ def create_publication_ready_3d_campaign_package(
             stellarator_source_report,
             "docs/data/stellarator_vmec_selected_field_artifacts/data/stellarator_vmec_selected_field_parity_source_report.json",
         ),
+        stellarator_native_runtime_report=_resolve_or_default(
+            stellarator_native_runtime_report,
+            "docs/data/stellarator_vmec_native_selected_field_artifacts/data/stellarator_vmec_native_selected_field_runtime_report.json",
+        ),
+        stellarator_native_parity_json=_resolve_or_default(
+            stellarator_native_parity_json,
+            "docs/data/stellarator_vmec_native_selected_field_artifacts/data/stellarator_vmec_native_selected_field.json",
+        ),
         convergence_report_json=_resolve_or_default(
             convergence_report_json,
             "docs/data/fluid_1d_mms_convergence.json",
@@ -106,6 +116,8 @@ def build_publication_ready_3d_report(
     traced_field_line_native_parity_json: str | Path,
     stellarator_parity_json: str | Path,
     stellarator_source_report: str | Path,
+    stellarator_native_runtime_report: str | Path,
+    stellarator_native_parity_json: str | Path,
     convergence_report_json: str | Path,
 ) -> dict[str, object]:
     tokamak_one_step_runtime = _load_json(tokamak_one_step_runtime_report)
@@ -118,6 +130,8 @@ def build_publication_ready_3d_report(
     traced_native_parity = _load_json(traced_field_line_native_parity_json)
     stellarator_parity = _load_json(stellarator_parity_json)
     stellarator_source = _load_json(stellarator_source_report)
+    stellarator_native_runtime = _load_json(stellarator_native_runtime_report)
+    stellarator_native_parity = _load_json(stellarator_native_parity_json)
     convergence = _load_json(convergence_report_json)
 
     lane_summaries = [
@@ -151,6 +165,12 @@ def build_publication_ready_3d_report(
             parity_payload=stellarator_parity,
             source_report=stellarator_source,
         ),
+        _native_lane_summary(
+            lane_name="stellarator_vmec_native_selected_field",
+            geometry_family="stellarator_vmec_3d",
+            runtime_report=stellarator_native_runtime,
+            parity_payload=stellarator_native_parity,
+        ),
     ]
     observed_orders = convergence.get("observed_orders", [])
     density_orders = [float(entry["density_order"]) for entry in observed_orders]
@@ -159,10 +179,9 @@ def build_publication_ready_3d_report(
     campaign_status = {
         "native_tokamak_rungs": 2,
         "non_tokamak_external_pair_gates": 2,
-        "native_non_tokamak_rungs": 1,
+        "native_non_tokamak_rungs": 2,
         "remaining_blockers": [
             "expanded_3d_native_convergence_and_scaling_campaign",
-            "second_native_non_tokamak_3d_reduced_rung",
         ],
     }
     return {
@@ -193,8 +212,8 @@ def save_publication_ready_3d_summary_plot(report: dict[str, object], path: str 
 
     figure, axes = plt.subplots(1, 2, figsize=(13.5, 5.2), constrained_layout=True)
     x = np.arange(len(labels))
-    colors = ["#0a9396", "#005f73", "#ca6702", "#bb3e03"]
-    axes[0].bar(x, rel_l2, color=colors[: len(labels)])
+    colors = ["#0a9396", "#005f73", "#ca6702", "#bb3e03", "#6a4c93", "#3a86ff"]
+    axes[0].bar(x, rel_l2, color=[colors[index % len(colors)] for index in range(len(labels))])
     axes[0].set_xticks(x, labels, rotation=15, ha="right")
     axes[0].set_ylabel("worst relative L2 error")
     axes[0].set_title("Reduced 3D parity surfaces")
@@ -239,7 +258,7 @@ def _native_lane_summary(
         "lane_name": lane_name,
         "geometry_family": geometry_family,
         "lane_kind": "native_selected_field",
-        "capability_tier": runtime_report.get("capability_tier"),
+        "capability_tier": runtime_report.get("capability_tier", runtime_report.get("native_capability_tier")),
         "selected_fields": list(runtime_report.get("selected_fields", [])),
         "elapsed_seconds": float(runtime_report.get("elapsed_seconds", 0.0)),
         "worst_field": worst_field,
