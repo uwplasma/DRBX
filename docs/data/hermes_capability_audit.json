@@ -191,6 +191,7 @@
       "evidence": [
         "dedicated impurity/radiation validation campaign committed for neon OpenADAS and D/T/He/Ne RHS closure",
         "dedicated controller-feedback campaign committed for the native upstream-density feedback history on recycling_1d_one_step",
+        "reduced temperature-feedback campaign package is in-tree, but the bounded local Hermes Tt-control example still exceeds the five-minute validation policy",
         "controller-oriented temperature/detachment surfaces are still not promoted"
       ],
       "family": "impurity_radiation_and_detachment_control",
