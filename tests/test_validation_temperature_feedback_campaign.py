@@ -8,7 +8,10 @@ import numpy as np
 from jax_drb.validation import (
     create_temperature_feedback_campaign_package,
 )
-from jax_drb.validation.temperature_feedback_campaign import _reconstruct_temperature_controller
+from jax_drb.validation.temperature_feedback_campaign import (
+    _reconstruct_temperature_controller,
+    _replace_bout_setting,
+)
 
 
 def test_reconstruct_temperature_controller_matches_trapezoid_pi_update() -> None:
@@ -85,3 +88,13 @@ def test_create_temperature_feedback_campaign_package_writes_artifacts(
     payload = json.loads(artifacts.summary_json_path.read_text(encoding="utf-8"))
     assert payload["family"] == "temperature_feedback"
     assert payload["passed_metric_count"] == 1
+
+
+def test_replace_bout_setting_handles_numeric_values_without_backreference_bug() -> None:
+    text = "nout = 400\nny = 80\n"
+
+    updated = _replace_bout_setting(text, "nout", "4")
+    updated = _replace_bout_setting(updated, "ny", "20")
+
+    assert "nout = 4\n" in updated
+    assert "ny = 20\n" in updated
