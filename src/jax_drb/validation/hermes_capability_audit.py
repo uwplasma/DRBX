@@ -134,22 +134,24 @@ def build_hermes_capability_audit() -> dict[str, object]:
         {
             "family": "non_tokamak_3d_geometry_adapters",
             "reference_surfaces": ["traced-field-line selected-field", "stellarator VMEC selected-field"],
-            "jax_status": "open",
-            "jax_capability": "external_pair_validation_only",
+            "jax_status": "partially_closed",
+            "jax_capability": "native_exact_reduced_first_rung",
             "evidence": [
                 "explicit external-pair parity gates committed for traced-field-line and VMEC families",
+                "first native reduced traced-field-line rung committed on the shared 3D artifact surface",
             ],
-            "next_gate": "add first native non-tokamak 3D reduced rung",
+            "next_gate": "add a second native non-tokamak reduced rung and broaden the native 3D campaign",
         },
         {
             "family": "reactions_collisions_and_atomic_data",
             "reference_surfaces": ["ADAS/AMJUEL reactions", "collfreq-braginskii-afn", "collfreq-multispecies"],
             "jax_status": "partially_closed",
-            "jax_capability": "covered_in_selected_recycling_lanes",
+            "jax_capability": "dedicated_campaign_plus_selected_recycling_lanes",
             "evidence": [
                 "hydrogen reaction/recycling semantics exercised on committed recycling ladders",
+                "dedicated reactions/collisions verification campaign committed",
             ],
-            "next_gate": "add dedicated collisionality and reaction verification campaign",
+            "next_gate": "expand the dedicated campaign into impurity/radiation breadth and longer-window transient checks",
         },
         {
             "family": "impurity_radiation_and_detachment_control",

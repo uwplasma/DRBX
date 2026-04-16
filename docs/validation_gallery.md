@@ -174,6 +174,19 @@ What this documents:
 - a non-tokamak counterpart to the tokamak selected-field parity lane;
 - an explicit external-pair source report when the public external FCI sample is available locally.
 
+## Traced-Field-Line Native Reduced Selected-Field
+
+![Traced-field-line native selected-field parity](data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field.png)
+
+![Traced-field-line native selected-field comparison](data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field_comparison.png)
+
+What this documents:
+
+- the first native reduced rung on a non-tokamak 3D geometry family;
+- a JAX-native radial-profile reduction on explicit traced-field-line metric pairs;
+- the same public parity, comparison, observable, and runtime artifact surfaces used by the native tokamak reduced rung;
+- an honest bridge between external-pair validation-only geometry adapters and future broader native non-tokamak execution work.
+
 ## Stellarator VMEC Scaffold
 
 ![Stellarator VMEC profiles](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_profiles.png)
@@ -208,9 +221,19 @@ What this documents:
 What this documents:
 
 - one reviewer-facing summary package assembled from the already committed 3D reduced-lane artifacts;
-- the promoted native tokamak one-step and short-window reduced rungs on the same figure as the traced-field-line and stellarator explicit external-pair gates;
+- the promoted native tokamak one-step and short-window reduced rungs on the same figure as the traced-field-line native reduced rung and the external-pair gates;
 - the current manufactured-solution convergence floor from the committed `fluid_1d_mms_convergence` report;
 - the remaining blockers before a full publication-ready 3D claim, stated explicitly rather than implied.
+
+## Reactions And Collisions Campaign
+
+![Reactions and collisions campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
+
+What this documents:
+
+- a dedicated engineering and physics gate for reactions, collisions, and atomic-data breadth;
+- explicit native checks for charge exchange, isotope coupling, CX multipliers, ionisation, ion-viscosity collisionality closure, and neon OpenADAS loading;
+- a machine-readable JSON/NPZ/plot package instead of leaving this breadth implied only by low-level unit tests.
 
 ## Neutral Mixed Short-Window Benchmark Target
 

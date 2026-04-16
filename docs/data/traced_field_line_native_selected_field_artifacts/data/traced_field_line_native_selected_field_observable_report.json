@@ -1,0 +1,31 @@
+{
+  "available": true,
+  "benchmark_adapter": "native_traced_field_line_selected_field",
+  "geometry_family": "traced_field_line_3d",
+  "metadata": {
+    "compare_surface": "jax_native_reduced_radial_profile",
+    "native_capability_tier": "native_exact_reduced",
+    "selected_fields": [
+      "g11",
+      "g33"
+    ]
+  },
+  "observable_groups": [
+    {
+      "description": "JAX-native reduced selected-field parity surface on traced-field-line geometry data.",
+      "families": [
+        {
+          "coordinate_name": "radial_index",
+          "field_names": [
+            "g11",
+            "g33"
+          ],
+          "kind": "selected_field_parity",
+          "name": "reduced_radial_profiles"
+        }
+      ],
+      "name": "native_reduced_selected_field"
+    }
+  ],
+  "parse_status": "ok"
+}
