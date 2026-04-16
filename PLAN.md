@@ -300,6 +300,7 @@ Current checkpoint:
   - extend the promoted native 3D selected-field matrix beyond the current reduced tokamak plus non-tokamak bundle
   - widen the public artifact bundle with runtime/provenance summaries on each promoted native 3D rung
   - run a broader native 3D convergence and scaling campaign on the promoted reduced matrix
+  - publish one combined native-vs-reference comparison summary figure and one combined dynamics gallery page so the reviewer-facing visual surface is not fragmented across lane-specific docs
 - the first reduced native 3D selected-field rung is now also in-tree:
   - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
   - the artifact bundle now carries parity JSON/NPZ, a shared observable report, a direct native-vs-reference comparison JSON/plot bundle, and a runtime/provenance report
