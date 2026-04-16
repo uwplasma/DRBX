@@ -249,6 +249,16 @@ What this documents:
 - compact synthetic scaling sweeps for the non-tokamak native reduction kernels;
 - the current engineering blocker after geometry diversity is no longer the main missing surface.
 
+## Native 3D Convergence Campaign
+
+![Native 3D convergence campaign](data/native_3d_convergence_campaign_artifacts/images/native_3d_convergence_campaign.png)
+
+What this documents:
+
+- an explicit operator-level convergence gate on the promoted traced-field-line native reduction path;
+- observed refinement order against an analytic radial-average target rather than only parity and runtime numbers;
+- the first committed convergence bundle specific to the reduced native 3D matrix itself.
+
 ## Hermes Comparison Summary
 
 ![Hermes comparison summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)
@@ -258,6 +268,16 @@ What this documents:
 - one benchmark-facing summary plot across the committed native-vs-reference reduced comparison bundles;
 - direct comparison of the native tokamak, traced-field-line, and stellarator reduced rungs on the same visual surface;
 - a simpler reviewer-facing entry point than asking readers to inspect each lane-specific comparison artifact separately.
+
+## Controller Feedback Campaign
+
+![Controller feedback campaign](data/controller_feedback_campaign_artifacts/images/controller_feedback_campaign.png)
+
+What this documents:
+
+- the first reference-backed controller-history gate on a promoted native feedback path;
+- dense-history comparison of controller multiplier, proportional term, integral term, reconstructed controller integral, and target recycling source;
+- a controller-oriented closeout surface that is honest about stopping short of a full detachment-controller claim.
 
 ## Reactions And Collisions Campaign
 
