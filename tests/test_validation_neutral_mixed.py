@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jax_drb.native import run_curated_case
+from jax_drb.native import run_curated_case, run_input_case
 from jax_drb.parity.arrays import load_portable_array_payload
 from jax_drb.validation import (
     analyze_neutral_mixed_array_payload,
@@ -22,6 +22,7 @@ from jax_drb.validation import (
 )
 
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_REFERENCE_INPUT = _REFERENCE_ROOT / "tests" / "integrated" / "neutral_mixed" / "data" / "BOUT.inp"
 
 
 def _reference_analysis():
@@ -52,6 +53,16 @@ def _small_reference_payload():
         / "reference_arrays"
         / "neutral_mixed_one_step.npz"
     )
+
+
+def _cropped_payload(payload: dict[str, object], *, output_points: int) -> dict[str, object]:
+    cropped = {**payload}
+    cropped["time_points"] = list(payload["time_points"][:output_points])
+    cropped["variables"] = {
+        name: np.asarray(value, dtype=np.float64)[:output_points]
+        for name, value in payload["variables"].items()
+    }
+    return cropped
 
 
 def test_analyze_neutral_mixed_matches_committed_short_window_metrics() -> None:
@@ -196,3 +207,38 @@ def test_neutral_mixed_one_step_native_parity_stays_within_operational_center_ba
     assert parity.series_errors["total_density"].max_abs_error <= 3.5e-1
     assert parity.series_errors["total_pressure"].max_abs_error <= 3.5e-2
     assert parity.series_errors["momentum_rms"].max_abs_error <= 2.0e-3
+
+
+def test_neutral_mixed_short_window_prefix_native_parity_stays_within_operational_center_band() -> None:
+    if os.environ.get("JAX_DRB_RUN_NEUTRAL_MIXED_SHORT_WINDOW_PREFIX") != "1":
+        pytest.skip("set JAX_DRB_RUN_NEUTRAL_MIXED_SHORT_WINDOW_PREFIX=1 to run the bounded neutral short-window prefix gate")
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("local neutral_mixed reference input is unavailable")
+
+    expected = _cropped_payload(_reference_payload(), output_points=3)
+    result = run_input_case(
+        _REFERENCE_INPUT,
+        case_name="neutral_mixed_short_window_prefix",
+        parity_mode="short_window",
+        compare_variables=("Nh", "Ph", "NVh"),
+        output_steps=2,
+    )
+    actual = {
+        **expected,
+        "time_points": list(result.payload["time_points"]),
+        "variables": {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()},
+    }
+
+    parity = compare_neutral_mixed_array_payloads(
+        expected,
+        actual,
+        x_index=5,
+        y_index=3,
+        z_index=5,
+    )
+
+    assert parity.series_errors["center_density"].max_abs_error <= 9.5e-2
+    assert parity.series_errors["center_pressure"].max_abs_error <= 1.0e-2
+    assert parity.series_errors["center_momentum"].max_abs_error <= 3.0e-3
+    assert parity.series_errors["center_temperature"].max_abs_error <= 2.0e-4
+    assert parity.series_errors["momentum_rms"].max_abs_error <= 3.0e-3
