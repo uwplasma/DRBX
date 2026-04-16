@@ -309,6 +309,7 @@ Current checkpoint:
   - `controller_feedback_campaign` compares the native upstream-density feedback controller history against the reference dense-history surface on `recycling_1d_one_step`
   - the gate covers controller multiplier, proportional term, integral term, reconstructed controller integral, and target recycling source
   - this closes the first honest controller-feedback lane without overstating `temperature_feedback` or `detachment_controller`
+  - `temperature_feedback_campaign` is now also scaffolded as a reduced Hermes-backed PI-controller-law gate, but the bounded local `1D-recycling-with-Tt-control` example still exceeds the five-minute policy here, so that lane remains unpromoted until a genuinely bounded reference run is in hand
 - the first reduced native 3D selected-field rung is now also in-tree:
   - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
   - the artifact bundle now carries parity JSON/NPZ, a shared observable report, a direct native-vs-reference comparison JSON/plot bundle, and a runtime/provenance report
