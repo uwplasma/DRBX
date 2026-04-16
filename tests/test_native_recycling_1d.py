@@ -583,13 +583,13 @@ def test_recycling_1d_rhs_matches_array_baseline() -> None:
 def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> None:
     entries = _run_open_field_case_against_committed_baseline("recycling_1d_short_window")
 
-    assert entries["Nd+"].max_abs_diff < 5.0e-2
-    assert entries["Pd+"].max_abs_diff < 7.0e-2
-    assert entries["NVd+"].max_abs_diff < 1.2e-1
-    assert entries["Nd"].max_abs_diff < 3.0e-2
-    assert entries["Pd"].max_abs_diff < 1.0e-2
-    assert entries["NVd"].max_abs_diff < 5.0e-3
-    assert entries["Pe"].max_abs_diff < 2.5e-2
+    assert entries["Nd+"].max_abs_diff < 4.8e-2
+    assert entries["Pd+"].max_abs_diff < 6.5e-2
+    assert entries["NVd+"].max_abs_diff < 1.1e-1
+    assert entries["Nd"].max_abs_diff < 2.8e-2
+    assert entries["Pd"].max_abs_diff < 8.5e-3
+    assert entries["NVd"].max_abs_diff < 3.5e-3
+    assert entries["Pe"].max_abs_diff < 2.1e-2
 
 
 def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
