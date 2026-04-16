@@ -231,6 +231,12 @@ from .controller_feedback_campaign import (
     build_controller_feedback_campaign,
     create_controller_feedback_campaign_package,
 )
+from .temperature_feedback_campaign import (
+    TemperatureFeedbackCampaignArtifacts,
+    TemperatureFeedbackCampaignMetric,
+    build_temperature_feedback_campaign,
+    create_temperature_feedback_campaign_package,
+)
 from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignArtifacts,
     ReactionsCollisionsCampaignMetric,
@@ -412,6 +418,14 @@ __all__ = [
     "build_hermes_comparison_summary_report",
     "create_hermes_comparison_summary_package",
     "save_hermes_comparison_summary_plot",
+    "ControllerFeedbackCampaignArtifacts",
+    "ControllerFeedbackMetric",
+    "build_controller_feedback_campaign",
+    "create_controller_feedback_campaign_package",
+    "TemperatureFeedbackCampaignArtifacts",
+    "TemperatureFeedbackCampaignMetric",
+    "build_temperature_feedback_campaign",
+    "create_temperature_feedback_campaign_package",
     "ReactionsCollisionsCampaignArtifacts",
     "ReactionsCollisionsCampaignMetric",
     "build_reactions_collisions_campaign",
