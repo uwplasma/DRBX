@@ -38,4 +38,5 @@ workflows.
 Two of the previously broad open families now have stronger concrete evidence:
 
 - `reactions_collisions_and_atomic_data` is no longer only covered indirectly by selected recycling lanes; the dedicated `reactions_collisions_campaign` package now writes an explicit JSON/NPZ/plot gate for charge exchange, isotope coupling, collisionality closure, and OpenADAS loading.
-- `non_tokamak_3d_geometry_adapters` is no longer external-pair-only; the first native reduced non-tokamak rung now exists as `traced_field_line_native_selected_field`, while the broader family still remains open until at least one more native non-tokamak rung and a wider native campaign land.
+- `non_tokamak_3d_geometry_adapters` is no longer external-pair-only; native reduced traced-field-line and stellarator VMEC rungs now both exist on the shared 3D artifact model.
+- `impurity_radiation_and_detachment_control` is no longer only a missing family label; the dedicated `impurity_radiation_campaign` package now covers neon OpenADAS loading, finite radiation-loss evaluation, and exact `D/T/He/Ne` RHS closure, while controller-oriented detachment workflows remain open.
