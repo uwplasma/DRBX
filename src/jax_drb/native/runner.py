@@ -1949,7 +1949,14 @@ def _execute_supported_case(
         )
 
     if _is_supported_neutral_mixed_case(run_config):
-        return _execute_neutral_mixed_case(config, run_config, mesh, metrics, parity_mode=parity_mode)
+        return _execute_neutral_mixed_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            output_steps=output_steps,
+        )
 
     if _is_supported_recycling_1d_case(run_config, mesh):
         return _execute_recycling_1d_case(
@@ -2307,6 +2314,7 @@ def _execute_neutral_mixed_case(
     metrics: StructuredMetrics,
     *,
     parity_mode: str,
+    output_steps: int | None = None,
 ) -> tuple[tuple[float, ...], dict[str, Any]]:
     section = run_config.components[0].section
     scalars = resolved_dataset_scalars(run_config)
@@ -2335,7 +2343,7 @@ def _execute_neutral_mixed_case(
             "Native neutral mixed execution currently supports one_rhs, one_step, and short_window parity only."
         )
 
-    steps = _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
+    steps = output_steps if output_steps is not None else _effective_output_steps(parity_mode, configured_nout=run_config.time.nout)
     history = advance_neutral_mixed_implicit_history(
         config,
         section=section,
