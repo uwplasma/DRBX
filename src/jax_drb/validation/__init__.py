@@ -190,6 +190,13 @@ from .stellarator_vmec_selected_field import (
     compare_stellarator_vmec_selected_fields,
     create_stellarator_vmec_selected_field_parity_package,
 )
+from .stellarator_vmec_native_selected_field import (
+    NativeStellaratorVmecSelectedFieldArtifacts,
+    NativeStellaratorVmecSelectedFieldParityResult,
+    NativeStellaratorVmecSelectedFieldVariableError,
+    compare_native_stellarator_vmec_selected_fields,
+    create_native_stellarator_vmec_selected_field_package,
+)
 from .publication_ready_3d import (
     PublicationReady3DArtifacts,
     build_publication_ready_3d_report,
@@ -205,6 +212,12 @@ from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignMetric,
     build_reactions_collisions_campaign,
     create_reactions_collisions_campaign_package,
+)
+from .impurity_radiation_campaign import (
+    ImpurityRadiationCampaignArtifacts,
+    ImpurityRadiationCampaignMetric,
+    build_impurity_radiation_campaign,
+    create_impurity_radiation_campaign_package,
 )
 
 __all__ = [
@@ -356,6 +369,11 @@ __all__ = [
     "StellaratorVmecSelectedFieldParityArtifacts",
     "compare_stellarator_vmec_selected_fields",
     "create_stellarator_vmec_selected_field_parity_package",
+    "NativeStellaratorVmecSelectedFieldArtifacts",
+    "NativeStellaratorVmecSelectedFieldParityResult",
+    "NativeStellaratorVmecSelectedFieldVariableError",
+    "compare_native_stellarator_vmec_selected_fields",
+    "create_native_stellarator_vmec_selected_field_package",
     "PublicationReady3DArtifacts",
     "build_publication_ready_3d_report",
     "create_publication_ready_3d_campaign_package",
@@ -366,4 +384,8 @@ __all__ = [
     "ReactionsCollisionsCampaignMetric",
     "build_reactions_collisions_campaign",
     "create_reactions_collisions_campaign_package",
+    "ImpurityRadiationCampaignArtifacts",
+    "ImpurityRadiationCampaignMetric",
+    "build_impurity_radiation_campaign",
+    "create_impurity_radiation_campaign_package",
 ]

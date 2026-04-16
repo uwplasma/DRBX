@@ -161,12 +161,12 @@
     {
       "evidence": [
         "explicit external-pair parity gates committed for traced-field-line and VMEC families",
-        "first native reduced traced-field-line rung committed on the shared 3D artifact surface"
+        "native reduced traced-field-line and VMEC rungs committed on the shared 3D artifact surface"
       ],
       "family": "non_tokamak_3d_geometry_adapters",
-      "jax_capability": "native_exact_reduced_first_rung",
-      "jax_status": "partially_closed",
-      "next_gate": "add a second native non-tokamak reduced rung and broaden the native 3D campaign",
+      "jax_capability": "native_exact_reduced_selected_matrix",
+      "jax_status": "closed_selected",
+      "next_gate": "broaden the native 3D convergence, scaling, and runtime campaign on the promoted reduced matrix",
       "reference_surfaces": [
         "traced-field-line selected-field",
         "stellarator VMEC selected-field"
@@ -189,12 +189,13 @@
     },
     {
       "evidence": [
-        "no promoted impurity/radiation/detachment native lane yet"
+        "dedicated impurity/radiation validation campaign committed for neon OpenADAS and D/T/He/Ne RHS closure",
+        "controller-oriented temperature/detachment surfaces are still not promoted"
       ],
       "family": "impurity_radiation_and_detachment_control",
-      "jax_capability": "missing",
-      "jax_status": "open",
-      "next_gate": "build first detachment/radiation validation package before claiming full research parity",
+      "jax_capability": "dedicated_campaign_plus_neon_rhs_lane",
+      "jax_status": "partially_closed",
+      "next_gate": "add the first promoted temperature/detachment control native lane beyond the neon radiation package",
       "reference_surfaces": [
         "fixed_fraction_radiation",
         "temperature_feedback",
@@ -218,8 +219,8 @@
     }
   ],
   "family_count": 16,
-  "open_family_count": 3,
-  "partially_closed_family_count": 8,
+  "open_family_count": 2,
+  "partially_closed_family_count": 9,
   "reference_code": "hermes-3",
   "remaining_priority_families": [
     "neutral_mixed",
