@@ -153,6 +153,10 @@ the committed centerline gate now lands around `center Nh ≈ 8.0e-3`,
 `momentum RMS ≈ 1.7e-3` max-abs error against the committed baseline. This
 family still remains an open transient-closure task because the full
 short-window compare did not finish inside the local five-minute gate.
+- the next bounded neutral gate is now a short-window prefix compare on the
+  first few saved outputs, using the same native runner path but an explicit
+  `output_steps` override so the local gate stays under five minutes while
+  still exercising the real transient backbone
 
 Exit criteria:
 
@@ -314,10 +318,17 @@ Current checkpoint:
 - the first manuscript-facing 3D campaign package is now also in-tree:
   - `publication_ready_3d_campaign` assembles the promoted native tokamak reduced rungs, the traced-field-line explicit external-pair gate, the stellarator explicit external-pair gate, and the committed fluid MMS convergence report
   - it writes one reviewer-facing summary JSON plus a publication-style figure from already committed artifacts instead of introducing a separate ad hoc analysis path
+- the first native non-tokamak 3D reduced rung is now also in-tree:
+  - `traced_field_line_native_selected_field` runs a JAX-native reduced radial-profile compare on explicit traced-field-line metric pairs
+  - the bundle now carries parity JSON/NPZ, a direct native-vs-reference comparison JSON/plot bundle, a shared observable report, and a runtime report
+  - this is intentionally a reduced geometry rung, not a claim of full non-tokamak plasma execution yet
+- the reactions/collisions breadth now also has its first dedicated campaign package:
+  - `reactions_collisions_campaign` collects charge-exchange, cross-isotope coupling, CX-multiplier, ionisation, ion-viscosity collisionality, and OpenADAS loading gates
+  - the bundle writes one summary JSON, one compact NPZ payload, and one publication-style plot instead of leaving those checks scattered only across unit tests
 - the remaining 3D deliverables after that are now:
   - replace the current traced-field-line paired fixture with a genuinely independent upstream reference/candidate dataset
-  - add the first native non-tokamak 3D reduced rung
-  - expand the 3D native convergence/scaling/runtime campaign beyond the current reduced tokamak bundle
+  - add a second native non-tokamak 3D reduced rung beyond the traced-field-line metric family
+  - expand the 3D native convergence/scaling/runtime campaign beyond the current reduced tokamak plus traced-field-line bundles
 
 Publication rule:
 

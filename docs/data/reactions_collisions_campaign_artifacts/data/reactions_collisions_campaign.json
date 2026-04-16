@@ -1,0 +1,57 @@
+{
+  "family": "reactions_collisions_and_atomic_data",
+  "metric_count": 6,
+  "metrics": [
+    {
+      "kind": "relative_error",
+      "name": "single_species_atom_cx_matches_same_species_formula",
+      "notes": "Single-species atom charge-exchange rate matches the closed-form hydrogen sigma-v expression.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "fraction",
+      "name": "multispecies_cross_isotope_cx_fraction",
+      "notes": "Cross-isotope charge exchange is non-trivial on the multispecies recycling lane.",
+      "passed": true,
+      "target": 0.01,
+      "value": 0.47422886130430913
+    },
+    {
+      "kind": "ratio",
+      "name": "species_rate_multiplier_ratio",
+      "notes": "Per-species charge-exchange multiplier is applied on the native rate assembly path.",
+      "passed": true,
+      "target": 3.0,
+      "value": 3.0
+    },
+    {
+      "kind": "relative_error",
+      "name": "ionisation_rate_matches_reaction_diagnostic",
+      "notes": "Neutral ionisation collision rate matches the reaction diagnostic per neutral density.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "relative_error",
+      "name": "ion_parallel_viscosity_collisionality_closure",
+      "notes": "Total collisionality used by the ion parallel viscosity closure matches the assembled rate stack.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "fraction",
+      "name": "openadas_neon_rate_bundle_finite_fraction",
+      "notes": "Neon OpenADAS bundle loads with finite ionisation, radiation, temperature, density, and heating tables.",
+      "passed": true,
+      "target": 1.0,
+      "value": 1.0
+    }
+  ],
+  "multispecies_input_name": "BOUT.inp",
+  "passed_metric_count": 6,
+  "single_species_input_name": "BOUT.inp"
+}

@@ -174,6 +174,13 @@ from .traced_field_line_selected_field import (
     compare_traced_field_line_selected_fields,
     create_traced_field_line_selected_field_parity_package,
 )
+from .traced_field_line_native_selected_field import (
+    NativeTracedFieldLineSelectedFieldArtifacts,
+    NativeTracedFieldLineSelectedFieldParityResult,
+    NativeTracedFieldLineSelectedFieldVariableError,
+    compare_native_traced_field_line_selected_fields,
+    create_native_traced_field_line_selected_field_package,
+)
 from .stellarator_vmec_scaffold import (
     StellaratorVmecScaffoldArtifacts,
     create_stellarator_vmec_scaffold_package,
@@ -192,6 +199,12 @@ from .publication_ready_3d import (
 from .hermes_capability_audit import (
     build_hermes_capability_audit,
     write_hermes_capability_audit,
+)
+from .reactions_collisions_campaign import (
+    ReactionsCollisionsCampaignArtifacts,
+    ReactionsCollisionsCampaignMetric,
+    build_reactions_collisions_campaign,
+    create_reactions_collisions_campaign_package,
 )
 
 __all__ = [
@@ -333,6 +346,11 @@ __all__ = [
     "TracedFieldLineSelectedFieldParityArtifacts",
     "compare_traced_field_line_selected_fields",
     "create_traced_field_line_selected_field_parity_package",
+    "NativeTracedFieldLineSelectedFieldArtifacts",
+    "NativeTracedFieldLineSelectedFieldParityResult",
+    "NativeTracedFieldLineSelectedFieldVariableError",
+    "compare_native_traced_field_line_selected_fields",
+    "create_native_traced_field_line_selected_field_package",
     "StellaratorVmecScaffoldArtifacts",
     "create_stellarator_vmec_scaffold_package",
     "StellaratorVmecSelectedFieldParityArtifacts",
@@ -344,4 +362,8 @@ __all__ = [
     "save_publication_ready_3d_summary_plot",
     "build_hermes_capability_audit",
     "write_hermes_capability_audit",
+    "ReactionsCollisionsCampaignArtifacts",
+    "ReactionsCollisionsCampaignMetric",
+    "build_reactions_collisions_campaign",
+    "create_reactions_collisions_campaign_package",
 ]

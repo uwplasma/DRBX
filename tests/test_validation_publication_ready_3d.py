@@ -18,6 +18,8 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
     tokamak_short_parity = tmp_path / "tokamak_short_parity.json"
     traced_parity = tmp_path / "traced_parity.json"
     traced_source = tmp_path / "traced_source.json"
+    traced_native_runtime = tmp_path / "traced_native_runtime.json"
+    traced_native_parity = tmp_path / "traced_native_parity.json"
     stellarator_parity = tmp_path / "stellarator_parity.json"
     stellarator_source = tmp_path / "stellarator_source.json"
     convergence = tmp_path / "convergence.json"
@@ -80,6 +82,24 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
         },
     )
     _write_json(
+        traced_native_runtime,
+        {
+            "capability_tier": "native_exact_reduced",
+            "elapsed_seconds": 0.05,
+            "selected_fields": ["g11", "g33"],
+        },
+    )
+    _write_json(
+        traced_native_parity,
+        {
+            "field_names": ["g11", "g33"],
+            "variable_errors": {
+                "g11": {"relative_l2_error": 0.02},
+                "g33": {"relative_l2_error": 0.11},
+            },
+        },
+    )
+    _write_json(
         stellarator_parity,
         {
             "field_names": ["iota", "pressure", "toroidal_flux"],
@@ -117,6 +137,8 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
         tokamak_short_window_parity_json=tokamak_short_parity,
         traced_field_line_parity_json=traced_parity,
         traced_field_line_source_report=traced_source,
+        traced_field_line_native_runtime_report=traced_native_runtime,
+        traced_field_line_native_parity_json=traced_native_parity,
         stellarator_parity_json=stellarator_parity,
         stellarator_source_report=stellarator_source,
         convergence_report_json=convergence,
@@ -127,6 +149,6 @@ def test_create_publication_ready_3d_campaign_package_writes_summary_and_plot(tm
 
     summary = json.loads(artifacts.summary_json_path.read_text(encoding="utf-8"))
     assert summary["case"] == "publication_ready_3d_campaign"
-    assert len(summary["lane_summaries"]) == 4
-    assert summary["campaign_status"]["native_non_tokamak_rungs"] == 0
+    assert len(summary["lane_summaries"]) == 5
+    assert summary["campaign_status"]["native_non_tokamak_rungs"] == 1
     assert summary["convergence_summary"]["min_density_order"] == 1.8

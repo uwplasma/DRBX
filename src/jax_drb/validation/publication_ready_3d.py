@@ -23,6 +23,8 @@ def create_publication_ready_3d_campaign_package(
     tokamak_short_window_parity_json: str | Path | None = None,
     traced_field_line_parity_json: str | Path | None = None,
     traced_field_line_source_report: str | Path | None = None,
+    traced_field_line_native_runtime_report: str | Path | None = None,
+    traced_field_line_native_parity_json: str | Path | None = None,
     stellarator_parity_json: str | Path | None = None,
     stellarator_source_report: str | Path | None = None,
     convergence_report_json: str | Path | None = None,
@@ -59,6 +61,14 @@ def create_publication_ready_3d_campaign_package(
             traced_field_line_source_report,
             "docs/data/traced_field_line_selected_field_artifacts/data/traced_field_line_selected_field_parity_source_report.json",
         ),
+        traced_field_line_native_runtime_report=_resolve_or_default(
+            traced_field_line_native_runtime_report,
+            "docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_runtime_report.json",
+        ),
+        traced_field_line_native_parity_json=_resolve_or_default(
+            traced_field_line_native_parity_json,
+            "docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field.json",
+        ),
         stellarator_parity_json=_resolve_or_default(
             stellarator_parity_json,
             "docs/data/stellarator_vmec_selected_field_artifacts/data/stellarator_vmec_selected_field_parity.json",
@@ -92,6 +102,8 @@ def build_publication_ready_3d_report(
     tokamak_short_window_parity_json: str | Path,
     traced_field_line_parity_json: str | Path,
     traced_field_line_source_report: str | Path,
+    traced_field_line_native_runtime_report: str | Path,
+    traced_field_line_native_parity_json: str | Path,
     stellarator_parity_json: str | Path,
     stellarator_source_report: str | Path,
     convergence_report_json: str | Path,
@@ -102,6 +114,8 @@ def build_publication_ready_3d_report(
     tokamak_short_window_parity = _load_json(tokamak_short_window_parity_json)
     traced_parity = _load_json(traced_field_line_parity_json)
     traced_source = _load_json(traced_field_line_source_report)
+    traced_native_runtime = _load_json(traced_field_line_native_runtime_report)
+    traced_native_parity = _load_json(traced_field_line_native_parity_json)
     stellarator_parity = _load_json(stellarator_parity_json)
     stellarator_source = _load_json(stellarator_source_report)
     convergence = _load_json(convergence_report_json)
@@ -125,6 +139,12 @@ def build_publication_ready_3d_report(
             parity_payload=traced_parity,
             source_report=traced_source,
         ),
+        _native_lane_summary(
+            lane_name="traced_field_line_native_selected_field",
+            geometry_family="traced_field_line_3d",
+            runtime_report=traced_native_runtime,
+            parity_payload=traced_native_parity,
+        ),
         _external_lane_summary(
             lane_name="stellarator_vmec_selected_field",
             geometry_family="stellarator_vmec_3d",
@@ -139,10 +159,10 @@ def build_publication_ready_3d_report(
     campaign_status = {
         "native_tokamak_rungs": 2,
         "non_tokamak_external_pair_gates": 2,
-        "native_non_tokamak_rungs": 0,
+        "native_non_tokamak_rungs": 1,
         "remaining_blockers": [
-            "first_native_non_tokamak_3d_reduced_rung",
             "expanded_3d_native_convergence_and_scaling_campaign",
+            "second_native_non_tokamak_3d_reduced_rung",
         ],
     }
     return {
