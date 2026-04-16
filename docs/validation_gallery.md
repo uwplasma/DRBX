@@ -238,6 +238,27 @@ What this documents:
 - the current manufactured-solution convergence floor from the committed `fluid_1d_mms_convergence` report;
 - the remaining blockers before a full publication-ready 3D claim, stated explicitly rather than implied.
 
+## Native 3D Runtime Campaign
+
+![Native 3D runtime campaign](data/native_3d_runtime_campaign_artifacts/images/native_3d_runtime_campaign.png)
+
+What this documents:
+
+- one explicit runtime/scaling summary across the promoted native reduced 3D matrix;
+- committed runtime reports from the native tokamak, traced-field-line, and stellarator reduced rungs;
+- compact synthetic scaling sweeps for the non-tokamak native reduction kernels;
+- the current engineering blocker after geometry diversity is no longer the main missing surface.
+
+## Hermes Comparison Summary
+
+![Hermes comparison summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)
+
+What this documents:
+
+- one benchmark-facing summary plot across the committed native-vs-reference reduced comparison bundles;
+- direct comparison of the native tokamak, traced-field-line, and stellarator reduced rungs on the same visual surface;
+- a simpler reviewer-facing entry point than asking readers to inspect each lane-specific comparison artifact separately.
+
 ## Reactions And Collisions Campaign
 
 ![Reactions and collisions campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)

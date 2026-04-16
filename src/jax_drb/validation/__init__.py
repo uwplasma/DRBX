@@ -203,9 +203,21 @@ from .publication_ready_3d import (
     create_publication_ready_3d_campaign_package,
     save_publication_ready_3d_summary_plot,
 )
+from .native_3d_runtime_campaign import (
+    Native3DRuntimeCampaignArtifacts,
+    build_native_3d_runtime_campaign_report,
+    create_native_3d_runtime_campaign_package,
+    save_native_3d_runtime_campaign_plot,
+)
 from .hermes_capability_audit import (
     build_hermes_capability_audit,
     write_hermes_capability_audit,
+)
+from .hermes_comparison_summary import (
+    HermesComparisonSummaryArtifacts,
+    build_hermes_comparison_summary_report,
+    create_hermes_comparison_summary_package,
+    save_hermes_comparison_summary_plot,
 )
 from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignArtifacts,
@@ -378,8 +390,16 @@ __all__ = [
     "build_publication_ready_3d_report",
     "create_publication_ready_3d_campaign_package",
     "save_publication_ready_3d_summary_plot",
+    "Native3DRuntimeCampaignArtifacts",
+    "build_native_3d_runtime_campaign_report",
+    "create_native_3d_runtime_campaign_package",
+    "save_native_3d_runtime_campaign_plot",
     "build_hermes_capability_audit",
     "write_hermes_capability_audit",
+    "HermesComparisonSummaryArtifacts",
+    "build_hermes_comparison_summary_report",
+    "create_hermes_comparison_summary_package",
+    "save_hermes_comparison_summary_plot",
     "ReactionsCollisionsCampaignArtifacts",
     "ReactionsCollisionsCampaignMetric",
     "build_reactions_collisions_campaign",

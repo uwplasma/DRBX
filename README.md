@@ -238,6 +238,8 @@ The engineering closeout surface is now also explicit: `hermes_capability_audit`
 
 That closeout surface is broader now too. `reactions_collisions_campaign` turns the reactions/collisionality breadth into an explicit JSON/NPZ/plot gate for charge exchange, isotope coupling, per-species CX multipliers, ionisation-rate consistency, ion-viscosity collisionality closure, and neon OpenADAS loading. `impurity_radiation_campaign` now does the same for the first impurity/radiation surfaces that actually exist today: neon OpenADAS ionisation/recombination loading, finite radiation-loss evaluation, and exact `D/T/He/Ne` direct tokamak RHS closure on `Nne+`, `Pne+`, and `Pe`. On the 3D side, `traced_field_line_native_selected_field` and `stellarator_vmec_native_selected_field` are now the first native reduced non-tokamak rungs on the shared artifact surface, publishing parity, direct native-vs-reference comparison, observable, and runtime reports from JAX-native reduction paths.
 
+The native 3D runtime/scaling surface is now explicit as well. `native_3d_runtime_campaign` aggregates the committed native tokamak, traced-field-line, and stellarator reduced-rung runtime reports and adds compact scaling sweeps for the non-tokamak native reduction kernels. `hermes_comparison_summary` does the same for the committed native-vs-reference comparison surfaces so the benchmark story is visible in one publication-style plot rather than only across per-lane images.
+
 ## What To Run First
 
 If you want a tutorial-style standalone workflow:
@@ -259,6 +261,9 @@ If you want meeting-ready figures and movies:
 - [stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
 - [stellarator_vmec_native_selected_field_demo.md](docs/stellarator_vmec_native_selected_field_demo.md)
 - [impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
+- [native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
+- [hermes_comparison_gallery.md](docs/hermes_comparison_gallery.md)
+- [dynamics_gallery.md](docs/dynamics_gallery.md)
 - [publication_ready_3d_campaign.md](docs/publication_ready_3d_campaign.md)
 - [hermes_capability_audit.md](docs/hermes_capability_audit.md)
 
