@@ -7,6 +7,8 @@ This package turns the `temperature_feedback` example into a bounded, reviewable
 - compare the reconstructed proportional term, integral term, multiplier, integral state, and electron energy source against the Hermes diagnostics;
 - publish JSON, NPZ, and a documentation plot on the public artifact surface.
 
+The summary JSON now also carries a `timing_seconds` breakdown for input staging, reference execution, dataset load, and controller reconstruction. The local reference run is streamed directly into `run.stdout` rather than captured in-memory, so the bounded probe does not hang behind a full stdout/stderr pipe while the local reference solver budget is still being characterized.
+
 Run the demo with:
 
 ```bash
