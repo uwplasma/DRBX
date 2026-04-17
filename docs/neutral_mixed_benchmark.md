@@ -43,7 +43,7 @@ This benchmark exists to keep the next neutral transient implementation honest. 
 - center temperature max-abs error: about `2.91e-4`
 - momentum RMS max-abs error: about `1.71e-3`
 
-That is good enough to lock an operational centerline gate, but not to promote the family yet. The same native runner path now also finishes a bounded short-window prefix gate on the first three saved intervals inside the ten-minute validation policy, with roughly:
+That is good enough to lock an operational centerline gate, but not to promote the family yet. The same native runner path now also finishes a bounded full short-window centerline gate on the matrix-free path inside the ten-minute validation policy, with roughly:
 
 - `center Nh ≈ 9.24e-2`
 - `center Ph ≈ 9.24e-3`

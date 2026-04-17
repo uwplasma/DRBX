@@ -243,6 +243,12 @@ from .temperature_feedback_campaign import (
     build_temperature_feedback_campaign,
     create_temperature_feedback_campaign_package,
 )
+from .detachment_controller_campaign import (
+    DetachmentControllerCampaignArtifacts,
+    DetachmentControllerCampaignMetric,
+    build_detachment_controller_campaign,
+    create_detachment_controller_campaign_package,
+)
 from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignArtifacts,
     ReactionsCollisionsCampaignMetric,
@@ -432,6 +438,10 @@ __all__ = [
     "TemperatureFeedbackCampaignMetric",
     "build_temperature_feedback_campaign",
     "create_temperature_feedback_campaign_package",
+    "DetachmentControllerCampaignArtifacts",
+    "DetachmentControllerCampaignMetric",
+    "build_detachment_controller_campaign",
+    "create_detachment_controller_campaign_package",
     "JaxNativeProfileAuditArtifacts",
     "build_jax_native_profile_audit_report",
     "create_jax_native_profile_audit_package",
