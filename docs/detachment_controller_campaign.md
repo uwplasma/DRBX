@@ -2,9 +2,9 @@
 
 This package turns the reduced detachment-controller example into a bounded Hermes-backed validation lane instead of leaving detachment control only in source-code audit notes.
 
-The current reduced lane is intentionally narrow and explicit:
+The current reduced lane is intentionally bounded and explicit:
 
-- it stages the `tokamak-1D/extra/1D-recycling-with-detachment-control` example on a small `cvode`-compatible mesh;
+- it stages the `tokamak-1D/extra/1D-recycling-with-detachment-control` example on a reduced but nontrivial `cvode`-compatible deck (`ny=16`, `nout=10`, `timestep=100`);
 - it strips the `beuler`-only solver options that would otherwise make the reduced deck fail input validation under the local non-PETSc reference build;
 - it sets `settling_time = 0` so the bounded window actually exercises the controller law instead of spending the whole probe inside the original settling period;
 - it validates the controller identities that are visible on the saved diagnostics:
