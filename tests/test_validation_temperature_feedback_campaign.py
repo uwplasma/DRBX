@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 
 import numpy as np
 
@@ -11,6 +12,7 @@ from jax_drb.validation import (
 from jax_drb.validation.temperature_feedback_campaign import (
     _reconstruct_temperature_controller,
     _replace_bout_setting,
+    _run_temperature_feedback_example,
 )
 
 
@@ -98,3 +100,30 @@ def test_replace_bout_setting_handles_numeric_values_without_backreference_bug()
 
     assert "nout = 4\n" in updated
     assert "ny = 20\n" in updated
+
+
+def test_run_temperature_feedback_example_streams_to_file_without_capture_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    invoked: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):
+        invoked.update(kwargs)
+        stdout = kwargs["stdout"]
+        stdout.write("controller run\n")
+        (Path(kwargs["cwd"]) / "BOUT.dmp.0.nc").write_bytes(b"stub")
+        return subprocess.CompletedProcess(args=args[0], returncode=0)
+
+    monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign.subprocess.run", fake_run)
+
+    _run_temperature_feedback_example(
+        binary=tmp_path / "hermes",
+        workdir=tmp_path,
+        timeout_seconds=30,
+    )
+
+    assert invoked["stderr"] == subprocess.STDOUT
+    assert invoked["timeout"] == 30
+    assert "capture_output" not in invoked
+    assert (tmp_path / "run.stdout").read_text(encoding="utf-8") == "controller run\n"

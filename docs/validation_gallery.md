@@ -259,6 +259,16 @@ What this documents:
 - observed refinement order against an analytic radial-average target rather than only parity and runtime numbers;
 - the first committed convergence bundle specific to the reduced native 3D matrix itself.
 
+## JAX Native Profile Audit
+
+![JAX native profile audit](data/jax_native_profile_audit_artifacts/images/jax_native_profile_audit.png)
+
+What this documents:
+
+- compile, first-execute, and warm-execute timings on the promoted traced-field-line and stellarator reduced native kernels;
+- the first committed Perfetto-compatible trace bundle for the reduced native JAX surfaces;
+- the concrete engineering conclusion from that profiling pass: batch same-shape selected fields before entering jitted reductions, and warm kernels once before timing publication-facing runs.
+
 ## Hermes Comparison Summary
 
 ![Hermes comparison summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)

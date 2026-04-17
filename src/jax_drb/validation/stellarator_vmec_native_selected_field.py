@@ -214,7 +214,7 @@ def _resolve_input_pair(
 
 
 @jax.jit
-def _native_vmec_profile(values: jax.Array) -> jax.Array:
+def _native_vmec_profile_batch(values: jax.Array) -> jax.Array:
     return jnp.asarray(values, dtype=jnp.float64)
 
 
@@ -222,10 +222,12 @@ def _native_reduce_vmec_profiles(
     fields: dict[str, np.ndarray],
     field_names: tuple[str, ...],
 ) -> dict[str, np.ndarray]:
-    reduced: dict[str, np.ndarray] = {}
-    for field_name in field_names:
-        reduced[field_name] = np.asarray(_native_vmec_profile(jnp.asarray(fields[field_name], dtype=jnp.float64)), dtype=np.float64)
-    return reduced
+    stacked = jnp.stack([jnp.asarray(fields[field_name], dtype=jnp.float64) for field_name in field_names], axis=0)
+    reduced_values = np.asarray(_native_vmec_profile_batch(stacked), dtype=np.float64)
+    return {
+        field_name: reduced_values[index]
+        for index, field_name in enumerate(field_names)
+    }
 
 
 def _write_parity_json(result: NativeStellaratorVmecSelectedFieldParityResult, path: Path) -> Path:

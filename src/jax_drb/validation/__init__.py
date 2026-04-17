@@ -209,6 +209,12 @@ from .native_3d_runtime_campaign import (
     create_native_3d_runtime_campaign_package,
     save_native_3d_runtime_campaign_plot,
 )
+from .jax_native_profile_audit import (
+    JaxNativeProfileAuditArtifacts,
+    build_jax_native_profile_audit_report,
+    create_jax_native_profile_audit_package,
+    save_jax_native_profile_audit_plot,
+)
 from .native_3d_convergence_campaign import (
     Native3DConvergenceCampaignArtifacts,
     build_native_3d_convergence_campaign_report,
@@ -426,6 +432,10 @@ __all__ = [
     "TemperatureFeedbackCampaignMetric",
     "build_temperature_feedback_campaign",
     "create_temperature_feedback_campaign_package",
+    "JaxNativeProfileAuditArtifacts",
+    "build_jax_native_profile_audit_report",
+    "create_jax_native_profile_audit_package",
+    "save_jax_native_profile_audit_plot",
     "ReactionsCollisionsCampaignArtifacts",
     "ReactionsCollisionsCampaignMetric",
     "build_reactions_collisions_campaign",

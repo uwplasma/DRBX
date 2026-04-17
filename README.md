@@ -240,6 +240,8 @@ That closeout surface is broader now too. `reactions_collisions_campaign` turns 
 
 The native 3D runtime/scaling surface is now explicit as well. `native_3d_runtime_campaign` aggregates the committed native tokamak, traced-field-line, and stellarator reduced-rung runtime reports and adds compact scaling sweeps for the non-tokamak native reduction kernels. `native_3d_convergence_campaign` adds an operator-level convergence gate on the promoted traced-field-line native reduction surface, and `hermes_comparison_summary` does the same for the committed native-vs-reference comparison surfaces so the benchmark story is visible in one publication-style plot rather than only across per-lane images.
 
+The JAX-native runtime audit surface is now explicit too. `jax_native_profile_audit` measures compile, first-execute, and warm-execute timings on the promoted traced-field-line and stellarator reduced kernels, emits Perfetto-compatible traces for both lanes, and records the concrete engineering guidance from that profiling pass: batch same-shape selected fields before entering jitted reductions, warm kernels once before publication-facing timing, and keep solver/geometry metadata out of static JIT arguments so reduced native lanes do not pay avoidable recompilation overhead.
+
 The controller-oriented closeout surface is explicit too. `controller_feedback_campaign` turns the native upstream-density feedback path into a dense-history reference-backed gate on controller multiplier, proportional/integral terms, reconstructed controller integral, and target recycling source. `temperature_feedback_campaign` now adds the matching reduced Hermes-backed PI-controller-law package, but the bounded local `1D-recycling-with-Tt-control` example still exceeds the current ten-minute policy here, so neither `temperature_feedback` nor `detachment_controller` is being overstated as promoted.
 
 The final ship/publication decision record is now also explicit in [docs/jcp_readiness_audit.md](docs/jcp_readiness_audit.md). That page maps the current `jax_drb` state to the verification/validation expectations visible in the relevant reference-code literature, and it states the remaining blockers plainly: broader neutral/transient closure, a promoted temperature/detachment-control lane, wider direct tokamak recycling windows, and substantially higher coverage before the strongest JCP claim boundary is defensible.
@@ -266,6 +268,7 @@ If you want meeting-ready figures and movies:
 - [stellarator_vmec_native_selected_field_demo.md](docs/stellarator_vmec_native_selected_field_demo.md)
 - [impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
 - [native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
+- [jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [hermes_comparison_gallery.md](docs/hermes_comparison_gallery.md)
 - [dynamics_gallery.md](docs/dynamics_gallery.md)
 - [publication_ready_3d_campaign.md](docs/publication_ready_3d_campaign.md)
