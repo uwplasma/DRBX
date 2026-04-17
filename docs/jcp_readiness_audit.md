@@ -68,19 +68,19 @@ If the question is "can this be shipped publicly as a serious research codebase 
 
 If the question is "is the code ready for the strongest JCP-style paper claiming broad standalone parity/replacement across the whole target DRB/Hermes workflow matrix?", the answer is **not yet**.
 
+The paper claim boundary should now be treated as chosen, not open-ended:
+
+- selected promoted native lanes plus general 3D infrastructure: **yes**
+- broad standalone parity-complete DRB solver: **no**
+
 ## Required pre-paper closeout
 
-Before starting the main JCP manuscript, the following should still be closed:
+Before starting the main JCP manuscript on the selected-lane claim boundary, the following should still be closed:
 
 1. Promote a broader production temperature/detachment-control lane beyond the reduced detachment-controller gate.
 2. Promote the broader global `neutral_mixed_short_window` surface beyond the current centerline-only gate.
 3. Promote at least one longer-window or neon-enabled direct tokamak recycling surface beyond the current bounded `nout=2` gates.
-4. Decide the paper claim boundary explicitly:
-   either "selected promoted native lanes plus general 3D infrastructure"
-   or
-   "broad standalone parity-complete DRB solver".
-
-Until those four items are done, the code is best described as:
+Until those three items are done, the code is best described as:
 
 - a strong research-grade public codebase with unusually good parity/validation tooling;
 - not yet the final broad-claim JCP submission target.
