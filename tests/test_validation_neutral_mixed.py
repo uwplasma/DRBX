@@ -242,3 +242,37 @@ def test_neutral_mixed_short_window_prefix_native_parity_stays_within_operationa
     assert parity.series_errors["center_momentum"].max_abs_error <= 3.0e-3
     assert parity.series_errors["center_temperature"].max_abs_error <= 2.0e-4
     assert parity.series_errors["momentum_rms"].max_abs_error <= 3.0e-3
+
+
+def test_neutral_mixed_short_window_native_parity_stays_within_operational_center_band() -> None:
+    if os.environ.get("JAX_DRB_RUN_NEUTRAL_MIXED_SHORT_WINDOW") != "1":
+        pytest.skip("set JAX_DRB_RUN_NEUTRAL_MIXED_SHORT_WINDOW=1 to run the bounded neutral short-window centerline gate")
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("local neutral_mixed reference input is unavailable")
+
+    expected = _reference_payload()
+    result = run_input_case(
+        _REFERENCE_INPUT,
+        case_name="neutral_mixed_short_window",
+        parity_mode="short_window",
+        compare_variables=("Nh", "Ph", "NVh"),
+    )
+    actual = {
+        **expected,
+        "time_points": list(result.payload["time_points"]),
+        "variables": {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()},
+    }
+
+    parity = compare_neutral_mixed_array_payloads(
+        expected,
+        actual,
+        x_index=5,
+        y_index=3,
+        z_index=5,
+    )
+
+    assert parity.series_errors["center_density"].max_abs_error <= 9.5e-2
+    assert parity.series_errors["center_pressure"].max_abs_error <= 1.0e-2
+    assert parity.series_errors["center_momentum"].max_abs_error <= 3.0e-3
+    assert parity.series_errors["center_temperature"].max_abs_error <= 2.0e-4
+    assert parity.series_errors["momentum_rms"].max_abs_error <= 3.0e-3

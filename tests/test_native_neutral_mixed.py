@@ -583,10 +583,10 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
         pressure_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
         momentum_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
 
-    captured: list[int] = []
+    captured: list[tuple[int, str]] = []
 
     def _fake_history(*args, **kwargs):
-        captured.append(kwargs["steps"])
+        captured.append((kwargs["steps"], kwargs["solver_mode"]))
         return _History()
 
     monkeypatch.setattr(
@@ -603,7 +603,7 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     )
     assert time_points == (0.0, 20.0)
     assert variables["Nh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
-    assert captured[-1] == 1
+    assert captured[-1] == (1, "matrix_free")
 
     time_points, variables = _execute_neutral_mixed_case(
         config,
@@ -615,7 +615,7 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     assert time_points[0] == 0.0
     assert time_points[-1] == run_config.time.nout * run_config.time.timestep
     assert variables["NVh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
-    assert captured[-1] == run_config.time.nout
+    assert captured[-1] == (run_config.time.nout, "matrix_free")
 
 
 def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -626,10 +626,10 @@ def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: py
         pressure_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
         momentum_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
 
-    captured: list[int] = []
+    captured: list[tuple[int, str]] = []
 
     def _fake_history(*args, **kwargs):
-        captured.append(kwargs["steps"])
+        captured.append((kwargs["steps"], kwargs["solver_mode"]))
         return _History()
 
     monkeypatch.setattr(
@@ -646,7 +646,7 @@ def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: py
         output_steps=4,
     )
 
-    assert captured == [4]
+    assert captured == [(4, "matrix_free")]
     assert time_points == (0.0, 20.0, 40.0, 60.0, 80.0)
     assert variables["Nh"].shape == (5, mesh.nx, mesh.local_ny, mesh.nz)
 

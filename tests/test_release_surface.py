@@ -25,6 +25,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "impurity_radiation_campaign.md",
     REPO_ROOT / "docs" / "controller_feedback_campaign.md",
     REPO_ROOT / "docs" / "temperature_feedback_campaign.md",
+    REPO_ROOT / "docs" / "detachment_controller_campaign.md",
+    REPO_ROOT / "docs" / "closeout_coverage.md",
     REPO_ROOT / "docs" / "jcp_readiness_audit.md",
     REPO_ROOT / "docs" / "native_3d_runtime_campaign.md",
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",
@@ -54,6 +56,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "impurity_radiation_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "controller_feedback_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "temperature_feedback_campaign_demo.py",
+    REPO_ROOT / "examples" / "engineering" / "detachment_controller_campaign_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_native_selected_field.py",
@@ -73,6 +76,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "impurity_radiation_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "controller_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "temperature_feedback_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "detachment_controller_campaign.py",
 )
 
 PUBLIC_RUN_LOGS = (
@@ -133,6 +137,7 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "reactions_collisions_campaign_artifacts" / "data" / "reactions_collisions_campaign.json",
     REPO_ROOT / "docs" / "data" / "impurity_radiation_campaign_artifacts" / "data" / "impurity_radiation_campaign.json",
     REPO_ROOT / "docs" / "data" / "controller_feedback_campaign_artifacts" / "data" / "controller_feedback_campaign.json",
+    REPO_ROOT / "docs" / "data" / "detachment_controller_campaign_artifacts" / "data" / "detachment_controller_campaign.json",
 )
 
 
