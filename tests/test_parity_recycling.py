@@ -383,6 +383,77 @@ def _assert_live_tokamak_recycling_dthe_two_output_window_operational_band() -> 
     assert worst_near_zero_abs_diff < 3.0e-5, near_zero_entries
 
 
+def _assert_live_tokamak_recycling_dthe_drifts_two_output_window_operational_band() -> None:
+    if os.environ.get("JAX_DRB_RUN_RECYCLING_2D_PARITY") != "1":
+        pytest.skip("set JAX_DRB_RUN_RECYCLING_2D_PARITY=1 to run the bounded parity gate for the richer drift-enabled D/T tokamak recycling window")
+
+    case = next(
+        reference_case
+        for reference_case in load_reference_cases()
+        if reference_case.name == "tokamak_recycling_dthe_drifts_one_step"
+    )
+    probe_case = replace(
+        case,
+        name="tokamak_recycling_dthe_drifts_short_window",
+        parity_mode="short_window",
+        capability_tier="native_operational",
+        extra_overrides=tuple(
+            override for override in case.extra_overrides if not override.startswith("nout=")
+        )
+        + ("nout=2",),
+    )
+    input_path = _REFERENCE_ROOT / case.reference_path
+
+    with tempfile.TemporaryDirectory(prefix="jaxdrb-dthe-drifts-two-output-window-") as workdir:
+        execution = run_reference_case(
+            case.name,
+            reference_root=_REFERENCE_ROOT,
+            extra_overrides=("nout=2",),
+            workdir=workdir,
+            keep_workdir=True,
+        )
+        summary = execution.summary
+        expected = build_dataset_array_payload(
+            Path(summary.artifacts["BOUT.dmp.0.nc"]),
+            case_name=probe_case.name,
+            parity_mode=probe_case.parity_mode,
+            capability_tier=probe_case.capability_tier,
+            compare_variables=probe_case.compare_variables,
+            component_labels=tuple(summary.component_labels),
+            overrides=tuple(summary.overrides),
+            trim_x_guards=probe_case.trim_x_guards,
+            x_guards=2,
+            trim_y_guards=probe_case.trim_y_guards,
+            y_guards=2,
+            configured_nout=2,
+            configured_timestep=summary.timestep,
+        )
+
+    result = native_runner._run_integrated_2d_recycling_transient_case(
+        probe_case,
+        input_path=input_path,
+        reference_root=_REFERENCE_ROOT,
+        steps=2,
+    )
+    actual = build_array_payload_from_summary_payload(result.payload, result.variables)
+    entries = build_scaled_array_diff_entries(
+        expected["variables"],
+        actual["variables"],
+        compare_variables=probe_case.compare_variables,
+        near_zero_atol=5.0e-5,
+    )
+
+    assert entries
+    non_near_zero_entries = tuple(entry for entry in entries if not entry.near_zero_expected)
+    near_zero_entries = tuple(entry for entry in entries if entry.near_zero_expected)
+
+    worst_relative = max((entry.relative_to_expected_max or 0.0) for entry in non_near_zero_entries)
+    worst_near_zero_abs_diff = max((entry.max_abs_diff for entry in near_zero_entries), default=0.0)
+
+    assert worst_relative < 3.0e-2, entries
+    assert worst_near_zero_abs_diff < 3.0e-5, near_zero_entries
+
+
 def test_integrated_2d_recycling_one_step_native_parity_stays_within_exact_mixed_band() -> None:
     _assert_mixed_exact_band(
         case_name="integrated_2d_recycling_one_step",
@@ -425,6 +496,10 @@ def test_tokamak_recycling_dthe_one_step_native_parity_stays_within_exact_mixed_
 
 def test_tokamak_recycling_dthe_two_output_window_native_parity_stays_within_operational_mixed_band() -> None:
     _assert_live_tokamak_recycling_dthe_two_output_window_operational_band()
+
+
+def test_tokamak_recycling_dthe_drifts_two_output_window_native_parity_stays_within_operational_mixed_band() -> None:
+    _assert_live_tokamak_recycling_dthe_drifts_two_output_window_operational_band()
 
 
 def test_recycling_array_diff_report_localizes_worst_cell(tmp_path: Path) -> None:

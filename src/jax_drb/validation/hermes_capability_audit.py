@@ -62,13 +62,14 @@ def build_hermes_capability_audit() -> dict[str, object]:
         {
             "family": "neutral_mixed",
             "reference_surfaces": ["neutral_mixed integrated test", "neutral mixed benchmark diagnostics"],
-            "jax_status": "open",
-            "jax_capability": "native_rhs_exact_transient_open",
+            "jax_status": "partially_closed",
+            "jax_capability": "native_rhs_exact_centerline_transient_window",
             "evidence": [
                 "RHS parity is committed",
                 "native transient runner path now exists for one-step and short-window",
+                "full short-window centerline gate now clears on the matrix-free path inside the local ten-minute policy",
             ],
-            "next_gate": "close one-step and short-window parity against committed baselines before promotion",
+            "next_gate": "promote the broader global short-window mass/pressure surface beyond the current centerline gate",
         },
         {
             "family": "open_field_recycling",
@@ -95,11 +96,13 @@ def build_hermes_capability_audit() -> dict[str, object]:
             "family": "direct_tokamak_recycling",
             "reference_surfaces": ["direct tokamak recycling rungs"],
             "jax_status": "partially_closed",
-            "jax_capability": "native_exact_first_output",
+            "jax_capability": "native_exact_first_output_plus_bounded_two_output_windows",
             "evidence": [
                 "direct D/T one-step compare surface promoted",
+                "compact D/T nout=2 transient window clears a bounded mixed operational gate",
+                "drift-enabled D/T nout=2 transient window clears a bounded mixed operational gate",
             ],
-            "next_gate": "finish richer transient windows and distributed-guard evolution",
+            "next_gate": "finish longer-window and neon-enabled transient surfaces plus distributed-guard evolution",
         },
         {
             "family": "tokamak_2d_transport_and_turbulence",
@@ -157,14 +160,15 @@ def build_hermes_capability_audit() -> dict[str, object]:
             "family": "impurity_radiation_and_detachment_control",
             "reference_surfaces": ["fixed_fraction_radiation", "temperature_feedback", "detachment_controller", "ADAS carbon/neon"],
             "jax_status": "partially_closed",
-            "jax_capability": "dedicated_campaign_plus_neon_rhs_lane_plus_feedback_controller_gate",
+            "jax_capability": "dedicated_campaigns_plus_reduced_detachment_controller_lane",
             "evidence": [
                 "dedicated impurity/radiation validation campaign committed for neon OpenADAS and D/T/He/Ne RHS closure",
                 "dedicated controller-feedback campaign committed for the native upstream-density feedback history on recycling_1d_one_step",
+                "dedicated detachment-controller campaign committed on a bounded reduced Hermes-backed CVODE lane with nontrivial control response and exact saved-diagnostic balance checks",
                 "reduced temperature-feedback campaign package is in-tree, but the bounded local Hermes Tt-control example still exceeds the current ten-minute validation policy",
-                "controller-oriented temperature/detachment surfaces are still not promoted",
+                "full production temperature/detachment-control workflows are still not promoted beyond the reduced detachment-controller lane",
             ],
-            "next_gate": "add the first promoted temperature-feedback or detachment-control native lane beyond the upstream-density feedback controller gate",
+            "next_gate": "promote a broader production temperature/detachment-control lane beyond the reduced detachment-controller gate",
         },
         {
             "family": "sod_shock_and_2d_energy_regression_surfaces",
@@ -191,8 +195,6 @@ def build_hermes_capability_audit() -> dict[str, object]:
             "neutral_mixed",
             "open_field_recycling",
             "direct_tokamak_recycling",
-            "non_tokamak_3d_geometry_adapters",
-            "reactions_collisions_and_atomic_data",
             "impurity_radiation_and_detachment_control",
         ],
     }
