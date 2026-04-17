@@ -55,7 +55,7 @@ These are the real remaining blockers, not wishlist items:
    The repo has native reduced tokamak and non-tokamak 3D rungs plus benchmark/scaffold packages, but it does not yet have a broad end-to-end native 3D production workflow comparable to the strongest 2D promoted lanes.
 
 5. Coverage is not yet at the requested ship bar.
-   On the current focused audit slice, total measured coverage is about `46%`, not `95%`. That is the most objective current reason not to call the full codebase finalized.
+   On the current focused audit slice, total measured coverage is about `46%`, not `95%`, and the current monolithic closeout audit still does not finish inside the local ten-minute policy. That means the remaining coverage push needs staged critical-path slices plus an explicit release threshold, not just one large local command.
 
 ## Shipping decision
 
