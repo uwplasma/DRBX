@@ -289,6 +289,16 @@ What this documents:
 - dense-history comparison of controller multiplier, proportional term, integral term, reconstructed controller integral, and target recycling source;
 - a controller-oriented closeout surface that is honest about stopping short of a full detachment-controller claim.
 
+## Detachment Controller Campaign
+
+![Detachment controller campaign](data/detachment_controller_campaign_artifacts/images/detachment_controller_campaign.png)
+
+What this documents:
+
+- the first genuinely bounded Hermes-backed `detachment_controller` lane on the local non-PETSc reference build;
+- a reduced `cvode` deck that strips the incompatible `beuler`-only solver options and forces `settling_time = 0` so the bounded window actually exercises the controller;
+- exact saved-diagnostic checks on the proportional term, controller balance, and `source_multiplier * source_shape`, plus a nontrivial response-span gate.
+
 ## Reactions And Collisions Campaign
 
 ![Reactions and collisions campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)

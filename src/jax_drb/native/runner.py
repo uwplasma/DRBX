@@ -2353,7 +2353,7 @@ def _execute_neutral_mixed_case(
         tnorm=float(scalars["Tnorm"]),
         timestep=run_config.time.timestep,
         steps=steps,
-        solver_mode="sparse",
+        solver_mode="matrix_free",
         residual_tolerance=1.0e-8,
         step_tolerance=1.0e-10,
         max_nonlinear_iterations=8,
