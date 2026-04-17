@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 
 from matplotlib import pyplot as plt
 from netCDF4 import Dataset
@@ -60,6 +61,7 @@ def create_temperature_feedback_campaign_package(
     nout: int = 4,
     timestep: float = 100.0,
     ny: int = 80,
+    solver_type: str = "cvode",
     timeout_seconds: int = 600,
 ) -> TemperatureFeedbackCampaignArtifacts:
     root = Path(output_root)
@@ -74,6 +76,7 @@ def create_temperature_feedback_campaign_package(
         nout=nout,
         timestep=timestep,
         ny=ny,
+        solver_type=solver_type,
         timeout_seconds=timeout_seconds,
     )
     summary_json_path = data_dir / f"{case_label}.json"
@@ -114,15 +117,17 @@ def build_temperature_feedback_campaign(
     nout: int = 4,
     timestep: float = 100.0,
     ny: int = 80,
+    solver_type: str = "cvode",
     timeout_seconds: int = 600,
 ) -> dict[str, object]:
     resolved_reference_root = Path(reference_root) if reference_root is not None else require_reference_root()
-    series = _build_temperature_feedback_series(
+    series, timing_seconds = _build_temperature_feedback_series(
         reference_root=resolved_reference_root,
         reference_binary=Path(reference_binary) if reference_binary is not None else None,
         nout=nout,
         timestep=timestep,
         ny=ny,
+        solver_type=solver_type,
         timeout_seconds=timeout_seconds,
     )
     metrics = (
@@ -182,13 +187,15 @@ def build_temperature_feedback_campaign(
     )
     summary = {
         "family": "temperature_feedback",
-        "reference_mode": "external_example_cvode_patch",
+        "reference_mode": "external_example_solver_patch",
         "example": "tokamak-1D/extra/1D-recycling-with-Tt-control",
         "nout": int(nout),
         "timestep": float(timestep),
         "ny": int(ny),
+        "solver_type": solver_type,
         "metric_count": len(metrics),
         "passed_metric_count": sum(1 for metric in metrics if metric.passed),
+        "timing_seconds": timing_seconds,
         "metrics": [
             {
                 "name": metric.name,
@@ -211,8 +218,10 @@ def _build_temperature_feedback_series(
     nout: int,
     timestep: float,
     ny: int,
+    solver_type: str,
     timeout_seconds: int,
-) -> _TemperatureFeedbackSeries:
+) -> tuple[_TemperatureFeedbackSeries, dict[str, float]]:
+    overall_start = perf_counter()
     binary = discover_reference_binary(reference_binary=reference_binary, reference_root=reference_root)
     example_dir = reference_root / "examples" / "tokamak-1D" / "extra" / "1D-recycling-with-Tt-control"
     if not example_dir.exists():
@@ -220,9 +229,22 @@ def _build_temperature_feedback_series(
 
     with tempfile.TemporaryDirectory(prefix="jax_drb_temperature_feedback_") as temp_dir:
         workdir = Path(temp_dir)
-        _stage_temperature_feedback_example(example_dir, workdir=workdir, nout=nout, timestep=timestep, ny=ny)
-        _run_temperature_feedback_example(binary=binary, workdir=workdir, timeout_seconds=timeout_seconds)
+        stage_start = perf_counter()
+        _stage_temperature_feedback_example(
+            example_dir,
+            workdir=workdir,
+            nout=nout,
+            timestep=timestep,
+            ny=ny,
+            solver_type=solver_type,
+        )
+        stage_elapsed = perf_counter() - stage_start
 
+        reference_run_start = perf_counter()
+        _run_temperature_feedback_example(binary=binary, workdir=workdir, timeout_seconds=timeout_seconds)
+        reference_run_elapsed = perf_counter() - reference_run_start
+
+        load_start = perf_counter()
         config = load_bout_input(workdir / "BOUT.inp")
         tnorm = float(config.parsed("hermes", "Tnorm"))
         setpoint = float(config.parsed("e", "temperature_setpoint")) / tnorm
@@ -236,23 +258,27 @@ def _build_temperature_feedback_series(
             time_points = _extract_time_points(dataset)
             target_temperature = _extract_target_temperature(dataset, control_target=control_target)
             error = setpoint - target_temperature
-            reconstructed_integral_state, reconstructed_proportional, reconstructed_integral, reconstructed_multiplier = (
-                _reconstruct_temperature_controller(
-                    time_points=time_points,
-                    error=error,
-                    proportional_gain=p_gain,
-                    integral_gain=i_gain,
-                    integral_positive=integral_positive,
-                    source_positive=source_positive,
-                )
-            )
             reference_multiplier = _extract_scalar_series(dataset, "temperature_feedback_src_mult_e")
             reference_proportional = _extract_scalar_series(dataset, "temperature_feedback_src_p_e")
             reference_integral = _extract_scalar_series(dataset, "temperature_feedback_src_i_e")
             reference_integral_state = _extract_scalar_series(dataset, "e_temperature_error_integral")
             source_shape = _extract_spatial_series(dataset, "temperature_feedback_src_shape_e", time_count=time_points.size)
             reference_energy_source = _extract_spatial_series(dataset, "SPe_feedback", time_count=time_points.size)
-            reconstructed_energy_source = source_shape * reconstructed_multiplier[:, None, None, None]
+        load_elapsed = perf_counter() - load_start
+
+        reconstruct_start = perf_counter()
+        reconstructed_integral_state, reconstructed_proportional, reconstructed_integral, reconstructed_multiplier = (
+            _reconstruct_temperature_controller(
+                time_points=time_points,
+                error=error,
+                proportional_gain=p_gain,
+                integral_gain=i_gain,
+                integral_positive=integral_positive,
+                source_positive=source_positive,
+            )
+        )
+        reconstructed_energy_source = source_shape * reconstructed_multiplier[:, None, None, None]
+        reconstruct_elapsed = perf_counter() - reconstruct_start
 
     return _TemperatureFeedbackSeries(
         time_points=time_points,
@@ -268,7 +294,13 @@ def _build_temperature_feedback_series(
         reconstructed_integral_state=reconstructed_integral_state,
         reference_energy_source=reference_energy_source,
         reconstructed_energy_source=reconstructed_energy_source,
-    )
+    ), {
+        "stage_input": float(stage_elapsed),
+        "reference_run": float(reference_run_elapsed),
+        "load_dataset": float(load_elapsed),
+        "reconstruct_controller": float(reconstruct_elapsed),
+        "total": float(perf_counter() - overall_start),
+    }
 
 
 def _stage_temperature_feedback_example(
@@ -278,6 +310,7 @@ def _stage_temperature_feedback_example(
     nout: int,
     timestep: float,
     ny: int,
+    solver_type: str,
 ) -> None:
     for child in example_dir.iterdir():
         if child.is_file():
@@ -287,7 +320,7 @@ def _stage_temperature_feedback_example(
     text = _replace_bout_setting(text, "nout", str(int(nout)))
     text = _replace_bout_setting(text, "timestep", f"{float(timestep):g}")
     text = _replace_bout_setting(text, "ny", str(int(ny)))
-    text = _replace_bout_setting(text, "type", "cvode")
+    text = _replace_bout_setting(text, "type", solver_type)
     input_path.write_text(text, encoding="utf-8")
 
 
@@ -307,19 +340,20 @@ def _run_temperature_feedback_example(
 ) -> None:
     stdout_path = workdir / "run.stdout"
     try:
-        result = subprocess.run(
-            [str(binary), "-d", "."],
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
+        with stdout_path.open("w", encoding="utf-8") as stdout_stream:
+            result = subprocess.run(
+                [str(binary), "-d", "."],
+                cwd=workdir,
+                stdout=stdout_stream,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
             f"Temperature-feedback reference run did not finish within {timeout_seconds}s in {workdir}"
         ) from exc
-    stdout_path.write_text(result.stdout + ("\n" if result.stdout and not result.stdout.endswith("\n") else "") + result.stderr, encoding="utf-8")
     if result.returncode != 0:
         raise RuntimeError(
             f"Temperature-feedback reference run failed with exit code {result.returncode}; see {stdout_path}"

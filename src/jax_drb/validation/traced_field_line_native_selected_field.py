@@ -161,10 +161,10 @@ def compare_native_traced_field_line_selected_fields(
 
 
 @jax.jit
-def _native_radial_profile(values: jax.Array) -> jax.Array:
-    if values.ndim == 1:
+def _native_radial_profile_batch(values: jax.Array) -> jax.Array:
+    if values.ndim == 2:
         return values
-    axes = tuple(range(1, values.ndim))
+    axes = tuple(range(2, values.ndim))
     return jnp.mean(values, axis=axes)
 
 
@@ -172,11 +172,12 @@ def _native_reduce_metric_profiles(
     fields: dict[str, np.ndarray],
     field_names: tuple[str, ...],
 ) -> dict[str, np.ndarray]:
-    reduced: dict[str, np.ndarray] = {}
-    for field_name in field_names:
-        values = jnp.asarray(fields[field_name], dtype=jnp.float64)
-        reduced[field_name] = np.asarray(_native_radial_profile(values), dtype=np.float64)
-    return reduced
+    stacked = jnp.stack([jnp.asarray(fields[field_name], dtype=jnp.float64) for field_name in field_names], axis=0)
+    reduced_values = np.asarray(_native_radial_profile_batch(stacked), dtype=np.float64)
+    return {
+        field_name: reduced_values[index]
+        for index, field_name in enumerate(field_names)
+    }
 
 
 def _write_parity_json(result: NativeTracedFieldLineSelectedFieldParityResult, path: Path) -> Path:
