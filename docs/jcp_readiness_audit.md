@@ -36,6 +36,7 @@ Useful external anchors:
 - Public artifacts are reproducible and sanitized: JSON summaries, NPZ arrays, publication plots, movies, and GIFs are committed for the promoted demo/validation surfaces.
 - The release/runtime surface is significantly stronger than before: verbose progress, run logs, artifact manifests, restart bundles, and public release-surface regression checks are all in place.
 - The 3D infrastructure is no longer tokamak-only in architecture: tokamak, traced-field-line, and VMEC/stellarator adapters now share the same manifest/observable/parity/runtime artifact model.
+- Reduced native JAX profiling is now explicit on the promoted non-tokamak 3D kernels: compile, first-execute, warm-execute, and Perfetto trace artifacts are committed for the traced-field-line and VMEC reduced native surfaces.
 
 ## What is still missing for a strong JCP claim
 

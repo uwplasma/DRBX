@@ -304,12 +304,14 @@ Current checkpoint:
 - that broader reduced-matrix closeout is now materially in-tree:
   - `native_3d_runtime_campaign` aggregates committed native tokamak, traced-field-line, and stellarator runtime reports and adds compact scaling sweeps for the promoted non-tokamak native reduction kernels
   - `native_3d_convergence_campaign` adds an operator-level convergence gate on the promoted traced-field-line native reduction path against an analytic radial-average target
+  - `jax_native_profile_audit` now measures compile, first-execute, and warm-execute timings on the promoted traced-field-line and stellarator reduced kernels, emits Perfetto-compatible traces for both lanes, and records the concrete JAX guidance from that audit: batch same-shape selected fields before entering jitted reductions, warm kernels once before timing, and keep solver/geometry metadata out of static JIT arguments
   - `hermes_comparison_summary` aggregates the committed native-vs-reference comparison surfaces across the promoted reduced 3D matrix
 - the first controller-oriented validation lane is also explicit now:
   - `controller_feedback_campaign` compares the native upstream-density feedback controller history against the reference dense-history surface on `recycling_1d_one_step`
   - the gate covers controller multiplier, proportional term, integral term, reconstructed controller integral, and target recycling source
   - this closes the first honest controller-feedback lane without overstating `temperature_feedback` or `detachment_controller`
-  - `temperature_feedback_campaign` is now also scaffolded as a reduced Hermes-backed PI-controller-law gate, but the bounded local `1D-recycling-with-Tt-control` example still exceeds the current ten-minute policy here, so that lane remains unpromoted until a genuinely bounded reference run is in hand
+  - `temperature_feedback_campaign` now streams the local reference run directly into `run.stdout` instead of capturing the full solver output in-memory, which removes the pipe-fill failure mode from the bounded controller probe and adds explicit stage/run/load/reconstruction timings to the artifact summary
+  - even after that fix, the bounded local `1D-recycling-with-Tt-control` example still remains unpromoted: the smallest `cvode` deck tried so far still exceeds the short budget, and the most aggressive tiny `ny=4`, `nout=1`, `timestep=5` shrink on the current local reference build hits a solver crash rather than yielding a clean bounded artifact
 - the first reduced native 3D selected-field rung is now also in-tree:
   - `tokamak_native_selected_field` runs a promoted native tokamak one-step case on the compact `Ne`/`Pe`/`phi` surface
   - the artifact bundle now carries parity JSON/NPZ, a shared observable report, a direct native-vs-reference comparison JSON/plot bundle, and a runtime/provenance report
