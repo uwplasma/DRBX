@@ -53,4 +53,4 @@ That is good enough to lock an operational one-step gate. The same native runner
 - `total Ph ≈ 2.89e-2`
 - `momentum RMS ≈ 1.71e-3`
 
-That keeps the heavier transient under bounded native regression on both centerline and total-history metrics. The remaining neutral hardening task is now the broader full-array short-window field surface, not the existence of any global short-window metric gate at all.
+That keeps the heavier transient under bounded native regression on both centerline and total-history metrics, and the same trimmed active-domain `Nh`/`Ph`/`NVh` surface now also clears a bounded full-array short-window field gate (`Nh max|Δ| ≈ 1.27e-2`, `Ph max|Δ| ≈ 1.21e-3`, `NVh max|Δ| ≈ 3.37e-3`). The remaining neutral work is therefore no longer about whether a short-window field surface exists, but only whether a broader standalone claim needs wider field coverage than this committed trimmed-domain gate.
