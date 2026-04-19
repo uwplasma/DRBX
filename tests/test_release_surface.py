@@ -27,6 +27,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "temperature_feedback_campaign.md",
     REPO_ROOT / "docs" / "detachment_controller_campaign.md",
     REPO_ROOT / "docs" / "closeout_coverage.md",
+    REPO_ROOT / "docs" / "release_packaging.md",
+    REPO_ROOT / "docs" / "release_notes_1_0_0.md",
     REPO_ROOT / "docs" / "jcp_readiness_audit.md",
     REPO_ROOT / "docs" / "native_3d_runtime_campaign.md",
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",
@@ -77,6 +79,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "controller_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "temperature_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "detachment_controller_campaign.py",
+    REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml",
 )
 
 PUBLIC_RUN_LOGS = (

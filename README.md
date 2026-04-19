@@ -22,10 +22,23 @@ Editable install:
 pip install -e .[dev,integrators,models,validation]
 ```
 
+PyPI install after release:
+
+```bash
+pip install jax-drb
+```
+
 Minimal runtime install:
 
 ```bash
 pip install -e .
+```
+
+Build the package locally:
+
+```bash
+python -m pip install build
+python -m build
 ```
 
 ## Quick Start
@@ -330,6 +343,8 @@ These examples follow the same differentiable-simulation surfaces commonly used 
 ## Documentation Map
 
 - Runtime and deck guide: [native_runtime_cli.md](docs/native_runtime_cli.md)
+- Release and packaging guide: [release_packaging.md](docs/release_packaging.md)
+- Current release notes: [release_notes_1_0_0.md](docs/release_notes_1_0_0.md)
 - Validation gallery: [validation_gallery.md](docs/validation_gallery.md)
 - Diverted tokamak movie demo: [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
 - TCV-X21 tokamak scaffold demo: [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
@@ -385,3 +400,7 @@ python scripts/run_closeout_coverage.py
 ```
 
 That script is intentionally narrower than repo-wide coverage. It enforces `95%` on the controller/runtime/profile/audit closeout slice that the release decision actually depends on, instead of pretending one monolithic local command is the only meaningful threshold.
+
+For package build and PyPI release steps, see:
+
+- [release_packaging.md](docs/release_packaging.md)
