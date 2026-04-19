@@ -15,6 +15,9 @@ from jax_drb.validation import (
 from jax_drb.validation.temperature_feedback_campaign import (
     _TemperatureFeedbackSeries,
     _build_temperature_feedback_series,
+    _patched_temperature_feedback_header_text,
+    _prepare_temperature_feedback_reference_binary,
+    _temperature_feedback_header_has_known_permission_bug,
     _extract_scalar_series,
     _extract_target_temperature,
     _extract_time_points,
@@ -159,13 +162,39 @@ def test_build_temperature_feedback_campaign_maps_series_to_summary(monkeypatch)
     )
     monkeypatch.setattr(
         "jax_drb.validation.temperature_feedback_campaign._build_temperature_feedback_series",
-        lambda **kwargs: (series, {"total": 1.0}),
+        lambda **kwargs: (series, {"total": 1.0}, {"mode": "explicit_reference_binary"}),
     )
 
     report = build_temperature_feedback_campaign(reference_root="/tmp")
 
     assert report["summary"]["family"] == "temperature_feedback"
-    assert report["summary"]["passed_metric_count"] == report["summary"]["metric_count"] == 6
+    assert report["summary"]["passed_metric_count"] == report["summary"]["metric_count"] == 5
+    assert report["summary"]["reference_provenance"] == {"mode": "explicit_reference_binary"}
+
+
+def test_temperature_feedback_header_bug_detection_and_patch() -> None:
+    original = (
+        "    std::vector<std::string> species_stripped;\n"
+        "    std::transform(species_list.begin(), species_list.end(), species_stripped.begin(),\n"
+        "                   [](const std::string& val) { return trim(val); });\n"
+    )
+
+    assert _temperature_feedback_header_has_known_permission_bug(original) is True
+    patched = _patched_temperature_feedback_header_text(original)
+    assert "std::back_inserter(species_stripped)" in patched
+    assert "reserve(species_list.size())" in patched
+    assert _temperature_feedback_header_has_known_permission_bug(patched) is False
+
+
+def test_prepare_temperature_feedback_reference_binary_uses_explicit_binary(tmp_path: Path) -> None:
+    binary, provenance = _prepare_temperature_feedback_reference_binary(
+        reference_root=tmp_path,
+        reference_binary=tmp_path / "hermes-3",
+    )
+
+    assert binary == tmp_path / "hermes-3"
+    assert provenance["mode"] == "explicit_reference_binary"
+    assert provenance["temperature_feedback_permission_fix"] == "explicit_binary"
 
 
 def test_stage_temperature_feedback_example_rewrites_input(tmp_path: Path) -> None:
@@ -223,6 +252,38 @@ def test_extract_spatial_series_broadcasts_static_scalar() -> None:
 
     assert extracted.shape == (3, 1, 1, 1)
     np.testing.assert_allclose(extracted[:, 0, 0, 0], np.asarray([3.5, 3.5, 3.5], dtype=np.float64))
+
+
+def test_extract_target_temperature_uses_first_active_boundary_cell_not_guard() -> None:
+    class _Variable:
+        def __init__(self, values, dimensions):
+            self._values = np.asarray(values, dtype=np.float64)
+            self.dimensions = dimensions
+
+        def __getitem__(self, key):
+            return self._values
+
+    class _Dataset:
+        def __init__(self):
+            te = np.asarray(
+                [
+                    [[[0.0], [0.9], [0.8], [0.0]]],
+                    [[[0.0], [0.85], [0.75], [0.0]]],
+                ],
+                dtype=np.float64,
+            )
+            self.variables = {
+                "t_array": _Variable(np.asarray([0.0, 1.0], dtype=np.float64), ("t",)),
+                "Te": _Variable(te, ("t", "x", "y", "z")),
+            }
+
+    dataset = _Dataset()
+
+    upstream = _extract_target_temperature(dataset, control_target=False)
+    target = _extract_target_temperature(dataset, control_target=True)
+
+    np.testing.assert_allclose(upstream, np.asarray([0.9, 0.85], dtype=np.float64))
+    np.testing.assert_allclose(target, np.asarray([0.8, 0.75], dtype=np.float64))
 
 
 def test_replace_bout_setting_raises_when_key_is_missing() -> None:
@@ -370,7 +431,7 @@ def test_build_temperature_feedback_series_loads_staged_reference_dataset(
 
     monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign._run_temperature_feedback_example", _fake_run)
 
-    series, timing = _build_temperature_feedback_series(
+    series, timing, provenance = _build_temperature_feedback_series(
         reference_root=tmp_path,
         reference_binary=None,
         nout=4,
@@ -384,3 +445,4 @@ def test_build_temperature_feedback_series_loads_staged_reference_dataset(
     np.testing.assert_allclose(series.reconstructed_multiplier, multiplier)
     np.testing.assert_allclose(series.reference_energy_source.reshape(2), multiplier)
     assert timing["total"] >= 0.0
+    assert provenance["mode"] == "discovered_reference_binary"

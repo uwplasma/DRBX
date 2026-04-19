@@ -137,6 +137,7 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "reactions_collisions_campaign_artifacts" / "data" / "reactions_collisions_campaign.json",
     REPO_ROOT / "docs" / "data" / "impurity_radiation_campaign_artifacts" / "data" / "impurity_radiation_campaign.json",
     REPO_ROOT / "docs" / "data" / "controller_feedback_campaign_artifacts" / "data" / "controller_feedback_campaign.json",
+    REPO_ROOT / "docs" / "data" / "temperature_feedback_campaign_artifacts" / "data" / "temperature_feedback_campaign.json",
     REPO_ROOT / "docs" / "data" / "detachment_controller_campaign_artifacts" / "data" / "detachment_controller_campaign.json",
 )
 
