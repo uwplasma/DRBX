@@ -43,7 +43,7 @@ Useful external anchors:
 These are the real remaining blockers, not wishlist items:
 
 1. Controller-oriented temperature/detachment physics is still reduced-promoted, not full-production.
-   `controller_feedback_campaign` and the reduced `temperature_feedback_campaign` are useful validation packages, and `detachment_controller_campaign` now promotes a broader bounded reduced Hermes-backed detachment-controller lane (`ny=32`, `nout=24`, `timestep=100`), but the bounded local Hermes Tt-control run still does not finish inside the current ten-minute policy and there is not yet a broader production temperature/detachment-control workflow.
+   `controller_feedback_campaign` and the reduced `temperature_feedback_campaign` are useful validation packages, and `detachment_controller_campaign` now promotes a broader bounded reduced Hermes-backed detachment-controller lane (`ny=32`, `nout=24`, `timestep=100`). The `temperature_feedback_campaign` staging path now also strips the incompatible `beuler`-only solver options when patching the reduced `cvode` deck, but the bounded local Hermes Tt-control run still does not finish inside the current ten-minute policy and there is not yet a broader production temperature/detachment-control workflow.
 
 2. The 3D native claim boundary is still reduced, not full-production.
    The repo has native reduced tokamak and non-tokamak 3D rungs plus benchmark/scaffold packages, but it does not yet have a broad end-to-end native 3D production workflow comparable to the strongest 2D promoted lanes.
@@ -72,7 +72,7 @@ The paper claim boundary should now be treated as chosen, not open-ended:
 For the selected-lane claim boundary that is already explicit in the repo, the closeout state is now strong enough to start manuscript drafting:
 
 - `neutral_mixed_short_window` now clears a bounded full short-window metric gate on the matrix-free path, not only a centerline probe;
-- direct tokamak recycling is now widened beyond the earlier two-output D/T windows: the neon-enabled `tokamak_recycling_dthene_one_step` lane also clears a live Hermes-backed mixed operational gate;
+- direct tokamak recycling is now widened beyond the earlier two-output D/T windows: the neon-enabled `tokamak_recycling_dthene_one_step` lane clears a live Hermes-backed mixed operational gate, and the same neon-enabled family now also clears a bounded `nout=3` short-window gate;
 - the reduced detachment-controller lane is materially broader than before and remains reproducible on the local reference build.
 
 That means the selected-lane JCP manuscript can now proceed, as long as the paper keeps the same claim boundary the code already documents:
@@ -85,7 +85,7 @@ That means the selected-lane JCP manuscript can now proceed, as long as the pape
 Before attempting the broader standalone claim boundary, the following should still be closed:
 
 1. Promote a broader production temperature/detachment-control lane beyond the reduced detachment-controller gate.
-2. Promote longer-window direct tokamak recycling surfaces beyond the current first-output, `nout=2`, and neon-enabled one-step gates.
+2. Promote longer-window direct tokamak recycling surfaces beyond the current first-output, `nout=2`, and neon-enabled `nout=3` bounded gates.
 3. Decide whether the full-array neutral short-window field surface is required for the broad standalone claim or remains a secondary hardening task.
 
 Until those broader-claim items are done, the code is best described as:
