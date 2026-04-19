@@ -12,7 +12,7 @@ import numpy as np
 from ..config.boutinp import BoutConfig, NumericResolver, apply_bout_overrides, load_bout_input
 from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import make_default_overrides, merge_overrides, run_reference_case
-from ..reference.cases import ReferenceCase
+from ..reference.cases import ReferenceCase, load_reference_cases
 from ..runtime.output import RestartBundle, build_run_event, print_run_event
 from ..runtime.run_config import RunConfiguration
 from ..runtime import runtime_numpy_dtype
@@ -1772,18 +1772,26 @@ def run_input_case(
     event_logger: Callable[[ABCMapping[str, Any]], None] | None = None,
 ) -> NativeRunResult:
     config = load_bout_input(input_path)
+    resolved_case_name = case_name or Path(input_path).stem
+    resolved_reference_case = reference_case
+    if resolved_reference_case is None:
+        resolved_reference_case = _reference_case_by_name_or_none(resolved_case_name)
     return run_config_case(
         config,
-        case_name=case_name or Path(input_path).stem,
+        case_name=resolved_case_name,
         parity_mode=parity_mode,
         compare_variables=compare_variables,
-        reference_case=reference_case,
+        reference_case=resolved_reference_case,
         restart_state=restart_state,
         output_steps=output_steps,
         verbose=verbose,
         verbosity=verbosity,
         event_logger=event_logger,
     )
+
+
+def _reference_case_by_name_or_none(case_name: str) -> ReferenceCase | None:
+    return next((case for case in load_reference_cases() if case.name == case_name), None)
 
 
 def run_config_case(

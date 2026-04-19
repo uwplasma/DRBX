@@ -271,8 +271,10 @@ def test_neutral_mixed_short_window_native_parity_stays_within_operational_cente
         z_index=5,
     )
 
-    assert parity.series_errors["center_density"].max_abs_error <= 9.5e-2
-    assert parity.series_errors["center_pressure"].max_abs_error <= 1.0e-2
+    assert parity.series_errors["center_density"].max_abs_error <= 9.5e-3
+    assert parity.series_errors["center_pressure"].max_abs_error <= 7.5e-4
     assert parity.series_errors["center_momentum"].max_abs_error <= 3.0e-3
-    assert parity.series_errors["center_temperature"].max_abs_error <= 2.0e-4
+    assert parity.series_errors["center_temperature"].max_abs_error <= 3.5e-4
+    assert parity.series_errors["total_density"].max_abs_error <= 3.5e-1
+    assert parity.series_errors["total_pressure"].max_abs_error <= 3.0e-2
     assert parity.series_errors["momentum_rms"].max_abs_error <= 3.0e-3

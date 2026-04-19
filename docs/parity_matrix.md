@@ -93,7 +93,7 @@ Deliverables:
 | `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
 | `neutral_mixed_rhs` | `native-validated` | Neutral active-domain RHS is locked. |
 | `neutral_mixed_one_step` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane; the bounded centerline compare is materially tighter after the wall-guard fix, but the parity gate is still open. |
-| `neutral_mixed_short_window` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane. The matrix-free runner path now clears a bounded full short-window centerline gate inside the local ten-minute policy, but the broader short-window surface remains open. |
+| `neutral_mixed_short_window` | `open native runner target` | Baseline exists and the native implicit runner path now executes this lane. The matrix-free runner path now clears a bounded full short-window metric gate inside the local ten-minute policy, including total-density and total-pressure histories; the remaining gap is the broader full-array short-window field surface. |
 | `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |
 | `recycling_1d_one_step` | `native_exact` | First-output open-field recycling now clears the promoted one-step scaled-diff gate (`relative_to_expected_max < 5e-2`) against the committed baseline. |
