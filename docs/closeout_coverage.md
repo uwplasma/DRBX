@@ -25,6 +25,7 @@ This script runs a bounded critical-path slice over:
 - reactions/collisions and impurity/radiation campaigns;
 - native 3D runtime/convergence/profile audits;
 - Hermes comparison summary and capability audit;
+- packaging metadata and PyPI release-workflow checks;
 - the public release-surface regression.
 
 It then enforces a `95%` total coverage threshold on that exact closeout slice.
