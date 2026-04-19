@@ -23,6 +23,7 @@ from jax_drb.validation.temperature_feedback_campaign import (
     _replace_bout_setting,
     _run_temperature_feedback_example,
     _stage_temperature_feedback_example,
+    _strip_solver_option_lines,
     build_temperature_feedback_campaign,
 )
 
@@ -170,7 +171,10 @@ def test_build_temperature_feedback_campaign_maps_series_to_summary(monkeypatch)
 def test_stage_temperature_feedback_example_rewrites_input(tmp_path: Path) -> None:
     example_dir = tmp_path / "example"
     example_dir.mkdir()
-    (example_dir / "BOUT.inp").write_text("nout = 40\ntimestep = 5\nny = 80\ntype = beuler\n", encoding="utf-8")
+    (example_dir / "BOUT.inp").write_text(
+        "nout = 40\ntimestep = 5\nny = 80\ntype = beuler\nsnes_type = newtonls\nksp_type = gmres\n",
+        encoding="utf-8",
+    )
     (example_dir / "extra.dat").write_text("payload", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
@@ -189,7 +193,20 @@ def test_stage_temperature_feedback_example_rewrites_input(tmp_path: Path) -> No
     assert "timestep = 100" in updated
     assert "ny = 16" in updated
     assert "type = cvode" in updated
+    assert "snes_type" not in updated
+    assert "ksp_type" not in updated
     assert (workdir / "extra.dat").read_text(encoding="utf-8") == "payload"
+
+
+def test_strip_solver_option_lines_removes_beuler_only_options() -> None:
+    text = "type = cvode\nsnes_type = newtonls\nksp_type = gmres\nlag_jacobian = 500\n"
+
+    updated = _strip_solver_option_lines(text, ("snes_type", "ksp_type", "lag_jacobian"))
+
+    assert "snes_type" not in updated
+    assert "ksp_type" not in updated
+    assert "lag_jacobian" not in updated
+    assert "type = cvode" in updated
 
 
 def test_extract_spatial_series_broadcasts_static_scalar() -> None:

@@ -17,6 +17,13 @@ from ..config.boutinp import load_bout_input
 from ..parity.reference import discover_reference_binary
 from ..reference.paths import require_reference_root
 
+_INCOMPATIBLE_IMPLICIT_SOLVER_OPTIONS = (
+    "snes_type",
+    "ksp_type",
+    "max_nonlinear_iterations",
+    "lag_jacobian",
+)
+
 
 @dataclass(frozen=True)
 class TemperatureFeedbackCampaignMetric:
@@ -321,6 +328,8 @@ def _stage_temperature_feedback_example(
     text = _replace_bout_setting(text, "timestep", f"{float(timestep):g}")
     text = _replace_bout_setting(text, "ny", str(int(ny)))
     text = _replace_bout_setting(text, "type", solver_type)
+    if solver_type != "beuler":
+        text = _strip_solver_option_lines(text, _INCOMPATIBLE_IMPLICIT_SOLVER_OPTIONS)
     input_path.write_text(text, encoding="utf-8")
 
 
@@ -330,6 +339,13 @@ def _replace_bout_setting(text: str, key: str, value: str) -> str:
     if count != 1:
         raise ValueError(f"Could not replace {key!r} in patched BOUT.inp")
     return replaced
+
+
+def _strip_solver_option_lines(text: str, option_names: tuple[str, ...]) -> str:
+    updated = text
+    for name in option_names:
+        updated = re.sub(rf"(?m)^[ \t]*{re.escape(name)}\s*=.*\n?", "", updated)
+    return updated
 
 
 def _run_temperature_feedback_example(
