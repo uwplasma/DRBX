@@ -38,23 +38,17 @@ Useful external anchors:
 - The 3D infrastructure is no longer tokamak-only in architecture: tokamak, traced-field-line, and VMEC/stellarator adapters now share the same manifest/observable/parity/runtime artifact model.
 - Reduced native JAX profiling is now explicit on the promoted non-tokamak 3D kernels: compile, first-execute, warm-execute, and Perfetto trace artifacts are committed for the traced-field-line and VMEC reduced native surfaces.
 
-## What is still missing for a strong JCP claim
+## What is still missing for the broadest JCP claim
 
 These are the real remaining blockers, not wishlist items:
 
-1. Full neutral transient closure is not finished.
-   The public native `neutral_mixed_short_window` lane now clears a bounded full short-window centerline gate on the matrix-free path, but the broader global short-window mass/pressure surface is still not promoted.
+1. Controller-oriented temperature/detachment physics is still reduced-promoted, not full-production.
+   `controller_feedback_campaign` and the reduced `temperature_feedback_campaign` are useful validation packages, and `detachment_controller_campaign` now promotes a broader bounded reduced Hermes-backed detachment-controller lane (`ny=32`, `nout=24`, `timestep=100`), but the bounded local Hermes Tt-control run still does not finish inside the current ten-minute policy and there is not yet a broader production temperature/detachment-control workflow.
 
-2. The direct tokamak recycling transient family is not fully widened.
-   `tokamak_recycling_dthe_one_step` is exact on its committed first-output surface, the compact D/T `nout=2` window is bounded operationally, and the richer drift-enabled `nout=2` window is now bounded too, but longer-window and neon-enabled direct tokamak recycling surfaces are still not promoted.
-
-3. Controller-oriented temperature/detachment physics is only reduced-promoted, not full-production.
-   `controller_feedback_campaign` and the reduced `temperature_feedback_campaign` are useful validation packages, and `detachment_controller_campaign` now promotes a bounded reduced Hermes-backed detachment-controller lane, but the bounded local Hermes Tt-control run still does not finish inside the current ten-minute policy and there is not yet a broader production temperature/detachment-control workflow.
-
-4. The 3D native claim boundary is still reduced, not full-production.
+2. The 3D native claim boundary is still reduced, not full-production.
    The repo has native reduced tokamak and non-tokamak 3D rungs plus benchmark/scaffold packages, but it does not yet have a broad end-to-end native 3D production workflow comparable to the strongest 2D promoted lanes.
 
-5. Coverage is now split into a real release gate and a broader hardening target.
+3. Coverage is now split into a real release gate and a broader hardening target.
    `scripts/run_closeout_coverage.py` now enforces `95%` on the bounded controller/runtime/profile/audit closeout slice, and that gate is passing. Repo-wide monolithic coverage is still broader and slower than the local release gate, so it remains a hardening target rather than a ship blocker.
 
 ## Shipping decision
@@ -73,14 +67,29 @@ The paper claim boundary should now be treated as chosen, not open-ended:
 - selected promoted native lanes plus general 3D infrastructure: **yes**
 - broad standalone parity-complete DRB solver: **no**
 
-## Required pre-paper closeout
+## Selected-Lane JCP Decision
 
-Before starting the main JCP manuscript on the selected-lane claim boundary, the following should still be closed:
+For the selected-lane claim boundary that is already explicit in the repo, the closeout state is now strong enough to start manuscript drafting:
+
+- `neutral_mixed_short_window` now clears a bounded full short-window metric gate on the matrix-free path, not only a centerline probe;
+- direct tokamak recycling is now widened beyond the earlier two-output D/T windows: the neon-enabled `tokamak_recycling_dthene_one_step` lane also clears a live Hermes-backed mixed operational gate;
+- the reduced detachment-controller lane is materially broader than before and remains reproducible on the local reference build.
+
+That means the selected-lane JCP manuscript can now proceed, as long as the paper keeps the same claim boundary the code already documents:
+
+- selected promoted native lanes plus general 3D infrastructure: **yes**
+- broad standalone parity-complete DRB solver: **no**
+
+## Remaining Broad-Claim Closeout
+
+Before attempting the broader standalone claim boundary, the following should still be closed:
 
 1. Promote a broader production temperature/detachment-control lane beyond the reduced detachment-controller gate.
-2. Promote the broader global `neutral_mixed_short_window` surface beyond the current centerline-only gate.
-3. Promote at least one longer-window or neon-enabled direct tokamak recycling surface beyond the current bounded `nout=2` gates.
-Until those three items are done, the code is best described as:
+2. Promote longer-window direct tokamak recycling surfaces beyond the current first-output, `nout=2`, and neon-enabled one-step gates.
+3. Decide whether the full-array neutral short-window field surface is required for the broad standalone claim or remains a secondary hardening task.
+
+Until those broader-claim items are done, the code is best described as:
 
 - a strong research-grade public codebase with unusually good parity/validation tooling;
+- ready to begin drafting a selected-lane JCP paper;
 - not yet the final broad-claim JCP submission target.

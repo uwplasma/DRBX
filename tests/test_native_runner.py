@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from jax_drb.config.boutinp import parse_bout_input
+import jax_drb.native.runner as native_runner
 from jax_drb.native import run_config_case
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.arrays import (
@@ -87,6 +89,43 @@ bndry_all = neumann
 function = Nh:function
 bndry_all = neumann
 """
+
+
+def test_run_input_case_resolves_curated_reference_case_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "BOUT.inp"
+    input_path.write_text(_EVOLVE_DENSITY_INPUT, encoding="utf-8")
+    reference_case = ReferenceCase(
+        name="neutral_mixed_short_window",
+        stage="stageX",
+        reference_path="tests/integrated/neutral_mixed/data/BOUT.inp",
+        parity_mode="short_window",
+        rationale="test",
+        compare_variables=("Nh", "Ph", "NVh"),
+        trim_y_guards=True,
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(native_runner, "load_reference_cases", lambda: (reference_case,))
+
+    def fake_run_config_case(config, **kwargs):
+        captured.update(kwargs)
+        return "sentinel"
+
+    monkeypatch.setattr(native_runner, "run_config_case", fake_run_config_case)
+
+    result = native_runner.run_input_case(
+        input_path,
+        case_name="neutral_mixed_short_window",
+        parity_mode="short_window",
+        compare_variables=("Nh", "Ph", "NVh"),
+    )
+
+    assert result == "sentinel"
+    assert captured["case_name"] == "neutral_mixed_short_window"
+    assert captured["reference_case"] == reference_case
 
 _FLUID_1D_MMS_INPUT = """
 nout = 50

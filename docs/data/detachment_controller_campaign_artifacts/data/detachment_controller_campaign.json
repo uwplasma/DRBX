@@ -33,7 +33,7 @@
       "notes": "The reduced detachment-controller probe shows a nontrivial control response instead of a frozen multiplier.",
       "passed": true,
       "target": 0.02,
-      "value": 0.43034974501549916
+      "value": 0.6096238491113184
     },
     {
       "kind": "max_backslide",
@@ -49,11 +49,11 @@
       "notes": "The reduced lane keeps the detachment front stationary enough that the derivative term remains numerically negligible.",
       "passed": true,
       "target": 1e-10,
-      "value": 2.0160885095060445e-12
+      "value": 3.3069066147877055e-11
     }
   ],
-  "nout": 10,
-  "ny": 16,
+  "nout": 24,
+  "ny": 32,
   "passed_metric_count": 6,
   "reference_mode": "external_example_solver_patch_reduced",
   "settling_time": 0.0,
@@ -66,10 +66,10 @@
   ],
   "timestep": 100.0,
   "timing_seconds": {
-    "load_dataset": 0.022518709010910243,
-    "reconstruct_controller": 0.0001711249933578074,
-    "reference_run": 1.0318092089728452,
-    "stage_input": 0.002795709006022662,
-    "total": 1.0583861250197515
+    "load_dataset": 0.020610917010344565,
+    "reconstruct_controller": 0.000251874967943877,
+    "reference_run": 1.9939825829933397,
+    "stage_input": 0.002603875007480383,
+    "total": 2.0185152500052936
   }
 }

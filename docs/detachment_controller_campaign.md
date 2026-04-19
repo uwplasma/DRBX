@@ -4,7 +4,7 @@ This package turns the reduced detachment-controller example into a bounded Herm
 
 The current reduced lane is intentionally bounded and explicit:
 
-- it stages the `tokamak-1D/extra/1D-recycling-with-detachment-control` example on a reduced but nontrivial `cvode`-compatible deck (`ny=16`, `nout=10`, `timestep=100`);
+- it stages the `tokamak-1D/extra/1D-recycling-with-detachment-control` example on a reduced but materially broader `cvode`-compatible deck (`ny=32`, `nout=24`, `timestep=100`);
 - it strips the `beuler`-only solver options that would otherwise make the reduced deck fail input validation under the local non-PETSc reference build;
 - it sets `settling_time = 0` so the bounded window actually exercises the controller law instead of spending the whole probe inside the original settling period;
 - it validates the controller identities that are visible on the saved diagnostics:
@@ -28,5 +28,5 @@ Artifacts:
 Claim boundary:
 
 - this is the first genuinely bounded `detachment_controller` lane on the local reference build;
-- it is a reduced controller-validation surface, not a full detachment-production workflow claim;
+- it is a broader reduced controller-validation surface, not a full detachment-production workflow claim;
 - the broader impurity/radiation/detachment family still remains open beyond this reduced promoted lane.
