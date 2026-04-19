@@ -278,3 +278,32 @@ def test_neutral_mixed_short_window_native_parity_stays_within_operational_cente
     assert parity.series_errors["total_density"].max_abs_error <= 3.5e-1
     assert parity.series_errors["total_pressure"].max_abs_error <= 3.0e-2
     assert parity.series_errors["momentum_rms"].max_abs_error <= 3.0e-3
+
+
+def test_neutral_mixed_short_window_native_parity_stays_within_operational_full_array_band() -> None:
+    if os.environ.get("JAX_DRB_RUN_NEUTRAL_MIXED_SHORT_WINDOW") != "1":
+        pytest.skip("set JAX_DRB_RUN_NEUTRAL_MIXED_SHORT_WINDOW=1 to run the bounded neutral short-window full-array gate")
+    if not _REFERENCE_INPUT.exists():
+        pytest.skip("local neutral_mixed reference input is unavailable")
+
+    expected = _reference_payload()
+    result = run_input_case(
+        _REFERENCE_INPUT,
+        case_name="neutral_mixed_short_window",
+        parity_mode="short_window",
+        compare_variables=("Nh", "Ph", "NVh"),
+    )
+    actual_variables = {name: np.asarray(value, dtype=np.float64) for name, value in result.variables.items()}
+
+    field_thresholds = {
+        "Nh": {"max_abs": 1.5e-2, "rms": 3.0e-3},
+        "Ph": {"max_abs": 1.5e-3, "rms": 3.0e-4},
+        "NVh": {"max_abs": 4.0e-3, "rms": 6.0e-4},
+    }
+    for name, thresholds in field_thresholds.items():
+        expected_values = np.asarray(expected["variables"][name], dtype=np.float64)
+        diff = actual_variables[name] - expected_values
+        max_abs = float(np.max(np.abs(diff)))
+        rms = float(np.sqrt(np.mean(np.square(diff))))
+        assert max_abs <= thresholds["max_abs"], (name, max_abs, thresholds)
+        assert rms <= thresholds["rms"], (name, rms, thresholds)

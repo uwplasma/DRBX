@@ -309,6 +309,17 @@ What this documents:
 - explicit native checks for charge exchange, isotope coupling, CX multipliers, ionisation, ion-viscosity collisionality closure, and neon OpenADAS loading;
 - a machine-readable JSON/NPZ/plot package instead of leaving this breadth implied only by low-level unit tests.
 
+## Temperature Feedback Campaign
+
+![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)
+
+What this documents:
+
+- a bounded reduced Hermes-backed temperature-control lane on `1D-recycling-with-Tt-control`;
+- exact saved-diagnostic balance on the controller multiplier, proportional term, and `source_multiplier * source_shape`;
+- bounded output-time integral reconstruction and visible target-temperature error reduction on the reduced `cvode` window;
+- an auto-patched clean reference-worktree path for local Hermes trees that still carry the known `temperature_feedback.hxx` permission bug.
+
 ## Impurity And Radiation Campaign
 
 ![Impurity and radiation campaign](data/impurity_radiation_campaign_artifacts/images/impurity_radiation_campaign.png)

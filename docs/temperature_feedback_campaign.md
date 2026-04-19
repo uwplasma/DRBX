@@ -1,13 +1,18 @@
 # Temperature Feedback Campaign
 
-This package turns the `temperature_feedback` example into a bounded, reviewable controller-law gate. It does not claim that `jax_drb` already has a native `temperature_feedback` component. The scope is narrower and deliberate:
+This package turns the `temperature_feedback` example into a bounded, reviewable controller gate. It does not claim that `jax_drb` already has a native `temperature_feedback` component. The scope is narrower and deliberate:
 
-- run a reduced Hermes `1D-recycling-with-Tt-control` example on a bounded local window under the current ten-minute validation budget;
-- reconstruct the PI controller from the saved temperature history, gains, and time points;
-- compare the reconstructed proportional term, integral term, multiplier, integral state, and electron energy source against the Hermes diagnostics;
+- run a reduced Hermes `1D-recycling-with-Tt-control` example on a bounded local window;
+- use a clean auto-patched Hermes reference worktree when the local reference source still carries the known `temperature_feedback.hxx` permission bug, without modifying the user’s dirty reference tree;
+- validate the controller algebra that is actually observable on the saved outputs:
+  - exact multiplier balance,
+  - exact proportional-term balance,
+  - exact source-shape/source balance,
+  - bounded output-time integral reconstruction,
+  - bounded target-temperature error reduction;
 - publish JSON, NPZ, and a documentation plot on the public artifact surface.
 
-The summary JSON now also carries a `timing_seconds` breakdown for input staging, reference execution, dataset load, and controller reconstruction. The local reference run is streamed directly into `run.stdout` rather than captured in-memory, so the bounded probe does not hang behind a full stdout/stderr pipe while the local reference solver budget is still being characterized.
+The summary JSON also carries a `timing_seconds` breakdown for input staging, reference execution, dataset load, and controller reconstruction, plus a `reference_provenance` section recording whether the run used the discovered local Hermes binary or an auto-patched clean reference worktree.
 
 Run the demo with:
 
@@ -21,4 +26,4 @@ The default output root is:
 docs/data/temperature_feedback_campaign_artifacts
 ```
 
-The figure is intended to answer one narrow question cleanly: does the reduced PI controller law match the Hermes implementation on a real reference run? It is an honest bridge between the already committed `controller_feedback_campaign` and any future native `temperature_feedback` or detachment-control implementation. On this machine the bounded local Hermes example still exceeds the current ten-minute policy, so this package remains a scaffolded reduced gate rather than a promoted controller lane.
+The current committed bounded lane uses `ny=16`, `nout=4`, `timestep=100`, and `solver_type=cvode`. The figure is intended to answer one narrow question cleanly: does the reduced controller surface behave consistently on a real Hermes run, with explicit saved-diagnostic balance checks and a visible move toward the target temperature? That makes it a useful bridge between the already committed `controller_feedback_campaign` and any future native `temperature_feedback` or broader detachment-control implementation.
