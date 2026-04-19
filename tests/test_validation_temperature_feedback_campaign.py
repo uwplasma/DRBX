@@ -14,7 +14,9 @@ from jax_drb.validation import (
 )
 from jax_drb.validation.temperature_feedback_campaign import (
     _TemperatureFeedbackSeries,
+    _build_patched_temperature_feedback_reference_binary,
     _build_temperature_feedback_series,
+    _git_stdout,
     _patched_temperature_feedback_header_text,
     _prepare_temperature_feedback_reference_binary,
     _temperature_feedback_header_has_known_permission_bug,
@@ -172,6 +174,37 @@ def test_build_temperature_feedback_campaign_maps_series_to_summary(monkeypatch)
     assert report["summary"]["reference_provenance"] == {"mode": "explicit_reference_binary"}
 
 
+def test_build_temperature_feedback_campaign_adds_integral_metric_when_diagnostic_is_exported(monkeypatch) -> None:
+    series = _TemperatureFeedbackSeries(
+        time_points=np.asarray([0.0, 1.0], dtype=np.float64),
+        target_temperature=np.asarray([0.5, 0.5], dtype=np.float64),
+        setpoint=0.5,
+        reference_multiplier=np.asarray([1.0, 1.0], dtype=np.float64),
+        reconstructed_multiplier=np.asarray([1.0, 1.0], dtype=np.float64),
+        reference_proportional=np.asarray([0.2, 0.2], dtype=np.float64),
+        reconstructed_proportional=np.asarray([0.2, 0.2], dtype=np.float64),
+        reference_integral=np.asarray([0.0, 0.0], dtype=np.float64),
+        reconstructed_integral=np.asarray([0.0, 0.0], dtype=np.float64),
+        reference_integral_state=np.asarray([0.0, 1.0], dtype=np.float64),
+        reconstructed_integral_state=np.asarray([0.0, 1.0], dtype=np.float64),
+        reference_energy_source=np.asarray([[[[1.0]]], [[[1.0]]]], dtype=np.float64),
+        reconstructed_energy_source=np.asarray([[[[1.0]]], [[[1.0]]]], dtype=np.float64),
+    )
+    monkeypatch.setattr(
+        "jax_drb.validation.temperature_feedback_campaign._build_temperature_feedback_series",
+        lambda **kwargs: (
+            series,
+            {"total": 1.0},
+            {"mode": "explicit_reference_binary", "integral_state_reference_mode": "diagnostic_export"},
+        ),
+    )
+
+    report = build_temperature_feedback_campaign(reference_root="/tmp")
+
+    assert report["summary"]["metric_count"] == 6
+    assert any(metric["name"] == "e_temperature_error_integral_exact" for metric in report["summary"]["metrics"])
+
+
 def test_temperature_feedback_header_bug_detection_and_patch() -> None:
     original = (
         "    std::vector<std::string> species_stripped;\n"
@@ -184,6 +217,7 @@ def test_temperature_feedback_header_bug_detection_and_patch() -> None:
     assert "std::back_inserter(species_stripped)" in patched
     assert "reserve(species_list.size())" in patched
     assert _temperature_feedback_header_has_known_permission_bug(patched) is False
+    assert _patched_temperature_feedback_header_text("clean header\n") == "clean header\n"
 
 
 def test_prepare_temperature_feedback_reference_binary_uses_explicit_binary(tmp_path: Path) -> None:
@@ -195,6 +229,158 @@ def test_prepare_temperature_feedback_reference_binary_uses_explicit_binary(tmp_
     assert binary == tmp_path / "hermes-3"
     assert provenance["mode"] == "explicit_reference_binary"
     assert provenance["temperature_feedback_permission_fix"] == "explicit_binary"
+
+
+def test_prepare_temperature_feedback_reference_binary_handles_missing_and_clean_headers(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    binary_path = tmp_path / "hermes-3"
+    monkeypatch.setattr(
+        "jax_drb.validation.temperature_feedback_campaign.discover_reference_binary",
+        lambda **kwargs: binary_path,
+    )
+
+    binary, provenance = _prepare_temperature_feedback_reference_binary(
+        reference_root=tmp_path,
+        reference_binary=None,
+    )
+    assert binary == binary_path
+    assert provenance["temperature_feedback_permission_fix"] == "not_checked"
+
+    include_dir = tmp_path / "include"
+    include_dir.mkdir()
+    (include_dir / "temperature_feedback.hxx").write_text("clean header\n", encoding="utf-8")
+    binary, provenance = _prepare_temperature_feedback_reference_binary(
+        reference_root=tmp_path,
+        reference_binary=None,
+    )
+    assert binary == binary_path
+    assert provenance["temperature_feedback_permission_fix"] == "not_needed"
+
+
+def test_prepare_temperature_feedback_reference_binary_uses_patched_builder_for_known_bug(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    binary_path = tmp_path / "hermes-3"
+    cache_root = tmp_path / "cache"
+    include_dir = tmp_path / "include"
+    include_dir.mkdir()
+    (include_dir / "temperature_feedback.hxx").write_text(
+        "    std::vector<std::string> species_stripped;\n"
+        "    std::transform(species_list.begin(), species_list.end(), species_stripped.begin(),\n"
+        "                   [](const std::string& val) { return trim(val); });\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "jax_drb.validation.temperature_feedback_campaign.discover_reference_binary",
+        lambda **kwargs: tmp_path / "local-hermes",
+    )
+    monkeypatch.setattr(
+        "jax_drb.validation.temperature_feedback_campaign._build_patched_temperature_feedback_reference_binary",
+        lambda reference_root: (binary_path, cache_root),
+    )
+
+    binary, provenance = _prepare_temperature_feedback_reference_binary(
+        reference_root=tmp_path,
+        reference_binary=None,
+    )
+
+    assert binary == binary_path
+    assert provenance["mode"] == "auto_patched_clean_reference_worktree"
+    assert provenance["patch_cache_root"] == str(cache_root)
+
+
+def test_build_patched_temperature_feedback_reference_binary_uses_existing_cache(tmp_path: Path) -> None:
+    cache_root = tmp_path / "jax_drb_temperature_feedback_reference" / "deadbeef"
+    source_root = cache_root / "src"
+    build_root = cache_root / "build"
+    source_root.mkdir(parents=True)
+    build_root.mkdir(parents=True)
+    binary_path = build_root / "hermes-3"
+    binary_path.write_text("binary", encoding="utf-8")
+
+    reference_root = tmp_path / "reference"
+    reference_root.mkdir()
+
+    def _fake_git_stdout(root: Path, *args: str) -> str:
+        return "deadbeef"
+
+    def _fake_tempdir() -> str:
+        return str(tmp_path)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign._git_stdout", _fake_git_stdout)
+    monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign.tempfile.gettempdir", _fake_tempdir)
+    try:
+        returned_binary, returned_cache = _build_patched_temperature_feedback_reference_binary(reference_root)
+    finally:
+        monkeypatch.undo()
+
+    assert returned_binary == binary_path
+    assert returned_cache == cache_root
+
+
+def test_build_patched_temperature_feedback_reference_binary_builds_clean_worktree(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    reference_root = tmp_path / "reference"
+    include_dir = reference_root / "include"
+    include_dir.mkdir(parents=True)
+    (include_dir / "temperature_feedback.hxx").write_text(
+        "    std::vector<std::string> species_stripped;\n"
+        "    std::transform(species_list.begin(), species_list.end(), species_stripped.begin(),\n"
+        "                   [](const std::string& val) { return trim(val); });\n",
+        encoding="utf-8",
+    )
+
+    cache_root = tmp_path / "jax_drb_temperature_feedback_reference" / "deadbeef"
+    source_root = cache_root / "src"
+    build_root = cache_root / "build"
+    calls: list[list[str]] = []
+
+    def _fake_git_stdout(root: Path, *args: str) -> str:
+        return "deadbeef"
+
+    def _fake_tempdir() -> str:
+        return str(tmp_path)
+
+    def _fake_run(args, **kwargs):
+        calls.append(list(args))
+        if args[:5] == ["git", "-C", str(reference_root), "worktree", "add"]:
+            (source_root / "include").mkdir(parents=True, exist_ok=True)
+            (source_root / "include" / "temperature_feedback.hxx").write_text(
+                (reference_root / "include" / "temperature_feedback.hxx").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+        elif args[:2] == ["cmake", "--build"]:
+            build_root.mkdir(parents=True, exist_ok=True)
+            (build_root / "hermes-3").write_text("binary", encoding="utf-8")
+        return subprocess.CompletedProcess(args=args, returncode=0)
+
+    monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign._git_stdout", _fake_git_stdout)
+    monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign.tempfile.gettempdir", _fake_tempdir)
+    monkeypatch.setattr("jax_drb.validation.temperature_feedback_campaign.subprocess.run", _fake_run)
+
+    binary, returned_cache = _build_patched_temperature_feedback_reference_binary(reference_root)
+
+    assert binary == build_root / "hermes-3"
+    assert returned_cache == cache_root
+    patched_text = (source_root / "include" / "temperature_feedback.hxx").read_text(encoding="utf-8")
+    assert "std::back_inserter(species_stripped)" in patched_text
+    assert any(command[:2] == ["cmake", "-S"] for command in calls)
+    assert any(command[:2] == ["cmake", "--build"] for command in calls)
+
+
+def test_git_stdout_returns_stripped_output(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "jax_drb.validation.temperature_feedback_campaign.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args=args[0], returncode=0, stdout="abc123\n"),
+    )
+
+    assert _git_stdout(tmp_path, "rev-parse", "HEAD") == "abc123"
 
 
 def test_stage_temperature_feedback_example_rewrites_input(tmp_path: Path) -> None:
@@ -225,6 +411,30 @@ def test_stage_temperature_feedback_example_rewrites_input(tmp_path: Path) -> No
     assert "snes_type" not in updated
     assert "ksp_type" not in updated
     assert (workdir / "extra.dat").read_text(encoding="utf-8") == "payload"
+
+
+def test_stage_temperature_feedback_example_keeps_beuler_specific_options(tmp_path: Path) -> None:
+    example_dir = tmp_path / "example"
+    example_dir.mkdir()
+    (example_dir / "BOUT.inp").write_text(
+        "nout = 40\ntimestep = 5\nny = 80\ntype = beuler\nsnes_type = newtonls\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+
+    _stage_temperature_feedback_example(
+        example_dir,
+        workdir=workdir,
+        nout=2,
+        timestep=50.0,
+        ny=8,
+        solver_type="beuler",
+    )
+
+    updated = (workdir / "BOUT.inp").read_text(encoding="utf-8")
+    assert "type = beuler" in updated
+    assert "snes_type = newtonls" in updated
 
 
 def test_strip_solver_option_lines_removes_beuler_only_options() -> None:
@@ -347,6 +557,38 @@ def test_extract_temperature_helpers_cover_fallback_shapes() -> None:
         _extract_time_points(missing_time)
 
 
+def test_extract_spatial_series_covers_remaining_shapes_and_errors() -> None:
+    class _Variable:
+        def __init__(self, values, dimensions):
+            self._values = np.asarray(values, dtype=np.float64)
+            self.dimensions = dimensions
+
+        def __getitem__(self, key):
+            return self._values
+
+    timed_3d = SimpleNamespace(variables={"sample": _Variable(np.ones((2, 3, 4), dtype=np.float64), ("t", "y", "z"))})
+    assert _extract_spatial_series(timed_3d, "sample", time_count=2).shape == (2, 1, 3, 4)
+
+    timed_1d = SimpleNamespace(variables={"sample": _Variable(np.asarray([1.0, 2.0]), ("t",))})
+    assert _extract_spatial_series(timed_1d, "sample", time_count=2).shape == (2, 1, 1, 1)
+
+    timed_2d = SimpleNamespace(variables={"sample": _Variable(np.ones((2, 3), dtype=np.float64), ("t", "y"))})
+    assert _extract_spatial_series(timed_2d, "sample", time_count=2).shape == (2, 1, 3, 1)
+
+    static_3d = SimpleNamespace(variables={"sample": _Variable(np.ones((2, 3, 4), dtype=np.float64), ("x", "y", "z"))})
+    assert _extract_spatial_series(static_3d, "sample", time_count=5).shape == (5, 2, 3, 4)
+
+    static_2d = SimpleNamespace(variables={"sample": _Variable(np.ones((2, 3), dtype=np.float64), ("x", "y"))})
+    assert _extract_spatial_series(static_2d, "sample", time_count=4).shape == (4, 1, 2, 3)
+
+    static_1d = SimpleNamespace(variables={"sample": _Variable(np.asarray([1.0, 2.0]), ("y",))})
+    assert _extract_spatial_series(static_1d, "sample", time_count=3).shape == (3, 1, 2, 1)
+
+    bad = SimpleNamespace(variables={"sample": _Variable(np.ones((2, 2, 2, 2, 2), dtype=np.float64), ("t", "a", "b", "c", "d"))})
+    with pytest.raises(ValueError, match="Unsupported variable shape"):
+        _extract_spatial_series(bad, "sample", time_count=2)
+
+
 def test_reconstruct_temperature_controller_validates_shape_and_positive_clamps() -> None:
     with pytest.raises(ValueError, match="matching shape"):
         _reconstruct_temperature_controller(
@@ -446,3 +688,16 @@ def test_build_temperature_feedback_series_loads_staged_reference_dataset(
     np.testing.assert_allclose(series.reference_energy_source.reshape(2), multiplier)
     assert timing["total"] >= 0.0
     assert provenance["mode"] == "discovered_reference_binary"
+
+
+def test_build_temperature_feedback_series_raises_when_example_is_missing(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Temperature-feedback example not found"):
+        _build_temperature_feedback_series(
+            reference_root=tmp_path,
+            reference_binary=tmp_path / "hermes",
+            nout=4,
+            timestep=100.0,
+            ny=16,
+            solver_type="cvode",
+            timeout_seconds=30,
+        )
