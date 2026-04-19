@@ -102,6 +102,7 @@ def build_hermes_capability_audit() -> dict[str, object]:
                 "compact D/T nout=2 transient window clears a bounded mixed operational gate",
                 "drift-enabled D/T nout=2 transient window clears a bounded mixed operational gate",
                 "neon-enabled tokamak_recycling_dthene_one_step now also clears a live Hermes-backed mixed operational gate",
+                "neon-enabled tokamak_recycling_dthene short window now also clears a bounded nout=3 mixed operational gate",
             ],
             "next_gate": "finish longer-window transient surfaces plus distributed-guard evolution for the broader standalone claim",
         },
