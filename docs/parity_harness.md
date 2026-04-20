@@ -154,7 +154,7 @@ Current support is intentionally narrow:
 - `vorticity_short_window` is implemented for the full 10-output electrostatic benchmark window using an adaptive JAX ODE solve;
 - `blob2d_rhs` is implemented for the first sheath-connected blob milestone, matching `Ne`, `Pe`, zero `phi`, zero `ddt(Ne)`, and the curvature-driven `ddt(Vort)` source on the committed reference baseline;
 - `blob2d_one_step` is implemented for the first sheath-connected blob transient, using the reference-style orthogonal `recalculate_metric` path together with reduced RK4 evolution for `Ne`, `Vort`, and `phi`, and a direct Fourier/tridiagonal electrostatic solve to keep the benchmark practical in the regression suite;
-- `blob2d_short_window` is now implemented for the full 50-output sheath-connected blob benchmark, with the long-window parity locked through the committed summary baseline plus reviewer-facing peak-excess and center-of-mass metrics on a compact committed benchmark artifact;
+- `blob2d_short_window` is now implemented for the full 50-output sheath-connected blob benchmark, with the long-window parity locked through the committed summary baseline plus summary peak-excess and center-of-mass metrics on a compact committed benchmark artifact;
 - `drift_wave_rhs` is implemented for the first coupled 2D density-vorticity benchmark, comparing trimmed active-cell state and RHS outputs;
 - `drift_wave_one_step` is implemented for the same benchmark at the first output time;
 - `drift_wave_short_window` is now implemented with the validated reduced adaptive branch over the full 50-output benchmark window;
@@ -295,7 +295,7 @@ Current support is intentionally narrow:
 - `jax-drb analyze-drift-wave <input> <arrays.npz>` now postprocesses the committed drift-wave short-window arrays into measured growth/frequency scalars, the analytic dispersion target, a JSON report, and a benchmark figure for the docs;
 - `jax-drb compare-drift-wave <input> <expected.npz> <actual.npz>` now emits the current short-window drift-wave parity report, including benchmark-scalar deltas plus per-field max/RMS error histories and a documentation figure;
 - `jax-drb compare-blob2d <expected.npz> <actual.npz>` now emits the current blob short-window parity report, including peak-density and center-of-mass history deltas plus a documentation figure;
-- `jax-drb analyze-neutral-mixed <arrays.npz>` now postprocesses the committed neutral short-window arrays into compact center-history, derived-temperature, total-mass/pressure, and momentum-RMS metrics, so the staged neutral transient has a reviewer-facing target before the native stiff solver is exposed;
+- `jax-drb analyze-neutral-mixed <arrays.npz>` now postprocesses the committed neutral short-window arrays into compact center-history, derived-temperature, total-mass/pressure, and momentum-RMS metrics, so the staged neutral transient has a summary target before the native stiff solver is exposed;
 - `jax-drb validate-reference-baselines` now re-runs committed reference cases and checks their live summaries against the stored baseline JSON files, so baseline drift can be caught as an explicit smoke-validation step;
 - the native runner builds the structured mesh, evaluates the configured initial profile on the JAX grid, reconstructs the current X/Y guards, builds the normalized structured metrics, and emits the portable summary schema;
 - the same native run can emit compressed full-array parity artifacts, so small cases can be checked at field level with `jax-drb compare-arrays`;
@@ -359,7 +359,7 @@ Live runs against `local reference build` established:
 - for `nout=1`, `t_array` contains two time points, the initial state and one output step;
 - `BOUT.dmp.0.nc` includes scalar normalization metadata `Nnorm`, `Tnorm`, `Bnorm`, `Cs0`, `Omega_ci`, and `rho_s0`.
 
-These behaviors are the basis of the low-iteration parity workflow in [PLAN.md](PLAN.md).
+These behaviors are the basis of the low-iteration parity workflow in [implementation_inventory.md](implementation_inventory.md).
 
 ## Committed Reference Baselines
 
@@ -453,7 +453,7 @@ PYTHONPATH=src python -m jax_drb compare-arrays \
   --array-atol 5e-6
 ```
 
-For the current drift-wave `short_window` milestone, the reviewer-facing comparison command is:
+For the current drift-wave `short_window` milestone, the summary comparison command is:
 
 ```bash
 PYTHONPATH=src python -m jax_drb compare-drift-wave \
@@ -464,7 +464,7 @@ PYTHONPATH=src python -m jax_drb compare-drift-wave \
   --plot-out docs/images/drift_wave_short_window_parity.png
 ```
 
-For the current blob `short_window` milestone, the reviewer-facing comparison command is:
+For the current blob `short_window` milestone, the summary comparison command is:
 
 ```bash
 PYTHONPATH=src python -m jax_drb compare-blob2d \

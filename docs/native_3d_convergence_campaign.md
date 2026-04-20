@@ -7,7 +7,7 @@ It currently measures the observed order of the native traced-field-line radial-
 Run it with:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/publication/native_3d_convergence_campaign_demo.py
+PYTHONPATH=src .venv/bin/python examples/engineering/native_3d_convergence_campaign_demo.py
 ```
 
 Artifacts:

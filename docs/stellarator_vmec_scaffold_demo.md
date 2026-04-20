@@ -21,7 +21,7 @@ The scaffold writes:
 - an input report with VMEC/source metadata;
 - a validation contract for profile and sampled-surface gates;
 - a radial profile bundle for `iota`, `pressure`, and `toroidal_flux`;
-- a sampled `R`/`Z` flux-surface cross-section bundle with a publication-style summary figure and GIF;
+- a sampled `R`/`Z` flux-surface cross-section bundle with a summary summary figure and GIF;
 - a shared observable report on the generic 3D schema.
 
 Committed preview bundle:

@@ -1168,7 +1168,7 @@ def _build_validation_contract(reference_status: TcvX21ReferenceStatus) -> dict[
                     "status": "planned",
                     "required_artifacts": [
                         "tcv_x21_observable_package",
-                        "publication_ready_profile_plots",
+                        "profile_summary_plots",
                         "methods_note",
                     ],
                 },

@@ -30,7 +30,7 @@ The intended end-to-end differentiable lane is:
 
 The compact diffusion, vorticity, and drift-wave-style native paths are the best starting points for this today because they avoid the heaviest SciPy-only transient machinery used by the recycling backbone.
 
-The diffusion lane now also has committed publication-oriented differentiable examples:
+The diffusion lane now also has committed focused differentiable examples:
 
 - sensitivity analysis: [examples/autodiff_diffusion_sensitivity_demo.py](../examples/autodiff_diffusion_sensitivity_demo.py)
 - inverse design: [examples/autodiff_diffusion_inverse_design_demo.py](../examples/autodiff_diffusion_inverse_design_demo.py)

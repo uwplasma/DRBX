@@ -9,7 +9,7 @@ The near-term execution order is:
 1. finish the native open-field recycling transient backbone
 2. reuse that backbone for integrated and direct-tokamak recycling lanes
 3. run the external benchmark campaigns on the already-promoted native lanes
-4. widen the selected 3D and electromagnetic publication matrix only after the recycling backbone is stable
+4. widen the selected 3D and electromagnetic validation matrix only after the recycling backbone is stable
 
 ### Seeded Blob And Filament Dynamics
 
@@ -20,7 +20,7 @@ Priority use case:
 Why it matters:
 
 - it is one of the clearest bridges between reduced plasma turbulence models, controlled experiments, and cross-code comparison
-- it gives a natural home for reviewer-facing blob movies, center-of-mass diagnostics, and convergence studies
+- it gives a natural home for summary blob movies, center-of-mass diagnostics, and convergence studies
 
 Current code surface:
 
@@ -112,11 +112,9 @@ These links are useful context for the current roadmap:
   - [Detachment scalings derived from 1D scrape-off-layer simulations](https://arxiv.org/abs/2406.16375)
   - [SPLEND1D: a reduced one-dimensional model to investigate plasma detachment](https://arxiv.org/abs/2402.04656)
 - blob and filament validation context:
-  - [Blob dynamics in the TORPEX experiment: a multi-code validation](https://graphsearch.epfl.ch/fr/publication/e67955ef-d60f-4897-8271-fde5dfb50c2e)
   - [Blob dynamics in TORPEX poloidal null configurations](https://arxiv.org/abs/1605.00963)
 - related code and benchmark context:
   - [UEDGE](https://github.com/LLNL/UEDGE)
-  - [ReMKiT1D publication context](https://scientific-publications.ukaea.uk/wp-content/uploads/UKAEA-CCFE-PR23145.PDF)
   - [BSTING mesh/script bundle search](https://github.com/search?q=bsting_files&type=repositories)
   - [Zoidberg traced-field-line metrics branch](https://github.com/boutproject/zoidberg/tree/better-metric)
   - [Zoidberg metric pull request discussion](https://github.com/boutproject/zoidberg/pull/62)
@@ -126,10 +124,10 @@ These links are useful context for the current roadmap:
 The current roadmap should be interpreted conservatively:
 
 - TORPEX-style seeded blob work is the right external benchmark for the already-strong compact electrostatic lane
-- TCV-X21 is the right reviewer-facing diverted benchmark after the native recycling/tokamak transient backbone is stable
+- TCV-X21 is the right summary diverted benchmark after the native recycling/tokamak transient backbone is stable
 - TCV-X21 should remain a benchmark adapter, not the definition of the whole 3D architecture
 - traced-field-line and stellarator-style meshes should be treated as the second pressure test for the 3D infrastructure, because they force the code to separate geometry ingestion from benchmark-specific diagnostics
-- 1D detachment scaling should be treated as a required publication package, not optional polish, because it stresses sources, sinks, reactions, sheath closure, restart, and scan workflows simultaneously
+- 1D detachment scaling should be treated as a required summary package, not optional polish, because it stresses sources, sinks, reactions, sheath closure, restart, and scan workflows simultaneously
 - 3D and broader EM claims should stay selected and benchmark-first until the native recycling/tokamak transient backbone no longer depends on replayed or scaffolded state
 
 ## What To Contribute Next
@@ -138,7 +136,7 @@ If you want to contribute to the current release program, the most useful next t
 
 - operator-focused recycling and viscosity tests
 - direct tokamak convergence campaigns
-- publication-ready blob and divertor figures
+- detailed blob and divertor figures
 - geometry-agnostic 3D diagnostics and metric-validation tools
 - a second 3D geometry adapter beyond the current diverted tokamak benchmark
 - performance and memory benchmarks for promoted native lanes
