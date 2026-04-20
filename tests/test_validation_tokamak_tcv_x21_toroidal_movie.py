@@ -37,3 +37,5 @@ def test_create_tcv_x21_toroidal_movie_package_writes_artifacts(tmp_path: Path) 
     assert artifacts.summary_json_path.exists()
     assert artifacts.poster_png_path.exists()
     assert artifacts.movie_gif_path.exists()
+    summary = artifacts.summary_json_path.read_text(encoding="utf-8")
+    assert "toroidal_opening_degrees" in summary
