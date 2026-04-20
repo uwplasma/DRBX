@@ -13,6 +13,7 @@
   "parse_status": "ok",
   "poloidal_points": 157,
   "radial_points": 83,
+  "render_backend": "pyvista",
   "source_arrays": "data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz",
   "time_points": [
     1218.2000201713809,

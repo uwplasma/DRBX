@@ -8,6 +8,12 @@ from matplotlib import cm
 from matplotlib import animation
 from matplotlib import pyplot as plt
 import numpy as np
+from PIL import Image
+
+try:
+    import pyvista as pv
+except Exception:  # pragma: no cover - optional rendering dependency
+    pv = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +39,7 @@ def create_tcv_x21_toroidal_movie_package(
     interpolation_substeps: int = 4,
     fps: int = 8,
     toroidal_opening_degrees: float = 95.0,
+    render_backend: str = "auto",
 ) -> TcvX21ToroidalMovieArtifacts:
     source = Path(arrays_npz_path)
     root = Path(output_root)
@@ -76,6 +83,7 @@ def create_tcv_x21_toroidal_movie_package(
     radial = np.linspace(minor_radius_min, minor_radius_max, interpolated_history.shape[1], endpoint=True)
     color_limit = float(np.nanpercentile(np.abs(interpolated_history), 98.0))
     color_limit = max(color_limit, 1.0e-9)
+    backend = _select_render_backend(render_backend)
 
     arrays_out = data_dir / f"{case_label}_arrays.npz"
     np.savez_compressed(
@@ -102,6 +110,7 @@ def create_tcv_x21_toroidal_movie_package(
         "minor_radius_range": [float(minor_radius_min), float(minor_radius_max)],
         "elongation": float(elongation),
         "toroidal_opening_degrees": float(toroidal_opening_degrees),
+        "render_backend": backend,
         "time_points": interpolated_times.tolist(),
         "color_limit": float(color_limit),
         "source_arrays": str(source.relative_to(source.parents[3])) if len(source.parents) >= 4 else source.name,
@@ -122,6 +131,8 @@ def create_tcv_x21_toroidal_movie_package(
         color_limit=color_limit,
         major_radius=major_radius,
         elongation=elongation,
+        opening_radians=opening_radians,
+        backend=backend,
     )
 
     movie_gif = movies_dir / f"{case_label}.gif"
@@ -138,6 +149,8 @@ def create_tcv_x21_toroidal_movie_package(
         major_radius=major_radius,
         elongation=elongation,
         fps=fps,
+        opening_radians=opening_radians,
+        backend=backend,
     )
 
     return TcvX21ToroidalMovieArtifacts(
@@ -180,8 +193,26 @@ def _save_frame(
     color_limit: float,
     major_radius: float,
     elongation: float,
+    opening_radians: float,
+    backend: str,
     azimuth: float = 42.0,
 ) -> None:
+    if backend == "pyvista":
+        image = _render_frame_pyvista(
+            plane=plane,
+            shell_values=shell_values,
+            theta=theta,
+            radial=radial,
+            field_name=field_name,
+            time_point=time_point,
+            color_limit=color_limit,
+            major_radius=major_radius,
+            elongation=elongation,
+            azimuth=azimuth,
+            opening_radians=opening_radians,
+        )
+        Image.fromarray(image).save(path)
+        return
     figure, axis, colorbar = _prepare_figure_with_colorbar(
         field_name=field_name,
         color_limit=color_limit,
@@ -219,7 +250,37 @@ def _save_movie(
     major_radius: float,
     elongation: float,
     fps: int,
+    opening_radians: float,
+    backend: str,
 ) -> None:
+    if backend == "pyvista":
+        frames = []
+        for frame_index in range(history.shape[0]):
+            frames.append(
+                Image.fromarray(
+                    _render_frame_pyvista(
+                        plane=history[frame_index],
+                        shell_values=shell_history[frame_index],
+                        theta=theta,
+                        radial=radial,
+                        field_name=field_name,
+                        time_point=float(time_points[frame_index]),
+                        color_limit=color_limit,
+                        major_radius=major_radius,
+                        elongation=elongation,
+                        azimuth=18.0 + 0.9 * frame_index,
+                        opening_radians=opening_radians,
+                    )
+                )
+            )
+        frames[0].save(
+            path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=max(1, int(1000 / max(fps, 1))),
+            loop=0,
+        )
+        return
     figure, axis, colorbar = _prepare_figure_with_colorbar(
         field_name=field_name,
         color_limit=color_limit,
@@ -271,6 +332,17 @@ def _prepare_figure_with_colorbar(*, field_name: str, color_limit: float):
     )
     colorbar.set_label(f"{field_name} fluctuation amplitude")
     return figure, axis, colorbar
+
+
+def _select_render_backend(render_backend: str) -> str:
+    normalized = render_backend.strip().lower()
+    if normalized == "auto":
+        return "pyvista" if pv is not None else "matplotlib"
+    if normalized == "pyvista" and pv is None:
+        raise RuntimeError("pyvista backend requested but pyvista is not installed.")
+    if normalized not in {"pyvista", "matplotlib"}:
+        raise ValueError(f"Unsupported render backend: {render_backend}")
+    return normalized
 
 
 def _draw_toroidal_frame(
@@ -398,3 +470,114 @@ def _draw_toroidal_frame(
         bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.8, "edgecolor": "0.8"},
     )
     colorbar.ax.set_title("cutaway", fontsize=8, pad=8)
+
+
+def _render_frame_pyvista(
+    *,
+    plane: np.ndarray,
+    shell_values: np.ndarray,
+    theta: np.ndarray,
+    radial: np.ndarray,
+    field_name: str,
+    time_point: float,
+    color_limit: float,
+    major_radius: float,
+    elongation: float,
+    azimuth: float,
+    opening_radians: float,
+) -> np.ndarray:
+    if pv is None:  # pragma: no cover - guarded by backend selection
+        raise RuntimeError("pyvista is not available.")
+
+    plotter = pv.Plotter(off_screen=True, window_size=(1280, 900))
+    plotter.set_background("white")
+    clim = (-color_limit, color_limit)
+
+    shell_radius = float(radial[-1])
+    phi_shell = np.linspace(
+        0.5 * opening_radians,
+        2.0 * np.pi - 0.5 * opening_radians,
+        96,
+        endpoint=True,
+    )
+    theta_shell, phi_grid = np.meshgrid(theta, phi_shell, indexing="ij")
+    r_surface = major_radius + shell_radius * np.cos(theta_shell)
+    x_shell = r_surface * np.cos(phi_grid)
+    y_shell = r_surface * np.sin(phi_grid)
+    z_shell = elongation * shell_radius * np.sin(theta_shell)
+    shell_grid = pv.StructuredGrid(x_shell, y_shell, z_shell)
+    shell_grid["fluctuation"] = np.repeat(shell_values[:, None], phi_shell.size, axis=1).ravel(order="F")
+    plotter.add_mesh(
+        shell_grid,
+        scalars="fluctuation",
+        cmap="coolwarm",
+        clim=clim,
+        opacity=0.30,
+        smooth_shading=True,
+        show_scalar_bar=True,
+        scalar_bar_args={
+            "title": f"{field_name} fluctuation",
+            "vertical": True,
+            "position_x": 0.87,
+            "position_y": 0.18,
+            "height": 0.60,
+            "width": 0.06,
+            "fmt": "%.2f",
+        },
+    )
+
+    plane_phis = np.linspace(-0.34 * opening_radians, 0.34 * opening_radians, 5)
+    theta_grid, radial_grid = np.meshgrid(theta, radial, indexing="xy")
+    for plane_phi in plane_phis:
+        r_grid = major_radius + radial_grid * np.cos(theta_grid)
+        x_plane = r_grid * np.cos(plane_phi)
+        y_plane = r_grid * np.sin(plane_phi)
+        z_plane = elongation * radial_grid * np.sin(theta_grid)
+        plane_grid = pv.StructuredGrid(x_plane, y_plane, z_plane)
+        plane_grid["fluctuation"] = plane.ravel(order="F")
+        plotter.add_mesh(
+            plane_grid,
+            scalars="fluctuation",
+            cmap="coolwarm",
+            clim=clim,
+            opacity=1.0,
+            smooth_shading=True,
+            show_scalar_bar=False,
+        )
+        lcfs = np.column_stack(
+            [
+                (major_radius + shell_radius * np.cos(theta)) * np.cos(plane_phi),
+                (major_radius + shell_radius * np.cos(theta)) * np.sin(plane_phi),
+                elongation * shell_radius * np.sin(theta),
+            ]
+        )
+        plotter.add_lines(lcfs, color="black", width=2.0, connected=True)
+
+    plotter.add_text(
+        f"Toroidal {field_name} fluctuation field | t = {time_point:.3f}",
+        position="upper_edge",
+        font_size=15,
+        color="black",
+    )
+    plotter.add_text(
+        "Cutaway toroidal shell with poloidal slices showing interior radial turbulence.",
+        position=(0.03, 0.05),
+        font_size=9,
+        color="black",
+    )
+
+    camera_radius = major_radius + shell_radius + 3.2
+    azimuth_radians = np.deg2rad(azimuth)
+    plotter.camera_position = [
+        (
+            camera_radius * np.cos(azimuth_radians),
+            camera_radius * np.sin(azimuth_radians),
+            1.15,
+        ),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+    ]
+    plotter.camera.zoom(0.72)
+    image = plotter.screenshot(return_img=True)
+    plotter.close()
+    return np.asarray(image)
