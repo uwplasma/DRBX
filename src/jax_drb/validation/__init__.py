@@ -89,6 +89,12 @@ from .autodiff_diffusion import (
     simulate_density_history_from_physical,
     theta_to_physical,
 )
+from .autodiff_diffusion_uncertainty import (
+    AutodiffDiffusionUncertaintyArtifacts,
+    build_autodiff_diffusion_uncertainty_report,
+    create_autodiff_diffusion_uncertainty_package,
+    save_autodiff_diffusion_uncertainty_plot,
+)
 from .diverted_tokamak_movie import (
     DivertedTokamakFieldHistory,
     DivertedTokamakGeometry,
@@ -261,6 +267,10 @@ from .impurity_radiation_campaign import (
     build_impurity_radiation_campaign,
     create_impurity_radiation_campaign_package,
 )
+from .manuscript_figures import (
+    ManuscriptFigureArtifacts,
+    create_manuscript_figure_package,
+)
 
 __all__ = [
     "AlfvenWaveAnalysisResult",
@@ -340,6 +350,10 @@ __all__ = [
     "simulate_density_history",
     "simulate_density_history_from_physical",
     "theta_to_physical",
+    "AutodiffDiffusionUncertaintyArtifacts",
+    "build_autodiff_diffusion_uncertainty_report",
+    "create_autodiff_diffusion_uncertainty_package",
+    "save_autodiff_diffusion_uncertainty_plot",
     "DivertedTokamakFieldHistory",
     "DivertedTokamakGeometry",
     "DivertedTokamakMovieArtifacts",
@@ -454,4 +468,6 @@ __all__ = [
     "ImpurityRadiationCampaignMetric",
     "build_impurity_radiation_campaign",
     "create_impurity_radiation_campaign_package",
+    "ManuscriptFigureArtifacts",
+    "create_manuscript_figure_package",
 ]

@@ -7,6 +7,7 @@ This page records the current publication-oriented differentiable examples and t
 Differentiable PDE and differentiable simulation papers usually show three things first:
 
 - direct sensitivity of a scalar objective to physical parameters
+- uncertainty propagation from uncertain inputs to scalar and field quantities of interest
 - inverse recovery of hidden parameters from a target state
 - fixed-workload scaling of the gradient-enabled kernel
 
@@ -15,9 +16,11 @@ That is the surface used here too. It is the same general pattern used by projec
 ## Scripts
 
 - [examples/autodiff_diffusion_sensitivity_demo.py](../examples/autodiff_diffusion_sensitivity_demo.py)
+- [examples/autodiff_diffusion_uncertainty_demo.py](../examples/autodiff_diffusion_uncertainty_demo.py)
 - [examples/autodiff_diffusion_inverse_design_demo.py](../examples/autodiff_diffusion_inverse_design_demo.py)
 - [examples/strong_scaling_diffusion_demo.py](../examples/strong_scaling_diffusion_demo.py)
 - shared helper module: [src/jax_drb/validation/autodiff_diffusion.py](../src/jax_drb/validation/autodiff_diffusion.py)
+- uncertainty helper module: [src/jax_drb/validation/autodiff_diffusion_uncertainty.py](../src/jax_drb/validation/autodiff_diffusion_uncertainty.py)
 
 ## Sensitivity Analysis
 
@@ -39,6 +42,29 @@ Current committed result:
 - autodiff and finite-difference gradients agree closely on all four design parameters
 - the center parameter is the dominant sensitivity on this setup
 - the diffusivity tangent matches the explicit sweep in the local neighborhood
+
+## Uncertainty Quantification
+
+Run:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_uncertainty_demo.py
+```
+
+Outputs:
+
+- analysis JSON: [docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json](data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json)
+- arrays NPZ: [docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz](data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz)
+- figure: [docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+
+![Autodiff uncertainty](/Users/rogerio/local/jax_drb/docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+
+Current committed result:
+
+- the scalar quantity of interest uses the final active-domain density variance on the same compact native diffusion lane;
+- the field quantity of interest uses the radial mean of the final active-domain density;
+- first-order autodiff covariance pushforward and vectorized Monte Carlo stay close on both the scalar QoI and the profile uncertainty band;
+- this gives the differentiable lane a standard UQ example rather than stopping at gradients and inverse design only.
 
 ## Inverse Design
 
@@ -109,7 +135,7 @@ Interpretation:
 
 The next higher-value differentiable publication examples should be:
 
-- vorticity or drift-wave sensitivity of a scalar QoI
+- vorticity or drift-wave sensitivity/UQ of a scalar QoI
 - an inverse-design example with boundary/source controls rather than only initial-condition controls
 - memory and compilation-cache measurements alongside the current timing plot
 - the first promoted differentiable recycling/open-field transient lane once the native transient backbone is closed

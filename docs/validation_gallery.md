@@ -320,6 +320,16 @@ What this documents:
 - bounded output-time integral reconstruction and visible target-temperature error reduction on the reduced `cvode` window;
 - an auto-patched clean reference-worktree path for local Hermes trees that still carry the known `temperature_feedback.hxx` permission bug.
 
+## Autodiff Diffusion Uncertainty
+
+![Autodiff diffusion uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+
+What this documents:
+
+- a standard uncertainty-propagation example on the same compact native differentiable diffusion lane used for sensitivity and inverse design;
+- a scalar QoI based on the final active-domain density variance plus a field QoI based on the final radial profile;
+- agreement between first-order autodiff covariance pushforward and a vectorized Monte Carlo estimate on the same native solve path.
+
 ## Impurity And Radiation Campaign
 
 ![Impurity and radiation campaign](data/impurity_radiation_campaign_artifacts/images/impurity_radiation_campaign.png)
@@ -358,6 +368,21 @@ What this locks down:
 - native/reference parity on that same short-window history, published from the exact committed comparison artifact.
 
 The same short-window rung now also drives the meeting-ready visual package in [docs/alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md), which adds 2D and 3D movies plus a snapshot panel from a live native run.
+
+## Manuscript Figure Bundle
+
+![Manuscript architecture](data/manuscript_figures_artifacts/images/manuscript_figures_architecture.png)
+
+![Manuscript equations and geometry](data/manuscript_figures_artifacts/images/manuscript_figures_equations_geometry.png)
+
+![Manuscript transient validation panel](data/manuscript_figures_artifacts/images/manuscript_figures_transient_panel.png)
+
+What this documents:
+
+- the remaining manuscript-specific schematic and composition figures that are generated from committed repo state rather than assembled by hand;
+- the selected-lane architecture and validation ladder;
+- the governing-model and geometry-family summary;
+- the neutral plus direct-tokamak transient validation panel used by the manuscript blueprint.
 
 ## Regeneration
 

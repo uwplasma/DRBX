@@ -281,6 +281,9 @@ If you want meeting-ready figures and movies:
 - [stellarator_vmec_native_selected_field_demo.md](docs/stellarator_vmec_native_selected_field_demo.md)
 - [impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
 - [detachment_controller_campaign.md](docs/detachment_controller_campaign.md)
+- [autodiff_diffusion_uncertainty_demo.md](docs/autodiff_diffusion_uncertainty_demo.md)
+- [manuscript_figures.md](docs/manuscript_figures.md)
+- [jcp_manuscript_outline.md](docs/jcp_manuscript_outline.md)
 - [closeout_coverage.md](docs/closeout_coverage.md)
 - [native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
 - [jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
@@ -329,12 +332,14 @@ The current research-facing roadmap is documented here:
 The current publication-oriented differentiable examples are:
 
 - [examples/autodiff_diffusion_sensitivity_demo.py](examples/autodiff_diffusion_sensitivity_demo.py)
+- [examples/autodiff_diffusion_uncertainty_demo.py](examples/autodiff_diffusion_uncertainty_demo.py)
 - [examples/autodiff_diffusion_inverse_design_demo.py](examples/autodiff_diffusion_inverse_design_demo.py)
 - [examples/strong_scaling_diffusion_demo.py](examples/strong_scaling_diffusion_demo.py)
 
 They generate the current committed artifacts:
 
 - sensitivity figure: [docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png](docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+- uncertainty figure: [docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png](docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
 - inverse-design figure: [docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png](docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
 - strong-scaling figure: [docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png](docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
 
@@ -351,6 +356,9 @@ These examples follow the same differentiable-simulation surfaces commonly used 
 - Physics models and source map: [physics_models.md](docs/physics_models.md)
 - Performance and differentiability: [performance_and_differentiability.md](docs/performance_and_differentiability.md)
 - Autodiff and scaling examples: [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
+- Autodiff UQ demo: [autodiff_diffusion_uncertainty_demo.md](docs/autodiff_diffusion_uncertainty_demo.md)
+- Manuscript-specific figure bundle: [manuscript_figures.md](docs/manuscript_figures.md)
+- Manuscript outline: [jcp_manuscript_outline.md](docs/jcp_manuscript_outline.md)
 - Research roadmap and links: [research_directions.md](docs/research_directions.md)
 - Reviewer-facing validation matrix: [research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
 - Active implementation status: [PLAN.md](PLAN.md)
