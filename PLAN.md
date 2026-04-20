@@ -2083,6 +2083,271 @@ For a future JCP paper, prepare a reproducible artifact bundle containing:
 - CPU/GPU performance and memory figure
 - differentiability demo figure showing gradients of a scalar QoI
 
+### JCP manuscript blueprint
+
+The first `jax_drb` paper should now be planned like a standard computational-physics methods/verification/validation paper, not like a broad aspirational project overview.
+
+The external pattern is consistent across the most relevant code and benchmark papers:
+
+- code/framework papers establish the governing model, numerical algorithms, software architecture, and performance/reproducibility contract;
+- verification papers establish observed order and algorithm correctness before any physics claim;
+- validation papers keep the compare surface narrow and explicit, then use experimentally or reference-backed diagnostics rather than only fieldwise error norms;
+- modern software/reproducibility expectations require committed scripts, inputs, artifacts, and a clear statement of what is and is not being claimed.
+
+#### Important literature and code anchors
+
+Foundational framework and software-design anchors:
+
+- BOUT++ framework paper: [https://arxiv.org/abs/0810.5757](https://arxiv.org/abs/0810.5757)
+- BOUT++ developments and solver infrastructure: [https://arxiv.org/abs/1405.7905](https://arxiv.org/abs/1405.7905)
+- Hermes-3 multi-component plasma code paper: [https://arxiv.org/abs/2303.12131](https://arxiv.org/abs/2303.12131)
+- BOUT++ source tree: [https://github.com/boutproject/BOUT-dev](https://github.com/boutproject/BOUT-dev)
+- Hermes-3 source tree: [https://github.com/bendudson/hermes-3](https://github.com/bendudson/hermes-3)
+
+Reference code and benchmark context outside the immediate Hermes/BOUT++ line:
+
+- TOKAM3X code paper: [https://www.sciencedirect.com/science/article/pii/S0021999116301838](https://www.sciencedirect.com/science/article/pii/S0021999116301838)
+- GBS code / MMS verification paper: [https://pure.mpg.de/pubman/item/item_2307969_4/component/file_2424162/Halpern_GBS.pdf](https://pure.mpg.de/pubman/item/item_2307969_4/component/file_2424162/Halpern_GBS.pdf)
+- GRILLIX global-turbulence model paper: [https://arxiv.org/abs/1904.09230](https://arxiv.org/abs/1904.09230)
+- GRILLIX geometry-generalized / tokamak-stellarator extension paper: [https://www.sciencedirect.com/science/article/pii/S0010465525003765](https://www.sciencedirect.com/science/article/pii/S0010465525003765)
+- UEDGE code repository: [https://github.com/LLNL/UEDGE](https://github.com/LLNL/UEDGE)
+- ReMKiT1D framework paper: [https://arxiv.org/abs/2307.15458](https://arxiv.org/abs/2307.15458)
+- SPLEND1D reduced detachment model paper: [https://arxiv.org/abs/2402.04656](https://arxiv.org/abs/2402.04656)
+
+Validation and benchmark anchors that matter directly for `jax_drb`:
+
+- TCV-X21 benchmark definition: [https://arxiv.org/abs/2109.01618](https://arxiv.org/abs/2109.01618)
+- Hermes-3 TCV-X21 turbulence validation: [https://arxiv.org/abs/2506.12180](https://arxiv.org/abs/2506.12180)
+- TCV-X21 SOLPS validation context: [https://arxiv.org/abs/2310.17390](https://arxiv.org/abs/2310.17390)
+- TORPEX X-point multi-code validation: [https://orbit.dtu.dk/en/publications/validation-of-edge-turbulence-codes-in-a-magnetic-x-point-scenari/](https://orbit.dtu.dk/en/publications/validation-of-edge-turbulence-codes-in-a-magnetic-x-point-scenari/)
+- Detachment scalings with Hermes-3: [https://arxiv.org/abs/2406.16375](https://arxiv.org/abs/2406.16375)
+
+Verification, validation, and reproducibility anchors for the paper structure itself:
+
+- Roy 2005 verification/validation review: [https://www.aoe.vt.edu/content/dam/aoe_vt_edu/people/faculty/cjroy/Publications-Articles/cjr_jcp.revise.final-accepted.pdf](https://www.aoe.vt.edu/content/dam/aoe_vt_edu/people/faculty/cjroy/Publications-Articles/cjr_jcp.revise.final-accepted.pdf)
+- JCP/JSC/SISC reproducibility statement: [https://www.sciencedirect.com/journal/journal-of-computational-physics/about/announcements/enhancing-reproducibility-of-research-papers-in-sisc-jsc-and-jcp](https://www.sciencedirect.com/journal/journal-of-computational-physics/about/announcements/enhancing-reproducibility-of-research-papers-in-sisc-jsc-and-jcp)
+
+Differentiable-scientific-computing anchors for the optional differentiability/performance section:
+
+- JAX-Fluids differentiable CFD paper: [https://arxiv.org/abs/2203.13760](https://arxiv.org/abs/2203.13760)
+- Lineax linear-solve paper: [https://arxiv.org/abs/2311.17283](https://arxiv.org/abs/2311.17283)
+- JAX profiling documentation: [https://docs.jax.dev/en/latest/profiling.html](https://docs.jax.dev/en/latest/profiling.html)
+
+#### Draft manuscript section order
+
+1. Introduction
+   - State the problem narrowly: a restartable, research-grade, JAX-native drift-reduced Braginskii solver with explicit parity and capability-tier boundaries.
+   - Position against BOUT++/Hermes-3, GBS, GRILLIX, TOKAM3X, and 1D detachment/control frameworks.
+   - State the claim boundary explicitly: selected promoted native lanes plus reusable 3D infrastructure, not full parity-complete standalone replacement.
+
+2. Governing equations and normalization
+   - Use the equations already recorded in `docs/physics_models.md`.
+   - Present the density, momentum, pressure/energy, electrostatic potential/vorticity, selected electromagnetic, neutral, reactions, and sheath/recycling closures actually solved by the promoted lanes.
+   - Keep this section aligned with the code paths that already carry parity/validation evidence.
+
+3. Numerical methods and software architecture
+   - Finite-volume operators, guard handling, implicit/explicit stepping choices, sparse or matrix-free operator paths, geometry ingestion, restart/output/provenance.
+   - JAX-specific architecture: native array program, staged CLI/runtime path, and the narrower end-to-end differentiable lane through Python-driven native kernels.
+   - Make the differentiability boundary explicit instead of vague.
+
+4. Verification methodology
+   - Separate code verification from physics validation.
+   - Include MMS and observed-order results first, then operator/unit and parity layers.
+   - Anchor this section to the existing `scripts/run_fluid_1d_mms_convergence.py` and `native_3d_convergence_campaign`.
+
+5. Reference-backed parity and validation against Hermes/BOUT++
+   - Present the promoted 1D and 2D matrix as the main evidence body.
+   - Use capability tiers and committed compare surfaces rather than sweeping “all lanes are equal” language.
+   - Include open-field/control/recycling and direct-tokamak bounded windows only at the level actually documented in the repo.
+
+6. 2D dynamics and benchmarked geometry workflows
+   - Blob, drift-wave, diverted tokamak geometry, and benchmark-backed visual/diagnostic products.
+   - Prefer reviewer-facing compact diagnostics over raw field movies alone.
+
+7. General 3D infrastructure and reduced native 3D rungs
+   - Explain the shared adapter/observable/parity/runtime model across tokamak, traced-field-line, and VMEC/stellarator families.
+   - Present reduced native rungs as infrastructure evidence, not as full-production turbulence claims.
+
+8. Runtime, scaling, profiling, and differentiability
+   - Include native reduced 3D runtime/scaling, JAX profile audit, and the compact differentiable diffusion examples.
+   - Frame Lineax/Equinox/JAX ecosystem notes as engineering guidance and future leverage, not as already-landed mandatory dependencies.
+
+9. Discussion, limitations, and supported claim boundary
+   - State exactly what remains outside the paper claim: broader production temperature/detachment workflows, broader production 3D workflows, and the broad standalone parity-complete replacement claim.
+   - Tie the discussion directly to `docs/jcp_readiness_audit.md`.
+
+10. Reproducibility and software availability
+   - Link to committed artifact bundles, examples, release packaging, PyPI/GitHub release, and the public documentation.
+   - Mirror current JCP reproducibility expectations with exact scripts and versioned artifact roots.
+
+Appendices:
+
+- additional equations and closure details;
+- case manifest / capability-tier table;
+- artifact-regeneration commands;
+- extra profile/runtime tables and supplemental movies.
+
+#### Figure and table plan tied to real code paths
+
+Main-text figures should be limited to the surfaces already reproducible from committed code paths.
+
+Figure 1. Architecture, claim boundary, and validation ladder schematic
+
+- purpose:
+  - explain the solver stack, parity ladder, and selected-lane claim boundary at a glance
+- source:
+  - new manual figure, derived from `docs/physics_models.md`, `docs/research_grade_validation_matrix.md`, `docs/jcp_readiness_audit.md`, and `references/reference_case_ladder.toml`
+- note:
+  - this is the one figure that is not already generated by a committed script and should be prepared as a clean schematic rather than reverse-engineered from runtime plots
+
+Figure 2. Governing-equation and geometry conventions summary
+
+- purpose:
+  - show the drift-reduced Braginskii state, closures, and supported geometry families
+- source:
+  - new manual/schematic figure built directly from `docs/physics_models.md` and the geometry adapters in `src/jax_drb/validation`
+
+Figure 3. Verification spine: MMS and observed-order results
+
+- purpose:
+  - establish that promoted operators are solved correctly before any benchmark validation claim
+- scripts:
+  - `scripts/run_fluid_1d_mms_convergence.py`
+  - `examples/publication/native_3d_convergence_campaign_demo.py`
+- likely composition:
+  - left: 1D MMS convergence curve
+  - right: reduced native 3D convergence campaign curve
+
+Figure 4. Reference-backed parity overview across promoted native lanes
+
+- purpose:
+  - one reviewer-facing summary of current native-vs-reference parity surfaces
+- scripts:
+  - `examples/publication/hermes_comparison_summary_demo.py`
+  - supporting single-lane bundles from `tokamak_native_selected_field`, `traced_field_line_native_selected_field`, and `stellarator_vmec_native_selected_field`
+
+Figure 5. Controller/recycling/detachment reduced-lane evidence
+
+- purpose:
+  - show that controller-oriented physics is not only unit-tested but exercised against real bounded reference-backed surfaces
+- scripts:
+  - `examples/engineering/controller_feedback_campaign_demo.py`
+  - `examples/engineering/temperature_feedback_campaign_demo.py`
+  - `examples/engineering/detachment_controller_campaign_demo.py`
+- likely composition:
+  - three aligned subpanels from the committed controller figures
+
+Figure 6. Neutral and direct-tokamak transient validation surfaces
+
+- purpose:
+  - show that the selected short-window neutral and direct-tokamak transient surfaces are benchmark-clean enough for the chosen claim boundary
+- sources:
+  - `jax-drb analyze-neutral-mixed ... --plot-out docs/images/neutral_mixed_short_window_diagnostics.png`
+  - live parity slices encoded in `tests/test_validation_neutral_mixed.py`
+  - live parity slices encoded in `tests/test_parity_recycling.py`
+- implementation note:
+  - a small dedicated composition script is still worth adding later if we want one clean manuscript panel instead of reusing the docs figures directly
+
+Figure 7. 2D dynamics and geometry-facing benchmark visuals
+
+- purpose:
+  - show that the 2D promoted matrix is not only numerically close but visually/diagnostically credible
+- scripts:
+  - `examples/blob2d_meeting_demo.py`
+  - `examples/diverted_tokamak_movie_demo.py`
+- likely composition:
+  - blob snapshot/poster panel plus diverted tokamak poster/GIF stills
+
+Figure 8. General 3D geometry infrastructure panel
+
+- purpose:
+  - prove that the 3D architecture is not tokamak-only
+- scripts:
+  - `examples/tokamak-3D/tcv-x21/scaffold_demo.py`
+  - `examples/tokamak-3D/traced-field-line/scaffold_demo.py`
+  - `examples/geometry-3D/stellarator-vmec/scaffold_demo.py`
+- likely composition:
+  - tokamak profile/movie still
+  - traced-field-line lineout/slice panel
+  - stellarator surface-summary panel
+
+Figure 9. Reduced native 3D runtime and profile audit
+
+- purpose:
+  - show that reduced native 3D paths have runtime/scaling evidence and explicit JAX profiling, not just synthetic claims
+- scripts:
+  - `examples/publication/native_3d_runtime_campaign_demo.py`
+  - `examples/engineering/jax_native_profile_audit_demo.py`
+
+Figure 10. Differentiable lane: sensitivity, inverse design, and strong scaling
+
+- purpose:
+  - make the differentiable/JAX-native angle concrete without overstating it as the central validation evidence
+- scripts:
+  - `examples/autodiff_diffusion_sensitivity_demo.py`
+  - `examples/autodiff_diffusion_inverse_design_demo.py`
+  - `examples/strong_scaling_diffusion_demo.py`
+
+Recommended main-text tables:
+
+- Table 1. Supported claim matrix and capability tiers
+  - source: `references/reference_case_ladder.toml`, `docs/jcp_readiness_audit.md`, `docs/hermes_capability_audit.md`
+- Table 2. Verification/validation ladder and artifact reproducibility map
+  - source: `docs/research_grade_validation_matrix.md`, `docs/validation_gallery.md`
+- Table 3. Literature-to-evidence map
+  - columns:
+    - external paper/code
+    - why it matters
+    - corresponding `jax_drb` evidence package
+- Table 4. Runtime/provenance summary for reduced native 3D and differentiable examples
+  - source: native runtime campaign, JAX profile audit, strong-scaling diffusion artifact
+
+Supplemental-only figures:
+
+- reactions/collisions campaign
+- impurity/radiation campaign
+- full 3D publication-ready campaign summary
+- extra movies and GIFs already committed under `docs/data/*_artifacts`
+
+#### Full code pass for figure generation
+
+The current repo is already strong enough to support most of the paper figures without new physics implementation.
+
+Already script-backed and ready to regenerate:
+
+- Hermes comparison summary: `examples/publication/hermes_comparison_summary_demo.py`
+- 3D campaign summary: `examples/publication/three_d_campaign_demo.py`
+- native 3D runtime campaign: `examples/publication/native_3d_runtime_campaign_demo.py`
+- native 3D convergence campaign: `examples/publication/native_3d_convergence_campaign_demo.py`
+- blob dynamics package: `examples/blob2d_meeting_demo.py`
+- diverted tokamak geometry package: `examples/diverted_tokamak_movie_demo.py`
+- TCV-X21 scaffold bundle: `examples/tokamak-3D/tcv-x21/scaffold_demo.py`
+- traced-field-line scaffold and native selected-field bundles:
+  - `examples/tokamak-3D/traced-field-line/scaffold_demo.py`
+  - `examples/tokamak-3D/traced-field-line/selected_field_parity_demo.py`
+  - `examples/geometry-3D/traced-field-line/native_selected_field_demo.py`
+- stellarator scaffold and native selected-field bundles:
+  - `examples/geometry-3D/stellarator-vmec/scaffold_demo.py`
+  - `examples/geometry-3D/stellarator-vmec/selected_field_parity_demo.py`
+  - `examples/geometry-3D/stellarator-vmec/native_selected_field_demo.py`
+- controller/control-physics bundles:
+  - `examples/engineering/controller_feedback_campaign_demo.py`
+  - `examples/engineering/temperature_feedback_campaign_demo.py`
+  - `examples/engineering/detachment_controller_campaign_demo.py`
+- chemistry/impurity breadth bundles:
+  - `examples/engineering/reactions_collisions_campaign_demo.py`
+  - `examples/engineering/impurity_radiation_campaign_demo.py`
+- differentiable examples:
+  - `examples/autodiff_diffusion_sensitivity_demo.py`
+  - `examples/autodiff_diffusion_inverse_design_demo.py`
+  - `examples/strong_scaling_diffusion_demo.py`
+
+Still worth adding before manuscript assembly:
+
+- one small composition script for Figure 6 so the neutral and direct-tokamak transient panel is generated from one command rather than assembled by hand from existing diagnostics;
+- one clean manual schematic source for Figure 1 and Figure 2, ideally versioned as SVG or Mermaid-derived assets in the docs tree;
+- one manuscript-specific figure-regeneration driver that calls the already committed figure builders in a fixed order and writes into a dedicated paper-artifact directory.
+
 ## Documentation Program
 
 The documentation needs to be useful simultaneously for:
