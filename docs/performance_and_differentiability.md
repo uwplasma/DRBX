@@ -70,6 +70,66 @@ These are the highest-value refactor targets for the next release cycle because 
 - automatic differentiation
 - maintainability of the promoted recycling/tokamak transient lane
 
+## What The Current Profiling Already Says
+
+The committed profiling and runtime bundles already answer the first practical
+performance questions:
+
+- avoid tiny per-field JIT dispatches on the reduced 3D kernels;
+- batch same-shape selected fields before entering the jitted kernel;
+- warm once before timing;
+- keep solver/case metadata out of static JIT arguments;
+- keep file I/O, plotting, and JSON serialization outside hot kernels.
+
+That guidance is not speculative; it is the measured result of the committed
+Perfetto-backed reduced-kernel audits in:
+
+- [jax_native_profile_audit.md](jax_native_profile_audit.md)
+- [native_3d_runtime_campaign.md](native_3d_runtime_campaign.md)
+
+## Where More JAX Can Still Help
+
+There are still real opportunities for more JAX-native execution, but they are
+not all equally safe on the current parity surface.
+
+### Highest-Value Near-Term Opportunities
+
+- replace finite-difference Jacobian construction on the heavier transient lanes
+  with JAX linearization or JVP-based products;
+- reduce repeated host/device boundary crossings on the recycling transient
+  backbone;
+- keep state packing layouts stable enough that larger sections of the transient
+  solve can stay inside one compiled function;
+- widen the already-batched selected-field native kernels to more fields and
+  broader reduced 3D workflows.
+
+### Lower-Risk Structural JAX Improvements
+
+- fuse small same-shape analysis reductions where they currently enter JAX one
+  field at a time;
+- use more `vmap`-style batching where case structure is already homogeneous;
+- keep scalar diagnostics and compare surfaces on array-native code paths rather
+  than repeated Python loops where practical.
+
+## Where Extra JAX Ecosystem Pieces Might Help
+
+The current code already benefits most from plain `jax`, structured JIT
+boundaries, and explicit kernel batching. Additional ecosystem tools are most
+likely to help in specific places:
+
+- `equinox`: useful if larger native kernels are restructured into clearer
+  pure-function model objects or if filtered transforms simplify mixed static
+  metadata and array state;
+- `lineax`: potentially useful if future native linear solves move further away
+  from the current SciPy/sparse boundary and toward JAX-native linear-operator
+  interfaces;
+- `diffrax`: useful for clean differentiable time integration on compact native
+  lanes, but not a drop-in replacement for the currently validated recycling
+  backbone without new parity work.
+
+For the current release, the measured bottlenecks are still more about solver
+structure and host barriers than about the absence of one extra library.
+
 ## Guidance For Users
 
 If you need:
@@ -87,3 +147,5 @@ If you need:
 - reduce or remove per-term `np.asarray(...)` barriers on native transient kernels
 - move the strongest recycling transient lane to a backend-stable residual and state layout
 - keep plotting, output writing, and CLI serialization as boundary code rather than inside hot kernels
+- only widen `equinox`/`lineax` usage where it removes a measured bottleneck or
+  simplifies a parity-critical kernel, not as a cosmetic dependency expansion
