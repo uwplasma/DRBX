@@ -2279,12 +2279,13 @@ Figure 9. Reduced native 3D runtime and profile audit
   - `examples/publication/native_3d_runtime_campaign_demo.py`
   - `examples/engineering/jax_native_profile_audit_demo.py`
 
-Figure 10. Differentiable lane: sensitivity, inverse design, and strong scaling
+Figure 10. Differentiable lane: sensitivity, uncertainty propagation, inverse design, and strong scaling
 
 - purpose:
   - make the differentiable/JAX-native angle concrete without overstating it as the central validation evidence
 - scripts:
   - `examples/autodiff_diffusion_sensitivity_demo.py`
+  - `examples/autodiff_diffusion_uncertainty_demo.py`
   - `examples/autodiff_diffusion_inverse_design_demo.py`
   - `examples/strong_scaling_diffusion_demo.py`
 
@@ -2339,14 +2340,17 @@ Already script-backed and ready to regenerate:
   - `examples/engineering/impurity_radiation_campaign_demo.py`
 - differentiable examples:
   - `examples/autodiff_diffusion_sensitivity_demo.py`
+  - `examples/autodiff_diffusion_uncertainty_demo.py`
   - `examples/autodiff_diffusion_inverse_design_demo.py`
   - `examples/strong_scaling_diffusion_demo.py`
+- manuscript-specific figure bundle:
+  - `examples/publication/manuscript_figures_demo.py`
+  - `docs/manuscript_figures.md`
 
 Still worth adding before manuscript assembly:
 
-- one small composition script for Figure 6 so the neutral and direct-tokamak transient panel is generated from one command rather than assembled by hand from existing diagnostics;
-- one clean manual schematic source for Figure 1 and Figure 2, ideally versioned as SVG or Mermaid-derived assets in the docs tree;
-- one manuscript-specific figure-regeneration driver that calls the already committed figure builders in a fixed order and writes into a dedicated paper-artifact directory.
+- one manuscript-specific full-paper regeneration driver that calls the already committed figure builders in a fixed order and writes into a dedicated paper-artifact directory;
+- optional SVG refinements for the architecture/equations schematics if the journal art workflow prefers vector originals over the current raster exports.
 
 ## Documentation Program
 

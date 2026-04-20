@@ -26,6 +26,9 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "controller_feedback_campaign.md",
     REPO_ROOT / "docs" / "temperature_feedback_campaign.md",
     REPO_ROOT / "docs" / "detachment_controller_campaign.md",
+    REPO_ROOT / "docs" / "autodiff_diffusion_uncertainty_demo.md",
+    REPO_ROOT / "docs" / "manuscript_figures.md",
+    REPO_ROOT / "docs" / "jcp_manuscript_outline.md",
     REPO_ROOT / "docs" / "closeout_coverage.md",
     REPO_ROOT / "docs" / "release_packaging.md",
     REPO_ROOT / "docs" / "release_notes_1_0_0.md",
@@ -59,6 +62,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "controller_feedback_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "temperature_feedback_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "detachment_controller_campaign_demo.py",
+    REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
+    REPO_ROOT / "examples" / "publication" / "manuscript_figures_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_native_selected_field.py",
@@ -79,6 +84,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "controller_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "temperature_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "detachment_controller_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "autodiff_diffusion_uncertainty.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "manuscript_figures.py",
     REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml",
 )
 
@@ -142,6 +149,8 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "controller_feedback_campaign_artifacts" / "data" / "controller_feedback_campaign.json",
     REPO_ROOT / "docs" / "data" / "temperature_feedback_campaign_artifacts" / "data" / "temperature_feedback_campaign.json",
     REPO_ROOT / "docs" / "data" / "detachment_controller_campaign_artifacts" / "data" / "detachment_controller_campaign.json",
+    REPO_ROOT / "docs" / "data" / "autodiff_diffusion_uncertainty_artifacts" / "data" / "autodiff_diffusion_uncertainty_analysis.json",
+    REPO_ROOT / "docs" / "data" / "manuscript_figures_artifacts" / "data" / "manuscript_figures_manifest.json",
 )
 
 

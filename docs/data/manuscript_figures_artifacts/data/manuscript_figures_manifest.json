@@ -1,0 +1,20 @@
+{
+  "case": "manuscript_figures",
+  "figures": [
+    {
+      "name": "architecture_validation_ladder",
+      "path": "images/manuscript_figures_architecture.png",
+      "purpose": "Solver architecture, parity ladder, and selected-lane claim boundary."
+    },
+    {
+      "name": "equations_geometry_summary",
+      "path": "images/manuscript_figures_equations_geometry.png",
+      "purpose": "Governing model blocks, closures, and supported geometry families."
+    },
+    {
+      "name": "transient_validation_panel",
+      "path": "images/manuscript_figures_transient_panel.png",
+      "purpose": "Neutral short-window diagnostics plus direct tokamak recycling-window summary."
+    }
+  ]
+}
