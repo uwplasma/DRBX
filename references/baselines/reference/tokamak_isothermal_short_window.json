@@ -1,0 +1,177 @@
+{
+  "case_name": "tokamak_isothermal_short_window",
+  "compare_variables": [
+    "Ne",
+    "Ni",
+    "NVe",
+    "NVi",
+    "phi",
+    "Vort"
+  ],
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_momentum",
+    "e:isothermal",
+    "i:quasineutral",
+    "i:evolve_momentum",
+    "i:isothermal",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift"
+  ],
+  "configured_nout": 2,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 3,
+    "x": 36,
+    "y": 12,
+    "z": 27
+  },
+  "effective_output_points": 3,
+  "overrides": [
+    "nout=2",
+    "timestep=0.1",
+    "mesh:file=/path/to/reference-suite/examples/tokamak-2D/tokamak.nc"
+  ],
+  "parity_mode": "short_window",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    0.1,
+    0.2
+  ],
+  "variable_summaries": {
+    "NVe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.0002249180484168826,
+      "maximum": 0.0,
+      "mean": -1.3133432007587423e-05,
+      "minimum": -0.0002249180484168826,
+      "name": "NVe",
+      "shape": [
+        3,
+        32,
+        8,
+        27
+      ]
+    },
+    "NVi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.007023535481670058,
+      "maximum": 9.306631670668058e-05,
+      "mean": -0.000229610158332971,
+      "minimum": -0.007023535481670058,
+      "name": "NVi",
+      "shape": [
+        3,
+        32,
+        8,
+        27
+      ]
+    },
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.001911322111039282,
+      "maximum": 0.9859381984098968,
+      "mean": 0.5499421659735954,
+      "minimum": 0.11384839662855567,
+      "name": "Ne",
+      "shape": [
+        3,
+        32,
+        8,
+        27
+      ]
+    },
+    "Ni": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.001911322111039282,
+      "maximum": 0.9859381984098968,
+      "mean": 0.5499421659735954,
+      "minimum": 0.11384839662855567,
+      "name": "Ni",
+      "shape": [
+        3,
+        32,
+        8,
+        27
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.0009094598888395732,
+      "maximum": 2.4890934312446723e-06,
+      "mean": -2.5050727192340306e-05,
+      "minimum": -0.0009094598888395732,
+      "name": "Vort",
+      "shape": [
+        3,
+        32,
+        8,
+        27
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.10837492560062717,
+      "maximum": 0.1005050333936969,
+      "mean": -0.005718012278831896,
+      "minimum": -0.11493381418067426,
+      "name": "phi",
+      "shape": [
+        3,
+        32,
+        8,
+        27
+      ]
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "example": "tokamak-1D/extra/1D-recycling-with-detachment-control",
+  "family": "impurity_radiation_and_detachment_control",
+  "metric_count": 6,
+  "metrics": [
+    {
+      "kind": "max_abs_error",
+      "name": "detachment_control_proportional_term_exact",
+      "notes": "The bounded reduced detachment-controller lane reproduces the proportional term directly from the front-location error.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_abs_error",
+      "name": "detachment_control_src_mult_balance_exact",
+      "notes": "The saved source multiplier matches the reduced position-form controller balance `offset + P + I + D` exactly.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_abs_error",
+      "name": "detachment_source_feedback_exact",
+      "notes": "The detachment control source stays equal to `source_multiplier * source_shape` on the bounded reduced lane.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "min_span",
+      "name": "detachment_control_response_span",
+      "notes": "The reduced detachment-controller probe shows a nontrivial control response instead of a frozen multiplier.",
+      "passed": true,
+      "target": 0.02,
+      "value": 0.6096238491113184
+    },
+    {
+      "kind": "max_backslide",
+      "name": "detachment_control_integral_monotone",
+      "notes": "With constant positive error on the reduced particles-actuator lane, the integral term should not decrease.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_abs_value",
+      "name": "detachment_control_derivative_near_zero",
+      "notes": "The reduced lane keeps the detachment front stationary enough that the derivative term remains numerically negligible.",
+      "passed": true,
+      "target": 1e-10,
+      "value": 3.3069066147877055e-11
+    }
+  ],
+  "nout": 24,
+  "ny": 32,
+  "passed_metric_count": 6,
+  "reference_mode": "external_example_solver_patch_reduced",
+  "settling_time": 0.0,
+  "solver_type": "cvode",
+  "stripped_solver_options": [
+    "snes_type",
+    "ksp_type",
+    "max_nonlinear_iterations",
+    "lag_jacobian"
+  ],
+  "timestep": 100.0,
+  "timing_seconds": {
+    "load_dataset": 0.020610917010344565,
+    "reconstruct_controller": 0.000251874967943877,
+    "reference_run": 1.9939825829933397,
+    "stage_input": 0.002603875007480383,
+    "total": 2.0185152500052936
+  }
+}

@@ -1,0 +1,31 @@
+# Traced-Field-Line Native Reduced Selected-Field Demo
+
+This demo is the first honest native reduced rung on the non-tokamak 3D stack.
+It does not claim a full plasma solve. It executes a JAX-native radial-profile
+reduction on traced-field-line metric fields and compares the reduced profiles on
+an explicit reference/candidate pair.
+
+The generated package contains:
+
+- parity JSON and compressed arrays;
+- a comparison JSON with native versus reference radial profiles;
+- a parity plot and a comparison plot;
+- an observable report and a runtime report.
+
+Run the demo with:
+
+```bash
+python examples/geometry-3D/traced-field-line/native_selected_field_demo.py
+```
+
+When the external FCI pair is available locally, the demo uses it directly.
+Otherwise it falls back to a tiny synthetic pair so the workflow remains runnable.
+
+Committed artifacts:
+
+- `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field.json`
+- `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_comparison.json`
+- `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_observable_report.json`
+- `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_runtime_report.json`
+- `docs/data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field.png`
+- `docs/data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field_comparison.png`

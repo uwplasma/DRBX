@@ -1,0 +1,36 @@
+{
+  "case_name": "diffusion_precision",
+  "input_template": "examples/inputs/restartable_diffusion.toml",
+  "repeats": 2,
+  "speedup_last_float32_vs_float64": 1.1555754652249162,
+  "summary": {
+    "float32": {
+      "best_seconds": 0.6163380830003007,
+      "elapsed_seconds": [
+        1.396846875000847,
+        0.6163380830003007
+      ],
+      "last_seconds": 0.6163380830003007,
+      "last_warning_count": 0,
+      "runtime_precision": "float32",
+      "warning_counts": [
+        0,
+        0
+      ]
+    },
+    "float64": {
+      "best_seconds": 0.7122251669989055,
+      "elapsed_seconds": [
+        1.8076122500006022,
+        0.7122251669989055
+      ],
+      "last_seconds": 0.7122251669989055,
+      "last_warning_count": 0,
+      "runtime_precision": "float64",
+      "warning_counts": [
+        0,
+        0
+      ]
+    }
+  }
+}

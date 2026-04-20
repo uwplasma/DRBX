@@ -1,0 +1,19 @@
+{
+  "artifacts": {
+    "input_report_json": "data/stellarator_vmec_scaffold_input_report.json",
+    "observable_report_json": "data/stellarator_vmec_scaffold_observable_report.json",
+    "profile_arrays_npz": "data/stellarator_vmec_scaffold_profile_arrays.npz",
+    "profile_plot_png": "images/stellarator_vmec_scaffold_profiles.png",
+    "profile_report_json": "data/stellarator_vmec_scaffold_profile_report.json",
+    "surface_arrays_npz": "data/stellarator_vmec_scaffold_surface_arrays.npz",
+    "surface_gif": "images/stellarator_vmec_scaffold_surface_movie.gif",
+    "surface_plot_png": "images/stellarator_vmec_scaffold_surface_summary.png",
+    "surface_report_json": "data/stellarator_vmec_scaffold_surface_report.json",
+    "validation_contract_json": "data/stellarator_vmec_scaffold_validation_contract.json"
+  },
+  "benchmark_adapter": "stellarator_vmec_scaffold",
+  "case_label": "stellarator_vmec_scaffold",
+  "geometry_family": "stellarator_vmec_3d",
+  "preview_mode": true,
+  "source_format": "synthetic_vmec_wout"
+}

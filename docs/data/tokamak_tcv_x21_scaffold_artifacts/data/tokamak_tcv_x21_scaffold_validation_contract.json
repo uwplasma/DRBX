@@ -1,0 +1,165 @@
+{
+  "benchmark": {
+    "dataset_summary": "45 one- and two-dimensional observables across two toroidal-field directions.",
+    "name": "TCV-X21 diverted L-mode reference case",
+    "references": [
+      {
+        "label": "TCV-X21 validation benchmark",
+        "url": "https://arxiv.org/abs/2109.01618"
+      },
+      {
+        "label": "TCV-X21 turbulence validation follow-up",
+        "url": "https://arxiv.org/abs/2506.12180"
+      },
+      {
+        "label": "GBS code verification and MMS reference",
+        "url": "https://arxiv.org/abs/2112.03573"
+      },
+      {
+        "label": "Detachment-scaling 1D SOL benchmark",
+        "url": "https://arxiv.org/abs/2406.16375"
+      }
+    ]
+  },
+  "benchmark_adapter": "tcv_x21",
+  "capability_tier": "scaffolded_reference_backed",
+  "case_name": "tokamak_tcv_x21_escalation",
+  "diagnostic_layer": "benchmark_adapter_on_general_3d_geometry",
+  "diagnostic_sets": [
+    {
+      "description": "Outboard midplane reciprocating probe profiles.",
+      "name": "FHRP",
+      "observables": [
+        "density",
+        "electron_temp",
+        "ion_temp",
+        "potential",
+        "vfloat"
+      ]
+    },
+    {
+      "description": "Low-field-side target Langmuir probe profiles.",
+      "name": "LFS-LP",
+      "observables": [
+        "density",
+        "electron_temp",
+        "ion_temp",
+        "potential",
+        "current",
+        "vfloat"
+      ]
+    },
+    {
+      "description": "High-field-side target Langmuir probe profiles.",
+      "name": "HFS-LP",
+      "observables": [
+        "density",
+        "electron_temp",
+        "ion_temp",
+        "potential",
+        "current",
+        "vfloat"
+      ]
+    }
+  ],
+  "geometry_family": "diverted_tokamak_3d",
+  "profile_metrics": [
+    {
+      "description": "Match absolute magnitude and profile shape at OMP and divertor targets.",
+      "name": "absolute_profile_agreement"
+    },
+    {
+      "description": "Fit density and temperature decay lengths on the outboard midplane profile window.",
+      "name": "omp_length_scales"
+    },
+    {
+      "description": "Track LFS/HFS target peak position shifts under field reversal when the benchmark bundle is extended.",
+      "name": "target_peak_location"
+    }
+  ],
+  "promotion_gates": [
+    {
+      "name": "scaffold_gate",
+      "required_artifacts": [
+        "manifest_json",
+        "input_report_json",
+        "validation_contract_json",
+        "snapshots_png",
+        "poster_png",
+        "movie_gif"
+      ],
+      "status": "landed"
+    },
+    {
+      "name": "external_workdir_gate",
+      "required_artifacts": [
+        "real_workdir_movie_bundle",
+        "real_input_report_json",
+        "profile_summary_json"
+      ],
+      "status": "next"
+    },
+    {
+      "name": "selected_field_parity_gate",
+      "required_artifacts": [
+        "compact_reference_baseline_json",
+        "compact_reference_arrays_npz",
+        "bounded_parity_test"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "benchmark_validation_gate",
+      "required_artifacts": [
+        "tcv_x21_observable_package",
+        "profile_summary_plots",
+        "methods_note"
+      ],
+      "status": "planned"
+    }
+  ],
+  "reference_inputs": {
+    "input_exists": true,
+    "reference_helper_scripts": [
+      "examples/tokamak-3D/tcv-x21/gather_data.py",
+      "examples/tokamak-3D/tcv-x21/convert_to_tcvx21.py",
+      "examples/tokamak-3D/tcv-x21/make_tcvx21_plots.py"
+    ],
+    "reference_input_path": "examples/tokamak-3D/tcv-x21/data/BOUT.inp"
+  },
+  "references": [
+    {
+      "label": "TCV-X21 validation benchmark",
+      "url": "https://arxiv.org/abs/2109.01618"
+    },
+    {
+      "label": "TCV-X21 turbulence validation follow-up",
+      "url": "https://arxiv.org/abs/2506.12180"
+    },
+    {
+      "label": "GBS code verification and MMS reference",
+      "url": "https://arxiv.org/abs/2112.03573"
+    },
+    {
+      "label": "Detachment-scaling 1D SOL benchmark",
+      "url": "https://arxiv.org/abs/2406.16375"
+    }
+  ],
+  "verification_requirements": [
+    {
+      "description": "Require MMS/order-of-accuracy evidence on the promoted operators before claiming native 3D closure.",
+      "name": "manufactured_solution_convergence",
+      "status": "required_before_native_3d_promotion"
+    },
+    {
+      "description": "Require a reduced selected-field compare surface before broad benchmark claims.",
+      "name": "field_parity_surface",
+      "status": "required_before_selected_field_rung"
+    },
+    {
+      "description": "Require restart equivalence and artifact provenance alongside benchmark plots.",
+      "name": "restart_and_provenance",
+      "status": "required_before_public_3d_release"
+    }
+  ]
+}

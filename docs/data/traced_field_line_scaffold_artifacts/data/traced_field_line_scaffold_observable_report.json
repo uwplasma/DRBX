@@ -1,0 +1,85 @@
+{
+  "available": true,
+  "benchmark_adapter": "stellarator_traced_field_line_scaffold",
+  "geometry_family": "traced_field_line_3d",
+  "metadata": {
+    "source_format": "netcdf_fci_grid"
+  },
+  "observable_groups": [
+    {
+      "description": "Reusable radial, toroidal, and poloidal cuts on selected metric fields.",
+      "families": [
+        {
+          "coordinate_name": "s",
+          "field_names": [
+            "Bxy",
+            "J",
+            "dx",
+            "dy",
+            "dz",
+            "g11",
+            "g22",
+            "g33",
+            "g_11",
+            "g_22",
+            "g_33"
+          ],
+          "kind": "lineout",
+          "name": "radial_midplane"
+        },
+        {
+          "coordinate_name": "phi_index",
+          "field_names": [
+            "Bxy",
+            "J",
+            "dx",
+            "dy",
+            "dz",
+            "g11",
+            "g22",
+            "g33",
+            "g_11",
+            "g_22",
+            "g_33"
+          ],
+          "kind": "lineout",
+          "name": "toroidal_cut"
+        },
+        {
+          "coordinate_name": "theta_index",
+          "field_names": [
+            "Bxy",
+            "J",
+            "dx",
+            "dy",
+            "dz",
+            "g11",
+            "g22",
+            "g33",
+            "g_11",
+            "g_22",
+            "g_33"
+          ],
+          "kind": "lineout",
+          "name": "poloidal_cut"
+        }
+      ],
+      "name": "metric_lineouts"
+    },
+    {
+      "description": "Automatically selected radial, toroidal, or poloidal plane family for the staged movie field.",
+      "families": [
+        {
+          "coordinate_name": "s_index",
+          "field_names": [
+            "g_33"
+          ],
+          "kind": "slice",
+          "name": "radial_index_planes"
+        }
+      ],
+      "name": "metric_plane_family"
+    }
+  ],
+  "parse_status": "ok"
+}

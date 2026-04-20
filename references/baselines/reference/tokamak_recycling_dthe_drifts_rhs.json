@@ -1,0 +1,276 @@
+{
+  "case_name": "tokamak_recycling_dthe_drifts_rhs",
+  "compare_variables": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nt+",
+    "Pt+",
+    "NVt+",
+    "Nhe+",
+    "Phe+",
+    "NVhe+",
+    "Pe"
+  ],
+  "component_labels": [
+    "d+:evolve_density",
+    "d+:evolve_momentum",
+    "d+:evolve_pressure",
+    "d+:anomalous_diffusion",
+    "d:neutral_mixed",
+    "t+:evolve_density",
+    "t+:evolve_momentum",
+    "t+:evolve_pressure",
+    "t+:anomalous_diffusion",
+    "t:neutral_mixed",
+    "he+:evolve_density",
+    "he+:evolve_momentum",
+    "he+:evolve_pressure",
+    "he+:anomalous_diffusion",
+    "he:neutral_mixed",
+    "e:quasineutral",
+    "e:evolve_momentum",
+    "e:evolve_pressure",
+    "e:anomalous_diffusion",
+    "sound_speed",
+    "relax_potential",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "braginskii_thermal_force",
+    "reactions",
+    "braginskii_ion_viscosity",
+    "diamagnetic_drift",
+    "braginskii_conduction",
+    "recycling"
+  ],
+  "configured_nout": 0,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 1,
+    "x": 36,
+    "y": 12,
+    "z": 1
+  },
+  "effective_output_points": 1,
+  "overrides": [
+    "nout=0",
+    "timestep=0.1",
+    "solver:type=cvode",
+    "mesh:file=/path/to/reference-suite/examples/tokamak-2D/tokamak.nc",
+    "hermes:components=(d+, d, t+, t, he+, he, e, sound_speed, relax_potential, sheath_boundary, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, braginskii_thermal_force, reactions, braginskii_ion_viscosity, diamagnetic_drift, braginskii_conduction, recycling)",
+    "input:error_on_unused_options=false"
+  ],
+  "parity_mode": "one_rhs",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0
+  ],
+  "variable_summaries": {
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVd+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "NVhe+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVhe+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "NVt+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVt+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Nd+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nhe+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.01,
+      "mean": 0.01,
+      "minimum": 0.01,
+      "name": "Nhe+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nt+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Nt+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Pd+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 2.01,
+      "mean": 2.009999999999999,
+      "minimum": 2.01,
+      "name": "Pe",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Phe+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.01,
+      "mean": 0.01,
+      "minimum": 0.01,
+      "name": "Phe+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pt+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Pt+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    }
+  }
+}

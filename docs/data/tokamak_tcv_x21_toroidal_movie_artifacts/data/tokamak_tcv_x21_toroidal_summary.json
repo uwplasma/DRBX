@@ -1,0 +1,38 @@
+{
+  "available": true,
+  "case": "tokamak_tcv_x21_toroidal",
+  "color_limit": 0.17755049492257,
+  "elongation": 1.55,
+  "field_name": "potxx",
+  "frame_count": 17,
+  "major_radius": 1.35,
+  "minor_radius_range": [
+    0.18,
+    0.48
+  ],
+  "parse_status": "ok",
+  "poloidal_points": 157,
+  "radial_points": 83,
+  "source_arrays": "data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz",
+  "time_points": [
+    1218.2000201713809,
+    1218.2250201714314,
+    1218.250020171482,
+    1218.2750201715326,
+    1218.3000201715831,
+    1218.3250201716337,
+    1218.3500201716843,
+    1218.3750201717348,
+    1218.4000201717854,
+    1218.425020171836,
+    1218.4500201718865,
+    1218.475020171937,
+    1218.5000201719877,
+    1218.5250201720382,
+    1218.5500201720888,
+    1218.5750201721394,
+    1218.60002017219
+  ],
+  "toroidal_opening_degrees": 95.0,
+  "toroidal_samples": 48
+}
