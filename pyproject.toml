@@ -7,14 +7,21 @@ name = "jax-drb"
 version = "1.0.0"
 description = "Fresh JAX edge/SOL plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = ["jax", "rich"]
+requires-python = ">=3.10"
+dependencies = [
+    "jax",
+    "diffrax",
+    "scipy",
+    "equinox",
+    "matplotlib",
+    "netCDF4",
+    "rich",
+    "pillow",
+    "tomli; python_version < '3.11'",
+]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
-integrators = ["diffrax", "scipy"]
-models = ["equinox"]
-validation = ["matplotlib", "netCDF4"]
 
 [project.scripts]
 jax-drb = "jax_drb.cli:main"

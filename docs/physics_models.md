@@ -276,6 +276,6 @@ Before a capability is promoted to `native_exact`, the working rule is:
 - restart equivalence when the workflow is user-facing
 - artifact and provenance checks for CLI/example surfaces
 
-The reviewer-facing version of that contract is in:
+The summary version of that contract is in:
 
 - [research_grade_validation_matrix.md](research_grade_validation_matrix.md)

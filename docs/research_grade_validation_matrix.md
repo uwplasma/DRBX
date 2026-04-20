@@ -1,12 +1,12 @@
 # Research-Grade Validation Matrix
 
-This document is the public-facing contract for how `jax_drb` will justify a strong-subset publication claim.
+This document is the public-facing contract for how `jax_drb` justifies its promoted validation surfaces.
 
 ## Capability Tiers
 
 - `native_exact`
   - Fully native solve path.
-  - Clean enough to anchor a parity claim in the paper.
+  - Clean enough to anchor the main parity claim.
   - Must satisfy the full promotion gate below.
 - `native_operational`
   - Native path with bounded residuals.
@@ -69,7 +69,7 @@ Before any case family is promoted to `native_exact`, it must have:
 
 The default developer/research gate is now:
 
-- [scripts/run_fast_research_checks.py](/Users/rogerio/local/jax_drb/scripts/run_fast_research_checks.py)
+- [scripts/run_fast_research_checks.py](../scripts/run_fast_research_checks.py)
 
 It runs curated slices covering:
 
@@ -108,11 +108,11 @@ The current critical path is not “add more staged cases.” It is:
 
 ## Publication Scope
 
-The first paper target is:
+The first target is:
 
 - a research-grade, restartable, well-documented JAX edge/SOL code
 - a clearly stated supported matrix
 - exact or tightly bounded parity on that matrix
 - explicit labeling of anything still operational or scaffolded
 
-Differentiability remains a design requirement, but it is staged after the first publication-grade parity release rather than being used to block the core evidence program.
+Differentiability remains a design requirement, but it is staged after the first high-confidence parity release rather than being used to block the core evidence program.

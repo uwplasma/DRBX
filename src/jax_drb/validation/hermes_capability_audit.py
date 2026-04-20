@@ -26,7 +26,7 @@ def build_hermes_capability_audit() -> dict[str, object]:
                 "RHS, one-step, and short-window baselines committed",
                 "manufactured-solution convergence campaign committed",
             ],
-            "next_gate": "use in reviewer-facing convergence package",
+            "next_gate": "use in summary convergence package",
         },
         {
             "family": "diffusion_transport",
@@ -116,7 +116,7 @@ def build_hermes_capability_audit() -> dict[str, object]:
             "evidence": [
                 "isothermal and turbulence one-step/short-window exact ladders committed",
             ],
-            "next_gate": "use as main 2D exact matrix in paper-grade campaign",
+            "next_gate": "use as main 2D exact matrix in high-confidence campaign",
         },
         {
             "family": "electromagnetic_selected_benchmarks",

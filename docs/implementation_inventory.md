@@ -50,7 +50,7 @@ Direct runs against the local reference build confirmed:
   - the native path uses a benchmark-specific reduced operator set: ion ExB advection, quasineutral electron density, fixed-temperature electron pressure, electron-ion Braginskii drag, parallel current closure, and Fourier-in-`z` electrostatic inversion with slab `Bxy` recovered from `mesh:B`.
 - the committed `drift_wave_short_window` array baseline now also feeds a public benchmark-analysis path:
   - `jax-drb analyze-drift-wave` reports `omega_*`, `sigma_parallel / omega_*`, measured growth/frequency, and the analytic finite-electron-mass dispersion target;
-  - the same command can emit JSON plus a documentation figure, so reviewer-facing validation plots are generated from the same stored arrays used by the regression suite.
+  - the same command can emit JSON plus a documentation figure, so summary validation plots are generated from the same stored arrays used by the regression suite.
 - the drift-wave short-window slice is now in place:
   - `drift_wave_short_window` runs through the native runner with an adaptive reduced branch that keeps the validated density, momentum, vorticity, and potential history on the committed 50-output benchmark window;
   - the current transient milestone is locked by benchmark scalars rather than a single global array tolerance: `gamma / omega_*` and `omega / omega_*` match the committed reference analysis to within the documented test tolerances;

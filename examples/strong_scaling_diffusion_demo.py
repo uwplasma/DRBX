@@ -39,7 +39,7 @@ def _repo_root() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Measure publication-style strong scaling for a gradient-enabled diffusion "
+            "Measure summary strong scaling for a gradient-enabled diffusion "
             "objective on CPU and optional remote GPUs."
         )
     )
@@ -297,7 +297,7 @@ def write_analysis_json(settings: StrongScalingSettings, cpu_points, gpu_points,
     return path
 
 
-def save_publication_plot(settings: StrongScalingSettings, cpu_points, gpu_points) -> Path:
+def save_summary_plot(settings: StrongScalingSettings, cpu_points, gpu_points) -> Path:
     import matplotlib
 
     matplotlib.use("Agg")
@@ -384,7 +384,7 @@ def main() -> int:
         gpu_points,
         raw_results={"cpu": cpu_results, "gpu": gpu_results},
     )
-    plot_path = save_publication_plot(settings, cpu_points, gpu_points)
+    plot_path = save_summary_plot(settings, cpu_points, gpu_points)
     log(settings, "Strong Scaling Artifacts", {"analysis_json": analysis_path, "plot": plot_path})
     return 0
 

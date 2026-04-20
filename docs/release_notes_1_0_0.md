@@ -2,30 +2,19 @@
 
 `jax_drb 1.0.0` is the first package-oriented release of the project.
 
-This release is built around a selected-lane research claim:
-
-- native CLI and Python-driver workflows;
-- restartable runs with structured artifact output;
-- promoted native validation lanes in 1D, 2D, and reduced 3D workflows;
-- committed comparison, profiling, convergence, and runtime bundles;
-- bounded controller, recycling, neutral, impurity, and geometry-adapter validation surfaces.
-
 ## Highlights
 
 - packaged Python distribution through `pyproject.toml`
-- PyPI Trusted Publishing workflow in
-  [`publish-pypi.yml`](../.github/workflows/publish-pypi.yml)
-- explicit release/packaging guide in [release_packaging.md](release_packaging.md)
-- `95%` bounded release-closeout coverage gate through
-  [`scripts/run_closeout_coverage.py`](../scripts/run_closeout_coverage.py)
-- reduced but real 3D native tokamak, traced-field-line, and stellarator artifact bundles
-- richer direct tokamak recycling windows, including neon-enabled bounded
-  `nout=3` and `nout=5` short-window gates
-- bounded reduced `temperature_feedback` and `detachment_controller` lanes
+- PyPI Trusted Publishing workflow in [`publish-pypi.yml`](../.github/workflows/publish-pypi.yml)
+- Python 3.10, 3.11, and 3.12 test workflow in [`test.yml`](../.github/workflows/test.yml)
+- `95%` bounded closeout coverage gate through [`scripts/run_closeout_coverage.py`](../scripts/run_closeout_coverage.py)
+- promoted native validation lanes in 1D, 2D, and reduced 3D workflows
+- structured runtime, comparison, convergence, and profiling artifact bundles
+- bounded controller, recycling, neutral, impurity, and geometry-adapter validation surfaces
 
 ## Installation
 
-From PyPI after publish:
+From PyPI:
 
 ```bash
 pip install jax-drb
@@ -34,45 +23,47 @@ pip install jax-drb
 From a checkout:
 
 ```bash
-pip install -e .[dev,integrators,models,validation]
+git clone https://github.com/rogeriojorge/jax_drb
+cd jax_drb
+pip install -e .
 ```
 
-## What Is Included
+## Included Capabilities
 
 Core user-facing capabilities:
 
 - TOML-driven native runs
 - Python API entry points for curated and deck-driven cases
 - verbose run logs and restart bundles
-- portable JSON/NPZ artifact outputs
-- documentation galleries with publication-ready figures and GIFs
+- portable JSON and NPZ artifact outputs
+- 2D and 3D movies, plots, and benchmark summaries
 
 Validation and engineering surfaces:
 
-- parity ladders and benchmark adapters
+- parity ladders and geometry adapters
 - Hermes-backed reactions/collisions and impurity/radiation campaigns
-- controller-feedback, temperature-feedback, and detachment-controller reduced gates
+- controller-feedback, temperature-feedback, and detachment-controller bounded gates
 - native 3D runtime, convergence, and profiling bundles
 
-## Claim Boundary
+## Current Scope
 
 This release supports:
 
-- a strong public research-code release;
-- a selected-lane JCP manuscript draft boundary.
+- a strong standalone public research-code release,
+- native and benchmark-backed workflows on the promoted validation matrix.
 
-It does **not** claim:
+Broader production workflows remain active engineering work, especially:
 
-- a broad parity-complete standalone replacement across the full intended
-  DRB reference-workflow matrix;
-- a full-production temperature/detachment workflow;
-- a broad end-to-end production 3D workflow.
+- larger temperature and detachment control workflows,
+- longer-window direct tokamak recycling,
+- broader production 3D campaigns beyond the reduced native matrix.
 
-Those remaining items are tracked in:
+Detailed status is tracked in:
 
-- [jcp_readiness_audit.md](jcp_readiness_audit.md)
 - [hermes_capability_audit.md](hermes_capability_audit.md)
-- [PLAN.md](../PLAN.md)
+- [implementation_inventory.md](implementation_inventory.md)
+- [parity_harness.md](parity_harness.md)
+- [parity_matrix.md](parity_matrix.md)
 
 ## Recommended First Commands
 
@@ -82,7 +73,7 @@ Smoke-test the packaged runtime:
 jax_drb examples/inputs/restartable_diffusion.toml --verbose
 ```
 
-Run the release-closeout coverage gate:
+Run the bounded closeout coverage gate:
 
 ```bash
 python scripts/run_closeout_coverage.py
@@ -93,10 +84,3 @@ Build the package locally:
 ```bash
 python -m build
 ```
-
-## Next Research Steps
-
-- broaden production temperature/detachment workflows beyond reduced controller gates
-- widen direct tokamak recycling beyond the current bounded windows
-- extend reduced/native-selected 3D workflows into broader production 3D campaigns
-- draft the selected-lane JCP paper using the committed artifact bundles
