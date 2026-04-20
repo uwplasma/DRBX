@@ -14,6 +14,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "research_directions.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_scaffold_demo.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_selected_field_demo.md",
+    REPO_ROOT / "docs" / "tokamak_tcv_x21_toroidal_movie_demo.md",
     REPO_ROOT / "docs" / "tokamak_native_selected_field_demo.md",
     REPO_ROOT / "docs" / "traced_field_line_scaffold_demo.md",
     REPO_ROOT / "docs" / "traced_field_line_selected_field_demo.md",
@@ -27,23 +28,20 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "temperature_feedback_campaign.md",
     REPO_ROOT / "docs" / "detachment_controller_campaign.md",
     REPO_ROOT / "docs" / "autodiff_diffusion_uncertainty_demo.md",
-    REPO_ROOT / "docs" / "manuscript_figures.md",
-    REPO_ROOT / "docs" / "jcp_manuscript_outline.md",
     REPO_ROOT / "docs" / "closeout_coverage.md",
     REPO_ROOT / "docs" / "release_packaging.md",
     REPO_ROOT / "docs" / "release_notes_1_0_0.md",
-    REPO_ROOT / "docs" / "jcp_readiness_audit.md",
     REPO_ROOT / "docs" / "native_3d_runtime_campaign.md",
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",
     REPO_ROOT / "docs" / "jax_native_profile_audit.md",
     REPO_ROOT / "docs" / "hermes_comparison_gallery.md",
     REPO_ROOT / "docs" / "dynamics_gallery.md",
-    REPO_ROOT / "docs" / "publication_ready_3d_campaign.md",
     REPO_ROOT / "docs" / "hermes_capability_audit.md",
     REPO_ROOT / "examples" / "alfven_wave_meeting_demo.py",
     REPO_ROOT / "examples" / "blob2d_meeting_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "selected_field_parity_demo.py",
+    REPO_ROOT / "examples" / "tokamak-3D" / "tcv-x21" / "toroidal_movie_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "tokamak-native" / "selected_field_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "tokamak-3D" / "traced-field-line" / "selected_field_parity_demo.py",
@@ -51,11 +49,10 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "selected_field_parity_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "native_selected_field_demo.py",
-    REPO_ROOT / "examples" / "publication" / "three_d_campaign_demo.py",
-    REPO_ROOT / "examples" / "publication" / "native_3d_runtime_campaign_demo.py",
-    REPO_ROOT / "examples" / "publication" / "native_3d_convergence_campaign_demo.py",
+    REPO_ROOT / "examples" / "engineering" / "native_3d_runtime_campaign_demo.py",
+    REPO_ROOT / "examples" / "engineering" / "native_3d_convergence_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "jax_native_profile_audit_demo.py",
-    REPO_ROOT / "examples" / "publication" / "hermes_comparison_summary_demo.py",
+    REPO_ROOT / "examples" / "engineering" / "hermes_comparison_summary_demo.py",
     REPO_ROOT / "examples" / "engineering" / "hermes_capability_audit_demo.py",
     REPO_ROOT / "examples" / "engineering" / "reactions_collisions_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "impurity_radiation_campaign_demo.py",
@@ -63,9 +60,9 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "temperature_feedback_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "detachment_controller_campaign_demo.py",
     REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
-    REPO_ROOT / "examples" / "publication" / "manuscript_figures_demo.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_toroidal_movie.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_native_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "traced_field_line_selected_field.py",
@@ -73,7 +70,6 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "stellarator_vmec_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "stellarator_vmec_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "stellarator_vmec_native_selected_field.py",
-    REPO_ROOT / "src" / "jax_drb" / "validation" / "publication_ready_3d.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_runtime_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_convergence_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "jax_native_profile_audit.py",
@@ -85,8 +81,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "temperature_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "detachment_controller_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "autodiff_diffusion_uncertainty.py",
-    REPO_ROOT / "src" / "jax_drb" / "validation" / "manuscript_figures.py",
     REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml",
+    REPO_ROOT / ".github" / "workflows" / "test.yml",
 )
 
 PUBLIC_RUN_LOGS = (
@@ -106,6 +102,7 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_selected_field_artifacts" / "data" / "tokamak_tcv_x21_selected_field_parity.json",
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_selected_field_artifacts" / "data" / "tokamak_tcv_x21_selected_field_parity_observable_report.json",
     REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_selected_field_artifacts" / "data" / "tokamak_tcv_x21_selected_field_parity_benchmark_data_report.json",
+    REPO_ROOT / "docs" / "data" / "tokamak_tcv_x21_toroidal_movie_artifacts" / "data" / "tokamak_tcv_x21_toroidal_summary.json",
     REPO_ROOT / "docs" / "data" / "tokamak_native_selected_field_artifacts" / "data" / "tokamak_native_selected_field.json",
     REPO_ROOT / "docs" / "data" / "tokamak_native_selected_field_artifacts" / "data" / "tokamak_native_selected_field_comparison.json",
     REPO_ROOT / "docs" / "data" / "tokamak_native_selected_field_artifacts" / "data" / "tokamak_native_selected_field_observable_report.json",
@@ -138,7 +135,6 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "stellarator_vmec_native_selected_field_artifacts" / "data" / "stellarator_vmec_native_selected_field_comparison.json",
     REPO_ROOT / "docs" / "data" / "stellarator_vmec_native_selected_field_artifacts" / "data" / "stellarator_vmec_native_selected_field_observable_report.json",
     REPO_ROOT / "docs" / "data" / "stellarator_vmec_native_selected_field_artifacts" / "data" / "stellarator_vmec_native_selected_field_runtime_report.json",
-    REPO_ROOT / "docs" / "data" / "publication_ready_3d_artifacts" / "data" / "publication_ready_3d_campaign.json",
     REPO_ROOT / "docs" / "data" / "native_3d_runtime_campaign_artifacts" / "data" / "native_3d_runtime_campaign.json",
     REPO_ROOT / "docs" / "data" / "native_3d_convergence_campaign_artifacts" / "data" / "native_3d_convergence_campaign.json",
     REPO_ROOT / "docs" / "data" / "jax_native_profile_audit_artifacts" / "data" / "jax_native_profile_audit.json",
@@ -150,12 +146,11 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "temperature_feedback_campaign_artifacts" / "data" / "temperature_feedback_campaign.json",
     REPO_ROOT / "docs" / "data" / "detachment_controller_campaign_artifacts" / "data" / "detachment_controller_campaign.json",
     REPO_ROOT / "docs" / "data" / "autodiff_diffusion_uncertainty_artifacts" / "data" / "autodiff_diffusion_uncertainty_analysis.json",
-    REPO_ROOT / "docs" / "data" / "manuscript_figures_artifacts" / "data" / "manuscript_figures_manifest.json",
 )
 
 
 def test_public_release_surface_avoids_local_path_leaks() -> None:
-    forbidden = ("/Users/", "rogeriojorge", "local/hermes", "local/jax_drb")
+    forbidden = ("/Users/", "local/hermes", "local/jax_drb")
     for path in PUBLIC_RELEASE_FILES:
         text = path.read_text(encoding="utf-8")
         for needle in forbidden:

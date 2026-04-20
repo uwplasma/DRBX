@@ -24,5 +24,5 @@ PYTHONPATH=src .venv/bin/python examples/engineering/jax_native_profile_audit_de
 Interpretation:
 
 - the traced-field-line and VMEC reduced kernels now batch same-shape fields before entering the jitted reduction, so the compile surface is one batched kernel per geometry family instead of one tiny dispatch per field;
-- the warm execution timings are the numbers that should inform publication-facing reduced-kernel runtime summaries;
+- the warm execution timings are the numbers that should inform summary reduced-kernel runtime summaries;
 - the compile timings and Perfetto traces are the audit evidence for where JIT overhead still exists and where it does not.

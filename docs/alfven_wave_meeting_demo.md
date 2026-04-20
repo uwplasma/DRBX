@@ -1,6 +1,6 @@
 # Alfven-Wave Meeting Demo
 
-This page collects a meeting-ready visual package generated from the native `alfven_wave_short_window` rung. It gives one reproducible command that produces publication-ready benchmark plots plus both 2D and 3D movies from a fast, stable electromagnetic case.
+This page collects a meeting-ready visual package generated from the native `alfven_wave_short_window` rung. It gives one reproducible command that produces detailed benchmark plots plus both 2D and 3D movies from a fast, stable electromagnetic case.
 
 ## Example Command
 

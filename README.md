@@ -1,73 +1,44 @@
 # jax_drb
 
-`jax_drb` is a JAX-native edge and scrape-off-layer plasma code for drift-reduced Braginskii, electrostatic turbulence, neutral transport, and curated tokamak geometry workflows.
+`jax_drb` is a JAX-native edge and scrape-off-layer plasma code for drift-reduced Braginskii models, electrostatic turbulence, neutral transport, curated tokamak workflows, and reusable 3D geometry diagnostics.
 
-The project is being shipped around a strong-subset research claim:
+The codebase is organized around:
 
-- a documented standalone CLI and Python API
-- restartable native runs with rich terminal output
-- portable result artifacts for analysis and visualization
-- explicit capability tiers for every promoted workflow
-- curated validation against external benchmark runs, analytic limits, and physics diagnostics
+- a standalone CLI and Python API,
+- restartable native runs with structured terminal progress,
+- portable analysis and visualization artifacts,
+- explicit capability tiers for curated benchmark lanes,
+- reusable 3D geometry, movie, and selected-field comparison tools,
+- differentiable driver paths for sensitivity analysis, uncertainty propagation, and inverse design.
 
-![Diverted tokamak turbulence movie](docs/data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
+![Diverted tokamak dynamics](docs/data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
 
-![TCV-X21 scaffold movie](docs/data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+![3D tokamak toroidal dynamics](docs/data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
 
 ## Install
 
-Editable install:
-
-```bash
-pip install -e .[dev,integrators,models,validation]
-```
-
-PyPI install after release:
+PyPI:
 
 ```bash
 pip install jax-drb
 ```
 
-Minimal runtime install:
+From source:
 
 ```bash
+git clone https://github.com/rogeriojorge/uw_plasma
+cd jax_drb
 pip install -e .
 ```
 
-Build the package locally:
-
-```bash
-python -m pip install build
-python -m build
-```
+The default installation already pulls in the runtime and analysis dependencies used by the main CLI, geometry tooling, and diagnostics, including `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`, and `netCDF4`.
 
 ## Quick Start
 
-Run a native TOML deck:
+Run a TOML deck:
 
 ```bash
 jax_drb path/to/input.toml
-```
-
-The bare form is equivalent to:
-
-```bash
-jax_drb run path/to/input.toml
-```
-
-Choose precision explicitly:
-
-```bash
-jax_drb path/to/input.toml --precision float32
-```
-
-Resume from a saved restart bundle:
-
-```bash
-jax_drb path/to/input.toml \
-  --output-dir output/restarted_case \
-  --restart-in output/base_case/my_case_restart.npz \
-  --resume-steps 2
 ```
 
 Inspect a deck without running it:
@@ -76,9 +47,22 @@ Inspect a deck without running it:
 jax_drb inspect path/to/input.toml
 ```
 
-## Python API
+Resume from a restart bundle:
 
-The simplest programmatic entry points are:
+```bash
+jax_drb run path/to/input.toml \
+  --output-dir output/restarted_case \
+  --restart-in output/base_case/my_case_restart.npz \
+  --resume-steps 2
+```
+
+Use detailed runtime progress:
+
+```bash
+jax_drb run path/to/input.toml --verbose
+```
+
+## Python API
 
 ```python
 from pathlib import Path
@@ -86,15 +70,12 @@ from pathlib import Path
 from jax_drb.cli import main
 from jax_drb.native import run_curated_case, run_input_case
 
-# Deck-driven standalone run
 main(["run", "examples/inputs/restartable_diffusion.toml", "--quiet"])
 
-# Curated validation case
 result = run_curated_case("tokamak_isothermal_one_step", reference_root=Path("/path/to/reference-suite"))
 print(result.payload["capability_tier"])
 print(sorted(result.variables))
 
-# Native Python driver with staged verbose events
 driver_result = run_input_case(
     "examples/inputs/restartable_diffusion.toml",
     case_name="diffusion_driver",
@@ -106,7 +87,7 @@ print(driver_result.time_points[-1])
 
 ## Input Model
 
-`jax_drb` supports organized TOML decks with the following top-level sections:
+`jax_drb` uses structured TOML decks. Common top-level sections are:
 
 - `[time]`
 - `[runtime]`
@@ -165,250 +146,154 @@ write_log = true
 
 ## Output Artifacts
 
-Promoted native runs write:
+Promoted native runs can write:
 
-- summary JSON
-- arrays NPZ
-- restart NPZ
-- verbose run-log JSON
+- summary JSON,
+- arrays NPZ,
+- restart NPZ,
+- structured run-log JSON.
 
-The run log stores:
+The run log records:
 
-- capability tier
-- runtime precision and backend
-- mesh, solver, and time configuration
-- ordered event stream
-- event count and stage inventory
-- restart provenance
-- output artifact locations
-- variable min/max/mean/delta summaries
+- capability tier,
+- runtime precision and backend,
+- mesh, solver, and time configuration,
+- ordered runtime events,
+- artifact locations,
+- restart provenance,
+- variable summaries.
 
-For terminal logging, `jax_drb` now supports both a boolean switch and an explicit level:
+Detailed terminal mode is designed to keep long runs from looking hung. The CLI reports:
 
-- `[runtime.logging].verbose = true` enables detailed staged terminal events
-- `[runtime.logging].verbose = false` keeps the concise summary path
-- `[runtime.logging].verbosity = "summary"` or `"detailed"` pins the level explicitly
-- `[runtime.logging].quiet = true` suppresses terminal output entirely
-- `jax_drb input.toml --verbose` forces detailed CLI output for a one-off run
-
-Detailed mode is meant to keep long runs from looking hung. The CLI now reports:
-
-- configuration and restart loading
-- run launch and completion
-- recycling transient interval progress on the native recycling lanes
-- artifact resolution and per-artifact writes
-
-The saved run-log JSON mirrors that same stream through `events`, `event_count`, and `event_stages`, so workflow scripts can reconstruct what happened without scraping terminal output.
-
-The same runtime section can also pin the native recycling one-step transient solver when you are sweeping the open-field transient blocker:
-
-```toml
-[runtime]
-recycling_transient_solver_mode = "adaptive_bdf"
-```
-
-Allowed values are `continuation`, `bdf`, `adaptive_be`, and `adaptive_bdf`. This override is intended for bounded solver studies and publication diagnostics, not as a hidden case-specific patch.
+- deck loading,
+- restart loading,
+- run launch and completion,
+- transient interval progress on recycling lanes,
+- artifact writes.
 
 ## Capability Tiers
 
-Every curated validation case is labeled explicitly:
+Curated validation cases are labeled explicitly:
 
-- `native_exact`: fully native and clean enough to anchor a public claim
-- `native_operational`: native and useful, but still carrying bounded residuals
-- `scaffolded_reference_backed`: replay or cached-reference assisted, useful for diagnostics but not counted as native closure
+- `native_exact`: fully native and strong enough for the main public benchmark surface,
+- `native_operational`: native and useful, but still carrying bounded residuals,
+- `scaffolded_reference_backed`: useful for diagnostics or geometry staging, but not counted as native closure.
 
-The active release strategy is to promote a smaller number of end-to-end native lanes into `native_exact` before widening the matrix further.
+The current promoted matrix includes:
 
-That policy is also why the current open-field recycling work is focused on transient closure rather than on adding more rungs: the first output interval on the native continuation controller now uses a small startup warmup (`4 x 6.25` sparse implicit substeps across the first `25` time units), which materially tightens the short-step blocker on both the single-species and D/T open-field recycling lanes. Those lanes are still documented honestly as in-progress until the full transient backbone is clean, but the startup controller is no longer the weak point it was a few checkpoints ago.
+- exact compact 2D blob, drift-wave, and tokamak lanes,
+- exact and operational recycling lanes with live Hermes-backed gates,
+- native 3D reduced tokamak, traced-field-line, and stellarator selected-field bundles,
+- control, reaction, impurity, neutral, and profiling campaign packages.
 
-In practice, that means the open-field one-step recycling lanes now clear a tighter exact-grade recycling gate: `recycling_1d_one_step` and `recycling_dthe_one_step` both stay below a scaled one-step diff band of `5e-2` against their committed baselines, and the one-step runner no longer relies on a synthesized final-state template for non-active cells. The longer open-field recycling windows remain `native_operational`, but the first-output open-field lane is now strong enough to count as `native_exact` on its promoted compare surface.
+The detailed status surface lives in:
 
-The same promotion logic now closes the integrated 2D recycling transient family too. `integrated_2d_recycling_one_step`, `integrated_2d_recycling_short_window`, and `integrated_2d_recycling_medium_window` all clear an exact-grade mixed gate: non-negligible fields stay inside a scaled diff band while the effectively silent neutral momentum channel is held to a tiny absolute band. The transient no longer replays dump-backed density, pressure, or momentum source fields and no longer preserves dump target state during the transient or diagnostic replay.
+- [docs/implementation_inventory.md](docs/implementation_inventory.md)
+- [docs/hermes_capability_audit.md](docs/hermes_capability_audit.md)
+- [docs/parity_harness.md](docs/parity_harness.md)
+- [docs/parity_matrix.md](docs/parity_matrix.md)
 
-The direct multispecies tokamak recycling one-step lane is now promoted on the same mixed-band rule. `tokamak_recycling_dthe_one_step` clears a `5e-2` scaled band on the non-negligible ion/electron fields while the near-zero neutral channels stay inside a small absolute band, and the active solve is routed through its own direct-tokamak runner entry rather than the integrated 2D dispatch path.
+## 3D Geometry And Movies
 
-Those promoted 2D gates are now regression-locked behind a bounded parity slice too: set `JAX_DRB_RUN_RECYCLING_2D_PARITY=1` to run the exact-grade integrated/direct recycling parity checks without turning on the whole heavy ladder.
+`jax_drb` includes reusable 3D geometry tooling for:
 
-The first 3D tokamak kickoff is now more than a movie stub. The TCV-X21 scaffold package publishes a structured deck report, a benchmark-data report, a benchmark validation contract, a shared observable report, and a staged profile bundle alongside a real public sample geometry/movie bundle, so the 3D lane already exposes manifest metadata, compare variables, time controls, solver settings, mesh metadata, declared component layout, FHRP/LFS-LP/HFS-LP profile families, and the planned benchmark gates before the first native 3D solver promotion. The committed artifact bundle is now generated from a real public TCV-X21 benchmark-data root rather than only from a synthetic preview.
+- tokamak sample-data scaffolds,
+- traced-field-line metric and selected-plane workflows,
+- stellarator/VMEC equilibrium scaffolds,
+- native reduced selected-field comparisons,
+- toroidal and slice-based movie generation.
 
-That said, TCV-X21 is treated as the first benchmark adapter, not as the whole 3D architecture. The 3D program is being organized around reusable mesh, metric, diagnostics, movie, and selected-field parity primitives so the same infrastructure can be used for other geometry families, including traced-field-line and stellarator-style meshes. The current geometry direction is tracked in [geometry_roadmap.md](docs/geometry_roadmap.md). The shared 3D diagnostics layer now owns the profile-report, profile-NPZ, and publication-plot path used by the current scaffold package, so future geometry adapters do not need to duplicate that logic.
+Useful entry points:
 
-The first non-diverted second adapter is now in-tree too: a traced-field-line geometry scaffold that writes a metric report, compact metric arrays, a shared observable report, reusable line diagnostics, an automatically selected plane-summary bundle and GIF, and a validation contract on the same public artifact model. The slice/movie path now chooses the most informative radial, toroidal, or poloidal plane family for the staged metric field instead of hardwiring a tokamak-style view. That keeps the 3D program honest by pressure-testing the geometry and diagnostics layer beyond a single tokamak benchmark family.
+- [docs/tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
+- [docs/tokamak_tcv_x21_toroidal_movie_demo.md](docs/tokamak_tcv_x21_toroidal_movie_demo.md)
+- [docs/tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
+- [docs/tokamak_native_selected_field_demo.md](docs/tokamak_native_selected_field_demo.md)
+- [docs/traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
+- [docs/traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
+- [docs/traced_field_line_native_selected_field_demo.md](docs/traced_field_line_native_selected_field_demo.md)
+- [docs/stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
+- [docs/stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
+- [docs/stellarator_vmec_native_selected_field_demo.md](docs/stellarator_vmec_native_selected_field_demo.md)
+- [docs/dynamics_gallery.md](docs/dynamics_gallery.md)
+- [docs/validation_gallery.md](docs/validation_gallery.md)
 
-The tokamak 3D lane now has the same kind of honest reduced gate too: the committed `tokamak_tcv_x21_selected_field` bundle is generated from the public TCV-X21 sample benchmark-data root, writes both a benchmark-data report and a shared observable report, and compares compact `Ne`/`Pe`/`phi` histories on a reproducible derived-candidate path instead of staying synthetic-only. That gives the 3D tokamak lane a real public-data compact parity surface before the first native selected-field rung lands.
+## Differentiable Driver Lanes
 
-The next 3D step is now also in-tree as a real native execution artifact bundle: `tokamak_native_selected_field` runs a promoted native tokamak one-step case, compares the compact `Ne`/`Pe`/`phi` history surface against the committed reference arrays, writes both a shared observable report and a runtime/provenance summary, and now also emits a direct native-vs-reference history comparison bundle. That is the first honest native 3D reduced rung in the repository.
+The differentiable examples currently include:
 
-That second geometry family now also has its first reduced parity gate: a traced-field-line selected-field package that compares a compact metric-field surface, publishes `max|Δ|`, RMS, and relative-L2 errors, and writes the result through the same shared observable schema as the other 3D adapters. The committed selected-field bundle now runs from a real local two-file external FCI pair when those inputs are available, using the shared `g11`/`g33` metric-field surface and only materializing a fallback candidate when no second external file is present.
+- sensitivity analysis,
+- uncertainty propagation,
+- inverse design,
+- fixed-workload scaling.
 
-The third 3D adapter is now in-tree too: `stellarator_vmec_scaffold` consumes VMEC-style equilibrium data on the same public artifact model, writing a manifest, validation contract, equilibrium profile bundle, shared observable report, and sampled `R`/`Z` flux-surface figure/movie package. That is the current pressure test that the 3D architecture can handle a stellarator-style family without introducing another bespoke benchmark stack.
-
-That third geometry family now also has its first reduced parity gate: `stellarator_vmec_selected_field` compares compact `iota`/`pressure`/`toroidal_flux` profiles and writes the same public parity plus source-report surface used by the other 3D adapters. The committed bundle can now be regenerated from a real explicit external VMEC pair, not only from the synthetic preview path. That same family now also has its first native reduced rung: `stellarator_vmec_native_selected_field` publishes parity, direct native-vs-reference comparison, observable, and runtime reports on the same shared 3D artifact model. On the tokamak side, the native reduced rung is no longer only a one-step proof point: there is now a second committed short-window native bundle on `tokamak_isothermal_short_window` for `Ne`/`phi`/`Vort`.
-
-The next publication-facing layer is now also in-tree: `publication_ready_3d_campaign` assembles the promoted native tokamak reduced rungs, the traced-field-line and stellarator native reduced rungs, the traced-field-line and stellarator explicit external-pair gates, and the committed manufactured-solution convergence report into one reviewer-facing summary JSON plus figure bundle. That package is intentionally honest about what is still missing: a broader 3D native convergence/performance campaign.
-
-The engineering closeout surface is now also explicit: `hermes_capability_audit` records the grouped source-family comparison against the local `hermes-3` tree and keeps the remaining open families visible as machine-readable JSON rather than only as free-form plan notes. The neutral branch itself is no longer blocked on a prefix-only transient probe: `neutral_mixed_one_step` has a bounded native centerline gate with materially tighter errors after matching the reference density wall-guard reconstruction, `neutral_mixed_short_window` clears a bounded full short-window metric gate under the local ten-minute policy (`center Nh ≈ 8.03e-3`, `center Ph ≈ 6.47e-4`, `center NVh ≈ 8.60e-4`, `center T ≈ 2.91e-4`, `total Nh ≈ 3.24e-1`, `total Ph ≈ 2.89e-2`, `momentum RMS ≈ 1.71e-3`), and the same short-window lane now also clears a bounded full-array field gate on the trimmed active-domain `Nh`/`Ph`/`NVh` surface (`Nh max|Δ| ≈ 1.27e-2`, `Ph max|Δ| ≈ 1.21e-3`, `NVh max|Δ| ≈ 3.37e-3`).
-
-That closeout surface is broader now too. `reactions_collisions_campaign` turns the reactions/collisionality breadth into an explicit JSON/NPZ/plot gate for charge exchange, isotope coupling, per-species CX multipliers, ionisation-rate consistency, ion-viscosity collisionality closure, and neon OpenADAS loading. `impurity_radiation_campaign` now does the same for the first impurity/radiation surfaces that actually exist today: neon OpenADAS ionisation/recombination loading, finite radiation-loss evaluation, and exact `D/T/He/Ne` direct tokamak RHS closure on `Nne+`, `Pne+`, and `Pe`. The direct tokamak recycling family is now wider than its promoted first output too: beyond exact `tokamak_recycling_dthe_one_step`, a live Hermes-backed `nout=2` D/T window clears a mixed operational band under the local ten-minute policy, the richer drift-enabled `tokamak_recycling_dthe_drifts_one_step` lane also clears a bounded `nout=2` operational gate with worst scaled diff `NVhe+ ≈ 2.87e-2`, the neon-enabled `tokamak_recycling_dthene_one_step` lane clears a live Hermes-backed mixed operational gate (`worst scaled diff ≈ 5.81e-4`, `worst near-zero abs diff ≈ 8.42e-5`), the same neon-enabled family clears a bounded `nout=3` short-window gate with `near_zero_atol = 5e-4`, worst scaled diff `NVt+ ≈ 3.44e-3`, and worst near-zero abs diff `Pd ≈ 2.54e-4`, and that same surface now also clears a richer bounded `nout=5` short-window gate with worst scaled diff `NVt+ ≈ 2.08e-3` and worst near-zero abs diff `Pd ≈ 4.29e-4`. On the 3D side, `traced_field_line_native_selected_field` and `stellarator_vmec_native_selected_field` are now the first native reduced non-tokamak rungs on the shared artifact surface, publishing parity, direct native-vs-reference comparison, observable, and runtime reports from JAX-native reduction paths.
-
-The native 3D runtime/scaling surface is now explicit as well. `native_3d_runtime_campaign` aggregates the committed native tokamak, traced-field-line, and stellarator reduced-rung runtime reports and adds compact scaling sweeps for the non-tokamak native reduction kernels. `native_3d_convergence_campaign` adds an operator-level convergence gate on the promoted traced-field-line native reduction surface, and `hermes_comparison_summary` does the same for the committed native-vs-reference comparison surfaces so the benchmark story is visible in one publication-style plot rather than only across per-lane images.
-
-The JAX-native runtime audit surface is now explicit too. `jax_native_profile_audit` measures compile, first-execute, and warm-execute timings on the promoted traced-field-line and stellarator reduced kernels, emits Perfetto-compatible traces for both lanes, and records the concrete engineering guidance from that profiling pass: batch same-shape selected fields before entering jitted reductions, warm kernels once before publication-facing timing, and keep solver/geometry metadata out of static JIT arguments so reduced native lanes do not pay avoidable recompilation overhead.
-
-The controller-oriented closeout surface is explicit too. `controller_feedback_campaign` turns the native upstream-density feedback path into a dense-history reference-backed gate on controller multiplier, proportional/integral terms, reconstructed controller integral, and target recycling source. `detachment_controller_campaign` now adds a materially broader bounded Hermes-backed detachment-controller lane on the local non-PETSc reference build by staging a reduced `cvode` deck at `ny=32`, `nout=24`, `timestep=100`, stripping the incompatible `beuler`-only solver options, and validating the saved controller-balance/source identities on a nontrivial control response. `temperature_feedback_campaign` is now a real bounded reduced Hermes-backed lane too: it auto-prepares a clean patched reference worktree when the local Hermes source still carries the known `temperature_feedback.hxx` permission bug, runs a reduced `cvode` deck at `ny=16`, `nout=4`, `timestep=100`, and validates multiplier/proportional/source balance plus bounded integral reconstruction and target-temperature error reduction. That closes the reduced temperature-control lane cleanly; the remaining controller gap is now specifically the absence of a broader production temperature/detachment workflow, not the absence of a reproducible bounded temperature-feedback validation path.
-
-The final ship/publication decision record is now also explicit in [docs/jcp_readiness_audit.md](docs/jcp_readiness_audit.md). That page maps the current `jax_drb` state to the verification/validation expectations visible in the relevant reference-code literature and now makes the claim boundary explicit: a selected-lane JCP manuscript can start from the current promoted native lanes plus general 3D infrastructure, while the broader standalone claim still needs more production control and broader end-to-end 3D production workflows. The coverage blocker is now narrowed to the broad repo matrix, not the release closeout slice: `scripts/run_closeout_coverage.py` enforces a reproducible `95%` threshold on the bounded controller/runtime/profile/audit closeout surface.
-
-## What To Run First
-
-If you want a tutorial-style standalone workflow:
-
-- [restartable_diffusion_tutorial.py](docs/restartable_diffusion_tutorial.md)
-
-If you want meeting-ready figures and movies:
-
-- [alfven_wave_meeting_demo.md](docs/alfven_wave_meeting_demo.md)
-- [blob2d_meeting_demo.md](docs/blob2d_meeting_demo.md)
-- [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
-- [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
-- [tokamak_tcv_x21_selected_field_demo.md](docs/tokamak_tcv_x21_selected_field_demo.md)
-- [tokamak_native_selected_field_demo.md](docs/tokamak_native_selected_field_demo.md)
-- [tokamak_tcv_x21_validation_methodology.md](docs/tokamak_tcv_x21_validation_methodology.md)
-- [traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
-- [traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
-- [stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
-- [stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
-- [stellarator_vmec_native_selected_field_demo.md](docs/stellarator_vmec_native_selected_field_demo.md)
-- [impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
-- [detachment_controller_campaign.md](docs/detachment_controller_campaign.md)
-- [autodiff_diffusion_uncertainty_demo.md](docs/autodiff_diffusion_uncertainty_demo.md)
-- [manuscript_figures.md](docs/manuscript_figures.md)
-- [jcp_manuscript_outline.md](docs/jcp_manuscript_outline.md)
-- [closeout_coverage.md](docs/closeout_coverage.md)
-- [native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
-- [jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
-- [hermes_comparison_gallery.md](docs/hermes_comparison_gallery.md)
-- [dynamics_gallery.md](docs/dynamics_gallery.md)
-- [publication_ready_3d_campaign.md](docs/publication_ready_3d_campaign.md)
-- [hermes_capability_audit.md](docs/hermes_capability_audit.md)
-
-If you want the current validation gallery:
-
-- [validation_gallery.md](docs/validation_gallery.md)
-
-If you want the reviewer-facing validation contract:
-
-- [research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
-
-If you want the physics and source-code map:
-
-- [physics_models.md](docs/physics_models.md)
-
-If you want the current performance and differentiability status:
-
-- [performance_and_differentiability.md](docs/performance_and_differentiability.md)
-- [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
-
-If you want current research directions and benchmark targets:
-
-- [research_directions.md](docs/research_directions.md)
-- [geometry_roadmap.md](docs/geometry_roadmap.md)
-
-## Current Research Connections
-
-The active roadmap is tied to current edge/SOL validation themes:
-
-- seeded-blob and filament dynamics motivated by TORPEX-style validation and multi-code comparisons
-- diverted L-mode validation campaigns in the spirit of TCV-X21
-- detachment-scaling studies for open-field and divertor credibility
-- impurity, radiation, and X-point physics as staged follow-on workflows
-
-The current research-facing roadmap is documented here:
-
-- [research_directions.md](docs/research_directions.md)
-
-## Autodiff And Scaling Examples
-
-The current publication-oriented differentiable examples are:
+Entry points:
 
 - [examples/autodiff_diffusion_sensitivity_demo.py](examples/autodiff_diffusion_sensitivity_demo.py)
 - [examples/autodiff_diffusion_uncertainty_demo.py](examples/autodiff_diffusion_uncertainty_demo.py)
 - [examples/autodiff_diffusion_inverse_design_demo.py](examples/autodiff_diffusion_inverse_design_demo.py)
 - [examples/strong_scaling_diffusion_demo.py](examples/strong_scaling_diffusion_demo.py)
+- [docs/autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
+- [docs/autodiff_diffusion_uncertainty_demo.md](docs/autodiff_diffusion_uncertainty_demo.md)
 
-They generate the current committed artifacts:
+## Physics, Algorithms, And Performance
 
-- sensitivity figure: [docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png](docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
-- uncertainty figure: [docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png](docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
-- inverse-design figure: [docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png](docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
-- strong-scaling figure: [docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png](docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+The governing equations, closures, numerical operators, runtime design, and differentiability boundary are documented here:
 
-These examples follow the same differentiable-simulation surfaces commonly used in projects such as [JAX-FEM](https://github.com/deepmodeling/jax-fem), [JAX-MD](https://github.com/jax-md/jax-md), and the JAX parallel map model documented in [JAX `pmap`](https://docs.jax.dev/en/latest/_autosummary/jax.pmap.html): parameter sensitivities, inverse parameter recovery, and fixed-workload scaling on a gradient-enabled kernel.
+- [docs/physics_models.md](docs/physics_models.md)
+- [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
+- [docs/native_runtime_cli.md](docs/native_runtime_cli.md)
+- [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
+- [docs/research_directions.md](docs/research_directions.md)
 
-## Documentation Map
+The runtime/performance audit tools include:
 
-- Runtime and deck guide: [native_runtime_cli.md](docs/native_runtime_cli.md)
-- Release and packaging guide: [release_packaging.md](docs/release_packaging.md)
-- Current release notes: [release_notes_1_0_0.md](docs/release_notes_1_0_0.md)
-- Validation gallery: [validation_gallery.md](docs/validation_gallery.md)
-- Diverted tokamak movie demo: [diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md)
-- TCV-X21 tokamak scaffold demo: [tokamak_tcv_x21_scaffold_demo.md](docs/tokamak_tcv_x21_scaffold_demo.md)
-- Physics models and source map: [physics_models.md](docs/physics_models.md)
-- Performance and differentiability: [performance_and_differentiability.md](docs/performance_and_differentiability.md)
-- Autodiff and scaling examples: [autodiff_and_scaling_examples.md](docs/autodiff_and_scaling_examples.md)
-- Autodiff UQ demo: [autodiff_diffusion_uncertainty_demo.md](docs/autodiff_diffusion_uncertainty_demo.md)
-- Manuscript-specific figure bundle: [manuscript_figures.md](docs/manuscript_figures.md)
-- Manuscript outline: [jcp_manuscript_outline.md](docs/jcp_manuscript_outline.md)
-- Research roadmap and links: [research_directions.md](docs/research_directions.md)
-- Reviewer-facing validation matrix: [research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
-- Active implementation status: [PLAN.md](PLAN.md)
+- [docs/native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
+- [docs/native_3d_convergence_campaign.md](docs/native_3d_convergence_campaign.md)
+- [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 
-## Notes On Validation
+## Validation And Control Packages
 
-`jax_drb` keeps external benchmark comparisons separate from the standalone user workflow:
+Focused engineering and benchmark packages:
 
-- standalone users should start from TOML decks, restart bundles, and the plotting/movie examples
-- benchmark comparisons are maintained as curated validation workflows and documented in the docs
-- public evidence should be anchored in promoted `native_exact` or clearly labeled `native_operational` workflows
+- [docs/reactions_collisions_campaign.md](docs/reactions_collisions_campaign.md)
+- [docs/impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
+- [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
+- [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)
+- [docs/detachment_controller_campaign.md](docs/detachment_controller_campaign.md)
+- [docs/hermes_comparison_gallery.md](docs/hermes_comparison_gallery.md)
 
-## Tests
+## Testing
 
-Run the fast research-grade gate first:
+Run the fast bounded research slice:
 
 ```bash
 python scripts/run_fast_research_checks.py
 ```
 
-This gate runs curated operator/runtime/MMS/recycling slices with a hard 5-minute timeout per slice. Longer transient-solver tests are marked `slow` and excluded from the default recycling slice, so the gate stays useful for day-to-day research iteration. Coverage is opt-in with `--with-coverage`; the default fast loop prioritizes bounded wall time. If a slice exceeds the timeout, it is terminated and the run fails immediately instead of leaving a long background pytest process alive.
-
-For reviewer-facing manufactured-solution convergence evidence, run:
-
-```bash
-python scripts/run_fluid_1d_mms_convergence.py --output docs/data/fluid_1d_mms_convergence.json
-```
-
-That script produces a small JSON report with refinement errors and observed order on the native 1D fluid MMS lane. It is intentionally separate from the default fast gate so convergence evidence stays reproducible without slowing the everyday iteration loop.
-
-Run the full test suite when you intentionally want the broader surface:
+Run the full suite:
 
 ```bash
 pytest -q
 ```
 
-Run coverage on the curated fast gate:
-
-```bash
-python scripts/run_fast_research_checks.py --with-coverage
-```
-
-Run the bounded release-closeout coverage gate:
+Run the bounded closeout coverage gate:
 
 ```bash
 python scripts/run_closeout_coverage.py
 ```
 
-That script is intentionally narrower than repo-wide coverage. It enforces `95%` on the controller/runtime/profile/audit closeout slice that the release decision actually depends on, instead of pretending one monolithic local command is the only meaningful threshold.
+The shipping CI matrix runs on Python 3.10, 3.11, and 3.12.
 
-For package build and PyPI release steps, see:
+## Packaging And Release
 
-- [release_packaging.md](docs/release_packaging.md)
+Build locally:
+
+```bash
+python -m build
+```
+
+Release/package documentation:
+
+- [docs/release_packaging.md](docs/release_packaging.md)
+- [docs/release_notes_1_0_0.md](docs/release_notes_1_0_0.md)
