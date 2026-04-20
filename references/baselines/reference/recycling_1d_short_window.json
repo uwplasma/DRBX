@@ -1,0 +1,208 @@
+{
+  "capability_tier": "native_operational",
+  "case_name": "recycling_1d_short_window",
+  "compare_variables": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Pe"
+  ],
+  "component_labels": [
+    "d+:evolve_density",
+    "d+:evolve_pressure",
+    "d+:evolve_momentum",
+    "d+:noflow_boundary",
+    "d+:upstream_density_feedback",
+    "d:evolve_density",
+    "d:evolve_pressure",
+    "d:evolve_momentum",
+    "d:noflow_boundary",
+    "e:quasineutral",
+    "e:evolve_pressure",
+    "e:zero_current",
+    "e:noflow_boundary",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "recycling",
+    "reactions",
+    "electron_force_balance",
+    "neutral_parallel_diffusion",
+    "braginskii_conduction"
+  ],
+  "configured_nout": 5,
+  "configured_timestep": 5000.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 97871.51425755137,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 100.0,
+    "rho_s0": 0.0010217477552952484
+  },
+  "dimensions": {
+    "t": 6,
+    "x": 1,
+    "y": 54,
+    "z": 1
+  },
+  "effective_output_points": 6,
+  "overrides": [
+    "nout=5"
+  ],
+  "parity_mode": "short_window",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    5000.0,
+    10000.0,
+    15000.0,
+    20000.0,
+    25000.0
+  ],
+  "variable_summaries": {
+    "NVd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.04112581249592438,
+      "maximum": 0.04112581249592438,
+      "mean": 0.0010802690411301121,
+      "minimum": -0.006665873122979737,
+      "name": "NVd",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    },
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 1.0620063146584462,
+      "maximum": 1.0620063146584462,
+      "mean": 0.15712288107879935,
+      "minimum": 0.0,
+      "name": "NVd+",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    },
+    "Nd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.7591128231208685,
+      "maximum": 0.7601128231208685,
+      "mean": 0.026046747071866917,
+      "minimum": 1.5929209755276105e-07,
+      "name": "Nd",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.44342016365975967,
+      "maximum": 1.4434201636597597,
+      "mean": 1.047528823543593,
+      "minimum": 0.6565483825384761,
+      "name": "Nd+",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    },
+    "Pd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.24051865491464086,
+      "maximum": 0.24061865491464085,
+      "mean": 0.009462798291748521,
+      "minimum": 1.881521330416943e-07,
+      "name": "Pd",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.38255422231877256,
+      "maximum": 1.3825542223187726,
+      "mean": 1.134796650440064,
+      "minimum": 0.3939980503142391,
+      "name": "Pd+",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.5308006018100461,
+      "maximum": 1.0,
+      "mean": 0.8143918566313172,
+      "minimum": 0.46919939818995393,
+      "name": "Pe",
+      "shape": [
+        6,
+        1,
+        50,
+        1
+      ]
+    }
+  }
+}

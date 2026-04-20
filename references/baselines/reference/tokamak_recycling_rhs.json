@@ -1,0 +1,380 @@
+{
+  "case_name": "tokamak_recycling_rhs",
+  "compare_variables": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Pe",
+    "Sd_target_recycle",
+    "Ed_target_recycle",
+    "ddt(Nd+)",
+    "ddt(Pd+)",
+    "ddt(NVd+)",
+    "ddt(Nd)",
+    "ddt(Pd)",
+    "ddt(NVd)",
+    "ddt(Pe)"
+  ],
+  "component_labels": [
+    "d+:evolve_density",
+    "d+:evolve_momentum",
+    "d+:evolve_pressure",
+    "d+:anomalous_diffusion",
+    "d:neutral_mixed",
+    "e:quasineutral",
+    "e:evolve_pressure",
+    "e:zero_current",
+    "e:anomalous_diffusion",
+    "sheath_boundary_simple",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "sound_speed",
+    "reactions",
+    "electron_force_balance",
+    "braginskii_conduction",
+    "recycling"
+  ],
+  "configured_nout": 200,
+  "configured_timestep": 5000.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 84759.21765389037,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 75.0,
+    "rho_s0": 0.0008848595123454113
+  },
+  "dimensions": {
+    "t": 1,
+    "x": 36,
+    "y": 12,
+    "z": 1
+  },
+  "effective_output_points": 1,
+  "overrides": [
+    "nout=0",
+    "mesh:file=/path/to/reference-suite/examples/tokamak-2D/recycling/tokamak.nc",
+    "hermes:components=(d+, d, e, sheath_boundary_simple, braginskii_collisions, braginskii_friction, braginskii_heat_exchange, sound_speed, reactions, electron_force_balance, braginskii_conduction, recycling)"
+  ],
+  "parity_mode": "one_rhs",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0
+  ],
+  "variable_summaries": {
+    "Ed_target_recycle": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0003405217931229105,
+      "mean": 4.0927184119046e-05,
+      "minimum": 0.0,
+      "name": "Ed_target_recycle",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "NVd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVd",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "NVd+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "Nd",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Nd+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "Pd",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Pd+",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "name": "Pe",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "Sd_target_recycle": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.008513044828072762,
+      "mean": 0.00102317960297615,
+      "minimum": 0.0,
+      "name": "Sd_target_recycle",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(NVd)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": 0.0,
+      "minimum": 0.0,
+      "name": "ddt(NVd)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(NVd+)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.0,
+      "mean": -0.004134059001923839,
+      "minimum": -0.034396140719485914,
+      "name": "ddt(NVd+)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(Nd)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.008513045713796304,
+      "mean": 0.0010231804891347883,
+      "minimum": 8.361375223407553e-10,
+      "name": "ddt(Nd)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(Nd+)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": -8.361375223407553e-10,
+      "mean": -0.0010335156366395979,
+      "minimum": -0.008599036065595018,
+      "name": "ddt(Nd+)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(Pd)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": 0.00022701541447214785,
+      "mean": 2.728567557133538e-05,
+      "minimum": 8.361375223407552e-10,
+      "name": "ddt(Pd)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(Pd+)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": -8.361375223407552e-10,
+      "mean": -0.001722525470293571,
+      "minimum": -0.014331726185509337,
+      "name": "ddt(Pd+)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    },
+    "ddt(Pe)": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": null,
+      "maximum": -2.503067685692766e-10,
+      "mean": -0.003307059827976613,
+      "minimum": -0.027515351650619812,
+      "name": "ddt(Pe)",
+      "shape": [
+        1,
+        32,
+        8,
+        1
+      ]
+    }
+  }
+}

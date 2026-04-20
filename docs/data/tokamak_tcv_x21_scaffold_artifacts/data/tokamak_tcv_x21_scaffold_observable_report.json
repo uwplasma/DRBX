@@ -1,0 +1,52 @@
+{
+  "available": true,
+  "benchmark_adapter": "tcv_x21",
+  "geometry_family": "diverted_tokamak_3d",
+  "metadata": {
+    "case_name": "tokamak_tcv_x21_escalation"
+  },
+  "observable_groups": [
+    {
+      "description": "Named TCV-X21 benchmark probe and divertor profile families.",
+      "families": [
+        {
+          "coordinate_name": "coord",
+          "field_names": [
+            "density",
+            "electron_temp",
+            "potential",
+            "vfloat"
+          ],
+          "kind": "profile",
+          "name": "FHRP"
+        },
+        {
+          "coordinate_name": "coord",
+          "field_names": [
+            "current",
+            "density",
+            "electron_temp",
+            "potential",
+            "vfloat"
+          ],
+          "kind": "profile",
+          "name": "LFS-LP"
+        },
+        {
+          "coordinate_name": "coord",
+          "field_names": [
+            "current",
+            "density",
+            "electron_temp",
+            "potential",
+            "vfloat"
+          ],
+          "kind": "profile",
+          "name": "HFS-LP"
+        }
+      ],
+      "name": "benchmark_profiles"
+    }
+  ],
+  "parse_status": "ok"
+}

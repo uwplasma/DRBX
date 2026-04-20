@@ -1,0 +1,38 @@
+{
+  "lane_count": 4,
+  "lanes": [
+    {
+      "geometry_family": "diverted_tokamak_3d",
+      "lane_name": "tokamak_native_one_step",
+      "worst_max_abs_error": 0.0,
+      "worst_max_abs_field": "Ne",
+      "worst_relative_l2_error": 0.0,
+      "worst_relative_l2_field": "Ne"
+    },
+    {
+      "geometry_family": "diverted_tokamak_3d",
+      "lane_name": "tokamak_native_short_window",
+      "worst_max_abs_error": 0.0,
+      "worst_max_abs_field": "Ne",
+      "worst_relative_l2_error": 0.0,
+      "worst_relative_l2_field": "Ne"
+    },
+    {
+      "geometry_family": "traced_field_line_3d",
+      "lane_name": "traced_field_line_native_selected_field",
+      "worst_max_abs_error": 0.2807673403807507,
+      "worst_max_abs_field": "g33",
+      "worst_relative_l2_error": 0.11287030791489619,
+      "worst_relative_l2_field": "g33"
+    },
+    {
+      "geometry_family": "stellarator_vmec_3d",
+      "lane_name": "stellarator_vmec_native_selected_field",
+      "worst_max_abs_error": 0.03938369338999987,
+      "worst_max_abs_field": "toroidal_flux",
+      "worst_relative_l2_error": 0.4745023299999996,
+      "worst_relative_l2_field": "toroidal_flux"
+    }
+  ],
+  "reference_code": "hermes-3"
+}
