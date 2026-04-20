@@ -1,0 +1,16 @@
+{
+  "benchmark_adapter": "native_stellarator_vmec_selected_field",
+  "candidate_input_name": "jax_drb_wout_candidate.nc",
+  "candidate_origin": "provided_external_input",
+  "elapsed_seconds": 0.030320457997731864,
+  "geometry_family": "stellarator_vmec_3d",
+  "jax_backend": "cpu",
+  "native_capability_tier": "native_exact_reduced",
+  "reference_input_name": "jax_drb_wout_reference.nc",
+  "selected_fields": [
+    "iota",
+    "pressure",
+    "toroidal_flux"
+  ],
+  "source_mode": "explicit_pair"
+}

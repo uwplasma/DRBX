@@ -1,0 +1,32 @@
+{
+  "case": "native_3d_convergence_campaign",
+  "entries": [
+    {
+      "g11_error": 0.00013020833333343695,
+      "g33_error": 0.000260416666667318,
+      "resolution": 8
+    },
+    {
+      "g11_error": 3.255208333352577e-05,
+      "g33_error": 6.510416666838381e-05,
+      "resolution": 16
+    },
+    {
+      "g11_error": 8.138020833881043e-06,
+      "g33_error": 1.627604167087071e-05,
+      "resolution": 32
+    },
+    {
+      "g11_error": 2.034505208525772e-06,
+      "g33_error": 4.069010418383812e-06,
+      "resolution": 64
+    }
+  ],
+  "min_observed_order": 1.9999999996654085,
+  "observed_orders": [
+    1.9999999999655567,
+    1.9999999996654085,
+    1.9999999997638178
+  ],
+  "operator": "native_traced_field_line_radial_profile"
+}

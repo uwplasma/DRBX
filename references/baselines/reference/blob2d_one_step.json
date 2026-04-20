@@ -1,0 +1,105 @@
+{
+  "case_name": "blob2d_one_step",
+  "compare_variables": [
+    "Ne",
+    "Vort",
+    "phi"
+  ],
+  "component_labels": [
+    "e:evolve_density",
+    "e:isothermal",
+    "vorticity",
+    "sheath_closure"
+  ],
+  "configured_nout": 50,
+  "configured_timestep": 50.0,
+  "dataset_scalars": {
+    "Bnorm": 0.35,
+    "Cs0": 21884.735894072473,
+    "Nnorm": 2e+18,
+    "Omega_ci": 33525916.560731284,
+    "Tnorm": 5.0,
+    "rho_s0": 0.0006527706961994274
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 260,
+    "y": 1,
+    "z": 256
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    50.0
+  ],
+  "variable_summaries": {
+    "Ne": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.024292255147487563,
+      "maximum": 1.4992376423275375,
+      "mean": 1.003926990822667,
+      "minimum": 0.9999864396637599,
+      "name": "Ne",
+      "shape": [
+        2,
+        256,
+        1,
+        256
+      ]
+    },
+    "Vort": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.004797556031754616,
+      "maximum": 0.004797556031754616,
+      "mean": 5.682599038624804e-12,
+      "minimum": -0.004797401223661476,
+      "name": "Vort",
+      "shape": [
+        2,
+        256,
+        1,
+        256
+      ]
+    },
+    "phi": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.025145951834578593,
+      "maximum": 0.025142216985172876,
+      "mean": -3.028784717340493e-09,
+      "minimum": -0.025145951834578593,
+      "name": "phi",
+      "shape": [
+        2,
+        256,
+        1,
+        256
+      ]
+    }
+  }
+}

@@ -1,0 +1,258 @@
+{
+  "case_name": "integrated_2d_recycling_medium_window",
+  "compare_variables": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Pe",
+    "Sd_target_recycle",
+    "Ed_target_recycle"
+  ],
+  "component_labels": [
+    "d+:evolve_density",
+    "d+:evolve_momentum",
+    "d+:evolve_pressure",
+    "d+:anomalous_diffusion",
+    "d:neutral_mixed",
+    "d:neutral_boundary",
+    "e:quasineutral",
+    "e:evolve_pressure",
+    "e:zero_current",
+    "e:anomalous_diffusion",
+    "sheath_boundary_simple",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "reactions",
+    "electron_force_balance",
+    "braginskii_conduction",
+    "recycling"
+  ],
+  "configured_nout": 5,
+  "configured_timestep": 0.0001,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 97871.51425755137,
+    "Nnorm": 1e+17,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 100.0,
+    "rho_s0": 0.0010217477552952484
+  },
+  "dimensions": {
+    "t": 21,
+    "x": 20,
+    "y": 9,
+    "z": 1
+  },
+  "effective_output_points": 21,
+  "overrides": [
+    "nout=20"
+  ],
+  "parity_mode": "short_window",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    0.0001,
+    0.0002,
+    0.00030000000000000003,
+    0.0004,
+    0.0005,
+    0.0006000000000000001,
+    0.0007000000000000001,
+    0.0008000000000000001,
+    0.0009000000000000002,
+    0.0010000000000000002,
+    0.0011000000000000003,
+    0.0012000000000000003,
+    0.0013000000000000004,
+    0.0014000000000000004,
+    0.0015000000000000005,
+    0.0016000000000000005,
+    0.0017000000000000006,
+    0.0018000000000000006,
+    0.0019000000000000006,
+    0.0020000000000000005
+  ],
+  "variable_summaries": {
+    "Ed_target_recycle": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 2.2773252504298958e-05,
+      "maximum": 0.16436802459806196,
+      "mean": 0.02014646118879451,
+      "minimum": 0.0,
+      "name": "Ed_target_recycle",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "NVd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 2.7333174570621073e-09,
+      "maximum": 2.7333174570621073e-09,
+      "mean": 1.4111510024961738e-10,
+      "minimum": -8.003699481989167e-14,
+      "name": "NVd",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "NVd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.22973574551443451,
+      "maximum": 5.109728980634837e-13,
+      "mean": -0.014061457424717453,
+      "minimum": -0.22973574551443451,
+      "name": "NVd+",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "Nd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.04691251571240049,
+      "maximum": 0.04691251571240049,
+      "mean": 0.002873209929056911,
+      "minimum": 0.0,
+      "name": "Nd",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "Nd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.046912442520579134,
+      "maximum": 700.0,
+      "mean": 699.9971267898877,
+      "minimum": 699.9530875574794,
+      "name": "Nd+",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "Pd": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.00022153001305300394,
+      "maximum": 0.00022153001305300394,
+      "mean": 1.3587626088416278e-05,
+      "minimum": 0.0,
+      "name": "Pd",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "Pd+": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.06965857680438603,
+      "maximum": 1050.0000027626968,
+      "mean": 1049.9957701110488,
+      "minimum": 1049.9303414231956,
+      "name": "Pd+",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.1842752623360866,
+      "maximum": 1050.0,
+      "mean": 1049.9872080748125,
+      "minimum": 1049.815724737664,
+      "name": "Pe",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    },
+    "Sd_target_recycle": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.003249408047064861,
+      "maximum": 23.45269091790424,
+      "mean": 2.870423549509634,
+      "minimum": 0.0,
+      "name": "Sd_target_recycle",
+      "shape": [
+        21,
+        16,
+        5,
+        1
+      ]
+    }
+  }
+}

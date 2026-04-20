@@ -1,0 +1,54 @@
+{
+  "case_name": "tokamak_isothermal_short_window",
+  "comparison_histories": {
+    "Ne": {
+      "native_domain_mean": [
+        0.5499999999999999,
+        0.5499399475825711,
+        0.549886550338215
+      ],
+      "reference_domain_mean": [
+        0.5499999999999999,
+        0.5499399475825711,
+        0.549886550338215
+      ]
+    },
+    "Vort": {
+      "native_domain_mean": [
+        0.0,
+        -2.7282094222043908e-05,
+        -4.787008735497701e-05
+      ],
+      "reference_domain_mean": [
+        0.0,
+        -2.7282094222043908e-05,
+        -4.787008735497701e-05
+      ]
+    },
+    "phi": {
+      "native_domain_mean": [
+        0.0,
+        -0.010763756451976999,
+        -0.006390280384518689
+      ],
+      "reference_domain_mean": [
+        0.0,
+        -0.010763756451976999,
+        -0.006390280384518689
+      ]
+    }
+  },
+  "field_names": [
+    "Ne",
+    "phi",
+    "Vort"
+  ],
+  "reference_capability_tier": "unknown",
+  "reference_producer": "external-reference",
+  "reference_source": "committed_reference_arrays",
+  "time_points": [
+    0.0,
+    0.1,
+    0.2
+  ]
+}

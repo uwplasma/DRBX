@@ -1,0 +1,63 @@
+{
+  "case_name": "tokamak_diffusion_one_step",
+  "compare_variables": [
+    "Nh"
+  ],
+  "component_labels": [
+    "h:evolve_density",
+    "h:anomalous_diffusion"
+  ],
+  "configured_nout": 1,
+  "configured_timestep": 50.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 21884.735894072473,
+    "Nnorm": 2e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 5.0,
+    "rho_s0": 0.0002284697436697996
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 36,
+    "y": 12,
+    "z": 1
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    50.0
+  ],
+  "variable_summaries": {
+    "Nh": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.4861952843412013,
+      "maximum": 1.0,
+      "mean": 0.9877838991822929,
+      "minimum": 0.5138047156587987,
+      "name": "Nh",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    }
+  }
+}
