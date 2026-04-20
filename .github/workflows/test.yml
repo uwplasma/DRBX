@@ -30,7 +30,5 @@ jobs:
           pytest -q \
             tests/test_packaging_metadata.py \
             tests/test_release_surface.py \
-            tests/test_native_runner.py \
-            tests/test_native_neutral_mixed.py \
-            tests/test_validation_neutral_mixed.py \
-            tests/test_parity_recycling.py
+            tests/test_closeout_coverage.py \
+            tests/test_validation_tokamak_tcv_x21_toroidal_movie.py
