@@ -14,18 +14,114 @@ This page is the technical map from the governing equations to the source tree. 
 
 ## Drift-Reduced Braginskii Core
 
-The promoted electrostatic and open-field lanes are built around drift-reduced Braginskii-style density, momentum, pressure, and potential evolution.
+The promoted electrostatic, open-field, and direct-tokamak lanes are built
+around drift-reduced Braginskii-style density, momentum, pressure, and
+potential evolution.
 
-Representative equations on supported lanes include:
+At the level exposed in the current native ladders, the code is solving
+discrete forms of the following model families.
 
-- continuity:
-  - `∂t n + ∇·Γ = S_n`
-- parallel momentum:
-  - `∂t (n V_∥) + ∇·(Γ V_∥) = -∇_∥ p + F_coll + F_E + ∇_∥·Π_∥ + S_m`
-- pressure / energy:
-  - `∂t p + ∇·(p u) + γ p ∇·u = Q_coll + Q_src + Q_cond`
-- vorticity / potential closure:
-  - Boussinesq and related elliptic closures depending on the promoted lane
+### Continuity
+
+For an evolved species density `n`:
+
+```text
+∂t n + ∇·Γ = S_n
+```
+
+where `Γ` is the resolved advective/diffusive flux and `S_n` collects
+ionisation, recombination, recycling, pumping, and any case-specific source
+terms.
+
+### Parallel Momentum
+
+For the evolved parallel momentum density `n V_∥`:
+
+```text
+∂t (n V_∥) + ∇·(Γ V_∥)
+  = -∇_∥ p + F_coll + F_thermal + F_sheath + ∇_∥·Π_∥ + S_m
+```
+
+The exact active terms depend on the promoted lane:
+
+- open-field recycling adds sheath, recycling, Braginskii friction, heat
+  exchange, thermal force, and ion-viscosity closures;
+- drift-wave/blob ladders carry the benchmark-consistent reduced momentum
+  structure;
+- direct tokamak ladders reuse the same promoted closures on the staged
+  tokamak metric payload.
+
+### Pressure / Energy
+
+For the evolved scalar pressure `p`:
+
+```text
+∂t p + ∇·(p u) + γ p ∇·u = Q_cond + Q_coll + Q_src
+```
+
+with the right-hand side carrying the promoted conduction, collisional exchange,
+radiation/source, and controller/recycling terms relevant to the active lane.
+
+### Potential / Vorticity Closure
+
+The electrostatic ladders solve benchmark-specific elliptic closures between
+`phi`, `Vort`, and the underlying density/current state. On the promoted
+benchmark surfaces this includes:
+
+- Boussinesq closures on the vorticity ladder;
+- drift-wave/quasineutral electron closures on the drift-wave ladder;
+- benchmark-faithful `phi` reconstruction on the blob/interchange lanes.
+
+### Electromagnetic Reduced Surfaces
+
+The promoted electromagnetic benchmark lanes use compact selected-field
+surfaces around:
+
+```text
+Ajpar = Σ_s Z_s n_s V_{∥,s}
+```
+
+plus the staged `Apar`/`NVe`/`Vort` benchmark closures documented in the
+electromagnetic source and validation utilities.
+
+## Numerical Algorithms
+
+The code paths above are not solved with one monolithic algorithm. The current
+native runtime uses a few distinct numerical patterns.
+
+### Structured Finite-Volume / Flux-Form Updates
+
+Most promoted 1D/2D native lanes use explicit flux-form field updates on the
+structured mesh and metric payload. In practice this means:
+
+- face reconstruction and metric-aware transport operators;
+- explicit source assembly from the promoted physics components;
+- trimming to the active domain when the curated parity surface excludes guard
+  cells.
+
+### Elliptic Solves
+
+Potential and related closures are handled through the elliptic solver layer in
+[solver/elliptic.py](../src/jax_drb/solver/elliptic.py), with lane-specific
+setup coming from the surrounding physics module.
+
+### Implicit / Stiff Transient Stepping
+
+The heaviest recycling and neutral lanes use bounded implicit stepping rather
+than pure explicit updates. The active release surface currently includes:
+
+- sparse backward-Euler / BDF-style recycling transient ladders;
+- matrix-free implicit neutral stepping on the promoted `neutral_mixed`
+  windows;
+- compact reduced controller lanes on staged CVODE-backed reference examples.
+
+### Controller Reconstruction / Audit Algorithms
+
+The controller campaign packages reconstruct proportional-integral source terms
+from saved histories using the same signal conventions and trapezoid-style
+integral bookkeeping expected by the promoted reference examples. These are
+review/audit algorithms rather than hot-kernel solvers, but they are part of
+the claimed validation surface.
 
 Primary source files:
 
@@ -60,6 +156,17 @@ Important operator terms currently under active review include:
 - target-corner guard-cell semantics
 - reaction/source partitioning
 - non-orthogonal transport terms in production-style geometries
+
+The user-visible control-oriented closures currently exposed in the validation
+surface are:
+
+- upstream density feedback
+- reduced temperature feedback
+- reduced detachment controller
+
+The bounded controller packages validate the saved control trajectories and
+source identities, but the broader production temperature/detachment workflow is
+still explicitly documented as beyond the current strong-subset claim.
 
 ## Electrostatic Drift-Wave And Blob Lanes
 
@@ -122,6 +229,20 @@ Primary source files:
 - runtime precision and performance settings:
   - [src/jax_drb/runtime/__init__.py](../src/jax_drb/runtime/__init__.py)
   - [src/jax_drb/runtime/performance.py](../src/jax_drb/runtime/performance.py)
+
+## Differentiability Boundary
+
+`jax_drb` intentionally separates:
+
+- the fully user-facing CLI/runtime surface, which may use NumPy/SciPy
+  boundary code where appropriate;
+- the end-to-end differentiable research lane, which is expected to run through
+  Python drivers on the strongest native JAX kernels.
+
+Today the best differentiable lanes are still the compact native-exact kernels
+such as diffusion, vorticity, drift-wave-style reduced paths, and the reduced
+3D selected-field kernels used in the profiling/runtime campaigns. The heavier
+recycling backbone remains the main differentiability and accelerator blocker.
 
 ## Output, Restart, And Provenance
 
