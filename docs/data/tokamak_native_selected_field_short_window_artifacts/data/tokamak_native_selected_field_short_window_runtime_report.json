@@ -1,0 +1,44 @@
+{
+  "capability_tier": "native_exact",
+  "case_name": "tokamak_isothermal_short_window",
+  "component_labels": [
+    "e:evolve_density",
+    "e:evolve_momentum",
+    "e:isothermal",
+    "i:quasineutral",
+    "i:evolve_momentum",
+    "i:isothermal",
+    "sound_speed",
+    "vorticity",
+    "sheath_boundary",
+    "braginskii_collisions",
+    "braginskii_friction",
+    "braginskii_heat_exchange",
+    "diamagnetic_drift"
+  ],
+  "configured_nout": 2,
+  "configured_timestep": 0.1,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 69205.61141651045,
+    "Nnorm": 1e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 50.0,
+    "rho_s0": 0.0007224847664314034
+  },
+  "dimensions": {
+    "t": 3,
+    "x": 36,
+    "y": 12,
+    "z": 27
+  },
+  "elapsed_seconds": 0.018782125000143424,
+  "parity_mode": "short_window",
+  "producer": "jax-drb",
+  "selected_fields": [
+    "Ne",
+    "phi",
+    "Vort"
+  ],
+  "time_point_count": 3
+}

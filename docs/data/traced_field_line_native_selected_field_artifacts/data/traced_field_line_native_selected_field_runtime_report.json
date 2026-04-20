@@ -1,0 +1,13 @@
+{
+  "benchmark_adapter": "native_traced_field_line_selected_field",
+  "candidate_input_name": "radial_const_4_2_4_1.fci.nc",
+  "elapsed_seconds": 0.03748241701396182,
+  "geometry_family": "traced_field_line_3d",
+  "jax_backend": "cpu",
+  "native_capability_tier": "native_exact_reduced",
+  "reference_input_name": "poloidal_const_4_2_4_1.fci.nc",
+  "selected_fields": [
+    "g11",
+    "g33"
+  ]
+}

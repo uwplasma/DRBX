@@ -1,0 +1,36 @@
+name: test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pytest-cov
+      - name: Run targeted shipping test slice
+        run: |
+          pytest -q \
+            tests/test_packaging_metadata.py \
+            tests/test_release_surface.py \
+            tests/test_native_runner.py \
+            tests/test_native_neutral_mixed.py \
+            tests/test_validation_neutral_mixed.py \
+            tests/test_parity_recycling.py
