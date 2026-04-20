@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import json
 
+from matplotlib import cm
 from matplotlib import animation
 from matplotlib import pyplot as plt
 import numpy as np
@@ -31,6 +32,7 @@ def create_tcv_x21_toroidal_movie_package(
     poloidal_stride: int = 4,
     interpolation_substeps: int = 4,
     fps: int = 8,
+    toroidal_opening_degrees: float = 95.0,
 ) -> TcvX21ToroidalMovieArtifacts:
     source = Path(arrays_npz_path)
     root = Path(output_root)
@@ -64,7 +66,13 @@ def create_tcv_x21_toroidal_movie_package(
     shell_history = np.nan_to_num(shell_history, nan=0.0, posinf=0.0, neginf=0.0)
 
     theta = np.linspace(0.0, 2.0 * np.pi, interpolated_history.shape[2], endpoint=False)
-    phi = np.linspace(0.0, 2.0 * np.pi, max(toroidal_samples, 12), endpoint=False)
+    opening_radians = np.deg2rad(float(toroidal_opening_degrees))
+    phi = np.linspace(
+        0.5 * opening_radians,
+        2.0 * np.pi - 0.5 * opening_radians,
+        max(toroidal_samples, 12),
+        endpoint=True,
+    )
     radial = np.linspace(minor_radius_min, minor_radius_max, interpolated_history.shape[1], endpoint=True)
     color_limit = float(np.nanpercentile(np.abs(interpolated_history), 98.0))
     color_limit = max(color_limit, 1.0e-9)
@@ -93,6 +101,7 @@ def create_tcv_x21_toroidal_movie_package(
         "major_radius": float(major_radius),
         "minor_radius_range": [float(minor_radius_min), float(minor_radius_max)],
         "elongation": float(elongation),
+        "toroidal_opening_degrees": float(toroidal_opening_degrees),
         "time_points": interpolated_times.tolist(),
         "color_limit": float(color_limit),
         "source_arrays": str(source.relative_to(source.parents[3])) if len(source.parents) >= 4 else source.name,
@@ -173,8 +182,10 @@ def _save_frame(
     elongation: float,
     azimuth: float = 42.0,
 ) -> None:
-    figure = plt.figure(figsize=(9.2, 7.6), constrained_layout=True)
-    axis = figure.add_subplot(111, projection="3d")
+    figure, axis, colorbar = _prepare_figure_with_colorbar(
+        field_name=field_name,
+        color_limit=color_limit,
+    )
     _draw_toroidal_frame(
         axis,
         plane,
@@ -188,6 +199,7 @@ def _save_frame(
         major_radius=major_radius,
         elongation=elongation,
         azimuth=azimuth,
+        colorbar=colorbar,
     )
     figure.savefig(path, dpi=160)
     plt.close(figure)
@@ -208,8 +220,10 @@ def _save_movie(
     elongation: float,
     fps: int,
 ) -> None:
-    figure = plt.figure(figsize=(9.2, 7.6), constrained_layout=True)
-    axis = figure.add_subplot(111, projection="3d")
+    figure, axis, colorbar = _prepare_figure_with_colorbar(
+        field_name=field_name,
+        color_limit=color_limit,
+    )
 
     def _update(frame_index: int):
         axis.cla()
@@ -226,6 +240,7 @@ def _save_movie(
             major_radius=major_radius,
             elongation=elongation,
             azimuth=42.0 + 1.2 * frame_index,
+            colorbar=colorbar,
         )
         return ()
 
@@ -237,6 +252,25 @@ def _save_movie(
         blit=False,
     ).save(path, writer=animation.PillowWriter(fps=fps))
     plt.close(figure)
+
+
+def _prepare_figure_with_colorbar(*, field_name: str, color_limit: float):
+    figure = plt.figure(figsize=(10.8, 7.6), constrained_layout=True)
+    axis = figure.add_subplot(111, projection="3d")
+    scalar_mappable = cm.ScalarMappable(
+        norm=plt.Normalize(vmin=-color_limit, vmax=color_limit),
+        cmap=plt.get_cmap("coolwarm"),
+    )
+    scalar_mappable.set_array([])
+    colorbar = figure.colorbar(
+        scalar_mappable,
+        ax=axis,
+        shrink=0.72,
+        pad=0.06,
+        fraction=0.05,
+    )
+    colorbar.set_label(f"{field_name} fluctuation amplitude")
+    return figure, axis, colorbar
 
 
 def _draw_toroidal_frame(
@@ -253,6 +287,7 @@ def _draw_toroidal_frame(
     major_radius: float,
     elongation: float,
     azimuth: float,
+    colorbar,
 ) -> None:
     cmap = plt.get_cmap("coolwarm")
     norm = plt.Normalize(vmin=-color_limit, vmax=color_limit)
@@ -283,6 +318,22 @@ def _draw_toroidal_frame(
         antialiased=False,
         shade=False,
         alpha=0.95,
+    )
+    axis.plot(
+        x_shell[:, 0],
+        y_shell[:, 0],
+        z_shell[:, 0],
+        color="black",
+        linewidth=0.9,
+        alpha=0.75,
+    )
+    axis.plot(
+        x_shell[:, -1],
+        y_shell[:, -1],
+        z_shell[:, -1],
+        color="black",
+        linewidth=0.9,
+        alpha=0.75,
     )
     axis.plot_surface(
         x_plane_0,
@@ -324,7 +375,7 @@ def _draw_toroidal_frame(
         alpha=0.65,
     )
 
-    axis.set_title(f"Toroidal {field_name} fluctuation surface · t={time_point:.3f}")
+    axis.set_title(f"Toroidal {field_name} fluctuation field · t = {time_point:.3f}")
     axis.set_xlabel("X")
     axis.set_ylabel("Y")
     axis.set_zlabel("Z")
@@ -338,3 +389,12 @@ def _draw_toroidal_frame(
     axis.yaxis.pane.set_alpha(0.0)
     axis.zaxis.pane.set_alpha(0.0)
     axis.grid(False)
+    axis.text2D(
+        0.03,
+        0.96,
+        "Cutaway toroidal shell with poloidal cross-sections showing interior turbulence.",
+        transform=axis.transAxes,
+        fontsize=9,
+        bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.8, "edgecolor": "0.8"},
+    )
+    colorbar.ax.set_title("cutaway", fontsize=8, pad=8)

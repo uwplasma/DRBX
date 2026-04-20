@@ -13,7 +13,7 @@ pip install jax-drb
 From a checkout:
 
 ```bash
-git clone https://github.com/rogeriojorge/jax_drb
+git clone https://github.com/rogeriojorge/uw_plasma
 cd jax_drb
 pip install -e .
 ```
