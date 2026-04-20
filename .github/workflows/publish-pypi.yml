@@ -1,6 +1,9 @@
 name: publish-pypi
 
 on:
+  push:
+    tags:
+      - "v*"
   release:
     types: [published]
   workflow_dispatch:
@@ -19,7 +22,7 @@ jobs:
       - name: setup python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: install build backend
         run: python -m pip install --upgrade build
