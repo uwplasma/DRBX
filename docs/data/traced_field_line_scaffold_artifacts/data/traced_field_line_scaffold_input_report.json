@@ -1,0 +1,31 @@
+{
+  "available": true,
+  "coordinate_system": "field_aligned",
+  "declared_metric_fields": [
+    "Bxy",
+    "J",
+    "dx",
+    "dy",
+    "dz",
+    "g11",
+    "g22",
+    "g33",
+    "g_11",
+    "g_22",
+    "g_33"
+  ],
+  "dimensions": {
+    "nphi": 2,
+    "ns": 4,
+    "ntheta": 4
+  },
+  "geometry_family": "traced_field_line_3d",
+  "geometry_name": "poloidal_const_4_2_4_1.fci",
+  "parse_status": "ok",
+  "periodicity": {
+    "poloidal": true,
+    "toroidal": true
+  },
+  "preview_mode": false,
+  "source_format": "netcdf_fci_grid"
+}

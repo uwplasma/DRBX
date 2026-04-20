@@ -1,0 +1,105 @@
+{
+  "case_name": "tokamak_diffusion_flow_one_step",
+  "compare_variables": [
+    "Nh",
+    "Ph",
+    "NVh"
+  ],
+  "component_labels": [
+    "h:evolve_density",
+    "h:evolve_momentum",
+    "h:evolve_pressure",
+    "h:anomalous_diffusion"
+  ],
+  "configured_nout": 50,
+  "configured_timestep": 50.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 21884.735894072473,
+    "Nnorm": 2e+18,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 5.0,
+    "rho_s0": 0.0002284697436697996
+  },
+  "dimensions": {
+    "t": 2,
+    "x": 36,
+    "y": 12,
+    "z": 1
+  },
+  "effective_output_points": 2,
+  "overrides": [
+    "nout=1"
+  ],
+  "parity_mode": "one_step",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    50.0
+  ],
+  "variable_summaries": {
+    "NVh": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.05242743870930638,
+      "maximum": 0.0,
+      "mean": -0.0032732425888985723,
+      "minimum": -0.05242743870930638,
+      "name": "NVh",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Nh": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.4867114610049863,
+      "maximum": 1.0000586441640185,
+      "mean": 0.9877095134598434,
+      "minimum": 0.5132885389950137,
+      "name": "Nh",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    },
+    "Ph": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.5902882458349834,
+      "maximum": 1.0,
+      "mean": 0.9847243766286478,
+      "minimum": 0.4097117541650166,
+      "name": "Ph",
+      "shape": [
+        2,
+        32,
+        8,
+        1
+      ]
+    }
+  }
+}

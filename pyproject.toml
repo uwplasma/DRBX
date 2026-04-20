@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jax-drb"
+version = "1.0.0"
+description = "Fresh JAX edge/SOL plasma code with differentiable, hardware-agnostic solver infrastructure."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["jax", "rich"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+integrators = ["diffrax", "scipy"]
+models = ["equinox"]
+validation = ["matplotlib", "netCDF4"]
+
+[project.scripts]
+jax-drb = "jax_drb.cli:main"
+jax_drb = "jax_drb.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"jax_drb.data.atomic_rates" = ["*.json"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: longer-running solver or history tests that are excluded from the default fast research gate",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/jax_drb"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

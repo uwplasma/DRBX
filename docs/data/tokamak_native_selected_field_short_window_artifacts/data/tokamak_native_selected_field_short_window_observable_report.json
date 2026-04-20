@@ -1,0 +1,32 @@
+{
+  "available": true,
+  "benchmark_adapter": "native_tokamak_selected_field",
+  "geometry_family": "diverted_tokamak_3d",
+  "metadata": {
+    "compare_surface": "native_selected_field_history",
+    "native_capability_tier": "native_exact",
+    "reference_capability_tier": "native_exact",
+    "reference_producer": "external-reference",
+    "reference_source": "committed_reference_arrays",
+    "source_case": "tokamak_isothermal_short_window"
+  },
+  "observable_groups": [
+    {
+      "description": "Reduced selected-field parity surface on a native tokamak execution rung.",
+      "families": [
+        {
+          "coordinate_name": "time",
+          "field_names": [
+            "Ne",
+            "phi",
+            "Vort"
+          ],
+          "kind": "selected_field_parity",
+          "name": "tokamak_isothermal_short_window"
+        }
+      ],
+      "name": "selected_field_parity"
+    }
+  ],
+  "parse_status": "ok"
+}
