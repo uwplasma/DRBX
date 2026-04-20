@@ -31,7 +31,7 @@ The current native transient is benchmark-close and field-close, but not yet und
 - max `|Vort|` error `= 2.1405e-2`
 - max `|phi|` error `= 4.3146e-4`
 
-This is the correct reviewer-facing status for the current milestone: the reduced short-window branch is stable, benchmark-consistent, and documented quantitatively while the remaining long-window field drift is tightened.
+This is the correct summary status for the current milestone: the reduced short-window branch is stable, benchmark-consistent, and documented quantitatively while the remaining long-window field drift is tightened.
 
 ## Benchmark Definitions
 

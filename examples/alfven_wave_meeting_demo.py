@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate a meeting-ready Alfven-wave package with verbose run logs, "
-            "a saved .npz result payload, publication figures, and Matplotlib movies."
+            "a saved .npz result payload, summary figures, and Matplotlib movies."
         )
     )
     parser.add_argument("--reference-root", type=Path, default=default_reference_root())

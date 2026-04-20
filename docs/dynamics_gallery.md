@@ -1,12 +1,14 @@
 # Dynamics Gallery
 
-This page gathers the committed publication-style dynamics visuals already in-tree.
+This page gathers the committed summary dynamics visuals already in-tree.
 
 ## 2D Dynamics
 
 ![Diverted tokamak turbulence](data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
 
-![TCV-X21 scaffold](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+## Toroidal Tokamak Dynamics
+
+![TCV-X21 toroidal movie](data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
 
 ## 3D / General Geometry Dynamics
 

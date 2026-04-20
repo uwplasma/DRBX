@@ -76,7 +76,7 @@ def all_slices() -> tuple[PytestSlice, ...]:
         ),
         PytestSlice(
             name="convergence_campaign",
-            description="reviewer-facing manufactured-solution convergence campaign",
+            description="summary manufactured-solution convergence campaign",
             pytest_args=(
                 "tests/test_mms_convergence.py",
             ),

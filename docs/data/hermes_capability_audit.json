@@ -24,7 +24,7 @@
       "family": "fluid_1d_mms",
       "jax_capability": "native_exact",
       "jax_status": "closed",
-      "next_gate": "use in reviewer-facing convergence package",
+      "next_gate": "use in summary convergence package",
       "reference_surfaces": [
         "1D-fluid integrated test",
         "MMS convergence"
@@ -134,7 +134,7 @@
       "family": "tokamak_2d_transport_and_turbulence",
       "jax_capability": "native_exact_selected_matrix",
       "jax_status": "closed",
-      "next_gate": "use as main 2D exact matrix in paper-grade campaign",
+      "next_gate": "use as main 2D exact matrix in high-confidence campaign",
       "reference_surfaces": [
         "tokamak diffusion/transport/isothermal/turbulence ladders"
       ]

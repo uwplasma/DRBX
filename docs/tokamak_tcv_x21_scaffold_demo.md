@@ -60,12 +60,17 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 - snapshot panel: [tokamak_tcv_x21_scaffold_snapshots.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
 - poster frame: [tokamak_tcv_x21_scaffold_poster.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_poster.png)
 - GIF: [tokamak_tcv_x21_scaffold.gif](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+- toroidal movie package: [tokamak_tcv_x21_toroidal_movie_demo.md](tokamak_tcv_x21_toroidal_movie_demo.md)
 
 ## Preview
 
 ![TCV-X21 scaffold movie](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
 
 ![TCV-X21 scaffold profiles](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
+
+If you want a toroidal 3D visualization of the staged dynamics rather than the
+flat scaffold slice GIF, use
+[tokamak_tcv_x21_toroidal_movie_demo.md](tokamak_tcv_x21_toroidal_movie_demo.md).
 
 ## What This Package Does
 
@@ -81,8 +86,8 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
    profile families onto the shared 3D observable schema;
 7. extracts the staged `FHRP`, `LFS-LP`, and `HFS-LP` profile families from the
    public benchmark observable record into a structured report and compact NPZ bundle;
-8. renders a publication-style profile summary figure from that same bundle;
-9. renders a publication-style GIF, snapshot panel, and poster from the public
+8. renders a summary profile summary figure from that same bundle;
+9. renders a summary GIF, snapshot panel, and poster from the public
    sample geometry and snapshot files;
 10. keeps the first 3D kickoff honest by labeling it as scaffolded/reference-backed.
 
@@ -100,7 +105,7 @@ The immediate promotion gates are now:
 1. scaffold gate: manifest, deck report, validation contract, and geometry figure bundle
 2. external benchmark-data gate: the same artifact bundle driven by the public TCV-X21 benchmark data root
 3. selected-field parity gate: a compact native/reference compare surface on a reduced 3D rung
-4. benchmark validation gate: publication-ready TCV-X21 profile plots and methods note
+4. benchmark validation gate: detailed TCV-X21 profile plots and methods note
 
 ## What It Does Not Do Yet
 
