@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate a meeting-ready Blob2D package with verbose logs, saved .npz data, "
-            "Matplotlib 2D/3D movies, and publication figures."
+            "Matplotlib 2D/3D movies, and summary figures."
         )
     )
     parser.add_argument("--reference-root", type=Path, default=default_reference_root())

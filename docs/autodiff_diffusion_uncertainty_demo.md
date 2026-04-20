@@ -29,7 +29,7 @@ Interpretation:
 - the middle panel compares the Monte Carlo scalar QoI distribution with the Gaussian prediction from the autodiff linearization;
 - the right panel compares the linearized and Monte Carlo uncertainty bands for the final radial profile.
 
-This is the right manuscript-facing scope for now: it demonstrates that the
+This is the right focused scope for now: it demonstrates that the
 native differentiable lane can propagate uncertainty in both scalar and field
 observables without claiming that the full 2D or 3D parity matrix is already
 end-to-end differentiable.

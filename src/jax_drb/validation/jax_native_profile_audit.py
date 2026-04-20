@@ -63,7 +63,7 @@ def build_jax_native_profile_audit_report(
         "lanes": [traced_report, stellarator_report],
         "recommendations": [
             "batch same-shape selected-field reductions before entering jitted kernels to avoid repeated tiny dispatches",
-            "warm jitted reduced operators once before timing or publication-facing runtime summaries",
+            "warm jitted reduced operators once before timing or summary runtime summaries",
             "keep solver-mode and geometry metadata out of static jit arguments to avoid avoidable recompilation",
         ],
     }
