@@ -1,0 +1,29 @@
+{
+  "available": true,
+  "benchmark_adapter": "stellarator_vmec_selected_field",
+  "geometry_family": "stellarator_vmec_3d",
+  "metadata": {
+    "candidate_origin": "provided_external_input",
+    "compare_surface": "vmec_profile_bundle",
+    "source_mode": "explicit_pair"
+  },
+  "observable_groups": [
+    {
+      "description": "Compact selected-field parity surface on stellarator VMEC equilibrium profiles.",
+      "families": [
+        {
+          "coordinate_name": "full_domain",
+          "field_names": [
+            "iota",
+            "pressure",
+            "toroidal_flux"
+          ],
+          "kind": "selected_field_parity",
+          "name": "selected_equilibrium_fields"
+        }
+      ],
+      "name": "selected_equilibrium_parity"
+    }
+  ],
+  "parse_status": "ok"
+}

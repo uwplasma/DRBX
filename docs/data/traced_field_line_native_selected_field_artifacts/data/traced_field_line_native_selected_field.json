@@ -1,0 +1,20 @@
+{
+  "field_names": [
+    "g11",
+    "g33"
+  ],
+  "variable_errors": {
+    "g11": {
+      "max_abs_error": 0.08680381584110419,
+      "name": "g11",
+      "relative_l2_error": 0.02409590261420247,
+      "rms_error": 0.08680381584109398
+    },
+    "g33": {
+      "max_abs_error": 0.2807673403807507,
+      "name": "g33",
+      "relative_l2_error": 0.11287030791489619,
+      "rms_error": 0.1432235698801464
+    }
+  }
+}

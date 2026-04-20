@@ -1,0 +1,55 @@
+{
+  "backend": "cpu",
+  "case": "jax_native_profile_audit",
+  "devices": [
+    "TFRT_CPU_0"
+  ],
+  "lanes": [
+    {
+      "batched_shape": [
+        2,
+        32,
+        4,
+        3
+      ],
+      "compile_seconds": 0.008769916952587664,
+      "field_names": [
+        "g11",
+        "g33"
+      ],
+      "first_execute_seconds": 0.0003349999897181988,
+      "lane_name": "traced_field_line_native_selected_field",
+      "trace_files": [
+        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.trace.json.gz",
+        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.xplane.pb",
+        "plugins/profile/2026_04_16_20_44_32/perfetto_trace.json.gz"
+      ],
+      "warm_execute_seconds": 3.462500171735883e-05
+    },
+    {
+      "batched_shape": [
+        3,
+        24
+      ],
+      "compile_seconds": 0.0010456249583512545,
+      "field_names": [
+        "iota",
+        "pressure",
+        "toroidal_flux"
+      ],
+      "first_execute_seconds": 0.000567917013540864,
+      "lane_name": "stellarator_vmec_native_selected_field",
+      "trace_files": [
+        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.trace.json.gz",
+        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.xplane.pb",
+        "plugins/profile/2026_04_16_20_44_32/perfetto_trace.json.gz"
+      ],
+      "warm_execute_seconds": 2.645899076014757e-05
+    }
+  ],
+  "recommendations": [
+    "batch same-shape selected-field reductions before entering jitted kernels to avoid repeated tiny dispatches",
+    "warm jitted reduced operators once before timing or summary runtime summaries",
+    "keep solver-mode and geometry metadata out of static jit arguments to avoid avoidable recompilation"
+  ]
+}

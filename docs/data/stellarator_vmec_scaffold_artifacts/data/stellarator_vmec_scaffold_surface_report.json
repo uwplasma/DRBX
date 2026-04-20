@@ -1,0 +1,665 @@
+{
+  "available": true,
+  "coordinate_name": "toroidal_angle",
+  "frames": [
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2527821939586652,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.3119008264462808,
+          "surface_index": 3,
+          "vertical_extent": 0.3907438016528925
+        },
+        {
+          "elongation": 1.2346587825629634,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.647603305785124,
+          "surface_index": 6,
+          "vertical_extent": 0.7995691091044117
+        },
+        {
+          "elongation": 1.2089459308997457,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2600000000000002,
+          "surface_index": 11,
+          "vertical_extent": 1.5232718729336798
+        }
+      ],
+      "toroidal_angle": 0.0,
+      "toroidal_index": 0
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2534367258677146,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.31149531561864663,
+          "surface_index": 3,
+          "vertical_extent": 0.39043966853216683
+        },
+        {
+          "elongation": 1.2361416017458857,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6459812624745873,
+          "surface_index": 6,
+          "vertical_extent": 0.7985243124931658
+        },
+        {
+          "elongation": 1.2100209177843702,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2553248673691577,
+          "surface_index": 11,
+          "vertical_extent": 1.518969348131571
+        }
+      ],
+      "toroidal_angle": 0.05235987755982988,
+      "toroidal_index": 1
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2553655764341136,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.31030641802850845,
+          "surface_index": 3,
+          "vertical_extent": 0.3895479953395635
+        },
+        {
+          "elongation": 1.2388895611456128,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6418339506702444,
+          "surface_index": 6,
+          "vertical_extent": 0.795161381474214
+        },
+        {
+          "elongation": 1.2141168700920948,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2415898832684071,
+          "surface_index": 11,
+          "vertical_extent": 1.5074352230118477
+        }
+      ],
+      "toroidal_angle": 0.10471975511965977,
+      "toroidal_index": 2
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2579038946272705,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.30855262455849664,
+          "surface_index": 3,
+          "vertical_extent": 0.3881295481295989
+        },
+        {
+          "elongation": 1.243743958803365,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6348528212624052,
+          "surface_index": 6,
+          "vertical_extent": 0.7895943611743889
+        },
+        {
+          "elongation": 1.2205703212041135,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2200990421517544,
+          "surface_index": 11,
+          "vertical_extent": 1.489216679779998
+        }
+      ],
+      "toroidal_angle": 0.15707963267948966,
+      "toroidal_index": 3
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2615209054444687,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.3062026083503069,
+          "surface_index": 3,
+          "vertical_extent": 0.38628099173553715
+        },
+        {
+          "elongation": 1.2501792838912118,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6256723694801307,
+          "surface_index": 6,
+          "vertical_extent": 0.7822026348271875
+        },
+        {
+          "elongation": 1.2296781895797724,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.1909853531910581,
+          "surface_index": 11,
+          "vertical_extent": 1.464528712928006
+        }
+      ],
+      "toroidal_angle": 0.20943951023931953,
+      "toroidal_index": 4
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2660453649332397,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.3034080080068895,
+          "surface_index": 3,
+          "vertical_extent": 0.38412830222074973
+        },
+        {
+          "elongation": 1.2580038831894105,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.614854967225333,
+          "surface_index": 6,
+          "vertical_extent": 0.7734899363677665
+        },
+        {
+          "elongation": 1.2422480896567667,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.1561349043440914,
+          "surface_index": 11,
+          "vertical_extent": 1.4362063763069561
+        }
+      ],
+      "toroidal_angle": 0.2617993877991494,
+      "toroidal_index": 5
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.271204916180581,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.30035927092335335,
+          "surface_index": 3,
+          "vertical_extent": 0.3818181818181818
+        },
+        {
+          "elongation": 1.2678709634786394,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6028503179353208,
+          "surface_index": 6,
+          "vertical_extent": 0.7643364134340593
+        },
+        {
+          "elongation": 1.2576330287220665,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.1171036004202306,
+          "surface_index": 11,
+          "vertical_extent": 1.4049063843928198
+        }
+      ],
+      "toroidal_angle": 0.3141592653589793,
+      "toroidal_index": 6
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.276669400560628,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.297264163493665,
+          "surface_index": 3,
+          "vertical_extent": 0.37950806141561383
+        },
+        {
+          "elongation": 1.278689545753449,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5904765186205863,
+          "surface_index": 6,
+          "vertical_extent": 0.7550361513730355
+        },
+        {
+          "elongation": 1.2763886068084305,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.076154743598607,
+          "surface_index": 11,
+          "vertical_extent": 1.3735916538921096
+        }
+      ],
+      "toroidal_angle": 0.36651914291880916,
+      "toroidal_index": 7
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2820668666187713,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.2943336121742508,
+          "surface_index": 3,
+          "vertical_extent": 0.3773553719008264
+        },
+        {
+          "elongation": 1.2901107170500803,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.57857682325576,
+          "surface_index": 6,
+          "vertical_extent": 0.7464281603190461
+        },
+        {
+          "elongation": 1.2979196579300811,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.0355536808507861,
+          "surface_index": 11,
+          "vertical_extent": 1.3440654792180888
+        }
+      ],
+      "toroidal_angle": 0.41887902047863906,
+      "toroidal_index": 8
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2870077556091266,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.2917673291945637,
+          "surface_index": 3,
+          "vertical_extent": 0.3755068155067647
+        },
+        {
+          "elongation": 1.3012618143068484,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5679621764147793,
+          "surface_index": 6,
+          "vertical_extent": 0.739067492139162
+        },
+        {
+          "elongation": 1.321476421153259,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.9981504435499291,
+          "surface_index": 11,
+          "vertical_extent": 1.3190322759148985
+        }
+      ],
+      "toroidal_angle": 0.47123889803846897,
+      "toroidal_index": 9
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.291116541890644,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.28974020249868726,
+          "surface_index": 3,
+          "vertical_extent": 0.37408836829680003
+        },
+        {
+          "elongation": 1.3104384111921918,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5596031330231681,
+          "surface_index": 6,
+          "vertical_extent": 0.7333254405370532
+        },
+        {
+          "elongation": 1.342976825161647,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.967720606563975,
+          "surface_index": 11,
+          "vertical_extent": 1.2996263478467904
+        }
+      ],
+      "toroidal_angle": 0.5235987755982988,
+      "toroidal_index": 10
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.293555062734772,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.288504684381353,
+          "surface_index": 3,
+          "vertical_extent": 0.37319669510419673
+        },
+        {
+          "elongation": 1.316471077562943,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5542038327122545,
+          "surface_index": 6,
+          "vertical_extent": 0.7295933168402147
+        },
+        {
+          "elongation": 1.3595540404097797,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.9471072577267066,
+          "surface_index": 11,
+          "vertical_extent": 1.2876434989437704
+        }
+      ],
+      "toroidal_angle": 0.5759586531581287,
+      "toroidal_index": 11
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2943201376936324,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.28809917355371883,
+          "surface_index": 3,
+          "vertical_extent": 0.37289256198347104
+        },
+        {
+          "elongation": 1.3184674013293296,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5523966942148753,
+          "surface_index": 6,
+          "vertical_extent": 0.728317033924399
+        },
+        {
+          "elongation": 1.365729501442996,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.9399999999999991,
+          "surface_index": 11,
+          "vertical_extent": 1.283785731356415
+        }
+      ],
+      "toroidal_angle": 0.6283185307179586,
+      "toroidal_index": 12
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.293555062734772,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.288504684381353,
+          "surface_index": 3,
+          "vertical_extent": 0.37319669510419673
+        },
+        {
+          "elongation": 1.316471077562943,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5542038327122545,
+          "surface_index": 6,
+          "vertical_extent": 0.7295933168402147
+        },
+        {
+          "elongation": 1.3595540404097797,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.9471072577267066,
+          "surface_index": 11,
+          "vertical_extent": 1.2876434989437704
+        }
+      ],
+      "toroidal_angle": 0.6806784082777885,
+      "toroidal_index": 13
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.291116541890644,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.28974020249868726,
+          "surface_index": 3,
+          "vertical_extent": 0.37408836829680003
+        },
+        {
+          "elongation": 1.3104384111921918,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5596031330231681,
+          "surface_index": 6,
+          "vertical_extent": 0.7333254405370532
+        },
+        {
+          "elongation": 1.342976825161647,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.967720606563975,
+          "surface_index": 11,
+          "vertical_extent": 1.2996263478467904
+        }
+      ],
+      "toroidal_angle": 0.7330382858376183,
+      "toroidal_index": 14
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2870077556091266,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.2917673291945637,
+          "surface_index": 3,
+          "vertical_extent": 0.3755068155067647
+        },
+        {
+          "elongation": 1.3012618143068484,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5679621764147793,
+          "surface_index": 6,
+          "vertical_extent": 0.739067492139162
+        },
+        {
+          "elongation": 1.321476421153259,
+          "normalized_flux": 1.0,
+          "radial_extent": 0.9981504435499291,
+          "surface_index": 11,
+          "vertical_extent": 1.3190322759148985
+        }
+      ],
+      "toroidal_angle": 0.7853981633974483,
+      "toroidal_index": 15
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2820668666187713,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.2943336121742508,
+          "surface_index": 3,
+          "vertical_extent": 0.3773553719008264
+        },
+        {
+          "elongation": 1.2901107170500774,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5785768232557613,
+          "surface_index": 6,
+          "vertical_extent": 0.7464281603190461
+        },
+        {
+          "elongation": 1.2979196579300822,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.0355536808507853,
+          "surface_index": 11,
+          "vertical_extent": 1.3440654792180888
+        }
+      ],
+      "toroidal_angle": 0.8377580409572781,
+      "toroidal_index": 16
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.276669400560628,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.297264163493665,
+          "surface_index": 3,
+          "vertical_extent": 0.37950806141561383
+        },
+        {
+          "elongation": 1.2786895457534488,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.5904765186205863,
+          "surface_index": 6,
+          "vertical_extent": 0.7550361513730354
+        },
+        {
+          "elongation": 1.2763886068084311,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.076154743598606,
+          "surface_index": 11,
+          "vertical_extent": 1.3735916538921094
+        }
+      ],
+      "toroidal_angle": 0.890117918517108,
+      "toroidal_index": 17
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.271204916180581,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.30035927092335335,
+          "surface_index": 3,
+          "vertical_extent": 0.3818181818181818
+        },
+        {
+          "elongation": 1.2678709634786391,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6028503179353208,
+          "surface_index": 6,
+          "vertical_extent": 0.7643364134340592
+        },
+        {
+          "elongation": 1.257633028722067,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.1171036004202302,
+          "surface_index": 11,
+          "vertical_extent": 1.4049063843928198
+        }
+      ],
+      "toroidal_angle": 0.9424777960769379,
+      "toroidal_index": 18
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2660453649332397,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.3034080080068895,
+          "surface_index": 3,
+          "vertical_extent": 0.38412830222074973
+        },
+        {
+          "elongation": 1.2580038831894105,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.614854967225333,
+          "surface_index": 6,
+          "vertical_extent": 0.7734899363677665
+        },
+        {
+          "elongation": 1.2422480896567663,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.1561349043440914,
+          "surface_index": 11,
+          "vertical_extent": 1.4362063763069557
+        }
+      ],
+      "toroidal_angle": 0.9948376736367678,
+      "toroidal_index": 19
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2615209054444687,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.3062026083503069,
+          "surface_index": 3,
+          "vertical_extent": 0.38628099173553715
+        },
+        {
+          "elongation": 1.250179283891211,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6256723694801312,
+          "surface_index": 6,
+          "vertical_extent": 0.7822026348271875
+        },
+        {
+          "elongation": 1.2296781895797724,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.1909853531910581,
+          "surface_index": 11,
+          "vertical_extent": 1.464528712928006
+        }
+      ],
+      "toroidal_angle": 1.0471975511965976,
+      "toroidal_index": 20
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2579038946272705,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.30855262455849664,
+          "surface_index": 3,
+          "vertical_extent": 0.3881295481295989
+        },
+        {
+          "elongation": 1.2437439588033647,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6348528212624052,
+          "surface_index": 6,
+          "vertical_extent": 0.7895943611743887
+        },
+        {
+          "elongation": 1.2205703212041132,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2200990421517544,
+          "surface_index": 11,
+          "vertical_extent": 1.4892166797799977
+        }
+      ],
+      "toroidal_angle": 1.0995574287564276,
+      "toroidal_index": 21
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2553655764341136,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.31030641802850845,
+          "surface_index": 3,
+          "vertical_extent": 0.3895479953395635
+        },
+        {
+          "elongation": 1.2388895611456126,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6418339506702444,
+          "surface_index": 6,
+          "vertical_extent": 0.7951613814742139
+        },
+        {
+          "elongation": 1.2141168700920948,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2415898832684071,
+          "surface_index": 11,
+          "vertical_extent": 1.5074352230118477
+        }
+      ],
+      "toroidal_angle": 1.1519173063162573,
+      "toroidal_index": 22
+    },
+    {
+      "surface_summaries": [
+        {
+          "elongation": 1.2534367258677146,
+          "normalized_flux": 0.2727272727272727,
+          "radial_extent": 0.31149531561864663,
+          "surface_index": 3,
+          "vertical_extent": 0.39043966853216683
+        },
+        {
+          "elongation": 1.2361416017458857,
+          "normalized_flux": 0.5454545454545454,
+          "radial_extent": 0.6459812624745873,
+          "surface_index": 6,
+          "vertical_extent": 0.7985243124931658
+        },
+        {
+          "elongation": 1.2100209177843702,
+          "normalized_flux": 1.0,
+          "radial_extent": 1.2553248673691577,
+          "surface_index": 11,
+          "vertical_extent": 1.518969348131571
+        }
+      ],
+      "toroidal_angle": 1.2042771838760873,
+      "toroidal_index": 23
+    }
+  ],
+  "normalized_flux_values": [
+    0.2727272727272727,
+    0.5454545454545454,
+    1.0
+  ],
+  "parse_status": "ok",
+  "surface_indices": [
+    3,
+    6,
+    11
+  ]
+}

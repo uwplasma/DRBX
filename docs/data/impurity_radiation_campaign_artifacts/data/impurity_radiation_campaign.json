@@ -1,0 +1,63 @@
+{
+  "family": "impurity_radiation_and_detachment_control",
+  "metric_count": 7,
+  "metrics": [
+    {
+      "kind": "fraction",
+      "name": "openadas_neon_full_bundle_finite_fraction",
+      "notes": "Neon OpenADAS ionisation/recombination plus radiation tables load fully and finitely.",
+      "passed": true,
+      "target": 1.0,
+      "value": 1.0
+    },
+    {
+      "kind": "scalar",
+      "name": "neon_ionisation_rate_positive",
+      "notes": "Neon ionisation reaction rate is finite and positive on a representative edge sample state.",
+      "passed": true,
+      "target": 0.0,
+      "value": 1.6229005650306166e-09
+    },
+    {
+      "kind": "scalar",
+      "name": "neon_recombination_rate_positive",
+      "notes": "Neon recombination reaction rate is finite and positive on a representative edge sample state.",
+      "passed": true,
+      "target": 0.0,
+      "value": 5.092807235045895e-12
+    },
+    {
+      "kind": "fraction",
+      "name": "neon_openadas_radiation_terms_finite",
+      "notes": "Ionisation and recombination energy-loss channels are finite on the native OpenADAS evaluation path.",
+      "passed": true,
+      "target": 1.0,
+      "value": 1.0
+    },
+    {
+      "kind": "max_abs_error",
+      "name": "tokamak_dthene_rhs_neon_density_exact",
+      "notes": "Direct tokamak D/T/He/Ne RHS rung matches the committed neon density baseline exactly.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_abs_error",
+      "name": "tokamak_dthene_rhs_neon_pressure_exact",
+      "notes": "Direct tokamak D/T/He/Ne RHS rung matches the committed neon pressure baseline exactly.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_abs_error",
+      "name": "tokamak_dthene_rhs_electron_pressure_exact",
+      "notes": "Electron pressure remains exact on the same neon-enabled direct tokamak RHS compare surface.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    }
+  ],
+  "passed_metric_count": 7
+}
