@@ -3,7 +3,7 @@
 `jax_drb` now keeps two different coverage concepts separate:
 
 - broad exploratory coverage for day-to-day iteration;
-- bounded release-closeout coverage for the ship/publication decision.
+- bounded release-closeout coverage for the ship decision.
 
 The broad exploratory path is still available through:
 
@@ -30,7 +30,7 @@ This script runs a bounded critical-path slice over:
 
 It then enforces a `95%` total coverage threshold on that exact closeout slice.
 
-The point of this split is pragmatic: repo-wide monolithic coverage is still too broad and slow to be a credible local release gate, while the closeout slice is fast enough to run repeatedly and is aligned with the modules that currently decide whether `jax_drb` is ready to ship or draft the paper.
+The point of this split is pragmatic: repo-wide monolithic coverage is still too broad and slow to be a credible local release gate, while the closeout slice is fast enough to run repeatedly and is aligned with the modules that currently decide whether `jax_drb` is ready to ship.
 
 This does **not** mean repo-wide coverage is solved. It means the release threshold is now:
 

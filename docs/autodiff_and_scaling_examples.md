@@ -1,10 +1,10 @@
 # Autodiff And Scaling Examples
 
-This page records the current publication-oriented differentiable examples and the current fixed-workload scaling artifact on the strongest compact native diffusion lane.
+This page records the current focused differentiable examples and the current fixed-workload scaling artifact on the strongest compact native diffusion lane.
 
 ## Why These Examples
 
-Differentiable PDE and differentiable simulation papers usually show three things first:
+Differentiable PDE and differentiable simulation workflows usually show three things first:
 
 - direct sensitivity of a scalar objective to physical parameters
 - uncertainty propagation from uncertain inputs to scalar and field quantities of interest
@@ -35,7 +35,7 @@ Outputs:
 - analysis JSON: [docs/data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json](data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json)
 - figure: [docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
 
-![Autodiff sensitivity](/Users/rogerio/local/jax_drb/docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+![Autodiff sensitivity](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
 
 Current committed result:
 
@@ -57,7 +57,7 @@ Outputs:
 - arrays NPZ: [docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz](data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz)
 - figure: [docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
 
-![Autodiff uncertainty](/Users/rogerio/local/jax_drb/docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+![Autodiff uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
 
 Current committed result:
 
@@ -79,7 +79,7 @@ Outputs:
 - analysis JSON: [docs/data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json](data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json)
 - figure: [docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
 
-![Autodiff inverse design](/Users/rogerio/local/jax_drb/docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+![Autodiff inverse design](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
 
 Current committed result:
 
@@ -111,7 +111,7 @@ Outputs:
 - analysis JSON: [docs/data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json](data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json)
 - figure: [docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
 
-![Strong scaling](/Users/rogerio/local/jax_drb/docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+![Strong scaling](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
 
 Current committed result:
 
@@ -121,7 +121,7 @@ Current committed result:
 Interpretation:
 
 - the GPU curve is the main performance claim on this artifact
-- the CPU curve is a local single-node reference and should be framed that way in paper text
+- the CPU curve is a local single-node reference and should be framed that way in write-up text
 - both curves are measured on a differentiable objective, not just a forward solve
 
 ## Notes On Method
@@ -133,7 +133,7 @@ Interpretation:
 
 ## Follow-On Work
 
-The next higher-value differentiable publication examples should be:
+The next higher-value differentiable examples should be:
 
 - vorticity or drift-wave sensitivity/UQ of a scalar QoI
 - an inverse-design example with boundary/source controls rather than only initial-condition controls

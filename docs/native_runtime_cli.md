@@ -3,7 +3,7 @@
 `jax_drb` now has a standalone native runtime surface for supported inputs. After an editable install,
 
 ```bash
-pip install -e .[dev,validation]
+pip install -e .
 ```
 
 both of these console commands are available:

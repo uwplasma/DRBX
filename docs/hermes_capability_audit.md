@@ -31,7 +31,7 @@ Current highest-priority open families in that audit are:
 5. `reactions_collisions_and_atomic_data`
 6. `impurity_radiation_and_detachment_control`
 
-The audit is not a publication figure. It is an engineering control surface for
+The audit is not a gallery figure. It is an engineering control surface for
 closing the plan against real source families and real integrated-test
 workflows.
 

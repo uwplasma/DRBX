@@ -13,7 +13,6 @@ is most relevant to diverted edge/SOL turbulence:
 
 - [TCV-X21 validation benchmark](https://arxiv.org/abs/2109.01618)
 - [TCV-X21 turbulence validation follow-up](https://arxiv.org/abs/2506.12180)
-- [Verification and validation procedures with applications to plasma-edge turbulence simulations](https://graphsearch.epfl.ch/fr/publication/676d35db-935c-423f-93e4-ac4b85683a4c)
 - [Detachment scalings derived from 1D scrape-off-layer simulations](https://arxiv.org/abs/2406.16375)
 
 These references motivate a layered gate structure:
@@ -21,14 +20,14 @@ These references motivate a layered gate structure:
 1. code verification on reduced/operator slices
 2. compact native/reference parity on selected fields
 3. benchmark-facing observable comparisons
-4. publication-ready uncertainty and methods reporting
+4. detailed uncertainty and methods reporting
 
 This benchmark-specific methodology sits on top of the broader geometry plan in
 [geometry_roadmap.md](geometry_roadmap.md). TCV-X21 is the first serious 3D
 benchmark adapter, not the definition of the whole 3D code path.
 
 The current scaffold implementation now consumes a shared 3D diagnostic-profile
-layer for report building, NPZ export, and publication plotting. That is the
+layer for report building, NPZ export, and summary plotting. That is the
 intended direction for future benchmark adapters too.
 
 ## Observable Families
@@ -115,10 +114,10 @@ deterministic derived candidate.
 
 ### 4. Benchmark Validation Gate
 
-Required before publication-grade 3D benchmark claims:
+Required before broader 3D benchmark claims:
 
 - TCV-X21 observable package covering `FHRP`, `LFS-LP`, `HFS-LP`
-- publication-ready profile comparisons
+- detailed profile comparisons
 - profile-shape and absolute-level diagnostics
 - a short methods note recording mesh, run time window, averaging window, and
   observable extraction methodology

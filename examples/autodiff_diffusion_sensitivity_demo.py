@@ -37,8 +37,8 @@ def _repo_root() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run a publication-style automatic-differentiation sensitivity study on the "
-            "native diffusion lane and save publication-ready plots."
+            "Run a summary automatic-differentiation sensitivity study on the "
+            "native diffusion lane and save detailed plots."
         )
     )
     parser.add_argument(
@@ -149,7 +149,7 @@ def write_analysis_json(settings: SensitivitySettings, payload: dict[str, Any]) 
     return path
 
 
-def save_publication_plot(settings: SensitivitySettings, payload: dict[str, Any]) -> Path:
+def save_summary_plot(settings: SensitivitySettings, payload: dict[str, Any]) -> Path:
     images_dir = settings.output_root / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     figure, axes = plt.subplots(1, 3, figsize=(15.5, 4.6), constrained_layout=True)
@@ -194,7 +194,7 @@ def main() -> int:
     settings = build_settings(parse_args())
     payload = build_sensitivity_payload()
     json_path = write_analysis_json(settings, payload)
-    plot_path = save_publication_plot(settings, payload)
+    plot_path = save_summary_plot(settings, payload)
     log(
         settings,
         "Autodiff Sensitivity Artifacts",

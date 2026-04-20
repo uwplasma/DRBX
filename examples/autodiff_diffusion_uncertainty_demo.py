@@ -13,7 +13,7 @@ def _repo_root() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run a publication-style uncertainty-quantification demonstration on the "
+            "Run a summary uncertainty-quantification demonstration on the "
             "native differentiable diffusion lane."
         )
     )

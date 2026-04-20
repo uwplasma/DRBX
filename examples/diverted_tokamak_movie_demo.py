@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     repo_root = _default_repo_root()
     parser = argparse.ArgumentParser(
         description=(
-            "Generate a publication-ready 2D diverted-tokamak movie from the closed "
+            "Generate a detailed 2D diverted-tokamak movie from the closed "
             "tokamak turbulence short-window benchmark output."
         )
     )
