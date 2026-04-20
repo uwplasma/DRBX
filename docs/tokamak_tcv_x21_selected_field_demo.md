@@ -9,7 +9,7 @@ that the native 3D lane will need before broader benchmark claims:
 
 - reduced selected-field error metrics over time
 - saved JSON and NPZ parity artifacts
-- a publication-style parity summary plot
+- a summary parity summary plot
 
 ## Run It
 

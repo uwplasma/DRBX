@@ -112,7 +112,7 @@
       "name": "benchmark_validation_gate",
       "required_artifacts": [
         "tcv_x21_observable_package",
-        "publication_ready_profile_plots",
+        "profile_summary_plots",
         "methods_note"
       ],
       "status": "planned"

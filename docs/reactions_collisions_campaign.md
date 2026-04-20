@@ -8,7 +8,7 @@ The generated package contains:
 
 - a summary JSON with named gates and pass/fail status;
 - a compact NPZ payload with the metric values and targets;
-- a publication-style summary plot.
+- a summary summary plot.
 
 The current gates cover:
 

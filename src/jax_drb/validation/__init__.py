@@ -171,6 +171,10 @@ from .tokamak_native_selected_field import (
     NativeTokamakSelectedFieldVariableError,
     create_native_tokamak_selected_field_package,
 )
+from .tokamak_tcv_x21_toroidal_movie import (
+    TcvX21ToroidalMovieArtifacts,
+    create_tcv_x21_toroidal_movie_package,
+)
 from .traced_field_line_scaffold import (
     TracedFieldLineScaffoldArtifacts,
     create_traced_field_line_scaffold_package,
@@ -202,12 +206,6 @@ from .stellarator_vmec_native_selected_field import (
     NativeStellaratorVmecSelectedFieldVariableError,
     compare_native_stellarator_vmec_selected_fields,
     create_native_stellarator_vmec_selected_field_package,
-)
-from .publication_ready_3d import (
-    PublicationReady3DArtifacts,
-    build_publication_ready_3d_report,
-    create_publication_ready_3d_campaign_package,
-    save_publication_ready_3d_summary_plot,
 )
 from .native_3d_runtime_campaign import (
     Native3DRuntimeCampaignArtifacts,
@@ -267,11 +265,6 @@ from .impurity_radiation_campaign import (
     build_impurity_radiation_campaign,
     create_impurity_radiation_campaign_package,
 )
-from .manuscript_figures import (
-    ManuscriptFigureArtifacts,
-    create_manuscript_figure_package,
-)
-
 __all__ = [
     "AlfvenWaveAnalysisResult",
     "AlfvenWaveBenchmarkScalars",
@@ -410,6 +403,8 @@ __all__ = [
     "NativeTokamakSelectedFieldParityResult",
     "NativeTokamakSelectedFieldVariableError",
     "create_native_tokamak_selected_field_package",
+    "TcvX21ToroidalMovieArtifacts",
+    "create_tcv_x21_toroidal_movie_package",
     "TracedFieldLineScaffoldArtifacts",
     "create_traced_field_line_scaffold_package",
     "TracedFieldLineSelectedFieldParityArtifacts",
@@ -430,10 +425,6 @@ __all__ = [
     "NativeStellaratorVmecSelectedFieldVariableError",
     "compare_native_stellarator_vmec_selected_fields",
     "create_native_stellarator_vmec_selected_field_package",
-    "PublicationReady3DArtifacts",
-    "build_publication_ready_3d_report",
-    "create_publication_ready_3d_campaign_package",
-    "save_publication_ready_3d_summary_plot",
     "Native3DRuntimeCampaignArtifacts",
     "build_native_3d_runtime_campaign_report",
     "create_native_3d_runtime_campaign_package",
@@ -468,6 +459,4 @@ __all__ = [
     "ImpurityRadiationCampaignMetric",
     "build_impurity_radiation_campaign",
     "create_impurity_radiation_campaign_package",
-    "ManuscriptFigureArtifacts",
-    "create_manuscript_figure_package",
 ]

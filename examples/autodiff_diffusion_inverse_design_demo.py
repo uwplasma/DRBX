@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run a gradient-based inverse design demonstration on the native diffusion lane "
-            "and save publication-ready plots."
+            "and save detailed plots."
         )
     )
     parser.add_argument(
@@ -169,7 +169,7 @@ def write_analysis_json(settings: InverseDesignSettings, payload: dict[str, Any]
     return path
 
 
-def save_publication_plot(settings: InverseDesignSettings, payload: dict[str, Any]) -> Path:
+def save_summary_plot(settings: InverseDesignSettings, payload: dict[str, Any]) -> Path:
     images_dir = settings.output_root / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     figure, axes = plt.subplots(1, 3, figsize=(15.8, 4.8), constrained_layout=True)
@@ -212,7 +212,7 @@ def main() -> int:
     settings = build_settings(parse_args())
     payload = build_inverse_design_payload()
     json_path = write_analysis_json(settings, payload)
-    plot_path = save_publication_plot(settings, payload)
+    plot_path = save_summary_plot(settings, payload)
     log(
         settings,
         "Autodiff Inverse Design Artifacts",

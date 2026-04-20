@@ -5,7 +5,7 @@ This package collects the current promoted native reduced 3D rungs into one runt
 Run:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/publication/native_3d_runtime_campaign_demo.py \
+PYTHONPATH=src .venv/bin/python examples/engineering/native_3d_runtime_campaign_demo.py \
   --output-root docs/data/native_3d_runtime_campaign_artifacts
 ```
 

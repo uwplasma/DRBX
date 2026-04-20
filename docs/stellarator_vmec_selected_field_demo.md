@@ -28,7 +28,7 @@ falling back to the synthetic preview bundle.
 The package writes:
 
 - parity JSON and NPZ on `iota`, `pressure`, and `toroidal_flux`;
-- a publication-style parity plot;
+- a summary parity plot;
 - a shared observable report on the generic 3D schema;
 - a source report recording whether the run used a synthetic preview, a materialized external explicit pair, or a fully provided explicit pair.
 

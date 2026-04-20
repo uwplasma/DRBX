@@ -1,6 +1,6 @@
 # Stellarator VMEC Native Reduced Selected-Field Demo
 
-This demo builds the first native reduced stellarator VMEC selected-field bundle on the shared 3D artifact path. It uses JAX-native profile handling on `iota`, `pressure`, and `toroidal_flux`, then writes parity, comparison, observable, and runtime reports plus publication-style figures.
+This demo builds the first native reduced stellarator VMEC selected-field bundle on the shared 3D artifact path. It uses JAX-native profile handling on `iota`, `pressure`, and `toroidal_flux`, then writes parity, comparison, observable, and runtime reports plus summary figures.
 
 Run:
 

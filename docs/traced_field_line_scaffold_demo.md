@@ -40,11 +40,11 @@ The scaffold writes:
 - an observable report on the shared 3D geometry-adapter schema
 - a metric summary JSON
 - a compact metric NPZ bundle
-- a publication-style metric summary figure
+- a summary metric summary figure
 - a line-diagnostic JSON/NPZ bundle for radial, toroidal, and poloidal cuts
-- a publication-style lineout summary figure
+- a summary lineout summary figure
 - a selected-plane summary JSON/NPZ bundle
-- a publication-style selected-plane summary figure
+- a summary selected-plane summary figure
 - an animated GIF across the most informative radial, toroidal, or poloidal plane family for one selected metric field
 
 Committed public JSON entry points:

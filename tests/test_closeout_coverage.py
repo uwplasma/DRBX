@@ -7,7 +7,7 @@ import sys
 import pytest
 
 
-_REPO = Path("/Users/rogerio/local/jax_drb")
+_REPO = Path(__file__).resolve().parents[1]
 
 
 def _load_script_module(relative_path: str, module_name: str):
@@ -28,7 +28,7 @@ def test_closeout_coverage_script_uses_expected_threshold_and_targets() -> None:
     assert "tests/test_validation_temperature_feedback_campaign.py" in module.CLOSEOUT_TESTS
     assert "tests/test_validation_autodiff_diffusion_uncertainty.py" in module.CLOSEOUT_TESTS
     assert "tests/test_packaging_metadata.py" in module.CLOSEOUT_TESTS
-    assert "src/jax_drb/validation/manuscript_figures.py" in module.COVERAGE_TARGETS
+    assert "src/jax_drb/validation/tokamak_native_selected_field.py" in module.COVERAGE_TARGETS
     assert "src/jax_drb/validation/detachment_controller_campaign.py" in module.COVERAGE_TARGETS
 
 

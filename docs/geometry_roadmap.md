@@ -12,7 +12,7 @@ The reusable infrastructure should own:
 - field-history assembly across ranks and toroidal planes
 - geometry-aware probe, target, and surface extraction
 - compact selected-field parity bundles
-- publication-style movie and figure generation
+- summary movie and figure generation
 - runtime provenance, restart, and validation artifacts
 
 Benchmark-specific packages should only add:
@@ -39,7 +39,7 @@ The current shared layer now includes:
 
 - a reusable profile-report builder
 - a reusable diagnostic-profile NPZ writer
-- a reusable publication-style profile plotting path
+- a reusable summary profile plotting path
 - a reusable line-diagnostic builder and lineout plotting/export path
 
 The current TCV-X21 scaffold consumes those shared pieces instead of owning a private benchmark-specific implementation.
@@ -76,13 +76,13 @@ flux-surface figures and movies as well as profile bundles.
 
 ### Diverted Tokamak Benchmark Adapters
 
-These remain the first reviewer-facing 3D benchmark family because they connect directly to the external validation program and existing 2D closure work.
+These remain the first summary 3D benchmark family because they connect directly to the external validation program and existing 2D closure work.
 
 Requirements:
 
 - reduced selected-field parity
 - observable extraction for benchmark probe and target families
-- publication-ready profile and movie products
+- detailed profile and movie products
 - explicit methods notes and compare-surface metadata
 
 ### Traced-Field-Line / Stellarator-Style Mesh Adapters
@@ -120,7 +120,7 @@ Requirements:
 - equilibrium/profile ingestion from VMEC-style `wout*.nc` data
 - sampled flux-surface cross-sections and geometry movies on the shared artifact model
 - explicit validation of finite profiles and finite sampled surfaces
-- observable and provenance publication on the same adapter schema used elsewhere
+- observable and provenance reporting on the same adapter schema used elsewhere
 
 ## Validation Gates
 
@@ -143,4 +143,4 @@ The next architectural refactor should therefore:
 - separate reusable 3D diagnostics from benchmark-specific observable definitions
 - add a geometry adapter interface for mesh/metric/probe extraction
 - add a second and third geometry family after TCV-X21 so the abstractions get pressure-tested
-- keep publication claims tied to the supported geometry matrix, not to aspirational generality
+- keep release claims tied to the supported geometry matrix, not to aspirational generality

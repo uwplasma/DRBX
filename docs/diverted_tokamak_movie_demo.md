@@ -1,6 +1,6 @@
 # Diverted Tokamak Movie Demo
 
-This demo generates a publication-ready 2D diverted tokamak GIF with:
+This demo generates a detailed 2D diverted tokamak GIF with:
 
 - toroidally averaged field fluctuations on the full poloidal mesh
 - LCFS overlay from `psixy = 0`
@@ -50,5 +50,5 @@ The default field is `phi`, which gives the clearest diverted-geometry fluctuati
 This closes a practical gap in the current 2D program:
 
 - the exact direct tokamak parity lanes are currently rank-local for native compare surfaces
-- publication figures need the stitched full diverted geometry
-- this script turns the same validated benchmark output into a reviewer-facing geometry figure without pretending that the whole direct tokamak recycling transient is already a claim-bearing native exact lane
+- summary figures need the stitched full diverted geometry
+- this script turns the same validated benchmark output into a summary geometry figure without pretending that the whole direct tokamak recycling transient is already a claim-bearing native exact lane
