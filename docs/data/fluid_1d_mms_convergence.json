@@ -1,0 +1,65 @@
+{
+  "case": "fluid_1d_mms_convergence",
+  "observed_orders": [
+    {
+      "density_order": 2.3066561162615633,
+      "from_ny": 32,
+      "momentum_order": 1.969554107266313,
+      "pressure_order": 1.945817141685118,
+      "to_ny": 64
+    },
+    {
+      "density_order": 1.627538381515247,
+      "from_ny": 64,
+      "momentum_order": 1.8991131696761343,
+      "pressure_order": 2.1625522547191696,
+      "to_ny": 128
+    }
+  ],
+  "resolutions": [
+    32,
+    64,
+    128
+  ],
+  "runs": [
+    {
+      "errors": {
+        "density_l2": 0.0002138239690623984,
+        "momentum_l2": 0.0007965904191920919,
+        "pressure_l2": 0.0007211606112403871
+      },
+      "final_time": 0.1,
+      "ny": 32,
+      "steps": 2,
+      "substeps": 20,
+      "timestep": 0.05
+    },
+    {
+      "errors": {
+        "density_l2": 4.321989486576022e-05,
+        "momentum_l2": 0.00020339497273084615,
+        "pressure_l2": 0.00018719001212908666
+      },
+      "final_time": 0.1,
+      "ny": 64,
+      "steps": 2,
+      "substeps": 20,
+      "timestep": 0.05
+    },
+    {
+      "errors": {
+        "density_l2": 1.398768469917107e-05,
+        "momentum_l2": 5.453184418533854e-05,
+        "pressure_l2": 4.181090582631413e-05
+      },
+      "final_time": 0.1,
+      "ny": 128,
+      "steps": 2,
+      "substeps": 20,
+      "timestep": 0.05
+    }
+  ],
+  "steps": 2,
+  "substeps": 20,
+  "timestep": 0.05
+}

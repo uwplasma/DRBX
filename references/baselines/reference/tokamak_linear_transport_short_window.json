@@ -1,0 +1,70 @@
+{
+  "case_name": "tokamak_linear_transport_short_window",
+  "compare_variables": [
+    "Pe"
+  ],
+  "component_labels": [
+    "e:fixed_density",
+    "e:evolve_pressure",
+    "e:anomalous_diffusion",
+    "e:simple_conduction"
+  ],
+  "configured_nout": 5,
+  "configured_timestep": 10000.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 9787.151425755137,
+    "Nnorm": 1e+20,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 1.0,
+    "rho_s0": 0.00010217477552952484
+  },
+  "dimensions": {
+    "t": 6,
+    "x": 36,
+    "y": 12,
+    "z": 1
+  },
+  "effective_output_points": 6,
+  "overrides": [
+    "nout=5",
+    "e:diagnose=false"
+  ],
+  "parity_mode": "short_window",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    10000.0,
+    20000.0,
+    30000.0,
+    40000.0,
+    50000.0
+  ],
+  "variable_summaries": {
+    "Pe": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.9976492749813667,
+      "maximum": 1.0,
+      "mean": 0.3855736212448611,
+      "minimum": 0.0023507250186332817,
+      "name": "Pe",
+      "shape": [
+        6,
+        32,
+        8,
+        1
+      ]
+    }
+  }
+}

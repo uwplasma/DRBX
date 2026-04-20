@@ -1,0 +1,135 @@
+{
+  "available": true,
+  "coordinate_system": "field_aligned",
+  "dimensions": {
+    "nphi": 2,
+    "ns": 4,
+    "ntheta": 4
+  },
+  "geometry_name": "poloidal_const_4_2_4_1.fci",
+  "metric_fields": {
+    "Bxy": {
+      "finite": true,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "J": {
+      "finite": true,
+      "maximum": 4.266666666666651,
+      "mean": 1.199802469135802,
+      "minimum": 0.25599999999999956,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "dx": {
+      "finite": true,
+      "maximum": 0.25,
+      "mean": 0.25,
+      "minimum": 0.25,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "dy": {
+      "finite": true,
+      "maximum": 0.6283185307179586,
+      "mean": 0.6283185307179586,
+      "minimum": 0.6283185307179586,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "dz": {
+      "finite": true,
+      "maximum": 0.25,
+      "mean": 0.25,
+      "minimum": 0.25,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "g11": {
+      "finite": true,
+      "maximum": 3.689236111111128,
+      "mean": 3.6024305555555562,
+      "minimum": 3.515624999999974,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "g22": {
+      "finite": true,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "g33": {
+      "finite": true,
+      "maximum": 3.515625000000006,
+      "mean": 0.8072341464564483,
+      "minimum": 0.035156250000000014,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "g_11": {
+      "finite": true,
+      "maximum": 0.28444444444444655,
+      "mean": 0.28444444444444444,
+      "minimum": 0.28444444444444245,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "g_22": {
+      "finite": true,
+      "maximum": 1.0,
+      "mean": 1.0,
+      "minimum": 1.0,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    },
+    "g_33": {
+      "finite": true,
+      "maximum": 28.444444444444432,
+      "mean": 6.109876543209877,
+      "minimum": 0.28444444444444394,
+      "shape": [
+        4,
+        2,
+        4
+      ]
+    }
+  },
+  "parse_status": "ok",
+  "source_format": "netcdf_fci_grid"
+}

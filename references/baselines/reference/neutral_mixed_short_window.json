@@ -1,0 +1,114 @@
+{
+  "case_name": "neutral_mixed_short_window",
+  "compare_variables": [
+    "Nh",
+    "Ph",
+    "NVh"
+  ],
+  "component_labels": [
+    "h:neutral_mixed"
+  ],
+  "configured_nout": 15,
+  "configured_timestep": 20.0,
+  "dataset_scalars": {
+    "Bnorm": 1.0,
+    "Cs0": 97871.51425755137,
+    "Nnorm": 1e+19,
+    "Omega_ci": 95788333.03066081,
+    "Tnorm": 100.0,
+    "rho_s0": 0.0010217477552952484
+  },
+  "dimensions": {
+    "t": 16,
+    "x": 10,
+    "y": 14,
+    "z": 10
+  },
+  "effective_output_points": 16,
+  "overrides": [],
+  "parity_mode": "short_window",
+  "reference_runner": "external-reference",
+  "required_artifacts": [
+    "BOUT.dmp.0.nc",
+    "BOUT.log.0",
+    "BOUT.restart.0.nc",
+    "BOUT.settings"
+  ],
+  "time_points": [
+    0.0,
+    20.0,
+    40.0,
+    60.0,
+    80.0,
+    100.0,
+    120.0,
+    140.0,
+    160.0,
+    180.0,
+    200.0,
+    220.0,
+    240.0,
+    260.0,
+    280.0,
+    300.0
+  ],
+  "variable_summaries": {
+    "NVh": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 8.89970335986305e-08,
+      "maximum": 0.001435116130033115,
+      "mean": -2.0666006628565578e-16,
+      "minimum": -0.001435116130033115,
+      "name": "NVh",
+      "shape": [
+        16,
+        10,
+        10,
+        10
+      ]
+    },
+    "Nh": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.2515280962340567,
+      "maximum": 0.99060001424835,
+      "mean": 0.7854674105756404,
+      "minimum": 0.5346670238843633,
+      "name": "Nh",
+      "shape": [
+        16,
+        10,
+        10,
+        10
+      ]
+    },
+    "Ph": {
+      "dimensions": [
+        "t",
+        "x",
+        "y",
+        "z"
+      ],
+      "max_abs_delta_last_first": 0.025151430250256998,
+      "maximum": 0.09906000142483501,
+      "mean": 0.07854542369148476,
+      "minimum": 0.05346670238843633,
+      "name": "Ph",
+      "shape": [
+        16,
+        10,
+        10,
+        10
+      ]
+    }
+  }
+}
