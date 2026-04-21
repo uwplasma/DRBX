@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+import os
 
 import numpy as np
 
@@ -98,6 +100,7 @@ def build_sparse_difference_quotient_jacobian(
     sparsity,
     color_groups: tuple[tuple[int, ...], ...],
     sparsity_csc=None,
+    parallel_workers: int = 1,
 ):
     try:
         from scipy.sparse import coo_matrix
@@ -118,23 +121,44 @@ def build_sparse_difference_quotient_jacobian(
     data = np.empty(nnz, dtype=np.float64)
     offset = 0
 
-    for group in color_groups:
+    def _evaluate_group(group: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         perturbation = np.zeros_like(state_array)
         group_steps: list[tuple[int, float]] = []
+        group_nnz = 0
         for column in group:
             step = difference_quotient_step_size(state_array[column])
             perturbation[column] = step
             group_steps.append((column, step))
+            group_nnz += sparsity_csc.indptr[column + 1] - sparsity_csc.indptr[column]
+
+        group_rows = np.empty(group_nnz, dtype=np.int32)
+        group_cols = np.empty(group_nnz, dtype=np.int32)
+        group_data = np.empty(group_nnz, dtype=np.float64)
 
         perturbed_residual = np.asarray(residual(state_array + perturbation), dtype=np.float64)
         delta = perturbed_residual - residual0
+        group_offset = 0
         for column, step in group_steps:
             rows = sparsity_csc.indices[sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]]
             count = len(rows)
-            row_indices[offset : offset + count] = rows
-            col_indices[offset : offset + count] = column
-            data[offset : offset + count] = delta[rows] / step
-            offset += count
+            group_rows[group_offset : group_offset + count] = rows
+            group_cols[group_offset : group_offset + count] = column
+            group_data[group_offset : group_offset + count] = delta[rows] / step
+            group_offset += count
+        return group_rows, group_cols, group_data
+
+    if parallel_workers > 1 and len(color_groups) > 1:
+        with ThreadPoolExecutor(max_workers=int(parallel_workers)) as executor:
+            group_results = tuple(executor.map(_evaluate_group, color_groups))
+    else:
+        group_results = tuple(_evaluate_group(group) for group in color_groups)
+
+    for group_rows, group_cols, group_data in group_results:
+        count = len(group_rows)
+        row_indices[offset : offset + count] = group_rows
+        col_indices[offset : offset + count] = group_cols
+        data[offset : offset + count] = group_data
+        offset += count
 
     return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=sparsity.shape).tocsr()
 
@@ -187,6 +211,7 @@ def solve_sparse_newton_system(
     linear_rtol: float,
     prefer_direct_linear_solve: bool = False,
     jacobian_refresh_frequency: int = 1,
+    jacobian_parallel_workers: int | None = None,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         from scipy.optimize import NoConvergence, newton_krylov
@@ -199,6 +224,14 @@ def solve_sparse_newton_system(
     best_state = np.array(state, copy=True)
     best_residual_inf_norm = np.inf
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
+    if jacobian_parallel_workers is None:
+        env_value = os.environ.get("JAX_DRB_FD_JACOBIAN_THREADS")
+        if env_value is not None:
+            jacobian_parallel_workers = max(1, int(env_value))
+        else:
+            cpu_count = os.cpu_count() or 1
+            heavy_problem = initial_state.size >= 4000 and len(color_groups) >= 8
+            jacobian_parallel_workers = min(4, cpu_count) if heavy_problem else 1
     jacobian = None
     jacobian_csc = None
     sparsity_csc = sparsity.tocsc()
@@ -225,6 +258,7 @@ def solve_sparse_newton_system(
                 sparsity=sparsity,
                 color_groups=color_groups,
                 sparsity_csc=sparsity_csc,
+                parallel_workers=int(jacobian_parallel_workers),
             )
             jacobian_csc = jacobian.tocsc()
         linear_iterations = 0

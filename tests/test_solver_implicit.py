@@ -114,6 +114,48 @@ def test_sparse_difference_quotient_jacobian_matches_single_column_difference() 
     np.testing.assert_allclose(sparse_column, direct, rtol=1e-6, atol=1e-8)
 
 
+def test_sparse_difference_quotient_jacobian_parallel_matches_serial() -> None:
+    pytest.importorskip("scipy")
+
+    active_shape = (4, 1, 4)
+    state = np.linspace(0.2, 0.8, 2 * np.prod(active_shape))
+    sparsity = build_locality_sparsity(
+        active_shape,
+        field_count=2,
+        radii=(1, 0, 1),
+        periodic_axes=(2,),
+    )
+    color_groups = build_modulo_color_groups(
+        active_shape,
+        field_count=2,
+        color_periods=(2, 1, 4),
+    )
+
+    def residual(vector: np.ndarray) -> np.ndarray:
+        field0 = vector[: np.prod(active_shape)].reshape(active_shape)
+        field1 = vector[np.prod(active_shape) :].reshape(active_shape)
+        result0 = field0**2 + 0.1 * np.roll(field0, 1, axis=2) - 0.2 * field1
+        result1 = field1 + 0.3 * np.roll(field0, -1, axis=0) - 0.05 * np.roll(field1, -1, axis=2)
+        return np.concatenate([result0.ravel(), result1.ravel()])
+
+    serial = build_sparse_difference_quotient_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        parallel_workers=1,
+    )
+    parallel = build_sparse_difference_quotient_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        parallel_workers=2,
+    )
+
+    np.testing.assert_allclose(serial.toarray(), parallel.toarray(), rtol=1e-10, atol=1e-12)
+
+
 def test_backward_euler_and_bdf2_residual_formulas() -> None:
     state = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     previous = np.array([0.5, 1.5, 2.5], dtype=np.float64)
