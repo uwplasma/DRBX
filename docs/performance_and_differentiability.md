@@ -187,6 +187,16 @@ native kernels. It is not yet the default on the promoted recycling/tokamak
 backbone because that residual still crosses the host/SciPy boundary too often
 to make a JVP-driven solve the right production choice today.
 
+The sparse finite-difference Jacobian path now also has a practical CPU
+parallelization policy:
+
+- color-group residual evaluations can run in parallel threads;
+- by default that threading now turns on automatically for heavy sparse solves;
+- users can still override it explicitly with
+  `JAX_DRB_FD_JACOBIAN_THREADS=<N>`;
+- on the profiled neon tokamak one-step case, that gives a small but real
+  additional local speedup on top of the larger residual/Jacobian cleanup.
+
 For the current paper and release, the parallelization claim should also stay
 operationally concrete:
 
