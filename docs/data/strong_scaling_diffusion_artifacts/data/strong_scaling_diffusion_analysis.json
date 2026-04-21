@@ -4,175 +4,84 @@
       "backend": "cpu",
       "device_count": 1,
       "efficiency": 1.0,
-      "elapsed_seconds": 1.0560938339913264,
+      "elapsed_seconds": 0.25650129200039373,
       "speedup": 1.0
     },
     {
       "backend": "cpu",
       "device_count": 2,
-      "efficiency": 0.5438165310607175,
-      "elapsed_seconds": 0.9710019589983858,
-      "speedup": 1.087633062121435
+      "efficiency": 0.4916693762367894,
+      "elapsed_seconds": 0.26084733399875404,
+      "speedup": 0.9833387524735788
     },
     {
       "backend": "cpu",
       "device_count": 4,
-      "efficiency": 0.26543811090889885,
-      "elapsed_seconds": 0.9946705000038492,
-      "speedup": 1.0617524436355954
+      "efficiency": 0.24652827844110958,
+      "elapsed_seconds": 0.260113457999978,
+      "speedup": 0.9861131137644383
     },
     {
       "backend": "cpu",
       "device_count": 8,
-      "efficiency": 0.14164246047550774,
-      "elapsed_seconds": 0.9320067499938887,
-      "speedup": 1.133139683804062
+      "efficiency": 0.1561761680130438,
+      "elapsed_seconds": 0.20529804199941282,
+      "speedup": 1.2494093441043503
     }
   ],
-  "gpu": [
+  "cpu_host_pmap": [
     {
-      "backend": "gpu",
+      "backend": "cpu_host_pmap",
       "device_count": 1,
       "efficiency": 1.0,
-      "elapsed_seconds": 10.213164983986644,
+      "elapsed_seconds": 0.2711775829993712,
       "speedup": 1.0
     },
     {
-      "backend": "gpu",
+      "backend": "cpu_host_pmap",
       "device_count": 2,
-      "efficiency": 1.0947544285241448,
-      "elapsed_seconds": 4.664591765002115,
-      "speedup": 2.1895088570482897
+      "efficiency": 0.538843880380197,
+      "elapsed_seconds": 0.25162908299898845,
+      "speedup": 1.077687760760394
+    },
+    {
+      "backend": "cpu_host_pmap",
+      "device_count": 4,
+      "efficiency": 0.31746132775298597,
+      "elapsed_seconds": 0.21355166700050177,
+      "speedup": 1.2698453110119439
+    },
+    {
+      "backend": "cpu_host_pmap",
+      "device_count": 8,
+      "efficiency": 0.15649468122226678,
+      "elapsed_seconds": 0.21660287499980768,
+      "speedup": 1.2519574497781343
     }
   ],
+  "gpu": [],
   "raw_results": {
     "cpu": [
       {
         "backend": "cpu",
-        "best_seconds": 1.0560938339913264,
+        "best_seconds": 0.25650129200039373,
         "device_count": 1,
-        "local_batch": 64,
-        "mean_seconds": 1.0643632779974723,
-        "parallel_kind": "process_group",
-        "total_batch": 64,
-        "worker_results": [
-          {
-            "backend": "cpu",
-            "best_seconds": 1.0560938339913264,
-            "device_count": 1,
-            "local_batch": 64,
-            "mean_seconds": 1.0643632779974723,
-            "parallel_kind": "single_device",
-            "timings": [
-              1.0560938339913264,
-              1.0710628749948228,
-              1.0659331250062678
-            ],
-            "total_batch": 64
-          }
-        ]
-      },
-      {
-        "backend": "cpu",
-        "best_seconds": 0.9710019589983858,
-        "device_count": 2,
-        "local_batch": 32,
-        "mean_seconds": 1.0012162363370105,
-        "parallel_kind": "process_group",
-        "total_batch": 64,
-        "worker_results": [
-          {
-            "backend": "cpu",
-            "best_seconds": 0.9540837920067133,
-            "device_count": 1,
-            "local_batch": 32,
-            "mean_seconds": 1.0010444586660014,
-            "parallel_kind": "single_device",
-            "timings": [
-              0.9857946249976521,
-              0.9540837920067133,
-              1.0632549589936389
-            ],
-            "total_batch": 32
-          },
-          {
-            "backend": "cpu",
-            "best_seconds": 0.9710019589983858,
-            "device_count": 1,
-            "local_batch": 32,
-            "mean_seconds": 1.0012162363370105,
-            "parallel_kind": "single_device",
-            "timings": [
-              0.9894257910054876,
-              0.9710019589983858,
-              1.043220959007158
-            ],
-            "total_batch": 32
-          }
-        ]
-      },
-      {
-        "backend": "cpu",
-        "best_seconds": 0.9946705000038492,
-        "device_count": 4,
         "local_batch": 16,
-        "mean_seconds": 1.138752792001469,
+        "mean_seconds": 0.25878491666723374,
         "parallel_kind": "process_group",
-        "total_batch": 64,
+        "total_batch": 16,
         "worker_results": [
           {
             "backend": "cpu",
-            "best_seconds": 0.9302826249913778,
+            "best_seconds": 0.25650129200039373,
             "device_count": 1,
             "local_batch": 16,
-            "mean_seconds": 1.115113819328447,
+            "mean_seconds": 0.25878491666723374,
             "parallel_kind": "single_device",
             "timings": [
-              0.9498872499971185,
-              0.9302826249913778,
-              1.4651715829968452
-            ],
-            "total_batch": 16
-          },
-          {
-            "backend": "cpu",
-            "best_seconds": 0.9651570419955533,
-            "device_count": 1,
-            "local_batch": 16,
-            "mean_seconds": 1.1057801946638695,
-            "parallel_kind": "single_device",
-            "timings": [
-              0.9842745420028223,
-              0.9651570419955533,
-              1.367908999993233
-            ],
-            "total_batch": 16
-          },
-          {
-            "backend": "cpu",
-            "best_seconds": 0.8686638329963898,
-            "device_count": 1,
-            "local_batch": 16,
-            "mean_seconds": 1.058922625001287,
-            "parallel_kind": "single_device",
-            "timings": [
-              0.9762898750050226,
-              1.3318141670024488,
-              0.8686638329963898
-            ],
-            "total_batch": 16
-          },
-          {
-            "backend": "cpu",
-            "best_seconds": 0.9946705000038492,
-            "device_count": 1,
-            "local_batch": 16,
-            "mean_seconds": 1.138752792001469,
-            "parallel_kind": "single_device",
-            "timings": [
-              1.002799416994094,
-              0.9946705000038492,
-              1.418788459006464
+              0.2601192500005709,
+              0.25650129200039373,
+              0.25973420800073654
             ],
             "total_batch": 16
           }
@@ -180,158 +89,293 @@
       },
       {
         "backend": "cpu",
-        "best_seconds": 0.9320067499938887,
-        "device_count": 8,
+        "best_seconds": 0.26084733399875404,
+        "device_count": 2,
         "local_batch": 8,
-        "mean_seconds": 0.9710339860030217,
+        "mean_seconds": 0.27710050000011205,
         "parallel_kind": "process_group",
-        "total_batch": 64,
+        "total_batch": 16,
         "worker_results": [
           {
             "backend": "cpu",
-            "best_seconds": 0.9320067499938887,
+            "best_seconds": 0.25872049999998126,
             "device_count": 1,
             "local_batch": 8,
-            "mean_seconds": 0.9674548053299077,
+            "mean_seconds": 0.27710050000011205,
             "parallel_kind": "single_device",
             "timings": [
-              0.9732028750004247,
-              0.9971547909954097,
-              0.9320067499938887
+              0.25872049999998126,
+              0.3039586249997228,
+              0.268622375000632
             ],
             "total_batch": 8
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.7593820000038249,
+            "best_seconds": 0.26084733399875404,
             "device_count": 1,
             "local_batch": 8,
-            "mean_seconds": 0.8566200833350498,
+            "mean_seconds": 0.2729601809993862,
             "parallel_kind": "single_device",
             "timings": [
-              0.8993591250036843,
-              0.91111912499764,
-              0.7593820000038249
+              0.2846181669992802,
+              0.27341504200012423,
+              0.26084733399875404
             ],
             "total_batch": 8
+          }
+        ]
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.260113457999978,
+        "device_count": 4,
+        "local_batch": 4,
+        "mean_seconds": 0.2678002496662278,
+        "parallel_kind": "process_group",
+        "total_batch": 16,
+        "worker_results": [
+          {
+            "backend": "cpu",
+            "best_seconds": 0.24568995800109406,
+            "device_count": 1,
+            "local_batch": 4,
+            "mean_seconds": 0.25900665266757034,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.24568995800109406,
+              0.2722930420004559,
+              0.2590369580011611
+            ],
+            "total_batch": 4
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.8795098749978933,
+            "best_seconds": 0.2250234579987591,
             "device_count": 1,
-            "local_batch": 8,
-            "mean_seconds": 0.9663772916683229,
+            "local_batch": 4,
+            "mean_seconds": 0.24921326366590316,
             "parallel_kind": "single_device",
             "timings": [
-              1.1126692920079222,
-              0.8795098749978933,
-              0.9069527079991531
+              0.2667209159990307,
+              0.2250234579987591,
+              0.2558954169999197
             ],
-            "total_batch": 8
+            "total_batch": 4
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.8866528749931604,
+            "best_seconds": 0.260113457999978,
             "device_count": 1,
-            "local_batch": 8,
-            "mean_seconds": 0.9710339860030217,
+            "local_batch": 4,
+            "mean_seconds": 0.2678002496662278,
             "parallel_kind": "single_device",
             "timings": [
-              1.0458946660073707,
-              0.8866528749931604,
-              0.9805544170085341
+              0.27238904099976935,
+              0.2708982499989361,
+              0.260113457999978
             ],
-            "total_batch": 8
+            "total_batch": 4
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.8920850419963244,
+            "best_seconds": 0.22862712500136695,
             "device_count": 1,
-            "local_batch": 8,
-            "mean_seconds": 0.952185569665744,
+            "local_batch": 4,
+            "mean_seconds": 0.2511679166673275,
             "parallel_kind": "single_device",
             "timings": [
-              1.0142904999956954,
-              0.950181167005212,
-              0.8920850419963244
+              0.22862712500136695,
+              0.2659559170006105,
+              0.2589207080000051
             ],
-            "total_batch": 8
+            "total_batch": 4
+          }
+        ]
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.20529804199941282,
+        "device_count": 8,
+        "local_batch": 2,
+        "mean_seconds": 0.22891861099985059,
+        "parallel_kind": "process_group",
+        "total_batch": 16,
+        "worker_results": [
+          {
+            "backend": "cpu",
+            "best_seconds": 0.20529804199941282,
+            "device_count": 1,
+            "local_batch": 2,
+            "mean_seconds": 0.22358997233277478,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.25761887499902514,
+              0.20529804199941282,
+              0.20785299999988638
+            ],
+            "total_batch": 2
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.8441606249980396,
+            "best_seconds": 0.14184374999967986,
             "device_count": 1,
-            "local_batch": 8,
-            "mean_seconds": 0.9431592636634983,
+            "local_batch": 2,
+            "mean_seconds": 0.1674777779996172,
             "parallel_kind": "single_device",
             "timings": [
-              1.0680477080022683,
-              0.9172694579901872,
-              0.8441606249980396
+              0.1770608339993487,
+              0.18352874999982305,
+              0.14184374999967986
             ],
-            "total_batch": 8
+            "total_batch": 2
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.7489430000132415,
+            "best_seconds": 0.1002290409996931,
             "device_count": 1,
-            "local_batch": 8,
-            "mean_seconds": 0.8725285420029346,
+            "local_batch": 2,
+            "mean_seconds": 0.11164727766663418,
             "parallel_kind": "single_device",
             "timings": [
-              0.916852583992295,
-              0.9517900420032674,
-              0.7489430000132415
+              0.13420762500027195,
+              0.1005051669999375,
+              0.1002290409996931
             ],
-            "total_batch": 8
+            "total_batch": 2
           },
           {
             "backend": "cpu",
-            "best_seconds": 0.36038229199766647,
+            "best_seconds": 0.18761545800043677,
             "device_count": 1,
-            "local_batch": 8,
-            "mean_seconds": 0.7000324719992932,
+            "local_batch": 2,
+            "mean_seconds": 0.20148806900033378,
             "parallel_kind": "single_device",
             "timings": [
-              0.911636290999013,
-              0.8280788330012001,
-              0.36038229199766647
+              0.18761545800043677,
+              0.21889845800069452,
+              0.19795029099987005
             ],
-            "total_batch": 8
+            "total_batch": 2
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.19743691700023192,
+            "device_count": 1,
+            "local_batch": 2,
+            "mean_seconds": 0.22891861099985059,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.19743691700023192,
+              0.22856108300038613,
+              0.26075783299893374
+            ],
+            "total_batch": 2
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.181772459000058,
+            "device_count": 1,
+            "local_batch": 2,
+            "mean_seconds": 0.21022447233372077,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.2241863330000342,
+              0.2247146250010701,
+              0.181772459000058
+            ],
+            "total_batch": 2
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.1622704170003999,
+            "device_count": 1,
+            "local_batch": 2,
+            "mean_seconds": 0.20427584699973522,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.16718583299916645,
+              0.2833712909996393,
+              0.1622704170003999
+            ],
+            "total_batch": 2
+          },
+          {
+            "backend": "cpu",
+            "best_seconds": 0.17098495900063426,
+            "device_count": 1,
+            "local_batch": 2,
+            "mean_seconds": 0.19387497233340886,
+            "parallel_kind": "single_device",
+            "timings": [
+              0.2243642079993151,
+              0.17098495900063426,
+              0.18627575000027718
+            ],
+            "total_batch": 2
           }
         ]
       }
     ],
-    "gpu": [
+    "cpu_host_pmap": [
       {
-        "backend": "gpu",
-        "best_seconds": 10.213164983986644,
+        "backend": "cpu",
+        "best_seconds": 0.2711775829993712,
         "device_count": 1,
-        "local_batch": 64,
-        "mean_seconds": 11.982449695341833,
-        "parallel_kind": "single_device",
+        "local_batch": 16,
+        "mean_seconds": 0.2718836250005552,
+        "parallel_kind": "host_pmap",
         "timings": [
-          10.213164983986644,
-          11.76494689201354,
-          13.969237210025312
+          0.2711775829993712,
+          0.27142641700083914,
+          0.2730468750014552
         ],
-        "total_batch": 64
+        "total_batch": 16
       },
       {
-        "backend": "gpu",
-        "best_seconds": 4.664591765002115,
+        "backend": "cpu",
+        "best_seconds": 0.25162908299898845,
         "device_count": 2,
-        "local_batch": 32,
-        "mean_seconds": 5.2886324946690975,
-        "parallel_kind": "pmap",
+        "local_batch": 8,
+        "mean_seconds": 0.25827947200014023,
+        "parallel_kind": "host_pmap",
         "timings": [
-          6.51231272998848,
-          4.664591765002115,
-          4.688992989016697
+          0.25162908299898845,
+          0.26396945800115645,
+          0.2592398750002758
         ],
-        "total_batch": 64
+        "total_batch": 16
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.21355166700050177,
+        "device_count": 4,
+        "local_batch": 4,
+        "mean_seconds": 0.21615790266696422,
+        "parallel_kind": "host_pmap",
+        "timings": [
+          0.21461133299999346,
+          0.21355166700050177,
+          0.22031070800039743
+        ],
+        "total_batch": 16
+      },
+      {
+        "backend": "cpu",
+        "best_seconds": 0.21660287499980768,
+        "device_count": 8,
+        "local_batch": 2,
+        "mean_seconds": 0.21871280566665519,
+        "parallel_kind": "host_pmap",
+        "timings": [
+          0.2173790420001751,
+          0.22215649999998277,
+          0.21660287499980768
+        ],
+        "total_batch": 16
       }
-    ]
+    ],
+    "gpu": []
   },
   "settings": {
     "cpu_device_counts": [
@@ -349,6 +393,6 @@
     "repeats": 3,
     "steps": 8,
     "timestep": 3.0,
-    "total_batch": 64
+    "total_batch": 16
   }
 }

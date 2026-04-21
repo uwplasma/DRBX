@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from jax_drb.validation.autodiff_diffusion import build_diffusion_autodiff_setup, compute_strong_scaling_points
+from jax_drb.validation.autodiff_diffusion import StrongScalingPoint, build_diffusion_autodiff_setup, compute_strong_scaling_points
 
 
 @dataclass(frozen=True)
@@ -229,6 +229,49 @@ def run_local_cpu_worker(script_path: Path, settings: StrongScalingSettings, dev
     }
 
 
+def run_local_cpu_host_pmap_worker(script_path: Path, settings: StrongScalingSettings, device_count: int) -> dict[str, Any]:
+    command = [
+        str(_repo_root() / ".venv" / "bin" / "python"),
+        str(script_path),
+        "--worker",
+        "--backend",
+        "cpu",
+        "--device-count",
+        str(device_count),
+        "--total-batch",
+        str(settings.total_batch),
+        "--nx",
+        str(settings.nx),
+        "--ny",
+        str(settings.ny),
+        "--timestep",
+        str(settings.timestep),
+        "--steps",
+        str(settings.steps),
+        "--repeats",
+        str(settings.repeats),
+    ]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(_repo_root() / "src")
+    env["JAX_DRB_HOST_DEVICE_COUNT"] = str(device_count)
+    completed = subprocess.run(
+        command,
+        cwd=_repo_root(),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"cpu host pmap worker failed for {device_count} devices:\n{completed.stdout}\n{completed.stderr}"
+        )
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    payload["parallel_kind"] = "host_pmap"
+    return payload
+
+
 def stage_remote_tree(host: str, remote_root: str) -> None:
     command = (
         f"tar czf - src examples/strong_scaling_diffusion_demo.py | "
@@ -274,9 +317,41 @@ def cleanup_remote_tree(host: str, remote_root: str) -> None:
     )
 
 
-def write_analysis_json(settings: StrongScalingSettings, cpu_points, gpu_points, raw_results: dict[str, Any]) -> Path:
+def load_existing_gpu_points(output_root: Path) -> list[StrongScalingPoint]:
+    analysis_path = output_root / "data" / "strong_scaling_diffusion_analysis.json"
+    if not analysis_path.exists():
+        return []
+    payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+    points = []
+    for entry in payload.get("gpu", []):
+        points.append(
+            StrongScalingPoint(
+                backend=str(entry["backend"]),
+                device_count=int(entry["device_count"]),
+                elapsed_seconds=float(entry["elapsed_seconds"]),
+                speedup=float(entry["speedup"]),
+                efficiency=float(entry["efficiency"]),
+            )
+        )
+    return points
+
+
+def write_analysis_json(
+    settings: StrongScalingSettings,
+    cpu_process_group_points,
+    cpu_host_pmap_points,
+    gpu_points,
+    raw_results: dict[str, Any],
+) -> Path:
     data_dir = settings.output_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
+    existing_path = data_dir / "strong_scaling_diffusion_analysis.json"
+    persisted_gpu_points = [point.__dict__ for point in gpu_points]
+    persisted_gpu_results = raw_results["gpu"]
+    if not persisted_gpu_points and existing_path.exists():
+        existing_payload = json.loads(existing_path.read_text(encoding="utf-8"))
+        persisted_gpu_points = list(existing_payload.get("gpu", []))
+        persisted_gpu_results = list(existing_payload.get("raw_results", {}).get("gpu", []))
     payload = {
         "settings": {
             "cpu_device_counts": list(settings.cpu_device_counts),
@@ -288,16 +363,21 @@ def write_analysis_json(settings: StrongScalingSettings, cpu_points, gpu_points,
             "steps": settings.steps,
             "repeats": settings.repeats,
         },
-        "cpu": [point.__dict__ for point in cpu_points],
-        "gpu": [point.__dict__ for point in gpu_points],
-        "raw_results": raw_results,
+        "cpu": [point.__dict__ for point in cpu_process_group_points],
+        "cpu_host_pmap": [point.__dict__ for point in cpu_host_pmap_points],
+        "gpu": persisted_gpu_points,
+        "raw_results": {
+            "cpu": raw_results["cpu"],
+            "cpu_host_pmap": raw_results["cpu_host_pmap"],
+            "gpu": persisted_gpu_results,
+        },
     }
-    path = data_dir / "strong_scaling_diffusion_analysis.json"
+    path = existing_path
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return path
 
 
-def save_summary_plot(settings: StrongScalingSettings, cpu_points, gpu_points) -> Path:
+def save_summary_plot(settings: StrongScalingSettings, cpu_process_group_points, cpu_host_pmap_points, gpu_points) -> Path:
     import matplotlib
 
     matplotlib.use("Agg")
@@ -308,7 +388,8 @@ def save_summary_plot(settings: StrongScalingSettings, cpu_points, gpu_points) -
     figure, axes = plt.subplots(1, 2, figsize=(12.8, 4.8), constrained_layout=True)
 
     for label, points, color in (
-        ("CPU (local process group)", cpu_points, "#1d3557"),
+        ("CPU (local process group)", cpu_process_group_points, "#1d3557"),
+        ("CPU (host device pmap)", cpu_host_pmap_points, "#2a9d8f"),
         ("GPU (device pmap)", gpu_points, "#d62828"),
     ):
         if not points:
@@ -352,14 +433,24 @@ def main() -> int:
     settings = build_settings(args)
     script_path = Path(__file__).resolve()
 
-    cpu_results = []
+    cpu_process_group_results = []
     for device_count in settings.cpu_device_counts:
         result = run_local_cpu_worker(script_path, settings, device_count)
-        cpu_results.append(result)
-        log(settings, f"CPU scaling {device_count} device(s)", result)
-    cpu_points = compute_strong_scaling_points(
-        [(int(item["device_count"]), float(item["best_seconds"])) for item in cpu_results],
+        cpu_process_group_results.append(result)
+        log(settings, f"CPU process-group scaling {device_count} device(s)", result)
+    cpu_process_group_points = compute_strong_scaling_points(
+        [(int(item["device_count"]), float(item["best_seconds"])) for item in cpu_process_group_results],
         backend="cpu",
+    )
+
+    cpu_host_pmap_results = []
+    for device_count in settings.cpu_device_counts:
+        result = run_local_cpu_host_pmap_worker(script_path, settings, device_count)
+        cpu_host_pmap_results.append(result)
+        log(settings, f"CPU host-pmap scaling {device_count} device(s)", result)
+    cpu_host_pmap_points = compute_strong_scaling_points(
+        [(int(item["device_count"]), float(item["best_seconds"])) for item in cpu_host_pmap_results],
+        backend="cpu_host_pmap",
     )
 
     gpu_results = []
@@ -377,14 +468,21 @@ def main() -> int:
         [(int(item["device_count"]), float(item["best_seconds"])) for item in gpu_results],
         backend="gpu",
     )
+    if not gpu_points:
+        gpu_points = load_existing_gpu_points(settings.output_root)
 
     analysis_path = write_analysis_json(
         settings,
-        cpu_points,
+        cpu_process_group_points,
+        cpu_host_pmap_points,
         gpu_points,
-        raw_results={"cpu": cpu_results, "gpu": gpu_results},
+        raw_results={
+            "cpu": cpu_process_group_results,
+            "cpu_host_pmap": cpu_host_pmap_results,
+            "gpu": gpu_results,
+        },
     )
-    plot_path = save_summary_plot(settings, cpu_points, gpu_points)
+    plot_path = save_summary_plot(settings, cpu_process_group_points, cpu_host_pmap_points, gpu_points)
     log(settings, "Strong Scaling Artifacts", {"analysis_json": analysis_path, "plot": plot_path})
     return 0
 
