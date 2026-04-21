@@ -254,6 +254,15 @@ def run_local_cpu_host_pmap_worker(script_path: Path, settings: StrongScalingSet
     env = dict(os.environ)
     env["PYTHONPATH"] = str(_repo_root() / "src")
     env["JAX_DRB_HOST_DEVICE_COUNT"] = str(device_count)
+    env["OMP_NUM_THREADS"] = "1"
+    env["OPENBLAS_NUM_THREADS"] = "1"
+    env["MKL_NUM_THREADS"] = "1"
+    env["VECLIB_MAXIMUM_THREADS"] = "1"
+    env["NUMEXPR_NUM_THREADS"] = "1"
+    env["XLA_FLAGS"] = (
+        f"--xla_force_host_platform_device_count={device_count} "
+        "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+    )
     completed = subprocess.run(
         command,
         cwd=_repo_root(),

@@ -176,6 +176,16 @@ class _RecyclingRuntimeModel:
     feedback_names: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _RecyclingPackedStateLayout:
+    field_names: tuple[str, ...]
+    feedback_names: tuple[str, ...]
+    active_slices: tuple[slice, slice, slice]
+    active_shape: tuple[int, int, int]
+    field_size: int
+    field_templates: tuple[np.ndarray, ...]
+
+
 _AMJUEL_FILENAMES = {
     ("d", "iz"): "iz_AMJUEL_H.x_2.1.5.json",
     ("d", "rec"): "rec_AMJUEL_H.x_2.1.8.json",
@@ -4663,6 +4673,12 @@ def advance_recycling_1d_backward_euler_step(
     )
     field_names = runtime_model.field_names
     packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
+    layout = _build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+    )
     previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
     packed_previous = _pack_recycling_active_state(
         fields,
@@ -4670,6 +4686,7 @@ def advance_recycling_1d_backward_euler_step(
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     packed_initial_guess = _predict_recycling_packed_state(
         config,
@@ -4683,6 +4700,7 @@ def advance_recycling_1d_backward_euler_step(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         timestep=timestep,
+        layout=layout,
     )
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
@@ -4693,6 +4711,7 @@ def advance_recycling_1d_backward_euler_step(
             field_names=field_names,
             feedback_names=packed_feedback_names,
             mesh=mesh,
+            layout=layout,
         )
         rhs = _compute_recycling_1d_packed_rhs(
             config,
@@ -4710,6 +4729,7 @@ def advance_recycling_1d_backward_euler_step(
             metrics=metrics,
             dataset_scalars=dataset_scalars,
             runtime_model=runtime_model,
+            layout=layout,
         )
         return _build_recycling_mixed_be_residual(
             packed_state,
@@ -4730,12 +4750,12 @@ def advance_recycling_1d_backward_euler_step(
             packed_initial_guess,
             active_shape=(packed_previous.size,),
             sparsity=_build_recycling_residual_sparsity(
-                active_shape=_recycling_active_shape(mesh),
+                active_shape=layout.active_shape,
                 field_count=len(field_names),
                 controller_count=len(packed_feedback_names),
             ),
             color_groups=_build_recycling_color_groups(
-                active_shape=_recycling_active_shape(mesh),
+                active_shape=layout.active_shape,
                 field_count=len(field_names),
                 controller_count=len(packed_feedback_names),
             ),
@@ -4765,6 +4785,7 @@ def advance_recycling_1d_backward_euler_step(
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     sanitized_fields = _sanitize_recycling_fields(config, next_fields)
     if evolve_feedback_integrals:
@@ -4805,6 +4826,12 @@ def advance_recycling_1d_bdf2_step(
     )
     field_names = runtime_model.field_names
     packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
+    layout = _build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+    )
     previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
     packed_previous = _pack_recycling_active_state(
         fields,
@@ -4812,6 +4839,7 @@ def advance_recycling_1d_bdf2_step(
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     packed_previous_previous = _pack_recycling_active_state(
         previous_fields,
@@ -4819,6 +4847,7 @@ def advance_recycling_1d_bdf2_step(
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     packed_initial_guess = _predict_recycling_packed_state(
         config,
@@ -4832,6 +4861,7 @@ def advance_recycling_1d_bdf2_step(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         timestep=timestep,
+        layout=layout,
     )
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
@@ -4842,6 +4872,7 @@ def advance_recycling_1d_bdf2_step(
             field_names=field_names,
             feedback_names=packed_feedback_names,
             mesh=mesh,
+            layout=layout,
         )
         rhs = _compute_recycling_1d_packed_rhs(
             config,
@@ -4859,6 +4890,7 @@ def advance_recycling_1d_bdf2_step(
             metrics=metrics,
             dataset_scalars=dataset_scalars,
             runtime_model=runtime_model,
+            layout=layout,
         )
         return _build_recycling_mixed_bdf2_residual(
             packed_state,
@@ -4881,12 +4913,12 @@ def advance_recycling_1d_bdf2_step(
             packed_initial_guess,
             active_shape=(packed_previous.size,),
             sparsity=_build_recycling_residual_sparsity(
-                active_shape=_recycling_active_shape(mesh),
+                active_shape=layout.active_shape,
                 field_count=len(field_names),
                 controller_count=len(packed_feedback_names),
             ),
             color_groups=_build_recycling_color_groups(
-                active_shape=_recycling_active_shape(mesh),
+                active_shape=layout.active_shape,
                 field_count=len(field_names),
                 controller_count=len(packed_feedback_names),
             ),
@@ -4916,6 +4948,7 @@ def advance_recycling_1d_bdf2_step(
         field_names=field_names,
         feedback_names=packed_feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     sanitized_fields = _sanitize_recycling_fields(config, next_fields)
     if evolve_feedback_integrals:
@@ -5072,6 +5105,7 @@ def _compute_recycling_1d_packed_rhs(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
+    layout: _RecyclingPackedStateLayout | None = None,
 ) -> np.ndarray:
     runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
@@ -5099,7 +5133,7 @@ def _compute_recycling_1d_packed_rhs(
         preserve_dump_target_state=runtime_model.preserve_dump_target_state,
         preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
     )
-    active_slices = _recycling_active_domain_slices(mesh)
+    active_slices = layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)
     pieces = [
         np.asarray(result.variables[f"ddt({name})"][0][active_slices], dtype=np.float64).ravel()
         for name in field_names
@@ -5121,6 +5155,7 @@ def _predict_recycling_packed_state(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     timestep: float,
+    layout: _RecyclingPackedStateLayout | None = None,
 ) -> np.ndarray:
     packed_previous = _pack_recycling_active_state(
         fields,
@@ -5128,6 +5163,7 @@ def _predict_recycling_packed_state(
         field_names=field_names,
         feedback_names=feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     rhs = _compute_recycling_1d_packed_rhs(
         config,
@@ -5142,6 +5178,7 @@ def _predict_recycling_packed_state(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         runtime_model=runtime_model,
+        layout=layout,
     )
     predicted = np.asarray(packed_previous, dtype=np.float64) + float(timestep) * np.asarray(rhs, dtype=np.float64)
     predicted_fields, predicted_integrals = _unpack_recycling_active_state(
@@ -5151,6 +5188,7 @@ def _predict_recycling_packed_state(
         field_names=field_names,
         feedback_names=feedback_names,
         mesh=mesh,
+        layout=layout,
     )
     sanitized_fields = _sanitize_recycling_fields(config, predicted_fields)
     sanitized_integrals = _sanitize_feedback_integrals(predicted_integrals, controllers=runtime_model.controllers)
@@ -5160,6 +5198,7 @@ def _predict_recycling_packed_state(
         field_names=field_names,
         feedback_names=feedback_names,
         mesh=mesh,
+        layout=layout,
     )
 
 
@@ -5170,10 +5209,11 @@ def _pack_recycling_active_state(
     field_names: tuple[str, ...],
     feedback_names: tuple[str, ...],
     mesh: StructuredMesh,
+    layout: _RecyclingPackedStateLayout | None = None,
 ) -> np.ndarray:
     field_block = pack_active_fields(
         tuple(np.asarray(fields[name], dtype=np.float64) for name in field_names),
-        active_slices=_recycling_active_domain_slices(mesh),
+        active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
     )
     if not feedback_names:
         return field_block
@@ -5189,15 +5229,20 @@ def _unpack_recycling_active_state(
     field_names: tuple[str, ...],
     feedback_names: tuple[str, ...],
     mesh: StructuredMesh,
+    layout: _RecyclingPackedStateLayout | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
     packed_array = np.asarray(packed, dtype=np.float64)
-    field_size = _recycling_active_field_size(mesh) * len(field_names)
+    field_size = layout.field_size if layout is not None else (_recycling_active_field_size(mesh) * len(field_names))
     field_block = packed_array[:field_size]
     scalar_block = packed_array[field_size:]
     unpacked_fields = unpack_active_fields(
         field_block,
-        templates=tuple(np.asarray(field_templates[name], dtype=np.float64) for name in field_names),
-        active_slices=_recycling_active_domain_slices(mesh),
+        templates=(
+            layout.field_templates
+            if layout is not None
+            else tuple(np.asarray(field_templates[name], dtype=np.float64) for name in field_names)
+        ),
+        active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
     )
     restored_fields = {name: np.asarray(value, dtype=np.float64) for name, value in zip(field_names, unpacked_fields, strict=True)}
     restored_integrals = {name: float(value) for name, value in feedback_integrals.items()}
@@ -5467,6 +5512,27 @@ def _recycling_field_templates(
         else:
             templates[name] = np.asarray(sp.momentum, dtype=np.float64)
     return templates
+
+
+def _build_recycling_packed_state_layout(
+    *,
+    fields: dict[str, np.ndarray],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+) -> _RecyclingPackedStateLayout:
+    active_slices = _recycling_active_domain_slices(mesh)
+    active_shape = _recycling_active_shape(mesh)
+    field_templates = tuple(np.asarray(fields[name], dtype=np.float64) for name in field_names)
+    field_size = int(np.prod(active_shape)) * len(field_names)
+    return _RecyclingPackedStateLayout(
+        field_names=field_names,
+        feedback_names=feedback_names,
+        active_slices=active_slices,
+        active_shape=active_shape,
+        field_size=field_size,
+        field_templates=field_templates,
+    )
 
 
 def _recycling_active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:

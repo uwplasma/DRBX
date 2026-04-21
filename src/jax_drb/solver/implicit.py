@@ -97,6 +97,7 @@ def build_sparse_difference_quotient_jacobian(
     base_residual: np.ndarray | None = None,
     sparsity,
     color_groups: tuple[tuple[int, ...], ...],
+    sparsity_csc=None,
 ):
     try:
         from scipy.sparse import coo_matrix
@@ -109,7 +110,7 @@ def build_sparse_difference_quotient_jacobian(
         if base_residual is not None
         else np.asarray(residual(state_array), dtype=np.float64)
     )
-    sparsity_csc = sparsity.tocsc()
+    sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
 
     row_indices: list[int] = []
     col_indices: list[int] = []
@@ -141,11 +142,10 @@ def backward_euler_residual(
     *,
     timestep: float,
 ) -> np.ndarray:
-    return (
-        np.asarray(packed_state, dtype=np.float64)
-        - np.asarray(previous_packed_state, dtype=np.float64)
-        - float(timestep) * np.asarray(rhs, dtype=np.float64)
-    )
+    packed_state_array = np.asarray(packed_state, dtype=np.float64)
+    previous_array = np.asarray(previous_packed_state, dtype=np.float64)
+    rhs_array = np.asarray(rhs, dtype=np.float64)
+    return packed_state_array - previous_array - float(timestep) * rhs_array
 
 
 def bdf2_residual(
@@ -156,11 +156,15 @@ def bdf2_residual(
     *,
     timestep: float,
 ) -> np.ndarray:
+    packed_state_array = np.asarray(packed_state, dtype=np.float64)
+    previous_array = np.asarray(previous_packed_state, dtype=np.float64)
+    previous_previous_array = np.asarray(previous_previous_packed_state, dtype=np.float64)
+    rhs_array = np.asarray(rhs, dtype=np.float64)
     return (
-        np.asarray(packed_state, dtype=np.float64)
-        - (4.0 / 3.0) * np.asarray(previous_packed_state, dtype=np.float64)
-        + (1.0 / 3.0) * np.asarray(previous_previous_packed_state, dtype=np.float64)
-        - (2.0 / 3.0) * float(timestep) * np.asarray(rhs, dtype=np.float64)
+        packed_state_array
+        - (4.0 / 3.0) * previous_array
+        + (1.0 / 3.0) * previous_previous_array
+        - (2.0 / 3.0) * float(timestep) * rhs_array
     )
 
 
@@ -192,6 +196,8 @@ def solve_sparse_newton_system(
     best_residual_inf_norm = np.inf
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
     jacobian = None
+    jacobian_csc = None
+    sparsity_csc = sparsity.tocsc()
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         residual_value = np.asarray(residual(state), dtype=np.float64)
@@ -214,10 +220,12 @@ def solve_sparse_newton_system(
                 base_residual=residual_value,
                 sparsity=sparsity,
                 color_groups=color_groups,
+                sparsity_csc=sparsity_csc,
             )
+            jacobian_csc = jacobian.tocsc()
         linear_iterations = 0
         if prefer_direct_linear_solve:
-            update = spsolve(jacobian.tocsc(), -residual_value)
+            update = spsolve(jacobian_csc, -residual_value)
             total_linear_iterations += 1
         else:
             def callback(_residual_norm) -> None:
@@ -236,7 +244,7 @@ def solve_sparse_newton_system(
             )
             total_linear_iterations += linear_iterations
             if exit_code != 0:
-                update = spsolve(jacobian.tocsc(), -residual_value)
+                update = spsolve(jacobian_csc, -residual_value)
                 total_linear_iterations += 1
 
         update = np.asarray(update, dtype=np.float64)
