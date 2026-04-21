@@ -155,9 +155,9 @@ changing the validated physics surface:
   packed-RHS staging, and species override;
 - the hottest neutral/tokamak transport operators now use vectorized NumPy
   kernels instead of per-cell Python loops on the production residual path;
-- on the profiled `tokamak_recycling_dthene_one_step` case, those changes drop
-  the end-to-end wall time from about `11.84 s` to about `3.16 s` on this
-  MacBook;
+- on the profiled `tokamak_recycling_dthene_one_step` case, the cumulative
+  implicit-solver optimization pass now drops end-to-end wall time from about
+  `11.84 s` to about `2.23 s` on this MacBook;
 - the live neon direct-tokamak recycling parity slice still passes after those
   changes, which means the refactor removed overhead without changing the
   compare surface.
@@ -186,6 +186,18 @@ That path is appropriate for compact pure-JAX residuals and future reduced
 native kernels. It is not yet the default on the promoted recycling/tokamak
 backbone because that residual still crosses the host/SciPy boundary too often
 to make a JVP-driven solve the right production choice today.
+
+For the current paper and release, the parallelization claim should also stay
+operationally concrete:
+
+- the best current local acceleration comes from making each solve cheaper, not
+  from splitting one heavy solve across CPU devices on this laptop;
+- explicit CPU multi-device execution is implemented and usable, but its local
+  scaling curve is still bounded;
+- the most promising wider parallelization model for general workflows is
+  batching independent solves, objectives, or parameter studies over JAX maps
+  and accelerator devices, rather than overselling single-case laptop CPU
+  strong scaling.
 
 ### Lower-Risk Structural JAX Improvements
 

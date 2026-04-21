@@ -112,9 +112,11 @@ def build_sparse_difference_quotient_jacobian(
     )
     sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
 
-    row_indices: list[int] = []
-    col_indices: list[int] = []
-    data: list[float] = []
+    nnz = int(sparsity_csc.nnz)
+    row_indices = np.empty(nnz, dtype=np.int32)
+    col_indices = np.empty(nnz, dtype=np.int32)
+    data = np.empty(nnz, dtype=np.float64)
+    offset = 0
 
     for group in color_groups:
         perturbation = np.zeros_like(state_array)
@@ -128,11 +130,13 @@ def build_sparse_difference_quotient_jacobian(
         delta = perturbed_residual - residual0
         for column, step in group_steps:
             rows = sparsity_csc.indices[sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]]
-            row_indices.extend(rows.tolist())
-            col_indices.extend([column] * len(rows))
-            data.extend((delta[rows] / step).tolist())
+            count = len(rows)
+            row_indices[offset : offset + count] = rows
+            col_indices[offset : offset + count] = column
+            data[offset : offset + count] = delta[rows] / step
+            offset += count
 
-    return coo_matrix((data, (row_indices, col_indices)), shape=sparsity.shape).tocsr()
+    return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=sparsity.shape).tocsr()
 
 
 def backward_euler_residual(

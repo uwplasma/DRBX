@@ -5577,7 +5577,7 @@ def _build_recycling_residual_sparsity(
     controller_count: int,
 ):
     try:
-        from scipy.sparse import lil_matrix
+        from scipy.sparse import bmat, csr_matrix
     except ImportError as exc:  # pragma: no cover
         raise ImportError("Sparse recycling stepping requires scipy.") from exc
 
@@ -5588,14 +5588,20 @@ def _build_recycling_residual_sparsity(
         periodic_axes=(),
     )
     field_size = field_sparsity.shape[0]
-    total_size = field_size + controller_count
-    sparsity = lil_matrix((total_size, total_size), dtype=bool)
-    sparsity[:field_size, :field_size] = field_sparsity
-    if controller_count > 0:
-        sparsity[:field_size, field_size:total_size] = True
-        sparsity[field_size:total_size, :field_size] = True
-        sparsity[field_size:total_size, field_size:total_size] = True
-    return sparsity.tocsr()
+    if controller_count <= 0:
+        return field_sparsity.tocsr()
+
+    field_to_controller = csr_matrix(np.ones((field_size, controller_count), dtype=bool))
+    controller_to_field = csr_matrix(np.ones((controller_count, field_size), dtype=bool))
+    controller_block = csr_matrix(np.ones((controller_count, controller_count), dtype=bool))
+    return bmat(
+        [
+            [field_sparsity, field_to_controller],
+            [controller_to_field, controller_block],
+        ],
+        format="csr",
+        dtype=bool,
+    )
 
 
 @lru_cache(maxsize=None)
