@@ -146,8 +146,11 @@ def compare_native_stellarator_vmec_selected_fields(
         reference_fields = _load_vmec_selected_fields(reference_path)
         candidate_fields = _load_vmec_selected_fields(candidate_path)
         resolved_field_names = tuple(field_names)
-        reference_profiles = _native_reduce_vmec_profiles(reference_fields, resolved_field_names)
-        candidate_profiles = _native_reduce_vmec_profiles(candidate_fields, resolved_field_names)
+        reference_profiles, candidate_profiles = _native_reduce_vmec_profile_pair(
+            reference_fields,
+            candidate_fields,
+            resolved_field_names,
+        )
 
     variable_errors: dict[str, NativeStellaratorVmecSelectedFieldVariableError] = {}
     for field_name in resolved_field_names:
@@ -218,6 +221,11 @@ def _native_vmec_profile_batch(values: jax.Array) -> jax.Array:
     return jnp.asarray(values, dtype=jnp.float64)
 
 
+@jax.jit
+def _native_vmec_profile_pair_batch(values: jax.Array) -> jax.Array:
+    return jnp.asarray(values, dtype=jnp.float64)
+
+
 def _native_reduce_vmec_profiles(
     fields: dict[str, np.ndarray],
     field_names: tuple[str, ...],
@@ -228,6 +236,21 @@ def _native_reduce_vmec_profiles(
         field_name: reduced_values[index]
         for index, field_name in enumerate(field_names)
     }
+
+
+def _native_reduce_vmec_profile_pair(
+    reference_fields: dict[str, np.ndarray],
+    candidate_fields: dict[str, np.ndarray],
+    field_names: tuple[str, ...],
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    reference_stacked = jnp.stack([jnp.asarray(reference_fields[field_name], dtype=jnp.float64) for field_name in field_names], axis=0)
+    candidate_stacked = jnp.stack([jnp.asarray(candidate_fields[field_name], dtype=jnp.float64) for field_name in field_names], axis=0)
+    combined = jnp.stack((reference_stacked, candidate_stacked), axis=0)
+    reduced_values = np.asarray(_native_vmec_profile_pair_batch(combined), dtype=np.float64)
+    return (
+        {field_name: reduced_values[0, index] for index, field_name in enumerate(field_names)},
+        {field_name: reduced_values[1, index] for index, field_name in enumerate(field_names)},
+    )
 
 
 def _write_parity_json(result: NativeStellaratorVmecSelectedFieldParityResult, path: Path) -> Path:

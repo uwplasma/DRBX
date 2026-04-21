@@ -134,8 +134,11 @@ def compare_native_traced_field_line_selected_fields(
     reference_fields = _load_metric_fields(reference_mesh_spec)
     candidate_fields = _load_metric_fields(candidate_mesh_spec)
     resolved_field_names = tuple(_resolve_field_alias(reference_fields, candidate_fields, name) for name in field_names)
-    reference_profiles = _native_reduce_metric_profiles(reference_fields, resolved_field_names)
-    candidate_profiles = _native_reduce_metric_profiles(candidate_fields, resolved_field_names)
+    reference_profiles, candidate_profiles = _native_reduce_metric_profile_pair(
+        reference_fields,
+        candidate_fields,
+        resolved_field_names,
+    )
     variable_errors: dict[str, NativeTracedFieldLineSelectedFieldVariableError] = {}
     for field_name in resolved_field_names:
         reference = np.asarray(reference_profiles[field_name], dtype=np.float64)
@@ -162,9 +165,17 @@ def compare_native_traced_field_line_selected_fields(
 
 @jax.jit
 def _native_radial_profile_batch(values: jax.Array) -> jax.Array:
-    if values.ndim == 2:
+    if values.ndim <= 2:
         return values
     axes = tuple(range(2, values.ndim))
+    return jnp.mean(values, axis=axes)
+
+
+@jax.jit
+def _native_radial_profile_pair_batch(values: jax.Array) -> jax.Array:
+    if values.ndim <= 3:
+        return values
+    axes = tuple(range(3, values.ndim))
     return jnp.mean(values, axis=axes)
 
 
@@ -178,6 +189,21 @@ def _native_reduce_metric_profiles(
         field_name: reduced_values[index]
         for index, field_name in enumerate(field_names)
     }
+
+
+def _native_reduce_metric_profile_pair(
+    reference_fields: dict[str, np.ndarray],
+    candidate_fields: dict[str, np.ndarray],
+    field_names: tuple[str, ...],
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    reference_stacked = jnp.stack([jnp.asarray(reference_fields[field_name], dtype=jnp.float64) for field_name in field_names], axis=0)
+    candidate_stacked = jnp.stack([jnp.asarray(candidate_fields[field_name], dtype=jnp.float64) for field_name in field_names], axis=0)
+    combined = jnp.stack((reference_stacked, candidate_stacked), axis=0)
+    reduced_values = np.asarray(_native_radial_profile_pair_batch(combined), dtype=np.float64)
+    return (
+        {field_name: reduced_values[0, index] for index, field_name in enumerate(field_names)},
+        {field_name: reduced_values[1, index] for index, field_name in enumerate(field_names)},
+    )
 
 
 def _write_parity_json(result: NativeTracedFieldLineSelectedFieldParityResult, path: Path) -> Path:
