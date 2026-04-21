@@ -251,6 +251,7 @@ The runtime/performance audit tools include:
 - [docs/native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
 - [docs/native_3d_convergence_campaign.md](docs/native_3d_convergence_campaign.md)
 - [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
+- [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
 
 ## Validation And Control Packages
 
