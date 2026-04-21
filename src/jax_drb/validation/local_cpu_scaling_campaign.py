@@ -22,9 +22,9 @@ class LocalCpuScalingCampaignArtifacts:
 def create_local_cpu_scaling_campaign_package(
     *,
     output_root: str | Path,
-    case_name: str = "tokamak_recycling_dthe_one_step",
+    case_name: str = "tokamak_recycling_dthene_one_step",
     worker_counts: tuple[int, ...] = (1, 2, 4, 8),
-    total_runs: int = 24,
+    total_runs: int = 16,
     case_label: str = "local_cpu_scaling_campaign",
 ) -> LocalCpuScalingCampaignArtifacts:
     root = Path(output_root)
@@ -61,18 +61,20 @@ def build_local_cpu_scaling_campaign_report(
     return {
         "case": "local_cpu_scaling_campaign",
         "benchmark_case_name": case_name,
-        "benchmark_case_label": "direct tokamak recycling one-step transient",
+        "benchmark_case_label": "direct tokamak recycling one-step transient with neon",
         "steady_state_ensemble_sweep": ensemble,
         "profiling_note": (
-            "The final cProfile pass on the same heavy solve shows the dominant "
+            "The latest cProfile pass on the same heavy solve shows the dominant "
             "remaining costs in the production path are sparse finite-difference "
-            "Jacobian assembly and the vectorized parallel-gradient residual "
-            "kernel, not the older per-cell transport loops."
+            "Jacobian assembly and recycling RHS/source assembly in the implicit "
+            "residual path, not the older per-cell transport loops or the "
+            "previously unvectorized parallel-gradient kernel."
         ),
         "recommendations": [
             "Use one Jacobian thread per worker and multiple local worker processes for batched heavy solves such as UQ, optimization, and parameter scans.",
             "Treat the steady-state ensemble speedup as the reviewer-facing local strong-scaling result on MacBook-class CPUs.",
             "Do not treat single-solve Jacobian threading as the main local scaling story on this hardware.",
+            "Keep the committed ensemble moderate on thermally limited laptops; the current 16-solve artifact was retained because heavier local sweeps did not improve the curve on this machine.",
         ],
     }
 

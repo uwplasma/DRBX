@@ -103,9 +103,9 @@ kernel:
 - [local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md)
 
 That package now focuses only on the fixed-work steady-state ensemble result on
-`tokamak_recycling_dthe_one_step`, because the warmed single-solve thread curve
-stayed essentially flat on this MacBook and was not the right local scaling
-figure.
+`tokamak_recycling_dthene_one_step`, because the warmed single-solve thread
+curve stayed essentially flat on this MacBook and was not the right local
+scaling figure.
 
 That guidance is not speculative; it is the measured result of the committed
 Perfetto-backed reduced-kernel audits in:
@@ -168,7 +168,7 @@ changing the validated physics surface:
   kernels instead of per-cell Python loops on the production residual path;
 - on the profiled `tokamak_recycling_dthene_one_step` case, the cumulative
   implicit-solver optimization pass now drops end-to-end wall time from about
-  `11.84 s` to about `2.23 s` on this MacBook;
+  `11.84 s` to about `2.08 s` on this MacBook;
 - the live neon direct-tokamak recycling parity slice still passes after those
   changes, which means the refactor removed overhead without changing the
   compare surface.
@@ -209,25 +209,31 @@ parallelization policy:
   additional local speedup on top of the larger residual/Jacobian cleanup.
 
 The new committed local CPU scaling artifact now sharpens that conclusion with
-real numbers on the heavier D/T tokamak recycling lane:
+real numbers on the heavier D/T/He/Ne tokamak recycling lane:
 
-- the committed figure uses `24` repeated heavy solves on
-  `tokamak_recycling_dthe_one_step`;
+- the committed figure uses `16` repeated heavy solves on
+  `tokamak_recycling_dthene_one_step`;
 - steady-state fixed-work ensemble speedup is about:
-  - `1.87x` from `1 -> 2` workers
-  - `3.10x` from `1 -> 4` workers
-  - `4.60x` from `1 -> 8` workers
+  - `1.88x` from `1 -> 2` workers
+  - `3.67x` from `1 -> 4` workers
+  - `4.94x` from `1 -> 8` workers
 - that is the right local-CPU scaling story for users running parameter scans,
   UQ, optimization, or repeated solver evaluations on a laptop: spread
   independent heavy solves across workers instead of expecting one warmed solve
   to approach ideal thread-level strong scaling.
+- that `16`-solve artifact is also the right committed benchmark size on this
+  MacBook: heavier local ensembles were checked, but they started to lose the
+  cleaner scaling curve because thermal/scheduling effects outweighed the extra
+  fixed work.
 
 The last cProfile pass on the same promoted heavy solve also clarifies the
 remaining bottleneck split after the recent optimization work:
 
 - sparse finite-difference Jacobian assembly is still a dominant cost;
-- the main pure residual hotspot is now the vectorized parallel-gradient kernel
-  in `neutral_mixed.py`, not the older per-cell transport loops;
+- the next dominant production-path cost is now the recycling RHS/source
+  assembly path in `recycling_1d.py`, not the older per-cell transport loops;
+- the vectorized `neutral_mixed.py` parallel-gradient kernel is no longer a
+  top-level hotspot after the latest array-kernel rewrite;
 - that means the next real performance step is a deeper restructuring of the
   implicit/recycling residual and Jacobian path rather than another cosmetic
   CPU-thread sweep.

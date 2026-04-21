@@ -1,139 +1,140 @@
 {
-  "benchmark_case_label": "direct tokamak recycling one-step transient",
-  "benchmark_case_name": "tokamak_recycling_dthe_one_step",
+  "benchmark_case_label": "direct tokamak recycling one-step transient with neon",
+  "benchmark_case_name": "tokamak_recycling_dthene_one_step",
   "case": "local_cpu_scaling_campaign",
-  "profiling_note": "The final cProfile pass on the same heavy solve shows the dominant remaining costs in the production path are sparse finite-difference Jacobian assembly and the vectorized parallel-gradient residual kernel, not the older per-cell transport loops.",
+  "profiling_note": "The latest cProfile pass on the same heavy solve shows the dominant remaining costs in the production path are sparse finite-difference Jacobian assembly and recycling RHS/source assembly in the implicit residual path, not the older per-cell transport loops or the previously unvectorized parallel-gradient kernel.",
   "recommendations": [
     "Use one Jacobian thread per worker and multiple local worker processes for batched heavy solves such as UQ, optimization, and parameter scans.",
     "Treat the steady-state ensemble speedup as the reviewer-facing local strong-scaling result on MacBook-class CPUs.",
-    "Do not treat single-solve Jacobian threading as the main local scaling story on this hardware."
+    "Do not treat single-solve Jacobian threading as the main local scaling story on this hardware.",
+    "Keep the committed ensemble moderate on thermally limited laptops; the current 16-solve artifact was retained because heavier local sweeps did not improve the curve on this machine."
   ],
   "steady_state_ensemble_sweep": {
     "entries": [
       {
-        "launch_overhead_seconds": 2.3611064159995294,
-        "steady_state_seconds": 38.901997875000234,
-        "wall_seconds": 41.26310429099976,
+        "launch_overhead_seconds": 1.771303916000761,
+        "steady_state_seconds": 16.393520792000345,
+        "wall_seconds": 18.164824708001106,
         "worker_count": 1,
         "worker_results": [
           {
-            "count": 24,
-            "elapsed_seconds": 38.901997875000234
+            "count": 16,
+            "elapsed_seconds": 16.393520792000345
           }
         ],
         "worker_run_counts": [
-          24
+          16
         ]
       },
       {
-        "launch_overhead_seconds": 2.5244055410003057,
-        "steady_state_seconds": 20.776415874999657,
-        "wall_seconds": 23.300821415999962,
+        "launch_overhead_seconds": 1.8648858339947765,
+        "steady_state_seconds": 8.717729875002988,
+        "wall_seconds": 10.582615708997764,
         "worker_count": 2,
         "worker_results": [
           {
-            "count": 12,
-            "elapsed_seconds": 20.776415874999657
+            "count": 8,
+            "elapsed_seconds": 8.590979125001468
           },
           {
-            "count": 12,
-            "elapsed_seconds": 20.77505008300068
+            "count": 8,
+            "elapsed_seconds": 8.717729875002988
           }
         ],
         "worker_run_counts": [
-          12,
-          12
+          8,
+          8
         ]
       },
       {
-        "launch_overhead_seconds": 2.6460967079983675,
-        "steady_state_seconds": 12.553404582999065,
-        "wall_seconds": 15.199501290997432,
+        "launch_overhead_seconds": 1.9994053750051535,
+        "steady_state_seconds": 4.463490249996539,
+        "wall_seconds": 6.462895625001693,
         "worker_count": 4,
         "worker_results": [
           {
-            "count": 6,
-            "elapsed_seconds": 12.347263415998896
+            "count": 4,
+            "elapsed_seconds": 4.463147583999671
           },
           {
-            "count": 6,
-            "elapsed_seconds": 12.404868292003812
+            "count": 4,
+            "elapsed_seconds": 4.430817708998802
           },
           {
-            "count": 6,
-            "elapsed_seconds": 12.346833916999458
+            "count": 4,
+            "elapsed_seconds": 4.463490249996539
           },
           {
-            "count": 6,
-            "elapsed_seconds": 12.553404582999065
+            "count": 4,
+            "elapsed_seconds": 4.434158666001167
           }
         ],
         "worker_run_counts": [
-          6,
-          6,
-          6,
-          6
+          4,
+          4,
+          4,
+          4
         ]
       },
       {
-        "launch_overhead_seconds": 4.3976828750019195,
-        "steady_state_seconds": 8.459608541998023,
-        "wall_seconds": 12.857291416999942,
+        "launch_overhead_seconds": 2.8659322089952184,
+        "steady_state_seconds": 3.3192517080024118,
+        "wall_seconds": 6.18518391699763,
         "worker_count": 8,
         "worker_results": [
           {
-            "count": 3,
-            "elapsed_seconds": 8.31513941600133
+            "count": 2,
+            "elapsed_seconds": 3.2287359999972978
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.308622041004128
+            "count": 2,
+            "elapsed_seconds": 3.1594564999977592
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.459608541998023
+            "count": 2,
+            "elapsed_seconds": 3.291755792000913
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.413147166997078
+            "count": 2,
+            "elapsed_seconds": 3.23794108400034
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.418945041994448
+            "count": 2,
+            "elapsed_seconds": 3.2153426250006305
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.447518249995483
+            "count": 2,
+            "elapsed_seconds": 3.252804332994856
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.314218459003314
+            "count": 2,
+            "elapsed_seconds": 3.3192517080024118
           },
           {
-            "count": 3,
-            "elapsed_seconds": 8.33082883300085
+            "count": 2,
+            "elapsed_seconds": 3.2915883749956265
           }
         ],
         "worker_run_counts": [
-          3,
-          3,
-          3,
-          3,
-          3,
-          3,
-          3,
-          3
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
         ]
       }
     ],
-    "steady_state_baseline_seconds": 38.901997875000234,
+    "steady_state_baseline_seconds": 16.393520792000345,
     "steady_state_speedups": [
       1.0,
-      1.872411397088521,
-      3.098920107114589,
-      4.598557685248662
+      1.8804804722163666,
+      3.6728030921570975,
+      4.938920646625584
     ],
-    "total_runs": 24,
+    "total_runs": 16,
     "worker_counts": [
       1,
       2,

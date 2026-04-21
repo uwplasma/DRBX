@@ -1,6 +1,10 @@
 # Physics Models
 
-This page is the technical map from the governing equations to the source tree. It is meant to help both new users and developers find where a model lives before they change a case, add a term, or debug a result.
+This page is the technical map from the governing equations to the source tree.
+It is meant to help both new users and developers find where a model lives
+before they change a case, add a term, or debug a result. It also states the
+main first-principles model forms and the numerical patterns actually used in
+the current code, so the docs remain useful even without the manuscript.
 
 ## Model Families
 
@@ -23,23 +27,25 @@ discrete forms of the following model families.
 
 ### Continuity
 
-For an evolved species density `n`:
+For an evolved species density `n_s`:
 
 ```text
-∂t n + ∇·Γ = S_n
+∂t n_s + ∇·Γ_s = S_{n,s}
 ```
 
-where `Γ` is the resolved advective/diffusive flux and `S_n` collects
-ionisation, recombination, recycling, pumping, and any case-specific source
+where `Γ_s` is the resolved advective/diffusive flux and `S_{n,s}` collects
+ionisation, recombination, recycling, pumping, controller action, and any
+case-specific source
 terms.
 
 ### Parallel Momentum
 
-For the evolved parallel momentum density `n V_∥`:
+For the evolved parallel momentum density `n_s V_{∥,s}`:
 
 ```text
-∂t (n V_∥) + ∇·(Γ V_∥)
-  = -∇_∥ p + F_coll + F_thermal + F_sheath + ∇_∥·Π_∥ + S_m
+∂t (n_s V_{∥,s}) + ∇·(Γ_s V_{∥,s})
+  = -∇_∥ p_s + F_{coll,s} + F_{thermal,s} + F_{sheath,s}
+    + ∇_∥·Π_{∥,s} + S_{m,s}
 ```
 
 The exact active terms depend on the promoted lane:
@@ -53,14 +59,19 @@ The exact active terms depend on the promoted lane:
 
 ### Pressure / Energy
 
-For the evolved scalar pressure `p`:
+For the evolved scalar pressure `p_s`:
 
 ```text
-∂t p + ∇·(p u) + γ p ∇·u = Q_cond + Q_coll + Q_src
+∂t p_s + ∇·(p_s u_s) + γ p_s ∇·u_s
+  = Q_{cond,s} + Q_{coll,s} + Q_{src,s}
 ```
 
 with the right-hand side carrying the promoted conduction, collisional exchange,
 radiation/source, and controller/recycling terms relevant to the active lane.
+
+In the open-field and tokamak recycling lanes this includes explicit parallel
+heat conduction, sheath energy losses, thermal-force coupling, reaction energy
+exchange, and neutral/plasma exchange terms.
 
 ### Potential / Vorticity Closure
 
@@ -71,6 +82,14 @@ benchmark surfaces this includes:
 - Boussinesq closures on the vorticity ladder;
 - drift-wave/quasineutral electron closures on the drift-wave ladder;
 - benchmark-faithful `phi` reconstruction on the blob/interchange lanes.
+
+At the operator level this is the familiar reduced electrostatic structure:
+
+```text
+ω = ∇⊥·(C ∇⊥ φ)
+```
+
+with lane-dependent coefficients `C`, metric terms, and source closures.
 
 ### Electromagnetic Reduced Surfaces
 
@@ -83,6 +102,22 @@ Ajpar = Σ_s Z_s n_s V_{∥,s}
 
 plus the staged `Apar`/`NVe`/`Vort` benchmark closures documented in the
 electromagnetic source and validation utilities.
+
+## Reduced-Fluid Operator Structure
+
+Across the drift-reduced lanes, the discrete operators are built from the same
+small set of physical ingredients:
+
+- parallel derivatives `Grad_par(f)` and flux divergences `Div_par(F)`;
+- perpendicular transport/divergence operators on the staged metric payload;
+- electrostatic `E×B` transport, typically represented in reduced form through
+  an advection bracket or equivalent face-flux reconstruction;
+- sheath target closures and recycling source terms at open-field boundaries;
+- collisional, viscous, thermal-force, and atomic-rate source operators.
+
+The exact promoted equation set differs by benchmark, but the implementation
+reuses these operator families rather than encoding each case as an unrelated
+solver.
 
 ## Numerical Algorithms
 
@@ -99,6 +134,17 @@ structured mesh and metric payload. In practice this means:
 - trimming to the active domain when the curated parity surface excludes guard
   cells.
 
+In the implementation, this is where the bulk of the transport kernels live:
+- `native/fluid_1d.py`
+- `native/drift_wave.py`
+- `native/blob2d.py`
+- `native/recycling_1d.py`
+- `native/neutral_mixed.py`
+
+Recent performance work removed several per-cell Python loops from this layer
+and replaced them with array kernels, especially on the heavy neutral/recycling
+operators.
+
 ### Elliptic Solves
 
 Potential and related closures are handled through the elliptic solver layer in
@@ -114,6 +160,22 @@ than pure explicit updates. The active release surface currently includes:
 - matrix-free implicit neutral stepping on the promoted `neutral_mixed`
   windows;
 - compact reduced controller lanes on staged CVODE-backed reference examples.
+
+The strongest production path today is the sparse Newton backbone in
+`solver/implicit.py` plus `native/recycling_1d.py`:
+
+- nonlinear residuals are assembled from the staged multispecies open-field or
+  direct-tokamak state;
+- sparse finite-difference quotient Jacobians are built on the packed active
+  state;
+- GMRES is used first, with direct sparse fallback where needed;
+- backward-Euler and BDF2-style history stepping are used on the promoted
+  recycling windows.
+
+That path is still the main host/SciPy-heavy backbone and the main remaining
+performance bottleneck. Recent optimization passes made it materially cheaper by
+reusing packed-state metadata, vectorizing hot residual operators, and reducing
+allocation overhead in sparse Jacobian assembly.
 
 ### Controller Reconstruction / Audit Algorithms
 
@@ -230,6 +292,29 @@ Primary source files:
   - [src/jax_drb/runtime/__init__.py](../src/jax_drb/runtime/__init__.py)
   - [src/jax_drb/runtime/performance.py](../src/jax_drb/runtime/performance.py)
 
+## JAX Implementation Boundary
+
+`jax_drb` is not one monolithic “all-JAX” runtime. The code deliberately
+separates:
+
+- fully JAX-native compact kernels used for differentiable reduced lanes,
+  profiling, and selected-field 3D reductions;
+- mixed host/JAX/SciPy production paths used where the strongest current parity
+  surface still depends on sparse implicit workflows.
+
+In practice, the current promoted JAX-native building blocks are:
+
+- `jax.numpy` array kernels
+- `@jax.jit`
+- `jax.vmap`
+- `jax.grad` / `jax.value_and_grad`
+- `jax.lax.linalg.tridiagonal_solve`
+
+The codebase does not currently rely on `diffrax`, `equinox`, or `lineax` to
+power the promoted release results. Those libraries are useful ecosystem
+context and future options, but the release-critical kernels are driven by the
+core JAX primitives above.
+
 ## Differentiability Boundary
 
 `jax_drb` intentionally separates:
@@ -243,6 +328,22 @@ Today the best differentiable lanes are still the compact native-exact kernels
 such as diffusion, vorticity, drift-wave-style reduced paths, and the reduced
 3D selected-field kernels used in the profiling/runtime campaigns. The heavier
 recycling backbone remains the main differentiability and accelerator blocker.
+
+## Background Context
+
+The public code docs intentionally stay implementation-first. The model family
+context is:
+
+- reduced-fluid edge/SOL transport with explicit parallel losses, sheath
+  closure, recycling, and neutral/atomic source terms;
+- compact electrostatic and reduced-electromagnetic benchmark surfaces on the
+  same operator stack;
+- an end-to-end differentiable subset built from the strongest JAX-native
+  kernels.
+
+The code docs stop there deliberately. Broader literature comparisons and
+paper-style code-family positioning belong in the separate manuscript repo, not
+in the shipping package documentation.
 
 ## Output, Restart, And Provenance
 

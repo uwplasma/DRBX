@@ -12,7 +12,7 @@ from jax_drb.validation.local_cpu_scaling_campaign import (
 def _synthetic_report() -> dict[str, object]:
     return {
         "case": "local_cpu_scaling_campaign",
-        "benchmark_case_name": "tokamak_recycling_dthe_one_step",
+        "benchmark_case_name": "tokamak_recycling_dthene_one_step",
         "profiling_note": "synthetic",
         "steady_state_ensemble_sweep": {
             "worker_counts": [1, 2, 4],
@@ -47,4 +47,4 @@ def test_create_local_cpu_scaling_campaign_package_writes_summary_and_plot(
     assert artifacts.summary_plot_png_path.exists()
     payload = json.loads(artifacts.summary_json_path.read_text(encoding="utf-8"))
     assert payload["case"] == "local_cpu_scaling_campaign"
-    assert payload["benchmark_case_name"] == "tokamak_recycling_dthe_one_step"
+    assert payload["benchmark_case_name"] == "tokamak_recycling_dthene_one_step"

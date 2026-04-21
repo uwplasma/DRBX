@@ -254,10 +254,11 @@ The runtime/performance audit tools include:
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
 
 For local MacBook-class CPU use, the strongest current scaling result is the
-heavy fixed-work ensemble on repeated direct tokamak recycling solves rather
-than extra threads on one warmed single solve. The committed local artifact
-reaches about `4.60x` steady-state speedup from `1 -> 8` workers on a `24`-solve
-heavy ensemble.
+heavy fixed-work ensemble on repeated neon-enabled direct tokamak recycling
+solves rather than extra threads on one warmed single solve. The committed
+local artifact reaches about `4.94x` steady-state speedup from `1 -> 8`
+workers on a `16`-solve heavy ensemble, with intermediate speedups of about
+`1.88x` and `3.67x` at `2` and `4` workers.
 
 ## Validation And Control Packages
 
