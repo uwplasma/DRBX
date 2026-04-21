@@ -96,18 +96,16 @@ They now also answer the first CPU parallelism question on this MacBook:
   treated as a bounded strong-scaling tool, not as an automatic replacement for
   accelerator execution.
 
-The local heavy-solve scaling package now makes the same distinction on a real
-promoted production solve rather than on a compact differentiable kernel:
+The local heavy-solve scaling package now documents the stronger local result on
+a real promoted production solve rather than on a compact differentiable
+kernel:
 
 - [local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md)
 
-That package shows two distinct local-CPU behaviors on
-`tokamak_recycling_dthe_one_step`:
-
-- one warmed heavy solve does not materially accelerate with more Jacobian
-  threads on this MacBook;
-- a fixed-work steady-state ensemble of repeated heavy solves scales much
-  better across local worker processes once per-worker warmup is amortized.
+That package now focuses only on the fixed-work steady-state ensemble result on
+`tokamak_recycling_dthe_one_step`, because the warmed single-solve thread curve
+stayed essentially flat on this MacBook and was not the right local scaling
+figure.
 
 That guidance is not speculative; it is the measured result of the committed
 Perfetto-backed reduced-kernel audits in:
@@ -213,16 +211,26 @@ parallelization policy:
 The new committed local CPU scaling artifact now sharpens that conclusion with
 real numbers on the heavier D/T tokamak recycling lane:
 
-- single-solve threaded speedup is effectively flat after warmup on this
-  MacBook, even though the threaded path remains available and correct;
-- steady-state fixed-work ensemble speedup on eight heavy solves is about:
-  - `1.91x` from `1 -> 2` workers
-  - `3.55x` from `1 -> 4` workers
-  - `5.04x` from `1 -> 8` workers
+- the committed figure uses `24` repeated heavy solves on
+  `tokamak_recycling_dthe_one_step`;
+- steady-state fixed-work ensemble speedup is about:
+  - `1.95x` from `1 -> 2` workers
+  - `3.67x` from `1 -> 4` workers
+  - `5.12x` from `1 -> 8` workers
 - that is the right local-CPU scaling story for users running parameter scans,
   UQ, optimization, or repeated solver evaluations on a laptop: spread
   independent heavy solves across workers instead of expecting one warmed solve
   to approach ideal thread-level strong scaling.
+
+The last cProfile pass on the same promoted heavy solve also clarifies the
+remaining bottleneck split after the recent optimization work:
+
+- sparse finite-difference Jacobian assembly is still a dominant cost;
+- the main pure residual hotspot is now the vectorized parallel-gradient kernel
+  in `neutral_mixed.py`, not the older per-cell transport loops;
+- that means the next real performance step is a deeper restructuring of the
+  implicit/recycling residual and Jacobian path rather than another cosmetic
+  CPU-thread sweep.
 
 For the current paper and release, the parallelization claim should also stay
 operationally concrete:

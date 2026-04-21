@@ -1,19 +1,16 @@
 # Local CPU Scaling Campaign
 
-This package benchmarks local MacBook-class CPU scaling on a heavy direct tokamak
-recycling solve instead of relying on a lighter synthetic kernel.
+This package benchmarks local MacBook-class CPU scaling on a heavy direct
+tokamak recycling solve instead of relying on a lighter synthetic kernel.
 
-It produces two curves:
+It now focuses only on the stronger local scaling story:
 
-- single-solve scaling from `JAX_DRB_FD_JACOBIAN_THREADS=<N>` on
-  `tokamak_recycling_dthe_one_step`
 - steady-state fixed-work ensemble scaling for repeated heavy solves with one
   Jacobian thread per worker process
 
-The first curve answers the user-facing question "how much faster does one
-heavy solve get if I give it more local CPU threads?" The second curve answers
-the stronger reviewer-facing question "how well do repeated heavy local solves
-scale after warmup for UQ, parameter scans, and optimization workloads?"
+The older single-solve thread plot was removed because it stayed essentially
+flat after warmup on this MacBook and was not the right reviewer-facing local
+scaling result.
 
 Run the package with:
 
@@ -28,10 +25,13 @@ The committed artifacts are:
 
 Interpretation:
 
-- the single heavy solve shows a real but bounded local speedup from threaded
-  sparse finite-difference Jacobian assembly
+- the committed figure uses `24` repeated heavy solves on
+  `tokamak_recycling_dthe_one_step`
 - the repeated heavy-solve ensemble gives the stronger local scaling story
-  because per-worker warmup is amortized and the workload is naturally
-  parallel
+  because per-worker warmup is amortized and the workload is naturally parallel
+- on the committed local artifact the steady-state speedup is about:
+  - `1.95x` from `1 -> 2` workers
+  - `3.67x` from `1 -> 4` workers
+  - `5.12x` from `1 -> 8` workers
 - this is the right local-CPU figure for the paper because it is tied to a real
   promoted production solve rather than a tiny synthetic kernel
