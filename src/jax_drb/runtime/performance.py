@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
+import sys
 from pathlib import Path
 from typing import Any
 
 from ..config.boutinp import BoutConfig
 
 _VALID_PRECISIONS = {"float32", "float64"}
+_HOST_DEVICE_FLAG_PREFIX = "--xla_force_host_platform_device_count="
 
 
 def resolve_runtime_precision(
@@ -27,9 +30,35 @@ def resolve_runtime_precision(
     return normalized
 
 
-def configure_jax_runtime(*, precision: str | None = None) -> Path | None:
+def resolve_host_device_count(*, requested: int | str | None = None) -> int | None:
+    candidate = requested
+    if candidate is None:
+        candidate = os.environ.get("JAX_DRB_HOST_DEVICE_COUNT")
+    if candidate is None:
+        return None
+    normalized = str(candidate).strip()
+    if not normalized or normalized == "0":
+        return None
+    try:
+        value = int(normalized)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported host device count {candidate!r}; expected a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"Unsupported host device count {candidate!r}; expected a positive integer")
+    return value
+
+
+def configure_jax_runtime(
+    *,
+    precision: str | None = None,
+    host_device_count: int | str | None = None,
+) -> Path | None:
     resolved_precision = resolve_runtime_precision(requested=precision)
     os.environ["JAX_DRB_PRECISION"] = resolved_precision
+    resolved_host_device_count = resolve_host_device_count(requested=host_device_count)
+    if resolved_host_device_count is not None:
+        os.environ["JAX_DRB_HOST_DEVICE_COUNT"] = str(resolved_host_device_count)
+        _configure_host_device_count_xla_flags(resolved_host_device_count)
     if os.environ.get("JAX_DRB_DISABLE_COMPILATION_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}:
         cache_dir = None
     else:
@@ -71,6 +100,27 @@ def runtime_jax_dtype(*, precision: str | None = None) -> Any:
     return jnp.float32 if resolved == "float32" else jnp.float64
 
 
+def runtime_parallel_summary() -> dict[str, Any]:
+    import jax
+
+    requested_host_devices = resolve_host_device_count()
+    xla_flags = os.environ.get("XLA_FLAGS", "")
+    configured_host_devices = _extract_host_device_count_from_flags(xla_flags)
+    return {
+        "backend": jax.default_backend(),
+        "cpu_count": os.cpu_count(),
+        "device_count": jax.device_count(),
+        "local_device_count": jax.local_device_count(),
+        "devices": [str(device) for device in jax.devices()],
+        "requested_host_device_count": requested_host_devices,
+        "configured_host_device_count": configured_host_devices,
+        "explicit_host_device_parallelism_enabled": (
+            jax.default_backend() == "cpu" and jax.local_device_count() > 1
+        ),
+        "xla_flags": xla_flags,
+    }
+
+
 def _compilation_cache_dir() -> Path:
     override = os.environ.get("JAX_DRB_CACHE_DIR")
     if override:
@@ -85,3 +135,27 @@ def _default_user_cache_root() -> Path:
     if platform.system() == "Darwin":
         return Path.home() / "Library" / "Caches"
     return Path.home() / ".cache"
+
+
+def _configure_host_device_count_xla_flags(host_device_count: int) -> None:
+    existing_flags = os.environ.get("XLA_FLAGS", "")
+    configured_count = _extract_host_device_count_from_flags(existing_flags)
+    if configured_count == host_device_count:
+        return
+    if "jax" in sys.modules:
+        raise RuntimeError(
+            "JAX_DRB_HOST_DEVICE_COUNT must be set before importing jax/jax_drb so CPU devices can be configured."
+        )
+    tokens = [token for token in shlex.split(existing_flags) if not token.startswith(_HOST_DEVICE_FLAG_PREFIX)]
+    tokens.append(f"{_HOST_DEVICE_FLAG_PREFIX}{host_device_count}")
+    os.environ["XLA_FLAGS"] = " ".join(tokens)
+
+
+def _extract_host_device_count_from_flags(flags: str) -> int | None:
+    for token in shlex.split(flags):
+        if token.startswith(_HOST_DEVICE_FLAG_PREFIX):
+            try:
+                return int(token.split("=", 1)[1])
+            except ValueError:
+                return None
+    return None

@@ -83,6 +83,19 @@ performance questions:
 - keep solver/case metadata out of static JIT arguments;
 - keep file I/O, plotting, and JSON serialization outside hot kernels.
 
+They now also answer the first CPU parallelism question on this MacBook:
+
+- the default JAX CPU runtime still appears as one CPU device and relies on
+  XLA's internal CPU threading;
+- explicit host-device CPU parallelism is possible by setting
+  `JAX_DRB_HOST_DEVICE_COUNT=N` before importing `jax_drb` or `jax`;
+- on the committed differentiable diffusion scaling surface, explicit
+  host-device `pmap` beats the local process-group reference at `2` and `4`
+  devices, but both curves flatten by `8` devices on this fixed workload;
+- that means CPU parallelization is real and usable here, but it should be
+  treated as a bounded strong-scaling tool, not as an automatic replacement for
+  accelerator execution.
+
 That guidance is not speculative; it is the measured result of the committed
 Perfetto-backed reduced-kernel audits in:
 
@@ -93,6 +106,35 @@ Perfetto-backed reduced-kernel audits in:
 
 There are still real opportunities for more JAX-native execution, but they are
 not all equally safe on the current parity surface.
+
+### Parallelization Model
+
+Today there are three distinct execution modes worth separating:
+
+- default CPU execution:
+  - one JAX CPU device with XLA-managed internal threading
+- explicit host-device CPU execution:
+  - multiple CPU devices exposed with `JAX_DRB_HOST_DEVICE_COUNT=N`
+  - then mapped with `pmap` or equivalent device-parallel transforms
+- process-group CPU execution:
+  - multiple Python workers with one JAX CPU device each
+
+The committed diffusion scaling artifact now measures the last two explicitly.
+On this MacBook, the current fixed-workload result is:
+
+- local process-group reference:
+  - about `1.25x` speedup from `1 -> 8`
+- local host-device `pmap`:
+  - about `1.08x` from `1 -> 2`
+  - about `1.27x` from `1 -> 4`
+  - about `1.25x` from `1 -> 8`
+
+That is useful, but it also sets the right expectation:
+
+- explicit CPU-device parallelism is available and now supported by the runtime;
+- the scaling ceiling on this small differentiable lane is modest;
+- the highest-value long-term acceleration target is still the heavier transient
+  backbone and genuine accelerator hardware, not only more CPU-device splitting.
 
 ### Highest-Value Near-Term Opportunities
 

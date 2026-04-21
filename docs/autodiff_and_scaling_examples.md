@@ -97,7 +97,22 @@ PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
   --cpu-device-counts 1,2,4,8
 ```
 
-Run the committed CPU+GPU benchmark:
+The CPU artifact now measures two distinct local modes:
+
+- `process_group`: one Python worker per CPU partition
+- `host_pmap`: one process with `JAX_DRB_HOST_DEVICE_COUNT=N` and device-parallel `pmap`
+
+To inspect the runtime mode directly in a fresh process:
+
+```bash
+JAX_DRB_HOST_DEVICE_COUNT=4 PYTHONPATH=src .venv/bin/python - <<'PY'
+from jax_drb.runtime import runtime_parallel_summary
+import json
+print(json.dumps(runtime_parallel_summary(), indent=2, sort_keys=True))
+PY
+```
+
+Run the optional remote GPU benchmark:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
@@ -115,20 +130,23 @@ Outputs:
 
 Current committed result:
 
-- local CPU process-parallel reference: about `1.13x` speedup from `1 -> 8` workers on the fixed workload
-- remote GPU device-parallel reference: about `2.19x` speedup from `1 -> 2` GPUs on the same fixed workload
+- local CPU process-group reference: about `1.25x` speedup from `1 -> 8`
+- local CPU host-device `pmap`: about `1.08x` from `1 -> 2`, `1.27x` from `1 -> 4`, and `1.25x` from `1 -> 8`
+- the currently committed artifact was regenerated locally with `--skip-gpu`, so the figure emphasizes the two CPU modes on this MacBook rather than repeating the earlier remote GPU line
 
 Interpretation:
 
-- the GPU curve is the main performance claim on this artifact
-- the CPU curve is a local single-node reference and should be framed that way in write-up text
-- both curves are measured on a differentiable objective, not just a forward solve
+- the host-device `pmap` curve is the cleanest demonstration that several CPU cores can be used explicitly from JAX on this machine
+- the process-group curve remains a useful reference for Python-level task parallelism
+- both CPU curves are still modest strong-scaling results on a small fixed workload, not a claim that CPU splitting replaces accelerator execution
+- all curves are measured on a differentiable objective, not just a forward solve
 
 ## Notes On Method
 
 - the objective is evaluated on the compact native diffusion lane because it is already JAX-native and differentiable end to end
 - the CPU benchmark uses one JAX worker process per local worker to avoid oversubscribing host threads
-- the GPU benchmark uses `pmap` on the remote two-GPU machine
+- the explicit host-device CPU benchmark uses `JAX_DRB_HOST_DEVICE_COUNT=N` to expose multiple CPU devices before import, then maps the objective with `pmap`
+- the optional GPU benchmark uses `pmap` on the remote two-GPU machine
 - the total workload is held fixed, so the figure is a strong-scaling plot rather than a throughput plot
 
 ## Follow-On Work
