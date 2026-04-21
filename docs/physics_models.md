@@ -36,7 +36,7 @@ Useful references for the model class and its scope:
 - reduced-fluid SOL model and GBS comparison class:
   [Ricci et al. 2012](https://iopscience.iop.org/article/10.1088/0741-3335/54/12/124047)
 - Hermes-3 multi-component edge/SOL model:
-  [Dudson et al. 2023](https://doi.org/10.1016/j.cpc.2023.108899)
+  [Dudson et al. 2024](https://doi.org/10.1016/j.cpc.2023.108991)
 - global tokamak edge fluid review:
   [Schwander et al. 2024](https://doi.org/10.1016/j.compfluid.2023.106141)
 
@@ -111,8 +111,8 @@ heat conduction, sheath energy losses, thermal-force coupling, reaction energy
 exchange, and neutral/plasma exchange terms.
 
 The strongest reference-backed lanes evolve pressure-like variables because that
-matches the reduced-fluid benchmark class used in Hermes-style open-field and
-detachment studies more closely than a purely temperature-based closure.
+matches the reduced-fluid benchmark class used in open-field and detachment
+studies more closely than a purely temperature-based closure.
 
 The dominant parallel conductive closure is the standard reduced form
 
