@@ -8,6 +8,7 @@ from .implicit import (
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
     difference_quotient_step_size,
+    solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "difference_quotient_step_size",
     "pack_active_fields",
     "solve_fourier_helmholtz",
+    "solve_jax_linearized_newton_system",
     "solve_matrix_free_newton_system",
     "solve_sparse_newton_system",
     "unpack_active_fields",

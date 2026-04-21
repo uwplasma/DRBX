@@ -339,3 +339,89 @@ def solve_matrix_free_newton_system(
         nonlinear_iterations=iteration_budget,
         linear_iterations=iteration_budget,
     )
+
+
+def solve_jax_linearized_newton_system(
+    residual,
+    initial_state: np.ndarray,
+    *,
+    active_shape: tuple[int, ...],
+    residual_tolerance: float,
+    step_tolerance: float,
+    max_nonlinear_iterations: int,
+    linear_restart: int = 20,
+    linear_maxiter: int = 20,
+) -> tuple[np.ndarray, ImplicitStepInfo]:
+    try:
+        import jax
+        import jax.numpy as jnp
+        from jax.scipy.sparse.linalg import gmres
+    except ImportError as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("JAX linearized implicit stepping requires jax.") from exc
+
+    state = jnp.asarray(initial_state, dtype=jnp.float64)
+    total_linear_iterations = 0
+
+    for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
+        residual_value, linear_map = jax.linearize(residual, state)
+        residual_inf_norm = float(jnp.max(jnp.abs(residual_value)))
+        if residual_inf_norm < float(residual_tolerance):
+            return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+                residual_inf_norm=residual_inf_norm,
+                active_shape=active_shape,
+                nonlinear_iterations=nonlinear_iteration - 1,
+                linear_iterations=total_linear_iterations,
+            )
+
+        update, _ = gmres(
+            linear_map,
+            -residual_value,
+            tol=float(residual_tolerance),
+            atol=0.0,
+            restart=int(linear_restart),
+            maxiter=int(linear_maxiter),
+        )
+        total_linear_iterations += int(linear_restart) * int(linear_maxiter)
+        update = jnp.asarray(update, dtype=jnp.float64)
+
+        accepted = False
+        step_scale = 1.0
+        candidate_state = state
+        candidate_residual_inf_norm = residual_inf_norm
+        while step_scale >= 1.0 / 64.0:
+            trial_state = state + step_scale * update
+            trial_residual = residual(trial_state)
+            trial_residual_inf_norm = float(jnp.max(jnp.abs(trial_residual)))
+            if np.isfinite(trial_residual_inf_norm) and trial_residual_inf_norm <= residual_inf_norm:
+                candidate_state = trial_state
+                candidate_residual_inf_norm = trial_residual_inf_norm
+                accepted = True
+                break
+            step_scale *= 0.5
+
+        if not accepted:
+            break
+
+        state = candidate_state
+        if float(jnp.max(jnp.abs(step_scale * update))) < float(step_tolerance):
+            return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+                residual_inf_norm=candidate_residual_inf_norm,
+                active_shape=active_shape,
+                nonlinear_iterations=nonlinear_iteration,
+                linear_iterations=total_linear_iterations,
+            )
+        if candidate_residual_inf_norm < float(residual_tolerance):
+            return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+                residual_inf_norm=candidate_residual_inf_norm,
+                active_shape=active_shape,
+                nonlinear_iterations=nonlinear_iteration,
+                linear_iterations=total_linear_iterations,
+            )
+
+    final_residual = residual(state)
+    return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+        residual_inf_norm=float(jnp.max(jnp.abs(final_residual))),
+        active_shape=active_shape,
+        nonlinear_iterations=int(max_nonlinear_iterations),
+        linear_iterations=total_linear_iterations,
+    )

@@ -1080,6 +1080,15 @@ def _mc_edges_scalar(center: float, minus: float, plus: float) -> tuple[float, f
     return center - 0.5 * slope, center + 0.5 * slope
 
 
+def _mc_edges(center: np.ndarray, minus: np.ndarray, plus: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    slope = _minmod3(
+        2.0 * (plus - center),
+        0.5 * (plus - minus),
+        2.0 * (center - minus),
+    )
+    return center - 0.5 * slope, center + 0.5 * slope
+
+
 _last_parallel_flow = np.zeros((1, 1, 1), dtype=np.float64)
 
 
@@ -1102,67 +1111,69 @@ def _div_par_mod_open(
     J = np.asarray(metrics.J, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
 
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                right_common = (J[i, j, k] + J[i, j + 1, k]) / (
-                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j + 1, k])
-                )
-                flux_factor_rc = right_common / (dy[i, j, k] * J[i, j, k])
-                flux_factor_rp = right_common / (dy[i, j + 1, k] * J[i, j + 1, k])
-                area_rp = right_common * dx[i, j + 1, k] * dz[i, j + 1, k]
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jy = slice(mesh.ystart, mesh.yend + 1)
+    jminus = slice(mesh.ystart - 1, mesh.yend)
+    jplus = slice(mesh.ystart + 1, mesh.yend + 2)
 
-                left_common = (J[i, j, k] + J[i, j - 1, k]) / (
-                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j - 1, k])
-                )
-                flux_factor_lc = left_common / (dy[i, j, k] * J[i, j, k])
-                flux_factor_lm = left_common / (dy[i, j - 1, k] * J[i, j - 1, k])
-                area_lc = left_common * dx[i, j, k] * dz[i, j, k]
+    center = np.asarray(field[ix, jy, :], dtype=np.float64)
+    minus = np.asarray(field[ix, jminus, :], dtype=np.float64)
+    plus = np.asarray(field[ix, jplus, :], dtype=np.float64)
+    s_left, s_right = _mc_edges(center, minus, plus)
 
-                s_left, s_right = _mc_edges_scalar(
-                    float(field[i, j, k]),
-                    float(field[i, j - 1, k]),
-                    float(field[i, j + 1, k]),
-                )
-                v_left, v_right = _mc_edges_scalar(
-                    float(velocity[i, j, k]),
-                    float(velocity[i, j - 1, k]),
-                    float(velocity[i, j + 1, k]),
-                )
+    velocity_center = np.asarray(velocity[ix, jy, :], dtype=np.float64)
+    velocity_minus = np.asarray(velocity[ix, jminus, :], dtype=np.float64)
+    velocity_plus = np.asarray(velocity[ix, jplus, :], dtype=np.float64)
+    v_left, v_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
 
-                if j == mesh.yend:
-                    vpar = 0.5 * (velocity[i, j, k] + velocity[i, j + 1, k])
-                    boundary_value = 0.5 * (field[i, j, k] + field[i, j + 1, k])
-                    flux = boundary_value * vpar
-                else:
-                    amax = max(
-                        float(wave_speed[i, j, k]),
-                        float(wave_speed[i, j + 1, k]),
-                        abs(float(velocity[i, j, k])),
-                        abs(float(velocity[i, j + 1, k])),
-                    )
-                    flux = s_right * 0.5 * (v_right + amax)
+    J_center = np.asarray(J[ix, jy, :], dtype=np.float64)
+    J_minus = np.asarray(J[ix, jminus, :], dtype=np.float64)
+    J_plus = np.asarray(J[ix, jplus, :], dtype=np.float64)
+    dy_center = np.asarray(dy[ix, jy, :], dtype=np.float64)
+    dy_minus = np.asarray(dy[ix, jminus, :], dtype=np.float64)
+    dy_plus = np.asarray(dy[ix, jplus, :], dtype=np.float64)
+    dx_center = np.asarray(dx[ix, jy, :], dtype=np.float64)
+    dx_plus = np.asarray(dx[ix, jplus, :], dtype=np.float64)
+    dz_center = np.asarray(dz[ix, jy, :], dtype=np.float64)
+    dz_plus = np.asarray(dz[ix, jplus, :], dtype=np.float64)
+    g22_center = np.asarray(g22[ix, jy, :], dtype=np.float64)
+    g22_minus = np.asarray(g22[ix, jminus, :], dtype=np.float64)
+    g22_plus = np.asarray(g22[ix, jplus, :], dtype=np.float64)
+    wave_center = np.asarray(wave_speed[ix, jy, :], dtype=np.float64)
+    wave_minus = np.asarray(wave_speed[ix, jminus, :], dtype=np.float64)
+    wave_plus = np.asarray(wave_speed[ix, jplus, :], dtype=np.float64)
 
-                result[i, j, k] += flux * flux_factor_rc
-                result[i, j + 1, k] -= flux * flux_factor_rp
-                flow_ylow[i, j + 1, k] += flux * area_rp
+    right_common = (J_center + J_plus) / (np.sqrt(g22_center) + np.sqrt(g22_plus))
+    flux_factor_rc = right_common / (dy_center * J_center)
+    flux_factor_rp = right_common / (dy_plus * J_plus)
+    area_rp = right_common * dx_plus * dz_plus
 
-                if j == mesh.ystart:
-                    vpar = 0.5 * (velocity[i, j, k] + velocity[i, j - 1, k])
-                    boundary_value = 0.5 * (field[i, j, k] + field[i, j - 1, k])
-                    flux = boundary_value * vpar
-                else:
-                    amax = max(
-                        float(wave_speed[i, j, k]),
-                        float(wave_speed[i, j - 1, k]),
-                        abs(float(velocity[i, j, k])),
-                        abs(float(velocity[i, j - 1, k])),
-                    )
-                    flux = s_left * 0.5 * (v_left - amax)
+    left_common = (J_center + J_minus) / (np.sqrt(g22_center) + np.sqrt(g22_minus))
+    flux_factor_lc = left_common / (dy_center * J_center)
+    flux_factor_lm = left_common / (dy_minus * J_minus)
+    area_lc = left_common * dx_center * dz_center
 
-                result[i, j, k] -= flux * flux_factor_lc
-                result[i, j - 1, k] += flux * flux_factor_lm
-                flow_ylow[i, j, k] += flux * area_lc
+    amax_right = np.maximum.reduce((wave_center, wave_plus, np.abs(velocity_center), np.abs(velocity_plus)))
+    boundary_right = 0.5 * (center + plus) * 0.5 * (velocity_center + velocity_plus)
+    interior_right = s_right * 0.5 * (v_right + amax_right)
+    right_boundary_mask = np.zeros((1, center.shape[1], 1), dtype=bool)
+    right_boundary_mask[:, -1, :] = True
+    right_flux = np.where(right_boundary_mask, boundary_right, interior_right)
+
+    amax_left = np.maximum.reduce((wave_center, wave_minus, np.abs(velocity_center), np.abs(velocity_minus)))
+    boundary_left = 0.5 * (center + minus) * 0.5 * (velocity_center + velocity_minus)
+    interior_left = s_left * 0.5 * (v_left - amax_left)
+    left_boundary_mask = np.zeros((1, center.shape[1], 1), dtype=bool)
+    left_boundary_mask[:, 0, :] = True
+    left_flux = np.where(left_boundary_mask, boundary_left, interior_left)
+
+    result[ix, jy, :] += right_flux * flux_factor_rc
+    result[ix, jplus, :] -= right_flux * flux_factor_rp
+    flow_ylow[ix, jplus, :] += right_flux * area_rp
+
+    result[ix, jy, :] -= left_flux * flux_factor_lc
+    result[ix, jminus, :] += left_flux * flux_factor_lm
+    flow_ylow[ix, jy, :] += left_flux * area_lc
 
     global _last_parallel_flow
     _last_parallel_flow = np.asarray(flow_ylow, dtype=np.float64)
@@ -1183,78 +1194,68 @@ def _div_par_fvv_open(
     J = np.asarray(metrics.J, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
 
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                right_common = (J[i, j, k] + J[i, j + 1, k]) / (
-                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j + 1, k])
-                )
-                flux_factor_rc = right_common / (dy[i, j, k] * J[i, j, k])
-                flux_factor_rp = right_common / (dy[i, j + 1, k] * J[i, j + 1, k])
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jy = slice(mesh.ystart, mesh.yend + 1)
+    jminus = slice(mesh.ystart - 1, mesh.yend)
+    jplus = slice(mesh.ystart + 1, mesh.yend + 2)
 
-                left_common = (J[i, j, k] + J[i, j - 1, k]) / (
-                    np.sqrt(g22[i, j, k]) + np.sqrt(g22[i, j - 1, k])
-                )
-                flux_factor_lc = left_common / (dy[i, j, k] * J[i, j, k])
-                flux_factor_lm = left_common / (dy[i, j - 1, k] * J[i, j - 1, k])
+    density_center = np.asarray(density[ix, jy, :], dtype=np.float64)
+    density_minus = np.asarray(density[ix, jminus, :], dtype=np.float64)
+    density_plus = np.asarray(density[ix, jplus, :], dtype=np.float64)
+    velocity_center = np.asarray(velocity[ix, jy, :], dtype=np.float64)
+    velocity_minus = np.asarray(velocity[ix, jminus, :], dtype=np.float64)
+    velocity_plus = np.asarray(velocity[ix, jplus, :], dtype=np.float64)
+    wave_center = np.asarray(wave_speed[ix, jy, :], dtype=np.float64)
+    wave_minus = np.asarray(wave_speed[ix, jminus, :], dtype=np.float64)
+    wave_plus = np.asarray(wave_speed[ix, jplus, :], dtype=np.float64)
 
-                s_left, s_right = _mc_edges_scalar(
-                    float(density[i, j, k]),
-                    float(density[i, j - 1, k]),
-                    float(density[i, j + 1, k]),
-                )
-                v_left, v_right = _mc_edges_scalar(
-                    float(velocity[i, j, k]),
-                    float(velocity[i, j - 1, k]),
-                    float(velocity[i, j + 1, k]),
-                )
-                v_mid_right = 0.5 * (velocity[i, j, k] + velocity[i, j + 1, k])
-                n_mid_right = 0.5 * (density[i, j, k] + density[i, j + 1, k])
-                if j == mesh.yend:
-                    if fix_flux:
-                        flux = n_mid_right * v_mid_right * v_mid_right
-                    else:
-                        amax = max(
-                            float(wave_speed[i, j, k]),
-                            abs(float(velocity[i, j, k])),
-                            abs(float(velocity[i, j + 1, k])),
-                        )
-                        flux = s_right * v_right * v_right + amax * n_mid_right * (v_right - v_mid_right)
-                else:
-                    amax = max(
-                        float(wave_speed[i, j, k]),
-                        float(wave_speed[i, j + 1, k]),
-                        abs(float(velocity[i, j, k])),
-                        abs(float(velocity[i, j + 1, k])),
-                    )
-                    flux = s_right * 0.5 * (v_right + amax) * v_right
+    s_left, s_right = _mc_edges(density_center, density_minus, density_plus)
+    v_left, v_right = _mc_edges(velocity_center, velocity_minus, velocity_plus)
 
-                result[i, j, k] += flux * flux_factor_rc
-                result[i, j + 1, k] -= flux * flux_factor_rp
+    J_center = np.asarray(J[ix, jy, :], dtype=np.float64)
+    J_minus = np.asarray(J[ix, jminus, :], dtype=np.float64)
+    J_plus = np.asarray(J[ix, jplus, :], dtype=np.float64)
+    dy_center = np.asarray(dy[ix, jy, :], dtype=np.float64)
+    dy_minus = np.asarray(dy[ix, jminus, :], dtype=np.float64)
+    dy_plus = np.asarray(dy[ix, jplus, :], dtype=np.float64)
+    g22_center = np.asarray(g22[ix, jy, :], dtype=np.float64)
+    g22_minus = np.asarray(g22[ix, jminus, :], dtype=np.float64)
+    g22_plus = np.asarray(g22[ix, jplus, :], dtype=np.float64)
 
-                v_mid_left = 0.5 * (velocity[i, j, k] + velocity[i, j - 1, k])
-                n_mid_left = 0.5 * (density[i, j, k] + density[i, j - 1, k])
-                if j == mesh.ystart:
-                    if fix_flux:
-                        flux = n_mid_left * v_mid_left * v_mid_left
-                    else:
-                        amax = max(
-                            float(wave_speed[i, j, k]),
-                            abs(float(velocity[i, j, k])),
-                            abs(float(velocity[i, j - 1, k])),
-                        )
-                        flux = s_left * v_left * v_left - amax * n_mid_left * (v_left - v_mid_left)
-                else:
-                    amax = max(
-                        float(wave_speed[i, j, k]),
-                        float(wave_speed[i, j - 1, k]),
-                        abs(float(velocity[i, j, k])),
-                        abs(float(velocity[i, j - 1, k])),
-                    )
-                    flux = s_left * 0.5 * (v_left - amax) * v_left
+    right_common = (J_center + J_plus) / (np.sqrt(g22_center) + np.sqrt(g22_plus))
+    flux_factor_rc = right_common / (dy_center * J_center)
+    flux_factor_rp = right_common / (dy_plus * J_plus)
 
-                result[i, j, k] -= flux * flux_factor_lc
-                result[i, j - 1, k] += flux * flux_factor_lm
+    left_common = (J_center + J_minus) / (np.sqrt(g22_center) + np.sqrt(g22_minus))
+    flux_factor_lc = left_common / (dy_center * J_center)
+    flux_factor_lm = left_common / (dy_minus * J_minus)
+
+    v_mid_right = 0.5 * (velocity_center + velocity_plus)
+    n_mid_right = 0.5 * (density_center + density_plus)
+    amax_right = np.maximum.reduce((wave_center, wave_plus, np.abs(velocity_center), np.abs(velocity_plus)))
+    boundary_right = n_mid_right * v_mid_right * v_mid_right
+    interior_right = s_right * 0.5 * (v_right + amax_right) * v_right
+    if not fix_flux:
+        boundary_right = s_right * v_right * v_right + amax_right * n_mid_right * (v_right - v_mid_right)
+    right_boundary_mask = np.zeros((1, density_center.shape[1], 1), dtype=bool)
+    right_boundary_mask[:, -1, :] = True
+    right_flux = np.where(right_boundary_mask, boundary_right, interior_right)
+
+    v_mid_left = 0.5 * (velocity_center + velocity_minus)
+    n_mid_left = 0.5 * (density_center + density_minus)
+    amax_left = np.maximum.reduce((wave_center, wave_minus, np.abs(velocity_center), np.abs(velocity_minus)))
+    boundary_left = n_mid_left * v_mid_left * v_mid_left
+    interior_left = s_left * 0.5 * (v_left - amax_left) * v_left
+    if not fix_flux:
+        boundary_left = s_left * v_left * v_left - amax_left * n_mid_left * (v_left - v_mid_left)
+    left_boundary_mask = np.zeros((1, density_center.shape[1], 1), dtype=bool)
+    left_boundary_mask[:, 0, :] = True
+    left_flux = np.where(left_boundary_mask, boundary_left, interior_left)
+
+    result[ix, jy, :] += right_flux * flux_factor_rc
+    result[ix, jplus, :] -= right_flux * flux_factor_rp
+    result[ix, jy, :] -= left_flux * flux_factor_lc
+    result[ix, jminus, :] += left_flux * flux_factor_lm
     return result
 
 

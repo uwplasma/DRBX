@@ -10,6 +10,7 @@ from jax_drb.solver import (
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
     pack_active_fields,
+    solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
     unpack_active_fields,
@@ -163,6 +164,32 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     np.testing.assert_allclose(matrix_free_solution, target, rtol=1e-9, atol=1e-9)
     assert sparse_info.residual_inf_norm < 1.0e-10
     assert matrix_free_info.residual_inf_norm < 1.0e-10
+
+
+def test_jax_linearized_newton_solver_recovers_known_root() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (3,)
+    target = jnp.array([1.0, 0.5, 2.0], dtype=jnp.float64)
+    initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
+
+    def residual(state):
+        return state * state - target * target
+
+    solution, info = solve_jax_linearized_newton_system(
+        residual,
+        initial,
+        active_shape=active_shape,
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=8,
+        linear_restart=10,
+        linear_maxiter=4,
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-9, atol=1.0e-9)
+    assert info.residual_inf_norm < 1.0e-10
 
 
 def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:

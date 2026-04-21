@@ -137,6 +137,9 @@ That is useful, but it also sets the right expectation:
 - the scaling ceiling on this differentiable lane is still modest;
 - the highest-value long-term acceleration target is still the heavier transient
   backbone and genuine accelerator hardware, not only more CPU-device splitting.
+- additional heavier fixed-workload CPU probes did not materially change that
+  conclusion on this MacBook, so the CPU strong-scaling story should stay
+  narrow and reviewer-safe.
 
 ## Current Solver-Side Optimization Pass
 
@@ -148,6 +151,13 @@ changing the validated physics surface:
 - the recycling implicit step now carries a packed-state layout explicitly so
   active slices, active shape, field size, and field templates are not rebuilt
   on every residual/unpack call;
+- the packed residual path now avoids repeated full-field copies between unpack,
+  packed-RHS staging, and species override;
+- the hottest neutral/tokamak transport operators now use vectorized NumPy
+  kernels instead of per-cell Python loops on the production residual path;
+- on the profiled `tokamak_recycling_dthene_one_step` case, those changes drop
+  the end-to-end wall time from about `11.84 s` to about `3.16 s` on this
+  MacBook;
 - the live neon direct-tokamak recycling parity slice still passes after those
   changes, which means the refactor removed overhead without changing the
   compare surface.
@@ -166,6 +176,16 @@ host/SciPy residual structure itself.
   solve can stay inside one compiled function;
 - widen the already-batched selected-field native kernels to more fields and
   broader reduced 3D workflows.
+
+The source tree now also includes a JAX-linearized Newton-GMRES path for
+residuals that are already JAX-transformable:
+
+- [solve_jax_linearized_newton_system](../src/jax_drb/solver/implicit.py)
+
+That path is appropriate for compact pure-JAX residuals and future reduced
+native kernels. It is not yet the default on the promoted recycling/tokamak
+backbone because that residual still crosses the host/SciPy boundary too often
+to make a JVP-driven solve the right production choice today.
 
 ### Lower-Risk Structural JAX Improvements
 

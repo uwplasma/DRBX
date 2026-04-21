@@ -816,9 +816,9 @@ def _override_species_fields(
 ) -> dict[str, OpenFieldSpecies]:
     species: dict[str, OpenFieldSpecies] = {}
     for name, template in species_templates.items():
-        density = np.asarray(fields.get(template.density_name, template.density), dtype=np.float64, copy=True)
-        pressure = np.asarray(fields.get(template.pressure_name, template.pressure), dtype=np.float64, copy=True)
-        momentum = np.asarray(fields.get(template.momentum_name, template.momentum), dtype=np.float64, copy=True)
+        density = np.asarray(fields.get(template.density_name, template.density), dtype=np.float64)
+        pressure = np.asarray(fields.get(template.pressure_name, template.pressure), dtype=np.float64)
+        momentum = np.asarray(fields.get(template.momentum_name, template.momentum), dtype=np.float64)
         if template.noflow_lower_y and mesh.has_lower_y_target:
             density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
             pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
@@ -1379,49 +1379,51 @@ def _div_a_grad_perp_upwind_flows_nz1(
     )
     Bxy = np.asarray(metrics.Bxy, dtype=np.float64)
 
-    k = 0
+    ix_edge = slice(mesh.xstart - 1, mesh.xend + 1)
+    ix_next = slice(mesh.xstart, mesh.xend + 2)
+    jy = slice(mesh.ystart, mesh.yend + 1)
 
-    for i in range(mesh.xstart - 1, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            gradient = (
-                (J[i, j, k] * g11[i, j, k] + J[i + 1, j, k] * g11[i + 1, j, k])
-                * (field[i + 1, j, k] - field[i, j, k])
-                / (dx[i, j, k] + dx[i + 1, j, k])
-            )
-            flux = gradient * (coefficient[i + 1, j, k] if gradient > 0.0 else coefficient[i, j, k])
-            result[i, j, k] += flux / (dx[i, j, k] * J[i, j, k])
-            result[i + 1, j, k] -= flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+    gradient = (
+        (J[ix_edge, jy, :] * g11[ix_edge, jy, :] + J[ix_next, jy, :] * g11[ix_next, jy, :])
+        * (field[ix_next, jy, :] - field[ix_edge, jy, :])
+        / (dx[ix_edge, jy, :] + dx[ix_next, jy, :])
+    )
+    flux = gradient * np.where(gradient > 0.0, coefficient[ix_next, jy, :], coefficient[ix_edge, jy, :])
+    result[ix_edge, jy, :] += flux / (dx[ix_edge, jy, :] * J[ix_edge, jy, :])
+    result[ix_next, jy, :] -= flux / (dx[ix_next, jy, :] * J[ix_next, jy, :])
 
     if np.allclose(g23, 0.0, rtol=1.0e-12, atol=1.0e-12):
         return result
 
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            coef_up = 0.5 * (
-                g_23[i, j, k] / np.square(J[i, j, k] * Bxy[i, j, k])
-                + g_23[i, j + 1, k] / np.square(J[i, j + 1, k] * Bxy[i, j + 1, k])
-            )
-            dfdy_up = 2.0 * (field[i, j + 1, k] - field[i, j, k]) / (dy[i, j + 1, k] + dy[i, j, k])
-            flux = (
-                0.25
-                * (coefficient[i, j, k] + coefficient[i, j + 1, k])
-                * (J[i, j, k] * g23[i, j, k] + J[i, j + 1, k] * g23[i, j + 1, k])
-                * (-coef_up * dfdy_up)
-            )
-            result[i, j, k] += flux / (dy[i, j, k] * J[i, j, k])
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jminus = slice(mesh.ystart - 1, mesh.yend)
+    jplus = slice(mesh.ystart + 1, mesh.yend + 2)
 
-            coef_down = 0.5 * (
-                g_23[i, j, k] / np.square(J[i, j, k] * Bxy[i, j, k])
-                + g_23[i, j - 1, k] / np.square(J[i, j - 1, k] * Bxy[i, j - 1, k])
-            )
-            dfdy_down = 2.0 * (field[i, j, k] - field[i, j - 1, k]) / (dy[i, j, k] + dy[i, j - 1, k])
-            flux = (
-                0.25
-                * (coefficient[i, j, k] + coefficient[i, j - 1, k])
-                * (J[i, j, k] * g23[i, j, k] + J[i, j - 1, k] * g23[i, j - 1, k])
-                * (-coef_down * dfdy_down)
-            )
-            result[i, j, k] -= flux / (dy[i, j, k] * J[i, j, k])
+    coef_up = 0.5 * (
+        g_23[ix, jy, :] / np.square(J[ix, jy, :] * Bxy[ix, jy, :])
+        + g_23[ix, jplus, :] / np.square(J[ix, jplus, :] * Bxy[ix, jplus, :])
+    )
+    dfdy_up = 2.0 * (field[ix, jplus, :] - field[ix, jy, :]) / (dy[ix, jplus, :] + dy[ix, jy, :])
+    flux_up = (
+        0.25
+        * (coefficient[ix, jy, :] + coefficient[ix, jplus, :])
+        * (J[ix, jy, :] * g23[ix, jy, :] + J[ix, jplus, :] * g23[ix, jplus, :])
+        * (-coef_up * dfdy_up)
+    )
+    result[ix, jy, :] += flux_up / (dy[ix, jy, :] * J[ix, jy, :])
+
+    coef_down = 0.5 * (
+        g_23[ix, jy, :] / np.square(J[ix, jy, :] * Bxy[ix, jy, :])
+        + g_23[ix, jminus, :] / np.square(J[ix, jminus, :] * Bxy[ix, jminus, :])
+    )
+    dfdy_down = 2.0 * (field[ix, jy, :] - field[ix, jminus, :]) / (dy[ix, jy, :] + dy[ix, jminus, :])
+    flux_down = (
+        0.25
+        * (coefficient[ix, jy, :] + coefficient[ix, jminus, :])
+        * (J[ix, jy, :] * g23[ix, jy, :] + J[ix, jminus, :] * g23[ix, jminus, :])
+        * (-coef_down * dfdy_down)
+    )
+    result[ix, jy, :] -= flux_down / (dy[ix, jy, :] * J[ix, jy, :])
 
     return result
 
@@ -4996,6 +4998,12 @@ def _advance_recycling_1d_bdf_history(
         field_count=len(field_names),
         controller_count=len(feedback_names),
     )
+    layout = _build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
     total_time = float(timestep) * float(steps)
@@ -5008,7 +5016,9 @@ def _advance_recycling_1d_bdf_history(
         field_names=field_names,
         feedback_names=feedback_names,
         mesh=mesh,
+        layout=layout,
     )
+    sparsity_csc = sparsity.tocsc()
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
@@ -5018,6 +5028,7 @@ def _advance_recycling_1d_bdf_history(
             field_names=field_names,
             feedback_names=feedback_names,
             mesh=mesh,
+            layout=layout,
         )
         return _compute_recycling_1d_packed_rhs(
             config,
@@ -5030,6 +5041,7 @@ def _advance_recycling_1d_bdf_history(
             metrics=metrics,
             dataset_scalars=dataset_scalars,
             runtime_model=runtime_model,
+            layout=layout,
         )
 
     def jacobian(_time: float, packed_state: np.ndarray):
@@ -5040,6 +5052,7 @@ def _advance_recycling_1d_bdf_history(
             base_residual=rhs_value,
             sparsity=sparsity,
             color_groups=color_groups,
+            sparsity_csc=sparsity_csc,
         )
 
     solution = solve_ivp(
@@ -5067,6 +5080,7 @@ def _advance_recycling_1d_bdf_history(
             field_names=field_names,
             feedback_names=feedback_names,
             mesh=mesh,
+            layout=layout,
         )
         sample_fields = _sanitize_recycling_fields(config, sample_fields)
         sample_integrals = _sanitize_feedback_integrals(sample_integrals, controllers=runtime_model.controllers)
@@ -5113,7 +5127,7 @@ def _compute_recycling_1d_packed_rhs(
         dataset_scalars=dataset_scalars,
     )
     sanitized_fields = _sanitize_recycling_fields(config, fields) if sanitize_fields else {
-        name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()
+        name: np.asarray(value, dtype=np.float64) for name, value in fields.items()
     }
     species = _override_species_fields(runtime_model.species_templates, fields=sanitized_fields, mesh=mesh)
     result = _compute_recycling_1d_rhs_from_species(
@@ -5244,7 +5258,7 @@ def _unpack_recycling_active_state(
         ),
         active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
     )
-    restored_fields = {name: np.asarray(value, dtype=np.float64) for name, value in zip(field_names, unpacked_fields, strict=True)}
+    restored_fields = {name: value for name, value in zip(field_names, unpacked_fields, strict=True)}
     restored_integrals = {name: float(value) for name, value in feedback_integrals.items()}
     for index, name in enumerate(feedback_names):
         restored_integrals[name] = float(scalar_block[index])
