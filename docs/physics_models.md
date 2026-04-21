@@ -25,6 +25,16 @@ potential evolution.
 At the level exposed in the current native ladders, the code is solving
 discrete forms of the following model families.
 
+In the promoted reduced-fluid lanes, the resolved particle flux is represented
+schematically as
+
+```text
+Γ_s = n_s u_E + b n_s V_{∥,s} - D_{⊥,s} ∇_⊥ n_s + Γ_s^model
+```
+
+where `u_E = b × ∇⊥ φ / B` and `Γ_s^model` collects benchmark-specific
+transport closures such as curvature-driven or reduced-annulus terms.
+
 ### Continuity
 
 For an evolved species density `n_s`:
@@ -73,6 +83,12 @@ In the open-field and tokamak recycling lanes this includes explicit parallel
 heat conduction, sheath energy losses, thermal-force coupling, reaction energy
 exchange, and neutral/plasma exchange terms.
 
+The dominant parallel conductive closure is the standard reduced form
+
+```text
+q_{∥,s} ≈ -κ_{∥,s} ∇_{∥} T_s
+```
+
 ### Potential / Vorticity Closure
 
 The electrostatic ladders solve benchmark-specific elliptic closures between
@@ -91,6 +107,15 @@ At the operator level this is the familiar reduced electrostatic structure:
 
 with lane-dependent coefficients `C`, metric terms, and source closures.
 
+On the promoted electrostatic benchmark lanes, the corresponding transport
+equation is represented schematically as
+
+```text
+∂t ω + ∇·(ω u_E) = ∇∥ J∥ + S_ω
+```
+
+with `S_ω` collecting curvature, sheath, and benchmark-specific source terms.
+
 ### Electromagnetic Reduced Surfaces
 
 The promoted electromagnetic benchmark lanes use compact selected-field
@@ -102,6 +127,13 @@ Ajpar = Σ_s Z_s n_s V_{∥,s}
 
 plus the staged `Apar`/`NVe`/`Vort` benchmark closures documented in the
 electromagnetic source and validation utilities.
+
+Where electron-parallel dynamics is retained explicitly, the reduced
+parallel-force balance is represented in compact form as
+
+```text
+0 = -e n_e E_∥ - ∇∥ p_e - η_∥ J_∥ + S_{∥,e}
+```
 
 ## Reduced-Fluid Operator Structure
 
@@ -201,6 +233,54 @@ Primary source files:
 ## Sheath And Recycling Closures
 
 The open-field and tokamak recycling lanes use explicit target/sheath boundary conditioning, recycling source assembly, and neutral/ion feedback terms.
+
+At the leading-order reduced level, the target closures are expressed through
+
+```text
+V_{∥,i}|target ~ c_s
+q_{∥,e}|target ~ γ_e n_e T_e c_s
+```
+
+with `c_s` the local sound speed and `γ_e` the electron sheath heat
+transmission factor.
+
+## Implicit Transient Form
+
+The strongest production-path recycling and direct-tokamak ladders use a
+backward-Euler/BDF-style implicit residual of the form
+
+```text
+F(U^{n+1}) = U^{n+1} - Σ_k α_k U^{n-k} - Δt β R(U^{n+1}) = 0
+```
+
+with Newton updates
+
+```text
+J(U^{n+1,ℓ}) δU^ℓ = -F(U^{n+1,ℓ})
+U^{n+1,ℓ+1} = U^{n+1,ℓ} + δU^ℓ
+```
+
+The current implementation builds sparse finite-difference quotient Jacobians
+on the packed active state, solves the linearized system with GMRES first, and
+falls back to direct sparse solves where required.
+
+## Differentiable Analysis Surface
+
+The compact differentiable lanes use the standard JAX gradient map
+
+```text
+g(θ) = ∇_θ J(θ)
+```
+
+and local Gaussian uncertainty propagation through the linearized pushforward
+
+```text
+Σ_Q ≈ G Σ_θ G^T ,  G = ∂Q/∂θ
+```
+
+These are the surfaces used by the published sensitivity, uncertainty, and
+inverse-design examples. The heaviest implicit recycling backbone is still the
+main boundary between the clean JAX-native lane and the host/SciPy-heavy lane.
 
 Key source locations:
 
