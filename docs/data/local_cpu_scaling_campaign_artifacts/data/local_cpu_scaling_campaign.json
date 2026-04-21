@@ -11,14 +11,14 @@
   "steady_state_ensemble_sweep": {
     "entries": [
       {
-        "launch_overhead_seconds": 2.2399710409954423,
-        "steady_state_seconds": 36.08980858400173,
-        "wall_seconds": 38.32977962499717,
+        "launch_overhead_seconds": 2.3611064159995294,
+        "steady_state_seconds": 38.901997875000234,
+        "wall_seconds": 41.26310429099976,
         "worker_count": 1,
         "worker_results": [
           {
             "count": 24,
-            "elapsed_seconds": 36.08980858400173
+            "elapsed_seconds": 38.901997875000234
           }
         ],
         "worker_run_counts": [
@@ -26,18 +26,18 @@
         ]
       },
       {
-        "launch_overhead_seconds": 2.2841518750028627,
-        "steady_state_seconds": 19.20834541699878,
-        "wall_seconds": 21.492497292001644,
+        "launch_overhead_seconds": 2.5244055410003057,
+        "steady_state_seconds": 20.776415874999657,
+        "wall_seconds": 23.300821415999962,
         "worker_count": 2,
         "worker_results": [
           {
             "count": 12,
-            "elapsed_seconds": 19.20834541699878
+            "elapsed_seconds": 20.776415874999657
           },
           {
             "count": 12,
-            "elapsed_seconds": 19.067176541000663
+            "elapsed_seconds": 20.77505008300068
           }
         ],
         "worker_run_counts": [
@@ -46,26 +46,26 @@
         ]
       },
       {
-        "launch_overhead_seconds": 2.4430740410025464,
-        "steady_state_seconds": 9.877862208999431,
-        "wall_seconds": 12.320936250001978,
+        "launch_overhead_seconds": 2.6460967079983675,
+        "steady_state_seconds": 12.553404582999065,
+        "wall_seconds": 15.199501290997432,
         "worker_count": 4,
         "worker_results": [
           {
             "count": 6,
-            "elapsed_seconds": 9.803145374997257
+            "elapsed_seconds": 12.347263415998896
           },
           {
             "count": 6,
-            "elapsed_seconds": 9.877862208999431
+            "elapsed_seconds": 12.404868292003812
           },
           {
             "count": 6,
-            "elapsed_seconds": 9.842318083999999
+            "elapsed_seconds": 12.346833916999458
           },
           {
             "count": 6,
-            "elapsed_seconds": 9.817786584000714
+            "elapsed_seconds": 12.553404582999065
           }
         ],
         "worker_run_counts": [
@@ -76,42 +76,42 @@
         ]
       },
       {
-        "launch_overhead_seconds": 3.5811176670031273,
-        "steady_state_seconds": 7.290617832997668,
-        "wall_seconds": 10.871735500000796,
+        "launch_overhead_seconds": 4.3976828750019195,
+        "steady_state_seconds": 8.459608541998023,
+        "wall_seconds": 12.857291416999942,
         "worker_count": 8,
         "worker_results": [
           {
             "count": 3,
-            "elapsed_seconds": 7.2527287080010865
+            "elapsed_seconds": 8.31513941600133
           },
           {
             "count": 3,
-            "elapsed_seconds": 6.995033125000191
+            "elapsed_seconds": 8.308622041004128
           },
           {
             "count": 3,
-            "elapsed_seconds": 7.142618540998228
+            "elapsed_seconds": 8.459608541998023
           },
           {
             "count": 3,
-            "elapsed_seconds": 7.072991999997612
+            "elapsed_seconds": 8.413147166997078
           },
           {
             "count": 3,
-            "elapsed_seconds": 7.241466708001099
+            "elapsed_seconds": 8.418945041994448
           },
           {
             "count": 3,
-            "elapsed_seconds": 7.137228250001499
+            "elapsed_seconds": 8.447518249995483
           },
           {
             "count": 3,
-            "elapsed_seconds": 7.105432749998727
+            "elapsed_seconds": 8.314218459003314
           },
           {
             "count": 3,
-            "elapsed_seconds": 7.290617832997668
+            "elapsed_seconds": 8.33082883300085
           }
         ],
         "worker_run_counts": [
@@ -126,12 +126,12 @@
         ]
       }
     ],
-    "steady_state_baseline_seconds": 36.08980858400173,
+    "steady_state_baseline_seconds": 38.901997875000234,
     "steady_state_speedups": [
       1.0,
-      1.8788608701332175,
-      3.653605185049186,
-      4.950171495844647
+      1.872411397088521,
+      3.098920107114589,
+      4.598557685248662
     ],
     "total_runs": 24,
     "worker_counts": [

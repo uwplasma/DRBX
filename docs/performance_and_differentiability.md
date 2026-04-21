@@ -214,9 +214,9 @@ real numbers on the heavier D/T tokamak recycling lane:
 - the committed figure uses `24` repeated heavy solves on
   `tokamak_recycling_dthe_one_step`;
 - steady-state fixed-work ensemble speedup is about:
-  - `1.95x` from `1 -> 2` workers
-  - `3.67x` from `1 -> 4` workers
-  - `5.12x` from `1 -> 8` workers
+  - `1.87x` from `1 -> 2` workers
+  - `3.10x` from `1 -> 4` workers
+  - `4.60x` from `1 -> 8` workers
 - that is the right local-CPU scaling story for users running parameter scans,
   UQ, optimization, or repeated solver evaluations on a laptop: spread
   independent heavy solves across workers instead of expecting one warmed solve
