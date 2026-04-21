@@ -266,6 +266,17 @@ What this documents:
 - the first committed Perfetto-compatible trace bundle for the reduced native JAX surfaces;
 - the concrete engineering conclusion from that profiling pass: batch same-shape selected fields before entering jitted reductions, and warm kernels once before timing summary runs.
 
+## Local CPU Scaling Campaign
+
+![Local CPU scaling campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
+
+What this documents:
+
+- a reviewer-facing local CPU scaling result on a real promoted heavy recycling solve rather than a tiny synthetic kernel;
+- the bounded single-solve thread story on this MacBook: one warmed heavy solve does not materially accelerate with more Jacobian threads;
+- the stronger local throughput story users actually care about for UQ, optimization, and parameter scans: repeated heavy solves scale well across local worker processes after warmup;
+- the operational recommendation for laptop users: keep one Jacobian thread per worker for batched heavy solves and use multiple local workers when the workload is naturally parallel.
+
 ## Hermes Comparison Summary
 
 ![Hermes comparison summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)

@@ -96,6 +96,19 @@ They now also answer the first CPU parallelism question on this MacBook:
   treated as a bounded strong-scaling tool, not as an automatic replacement for
   accelerator execution.
 
+The local heavy-solve scaling package now makes the same distinction on a real
+promoted production solve rather than on a compact differentiable kernel:
+
+- [local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md)
+
+That package shows two distinct local-CPU behaviors on
+`tokamak_recycling_dthe_one_step`:
+
+- one warmed heavy solve does not materially accelerate with more Jacobian
+  threads on this MacBook;
+- a fixed-work steady-state ensemble of repeated heavy solves scales much
+  better across local worker processes once per-worker warmup is amortized.
+
 That guidance is not speculative; it is the measured result of the committed
 Perfetto-backed reduced-kernel audits in:
 
@@ -196,6 +209,20 @@ parallelization policy:
   `JAX_DRB_FD_JACOBIAN_THREADS=<N>`;
 - on the profiled neon tokamak one-step case, that gives a small but real
   additional local speedup on top of the larger residual/Jacobian cleanup.
+
+The new committed local CPU scaling artifact now sharpens that conclusion with
+real numbers on the heavier D/T tokamak recycling lane:
+
+- single-solve threaded speedup is effectively flat after warmup on this
+  MacBook, even though the threaded path remains available and correct;
+- steady-state fixed-work ensemble speedup on eight heavy solves is about:
+  - `1.91x` from `1 -> 2` workers
+  - `3.55x` from `1 -> 4` workers
+  - `5.04x` from `1 -> 8` workers
+- that is the right local-CPU scaling story for users running parameter scans,
+  UQ, optimization, or repeated solver evaluations on a laptop: spread
+  independent heavy solves across workers instead of expecting one warmed solve
+  to approach ideal thread-level strong scaling.
 
 For the current paper and release, the parallelization claim should also stay
 operationally concrete:

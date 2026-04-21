@@ -219,6 +219,12 @@ from .jax_native_profile_audit import (
     create_jax_native_profile_audit_package,
     save_jax_native_profile_audit_plot,
 )
+from .local_cpu_scaling_campaign import (
+    LocalCpuScalingCampaignArtifacts,
+    build_local_cpu_scaling_campaign_report,
+    create_local_cpu_scaling_campaign_package,
+    save_local_cpu_scaling_campaign_plot,
+)
 from .native_3d_convergence_campaign import (
     Native3DConvergenceCampaignArtifacts,
     build_native_3d_convergence_campaign_report,
