@@ -2,194 +2,138 @@
   "benchmark_case_label": "direct tokamak recycling one-step transient",
   "benchmark_case_name": "tokamak_recycling_dthe_one_step",
   "case": "local_cpu_scaling_campaign",
+  "profiling_note": "The final cProfile pass on the same heavy solve shows the dominant remaining costs in the production path are sparse finite-difference Jacobian assembly and the vectorized parallel-gradient residual kernel, not the older per-cell transport loops.",
   "recommendations": [
-    "Use JAX_DRB_FD_JACOBIAN_THREADS=2 or 4 for a single heavy recycling solve on this MacBook-class CPU.",
     "Use one Jacobian thread per worker and multiple local worker processes for batched heavy solves such as UQ, optimization, and parameter scans.",
-    "Treat the ensemble speedup as the reviewer-facing local strong-scaling result; treat the single-solve thread curve as a bounded local acceleration knob."
+    "Treat the steady-state ensemble speedup as the reviewer-facing local strong-scaling result on MacBook-class CPUs.",
+    "Do not treat single-solve Jacobian threading as the main local scaling story on this hardware."
   ],
-  "single_solve_thread_sweep": {
-    "baseline_seconds": 1.463866666003014,
-    "entries": [
-      {
-        "best_seconds": 1.463866666003014,
-        "mean_seconds": 1.4727915833342802,
-        "thread_count": 1,
-        "timings_seconds": [
-          1.4905622920014139,
-          1.4639457919984125,
-          1.463866666003014
-        ]
-      },
-      {
-        "best_seconds": 1.4551603329964564,
-        "mean_seconds": 1.4769969163317,
-        "thread_count": 2,
-        "timings_seconds": [
-          1.4767687909989036,
-          1.4551603329964564,
-          1.4990616249997402
-        ]
-      },
-      {
-        "best_seconds": 1.4682073750009295,
-        "mean_seconds": 1.4732067080015743,
-        "thread_count": 4,
-        "timings_seconds": [
-          1.474885333002021,
-          1.4682073750009295,
-          1.4765274160017725
-        ]
-      },
-      {
-        "best_seconds": 1.477689792001911,
-        "mean_seconds": 1.4841444863341167,
-        "thread_count": 8,
-        "timings_seconds": [
-          1.4907736249988375,
-          1.4839700420016015,
-          1.477689792001911
-        ]
-      }
-    ],
-    "speedups": [
-      1.0,
-      1.0059830747232021,
-      0.997043531403108,
-      0.990645448000172
-    ],
-    "thread_counts": [
-      1,
-      2,
-      4,
-      8
-    ]
-  },
   "steady_state_ensemble_sweep": {
     "entries": [
       {
-        "launch_overhead_seconds": 2.151660625004297,
-        "steady_state_seconds": 12.002933790998213,
-        "wall_seconds": 14.15459441600251,
+        "launch_overhead_seconds": 2.2399710409954423,
+        "steady_state_seconds": 36.08980858400173,
+        "wall_seconds": 38.32977962499717,
         "worker_count": 1,
         "worker_results": [
           {
-            "count": 8,
-            "elapsed_seconds": 12.002933790998213
+            "count": 24,
+            "elapsed_seconds": 36.08980858400173
           }
         ],
         "worker_run_counts": [
-          8
+          24
         ]
       },
       {
-        "launch_overhead_seconds": 2.279489459000615,
-        "steady_state_seconds": 6.271890583000641,
-        "wall_seconds": 8.551380042001256,
+        "launch_overhead_seconds": 2.2841518750028627,
+        "steady_state_seconds": 19.20834541699878,
+        "wall_seconds": 21.492497292001644,
         "worker_count": 2,
         "worker_results": [
           {
-            "count": 4,
-            "elapsed_seconds": 6.267483791998529
+            "count": 12,
+            "elapsed_seconds": 19.20834541699878
           },
           {
-            "count": 4,
-            "elapsed_seconds": 6.271890583000641
+            "count": 12,
+            "elapsed_seconds": 19.067176541000663
           }
         ],
         "worker_run_counts": [
-          4,
-          4
+          12,
+          12
         ]
       },
       {
-        "launch_overhead_seconds": 2.4465810010005953,
-        "steady_state_seconds": 3.3826648329995805,
-        "wall_seconds": 5.829245834000176,
+        "launch_overhead_seconds": 2.4430740410025464,
+        "steady_state_seconds": 9.877862208999431,
+        "wall_seconds": 12.320936250001978,
         "worker_count": 4,
         "worker_results": [
           {
-            "count": 2,
-            "elapsed_seconds": 3.3826648329995805
+            "count": 6,
+            "elapsed_seconds": 9.803145374997257
           },
           {
-            "count": 2,
-            "elapsed_seconds": 3.2962453750005807
+            "count": 6,
+            "elapsed_seconds": 9.877862208999431
           },
           {
-            "count": 2,
-            "elapsed_seconds": 3.297962207998353
+            "count": 6,
+            "elapsed_seconds": 9.842318083999999
           },
           {
-            "count": 2,
-            "elapsed_seconds": 3.3067243749974295
+            "count": 6,
+            "elapsed_seconds": 9.817786584000714
           }
         ],
         "worker_run_counts": [
-          2,
-          2,
-          2,
-          2
+          6,
+          6,
+          6,
+          6
         ]
       },
       {
-        "launch_overhead_seconds": 3.590428500003327,
-        "steady_state_seconds": 2.3795282499995665,
-        "wall_seconds": 5.969956750002893,
+        "launch_overhead_seconds": 3.5811176670031273,
+        "steady_state_seconds": 7.290617832997668,
+        "wall_seconds": 10.871735500000796,
         "worker_count": 8,
         "worker_results": [
           {
-            "count": 1,
-            "elapsed_seconds": 2.3083753749997413
+            "count": 3,
+            "elapsed_seconds": 7.2527287080010865
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.320548208001128
+            "count": 3,
+            "elapsed_seconds": 6.995033125000191
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.373527000003378
+            "count": 3,
+            "elapsed_seconds": 7.142618540998228
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.3488827090004634
+            "count": 3,
+            "elapsed_seconds": 7.072991999997612
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.339200250000431
+            "count": 3,
+            "elapsed_seconds": 7.241466708001099
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.3795282499995665
+            "count": 3,
+            "elapsed_seconds": 7.137228250001499
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.342307124999934
+            "count": 3,
+            "elapsed_seconds": 7.105432749998727
           },
           {
-            "count": 1,
-            "elapsed_seconds": 2.3404943329987873
+            "count": 3,
+            "elapsed_seconds": 7.290617832997668
           }
         ],
         "worker_run_counts": [
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
         ]
       }
     ],
-    "steady_state_baseline_seconds": 12.002933790998213,
+    "steady_state_baseline_seconds": 36.08980858400173,
     "steady_state_speedups": [
       1.0,
-      1.9137664524204259,
-      3.5483662684826514,
-      5.044249334295737
+      1.8788608701332175,
+      3.653605185049186,
+      4.950171495844647
     ],
-    "total_runs": 8,
+    "total_runs": 24,
     "worker_counts": [
       1,
       2,

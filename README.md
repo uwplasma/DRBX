@@ -253,6 +253,12 @@ The runtime/performance audit tools include:
 - [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
 
+For local MacBook-class CPU use, the strongest current scaling result is the
+heavy fixed-work ensemble on repeated direct tokamak recycling solves rather
+than extra threads on one warmed single solve. The committed local artifact
+reaches about `5.12x` steady-state speedup from `1 -> 8` workers on a `24`-solve
+heavy ensemble.
+
 ## Validation And Control Packages
 
 Focused engineering and benchmark packages:
