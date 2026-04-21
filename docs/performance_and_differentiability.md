@@ -89,9 +89,9 @@ They now also answer the first CPU parallelism question on this MacBook:
   XLA's internal CPU threading;
 - explicit host-device CPU parallelism is possible by setting
   `JAX_DRB_HOST_DEVICE_COUNT=N` before importing `jax_drb` or `jax`;
-- on the committed differentiable diffusion scaling surface, explicit
-  host-device `pmap` beats the local process-group reference at `2` and `4`
-  devices, but both curves flatten by `8` devices on this fixed workload;
+- on the current heavier committed differentiable diffusion scaling surface,
+  the local process-group mode is slightly stronger than the host-device
+  `pmap` mode on this MacBook, but both are modest;
 - that means CPU parallelization is real and usable here, but it should be
   treated as a bounded strong-scaling tool, not as an automatic replacement for
   accelerator execution.
@@ -123,18 +123,38 @@ The committed diffusion scaling artifact now measures the last two explicitly.
 On this MacBook, the current fixed-workload result is:
 
 - local process-group reference:
-  - about `1.25x` speedup from `1 -> 8`
-- local host-device `pmap`:
   - about `1.08x` from `1 -> 2`
-  - about `1.27x` from `1 -> 4`
-  - about `1.25x` from `1 -> 8`
+  - about `1.10x` from `1 -> 4`
+- local host-device `pmap`:
+  - about `1.07x` from `1 -> 2`
+  - about `1.08x` from `1 -> 4`
 
 That is useful, but it also sets the right expectation:
 
 - explicit CPU-device parallelism is available and now supported by the runtime;
-- the scaling ceiling on this small differentiable lane is modest;
+- the stronger current laptop CPU result is still the process-group mode, not
+  by a large margin;
+- the scaling ceiling on this differentiable lane is still modest;
 - the highest-value long-term acceleration target is still the heavier transient
   backbone and genuine accelerator hardware, not only more CPU-device splitting.
+
+## Current Solver-Side Optimization Pass
+
+The latest implicit-solver pass tightened the heaviest host/SciPy path without
+changing the validated physics surface:
+
+- the sparse Newton path now reuses CSC structure where possible instead of
+  rebuilding CSC conversions repeatedly inside the linear solve loop;
+- the recycling implicit step now carries a packed-state layout explicitly so
+  active slices, active shape, field size, and field templates are not rebuilt
+  on every residual/unpack call;
+- the live neon direct-tokamak recycling parity slice still passes after those
+  changes, which means the refactor removed overhead without changing the
+  compare surface.
+
+That is a real improvement, but it is not the final optimization story. The
+dominant remaining blocker is still the finite-difference Jacobian and the
+host/SciPy residual structure itself.
 
 ### Highest-Value Near-Term Opportunities
 

@@ -94,7 +94,12 @@ Run locally on CPU only:
 ```bash
 PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
   --skip-gpu \
-  --cpu-device-counts 1,2,4,8
+  --cpu-device-counts 1,2,4 \
+  --total-batch 32 \
+  --nx 512 \
+  --ny 64 \
+  --steps 12 \
+  --repeats 2
 ```
 
 The CPU artifact now measures two distinct local modes:
@@ -116,8 +121,13 @@ Run the optional remote GPU benchmark:
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
-  --cpu-device-counts 1,2,4,8 \
+  --cpu-device-counts 1,2,4 \
   --gpu-device-counts 1,2 \
+  --total-batch 32 \
+  --nx 512 \
+  --ny 64 \
+  --steps 12 \
+  --repeats 2 \
   --remote-host office
 ```
 
@@ -130,15 +140,22 @@ Outputs:
 
 Current committed result:
 
-- local CPU process-group reference: about `1.25x` speedup from `1 -> 8`
-- local CPU host-device `pmap`: about `1.08x` from `1 -> 2`, `1.27x` from `1 -> 4`, and `1.25x` from `1 -> 8`
-- the currently committed artifact was regenerated locally with `--skip-gpu`, so the figure emphasizes the two CPU modes on this MacBook rather than repeating the earlier remote GPU line
+- local CPU process-group reference on the heavier medium workload:
+  - about `3.54 s -> 3.26 s -> 3.20 s`
+  - about `1.08x` from `1 -> 2`
+  - about `1.10x` from `1 -> 4`
+- local CPU host-device `pmap` on the same workload:
+  - about `3.65 s -> 3.41 s -> 3.39 s`
+  - about `1.07x` from `1 -> 2`
+  - about `1.08x` from `1 -> 4`
+- the current committed artifact was regenerated locally with `--skip-gpu`, so the figure emphasizes the two CPU modes on this MacBook rather than repeating the earlier remote GPU line
 
 Interpretation:
 
-- the host-device `pmap` curve is the cleanest demonstration that several CPU cores can be used explicitly from JAX on this machine
-- the process-group curve remains a useful reference for Python-level task parallelism
-- both CPU curves are still modest strong-scaling results on a small fixed workload, not a claim that CPU splitting replaces accelerator execution
+- several CPU cores can be used on this machine in both execution modes
+- on the currently committed heavier workload, the local process-group mode is slightly better than host-device `pmap`, but both CPU curves are modest
+- explicit host-device `pmap` is still a real supported mode, but it is not a strong-scaling headline result on this benchmark
+- the honest conclusion on this MacBook is that CPU parallelism is available and measurable, but the reviewer-facing strong-scaling claim should still stay bounded
 - all curves are measured on a differentiable objective, not just a forward solve
 
 ## Notes On Method
