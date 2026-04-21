@@ -1363,13 +1363,17 @@ def _grad_par_open(
     result = np.zeros_like(field, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
-
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                result[i, j, k] = (
-                    0.5
-                    * (field[i, j + 1, k] - field[i, j - 1, k])
-                    / (dy[i, j, k] * np.sqrt(g22[i, j, k]))
-                )
+    x_slice = slice(mesh.xstart, mesh.xend + 1)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    result[x_slice, y_slice, :] = (
+        0.5
+        * (
+            np.asarray(field[x_slice, mesh.ystart + 1 : mesh.yend + 2, :], dtype=np.float64)
+            - np.asarray(field[x_slice, mesh.ystart - 1 : mesh.yend, :], dtype=np.float64)
+        )
+        / (
+            np.asarray(dy[x_slice, y_slice, :], dtype=np.float64)
+            * np.sqrt(np.asarray(g22[x_slice, y_slice, :], dtype=np.float64))
+        )
+    )
     return result

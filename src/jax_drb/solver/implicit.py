@@ -122,12 +122,12 @@ def build_sparse_difference_quotient_jacobian(
     offset = 0
 
     def _evaluate_group(group: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        perturbation = np.zeros_like(state_array)
+        perturbed_state = state_array.copy()
         group_steps: list[tuple[int, float]] = []
         group_nnz = 0
         for column in group:
             step = difference_quotient_step_size(state_array[column])
-            perturbation[column] = step
+            perturbed_state[column] += step
             group_steps.append((column, step))
             group_nnz += sparsity_csc.indptr[column + 1] - sparsity_csc.indptr[column]
 
@@ -135,7 +135,7 @@ def build_sparse_difference_quotient_jacobian(
         group_cols = np.empty(group_nnz, dtype=np.int32)
         group_data = np.empty(group_nnz, dtype=np.float64)
 
-        perturbed_residual = np.asarray(residual(state_array + perturbation), dtype=np.float64)
+        perturbed_residual = np.asarray(residual(perturbed_state), dtype=np.float64)
         delta = perturbed_residual - residual0
         group_offset = 0
         for column, step in group_steps:

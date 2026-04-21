@@ -273,9 +273,10 @@ What this documents:
 What this documents:
 
 - a reviewer-facing local CPU scaling result on a real promoted heavy recycling solve rather than a tiny synthetic kernel;
-- a heavier fixed-work ensemble with `24` repeated heavy solves, so launch and warmup overhead are better amortized;
+- a heavier fixed-work ensemble with `16` repeated heavy solves, so launch and warmup overhead are better amortized;
 - the stronger local throughput story users actually care about for UQ, optimization, and parameter scans: repeated heavy solves scale well across local worker processes after warmup;
-- on the committed artifact the steady-state speedup is about `1.87x`, `3.10x`, and `4.60x` at `2`, `4`, and `8` workers;
+- on the committed artifact the steady-state speedup is about `1.88x`, `3.67x`, and `4.94x` at `2`, `4`, and `8` workers;
+- the retained `16`-solve ensemble was chosen deliberately because heavier local sweeps did not improve the curve on this MacBook;
 - the operational recommendation for laptop users: keep one Jacobian thread per worker for batched heavy solves and use multiple local workers when the workload is naturally parallel.
 
 ## Hermes Comparison Summary
