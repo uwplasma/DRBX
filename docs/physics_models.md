@@ -22,6 +22,24 @@ The promoted electrostatic, open-field, and direct-tokamak lanes are built
 around drift-reduced Braginskii-style density, momentum, pressure, and
 potential evolution.
 
+From first principles, these lanes start from the multispecies collisional
+moment hierarchy and apply the standard edge/SOL drift ordering
+`ω/Ω_i << 1`, `ρ_s/L_⊥ << 1`, and `k_∥ << k_⊥`, so that fast gyromotion is
+removed while the dominant parallel transport, sheath losses, and
+cross-field drift dynamics are retained. In the literature, this is the same
+reduced-fluid family used by Hermes-3, GBS, GDB, GRILLIX, and TOKAM3X.
+
+Useful references for the model class and its scope:
+
+- Braginskii transport review:
+  [Braginskii 1965](https://link.springer.com/book/10.1007/978-1-4615-2808-1)
+- reduced-fluid SOL model and GBS comparison class:
+  [Ricci et al. 2012](https://iopscience.iop.org/article/10.1088/0741-3335/54/12/124047)
+- Hermes-3 multi-component edge/SOL model:
+  [Dudson et al. 2023](https://doi.org/10.1016/j.cpc.2023.108899)
+- global tokamak edge fluid review:
+  [Schwander et al. 2024](https://doi.org/10.1016/j.compfluid.2023.106141)
+
 At the level exposed in the current native ladders, the code is solving
 discrete forms of the following model families.
 
@@ -34,6 +52,15 @@ schematically as
 
 where `u_E = b × ∇⊥ φ / B` and `Γ_s^model` collects benchmark-specific
 transport closures such as curvature-driven or reduced-annulus terms.
+
+Operationally:
+
+- continuity is the zeroth velocity moment,
+- parallel momentum is the field-aligned projection of the first moment,
+- pressure/energy is the reduced second-moment balance with collisional
+  closure,
+- electrostatic/vorticity closure replaces full perpendicular ion momentum with
+  a drift-ordered polarization/vorticity equation.
 
 ### Continuity
 
@@ -82,6 +109,10 @@ radiation/source, and controller/recycling terms relevant to the active lane.
 In the open-field and tokamak recycling lanes this includes explicit parallel
 heat conduction, sheath energy losses, thermal-force coupling, reaction energy
 exchange, and neutral/plasma exchange terms.
+
+The strongest reference-backed lanes evolve pressure-like variables because that
+matches the reduced-fluid benchmark class used in Hermes-style open-field and
+detachment studies more closely than a purely temperature-based closure.
 
 The dominant parallel conductive closure is the standard reduced form
 
@@ -151,6 +182,13 @@ The exact promoted equation set differs by benchmark, but the implementation
 reuses these operator families rather than encoding each case as an unrelated
 solver.
 
+That reuse is deliberate. In `jax_drb`, the claim boundary is attached to
+operator families and validated compare surfaces, not to one monolithic solver
+path. The same continuity, momentum, pressure, sheath, and recycling operators
+therefore appear across 1D open-field lanes, direct tokamak lanes, and staged
+3D geometry adapters, while the provenance/runtime layer records which compare
+surface each result belongs to.
+
 ## Numerical Algorithms
 
 The code paths above are not solved with one monolithic algorithm. The current
@@ -208,6 +246,21 @@ That path is still the main host/SciPy-heavy backbone and the main remaining
 performance bottleneck. Recent optimization passes made it materially cheaper by
 reusing packed-state metadata, vectorizing hot residual operators, and reducing
 allocation overhead in sparse Jacobian assembly.
+
+In compact mathematical form, the implicit production path solves
+
+```text
+F(U^{n+1}) = U^{n+1} - Σ_k α_k U^{n-k} - Δt β R(U^{n+1}) = 0
+```
+
+with Newton updates
+
+```text
+J(U^{n+1,ℓ}) δU^ℓ = -F(U^{n+1,ℓ}),
+U^{n+1,ℓ+1} = U^{n+1,ℓ} + δU^ℓ
+```
+
+and sparse finite-difference quotient Jacobians on the packed active state.
 
 ### Controller Reconstruction / Audit Algorithms
 
