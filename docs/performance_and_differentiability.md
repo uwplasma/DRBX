@@ -77,6 +77,8 @@ performance questions:
 
 - avoid tiny per-field JIT dispatches on the reduced 3D kernels;
 - batch same-shape selected fields before entering the jitted kernel;
+- batch the reference/candidate pair through the same reduced kernel when the
+  compare surface is shape-aligned;
 - warm once before timing;
 - keep solver/case metadata out of static JIT arguments;
 - keep file I/O, plotting, and JSON serialization outside hot kernels.
@@ -127,8 +129,14 @@ likely to help in specific places:
   lanes, but not a drop-in replacement for the currently validated recycling
   backbone without new parity work.
 
-For the current release, the measured bottlenecks are still more about solver
-structure and host barriers than about the absence of one extra library.
+For the current release, that distinction is now explicit in the source tree:
+
+- the promoted native kernels do not currently depend on `equinox`, `lineax`,
+  or `diffrax` in their active shipping paths;
+- those libraries remain packaged as optional future-tooling hooks and legacy
+  lineage, not as active explanations for the current reduced-kernel speedups;
+- the measured bottlenecks are still more about solver structure and host
+  barriers than about the absence of one extra library.
 
 ## Guidance For Users
 

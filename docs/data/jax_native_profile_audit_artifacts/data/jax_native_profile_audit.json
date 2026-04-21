@@ -12,39 +12,39 @@
         4,
         3
       ],
-      "compile_seconds": 0.008769916952587664,
+      "compile_seconds": 0.0008210840005631326,
       "field_names": [
         "g11",
         "g33"
       ],
-      "first_execute_seconds": 0.0003349999897181988,
+      "first_execute_seconds": 9.574999967298936e-05,
       "lane_name": "traced_field_line_native_selected_field",
       "trace_files": [
-        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.trace.json.gz",
-        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.xplane.pb",
-        "plugins/profile/2026_04_16_20_44_32/perfetto_trace.json.gz"
+        "normalized/perfetto_trace.json.gz",
+        "normalized/runtime.trace.json.gz",
+        "normalized/runtime.xplane.pb"
       ],
-      "warm_execute_seconds": 3.462500171735883e-05
+      "warm_execute_seconds": 9.584000508766621e-06
     },
     {
       "batched_shape": [
         3,
         24
       ],
-      "compile_seconds": 0.0010456249583512545,
+      "compile_seconds": 0.0005559170003834879,
       "field_names": [
         "iota",
         "pressure",
         "toroidal_flux"
       ],
-      "first_execute_seconds": 0.000567917013540864,
+      "first_execute_seconds": 0.00012395799967634957,
       "lane_name": "stellarator_vmec_native_selected_field",
       "trace_files": [
-        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.trace.json.gz",
-        "plugins/profile/2026_04_16_20_44_32/Rogerio-macmini-2025.local.xplane.pb",
-        "plugins/profile/2026_04_16_20_44_32/perfetto_trace.json.gz"
+        "normalized/perfetto_trace.json.gz",
+        "normalized/runtime.trace.json.gz",
+        "normalized/runtime.xplane.pb"
       ],
-      "warm_execute_seconds": 2.645899076014757e-05
+      "warm_execute_seconds": 1.0540999937802553e-05
     }
   ],
   "recommendations": [

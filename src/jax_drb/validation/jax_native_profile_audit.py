@@ -192,7 +192,29 @@ def _capture_kernel_trace(
     with jax.profiler.trace(str(trace_root), create_perfetto_trace=True):
         jax.block_until_ready(compiled(reference_batch))
         jax.block_until_ready(compiled(candidate_batch))
-    return sorted(str(path.relative_to(trace_root)) for path in trace_root.rglob("*") if path.is_file())
+    normalized_paths: list[str] = []
+    file_map = {
+        ".trace.json.gz": "runtime.trace.json.gz",
+        ".xplane.pb": "runtime.xplane.pb",
+        "perfetto_trace.json.gz": "perfetto_trace.json.gz",
+    }
+    staged_root = trace_root / "normalized"
+    staged_root.mkdir(parents=True, exist_ok=True)
+    for source in sorted(path for path in trace_root.rglob("*") if path.is_file()):
+        destination_name = None
+        for suffix, normalized_name in file_map.items():
+            if source.name.endswith(suffix):
+                destination_name = normalized_name
+                break
+        if destination_name is None:
+            continue
+        destination = staged_root / destination_name
+        shutil.copy2(source, destination)
+        normalized_paths.append(str(destination.relative_to(trace_root)))
+    plugins_root = trace_root / "plugins"
+    if plugins_root.exists():
+        shutil.rmtree(plugins_root)
+    return sorted(normalized_paths)
 
 
 def _stack_traced_metric_fields(fields: dict[str, np.ndarray], field_names: tuple[str, ...]) -> jax.Array:
