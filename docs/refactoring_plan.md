@@ -356,6 +356,107 @@ The benchmark hierarchy should mirror the literature:
   TCV-X21, TORPEX-style blob/filament, detachment and divertor scaling, 3D
   geometry portability
 
+## Literature-Anchored Baseline Audit
+
+Before any baseline is treated as publication-grade, it should be checked
+against the figure and diagnostic patterns used in the comparison literature.
+The main references inspected for this plan were:
+
+- Hermes-3:
+  [Dudson et al. 2024](https://www.sciencedirect.com/science/article/pii/S0010465523003363)
+- GBS:
+  [Giacomin et al. 2022](https://www.sciencedirect.com/science/article/pii/S0021999122003280)
+- SOLPS-ITER against TCV-X21:
+  [Wang et al. 2024](https://doi.org/10.1088/1741-4326/ad3562)
+- TCV-X21 benchmark:
+  [Sales de Oliveira et al. 2022](https://doi.org/10.1088/1741-4326/ac74b4)
+- GBS parallel-gradient discretization study:
+  [Mosetto et al. 2015](https://www.sciencedirect.com/science/article/pii/S001046551400366X)
+- TORPEX X-point validation:
+  [Galassi et al. 2022](https://orbit.dtu.dk/en/publications/validation-of-edge-turbulence-codes-in-a-magnetic-x-point-scenari/)
+- detachment scaling with Hermes-1D:
+  [Body et al. 2024](https://www.sciencedirect.com/science/article/pii/S2352179124002424)
+- SPLEND1D detachment model:
+  [Delaporte-Mathurin et al. 2024](https://arxiv.org/abs/2402.04656)
+
+These papers repeatedly use the same figure classes:
+
+- convergence curves and MMS order plots
+- workflow or domain-geometry schematics
+- 2D and 3D snapshots with magnetic topology or separatrix overlays
+- profile overlays against experiment or a trusted reference code
+- scan or optimization figures showing improved agreement across observables
+- runtime or algorithmic figures only when they are tied to a scientific claim
+
+This implies a rule for `jax_drb` baselines:
+
+- a baseline is not anchored in the literature if it exists only as arrays or a
+  JSON summary
+- every promoted benchmark family should have at least one figure that matches a
+  recognizable literature pattern and at least one machine-readable artifact
+- where the literature compares profiles, targets, or diagnostic maps, our
+  baseline should expose those same observables rather than only reduced norms
+
+## Manuscript Figure Plan From Tests And Campaigns
+
+The future paper figures should come out of validated tests and campaigns,
+rather than from paper-only scripts that reimplement logic.
+
+### Verification figures
+
+- MMS convergence figure for promoted operator families
+  - current seed: `fluid_1d` MMS and future MMS extensions
+  - literature anchor: Hermes-3 figure style for 1D convergence
+- operator verification figure for parallel-gradient and elliptic closures
+  - target: compare exact/analytic or manufactured expectations, numerical
+    order, and bounded operator residuals
+  - literature anchor: GBS parallel-gradient operator paper
+
+### Geometry and benchmark figures
+
+- domain and diagnostic map figure for tokamak validation
+  - target: magnetic geometry plus diagnostic or compare window overlay
+  - literature anchor: SOLPS-ITER / TCV-X21 diagnostic map figure
+- 3D snapshot figure with topology overlay
+  - target: tokamak/traced-field-line/stellarator selected-field snapshot with
+    separatrix or surface annotation
+  - literature anchor: GBS whole-volume snapshot figure
+
+### Physics validation figures
+
+- direct tokamak recycling ladder
+  - one-step, `nout=3`, and `nout=5` bounded overlays
+  - target quantities: density, pressure, momentum, recycling-related source
+    terms, and summary residuals
+- neutral short-window validation
+  - full-array and centerline comparisons, not only scalar residual summaries
+- detachment and controller figures
+  - target: controller history, temperature or recycling target tracking,
+    response transients, and agreement to reference histories
+- impurity/radiation and reactions figures
+  - target: rate closure agreement, radiation loss trends, and source partition
+
+### Differentiability figures
+
+- gradient-vs-finite-difference comparison
+- covariance pushforward vs Monte Carlo uncertainty comparison
+- inverse-design convergence and recovered profile/design overlay
+- workstation throughput scaling for repeated heavy solves
+
+These should remain anchored to currently promoted differentiable lanes until a
+stronger open-field or recycling differentiable lane exists.
+
+### Figure-generation policy
+
+Every figure destined for the manuscript should be produced from:
+
+- a validated test or campaign script in the code repo
+- a machine-readable analysis artifact
+- a plotting function that can be regression-checked for completeness
+
+The paper repo may compose panels, but it should not be the first place where
+the data product is generated.
+
 ## Autodiff, JAX, And Optimization Roadmap
 
 The differentiable lane should become a first-class part of the architecture,
@@ -417,6 +518,78 @@ Do not add these libraries to hot paths just to say they are used. The standard
 is stronger code and stronger evidence, not ecosystem completeness for its own
 sake.
 
+## Additional Validation And Benchmark Lanes Worth Adding
+
+The current plan already covers the main promoted lanes, but the literature
+suggests a few additional benchmark families that would materially strengthen a
+future JCP paper.
+
+### Parallel-gradient and operator verification
+
+The GBS parallel-gradient paper shows that operator papers can make a strong
+scientific point if they combine:
+
+- analytical or reduced-model expectations
+- convergence and dispersion-style verification
+- nonlinear benchmark comparison
+
+`jax_drb` should add a dedicated operator campaign for:
+
+- parallel-gradient discretization
+- sheath boundary sensitivity
+- geometry-metric consistency in selected-field reductions
+
+### TORPEX and X-point blob validation
+
+The TORPEX X-point validation literature provides a natural bridge between
+compact blob lanes and divertor/X-point geometry claims. This should become an
+explicit planned benchmark package, not just a “nice to have.”
+
+Target deliverables:
+
+- seeded blob trajectory and morphology figures
+- center-of-mass and amplitude diagnostics
+- X-point topology or null-region geometry figure
+- comparison against published blob propagation trends
+
+### Detachment scaling and 1D reduced-model comparison
+
+The Hermes-1D detachment-scaling and SPLEND1D papers imply that a strong
+reduced-model paper should include:
+
+- rollover and detachment-front trends
+- scaling against standard detachment models such as Lengyel–Goedheer
+- explicit scan artifacts rather than isolated one-off transients
+
+`jax_drb` should therefore plan:
+
+- a 1D detachment-scaling campaign
+- comparison against reduced theoretical scaling where appropriate
+- controller and radiation scans tied to reusable analysis JSON and plots
+
+### TCV-X21 neutrals and diagnostics extension
+
+The SOLPS-ITER TCV-X21 paper strengthens the benchmark by adding neutral
+pressure and Balmer-line observables, not just density and temperature. This is
+worth adding to the plan explicitly:
+
+- neutral pressure comparisons
+- Balmer-line or proxy synthetic-diagnostic comparisons where feasible
+- ionization source distribution summaries
+
+### Mirror and stellarator optimization lane
+
+For the differentiable roadmap beyond compact diffusion and reduced 3D selected
+field lanes, the highest-value physics extensions are:
+
+- mirror geometry parameter sensitivity and optimization
+- tokamak source/control or metric parameter optimization
+- stellarator or traced-field-line geometry optimization on reduced observables
+
+These are longer-term tasks, but they should be planned early because they
+shape how geometry parameters, diagnostics, and JAX-transformable APIs are
+designed during the refactor.
+
 ## Example And Campaign Triage
 
 Every example should have an explicit status.
@@ -450,6 +623,44 @@ For each example, decide whether it is:
 
 If an example does not fit one of these roles, it should be merged, simplified,
 or removed.
+
+## Documentation Expansion Plan
+
+The public docs are already useful, but the refactor should add much more
+developer-facing documentation on testing and code structure.
+
+### New documentation targets
+
+- `docs/code_structure.md`
+  - package map
+  - module responsibilities
+  - import and registry boundaries
+  - JAX-native vs host-backed solver surfaces
+- `docs/testing_strategy.md`
+  - test taxonomy
+  - markers and expected runtime classes
+  - what counts as verification, regression, parity, and benchmark validation
+  - how coverage is measured and interpreted
+- `docs/equation_to_code_map.md`
+  - equation terms
+  - closure names
+  - implementation modules
+  - direct tests and campaigns that exercise each term
+- `docs/example_status_matrix.md`
+  - tutorial vs benchmark vs campaign vs publication generator role for each
+    example
+
+### Documentation requirements during refactor
+
+Every refactor milestone should update:
+
+- code docstrings
+- public docs for the affected package
+- the equation-to-code map
+- the testing strategy page when a new validation layer or marker is introduced
+
+This is required because the code is intended for research and paper
+production, not only for internal development.
 
 ## Comments, Docstrings, And Equation Traceability
 
