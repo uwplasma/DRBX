@@ -142,6 +142,12 @@ Priority figure-producing families are:
 - 3D runtime and convergence campaigns
 - differentiability, uncertainty, inverse design, and local throughput
 
+The current promoted example of this policy is:
+
+- [fluid_1d_mms_convergence.md](fluid_1d_mms_convergence.md), which turns the
+  manufactured-solution refinement study into the same JSON/NPZ/plot artifact
+  surface used by the other publication-facing campaigns
+
 ## Immediate Refactor Priorities
 
 During the first structural phase:

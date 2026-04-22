@@ -256,6 +256,16 @@ What this documents:
 - observed refinement order against an analytic radial-average target rather than only parity and runtime numbers;
 - the first committed convergence bundle specific to the reduced native 3D matrix itself.
 
+## Fluid 1D MMS Convergence
+
+![Fluid 1D MMS convergence](data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
+
+What this documents:
+
+- an explicit manufactured-solution refinement bundle for the promoted 1D fluid density, pressure, and momentum operators;
+- per-resolution L2 errors and observed orders on the same native lane used for the compact verification tests;
+- a literature-anchored verification figure that can be reused in docs and future paper surfaces instead of leaving the result trapped in a script output.
+
 ## JAX Native Profile Audit
 
 ![JAX native profile audit](data/jax_native_profile_audit_artifacts/images/jax_native_profile_audit.png)

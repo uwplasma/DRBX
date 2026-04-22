@@ -749,6 +749,11 @@ Each figure-producing campaign should:
 This keeps the paper and the code aligned: important figures should be
 reproducible by the same scripts that prove the underlying result.
 
+The current template for this policy is the public
+[fluid_1d_mms_convergence.md](fluid_1d_mms_convergence.md) bundle: one shared
+verification implementation now feeds the standalone script wrapper, direct
+tests, docs artifacts, and future manuscript-ready convergence figures.
+
 ## Sequencing
 
 The safest order is:

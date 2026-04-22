@@ -65,6 +65,19 @@ from .reference_dump import (
     load_optional_field_history_cache,
 )
 from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
+from .runner_cache import (
+    integrated_2d_optional_history_cache_path,
+    integrated_2d_snapshot_cache_path,
+    open_field_snapshot_cache_path,
+    resolved_capability_tier as _resolved_capability_tier,
+    tokamak_field_history_cache_path,
+    tokamak_snapshot_cache_path,
+    uses_open_field_snapshot_cache as _uses_open_field_snapshot_cache,
+    uses_optional_history_cache as _uses_optional_history_cache,
+    uses_snapshot_cache as _uses_snapshot_cache,
+    uses_tokamak_field_history_cache as _uses_tokamak_field_history_cache,
+    uses_tokamak_snapshot_cache as _uses_tokamak_snapshot_cache,
+)
 from .runner_compare import (
     prepare_compare_variables as _prepare_compare_variables,
     select_payload_variables as _select_payload_variables,
@@ -98,84 +111,27 @@ class NativeRestartState:
 
 
 _REFERENCE_SNAPSHOT_CACHE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_snapshots"
-_REFERENCE_ARRAY_BASELINE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_arrays"
-
-
-def _resolved_capability_tier(reference_case: ReferenceCase | None) -> str:
-    if reference_case is None:
-        return "native_exact"
-    return reference_case.capability_tier
 
 
 def _integrated_2d_snapshot_cache_path(case_name: str) -> Path:
-    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
+    return integrated_2d_snapshot_cache_path(_REFERENCE_SNAPSHOT_CACHE_DIR, case_name)
 
 
 def _integrated_2d_optional_history_cache_path(case_name: str) -> Path:
-    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_optional_history.npz"
+    return integrated_2d_optional_history_cache_path(_REFERENCE_SNAPSHOT_CACHE_DIR, case_name)
 
 
 def _open_field_snapshot_cache_path(case_name: str) -> Path:
-    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
-
-
-def _uses_open_field_snapshot_cache(case_name: str) -> bool:
-    return case_name in {
-        "recycling_1d_rhs",
-        "recycling_dthe_rhs",
-    }
+    return open_field_snapshot_cache_path(_REFERENCE_SNAPSHOT_CACHE_DIR, case_name)
 
 
 def _tokamak_snapshot_cache_path(case_name: str) -> Path:
-    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_snapshot.npz"
+    return tokamak_snapshot_cache_path(_REFERENCE_SNAPSHOT_CACHE_DIR, case_name)
 
 
 def _tokamak_field_history_cache_path(case_name: str) -> Path:
-    return _REFERENCE_SNAPSHOT_CACHE_DIR / f"{case_name}_field_history.npz"
-
-
-def _uses_tokamak_snapshot_cache(case_name: str) -> bool:
-    return case_name in {
-        "tokamak_diffusion_flow_one_step",
-        "tokamak_diffusion_one_step",
-        "tokamak_diffusion_transport_one_step",
-        "tokamak_diffusion_transport_short_window",
-        "tokamak_heat_transport_one_step",
-        "tokamak_heat_transport_short_window",
-        "tokamak_diffusion_conduction_one_step",
-        "tokamak_diffusion_conduction_short_window",
-        "tokamak_linear_transport_one_step",
-        "tokamak_linear_transport_short_window",
-        "tokamak_isothermal_rhs",
-        "tokamak_isothermal_one_step",
-        "tokamak_isothermal_short_window",
-        "tokamak_isothermal_medium_window",
-        "tokamak_turbulence_rhs",
-        "tokamak_turbulence_one_step",
-        "tokamak_turbulence_short_window",
-    }
-
-
-def _uses_tokamak_field_history_cache(case_name: str) -> bool:
-    return _uses_tokamak_snapshot_cache(case_name)
-
-
-def _uses_snapshot_cache(case_name: str) -> bool:
-    return case_name.startswith("integrated_2d_production") or case_name in {
-        "tokamak_recycling_rhs",
-        "tokamak_recycling_dthe_rhs",
-        "tokamak_recycling_dthe_drifts_rhs",
-        "tokamak_recycling_dthene_rhs",
-    }
-
-
-def _uses_optional_history_cache(case_name: str) -> bool:
-    return case_name.startswith("integrated_2d_production") or case_name in {
-        "tokamak_recycling_one_step",
-        "tokamak_recycling_dthe_one_step",
-        "tokamak_recycling_dthe_drifts_one_step",
-        "tokamak_recycling_dthene_one_step",
-    }
+    return tokamak_field_history_cache_path(_REFERENCE_SNAPSHOT_CACHE_DIR, case_name)
+_REFERENCE_ARRAY_BASELINE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_arrays"
 
 
 def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
@@ -2738,4 +2694,3 @@ def build_restart_state(
         configured_timestep=float(result.run_config.time.timestep),
         state_variables=final_state,
     )
-

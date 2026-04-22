@@ -55,7 +55,7 @@ Before any case family is promoted to `native_exact`, it must have:
 
 - timestep refinement on promoted transient lanes
 - spatial refinement where practical on promoted benchmark families
-- manufactured-solution order-of-accuracy reports on promoted operator lanes, starting with `scripts/run_fluid_1d_mms_convergence.py`
+- manufactured-solution order-of-accuracy reports on promoted operator lanes, starting with the public `fluid_1d_mms_convergence` campaign and its standalone `scripts/run_fluid_1d_mms_convergence.py` wrapper
 
 ### Runtime
 
@@ -85,7 +85,7 @@ Coverage is opt-in on this gate. The default run is intentionally a fast no-cove
 
 Longer transient-solver history tests should be marked `slow` and kept out of this default gate unless they are the specific subject of the current iteration.
 
-Reviewer-facing convergence campaigns should live outside the default gate and be run explicitly, for example through the optional `convergence_campaign` slice or the standalone `scripts/run_fluid_1d_mms_convergence.py` report.
+Reviewer-facing convergence campaigns should live outside the default gate and be run explicitly, for example through the optional `convergence_campaign` slice or the public `fluid_1d_mms_convergence` artifact package and its standalone `scripts/run_fluid_1d_mms_convergence.py` wrapper.
 
 ## Current Strategic Focus
 
