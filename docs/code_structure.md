@@ -233,6 +233,21 @@ contract rather than a private implementation detail. It affects runtime,
 provenance, and reproducibility, so it should be directly tested instead of
 being inferred only through the larger runner and tokamak integration suites.
 
+The current runner reference-resolution extraction is:
+
+- [src/jax_drb/native/runner_reference.py](../src/jax_drb/native/runner_reference.py)
+
+That module owns:
+
+- reference-root recovery from curated input paths
+- application of case-specific override templates
+- reference-case lookup by curated case name
+
+These helpers sit on the reproducibility path for curated benchmark runs. They
+determine which deck is loaded and how reference-root-dependent overrides are
+resolved, so they are worth isolating and testing directly rather than leaving
+them buried in the dispatch file.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:

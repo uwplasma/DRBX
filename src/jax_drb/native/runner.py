@@ -9,7 +9,7 @@ from typing import Any, Mapping
 import jax.numpy as jnp
 import numpy as np
 
-from ..config.boutinp import BoutConfig, NumericResolver, apply_bout_overrides, load_bout_input
+from ..config.boutinp import BoutConfig, NumericResolver, load_bout_input
 from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import run_reference_case
 from ..reference.cases import ReferenceCase, load_reference_cases
@@ -87,6 +87,10 @@ from .runner_execution import (
     effective_overrides as _effective_overrides,
     restart_variable_names,
 )
+from .runner_reference import (
+    load_curated_case_config as _load_curated_case_config,
+    reference_root_from_input_path as _reference_root_from_input_path,
+)
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -134,24 +138,8 @@ def _tokamak_field_history_cache_path(case_name: str) -> Path:
 _REFERENCE_ARRAY_BASELINE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_arrays"
 
 
-def _reference_root_from_input_path(case: ReferenceCase, input_path: Path) -> Path:
-    reference_path = Path(case.reference_path)
-    offset = len(reference_path.parts) - 1
-    if reference_path.is_absolute():
-        offset -= 1
-    return input_path.parents[offset]
-
-
-def _load_curated_case_config(case: ReferenceCase, input_path: Path) -> BoutConfig:
-    config = load_bout_input(input_path)
-    if not case.extra_overrides:
-        return config
-    reference_root = _reference_root_from_input_path(case, input_path)
-    resolved_overrides = tuple(
-        override.format(reference_root=str(reference_root))
-        for override in case.extra_overrides
-    )
-    return apply_bout_overrides(config, resolved_overrides)
+def _reference_case_by_name_or_none(case_name: str) -> ReferenceCase | None:
+    return next((case for case in load_reference_cases() if case.name == case_name), None)
 
 
 def _direct_recycling_species_names(config: BoutConfig) -> tuple[str, ...]:
@@ -1753,10 +1741,6 @@ def run_input_case(
         verbosity=verbosity,
         event_logger=event_logger,
     )
-
-
-def _reference_case_by_name_or_none(case_name: str) -> ReferenceCase | None:
-    return next((case for case in load_reference_cases() if case.name == case_name), None)
 
 
 def run_config_case(
