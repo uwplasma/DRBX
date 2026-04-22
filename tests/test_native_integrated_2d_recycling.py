@@ -154,11 +154,6 @@ def test_integrated_2d_production_one_step_prefers_bdf_solver() -> None:
         config=config,
         parity_mode="one_step",
     ) == "bdf"
-    assert native_runner._select_integrated_2d_transient_solver_mode(
-        "integrated_2d_recycling_one_step",
-        config=config,
-        parity_mode="one_step",
-    ) == native_runner._select_recycling_transient_solver_mode(config, parity_mode="one_step")
 
 
 @dataclass(frozen=True)

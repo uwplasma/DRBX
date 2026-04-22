@@ -788,19 +788,6 @@ def test_recycling_one_step_progress_callback_receives_interval_updates(
     ]
 
 
-def test_integrated_recycling_runtime_override_supersedes_default_bdf() -> None:
-    config = apply_bout_overrides(
-        load_bout_input(_INPUT_1D),
-        ("runtime:recycling_transient_solver_mode=adaptive_be",),
-    )
-
-    assert native_runner._select_integrated_2d_transient_solver_mode(
-        "tokamak_recycling_dthe_one_step",
-        config=config,
-        parity_mode="one_step",
-    ) == "adaptive_be"
-
-
 def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

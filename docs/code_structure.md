@@ -265,6 +265,22 @@ integrated and open-field recycling families. They are stable enough to unit
 test directly and scientifically meaningful enough that they should not remain
 hidden inside the main runner dispatch file.
 
+The current transient solver-mode policy extraction is:
+
+- [src/jax_drb/native/runner_solver_mode.py](../src/jax_drb/native/runner_solver_mode.py)
+
+That module owns:
+
+- configured recycling transient solver-mode parsing
+- default solver-mode selection from parity mode and ion-species count
+- the explicit BDF preference on promoted integrated and direct-tokamak one-step
+  lanes
+
+This is worth isolating because solver-mode choice affects both runtime and
+scientific reproducibility. It is a policy layer rather than a transport
+operator, and it should be directly tested rather than inferred only from
+longer transient cases.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
