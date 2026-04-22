@@ -79,6 +79,20 @@ That module exists so the active-domain packing and unpacking rules can be unit
 tested directly, instead of being implied only through large transient-solver
 tests.
 
+The next low-risk extraction is the recycling field metadata layer:
+
+- [src/jax_drb/native/recycling_fields.py](../src/jax_drb/native/recycling_fields.py)
+
+That module owns:
+
+- evolving variable-name ordering
+- field template construction
+- runtime field-override application
+
+These rules are small, but they are part of the implicit-state contract and are
+therefore worth testing directly rather than only through end-to-end recycling
+cases.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:

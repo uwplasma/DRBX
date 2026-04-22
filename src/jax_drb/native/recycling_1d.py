@@ -41,6 +41,11 @@ from .open_field import (
     compute_target_recycling_sources,
     limit_free,
 )
+from .recycling_fields import (
+    build_recycling_state_fields as _build_recycling_state_fields,
+    recycling_evolving_variable_names as _recycling_evolving_variable_names,
+    recycling_field_templates as _recycling_field_templates,
+)
 from .recycling_layout import (
     RecyclingPackedStateLayout as _RecyclingPackedStateLayout,
     build_recycling_packed_state_layout as _build_recycling_packed_state_layout,
@@ -792,19 +797,6 @@ def _load_explicit_pressure_sources(
         for name in species_templates
         if species_templates[name].has_pressure or name == "e"
     }
-
-
-def _build_recycling_state_fields(
-    runtime_model: _RecyclingRuntimeModel,
-    *,
-    field_overrides: dict[str, np.ndarray] | None = None,
-) -> dict[str, np.ndarray]:
-    overrides = field_overrides or {}
-    fields = _recycling_field_templates(runtime_model.species_templates, field_names=runtime_model.field_names)
-    for name, value in overrides.items():
-        if name in fields:
-            fields[name] = np.asarray(value, dtype=np.float64, copy=True)
-    return fields
 
 
 def _override_species_fields(
@@ -5492,39 +5484,6 @@ def _build_recycling_mixed_bdf2_residual(
         timestep=timestep,
     )
     return np.concatenate([field_block, controller_block]) if feedback_names else field_block
-
-
-def _recycling_evolving_variable_names(species: dict[str, OpenFieldSpecies]) -> tuple[str, ...]:
-    names: list[str] = []
-    for name, sp in species.items():
-        if name == "e":
-            names.append("Pe")
-            continue
-        names.extend((sp.density_name, sp.pressure_name, sp.momentum_name))
-    return tuple(names)
-
-
-def _recycling_field_templates(
-    species: dict[str, OpenFieldSpecies],
-    *,
-    field_names: tuple[str, ...],
-) -> dict[str, np.ndarray]:
-    templates: dict[str, np.ndarray] = {}
-    for name in field_names:
-        if name == "Pe":
-            templates[name] = np.asarray(species["e"].pressure, dtype=np.float64)
-            continue
-        species_name = name[1:] if name.startswith("N") else name[1:]
-        if name.startswith("NV"):
-            species_name = name[2:]
-        sp = species[species_name]
-        if name.startswith("N") and not name.startswith("NV"):
-            templates[name] = np.asarray(sp.density, dtype=np.float64)
-        elif name.startswith("P"):
-            templates[name] = np.asarray(sp.pressure, dtype=np.float64)
-        else:
-            templates[name] = np.asarray(sp.momentum, dtype=np.float64)
-    return templates
 
 
 @lru_cache(maxsize=None)
