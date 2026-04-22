@@ -122,6 +122,17 @@ The assertion test and the artifact campaign should share the same source logic
 wherever possible. The test proves correctness; the campaign proves the result
 is communicable and publication-ready.
 
+This applies directly to:
+
+- fits and tabulated-rate evaluations
+- reconstruction rules and guarded-boundary formulas
+- reaction and collision closures
+- parity and benchmark validation surfaces
+
+If a surface is strong enough to be discussed in the paper, it should already
+exist in the docs as a reproducible artifact rather than only as a hidden test
+assertion.
+
 Priority figure-producing families are:
 
 - MMS convergence

@@ -124,6 +124,23 @@ This is an important split because it separates atomic-data handling from the
 larger recycling residual assembly and makes the accuracy/performance boundary
 of the reaction closures easier to test directly.
 
+The current reaction/source assembly extraction is:
+
+- [src/jax_drb/native/recycling_reactions.py](../src/jax_drb/native/recycling_reactions.py)
+
+That module owns:
+
+- reaction parsing for ionisation, recombination, and charge exchange
+- grouped source, momentum, and energy assembly
+- reaction diagnostics used by the recycling and reactions/collisions validation
+  surfaces
+- effective neutral ionisation and charge-exchange collision-rate helpers
+
+This is the first recycling submodule whose outputs already map directly onto a
+publication-facing validation package:
+
+- [src/jax_drb/validation/reactions_collisions_campaign.py](../src/jax_drb/validation/reactions_collisions_campaign.py)
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
