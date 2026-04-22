@@ -241,6 +241,7 @@ Entry points:
 The governing equations, closures, numerical operators, runtime design, and differentiability boundary are documented here:
 
 - [docs/physics_models.md](docs/physics_models.md)
+- [docs/code_structure.md](docs/code_structure.md)
 - [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
 - [docs/native_runtime_cli.md](docs/native_runtime_cli.md)
 - [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
@@ -293,6 +294,10 @@ python scripts/run_closeout_coverage.py
 ```
 
 The shipping CI matrix runs on Python 3.10, 3.11, and 3.12.
+
+Testing policy and refactor coverage goals are documented in:
+
+- [docs/testing_strategy.md](docs/testing_strategy.md)
 
 ## Packaging And Release
 
