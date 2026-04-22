@@ -34,14 +34,12 @@ from jax_drb.native.recycling_1d import (
     _assemble_ion_rhs_terms,
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
-    _compute_collision_frequencies,
     _compute_recycling_1d_rhs_from_species,
     _compute_recycling_1d_packed_rhs,
     _current_feedback_errors,
     _electron_zero_current_velocity,
     _electron_density,
     _grad_par_electron_force_balance_open,
-    _ion_parallel_viscosity_inputs,
     _parallel_ion_viscous_stress_open,
     _apply_neutral_target_density_guards,
     _build_recycling_runtime_model,
@@ -1017,35 +1015,6 @@ def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange()
     assert "Std+_cx" in reaction_terms.diagnostics
 
 
-def test_recycling_dthe_collision_rates_cover_asymmetric_ion_neutral_pairs() -> None:
-    config = load_bout_input(_DTHE_INPUT)
-    run_config = RunConfiguration.from_config(config)
-    mesh = build_structured_mesh(config, run_config)
-    metrics = build_structured_metrics(config, run_config, mesh)
-    species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(
-        species,
-        config=config,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=resolved_dataset_scalars(run_config),
-    )
-    collision_rates = _compute_collision_frequencies(
-        config,
-        species,
-        prepared,
-        dataset_scalars=resolved_dataset_scalars(run_config),
-    )
-
-    for pair in (("d", "t+"), ("t+", "d"), ("t", "d+"), ("d+", "t")):
-        assert pair in collision_rates
-
-    active = (0, mesh.ystart, 0)
-    assert np.isfinite(float(collision_rates[("t", "d+")][active]))
-    assert np.isfinite(float(collision_rates[("d", "t+")][active]))
-    assert float(collision_rates[("t", "d+")][active]) != float(collision_rates[("d", "t+")][active])
-
-
 def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
     config = load_bout_input(input_path)
@@ -1755,58 +1724,6 @@ def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isot
 
     assert float(cx_rates["d"][active]) == pytest.approx(d_same + d_cross, rel=1.0e-12, abs=1.0e-12)
     assert float(cx_rates["t"][active]) == pytest.approx(t_same + t_cross, rel=1.0e-12, abs=1.0e-12)
-
-
-def test_ion_parallel_viscosity_inputs_match_pressure_tau_formula() -> None:
-    config = load_bout_input(_DTHE_INPUT)
-    run_config = RunConfiguration.from_config(config)
-    mesh = build_structured_mesh(config, run_config)
-    metrics = build_structured_metrics(config, run_config, mesh)
-    dataset_scalars = resolved_dataset_scalars(run_config)
-    species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(
-        species,
-        config=config,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-        apply_sheath_boundaries=True,
-    )
-
-    collision_rates = _compute_collision_frequencies(
-        config,
-        species,
-        prepared,
-        dataset_scalars=dataset_scalars,
-    )
-    cx_rates = _charge_exchange_collision_rates(
-        config,
-        species=species,
-        prepared=prepared,
-        dataset_scalars=dataset_scalars,
-    )
-
-    inputs = _ion_parallel_viscosity_inputs(
-        species_name="d+",
-        species=species,
-        prepared=prepared,
-        collision_rates=collision_rates,
-        cx_rates=cx_rates,
-    )
-
-    expected_collisionality = np.zeros_like(prepared["d+"].density, dtype=np.float64)
-    for other_name in species:
-        rate = collision_rates.get(("d+", other_name))
-        if rate is not None:
-            expected_collisionality = expected_collisionality + rate
-    expected_collisionality = expected_collisionality + cx_rates["d+"]
-    expected_collisionality = np.maximum(expected_collisionality, 1.0e-12)
-    expected_tau = 1.0 / expected_collisionality
-    expected_eta = 1.28 * np.asarray(prepared["d+"].pressure, dtype=np.float64) * expected_tau
-
-    np.testing.assert_allclose(inputs.total_collisionality, expected_collisionality)
-    np.testing.assert_allclose(inputs.tau, expected_tau)
-    np.testing.assert_allclose(inputs.eta, expected_eta)
 
 
 def test_parallel_ion_viscous_stress_matches_braginskii_formula() -> None:

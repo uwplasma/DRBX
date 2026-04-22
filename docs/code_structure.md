@@ -141,6 +141,25 @@ publication-facing validation package:
 
 - [src/jax_drb/validation/reactions_collisions_campaign.py](../src/jax_drb/validation/reactions_collisions_campaign.py)
 
+The current collision-frequency and viscosity-input extraction is:
+
+- [src/jax_drb/native/recycling_collisions.py](../src/jax_drb/native/recycling_collisions.py)
+
+That module isolates:
+
+- charge-weighted electron-density assembly for multispecies states
+- Braginskii-style collision-frequency assembly across electron, ion, and
+  neutral pairs
+- ion-parallel-viscosity collisionality, collision time, and viscosity-coefficient
+  inputs
+
+This is a scientifically meaningful split because it separates the collisional
+closure backbone from the larger recycling residual assembly. It also maps
+directly to the profile-level collisionality and charge-exchange figures now
+produced by:
+
+- [src/jax_drb/validation/reactions_collisions_campaign.py](../src/jax_drb/validation/reactions_collisions_campaign.py)
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
