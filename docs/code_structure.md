@@ -108,6 +108,22 @@ These rules influence parity and compare-window surfaces, so they need direct
 tests and should later feed artifact-producing benchmark campaigns when they are
 used in literature-facing operator studies.
 
+The current atomic-data and rate-layer extraction is:
+
+- [src/jax_drb/native/recycling_atomic.py](../src/jax_drb/native/recycling_atomic.py)
+
+That module isolates:
+
+- packaged AMJUEL and OpenADAS table loading
+- AMJUEL polynomial evaluation
+- OpenADAS bilinear rate evaluation
+- charge-exchange fit evaluation
+- normalized reaction-rate and energy-loss helpers
+
+This is an important split because it separates atomic-data handling from the
+larger recycling residual assembly and makes the accuracy/performance boundary
+of the reaction closures easier to test directly.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
