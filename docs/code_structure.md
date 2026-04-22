@@ -248,6 +248,23 @@ determine which deck is loaded and how reference-root-dependent overrides are
 resolved, so they are worth isolating and testing directly rather than leaving
 them buried in the dispatch file.
 
+The current recycling-specific runner-helper extraction is:
+
+- [src/jax_drb/native/runner_recycling.py](../src/jax_drb/native/runner_recycling.py)
+
+That module owns:
+
+- direct recycling field-name and optional-diagnostic metadata
+- source and velocity override extraction from cached optional fields
+- guard-only restriction of field-template overrides
+- recycling transient initial-case name mapping
+- species-velocity reconstruction used by integrated 2D replay paths
+
+These helpers influence replay fidelity and compare-surface construction for the
+integrated and open-field recycling families. They are stable enough to unit
+test directly and scientifically meaningful enough that they should not remain
+hidden inside the main runner dispatch file.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
