@@ -176,6 +176,20 @@ to depend on the full recycling residual file just to exercise controller-state
 logic. It is also the path toward more direct tests of the temperature and
 detachment controller lanes.
 
+The current field-sanitization extraction is:
+
+- [src/jax_drb/native/recycling_sanitize.py](../src/jax_drb/native/recycling_sanitize.py)
+
+That module isolates:
+
+- density-floor enforcement
+- temperature and pressure floor enforcement
+- charge-weighted electron-pressure floor reconstruction
+
+This is a useful split because these rules are small, branchy, and easy to test
+directly, yet they affect solver robustness and controller behavior on the
+recycling lanes.
+
 The first runner-side compare-window extraction is:
 
 - [src/jax_drb/native/runner_compare.py](../src/jax_drb/native/runner_compare.py)
@@ -188,6 +202,20 @@ That module owns:
 These are not physics operators, but they are part of the public benchmark and
 artifact contract. Extracting them makes the native execution path easier to
 test directly without routing every check through the full runner dispatch.
+
+The current runner execution-option extraction is:
+
+- [src/jax_drb/native/runner_execution.py](../src/jax_drb/native/runner_execution.py)
+
+That module owns:
+
+- parity-mode to output-step mapping
+- default-plus-case override merging
+- restart-variable selection for the promoted placeholder families
+
+These helpers are also part of the public execution contract. Pulling them out
+keeps the runner file focused on dispatch and case execution rather than on
+small policy functions.
 
 ## JAX Boundary
 

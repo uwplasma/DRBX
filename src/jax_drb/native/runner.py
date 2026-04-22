@@ -11,7 +11,7 @@ import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver, apply_bout_overrides, load_bout_input
 from ..parity.portable import build_portable_summary_payload
-from ..parity.reference import make_default_overrides, merge_overrides, run_reference_case
+from ..parity.reference import run_reference_case
 from ..reference.cases import ReferenceCase, load_reference_cases
 from ..runtime.output import RestartBundle, build_run_event, print_run_event
 from ..runtime.run_config import RunConfiguration
@@ -68,6 +68,11 @@ from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycli
 from .runner_compare import (
     prepare_compare_variables as _prepare_compare_variables,
     select_payload_variables as _select_payload_variables,
+)
+from .runner_execution import (
+    effective_output_steps as _effective_output_steps,
+    effective_overrides as _effective_overrides,
+    restart_variable_names,
 )
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
@@ -2708,35 +2713,6 @@ def _uniform_identity_parallel_metric(mesh: StructuredMesh, *, metrics: Structur
     return np.allclose(dy, dy[:, :1, :], rtol=1e-12, atol=1e-12)
 
 
-def _effective_overrides(parity_mode: str, *, reference_case: ReferenceCase | None) -> tuple[str, ...]:
-    case_overrides = reference_case.extra_overrides if reference_case is not None else ()
-    return merge_overrides(make_default_overrides(parity_mode), case_overrides)
-
-
-def _effective_output_steps(parity_mode: str, *, configured_nout: int) -> int:
-    if parity_mode == "one_rhs":
-        return 0
-    if parity_mode == "one_step":
-        return 1
-    return configured_nout
-
-
-def restart_variable_names(run_config: RunConfiguration) -> tuple[str, ...]:
-    if _is_supported_diffusion_case(run_config):
-        section = run_config.components[0].section
-        return (f"N{section}", f"P{section}")
-    if _is_supported_periodic_fluid_mms_case_placeholder(run_config):
-        section = run_config.components[0].section
-        return (f"N{section}", f"P{section}", f"NV{section}")
-    if _is_supported_electrostatic_vorticity_case_placeholder(run_config):
-        return ("Vort",)
-    if _is_supported_blob2d_case_placeholder(run_config):
-        return ("Ne", "Vort")
-    if _is_supported_drift_wave_case_placeholder(run_config):
-        return ("Ni", "NVe", "Vort")
-    return ()
-
-
 def build_restart_state(
     result: NativeRunResult,
     *,
@@ -2763,35 +2739,3 @@ def build_restart_state(
         state_variables=final_state,
     )
 
-
-def _is_supported_periodic_fluid_mms_case_placeholder(run_config: RunConfiguration) -> bool:
-    implementations = tuple(component.implementation for component in run_config.components)
-    return implementations == ("evolve_density", "evolve_pressure", "evolve_momentum")
-
-
-def _is_supported_electrostatic_vorticity_case_placeholder(run_config: RunConfiguration) -> bool:
-    implementations = tuple(component.implementation for component in run_config.components)
-    return implementations == ("vorticity",)
-
-
-def _is_supported_blob2d_case_placeholder(run_config: RunConfiguration) -> bool:
-    implementations = tuple(component.implementation for component in run_config.components)
-    return implementations == ("evolve_density", "isothermal", "vorticity", "sheath_closure")
-
-
-def _is_supported_drift_wave_case_placeholder(run_config: RunConfiguration) -> bool:
-    implementations = tuple(component.implementation for component in run_config.components)
-    expected = (
-        "evolve_density",
-        "fixed_velocity",
-        "fixed_temperature",
-        "quasineutral",
-        "evolve_momentum",
-        "fixed_temperature",
-        "vorticity",
-        "sound_speed",
-        "braginskii_collisions",
-        "braginskii_friction",
-        "braginskii_heat_exchange",
-    )
-    return implementations == expected

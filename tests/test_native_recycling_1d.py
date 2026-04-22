@@ -56,7 +56,6 @@ from jax_drb.native.recycling_1d import (
     _reaction_sources,
     _recycling_evolving_variable_names,
     _resolve_species_numeric_option,
-    _sanitize_recycling_fields,
     _soft_floor,
     _target_recycling_sources,
     _ion_thermal_force_pair,
@@ -2505,27 +2504,6 @@ def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: py
     assert callable(kwargs["jac"])
     assert kwargs["jac_sparsity"] is not None
     assert history.variable_history["Nd+"].shape[0] == 2
-
-
-def test_neutral_pressure_default_floor_is_zero_without_override() -> None:
-    config = load_bout_input(_INPUT_1D)
-    run_config = RunConfiguration.from_config(config)
-    mesh = build_structured_mesh(config, run_config)
-    runtime_model = _build_recycling_runtime_model(
-        config,
-        mesh=mesh,
-        dataset_scalars=resolved_dataset_scalars(run_config),
-    )
-    fields = _build_recycling_state_fields(runtime_model)
-    fields["Nd"][:] = 1.7e-2
-    fields["Pd"][:] = 1.0e-5
-    fields["Nd+"][:] = 1.7e-2
-    fields["Pd+"][:] = 1.0e-5
-
-    sanitized = _sanitize_recycling_fields(config, fields)
-
-    assert np.allclose(sanitized["Pd"], 1.0e-5)
-    assert np.allclose(sanitized["Pd+"], 1.7e-3)
 
 
 @pytest.mark.slow
