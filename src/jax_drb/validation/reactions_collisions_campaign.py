@@ -10,17 +10,18 @@ import numpy as np
 from ..config.boutinp import apply_bout_overrides, load_bout_input
 from ..native.mesh import build_structured_mesh
 from ..native.metrics import build_structured_metrics
+from ..native.recycling_atomic import hydrogen_cx_sigmav, load_openadas_rate
 from ..native.recycling_1d import (
-    _charge_exchange_collision_rates,
     _compute_collision_frequencies,
     _electron_density,
-    _hydrogen_cx_sigmav,
     _initialize_species,
     _ion_parallel_viscosity_inputs,
-    _load_openadas_rate,
-    _neutral_ionisation_collision_rates,
     _prepare_open_field_states,
-    _reaction_sources,
+)
+from ..native.recycling_reactions import (
+    charge_exchange_collision_rates,
+    neutral_ionisation_collision_rates,
+    reaction_sources,
 )
 from ..native.units import resolved_dataset_scalars
 from ..reference.paths import require_reference_root
@@ -42,6 +43,15 @@ class ReactionsCollisionsCampaignArtifacts:
     summary_json_path: Path
     arrays_npz_path: Path
     plot_png_path: Path
+
+
+def _profile_payload(context: dict[str, object], values: np.ndarray, *, x_index: int | None = None, z_index: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    mesh = context["mesh"]
+    xi = mesh.xstart if x_index is None else int(x_index)
+    active_slice = slice(mesh.ystart, mesh.yend + 1)
+    coordinates = np.asarray(mesh.y[active_slice], dtype=np.float64)
+    profile = np.asarray(values[xi, active_slice, z_index], dtype=np.float64)
+    return coordinates, profile
 
 
 def create_reactions_collisions_campaign_package(
@@ -66,6 +76,11 @@ def create_reactions_collisions_campaign_package(
         multispecies_input=resolved_multispecies_input,
     )
 
+    profiles = _build_reactions_collisions_profiles(
+        single_species=build_reactions_collisions_context(resolved_single_species_input),
+        multispecies=build_reactions_collisions_context(resolved_multispecies_input),
+    )
+
     summary_payload = {
         "family": "reactions_collisions_and_atomic_data",
         "single_species_input_name": resolved_single_species_input.name,
@@ -83,6 +98,18 @@ def create_reactions_collisions_campaign_package(
             }
             for metric in metrics
         ],
+        "profiles": {
+            name: {
+                "coordinate_name": payload["coordinate_name"],
+                "coordinate": [float(value) for value in payload["coordinate"]],
+                "series": {
+                    series_name: [float(value) for value in series_values]
+                    for series_name, series_values in payload["series"].items()
+                },
+                "notes": payload["notes"],
+            }
+            for name, payload in profiles.items()
+        },
     }
     summary_json_path = data_dir / f"{case_label}.json"
     summary_json_path.write_text(json.dumps(summary_payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -92,11 +119,15 @@ def create_reactions_collisions_campaign_package(
         "metric_targets": np.asarray([metric.target for metric in metrics], dtype=np.float64),
         "metric_pass": np.asarray([1.0 if metric.passed else 0.0 for metric in metrics], dtype=np.float64),
     }
+    for name, payload in profiles.items():
+        arrays_payload[f"{name}_coordinate"] = np.asarray(payload["coordinate"], dtype=np.float64)
+        for series_name, series_values in payload["series"].items():
+            arrays_payload[f"{name}_{series_name}"] = np.asarray(series_values, dtype=np.float64)
     arrays_npz_path = data_dir / f"{case_label}.npz"
     np.savez_compressed(arrays_npz_path, **arrays_payload)
 
     plot_png_path = images_dir / f"{case_label}.png"
-    _save_campaign_plot(metrics, plot_png_path)
+    _save_campaign_plot(metrics, profiles, plot_png_path)
     return ReactionsCollisionsCampaignArtifacts(
         summary_json_path=summary_json_path,
         arrays_npz_path=arrays_npz_path,
@@ -112,19 +143,19 @@ def build_reactions_collisions_campaign(
     single_species_path = Path(single_species_input)
     multispecies_path = Path(multispecies_input)
 
-    single_species = _build_species_context(single_species_path)
-    multispecies = _build_species_context(multispecies_path)
+    single_species = build_reactions_collisions_context(single_species_path)
+    multispecies = build_reactions_collisions_context(multispecies_path)
 
     single_active = (single_species["mesh"].xstart, single_species["mesh"].ystart, 0)
     multispecies_active = (multispecies["mesh"].xstart, multispecies["mesh"].ystart, 0)
 
-    single_cx_rates = _charge_exchange_collision_rates(
+    single_cx_rates = charge_exchange_collision_rates(
         single_species["config"],
         species=single_species["species"],
         prepared=single_species["prepared"],
         dataset_scalars=single_species["dataset_scalars"],
     )
-    multispecies_cx_rates = _charge_exchange_collision_rates(
+    multispecies_cx_rates = charge_exchange_collision_rates(
         multispecies["config"],
         species=multispecies["species"],
         prepared=multispecies["prepared"],
@@ -143,20 +174,20 @@ def build_reactions_collisions_campaign(
         collision_rates=multispecies_collision_rates,
         cx_rates=multispecies_cx_rates,
     )
-    ionisation_rates = _neutral_ionisation_collision_rates(
+    ionisation_rates = neutral_ionisation_collision_rates(
         single_species["config"],
         species=single_species["species"],
         prepared=single_species["prepared"],
         dataset_scalars=single_species["dataset_scalars"],
     )
-    reaction_terms = _reaction_sources(
+    reaction_terms = reaction_sources(
         single_species["config"],
         species=single_species["species"],
         electron_density=_electron_density(tuple(sp for sp in single_species["species"].values() if sp.charge > 0.0)),
         dataset_scalars=single_species["dataset_scalars"],
     )
 
-    active_same = float(single_species["prepared"]["d+"].density[single_active] * _hydrogen_cx_sigmav(
+    active_same = float(single_species["prepared"]["d+"].density[single_active] * hydrogen_cx_sigmav(
         np.clip(
             (
                 single_species["prepared"]["d"].temperature / single_species["species"]["d"].atomic_mass
@@ -169,7 +200,7 @@ def build_reactions_collisions_campaign(
     )[single_active])
     active_atom_rate = float(single_cx_rates["d"][single_active])
 
-    d_same = float(multispecies["prepared"]["d+"].density[multispecies_active] * _hydrogen_cx_sigmav(
+    d_same = float(multispecies["prepared"]["d+"].density[multispecies_active] * hydrogen_cx_sigmav(
         np.clip(
             (
                 multispecies["prepared"]["d"].temperature / multispecies["species"]["d"].atomic_mass
@@ -180,7 +211,7 @@ def build_reactions_collisions_campaign(
         ),
         multispecies["dataset_scalars"],
     )[multispecies_active])
-    d_cross = float(multispecies["prepared"]["t+"].density[multispecies_active] * _hydrogen_cx_sigmav(
+    d_cross = float(multispecies["prepared"]["t+"].density[multispecies_active] * hydrogen_cx_sigmav(
         np.clip(
             (
                 multispecies["prepared"]["d"].temperature / multispecies["species"]["d"].atomic_mass
@@ -193,8 +224,8 @@ def build_reactions_collisions_campaign(
     )[multispecies_active])
 
     scaled_config = apply_bout_overrides(load_bout_input(multispecies_path), ("d:K_cx_multiplier=3.0",))
-    scaled_context = _build_species_context(multispecies_path, config=scaled_config)
-    scaled_cx_rates = _charge_exchange_collision_rates(
+    scaled_context = build_reactions_collisions_context(multispecies_path, config=scaled_config)
+    scaled_cx_rates = charge_exchange_collision_rates(
         scaled_context["config"],
         species=scaled_context["species"],
         prepared=scaled_context["prepared"],
@@ -224,7 +255,7 @@ def build_reactions_collisions_campaign(
         )
     )
 
-    ionisation_coeffs, radiation_coeffs, log_temperature, log_density, electron_heating = _load_openadas_rate("ne", "iz")
+    ionisation_coeffs, radiation_coeffs, log_temperature, log_density, electron_heating = load_openadas_rate("ne", "iz")
     neon_finite_fraction = float(
         (
             np.isfinite(ionisation_coeffs).mean()
@@ -303,7 +334,7 @@ def _resolve_inputs(
     )
 
 
-def _build_species_context(path: Path, *, config=None) -> dict[str, object]:
+def build_reactions_collisions_context(path: Path, *, config=None) -> dict[str, object]:
     if config is None:
         config = load_bout_input(path)
     run_config = RunConfiguration.from_config(config)
@@ -329,21 +360,194 @@ def _build_species_context(path: Path, *, config=None) -> dict[str, object]:
     }
 
 
-def _save_campaign_plot(metrics: tuple[ReactionsCollisionsCampaignMetric, ...], path: Path) -> None:
+def _build_reactions_collisions_profiles(
+    *,
+    single_species: dict[str, object],
+    multispecies: dict[str, object],
+) -> dict[str, dict[str, object]]:
+    single_mesh = single_species["mesh"]
+    single_active_slice = slice(single_mesh.ystart, single_mesh.yend + 1)
+    multispecies_mesh = multispecies["mesh"]
+    multispecies_active_slice = slice(multispecies_mesh.ystart, multispecies_mesh.yend + 1)
+
+    single_electron_density = _electron_density(tuple(sp for sp in single_species["species"].values() if sp.charge > 0.0))
+    single_reaction_terms = reaction_sources(
+        single_species["config"],
+        species=single_species["species"],
+        electron_density=single_electron_density,
+        dataset_scalars=single_species["dataset_scalars"],
+    )
+    single_ionisation_rates = neutral_ionisation_collision_rates(
+        single_species["config"],
+        species=single_species["species"],
+        prepared=single_species["prepared"],
+        dataset_scalars=single_species["dataset_scalars"],
+    )
+    single_coordinate, single_ionisation_actual = _profile_payload(single_species, single_ionisation_rates["d"])
+    _, single_ionisation_expected = _profile_payload(
+        single_species,
+        single_reaction_terms.diagnostics["Sd+_iz"] / np.maximum(single_species["species"]["d"].density, np.finfo(np.float64).tiny),
+    )
+
+    multispecies_cx_rates = charge_exchange_collision_rates(
+        multispecies["config"],
+        species=multispecies["species"],
+        prepared=multispecies["prepared"],
+        dataset_scalars=multispecies["dataset_scalars"],
+    )
+    multispecies_collision_rates = _compute_collision_frequencies(
+        multispecies["config"],
+        multispecies["species"],
+        multispecies["prepared"],
+        dataset_scalars=multispecies["dataset_scalars"],
+    )
+    multispecies_viscosity_inputs = _ion_parallel_viscosity_inputs(
+        species_name="d+",
+        species=multispecies["species"],
+        prepared=multispecies["prepared"],
+        collision_rates=multispecies_collision_rates,
+        cx_rates=multispecies_cx_rates,
+    )
+
+    d_same = multispecies["prepared"]["d+"].density * hydrogen_cx_sigmav(
+        np.clip(
+            (
+                multispecies["prepared"]["d"].temperature / multispecies["species"]["d"].atomic_mass
+                + multispecies["prepared"]["d+"].temperature / multispecies["species"]["d+"].atomic_mass
+            ) * multispecies["dataset_scalars"]["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        multispecies["dataset_scalars"],
+    )
+    d_cross = multispecies["prepared"]["t+"].density * hydrogen_cx_sigmav(
+        np.clip(
+            (
+                multispecies["prepared"]["d"].temperature / multispecies["species"]["d"].atomic_mass
+                + multispecies["prepared"]["t+"].temperature / multispecies["species"]["t+"].atomic_mass
+            ) * multispecies["dataset_scalars"]["Tnorm"],
+            0.01,
+            10000.0,
+        ),
+        multispecies["dataset_scalars"],
+    )
+    multispecies_coordinate, d_same_profile = _profile_payload(multispecies, d_same)
+    _, d_cross_profile = _profile_payload(multispecies, d_cross)
+    _, d_total_profile = _profile_payload(multispecies, multispecies_cx_rates["d"])
+
+    expected_collisionality = np.zeros_like(multispecies["prepared"]["d+"].density, dtype=np.float64)
+    for other_name in multispecies["species"]:
+        rate = multispecies_collision_rates.get(("d+", other_name))
+        if rate is not None:
+            expected_collisionality = expected_collisionality + rate
+    expected_collisionality = np.maximum(expected_collisionality + multispecies_cx_rates["d+"], 1.0e-12)
+    _, collisionality_expected_profile = _profile_payload(multispecies, expected_collisionality)
+    _, collisionality_actual_profile = _profile_payload(multispecies, multispecies_viscosity_inputs.total_collisionality)
+
+    return {
+        "ionisation_profile": {
+            "coordinate_name": "normalized_parallel_coordinate",
+            "coordinate": single_coordinate,
+            "series": {
+                "diagnostic_per_density": single_ionisation_expected,
+                "assembled_collision_rate": single_ionisation_actual,
+            },
+            "notes": "Single-species ionisation rate profile compared against the reaction diagnostic normalized by neutral density.",
+        },
+        "d_atom_charge_exchange_profile": {
+            "coordinate_name": "normalized_parallel_coordinate",
+            "coordinate": multispecies_coordinate,
+            "series": {
+                "same_isotope_d_plus": d_same_profile,
+                "cross_isotope_t_plus": d_cross_profile,
+                "assembled_total": d_total_profile,
+            },
+            "notes": "Multispecies D neutral charge-exchange profile decomposed into same-isotope and cross-isotope ion contributions.",
+        },
+        "d_plus_collisionality_profile": {
+            "coordinate_name": "normalized_parallel_coordinate",
+            "coordinate": multispecies_coordinate,
+            "series": {
+                "assembled_total_collisionality": collisionality_actual_profile,
+                "expected_collision_stack": collisionality_expected_profile,
+            },
+            "notes": "Total collisionality used by the ion-parallel-viscosity closure compared against the explicit assembled collision stack.",
+        },
+    }
+
+
+def _save_campaign_plot(
+    metrics: tuple[ReactionsCollisionsCampaignMetric, ...],
+    profiles: dict[str, dict[str, object]],
+    path: Path,
+) -> None:
     labels = [metric.name.replace("_", "\n") for metric in metrics]
     values = [metric.value for metric in metrics]
     targets = [metric.target for metric in metrics]
     colors = ["#0a9396" if metric.passed else "#bb3e03" for metric in metrics]
 
-    figure, axis = plt.subplots(figsize=(12.0, 6.5), constrained_layout=True)
+    if not profiles:
+        figure, axis = plt.subplots(figsize=(12.0, 6.5), constrained_layout=True)
+        x = np.arange(len(metrics))
+        axis.bar(x, values, color=colors, alpha=0.9)
+        axis.plot(x, targets, color="#3a86ff", marker="o", linewidth=1.8, label="target")
+        axis.set_xticks(x, labels)
+        axis.set_ylabel("metric value")
+        axis.set_title("Reactions, collisions, and atomic-data verification campaign")
+        axis.grid(alpha=0.25, axis="y")
+        axis.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2), useOffset=False)
+        axis.legend(frameon=False)
+        figure.savefig(path, dpi=180)
+        plt.close(figure)
+        return
+
+    figure, axes = plt.subplots(2, 2, figsize=(14.0, 9.0), constrained_layout=True)
+
+    axis = axes[0, 0]
     x = np.arange(len(metrics))
     axis.bar(x, values, color=colors, alpha=0.9)
     axis.plot(x, targets, color="#3a86ff", marker="o", linewidth=1.8, label="target")
     axis.set_xticks(x, labels)
     axis.set_ylabel("metric value")
-    axis.set_title("Reactions and collisions verification campaign")
+    axis.set_title("Scalar verification gates")
     axis.grid(alpha=0.25, axis="y")
     axis.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2), useOffset=False)
     axis.legend(frameon=False)
+
+    ionisation = profiles["ionisation_profile"]
+    axis = axes[0, 1]
+    coordinate = ionisation["coordinate"]
+    axis.plot(coordinate, ionisation["series"]["diagnostic_per_density"], color="#1d3557", linewidth=2.0, label="diagnostic / density")
+    axis.plot(coordinate, ionisation["series"]["assembled_collision_rate"], color="#e76f51", linestyle="--", linewidth=2.0, label="assembled collision rate")
+    axis.set_title("Ionisation profile agreement")
+    axis.set_xlabel("normalized parallel coordinate")
+    axis.set_ylabel("rate")
+    axis.grid(alpha=0.25)
+    axis.legend(frameon=False)
+
+    charge_exchange = profiles["d_atom_charge_exchange_profile"]
+    axis = axes[1, 0]
+    coordinate = charge_exchange["coordinate"]
+    axis.plot(coordinate, charge_exchange["series"]["same_isotope_d_plus"], color="#2a9d8f", linewidth=2.0, label="same-isotope D+")
+    axis.plot(coordinate, charge_exchange["series"]["cross_isotope_t_plus"], color="#f4a261", linewidth=2.0, label="cross-isotope T+")
+    axis.plot(coordinate, charge_exchange["series"]["assembled_total"], color="#264653", linestyle="--", linewidth=2.2, label="assembled total")
+    axis.set_title("D neutral charge exchange decomposition")
+    axis.set_xlabel("normalized parallel coordinate")
+    axis.set_ylabel("collision frequency")
+    axis.grid(alpha=0.25)
+    axis.legend(frameon=False)
+
+    collisionality = profiles["d_plus_collisionality_profile"]
+    axis = axes[1, 1]
+    coordinate = collisionality["coordinate"]
+    axis.plot(coordinate, collisionality["series"]["expected_collision_stack"], color="#6a4c93", linewidth=2.0, label="expected stack")
+    axis.plot(coordinate, collisionality["series"]["assembled_total_collisionality"], color="#1982c4", linestyle="--", linewidth=2.2, label="closure input")
+    axis.set_title("Ion parallel viscosity collisionality")
+    axis.set_xlabel("normalized parallel coordinate")
+    axis.set_ylabel("collisionality")
+    axis.grid(alpha=0.25)
+    axis.legend(frameon=False)
+
+    figure.suptitle("Reactions, collisions, and atomic-data verification campaign", fontsize=15.0)
     figure.savefig(path, dpi=180)
     plt.close(figure)

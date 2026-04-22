@@ -435,6 +435,9 @@ rather than from paper-only scripts that reimplement logic.
     response transients, and agreement to reference histories
 - impurity/radiation and reactions figures
   - target: rate closure agreement, radiation loss trends, and source partition
+  - include profile-level ionisation, isotope-resolved charge exchange, and
+    collisionality-closure figures from the reactions/collisions campaign so
+    the paper does not rely only on scalar pass/fail metrics
 
 ### Differentiability figures
 

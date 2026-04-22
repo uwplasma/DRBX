@@ -317,6 +317,7 @@ What this documents:
 
 - a dedicated engineering and physics gate for reactions, collisions, and atomic-data breadth;
 - explicit native checks for charge exchange, isotope coupling, CX multipliers, ionisation, ion-viscosity collisionality closure, and neon OpenADAS loading;
+- profile-level lineouts for ionisation, isotope-resolved charge exchange, and collisionality closure, so the same validated surface can support future manuscript figures;
 - a machine-readable JSON/NPZ/plot package instead of leaving this breadth implied only by low-level unit tests.
 
 ## Temperature Feedback Campaign
