@@ -209,6 +209,24 @@ scientifically meaningful setup contracts such as source normalization,
 controller loading, and evolving-field ordering no longer live only inside the
 large recycling solver file.
 
+The current prepared-state and field-conditioning extraction is:
+
+- [src/jax_drb/native/recycling_state.py](../src/jax_drb/native/recycling_state.py)
+
+That module now owns:
+
+- soft floor and safe-temperature reconstruction helpers
+- species velocity reconstruction from density and momentum
+- axisymmetric profile reduction used by anomalous-diffusion closures
+- target-guard merge helpers
+- prepared-species-state construction before sheath and collisional closures
+
+This split matters because it isolates the branchy preconditioning rules that
+sit between raw species fields and the physical closures. Those rules affect
+accuracy, solver robustness, and the meaning of compare-window states, so they
+should be tested directly instead of being exercised only through the larger
+recycling and sheath integration paths.
+
 The first runner-side compare-window extraction is:
 
 - [src/jax_drb/native/runner_compare.py](../src/jax_drb/native/runner_compare.py)
