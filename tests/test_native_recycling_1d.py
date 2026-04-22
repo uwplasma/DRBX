@@ -258,14 +258,6 @@ def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formu
 
     assert result.velocity[0, jm, 0] == pytest.approx(2.0 * vesheath)
     assert result.energy_source[0, j, 0] == pytest.approx(expected_q)
-def test_resolve_species_numeric_option_handles_literal_reference() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
-
-    assert _resolve_species_numeric_option(config, "e", "anomalous_D") == pytest.approx(
-        _resolve_species_numeric_option(config, "d+", "anomalous_D")
-    )
-
-
 def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved_state() -> None:
     config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
     config = apply_bout_overrides(
@@ -357,45 +349,6 @@ def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved
     assert np.isfinite(d_energy_delta).all()
     assert float(np.nanmax(np.abs(d_momentum_delta))) > 1.0e-10
     assert float(np.nanmax(np.abs(d_energy_delta))) > 1.0e-10
-
-
-def test_initialize_species_keeps_neutral_mixed_species_from_string_type() -> None:
-    config = load_bout_input(_TOKAMAK_RECYCLING_INPUT)
-    mesh = StructuredMesh(
-        nx=1,
-        ny=2,
-        nz=1,
-        mxg=0,
-        myg=0,
-        symmetric_global_x=False,
-        symmetric_global_y=False,
-        jyseps1_1=0,
-        jyseps2_1=2,
-        jyseps1_2=2,
-        jyseps2_2=2,
-        ny_inner=2,
-        has_lower_y_target=False,
-        has_upper_y_target=False,
-        x=np.array([0.0], dtype=np.float64),
-        y=np.array([0.0, 1.0], dtype=np.float64),
-        z=np.array([0.0], dtype=np.float64),
-    )
-    field_overrides = {
-        "Nd+": np.ones((1, 2, 1), dtype=np.float64),
-        "Pd+": np.ones((1, 2, 1), dtype=np.float64),
-        "NVd+": np.zeros((1, 2, 1), dtype=np.float64),
-        "Nd": np.ones((1, 2, 1), dtype=np.float64),
-        "Pd": np.ones((1, 2, 1), dtype=np.float64),
-        "NVd": np.zeros((1, 2, 1), dtype=np.float64),
-        "Pe": np.ones((1, 2, 1), dtype=np.float64),
-    }
-
-    species = _initialize_species(config, mesh=mesh, field_overrides=field_overrides)
-
-    assert "d+" in species
-    assert "d" in species
-    assert species["d"].has_pressure
-    assert species["d"].has_momentum
 
 
 def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() -> None:

@@ -190,6 +190,25 @@ This is a useful split because these rules are small, branchy, and easy to test
 directly, yet they affect solver robustness and controller behavior on the
 recycling lanes.
 
+The current recycling setup and runtime-model extraction is:
+
+- [src/jax_drb/native/recycling_setup.py](../src/jax_drb/native/recycling_setup.py)
+
+That module now owns:
+
+- open-field species template construction from BOUT-style decks
+- literal-reference and field-expression evaluation for setup-time options
+- explicit pressure-source normalization
+- density-feedback controller loading and source-shape normalization
+- runtime-model assembly for the implicit recycling backbone
+
+This is a high-value seam because it separates deck interpretation and runtime
+model construction from the residual assembly itself. It also makes the
+equation-to-implementation bridge clearer in the docs and future paper:
+scientifically meaningful setup contracts such as source normalization,
+controller loading, and evolving-field ordering no longer live only inside the
+large recycling solver file.
+
 The first runner-side compare-window extraction is:
 
 - [src/jax_drb/native/runner_compare.py](../src/jax_drb/native/runner_compare.py)

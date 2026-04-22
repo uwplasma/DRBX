@@ -21,8 +21,7 @@ from ..solver import (
     solve_sparse_newton_system,
     unpack_active_fields,
 )
-from .expression import ArrayExpressionEvaluator
-from .mesh import StructuredMesh, broadcast_to_field_shape
+from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .neutral_mixed import (
     _div_a_grad_perp_flows,
@@ -83,6 +82,22 @@ from .recycling_rhs_terms import (
     assemble_electron_pressure_rhs_terms as _assemble_electron_pressure_rhs_terms,
     assemble_ion_rhs_terms as _assemble_ion_rhs_terms,
 )
+from .recycling_setup import (
+    DensityFeedbackController as _DensityFeedbackController,
+    OpenFieldSpecies,
+    RecyclingRuntimeModel as _RecyclingRuntimeModel,
+    build_recycling_runtime_model as _build_recycling_runtime_model,
+    evaluate_field_option as _evaluate_field_option,
+    evaluate_field_value as _evaluate_field_value,
+    evaluate_option_field as _evaluate_option_field,
+    explicit_pressure_source as _explicit_pressure_source,
+    initialize_species as _initialize_species,
+    load_density_feedback_controllers as _load_density_feedback_controllers,
+    load_explicit_pressure_sources as _load_explicit_pressure_sources,
+    override_species_fields as _override_species_fields,
+    resolve_species_numeric_option as _resolve_species_numeric_option,
+    try_literal_reference as _try_literal_reference,
+)
 from .recycling_sanitize import sanitize_recycling_fields as _sanitize_recycling_fields
 from .recycling_fields import (
     build_recycling_state_fields as _build_recycling_state_fields,
@@ -107,40 +122,6 @@ from .recycling_layout import (
     unpack_recycling_active_state as _unpack_recycling_active_state,
 )
 
-
-@dataclass(frozen=True)
-class OpenFieldSpecies:
-    name: str
-    density: np.ndarray
-    pressure: np.ndarray
-    momentum: np.ndarray
-    charge: float
-    atomic_mass: float
-    density_floor: float
-    has_pressure: bool
-    has_momentum: bool
-    noflow_lower_y: bool
-    noflow_upper_y: bool
-    target_recycle: bool
-    recycle_as: str | None
-    target_recycle_multiplier: float
-    target_recycle_energy: float
-    target_fast_recycle_fraction: float
-    target_fast_recycle_energy_factor: float
-
-    @property
-    def density_name(self) -> str:
-        return f"N{self.name}"
-
-    @property
-    def pressure_name(self) -> str:
-        return f"P{self.name}"
-
-    @property
-    def momentum_name(self) -> str:
-        return f"NV{self.name}"
-
-
 @dataclass(frozen=True)
 class Recycling1DRhsResult:
     variables: dict[str, np.ndarray]
@@ -162,19 +143,6 @@ class Recycling1DImplicitStepInfo:
 
 
 RecyclingProgressCallback = Callable[[Mapping[str, Any]], None]
-
-
-@dataclass(frozen=True)
-class _DensityFeedbackController:
-    species_name: str
-    density_upstream: float
-    density_controller_p: float
-    density_controller_i: float
-    density_integral_positive: bool
-    density_source_positive: bool
-    density_source_shape: np.ndarray
-    diagnose: bool
-
 
 @dataclass(frozen=True)
 class _SimpleSheathSettings:
@@ -199,21 +167,6 @@ class _FullSheathSettings:
     upper_y: bool
     wall_potential: np.ndarray
     floor_potential: bool
-
-
-@dataclass(frozen=True)
-class _RecyclingRuntimeModel:
-    species_templates: dict[str, OpenFieldSpecies]
-    controllers: dict[str, _DensityFeedbackController]
-    explicit_pressure_sources: dict[str, np.ndarray]
-    density_source_overrides: dict[str, np.ndarray] | None
-    pressure_source_overrides: dict[str, np.ndarray] | None
-    momentum_source_overrides: dict[str, np.ndarray] | None
-    preserve_dump_target_state: bool
-    preserve_dump_ion_target_state_only: bool
-    field_names: tuple[str, ...]
-    feedback_names: tuple[str, ...]
-
 
 def compute_recycling_1d_rhs(
     config: BoutConfig,
@@ -549,275 +502,6 @@ def _compute_recycling_1d_rhs_from_species(
     )
 
 
-def _initialize_species(
-    config: BoutConfig,
-    *,
-    mesh: StructuredMesh,
-    dataset_scalars: dict[str, float] | None = None,
-    field_overrides: dict[str, np.ndarray] | None = None,
-) -> dict[str, OpenFieldSpecies]:
-    resolver = NumericResolver(config)
-    overrides = field_overrides or {}
-    scalars = dataset_scalars or {}
-    model_species = []
-    for section in config.sections:
-        if section == "e":
-            model_species.append(section)
-            continue
-        if not config.has_option(section, "type"):
-            continue
-        type_values = config.parsed(section, "type")
-        type_items = type_values if isinstance(type_values, tuple) else (type_values,)
-        if any(str(item).startswith("evolve_") or str(item) in {"quasineutral", "neutral_mixed"} for item in type_items):
-            model_species.append(section)
-
-    species: dict[str, OpenFieldSpecies] = {}
-    for name in model_species:
-        density_name = f"N{name}"
-        pressure_name = f"P{name}"
-        momentum_name = f"NV{name}"
-        density = np.asarray(overrides[density_name], dtype=np.float64, copy=True) if density_name in overrides else (
-            _evaluate_field_option(config, density_name, mesh=mesh) if config.has_section(density_name) else None
-        )
-        if name == "e":
-            if density is None:
-                density = None
-            pressure = np.asarray(overrides[pressure_name], dtype=np.float64, copy=True) if pressure_name in overrides else _evaluate_field_option(config, pressure_name, mesh=mesh)
-            momentum = np.zeros_like(pressure, dtype=np.float64)
-        else:
-            if density is None:
-                raise KeyError(f"Missing density section for {name}.")
-            pressure = np.asarray(overrides[pressure_name], dtype=np.float64, copy=True) if pressure_name in overrides else (
-                _evaluate_field_option(config, pressure_name, mesh=mesh) if config.has_section(pressure_name) else density.copy()
-            )
-            momentum = np.asarray(overrides[momentum_name], dtype=np.float64, copy=True) if momentum_name in overrides else (
-                _evaluate_field_option(config, momentum_name, mesh=mesh) if config.has_section(momentum_name) else np.zeros_like(density, dtype=np.float64)
-            )
-
-        type_values = config.parsed(name, "type")
-        components = tuple(str(item) for item in (type_values if isinstance(type_values, tuple) else (type_values,)))
-        noflow = "noflow_boundary" in components
-        species[name] = OpenFieldSpecies(
-            name=name,
-            density=np.array(density if density is not None else pressure, dtype=np.float64, copy=True),
-            pressure=np.array(pressure, dtype=np.float64, copy=True),
-            momentum=np.array(momentum, dtype=np.float64, copy=True),
-            charge=float(resolver.resolve(name, "charge")) if config.has_option(name, "charge") else (-1.0 if name == "e" else 0.0),
-            atomic_mass=float(resolver.resolve(name, "AA")) if config.has_option(name, "AA") else (1.0 / 1836.0),
-            density_floor=float(resolver.resolve(name, "density_floor")) if config.has_option(name, "density_floor") else 1.0e-7,
-            has_pressure="evolve_pressure" in components or name == "e" or "neutral_mixed" in components,
-            has_momentum="evolve_momentum" in components or "neutral_mixed" in components,
-            noflow_lower_y=bool(config.parsed(name, "noflow_lower_y")) if config.has_option(name, "noflow_lower_y") else noflow,
-            noflow_upper_y=bool(config.parsed(name, "noflow_upper_y")) if config.has_option(name, "noflow_upper_y") else noflow,
-            target_recycle=bool(config.parsed(name, "target_recycle")) if config.has_option(name, "target_recycle") else False,
-            recycle_as=str(config.parsed(name, "recycle_as")) if config.has_option(name, "recycle_as") else None,
-            target_recycle_multiplier=float(resolver.resolve(name, "target_recycle_multiplier")) if config.has_option(name, "target_recycle_multiplier") else 0.0,
-            target_recycle_energy=(
-                float(resolver.resolve(name, "target_recycle_energy")) / float(scalars.get("Tnorm", 1.0))
-                if config.has_option(name, "target_recycle_energy")
-                else 0.0
-            ),
-            target_fast_recycle_fraction=float(resolver.resolve(name, "target_fast_recycle_fraction")) if config.has_option(name, "target_fast_recycle_fraction") else 0.0,
-            target_fast_recycle_energy_factor=float(resolver.resolve(name, "target_fast_recycle_energy_factor")) if config.has_option(name, "target_fast_recycle_energy_factor") else 0.0,
-        )
-
-    for name, sp in tuple(species.items()):
-        density = sp.density
-        pressure = sp.pressure
-        momentum = sp.momentum
-        if sp.noflow_lower_y and mesh.has_lower_y_target:
-            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-        if sp.noflow_upper_y and mesh.has_upper_y_target:
-            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-        species[name] = OpenFieldSpecies(**{**sp.__dict__, "density": density, "pressure": pressure, "momentum": momentum})
-    return species
-
-
-def _build_recycling_runtime_model(
-    config: BoutConfig,
-    *,
-    mesh: StructuredMesh,
-    dataset_scalars: dict[str, float],
-    field_overrides: dict[str, np.ndarray] | None = None,
-    field_template_overrides: dict[str, np.ndarray] | None = None,
-    density_source_overrides: dict[str, np.ndarray] | None = None,
-    pressure_source_overrides: dict[str, np.ndarray] | None = None,
-    momentum_source_overrides: dict[str, np.ndarray] | None = None,
-    preserve_dump_target_state: bool = False,
-    preserve_dump_ion_target_state_only: bool = False,
-) -> _RecyclingRuntimeModel:
-    species_templates = _initialize_species(
-        config,
-        mesh=mesh,
-        dataset_scalars=dataset_scalars,
-        field_overrides=field_template_overrides if field_template_overrides is not None else field_overrides,
-    )
-    controllers = _load_density_feedback_controllers(
-        config,
-        species=species_templates,
-        mesh=mesh,
-        dataset_scalars=dataset_scalars,
-    )
-    field_names = _recycling_evolving_variable_names(species_templates)
-    return _RecyclingRuntimeModel(
-        species_templates=species_templates,
-        controllers=controllers,
-        explicit_pressure_sources=_load_explicit_pressure_sources(
-            config,
-            species_templates=species_templates,
-            mesh=mesh,
-            dataset_scalars=dataset_scalars,
-        ),
-        density_source_overrides=None
-        if density_source_overrides is None
-        else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in density_source_overrides.items()},
-        pressure_source_overrides=None
-        if pressure_source_overrides is None
-        else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in pressure_source_overrides.items()},
-        momentum_source_overrides=None
-        if momentum_source_overrides is None
-        else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in momentum_source_overrides.items()},
-        preserve_dump_target_state=preserve_dump_target_state,
-        preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
-        field_names=field_names,
-        feedback_names=tuple(sorted(controllers)),
-    )
-
-
-def _load_explicit_pressure_sources(
-    config: BoutConfig,
-    *,
-    species_templates: dict[str, OpenFieldSpecies],
-    mesh: StructuredMesh,
-    dataset_scalars: dict[str, float],
-) -> dict[str, np.ndarray]:
-    return {
-        name: _explicit_pressure_source(config, name, mesh=mesh, dataset_scalars=dataset_scalars)
-        for name in species_templates
-        if species_templates[name].has_pressure or name == "e"
-    }
-
-
-def _override_species_fields(
-    species_templates: dict[str, OpenFieldSpecies],
-    *,
-    fields: dict[str, np.ndarray],
-    mesh: StructuredMesh,
-) -> dict[str, OpenFieldSpecies]:
-    species: dict[str, OpenFieldSpecies] = {}
-    for name, template in species_templates.items():
-        density = np.asarray(fields.get(template.density_name, template.density), dtype=np.float64)
-        pressure = np.asarray(fields.get(template.pressure_name, template.pressure), dtype=np.float64)
-        momentum = np.asarray(fields.get(template.momentum_name, template.momentum), dtype=np.float64)
-        if template.noflow_lower_y and mesh.has_lower_y_target:
-            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-        if template.noflow_upper_y and mesh.has_upper_y_target:
-            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-        species[name] = OpenFieldSpecies(
-            **{
-                **template.__dict__,
-                "density": density,
-                "pressure": pressure,
-                "momentum": momentum,
-            }
-        )
-    return species
-
-
-def _evaluate_field_option(config: BoutConfig, variable_name: str, *, mesh: StructuredMesh) -> np.ndarray:
-    raw_value = config.raw(variable_name, "function") if config.has_option(variable_name, "function") else config.raw(variable_name, "solution")
-    resolved_reference = _try_literal_reference(config, raw_value)
-    if resolved_reference is not None:
-        return _evaluate_field_value(config, resolved_reference[0], mesh=mesh, option_name=resolved_reference[1])
-    return _evaluate_field_value(config, variable_name, mesh=mesh, option_name="function" if config.has_option(variable_name, "function") else "solution")
-
-
-def _evaluate_field_value(
-    config: BoutConfig,
-    variable_name: str,
-    *,
-    mesh: StructuredMesh,
-    option_name: str,
-) -> np.ndarray:
-    evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
-    field = broadcast_to_field_shape(evaluator.resolve_option(variable_name, option_name), mesh)
-    return np.asarray(field, dtype=np.float64)
-
-
-def _explicit_pressure_source(
-    config: BoutConfig,
-    species_name: str,
-    *,
-    mesh: StructuredMesh,
-    dataset_scalars: dict[str, float],
-) -> np.ndarray:
-    section = f"P{species_name}"
-    if not config.has_section(section) or not config.has_option(section, "source"):
-        return np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
-    raw_value = config.raw(section, "source")
-    resolved_reference = _try_literal_reference(config, raw_value)
-    if resolved_reference is not None:
-        field = _evaluate_field_value(config, resolved_reference[0], mesh=mesh, option_name=resolved_reference[1])
-    else:
-        evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
-        field = broadcast_to_field_shape(evaluator.resolve_option(section, "source"), mesh)
-    source_normalisation = 1.60218e-19 * dataset_scalars["Nnorm"] * dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"]
-    return np.asarray(field, dtype=np.float64) / source_normalisation
-
-
-def _resolve_species_numeric_option(config: BoutConfig, section: str, option_name: str) -> float:
-    raw_value = config.raw(section, option_name).strip()
-    resolved_reference = _try_literal_reference(config, raw_value)
-    if resolved_reference is None and raw_value.startswith("`") and "`:" in raw_value:
-        section_end = raw_value.find("`:", 1)
-        if section_end > 1:
-            referenced_section = raw_value[1:section_end]
-            referenced_option = raw_value[section_end + 2 :]
-            if config.has_section(referenced_section) and config.has_option(referenced_section, referenced_option):
-                resolved_reference = (referenced_section, referenced_option)
-    resolver = NumericResolver(config)
-    if resolved_reference is not None:
-        return float(resolver.resolve(resolved_reference[0], resolved_reference[1]))
-    return float(resolver.resolve(section, option_name))
-
-
-def _evaluate_option_field(
-    config: BoutConfig,
-    section: str,
-    option_name: str,
-    *,
-    mesh: StructuredMesh,
-) -> np.ndarray:
-    raw_value = config.raw(section, option_name)
-    resolved_reference = _try_literal_reference(config, raw_value)
-    if resolved_reference is not None:
-        return _evaluate_field_value(config, resolved_reference[0], mesh=mesh, option_name=resolved_reference[1])
-    evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
-    field = broadcast_to_field_shape(evaluator.resolve_option(section, option_name), mesh)
-    return np.asarray(field, dtype=np.float64)
-
-
-def _try_literal_reference(config: BoutConfig, raw_value: str) -> tuple[str, str] | None:
-    value = raw_value.strip()
-    if not (value.startswith("`") and value.endswith("`")):
-        return None
-    reference = value[1:-1]
-    if ":" not in reference:
-        return None
-    section, key = reference.split(":", 1)
-    if not config.has_section(section) or not config.has_option(section, key):
-        return None
-    return section, key
-
-
 def _load_simple_sheath_settings(
     config: BoutConfig,
     *,
@@ -916,56 +600,6 @@ def _merge_target_guard_cells(base: np.ndarray, boundary: np.ndarray, *, mesh: S
         merged[:, mesh.yend + 1, :] = boundary_array[:, mesh.yend + 1, :]
     return merged
 
-
-def _load_density_feedback_controllers(
-    config: BoutConfig,
-    *,
-    species: dict[str, OpenFieldSpecies],
-    mesh: StructuredMesh,
-    dataset_scalars: dict[str, float],
-) -> dict[str, _DensityFeedbackController]:
-    resolver = NumericResolver(config)
-    nnorm = float(dataset_scalars["Nnorm"])
-    omega_ci = float(dataset_scalars["Omega_ci"])
-    controllers: dict[str, _DensityFeedbackController] = {}
-    for name, sp in species.items():
-        if name == "e" or sp.charge <= 0.0 or not config.has_option(name, "type"):
-            continue
-        type_values = config.parsed(name, "type")
-        components = tuple(str(item).strip() for item in (type_values if isinstance(type_values, tuple) else (type_values,)))
-        if "upstream_density_feedback" not in components:
-            continue
-        density_section = f"N{name}"
-        if config.has_option(density_section, "source_shape"):
-            raw_value = config.raw(density_section, "source_shape")
-            resolved_reference = _try_literal_reference(config, raw_value)
-            if resolved_reference is not None:
-                source_shape = _evaluate_field_value(
-                    config,
-                    resolved_reference[0],
-                    mesh=mesh,
-                    option_name=resolved_reference[1],
-                )
-            else:
-                evaluator = ArrayExpressionEvaluator(config, local_values=mesh.expression_context())
-                source_shape = broadcast_to_field_shape(
-                    evaluator.resolve_option(density_section, "source_shape"),
-                    mesh,
-                )
-            source_shape = np.asarray(source_shape, dtype=np.float64) / (nnorm * omega_ci)
-        else:
-            source_shape = np.zeros_like(sp.density, dtype=np.float64)
-        controllers[name] = _DensityFeedbackController(
-            species_name=name,
-            density_upstream=float(resolver.resolve(name, "density_upstream")) / nnorm,
-            density_controller_p=float(resolver.resolve(name, "density_controller_p")) if config.has_option(name, "density_controller_p") else 1.0e-2,
-            density_controller_i=float(resolver.resolve(name, "density_controller_i")) if config.has_option(name, "density_controller_i") else 1.0e-3,
-            density_integral_positive=bool(config.parsed(name, "density_integral_positive")) if config.has_option(name, "density_integral_positive") else False,
-            density_source_positive=bool(config.parsed(name, "density_source_positive")) if config.has_option(name, "density_source_positive") else True,
-            density_source_shape=source_shape,
-            diagnose=bool(config.parsed(name, "diagnose")) if config.has_option(name, "diagnose") else False,
-        )
-    return controllers
 
 def _raw_species_velocity(species: OpenFieldSpecies) -> np.ndarray:
     return np.asarray(
