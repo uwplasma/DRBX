@@ -91,6 +91,20 @@ from .runner_reference import (
     load_curated_case_config as _load_curated_case_config,
     reference_root_from_input_path as _reference_root_from_input_path,
 )
+from .runner_recycling import (
+    apply_species_velocity_overrides as _apply_species_velocity_overrides,
+    direct_recycling_optional_field_names as _direct_recycling_optional_field_names,
+    direct_recycling_species_names as _direct_recycling_species_names,
+    direct_recycling_state_field_names as _direct_recycling_state_field_names,
+    direct_recycling_velocity_optional_field_names as _direct_recycling_velocity_optional_field_names,
+    integrated_2d_initial_rhs_case_name as _integrated_2d_initial_rhs_case_name,
+    open_field_initial_rhs_case_name as _open_field_initial_rhs_case_name,
+    restrict_field_template_overrides_to_non_owned_y_guards as _restrict_field_template_overrides_to_non_owned_y_guards,
+    snapshot_density_source_overrides as _snapshot_density_source_overrides,
+    snapshot_momentum_source_overrides as _snapshot_momentum_source_overrides,
+    snapshot_pressure_source_overrides as _snapshot_pressure_source_overrides,
+    snapshot_velocity_overrides as _snapshot_velocity_overrides,
+)
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -140,154 +154,6 @@ _REFERENCE_ARRAY_BASELINE_DIR = Path(__file__).resolve().parents[3] / "reference
 
 def _reference_case_by_name_or_none(case_name: str) -> ReferenceCase | None:
     return next((case for case in load_reference_cases() if case.name == case_name), None)
-
-
-def _direct_recycling_species_names(config: BoutConfig) -> tuple[str, ...]:
-    names: list[str] = []
-    for section_name in config.section_names():
-        if section_name == "e":
-            names.append(section_name)
-            continue
-        if not config.has_option(section_name, "type"):
-            continue
-        type_values = config.parsed(section_name, "type")
-        type_items = type_values if isinstance(type_values, tuple) else (type_values,)
-        if any(
-            str(item).startswith("evolve_") or str(item) in {"quasineutral", "neutral_mixed"}
-            for item in type_items
-        ):
-            names.append(section_name)
-    return tuple(names)
-
-
-def _direct_recycling_state_field_names(config: BoutConfig) -> tuple[str, ...]:
-    names: list[str] = []
-    for species_name in _direct_recycling_species_names(config):
-        if species_name == "e":
-            names.append("Pe")
-        else:
-            names.extend((f"N{species_name}", f"P{species_name}", f"NV{species_name}"))
-    return tuple(names)
-
-
-def _species_optional_velocity_field_map(config: BoutConfig) -> tuple[tuple[str, str], ...]:
-    return tuple(
-        (species_name, f"V{species_name}")
-        for species_name in _direct_recycling_species_names(config)
-        if species_name != "e"
-    )
-
-
-def _direct_recycling_velocity_optional_field_names(config: BoutConfig) -> tuple[str, ...]:
-    return tuple(field_name for _, field_name in _species_optional_velocity_field_map(config))
-
-
-def _direct_recycling_optional_field_names(config: BoutConfig) -> tuple[str, ...]:
-    names: list[str] = list(_direct_recycling_velocity_optional_field_names(config))
-    for species_name in _direct_recycling_species_names(config):
-        if species_name == "e":
-            continue
-        names.extend((f"SN{species_name}", f"SNV{species_name}", f"SP{species_name}"))
-    names.extend(
-        (
-            "SPe",
-            "Sd_target_recycle",
-            "Ed_target_recycle",
-            "Sd_wall_recycle",
-            "Ed_wall_recycle",
-            "Sd_pump",
-            "Ed_pump",
-            "Ed_target_refl",
-            "Ed_wall_refl",
-            "is_pump",
-            "anomalous_D_d+",
-            "anomalous_Chi_d+",
-            "anomalous_nu_d+",
-            "anomalous_D_e",
-            "anomalous_Chi_e",
-            "anomalous_nu_e",
-        )
-    )
-    return tuple(dict.fromkeys(names))
-
-
-def _restrict_field_template_overrides_to_non_owned_y_guards(
-    base_fields: Mapping[str, np.ndarray],
-    override_fields: Mapping[str, np.ndarray] | None,
-    *,
-    mesh: StructuredMesh,
-) -> dict[str, np.ndarray] | None:
-    if override_fields is None:
-        return None
-    restricted = {
-        name: np.asarray(value, dtype=np.float64, copy=True)
-        for name, value in base_fields.items()
-    }
-    if mesh.myg <= 0:
-        return restricted
-    for name, override in override_fields.items():
-        if name not in restricted:
-            continue
-        override_array = np.asarray(override, dtype=np.float64)
-        if not mesh.has_lower_y_target:
-            restricted[name][:, : mesh.ystart, :] = override_array[:, : mesh.ystart, :]
-        if not mesh.has_upper_y_target:
-            restricted[name][:, mesh.yend + 1 :, :] = override_array[:, mesh.yend + 1 :, :]
-    return restricted
-
-
-def _snapshot_density_source_overrides(
-    config: BoutConfig,
-    optional_fields: Mapping[str, np.ndarray],
-) -> dict[str, np.ndarray] | None:
-    overrides = {
-        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
-        for species_name in _direct_recycling_species_names(config)
-        if species_name != "e"
-        for field_name in (f"SN{species_name}",)
-        if field_name in optional_fields
-    }
-    return overrides or None
-
-
-def _snapshot_pressure_source_overrides(
-    config: BoutConfig,
-    optional_fields: Mapping[str, np.ndarray],
-) -> dict[str, np.ndarray] | None:
-    overrides = {
-        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
-        for species_name in _direct_recycling_species_names(config)
-        if species_name != "e"
-        for field_name in (f"SP{species_name}",)
-        if field_name in optional_fields
-    }
-    return overrides or None
-
-
-def _snapshot_momentum_source_overrides(
-    config: BoutConfig,
-    optional_fields: Mapping[str, np.ndarray],
-) -> dict[str, np.ndarray] | None:
-    overrides = {
-        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
-        for species_name in _direct_recycling_species_names(config)
-        if species_name != "e"
-        for field_name in (f"SNV{species_name}",)
-        if field_name in optional_fields
-    }
-    return overrides or None
-
-
-def _snapshot_velocity_overrides(
-    config: BoutConfig,
-    optional_fields: Mapping[str, np.ndarray],
-) -> dict[str, np.ndarray] | None:
-    overrides = {
-        species_name: np.asarray(optional_fields[field_name], dtype=np.float64)
-        for species_name, field_name in _species_optional_velocity_field_map(config)
-        if field_name in optional_fields
-    }
-    return overrides or None
 
 
 def run_curated_case(
@@ -1523,24 +1389,6 @@ def _run_integrated_2d_recycling_transient_case(
     )
 
 
-def _integrated_2d_initial_rhs_case_name(case_name: str) -> str:
-    if case_name.endswith("_one_step"):
-        return case_name[: -len("_one_step")] + "_rhs"
-    if case_name.endswith("_short_window"):
-        return case_name[: -len("_short_window")] + "_rhs"
-    if case_name.endswith("_medium_window"):
-        return case_name[: -len("_medium_window")] + "_rhs"
-    return "integrated_2d_recycling_rhs"
-
-
-def _open_field_initial_rhs_case_name(case_name: str) -> str:
-    if case_name.endswith("_one_step"):
-        return case_name[: -len("_one_step")] + "_rhs"
-    if case_name.endswith("_short_window"):
-        return case_name[: -len("_short_window")] + "_rhs"
-    return "recycling_1d_rhs"
-
-
 def _run_open_field_recycling_one_step_case(
     case: ReferenceCase,
     *,
@@ -1674,32 +1522,6 @@ def _append_integrated_2d_recycling_diagnostics(
                 diagnostic_history[diagnostic_name].append(np.asarray(rhs.variables[diagnostic_name][0], dtype=np.float64))
     for diagnostic_name, history in diagnostic_history.items():
         variables[diagnostic_name] = np.stack(history, axis=0)
-
-
-def _apply_species_velocity_overrides(
-    config: BoutConfig,
-    *,
-    field_overrides: Mapping[str, np.ndarray],
-    velocity_field_overrides: Mapping[str, np.ndarray],
-) -> dict[str, np.ndarray]:
-    if not velocity_field_overrides:
-        return {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in field_overrides.items()}
-    resolver = NumericResolver(config)
-    updated = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in field_overrides.items()}
-    for species_name, velocity in velocity_field_overrides.items():
-        density_name = f"N{species_name}"
-        momentum_name = f"NV{species_name}"
-        if density_name not in updated or momentum_name not in updated:
-            continue
-        if config.has_option(species_name, "AA"):
-            atomic_mass = float(resolver.resolve(species_name, "AA"))
-        else:
-            atomic_mass = 1.0 / 1836.0 if species_name == "e" else 1.0
-        updated[momentum_name] = atomic_mass * np.asarray(updated[density_name], dtype=np.float64) * np.asarray(
-            velocity,
-            dtype=np.float64,
-        )
-    return updated
 
 
 def _integrated_2d_recycling_transient_steps(case: ReferenceCase, run_config: RunConfiguration) -> int:
