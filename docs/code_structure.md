@@ -281,6 +281,22 @@ scientific reproducibility. It is a policy layer rather than a transport
 operator, and it should be directly tested rather than inferred only from
 longer transient cases.
 
+The current RHS-term assembly extraction is:
+
+- [src/jax_drb/native/recycling_rhs_terms.py](../src/jax_drb/native/recycling_rhs_terms.py)
+
+That module owns:
+
+- electron pressure RHS decomposition into explicit, parallel-divergence,
+  parallel-advection, and energy-source pieces
+- ion density, pressure, and momentum RHS decomposition on prepared open-field
+  states
+
+This split matters because these assembled terms are the first place where the
+closure stack becomes directly interpretable as a numerical balance. They are
+already scientifically meaningful and directly tested, so they belong in a
+small module rather than buried inside the larger recycling residual file.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
