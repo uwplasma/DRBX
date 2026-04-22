@@ -245,6 +245,7 @@ The governing equations, closures, numerical operators, runtime design, and diff
 - [docs/native_runtime_cli.md](docs/native_runtime_cli.md)
 - [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
 - [docs/research_directions.md](docs/research_directions.md)
+- [docs/refactoring_plan.md](docs/refactoring_plan.md)
 
 The runtime/performance audit tools include:
 
