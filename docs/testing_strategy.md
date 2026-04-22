@@ -109,6 +109,19 @@ generators for the paper and docs. Those should produce:
 - publication-grade plots
 - direct regression checks for artifact completeness
 
+Any test family that demonstrates one of the following should have a paired
+artifact-producing campaign, even if the test itself remains assertion-only:
+
+- literature-anchored numerics such as MMS, convergence, or operator studies
+- benchmark-facing physics comparisons
+- controller, detachment, or recycling transient histories that are
+  scientifically interpretable
+- differentiability results that would appear in the paper
+
+The assertion test and the artifact campaign should share the same source logic
+wherever possible. The test proves correctness; the campaign proves the result
+is communicable and publication-ready.
+
 Priority figure-producing families are:
 
 - MMS convergence

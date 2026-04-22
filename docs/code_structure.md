@@ -93,6 +93,21 @@ These rules are small, but they are part of the implicit-state contract and are
 therefore worth testing directly rather than only through end-to-end recycling
 cases.
 
+The current boundary-helper extraction is:
+
+- [src/jax_drb/native/recycling_boundaries.py](../src/jax_drb/native/recycling_boundaries.py)
+
+That module owns the small but scientifically relevant guard-cell rules used by
+the recycling backbone:
+
+- neutral target density extrapolation
+- open-field scalar Neumann guards
+- open-field scalar Dirichlet guards
+
+These rules influence parity and compare-window surfaces, so they need direct
+tests and should later feed artifact-producing benchmark campaigns when they are
+used in literature-facing operator studies.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
