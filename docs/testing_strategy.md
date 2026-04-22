@@ -148,9 +148,12 @@ During the first structural phase:
 
 1. extract direct unit coverage for pack/unpack and layout logic
 2. extract direct operator tests for recycling and neutral closures
-3. keep the existing Hermes-backed transient ladders green while files are
+3. extract direct tests for controller-state logic and compare-window helpers
+   so validation/orchestration behavior is not only inherited through large
+   runner and transient-solver tests
+4. keep the existing Hermes-backed transient ladders green while files are
    being split
-4. only then widen benchmark and literature-facing campaigns
+5. only then widen benchmark and literature-facing campaigns
 
 That sequencing preserves scientific trust while the software architecture is
 improved.

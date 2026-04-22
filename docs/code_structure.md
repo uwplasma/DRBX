@@ -160,6 +160,35 @@ produced by:
 
 - [src/jax_drb/validation/reactions_collisions_campaign.py](../src/jax_drb/validation/reactions_collisions_campaign.py)
 
+The current feedback-controller state extraction is:
+
+- [src/jax_drb/native/recycling_feedback.py](../src/jax_drb/native/recycling_feedback.py)
+
+That module isolates:
+
+- upstream density-error evaluation on active recycling states
+- trapezoidal controller-integral updates
+- predictor-stage controller-integral updates
+- integral sanitization and compact vector packing helpers
+
+This matters because the controller-oriented validation packages should not have
+to depend on the full recycling residual file just to exercise controller-state
+logic. It is also the path toward more direct tests of the temperature and
+detachment controller lanes.
+
+The first runner-side compare-window extraction is:
+
+- [src/jax_drb/native/runner_compare.py](../src/jax_drb/native/runner_compare.py)
+
+That module owns:
+
+- guard-cell trimming for compare surfaces
+- compare-variable selection for payload emission
+
+These are not physics operators, but they are part of the public benchmark and
+artifact contract. Extracting them makes the native execution path easier to
+test directly without routing every check through the full runner dispatch.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
