@@ -161,12 +161,16 @@ During the first structural phase:
    evaluation, source normalization, species-template construction, and
    controller loading so deck interpretation is not only inherited through the
    full recycling solver
-5. extract direct tests for field sanitization, restart-policy selection, and
+5. extract direct tests for state-preconditioning rules such as density floors,
+   guarded neutral reconstruction, and prepared-state assembly so sheath and
+   collisional closures are not the only places where those branches are
+   exercised
+6. extract direct tests for field sanitization, restart-policy selection, and
    other small execution rules that influence solver robustness and public
    artifact behavior
-6. keep the existing Hermes-backed transient ladders green while files are
+7. keep the existing Hermes-backed transient ladders green while files are
    being split
-7. only then widen benchmark and literature-facing campaigns
+8. only then widen benchmark and literature-facing campaigns
 
 That sequencing preserves scientific trust while the software architecture is
 improved.
