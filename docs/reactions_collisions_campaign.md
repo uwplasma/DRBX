@@ -7,8 +7,8 @@ tests.
 The generated package contains:
 
 - a summary JSON with named gates and pass/fail status;
-- a compact NPZ payload with the metric values and targets;
-- a summary summary plot.
+- a compact NPZ payload with the scalar gates plus profile lineouts;
+- a publication-grade summary plot.
 
 The current gates cover:
 
@@ -18,6 +18,22 @@ The current gates cover:
 - ionisation-rate consistency with reaction diagnostics;
 - ion-parallel-viscosity collisionality closure;
 - neon OpenADAS table loading.
+
+The current lineouts make the package communicable as a paper-facing closure
+verification figure rather than only as a scalar gate. The committed figure now
+shows:
+
+- single-species ionisation profile agreement between the assembled collision
+  rate and the reaction diagnostic per neutral density;
+- multispecies deuterium neutral charge-exchange decomposition into same-isotope
+  and cross-isotope ion contributions;
+- ion-parallel-viscosity total collisionality agreement between the assembled
+  closure input and the explicit collision stack.
+
+This is the first intended bridge between the refactored recycling operators and
+future manuscript figures on reaction, collision, and atomic-data fidelity. The
+unit tests prove the formulas; this campaign proves the same surfaces are
+reviewable and publication-ready.
 
 Run the demo with:
 
