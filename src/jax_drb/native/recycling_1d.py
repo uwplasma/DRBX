@@ -41,6 +41,15 @@ from .open_field import (
     compute_target_recycling_sources,
     limit_free,
 )
+from .recycling_layout import (
+    RecyclingPackedStateLayout as _RecyclingPackedStateLayout,
+    build_recycling_packed_state_layout as _build_recycling_packed_state_layout,
+    pack_recycling_active_state as _pack_recycling_active_state,
+    recycling_active_domain_slices as _recycling_active_domain_slices,
+    recycling_active_field_size as _recycling_active_field_size,
+    recycling_active_shape as _recycling_active_shape,
+    unpack_recycling_active_state as _unpack_recycling_active_state,
+)
 
 
 @dataclass(frozen=True)
@@ -174,16 +183,6 @@ class _RecyclingRuntimeModel:
     preserve_dump_ion_target_state_only: bool
     field_names: tuple[str, ...]
     feedback_names: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _RecyclingPackedStateLayout:
-    field_names: tuple[str, ...]
-    feedback_names: tuple[str, ...]
-    active_slices: tuple[slice, slice, slice]
-    active_shape: tuple[int, int, int]
-    field_size: int
-    field_templates: tuple[np.ndarray, ...]
 
 
 _AMJUEL_FILENAMES = {
@@ -5526,47 +5525,6 @@ def _recycling_field_templates(
         else:
             templates[name] = np.asarray(sp.momentum, dtype=np.float64)
     return templates
-
-
-def _build_recycling_packed_state_layout(
-    *,
-    fields: dict[str, np.ndarray],
-    field_names: tuple[str, ...],
-    feedback_names: tuple[str, ...],
-    mesh: StructuredMesh,
-) -> _RecyclingPackedStateLayout:
-    active_slices = _recycling_active_domain_slices(mesh)
-    active_shape = _recycling_active_shape(mesh)
-    field_templates = tuple(np.asarray(fields[name], dtype=np.float64) for name in field_names)
-    field_size = int(np.prod(active_shape)) * len(field_names)
-    return _RecyclingPackedStateLayout(
-        field_names=field_names,
-        feedback_names=feedback_names,
-        active_slices=active_slices,
-        active_shape=active_shape,
-        field_size=field_size,
-        field_templates=field_templates,
-    )
-
-
-def _recycling_active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
-    return (
-        slice(mesh.xstart, mesh.xend + 1),
-        slice(mesh.ystart, mesh.yend + 1),
-        slice(None),
-    )
-
-
-def _recycling_active_field_size(mesh: StructuredMesh) -> int:
-    return int(np.prod(_recycling_active_shape(mesh)))
-
-
-def _recycling_active_shape(mesh: StructuredMesh) -> tuple[int, int, int]:
-    active_slices = _recycling_active_domain_slices(mesh)
-    return tuple(
-        len(range(*active_slice.indices(axis_extent)))
-        for active_slice, axis_extent in zip(active_slices, (mesh.nx, mesh.local_ny, mesh.nz), strict=True)
-    )
 
 
 @lru_cache(maxsize=None)
