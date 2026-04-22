@@ -41,6 +41,11 @@ from .open_field import (
     compute_target_recycling_sources,
     limit_free,
 )
+from .recycling_boundaries import (
+    apply_neutral_target_density_guards as _apply_neutral_target_density_guards,
+    apply_open_field_dirichlet_scalar_guards as _apply_open_field_dirichlet_scalar_guards,
+    apply_open_field_neumann_scalar_guards as _apply_open_field_neumann_scalar_guards,
+)
 from .recycling_fields import (
     build_recycling_state_fields as _build_recycling_state_fields,
     recycling_evolving_variable_names as _recycling_evolving_variable_names,
@@ -1545,29 +1550,6 @@ def _prepare_species_state(
     )
 
 
-def _apply_neutral_target_density_guards(
-    field: np.ndarray,
-    *,
-    mesh: StructuredMesh,
-    lower_y: bool,
-    upper_y: bool,
-) -> np.ndarray:
-    result = np.array(field, dtype=np.float64, copy=True)
-    if mesh.myg <= 0:
-        return result
-    if lower_y and mesh.ystart + 1 <= mesh.yend:
-        result[:, mesh.ystart - 1, :] = np.maximum(
-            2.0 * result[:, mesh.ystart, :] - result[:, mesh.ystart + 1, :],
-            0.0,
-        )
-    if upper_y and mesh.yend - 1 >= mesh.ystart:
-        result[:, mesh.yend + 1, :] = np.maximum(
-            2.0 * result[:, mesh.yend, :] - result[:, mesh.yend - 1, :],
-            0.0,
-        )
-    return result
-
-
 def _prepare_open_field_states(
     species: dict[str, OpenFieldSpecies],
     *,
@@ -2534,36 +2516,6 @@ def _apply_neutral_parallel_diffusion(
         momentum_source=momentum_source,
         diagnostics=diagnostics,
     )
-
-
-def _apply_open_field_neumann_scalar_guards(
-    field: np.ndarray,
-    *,
-    mesh: StructuredMesh,
-    lower_y: bool,
-    upper_y: bool,
-) -> np.ndarray:
-    return np.asarray(
-        apply_noflow_scalar_guards(field, mesh=mesh, lower_y=lower_y, upper_y=upper_y),
-        dtype=np.float64,
-    )
-
-
-def _apply_open_field_dirichlet_scalar_guards(
-    field: np.ndarray,
-    *,
-    mesh: StructuredMesh,
-    lower_y: bool,
-    upper_y: bool,
-) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64, copy=True)
-    if mesh.myg <= 0:
-        return result
-    if lower_y:
-        result[:, mesh.ystart - 1, :] = -result[:, mesh.ystart, :]
-    if upper_y:
-        result[:, mesh.yend + 1, :] = -result[:, mesh.yend, :]
-    return result
 
 
 def _conduction_kappa_coefficient(config: BoutConfig, species: OpenFieldSpecies) -> float:

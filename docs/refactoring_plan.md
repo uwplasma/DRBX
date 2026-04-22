@@ -457,11 +457,25 @@ Every figure destined for the manuscript should be produced from:
 The paper repo may compose panels, but it should not be the first place where
 the data product is generated.
 
+In practical terms, this means that any new test strong enough to justify a
+scientific claim should be accompanied by one of:
+
+- a validation campaign in `src/jax_drb/validation`
+- a benchmark/example entry point that writes stable artifacts
+- a direct artifact-producing script under `examples/engineering` or
+  `examples/publication`
+
+The test alone is not enough if the result is expected to appear in the paper.
+
 ## Autodiff, JAX, And Optimization Roadmap
 
 The differentiable lane should become a first-class part of the architecture,
 but the plan must stay honest about where full autodiff exists today and where
 host-backed boundaries still dominate.
+
+Performance, differentiability, and accuracy are joint constraints during the
+refactor. A structural change is incomplete if it makes the code cleaner while
+quietly degrading runtime, transformability, or numerical fidelity.
 
 ### Immediate differentiable targets
 
