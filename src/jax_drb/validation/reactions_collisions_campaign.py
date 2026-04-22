@@ -11,11 +11,13 @@ from ..config.boutinp import apply_bout_overrides, load_bout_input
 from ..native.mesh import build_structured_mesh
 from ..native.metrics import build_structured_metrics
 from ..native.recycling_atomic import hydrogen_cx_sigmav, load_openadas_rate
+from ..native.recycling_collisions import (
+    compute_collision_frequencies,
+    electron_density,
+    ion_parallel_viscosity_inputs,
+)
 from ..native.recycling_1d import (
-    _compute_collision_frequencies,
-    _electron_density,
     _initialize_species,
-    _ion_parallel_viscosity_inputs,
     _prepare_open_field_states,
 )
 from ..native.recycling_reactions import (
@@ -161,13 +163,13 @@ def build_reactions_collisions_campaign(
         prepared=multispecies["prepared"],
         dataset_scalars=multispecies["dataset_scalars"],
     )
-    multispecies_collision_rates = _compute_collision_frequencies(
+    multispecies_collision_rates = compute_collision_frequencies(
         multispecies["config"],
         multispecies["species"],
         multispecies["prepared"],
         dataset_scalars=multispecies["dataset_scalars"],
     )
-    multispecies_viscosity_inputs = _ion_parallel_viscosity_inputs(
+    multispecies_viscosity_inputs = ion_parallel_viscosity_inputs(
         species_name="d+",
         species=multispecies["species"],
         prepared=multispecies["prepared"],
@@ -183,7 +185,7 @@ def build_reactions_collisions_campaign(
     reaction_terms = reaction_sources(
         single_species["config"],
         species=single_species["species"],
-        electron_density=_electron_density(tuple(sp for sp in single_species["species"].values() if sp.charge > 0.0)),
+        electron_density=electron_density(tuple(sp for sp in single_species["species"].values() if sp.charge > 0.0)),
         dataset_scalars=single_species["dataset_scalars"],
     )
 
@@ -370,7 +372,7 @@ def _build_reactions_collisions_profiles(
     multispecies_mesh = multispecies["mesh"]
     multispecies_active_slice = slice(multispecies_mesh.ystart, multispecies_mesh.yend + 1)
 
-    single_electron_density = _electron_density(tuple(sp for sp in single_species["species"].values() if sp.charge > 0.0))
+    single_electron_density = electron_density(tuple(sp for sp in single_species["species"].values() if sp.charge > 0.0))
     single_reaction_terms = reaction_sources(
         single_species["config"],
         species=single_species["species"],
@@ -395,13 +397,13 @@ def _build_reactions_collisions_profiles(
         prepared=multispecies["prepared"],
         dataset_scalars=multispecies["dataset_scalars"],
     )
-    multispecies_collision_rates = _compute_collision_frequencies(
+    multispecies_collision_rates = compute_collision_frequencies(
         multispecies["config"],
         multispecies["species"],
         multispecies["prepared"],
         dataset_scalars=multispecies["dataset_scalars"],
     )
-    multispecies_viscosity_inputs = _ion_parallel_viscosity_inputs(
+    multispecies_viscosity_inputs = ion_parallel_viscosity_inputs(
         species_name="d+",
         species=multispecies["species"],
         prepared=multispecies["prepared"],
