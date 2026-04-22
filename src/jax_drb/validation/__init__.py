@@ -225,6 +225,12 @@ from .local_cpu_scaling_campaign import (
     create_local_cpu_scaling_campaign_package,
     save_local_cpu_scaling_campaign_plot,
 )
+from .fluid_1d_mms_convergence import (
+    Fluid1DMmsConvergenceArtifacts,
+    build_fluid_1d_mms_convergence_report,
+    create_fluid_1d_mms_convergence_package,
+    save_fluid_1d_mms_convergence_plot,
+)
 from .native_3d_convergence_campaign import (
     Native3DConvergenceCampaignArtifacts,
     build_native_3d_convergence_campaign_report,
@@ -258,6 +264,12 @@ from .detachment_controller_campaign import (
     DetachmentControllerCampaignMetric,
     build_detachment_controller_campaign,
     create_detachment_controller_campaign_package,
+)
+from .publication_ready_3d import (
+    PublicationReady3DArtifacts,
+    build_publication_ready_3d_report,
+    create_publication_ready_3d_campaign_package,
+    save_publication_ready_3d_summary_plot,
 )
 from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignArtifacts,

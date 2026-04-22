@@ -1,5 +1,12 @@
 {
   "case": "fluid_1d_mms_convergence",
+  "family": "manufactured_solution_convergence",
+  "literature_anchor": "Hermes-3 and broader verification literature use refinement studies and observed-order plots to separate operator correctness from benchmark validation.",
+  "min_observed_order": {
+    "density": 1.627538381515247,
+    "momentum": 1.8991131696761343,
+    "pressure": 1.945817141685118
+  },
   "observed_orders": [
     {
       "density_order": 2.3066561162615633,
@@ -16,6 +23,7 @@
       "to_ny": 128
     }
   ],
+  "operator_family": "fluid_1d_density_pressure_momentum",
   "resolutions": [
     32,
     64,

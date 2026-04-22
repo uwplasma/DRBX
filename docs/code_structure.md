@@ -217,6 +217,22 @@ These helpers are also part of the public execution contract. Pulling them out
 keeps the runner file focused on dispatch and case execution rather than on
 small policy functions.
 
+The current runner cache-policy extraction is:
+
+- [src/jax_drb/native/runner_cache.py](../src/jax_drb/native/runner_cache.py)
+
+That module owns:
+
+- capability-tier defaulting for native-only runs
+- cache-path construction for integrated-2D, open-field, and tokamak reference
+  bundles
+- policy checks for which curated cases should read snapshot or history caches
+
+This is a useful split because cache use is part of the promoted benchmark
+contract rather than a private implementation detail. It affects runtime,
+provenance, and reproducibility, so it should be directly tested instead of
+being inferred only through the larger runner and tokamak integration suites.
+
 ## JAX Boundary
 
 The architecture should keep the JAX boundary explicit:
