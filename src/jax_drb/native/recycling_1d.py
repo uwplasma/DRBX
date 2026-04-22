@@ -82,6 +82,14 @@ from .recycling_fields import (
     recycling_evolving_variable_names as _recycling_evolving_variable_names,
     recycling_field_templates as _recycling_field_templates,
 )
+from .recycling_feedback import (
+    advance_feedback_integrals as _advance_feedback_integrals,
+    advance_feedback_integrals_from_predictor as _advance_feedback_integrals_from_predictor,
+    current_feedback_errors as _current_feedback_errors,
+    feedback_error_vector as _feedback_error_vector,
+    feedback_integral_vector as _feedback_integral_vector,
+    sanitize_feedback_integrals as _sanitize_feedback_integrals,
+)
 from .recycling_layout import (
     RecyclingPackedStateLayout as _RecyclingPackedStateLayout,
     build_recycling_packed_state_layout as _build_recycling_packed_state_layout,
@@ -4446,93 +4454,6 @@ def _predict_recycling_fields_from_rhs(
             dtype=np.float64,
         )
     return _sanitize_recycling_fields(config, predicted)
-
-
-def _current_feedback_errors(
-    fields: dict[str, np.ndarray],
-    *,
-    controllers: dict[str, _DensityFeedbackController],
-    mesh: StructuredMesh,
-) -> dict[str, float]:
-    errors: dict[str, float] = {}
-    for name, controller in controllers.items():
-        density_name = f"N{name}"
-        if density_name not in fields:
-            continue
-        upstream_density = float(np.asarray(fields[density_name], dtype=np.float64)[mesh.xstart, mesh.ystart, 0])
-        errors[name] = controller.density_upstream - upstream_density
-    return errors
-
-
-def _advance_feedback_integrals(
-    fields: dict[str, np.ndarray],
-    *,
-    controllers: dict[str, _DensityFeedbackController],
-    feedback_integrals: dict[str, float],
-    feedback_previous_errors: dict[str, float],
-    mesh: StructuredMesh,
-    timestep: float,
-) -> dict[str, float]:
-    updated = {name: float(value) for name, value in feedback_integrals.items()}
-    current_errors = _current_feedback_errors(fields, controllers=controllers, mesh=mesh)
-    for name, controller in controllers.items():
-        current_error = float(current_errors.get(name, 0.0))
-        previous_error = float(feedback_previous_errors.get(name, current_error))
-        integral = float(feedback_integrals.get(name, 0.0)) + float(timestep) * 0.5 * (current_error + previous_error)
-        if controller.density_integral_positive and integral < 0.0:
-            integral = 0.0
-        updated[name] = integral
-    return updated
-
-
-def _advance_feedback_integrals_from_predictor(
-    *,
-    controllers: dict[str, _DensityFeedbackController],
-    feedback_integrals: dict[str, float],
-    feedback_previous_errors: dict[str, float],
-    predictor_feedback_errors: dict[str, float],
-    timestep: float,
-) -> dict[str, float]:
-    updated = {name: float(value) for name, value in feedback_integrals.items()}
-    for name, controller in controllers.items():
-        previous_error = float(feedback_previous_errors.get(name, 0.0))
-        predictor_error = float(predictor_feedback_errors.get(name, previous_error))
-        integral = float(feedback_integrals.get(name, 0.0)) + float(timestep) * 0.5 * (predictor_error + previous_error)
-        if controller.density_integral_positive and integral < 0.0:
-            integral = 0.0
-        updated[name] = integral
-    return updated
-
-
-def _sanitize_feedback_integrals(
-    feedback_integrals: dict[str, float],
-    *,
-    controllers: dict[str, _DensityFeedbackController],
-) -> dict[str, float]:
-    sanitized = {name: float(value) for name, value in feedback_integrals.items()}
-    for name, controller in controllers.items():
-        integral = float(sanitized.get(name, 0.0))
-        if controller.density_integral_positive and integral < 0.0:
-            integral = 0.0
-        sanitized[name] = integral
-    return sanitized
-
-
-def _feedback_integral_vector(
-    feedback_integrals: dict[str, float],
-    *,
-    feedback_names: tuple[str, ...],
-) -> np.ndarray:
-    return np.asarray([float(feedback_integrals.get(name, 0.0)) for name in feedback_names], dtype=np.float64)
-
-
-def _feedback_error_vector(
-    feedback_errors: dict[str, float],
-    *,
-    feedback_names: tuple[str, ...],
-) -> np.ndarray:
-    return np.asarray([float(feedback_errors.get(name, 0.0)) for name in feedback_names], dtype=np.float64)
-
 
 def _build_recycling_mixed_be_residual(
     packed_state: np.ndarray,

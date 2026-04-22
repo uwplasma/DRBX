@@ -65,6 +65,10 @@ from .reference_dump import (
     load_optional_field_history_cache,
 )
 from .recycling_1d import advance_recycling_1d_implicit_history, compute_recycling_1d_rhs
+from .runner_compare import (
+    prepare_compare_variables as _prepare_compare_variables,
+    select_payload_variables as _select_payload_variables,
+)
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -2702,38 +2706,6 @@ def _uniform_identity_parallel_metric(mesh: StructuredMesh, *, metrics: Structur
         return False
     dy = np.asarray(metrics.dy[:, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
     return np.allclose(dy, dy[:, :1, :], rtol=1e-12, atol=1e-12)
-
-
-def _prepare_compare_variables(
-    variables: Mapping[str, Any],
-    mesh: StructuredMesh,
-    *,
-    trim_x_guards: bool,
-    trim_y_guards: bool,
-) -> dict[str, Any]:
-    prepared: dict[str, Any] = {}
-    for name, value in variables.items():
-        array = np.asarray(value, dtype=np.float64)
-        if trim_x_guards and array.ndim >= 4 and array.shape[1] > 2 * mesh.mxg:
-            array = array[:, mesh.mxg : -mesh.mxg, ...]
-        if trim_y_guards and array.ndim >= 4 and array.shape[2] > 2 * mesh.myg:
-            array = array[:, :, mesh.myg : -mesh.myg, ...]
-        prepared[name] = array
-    return prepared
-
-
-def _select_payload_variables(
-    variables: Mapping[str, Any],
-    *,
-    compare_variables: tuple[str, ...],
-) -> dict[str, Any]:
-    if not compare_variables:
-        return {name: np.asarray(value, dtype=np.float64) for name, value in variables.items()}
-    return {
-        name: np.asarray(variables[name], dtype=np.float64)
-        for name in compare_variables
-        if name in variables
-    }
 
 
 def _effective_overrides(parity_mode: str, *, reference_case: ReferenceCase | None) -> tuple[str, ...]:
