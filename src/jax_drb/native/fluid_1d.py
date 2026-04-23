@@ -6,6 +6,7 @@ import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
 from .expression import ArrayExpressionEvaluator
+from .limiters import periodic_monotonic_centered_edges_jax as _periodic_monotonic_centered_edges
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
 
@@ -298,17 +299,7 @@ def _interior_y(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:
 
 
 def _mc_cell_edges(field: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    center = field
-    minus = jnp.roll(center, shift=1, axis=1)
-    plus = jnp.roll(center, shift=-1, axis=1)
-    slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
-    return center - 0.5 * slope, center + 0.5 * slope
-
-
-def _minmod3(a: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray) -> jnp.ndarray:
-    same_sign = (a * b > 0.0) & (a * c > 0.0)
-    magnitude = jnp.minimum(jnp.abs(a), jnp.minimum(jnp.abs(b), jnp.abs(c)))
-    return jnp.where(same_sign, jnp.sign(a) * magnitude, 0.0)
+    return _periodic_monotonic_centered_edges(field, axis=1)
 
 
 def _face_common_factor(metrics: StructuredMetrics, mesh: StructuredMesh) -> jnp.ndarray:
