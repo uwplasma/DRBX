@@ -271,6 +271,7 @@ Focused engineering and benchmark packages:
 - [docs/neutral_parallel_diffusion_campaign.md](docs/neutral_parallel_diffusion_campaign.md)
 - [docs/collision_closure_campaign.md](docs/collision_closure_campaign.md)
 - [docs/tokamak_anomalous_diffusion_campaign.md](docs/tokamak_anomalous_diffusion_campaign.md)
+- [docs/target_recycling_campaign.md](docs/target_recycling_campaign.md)
 - [docs/impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
 - [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
 - [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)

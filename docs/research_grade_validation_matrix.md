@@ -102,6 +102,7 @@ The current critical path is not “add more staged cases.” It is:
 - neutral parallel-diffusion closure campaign on prepared multispecies recycling states
 - collision/conduction closure campaign on prepared multispecies recycling states
 - tokamak anomalous-diffusion campaign on evolved direct-recycling states
+- target-recycling and sheath-response campaign on prepared multispecies recycling states
 - direct tokamak convergence campaign
 - TORPEX seeded blob benchmark package
 - TCV-X21 diverted L-mode benchmark package

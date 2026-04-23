@@ -772,6 +772,12 @@ bundle: one shared anomalous-diffusion operator now feeds direct non-orthogonal
 tokamak tests, docs artifacts, and a manuscript-usable geometry-contrast figure
 on the evolved direct-recycling state.
 
+The next boundary-and-recycling template is the public
+[target_recycling_campaign.md](target_recycling_campaign.md) bundle: one shared
+target-recycling support layer now feeds direct boundary tests, docs artifacts,
+and a manuscript-usable prepared-state figure for recycling sources and the
+electron boundary response.
+
 ## Sequencing
 
 The safest order is:

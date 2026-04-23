@@ -363,6 +363,17 @@ What this documents:
 - species-resolved anomalous coefficient summaries together with representative `d+` and `t+` anomalous-energy lineouts on the active direct-tokamak state;
 - a machine-readable JSON/NPZ/plot package so this non-orthogonal transport evidence can feed the docs and future paper directly.
 
+## Target Recycling Campaign
+
+![Target recycling campaign](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+
+What this documents:
+
+- a prepared-state audit for the extracted target-recycling and current-free electron-velocity support layer on the multispecies `1D-recycling-dthe` lane;
+- target recycling density-source lineouts and integrated source totals for the neutral `d`, `t`, and `he` channels;
+- the boundary-conditioned electron energy sink and current-free electron-velocity reconstruction on the same prepared state;
+- a machine-readable JSON/NPZ/plot package so this boundary/recycling evidence can feed the docs and future paper directly.
+
 ## Temperature Feedback Campaign
 
 ![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)

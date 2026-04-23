@@ -129,6 +129,12 @@ from .recycling_state import (
     soft_floor as _soft_floor,
 )
 from .recycling_sanitize import sanitize_recycling_fields as _sanitize_recycling_fields
+from .recycling_targets import (
+    RecyclingTerms as _RecyclingTerms,
+    electron_zero_current_velocity as _electron_zero_current_velocity,
+    grad_par_electron_force_balance_open as _grad_par_electron_force_balance_open,
+    target_recycling_sources as _target_recycling_sources,
+)
 from .recycling_fields import (
     build_recycling_state_fields as _build_recycling_state_fields,
     recycling_evolving_variable_names as _recycling_evolving_variable_names,
@@ -1525,94 +1531,6 @@ def _apply_electron_simple_sheath_boundary(
         momentum=momentum,
         energy_source=energy_source,
     )
-
-
-@dataclass(frozen=True)
-class _RecyclingTerms:
-    density_source: dict[str, np.ndarray]
-    energy_source: dict[str, np.ndarray]
-    diagnostics: dict[str, np.ndarray]
-
-
-def _target_recycling_sources(
-    *,
-    ions: tuple[OpenFieldSpecies, ...],
-    prepared: dict[str, _PreparedSpeciesState],
-    neutrals: tuple[OpenFieldSpecies, ...],
-    ion_velocity: dict[str, np.ndarray],
-    mesh: StructuredMesh,
-    metrics: StructuredMetrics,
-    gamma_i: float,
-) -> _RecyclingTerms:
-    neutral_lookup = {sp.name: sp for sp in neutrals}
-    density_source = {sp.name: np.zeros_like(sp.density, dtype=np.float64) for sp in (*ions, *neutrals)}
-    energy_source = {sp.name: np.zeros_like(sp.density, dtype=np.float64) for sp in (*ions, *neutrals)}
-    diagnostics: dict[str, np.ndarray] = {}
-
-    for ion in ions:
-        if not ion.target_recycle or ion.recycle_as is None or ion.recycle_as not in neutral_lookup:
-            continue
-        neutral = neutral_lookup[ion.recycle_as]
-        ion_state = prepared[ion.name]
-        result = compute_target_recycling_sources(
-            ion_state.density,
-            ion_velocity[ion.name],
-            ion_state.temperature,
-            mesh=mesh,
-            J=np.asarray(metrics.J, dtype=np.float64),
-            dy=np.asarray(metrics.dy, dtype=np.float64),
-            dx=np.asarray(metrics.dx, dtype=np.float64),
-            dz=np.asarray(metrics.dz, dtype=np.float64),
-            g_22=np.asarray(metrics.g_22, dtype=np.float64),
-            target_multiplier=ion.target_recycle_multiplier,
-            target_energy=ion.target_recycle_energy,
-            gamma_i=gamma_i,
-            target_fast_recycle_fraction=ion.target_fast_recycle_fraction,
-            target_fast_recycle_energy_factor=ion.target_fast_recycle_energy_factor,
-            lower_y=mesh.has_lower_y_target,
-            upper_y=mesh.has_upper_y_target,
-        )
-        density_source[neutral.name] = density_source[neutral.name] + np.asarray(result.density_source, dtype=np.float64)
-        energy_source[neutral.name] = energy_source[neutral.name] + np.asarray(result.energy_source, dtype=np.float64)
-        diagnostics[f"S{neutral.name}_target_recycle"] = np.asarray(result.target_density_source, dtype=np.float64)
-        diagnostics[f"E{neutral.name}_target_recycle"] = np.asarray(result.target_energy_source, dtype=np.float64)
-
-    return _RecyclingTerms(density_source=density_source, energy_source=energy_source, diagnostics=diagnostics)
-
-
-def _electron_zero_current_velocity(
-    ions: tuple[OpenFieldSpecies, ...],
-    *,
-    prepared: dict[str, _PreparedSpeciesState],
-    ion_velocity: dict[str, np.ndarray],
-    electron_density: np.ndarray,
-) -> np.ndarray:
-    current = np.zeros_like(electron_density, dtype=np.float64)
-    for ion in ions:
-        current = current + ion.charge * prepared[ion.name].density * ion_velocity[ion.name]
-    return current / np.maximum(electron_density, 1.0e-5)
-
-
-def _grad_par_electron_force_balance_open(
-    field: np.ndarray,
-    *,
-    mesh: StructuredMesh,
-    metrics: StructuredMetrics,
-) -> np.ndarray:
-    """Match BOUT's Grad_par/DDY stencil used by electron_force_balance."""
-    result = np.zeros_like(field, dtype=np.float64)
-    dy = np.asarray(metrics.dy, dtype=np.float64)
-    g_22 = np.asarray(metrics.g_22, dtype=np.float64)
-
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                result[i, j, k] = (
-                    0.5
-                    * (field[i, j + 1, k] - field[i, j - 1, k])
-                    / (dy[i, j, k] * np.sqrt(g_22[i, j, k]))
-                )
-    return result
 
 
 def advance_recycling_1d_implicit_history(
