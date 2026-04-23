@@ -329,10 +329,10 @@ separate three classes of data:
 
 ### Paper And Legacy Material In The Code Repo
 
-The active code repo previously contained `legacy/`, manuscript/JCP docs,
-manuscript figure artifacts, and `examples/publication/*`. Those surfaces have
-been removed from the active release branch after confirming that the paper
-repository already carries the relevant archive. Some validation campaigns
+The active code repo previously contained historical legacy code, manuscript/JCP
+docs, manuscript figure artifacts, and publication-only example wrappers. Those
+surfaces have been removed from the active release branch after confirming that
+the paper repository already carries the relevant archive. Some validation campaigns
 should absolutely remain in the code repo because they are tested, documented,
 and useful. But paper-only prose plans and manuscript-only panel generators
 belong outside the code release branch.
