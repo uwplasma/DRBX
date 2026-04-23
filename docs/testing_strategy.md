@@ -165,12 +165,15 @@ During the first structural phase:
    guarded neutral reconstruction, and prepared-state assembly so sheath and
    collisional closures are not the only places where those branches are
    exercised
-6. extract direct tests for field sanitization, restart-policy selection, and
+6. extract direct tests for distinct closure families such as neutral parallel
+   diffusion, collision closure, and controller-source assembly so those
+   physics packages are not only exercised through the full recycling RHS
+7. extract direct tests for field sanitization, restart-policy selection, and
    other small execution rules that influence solver robustness and public
    artifact behavior
-7. keep the existing Hermes-backed transient ladders green while files are
+8. keep the existing Hermes-backed transient ladders green while files are
    being split
-8. only then widen benchmark and literature-facing campaigns
+9. only then widen benchmark and literature-facing campaigns
 
 That sequencing preserves scientific trust while the software architecture is
 improved.
