@@ -339,11 +339,11 @@ def _compute_recycling_1d_rhs_from_species(
         dataset_scalars=dataset_scalars,
     )
     for name, value in reaction_terms.density_source.items():
-        density_source[name] = density_source[name] + value
+        density_source[name] += value
     for name, value in reaction_terms.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
     for name, value in reaction_terms.momentum_source.items():
-        momentum_source[name] = momentum_source[name] + value
+        momentum_source[name] += value
     diagnostics.update(reaction_terms.diagnostics)
 
     anomalous_terms = _apply_anomalous_diffusion(
@@ -354,11 +354,11 @@ def _compute_recycling_1d_rhs_from_species(
         dataset_scalars=dataset_scalars,
     )
     for name, value in anomalous_terms.density_source.items():
-        density_source[name] = density_source[name] + value
+        density_source[name] += value
     for name, value in anomalous_terms.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
     for name, value in anomalous_terms.momentum_source.items():
-        momentum_source[name] = momentum_source[name] + value
+        momentum_source[name] += value
     diagnostics.update(anomalous_terms.diagnostics)
 
     prepared, ion_boundary, electron_boundary = _prepare_open_field_states(
@@ -373,7 +373,26 @@ def _compute_recycling_1d_rhs_from_species(
     )
     ion_velocity = ion_boundary.velocity
     for name, value in ion_boundary.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
+
+    collision_rates = _compute_collision_frequencies(
+        config,
+        species,
+        prepared,
+        dataset_scalars=dataset_scalars,
+    )
+    charge_exchange_rates = _charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
+    neutral_ionisation_rates = _neutral_ionisation_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=dataset_scalars,
+    )
 
     collision_terms = _apply_collision_closure(
         config,
@@ -382,11 +401,13 @@ def _compute_recycling_1d_rhs_from_species(
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
+        collision_rates=collision_rates,
+        cx_rates=charge_exchange_rates,
     )
     for name, value in collision_terms.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
     for name, value in collision_terms.momentum_source.items():
-        momentum_source[name] = momentum_source[name] + value
+        momentum_source[name] += value
     diagnostics.update(collision_terms.diagnostics)
 
     neutral_diffusion_terms = _apply_neutral_parallel_diffusion(
@@ -396,16 +417,19 @@ def _compute_recycling_1d_rhs_from_species(
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
+        collision_rates=collision_rates,
+        ionisation_rates=neutral_ionisation_rates,
+        charge_exchange_rates=charge_exchange_rates,
     )
     for name, value in neutral_diffusion_terms.density_source.items():
-        density_source[name] = density_source[name] + value
+        density_source[name] += value
     for name, value in neutral_diffusion_terms.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
     for name, value in neutral_diffusion_terms.momentum_source.items():
-        momentum_source[name] = momentum_source[name] + value
+        momentum_source[name] += value
     diagnostics.update(neutral_diffusion_terms.diagnostics)
 
-    energy_source["e"] = energy_source["e"] + electron_boundary.energy_source
+    energy_source["e"] += electron_boundary.energy_source
 
     simple_sheath_settings = _load_simple_sheath_settings(
         config,
@@ -422,9 +446,9 @@ def _compute_recycling_1d_rhs_from_species(
         gamma_i=0.0 if simple_sheath_settings is None else simple_sheath_settings.gamma_i,
     )
     for name, value in recycling_terms.density_source.items():
-        density_source[name] = density_source[name] + value
+        density_source[name] += value
     for name, value in recycling_terms.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
     diagnostics.update(recycling_terms.diagnostics)
 
     feedback_terms = _apply_upstream_density_feedback(
@@ -437,9 +461,9 @@ def _compute_recycling_1d_rhs_from_species(
         feedback_timestep=feedback_timestep,
     )
     for name, value in feedback_terms.density_source.items():
-        density_source[name] = density_source[name] + value
+        density_source[name] += value
     for name, value in feedback_terms.energy_source.items():
-        energy_source[name] = energy_source[name] + value
+        energy_source[name] += value
     diagnostics.update(feedback_terms.diagnostics)
 
     if density_source_overrides:
@@ -456,7 +480,7 @@ def _compute_recycling_1d_rhs_from_species(
         mesh=mesh,
         metrics=metrics,
     )
-    electron_force_density = electron_force_density + momentum_source["e"]
+    electron_force_density += momentum_source["e"]
     electron_parallel_density = np.maximum(
         np.asarray(electron_boundary.density, dtype=np.float64),
         1.0e-5,
@@ -703,7 +727,7 @@ def _prepare_open_field_states(
     ions = tuple(sp for sp in species.values() if sp.charge > 0.0)
     electron_density = np.zeros_like(species["e"].density, dtype=np.float64)
     for ion in ions:
-        electron_density = electron_density + ion.charge * prepared[ion.name].density
+        electron_density += ion.charge * prepared[ion.name].density
 
     electron_velocity = _electron_zero_current_velocity(
         ions,
@@ -945,9 +969,9 @@ def _apply_upstream_density_feedback(
         if controller.density_source_positive and source_multiplier < 0.0:
             source_multiplier = 0.0
         source = source_multiplier * controller.density_source_shape
-        density_source[name] = density_source[name] + source
+        density_source[name] += source
         velocity = np.asarray(prepared[name].velocity, dtype=np.float64)
-        energy_source[name] = energy_source[name] + 0.5 * species[name].atomic_mass * np.square(velocity) * source
+        energy_source[name] += 0.5 * species[name].atomic_mass * np.square(velocity) * source
         diagnostics[f"S{name}_feedback"] = np.asarray(source, dtype=np.float64)
         diagnostics[f"density_feedback_src_mult_{name}"] = np.asarray(source_multiplier, dtype=np.float64)
         diagnostics[f"density_feedback_src_p_{name}"] = np.asarray(proportional_term, dtype=np.float64)

@@ -24,7 +24,7 @@ def _parse_args() -> argparse.Namespace:
         "--reference-root",
         type=Path,
         default=None,
-        help="Optional Hermes reference root. If omitted, the default discovery logic is used.",
+        help="Optional Hermes reference root. If omitted, JAX_DRB_REFERENCE_ROOT is used.",
     )
     parser.add_argument(
         "--output-dir",
@@ -35,6 +35,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--warm-runs", type=int, default=1, help="Number of untimed warm runs before profiling.")
     parser.add_argument("--timed-runs", type=int, default=2, help="Number of timed runs after warmup.")
     parser.add_argument("--cprofile-top", type=int, default=40, help="Number of cProfile rows to write.")
+    parser.add_argument(
+        "--skip-cprofile",
+        action="store_true",
+        help="Skip cProfile text/binary dump generation.",
+    )
     parser.add_argument(
         "--jax-trace",
         action="store_true",
@@ -97,9 +102,12 @@ def _time_case(run_curated_case, jax, args: argparse.Namespace, *, trace_dir: Pa
         if profiler is not None:
             profiler.enable()
         started = perf_counter()
+        run_kwargs: dict[str, Any] = {}
+        if args.reference_root is not None:
+            run_kwargs["reference_root"] = args.reference_root
         result = run_curated_case(
             args.case_name,
-            reference_root=args.reference_root,
+            **run_kwargs,
         )
         _block_result(result)
         elapsed = perf_counter() - started
@@ -118,6 +126,12 @@ class _NullContext:
 
 def main() -> int:
     args = _parse_args()
+    if args.reference_root is None:
+        env_reference_root = os.environ.get("JAX_DRB_REFERENCE_ROOT")
+        if env_reference_root:
+            args.reference_root = Path(env_reference_root)
+    if args.reference_root is None:
+        raise SystemExit("profile_curated_case.py requires --reference-root or JAX_DRB_REFERENCE_ROOT.")
     _configure_environment(args)
 
     import jax
@@ -145,24 +159,31 @@ def main() -> int:
     profiler = None
     for timed_index in range(max(1, args.timed_runs)):
         use_trace = trace_dir if timed_index == 0 else None
-        use_cprofile = timed_index == 0
-        profiled_result, elapsed, profiler = _time_case(
+        use_cprofile = (timed_index == 0) and (not args.skip_cprofile)
+        result, elapsed, run_profiler = _time_case(
             run_curated_case,
             jax,
             args,
             trace_dir=use_trace,
             enable_cprofile=use_cprofile,
         )
+        profiled_result = result
         timed_durations.append(float(elapsed))
         if timed_index == 0:
             profiled_elapsed = float(elapsed)
+            profiler = run_profiler
 
     cprofile_path = output_dir / "cprofile_top.txt"
+    cprofile_binary_path = output_dir / "cprofile_stats.pstats"
     if profiler is not None:
+        cprofile_binary_path.parent.mkdir(parents=True, exist_ok=True)
+        profiler.dump_stats(str(cprofile_binary_path))
         stream = io.StringIO()
         stats = pstats.Stats(profiler, stream=stream).sort_stats("cumtime")
         stats.print_stats(args.cprofile_top)
         cprofile_path.write_text(stream.getvalue(), encoding="utf-8")
+    else:
+        cprofile_binary_path = None
 
     memory_profile_path = None
     if args.device_memory_profile:
@@ -182,7 +203,8 @@ def main() -> int:
         "timed_run_mean_seconds": float(sum(timed_durations) / len(timed_durations)),
         "timed_run_min_seconds": float(min(timed_durations)),
         "timed_run_max_seconds": float(max(timed_durations)),
-        "cprofile_top_path": str(cprofile_path),
+        "cprofile_top_path": None if not cprofile_path.exists() else str(cprofile_path),
+        "cprofile_binary_path": None if cprofile_binary_path is None else str(cprofile_binary_path),
         "jax_trace_dir": None if trace_dir is None else str(trace_dir),
         "device_memory_profile_path": None if memory_profile_path is None else str(memory_profile_path),
         "xla_dump_dir": None if args.xla_dump_dir is None else str(args.xla_dump_dir.expanduser().resolve()),
@@ -195,7 +217,10 @@ def main() -> int:
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 
     print(summary_path)
-    print(cprofile_path)
+    if cprofile_path.exists():
+        print(cprofile_path)
+    if cprofile_binary_path is not None:
+        print(cprofile_binary_path)
     if trace_dir is not None:
         print(trace_dir)
     if memory_profile_path is not None:

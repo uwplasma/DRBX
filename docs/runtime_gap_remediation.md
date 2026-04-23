@@ -19,11 +19,12 @@ The refreshed live matrix identifies four distinct categories.
 
 - case: `neutral_mixed_one_step`
 - current worst normalized RMS error: about `9.17e-1`
-- current runtime ratio: about `4.27x`
+- current runtime ratio: about `2.79x`
 - dominant field: `NVh`
 
 This is still the clearest current fidelity gap. The runtime was reduced
-substantially by vectorizing the perpendicular diffusion kernel, but the main
+substantially by vectorizing the perpendicular diffusion kernel and the local
+profile mean dropped from about `1.15 s` to about `0.63 s`, but the main
 physics mismatch remains.
 
 ### 2. Heavy 1D recycling runtime bottleneck
@@ -40,7 +41,7 @@ offenders.
 
 - case: `recycling_dthe_one_step`
 - current worst normalized RMS error: about `4.92e-3`
-- current runtime ratio: about `8.45x`
+- current runtime ratio: about `7.81x`
 - dominant field: `NVd`
 
 This is the current worst runtime ratio in the live matrix and the main
@@ -69,8 +70,9 @@ The current optimization pass already changed the runtime picture materially.
 
 ### Neutral mixed
 
-- earlier live runtime: about `6.44 s`
-- current live runtime: about `1.43 s`
+- earlier local timed mean: about `1.15 s`
+- current local timed mean: about `0.63 s`
+- current live runtime: about `0.90 s`
 - remaining issue: fidelity on `NVh`, not only runtime
 
 ### 1D recycling
@@ -155,18 +157,27 @@ The reachable `office` machine is the current GPU testbed. It already has two
 visible CUDA devices under JAX, so the GPU plan is now operational rather than
 speculative.
 
-The immediate blocker is a clean runtime environment. Once that is in place,
-the next GPU work should be:
+The clean repo-local GPU environment is now in place with
+`jax[cuda12]==0.6.2`. The first useful GPU evidence is therefore already
+available on the compact native JAX lanes:
+
+- traced-field-line reduced lane:
+  compile `4.41e-2 s`, first execute `1.23e-3 s`, warm execute `3.30e-4 s`
+- stellarator VMEC reduced lane:
+  compile `7.36e-3 s`, first execute `3.98e-4 s`, warm execute `1.14e-4 s`
+
+That means the next GPU work should be:
 
 1. enable persistent compilation cache
-2. collect JAX trace and device-memory profiles on the same worst-offender
-   cases
+2. keep GPU runtime work on the compact native JAX lanes first
 3. compare CPU and GPU runtime splits on:
-   - `neutral_mixed_one_step`
-   - `recycling_1d_one_step`
-   - `recycling_dthe_one_step`
-   - `tokamak_recycling_one_step`
-4. decide whether the next parallelization gain should come from:
+   - traced-field-line reduced kernels
+   - stellarator VMEC reduced kernels
+   - other selected-field compact lanes before promoted transient ladders
+4. keep the heavy recycling and neutral-mixed lanes on the CPU remediation
+   path until the host/SciPy structure is reduced enough for accelerator work
+   to be meaningful
+5. decide whether the next parallelization gain should come from:
    - single-case acceleration
    - batched independent solves
    - multi-device sharding on accelerator hardware
@@ -178,5 +189,5 @@ Before the next paper-facing performance pass, the codebase should have:
 - a refreshed same-machine live Hermès rerun figure
 - one dedicated neutral-mixed mismatch campaign
 - one refreshed heavy recycling runtime profile bundle
-- one GPU profiling bundle from `office`
+- one committed GPU profiling bundle from `office`
 - one tokamak-observable comparison package closer to the TCV-X21/Hermès style

@@ -31,6 +31,13 @@ The refactor is not an excuse to silently change closures, broaden the claim
 boundary, or weaken the current Hermes-backed evidence tiers. If a refactor
 changes behavior, the change must be explicit and justified by new evidence.
 
+The current runtime campaign also adds one more hard rule:
+
+- optimization work must be reported against isolated profiler runs and, when
+  the lane is Hermès-backed, against the same-machine live comparison surface;
+  timing numbers collected under mixed local load should not be promoted to the
+  docs or the paper.
+
 ## External Comparison Class
 
 The code should be engineered and validated at the standard set by the main
@@ -149,6 +156,10 @@ The current main gaps are:
   as `95%` meaningful coverage of the promoted solver surface
 - many examples are useful scientifically, but not all of them have an explicit
   status as tutorial, benchmark, campaign, or publication artifact generator
+- the runtime/performance story still mixes two different classes of workloads:
+  compact native JAX kernels, which are now GPU-auditable, and heavy promoted
+  recycling transients, which remain primarily CPU/host-side optimization
+  targets
 
 ## Refactor Principles
 
@@ -172,6 +183,11 @@ The refactor should follow a few hard rules.
 5. Keep the JAX boundary explicit.
    Pure-JAX transformable paths and host-backed implicit paths should be
    separate in the architecture and in the docs.
+
+6. Separate CPU and GPU evidence by workload class.
+   GPU claims should come from compact native JAX lanes unless and until the
+   heavier transient backbone is sufficiently de-hosted to make accelerator
+   measurements scientifically meaningful.
 
 ## Target Package Architecture
 

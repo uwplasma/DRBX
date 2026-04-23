@@ -78,6 +78,33 @@ def test_charge_exchange_collision_rates_cover_atoms_and_ions() -> None:
     assert "d+" in rates
 
 
+def test_charge_exchange_collision_rates_cover_cross_isotope_pairs() -> None:
+    config = load_bout_input(_INPUT_DTHE)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    species = _initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+
+    rates = charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=resolved_dataset_scalars(run_config),
+    )
+
+    assert "d" in rates
+    assert "t" in rates
+    assert "d+" in rates
+    assert "t+" in rates
+
+
 def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> None:
     config = load_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)

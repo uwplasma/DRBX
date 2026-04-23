@@ -11,10 +11,13 @@ from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native.neutral_mixed import _grad_par_open
 from jax_drb.native.recycling_collision_closure import (
+    apply_collision_closure,
     conduction_kappa_coefficient,
     ion_thermal_force_pair,
     parallel_ion_viscous_stress_open,
 )
+from jax_drb.native.recycling_collisions import compute_collision_frequencies
+from jax_drb.native.recycling_reactions import charge_exchange_collision_rates
 from jax_drb.native.recycling_setup import initialize_species
 from jax_drb.native.recycling_1d import _prepare_open_field_states
 from jax_drb.runtime.run_config import RunConfiguration
@@ -122,3 +125,51 @@ def test_conduction_kappa_coefficient_uses_species_defaults_and_override() -> No
 
     override_config = apply_bout_overrides(load_bout_input(_DTHE_INPUT), ("d:kappa_coefficient=7.25",))
     assert conduction_kappa_coefficient(override_config, species["d"]) == pytest.approx(7.25)
+
+
+def test_collision_closure_accepts_precomputed_collision_and_cx_rates() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    species = initialize_species(config, mesh=mesh)
+    prepared, _, _ = _prepare_open_field_states(
+        species,
+        config=config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    collision_rates = compute_collision_frequencies(config, species, prepared, dataset_scalars=scalars)
+    cx_rates = charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=scalars,
+    )
+
+    baseline = apply_collision_closure(
+        config,
+        species,
+        prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    reused = apply_collision_closure(
+        config,
+        species,
+        prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        collision_rates=collision_rates,
+        cx_rates=cx_rates,
+    )
+
+    for name in baseline.energy_source:
+        np.testing.assert_allclose(reused.energy_source[name], baseline.energy_source[name])
+    for name in baseline.momentum_source:
+        np.testing.assert_allclose(reused.momentum_source[name], baseline.momentum_source[name])

@@ -178,20 +178,20 @@ def conduction_collision_time(
         if species_type == "electron":
             rate = collision_rates.get((species_name, species_name))
             if rate is not None:
-                total = total + rate
+                total += rate
         elif species_type == "ion":
             rate = collision_rates.get((species_name, species_name))
             if rate is not None:
-                total = total + rate
+                total += rate
         else:
             raise NotImplementedError("Neutral conduction_collisions_mode='braginskii' is not supported.")
     elif mode == "multispecies":
         for other_name in species:
             rate = collision_rates.get((species_name, other_name))
             if rate is not None:
-                total = total + rate
+                total += rate
         if species_name in cx_rates:
-            total = total + cx_rates[species_name]
+            total += cx_rates[species_name]
     elif mode == "afn":
         if species_type != "neutral":
             raise NotImplementedError("Conduction_collisions_mode='afn' is only supported for neutrals.")
@@ -200,9 +200,9 @@ def conduction_collision_time(
                 continue
             rate = collision_rates.get((species_name, other_name))
             if rate is not None:
-                total = total + rate
+                total += rate
         if species_name in cx_rates:
-            total = total + cx_rates[species_name]
+            total += cx_rates[species_name]
     else:
         raise NotImplementedError(f"Unsupported conduction_collisions_mode={mode!r}.")
 
@@ -217,17 +217,27 @@ def apply_collision_closure(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
+    collision_rates: dict[tuple[str, str], np.ndarray] | None = None,
+    cx_rates: dict[str, np.ndarray] | None = None,
 ) -> CollisionClosureTerms:
     configured_components = set(configured_component_names(config))
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     diagnostics: dict[str, np.ndarray] = {}
-    collision_rates = compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
-    cx_rates = charge_exchange_collision_rates(
-        config,
-        species=species,
-        prepared=prepared,
-        dataset_scalars=dataset_scalars,
+    collision_rates = (
+        compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
+        if collision_rates is None
+        else collision_rates
+    )
+    cx_rates = (
+        charge_exchange_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=dataset_scalars,
+        )
+        if cx_rates is None
+        else cx_rates
     )
 
     names = tuple(species)
@@ -253,8 +263,8 @@ def apply_collision_closure(
                     * first_state.density
                     * (second_state.velocity - first_state.velocity)
                 )
-                momentum_source[first_name] = momentum_source[first_name] + friction
-                momentum_source[second_name] = momentum_source[second_name] - friction
+                momentum_source[first_name] += friction
+                momentum_source[second_name] -= friction
                 diagnostics[f"F{first_name}{second_name}_coll"] = np.asarray(friction, dtype=np.float64)
                 diagnostics[f"F{second_name}{first_name}_coll"] = np.asarray(-friction, dtype=np.float64)
 
@@ -262,8 +272,8 @@ def apply_collision_closure(
                     velocity_delta = second_state.velocity - first_state.velocity
                     first_heating = (a2 / (a1 + a2)) * velocity_delta * friction
                     second_heating = (a1 / (a1 + a2)) * velocity_delta * friction
-                    energy_source[first_name] = energy_source[first_name] + first_heating
-                    energy_source[second_name] = energy_source[second_name] + second_heating
+                    energy_source[first_name] += first_heating
+                    energy_source[second_name] += second_heating
                     diagnostics[f"E{first_name}{second_name}_coll_friction"] = np.asarray(first_heating, dtype=np.float64)
                     diagnostics[f"E{second_name}{first_name}_coll_friction"] = np.asarray(second_heating, dtype=np.float64)
 
@@ -271,8 +281,8 @@ def apply_collision_closure(
                 heat_exchange = 3.0 * (a1 / (a1 + a2)) * nu_12 * first_state.density * (
                     second_state.temperature - first_state.temperature
                 )
-                energy_source[first_name] = energy_source[first_name] + heat_exchange
-                energy_source[second_name] = energy_source[second_name] - heat_exchange
+                energy_source[first_name] += heat_exchange
+                energy_source[second_name] -= heat_exchange
 
     if "braginskii_thermal_force" in configured_components and thermal_force_enabled(config, "electron_ion", True):
         electron_temperature_gradient = _grad_par_open(prepared["e"].temperature, mesh=mesh, metrics=metrics)
@@ -280,8 +290,8 @@ def apply_collision_closure(
             if name == "e" or sp.charge <= 0.0:
                 continue
             ion_force = prepared[name].density * (0.71 * (sp.charge**2)) * electron_temperature_gradient
-            momentum_source[name] = momentum_source[name] + ion_force
-            momentum_source["e"] = momentum_source["e"] - ion_force
+            momentum_source[name] += ion_force
+            momentum_source["e"] -= ion_force
 
     if "braginskii_thermal_force" in configured_components and thermal_force_enabled(config, "ion_ion", True):
         ion_names = tuple(name for name, sp in species.items() if name != "e" and sp.charge != 0.0)
@@ -304,8 +314,8 @@ def apply_collision_closure(
                 if pair is None:
                     continue
                 light_name, heavy_name, heavy_force = pair
-                momentum_source[heavy_name] = momentum_source[heavy_name] + heavy_force
-                momentum_source[light_name] = momentum_source[light_name] - heavy_force
+                momentum_source[heavy_name] += heavy_force
+                momentum_source[light_name] -= heavy_force
 
     if "braginskii_ion_viscosity" in configured_components:
         for name, sp in species.items():
@@ -324,8 +334,8 @@ def apply_collision_closure(
                 mesh=mesh,
                 metrics=metrics,
             )
-            momentum_source[name] = momentum_source[name] + viscosity_source
-            energy_source[name] = energy_source[name] - prepared[name].velocity * viscosity_source
+            momentum_source[name] += viscosity_source
+            energy_source[name] -= prepared[name].velocity * viscosity_source
             diagnostics[f"DivPiPar_{name}"] = np.asarray(viscosity_source, dtype=np.float64)
 
     if "braginskii_conduction" in configured_components:
@@ -351,7 +361,7 @@ def apply_collision_closure(
                     apply_noflow_scalar_guards(kappa_par, mesh=mesh, lower_y=True, upper_y=True),
                     dtype=np.float64,
                 )
-            energy_source[name] = energy_source[name] + _div_par_k_grad_par_open(
+            energy_source[name] += _div_par_k_grad_par_open(
                 kappa_par,
                 temperature,
                 mesh=mesh,

@@ -75,7 +75,7 @@ blockers into specific case priorities:
 
 - `neutral_mixed_one_step`
   - worst normalized RMS mismatch about `9.17e-1`
-  - native/reference wall-time ratio about `4.27x`
+  - native/reference wall-time ratio now about `2.79x`
   - dominant field: `NVh`
 - `recycling_1d_one_step`
   - worst normalized RMS mismatch about `4.62e-3`
@@ -83,7 +83,7 @@ blockers into specific case priorities:
   - dominant normalized field: `Pd+`
 - `recycling_dthe_one_step`
   - worst normalized RMS mismatch about `4.92e-3`
-  - native/reference wall-time ratio about `8.45x`
+  - native/reference wall-time ratio now about `7.81x`
   - dominant field: `NVd`
 
 The current integrated and direct tokamak recycling one-step ladders still show
@@ -192,16 +192,32 @@ changing the validated physics surface:
   packed-RHS staging, and species override;
 - the hottest neutral/tokamak transport operators now use vectorized NumPy
   kernels instead of per-cell Python loops on the production residual path;
+- reaction/source assembly on the heavy recycling lane now reuses top-level
+  accumulators instead of allocating full per-reaction source dictionaries on
+  every RHS call;
+- the recycling RHS now reuses already-computed collision, ionisation, and
+  charge-exchange rate surfaces across collision closure and neutral parallel
+  diffusion instead of recomputing them independently;
 - on the profiled `tokamak_recycling_dthene_one_step` case, the cumulative
   implicit-solver optimization pass now drops end-to-end wall time from about
   `11.84 s` to about `2.08 s` on this MacBook;
+- on the profiled `recycling_dthe_one_step` case, the current allocation and
+  source-assembly pass drops the local timed mean from about `75.3 s` to about
+  `54.1 s`;
 - the live neon direct-tokamak recycling parity slice still passes after those
   changes, which means the refactor removed overhead without changing the
   compare surface.
 
 That is a real improvement, but it is not the final optimization story. The
 dominant remaining blocker is still the finite-difference Jacobian and the
-host/SciPy residual structure itself.
+host/SciPy residual structure itself. The refreshed cProfile on the heavy
+multispecies recycling lane now points most clearly at:
+
+- finite-difference Jacobian assembly
+- neutral parallel diffusion
+- collision closure
+- target recycling / target boundary-source assembly
+- open-field prepared-state and boundary setup
 
 ### Highest-Value Near-Term Opportunities
 
@@ -218,6 +234,21 @@ The source tree now also includes a JAX-linearized Newton-GMRES path for
 residuals that are already JAX-transformable:
 
 - [solve_jax_linearized_newton_system](../src/jax_drb/solver/implicit.py)
+
+## Current GPU-Native Audit
+
+The office GPU environment is now usable for the compact native JAX lanes with
+`jax[cuda12]==0.6.2` and two visible CUDA devices. The first meaningful GPU
+measurements are:
+
+- traced-field-line reduced lane:
+  compile `4.41e-2 s`, first execute `1.23e-3 s`, warm execute `3.30e-4 s`
+- stellarator VMEC reduced lane:
+  compile `7.36e-3 s`, first execute `3.98e-4 s`, warm execute `1.14e-4 s`
+
+Those are the right GPU benchmark surfaces for the current codebase. The heavy
+recycling lanes remain primarily CPU/runtime-architecture problems until more
+of the transient backbone is moved out of the host/SciPy path.
 
 That path is appropriate for compact pure-JAX residuals and future reduced
 native kernels. It is not yet the default on the promoted recycling/tokamak

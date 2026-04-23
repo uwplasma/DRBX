@@ -1037,19 +1037,32 @@ def _gradient_magnitude(
     g11 = np.asarray(metrics.g11, dtype=np.float64)
     g33 = np.asarray(metrics.g33, dtype=np.float64)
 
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                km = (k - 1 + mesh.nz) % mesh.nz
-                kp = (k + 1) % mesh.nz
-                dfdx = (field[i + 1, j, k] - field[i - 1, j, k]) / (dx[i, j, k] + dx[i - 1, j, k])
-                dfdy = (field[i, j + 1, k] - field[i, j - 1, k]) / (dy[i, j, k] + dy[i, j - 1, k])
-                dfdz = (field[i, j, kp] - field[i, j, km]) / (2.0 * dz[i, j, k])
-                result[i, j, k] = np.sqrt(
-                    g11[i, j, k] * dfdx * dfdx
-                    + g33[i, j, k] * dfdz * dfdz
-                    + (dfdy / J[i, j, k]) * (dfdy / J[i, j, k])
-                )
+    ix = slice(mesh.xstart, mesh.xend + 1)
+    jy = slice(mesh.ystart, mesh.yend + 1)
+    active_field = np.asarray(field[ix, jy, :], dtype=np.float64)
+    dfdx = (
+        np.asarray(field[mesh.xstart + 1 : mesh.xend + 2, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
+        - np.asarray(field[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
+    ) / (
+        np.asarray(dx[ix, jy, :], dtype=np.float64)
+        + np.asarray(dx[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
+    )
+    dfdy = (
+        np.asarray(field[ix, mesh.ystart + 1 : mesh.yend + 2, :], dtype=np.float64)
+        - np.asarray(field[ix, mesh.ystart - 1 : mesh.yend, :], dtype=np.float64)
+    ) / (
+        np.asarray(dy[ix, jy, :], dtype=np.float64)
+        + np.asarray(dy[ix, mesh.ystart - 1 : mesh.yend, :], dtype=np.float64)
+    )
+    dfdz = (np.roll(active_field, -1, axis=2) - np.roll(active_field, 1, axis=2)) / (
+        2.0 * np.asarray(dz[ix, jy, :], dtype=np.float64)
+    )
+    j_active = np.asarray(J[ix, jy, :], dtype=np.float64)
+    result[ix, jy, :] = np.sqrt(
+        np.asarray(g11[ix, jy, :], dtype=np.float64) * dfdx * dfdx
+        + np.asarray(g33[ix, jy, :], dtype=np.float64) * dfdz * dfdz
+        + np.square(dfdy / j_active)
+    )
     return result
 
 

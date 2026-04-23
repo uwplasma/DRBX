@@ -12,6 +12,7 @@ from jax_drb.native.neutral_mixed import (
     _apply_density_y_boundaries,
     _div_a_grad_perp_flows,
     _div_par_k_grad_par_open,
+    _gradient_magnitude,
     _grad_par_open,
     advance_neutral_mixed_implicit_history,
     _prepare_neutral_mixed_state,
@@ -267,6 +268,40 @@ def test_div_a_grad_perp_flows_matches_reference_loop() -> None:
 
     actual = _div_a_grad_perp_flows(
         coefficient,
+        field,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_gradient_magnitude_matches_reference_loop() -> None:
+    _, _, mesh, metrics, state, _ = _build_case(nx=8, ny=4, nz=6)
+    field = np.asarray(state.pressure, dtype=np.float64)
+
+    expected = np.zeros_like(field, dtype=np.float64)
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    dz = np.asarray(metrics.dz, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g33 = np.asarray(metrics.g33, dtype=np.float64)
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                km = (k - 1 + mesh.nz) % mesh.nz
+                kp = (k + 1) % mesh.nz
+                dfdx = (field[i + 1, j, k] - field[i - 1, j, k]) / (dx[i, j, k] + dx[i - 1, j, k])
+                dfdy = (field[i, j + 1, k] - field[i, j - 1, k]) / (dy[i, j, k] + dy[i, j - 1, k])
+                dfdz = (field[i, j, kp] - field[i, j, km]) / (2.0 * dz[i, j, k])
+                expected[i, j, k] = np.sqrt(
+                    g11[i, j, k] * dfdx * dfdx
+                    + g33[i, j, k] * dfdz * dfdz
+                    + np.square(dfdy / J[i, j, k])
+                )
+
+    actual = _gradient_magnitude(
         field,
         mesh=mesh,
         metrics=metrics,
