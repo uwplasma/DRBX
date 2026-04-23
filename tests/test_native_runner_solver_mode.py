@@ -60,6 +60,11 @@ def test_configured_recycling_transient_solver_mode_reads_runtime_override() -> 
     assert configured_recycling_transient_solver_mode(config) == "adaptive_be"
 
 
+def test_configured_recycling_transient_solver_mode_reads_legacy_jax_drb_section() -> None:
+    config = apply_bout_overrides(parse_bout_input(_ONE_ION_INPUT), ("jax_drb:recycling_transient_solver_mode=adaptive_bdf",))
+    assert configured_recycling_transient_solver_mode(config) == "adaptive_bdf"
+
+
 def test_configured_recycling_transient_solver_mode_rejects_unknown_mode() -> None:
     config = apply_bout_overrides(parse_bout_input(_ONE_ION_INPUT), ("runtime:recycling_transient_solver_mode=bad_mode",))
     with pytest.raises(ValueError):
@@ -73,6 +78,21 @@ def test_select_recycling_transient_solver_mode_defaults_by_parity_and_ion_count
     assert select_recycling_transient_solver_mode(one_ion, parity_mode="short_window") == "continuation"
     assert select_recycling_transient_solver_mode(one_ion, parity_mode="one_step") == "continuation"
     assert select_recycling_transient_solver_mode(two_ion, parity_mode="one_step") == "bdf"
+
+
+def test_select_recycling_transient_solver_mode_honors_configured_override() -> None:
+    config = apply_bout_overrides(parse_bout_input(_TWO_ION_INPUT), ("runtime:recycling_transient_solver_mode=adaptive_bdf",))
+
+    assert select_recycling_transient_solver_mode(config, parity_mode="one_step") == "adaptive_bdf"
+
+
+def test_select_recycling_transient_solver_mode_ignores_unresolvable_charge_entries() -> None:
+    config = apply_bout_overrides(
+        parse_bout_input(_ONE_ION_INPUT),
+        ("d+:charge=missing:charge",),
+    )
+
+    assert select_recycling_transient_solver_mode(config, parity_mode="one_step") == "continuation"
 
 
 def test_select_integrated_2d_transient_solver_mode_prefers_bdf_for_promoted_cases() -> None:
@@ -92,3 +112,16 @@ def test_select_integrated_2d_transient_solver_mode_prefers_bdf_for_promoted_cas
         config=config,
         parity_mode="one_step",
     ) == select_recycling_transient_solver_mode(config, parity_mode="one_step")
+
+
+def test_select_integrated_2d_transient_solver_mode_honors_configured_override() -> None:
+    config = apply_bout_overrides(parse_bout_input(_ONE_ION_INPUT), ("runtime:recycling_transient_solver_mode=adaptive_be",))
+
+    assert (
+        select_integrated_2d_transient_solver_mode(
+            "tokamak_recycling_dthe_one_step",
+            config=config,
+            parity_mode="one_step",
+        )
+        == "adaptive_be"
+    )
