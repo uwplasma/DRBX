@@ -152,7 +152,9 @@ The current live rerun evidence sharpens that priority:
 - compact tokamak transport/turbulence lanes are already exact and much faster
   on the guarded compare surface
 - integrated and direct-tokamak recycling are now at or below wall-time parity
-  on this machine, but still show visible one-step mismatch
+  on this machine, but their current one-step mismatch is dominated by near-zero
+  `NVd` on the guarded compare surface rather than by large absolute profile
+  error
 - heavy 1D recycling and the neutral mixed lane remain the main fidelity and
   runtime gaps
 - full live 3D Hermès reruns are still missing, so 3D remains a distinct

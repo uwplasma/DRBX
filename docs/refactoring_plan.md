@@ -415,7 +415,9 @@ to that audit:
 - heavy 1D recycling and the neutral mixed lane remain the main remaining live
   runtime and fidelity gaps
 - integrated and direct-tokamak recycling are already competitive in wall time
-  on this machine, but still show bounded visible one-step mismatch
+  on this machine, but their current one-step mismatch is dominated by near-zero
+  `NVd` on the guarded compare surface rather than by large absolute profile
+  error
 - full live 3D Hermès reruns are still absent, so 3D should remain a distinct
   selected-field evidence track until that gap closes
 
@@ -688,6 +690,16 @@ developer-facing documentation on testing and code structure.
 - `docs/example_status_matrix.md`
   - tutorial vs benchmark vs campaign vs publication generator role for each
     example
+- `docs/profiling_runtime.md`
+  - supported runtime-profiling workflow
+  - case-selection policy for worst offenders
+  - Perfetto / TensorBoard / memory-profile guidance
+  - CPU versus GPU execution notes
+- `docs/runtime_gap_remediation.md`
+  - current live Hermès runtime/fidelity offenders
+  - measured before/after fixes
+  - next remediation order
+  - office GPU execution plan
 
 ### Documentation requirements during refactor
 
@@ -697,6 +709,60 @@ Every refactor milestone should update:
 - public docs for the affected package
 - the equation-to-code map
 - the testing strategy page when a new validation layer or marker is introduced
+
+## Runtime And Fidelity Remediation Plan
+
+The current public live matrix is now strong enough to drive the next runtime
+and mismatch work directly instead of relying on generic intuition.
+
+### Current priority order
+
+1. `neutral_mixed_one_step`
+   - real fidelity gap on `NVh`
+   - runtime now improved substantially, so further work should be driven by
+     closure/operator comparison rather than by bulk vectorization alone
+2. `recycling_dthe_one_step`
+   - current worst live runtime ratio
+   - already tight enough in fidelity that runtime work can proceed with strong
+     regression protection
+3. `recycling_1d_one_step`
+   - same class as the multispecies case, but slightly less urgent after the
+     latest speedup
+4. integrated/direct tokamak recycling observables
+   - runtime already competitive
+   - next work should move toward target/source/ionization observables closer to
+     the TCV-X21, SOLPS-ITER, and Hermès comparison style
+
+### Required profiler workflow
+
+Every one of those runtime tasks should use the same public workflow:
+
+- [profiling_runtime.md](profiling_runtime.md)
+- [scripts/profile_curated_case.py](../scripts/profile_curated_case.py)
+
+That workflow should be used for:
+
+- local CPU cProfile diagnosis
+- JAX trace collection
+- device-memory snapshots on GPU
+- compilation-cache and XLA-dump comparisons when compile or kernel behavior is
+  the suspected bottleneck
+
+### GPU execution plan
+
+The reachable `office` machine is now the planned GPU profiling host. It
+already exposes two CUDA-visible JAX devices, so the next blocker is only
+environment setup rather than hardware availability.
+
+The expected next GPU sequence is:
+
+1. create a clean repo-local environment on `office`
+2. install matching JAX/JAXLIB plus `jax_drb`
+3. rerun the current worst-offender cases with trace and memory profiling
+4. only then decide whether the next acceleration target is:
+   - single-case runtime
+   - batched independent solves
+   - multi-device sharding
 
 This is required because the code is intended for research and paper
 production, not only for internal development.

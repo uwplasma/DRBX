@@ -7,6 +7,7 @@ import tempfile
 from time import perf_counter
 
 from matplotlib import pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 
 from ..native import run_curated_case
@@ -42,6 +43,9 @@ DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS = (
     HermesLiveRerunCaseSpec("annulus_he_emag_one_step", "annulus\nEM", "annulus electromagnetic"),
     HermesLiveRerunCaseSpec("alfven_wave_one_step", "Alfven\nwave", "electromagnetic wave"),
 )
+
+NORMALIZATION_SENSITIVE_ABS_TOL = 1.0e-6
+NORMALIZATION_SENSITIVE_REL_TOL = 1.0e-1
 
 
 def create_hermes_live_rerun_campaign_package(
@@ -93,6 +97,10 @@ def build_hermes_live_rerun_campaign_report(
         "notes": {
             "comparison_surface": "live_native_vs_live_reference_curated_cases",
             "runtime_note": "Runtime ratios below one indicate faster native execution on this machine for the selected parity rung.",
+            "normalization_note": (
+                "Cases flagged as normalization-sensitive have small absolute max-error on the guarded compare "
+                "surface but moderate relative error because the dominant field is near zero in the reference output."
+            ),
             "three_d_status": "This live rerun matrix currently covers 1D and 2D Hermès-backed lanes. The current 3D evidence remains the selected-field reference-backed packages.",
         },
     }
@@ -116,29 +124,38 @@ def save_hermes_live_rerun_campaign_plot(report: dict[str, object], path: str | 
         ],
         dtype=np.float64,
     )
+    worst_abs = np.asarray([float(entry["worst_max_abs_diff"]) for entry in cases], dtype=np.float64)
     runtime_ratio = np.asarray([float(entry["native_to_reference_runtime_ratio"]) for entry in cases], dtype=np.float64)
+    normalization_sensitive = np.asarray(
+        [bool(entry.get("normalization_sensitive", False)) for entry in cases],
+        dtype=bool,
+    )
 
     floor = 1.0e-16
     rms_plot = np.maximum(worst_rms_rel, floor)
     relmax_plot = np.maximum(worst_relmax, floor)
+    abs_plot = np.maximum(worst_abs, floor)
     ratio_plot = np.maximum(runtime_ratio, floor)
 
     family_colors = _family_color_map(families)
     bar_colors = [family_colors[family] for family in families]
 
-    figure, axes = plt.subplots(2, 2, figsize=(15.0, 10.2))
+    figure, axes = plt.subplots(2, 2, figsize=(13.8, 9.8))
 
-    axes[0, 0].bar(x, rms_plot, color=bar_colors, width=0.68)
+    rms_bars = axes[0, 0].bar(x, rms_plot, color=bar_colors, width=0.68)
+    _apply_normalization_sensitive_hatch(rms_bars, normalization_sensitive)
     style_axis(
         axes[0, 0],
-        title="Worst RMS error normalized by reference amplitude",
+        title="Worst RMS error on the guarded compare surface",
         ylabel="rms |Δ| / max |reference|",
         yscale="log",
     )
     axes[0, 0].set_xticks(x, labels)
+    axes[0, 0].tick_params(axis="x", labelsize=9.6)
     _annotate_fidelity_bars(axes[0, 0], x, worst_rms_rel)
 
-    axes[0, 1].bar(x, relmax_plot, color=bar_colors, width=0.68)
+    relmax_bars = axes[0, 1].bar(x, relmax_plot, color=bar_colors, width=0.68)
+    _apply_normalization_sensitive_hatch(relmax_bars, normalization_sensitive)
     style_axis(
         axes[0, 1],
         title="Worst max-error normalized by reference amplitude",
@@ -146,9 +163,11 @@ def save_hermes_live_rerun_campaign_plot(report: dict[str, object], path: str | 
         yscale="log",
     )
     axes[0, 1].set_xticks(x, labels)
+    axes[0, 1].tick_params(axis="x", labelsize=9.6)
     _annotate_fidelity_bars(axes[0, 1], x, worst_relmax)
 
-    axes[1, 0].bar(x, ratio_plot, color=bar_colors, width=0.68)
+    ratio_bars = axes[1, 0].bar(x, ratio_plot, color=bar_colors, width=0.68)
+    _apply_normalization_sensitive_hatch(ratio_bars, normalization_sensitive)
     axes[1, 0].axhline(1.0, color="#6c757d", linestyle="--", linewidth=1.1)
     style_axis(
         axes[1, 0],
@@ -157,40 +176,45 @@ def save_hermes_live_rerun_campaign_plot(report: dict[str, object], path: str | 
         yscale="log",
     )
     axes[1, 0].set_xticks(x, labels)
+    axes[1, 0].tick_params(axis="x", labelsize=9.6)
     _annotate_runtime_ratio_bars(axes[1, 0], x, runtime_ratio)
 
-    axes[1, 1].scatter(rms_plot, ratio_plot, c=bar_colors, s=68.0, edgecolors="black", linewidths=0.55)
+    abs_bars = axes[1, 1].bar(x, abs_plot, color=bar_colors, width=0.68)
+    _apply_normalization_sensitive_hatch(abs_bars, normalization_sensitive)
     style_axis(
         axes[1, 1],
-        title="Runtime versus fidelity tradeoff",
-        xlabel="worst rms |Δ| / max |reference|",
-        ylabel="native / Hermès wall time",
-        xscale="log",
+        title="Worst absolute max-error on the compare surface",
         yscale="log",
-        grid="both",
+        ylabel="max |Δ|",
     )
-    axes[1, 1].axhline(1.0, color="#6c757d", linestyle="--", linewidth=1.1)
-    for rms_value, ratio_value, entry in zip(rms_plot, ratio_plot, cases, strict=True):
-        axes[1, 1].annotate(
-            str(entry["display_label"]).replace("\n", " "),
-            (float(rms_value), float(ratio_value)),
-            textcoords="offset points",
-            xytext=(5, 4),
-            fontsize=8.0,
-        )
+    axes[1, 1].set_xticks(x, labels)
+    axes[1, 1].tick_params(axis="x", labelsize=9.6)
+    _annotate_fidelity_bars(axes[1, 1], x, worst_abs)
 
     legend_handles = [
         plt.Line2D([0], [0], marker="o", linestyle="", color=color, markeredgecolor="black", label=family)
         for family, color in family_colors.items()
     ]
+    if bool(np.any(normalization_sensitive)):
+        legend_handles.append(
+            Patch(facecolor="white", edgecolor="black", hatch="//", label="near-zero normalized field")
+        )
     axes[1, 1].legend(handles=legend_handles, fontsize=8.2, frameon=False, loc="best")
 
     figure.suptitle(
         "Live JAX-DRB versus live Hermès-3 rerun matrix across curated verification and validation lanes",
-        fontsize=14.5,
+        fontsize=13.0,
         fontweight="semibold",
     )
-    figure.subplots_adjust(left=0.07, right=0.99, bottom=0.17, top=0.90, wspace=0.24, hspace=0.38)
+    figure.text(
+        0.5,
+        0.02,
+        "Hatched bars mark cases where the dominant relative mismatch is driven by a near-zero reference field; use the absolute-error panel to judge physical significance.",
+        ha="center",
+        va="center",
+        fontsize=8.8,
+    )
+    figure.subplots_adjust(left=0.08, right=0.985, bottom=0.16, top=0.90, wspace=0.22, hspace=0.34)
     save_publication_figure(figure, target)
     return target
 
@@ -293,6 +317,7 @@ def _run_hermes_live_rerun_case(
             if worst_scaled_entry is None or worst_scaled_entry.relative_to_expected_max is None
             else float(worst_scaled_entry.relative_to_expected_max)
         ),
+        "normalization_sensitive": _is_normalization_sensitive_case(worst_scaled_entry),
         "exact_match": bool(
             worst_scaled_entry is not None
             and worst_scaled_entry.max_abs_diff == 0.0
@@ -346,6 +371,11 @@ def _build_hermes_live_rerun_summary(cases: list[dict[str, object]]) -> dict[str
     runtime_sorted = sorted(cases, key=lambda entry: float(entry["native_to_reference_runtime_ratio"]))
     worst_l2_entry = max(cases, key=lambda entry: float(entry["worst_relative_l2_error"]))
     worst_rms_entry = max(cases, key=lambda entry: float(entry["worst_relative_rms_error"]))
+    normalization_sensitive_cases = [
+        str(entry["case_name"])
+        for entry in cases
+        if bool(entry.get("normalization_sensitive", False))
+    ]
     return {
         "exact_match_case_count": int(exact_match_case_count),
         "best_runtime_ratio_case": runtime_sorted[0]["case_name"],
@@ -356,6 +386,8 @@ def _build_hermes_live_rerun_summary(cases: list[dict[str, object]]) -> dict[str
         "worst_relative_l2_error": float(worst_l2_entry["worst_relative_l2_error"]),
         "worst_relative_rms_case": worst_rms_entry["case_name"],
         "worst_relative_rms_error": float(worst_rms_entry["worst_relative_rms_error"]),
+        "normalization_sensitive_case_count": len(normalization_sensitive_cases),
+        "normalization_sensitive_cases": normalization_sensitive_cases,
     }
 
 
@@ -376,12 +408,17 @@ def _write_hermes_live_rerun_campaign_arrays(report: dict[str, object], path: st
         ),
         worst_relative_l2_error=np.asarray([float(entry["worst_relative_l2_error"]) for entry in cases], dtype=np.float64),
         worst_relative_rms_error=np.asarray([float(entry["worst_relative_rms_error"]) for entry in cases], dtype=np.float64),
+        worst_max_abs_diff=np.asarray([float(entry["worst_max_abs_diff"]) for entry in cases], dtype=np.float64),
         worst_relative_to_expected_max=np.asarray(
             [
                 0.0 if entry.get("worst_relative_to_expected_max") is None else float(entry["worst_relative_to_expected_max"])
                 for entry in cases
             ],
             dtype=np.float64,
+        ),
+        normalization_sensitive=np.asarray(
+            [bool(entry.get("normalization_sensitive", False)) for entry in cases],
+            dtype=bool,
         ),
     )
     return target
@@ -441,6 +478,23 @@ def _annotate_fidelity_bars(axis, x: np.ndarray, values: np.ndarray) -> None:
             va="bottom",
             fontsize=8.4,
         )
+
+
+def _apply_normalization_sensitive_hatch(bar_container, normalization_sensitive: np.ndarray) -> None:
+    for bar, flagged in zip(bar_container.patches, normalization_sensitive, strict=True):
+        if bool(flagged):
+            bar.set_hatch("//")
+            bar.set_edgecolor("black")
+            bar.set_linewidth(0.7)
+
+
+def _is_normalization_sensitive_case(worst_scaled_entry) -> bool:
+    if worst_scaled_entry is None or worst_scaled_entry.relative_to_expected_max is None:
+        return False
+    return bool(
+        worst_scaled_entry.max_abs_diff <= NORMALIZATION_SENSITIVE_ABS_TOL
+        and worst_scaled_entry.relative_to_expected_max >= NORMALIZATION_SENSITIVE_REL_TOL
+    )
 
 
 def _sanitize_public_path(path: str | Path) -> str:

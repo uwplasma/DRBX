@@ -292,6 +292,42 @@ def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() ->
     )
 
 
+def test_compute_recycling_1d_rhs_uses_preloaded_explicit_pressure_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    dataset_scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=dataset_scalars,
+    )
+    species = _build_recycling_state_fields(runtime_model)
+    species = recycling_1d_mod._override_species_fields(runtime_model.species_templates, fields=species, mesh=mesh)
+
+    def _unexpected_explicit_pressure_source(*args, **kwargs):
+        raise AssertionError("explicit pressure source should be loaded once and reused during RHS assembly")
+
+    monkeypatch.setattr(recycling_1d_mod, "_explicit_pressure_source", _unexpected_explicit_pressure_source)
+
+    result = _compute_recycling_1d_rhs_from_species(
+        config,
+        species=species,
+        controllers=runtime_model.controllers,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        feedback_integrals=None,
+        explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+    )
+
+    assert "ddt(Pd+)" in result.variables
+    assert "ddt(Pe)" in result.variables
+
+
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_1d_rhs.json")
     actual = run_curated_case("recycling_1d_rhs", reference_root=_REFERENCE_ROOT).payload

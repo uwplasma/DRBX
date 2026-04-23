@@ -1325,31 +1325,42 @@ def _div_a_grad_perp_flows(
     if not np.allclose(g23, 0.0, rtol=1.0e-12, atol=1.0e-12):
         raise NotImplementedError("Native neutral mixed transport currently requires g23 = 0.")
 
-    for i in range(mesh.xstart - 1, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                face_flux = (
-                    0.5
-                    * (coefficient[i, j, k] + coefficient[i + 1, j, k])
-                    * (J[i, j, k] * g11[i, j, k] + J[i + 1, j, k] * g11[i + 1, j, k])
-                    * (field[i + 1, j, k] - field[i, j, k])
-                    / (dx[i, j, k] + dx[i + 1, j, k])
-                )
-                result[i, j, k] += face_flux / (dx[i, j, k] * J[i, j, k])
-                result[i + 1, j, k] -= face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+    y_active = slice(mesh.ystart, mesh.yend + 1)
 
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                kp = (k + 1) % mesh.nz
-                face_flux = (
-                    0.25
-                    * (coefficient[i, j, k] + coefficient[i, j, kp])
-                    * (J[i, j, k] * g33[i, j, k] + J[i, j, kp] * g33[i, j, kp])
-                    * ((field[i, j, kp] - field[i, j, k]) / dz[i, j, k])
-                )
-                result[i, j, k] += face_flux / (J[i, j, k] * dz[i, j, k])
-                result[i, j, kp] -= face_flux / (J[i, j, kp] * dz[i, j, kp])
+    x_left = slice(mesh.xstart - 1, mesh.xend + 1)
+    x_right = slice(mesh.xstart, mesh.xend + 2)
+    x_face_flux = (
+        0.5
+        * (coefficient[x_left, y_active, :] + coefficient[x_right, y_active, :])
+        * (
+            J[x_left, y_active, :] * g11[x_left, y_active, :]
+            + J[x_right, y_active, :] * g11[x_right, y_active, :]
+        )
+        * (field[x_right, y_active, :] - field[x_left, y_active, :])
+        / (dx[x_left, y_active, :] + dx[x_right, y_active, :])
+    )
+    result[x_left, y_active, :] += x_face_flux / (dx[x_left, y_active, :] * J[x_left, y_active, :])
+    result[x_right, y_active, :] -= x_face_flux / (dx[x_right, y_active, :] * J[x_right, y_active, :])
+
+    x_active = slice(mesh.xstart, mesh.xend + 1)
+    coefficient_active = coefficient[x_active, y_active, :]
+    field_active = field[x_active, y_active, :]
+    J_active = J[x_active, y_active, :]
+    g33_active = g33[x_active, y_active, :]
+    dz_active = dz[x_active, y_active, :]
+
+    coefficient_kp = np.roll(coefficient_active, -1, axis=2)
+    field_kp = np.roll(field_active, -1, axis=2)
+    J_kp = np.roll(J_active, -1, axis=2)
+    g33_kp = np.roll(g33_active, -1, axis=2)
+    z_face_flux = (
+        0.25
+        * (coefficient_active + coefficient_kp)
+        * (J_active * g33_active + J_kp * g33_kp)
+        * ((field_kp - field_active) / dz_active)
+    )
+    result[x_active, y_active, :] += z_face_flux / (J_active * dz_active)
+    result[x_active, y_active, :] -= np.roll(z_face_flux, 1, axis=2) / (J_active * dz_active)
 
     return result
 

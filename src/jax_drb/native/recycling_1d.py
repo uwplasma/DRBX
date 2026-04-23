@@ -481,15 +481,17 @@ def _compute_recycling_1d_rhs_from_species(
         ion_state = prepared[ion.name]
         temperature = ion_state.temperature
         fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / ion.atomic_mass)
+        explicit_pressure_source = pressure_sources.get(ion.name)
+        if explicit_pressure_source is None:
+            explicit_pressure_source = _explicit_pressure_source(
+                config,
+                ion.name,
+                mesh=mesh,
+                dataset_scalars=dataset_scalars,
+            )
         ion_rhs_terms = _assemble_ion_rhs_terms(
             density_source=np.asarray(density_source[ion.name], dtype=np.float64),
-            explicit_pressure_source=np.asarray(
-                pressure_sources.get(
-                    ion.name,
-                    _explicit_pressure_source(config, ion.name, mesh=mesh, dataset_scalars=dataset_scalars),
-                ),
-                dtype=np.float64,
-            ),
+            explicit_pressure_source=np.asarray(explicit_pressure_source, dtype=np.float64),
             momentum_source=np.asarray(momentum_source[ion.name], dtype=np.float64),
             atomic_mass=ion.atomic_mass,
             density_floor=ion.density_floor,
@@ -511,14 +513,16 @@ def _compute_recycling_1d_rhs_from_species(
 
     electron_velocity = np.asarray(electron_boundary.velocity, dtype=np.float64)
     electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
+    electron_explicit_pressure_source = pressure_sources.get("e")
+    if electron_explicit_pressure_source is None:
+        electron_explicit_pressure_source = _explicit_pressure_source(
+            config,
+            "e",
+            mesh=mesh,
+            dataset_scalars=dataset_scalars,
+        )
     electron_pressure_rhs_terms = _assemble_electron_pressure_rhs_terms(
-        explicit_pressure_source=np.asarray(
-            pressure_sources.get(
-                "e",
-                _explicit_pressure_source(config, "e", mesh=mesh, dataset_scalars=dataset_scalars),
-            ),
-            dtype=np.float64,
-        ),
+        explicit_pressure_source=np.asarray(electron_explicit_pressure_source, dtype=np.float64),
         electron_pressure=electron_boundary.pressure,
         electron_velocity=electron_velocity,
         electron_fastest_wave=electron_fastest_wave,
@@ -540,13 +544,15 @@ def _compute_recycling_1d_rhs_from_species(
             mesh=mesh,
             metrics=metrics,
         )
-        pressure_rhs = np.asarray(
-            pressure_sources.get(
+        neutral_explicit_pressure_source = pressure_sources.get(neutral.name)
+        if neutral_explicit_pressure_source is None:
+            neutral_explicit_pressure_source = _explicit_pressure_source(
+                config,
                 neutral.name,
-                _explicit_pressure_source(config, neutral.name, mesh=mesh, dataset_scalars=dataset_scalars),
-            ),
-            dtype=np.float64,
-        )
+                mesh=mesh,
+                dataset_scalars=dataset_scalars,
+            )
+        pressure_rhs = np.asarray(neutral_explicit_pressure_source, dtype=np.float64)
         pressure_rhs = pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
             neutral_state.pressure,
             neutral_state.velocity,

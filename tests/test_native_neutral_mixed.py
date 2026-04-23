@@ -228,6 +228,53 @@ def test_neutral_mixed_transport_operators_reproduce_frozen_density_rhs() -> Non
         assert np.sqrt(np.mean(np.square(error))) < 1.0e-3
 
 
+def test_div_a_grad_perp_flows_matches_reference_loop() -> None:
+    _, _, mesh, metrics, state, _ = _build_case(nx=8, ny=4, nz=6)
+    coefficient = 0.5 + 0.1 * state.density
+    field = np.log1p(state.pressure)
+
+    expected = np.zeros_like(field, dtype=np.float64)
+    dx = np.asarray(metrics.dx, dtype=np.float64)
+    dz = np.asarray(metrics.dz, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g11 = np.asarray(metrics.g11, dtype=np.float64)
+    g33 = np.asarray(metrics.g33, dtype=np.float64)
+    for i in range(mesh.xstart - 1, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                x_flux = (
+                    0.5
+                    * (coefficient[i, j, k] + coefficient[i + 1, j, k])
+                    * (J[i, j, k] * g11[i, j, k] + J[i + 1, j, k] * g11[i + 1, j, k])
+                    * (field[i + 1, j, k] - field[i, j, k])
+                    / (dx[i, j, k] + dx[i + 1, j, k])
+                )
+                expected[i, j, k] += x_flux / (dx[i, j, k] * J[i, j, k])
+                expected[i + 1, j, k] -= x_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+
+    for i in range(mesh.xstart, mesh.xend + 1):
+        for j in range(mesh.ystart, mesh.yend + 1):
+            for k in range(mesh.nz):
+                kp = (k + 1) % mesh.nz
+                z_flux = (
+                    0.25
+                    * (coefficient[i, j, k] + coefficient[i, j, kp])
+                    * (J[i, j, k] * g33[i, j, k] + J[i, j, kp] * g33[i, j, kp])
+                    * ((field[i, j, kp] - field[i, j, k]) / dz[i, j, k])
+                )
+                expected[i, j, k] += z_flux / (J[i, j, k] * dz[i, j, k])
+                expected[i, j, kp] -= z_flux / (J[i, j, kp] * dz[i, j, kp])
+
+    actual = _div_a_grad_perp_flows(
+        coefficient,
+        field,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)
+
+
 @pytest.mark.parametrize("boundary_flux", [False, True])
 def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> None:
     _, _, mesh, metrics, state, _ = _build_case(nx=8, ny=4, nz=6)
