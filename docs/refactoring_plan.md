@@ -161,6 +161,10 @@ The current main gaps are:
   than a staged pathway into promoted physics lanes
 - the current `95%` closeout slice is useful, but it is not yet the same thing
   as `95%` meaningful coverage of the promoted solver surface
+- `scripts/run_promoted_solver_coverage.py --audit` now exposes that gap
+  directly for the native mesh/metric/open-field/recycling/runner/parity/CLI
+  surface; the next step is raising that audit to the default `95%` gate through
+  extracted operator tests rather than through more broad smoke coverage
 - many examples are useful scientifically, but not all of them have an explicit
   status as tutorial, benchmark, campaign, or publication artifact generator
 - the runtime/performance story still mixes two different classes of workloads:

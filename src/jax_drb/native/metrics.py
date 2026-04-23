@@ -68,6 +68,8 @@ def build_structured_metrics(
             raw_dy=raw_dy,
             raw_dz=raw_dz,
             raw_Bxy=raw_Bxy,
+            raw_g_23=raw_g_23,
+            dtype=dtype,
         )
         raw_dx = recalculated.dx
         raw_dy = recalculated.dy
@@ -142,6 +144,8 @@ def _recalculate_orthogonal_metrics(
     raw_dy: Any,
     raw_dz: Any,
     raw_Bxy: Any,
+    raw_g_23: Any,
+    dtype: Any,
 ) -> StructuredMetrics:
     Rxy = _metric_value(config, evaluator, "Rxy", default=1.0)
     Bpxy = _metric_value(config, evaluator, "Bpxy", default=1.0)

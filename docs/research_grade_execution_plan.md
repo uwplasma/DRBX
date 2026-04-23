@@ -793,7 +793,11 @@ Exit criteria:
 Deliverables:
 
 - turn the fast research gate into a CI job when billing is available
-- add coverage gate for promoted solver/public slice
+- use `scripts/run_promoted_solver_coverage.py --audit` to track the promoted
+  solver/public slice until the refactor raises it from the April 23, 2026
+  local baseline of `73%` to the required `95%`
+- add coverage gate for promoted solver/public slice once that audit clears the
+  threshold without `--audit`
 - add nightly/manual heavy reference reruns
 - add release smoke install from wheel
 - validate PyPI workflow on a test release before versioned public release
