@@ -244,6 +244,9 @@ Specific file splits:
   - extract residual and Newton-facing assembly
   - extract diagnostics and summaries
 - `neutral_mixed.py`
+  - extract state/result layouts: started in
+    `src/jax_drb/native/neutral_mixed_state.py`, with re-exports kept from
+    `neutral_mixed.py` for compatibility
   - extract parallel transport operators: started in
     `src/jax_drb/native/neutral_mixed_operators.py`, including the open-field
     parallel advection/diffusion operators, perpendicular diffusion operator,

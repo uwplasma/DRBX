@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
@@ -39,60 +38,15 @@ from .neutral_mixed_operators import (
     grad_par_open as _grad_par_open,
     gradient_magnitude as _gradient_magnitude,
 )
+from .neutral_mixed_state import (
+    NeutralMixedHistoryResult,
+    NeutralMixedImplicitStepInfo,
+    NeutralMixedRhsResult,
+    NeutralMixedState,
+    PreparedNeutralMixedState as _PreparedNeutralMixedState,
+)
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
-
-
-@dataclass(frozen=True)
-class NeutralMixedState:
-    density: np.ndarray
-    pressure: np.ndarray
-    momentum: np.ndarray
-
-
-@dataclass(frozen=True)
-class NeutralMixedRhsResult:
-    density: np.ndarray
-    pressure: np.ndarray
-    momentum: np.ndarray
-    diffusion: np.ndarray
-    density_parallel_flow: np.ndarray
-    pressure_parallel_flow: np.ndarray
-
-
-@dataclass(frozen=True)
-class NeutralMixedHistoryResult:
-    density_history: np.ndarray
-    pressure_history: np.ndarray
-    momentum_history: np.ndarray
-
-
-@dataclass(frozen=True)
-class NeutralMixedImplicitStepInfo:
-    residual_inf_norm: float
-    active_shape: tuple[int, int, int]
-    nonlinear_iterations: int
-    linear_iterations: int
-
-
-@dataclass(frozen=True)
-class _PreparedNeutralMixedState:
-    density: np.ndarray
-    pressure: np.ndarray
-    momentum: np.ndarray
-    density_limited: np.ndarray
-    pressure_limited: np.ndarray
-    temperature: np.ndarray
-    temperature_limited: np.ndarray
-    velocity: np.ndarray
-    diffusion: np.ndarray
-    diffusion_density: np.ndarray
-    diffusion_pressure: np.ndarray
-    diffusion_momentum: np.ndarray
-    conductivity: np.ndarray
-    viscosity: np.ndarray
-    log_pressure: np.ndarray
-    sound_speed: np.ndarray
 
 
 def initialize_neutral_mixed_state(
