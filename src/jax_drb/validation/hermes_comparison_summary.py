@@ -7,6 +7,8 @@ from pathlib import Path
 from matplotlib import pyplot as plt
 import numpy as np
 
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
+
 
 @dataclass(frozen=True)
 class HermesComparisonSummaryArtifacts:
@@ -80,22 +82,54 @@ def save_hermes_comparison_summary_plot(report: dict[str, object], path: str | P
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     lanes = list(report["lanes"])
-    labels = [str(entry["lane_name"]) for entry in lanes]
+    labels = [
+        "tokamak\n1-step",
+        "tokamak\nshort window",
+        "traced-field-line\nreduced",
+        "stellarator VMEC\nreduced",
+    ]
     rel_l2 = [float(entry["worst_relative_l2_error"]) for entry in lanes]
     max_abs = [float(entry["worst_max_abs_error"]) for entry in lanes]
-    x = np.arange(len(labels))
-    width = 0.36
-    figure, axis = plt.subplots(figsize=(12.5, 5.2), constrained_layout=True)
-    axis.bar(x - width / 2.0, rel_l2, width=width, color="#005f73", label="worst rel L2")
-    axis.bar(x + width / 2.0, max_abs, width=width, color="#ca6702", label="worst max|Δ|")
-    axis.set_xticks(x, labels, rotation=15, ha="right")
-    axis.set_ylabel("error metric")
-    axis.set_title("Committed native-vs-reference comparison summary")
-    axis.grid(alpha=0.25, axis="y")
-    axis.legend(frameon=False)
-    axis.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2), useOffset=False)
-    figure.savefig(target, dpi=180)
-    plt.close(figure)
+    rel_fields = [str(entry["worst_relative_l2_field"]) for entry in lanes]
+    abs_fields = [str(entry["worst_max_abs_field"]) for entry in lanes]
+    floor = 1.0e-12
+    x = np.arange(len(labels), dtype=np.float64)
+    rel_plot = np.maximum(np.asarray(rel_l2, dtype=np.float64), floor)
+    abs_plot = np.maximum(np.asarray(max_abs, dtype=np.float64), floor)
+
+    figure, axes = plt.subplots(1, 2, figsize=(13.6, 5.2))
+
+    axes[0].bar(x, rel_plot, color="#005f73", width=0.62)
+    style_axis(
+        axes[0],
+        title="Worst relative L2 error by lane",
+        ylabel="relative L2 error",
+        yscale="log",
+    )
+    axes[0].set_xticks(x, labels)
+    annotate_bars(axes[0], x, np.asarray(rel_l2, dtype=np.float64), fmt="{:.2e}", fontsize=8.8)
+    for xi, field_name in zip(x, rel_fields, strict=True):
+        axes[0].text(float(xi), floor * 1.7, field_name, ha="center", va="bottom", fontsize=8.4, color="#33415c")
+
+    axes[1].bar(x, abs_plot, color="#ca6702", width=0.62)
+    style_axis(
+        axes[1],
+        title="Worst max-absolute error by lane",
+        ylabel="max |Δ|",
+        yscale="log",
+    )
+    axes[1].set_xticks(x, labels)
+    annotate_bars(axes[1], x, np.asarray(max_abs, dtype=np.float64), fmt="{:.2e}", fontsize=8.8)
+    for xi, field_name in zip(x, abs_fields, strict=True):
+        axes[1].text(float(xi), floor * 1.7, field_name, ha="center", va="bottom", fontsize=8.4, color="#33415c")
+
+    figure.suptitle(
+        "Committed reduced native-vs-reference comparison summary",
+        fontsize=14.0,
+        fontweight="semibold",
+    )
+    figure.subplots_adjust(left=0.07, right=0.98, bottom=0.22, top=0.84, wspace=0.28)
+    save_publication_figure(figure, target)
     return target
 
 

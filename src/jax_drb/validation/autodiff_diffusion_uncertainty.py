@@ -15,6 +15,7 @@ from .autodiff_diffusion import (
     objective_for_physical_parameters,
     simulate_density_history_from_physical,
 )
+from .publication_plotting import save_publication_figure, style_axis
 
 
 @dataclass(frozen=True)
@@ -176,9 +177,7 @@ def save_autodiff_diffusion_uncertainty_plot(
         capsize=5,
     )
     axes[0].set_xticks(x, labels)
-    axes[0].set_ylabel("parameter value")
-    axes[0].set_title("Input uncertainty model")
-    axes[0].grid(alpha=0.25, axis="y")
+    style_axis(axes[0], title="Input uncertainty model", ylabel="parameter value", grid="y")
 
     sampled_qoi = arrays["sampled_qoi"]
     axes[1].hist(sampled_qoi, bins=18, color="#72b7b2", alpha=0.8, density=True, label="Monte Carlo")
@@ -191,10 +190,13 @@ def save_autodiff_diffusion_uncertainty_plot(
     )
     axes[1].plot(qoi_x, normal_pdf, color="#d1495b", linewidth=2.4, label="Linearized Gaussian")
     axes[1].axvline(float(report["monte_carlo_qoi_mean"]), color="#111111", linestyle="--", linewidth=1.5)
-    axes[1].set_xlabel("final-density variance QoI")
-    axes[1].set_ylabel("density")
-    axes[1].set_title("Scalar uncertainty propagation")
-    axes[1].grid(alpha=0.25)
+    style_axis(
+        axes[1],
+        title="Scalar uncertainty propagation",
+        xlabel="final-density variance QoI",
+        ylabel="density",
+        grid="both",
+    )
     axes[1].legend(frameon=False)
 
     radial = arrays["radial_coordinate"]
@@ -220,12 +222,14 @@ def save_autodiff_diffusion_uncertainty_plot(
         alpha=0.18,
         label="Monte Carlo 95% band",
     )
-    axes[2].set_xlabel("normalized radial coordinate")
-    axes[2].set_ylabel("radial mean density")
-    axes[2].set_title("Profile uncertainty pushforward")
-    axes[2].grid(alpha=0.25)
+    style_axis(
+        axes[2],
+        title="Profile uncertainty pushforward",
+        xlabel="normalized radial coordinate",
+        ylabel="radial mean density",
+        grid="both",
+    )
     axes[2].legend(frameon=False, fontsize=9)
 
-    figure.savefig(target, dpi=220)
-    plt.close(figure)
+    save_publication_figure(figure, target)
     return target

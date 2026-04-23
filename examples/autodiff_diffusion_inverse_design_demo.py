@@ -23,6 +23,7 @@ from jax_drb.validation.autodiff_diffusion import (
     simulate_density_history_from_physical,
     theta_to_physical,
 )
+from jax_drb.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 
 @dataclass(frozen=True)
@@ -175,20 +176,26 @@ def save_summary_plot(settings: InverseDesignSettings, payload: dict[str, Any]) 
     figure, axes = plt.subplots(1, 3, figsize=(15.8, 4.8), constrained_layout=True)
 
     axes[0].plot(payload["loss_history"], color="#7b2cbf", linewidth=2.6)
-    axes[0].set_yscale("log")
-    axes[0].set_xlabel("optimization iteration")
-    axes[0].set_ylabel("objective")
-    axes[0].set_title("Inverse-design convergence")
-    axes[0].grid(alpha=0.25)
+    style_axis(
+        axes[0],
+        title="Inverse-design convergence",
+        xlabel="optimization iteration",
+        ylabel="objective",
+        yscale="log",
+        grid="both",
+    )
 
     x_coords = np.linspace(0.0, 1.0, payload["target_final"].shape[0], dtype=np.float64)
     axes[1].plot(x_coords, radial_mean(payload["target_final"]), color="#111111", linewidth=2.8, label="target")
     axes[1].plot(x_coords, radial_mean(payload["initial_final"]), color="#9d4edd", linewidth=2.2, linestyle="--", label="initial guess")
     axes[1].plot(x_coords, radial_mean(payload["optimized_final"]), color="#2a9d8f", linewidth=2.4, label="optimized")
-    axes[1].set_xlabel("normalized radial coordinate")
-    axes[1].set_ylabel("radial mean density")
-    axes[1].set_title("Recovered final-state profile")
-    axes[1].grid(alpha=0.25)
+    style_axis(
+        axes[1],
+        title="Recovered final-state profile",
+        xlabel="normalized radial coordinate",
+        ylabel="radial mean density",
+        grid="both",
+    )
     axes[1].legend(frameon=False)
 
     labels = ["D", "A", "center", "width"]
@@ -197,14 +204,12 @@ def save_summary_plot(settings: InverseDesignSettings, payload: dict[str, Any]) 
     axes[2].plot(x, payload["initial_guess_parameters"], marker="s", linewidth=2.0, linestyle="--", color="#9d4edd", label="initial")
     axes[2].plot(x, payload["optimized_parameters"], marker="^", linewidth=2.3, color="#2a9d8f", label="optimized")
     axes[2].set_xticks(x, labels)
-    axes[2].set_ylabel("parameter value")
-    axes[2].set_title("Recovered design parameters")
-    axes[2].grid(alpha=0.25)
+    style_axis(axes[2], title="Recovered design parameters", ylabel="parameter value", grid="both")
     axes[2].legend(frameon=False)
+    annotate_bars(axes[2], x, payload["optimized_parameters"], fmt="{:.2f}", fontsize=8.2)
 
     path = images_dir / "autodiff_diffusion_inverse_design.png"
-    figure.savefig(path, dpi=220)
-    plt.close(figure)
+    save_publication_figure(figure, path)
     return path
 
 

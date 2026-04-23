@@ -1,6 +1,16 @@
 # Validation Gallery
 
-This page collects the first curated parity figures from the active validation ladder. Each figure is generated from the same committed baseline artifacts used by the regression harness, so the visuals and the automated checks stay in sync.
+This page collects the current public validation figures from the active
+validation ladder. Each figure is generated from the same committed baseline
+artifacts used by the regression harness, so the visuals and the automated
+checks stay in sync.
+
+The figure classes are chosen to match the main literature patterns used in
+verification and edge/SOL validation papers: convergence curves and observed
+orders in the style of Roy 2005 and the GBS parallel-gradient work, profile and
+target comparisons in the style of TCV-X21, SOLPS-ITER, and Hermes-3 against
+TCV-X21, and differentiable-science summaries closer to JAX-Fluids and related
+JAX-based solver papers.
 
 ## Figure Status
 
@@ -276,6 +286,10 @@ What this documents:
 - the first committed Perfetto-compatible trace bundle for the reduced native JAX surfaces;
 - the concrete engineering conclusion from that profiling pass: batch same-shape selected fields before entering jitted reductions, and warm kernels once before timing summary runs.
 
+This is an engineering-support figure, not a primary validation figure. It is
+useful because differentiable/JAX papers routinely report compile-versus-execute
+cost, but it should stay secondary to the physics and verification surfaces.
+
 ## Local CPU Scaling Campaign
 
 ![Local CPU scaling campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
@@ -289,6 +303,10 @@ What this documents:
 - the retained `16`-solve ensemble was chosen deliberately because heavier local sweeps did not improve the curve on this MacBook;
 - the operational recommendation for laptop users: keep one Jacobian thread per worker for batched heavy solves and use multiple local workers when the workload is naturally parallel.
 
+This is the current research-grade local performance figure because it matches
+the actual workload pattern used in UQ, optimization, and repeated parameter
+scans better than a tiny-kernel strong-scaling plot.
+
 ## Hermes Comparison Summary
 
 ![Hermes comparison summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)
@@ -298,6 +316,11 @@ What this documents:
 - one benchmark-facing summary plot across the committed native-vs-reference reduced comparison bundles;
 - direct comparison of the native tokamak, traced-field-line, and stellarator reduced rungs on the same visual surface;
 - a simpler summary entry point than asking readers to inspect each lane-specific comparison artifact separately.
+
+This is intentionally a supporting summary figure. It should remain in the docs
+as an index into the lane-specific artifacts, but the future paper should rely
+primarily on the lane-specific comparison figures and the benchmark/closure
+campaigns rather than on this rollup alone.
 
 ## Controller Feedback Campaign
 
@@ -394,6 +417,10 @@ What this documents:
 - a standard uncertainty-propagation example on the same compact native differentiable diffusion lane used for sensitivity and inverse design;
 - a scalar QoI based on the final active-domain density variance plus a field QoI based on the final radial profile;
 - agreement between first-order autodiff covariance pushforward and a vectorized Monte Carlo estimate on the same native solve path.
+
+This is currently the strongest differentiable-science figure in the public
+surface because it presents a standard uncertainty-propagation comparison rather
+than only raw gradients.
 
 ## Impurity And Radiation Campaign
 
