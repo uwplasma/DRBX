@@ -227,6 +227,23 @@ accuracy, solver robustness, and the meaning of compare-window states, so they
 should be tested directly instead of being exercised only through the larger
 recycling and sheath integration paths.
 
+The current neutral parallel-diffusion closure extraction is:
+
+- [src/jax_drb/native/recycling_neutral_diffusion.py](../src/jax_drb/native/recycling_neutral_diffusion.py)
+
+That module now owns:
+
+- component gating for the neutral parallel-diffusion family
+- AFN versus multispecies collision-mode selection
+- density, energy, and momentum parallel-diffusion assembly
+- diffusion and closure diagnostics used to interpret the neutral closure
+
+This split matters because neutral parallel diffusion is a distinct physical
+closure family rather than just bookkeeping inside the recycling residual. It
+is a good candidate for future literature-facing operator and closure figures,
+so it should be directly testable and separable from the rest of the implicit
+recycling backbone.
+
 The first runner-side compare-window extraction is:
 
 - [src/jax_drb/native/runner_compare.py](../src/jax_drb/native/runner_compare.py)
