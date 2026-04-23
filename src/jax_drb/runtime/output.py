@@ -274,7 +274,8 @@ def print_run_event(event: Mapping[str, Any], *, verbosity: str = "summary") -> 
     except Exception:
         elapsed = event.get("elapsed_seconds")
         prefix = f"[{float(elapsed):8.3f}s] " if elapsed is not None else ""
-        print(f"{prefix}{event.get('stage', 'event')}: {event.get('message', '')}")
+        suffix = _format_event_summary_details(event)
+        print(f"{prefix}{event.get('stage', 'event')}: {event.get('message', '')}{suffix}")
         details = event.get("details", {})
         if verbosity == "detailed" and isinstance(details, Mapping):
             for key, value in details.items():
@@ -285,7 +286,8 @@ def print_run_event(event: Mapping[str, Any], *, verbosity: str = "summary") -> 
     if verbosity != "detailed":
         elapsed = event.get("elapsed_seconds")
         prefix = f"[{float(elapsed):8.3f}s] " if elapsed is not None else ""
-        console.print(f"{prefix}[bold blue]{event.get('stage', 'event')}[/bold blue]: {event.get('message', '')}")
+        suffix = _format_event_summary_details(event)
+        console.print(f"{prefix}[bold blue]{event.get('stage', 'event')}[/bold blue]: {event.get('message', '')}{suffix}")
         return
 
     details = event.get("details", {})
@@ -300,6 +302,66 @@ def print_run_event(event: Mapping[str, Any], *, verbosity: str = "summary") -> 
         for key, value in details.items():
             table.add_row(str(key), str(value))
     console.print(Panel(table, border_style="blue"))
+
+
+def _format_event_summary_details(event: Mapping[str, Any]) -> str:
+    details = event.get("details")
+    if not isinstance(details, Mapping):
+        return ""
+    stage = str(event.get("stage", ""))
+    if stage != "progress":
+        return ""
+    segments: list[str] = []
+    interval_index = details.get("interval_index")
+    steps = details.get("steps")
+    if interval_index is not None and steps is not None:
+        segments.append(f"interval {_format_count(interval_index)}/{_format_count(steps)}")
+    fraction_complete = details.get("fraction_complete")
+    if fraction_complete is not None:
+        try:
+            segments.append(f"{100.0 * float(fraction_complete):.1f}%")
+        except (TypeError, ValueError):
+            pass
+    solver_mode = details.get("solver_mode")
+    if solver_mode is not None:
+        segments.append(f"mode {solver_mode}")
+    accepted_dt = details.get("accepted_dt")
+    if accepted_dt is not None:
+        try:
+            segments.append(f"dt {float(accepted_dt):.3g}")
+        except (TypeError, ValueError):
+            pass
+    if bool(details.get("live_progress", True)):
+        eta = details.get("estimated_remaining_seconds")
+        if eta is not None:
+            try:
+                segments.append(f"eta {_format_elapsed_seconds(float(eta))}")
+            except (TypeError, ValueError):
+                pass
+    if not segments:
+        return ""
+    return f" ({', '.join(segments)})"
+
+
+def _format_count(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:.3g}"
+
+
+def _format_elapsed_seconds(value: float) -> str:
+    seconds = max(float(value), 0.0)
+    if seconds < 60.0:
+        return f"{seconds:.1f}s"
+    minutes, rem = divmod(seconds, 60.0)
+    if minutes < 60.0:
+        return f"{int(minutes)}m {rem:04.1f}s"
+    hours, minutes = divmod(minutes, 60.0)
+    return f"{int(hours)}h {int(minutes)}m"
 
 
 def _jsonify_event_value(value: Any) -> Any:

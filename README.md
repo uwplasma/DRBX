@@ -168,7 +168,9 @@ Detailed terminal mode is designed to keep long runs from looking hung. The CLI 
 - deck loading,
 - restart loading,
 - run launch and completion,
-- transient interval progress on recycling lanes,
+- transient interval progress on recycling lanes, including interval count,
+  accepted timestep, simulated time, and estimated remaining wall time on the
+  live native implicit paths,
 - artifact writes.
 
 ## Capability Tiers
@@ -253,8 +255,16 @@ The runtime/performance audit tools include:
 - [docs/native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
 - [docs/native_3d_convergence_campaign.md](docs/native_3d_convergence_campaign.md)
 - [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
+- [docs/hermes_live_rerun_campaign.md](docs/hermes_live_rerun_campaign.md)
 - [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
+
+The strongest current same-machine native-versus-live-Hermes evidence is the
+public [docs/hermes_live_rerun_campaign.md](docs/hermes_live_rerun_campaign.md)
+matrix. It currently shows four exact-match compact 2D lanes on the guarded
+compare surface, bounded but visible one-step mismatch on the integrated and
+direct-tokamak recycling ladders, and the remaining main live runtime/fidelity
+gap on the heavy 1D neutral/recycling paths.
 
 For local MacBook-class CPU use, the strongest current scaling result is the
 heavy fixed-work ensemble on repeated neon-enabled direct tokamak recycling

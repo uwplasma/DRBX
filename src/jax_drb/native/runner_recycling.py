@@ -183,6 +183,14 @@ def apply_species_velocity_overrides(
 
 
 def integrated_2d_initial_rhs_case_name(case_name: str) -> str:
+    if case_name.startswith("tokamak_recycling_dthene"):
+        return "tokamak_recycling_dthene_rhs"
+    if case_name.startswith("tokamak_recycling_dthe_drifts"):
+        return "tokamak_recycling_dthe_drifts_rhs"
+    if case_name.startswith("tokamak_recycling_dthe"):
+        return "tokamak_recycling_dthe_rhs"
+    if case_name.startswith("tokamak_recycling"):
+        return "tokamak_recycling_rhs"
     if case_name.startswith("integrated_2d_production"):
         return "integrated_2d_production_rhs"
     return "integrated_2d_recycling_rhs"

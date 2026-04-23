@@ -407,6 +407,18 @@ The current codebase review adds one more rule:
   unless they are paired with a literature-style physical or numerical question
   on the same surface
 
+The current live native-versus-live-Hermes rerun matrix adds a concrete update
+to that audit:
+
+- exact compact tokamak transport/turbulence lanes are now demonstrated on the
+  same machine, not only through committed reference arrays
+- heavy 1D recycling and the neutral mixed lane remain the main remaining live
+  runtime and fidelity gaps
+- integrated and direct-tokamak recycling are already competitive in wall time
+  on this machine, but still show bounded visible one-step mismatch
+- full live 3D Hermès reruns are still absent, so 3D should remain a distinct
+  selected-field evidence track until that gap closes
+
 ## Manuscript Figure Plan From Tests And Campaigns
 
 The future paper figures should come out of validated tests and campaigns,
@@ -739,6 +751,7 @@ artifacts, not ad hoc notebooks.
 
 - MMS convergence and order plots
 - direct tokamak recycling transient ladders
+- live native-vs-live-Hermes rerun matrix
 - neutral short-window full-array diagnostics
 - blob or drift-wave benchmark diagnostics
 - TCV-X21 scaffold and selected-field comparison summaries
@@ -758,6 +771,7 @@ After the latest validation pass, the strongest existing figure families are:
 - collision closure
 - tokamak anomalous diffusion
 - target recycling
+- live Hermès rerun matrix across representative 1D and 2D lanes
 - autodiff uncertainty propagation
 - local CPU scaling on repeated heavy tokamak-recycling solves
 
@@ -817,6 +831,13 @@ The next boundary-and-recycling template is the public
 target-recycling support layer now feeds direct boundary tests, docs artifacts,
 and a manuscript-usable prepared-state figure for recycling sources and the
 electron boundary response.
+
+The next code-to-code comparison template is the public
+[hermes_live_rerun_campaign.md](hermes_live_rerun_campaign.md) bundle: one
+shared live rerun implementation now feeds direct campaign tests, docs
+artifacts, and a manuscript-usable same-machine native-versus-Hermes matrix
+that exposes both fidelity and runtime competitiveness across representative 1D
+and 2D lanes.
 
 ## Sequencing
 

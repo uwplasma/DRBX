@@ -36,6 +36,7 @@ from jax_drb.native.recycling_1d import (
     _electron_density,
     _grad_par_electron_force_balance_open,
     _apply_neutral_target_density_guards,
+    _build_recycling_progress_details,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     advance_recycling_1d_implicit_history,
@@ -519,6 +520,33 @@ def test_recycling_one_step_progress_callback_receives_interval_updates(
             "stored_states": 2,
         }
     ]
+
+
+def test_recycling_progress_details_include_eta_metrics() -> None:
+    details, event_time = _build_recycling_progress_details(
+        interval_index=2,
+        steps=5,
+        solver_mode="adaptive_bdf",
+        accepted_dt=6.25,
+        stored_states=3,
+        output_timestep=10.0,
+        run_started_at=100.0,
+        interval_started_at=120.0,
+        now=150.0,
+    )
+
+    assert event_time == pytest.approx(150.0)
+    assert details["interval_index"] == 2
+    assert details["steps"] == 5
+    assert details["completed_intervals"] == 2
+    assert details["remaining_intervals"] == 3
+    assert details["fraction_complete"] == pytest.approx(0.4)
+    assert details["elapsed_seconds"] == pytest.approx(50.0)
+    assert details["interval_elapsed_seconds"] == pytest.approx(30.0)
+    assert details["estimated_remaining_seconds"] == pytest.approx(75.0)
+    assert details["simulated_time"] == pytest.approx(20.0)
+    assert details["total_simulated_time"] == pytest.approx(50.0)
+    assert details["live_progress"] is True
 
 
 def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(

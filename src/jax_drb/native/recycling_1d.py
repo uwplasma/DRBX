@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 import math
 import re
+import time
 from typing import Any, Callable, Mapping
 
 import numpy as np
@@ -179,6 +180,55 @@ class Recycling1DImplicitStepInfo:
 
 
 RecyclingProgressCallback = Callable[[Mapping[str, Any]], None]
+
+
+def _build_recycling_progress_details(
+    *,
+    interval_index: int,
+    steps: int,
+    solver_mode: str,
+    accepted_dt: float,
+    stored_states: int,
+    output_timestep: float,
+    run_started_at: float,
+    interval_started_at: float,
+    now: float | None = None,
+    live_progress: bool = True,
+) -> tuple[dict[str, Any], float]:
+    current_time = time.perf_counter() if now is None else float(now)
+    completed_intervals = max(int(interval_index), 0)
+    total_intervals = max(int(steps), 0)
+    elapsed_seconds = max(current_time - float(run_started_at), 0.0)
+    interval_elapsed_seconds = max(current_time - float(interval_started_at), 0.0)
+    remaining_intervals = max(total_intervals - completed_intervals, 0)
+    fraction_complete = 1.0 if total_intervals <= 0 else min(completed_intervals / float(total_intervals), 1.0)
+    mean_interval_seconds = (
+        elapsed_seconds / float(completed_intervals)
+        if completed_intervals > 0
+        else interval_elapsed_seconds
+    )
+    estimated_remaining_seconds = max(mean_interval_seconds * float(remaining_intervals), 0.0)
+    total_simulated_time = max(float(output_timestep) * float(total_intervals), 0.0)
+    simulated_time = min(float(output_timestep) * float(completed_intervals), total_simulated_time)
+    return (
+        {
+            "interval_index": completed_intervals,
+            "steps": total_intervals,
+            "solver_mode": solver_mode,
+            "accepted_dt": float(accepted_dt),
+            "stored_states": int(stored_states),
+            "completed_intervals": completed_intervals,
+            "remaining_intervals": remaining_intervals,
+            "fraction_complete": float(fraction_complete),
+            "elapsed_seconds": float(elapsed_seconds),
+            "interval_elapsed_seconds": float(interval_elapsed_seconds),
+            "estimated_remaining_seconds": float(estimated_remaining_seconds),
+            "simulated_time": float(simulated_time),
+            "total_simulated_time": float(total_simulated_time),
+            "live_progress": bool(live_progress),
+        },
+        current_time,
+    )
 
 @dataclass(frozen=True)
 class _SimpleSheathSettings:
@@ -1645,8 +1695,10 @@ def advance_recycling_1d_implicit_history(
 
     variable_history = {name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names}
     feedback_history = {name: [np.asarray(0.0, dtype=np.float64)] for name in feedback_names}
+    run_started_at = time.perf_counter()
+    interval_started_at = run_started_at
 
-    for _ in range(steps):
+    for interval_index in range(steps):
         fields, integrals, _ = advance_recycling_1d_backward_euler_step(
             config,
             fields,
@@ -1665,15 +1717,17 @@ def advance_recycling_1d_implicit_history(
         for name in feedback_names:
             feedback_history[name].append(np.asarray(integrals[name], dtype=np.float64))
         if progress_callback is not None:
-            progress_callback(
-                {
-                    "interval_index": len(next(iter(variable_history.values()))) - 1,
-                    "steps": steps,
-                    "solver_mode": solver_mode,
-                    "accepted_dt": float(timestep),
-                    "stored_states": len(next(iter(variable_history.values()))),
-                }
+            details, interval_started_at = _build_recycling_progress_details(
+                interval_index=interval_index + 1,
+                steps=steps,
+                solver_mode=solver_mode,
+                accepted_dt=float(timestep),
+                stored_states=len(next(iter(variable_history.values()))),
+                output_timestep=timestep,
+                run_started_at=run_started_at,
+                interval_started_at=interval_started_at,
             )
+            progress_callback(details)
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -1703,6 +1757,8 @@ def _advance_recycling_1d_continuation_history(
     variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+    run_started_at = time.perf_counter()
+    interval_started_at = run_started_at
 
     for interval_index in range(steps):
         current_fields, current_integrals, suggested_dt = _advance_recycling_1d_output_interval(
@@ -1724,15 +1780,17 @@ def _advance_recycling_1d_continuation_history(
         for name in feedback_names:
             feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
         if progress_callback is not None:
-            progress_callback(
-                {
-                    "interval_index": interval_index + 1,
-                    "steps": steps,
-                    "solver_mode": "continuation",
-                    "accepted_dt": float(suggested_dt),
-                    "stored_states": len(next(iter(variable_history.values()))),
-                }
+            details, interval_started_at = _build_recycling_progress_details(
+                interval_index=interval_index + 1,
+                steps=steps,
+                solver_mode="continuation",
+                accepted_dt=float(suggested_dt),
+                stored_states=len(next(iter(variable_history.values()))),
+                output_timestep=timestep,
+                run_started_at=run_started_at,
+                interval_started_at=interval_started_at,
             )
+            progress_callback(details)
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -1762,6 +1820,8 @@ def _advance_recycling_1d_adaptive_be_history(
     variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = min(float(timestep), 10.0 if len(field_names) > 10 else 5.0)
+    run_started_at = time.perf_counter()
+    interval_started_at = run_started_at
 
     for interval_index in range(steps):
         current_fields, current_integrals, suggested_dt = _advance_recycling_1d_adaptive_be_interval(
@@ -1784,15 +1844,17 @@ def _advance_recycling_1d_adaptive_be_history(
         for name in feedback_names:
             feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
         if progress_callback is not None:
-            progress_callback(
-                {
-                    "interval_index": interval_index + 1,
-                    "steps": steps,
-                    "solver_mode": "adaptive_be",
-                    "accepted_dt": float(suggested_dt),
-                    "stored_states": len(next(iter(variable_history.values()))),
-                }
+            details, interval_started_at = _build_recycling_progress_details(
+                interval_index=interval_index + 1,
+                steps=steps,
+                solver_mode="adaptive_be",
+                accepted_dt=float(suggested_dt),
+                stored_states=len(next(iter(variable_history.values()))),
+                output_timestep=timestep,
+                run_started_at=run_started_at,
+                interval_started_at=interval_started_at,
             )
+            progress_callback(details)
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -1825,6 +1887,8 @@ def _advance_recycling_1d_adaptive_bdf_history(
     variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+    run_started_at = time.perf_counter()
+    interval_started_at = run_started_at
 
     for interval_index in range(steps):
         (
@@ -1857,15 +1921,17 @@ def _advance_recycling_1d_adaptive_bdf_history(
         for name in feedback_names:
             feedback_history[name].append(np.asarray(current_integrals[name], dtype=np.float64))
         if progress_callback is not None:
-            progress_callback(
-                {
-                    "interval_index": interval_index + 1,
-                    "steps": steps,
-                    "solver_mode": "adaptive_bdf",
-                    "accepted_dt": float(suggested_dt),
-                    "stored_states": len(next(iter(variable_history.values()))),
-                }
+            details, interval_started_at = _build_recycling_progress_details(
+                interval_index=interval_index + 1,
+                steps=steps,
+                solver_mode="adaptive_bdf",
+                accepted_dt=float(suggested_dt),
+                stored_states=len(next(iter(variable_history.values()))),
+                output_timestep=timestep,
+                run_started_at=run_started_at,
+                interval_started_at=interval_started_at,
             )
+            progress_callback(details)
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
@@ -2737,6 +2803,7 @@ def _advance_recycling_1d_bdf_history(
             sparsity_csc=sparsity_csc,
         )
 
+    run_started_at = time.perf_counter()
     solution = solve_ivp(
         rhs,
         (0.0, total_time),
@@ -2751,6 +2818,12 @@ def _advance_recycling_1d_bdf_history(
     )
     if not solution.success:
         raise RuntimeError(f"Adaptive recycling BDF step failed: {solution.message}")
+    solve_finished_at = time.perf_counter()
+    average_interval_seconds = (
+        max(solve_finished_at - run_started_at, 0.0) / float(max(steps, 1))
+        if steps > 0
+        else 0.0
+    )
 
     variable_history = {name: [] for name in field_names}
     feedback_history = {name: [] for name in feedback_names}
@@ -2771,15 +2844,19 @@ def _advance_recycling_1d_bdf_history(
         for name in feedback_names:
             feedback_history[name].append(np.asarray(sample_integrals[name], dtype=np.float64))
         if progress_callback is not None and column > 0:
-            progress_callback(
-                {
-                    "interval_index": column,
-                    "steps": steps,
-                    "solver_mode": "bdf",
-                    "accepted_dt": float(timestep),
-                    "stored_states": column + 1,
-                }
+            details, _ = _build_recycling_progress_details(
+                interval_index=column,
+                steps=steps,
+                solver_mode="bdf",
+                accepted_dt=float(timestep),
+                stored_states=column + 1,
+                output_timestep=timestep,
+                run_started_at=run_started_at,
+                interval_started_at=solve_finished_at - average_interval_seconds,
+                now=solve_finished_at,
+                live_progress=False,
             )
+            progress_callback(details)
 
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},

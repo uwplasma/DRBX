@@ -87,6 +87,9 @@ used in verification, validation, and differentiable-science papers:
   for geometry-sensitive transport effects on an evolved tokamak state
 - [target_recycling_campaign](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
   for target-localized recycling and sheath-conditioned closure activity
+- [hermes_live_rerun_campaign](data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
+  for same-machine native-versus-live-Hermès code-to-code comparison across the
+  current representative 1D and 2D matrix
 - [autodiff_diffusion_uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
   for uncertainty propagation on the differentiable lane
 - [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
@@ -143,6 +146,17 @@ The current critical path is not “add more staged cases.” It is:
 2. promote that backbone through `one_rhs -> one_step -> short_window`
 3. reuse it for integrated and direct-tokamak recycling/production lanes
 4. widen the matrix only after that native closure is stable
+
+The current live rerun evidence sharpens that priority:
+
+- compact tokamak transport/turbulence lanes are already exact and much faster
+  on the guarded compare surface
+- integrated and direct-tokamak recycling are now at or below wall-time parity
+  on this machine, but still show visible one-step mismatch
+- heavy 1D recycling and the neutral mixed lane remain the main fidelity and
+  runtime gaps
+- full live 3D Hermès reruns are still missing, so 3D remains a distinct
+  selected-field evidence track rather than part of the live rerun matrix
 
 ## Required Campaigns
 

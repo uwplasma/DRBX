@@ -211,7 +211,7 @@ Both versions report the same core metadata:
 
 The verbose run-log JSON now also stores the ordered event stream, so a downstream plotting or workflow script can reconstruct what happened during the run.
 The same JSON also stores sanitized working-directory and machine/runtime metadata so a saved run can be audited later without leaking workstation-specific absolute paths.
-It now also carries `event_count` and `event_stages`, and the native recycling lanes emit interval-level `progress` events so long implicit steps do not appear idle in the CLI.
+It now also carries `event_count` and `event_stages`, and the native recycling lanes emit interval-level `progress` events so long implicit steps do not appear idle in the CLI. On the live native backward-Euler and adaptive BDF/BE paths those events now also include interval counts, simulated time, accepted timestep, elapsed wall time, and an estimated remaining wall time.
 
 In practice, the detailed runtime stream now covers:
 

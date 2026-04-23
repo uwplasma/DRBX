@@ -27,6 +27,7 @@ JAX-based solver papers.
 | `TCV-X21 Tokamak Scaffold` | `scaffolded_reference_backed` | First 3D tokamak kickoff package with a manifest-resolved preview path. |
 | `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
+| `Hermes Live Rerun Matrix` | `live native vs live reference` | Same-machine native/Hermès rerun matrix across representative 1D and 2D lanes. |
 
 ## Diffusion Short Window
 
@@ -397,6 +398,39 @@ What this documents:
 - the boundary-conditioned electron energy sink and current-free electron-velocity reconstruction on the same prepared state;
 - a machine-readable JSON/NPZ/plot package so this boundary/recycling evidence can feed the docs and future paper directly.
 
+## Hermes Live Rerun Matrix
+
+![Hermes live rerun campaign](data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
+
+What this documents:
+
+- a same-machine native-versus-live-reference rerun matrix across representative
+  curated 1D and 2D lanes, instead of relying only on committed reference
+  arrays;
+- a code-to-code validation figure that follows the literature pattern of
+  showing fidelity and runtime together rather than publishing an isolated
+  dashboard;
+- four exact-match lanes on the current compare surface:
+  `tokamak_isothermal_one_step`, `tokamak_turbulence_one_step`,
+  `tokamak_diffusion_transport_short_window`, and `annulus_he_emag_one_step`;
+- the current most difficult live one-step lane in the selected matrix:
+  `neutral_mixed_one_step`, with worst RMS error normalized by reference
+  amplitude about `9.17e-1` and native/reference wall-time ratio about `21.18`;
+- heavy 1D recycling lanes that are closer in fidelity but still slower than
+  Hermès-3 on this machine:
+  `recycling_1d_one_step` and `recycling_dthe_one_step`, with worst normalized
+  RMS errors about `4.62e-3` and `4.92e-3`, and runtime ratios about `5.35`
+  and `9.53`;
+- integrated and direct tokamak recycling one-step lanes that are already close
+  to wall-time parity or faster on this machine, but still show bounded,
+  visible one-step differences on the current guarded compare surface, with
+  worst normalized RMS errors about `1.79e-1` and `1.62e-1`.
+
+This is the current main live code-to-code validation figure for the docs. It
+also shows the honest remaining gap: full live 3D Hermès reruns are still not
+part of this matrix, so the 3D evidence remains the selected-field
+reference-backed packages.
+
 ## Temperature Feedback Campaign
 
 ![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)
@@ -473,6 +507,7 @@ These figures are generated from the committed baseline arrays plus native case 
 - `blob2d_one_step` saved-payload visualization
 - `alfven_wave_short_window`
 - `tokamak_turbulence_short_window` stitched full-domain geometry visualization
+- live Hermès reruns across the representative 1D and 2D curated matrix
 
 The next gallery pass should add:
 

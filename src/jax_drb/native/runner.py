@@ -100,6 +100,7 @@ from .runner_recycling import (
     integrated_2d_initial_rhs_case_name as _integrated_2d_initial_rhs_case_name,
     open_field_initial_rhs_case_name as _open_field_initial_rhs_case_name,
     restrict_field_template_overrides_to_non_owned_y_guards as _restrict_field_template_overrides_to_non_owned_y_guards,
+    species_optional_velocity_field_map as _species_optional_velocity_field_map,
     snapshot_density_source_overrides as _snapshot_density_source_overrides,
     snapshot_momentum_source_overrides as _snapshot_momentum_source_overrides,
     snapshot_pressure_source_overrides as _snapshot_pressure_source_overrides,
