@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping as ABCMapping
-from dataclasses import dataclass
 from pathlib import Path
 import tempfile
 from typing import Any, Mapping
@@ -13,7 +12,7 @@ from ..config.boutinp import BoutConfig, NumericResolver, load_bout_input
 from ..parity.portable import build_portable_summary_payload
 from ..parity.reference import run_reference_case
 from ..reference.cases import ReferenceCase, load_reference_cases
-from ..runtime.output import RestartBundle, build_run_event, print_run_event
+from ..runtime.output import build_run_event, print_run_event
 from ..runtime.run_config import RunConfiguration
 from ..runtime import runtime_numpy_dtype
 from .blob2d import (
@@ -85,7 +84,6 @@ from .runner_compare import (
 from .runner_execution import (
     effective_output_steps as _effective_output_steps,
     effective_overrides as _effective_overrides,
-    restart_variable_names,
 )
 from .runner_reference import (
     load_curated_case_config as _load_curated_case_config,
@@ -111,27 +109,10 @@ from .runner_solver_mode import (
     select_integrated_2d_transient_solver_mode as _select_integrated_2d_transient_solver_mode,
     select_recycling_transient_solver_mode as _select_recycling_transient_solver_mode,
 )
+from .runner_state import NativeRestartState, NativeRunResult, build_restart_state
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
-
-
-@dataclass(frozen=True)
-class NativeRunResult:
-    payload: Mapping[str, Any]
-    variables: Mapping[str, Any]
-    time_points: tuple[float, ...]
-    run_config: RunConfiguration
-    mesh: StructuredMesh
-    metrics: StructuredMetrics
-
-
-@dataclass(frozen=True)
-class NativeRestartState:
-    time_offset: float
-    completed_steps: int
-    configured_timestep: float
-    variables: Mapping[str, np.ndarray]
 
 
 _REFERENCE_SNAPSHOT_CACHE_DIR = Path(__file__).resolve().parents[3] / "references" / "baselines" / "reference_snapshots"
@@ -2416,30 +2397,3 @@ def _uniform_identity_parallel_metric(mesh: StructuredMesh, *, metrics: Structur
         return False
     dy = np.asarray(metrics.dy[:, mesh.ystart : mesh.yend + 1, :], dtype=np.float64)
     return np.allclose(dy, dy[:, :1, :], rtol=1e-12, atol=1e-12)
-
-
-def build_restart_state(
-    result: NativeRunResult,
-    *,
-    parity_mode: str,
-) -> RestartBundle | None:
-    names = restart_variable_names(result.run_config)
-    if not names:
-        return None
-    dtype = runtime_numpy_dtype()
-    final_state = {
-        name: np.asarray(result.variables[name][-1], dtype=dtype)
-        for name in names
-        if name in result.variables
-    }
-    if tuple(final_state) != names:
-        return None
-    return RestartBundle(
-        case_name=str(result.payload.get("case_name", "run")),
-        parity_mode=parity_mode,
-        component_labels=tuple(request.label for request in result.run_config.components),
-        current_time=float(result.time_points[-1]) if result.time_points else 0.0,
-        completed_steps=max(len(result.time_points) - 1, 0),
-        configured_timestep=float(result.run_config.time.timestep),
-        state_variables=final_state,
-    )
