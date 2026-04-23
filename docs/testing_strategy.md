@@ -106,6 +106,35 @@ The release standard from the refactoring roadmap is:
 - no monolithic module left effectively untested except through one large
   integration case
 
+The explicit promoted-solver coverage entry point is now:
+
+```bash
+python scripts/run_promoted_solver_coverage.py --audit
+```
+
+That audit covers the native mesh/metric/open-field/recycling/runner surface,
+portable parity helpers, and CLI entry points. It exists to prevent the project
+from confusing the narrower release-closeout coverage gate with meaningful
+solver coverage. During the refactor, use audit mode to identify the largest
+uncovered modules and branches. When the extraction work has enough direct unit,
+operator, parity, and artifact-producing tests, the same command should be run
+without `--audit` and must satisfy the default `95%` threshold before the solver
+surface is called research-grade.
+
+The first measured baseline for this slice, run locally on April 23, 2026, is
+`73%` total coverage with all selected tests passing. The top coverage targets
+for the next implementation pass are:
+
+- `runner.py`: split setup, execution policy, logging/provenance, restart, and
+  artifact writing into directly tested helpers
+- `recycling_1d.py`: extract residual assembly, continuation control, neutral
+  reconstruction, pressure/source preparation, and target recycling branches
+- `parity/diff.py`, `parity/compare.py`, and `parity/reference.py`: add direct
+  tests for guard semantics, missing-field behavior, normalization modes, and
+  failure reporting
+- `cli.py`: exercise subcommand branch behavior through focused argument-parser
+  and command-dispatch tests rather than only end-to-end CLI runs
+
 ## Figure-Producing Tests
 
 Some tests and campaigns are not only correctness checks; they are also figure

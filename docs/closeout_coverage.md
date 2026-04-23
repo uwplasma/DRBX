@@ -13,6 +13,33 @@ python scripts/run_fast_research_checks.py --with-coverage
 
 That is useful for routine work, but it is not the release threshold.
 
+The promoted solver and public API surface now has a separate audit/gate entry
+point:
+
+```bash
+python scripts/run_promoted_solver_coverage.py --audit
+```
+
+That command measures the core native solver, recycling, runner, parity, and
+CLI surface that must ultimately carry the meaningful research-code `95%`
+coverage claim. During the refactor, `--audit` is the correct mode because it
+reports the current gap without failing the iteration loop. Once the extracted
+solver modules and direct operator tests are complete, the same script should be
+run without `--audit` so the default `95%` threshold becomes the promoted-solver
+gate:
+
+```bash
+python scripts/run_promoted_solver_coverage.py
+```
+
+As of the April 23, 2026 local audit, this promoted slice passes its tests
+(`209 passed`, `7 deselected`, `1 xfailed`) but reports `73%` total coverage.
+That is the actionable baseline for the next refactor pass. The largest
+coverage deficits are concentrated in the runner orchestration, monolithic
+recycling transient branches, parity compare/diff/reference helpers, and CLI
+subcommand branches. Those gaps should be closed by extracting smaller modules
+with direct tests, not by adding more broad smoke coverage.
+
 The release-closeout threshold is now explicit and reproducible:
 
 ```bash
@@ -38,3 +65,9 @@ This does **not** mean repo-wide coverage is solved. It means the release thresh
 - bounded;
 - reproducible;
 - tied to the actual closeout modules rather than an arbitrary giant command.
+
+The distinction is important. The closeout gate is a bounded release-readiness
+check over validation packages and public packaging behavior. The promoted
+solver gate is the future research-grade criterion for the native physics and
+runtime surface. Both are needed before claiming that the code is ready for
+external scientific use.
