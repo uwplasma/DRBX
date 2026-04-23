@@ -3,6 +3,11 @@
 This page explains how `jax_drb` should be tested during the refactor and what
 counts as meaningful evidence for a research-grade release.
 
+The active cross-cutting execution plan is
+[research_grade_execution_plan.md](research_grade_execution_plan.md). This page
+keeps the testing policy narrower and should be read as the gate definition for
+that plan.
+
 The testing philosophy follows the verification and validation split discussed
 in [Roy 2005](https://www.sciencedirect.com/science/article/pii/S0021999104004747)
 and the practice used in major edge/SOL codes such as
@@ -151,6 +156,7 @@ Priority figure-producing families are:
 - MMS convergence
 - reactions, collisions, and atomic-data closure campaigns
 - neutral parallel-diffusion closure campaign
+- neutral mixed boundary-mismatch campaign
 - collision/conduction closure campaign
 - tokamak anomalous-diffusion campaign
 - target-recycling and sheath-response campaign
@@ -179,6 +185,24 @@ The current promoted example of this policy is:
 The supported runtime-profiling workflow for those campaigns is now:
 
 - [profiling_runtime.md](profiling_runtime.md)
+
+## CI Gate Target
+
+The final automated gate should be tiered rather than one monolithic slow job:
+
+- fast PR gate: packaging, release surface, unit/operator tests, runtime
+  precision/import checks on Python 3.10, 3.11, and 3.12
+- research-fast gate: the default slices in
+  [scripts/run_fast_research_checks.py](../scripts/run_fast_research_checks.py)
+- coverage gate: promoted solver and public-surface slice with the meaningful
+  `95%` target
+- artifact gate: schema and metric checks for lightweight committed validation
+  artifacts
+- nightly/manual heavy gate: live reference reruns, convergence campaigns,
+  memory profiling, and selected performance campaigns
+
+Until CI billing is available again, the narrow GitHub Actions slice is a
+shipping-surface guard, not the final research-code gate.
 
 ## Immediate Refactor Priorities
 

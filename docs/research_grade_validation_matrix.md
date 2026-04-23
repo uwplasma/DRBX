@@ -90,6 +90,9 @@ used in verification, validation, and differentiable-science papers:
 - [hermes_live_rerun_campaign](data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
   for same-machine native-versus-live-Hermès code-to-code comparison across the
   current representative 1D and 2D matrix
+- [neutral_mixed_boundary_campaign](data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+  for boundary-localized neutral-mixed mismatch analysis on the live rerun
+  surface
 - [autodiff_diffusion_uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
   for uncertainty propagation on the differentiable lane
 - [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
@@ -176,6 +179,8 @@ The current live rerun evidence sharpens that priority:
 - detachment-scaling package
 - performance and memory benchmark package on promoted native paths
 - differentiable sensitivity / inverse-design / scaling artifact package on promoted native paths
+- repository-slimming package that removes legacy and paper-only material from
+  the active release branch while preserving necessary benchmark artifacts
 
 ## Publication Scope
 

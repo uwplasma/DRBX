@@ -26,7 +26,7 @@ pip install jax-drb
 From source:
 
 ```bash
-git clone https://github.com/rogeriojorge/uw_plasma
+git clone https://github.com/uwplasma/jax_drb
 cd jax_drb
 pip install -e .
 ```
@@ -251,6 +251,7 @@ The governing equations, closures, numerical operators, runtime design, and diff
 - [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
 - [docs/research_directions.md](docs/research_directions.md)
 - [docs/refactoring_plan.md](docs/refactoring_plan.md)
+- [docs/research_grade_execution_plan.md](docs/research_grade_execution_plan.md)
 
 The runtime/performance audit tools include:
 

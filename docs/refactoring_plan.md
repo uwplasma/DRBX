@@ -4,6 +4,13 @@ This document is the clean engineering roadmap for bringing `jax_drb` to a
 research-grade, maintainable, and fully auditable state without changing the
 scientific claim boundary or breaking the existing promoted parity surface.
 
+The current consolidated execution plan lives in
+[research_grade_execution_plan.md](research_grade_execution_plan.md). That page
+is the active cross-cutting plan for literature anchors, comparison-code
+lessons, git-history hygiene, performance, validation, documentation, examples,
+CI/CD, and release readiness. This page remains the detailed refactoring
+roadmap for source/test structure.
+
 It is intentionally separate from the historical `PLAN.md`. The goal here is
 not to log everything that happened; it is to state what the codebase should
 look like when the refactor is complete, what evidence must exist for that

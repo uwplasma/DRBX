@@ -271,7 +271,7 @@ def test_run_command_supports_bare_toml_invocation_and_configured_float32(tmp_pa
     assert (output_dir / "diffusion_restartable_summary.json").exists()
     assert (output_dir / "diffusion_restartable_arrays.npz").exists()
 
-    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
     assert run_log["capability_tier"] == "native_exact"
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     assert run_log["run_configuration"]["runtime"]["backend"]
@@ -290,7 +290,7 @@ def test_run_command_accepts_toml_input_and_records_precision(tmp_path: Path) ->
     exit_code = main(["run", str(input_path), "--output-dir", str(output_dir), "--quiet"])
 
     assert exit_code == 0
-    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
     arrays = load_portable_array_payload(output_dir / "diffusion_restartable_arrays.npz")
     assert tuple(sorted(arrays["variables"])) == ("Nh", "Ph")
@@ -305,7 +305,7 @@ def test_main_accepts_bare_input_file_without_explicit_run_subcommand(tmp_path: 
 
     assert exit_code == 0
     assert (output_dir / "diffusion_restartable_summary.json").exists()
-    run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
+    run_log = json.loads((output_dir / "diffusion_restartable_run_log.json").read_text(encoding="utf-8"))
     assert run_log["run_configuration"]["runtime"]["precision"] == "float32"
 
 
