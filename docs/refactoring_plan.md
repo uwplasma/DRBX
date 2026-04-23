@@ -766,6 +766,12 @@ shared Braginskii-style collision module now feeds direct operator tests, docs
 artifacts, and a manuscript-usable closure-activity figure covering friction,
 ion viscosity, and conduction on the prepared multispecies recycling state.
 
+The next tokamak-geometry template is the public
+[tokamak_anomalous_diffusion_campaign.md](tokamak_anomalous_diffusion_campaign.md)
+bundle: one shared anomalous-diffusion operator now feeds direct non-orthogonal
+tokamak tests, docs artifacts, and a manuscript-usable geometry-contrast figure
+on the evolved direct-recycling state.
+
 ## Sequencing
 
 The safest order is:

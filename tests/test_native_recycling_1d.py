@@ -26,7 +26,6 @@ from jax_drb.native.recycling_1d import (
     _FullSheathSettings,
     _PreparedSpeciesState,
     _SimpleSheathSettings,
-    _apply_anomalous_diffusion,
     _apply_electron_sheath_boundary,
     _advance_feedback_integrals,
     _charge_exchange_collision_rates,
@@ -256,99 +255,6 @@ def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formu
 
     assert result.velocity[0, jm, 0] == pytest.approx(2.0 * vesheath)
     assert result.energy_source[0, j, 0] == pytest.approx(expected_q)
-def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved_state() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
-    config = apply_bout_overrides(
-        config,
-        (
-            "timestep=0.1",
-            "mesh:file=/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc",
-            "he+:diagnose=false",
-            "input:error_on_unused_options=false",
-        ),
-    )
-    run_config = RunConfiguration.from_config(config)
-    dataset_scalars = resolved_dataset_scalars(run_config)
-    snapshot = load_local_reference_snapshot_cache(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_dthe_rhs_snapshot.npz"),
-        field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"),
-        scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
-    )
-    evolved = synthesize_local_reference_snapshot_from_active_history(
-        initial_snapshot=snapshot,
-        array_history_path=Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/tokamak_recycling_dthe_one_step.npz"),
-        optional_history_path=Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_dthe_one_step_optional_history.npz"),
-        timestep=0.1,
-        state_field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"),
-        optional_field_names=(),
-    )
-    species = _initialize_species(
-        config,
-        mesh=evolved.mesh,
-        dataset_scalars=dataset_scalars,
-        field_overrides=evolved.fields,
-    )
-    netcdf4 = pytest.importorskip("netCDF4")
-    with netcdf4.Dataset("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/tokamak.nc") as mesh_dataset:
-        g23 = np.asarray(mesh_dataset.variables["g23"][:], dtype=np.float64)[..., None]
-        g_23 = np.asarray(mesh_dataset.variables["g_23"][:], dtype=np.float64)[..., None]
-    nonorthogonal_metrics = StructuredMetrics(
-        dx=evolved.metrics.dx,
-        dy=evolved.metrics.dy,
-        dz=evolved.metrics.dz,
-        J=evolved.metrics.J,
-        g11=evolved.metrics.g11,
-        g22=evolved.metrics.g22,
-        g33=evolved.metrics.g33,
-        g_22=evolved.metrics.g_22,
-        g23=g23,
-        Bxy=evolved.metrics.Bxy,
-        g_23=g_23,
-    )
-    orthogonal_metrics = StructuredMetrics(
-        dx=evolved.metrics.dx,
-        dy=evolved.metrics.dy,
-        dz=evolved.metrics.dz,
-        J=evolved.metrics.J,
-        g11=evolved.metrics.g11,
-        g22=evolved.metrics.g22,
-        g33=evolved.metrics.g33,
-        g_22=evolved.metrics.g_22,
-        g23=np.zeros_like(g23),
-        Bxy=evolved.metrics.Bxy,
-        g_23=np.zeros_like(g_23),
-    )
-
-    nonorthogonal_terms = _apply_anomalous_diffusion(
-        config,
-        species=species,
-        mesh=evolved.mesh,
-        metrics=nonorthogonal_metrics,
-        dataset_scalars=dataset_scalars,
-    )
-    orthogonal_terms = _apply_anomalous_diffusion(
-        config,
-        species=species,
-        mesh=evolved.mesh,
-        metrics=orthogonal_metrics,
-        dataset_scalars=dataset_scalars,
-    )
-
-    d_momentum_delta = np.asarray(
-        nonorthogonal_terms.momentum_source["d+"] - orthogonal_terms.momentum_source["d+"],
-        dtype=np.float64,
-    )
-    d_energy_delta = np.asarray(
-        nonorthogonal_terms.energy_source["d+"] - orthogonal_terms.energy_source["d+"],
-        dtype=np.float64,
-    )
-
-    assert np.isfinite(d_momentum_delta).all()
-    assert np.isfinite(d_energy_delta).all()
-    assert float(np.nanmax(np.abs(d_momentum_delta))) > 1.0e-10
-    assert float(np.nanmax(np.abs(d_energy_delta))) > 1.0e-10
-
-
 def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() -> None:
     config = load_bout_input(_TOKAMAK_RECYCLING_INPUT)
     snapshot = load_local_reference_snapshot_cache(
@@ -1307,69 +1213,6 @@ def test_compute_recycling_1d_rhs_uses_boundary_conditioned_electron_velocity_fo
     )
 
     np.testing.assert_allclose(captured["electron_velocity"], electron_boundary.velocity)
-
-
-def test_apply_anomalous_diffusion_adds_momentum_source_for_anomalous_nu() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp"))
-    run_config = RunConfiguration.from_config(config)
-    dataset_scalars = resolved_dataset_scalars(run_config)
-    mesh = StructuredMesh(
-        nx=4,
-        ny=3,
-        nz=1,
-        mxg=1,
-        myg=1,
-        symmetric_global_x=False,
-        symmetric_global_y=False,
-        jyseps1_1=0,
-        jyseps2_1=2,
-        jyseps1_2=2,
-        jyseps2_2=2,
-        ny_inner=3,
-        has_lower_y_target=True,
-        has_upper_y_target=False,
-        x=jnp.arange(4, dtype=jnp.float64),
-        y=jnp.arange(5, dtype=jnp.float64) - 1.0,
-        z=jnp.arange(1, dtype=jnp.float64),
-    )
-    ones = jnp.ones((4, 5, 1), dtype=jnp.float64)
-    metrics = StructuredMetrics(
-        dx=ones,
-        dy=ones,
-        dz=ones,
-        J=ones,
-        g11=ones,
-        g33=ones,
-        g22=ones,
-        g_22=ones,
-        g23=jnp.zeros_like(ones),
-        Bxy=ones,
-    )
-    fields = {
-        "Nd+": np.ones((4, 5, 1), dtype=np.float64),
-        "Pd+": np.ones((4, 5, 1), dtype=np.float64),
-        "NVd+": np.linspace(-1.0, 1.0, 20, dtype=np.float64).reshape(4, 5, 1),
-        "Nd": np.zeros((4, 5, 1), dtype=np.float64),
-        "Pd": np.zeros((4, 5, 1), dtype=np.float64),
-        "NVd": np.zeros((4, 5, 1), dtype=np.float64),
-        "Pe": np.ones((4, 5, 1), dtype=np.float64),
-    }
-    species = _initialize_species(
-        config,
-        mesh=mesh,
-        dataset_scalars=dataset_scalars,
-        field_overrides=fields,
-    )
-    terms = _apply_anomalous_diffusion(
-        config,
-        species=species,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-    )
-    assert np.max(np.abs(terms.momentum_source["d+"])) > 0.0
-    assert np.allclose(terms.density_source["d+"], 0.0)
-    assert np.allclose(terms.energy_source["d+"], 0.0)
 
 
 def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil() -> None:

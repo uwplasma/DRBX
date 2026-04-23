@@ -244,6 +244,27 @@ is a good candidate for future literature-facing operator and closure figures,
 so it should be directly testable and separable from the rest of the implicit
 recycling backbone.
 
+The current anomalous-diffusion extraction is:
+
+- [src/jax_drb/native/recycling_anomalous_diffusion.py](../src/jax_drb/native/recycling_anomalous_diffusion.py)
+
+That module now owns:
+
+- anomalous `D`, `chi`, and `nu` coefficient resolution on recycling species
+- orthogonal and non-orthogonal tokamak anomalous-transport assembly
+- the `nz = 1` non-orthogonal `g23 / g_23` upwind operator used on the direct
+  tokamak lane
+- anomalous-transport diagnostics used by direct tests and public validation
+  artifacts
+
+This split matters because anomalous perpendicular transport is both a real
+physics closure and a real geometry boundary. It should be explainable,
+testable, and plottable without hiding the implementation inside the full
+recycling residual file. It also now maps directly onto the public tokamak
+operator package:
+
+- [src/jax_drb/validation/tokamak_anomalous_diffusion_campaign.py](../src/jax_drb/validation/tokamak_anomalous_diffusion_campaign.py)
+
 The current collision/conduction closure extraction is:
 
 - [src/jax_drb/native/recycling_collision_closure.py](../src/jax_drb/native/recycling_collision_closure.py)

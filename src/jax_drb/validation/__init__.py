@@ -289,6 +289,12 @@ from .collision_closure_campaign import (
     build_collision_closure_campaign,
     create_collision_closure_campaign_package,
 )
+from .tokamak_anomalous_diffusion_campaign import (
+    TokamakAnomalousDiffusionCampaignArtifacts,
+    TokamakAnomalousDiffusionCampaignMetric,
+    build_tokamak_anomalous_diffusion_campaign,
+    create_tokamak_anomalous_diffusion_campaign_package,
+)
 from .impurity_radiation_campaign import (
     ImpurityRadiationCampaignArtifacts,
     ImpurityRadiationCampaignMetric,
@@ -493,6 +499,10 @@ __all__ = [
     "CollisionClosureCampaignMetric",
     "build_collision_closure_campaign",
     "create_collision_closure_campaign_package",
+    "TokamakAnomalousDiffusionCampaignArtifacts",
+    "TokamakAnomalousDiffusionCampaignMetric",
+    "build_tokamak_anomalous_diffusion_campaign",
+    "create_tokamak_anomalous_diffusion_campaign_package",
     "ImpurityRadiationCampaignArtifacts",
     "ImpurityRadiationCampaignMetric",
     "build_impurity_radiation_campaign",

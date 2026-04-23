@@ -139,6 +139,7 @@ Priority figure-producing families are:
 - reactions, collisions, and atomic-data closure campaigns
 - neutral parallel-diffusion closure campaign
 - collision/conduction closure campaign
+- tokamak anomalous-diffusion campaign
 - direct tokamak recycling transient ladders
 - neutral short-window comparisons
 - 3D runtime and convergence campaigns
@@ -170,12 +171,15 @@ During the first structural phase:
 6. extract direct tests for distinct closure families such as neutral parallel
    diffusion, collision closure, and controller-source assembly so those
    physics packages are not only exercised through the full recycling RHS
-7. extract direct tests for field sanitization, restart-policy selection, and
+7. promote extracted tokamak anomalous-transport operators into a public
+   artifact-producing campaign once the non-orthogonal metric contrast is
+   stable enough to support manuscript-facing figures
+8. extract direct tests for field sanitization, restart-policy selection, and
    other small execution rules that influence solver robustness and public
    artifact behavior
-8. keep the existing Hermes-backed transient ladders green while files are
+9. keep the existing Hermes-backed transient ladders green while files are
    being split
-9. only then widen benchmark and literature-facing campaigns
+10. only then widen benchmark and literature-facing campaigns
 
 That sequencing preserves scientific trust while the software architecture is
 improved.
