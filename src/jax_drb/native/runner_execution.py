@@ -20,10 +20,10 @@ def effective_output_steps(parity_mode: str, *, configured_nout: int) -> int:
 
 def restart_variable_names(run_config: Any) -> tuple[str, ...]:
     if _is_supported_diffusion_case(run_config):
-        section = run_config.components[0].section
+        section = _single_component_section(run_config)
         return (f"N{section}", f"P{section}")
     if _is_supported_periodic_fluid_mms_case_placeholder(run_config):
-        section = run_config.components[0].section
+        section = _single_component_section(run_config)
         return (f"N{section}", f"P{section}", f"NV{section}")
     if _is_supported_electrostatic_vorticity_case_placeholder(run_config):
         return ("Vort",)
@@ -36,32 +36,40 @@ def restart_variable_names(run_config: Any) -> tuple[str, ...]:
 
 def _is_supported_diffusion_case(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    if len(components) != 1:
-        return False
-    component = components[0]
-    component_types = tuple(component.types)
-    return component_types == ("evolve_density", "evolve_pressure", "anomalous_diffusion")
+    implementations = tuple(component.implementation for component in components)
+    return implementations == ("evolve_density", "evolve_pressure", "anomalous_diffusion") and _has_one_section(
+        components
+    )
 
 
 def _is_supported_periodic_fluid_mms_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    if len(components) != 1:
-        return False
-    component = components[0]
-    component_types = tuple(component.types)
-    return component_types == ("evolve_density", "evolve_pressure", "evolve_momentum")
+    implementations = tuple(component.implementation for component in components)
+    return implementations == ("evolve_density", "evolve_pressure", "evolve_momentum") and _has_one_section(components)
 
 
 def _is_supported_electrostatic_vorticity_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    return len(components) == 1 and tuple(components[0].types) == ("vorticity",)
+    return len(components) == 1 and components[0].implementation == "vorticity"
 
 
 def _is_supported_blob2d_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    return len(components) == 1 and tuple(components[0].types) == ("blob2d",)
+    return len(components) == 1 and components[0].implementation == "blob2d"
 
 
 def _is_supported_drift_wave_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    return len(components) == 1 and tuple(components[0].types) == ("drift_wave",)
+    return len(components) == 1 and components[0].implementation == "drift_wave"
+
+
+def _has_one_section(components: tuple[Any, ...]) -> bool:
+    return len({component.section for component in components}) == 1
+
+
+def _single_component_section(run_config: Any) -> str:
+    components = getattr(run_config, "components", ())
+    sections = tuple(dict.fromkeys(component.section for component in components))
+    if len(sections) != 1:
+        raise ValueError("Restartable component set must resolve to exactly one source section.")
+    return str(sections[0])
