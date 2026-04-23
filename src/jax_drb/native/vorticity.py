@@ -7,6 +7,7 @@ import numpy as np
 from jax.experimental.ode import odeint
 
 from ..solver import FourierHelmholtzOperator, build_fourier_helmholtz_operator, solve_fourier_helmholtz
+from .limiters import monotonic_centered_edges_jax as _monotonic_centered_edges
 from .mesh import StructuredMesh, apply_zero_dirichlet_x_guards, communicate_y_guards
 from .metrics import StructuredMetrics
 
@@ -224,14 +225,7 @@ def advance_vorticity_history(
 
 
 def _mc_cell_edges(center: jnp.ndarray, minus: jnp.ndarray, plus: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
-    return center - 0.5 * slope, center + 0.5 * slope
-
-
-def _minmod3(a: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray) -> jnp.ndarray:
-    same_sign = (a * b > 0.0) & (a * c > 0.0)
-    magnitude = jnp.minimum(jnp.abs(a), jnp.minimum(jnp.abs(b), jnp.abs(c)))
-    return jnp.where(same_sign, jnp.sign(a) * magnitude, 0.0)
+    return _monotonic_centered_edges(center, minus, plus)
 
 
 def _apply_potential_boundaries(field: jnp.ndarray, mesh: StructuredMesh) -> jnp.ndarray:

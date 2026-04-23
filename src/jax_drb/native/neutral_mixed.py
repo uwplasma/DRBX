@@ -20,6 +20,10 @@ from ..solver import (
     unpack_active_fields,
 )
 from .expression import ArrayExpressionEvaluator
+from .limiters import (
+    monotonic_centered_edges_numpy as _mc_edges,
+    monotonic_centered_edges_scalar as _mc_edges_scalar,
+)
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
 
@@ -1064,42 +1068,6 @@ def _gradient_magnitude(
         + np.square(dfdy / j_active)
     )
     return result
-
-
-def _mc_edges(center: np.ndarray, minus: np.ndarray, plus: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
-    return center - 0.5 * slope, center + 0.5 * slope
-
-
-def _minmod3(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
-    same_sign = (a * b > 0.0) & (a * c > 0.0)
-    magnitude = np.minimum(np.abs(a), np.minimum(np.abs(b), np.abs(c)))
-    return np.where(same_sign, np.sign(a) * magnitude, 0.0)
-
-
-def _minmod3_scalar(a: float, b: float, c: float) -> float:
-    if (a * b <= 0.0) or (a * c <= 0.0):
-        return 0.0
-    magnitude = min(abs(a), abs(b), abs(c))
-    return float(np.sign(a) * magnitude)
-
-
-def _mc_edges_scalar(center: float, minus: float, plus: float) -> tuple[float, float]:
-    slope = _minmod3_scalar(
-        2.0 * (plus - center),
-        0.5 * (plus - minus),
-        2.0 * (center - minus),
-    )
-    return center - 0.5 * slope, center + 0.5 * slope
-
-
-def _mc_edges(center: np.ndarray, minus: np.ndarray, plus: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    slope = _minmod3(
-        2.0 * (plus - center),
-        0.5 * (plus - minus),
-        2.0 * (center - minus),
-    )
-    return center - 0.5 * slope, center + 0.5 * slope
 
 
 _last_parallel_flow = np.zeros((1, 1, 1), dtype=np.float64)

@@ -10,6 +10,10 @@ import numpy as np
 from ..config.boutinp import BoutConfig, NumericResolver
 from ..config.normalization import ELEMENTARY_CHARGE, PROTON_MASS
 from .expression import ArrayExpressionEvaluator
+from .limiters import (
+    monotonic_centered_edges_jax as _monotonic_centered_edges,
+    periodic_monotonic_centered_edges_jax as _periodic_monotonic_centered_edges,
+)
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
 
@@ -648,14 +652,7 @@ def _compute_xz_exb_divergence(
 
 
 def _mc_cell_edges(center: jnp.ndarray, minus: jnp.ndarray, plus: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
-    return center - 0.5 * slope, center + 0.5 * slope
-
-
-def _minmod3(a: jnp.ndarray, b: jnp.ndarray, c: jnp.ndarray) -> jnp.ndarray:
-    same_sign = (a * b > 0.0) & (a * c > 0.0)
-    magnitude = jnp.minimum(jnp.abs(a), jnp.minimum(jnp.abs(b), jnp.abs(c)))
-    return jnp.where(same_sign, jnp.sign(a) * magnitude, 0.0)
+    return _monotonic_centered_edges(center, minus, plus)
 
 
 def _grad_par_periodic(field: jnp.ndarray, *, benchmark: DriftWaveBenchmark) -> jnp.ndarray:
@@ -789,11 +786,7 @@ def _div_par_fvv_periodic(
 
 
 def _mc_field_edges(field: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    center = jnp.asarray(field, dtype=jnp.float64)
-    minus = jnp.roll(center, shift=1, axis=0)
-    plus = jnp.roll(center, shift=-1, axis=0)
-    slope = _minmod3(2.0 * (plus - center), 0.5 * (plus - minus), 2.0 * (center - minus))
-    return center - 0.5 * slope, center + 0.5 * slope
+    return _periodic_monotonic_centered_edges(field, axis=0)
 
 
 def _broadcast_wave_speed(wave_speed: float | jnp.ndarray, field: jnp.ndarray) -> jnp.ndarray:
