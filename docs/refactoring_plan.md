@@ -245,12 +245,17 @@ Specific file splits:
   - extract diagnostics and summaries
 - `neutral_mixed.py`
   - extract parallel transport operators
-  - extract wall/guard reconstruction
+  - extract wall/guard reconstruction: started in
+    `src/jax_drb/native/neutral_mixed_boundaries.py`, with the original
+    `neutral_mixed.py` private aliases preserved for compatibility while tests
+    and callers are migrated
   - extract source and exchange closures
   - extract residual history/step bookkeeping
 - `runner.py`
   - split deck parsing and curated case resolution
-  - split restart and trim-window resolution
+  - split restart and trim-window resolution: started in
+    `src/jax_drb/native/runner_state.py`, which now owns native run/restart
+    result state and restart-bundle construction
   - split case dispatch registry
   - split result/artifact writing
   - split parity-mode and compare-surface handling

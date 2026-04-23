@@ -24,6 +24,16 @@ from .limiters import (
     monotonic_centered_edges_numpy as _mc_edges,
     monotonic_centered_edges_scalar as _mc_edges_scalar,
 )
+from .neutral_mixed_boundaries import (
+    apply_density_boundaries as _apply_density_boundaries,
+    apply_density_y_boundaries as _apply_density_y_boundaries,
+    apply_diffusion_boundaries as _apply_diffusion_boundaries,
+    apply_momentum_boundaries as _apply_momentum_boundaries,
+    apply_pressure_boundaries as _apply_pressure_boundaries,
+    apply_temperature_boundaries as _apply_temperature_boundaries,
+    apply_velocity_boundaries as _apply_velocity_boundaries,
+    soft_floor as _soft_floor,
+)
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
 
@@ -936,95 +946,6 @@ def _neutral_mixed_jacobian_color_groups(active_shape: tuple[int, int, int]) -> 
         field_count=3,
         color_periods=(min(5, active_shape[0]), min(5, active_shape[1]), active_shape[2]),
     )
-
-
-def _apply_neumann_x_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64).copy()
-    y_slice = slice(mesh.ystart, mesh.yend + 1)
-    for offset in range(1, mesh.mxg + 1):
-        result[mesh.xstart - offset, y_slice, :] = result[mesh.xstart - 1 + offset, y_slice, :]
-        result[mesh.xend + offset, y_slice, :] = result[mesh.xend + 1 - offset, y_slice, :]
-    return result
-
-
-def _apply_dirichlet_x_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64).copy()
-    y_slice = slice(mesh.ystart, mesh.yend + 1)
-    result[mesh.xstart - 1, y_slice, :] = -result[mesh.xstart, y_slice, :]
-    result[mesh.xend + 1, y_slice, :] = -result[mesh.xend, y_slice, :]
-    for offset in range(2, mesh.mxg + 1):
-        result[mesh.xstart - offset, y_slice, :] = 0.0
-        result[mesh.xend + offset, y_slice, :] = 0.0
-    return result
-
-
-def _apply_density_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = _apply_neumann_x_boundaries(field, mesh)
-    return _apply_density_y_boundaries(result, mesh)
-
-
-def _apply_pressure_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = _apply_neumann_x_boundaries(field, mesh)
-    return _apply_zero_gradient_y_boundaries(result, mesh)
-
-
-def _apply_temperature_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = _apply_neumann_x_boundaries(field, mesh)
-    return _apply_zero_gradient_y_boundaries(result, mesh)
-
-
-def _apply_diffusion_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = _apply_dirichlet_x_boundaries(field, mesh)
-    return _apply_antisymmetric_y_boundaries(result, mesh)
-
-
-def _apply_momentum_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = _apply_dirichlet_x_boundaries(field, mesh)
-    return _apply_antisymmetric_y_boundaries(result, mesh)
-
-
-def _apply_velocity_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = _apply_dirichlet_x_boundaries(field, mesh)
-    return _apply_antisymmetric_y_boundaries(result, mesh)
-
-
-def _apply_zero_gradient_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64).copy()
-    for offset in range(1, mesh.myg + 1):
-        result[:, mesh.ystart - offset, :] = result[:, mesh.ystart - 1 + offset, :]
-        result[:, mesh.yend + offset, :] = result[:, mesh.yend + 1 - offset, :]
-    return result
-
-
-def _apply_density_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64).copy()
-    for offset in range(1, mesh.myg + 1):
-        lower_wall = np.maximum(
-            0.5 * (3.0 * result[:, mesh.ystart, :] - result[:, mesh.ystart + 1, :]),
-            0.0,
-        )
-        upper_wall = np.maximum(
-            0.5 * (3.0 * result[:, mesh.yend, :] - result[:, mesh.yend - 1, :]),
-            0.0,
-        )
-        result[:, mesh.ystart - offset, :] = 2.0 * lower_wall - result[:, mesh.ystart - offset + 1, :]
-        result[:, mesh.yend + offset, :] = 2.0 * upper_wall - result[:, mesh.yend + offset - 1, :]
-    return result
-
-
-def _soft_floor(field: np.ndarray, minimum: float) -> np.ndarray:
-    if minimum <= 0.0:
-        raise ValueError("soft floor minimum must be positive")
-    values = np.maximum(np.asarray(field, dtype=np.float64), 0.0)
-    return values + float(minimum) * np.exp(-values / float(minimum))
-
-
-def _apply_antisymmetric_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
-    result = np.asarray(field, dtype=np.float64).copy()
-    for offset in range(1, mesh.myg + 1):
-        result[:, mesh.ystart - offset, :] = -result[:, mesh.ystart - 1 + offset, :]
-        result[:, mesh.yend + offset, :] = -result[:, mesh.yend + 1 - offset, :]
-    return result
 
 
 def _gradient_magnitude(
