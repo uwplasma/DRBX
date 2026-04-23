@@ -14,6 +14,7 @@ from jax_drb.native.open_field import (
     build_target_boundary_geometry,
     compute_electron_force_balance,
     compute_target_recycling_sources,
+    grad_par_y,
     limit_free,
 )
 
@@ -47,6 +48,20 @@ def test_limit_free_matches_reference_modes() -> None:
     assert float(limit_free(jnp.array(4.0), jnp.array(2.0), 2)) == 0.0
 
 
+def test_limit_free_numpy_reference_modes_and_invalid_modes() -> None:
+    fm = np.asarray([2.0, 4.0], dtype=np.float64)
+    fc = np.asarray([3.0, 2.0], dtype=np.float64)
+
+    np.testing.assert_allclose(limit_free(fm, fc, 0), np.asarray([3.0, 1.0]))
+    np.testing.assert_allclose(limit_free(fm, fc, 1), np.asarray([4.5, 1.0]))
+    np.testing.assert_allclose(limit_free(fm, fc, 2), np.asarray([4.0, 0.0]))
+
+    with pytest.raises(ValueError, match="Unsupported boundary mode"):
+        limit_free(fm, fc, 99)
+    with pytest.raises(ValueError, match="Unsupported boundary mode"):
+        limit_free(jnp.asarray(fm), jnp.asarray(fc), 99)
+
+
 def test_noflow_guards_copy_scalars_and_reflect_flows() -> None:
     mesh = _mesh()
     field = jnp.arange(mesh.nx * mesh.local_ny * mesh.nz, dtype=jnp.float64).reshape((mesh.nx, mesh.local_ny, mesh.nz))
@@ -75,6 +90,64 @@ def test_noflow_guards_use_numpy_fast_path_without_changing_values() -> None:
     np.testing.assert_allclose(flow[:, mesh.yend + 1, :], -field[:, mesh.yend, :])
 
 
+def test_noflow_guards_are_noops_without_guard_cells() -> None:
+    mesh = _mesh(myg=0)
+    field = jnp.arange(mesh.nx * mesh.local_ny * mesh.nz, dtype=jnp.float64).reshape((mesh.nx, mesh.local_ny, mesh.nz))
+    field_np = np.asarray(field)
+
+    np.testing.assert_allclose(
+        np.asarray(apply_noflow_scalar_guards(field, mesh=mesh, lower_y=True, upper_y=True)),
+        field_np,
+    )
+    np.testing.assert_allclose(
+        np.asarray(apply_noflow_flow_guards(field, mesh=mesh, lower_y=True, upper_y=True)),
+        field_np,
+    )
+    np.testing.assert_allclose(
+        apply_noflow_scalar_guards(field_np, mesh=mesh, lower_y=True, upper_y=True),
+        field_np,
+    )
+    np.testing.assert_allclose(
+        apply_noflow_flow_guards(field_np, mesh=mesh, lower_y=True, upper_y=True),
+        field_np,
+    )
+
+
+def test_noflow_guards_can_disable_each_target_side_independently() -> None:
+    mesh = _mesh()
+    field = jnp.arange(mesh.nx * mesh.local_ny * mesh.nz, dtype=jnp.float64).reshape((mesh.nx, mesh.local_ny, mesh.nz))
+
+    scalar = apply_noflow_scalar_guards(field, mesh=mesh, lower_y=False, upper_y=False)
+    flow = apply_noflow_flow_guards(field, mesh=mesh, lower_y=False, upper_y=False)
+
+    np.testing.assert_allclose(np.asarray(scalar), np.asarray(field))
+    np.testing.assert_allclose(np.asarray(flow), np.asarray(field))
+
+
+def test_grad_par_y_returns_zero_for_single_active_cell() -> None:
+    mesh = _mesh(ny=1)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    field = jnp.linspace(0.0, 1.0, mesh.local_ny, dtype=jnp.float64).reshape(shape)
+    dy = jnp.ones(shape, dtype=jnp.float64)
+
+    np.testing.assert_allclose(np.asarray(grad_par_y(field, mesh=mesh, dy=dy)), np.zeros(shape))
+    np.testing.assert_allclose(grad_par_y(np.asarray(field), mesh=mesh, dy=np.asarray(dy)), np.zeros(shape))
+
+
+def test_grad_par_y_numpy_path_matches_centered_difference() -> None:
+    mesh = _mesh()
+    field = np.asarray([[[0.0], [0.0], [2.0], [4.0], [8.0], [8.0], [0.0], [0.0]]], dtype=np.float64)
+    dy = np.ones_like(field)
+
+    gradient = grad_par_y(field, mesh=mesh, dy=dy)
+
+    expected = np.zeros_like(field)
+    expected[:, mesh.ystart : mesh.yend + 1, :] = (
+        field[:, mesh.ystart + 1 : mesh.yend + 2, :] - field[:, mesh.ystart - 1 : mesh.yend, :]
+    ) / 2.0
+    np.testing.assert_allclose(gradient, expected)
+
+
 def test_electron_force_balance_applies_parallel_pressure_force_to_species() -> None:
     mesh = _mesh()
     pe = jnp.array([[[0.0], [0.0], [2.0], [4.0], [8.0], [8.0], [0.0], [0.0]]], dtype=jnp.float64)
@@ -89,6 +162,38 @@ def test_electron_force_balance_applies_parallel_pressure_force_to_species() -> 
     )
     np.testing.assert_allclose(np.asarray(result.force_density), expected_gradient)
     np.testing.assert_allclose(np.asarray(ion_source), 2.0 * expected_gradient)
+
+
+def test_electron_force_balance_numpy_path_adds_momentum_source_and_density_floor() -> None:
+    mesh = _mesh()
+    pe = np.asarray([[[0.0], [0.0], [2.0], [4.0], [8.0], [8.0], [0.0], [0.0]]], dtype=np.float64)
+    ne = np.ones_like(pe)
+    ne[:, mesh.ystart, :] = 1.0e-12
+    dy = np.ones_like(pe)
+    momentum_source = 0.25 * np.ones_like(pe)
+
+    result = compute_electron_force_balance(
+        pe,
+        ne,
+        mesh=mesh,
+        dy=dy,
+        electron_momentum_source=momentum_source,
+        density_floor=1.0e-3,
+    )
+
+    expected_force = -grad_par_y(pe, mesh=mesh, dy=dy) + momentum_source
+    np.testing.assert_allclose(result.force_density, expected_force)
+    assert float(result.epar[0, mesh.ystart, 0]) == pytest.approx(float(expected_force[0, mesh.ystart, 0]) / 1.0e-3)
+
+
+def test_parallel_electric_force_numpy_path_accumulates_existing_source() -> None:
+    density = np.asarray([1.0, 2.0, 3.0], dtype=np.float64)
+    epar = np.asarray([0.5, -0.25, 0.125], dtype=np.float64)
+    existing = np.asarray([0.1, 0.2, 0.3], dtype=np.float64)
+
+    source = apply_parallel_electric_force(density, charge=-2.0, epar=epar, existing_source=existing)
+
+    np.testing.assert_allclose(source, -2.0 * density * epar + existing)
 
 
 def test_target_recycling_sources_match_reference_formula() -> None:
@@ -214,6 +319,57 @@ def test_target_recycling_sources_fast_fraction_uses_reference_fixed_energy_bran
 
     assert float(result.density_source[0, mesh.ystart, 0]) == pytest.approx(0.25)
     assert float(result.energy_source[0, mesh.ystart, 0]) == pytest.approx(0.25 * 0.2 * 3.0)
+
+
+def test_target_recycling_sources_return_zero_without_y_guard_cells() -> None:
+    mesh = _mesh(myg=0)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = jnp.ones(shape, dtype=jnp.float64)
+    velocity = jnp.ones(shape, dtype=jnp.float64)
+    temperature = jnp.ones(shape, dtype=jnp.float64)
+    unit_metric = jnp.ones(shape, dtype=jnp.float64)
+
+    result = compute_target_recycling_sources(
+        density,
+        velocity,
+        temperature,
+        mesh=mesh,
+        J=unit_metric,
+        dy=unit_metric,
+        dx=unit_metric,
+        dz=unit_metric,
+        g_22=unit_metric,
+        target_multiplier=1.0,
+        target_energy=3.0,
+        gamma_i=3.5,
+    )
+
+    np.testing.assert_allclose(np.asarray(result.density_source), np.zeros(shape))
+    np.testing.assert_allclose(np.asarray(result.energy_source), np.zeros(shape))
+
+
+def test_numpy_target_boundary_geometry_matches_finite_volume_scale() -> None:
+    mesh = _mesh()
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    J = np.ones(shape, dtype=np.float64)
+    dy = 2.0 * np.ones(shape, dtype=np.float64)
+    dx = 3.0 * np.ones(shape, dtype=np.float64)
+    dz = 5.0 * np.ones(shape, dtype=np.float64)
+    g_22 = 4.0 * np.ones(shape, dtype=np.float64)
+
+    geometry = build_target_boundary_geometry(
+        J=J,
+        dy=dy,
+        dx=dx,
+        dz=dz,
+        g_22=g_22,
+        y_index=mesh.yend,
+        guard_index=mesh.yend + 1,
+    )
+
+    dapar = 0.25 * (1.0 + 1.0) / (np.sqrt(4.0) + np.sqrt(4.0)) * (3.0 + 3.0) * (5.0 + 5.0)
+    volume = 1.0 * 3.0 * 2.0 * 5.0
+    np.testing.assert_allclose(geometry.source_scale, dapar / volume)
 
 
 def test_target_recycling_sources_precomputed_geometry_matches_direct_geometry_path() -> None:
