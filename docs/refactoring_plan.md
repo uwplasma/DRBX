@@ -237,6 +237,9 @@ src/jax_drb/native/
 Specific file splits:
 
 - `recycling_1d.py`
+  - extract state/result and small boundary-setting layouts: started in
+    `src/jax_drb/native/recycling_1d_state.py`, with public and private
+    compatibility re-exports kept from `recycling_1d.py`
   - extract packed-state layout and metadata
   - extract transport operators
   - extract atomic/recycling/controller source closures

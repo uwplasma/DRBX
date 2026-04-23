@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from functools import lru_cache
 import math
 import re
 import time
-from typing import Any, Callable, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -159,28 +158,17 @@ from .recycling_layout import (
     recycling_active_shape as _recycling_active_shape,
     unpack_recycling_active_state as _unpack_recycling_active_state,
 )
-
-@dataclass(frozen=True)
-class Recycling1DRhsResult:
-    variables: dict[str, np.ndarray]
-    feedback_integral_rhs: dict[str, float] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class Recycling1DHistoryResult:
-    variable_history: dict[str, np.ndarray]
-    feedback_integral_history: dict[str, np.ndarray]
-
-
-@dataclass(frozen=True)
-class Recycling1DImplicitStepInfo:
-    residual_inf_norm: float
-    active_size: int
-    nonlinear_iterations: int
-    linear_iterations: int
-
-
-RecyclingProgressCallback = Callable[[Mapping[str, Any]], None]
+from .recycling_1d_state import (
+    DensityFeedbackTerms as _DensityFeedbackTerms,
+    ElectronBoundaryResult as _ElectronBoundaryResult,
+    FullSheathSettings as _FullSheathSettings,
+    IonBoundaryResult as _IonBoundaryResult,
+    Recycling1DHistoryResult,
+    Recycling1DImplicitStepInfo,
+    Recycling1DRhsResult,
+    RecyclingProgressCallback,
+    SimpleSheathSettings as _SimpleSheathSettings,
+)
 
 
 def _build_recycling_progress_details(
@@ -230,30 +218,6 @@ def _build_recycling_progress_details(
         },
         current_time,
     )
-
-@dataclass(frozen=True)
-class _SimpleSheathSettings:
-    gamma_e: float
-    gamma_i: float
-    secondary_electron_coef: float
-    sheath_ion_polytropic: float
-    lower_y: bool
-    upper_y: bool
-    no_flow: bool
-    density_boundary_mode: float
-    pressure_boundary_mode: float
-    temperature_boundary_mode: float
-    wall_potential: np.ndarray
-
-
-@dataclass(frozen=True)
-class _FullSheathSettings:
-    secondary_electron_coef: float
-    sin_alpha: np.ndarray
-    lower_y: bool
-    upper_y: bool
-    wall_potential: np.ndarray
-    floor_potential: bool
 
 def compute_recycling_1d_rhs(
     config: BoutConfig,
@@ -713,13 +677,6 @@ def _load_full_sheath_settings(
     )
 
 
-@dataclass(frozen=True)
-class _DensityFeedbackTerms:
-    density_source: dict[str, np.ndarray]
-    energy_source: dict[str, np.ndarray]
-    diagnostics: dict[str, np.ndarray]
-    feedback_integral_rhs: dict[str, float]
-
 def _prepare_open_field_states(
     species: dict[str, OpenFieldSpecies],
     *,
@@ -995,16 +952,6 @@ def _apply_upstream_density_feedback(
     )
 
 
-@dataclass(frozen=True)
-class _IonBoundaryResult:
-    density: dict[str, np.ndarray]
-    pressure: dict[str, np.ndarray]
-    temperature: dict[str, np.ndarray]
-    velocity: dict[str, np.ndarray]
-    momentum: dict[str, np.ndarray]
-    energy_source: dict[str, np.ndarray]
-
-
 def _apply_ion_sheath_boundary(
     ions: tuple[OpenFieldSpecies, ...],
     *,
@@ -1222,16 +1169,6 @@ def _apply_ion_sheath_boundary(
         momentum=momentum,
         energy_source=energy_source,
     )
-
-
-@dataclass(frozen=True)
-class _ElectronBoundaryResult:
-    density: np.ndarray
-    temperature: np.ndarray
-    pressure: np.ndarray
-    velocity: np.ndarray
-    momentum: np.ndarray
-    energy_source: np.ndarray
 
 
 def _apply_electron_sheath_boundary(

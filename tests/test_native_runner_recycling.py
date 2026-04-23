@@ -52,6 +52,7 @@ def test_direct_recycling_field_metadata_detects_species_and_outputs() -> None:
     )
 
     optional_names = direct_recycling_optional_field_names(config)
+    assert optional_names[0] == "Ne"
     assert "Vd+" in optional_names
     assert "Vd" in optional_names
     assert "SNd+" in optional_names

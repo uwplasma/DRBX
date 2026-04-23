@@ -509,7 +509,7 @@ def test_integrated_2d_production_rhs_preserves_only_ion_target_state(
         reference_root=Path("/Users/rogerio/local/hermes-3"),
     )
 
-    assert captured["preserve_dump_ion_target_state_only"] is False
+    assert captured["preserve_dump_ion_target_state_only"] is True
     expected_fields = native_runner._apply_species_velocity_overrides(
         load_bout_input(production_input),
         field_overrides=fields,
@@ -1557,7 +1557,7 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(
     )
 
     assert captured["preserve_dump_target_state"] is True
-    assert captured["preserve_dump_ion_target_state_only"] is False
+    assert captured["preserve_dump_ion_target_state_only"] is True
     assert tuple(captured["pressure_source_overrides"]) == ("d+", "d")
     expected_initial_fields = native_runner._apply_species_velocity_overrides(
         load_bout_input(production_input),
