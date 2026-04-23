@@ -21,6 +21,7 @@ PROMOTED_SOLVER_TESTS = (
     "tests/test_native_recycling_1d.py",
     "tests/test_recycling_diagnostics.py",
     "tests/test_native_integrated_2d_recycling.py",
+    "tests/test_native_runner_dispatch.py",
     "tests/test_native_runner_recycling.py",
     "tests/test_native_runner_solver_mode.py",
     "tests/test_native_runner.py",
@@ -29,6 +30,7 @@ PROMOTED_SOLVER_TESTS = (
     "tests/test_parity_diff.py",
     "tests/test_parity_portable.py",
     "tests/test_parity_reference.py",
+    "tests/test_cli_command_surface.py",
     "tests/test_cli_run.py",
 )
 PROMOTED_SOLVER_TARGETS = (
