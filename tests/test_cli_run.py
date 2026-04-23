@@ -442,6 +442,9 @@ def test_run_command_verbose_relay_prints_progress_updates(tmp_path: Path, monke
                         "solver_mode": "continuation",
                         "accepted_dt": 6.25,
                         "stored_states": 2,
+                        "fraction_complete": 0.5,
+                        "estimated_remaining_seconds": 12.5,
+                        "live_progress": True,
                     },
                 }
             )
@@ -457,6 +460,44 @@ def test_run_command_verbose_relay_prints_progress_updates(tmp_path: Path, monke
     assert "solver_mode" in captured
     run_log = json.loads((output_dir / "diffusion_verbose_run_log.json").read_text(encoding="utf-8"))
     assert "progress" in run_log["event_stages"]
+
+
+def test_run_command_progress_summary_includes_eta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    input_path = tmp_path / "diffusion_summary.toml"
+    input_path.write_text(_DIFFUSION_TOML_INPUT, encoding="utf-8")
+    output_dir = tmp_path / "run_progress_summary"
+    baseline_run_input_case = native_module.run_input_case
+
+    def fake_run_input_case(*args, **kwargs):
+        event_logger = kwargs.get("event_logger")
+        if event_logger is not None:
+            event_logger(
+                {
+                    "stage": "progress",
+                    "message": "Completed recycling transient interval",
+                    "details": {
+                        "interval_index": 1,
+                        "steps": 4,
+                        "solver_mode": "adaptive_bdf",
+                        "accepted_dt": 5.0,
+                        "stored_states": 2,
+                        "fraction_complete": 0.25,
+                        "estimated_remaining_seconds": 42.0,
+                        "live_progress": True,
+                    },
+                }
+            )
+        return baseline_run_input_case(*args, **kwargs)
+
+    monkeypatch.setattr(native_module, "run_input_case", fake_run_input_case)
+
+    exit_code = main([str(input_path), "--output-dir", str(output_dir)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr().out
+    assert "interval 1/4" in captured
+    assert "25.0%" in captured
+    assert "eta 42.0s" in captured
 
 
 def test_run_input_case_verbose_emits_python_driver_events(tmp_path: Path) -> None:

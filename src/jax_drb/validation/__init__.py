@@ -247,6 +247,14 @@ from .hermes_comparison_summary import (
     create_hermes_comparison_summary_package,
     save_hermes_comparison_summary_plot,
 )
+from .hermes_live_rerun_campaign import (
+    DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS,
+    HermesLiveRerunCampaignArtifacts,
+    HermesLiveRerunCaseSpec,
+    build_hermes_live_rerun_campaign_report,
+    create_hermes_live_rerun_campaign_package,
+    save_hermes_live_rerun_campaign_plot,
+)
 from .controller_feedback_campaign import (
     ControllerFeedbackCampaignArtifacts,
     ControllerFeedbackMetric,
@@ -477,6 +485,12 @@ __all__ = [
     "build_hermes_comparison_summary_report",
     "create_hermes_comparison_summary_package",
     "save_hermes_comparison_summary_plot",
+    "DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS",
+    "HermesLiveRerunCampaignArtifacts",
+    "HermesLiveRerunCaseSpec",
+    "build_hermes_live_rerun_campaign_report",
+    "create_hermes_live_rerun_campaign_package",
+    "save_hermes_live_rerun_campaign_plot",
     "ControllerFeedbackCampaignArtifacts",
     "ControllerFeedbackMetric",
     "build_controller_feedback_campaign",

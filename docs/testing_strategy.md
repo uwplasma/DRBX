@@ -48,6 +48,8 @@ This is the main current bridge for:
 
 - open-field recycling ladders
 - direct tokamak recycling windows
+- same-machine live native-versus-Hermes rerun matrices across representative
+  1D and 2D lanes
 - selected-field geometry comparisons
 - controller and detachment history matching
 
@@ -152,6 +154,7 @@ Priority figure-producing families are:
 - collision/conduction closure campaign
 - tokamak anomalous-diffusion campaign
 - target-recycling and sheath-response campaign
+- live Hermès rerun matrix across representative 1D and 2D lanes
 - direct tokamak recycling transient ladders
 - neutral short-window comparisons
 - 3D runtime and convergence campaigns
