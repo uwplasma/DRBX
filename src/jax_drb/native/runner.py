@@ -279,10 +279,6 @@ def _run_integrated_2d_recycling_rhs_case(
     density_source_overrides = _snapshot_density_source_overrides(config, snapshot.optional_fields)
     pressure_source_overrides = _snapshot_pressure_source_overrides(config, snapshot.optional_fields)
     momentum_source_overrides = _snapshot_momentum_source_overrides(config, snapshot.optional_fields)
-    if case.name.startswith("integrated_2d_recycling"):
-        density_source_overrides = None
-        pressure_source_overrides = None
-        momentum_source_overrides = None
     field_overrides = dict(snapshot.fields)
     velocity_field_overrides = _snapshot_velocity_overrides(config, snapshot.optional_fields)
     if case.name.startswith("integrated_2d_production") and velocity_field_overrides:
