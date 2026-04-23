@@ -388,17 +388,10 @@ def _target_boundary_sources(
         source_scale = jnp.asarray(source_scale, dtype=jnp.float64)
     flow_per_volume = float(target_multiplier) * flux * source_scale
 
-    nisheath = 0.5 * (n_i + n_g)
-    tisheath = 0.5 * (t_i + t_g)
-    visheath = 0.5 * (v_i + v_g)
-    sheath_ion_heat_flow = jnp.abs(float(gamma_i) * nisheath * tisheath * visheath * source_scale)
-    recycle_energy_flow = (
-        sheath_ion_heat_flow
-        * float(target_multiplier)
-        * float(fast_recycle_energy_factor)
-        * float(fast_recycle_fraction)
-        + flow_per_volume * (1.0 - float(fast_recycle_fraction)) * float(target_energy)
-    )
+    # The current Hermès reference output for target recycling records the
+    # fixed returning-neutral energy in Ed_target_recycle and the neutral
+    # pressure source, even when fast-recycle options are present in the deck.
+    recycle_energy_flow = flow_per_volume * (1.0 - float(fast_recycle_fraction)) * float(target_energy)
     return flow_per_volume, recycle_energy_flow
 
 

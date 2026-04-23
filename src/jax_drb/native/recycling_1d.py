@@ -184,6 +184,7 @@ def compute_recycling_1d_rhs(
     preserve_dump_ion_target_state_only: bool = False,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
+    pressure_source_overrides_are_total: bool = False,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
 ) -> Recycling1DRhsResult:
     runtime_model = _build_recycling_runtime_model(
@@ -210,6 +211,7 @@ def compute_recycling_1d_rhs(
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
+        pressure_source_overrides_are_total=pressure_source_overrides_are_total,
         momentum_source_overrides=momentum_source_overrides,
         lower_target_geometry=runtime_model.lower_target_geometry,
         upper_target_geometry=runtime_model.upper_target_geometry,
@@ -233,11 +235,17 @@ def _compute_recycling_1d_rhs_from_species(
     preserve_dump_ion_target_state_only: bool = False,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
+    pressure_source_overrides_are_total: bool = False,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
     lower_target_geometry: TargetBoundaryGeometry | None = None,
     upper_target_geometry: TargetBoundaryGeometry | None = None,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
+    pressure_source_override_names = (
+        frozenset(pressure_source_overrides or ())
+        if pressure_source_overrides_are_total
+        else frozenset()
+    )
     if pressure_source_overrides:
         pressure_sources = {
             **pressure_sources,
@@ -512,7 +520,8 @@ def _compute_recycling_1d_rhs_from_species(
             mesh=mesh,
             metrics=metrics,
         )
-        pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[neutral.name]
+        if neutral.name not in pressure_source_override_names:
+            pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[neutral.name]
         momentum_rhs = -neutral.atomic_mass * _div_par_fvv_open(
             _soft_floor(neutral_state.density, neutral.density_floor),
             neutral_state.velocity,
@@ -2251,7 +2260,7 @@ def _advance_recycling_1d_output_interval(
     startup_warmup: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
     trial_dt = min(float(suggested_dt), float(output_timestep))
-    minimum_dt = max(float(output_timestep) / 4096.0, 1.0)
+    minimum_dt = max(float(output_timestep) / 4096.0, 1.0e-6)
     acceptance_residual = max(1.0e4 * residual_tolerance, 5.0e-3)
     startup_window = (
         min(25.0, float(output_timestep))

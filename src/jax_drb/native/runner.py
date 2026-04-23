@@ -299,6 +299,7 @@ def _run_integrated_2d_recycling_rhs_case(
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
+        pressure_source_overrides_are_total=True,
         momentum_source_overrides=momentum_source_overrides,
     )
     for name in ("Sd_target_recycle", "Ed_target_recycle"):

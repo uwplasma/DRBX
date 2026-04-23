@@ -180,6 +180,42 @@ def test_target_recycling_sources_numpy_fast_path_matches_reference_formula() ->
     assert float(result.energy_source[0, mesh.yend, 0]) == pytest.approx(1.125)
 
 
+def test_target_recycling_sources_fast_fraction_uses_reference_fixed_energy_branch() -> None:
+    mesh = _mesh()
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = np.ones(shape, dtype=np.float64)
+    velocity = np.zeros(shape, dtype=np.float64)
+    temperature = 2.0 * np.ones(shape, dtype=np.float64)
+    velocity[:, mesh.ystart - 1, :] = -3.0
+    velocity[:, mesh.ystart, :] = -1.0
+    J = np.ones(shape, dtype=np.float64)
+    dy = 2.0 * np.ones(shape, dtype=np.float64)
+    dx = 3.0 * np.ones(shape, dtype=np.float64)
+    dz = 5.0 * np.ones(shape, dtype=np.float64)
+    g_22 = 4.0 * np.ones(shape, dtype=np.float64)
+
+    result = compute_target_recycling_sources(
+        density,
+        velocity,
+        temperature,
+        mesh=mesh,
+        J=J,
+        dy=dy,
+        dx=dx,
+        dz=dz,
+        g_22=g_22,
+        target_multiplier=0.5,
+        target_energy=3.0,
+        gamma_i=3.5,
+        target_fast_recycle_fraction=0.8,
+        target_fast_recycle_energy_factor=0.48,
+        upper_y=False,
+    )
+
+    assert float(result.density_source[0, mesh.ystart, 0]) == pytest.approx(0.25)
+    assert float(result.energy_source[0, mesh.ystart, 0]) == pytest.approx(0.25 * 0.2 * 3.0)
+
+
 def test_target_recycling_sources_precomputed_geometry_matches_direct_geometry_path() -> None:
     mesh = _mesh()
     shape = (mesh.nx, mesh.local_ny, mesh.nz)
