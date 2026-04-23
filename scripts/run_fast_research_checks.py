@@ -38,6 +38,8 @@ def all_slices() -> tuple[PytestSlice, ...]:
             pytest_args=(
                 "tests/test_release_surface.py",
                 "tests/test_cli_run.py",
+                "tests/test_cli_command_surface.py",
+                "tests/test_native_runner_dispatch.py",
                 "tests/test_restartable_diffusion_tutorial.py",
             ),
         ),
