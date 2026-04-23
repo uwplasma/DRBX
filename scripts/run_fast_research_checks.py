@@ -91,6 +91,7 @@ def all_slices() -> tuple[PytestSlice, ...]:
                 "-m",
                 "not slow",
                 "tests/test_native_recycling_1d.py",
+                "tests/test_native_recycling_history.py",
                 "tests/test_recycling_diagnostics.py",
             ),
         ),
