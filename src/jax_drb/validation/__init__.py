@@ -279,12 +279,6 @@ from .detachment_controller_campaign import (
     build_detachment_controller_campaign,
     create_detachment_controller_campaign_package,
 )
-from .publication_ready_3d import (
-    PublicationReady3DArtifacts,
-    build_publication_ready_3d_report,
-    create_publication_ready_3d_campaign_package,
-    save_publication_ready_3d_summary_plot,
-)
 from .reactions_collisions_campaign import (
     ReactionsCollisionsCampaignArtifacts,
     ReactionsCollisionsCampaignMetric,

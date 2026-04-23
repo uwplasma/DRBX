@@ -11,10 +11,10 @@ lessons, git-history hygiene, performance, validation, documentation, examples,
 CI/CD, and release readiness. This page remains the detailed refactoring
 roadmap for source/test structure.
 
-It is intentionally separate from the historical `PLAN.md`. The goal here is
-not to log everything that happened; it is to state what the codebase should
-look like when the refactor is complete, what evidence must exist for that
-state, and in what order the work should proceed.
+It is intentionally separate from historical work logs. The goal here is not to
+log everything that happened; it is to state what the codebase should look like
+when the refactor is complete, what evidence must exist for that state, and in
+what order the work should proceed.
 
 ## Scope
 
@@ -515,8 +515,7 @@ scientific claim should be accompanied by one of:
 
 - a validation campaign in `src/jax_drb/validation`
 - a benchmark/example entry point that writes stable artifacts
-- a direct artifact-producing script under `examples/engineering` or
-  `examples/publication`
+- a direct artifact-producing script under `examples/engineering`
 
 The test alone is not enough if the result is expected to appear in the paper.
 
@@ -668,7 +667,6 @@ These should be kept, validated, and tied to public artifacts:
 - `examples/blob2d_meeting_demo.py`
 - `examples/diverted_tokamak_movie_demo.py`
 - `examples/engineering/*campaign*_demo.py`
-- `examples/publication/*`
 - `examples/autodiff_diffusion_*`
 - `examples/strong_scaling_diffusion_demo.py`
 

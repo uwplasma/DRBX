@@ -306,11 +306,12 @@ The codebase already has several strong surfaces:
 
 The current repository is too heavy for a clean research release:
 
-- `.git` is about `428M`, with about `411M` in pack files
-- current working tree is about `1.7G`
-- `docs/data` is about `22M`
+- pre-slimming `.git` was about `428M`, with about `411M` in pack files
+- pre-slimming working tree was about `1.7G`
+- pre-slimming `docs/data` was about `22M`
 - `references` is about `26M`
-- `legacy` is still tracked and is about `26M`
+- the tracked `legacy/` tree was about `26M` and has been moved out of the
+  active release branch
 - the largest historical blobs are old GIFs and legacy/readme assets, including
   one historical `examples/assets/readme/drb2d_kh.gif` object of about
   `63.45 MiB`
@@ -328,11 +329,13 @@ separate three classes of data:
 
 ### Paper And Legacy Material In The Code Repo
 
-The active code repo still contains `legacy/`, manuscript/JCP docs, manuscript
-figure artifacts, and `examples/publication/*`. Some validation campaigns
+The active code repo previously contained `legacy/`, manuscript/JCP docs,
+manuscript figure artifacts, and `examples/publication/*`. Those surfaces have
+been removed from the active release branch after confirming that the paper
+repository already carries the relevant archive. Some validation campaigns
 should absolutely remain in the code repo because they are tested, documented,
 and useful. But paper-only prose plans and manuscript-only panel generators
-should move to the paper repo or be renamed as code-validation artifacts.
+belong outside the code release branch.
 
 The target rule is:
 
@@ -700,8 +703,9 @@ Exit criteria:
 
 Deliverables:
 
-- move `legacy/` to an archive branch or external archive
-- move manuscript-only docs/examples/artifacts to the paper repo
+- remove `legacy/` from the active release branch after confirming it is
+  archived in the paper repository
+- remove manuscript-only docs/examples/artifacts from the active release branch
 - remove old historical large GIFs and unused blobs with `git filter-repo`
 - keep only small, necessary baselines in the main branch
 - document where heavyweight benchmark artifacts are stored
