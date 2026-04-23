@@ -49,7 +49,10 @@ def direct_recycling_velocity_optional_field_names(config: BoutConfig) -> tuple[
 
 
 def direct_recycling_optional_field_names(config: BoutConfig) -> tuple[str, ...]:
-    names: list[str] = list(direct_recycling_velocity_optional_field_names(config))
+    names: list[str] = []
+    if "e" in direct_recycling_species_names(config):
+        names.append("Ne")
+    names.extend(direct_recycling_velocity_optional_field_names(config))
     for species_name in direct_recycling_species_names(config):
         if species_name == "e":
             continue
