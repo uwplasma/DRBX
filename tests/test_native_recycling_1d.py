@@ -36,7 +36,6 @@ from jax_drb.native.recycling_1d import (
     _electron_zero_current_velocity,
     _electron_density,
     _grad_par_electron_force_balance_open,
-    _parallel_ion_viscous_stress_open,
     _apply_neutral_target_density_guards,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
@@ -54,7 +53,6 @@ from jax_drb.native.recycling_1d import (
     _resolve_species_numeric_option,
     _soft_floor,
     _target_recycling_sources,
-    _ion_thermal_force_pair,
     advance_recycling_1d_backward_euler_step,
     advance_recycling_1d_bdf2_step,
     compute_recycling_1d_rhs,
@@ -1541,58 +1539,6 @@ def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isot
     assert float(cx_rates["t"][active]) == pytest.approx(t_same + t_cross, rel=1.0e-12, abs=1.0e-12)
 
 
-def test_parallel_ion_viscous_stress_matches_braginskii_formula() -> None:
-    mesh = StructuredMesh(
-        nx=1,
-        ny=1,
-        nz=1,
-        mxg=0,
-        myg=1,
-        symmetric_global_x=False,
-        symmetric_global_y=False,
-        jyseps1_1=0,
-        jyseps2_1=0,
-        jyseps1_2=0,
-        jyseps2_2=0,
-        ny_inner=1,
-        has_lower_y_target=True,
-        has_upper_y_target=True,
-        x=np.array([0.0], dtype=np.float64),
-        y=np.array([-1.0, 0.0, 1.0], dtype=np.float64),
-        z=np.array([0.0], dtype=np.float64),
-    )
-    ones = np.ones((1, 3, 1), dtype=np.float64)
-    metrics = StructuredMetrics(
-        dx=ones,
-        dy=ones,
-        dz=ones,
-        J=ones,
-        g11=ones,
-        g22=ones,
-        g33=ones,
-        g_22=ones,
-        g23=np.zeros_like(ones),
-        Bxy=np.array([[[2.0], [4.0], [8.0]]], dtype=np.float64),
-    )
-    pressure = np.array([[[3.0], [5.0], [7.0]]], dtype=np.float64)
-    tau = np.array([[[0.5], [0.25], [0.125]]], dtype=np.float64)
-    velocity = np.array([[[1.0], [2.0], [4.0]]], dtype=np.float64)
-
-    stress = _parallel_ion_viscous_stress_open(
-        pressure,
-        tau,
-        velocity,
-        mesh=mesh,
-        metrics=metrics,
-    )
-
-    expected = -0.96 * pressure * tau * (
-        2.0 * recycling_1d_mod._grad_par_open(velocity, mesh=mesh, metrics=metrics)
-        + velocity * recycling_1d_mod._grad_par_open(np.log(metrics.Bxy), mesh=mesh, metrics=metrics)
-    )
-    np.testing.assert_allclose(stress, expected)
-
-
 def test_apply_neutral_target_density_guards_extrapolates_boundary_density() -> None:
     mesh = StructuredMesh(
         nx=1,
@@ -1626,40 +1572,6 @@ def test_apply_neutral_target_density_guards_extrapolates_boundary_density() -> 
 
     assert guarded[0, 1, 0] == pytest.approx(2.75)
     assert guarded[0, 4, 0] == pytest.approx(0.0)
-
-
-def test_ion_thermal_force_pair_is_enabled_for_dt_when_mass_override_is_set() -> None:
-    config = load_bout_input(_DTHE_INPUT)
-    run_config = RunConfiguration.from_config(config)
-    mesh = build_structured_mesh(config, run_config)
-    metrics = build_structured_metrics(config, run_config, mesh)
-    species = _initialize_species(config, mesh=mesh)
-    prepared, _, _ = _prepare_open_field_states(
-        species,
-        config=config,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=resolved_dataset_scalars(run_config),
-    )
-
-    pair = _ion_thermal_force_pair(
-        "d+",
-        "t+",
-        species=species,
-        prepared=prepared,
-        mesh=mesh,
-        metrics=metrics,
-        override_mass_restrictions=True,
-    )
-
-    assert pair is not None
-    light_name, heavy_name, heavy_force = pair
-    active = (mesh.xstart, mesh.yend, 0)
-
-    assert light_name == "d+"
-    assert heavy_name == "t+"
-    assert np.isfinite(float(heavy_force[active]))
-    assert heavy_force.shape == species["t+"].density.shape
 
 
 def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> None:

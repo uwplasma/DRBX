@@ -754,6 +754,12 @@ The current template for this policy is the public
 verification implementation now feeds the standalone script wrapper, direct
 tests, docs artifacts, and future manuscript-ready convergence figures.
 
+The next closure-facing template is the public
+[neutral_parallel_diffusion_campaign.md](neutral_parallel_diffusion_campaign.md)
+bundle: one shared closure implementation now feeds direct operator tests, docs
+artifacts, and a manuscript-usable AFN-versus-multispecies profile figure on a
+prepared multispecies recycling state.
+
 ## Sequencing
 
 The safest order is:

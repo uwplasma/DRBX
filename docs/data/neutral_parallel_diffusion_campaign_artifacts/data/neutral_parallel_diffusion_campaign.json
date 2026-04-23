@@ -1,0 +1,103 @@
+{
+  "family": "neutral_parallel_diffusion",
+  "input_name": "BOUT.inp",
+  "literature_anchor": {
+    "closure_note": "Hermes-3 documents AFN as the recommended neutral model, with multispecies diffusion retained as a legacy comparison mode.",
+    "primary_code_paper": "Dudson et al. 2024, Hermes-3 multi-component plasma simulations"
+  },
+  "metric_count": 6,
+  "metrics": [
+    {
+      "kind": "fraction",
+      "name": "afn_diffusion_finite_fraction",
+      "notes": "AFN neutral parallel diffusivities should remain finite for the prepared D/T/He recycling state.",
+      "passed": true,
+      "target": 1.0,
+      "value": 1.0
+    },
+    {
+      "kind": "fraction",
+      "name": "multispecies_diffusion_finite_fraction",
+      "notes": "Multispecies neutral parallel diffusivities should remain finite on the same prepared state.",
+      "passed": true,
+      "target": 1.0,
+      "value": 1.0
+    },
+    {
+      "kind": "min_value",
+      "name": "d_afn_to_multispecies_diffusion_contrast",
+      "notes": "The d neutral should retain a measurable AFN-versus-multispecies diffusivity contrast on the prepared multispecies state.",
+      "passed": true,
+      "target": 0.001,
+      "value": 0.06279998393524722
+    },
+    {
+      "kind": "min_value",
+      "name": "t_afn_to_multispecies_diffusion_contrast",
+      "notes": "The t neutral should retain a measurable AFN-versus-multispecies diffusivity contrast on the prepared multispecies state.",
+      "passed": true,
+      "target": 0.001,
+      "value": 0.1532071678690122
+    },
+    {
+      "kind": "min_value",
+      "name": "he_afn_to_multispecies_diffusion_contrast",
+      "notes": "The he neutral should retain a measurable AFN-versus-multispecies diffusivity contrast on the prepared multispecies state.",
+      "passed": true,
+      "target": 0.001,
+      "value": 0.4438897188078464
+    },
+    {
+      "kind": "min_value",
+      "name": "deuterium_afn_charge_exchange_fraction",
+      "notes": "Charge exchange should remain a non-negligible part of the AFN neutral collision budget for deuterium on this prepared state.",
+      "passed": true,
+      "target": 0.1,
+      "value": 0.4820603783101882
+    }
+  ],
+  "passed_metric_count": 6,
+  "snapshot_name": "recycling_dthe_rhs_snapshot.npz",
+  "species_order": [
+    "d",
+    "t",
+    "he"
+  ],
+  "species_summaries": {
+    "afn_charge_exchange_rate": [
+      0.00748372389597719,
+      0.007403873548545357,
+      0.0
+    ],
+    "afn_diffusion": [
+      3.220725303410215,
+      2.158251212035062,
+      7.24994928647353
+    ],
+    "afn_ionisation_rate": [
+      0.00804072953911033,
+      0.00804072953911033,
+      0.0034482999828210274
+    ],
+    "diffusion_ratio": [
+      1.0670080909718083,
+      1.1809263872527833,
+      0.6925736688710923
+    ],
+    "multispecies_charge_exchange_rate": [
+      0.00748372389597719,
+      0.007403873548545357,
+      0.0
+    ],
+    "multispecies_collision_rate": [
+      0.007065794112783339,
+      0.005674505641189597,
+      0.004978964892560556
+    ],
+    "multispecies_diffusion": [
+      3.436539957536332,
+      2.5487358066125063,
+      5.021123976462331
+    ]
+  }
+}
