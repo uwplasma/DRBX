@@ -27,8 +27,10 @@ def test_closeout_coverage_script_uses_expected_threshold_and_targets() -> None:
     assert module.MIN_TOTAL_COVERAGE == 95.0
     assert "tests/test_validation_temperature_feedback_campaign.py" in module.CLOSEOUT_TESTS
     assert "tests/test_validation_autodiff_diffusion_uncertainty.py" in module.CLOSEOUT_TESTS
+    assert "tests/test_validation_open_field_operator_campaign.py" in module.CLOSEOUT_TESTS
     assert "tests/test_packaging_metadata.py" in module.CLOSEOUT_TESTS
     assert "src/jax_drb/validation/tokamak_native_selected_field.py" in module.COVERAGE_TARGETS
+    assert "src/jax_drb/validation/open_field_operator_campaign.py" in module.COVERAGE_TARGETS
     assert "src/jax_drb/validation/detachment_controller_campaign.py" in module.COVERAGE_TARGETS
 
 
@@ -64,6 +66,7 @@ def test_promoted_solver_coverage_script_tracks_solver_targets() -> None:
     assert module.MIN_TOTAL_COVERAGE == 95.0
     assert "-m" in module.PROMOTED_SOLVER_TESTS
     assert "not slow" in module.PROMOTED_SOLVER_TESTS
+    assert "tests/test_validation_open_field_operator_campaign.py" in module.PROMOTED_SOLVER_TESTS
     assert "tests/test_native_recycling_1d.py" in module.PROMOTED_SOLVER_TESTS
     assert "tests/test_native_runner.py" in module.PROMOTED_SOLVER_TESTS
     assert "src/jax_drb/native/recycling_1d.py" in module.PROMOTED_SOLVER_TARGETS

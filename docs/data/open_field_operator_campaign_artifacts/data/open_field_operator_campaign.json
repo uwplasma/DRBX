@@ -1,0 +1,254 @@
+{
+  "autodiff_check": {
+    "absolute_error": 4.1674996786866814e-14,
+    "amplitude": 1.0,
+    "autodiff_gradient": 0.035355600116290756,
+    "finite_difference_gradient": 0.03535560011633243,
+    "relative_error": 1.1787382097812323e-12
+  },
+  "case": "open_field_operator_campaign",
+  "claim": "Operator-level verification of the open-field parallel-gradient, electron-force-balance, and finite-volume target-recycling kernels used by promoted recycling and sheath-connected cases.",
+  "convergence_runs": [
+    {
+      "dy": 0.19634954084936207,
+      "force_balance_l2": 0.0024822402029016292,
+      "force_density_l2": 0.00351692034599975,
+      "gradient_l2": 0.0035169203459997503,
+      "ny": 32
+    },
+    {
+      "dy": 0.09817477042468103,
+      "force_balance_l2": 0.0006234674819575381,
+      "force_density_l2": 0.0008833941676597259,
+      "gradient_l2": 0.0008833941676597253,
+      "ny": 64
+    },
+    {
+      "dy": 0.04908738521234052,
+      "force_balance_l2": 0.0001560495326086506,
+      "force_density_l2": 0.00022111016321590865,
+      "gradient_l2": 0.000221110163215906,
+      "ny": 128
+    },
+    {
+      "dy": 0.02454369260617026,
+      "force_balance_l2": 3.902381435448064e-05,
+      "force_density_l2": 5.5293913496196994e-05,
+      "gradient_l2": 5.5293913496196717e-05,
+      "ny": 256
+    }
+  ],
+  "equations": {
+    "electron_force_balance": "E_parallel = (-D_y p_e + S_{mom,e}) / max(n_e, n_floor)",
+    "parallel_gradient": "D_y f_j = (f_{j+1} - f_{j-1}) / (2 dy)",
+    "target_recycling_density_source": "S_N = R max(0, s 0.25 (n_i+n_g)(v_i+v_g)) A_parallel / V",
+    "target_recycling_energy_source": "S_E = S_N (1 - R_fast) E_recycle"
+  },
+  "family": "open_field_operator_campaign",
+  "length": 6.283185307179586,
+  "literature_anchors": [
+    {
+      "label": "Dudson et al. MMS verification",
+      "role": "Refinement and observed-order tests separate implementation verification from validation.",
+      "url": "https://arxiv.org/abs/1602.06747"
+    },
+    {
+      "label": "Hermes-3 equations and boundary documentation",
+      "role": "Sheath particle flux, target recycling, and heat/particle source formulas.",
+      "url": "https://hermes3.readthedocs.io/en/latest/boundary_conditions.html"
+    },
+    {
+      "label": "Hermes-3 multi-component edge/SOL model paper",
+      "role": "Reference code family and edge/SOL multi-species context.",
+      "url": "https://arxiv.org/abs/2303.12131"
+    }
+  ],
+  "min_observed_order": {
+    "force_balance": 1.9932565089644285,
+    "gradient": 1.9931834474635501
+  },
+  "observed_orders": [
+    {
+      "force_balance_order": 1.9932565089644285,
+      "from_ny": 32,
+      "gradient_order": 1.9931834474635501,
+      "to_ny": 64
+    },
+    {
+      "force_balance_order": 1.9983102795420136,
+      "from_ny": 64,
+      "gradient_order": 1.9982919680358724,
+      "to_ny": 128
+    },
+    {
+      "force_balance_order": 1.9995773310453235,
+      "from_ny": 128,
+      "gradient_order": 1.999572750450028,
+      "to_ny": 256
+    }
+  ],
+  "operator_family": "parallel_gradient_force_balance_target_recycling",
+  "resolutions": [
+    32,
+    64,
+    128,
+    256
+  ],
+  "target_recycling_identity": {
+    "density_source": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.31050000000000005,
+      0.6210000000000001,
+      0.9315000000000002,
+      1.2420000000000002,
+      1.5525,
+      1.8630000000000004
+    ],
+    "energy_source": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.08675,
+      2.1735,
+      3.260250000000001,
+      4.347,
+      5.43375,
+      6.520500000000002
+    ],
+    "energy_to_density_ratio": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      3.4999999999999996,
+      3.4999999999999996,
+      3.5000000000000004,
+      3.4999999999999996,
+      3.5,
+      3.5000000000000004
+    ],
+    "expected_density_source": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.31050000000000005,
+      0.6210000000000001,
+      0.9315000000000002,
+      1.2420000000000002,
+      1.5525,
+      1.8630000000000004
+    ],
+    "expected_energy_source": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.08675,
+      2.1735,
+      3.260250000000001,
+      4.347,
+      5.43375,
+      6.520500000000002
+    ],
+    "expected_lower_density_source": [
+      1.8630000000000004,
+      1.5525,
+      1.2420000000000002,
+      0.9315000000000002,
+      0.6210000000000001,
+      0.31050000000000005,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "expected_lower_energy_source": [
+      6.520500000000002,
+      5.43375,
+      4.347,
+      3.260250000000001,
+      2.1735,
+      1.08675,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "lower_density_source": [
+      1.8630000000000004,
+      1.5525,
+      1.2420000000000002,
+      0.9315000000000002,
+      0.6210000000000001,
+      0.31050000000000005,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "lower_energy_source": [
+      6.520500000000002,
+      5.43375,
+      4.347,
+      3.260250000000001,
+      2.1735,
+      1.08675,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max_density_source_abs_error": 0.0,
+    "max_energy_source_abs_error": 0.0,
+    "max_lower_density_source_abs_error": 0.0,
+    "max_lower_energy_source_abs_error": 0.0,
+    "mean_active_energy_to_density_ratio": 3.5,
+    "velocity": [
+      -1.5,
+      -1.25,
+      -1.0,
+      -0.75,
+      -0.5,
+      -0.25,
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0,
+      1.25,
+      1.5
+    ]
+  }
+}

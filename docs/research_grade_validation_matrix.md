@@ -55,7 +55,10 @@ Before any case family is promoted to `native_exact`, it must have:
 
 - timestep refinement on promoted transient lanes
 - spatial refinement where practical on promoted benchmark families
-- manufactured-solution order-of-accuracy reports on promoted operator lanes, starting with the public `fluid_1d_mms_convergence` campaign and its standalone `scripts/run_fluid_1d_mms_convergence.py` wrapper
+- manufactured-solution order-of-accuracy reports on promoted operator lanes,
+  starting with the public `fluid_1d_mms_convergence` campaign and the
+  open-field operator campaign for parallel-gradient and force-balance
+  refinement
 
 ### Runtime
 
@@ -77,6 +80,9 @@ used in verification, validation, and differentiable-science papers:
 
 - [fluid_1d_mms_convergence](data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
   for order-of-accuracy evidence
+- [open_field_operator_campaign](data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+  for open-field parallel-gradient, force-balance, target-recycling, and
+  autodiff evidence
 - [reactions_collisions_campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
   for rate, source-partition, and closure checks
 - [neutral_parallel_diffusion_campaign](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
@@ -139,7 +145,10 @@ Coverage is opt-in on this gate. The default run is intentionally a fast no-cove
 
 Longer transient-solver history tests should be marked `slow` and kept out of this default gate unless they are the specific subject of the current iteration.
 
-Reviewer-facing convergence campaigns should live outside the default gate and be run explicitly, for example through the optional `convergence_campaign` slice or the public `fluid_1d_mms_convergence` artifact package and its standalone `scripts/run_fluid_1d_mms_convergence.py` wrapper.
+Reviewer-facing convergence campaigns should live outside the default gate and
+be run explicitly, for example through the optional `convergence_campaign` slice
+or the public `fluid_1d_mms_convergence` and `open_field_operator_campaign`
+artifact packages.
 
 ## Current Strategic Focus
 
