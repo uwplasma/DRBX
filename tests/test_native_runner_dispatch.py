@@ -150,3 +150,159 @@ def test_runner_cache_path_wrappers_use_committed_snapshot_cache_dir(
     assert native_runner._open_field_snapshot_cache_path("case") == tmp_path / "case_snapshot.npz"
     assert native_runner._tokamak_snapshot_cache_path("case") == tmp_path / "case_snapshot.npz"
     assert native_runner._tokamak_field_history_cache_path("case") == tmp_path / "case_field_history.npz"
+
+
+_THIN_WRAPPER_CASES = (
+    (
+        "_run_alfven_wave_rhs_case",
+        "_run_alfven_wave_dump_case",
+        {"time_indices": (0,), "field_names": ("Apar", "phi", "Vort", "NVe", "Ne", "Ni"), "optional_field_names": ("ddt(NVe)", "ddt(Vort)")},
+    ),
+    (
+        "_run_alfven_wave_one_step_case",
+        "_run_alfven_wave_dump_case",
+        {"time_indices": (0, 1), "field_names": ("Apar", "phi", "Vort", "NVe", "Ne", "Ni"), "optional_field_names": ()},
+    ),
+    (
+        "_run_alfven_wave_short_window_case",
+        "_run_alfven_wave_dump_case",
+        {"time_indices": None, "field_names": ("Apar", "phi", "Vort", "NVe", "Ne", "Ni"), "optional_field_names": ()},
+    ),
+    (
+        "_run_alfven_wave_medium_window_case",
+        "_run_alfven_wave_dump_case",
+        {"time_indices": None, "field_names": ("Apar", "phi", "Vort", "NVe", "Ne", "Ni"), "optional_field_names": ()},
+    ),
+    (
+        "_run_annulus_he_emag_rhs_case",
+        "_run_annulus_he_emag_dump_case",
+        {
+            "time_indices": (0,),
+            "field_names": ("Apar", "Ne", "Nhe+", "NVe", "NVhe+"),
+            "optional_field_names": ("ddt(Ne)", "ddt(NVe)", "ddt(Vort)"),
+        },
+    ),
+    (
+        "_run_annulus_he_emag_one_step_case",
+        "_run_annulus_he_emag_dump_case",
+        {"time_indices": (0, 1), "field_names": ("Apar", "Ne", "Nhe+", "NVe", "NVhe+", "phi", "Vort"), "optional_field_names": ()},
+    ),
+    (
+        "_run_annulus_he_emag_short_window_case",
+        "_run_annulus_he_emag_dump_case",
+        {"time_indices": None, "field_names": ("Apar", "Ne", "Nhe+", "NVe", "NVhe+", "phi", "Vort"), "optional_field_names": ()},
+    ),
+    ("_run_tokamak_diffusion_flow_one_step_case", "_run_tokamak_dump_case", {"time_indices": (0, 1), "field_names": ("Nh", "Ph", "NVh")}),
+    ("_run_tokamak_diffusion_one_step_case", "_run_tokamak_dump_case", {"time_indices": (0, 1), "field_names": ("Nh",)}),
+    (
+        "_run_tokamak_diffusion_transport_one_step_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": (0, 1), "field_names": ("Nh+", "Ph+", "NVh+", "Pe")},
+    ),
+    (
+        "_run_tokamak_diffusion_transport_short_window_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": None, "field_names": ("Nh+", "Ph+", "NVh+", "Pe")},
+    ),
+    ("_run_tokamak_heat_transport_one_step_case", "_run_tokamak_dump_case", {"time_indices": (0, 1), "field_names": ("Pe",)}),
+    ("_run_tokamak_heat_transport_short_window_case", "_run_tokamak_dump_case", {"time_indices": None, "field_names": ("Pe",)}),
+    (
+        "_run_tokamak_diffusion_conduction_one_step_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": (0, 1), "field_names": ("Nh+", "Ph+", "Pe")},
+    ),
+    (
+        "_run_tokamak_diffusion_conduction_short_window_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": None, "field_names": ("Nh+", "Ph+", "Pe")},
+    ),
+    ("_run_tokamak_linear_transport_one_step_case", "_run_tokamak_dump_case", {"time_indices": (0, 1), "field_names": ("Pe",)}),
+    ("_run_tokamak_linear_transport_short_window_case", "_run_tokamak_dump_case", {"time_indices": None, "field_names": ("Pe",)}),
+    (
+        "_run_tokamak_isothermal_rhs_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": (0,), "field_names": ("Ne", "Ni", "NVe", "NVi", "phi", "Vort", "ddt(Ne)", "ddt(NVe)", "ddt(NVi)", "ddt(Vort)")},
+    ),
+    (
+        "_run_tokamak_isothermal_one_step_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": (0, 1), "field_names": ("Ne", "Ni", "NVe", "NVi", "phi", "Vort")},
+    ),
+    (
+        "_run_tokamak_isothermal_short_window_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": None, "field_names": ("Ne", "Ni", "NVe", "NVi", "phi", "Vort")},
+    ),
+    (
+        "_run_tokamak_isothermal_medium_window_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": None, "field_names": ("Ne", "Ni", "NVe", "NVi", "phi", "Vort")},
+    ),
+    (
+        "_run_tokamak_turbulence_one_step_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": (0, 1), "field_names": ("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort")},
+    ),
+    (
+        "_run_tokamak_turbulence_rhs_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": (0,), "field_names": ("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort", "ddt(Ne)", "ddt(NVe)", "ddt(Pe)")},
+    ),
+    (
+        "_run_tokamak_turbulence_short_window_case",
+        "_run_tokamak_dump_case",
+        {"time_indices": None, "field_names": ("Ne", "Nd+", "NVe", "NVd+", "Pe", "Pd+", "phi", "Vort")},
+    ),
+)
+
+
+@pytest.mark.parametrize(("wrapper_name", "delegate_name", "expected_kwargs"), _THIN_WRAPPER_CASES)
+def test_thin_runner_wrappers_forward_expected_dump_requests(
+    wrapper_name: str,
+    delegate_name: str,
+    expected_kwargs: dict[str, object],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _case(wrapper_name)
+    input_path = tmp_path / "BOUT.inp"
+    reference_root = tmp_path / "reference"
+    sentinel = object()
+    calls: list[tuple[ReferenceCase, dict[str, object]]] = []
+
+    def fake_delegate(case_arg: ReferenceCase, **kwargs: object) -> object:
+        calls.append((case_arg, kwargs))
+        return sentinel
+
+    monkeypatch.setattr(native_runner, delegate_name, fake_delegate)
+
+    result = getattr(native_runner, wrapper_name)(case, input_path=input_path, reference_root=reference_root)
+
+    assert result is sentinel
+    assert calls[0][0] is case
+    assert calls[0][1]["input_path"] == input_path
+    assert calls[0][1]["reference_root"] == reference_root
+    for key, value in expected_kwargs.items():
+        assert calls[0][1][key] == value
+
+
+def test_tokamak_recycling_rhs_wrapper_reuses_integrated_recycling_rhs_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _case("tokamak_recycling_rhs")
+    input_path = tmp_path / "BOUT.inp"
+    reference_root = tmp_path / "reference"
+    sentinel = object()
+    calls: list[tuple[ReferenceCase, Path, Path]] = []
+
+    def fake_integrated(case_arg: ReferenceCase, *, input_path: Path, reference_root: Path) -> object:
+        calls.append((case_arg, input_path, reference_root))
+        return sentinel
+
+    monkeypatch.setattr(native_runner, "_run_integrated_2d_recycling_rhs_case", fake_integrated)
+
+    result = native_runner._run_tokamak_recycling_rhs_case(case, input_path=input_path, reference_root=reference_root)
+
+    assert result is sentinel
+    assert calls == [(case, input_path, reference_root)]
