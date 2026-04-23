@@ -237,6 +237,12 @@ from .fluid_1d_mms_convergence import (
     create_fluid_1d_mms_convergence_package,
     save_fluid_1d_mms_convergence_plot,
 )
+from .open_field_operator_campaign import (
+    OpenFieldOperatorCampaignArtifacts,
+    build_open_field_operator_campaign_report,
+    create_open_field_operator_campaign_package,
+    save_open_field_operator_campaign_plot,
+)
 from .native_3d_convergence_campaign import (
     Native3DConvergenceCampaignArtifacts,
     build_native_3d_convergence_campaign_report,
@@ -479,6 +485,10 @@ __all__ = [
     "build_native_3d_runtime_campaign_report",
     "create_native_3d_runtime_campaign_package",
     "save_native_3d_runtime_campaign_plot",
+    "OpenFieldOperatorCampaignArtifacts",
+    "build_open_field_operator_campaign_report",
+    "create_open_field_operator_campaign_package",
+    "save_open_field_operator_campaign_plot",
     "build_hermes_capability_audit",
     "write_hermes_capability_audit",
     "HermesComparisonSummaryArtifacts",

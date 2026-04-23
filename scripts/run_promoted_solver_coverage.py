@@ -16,6 +16,7 @@ PROMOTED_SOLVER_TESTS = (
     "not slow",
     "tests/test_native_metrics.py",
     "tests/test_native_open_field.py",
+    "tests/test_validation_open_field_operator_campaign.py",
     "tests/test_solver_implicit.py",
     "tests/test_native_recycling_1d.py",
     "tests/test_recycling_diagnostics.py",

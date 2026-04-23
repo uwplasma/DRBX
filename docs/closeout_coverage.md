@@ -50,6 +50,8 @@ This script runs a bounded critical-path slice over:
 
 - controller closeout packages;
 - reactions/collisions and impurity/radiation campaigns;
+- open-field operator verification for parallel gradients, force balance,
+  target recycling, and autodiff sensitivity;
 - native 3D runtime/convergence/profile audits;
 - Hermes comparison summary and capability audit;
 - packaging metadata and PyPI release-workflow checks;

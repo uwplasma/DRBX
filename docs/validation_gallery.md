@@ -28,6 +28,7 @@ JAX-based solver papers.
 | `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
 | `Hermes Live Rerun Matrix` | `live native vs live reference` | Same-machine native/Hermès rerun matrix across representative 1D and 2D lanes. |
+| `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 
 ## Diffusion Short Window
 
@@ -39,6 +40,22 @@ What this locks down:
 - metric normalization on the transport path;
 - Neumann guard handling;
 - repeated output scheduling over a short transient.
+
+## Open-Field Operator Campaign
+
+![Open-field operator campaign](data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+
+What this locks down:
+
+- second-order refinement of the centered parallel-gradient kernel;
+- second-order refinement of the electron-force-balance operator with a
+  nonzero momentum source;
+- exact finite-volume target-recycling particle and energy source identities on
+  the promoted open-field source formula;
+- a differentiability check comparing `jax.grad` against a centered
+  finite-difference sensitivity for the force-balance objective;
+- a publication-ready operator-verification figure that can be reused in the
+  JAXDRB paper before moving to longer Hermes reruns.
 
 ## Electrostatic Vorticity Short Window
 

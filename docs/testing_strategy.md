@@ -183,6 +183,8 @@ assertion.
 Priority figure-producing families are:
 
 - MMS convergence
+- open-field parallel-gradient, force-balance, and target-recycling operator
+  identities
 - reactions, collisions, and atomic-data closure campaigns
 - neutral parallel-diffusion closure campaign
 - neutral mixed boundary-mismatch campaign
