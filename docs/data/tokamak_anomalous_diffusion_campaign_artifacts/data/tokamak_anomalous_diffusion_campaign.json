@@ -1,0 +1,194 @@
+{
+  "array_history_name": "tokamak_recycling_dthe_one_step.npz",
+  "family": "tokamak_anomalous_diffusion",
+  "input_name": "BOUT.inp",
+  "literature_anchor": {
+    "direct_tokamak_context": "Dudson et al. 2024, Hermes-3 multi-component plasma simulations",
+    "geometry_context": "Bufferand et al. 2016, non-orthogonal tokamak edge/SOL transport on mapped meshes"
+  },
+  "mesh_name": "tokamak.nc",
+  "metric_count": 5,
+  "metrics": [
+    {
+      "kind": "max_value",
+      "name": "electron_anomalous_d_matches_d_plus",
+      "notes": "The electron anomalous_D coefficient should inherit the d+ literal reference on the direct tokamak recycling deck.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "min_value",
+      "name": "d_plus_energy_relative_contrast",
+      "notes": "Non-orthogonal tokamak metrics should materially modify the anomalous energy transport for d+ on the evolved recycling state.",
+      "passed": true,
+      "target": 0.05,
+      "value": 0.09606892810276747
+    },
+    {
+      "kind": "min_value",
+      "name": "t_plus_energy_relative_contrast",
+      "notes": "Non-orthogonal tokamak metrics should materially modify the anomalous energy transport for t+ on the evolved recycling state.",
+      "passed": true,
+      "target": 0.05,
+      "value": 0.08511250418107537
+    },
+    {
+      "kind": "min_value",
+      "name": "he_plus_energy_relative_contrast",
+      "notes": "Non-orthogonal tokamak metrics should materially modify the anomalous energy transport for he+ on the evolved recycling state.",
+      "passed": true,
+      "target": 0.05,
+      "value": 0.08176398415638328
+    },
+    {
+      "kind": "min_value",
+      "name": "electron_density_contrast_peak",
+      "notes": "Electron anomalous density transport should retain a measurable non-orthogonal contrast on the evolved tokamak state.",
+      "passed": true,
+      "target": 1e-08,
+      "value": 4.502671781333358e-07
+    }
+  ],
+  "passed_metric_count": 5,
+  "representative_x_index": 2,
+  "snapshot_name": "tokamak_recycling_dthe_rhs_snapshot.npz",
+  "species_order": [
+    "d+",
+    "t+",
+    "he+",
+    "e"
+  ],
+  "summaries": {
+    "anomalous_Chi_active_point": [
+      0.0049999999999999975,
+      0.0049999999999999975,
+      0.0049999999999999975,
+      0.0049999999999999975
+    ],
+    "anomalous_D_active_point": [
+      0.0024999999999999988,
+      0.0024999999999999988,
+      0.0024999999999999988,
+      0.0024999999999999988
+    ],
+    "d_plus_energy_delta_line": [
+      5.714332354733341e-06,
+      5.273560188502006e-07,
+      -2.0925152057798733e-06,
+      -2.0237144676808094e-06,
+      -1.6207913418460161e-06,
+      -2.3441614060505834e-06,
+      -3.592047688902848e-05,
+      8.514053242191042e-05
+    ],
+    "d_plus_energy_nonorth_line": [
+      0.0008919585541163559,
+      0.00028005590067886393,
+      -1.8939453833110377e-05,
+      -0.00010032558886799022,
+      -0.00011070517816103994,
+      -0.00010831772956060382,
+      -0.00013776197896353358,
+      -1.3755924002628249e-05
+    ],
+    "d_plus_energy_orth_line": [
+      0.0008862442217616225,
+      0.00027952854466001373,
+      -1.6846938627330504e-05,
+      -9.830187440030941e-05,
+      -0.00010908438681919392,
+      -0.00010597356815455324,
+      -0.0001018415020745051,
+      -9.889645642453866e-05
+    ],
+    "density_contrast_peak": [
+      5.1938621356166026e-08,
+      4.482897819857402e-08,
+      3.285959626638393e-10,
+      4.502671781333358e-07
+    ],
+    "density_peak_nonorth": [
+      0.00014778184165341665,
+      0.00014774839444867602,
+      1.4771288108764836e-06,
+      0.0005222101171671657
+    ],
+    "density_peak_orth": [
+      0.00014777963519949823,
+      0.00014774661993068933,
+      1.4771156701067525e-06,
+      0.0005223105763484944
+    ],
+    "energy_contrast_peak": [
+      8.514053242191042e-05,
+      7.138402726455074e-05,
+      5.570729812885827e-07,
+      6.754007672000038e-07
+    ],
+    "energy_peak_nonorth": [
+      0.0008919585541163559,
+      0.0008447348892340977,
+      6.866273850858578e-06,
+      0.0007833151757507484
+    ],
+    "energy_peak_orth": [
+      0.0008862442217616225,
+      0.0008387019974489586,
+      6.813182931779778e-06,
+      0.0007834658645227416
+    ],
+    "energy_relative_contrast": [
+      0.09606892810276747,
+      0.08511250418107537,
+      0.08176398415638328,
+      0.0008620678931703463
+    ],
+    "momentum_contrast_peak": [
+      4.4322036677206696e-08,
+      4.448553728270371e-08,
+      3.4834593530749667e-10,
+      0.0
+    ],
+    "t_plus_energy_delta_line": [
+      6.032891785139115e-06,
+      8.937084983520749e-09,
+      -2.212479614938502e-06,
+      -1.8931206694047429e-06,
+      -1.4069780996584424e-06,
+      -1.9612666904319625e-06,
+      -3.0182486685055988e-05,
+      7.138402726455074e-05
+    ],
+    "t_plus_energy_nonorth_line": [
+      0.0008447348892340977,
+      0.00022641781838533674,
+      -4.939119962928252e-05,
+      -0.00011550353421203142,
+      -0.00012019093763054477,
+      -0.00011645663120596378,
+      -0.0001407453911304951,
+      -3.6619750511722e-05
+    ],
+    "t_plus_energy_orth_line": [
+      0.0008387019974489586,
+      0.00022640888130035322,
+      -4.717872001434402e-05,
+      -0.00011361041354262667,
+      -0.00011878395953088632,
+      -0.00011449536451553182,
+      -0.00011056290444543912,
+      -0.00010800377777627274
+    ],
+    "y_line": [
+      0.0,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0
+    ]
+  }
+}

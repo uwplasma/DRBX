@@ -352,6 +352,17 @@ What this documents:
 - direct action-reaction checks for selected friction pairs, so the public artifact is tied back to a basic physical consistency condition rather than only to nonzero activity;
 - a machine-readable JSON/NPZ/plot package so these closure diagnostics can feed the future paper directly instead of remaining trapped inside low-level tests.
 
+## Tokamak Anomalous Diffusion Campaign
+
+![Tokamak anomalous diffusion campaign](data/tokamak_anomalous_diffusion_campaign_artifacts/images/tokamak_anomalous_diffusion_campaign.png)
+
+What this documents:
+
+- a dedicated tokamak operator study for the extracted anomalous-diffusion family on the evolved D/T/He recycling state used by the direct tokamak validation ladder;
+- direct comparison between orthogonal and non-orthogonal tokamak metrics on the same evolved state, so the geometry effect is visible instead of being implied only by low-level assertions;
+- species-resolved anomalous coefficient summaries together with representative `d+` and `t+` anomalous-energy lineouts on the active direct-tokamak state;
+- a machine-readable JSON/NPZ/plot package so this non-orthogonal transport evidence can feed the docs and future paper directly.
+
 ## Temperature Feedback Campaign
 
 ![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)
