@@ -1,0 +1,143 @@
+{
+  "family": "collision_closure",
+  "friction_pair_order": [
+    [
+      "d+",
+      "t+"
+    ],
+    [
+      "d+",
+      "e"
+    ],
+    [
+      "t+",
+      "e"
+    ],
+    [
+      "he+",
+      "e"
+    ]
+  ],
+  "input_name": "BOUT.inp",
+  "ion_species_order": [
+    "d+",
+    "t+",
+    "he+"
+  ],
+  "literature_anchor": {
+    "implementation_anchor": "Hermes-3 multi-component edge/SOL collisional closure family",
+    "transport_review": "Braginskii 1965 transport formulas for collisional magnetized plasmas"
+  },
+  "metric_count": 8,
+  "metrics": [
+    {
+      "kind": "min_value",
+      "name": "d_plus_ion_viscosity_peak",
+      "notes": "d+ should retain active parallel ion-viscosity forcing on the prepared recycling state.",
+      "passed": true,
+      "target": 1e-08,
+      "value": 4.724013071313946
+    },
+    {
+      "kind": "min_value",
+      "name": "t_plus_ion_viscosity_peak",
+      "notes": "t+ should retain active parallel ion-viscosity forcing on the prepared recycling state.",
+      "passed": true,
+      "target": 1e-08,
+      "value": 5.197448364576661
+    },
+    {
+      "kind": "min_value",
+      "name": "he_plus_ion_viscosity_peak",
+      "notes": "he+ should retain active parallel ion-viscosity forcing on the prepared recycling state.",
+      "passed": true,
+      "target": 1e-08,
+      "value": 0.055882316421775304
+    },
+    {
+      "kind": "max_value",
+      "name": "d_plus_t_plus_action_reaction_residual",
+      "notes": "The collisional friction diagnostics for pair d+/t+ should satisfy action-reaction balance.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_value",
+      "name": "d_plus_e_action_reaction_residual",
+      "notes": "The collisional friction diagnostics for pair d+/e should satisfy action-reaction balance.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_value",
+      "name": "t_plus_e_action_reaction_residual",
+      "notes": "The collisional friction diagnostics for pair t+/e should satisfy action-reaction balance.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "max_value",
+      "name": "he_plus_e_action_reaction_residual",
+      "notes": "The collisional friction diagnostics for pair he+/e should satisfy action-reaction balance.",
+      "passed": true,
+      "target": 1e-12,
+      "value": 0.0
+    },
+    {
+      "kind": "fraction",
+      "name": "pressure_species_conduction_time_finite_fraction",
+      "notes": "All pressure-evolving species should retain finite conduction collision times on the prepared state.",
+      "passed": true,
+      "target": 1.0,
+      "value": 1.0
+    }
+  ],
+  "passed_metric_count": 8,
+  "pressure_species_order": [
+    "e",
+    "d+",
+    "t+",
+    "he+",
+    "d",
+    "t",
+    "he"
+  ],
+  "snapshot_name": "recycling_dthe_rhs_snapshot.npz",
+  "summaries": {
+    "conduction_time_active_point": [
+      26.450874697166558,
+      7675.227535149537,
+      10342.272619645735,
+      13750.387287155238,
+      68.73079915072664,
+      76.46207419837519,
+      200.84495905849323
+    ],
+    "energy_exchange_peak": [
+      8.757346322168095e-06,
+      5.514896892123019e-11,
+      3.485037625879359e-11,
+      1.9420303389779796e-12
+    ],
+    "friction_action_reaction_residual": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "friction_pair_peak": [
+      4.065089657514128e-05,
+      1.1133637161759219e-06,
+      1.0840210525085586e-06,
+      2.9548902175236126e-08
+    ],
+    "ion_viscosity_peak": [
+      4.724013071313946,
+      5.197448364576661,
+      0.055882316421775304
+    ]
+  }
+}

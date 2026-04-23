@@ -283,6 +283,12 @@ from .neutral_parallel_diffusion_campaign import (
     build_neutral_parallel_diffusion_campaign,
     create_neutral_parallel_diffusion_campaign_package,
 )
+from .collision_closure_campaign import (
+    CollisionClosureCampaignArtifacts,
+    CollisionClosureCampaignMetric,
+    build_collision_closure_campaign,
+    create_collision_closure_campaign_package,
+)
 from .impurity_radiation_campaign import (
     ImpurityRadiationCampaignArtifacts,
     ImpurityRadiationCampaignMetric,
@@ -483,6 +489,10 @@ __all__ = [
     "NeutralParallelDiffusionCampaignMetric",
     "build_neutral_parallel_diffusion_campaign",
     "create_neutral_parallel_diffusion_campaign_package",
+    "CollisionClosureCampaignArtifacts",
+    "CollisionClosureCampaignMetric",
+    "build_collision_closure_campaign",
+    "create_collision_closure_campaign_package",
     "ImpurityRadiationCampaignArtifacts",
     "ImpurityRadiationCampaignMetric",
     "build_impurity_radiation_campaign",
