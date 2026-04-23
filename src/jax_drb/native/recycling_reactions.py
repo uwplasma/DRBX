@@ -13,8 +13,10 @@ from .recycling_atomic import (
     amjuel_reaction_rate,
     charge_exchange_rate_multiplier,
     eval_amjuel_fit,
+    eval_openadas_rate,
     hydrogen_cx_sigmav,
     load_amjuel_rate,
+    load_openadas_rate,
     openadas_energy_loss,
     openadas_reaction_rate,
 )
@@ -326,12 +328,22 @@ def neutral_ionisation_collision_rates(
         atom_name = lhs[0]
         if atom_name not in species or species[atom_name].charge != 0.0:
             continue
-        sigma_v_coeffs, _, _ = load_amjuel_rate(atom_name, "iz")
-        sigma_v = eval_amjuel_fit(
-            np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
-            np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
-            sigma_v_coeffs,
-        )
+        if (atom_name, "iz") in OPENADAS_FILENAMES:
+            rate_coeff, _, log_temperature, log_density, _ = load_openadas_rate(atom_name, "iz")
+            sigma_v = eval_openadas_rate(
+                np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
+                np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
+                rate_coeff,
+                log_temperature=log_temperature,
+                log_density=log_density,
+            )
+        else:
+            sigma_v_coeffs, _, _ = load_amjuel_rate(atom_name, "iz")
+            sigma_v = eval_amjuel_fit(
+                np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
+                np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
+                sigma_v_coeffs,
+            )
         totals[atom_name] = np.asarray(
             np.asarray(electron_density, dtype=np.float64) * sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"]),
             dtype=np.float64,
