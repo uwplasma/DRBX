@@ -18,6 +18,12 @@ from ..native.reference_dump import (
 from ..native.units import resolved_dataset_scalars
 from ..reference.paths import require_reference_root
 from ..runtime.run_config import RunConfiguration
+from .publication_plotting import (
+    annotate_bars,
+    save_publication_figure,
+    style_axis,
+    support_window_slice,
+)
 
 
 _FIELD_NAMES = (
@@ -467,58 +473,83 @@ def _save_tokamak_anomalous_diffusion_plot(
 
     figure, axes = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
 
-    axes[0, 0].bar(x - 0.18, np.asarray(summaries["anomalous_D_active_point"], dtype=np.float64), width=0.36, label="D")
-    axes[0, 0].bar(x + 0.18, np.asarray(summaries["anomalous_Chi_active_point"], dtype=np.float64), width=0.36, label="chi")
+    anomalous_d = np.asarray(summaries["anomalous_D_active_point"], dtype=np.float64)
+    anomalous_chi = np.asarray(summaries["anomalous_Chi_active_point"], dtype=np.float64)
+    axes[0, 0].bar(x - 0.18, anomalous_d, width=0.36, label="D")
+    axes[0, 0].bar(x + 0.18, anomalous_chi, width=0.36, label=r"$\chi$")
     axes[0, 0].set_xticks(x, species_order)
-    axes[0, 0].set_ylabel("Normalized coefficient")
-    axes[0, 0].set_title("Configured anomalous coefficients")
+    style_axis(
+        axes[0, 0],
+        title="Configured anomalous coefficients",
+        ylabel="normalized coefficient",
+    )
     axes[0, 0].legend(frameon=False)
 
-    axes[0, 1].bar(x, np.asarray(summaries["energy_relative_contrast"], dtype=np.float64), color="#c85c3a")
+    energy_relative_contrast = np.asarray(summaries["energy_relative_contrast"], dtype=np.float64)
+    axes[0, 1].bar(x, energy_relative_contrast, color="#c85c3a", width=0.6)
     axes[0, 1].set_xticks(x, species_order)
-    axes[0, 1].set_ylabel("max|nonorth - orth| / max|orth|")
-    axes[0, 1].set_title("Non-orthogonal energy-transport contrast")
+    style_axis(
+        axes[0, 1],
+        title="Non-orthogonal energy-transport contrast",
+        ylabel=r"$\max|\Delta S_E| / \max|S_E^{\mathrm{orth}}|$",
+    )
+    annotate_bars(axes[0, 1], x, energy_relative_contrast, fmt="{:.3f}")
 
     y_line = np.asarray(summaries["y_line"], dtype=np.float64)
-    axes[1, 0].plot(y_line, np.asarray(summaries["d_plus_energy_nonorth_line"], dtype=np.float64), label="d+ nonorth")
-    axes[1, 0].plot(y_line, np.asarray(summaries["d_plus_energy_orth_line"], dtype=np.float64), label="d+ orth")
-    axes[1, 0].set_xlabel("y")
-    axes[1, 0].set_ylabel("Energy source")
-    axes[1, 0].set_title("Representative d+ anomalous-energy lineout")
+    d_nonorth = np.asarray(summaries["d_plus_energy_nonorth_line"], dtype=np.float64)
+    d_orth = np.asarray(summaries["d_plus_energy_orth_line"], dtype=np.float64)
+    d_delta = np.asarray(summaries["d_plus_energy_delta_line"], dtype=np.float64)
+    d_slice = support_window_slice(d_nonorth, d_orth, d_delta, padding=1, threshold=1.0e-8)
+    axes[1, 0].plot(y_line[d_slice], d_nonorth[d_slice], label="d+ nonorth")
+    axes[1, 0].plot(y_line[d_slice], d_orth[d_slice], label="d+ orth")
+    style_axis(
+        axes[1, 0],
+        title="Representative d+ anomalous-energy lineout",
+        xlabel="parallel coordinate y",
+        ylabel="energy source",
+        grid="both",
+    )
     delta_axis_d = axes[1, 0].twinx()
     delta_axis_d.plot(
-        y_line,
-        np.asarray(summaries["d_plus_energy_delta_line"], dtype=np.float64),
+        y_line[d_slice],
+        d_delta[d_slice],
         color="#2c9a42",
         linestyle="--",
-        label="d+ delta",
+        label=r"$\Delta$",
     )
-    delta_axis_d.set_ylabel("Delta")
+    delta_axis_d.set_ylabel(r"$\Delta$")
     delta_axis_d.ticklabel_format(axis="y", style="plain", useOffset=False)
+    delta_axis_d.spines["top"].set_visible(False)
     d_handles, d_labels = axes[1, 0].get_legend_handles_labels()
     d_delta_handles, d_delta_labels = delta_axis_d.get_legend_handles_labels()
     axes[1, 0].legend(d_handles + d_delta_handles, d_labels + d_delta_labels, frameon=False, loc="upper right")
 
-    axes[1, 1].plot(y_line, np.asarray(summaries["t_plus_energy_nonorth_line"], dtype=np.float64), label="t+ nonorth")
-    axes[1, 1].plot(y_line, np.asarray(summaries["t_plus_energy_orth_line"], dtype=np.float64), label="t+ orth")
-    axes[1, 1].set_xlabel("y")
-    axes[1, 1].set_ylabel("Energy source")
-    axes[1, 1].set_title("Representative t+ anomalous-energy lineout")
+    t_nonorth = np.asarray(summaries["t_plus_energy_nonorth_line"], dtype=np.float64)
+    t_orth = np.asarray(summaries["t_plus_energy_orth_line"], dtype=np.float64)
+    t_delta = np.asarray(summaries["t_plus_energy_delta_line"], dtype=np.float64)
+    t_slice = support_window_slice(t_nonorth, t_orth, t_delta, padding=1, threshold=1.0e-8)
+    axes[1, 1].plot(y_line[t_slice], t_nonorth[t_slice], label="t+ nonorth")
+    axes[1, 1].plot(y_line[t_slice], t_orth[t_slice], label="t+ orth")
+    style_axis(
+        axes[1, 1],
+        title="Representative t+ anomalous-energy lineout",
+        xlabel="parallel coordinate y",
+        ylabel="energy source",
+        grid="both",
+    )
     delta_axis_t = axes[1, 1].twinx()
     delta_axis_t.plot(
-        y_line,
-        np.asarray(summaries["t_plus_energy_delta_line"], dtype=np.float64),
+        y_line[t_slice],
+        t_delta[t_slice],
         color="#2c9a42",
         linestyle="--",
-        label="t+ delta",
+        label=r"$\Delta$",
     )
-    delta_axis_t.set_ylabel("Delta")
+    delta_axis_t.set_ylabel(r"$\Delta$")
     delta_axis_t.ticklabel_format(axis="y", style="plain", useOffset=False)
+    delta_axis_t.spines["top"].set_visible(False)
     t_handles, t_labels = axes[1, 1].get_legend_handles_labels()
     t_delta_handles, t_delta_labels = delta_axis_t.get_legend_handles_labels()
     axes[1, 1].legend(t_handles + t_delta_handles, t_labels + t_delta_labels, frameon=False, loc="upper right")
-
-    figure.suptitle("Tokamak anomalous-diffusion campaign")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output_path, dpi=200, bbox_inches="tight")
-    plt.close(figure)
+    figure.suptitle("Tokamak anomalous-transport geometry audit", fontsize=13.5, fontweight="semibold")
+    save_publication_figure(figure, output_path)

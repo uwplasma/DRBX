@@ -20,6 +20,7 @@ from ..native.recycling_setup import initialize_species
 from ..reference.paths import require_reference_root
 from ..runtime.run_config import RunConfiguration
 from ..native.units import resolved_dataset_scalars
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 
 _FIELD_NAMES = (
@@ -386,10 +387,8 @@ def _save_collision_closure_plot(
         color="#1f77b4",
         width=0.6,
     )
-    axes[0, 0].set_title("Ion viscosity activity")
-    axes[0, 0].set_ylabel(r"$\max |\nabla_\parallel \Pi_{\parallel,i}|$")
     axes[0, 0].set_xticks(np.arange(len(ion_species), dtype=np.float64), [name.upper() for name in ion_species])
-    axes[0, 0].grid(alpha=0.25, axis="y")
+    style_axis(axes[0, 0], title="Ion viscosity activity", ylabel=r"$\max |\nabla_\parallel \Pi_{\parallel,i}|$")
 
     axes[0, 1].bar(
         np.arange(len(friction_pairs), dtype=np.float64),
@@ -397,15 +396,12 @@ def _save_collision_closure_plot(
         color="#d62728",
         width=0.6,
     )
-    axes[0, 1].set_title("Collisional friction activity")
-    axes[0, 1].set_ylabel(r"$\max |F_{ab}^{\mathrm{coll}}|$")
-    axes[0, 1].set_yscale("log")
     axes[0, 1].set_xticks(
         np.arange(len(friction_pairs), dtype=np.float64),
         [_pair_display(label) for label in friction_pairs],
         rotation=20,
     )
-    axes[0, 1].grid(alpha=0.25, axis="y")
+    style_axis(axes[0, 1], title="Collisional friction activity", ylabel=r"$\max |F_{ab}^{\mathrm{coll}}|$", yscale="log")
 
     axes[1, 0].bar(
         np.arange(len(pressure_species), dtype=np.float64),
@@ -413,11 +409,8 @@ def _save_collision_closure_plot(
         color="#2ca02c",
         width=0.6,
     )
-    axes[1, 0].set_title("Active-point conduction time")
-    axes[1, 0].set_ylabel(r"$\tau_{\mathrm{cond}}$")
-    axes[1, 0].set_yscale("log")
     axes[1, 0].set_xticks(np.arange(len(pressure_species), dtype=np.float64), [name.upper() for name in pressure_species], rotation=20)
-    axes[1, 0].grid(alpha=0.25, axis="y")
+    style_axis(axes[1, 0], title="Active-point conduction time", ylabel=r"$\tau_{\mathrm{cond}}$", yscale="log")
 
     axes[1, 1].bar(
         np.arange(len(friction_pairs), dtype=np.float64),
@@ -425,21 +418,17 @@ def _save_collision_closure_plot(
         color="#9467bd",
         width=0.6,
     )
-    axes[1, 1].set_title("Frictional heating activity")
-    axes[1, 1].set_ylabel(r"$\max |Q_{ab}^{\mathrm{fric}}|$")
-    axes[1, 1].set_yscale("log")
     axes[1, 1].set_xticks(
         np.arange(len(friction_pairs), dtype=np.float64),
         [_pair_display(label) for label in friction_pairs],
         rotation=20,
     )
-    axes[1, 1].grid(alpha=0.25, axis="y")
+    style_axis(axes[1, 1], title="Frictional heating activity", ylabel=r"$\max |Q_{ab}^{\mathrm{fric}}|$", yscale="log")
 
     passed = sum(1 for metric in metrics if metric.passed)
     figure.suptitle(
         f"Collision closure activity on a prepared D/T/He recycling state ({passed}/{len(metrics)} metrics passing)",
-        fontsize=14,
+        fontsize=15.0,
+        fontweight="semibold",
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(path, dpi=220, bbox_inches="tight")
-    plt.close(figure)
+    save_publication_figure(figure, path)

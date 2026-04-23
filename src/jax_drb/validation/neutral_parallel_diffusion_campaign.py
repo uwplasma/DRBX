@@ -23,6 +23,7 @@ from ..native.recycling_1d import _prepare_open_field_states
 from ..reference.paths import require_reference_root
 from ..runtime.run_config import RunConfiguration
 from ..native.units import resolved_dataset_scalars
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 
 _FIELD_NAMES = (
@@ -458,11 +459,11 @@ def _save_neutral_parallel_diffusion_plot(
         label="Multispecies",
         color=color_multi,
     )
-    axes[0, 0].set_title("Effective neutral diffusivity")
-    axes[0, 0].set_ylabel(r"$D_{\parallel,n}$")
     axes[0, 0].set_xticks(positions, [name.upper() for name in species])
-    axes[0, 0].grid(alpha=0.25, axis="y")
+    style_axis(axes[0, 0], title="Effective neutral diffusivity", ylabel=r"$D_{\parallel,n}$")
     axes[0, 0].legend(frameon=False, fontsize=9)
+    annotate_bars(axes[0, 0], positions - width / 2.0, np.asarray(species_summaries["afn_diffusion"], dtype=np.float64), fmt="{:.2f}", fontsize=8.5)
+    annotate_bars(axes[0, 0], positions + width / 2.0, np.asarray(species_summaries["multispecies_diffusion"], dtype=np.float64), fmt="{:.2f}", fontsize=8.5)
 
     axes[0, 1].bar(
         positions - width / 2.0,
@@ -479,10 +480,8 @@ def _save_neutral_parallel_diffusion_plot(
         label="Charge exchange",
         color="#9467bd",
     )
-    axes[0, 1].set_title("AFN collision budget")
-    axes[0, 1].set_ylabel(r"$\nu_n$")
     axes[0, 1].set_xticks(positions, [name.upper() for name in species])
-    axes[0, 1].grid(alpha=0.25, axis="y")
+    style_axis(axes[0, 1], title="AFN collision budget", ylabel=r"$\nu_n$")
     axes[0, 1].legend(frameon=False, fontsize=9)
 
     axes[1, 0].bar(
@@ -500,10 +499,8 @@ def _save_neutral_parallel_diffusion_plot(
         label="Charge exchange",
         color="#8c564b",
     )
-    axes[1, 0].set_title("Multispecies collision budget")
-    axes[1, 0].set_ylabel(r"$\nu_n$")
     axes[1, 0].set_xticks(positions, [name.upper() for name in species])
-    axes[1, 0].grid(alpha=0.25, axis="y")
+    style_axis(axes[1, 0], title="Multispecies collision budget", ylabel=r"$\nu_n$")
     axes[1, 0].legend(frameon=False, fontsize=9)
 
     axes[1, 1].bar(
@@ -513,11 +510,21 @@ def _save_neutral_parallel_diffusion_plot(
         color="#17becf",
     )
     axes[1, 1].axhline(1.0, color="black", linewidth=1.2, linestyle="--", alpha=0.7)
-    axes[1, 1].set_title("Multispecies / AFN diffusivity")
-    axes[1, 1].set_ylabel(r"$D_{\parallel,n}^{\mathrm{multi}} / D_{\parallel,n}^{\mathrm{AFN}}$")
     axes[1, 1].set_xticks(positions, [name.upper() for name in species])
-    axes[1, 1].grid(alpha=0.25, axis="y")
+    style_axis(
+        axes[1, 1],
+        title="Multispecies / AFN diffusivity",
+        ylabel=r"$D_{\parallel,n}^{\mathrm{multi}} / D_{\parallel,n}^{\mathrm{AFN}}$",
+    )
+    annotate_bars(axes[1, 1], positions, np.asarray(species_summaries["diffusion_ratio"], dtype=np.float64), fmt="{:.2f}")
 
+    passed = sum(1 for metric in metrics if metric.passed)
+    figure.suptitle(
+        f"Neutral parallel diffusion closure on a prepared D/T/He recycling state ({passed}/{len(metrics)} metrics passing)",
+        fontsize=15.0,
+        fontweight="semibold",
+    )
+    save_publication_figure(figure, path)
     passed = sum(1 for metric in metrics if metric.passed)
     figure.suptitle(
         f"Neutral parallel diffusion closure on a prepared D/T/He recycling state ({passed}/{len(metrics)} metrics passing)",
