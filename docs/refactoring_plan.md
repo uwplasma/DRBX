@@ -430,6 +430,9 @@ to that audit:
   same machine, not only through committed reference arrays
 - heavy 1D recycling and the neutral mixed lane remain the main remaining live
   runtime and fidelity gaps
+- the neutral mixed gap now also has a dedicated live rerun boundary-audit
+  figure, which should be treated as the first manuscript-facing neutral
+  mismatch surface rather than relying only on matrix-level summary bars
 - integrated and direct-tokamak recycling are already competitive in wall time
   on this machine, but their current one-step mismatch is dominated by near-zero
   `NVd` on the guarded compare surface rather than by large absolute profile

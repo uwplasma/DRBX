@@ -22,6 +22,11 @@ class RecyclingSourceResult:
     target_energy_source: jnp.ndarray
 
 
+@dataclass(frozen=True)
+class TargetBoundaryGeometry:
+    source_scale: jnp.ndarray
+
+
 def _use_numpy_backend(*values: object) -> bool:
     return any(isinstance(value, np.ndarray) for value in values if value is not None)
 
@@ -195,6 +200,8 @@ def compute_target_recycling_sources(
     target_fast_recycle_energy_factor: float = 0.0,
     lower_y: bool = True,
     upper_y: bool = True,
+    lower_geometry: TargetBoundaryGeometry | None = None,
+    upper_geometry: TargetBoundaryGeometry | None = None,
 ) -> RecyclingSourceResult:
     if _use_numpy_backend(density, velocity, temperature, J, dy, dx, dz, g_22):
         density_np = np.asarray(density, dtype=np.float64)
@@ -227,6 +234,11 @@ def compute_target_recycling_sources(
                 gamma_i=gamma_i,
                 fast_recycle_fraction=target_fast_recycle_fraction,
                 fast_recycle_energy_factor=target_fast_recycle_energy_factor,
+                source_scale=(
+                    None
+                    if lower_geometry is None
+                    else np.asarray(lower_geometry.source_scale, dtype=np.float64)
+                ),
             )
             density_source[:, mesh.ystart, :] = lower_density_source
             energy_source[:, mesh.ystart, :] = lower_energy_source
@@ -249,6 +261,11 @@ def compute_target_recycling_sources(
                 gamma_i=gamma_i,
                 fast_recycle_fraction=target_fast_recycle_fraction,
                 fast_recycle_energy_factor=target_fast_recycle_energy_factor,
+                source_scale=(
+                    None
+                    if upper_geometry is None
+                    else np.asarray(upper_geometry.source_scale, dtype=np.float64)
+                ),
             )
             density_source[:, mesh.yend, :] += upper_density_source
             energy_source[:, mesh.yend, :] += upper_energy_source
@@ -289,6 +306,7 @@ def compute_target_recycling_sources(
             gamma_i=gamma_i,
             fast_recycle_fraction=target_fast_recycle_fraction,
             fast_recycle_energy_factor=target_fast_recycle_energy_factor,
+            source_scale=(None if lower_geometry is None else lower_geometry.source_scale),
         )
         density_source = density_source.at[:, mesh.ystart, :].set(lower_density_source)
         energy_source = energy_source.at[:, mesh.ystart, :].set(lower_energy_source)
@@ -311,6 +329,7 @@ def compute_target_recycling_sources(
             gamma_i=gamma_i,
             fast_recycle_fraction=target_fast_recycle_fraction,
             fast_recycle_energy_factor=target_fast_recycle_energy_factor,
+            source_scale=(None if upper_geometry is None else upper_geometry.source_scale),
         )
         density_source = density_source.at[:, mesh.yend, :].add(upper_density_source)
         energy_source = energy_source.at[:, mesh.yend, :].add(upper_energy_source)
@@ -341,6 +360,7 @@ def _target_boundary_sources(
     gamma_i: float,
     fast_recycle_fraction: float,
     fast_recycle_energy_factor: float,
+    source_scale: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     n_i = density[:, y_index, :]
     n_g = density[:, guard_index, :]
@@ -360,19 +380,60 @@ def _target_boundary_sources(
 
     flux = sign * 0.25 * (n_i + n_g) * (v_i + v_g)
     flux = jnp.maximum(flux, 0.0)
-    daparsheath = 0.25 * (j_i + j_g) / (jnp.sqrt(g_i) + jnp.sqrt(g_g)) * (dx_i + dx_g) * (dz_i + dz_g)
-    volume = j_i * dx_i * dy_i * dz_i
-    flow = float(target_multiplier) * flux * daparsheath
+    if source_scale is None:
+        daparsheath = 0.25 * (j_i + j_g) / (jnp.sqrt(g_i) + jnp.sqrt(g_g)) * (dx_i + dx_g) * (dz_i + dz_g)
+        volume = j_i * dx_i * dy_i * dz_i
+        source_scale = daparsheath / volume
+    else:
+        source_scale = jnp.asarray(source_scale, dtype=jnp.float64)
+    flow_per_volume = float(target_multiplier) * flux * source_scale
 
     nisheath = 0.5 * (n_i + n_g)
     tisheath = 0.5 * (t_i + t_g)
     visheath = 0.5 * (v_i + v_g)
-    sheath_ion_heat_flow = jnp.abs(float(gamma_i) * nisheath * tisheath * visheath * daparsheath / volume)
+    sheath_ion_heat_flow = jnp.abs(float(gamma_i) * nisheath * tisheath * visheath * source_scale)
     recycle_energy_flow = (
         sheath_ion_heat_flow
         * float(target_multiplier)
         * float(fast_recycle_energy_factor)
         * float(fast_recycle_fraction)
-        + flow * (1.0 - float(fast_recycle_fraction)) * float(target_energy)
+        + flow_per_volume * (1.0 - float(fast_recycle_fraction)) * float(target_energy)
     )
-    return flow / volume, recycle_energy_flow / volume
+    return flow_per_volume, recycle_energy_flow
+
+
+def build_target_boundary_geometry(
+    *,
+    J: jnp.ndarray,
+    dy: jnp.ndarray,
+    dx: jnp.ndarray,
+    dz: jnp.ndarray,
+    g_22: jnp.ndarray,
+    y_index: int,
+    guard_index: int,
+) -> TargetBoundaryGeometry:
+    if _use_numpy_backend(J, dy, dx, dz, g_22):
+        j_i = np.asarray(J[:, y_index, :], dtype=np.float64)
+        j_g = np.asarray(J[:, guard_index, :], dtype=np.float64)
+        dy_i = np.asarray(dy[:, y_index, :], dtype=np.float64)
+        dx_i = np.asarray(dx[:, y_index, :], dtype=np.float64)
+        dx_g = np.asarray(dx[:, guard_index, :], dtype=np.float64)
+        dz_i = np.asarray(dz[:, y_index, :], dtype=np.float64)
+        dz_g = np.asarray(dz[:, guard_index, :], dtype=np.float64)
+        g_i = np.asarray(g_22[:, y_index, :], dtype=np.float64)
+        g_g = np.asarray(g_22[:, guard_index, :], dtype=np.float64)
+        daparsheath = 0.25 * (j_i + j_g) / (np.sqrt(g_i) + np.sqrt(g_g)) * (dx_i + dx_g) * (dz_i + dz_g)
+        volume = j_i * dx_i * dy_i * dz_i
+        return TargetBoundaryGeometry(source_scale=daparsheath / volume)
+    j_i = jnp.asarray(J[:, y_index, :], dtype=jnp.float64)
+    j_g = jnp.asarray(J[:, guard_index, :], dtype=jnp.float64)
+    dy_i = jnp.asarray(dy[:, y_index, :], dtype=jnp.float64)
+    dx_i = jnp.asarray(dx[:, y_index, :], dtype=jnp.float64)
+    dx_g = jnp.asarray(dx[:, guard_index, :], dtype=jnp.float64)
+    dz_i = jnp.asarray(dz[:, y_index, :], dtype=jnp.float64)
+    dz_g = jnp.asarray(dz[:, guard_index, :], dtype=jnp.float64)
+    g_i = jnp.asarray(g_22[:, y_index, :], dtype=jnp.float64)
+    g_g = jnp.asarray(g_22[:, guard_index, :], dtype=jnp.float64)
+    daparsheath = 0.25 * (j_i + j_g) / (jnp.sqrt(g_i) + jnp.sqrt(g_g)) * (dx_i + dx_g) * (dz_i + dz_g)
+    volume = j_i * dx_i * dy_i * dz_i
+    return TargetBoundaryGeometry(source_scale=daparsheath / volume)

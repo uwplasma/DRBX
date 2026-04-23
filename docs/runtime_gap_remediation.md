@@ -25,7 +25,10 @@ The refreshed live matrix identifies four distinct categories.
 This is still the clearest current fidelity gap. The runtime was reduced
 substantially by vectorizing the perpendicular diffusion kernel and the local
 profile mean dropped from about `1.15 s` to about `0.63 s`, but the main
-physics mismatch remains.
+physics mismatch remains. The focused follow-up figure is now in
+[neutral_mixed_boundary_campaign.md](neutral_mixed_boundary_campaign.md), which
+shows the worst-error `Nh`, `Ph`, and `NVh` lineouts plus the
+`max_{x,z} |Δ|(y)` profile on the same live rerun surface.
 
 ### 2. Heavy 1D recycling runtime bottleneck
 
@@ -45,7 +48,9 @@ offenders.
 - dominant field: `NVd`
 
 This is the current worst runtime ratio in the live matrix and the main
-production-path runtime target.
+production-path runtime target. The latest target-boundary geometry caching
+pass reduced the local timed run from about `54.1 s` to about `52.76 s`
+without changing the fidelity band.
 
 ### 4. Near-zero normalized tokamak recycling mismatch
 
@@ -107,8 +112,9 @@ The current bottlenecks split into two classes.
 1. profile `neutral_mixed_one_step` with the public profiling script
 2. isolate the `NVh` residual terms and compare them term-by-term against the
    Hermès lane
-3. add a dedicated operator/closure campaign for the offending neutral terms
-4. lock the fix with a direct regression test plus a paper-grade figure
+3. keep the new live rerun boundary-audit package and extend it term-by-term
+   for the offending neutral terms
+4. lock the fix with a direct regression test plus the same paper-grade figure
 
 ### Priority 2: multispecies recycling runtime
 

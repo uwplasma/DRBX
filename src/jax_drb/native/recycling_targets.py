@@ -6,7 +6,7 @@ import numpy as np
 
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
-from .open_field import compute_target_recycling_sources
+from .open_field import TargetBoundaryGeometry, compute_target_recycling_sources
 from .recycling_setup import OpenFieldSpecies
 from .recycling_state import PreparedSpeciesState
 
@@ -27,6 +27,8 @@ def target_recycling_sources(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     gamma_i: float,
+    lower_geometry: TargetBoundaryGeometry | None = None,
+    upper_geometry: TargetBoundaryGeometry | None = None,
 ) -> RecyclingTerms:
     neutral_lookup = {sp.name: sp for sp in neutrals}
     density_source = {sp.name: np.zeros_like(sp.density, dtype=np.float64) for sp in (*ions, *neutrals)}
@@ -55,6 +57,8 @@ def target_recycling_sources(
             target_fast_recycle_energy_factor=ion.target_fast_recycle_energy_factor,
             lower_y=mesh.has_lower_y_target,
             upper_y=mesh.has_upper_y_target,
+            lower_geometry=lower_geometry,
+            upper_geometry=upper_geometry,
         )
         density_source[neutral.name] += np.asarray(result.density_source, dtype=np.float64)
         energy_source[neutral.name] += np.asarray(result.energy_source, dtype=np.float64)

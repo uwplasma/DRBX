@@ -157,6 +157,9 @@ The current live rerun evidence sharpens that priority:
   error
 - heavy 1D recycling and the neutral mixed lane remain the main fidelity and
   runtime gaps
+- the neutral lane now also has a dedicated live rerun boundary-audit figure,
+  so the remaining mismatch is no longer represented only by matrix-level
+  summary scalars
 - full live 3D Hermès reruns are still missing, so 3D remains a distinct
   selected-field evidence track rather than part of the live rerun matrix
 

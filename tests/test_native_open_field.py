@@ -11,6 +11,7 @@ from jax_drb.native.open_field import (
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
     apply_parallel_electric_force,
+    build_target_boundary_geometry,
     compute_electron_force_balance,
     compute_target_recycling_sources,
     limit_free,
@@ -177,6 +178,73 @@ def test_target_recycling_sources_numpy_fast_path_matches_reference_formula() ->
     assert float(result.density_source[0, mesh.yend, 0]) == pytest.approx(0.375)
     assert float(result.energy_source[0, mesh.ystart, 0]) == pytest.approx(0.75)
     assert float(result.energy_source[0, mesh.yend, 0]) == pytest.approx(1.125)
+
+
+def test_target_recycling_sources_precomputed_geometry_matches_direct_geometry_path() -> None:
+    mesh = _mesh()
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = jnp.ones(shape, dtype=jnp.float64)
+    velocity = jnp.zeros(shape, dtype=jnp.float64)
+    temperature = 2.0 * jnp.ones(shape, dtype=jnp.float64)
+    velocity = velocity.at[:, mesh.ystart - 1, :].set(-3.0)
+    velocity = velocity.at[:, mesh.ystart, :].set(-1.0)
+    velocity = velocity.at[:, mesh.yend, :].set(2.0)
+    velocity = velocity.at[:, mesh.yend + 1, :].set(4.0)
+    J = jnp.ones(shape, dtype=jnp.float64)
+    dy = 2.0 * jnp.ones(shape, dtype=jnp.float64)
+    dx = 3.0 * jnp.ones(shape, dtype=jnp.float64)
+    dz = 5.0 * jnp.ones(shape, dtype=jnp.float64)
+    g_22 = 4.0 * jnp.ones(shape, dtype=jnp.float64)
+
+    direct = compute_target_recycling_sources(
+        density,
+        velocity,
+        temperature,
+        mesh=mesh,
+        J=J,
+        dy=dy,
+        dx=dx,
+        dz=dz,
+        g_22=g_22,
+        target_multiplier=0.5,
+        target_energy=3.0,
+        gamma_i=3.5,
+    )
+    cached = compute_target_recycling_sources(
+        density,
+        velocity,
+        temperature,
+        mesh=mesh,
+        J=J,
+        dy=dy,
+        dx=dx,
+        dz=dz,
+        g_22=g_22,
+        target_multiplier=0.5,
+        target_energy=3.0,
+        gamma_i=3.5,
+        lower_geometry=build_target_boundary_geometry(
+            J=J,
+            dy=dy,
+            dx=dx,
+            dz=dz,
+            g_22=g_22,
+            y_index=mesh.ystart,
+            guard_index=mesh.ystart - 1,
+        ),
+        upper_geometry=build_target_boundary_geometry(
+            J=J,
+            dy=dy,
+            dx=dx,
+            dz=dz,
+            g_22=g_22,
+            y_index=mesh.yend,
+            guard_index=mesh.yend + 1,
+        ),
+    )
+
+    np.testing.assert_allclose(np.asarray(cached.density_source), np.asarray(direct.density_source), rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(np.asarray(cached.energy_source), np.asarray(direct.energy_source), rtol=0.0, atol=0.0)
 
 
 def test_open_field_utilities_are_differentiable() -> None:

@@ -32,6 +32,7 @@ from .neutral_mixed import (
     _grad_par_open,
 )
 from .open_field import (
+    TargetBoundaryGeometry,
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
     apply_parallel_electric_force,
@@ -273,6 +274,7 @@ def compute_recycling_1d_rhs(
     runtime_model = _build_recycling_runtime_model(
         config,
         mesh=mesh,
+        metrics=metrics,
         dataset_scalars=dataset_scalars,
         field_overrides=field_overrides,
         field_template_overrides=field_template_overrides,
@@ -294,6 +296,8 @@ def compute_recycling_1d_rhs(
         density_source_overrides=density_source_overrides,
         pressure_source_overrides=pressure_source_overrides,
         momentum_source_overrides=momentum_source_overrides,
+        lower_target_geometry=runtime_model.lower_target_geometry,
+        upper_target_geometry=runtime_model.upper_target_geometry,
     )
 
 
@@ -315,6 +319,8 @@ def _compute_recycling_1d_rhs_from_species(
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     momentum_source_overrides: dict[str, np.ndarray] | None = None,
+    lower_target_geometry: TargetBoundaryGeometry | None = None,
+    upper_target_geometry: TargetBoundaryGeometry | None = None,
 ) -> Recycling1DRhsResult:
     pressure_sources = explicit_pressure_sources or {}
     if pressure_source_overrides:
@@ -444,6 +450,8 @@ def _compute_recycling_1d_rhs_from_species(
         mesh=mesh,
         metrics=metrics,
         gamma_i=0.0 if simple_sheath_settings is None else simple_sheath_settings.gamma_i,
+        lower_geometry=lower_target_geometry,
+        upper_geometry=upper_target_geometry,
     )
     for name, value in recycling_terms.density_source.items():
         density_source[name] += value
@@ -1639,6 +1647,7 @@ def advance_recycling_1d_implicit_history(
     runtime_model = _build_recycling_runtime_model(
         config,
         mesh=mesh,
+        metrics=metrics,
         dataset_scalars=dataset_scalars,
         field_overrides=initial_fields,
         field_template_overrides=field_template_overrides,
@@ -2449,6 +2458,7 @@ def advance_recycling_1d_backward_euler_step(
     runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
         mesh=mesh,
+        metrics=metrics,
         dataset_scalars=dataset_scalars,
     )
     field_names = runtime_model.field_names
@@ -2602,6 +2612,7 @@ def advance_recycling_1d_bdf2_step(
     runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
         mesh=mesh,
+        metrics=metrics,
         dataset_scalars=dataset_scalars,
     )
     field_names = runtime_model.field_names
@@ -2913,6 +2924,7 @@ def _compute_recycling_1d_packed_rhs(
     runtime_model = runtime_model or _build_recycling_runtime_model(
         config,
         mesh=mesh,
+        metrics=metrics,
         dataset_scalars=dataset_scalars,
     )
     sanitized_fields = _sanitize_recycling_fields(config, fields) if sanitize_fields else {
@@ -2933,6 +2945,8 @@ def _compute_recycling_1d_packed_rhs(
         density_source_overrides=runtime_model.density_source_overrides,
         pressure_source_overrides=runtime_model.pressure_source_overrides,
         momentum_source_overrides=runtime_model.momentum_source_overrides,
+        lower_target_geometry=runtime_model.lower_target_geometry,
+        upper_target_geometry=runtime_model.upper_target_geometry,
         preserve_dump_target_state=runtime_model.preserve_dump_target_state,
         preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
     )
@@ -3077,6 +3091,8 @@ def _predict_recycling_fields_from_rhs(
         dataset_scalars=dataset_scalars,
         feedback_integrals=feedback_integrals,
         explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+        lower_target_geometry=runtime_model.lower_target_geometry,
+        upper_target_geometry=runtime_model.upper_target_geometry,
     )
     predicted = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in sanitized_fields.items()}
     for name in field_names:
