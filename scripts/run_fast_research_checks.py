@@ -74,6 +74,7 @@ def all_slices() -> tuple[PytestSlice, ...]:
             name="native_operator",
             description="open-field utilities and implicit-operator checks",
             pytest_args=(
+                "tests/test_native_mesh.py",
                 "tests/test_native_open_field.py",
                 "tests/test_validation_open_field_operator_campaign.py",
                 "tests/test_solver_implicit.py",
