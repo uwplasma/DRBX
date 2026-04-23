@@ -1,6 +1,11 @@
 # Hermes Comparison Gallery
 
-This page collects the current committed native-vs-reference comparison surfaces and the compact summary plot built from them.
+This page collects the current committed native-vs-reference comparison
+surfaces and the compact summary plot built from them.
+
+The top summary plot is an index figure, not the main scientific evidence
+surface. The lane-specific comparison figures below remain the stronger
+publication-facing artifacts.
 
 ## Summary
 

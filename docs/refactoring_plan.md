@@ -400,6 +400,13 @@ This implies a rule for `jax_drb` baselines:
 - where the literature compares profiles, targets, or diagnostic maps, our
   baseline should expose those same observables rather than only reduced norms
 
+The current codebase review adds one more rule:
+
+- cross-case summary dashboards, profiler summaries, and runtime rollups are
+  useful supporting artifacts, but they are not primary publication figures
+  unless they are paired with a literature-style physical or numerical question
+  on the same surface
+
 ## Manuscript Figure Plan From Tests And Campaigns
 
 The future paper figures should come out of validated tests and campaigns,
@@ -738,6 +745,36 @@ artifacts, not ad hoc notebooks.
 - 3D runtime and convergence campaigns
 - JAX profile and local CPU throughput campaigns
 - sensitivity, UQ, and inverse-design figures on promoted differentiable lanes
+- workstation throughput figures on repeated heavy solves, not only tiny-kernel
+  timing plots, for local research workflows
+
+### Current research-grade figure subset
+
+After the latest validation pass, the strongest existing figure families are:
+
+- fluid 1D MMS convergence
+- reactions and collisions
+- neutral parallel diffusion
+- collision closure
+- tokamak anomalous diffusion
+- target recycling
+- autodiff uncertainty propagation
+- local CPU scaling on repeated heavy tokamak-recycling solves
+
+The current summary/runtime/profile figures remain useful, but they should stay
+secondary in the future paper unless they are extended:
+
+- Hermes comparison summary
+- native 3D runtime campaign
+- JAX native profile audit
+
+The next paper-strengthening benchmark additions should therefore focus on the
+literature-recognizable missing classes rather than on more dashboards:
+
+- TCV-X21 target and divertor observable maps
+- source and ionisation-distribution figures on benchmark tokamak lanes
+- TORPEX/X-point blob trajectories and morphology figures
+- detachment-scaling curves and front-location trends
 
 ### Plot-generation policy
 

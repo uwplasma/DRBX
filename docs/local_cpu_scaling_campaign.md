@@ -38,3 +38,6 @@ Interpretation:
 - the retained `16`-solve ensemble is deliberate: heavier local sweeps were
   checked, but they did not improve the curve on this thermally limited
   MacBook enough to justify a slower default artifact
+- the figure now carries both speedup and parallel-efficiency panels, which is
+  closer to the performance-reporting style used in numerical-physics and
+  differentiable-science code papers

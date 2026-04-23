@@ -13,6 +13,7 @@ from netCDF4 import Dataset
 import numpy as np
 
 from .native_3d_runtime_campaign import _write_metric_grid, _write_vmec_case
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
 from .stellarator_vmec_native_selected_field import _native_vmec_profile_batch
 from .stellarator_vmec_selected_field import _load_vmec_selected_fields
 from .traced_field_line_native_selected_field import _native_radial_profile_batch
@@ -73,7 +74,7 @@ def save_jax_native_profile_audit_plot(report: dict[str, object], path: str | Pa
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     lanes = list(report["lanes"])
-    labels = [str(entry["lane_name"]) for entry in lanes]
+    labels = ["traced-field-line\nreduced", "stellarator VMEC\nreduced"]
     compile_seconds = np.asarray([float(entry["compile_seconds"]) for entry in lanes], dtype=np.float64)
     first_execute_seconds = np.asarray([float(entry["first_execute_seconds"]) for entry in lanes], dtype=np.float64)
     warm_execute_seconds = np.asarray([float(entry["warm_execute_seconds"]) for entry in lanes], dtype=np.float64)
@@ -85,12 +86,17 @@ def save_jax_native_profile_audit_plot(report: dict[str, object], path: str | Pa
     axis.bar(x, first_execute_seconds, width=width, color="#0a9396", label="first execute")
     axis.bar(x + width, warm_execute_seconds, width=width, color="#3a86ff", label="warm execute")
     axis.set_xticks(x, labels)
-    axis.set_ylabel("seconds")
-    axis.set_title("Reduced native JAX kernel profile audit")
-    axis.grid(alpha=0.25, axis="y")
+    style_axis(
+        axis,
+        title="Reduced native JAX kernel profile audit",
+        ylabel="seconds",
+        yscale="log",
+    )
     axis.legend(frameon=False, ncol=3)
-    figure.savefig(target, dpi=180)
-    plt.close(figure)
+    annotate_bars(axis, x - width, compile_seconds, fmt="{:.2e}", fontsize=8.4)
+    annotate_bars(axis, x, first_execute_seconds, fmt="{:.2e}", fontsize=8.4)
+    annotate_bars(axis, x + width, warm_execute_seconds, fmt="{:.2e}", fontsize=8.4)
+    save_publication_figure(figure, target)
     return target
 
 

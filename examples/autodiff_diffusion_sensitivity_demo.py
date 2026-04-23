@@ -22,6 +22,7 @@ from jax_drb.validation.autodiff_diffusion import (
     objective_for_physical_parameters,
     simulate_density_history_from_physical,
 )
+from jax_drb.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 
 @dataclass(frozen=True)
@@ -157,11 +158,14 @@ def save_summary_plot(settings: SensitivitySettings, payload: dict[str, Any]) ->
     axes[0].plot(payload["diffusivity_sweep"], payload["sweep_objective"], color="#0b6e4f", linewidth=2.6, label="objective sweep")
     axes[0].plot(payload["diffusivity_sweep"], payload["tangent"], color="#d1495b", linestyle="--", linewidth=2.0, label="autodiff tangent")
     axes[0].axvline(float(payload["nominal_parameters"][0]), color="#1b1b1b", linewidth=1.2, alpha=0.7)
-    axes[0].set_xlabel("anomalous diffusivity")
-    axes[0].set_ylabel("objective")
-    axes[0].set_title("Sensitivity around nominal diffusivity")
+    style_axis(
+        axes[0],
+        title="Sensitivity around nominal diffusivity",
+        xlabel="anomalous diffusivity",
+        ylabel="objective",
+        grid="both",
+    )
     axes[0].ticklabel_format(axis="y", style="plain", useOffset=False)
-    axes[0].grid(alpha=0.25)
     axes[0].legend(frameon=False)
 
     labels = ["D", "A", "center", "width"]
@@ -170,23 +174,24 @@ def save_summary_plot(settings: SensitivitySettings, payload: dict[str, Any]) ->
     axes[1].bar(x - width / 2.0, payload["autodiff_gradient"], width=width, color="#0077b6", label="autodiff")
     axes[1].bar(x + width / 2.0, payload["finite_difference_gradient"], width=width, color="#f4a261", label="finite diff")
     axes[1].set_xticks(x, labels)
-    axes[1].set_ylabel("gradient")
-    axes[1].set_title("Gradient verification")
-    axes[1].grid(axis="y", alpha=0.25)
+    style_axis(axes[1], title="Gradient verification", ylabel="gradient", grid="y")
     axes[1].legend(frameon=False)
+    annotate_bars(axes[1], x - width / 2.0, payload["autodiff_gradient"], fmt="{:.2e}", fontsize=8.2)
 
     x_coords = np.linspace(0.0, 1.0, payload["target_final"].shape[0], dtype=np.float64)
     axes[2].plot(x_coords, radial_mean(payload["target_final"]), color="#111111", linewidth=2.8, label="target final state")
     axes[2].plot(x_coords, radial_mean(payload["nominal_final"]), color="#6c757d", linewidth=2.3, linestyle="--", label="nominal final state")
-    axes[2].set_xlabel("normalized radial coordinate")
-    axes[2].set_ylabel("radial mean density")
-    axes[2].set_title("Final-state profile sensitivity context")
-    axes[2].grid(alpha=0.25)
+    style_axis(
+        axes[2],
+        title="Final-state profile sensitivity context",
+        xlabel="normalized radial coordinate",
+        ylabel="radial mean density",
+        grid="both",
+    )
     axes[2].legend(frameon=False)
 
     path = images_dir / "autodiff_diffusion_sensitivity.png"
-    figure.savefig(path, dpi=220)
-    plt.close(figure)
+    save_publication_figure(figure, path)
     return path
 
 

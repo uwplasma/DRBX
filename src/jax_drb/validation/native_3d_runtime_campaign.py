@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 from netCDF4 import Dataset
 import numpy as np
 
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
 from .stellarator_vmec_native_selected_field import compare_native_stellarator_vmec_selected_fields
 from .traced_field_line_native_selected_field import compare_native_traced_field_line_selected_fields
 
@@ -98,28 +99,36 @@ def save_native_3d_runtime_campaign_plot(report: dict[str, object], path: str | 
     sweeps = list(report["scaling_sweeps"])
     figure, axes = plt.subplots(1, 2, figsize=(14.0, 5.4), constrained_layout=True)
 
-    labels = [str(entry["lane_name"]) for entry in runtimes]
-    values = [float(entry["elapsed_seconds"]) for entry in runtimes]
+    labels = ["tokamak\n1-step", "tokamak\nshort window", "traced-field-line\nreduced", "stellarator VMEC\nreduced"]
+    values = np.asarray([float(entry["elapsed_seconds"]) for entry in runtimes], dtype=np.float64)
     colors = ["#005f73", "#0a9396", "#ca6702", "#6a4c93"]
     x = np.arange(len(labels))
     axes[0].bar(x, values, color=colors[: len(labels)])
     axes[0].set_xticks(x, labels, rotation=15, ha="right")
-    axes[0].set_ylabel("elapsed seconds")
-    axes[0].set_title("Committed native 3D rung runtimes")
-    axes[0].grid(alpha=0.25, axis="y")
+    style_axis(
+        axes[0],
+        title="Committed native 3D rung runtimes",
+        ylabel="elapsed seconds",
+        grid="y",
+    )
+    annotate_bars(axes[0], x, values, fmt="{:.2e}", fontsize=8.5)
 
     for sweep, color in zip(sweeps, ("#bb3e03", "#3a86ff"), strict=False):
         sizes = np.asarray(sweep["problem_sizes"], dtype=np.float64)
         elapsed = np.asarray(sweep["elapsed_seconds"], dtype=np.float64)
         axes[1].plot(sizes, elapsed, marker="o", linewidth=2.0, color=color, label=str(sweep["lane_name"]))
-    axes[1].set_xlabel("synthetic problem size")
-    axes[1].set_ylabel("elapsed seconds")
-    axes[1].set_title("Native non-tokamak reduction scaling")
-    axes[1].grid(alpha=0.25)
+    style_axis(
+        axes[1],
+        title="Native non-tokamak reduction scaling",
+        xlabel="synthetic problem size",
+        ylabel="elapsed seconds",
+        xscale="log",
+        yscale="log",
+        grid="both",
+    )
     axes[1].legend(frameon=False)
 
-    figure.savefig(target, dpi=180)
-    plt.close(figure)
+    save_publication_figure(figure, target)
     return target
 
 

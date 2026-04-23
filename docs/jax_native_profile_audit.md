@@ -45,3 +45,5 @@ Interpretation:
 - the current implementation also batches the reference/candidate pair through the same reduced kernel, so parity/comparison work does not pay a second dispatch for the same shape;
 - the warm execution timings are the numbers that should inform summary reduced-kernel runtime summaries;
 - the compile timings and Perfetto traces are the audit evidence for where JIT overhead still exists and where it does not.
+- the figure now uses a log-scale timing view so the warm-dispatch surface is
+  not visually crushed by the compile bars.

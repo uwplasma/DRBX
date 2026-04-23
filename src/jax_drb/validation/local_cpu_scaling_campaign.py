@@ -12,6 +12,8 @@ from time import perf_counter
 from matplotlib import pyplot as plt
 import numpy as np
 
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
+
 
 @dataclass(frozen=True)
 class LocalCpuScalingCampaignArtifacts:
@@ -87,31 +89,58 @@ def save_local_cpu_scaling_campaign_plot(report: dict[str, object], path: str | 
     worker_counts = np.asarray(ensemble["worker_counts"], dtype=np.float64)
     ensemble_speedups = np.asarray(ensemble["steady_state_speedups"], dtype=np.float64)
     ideal_ensemble = worker_counts / worker_counts[0]
+    efficiencies = 100.0 * ensemble_speedups / ideal_ensemble
 
-    figure, axis = plt.subplots(figsize=(8.4, 5.6), constrained_layout=True)
-    axis.plot(worker_counts, ensemble_speedups, marker="o", linewidth=2.4, color="#bb3e03", label="measured")
-    axis.plot(worker_counts, ideal_ensemble, linestyle="--", linewidth=1.5, color="#ee9b00", label="ideal")
-    axis.set_xlabel("Local worker processes")
-    axis.set_ylabel("steady-state speedup vs 1 worker")
-    axis.set_title("Heavy local ensemble scaling on MacBook CPUs")
-    axis.grid(alpha=0.25)
-    axis.legend(frameon=False, loc="upper left")
+    figure, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), constrained_layout=True)
+
+    axes[0].plot(worker_counts, ensemble_speedups, marker="o", linewidth=2.8, color="#bb3e03", label="measured")
+    axes[0].plot(worker_counts, ideal_ensemble, linestyle="--", linewidth=1.8, color="#ee9b00", label="ideal")
+    style_axis(
+        axes[0],
+        title="Fixed-work steady-state speedup",
+        xlabel="local worker processes",
+        ylabel="speedup vs 1 worker",
+        grid="both",
+    )
+    axes[0].legend(frameon=False, loc="upper left")
     for x_value, y_value in zip(worker_counts, ensemble_speedups, strict=False):
-        axis.annotate(f"{y_value:.2f}x", (x_value, y_value), textcoords="offset points", xytext=(0, 6), ha="center", fontsize=9)
-    axis.text(
+        axes[0].annotate(
+            f"{y_value:.2f}x",
+            (x_value, y_value),
+            textcoords="offset points",
+            xytext=(0, 7),
+            ha="center",
+            fontsize=9.5,
+        )
+    axes[0].text(
         0.03,
         0.04,
         f"Case: {report['benchmark_case_name']}\n"
         f"Total heavy solves: {ensemble['total_runs']}\n"
         f"1-worker steady-state baseline: {ensemble['steady_state_baseline_seconds']:.2f} s",
-        transform=axis.transAxes,
-        fontsize=9,
+        transform=axes[0].transAxes,
+        fontsize=9.2,
         ha="left",
         va="bottom",
         bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "alpha": 0.88, "edgecolor": "#cccccc"},
     )
-    figure.savefig(target, dpi=180)
-    plt.close(figure)
+
+    x = np.arange(worker_counts.size, dtype=np.float64)
+    bars = axes[1].bar(x, efficiencies, color="#0a9396", width=0.62)
+    style_axis(
+        axes[1],
+        title="Parallel efficiency",
+        xlabel="local worker processes",
+        ylabel="efficiency (%)",
+        grid="y",
+    )
+    axes[1].set_xticks(x, [str(int(value)) for value in worker_counts])
+    axes[1].set_ylim(0.0, 110.0)
+    annotate_bars(axes[1], x, efficiencies, fmt="{:.0f}%", fontsize=9.0)
+    for bar in bars:
+        bar.set_alpha(0.92)
+
+    save_publication_figure(figure, target)
     return target
 
 def _benchmark_steady_state_ensemble_sweep(

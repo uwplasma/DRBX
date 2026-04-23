@@ -30,3 +30,7 @@ Interpretation:
 - the current measured optimization is the reference/candidate pair batching on
   the traced-field-line and VMEC reduced native surfaces, which reduces the
   small-kernel dispatch cost without changing the compare surface or physics.
+
+This figure should stay a supporting engineering artifact rather than a primary
+paper figure. The literature-facing evidence for these lanes should still come
+from their convergence and comparison bundles.

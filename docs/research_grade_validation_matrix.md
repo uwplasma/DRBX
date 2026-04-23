@@ -65,6 +65,54 @@ Before any case family is promoted to `native_exact`, it must have:
 - verbose logging coverage
 - fast-gate execution with bounded wall time for curated research slices
 
+## Current Figure Standard
+
+The literature does not treat every dashboard as equal evidence. The current
+`jax_drb` public artifact surface should be interpreted in two classes.
+
+### Main scientific figures
+
+These are the current figure families that are close to the literature pattern
+used in verification, validation, and differentiable-science papers:
+
+- [fluid_1d_mms_convergence](data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
+  for order-of-accuracy evidence
+- [reactions_collisions_campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
+  for rate, source-partition, and closure checks
+- [neutral_parallel_diffusion_campaign](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+  for AFN-versus-multispecies neutral closure comparison
+- [collision_closure_campaign](data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+  for friction, conduction, and viscosity closure activity
+- [tokamak_anomalous_diffusion_campaign](data/tokamak_anomalous_diffusion_campaign_artifacts/images/tokamak_anomalous_diffusion_campaign.png)
+  for geometry-sensitive transport effects on an evolved tokamak state
+- [target_recycling_campaign](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+  for target-localized recycling and sheath-conditioned closure activity
+- [autodiff_diffusion_uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+  for uncertainty propagation on the differentiable lane
+- [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
+  for workstation throughput on repeated heavy production solves
+
+### Supporting engineering figures
+
+These remain useful and should stay in the docs, but they should not be the
+main evidence panels in the future paper unless they are paired with a more
+physics-facing interpretation:
+
+- [hermes_comparison_summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)
+  is an index figure across heterogeneous lanes, not a direct literature-style
+  benchmark figure
+- [jax_native_profile_audit](data/jax_native_profile_audit_artifacts/images/jax_native_profile_audit.png)
+  is an engineering/profile figure rather than a physics validation figure
+- [native_3d_runtime_campaign](data/native_3d_runtime_campaign_artifacts/images/native_3d_runtime_campaign.png)
+  is a runtime/supporting figure rather than a primary scientific result
+
+This distinction matters because papers such as Roy 2005, the GBS
+parallel-gradient CPC paper, the TCV-X21 benchmark paper, SOLPS-ITER against
+TCV-X21, and Hermes-3 against TCV-X21 all emphasize convergence curves,
+profile/target comparisons, source or diagnostic maps, and scan figures tied to
+ a physical question. Summary dashboards are acceptable only as supporting
+ context.
+
 ## Fast Validation Policy
 
 The default developer/research gate is now:
