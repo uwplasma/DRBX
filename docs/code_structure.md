@@ -265,6 +265,22 @@ operator package:
 
 - [src/jax_drb/validation/tokamak_anomalous_diffusion_campaign.py](../src/jax_drb/validation/tokamak_anomalous_diffusion_campaign.py)
 
+The current target-recycling support extraction is:
+
+- [src/jax_drb/native/recycling_targets.py](../src/jax_drb/native/recycling_targets.py)
+
+That module now owns:
+
+- target recycling source assembly on prepared ion states
+- current-free electron-velocity reconstruction from prepared ion densities
+- the open-field centered gradient used by the electron force-balance path
+
+This split matters because target recycling and boundary-conditioned electron
+response are physically meaningful closure families, not just bookkeeping. They
+now map directly onto the public prepared-state validation package:
+
+- [src/jax_drb/validation/target_recycling_campaign.py](../src/jax_drb/validation/target_recycling_campaign.py)
+
 The current collision/conduction closure extraction is:
 
 - [src/jax_drb/native/recycling_collision_closure.py](../src/jax_drb/native/recycling_collision_closure.py)

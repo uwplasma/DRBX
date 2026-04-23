@@ -295,6 +295,12 @@ from .tokamak_anomalous_diffusion_campaign import (
     build_tokamak_anomalous_diffusion_campaign,
     create_tokamak_anomalous_diffusion_campaign_package,
 )
+from .target_recycling_campaign import (
+    TargetRecyclingCampaignArtifacts,
+    TargetRecyclingCampaignMetric,
+    build_target_recycling_campaign,
+    create_target_recycling_campaign_package,
+)
 from .impurity_radiation_campaign import (
     ImpurityRadiationCampaignArtifacts,
     ImpurityRadiationCampaignMetric,
@@ -503,6 +509,10 @@ __all__ = [
     "TokamakAnomalousDiffusionCampaignMetric",
     "build_tokamak_anomalous_diffusion_campaign",
     "create_tokamak_anomalous_diffusion_campaign_package",
+    "TargetRecyclingCampaignArtifacts",
+    "TargetRecyclingCampaignMetric",
+    "build_target_recycling_campaign",
+    "create_target_recycling_campaign_package",
     "ImpurityRadiationCampaignArtifacts",
     "ImpurityRadiationCampaignMetric",
     "build_impurity_radiation_campaign",

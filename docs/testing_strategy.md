@@ -140,6 +140,7 @@ Priority figure-producing families are:
 - neutral parallel-diffusion closure campaign
 - collision/conduction closure campaign
 - tokamak anomalous-diffusion campaign
+- target-recycling and sheath-response campaign
 - direct tokamak recycling transient ladders
 - neutral short-window comparisons
 - 3D runtime and convergence campaigns
