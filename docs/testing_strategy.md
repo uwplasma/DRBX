@@ -138,6 +138,7 @@ Priority figure-producing families are:
 - MMS convergence
 - reactions, collisions, and atomic-data closure campaigns
 - neutral parallel-diffusion closure campaign
+- collision/conduction closure campaign
 - direct tokamak recycling transient ladders
 - neutral short-window comparisons
 - 3D runtime and convergence campaigns

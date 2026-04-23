@@ -269,6 +269,7 @@ Focused engineering and benchmark packages:
 
 - [docs/reactions_collisions_campaign.md](docs/reactions_collisions_campaign.md)
 - [docs/neutral_parallel_diffusion_campaign.md](docs/neutral_parallel_diffusion_campaign.md)
+- [docs/collision_closure_campaign.md](docs/collision_closure_campaign.md)
 - [docs/impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
 - [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
 - [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)

@@ -760,6 +760,12 @@ bundle: one shared closure implementation now feeds direct operator tests, docs
 artifacts, and a manuscript-usable AFN-versus-multispecies profile figure on a
 prepared multispecies recycling state.
 
+The next collisional template is the public
+[collision_closure_campaign.md](collision_closure_campaign.md) bundle: one
+shared Braginskii-style collision module now feeds direct operator tests, docs
+artifacts, and a manuscript-usable closure-activity figure covering friction,
+ion viscosity, and conduction on the prepared multispecies recycling state.
+
 ## Sequencing
 
 The safest order is:

@@ -341,6 +341,17 @@ What this documents:
 - species-level summaries for the effective neutral diffusivity and the collision-budget decomposition that explains the AFN-versus-multispecies split;
 - a machine-readable JSON/NPZ/plot package so this closure evidence is not trapped only inside operator tests.
 
+## Collision Closure Campaign
+
+![Collision closure campaign](data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+
+What this documents:
+
+- a dedicated closure study for the extracted Braginskii-style collision, viscosity, and conduction family on a prepared multispecies D/T/He recycling state;
+- species-resolved ion-viscosity activity, representative collisional-friction activity, and conduction collision times on the same state;
+- direct action-reaction checks for selected friction pairs, so the public artifact is tied back to a basic physical consistency condition rather than only to nonzero activity;
+- a machine-readable JSON/NPZ/plot package so these closure diagnostics can feed the future paper directly instead of remaining trapped inside low-level tests.
+
 ## Temperature Feedback Campaign
 
 ![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)
