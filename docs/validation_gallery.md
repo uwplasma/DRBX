@@ -330,6 +330,17 @@ What this documents:
 - profile-level lineouts for ionisation, isotope-resolved charge exchange, and collisionality closure, so the same validated surface can support future manuscript figures;
 - a machine-readable JSON/NPZ/plot package instead of leaving this breadth implied only by low-level unit tests.
 
+## Neutral Parallel Diffusion Campaign
+
+![Neutral parallel diffusion campaign](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+
+What this documents:
+
+- a dedicated closure study for the extracted neutral parallel-diffusion family on a prepared multispecies D/T/He recycling state;
+- direct comparison between the `AFN` and `multispecies` collision modes on the same state, following the neutral-model distinction documented by Hermes-3;
+- species-level summaries for the effective neutral diffusivity and the collision-budget decomposition that explains the AFN-versus-multispecies split;
+- a machine-readable JSON/NPZ/plot package so this closure evidence is not trapped only inside operator tests.
+
 ## Temperature Feedback Campaign
 
 ![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)

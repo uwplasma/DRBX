@@ -268,6 +268,7 @@ workers on a `16`-solve heavy ensemble, with intermediate speedups of about
 Focused engineering and benchmark packages:
 
 - [docs/reactions_collisions_campaign.md](docs/reactions_collisions_campaign.md)
+- [docs/neutral_parallel_diffusion_campaign.md](docs/neutral_parallel_diffusion_campaign.md)
 - [docs/impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
 - [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
 - [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)

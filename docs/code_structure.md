@@ -244,6 +244,24 @@ is a good candidate for future literature-facing operator and closure figures,
 so it should be directly testable and separable from the rest of the implicit
 recycling backbone.
 
+The current collision/conduction closure extraction is:
+
+- [src/jax_drb/native/recycling_collision_closure.py](../src/jax_drb/native/recycling_collision_closure.py)
+
+That module now owns:
+
+- Braginskii friction coefficients and thermal-force gating
+- ion-ion thermal-force pair construction
+- parallel ion viscous stress and divergence helpers
+- species conductivity coefficients and collision-time selection
+- the assembled collision/conduction closure application used by the recycling RHS
+
+This split matters because the collisional closure is one of the main places
+where reduced-fluid physics assumptions, transport coefficients, and numerical
+stiffness meet. Keeping it isolated makes it much easier to test directly,
+profile separately, and tie manuscript figures back to the actual implemented
+closure formulas.
+
 The first runner-side compare-window extraction is:
 
 - [src/jax_drb/native/runner_compare.py](../src/jax_drb/native/runner_compare.py)
