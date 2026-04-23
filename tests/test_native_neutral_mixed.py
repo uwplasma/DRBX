@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -33,6 +34,10 @@ from jax_drb.native.neutral_mixed import (
 from jax_drb.native.runner import _execute_neutral_mixed_case
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_BASELINE_ROOT = _REPO_ROOT / "references" / "baselines"
 
 
 def _neutral_mixed_input(*, nx: int = 10, ny: int = 10, nz: int = 10) -> str:
@@ -105,9 +110,7 @@ def test_neutral_mixed_diffusion_matches_known_case_values() -> None:
 
 def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
     config, run_config, mesh, metrics, state, rhs = _build_case()
-    expected = np.load(
-        "/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_rhs.npz"
-    )
+    expected = np.load(_BASELINE_ROOT / "reference_arrays" / "neutral_mixed_rhs.npz")
     expected_density = expected["var__Nh"][0]
     expected_pressure = expected["var__Ph"][0]
     expected_momentum = expected["var__NVh"][0]
@@ -146,10 +149,7 @@ def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
         meters_scale=float(scalars["rho_s0"]),
         tnorm=float(scalars["Tnorm"]),
     )
-    with open(
-        "/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/"
-        "neutral_mixed_rhs_diagnostics.json"
-    ) as handle:
+    with (_BASELINE_ROOT / "reference_metrics" / "neutral_mixed_rhs_diagnostics.json").open() as handle:
         payload = json.load(handle)
     probe = payload["probe"]
     y_slice = slice(probe["y_start"], probe["y_end"] + 1)
