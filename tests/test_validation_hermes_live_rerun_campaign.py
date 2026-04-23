@@ -12,7 +12,15 @@ from jax_drb.validation import (
 import jax_drb.validation.hermes_live_rerun_campaign as campaign_mod
 
 
-def _sample_case(case_name: str, *, runtime_ratio: float, rel_l2: float, rel_max: float, exact: bool) -> dict[str, object]:
+def _sample_case(
+    case_name: str,
+    *,
+    runtime_ratio: float,
+    rel_l2: float,
+    rel_max: float,
+    exact: bool,
+    normalization_sensitive: bool = False,
+) -> dict[str, object]:
     return {
         "case_name": case_name,
         "display_label": case_name.replace("_", "\n"),
@@ -32,6 +40,7 @@ def _sample_case(case_name: str, *, runtime_ratio: float, rel_l2: float, rel_max
         "worst_max_abs_field": "Ne",
         "worst_max_abs_diff": rel_max,
         "worst_relative_to_expected_max": rel_max,
+        "normalization_sensitive": normalization_sensitive,
         "exact_match": exact,
     }
 
@@ -57,6 +66,8 @@ def _sample_report() -> dict[str, object]:
             "worst_relative_l2_error": 1.0e-5,
             "worst_relative_rms_case": "fast_case",
             "worst_relative_rms_error": 1.0e-5,
+            "normalization_sensitive_case_count": 0,
+            "normalization_sensitive_cases": [],
         },
         "notes": {
             "comparison_surface": "test",
@@ -105,6 +116,7 @@ def test_build_hermes_live_rerun_campaign_report_aggregates_cases(monkeypatch, t
             rel_l2=1.0e-4 if spec.case_name == "case_a" else 2.5e-4,
             rel_max=3.0e-4 if spec.case_name == "case_a" else 4.0e-4,
             exact=spec.case_name == "case_a",
+            normalization_sensitive=spec.case_name == "case_b",
         ),
     )
 
@@ -115,3 +127,5 @@ def test_build_hermes_live_rerun_campaign_report_aggregates_cases(monkeypatch, t
     assert report["summaries"]["exact_match_case_count"] == 1
     assert report["summaries"]["worst_relative_l2_case"] == "case_b"
     assert report["summaries"]["worst_relative_rms_case"] == "case_b"
+    assert report["summaries"]["normalization_sensitive_case_count"] == 1
+    assert report["summaries"]["normalization_sensitive_cases"] == ["case_b"]

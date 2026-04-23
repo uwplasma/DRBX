@@ -245,6 +245,8 @@ The governing equations, closures, numerical operators, runtime design, and diff
 - [docs/physics_models.md](docs/physics_models.md)
 - [docs/code_structure.md](docs/code_structure.md)
 - [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
+- [docs/profiling_runtime.md](docs/profiling_runtime.md)
+- [docs/runtime_gap_remediation.md](docs/runtime_gap_remediation.md)
 - [docs/native_runtime_cli.md](docs/native_runtime_cli.md)
 - [docs/geometry_roadmap.md](docs/geometry_roadmap.md)
 - [docs/research_directions.md](docs/research_directions.md)
@@ -258,13 +260,18 @@ The runtime/performance audit tools include:
 - [docs/hermes_live_rerun_campaign.md](docs/hermes_live_rerun_campaign.md)
 - [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
+- [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
 
 The strongest current same-machine native-versus-live-Hermes evidence is the
 public [docs/hermes_live_rerun_campaign.md](docs/hermes_live_rerun_campaign.md)
 matrix. It currently shows four exact-match compact 2D lanes on the guarded
-compare surface, bounded but visible one-step mismatch on the integrated and
-direct-tokamak recycling ladders, and the remaining main live runtime/fidelity
-gap on the heavy 1D neutral/recycling paths.
+compare surface, bounded but normalization-sensitive one-step mismatch on the
+integrated and direct-tokamak recycling ladders, and the remaining main live
+runtime/fidelity gaps on the heavy 1D neutral/recycling paths. On the current
+refreshed matrix, `neutral_mixed_one_step` remains the hardest fidelity lane
+with worst normalized RMS error about `9.17e-1`, while the slowest current live
+lane is `recycling_dthe_one_step` at about `8.45x` the Hermès wall time on the
+same machine.
 
 For local MacBook-class CPU use, the strongest current scaling result is the
 heavy fixed-work ensemble on repeated neon-enabled direct tokamak recycling

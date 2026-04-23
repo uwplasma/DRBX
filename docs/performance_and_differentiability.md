@@ -70,6 +70,32 @@ These are the highest-value refactor targets for the next release cycle because 
 - automatic differentiation
 - maintainability of the promoted recycling/tokamak transient lane
 
+The refreshed same-machine live Hermès rerun matrix now sharpens those generic
+blockers into specific case priorities:
+
+- `neutral_mixed_one_step`
+  - worst normalized RMS mismatch about `9.17e-1`
+  - native/reference wall-time ratio about `4.27x`
+  - dominant field: `NVh`
+- `recycling_1d_one_step`
+  - worst normalized RMS mismatch about `4.62e-3`
+  - native/reference wall-time ratio about `3.80x`
+  - dominant normalized field: `Pd+`
+- `recycling_dthe_one_step`
+  - worst normalized RMS mismatch about `4.92e-3`
+  - native/reference wall-time ratio about `8.45x`
+  - dominant field: `NVd`
+
+The current integrated and direct tokamak recycling one-step ladders still show
+visible relative mismatch, but the updated live report now marks them as
+normalization-sensitive because the dominant compare field is near-zero `NVd`
+while the absolute max-error stays tiny.
+
+The detailed remediation order is now documented in:
+
+- [runtime_gap_remediation.md](runtime_gap_remediation.md)
+- [profiling_runtime.md](profiling_runtime.md)
+
 ## What The Current Profiling Already Says
 
 The committed profiling and runtime bundles already answer the first practical
@@ -238,6 +264,21 @@ remaining bottleneck split after the recent optimization work:
   implicit/recycling residual and Jacobian path rather than another cosmetic
   CPU-thread sweep.
 
+The same pass also changed the live runtime picture in a way that matters for
+the paper and for users:
+
+- `neutral_mixed_one_step` dropped from roughly `6.44 s` live runtime to about
+  `1.43 s`, while keeping the same dominant fidelity gap on `NVh`
+- `recycling_1d_one_step` now runs at about `15.98 s` live runtime with
+  fidelity preserved, which is materially better than the earlier recycling
+  baseline but still slower than Hermès on the same machine
+
+That means the next work should be divided clearly:
+
+- fix the neutral mixed `NVh` mismatch as a fidelity problem
+- reduce `recycling_dthe_one_step` and `recycling_1d_one_step` as runtime
+  problems without widening their already-tight fidelity band
+
 For the current paper and release, the parallelization claim should also stay
 operationally concrete:
 
@@ -249,6 +290,50 @@ operationally concrete:
   batching independent solves, objectives, or parameter studies over JAX maps
   and accelerator devices, rather than overselling single-case laptop CPU
   strong scaling.
+
+## Reproducible Profiling Workflow
+
+The supported profiling entry point is now:
+
+- [scripts/profile_curated_case.py](../scripts/profile_curated_case.py)
+
+That script can collect:
+
+- `cProfile` output
+- JAX TensorBoard / Perfetto traces
+- JAX device-memory profiles
+- persistent compilation cache runs
+- XLA dump trees
+
+The workflow and recommended worst-offender cases are documented in:
+
+- [profiling_runtime.md](profiling_runtime.md)
+
+This is now the preferred path for runtime work because it keeps profiling tied
+to the same curated cases that define the public Hermès comparison surface.
+
+## Current GPU Status
+
+The reachable `office` machine already exposes two CUDA-visible JAX devices
+(`RTX A4000`). GPU performance work is now limited by environment consistency
+rather than missing hardware.
+
+The current blocker there is a package mismatch:
+
+- JAX sees both GPUs
+- `numpy`, `scipy`, `matplotlib`, and `netCDF4` import cleanly
+- `diffrax` and `equinox` currently fail in the system environment because of a
+  `jaxlib` extension mismatch
+
+So the next GPU step is operationally clear:
+
+1. create a clean repo-local environment on `office`
+2. install a matching JAX/JAXLIB pair plus `jax_drb`
+3. rerun the current worst-offender profiling cases with:
+   - JAX trace
+   - memory profile
+   - persistent compilation cache
+4. compare CPU and GPU runtime splits before making broader accelerator claims
 
 ### Lower-Risk Structural JAX Improvements
 

@@ -175,13 +175,11 @@ def eval_amjuel_fit(temperature_ev: np.ndarray, density_m3: np.ndarray, coeffs: 
     logn = np.log(density / 1.0e14)
     logt = np.log(temperature)
     result = np.zeros_like(logt, dtype=np.float64)
-    logt_power = np.ones_like(logt, dtype=np.float64)
-    for row in coeffs:
-        logn_power = np.ones_like(logn, dtype=np.float64)
-        for coefficient in row:
-            result = result + coefficient * logn_power * logt_power
-            logn_power = logn_power * logn
-        logt_power = logt_power * logt
+    for row in np.asarray(coeffs, dtype=np.float64)[::-1]:
+        row_result = np.zeros_like(logn, dtype=np.float64)
+        for coefficient in row[::-1]:
+            row_result = row_result * logn + coefficient
+        result = result * logt + row_result
     return np.exp(result) * 1.0e-6
 
 
@@ -226,18 +224,16 @@ def hydrogen_cx_sigmav(teff_ev: np.ndarray, dataset_scalars: dict[str, float]) -
     """Evaluate the Janev-style hydrogen charge-exchange fit used by the solver."""
 
     lnT = np.log(np.asarray(teff_ev, dtype=np.float64))
-    ln_sigma_v = -18.5028
-    lnT_power = lnT.copy()
+    ln_sigma_v = np.full_like(lnT, 5.122435e-7, dtype=np.float64)
     for coefficient in (
-        0.3708409,
-        7.949876e-3,
-        -6.143769e-4,
-        -4.698969e-4,
-        -4.096807e-4,
-        1.440382e-4,
         -1.514243e-5,
-        5.122435e-7,
+        1.440382e-4,
+        -4.096807e-4,
+        -4.698969e-4,
+        -6.143769e-4,
+        7.949876e-3,
+        0.3708409,
+        -18.5028,
     ):
-        ln_sigma_v = ln_sigma_v + coefficient * lnT_power
-        lnT_power = lnT_power * lnT
+        ln_sigma_v = ln_sigma_v * lnT + coefficient
     return np.exp(ln_sigma_v) * (1.0e-6 * dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
