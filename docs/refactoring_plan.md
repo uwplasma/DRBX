@@ -240,6 +240,10 @@ Specific file splits:
   - extract state/result and small boundary-setting layouts: started in
     `src/jax_drb/native/recycling_1d_state.py`, with public and private
     compatibility re-exports kept from `recycling_1d.py`
+  - extract progress/ETA bookkeeping: started in
+    `src/jax_drb/native/recycling_progress.py`, with the existing private
+    `_build_recycling_progress_details` import path preserved from
+    `recycling_1d.py`
   - extract packed-state layout and metadata
   - extract transport operators
   - extract atomic/recycling/controller source closures
