@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import load_bout_input
+from jax_drb.config.boutinp import load_bout_input, parse_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import _initialize_species, _prepare_open_field_states
@@ -140,3 +141,36 @@ def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_densit
     expected = float(terms.diagnostics["Sd+_iz"][active] / species["d"].density[active])
     actual = float(ionisation_rates["d"][active])
     assert actual == pytest.approx(expected)
+
+
+def test_neutral_ionisation_collision_rates_use_openadas_for_neon() -> None:
+    config = parse_bout_input(
+        """
+[reactions]
+type = ne + e -> ne+ + 2e
+"""
+    )
+    density = np.full((2, 3, 1), 0.2, dtype=np.float64)
+    ion_density = np.full((2, 3, 1), 0.4, dtype=np.float64)
+    electron_pressure = np.full((2, 3, 1), 1.2, dtype=np.float64)
+    species = {
+        "ne": SimpleNamespace(name="ne", charge=0.0),
+        "ne+": SimpleNamespace(name="ne+", charge=1.0),
+        "e": SimpleNamespace(name="e", charge=-1.0, pressure=electron_pressure, density_floor=1.0e-8),
+    }
+    prepared = {
+        "ne": SimpleNamespace(density=density),
+        "ne+": SimpleNamespace(density=ion_density),
+        "e": SimpleNamespace(density=ion_density),
+    }
+
+    rates = neutral_ionisation_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars={"Nnorm": 1.0e19, "Tnorm": 10.0, "Omega_ci": 1.0e6},
+    )
+
+    assert "ne" in rates
+    assert np.isfinite(rates["ne"]).all()
+    assert float(np.max(rates["ne"])) > 0.0

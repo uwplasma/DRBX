@@ -45,3 +45,10 @@ def test_publish_pypi_workflow_uses_trusted_publishing() -> None:
     assert "environment: pypi" in workflow
     assert "id-token: write" in workflow
     assert "pypa/gh-action-pypi-publish@release/v1" in workflow
+
+
+def test_source_distribution_manifest_prunes_research_artifacts() -> None:
+    manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+
+    for path in ("docs", "examples", "references", "scripts", "tests"):
+        assert f"prune {path}" in manifest

@@ -1,0 +1,9 @@
+prune docs
+prune examples
+prune references
+prune scripts
+prune tests
+
+global-exclude .DS_Store
+global-exclude __pycache__
+global-exclude *.py[cod]
