@@ -14,6 +14,12 @@ from ..native.recycling_targets import electron_zero_current_velocity, target_re
 from ..reference.paths import require_reference_root
 from ..runtime.run_config import RunConfiguration
 from ..native.units import resolved_dataset_scalars
+from .publication_plotting import (
+    annotate_bars,
+    save_publication_figure,
+    style_axis,
+    support_window_slice,
+)
 
 
 _FIELD_NAMES = (
@@ -342,53 +348,57 @@ def _save_target_recycling_plot(
     t_density_line = np.asarray(summaries["t_target_density_line"], dtype=np.float64)
     he_density_line = np.asarray(summaries["he_target_density_line"], dtype=np.float64)
     electron_sheath_energy_line = np.asarray(summaries["electron_sheath_energy_line"], dtype=np.float64)
-    plot_slice = _support_window(
+    plot_slice = support_window_slice(
         d_density_line,
         t_density_line,
         he_density_line,
         electron_sheath_energy_line,
-        half_width=4,
+        padding=4,
     )
     y_plot = y_line[plot_slice]
 
     axes[0, 0].plot(y_plot, d_density_line[plot_slice], label="d")
     axes[0, 0].plot(y_plot, t_density_line[plot_slice], label="t")
     axes[0, 0].plot(y_plot, he_density_line[plot_slice], label="he")
-    axes[0, 0].set_xlabel("y")
-    axes[0, 0].set_ylabel("Density source")
-    axes[0, 0].set_title("Target recycling density sources near the target")
+    style_axis(
+        axes[0, 0],
+        title="Target recycling density sources near the target",
+        xlabel="parallel coordinate y",
+        ylabel="density source",
+        grid="both",
+    )
     axes[0, 0].legend(frameon=False)
 
     neutral_order = list(summaries["neutral_order"])
     x = np.arange(len(neutral_order), dtype=np.float64)
-    axes[0, 1].bar(x, np.asarray(summaries["target_recycling_density_integral"], dtype=np.float64), color="#c85c3a")
+    density_integral = np.asarray(summaries["target_recycling_density_integral"], dtype=np.float64)
+    axes[0, 1].bar(x, density_integral, color="#c85c3a", width=0.6)
     axes[0, 1].set_xticks(x, neutral_order)
-    axes[0, 1].set_ylabel("Integrated source")
-    axes[0, 1].set_title("Target recycling source totals")
+    style_axis(
+        axes[0, 1],
+        title="Integrated target recycling source",
+        ylabel="integrated density source",
+    )
+    annotate_bars(axes[0, 1], x, density_integral, fmt="{:.2e}")
 
     axes[1, 0].plot(y_plot, electron_sheath_energy_line[plot_slice], color="#6b5ca5")
-    axes[1, 0].set_xlabel("y")
-    axes[1, 0].set_ylabel("Energy source")
-    axes[1, 0].set_title("Boundary-conditioned electron energy sink near the target")
+    style_axis(
+        axes[1, 0],
+        title="Boundary-conditioned electron energy sink near the target",
+        xlabel="parallel coordinate y",
+        ylabel="electron energy source",
+        grid="both",
+    )
 
-    axes[1, 1].bar(x, np.asarray(summaries["target_recycling_density_peak"], dtype=np.float64), color="#2c9a42")
+    density_peak = np.asarray(summaries["target_recycling_density_peak"], dtype=np.float64)
+    axes[1, 1].bar(x, density_peak, color="#2c9a42", width=0.6)
     axes[1, 1].set_xticks(x, neutral_order)
-    axes[1, 1].set_ylabel("Peak density source")
-    axes[1, 1].set_title("Peak target recycling strength")
+    style_axis(
+        axes[1, 1],
+        title="Peak target recycling strength",
+        ylabel="peak density source",
+    )
+    annotate_bars(axes[1, 1], x, density_peak, fmt="{:.2e}")
 
-    figure.suptitle("Target recycling campaign")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output_path, dpi=200, bbox_inches="tight")
-    plt.close(figure)
-
-
-def _support_window(*arrays: np.ndarray, half_width: int) -> slice:
-    support = np.zeros_like(np.asarray(arrays[0], dtype=np.float64), dtype=bool)
-    for array in arrays:
-        support |= np.abs(np.asarray(array, dtype=np.float64)) > 1.0e-12
-    active_indices = np.flatnonzero(support)
-    if active_indices.size == 0:
-        return slice(0, support.size)
-    start = max(0, int(active_indices[0]) - half_width)
-    stop = min(support.size, int(active_indices[-1]) + half_width + 1)
-    return slice(start, stop)
+    figure.suptitle("Target recycling closure audit", fontsize=15.0, fontweight="semibold")
+    save_publication_figure(figure, output_path)

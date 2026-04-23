@@ -23,6 +23,9 @@ The refactor target is:
 - make important solver paths explainable through comments, docstrings, and
   equation-to-code traceability
 - generate publication-ready plots directly from validated tests and campaigns
+- apply a common publication-plotting standard in the validation layer so new
+  figures are high-resolution, information-dense, and tied to the same checked
+  artifacts as the tests
 
 The refactor is not an excuse to silently change closures, broaden the claim
 boundary, or weaken the current Hermes-backed evidence tiers. If a refactor

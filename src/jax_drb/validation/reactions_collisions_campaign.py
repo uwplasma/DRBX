@@ -28,6 +28,7 @@ from ..native.recycling_reactions import (
 from ..native.units import resolved_dataset_scalars
 from ..reference.paths import require_reference_root
 from ..runtime.run_config import RunConfiguration
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 
 @dataclass(frozen=True)
@@ -483,73 +484,131 @@ def _save_campaign_plot(
     profiles: dict[str, dict[str, object]],
     path: Path,
 ) -> None:
-    labels = [metric.name.replace("_", "\n") for metric in metrics]
-    values = [metric.value for metric in metrics]
-    targets = [metric.target for metric in metrics]
-    colors = ["#0a9396" if metric.passed else "#bb3e03" for metric in metrics]
-
     if not profiles:
         figure, axis = plt.subplots(figsize=(12.0, 6.5), constrained_layout=True)
-        x = np.arange(len(metrics))
-        axis.bar(x, values, color=colors, alpha=0.9)
-        axis.plot(x, targets, color="#3a86ff", marker="o", linewidth=1.8, label="target")
+        x = np.arange(len(metrics), dtype=np.float64)
+        labels = [metric.name.replace("_", "\n") for metric in metrics]
+        margins = np.asarray([_metric_margin(metric) for metric in metrics], dtype=np.float64)
+        margins = np.minimum(margins, 10.0)
+        colors = ["#0a9396" if metric.passed else "#bb3e03" for metric in metrics]
+        axis.bar(x, margins, color=colors, alpha=0.9, width=0.65)
+        axis.axhline(1.0, color="#3a86ff", linestyle="--", linewidth=1.5)
         axis.set_xticks(x, labels)
-        axis.set_ylabel("metric value")
-        axis.set_title("Reactions, collisions, and atomic-data verification campaign")
-        axis.grid(alpha=0.25, axis="y")
-        axis.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2), useOffset=False)
-        axis.legend(frameon=False)
-        figure.savefig(path, dpi=180)
-        plt.close(figure)
+        style_axis(
+            axis,
+            title="Verification margin to gate",
+            ylabel="margin to gate (capped at 10×)",
+            yscale="log",
+        )
+        figure.suptitle(
+            "Reactions, collisions, and atomic-data verification campaign",
+            fontsize=15.0,
+            fontweight="semibold",
+        )
+        save_publication_figure(figure, path)
         return
 
     figure, axes = plt.subplots(2, 2, figsize=(14.0, 9.0), constrained_layout=True)
 
     axis = axes[0, 0]
-    x = np.arange(len(metrics))
-    axis.bar(x, values, color=colors, alpha=0.9)
-    axis.plot(x, targets, color="#3a86ff", marker="o", linewidth=1.8, label="target")
+    x = np.arange(len(metrics), dtype=np.float64)
+    labels = [metric.name.replace("_", "\n") for metric in metrics]
+    margins = np.asarray([_metric_margin(metric) for metric in metrics], dtype=np.float64)
+    margins = np.minimum(margins, 10.0)
+    colors = ["#0a9396" if metric.passed else "#bb3e03" for metric in metrics]
+    axis.bar(x, margins, color=colors, alpha=0.9, width=0.65)
+    axis.axhline(1.0, color="#3a86ff", linestyle="--", linewidth=1.5)
     axis.set_xticks(x, labels)
-    axis.set_ylabel("metric value")
-    axis.set_title("Scalar verification gates")
-    axis.grid(alpha=0.25, axis="y")
-    axis.ticklabel_format(axis="y", style="sci", scilimits=(-2, 2), useOffset=False)
-    axis.legend(frameon=False)
+    style_axis(
+        axis,
+        title="Verification margin to gate",
+        ylabel="margin to gate (capped at 10×)",
+        yscale="log",
+    )
 
     ionisation = profiles["ionisation_profile"]
     axis = axes[0, 1]
-    coordinate = ionisation["coordinate"]
-    axis.plot(coordinate, ionisation["series"]["diagnostic_per_density"], color="#1d3557", linewidth=2.0, label="diagnostic / density")
-    axis.plot(coordinate, ionisation["series"]["assembled_collision_rate"], color="#e76f51", linestyle="--", linewidth=2.0, label="assembled collision rate")
-    axis.set_title("Ionisation profile agreement")
-    axis.set_xlabel("normalized parallel coordinate")
-    axis.set_ylabel("rate")
-    axis.grid(alpha=0.25)
-    axis.legend(frameon=False)
+    ion_expected = np.asarray(ionisation["series"]["diagnostic_per_density"], dtype=np.float64)
+    ion_actual = np.asarray(ionisation["series"]["assembled_collision_rate"], dtype=np.float64)
+    ion_values = np.asarray([float(np.mean(ion_expected)), float(np.mean(ion_actual))], dtype=np.float64)
+    ion_x = np.arange(2, dtype=np.float64)
+    axis.bar(ion_x, ion_values, color=["#1d3557", "#e76f51"], width=0.6)
+    axis.set_xticks(ion_x, ["diagnostic / density", "assembled rate"])
+    style_axis(axis, title="Ionisation rate agreement", ylabel="mean rate")
+    annotate_bars(axis, ion_x, ion_values, fmt="{:.3e}")
+    ion_rel = float(np.max(np.abs(ion_actual - ion_expected) / np.maximum(np.abs(ion_expected), np.finfo(np.float64).tiny)))
+    axis.text(
+        0.03,
+        0.95,
+        f"max relative residual = {ion_rel:.2e}",
+        transform=axis.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10.0,
+        bbox={"facecolor": "white", "alpha": 0.9, "edgecolor": "none"},
+    )
 
     charge_exchange = profiles["d_atom_charge_exchange_profile"]
     axis = axes[1, 0]
-    coordinate = charge_exchange["coordinate"]
-    axis.plot(coordinate, charge_exchange["series"]["same_isotope_d_plus"], color="#2a9d8f", linewidth=2.0, label="same-isotope D+")
-    axis.plot(coordinate, charge_exchange["series"]["cross_isotope_t_plus"], color="#f4a261", linewidth=2.0, label="cross-isotope T+")
-    axis.plot(coordinate, charge_exchange["series"]["assembled_total"], color="#264653", linestyle="--", linewidth=2.2, label="assembled total")
-    axis.set_title("D neutral charge exchange decomposition")
-    axis.set_xlabel("normalized parallel coordinate")
-    axis.set_ylabel("collision frequency")
-    axis.grid(alpha=0.25)
-    axis.legend(frameon=False)
-
+    same = np.asarray(charge_exchange["series"]["same_isotope_d_plus"], dtype=np.float64)
+    cross = np.asarray(charge_exchange["series"]["cross_isotope_t_plus"], dtype=np.float64)
+    total = np.asarray(charge_exchange["series"]["assembled_total"], dtype=np.float64)
+    same_mean = float(np.mean(same))
+    cross_mean = float(np.mean(cross))
+    total_mean = float(np.mean(total))
+    axis.bar([0.0], [same_mean], color="#2a9d8f", width=0.55, label="same-isotope D+")
+    axis.bar([0.0], [cross_mean], bottom=[same_mean], color="#f4a261", width=0.55, label="cross-isotope T+")
+    axis.plot([0.0], [total_mean], marker="_", markersize=26, color="#264653", linewidth=0.0, label="assembled total")
+    axis.set_xticks([0.0], ["D neutral active-profile mean"])
+    style_axis(axis, title="D neutral charge exchange decomposition", ylabel="collision frequency")
+    annotate_bars(axis, np.asarray([0.0]), np.asarray([same_mean + cross_mean]), fmt="{:.3e}", fontsize=8.5)
+    cross_fraction = cross_mean / max(same_mean + cross_mean, np.finfo(np.float64).tiny)
+    axis.text(
+        0.03,
+        0.95,
+        f"cross-isotope fraction = {cross_fraction:.3f}",
+        transform=axis.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10.0,
+        bbox={"facecolor": "white", "alpha": 0.9, "edgecolor": "none"},
+    )
     collisionality = profiles["d_plus_collisionality_profile"]
     axis = axes[1, 1]
-    coordinate = collisionality["coordinate"]
-    axis.plot(coordinate, collisionality["series"]["expected_collision_stack"], color="#6a4c93", linewidth=2.0, label="expected stack")
-    axis.plot(coordinate, collisionality["series"]["assembled_total_collisionality"], color="#1982c4", linestyle="--", linewidth=2.2, label="closure input")
-    axis.set_title("Ion parallel viscosity collisionality")
-    axis.set_xlabel("normalized parallel coordinate")
-    axis.set_ylabel("collisionality")
-    axis.grid(alpha=0.25)
-    axis.legend(frameon=False)
+    coll_expected = np.asarray(collisionality["series"]["expected_collision_stack"], dtype=np.float64)
+    coll_actual = np.asarray(collisionality["series"]["assembled_total_collisionality"], dtype=np.float64)
+    coll_values = np.asarray([float(np.mean(coll_expected)), float(np.mean(coll_actual))], dtype=np.float64)
+    coll_x = np.arange(2, dtype=np.float64)
+    axis.bar(coll_x, coll_values, color=["#6a4c93", "#1982c4"], width=0.6)
+    axis.set_xticks(coll_x, ["expected stack", "closure input"])
+    style_axis(axis, title="Ion parallel viscosity collisionality", ylabel="mean collisionality")
+    annotate_bars(axis, coll_x, coll_values, fmt="{:.3e}")
+    coll_rel = float(
+        np.max(
+            np.abs(coll_actual - coll_expected)
+            / np.maximum(np.abs(coll_expected), np.finfo(np.float64).tiny)
+        )
+    )
+    axis.text(
+        0.03,
+        0.95,
+        f"max relative residual = {coll_rel:.2e}",
+        transform=axis.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10.0,
+        bbox={"facecolor": "white", "alpha": 0.9, "edgecolor": "none"},
+    )
+    figure.suptitle(
+        "Reactions, collisions, and atomic-data verification campaign",
+        fontsize=15.0,
+        fontweight="semibold",
+    )
+    save_publication_figure(figure, path)
 
-    figure.suptitle("Reactions, collisions, and atomic-data verification campaign", fontsize=15.0)
-    figure.savefig(path, dpi=180)
-    plt.close(figure)
+
+def _metric_margin(metric: ReactionsCollisionsCampaignMetric) -> float:
+    tiny = np.finfo(np.float64).tiny
+    if metric.kind in {"relative_error", "max_value"}:
+        return metric.target / max(metric.value, tiny)
+    return metric.value / max(metric.target, tiny)

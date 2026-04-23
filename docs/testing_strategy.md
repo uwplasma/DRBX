@@ -109,6 +109,17 @@ generators for the paper and docs. Those should produce:
 - publication-grade plots
 - direct regression checks for artifact completeness
 
+Publication-grade plots should follow a stricter standard than ad hoc notebook
+figures. In practice that means:
+
+- high-resolution export from the validation package itself
+- axis labels and titles that name the physical or numerical quantity directly
+- support-window cropping when the scientifically meaningful signal is localized
+- summary panels such as ratios, residuals, integrated totals, or peak values
+  when a full-domain lineout is effectively flat
+- figure logic that is derived from the same validated artifact bundle checked
+  by the tests, rather than from separate paper-only plotting code
+
 Any test family that demonstrates one of the following should have a paired
 artifact-producing campaign, even if the test itself remains assertion-only:
 

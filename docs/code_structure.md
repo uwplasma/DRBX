@@ -13,6 +13,12 @@ separate the governing operators from the orchestration layer, separate
 verification from benchmark validation, and keep geometry, numerics, and
 plotting reusable.
 
+The validation package now also carries a shared publication-plot helper in
+[src/jax_drb/validation/publication_plotting.py](../src/jax_drb/validation/publication_plotting.py).
+That helper is part of the research-grade validation surface: the figure
+standard should live next to the tested campaigns, not only in downstream paper
+scripts.
+
 ## Package Map
 
 The current top-level layout is:

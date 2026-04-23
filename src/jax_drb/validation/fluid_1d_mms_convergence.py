@@ -6,6 +6,7 @@ from pathlib import Path
 
 from matplotlib import pyplot as plt
 import numpy as np
+from .publication_plotting import annotate_bars, save_publication_figure, style_axis
 
 from ..config.boutinp import parse_bout_input
 from ..native.fluid_1d import advance_mms_history, evaluate_field_option
@@ -220,10 +221,15 @@ def save_fluid_1d_mms_convergence_plot(report: dict[str, object], path: str | Pa
     axes[0].loglog(resolutions, density_error, marker="o", linewidth=2.0, color="#005f73", label="density")
     axes[0].loglog(resolutions, pressure_error, marker="o", linewidth=2.0, color="#ca6702", label="pressure")
     axes[0].loglog(resolutions, momentum_error, marker="o", linewidth=2.0, color="#3a86ff", label="momentum")
-    axes[0].set_xlabel("interior Ny resolution")
-    axes[0].set_ylabel("L2 error")
-    axes[0].set_title("Fluid 1D MMS refinement errors")
-    axes[0].grid(alpha=0.25, which="both")
+    style_axis(
+        axes[0],
+        title="Fluid 1D MMS refinement errors",
+        xlabel="interior Ny resolution",
+        ylabel="L2 error",
+        xscale="log",
+        yscale="log",
+        grid="both",
+    )
     axes[0].legend(frameon=False)
 
     order_labels = [f"{entry['from_ny']}→{entry['to_ny']}" for entry in orders]
@@ -234,11 +240,11 @@ def save_fluid_1d_mms_convergence_plot(report: dict[str, object], path: str | Pa
     axes[1].bar(x + width, [entry["momentum_order"] for entry in orders], width=width, color="#3a86ff", label="momentum")
     axes[1].axhline(2.0, color="#bb3e03", linestyle="--", linewidth=1.5, label="second order")
     axes[1].set_xticks(x, order_labels)
-    axes[1].set_ylabel("observed order")
-    axes[1].set_title("Observed MMS refinement order")
-    axes[1].grid(alpha=0.25, axis="y")
+    style_axis(axes[1], title="Observed MMS refinement order", ylabel="observed order")
     axes[1].legend(frameon=False)
-
-    figure.savefig(target, dpi=180)
-    plt.close(figure)
+    annotate_bars(axes[1], x - width, np.asarray([entry["density_order"] for entry in orders], dtype=np.float64), fmt="{:.2f}", fontsize=8.5)
+    annotate_bars(axes[1], x, np.asarray([entry["pressure_order"] for entry in orders], dtype=np.float64), fmt="{:.2f}", fontsize=8.5)
+    annotate_bars(axes[1], x + width, np.asarray([entry["momentum_order"] for entry in orders], dtype=np.float64), fmt="{:.2f}", fontsize=8.5)
+    figure.suptitle("Fluid 1D manufactured-solution convergence audit", fontsize=14.0, fontweight="semibold")
+    save_publication_figure(figure, target)
     return target
