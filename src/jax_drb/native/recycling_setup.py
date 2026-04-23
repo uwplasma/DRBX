@@ -6,7 +6,9 @@ import numpy as np
 from ..config.boutinp import BoutConfig, NumericResolver
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
+from .metrics import StructuredMetrics
 from .open_field import apply_noflow_flow_guards, apply_noflow_scalar_guards
+from .open_field import TargetBoundaryGeometry, build_target_boundary_geometry
 from .recycling_fields import recycling_evolving_variable_names
 
 
@@ -67,6 +69,8 @@ class RecyclingRuntimeModel:
     preserve_dump_ion_target_state_only: bool
     field_names: tuple[str, ...]
     feedback_names: tuple[str, ...]
+    lower_target_geometry: TargetBoundaryGeometry | None = None
+    upper_target_geometry: TargetBoundaryGeometry | None = None
 
 
 def try_literal_reference(config: BoutConfig, raw_value: str) -> tuple[str, str] | None:
@@ -334,6 +338,7 @@ def build_recycling_runtime_model(
     config: BoutConfig,
     *,
     mesh: StructuredMesh,
+    metrics: StructuredMetrics | None = None,
     dataset_scalars: dict[str, float],
     field_overrides: dict[str, np.ndarray] | None = None,
     field_template_overrides: dict[str, np.ndarray] | None = None,
@@ -355,6 +360,32 @@ def build_recycling_runtime_model(
         mesh=mesh,
         dataset_scalars=dataset_scalars,
     )
+    lower_target_geometry = (
+        build_target_boundary_geometry(
+            J=np.asarray(metrics.J, dtype=np.float64),
+            dy=np.asarray(metrics.dy, dtype=np.float64),
+            dx=np.asarray(metrics.dx, dtype=np.float64),
+            dz=np.asarray(metrics.dz, dtype=np.float64),
+            g_22=np.asarray(metrics.g_22, dtype=np.float64),
+            y_index=mesh.ystart,
+            guard_index=mesh.ystart - 1,
+        )
+        if metrics is not None and mesh.has_lower_y_target and mesh.myg > 0
+        else None
+    )
+    upper_target_geometry = (
+        build_target_boundary_geometry(
+            J=np.asarray(metrics.J, dtype=np.float64),
+            dy=np.asarray(metrics.dy, dtype=np.float64),
+            dx=np.asarray(metrics.dx, dtype=np.float64),
+            dz=np.asarray(metrics.dz, dtype=np.float64),
+            g_22=np.asarray(metrics.g_22, dtype=np.float64),
+            y_index=mesh.yend,
+            guard_index=mesh.yend + 1,
+        )
+        if metrics is not None and mesh.has_upper_y_target and mesh.myg > 0
+        else None
+    )
     field_names = recycling_evolving_variable_names(species_templates)
     return RecyclingRuntimeModel(
         species_templates=species_templates,
@@ -372,4 +403,6 @@ def build_recycling_runtime_model(
         preserve_dump_ion_target_state_only=preserve_dump_ion_target_state_only,
         field_names=field_names,
         feedback_names=tuple(sorted(controllers)),
+        lower_target_geometry=lower_target_geometry,
+        upper_target_geometry=upper_target_geometry,
     )

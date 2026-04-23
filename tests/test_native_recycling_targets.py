@@ -99,11 +99,16 @@ def test_recycling_rhs_passes_configured_sheath_gamma_i_to_target_recycling(monk
         scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
     )
 
-    captured: list[float] = []
+    captured: list[tuple[float, bool]] = []
     original = target_recycling_sources.__globals__["compute_target_recycling_sources"]
 
     def wrapper(*args, **kwargs):
-        captured.append(float(kwargs["gamma_i"]))
+        captured.append(
+            (
+                float(kwargs["gamma_i"]),
+                kwargs["lower_geometry"] is not None or kwargs["upper_geometry"] is not None,
+            )
+        )
         return original(*args, **kwargs)
 
     monkeypatch.setitem(target_recycling_sources.__globals__, "compute_target_recycling_sources", wrapper)
@@ -118,7 +123,8 @@ def test_recycling_rhs_passes_configured_sheath_gamma_i_to_target_recycling(monk
     )
 
     assert captured
-    assert all(value == pytest.approx(2.5) for value in captured)
+    assert all(value == pytest.approx(2.5) for value, _ in captured)
+    assert all(has_cached_geometry for _, has_cached_geometry in captured)
 
 
 def test_electron_zero_current_velocity_uses_prepared_ion_density() -> None:

@@ -40,10 +40,14 @@ this machine:
   - the dominant mismatch remains the boundary-localized `NVh` field
 - `recycling_dthe_one_step`
   - timed local mean dropped from about `75.3 s` to about `54.1 s` after the
-    reaction/source allocation cleanup
+    reaction/source allocation cleanup, and then to about `52.76 s` after
+    caching target-boundary geometry in the recycling runtime model
   - live Hermès rerun ratio improved from about `8.45x` to about `7.81x`
   - the fidelity band stayed essentially unchanged at about `4.9e-3` relative
     RMS on `NVd`
+  - the isolated target-recycling operator now also shows a direct kernel-level
+    improvement of about `1.17x` from the same cached-geometry path on the CPU
+    NumPy RHS
 
 The next heavy CPU optimization target is no longer generic reaction
 allocation. The refreshed cProfile still shows the dominant remaining work in:

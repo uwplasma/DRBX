@@ -432,6 +432,26 @@ also shows the honest remaining gap: full live 3D Hermès reruns are still not
 part of this matrix, so the 3D evidence remains the selected-field
 reference-backed packages.
 
+## Neutral Mixed Boundary Audit
+
+![Neutral mixed boundary campaign](data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+
+What this documents:
+
+- a literature-style parallel-profile follow-up to the live rerun matrix rather
+  than another scalar dashboard;
+- Hermès-3 versus JAX-DRB lineouts at the `x,z` locations where `Nh`, `Ph`,
+  and `NVh` attain their worst one-step absolute error;
+- a `max_{x,z} |Δ|(y)` panel that makes the parallel localization of the
+  remaining mismatch visible across the whole compare surface;
+- the current one-step worst-field numbers on this focused surface:
+  `Nh max |Δ| ≈ 1.07e-2`, `Ph max |Δ| ≈ 8.65e-4`, and
+  `NVh max |Δ| ≈ 3.37e-3`, with a native/reference runtime ratio about `3.12x`.
+
+This is the right follow-up figure for the current neutral lane because it
+turns the remaining live rerun mismatch into a physical profile question that
+can be tied back to closures and boundary treatment.
+
 ## Temperature Feedback Campaign
 
 ![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)
