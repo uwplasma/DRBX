@@ -14,6 +14,7 @@ MIN_TOTAL_COVERAGE = 95.0
 PROMOTED_SOLVER_TESTS = (
     "-m",
     "not slow",
+    "tests/test_native_mesh.py",
     "tests/test_native_metrics.py",
     "tests/test_native_open_field.py",
     "tests/test_validation_open_field_operator_campaign.py",
