@@ -244,7 +244,11 @@ Specific file splits:
   - extract residual and Newton-facing assembly
   - extract diagnostics and summaries
 - `neutral_mixed.py`
-  - extract parallel transport operators
+  - extract parallel transport operators: started in
+    `src/jax_drb/native/neutral_mixed_operators.py`, including the open-field
+    parallel advection/diffusion operators, perpendicular diffusion operator,
+    parallel gradient, and gradient-magnitude helper used by the neutral
+    diffusion closure
   - extract wall/guard reconstruction: started in
     `src/jax_drb/native/neutral_mixed_boundaries.py`, with the original
     `neutral_mixed.py` private aliases preserved for compatibility while tests
