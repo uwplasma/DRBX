@@ -56,8 +56,8 @@ def target_recycling_sources(
             lower_y=mesh.has_lower_y_target,
             upper_y=mesh.has_upper_y_target,
         )
-        density_source[neutral.name] = density_source[neutral.name] + np.asarray(result.density_source, dtype=np.float64)
-        energy_source[neutral.name] = energy_source[neutral.name] + np.asarray(result.energy_source, dtype=np.float64)
+        density_source[neutral.name] += np.asarray(result.density_source, dtype=np.float64)
+        energy_source[neutral.name] += np.asarray(result.energy_source, dtype=np.float64)
         diagnostics[f"S{neutral.name}_target_recycle"] = np.asarray(result.target_density_source, dtype=np.float64)
         diagnostics[f"E{neutral.name}_target_recycle"] = np.asarray(result.target_energy_source, dtype=np.float64)
 
@@ -73,7 +73,7 @@ def electron_zero_current_velocity(
 ) -> np.ndarray:
     current = np.zeros_like(electron_density, dtype=np.float64)
     for ion in ions:
-        current = current + ion.charge * prepared[ion.name].density * ion_velocity[ion.name]
+        current += ion.charge * prepared[ion.name].density * ion_velocity[ion.name]
     return current / np.maximum(electron_density, 1.0e-5)
 
 

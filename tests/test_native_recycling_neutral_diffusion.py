@@ -9,7 +9,12 @@ import pytest
 from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
+from jax_drb.native.recycling_collisions import compute_collision_frequencies
 from jax_drb.native.recycling_neutral_diffusion import apply_neutral_parallel_diffusion
+from jax_drb.native.recycling_reactions import (
+    neutral_charge_exchange_collision_rates,
+    neutral_ionisation_collision_rates,
+)
 from jax_drb.native.recycling_setup import initialize_species
 from jax_drb.native.recycling_state import prepare_species_state
 from jax_drb.runtime.run_config import RunConfiguration
@@ -133,3 +138,54 @@ def test_neutral_parallel_diffusion_multispecies_mode_produces_finite_terms() ->
     assert np.isfinite(terms.energy_source["d"]).all()
     assert np.isfinite(terms.momentum_source["d"]).all()
     assert float(np.nanmax(np.abs(terms.density_source["d"]))) > 0.0
+
+
+def test_neutral_parallel_diffusion_accepts_precomputed_rates() -> None:
+    config, mesh, metrics, species, prepared = _build_prepared_case(
+        overrides=(
+            "model:components=neutral_parallel_diffusion",
+            "neutral_parallel_diffusion:dneut=1.0",
+            "neutral_parallel_diffusion:diffusion_collisions_mode=multispecies",
+        )
+    )
+    scalars = resolved_dataset_scalars(RunConfiguration.from_config(config))
+    collision_rates = compute_collision_frequencies(config, species, prepared, dataset_scalars=scalars)
+    ionisation_rates = neutral_ionisation_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=scalars,
+    )
+    cx_rates = neutral_charge_exchange_collision_rates(
+        config,
+        species=species,
+        prepared=prepared,
+        dataset_scalars=scalars,
+    )
+
+    baseline = apply_neutral_parallel_diffusion(
+        config,
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    reused = apply_neutral_parallel_diffusion(
+        config,
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        collision_rates=collision_rates,
+        ionisation_rates=ionisation_rates,
+        charge_exchange_rates=cx_rates,
+    )
+
+    for name in baseline.density_source:
+        np.testing.assert_allclose(reused.density_source[name], baseline.density_source[name])
+    for name in baseline.energy_source:
+        np.testing.assert_allclose(reused.energy_source[name], baseline.energy_source[name])
+    for name in baseline.momentum_source:
+        np.testing.assert_allclose(reused.momentum_source[name], baseline.momentum_source[name])

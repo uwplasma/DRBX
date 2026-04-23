@@ -47,6 +47,9 @@ def apply_neutral_parallel_diffusion(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
+    collision_rates: dict[tuple[str, str], np.ndarray] | None = None,
+    ionisation_rates: dict[str, np.ndarray] | None = None,
+    charge_exchange_rates: dict[str, np.ndarray] | None = None,
 ) -> NeutralParallelDiffusionTerms:
     density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
     energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
@@ -89,18 +92,30 @@ def apply_neutral_parallel_diffusion(
     )
     diagnose = bool(config.parsed(section, "diagnose")) if config.has_option(section, "diagnose") else False
 
-    collision_rates = compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
-    ionisation_rates = neutral_ionisation_collision_rates(
-        config,
-        species=species,
-        prepared=prepared,
-        dataset_scalars=dataset_scalars,
+    collision_rates = (
+        compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
+        if collision_rates is None
+        else collision_rates
     )
-    charge_exchange_rates = neutral_charge_exchange_collision_rates(
-        config,
-        species=species,
-        prepared=prepared,
-        dataset_scalars=dataset_scalars,
+    ionisation_rates = (
+        neutral_ionisation_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=dataset_scalars,
+        )
+        if ionisation_rates is None
+        else ionisation_rates
+    )
+    charge_exchange_rates = (
+        neutral_charge_exchange_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=dataset_scalars,
+        )
+        if charge_exchange_rates is None
+        else charge_exchange_rates
     )
 
     advection_factor = 2.5 if equation_fix else 1.5

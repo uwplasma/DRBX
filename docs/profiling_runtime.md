@@ -10,6 +10,11 @@ The current public entry point is:
 It is meant for the real worst offenders and live validation lanes, not only
 for compact microbenchmarks.
 
+The script now requires one of:
+
+- `--reference-root /path/to/hermes-3`
+- `JAX_DRB_REFERENCE_ROOT=/path/to/hermes-3`
+
 ## Recommended CPU Cases
 
 The current highest-value local CPU cases are:
@@ -22,6 +27,33 @@ The current highest-value local CPU cases are:
 
 These are the cases where the current same-machine Hermès rerun matrix still
 shows either the largest runtime ratios, the largest fidelity gaps, or both.
+
+## Current Measured CPU Results
+
+The latest local profiling pass gives the following reviewer-usable numbers on
+this machine:
+
+- `neutral_mixed_one_step`
+  - timed local mean dropped from about `1.15 s` to about `0.63 s` after
+    vectorizing `_gradient_magnitude`
+  - live Hermès rerun ratio improved from about `4.27x` to about `2.79x`
+  - the dominant mismatch remains the boundary-localized `NVh` field
+- `recycling_dthe_one_step`
+  - timed local mean dropped from about `75.3 s` to about `54.1 s` after the
+    reaction/source allocation cleanup
+  - live Hermès rerun ratio improved from about `8.45x` to about `7.81x`
+  - the fidelity band stayed essentially unchanged at about `4.9e-3` relative
+    RMS on `NVd`
+
+The next heavy CPU optimization target is no longer generic reaction
+allocation. The refreshed cProfile still shows the dominant remaining work in:
+
+- the SciPy BDF history path itself
+- finite-difference Jacobian assembly
+- neutral parallel diffusion
+- collision closure
+- target recycling / target boundary-source assembly
+- prepared-state and boundary setup on the open-field lane
 
 ## Basic Usage
 
@@ -107,24 +139,32 @@ The supporting JAX references are:
 The currently reachable office machine has:
 
 - two `NVIDIA RTX A4000` GPUs
-- CUDA-visible JAX devices under the system Python environment
+- a clean repo-local `jax_drb` environment with
+  `jax[cuda12]==0.6.2`
+- CUDA-visible JAX devices in that repo-local environment
 
-The current blocker is not hardware visibility. It is environment consistency:
-the repo still needs a clean `jax_drb` environment there before we can trust
-full GPU parity and runtime campaigns. The current remote observation is:
+The remote environment is now operational rather than speculative:
 
-- JAX sees both CUDA devices
-- `numpy`, `scipy`, `matplotlib`, and `netCDF4` import cleanly
-- `diffrax` and `equinox` fail in the current environment because of a
-  `jaxlib` extension mismatch
+- `jax.devices()` reports `CudaDevice(id=0)` and `CudaDevice(id=1)`
+- `jax.default_backend()` reports `gpu`
 
-That means the next GPU runtime step is:
+The first GPU-native audit on `office` is the compact selected-field profile
+bundle, not the heavy host/SciPy recycling lane. Current measured results on
+that GPU environment are:
 
-1. create a clean repo-local environment on `office`
-2. install `jax_drb` and the exact matching JAX/JAXLIB pair
-3. rerun the curated profiling cases above
-4. then collect TensorBoard/XProf traces, device-memory profiles, and
-   same-machine native-versus-Hermès timings on GPU
+- traced-field-line reduced lane
+  - compile `4.41e-2 s`
+  - first execute `1.23e-3 s`
+  - warm execute `3.30e-4 s`
+- stellarator VMEC reduced lane
+  - compile `7.36e-3 s`
+  - first execute `3.98e-4 s`
+  - warm execute `1.14e-4 s`
+
+That is the correct runtime split for the current codebase:
+
+- compact native JAX lanes are ready for CPU/GPU audit
+- heavy recycling lanes are still primarily CPU/host-side optimization targets
 
 ## Current Interpretation Standard
 
