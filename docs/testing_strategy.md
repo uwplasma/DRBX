@@ -186,6 +186,9 @@ This applies directly to:
 - open-field parallel advection/inertia operators and ion/electron/neutral
   RHS-term assembly
 - recycling species-state preparation, safe-temperature, and guard-merge rules
+- recycling source accumulation and override semantics, including JAX
+  JVP-versus-finite-difference checks so source composition can be promoted into
+  the fixed-layout residual without changing physics ordering
 - electron-force-balance pressure-gradient stencils
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes

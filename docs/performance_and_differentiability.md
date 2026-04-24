@@ -391,7 +391,11 @@ The species-preparation layer has now also started moving across that boundary.
 guard merging, and the neutral target/no-flow guard path preserve JAX inputs
 and have focused JVP coverage. The remaining full residual barrier is therefore
 less about individual field algebra and more about the surrounding
-dictionary-oriented accumulation and nonlinear solve orchestration.
+dictionary-oriented closure orchestration and nonlinear solve driver. The
+source-accumulation dictionaries are now less of a backend barrier: source
+zeros, additive updates, and source overrides use a shared backend-preserving
+helper with JVP coverage, so future fixed-layout residual ports can reuse the
+current source composition order without an initial NumPy conversion.
 
 The corresponding paper/docs artifact is:
 
