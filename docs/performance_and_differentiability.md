@@ -107,7 +107,13 @@ precomputed color-group extraction plan, reducing repeated host-side indexing
 work during each Newton refresh while keeping the numerical finite-difference
 surface unchanged. The current SciPy BDF recycling path now reuses that plan in
 its Jacobian callback as well, and the AMJUEL source path reuses shared
-log-temperature/log-density inputs across paired rate/radiation fits.
+log-temperature/log-density inputs across paired rate/radiation fits. The BDF
+callback also caches the most recent exact `(t, y)` RHS evaluation, so a
+`jac(t, y)` request immediately following `rhs(t, y)` reuses the base RHS
+instead of recomputing the full recycling source/closure assembly. The
+recycling history object records `bdf_rhs_evaluation_count`,
+`bdf_rhs_cache_hit_count`, and `bdf_jacobian_callback_count` for future runtime
+audits.
 
 ## What The Current Profiling Already Says
 
@@ -247,6 +253,16 @@ The source tree now also includes a JAX-linearized Newton-GMRES path for
 residuals that are already JAX-transformable:
 
 - [solve_jax_linearized_newton_system](../src/jax_drb/solver/implicit.py)
+- [build_sparse_jvp_jacobian](../src/jax_drb/solver/implicit.py)
+
+The grouped sparse-JVP builder uses the same coloring contract as the sparse
+finite-difference builder, but obtains each color group from a JAX linearized
+push rather than from perturbed residual calls. This is the intended bridge for
+pure-JAX residuals and future jaxified recycling kernels. It is deliberately
+not forced onto the current promoted recycling BDF path because that RHS is
+still host/NumPy/SciPy based; using JVPs there first requires moving the
+dominant source, closure, boundary, and pack/unpack kernels into a
+JAX-transformable residual.
 
 ## Current GPU-Native Audit
 

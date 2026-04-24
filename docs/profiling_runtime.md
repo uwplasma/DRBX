@@ -73,6 +73,16 @@ target recycling at about `6.1 s`. That split confirms that the next runtime
 fix has to attack both the Jacobian/RHS call count and repeated source/closure
 work; local threading alone is not the right primary fix for this path.
 
+The current BDF callback now removes one avoidable source of call inflation:
+when SciPy asks for `rhs(t, y)` and then for `jac(t, y)` at the same state, the
+Jacobian callback reuses the cached base RHS for that state before applying the
+colored sparse finite-difference perturbations. This is a call-count cleanup,
+not yet a full runtime solution. A post-change unprofiled
+`recycling_dthe_one_step` timing on this MacBook measured `61.38 s`, which is
+within local noise and not a defensible end-to-end speedup over the earlier
+`~53 s` unprofiled RSS run. Future heavy reports should therefore include the
+new BDF diagnostics counters in addition to wall time.
+
 The shared sparse Newton backend now records per-step diagnostics for:
 
 - residual evaluation count and wall time
@@ -87,6 +97,13 @@ neutral, and future tokamak campaign packages when the paper needs
 phase-resolved runtime evidence. The sparse finite-difference Jacobian path
 also precomputes the CSC row/column extraction plan once per solve, so each
 Newton refresh no longer rebuilds the same color-group indexing metadata.
+
+For residuals that are already JAX-transformable, the solver package also has a
+grouped sparse-JVP Jacobian builder. It uses `jax.linearize` and one pushed
+direction per color group, avoiding finite-difference residual perturbations
+altogether. The heavy recycling RHS is not yet in that category, so the
+remaining runtime work is to migrate the dominant recycling residual kernels to
+JAX-native array code before making the JVP path a production backend.
 
 ## Basic Usage
 
