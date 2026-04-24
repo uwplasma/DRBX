@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +11,8 @@ from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .neutral_mixed import _div_par_fvv_open, _div_par_mod_open, _grad_par_open
+from .open_field import apply_parallel_electric_force
+from .recycling_targets import grad_par_electron_force_balance_open
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,13 @@ class NeutralRhsTerms:
     momentum_source: np.ndarray
     momentum_error: np.ndarray
     momentum_total: np.ndarray
+
+
+@dataclass(frozen=True)
+class ElectronParallelForceTerms:
+    force_density: np.ndarray
+    epar: np.ndarray
+    ion_momentum_source: dict[str, np.ndarray]
 
 
 def soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
@@ -110,6 +120,54 @@ def assemble_electron_pressure_rhs_terms(
         parallel_advection=parallel_advection,
         energy_source=energy_source,
         total=total,
+    )
+
+
+def assemble_electron_parallel_force_terms(
+    *,
+    electron_pressure: np.ndarray,
+    electron_density: np.ndarray,
+    electron_momentum_source: np.ndarray,
+    ion_density: Mapping[str, np.ndarray],
+    ion_charge: Mapping[str, float],
+    ion_momentum_source: Mapping[str, np.ndarray],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    density_floor: float = 1.0e-5,
+) -> ElectronParallelForceTerms:
+    """Return electron force balance and ion electric-force source updates."""
+
+    use_jax = use_jax_backend(
+        electron_pressure,
+        electron_density,
+        electron_momentum_source,
+        *(ion_density.values()),
+        *(ion_momentum_source.values()),
+        metrics.dy,
+        metrics.g_22,
+    )
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    maximum = jnp.maximum if use_jax else np.maximum
+    force_density = -grad_par_electron_force_balance_open(
+        array(electron_pressure, dtype=dtype),
+        mesh=mesh,
+        metrics=metrics,
+    )
+    force_density = force_density + array(electron_momentum_source, dtype=dtype)
+    epar = force_density / maximum(array(electron_density, dtype=dtype), float(density_floor))
+    updated_ion_momentum_source: dict[str, np.ndarray] = {}
+    for name, density in ion_density.items():
+        updated_ion_momentum_source[name] = apply_parallel_electric_force(
+            array(density, dtype=dtype),
+            charge=float(ion_charge[name]),
+            epar=epar,
+            existing_source=array(ion_momentum_source[name], dtype=dtype),
+        )
+    return ElectronParallelForceTerms(
+        force_density=force_density,
+        epar=epar,
+        ion_momentum_source=updated_ion_momentum_source,
     )
 
 

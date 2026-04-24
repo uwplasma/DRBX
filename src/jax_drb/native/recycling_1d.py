@@ -37,7 +37,6 @@ from .open_field import (
     TargetBoundaryGeometry,
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
-    apply_parallel_electric_force,
     compute_electron_force_balance,
     compute_target_recycling_sources,
     limit_free,
@@ -102,6 +101,7 @@ from .recycling_reactions import (
     reaction_sources as _reaction_sources,
 )
 from .recycling_rhs_terms import (
+    assemble_electron_parallel_force_terms as _assemble_electron_parallel_force_terms,
     assemble_electron_pressure_rhs_terms as _assemble_electron_pressure_rhs_terms,
     assemble_ion_rhs_terms as _assemble_ion_rhs_terms,
     assemble_neutral_rhs_terms as _assemble_neutral_rhs_terms,
@@ -400,27 +400,20 @@ def _compute_recycling_1d_rhs_from_species(
     _apply_species_source_overrides(density_source, density_source_overrides)
     _apply_species_source_overrides(momentum_source, momentum_source_overrides)
 
-    electron_force_density = -_grad_par_electron_force_balance_open(
-        electron_boundary.pressure,
+    electron_force_terms = _assemble_electron_parallel_force_terms(
+        electron_pressure=electron_boundary.pressure,
+        electron_density=electron_boundary.density,
+        electron_momentum_source=momentum_source["e"],
+        ion_density={ion.name: prepared[ion.name].density for ion in ions},
+        ion_charge={ion.name: ion.charge for ion in ions},
+        ion_momentum_source={ion.name: momentum_source[ion.name] for ion in ions},
         mesh=mesh,
         metrics=metrics,
     )
-    electron_force_density += momentum_source["e"]
-    electron_parallel_density = np.maximum(
-        np.asarray(electron_boundary.density, dtype=np.float64),
-        1.0e-5,
-    )
-    electron_epar = electron_force_density / electron_parallel_density
     for ion in ions:
-        momentum_source[ion.name] = momentum_source[ion.name] + np.asarray(
-            apply_parallel_electric_force(
-                prepared[ion.name].density,
-                charge=ion.charge,
-                epar=electron_epar,
-            ),
-            dtype=np.float64,
-        )
-    diagnostics["Epar"] = np.asarray(electron_epar, dtype=np.float64)
+        momentum_source[ion.name] = electron_force_terms.ion_momentum_source[ion.name]
+    electron_epar = electron_force_terms.epar
+    diagnostics["Epar"] = np.asarray(electron_force_terms.epar, dtype=np.float64)
     diagnostics["Ve"] = np.asarray(electron_boundary.velocity, dtype=np.float64)
 
     variables: dict[str, np.ndarray] = {}

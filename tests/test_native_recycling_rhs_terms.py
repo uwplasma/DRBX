@@ -8,9 +8,11 @@ import pytest
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.metrics import StructuredMetrics
 from jax_drb.native.recycling_rhs_terms import (
+    ElectronParallelForceTerms,
     ElectronPressureRhsTerms,
     IonRhsTerms,
     NeutralRhsTerms,
+    assemble_electron_parallel_force_terms,
     assemble_electron_pressure_rhs_terms,
     assemble_ion_rhs_terms,
     assemble_neutral_rhs_terms,
@@ -75,6 +77,33 @@ def test_electron_pressure_rhs_terms_sum_to_total() -> None:
         terms.total,
         terms.explicit_pressure_source + terms.parallel_divergence + terms.parallel_advection + terms.energy_source,
     )
+
+
+def test_electron_parallel_force_terms_add_ion_electric_source() -> None:
+    mesh, metrics = _mesh_and_metrics()
+    pressure = np.array([[[3.0], [4.0], [6.0]]], dtype=np.float64)
+    electron_density = np.array([[[2.0], [2.5], [3.0]]], dtype=np.float64)
+    electron_momentum_source = np.full((1, 3, 1), 0.25, dtype=np.float64)
+    ion_density = {"d+": np.array([[[1.0], [1.5], [2.0]]], dtype=np.float64)}
+    ion_momentum_source = {"d+": np.full((1, 3, 1), -0.5, dtype=np.float64)}
+
+    terms = assemble_electron_parallel_force_terms(
+        electron_pressure=pressure,
+        electron_density=electron_density,
+        electron_momentum_source=electron_momentum_source,
+        ion_density=ion_density,
+        ion_charge={"d+": 1.0},
+        ion_momentum_source=ion_momentum_source,
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    assert isinstance(terms, ElectronParallelForceTerms)
+    np.testing.assert_allclose(
+        terms.ion_momentum_source["d+"],
+        ion_momentum_source["d+"] + ion_density["d+"] * terms.epar,
+    )
+    np.testing.assert_allclose(terms.epar, terms.force_density / np.maximum(electron_density, 1.0e-5))
 
 
 def test_ion_rhs_terms_sum_to_total() -> None:
@@ -172,6 +201,66 @@ def test_electron_pressure_rhs_terms_are_jax_jvp_transformable() -> None:
             metrics=metrics,
         )
         return jnp.sum(terms.total * jnp.asarray([[[0.2], [0.7], [1.1]]], dtype=jnp.float64))
+
+    _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-5
+    finite_difference = (qoi(1.0 + eps) - qoi(1.0 - eps)) / (2.0 * eps)
+
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=2.0e-6, atol=2.0e-8)
+
+
+def test_electron_parallel_force_terms_jax_branch_matches_numpy_and_jvp() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh, metrics = _mesh_and_metrics()
+    pressure = np.array([[[3.0], [4.0], [6.0]]], dtype=np.float64)
+    electron_density = np.array([[[2.0], [2.5], [3.0]]], dtype=np.float64)
+    electron_momentum_source = np.full((1, 3, 1), 0.25, dtype=np.float64)
+    ion_density = {"d+": np.array([[[1.0], [1.5], [2.0]]], dtype=np.float64)}
+    ion_momentum_source = {"d+": np.full((1, 3, 1), -0.5, dtype=np.float64)}
+    numpy_terms = assemble_electron_parallel_force_terms(
+        electron_pressure=pressure,
+        electron_density=electron_density,
+        electron_momentum_source=electron_momentum_source,
+        ion_density=ion_density,
+        ion_charge={"d+": 1.0},
+        ion_momentum_source=ion_momentum_source,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    jax_terms = assemble_electron_parallel_force_terms(
+        electron_pressure=jnp.asarray(pressure),
+        electron_density=jnp.asarray(electron_density),
+        electron_momentum_source=jnp.asarray(electron_momentum_source),
+        ion_density={"d+": jnp.asarray(ion_density["d+"])},
+        ion_charge={"d+": 1.0},
+        ion_momentum_source={"d+": jnp.asarray(ion_momentum_source["d+"])},
+        mesh=mesh,
+        metrics=metrics,
+    )
+
+    np.testing.assert_allclose(np.asarray(jax_terms.epar), numpy_terms.epar, rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(
+        np.asarray(jax_terms.ion_momentum_source["d+"]),
+        numpy_terms.ion_momentum_source["d+"],
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+    weights = jnp.asarray([[[0.3], [0.8], [1.4]]], dtype=jnp.float64)
+
+    def qoi(scale):
+        terms = assemble_electron_parallel_force_terms(
+            electron_pressure=scale * jnp.asarray(pressure),
+            electron_density=jnp.asarray(electron_density),
+            electron_momentum_source=jnp.asarray(electron_momentum_source),
+            ion_density={"d+": jnp.asarray(ion_density["d+"])},
+            ion_charge={"d+": 1.0},
+            ion_momentum_source={"d+": jnp.asarray(ion_momentum_source["d+"])},
+            mesh=mesh,
+            metrics=metrics,
+        )
+        return jnp.sum(terms.epar * weights) + 0.1 * jnp.sum(terms.ion_momentum_source["d+"] * weights)
 
     _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
     eps = 1.0e-5

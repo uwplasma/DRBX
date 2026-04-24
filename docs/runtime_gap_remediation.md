@@ -241,6 +241,10 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   adds, and overrides per-species sources through one backend-preserving helper
   instead of forcing the accumulator dictionaries through NumPy at the start of
   each RHS call;
+- electron parallel force balance and the resulting ion electric-force source
+  updates now use a backend-preserving RHS helper with a direct
+  JVP-versus-finite-difference gate, rather than adding those momentum sources
+  through a NumPy-only block in the full RHS;
 - the open-field state-preparation wrapper now preserves JAX arrays through
   electron-density reconstruction and the boundary-free electron/ion state
   path, giving the fixed-layout residual a transformable no-sheath control

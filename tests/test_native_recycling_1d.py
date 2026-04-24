@@ -1193,11 +1193,14 @@ def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_f
 
     captured_densities: list[np.ndarray] = []
 
-    def capture_parallel_electric_force(density, *, charge, epar):
-        captured_densities.append(np.asarray(density, dtype=np.float64))
-        return np.zeros_like(np.asarray(density, dtype=np.float64))
+    def capture_parallel_force_terms(**kwargs):
+        captured_densities.append(np.asarray(kwargs["ion_density"]["d+"], dtype=np.float64))
+        return SimpleNamespace(
+            epar=np.zeros_like(kwargs["electron_density"], dtype=np.float64),
+            ion_momentum_source=kwargs["ion_momentum_source"],
+        )
 
-    monkeypatch.setattr(recycling_1d_mod, "apply_parallel_electric_force", capture_parallel_electric_force)
+    monkeypatch.setattr(recycling_1d_mod, "_assemble_electron_parallel_force_terms", capture_parallel_force_terms)
 
     _compute_recycling_1d_rhs_from_species(
         config,
