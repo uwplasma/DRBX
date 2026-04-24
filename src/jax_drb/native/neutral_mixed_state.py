@@ -20,6 +20,9 @@ class NeutralMixedRhsResult:
     diffusion: np.ndarray
     density_parallel_flow: np.ndarray
     pressure_parallel_flow: np.ndarray
+    density_terms: dict[str, np.ndarray] = field(default_factory=dict)
+    pressure_terms: dict[str, np.ndarray] = field(default_factory=dict)
+    momentum_terms: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -31,6 +31,7 @@ JAX-based solver papers.
 | `Hermes Offender Register` | `triage artifact` | Ranked parity/runtime/memory offender register from the live rerun matrix and reduced geometry summary. |
 | `Implicit Solver Profile Audit` | `numerical-performance audit` | Sparse finite-difference Jacobian plan and Newton phase diagnostics for the shared implicit backend. |
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
+| `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 
 ## Diffusion Short Window
 
@@ -58,6 +59,17 @@ What this locks down:
   finite-difference sensitivity for the force-balance objective;
 - a publication-ready operator-verification figure that can be reused in the
   JAXDRB paper before moving to longer Hermes reruns.
+
+## Neutral Mixed Term-Balance Campaign
+
+![Neutral mixed term-balance audit](data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+
+What this locks down:
+
+- named native `NVh` term decomposition for the neutral mixed momentum equation;
+- backward-Euler residual-rate reconstruction on both native and Hermès-3 final states;
+- a direct diagnostic separating native one-step residual closure from the remaining Hermès final-state mismatch;
+- a publication-grade lineout/bar figure for the current neutral mixed offender.
 
 ## Electrostatic Vorticity Short Window
 
