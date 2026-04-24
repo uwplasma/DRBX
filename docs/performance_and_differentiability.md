@@ -369,6 +369,9 @@ parallelization policy:
 - the SciPy BDF recycling callback now honors the same environment variable
   while keeping its default serial, which avoids oversubscription on one-off
   runs but lets MacBook users opt into multiple cores for heavy local runs;
+- on the heavy `recycling_dthe_one_step` BDF path, local timing checks were
+  effectively flat from serial to two Jacobian threads and slower at four
+  threads, so this is not yet a strong-scaling path for one solve;
 - on the profiled neon tokamak one-step case, that gives a small but real
   additional local speedup on top of the larger residual/Jacobian cleanup.
 
