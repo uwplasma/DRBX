@@ -402,6 +402,21 @@ What this documents:
 - profile-level lineouts for ionisation, isotope-resolved charge exchange, and collisionality closure, so the same validated surface can support future manuscript figures;
 - a machine-readable JSON/NPZ/plot package instead of leaving this breadth implied only by low-level unit tests.
 
+## Atomic Rate Differentiability Campaign
+
+![Atomic rate differentiability campaign](data/atomic_rate_differentiability_campaign_artifacts/images/atomic_rate_differentiability_campaign.png)
+
+What this documents:
+
+- a derivative-validation figure for the AMJUEL, OpenADAS, and hydrogen
+  charge-exchange rate surfaces used by the reaction-source path;
+- autodiff slopes with respect to log temperature compared directly against
+  centered finite differences;
+- a concrete gate for the newly JAX-preserving atomic-rate helpers before
+  those rates are used inside a full JAX-native recycling residual;
+- a paper-ready differentiability figure that complements the existing
+  reaction/collision physics campaign.
+
 ## Neutral Parallel Diffusion Campaign
 
 ![Neutral parallel diffusion campaign](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
@@ -600,6 +615,8 @@ These figures are generated from the committed baseline arrays plus native case 
 - `alfven_wave_short_window`
 - `tokamak_turbulence_short_window` stitched full-domain geometry visualization
 - live Hermès reruns across the representative 1D and 2D curated matrix
+- atomic-rate differentiability audit for AMJUEL, OpenADAS, and hydrogen
+  charge exchange
 
 The next gallery pass should add:
 

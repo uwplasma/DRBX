@@ -309,6 +309,12 @@ from .reactions_collisions_campaign import (
     build_reactions_collisions_campaign,
     create_reactions_collisions_campaign_package,
 )
+from .atomic_rate_differentiability_campaign import (
+    AtomicRateDifferentiabilityCampaignArtifacts,
+    build_atomic_rate_differentiability_campaign_report,
+    create_atomic_rate_differentiability_campaign_package,
+    save_atomic_rate_differentiability_campaign_plot,
+)
 from .neutral_parallel_diffusion_campaign import (
     NeutralParallelDiffusionCampaignArtifacts,
     NeutralParallelDiffusionCampaignMetric,
@@ -551,6 +557,10 @@ __all__ = [
     "ReactionsCollisionsCampaignMetric",
     "build_reactions_collisions_campaign",
     "create_reactions_collisions_campaign_package",
+    "AtomicRateDifferentiabilityCampaignArtifacts",
+    "build_atomic_rate_differentiability_campaign_report",
+    "create_atomic_rate_differentiability_campaign_package",
+    "save_atomic_rate_differentiability_campaign_plot",
     "NeutralParallelDiffusionCampaignArtifacts",
     "NeutralParallelDiffusionCampaignMetric",
     "build_neutral_parallel_diffusion_campaign",

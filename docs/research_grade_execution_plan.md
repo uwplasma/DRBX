@@ -692,6 +692,11 @@ implementation step is not another rate formula. It is the fixed-layout
 reaction-source accumulator that can call those helpers without Python
 dictionaries or host conversions inside the residual.
 
+The first artifact-level gate for this port is the atomic-rate
+differentiability campaign. It produces a publication-ready figure comparing
+JAX autodiff slopes against centered finite differences on the AMJUEL,
+OpenADAS, and hydrogen charge-exchange rate surfaces.
+
 ### CPU Parallelization
 
 Laptop CPU speedups are possible, but the right target is not one host-side
