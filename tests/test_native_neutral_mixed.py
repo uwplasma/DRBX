@@ -137,6 +137,25 @@ def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
     assert prepared.temperature[5, 5, 5] == pytest.approx(0.1, rel=1e-12, abs=1e-12)
 
 
+def test_neutral_mixed_rhs_term_decomposition_sums_to_rhs() -> None:
+    _, _, _, _, _, rhs = _build_case()
+
+    density_sum = sum(rhs.density_terms.values(), np.zeros_like(rhs.density))
+    pressure_sum = sum(rhs.pressure_terms.values(), np.zeros_like(rhs.pressure))
+    momentum_sum = sum(rhs.momentum_terms.values(), np.zeros_like(rhs.momentum))
+
+    assert set(rhs.momentum_terms) == {
+        "parallel_inertia",
+        "pressure_gradient",
+        "perpendicular_diffusion",
+        "parallel_viscosity",
+        "perpendicular_viscosity",
+    }
+    np.testing.assert_allclose(density_sum, rhs.density, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(pressure_sum, rhs.pressure, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(momentum_sum, rhs.momentum, rtol=1e-14, atol=1e-14)
+
+
 def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
     config, run_config, mesh, metrics, state, rhs = _build_case()
     scalars = resolved_dataset_scalars(run_config)

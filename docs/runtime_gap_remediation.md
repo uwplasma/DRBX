@@ -28,7 +28,13 @@ profile mean dropped from about `1.15 s` to about `0.63 s`, but the main
 physics mismatch remains. The focused follow-up figure is now in
 [neutral_mixed_boundary_campaign.md](neutral_mixed_boundary_campaign.md), which
 shows the worst-error `Nh`, `Ph`, and `NVh` lineouts plus the
-`max_{x,z} |Δ|(y)` profile on the same live rerun surface.
+`max_{x,z} |Δ|(y)` profile on the same live rerun surface. The next diagnostic
+layer is now in
+[neutral_mixed_term_balance_campaign.md](neutral_mixed_term_balance_campaign.md):
+it inserts both the native and Hermès-3 final states into the native
+neutral-mixed momentum operator and decomposes the `NVh` residual-rate into
+parallel inertia, pressure gradient, perpendicular diffusion, parallel
+viscosity, and perpendicular viscosity.
 
 ### 2. Heavy 1D recycling runtime bottleneck
 
@@ -115,6 +121,12 @@ The current bottlenecks split into two classes.
 3. keep the new live rerun boundary-audit package and extend it term-by-term
    for the offending neutral terms
 4. lock the fix with a direct regression test plus the same paper-grade figure
+
+The term-balance package now completes item 2 on the native side. It shows that
+the native final state nearly satisfies the native backward-Euler residual, but
+the Hermès-3 final state does not. The next neutral fidelity fix should
+therefore inspect Hermès-3's corresponding pressure-gradient and viscosity
+operator outputs, not another aggregate field-error plot.
 
 ### Priority 2: multispecies recycling runtime
 
@@ -207,7 +219,8 @@ That means the next GPU work should be:
 Before the next paper-facing performance pass, the codebase should have:
 
 - a refreshed same-machine live Hermès rerun figure
-- one dedicated neutral-mixed mismatch campaign
+- one dedicated neutral-mixed boundary campaign and one term-level `NVh`
+  balance campaign
 - one refreshed heavy recycling runtime profile bundle
 - one committed GPU profiling bundle from `office`
 - one tokamak-observable comparison package closer to the TCV-X21/Hermès style

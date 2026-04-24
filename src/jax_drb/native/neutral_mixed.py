@@ -519,7 +519,7 @@ def compute_neutral_mixed_rhs(
         meters_scale=meters_scale,
         tnorm=tnorm,
     )
-    density_rhs = -_div_par_mod_open(
+    density_parallel_advection = -_div_par_mod_open(
         prepared.density,
         prepared.velocity,
         prepared.sound_speed,
@@ -527,14 +527,19 @@ def compute_neutral_mixed_rhs(
         metrics=metrics,
     )
     density_parallel_flow = _neutral_mixed_operators.last_parallel_flow().copy()
-    density_rhs += _div_a_grad_perp_flows(
+    density_perpendicular_diffusion = _div_a_grad_perp_flows(
         prepared.diffusion_density,
         prepared.log_pressure,
         mesh=mesh,
         metrics=metrics,
     )
+    density_terms = {
+        "parallel_advection": density_parallel_advection,
+        "perpendicular_diffusion": density_perpendicular_diffusion,
+    }
+    density_rhs = sum(density_terms.values(), np.zeros_like(prepared.density, dtype=np.float64))
 
-    pressure_rhs = -(5.0 / 3.0) * _div_par_mod_open(
+    pressure_parallel_advection = -(5.0 / 3.0) * _div_par_mod_open(
         prepared.pressure,
         prepared.velocity,
         prepared.sound_speed,
@@ -542,64 +547,81 @@ def compute_neutral_mixed_rhs(
         metrics=metrics,
     )
     pressure_parallel_flow = (5.0 / 2.0) * _neutral_mixed_operators.last_parallel_flow().copy()
-    pressure_rhs += (2.0 / 3.0) * prepared.velocity * _grad_par_open(
+    pressure_parallel_work = (2.0 / 3.0) * prepared.velocity * _grad_par_open(
         prepared.pressure,
         mesh=mesh,
         metrics=metrics,
     )
-    pressure_rhs += (5.0 / 3.0) * _div_a_grad_perp_flows(
+    pressure_perpendicular_diffusion = (5.0 / 3.0) * _div_a_grad_perp_flows(
         prepared.diffusion_pressure,
         prepared.log_pressure,
         mesh=mesh,
         metrics=metrics,
     )
+    pressure_terms = {
+        "parallel_advection": pressure_parallel_advection,
+        "parallel_pressure_work": pressure_parallel_work,
+        "perpendicular_diffusion": pressure_perpendicular_diffusion,
+    }
 
     if bool(config.parsed(section, "neutral_conduction")) if config.has_option(section, "neutral_conduction") else True:
-        pressure_rhs += (2.0 / 3.0) * _div_par_k_grad_par_open(
+        pressure_parallel_conduction = (2.0 / 3.0) * _div_par_k_grad_par_open(
             prepared.conductivity,
             prepared.temperature,
             mesh=mesh,
             metrics=metrics,
             boundary_flux=False,
         )
-        pressure_rhs += (2.0 / 3.0) * _div_a_grad_perp_flows(
+        pressure_perpendicular_conduction = (2.0 / 3.0) * _div_a_grad_perp_flows(
             prepared.conductivity,
             prepared.temperature,
             mesh=mesh,
             metrics=metrics,
         )
+        pressure_terms["parallel_conduction"] = pressure_parallel_conduction
+        pressure_terms["perpendicular_conduction"] = pressure_perpendicular_conduction
 
-    momentum_rhs = -_section_scalar(config, section, "AA", default=1.0) * _div_par_fvv_open(
+    momentum_parallel_inertia = -_section_scalar(config, section, "AA", default=1.0) * _div_par_fvv_open(
         prepared.density_limited,
         prepared.velocity,
         prepared.sound_speed,
         mesh=mesh,
         metrics=metrics,
     )
-    momentum_rhs -= _grad_par_open(prepared.pressure, mesh=mesh, metrics=metrics)
-    momentum_rhs += _div_a_grad_perp_flows(
+    momentum_pressure_gradient = -_grad_par_open(prepared.pressure, mesh=mesh, metrics=metrics)
+    momentum_perpendicular_diffusion = _div_a_grad_perp_flows(
         prepared.diffusion_momentum,
         prepared.log_pressure,
         mesh=mesh,
         metrics=metrics,
     )
+    momentum_terms = {
+        "parallel_inertia": momentum_parallel_inertia,
+        "pressure_gradient": momentum_pressure_gradient,
+        "perpendicular_diffusion": momentum_perpendicular_diffusion,
+    }
 
     if bool(config.parsed(section, "neutral_viscosity")) if config.has_option(section, "neutral_viscosity") else True:
-        viscosity_source = _div_par_k_grad_par_open(
+        viscosity_parallel = _div_par_k_grad_par_open(
             prepared.viscosity,
             prepared.velocity,
             mesh=mesh,
             metrics=metrics,
             boundary_flux=False,
         )
-        viscosity_source += _div_a_grad_perp_flows(
+        viscosity_perpendicular = _div_a_grad_perp_flows(
             prepared.viscosity,
             prepared.velocity,
             mesh=mesh,
             metrics=metrics,
         )
-        momentum_rhs += viscosity_source
-        pressure_rhs += -(2.0 / 3.0) * prepared.velocity * viscosity_source
+        viscosity_source = viscosity_parallel + viscosity_perpendicular
+        momentum_terms["parallel_viscosity"] = viscosity_parallel
+        momentum_terms["perpendicular_viscosity"] = viscosity_perpendicular
+        pressure_terms["viscous_work"] = -(2.0 / 3.0) * prepared.velocity * viscosity_source
+
+    pressure_rhs = sum(pressure_terms.values(), np.zeros_like(prepared.pressure, dtype=np.float64))
+    momentum_rhs = sum(momentum_terms.values(), np.zeros_like(prepared.momentum, dtype=np.float64))
 
     return NeutralMixedRhsResult(
         density=np.asarray(density_rhs, dtype=np.float64),
@@ -608,6 +630,9 @@ def compute_neutral_mixed_rhs(
         diffusion=np.asarray(prepared.diffusion, dtype=np.float64),
         density_parallel_flow=np.asarray(density_parallel_flow, dtype=np.float64),
         pressure_parallel_flow=np.asarray(pressure_parallel_flow, dtype=np.float64),
+        density_terms={name: np.asarray(value, dtype=np.float64) for name, value in density_terms.items()},
+        pressure_terms={name: np.asarray(value, dtype=np.float64) for name, value in pressure_terms.items()},
+        momentum_terms={name: np.asarray(value, dtype=np.float64) for name, value in momentum_terms.items()},
     )
 
 

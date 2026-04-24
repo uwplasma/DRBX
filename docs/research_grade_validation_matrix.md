@@ -99,6 +99,9 @@ used in verification, validation, and differentiable-science papers:
 - [neutral_mixed_boundary_campaign](data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
   for boundary-localized neutral-mixed mismatch analysis on the live rerun
   surface
+- [neutral_mixed_term_balance_campaign](data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+  for term-level `NVh` residual localization on the neutral-mixed one-step
+  Hermès mismatch
 - [autodiff_diffusion_uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
   for uncertainty propagation on the differentiable lane
 - [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
@@ -170,8 +173,8 @@ The current live rerun evidence sharpens that priority:
 - heavy 1D recycling and the neutral mixed lane remain the main fidelity and
   runtime gaps
 - the neutral lane now also has a dedicated live rerun boundary-audit figure,
-  so the remaining mismatch is no longer represented only by matrix-level
-  summary scalars
+  plus a term-level `NVh` residual-balance figure, so the remaining mismatch is
+  no longer represented only by matrix-level summary scalars
 - full live 3D Hermès reruns are still missing, so 3D remains a distinct
   selected-field evidence track rather than part of the live rerun matrix
 

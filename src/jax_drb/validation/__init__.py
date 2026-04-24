@@ -79,6 +79,12 @@ from .neutral_mixed_boundary_campaign import (
     create_neutral_mixed_boundary_campaign_package,
     save_neutral_mixed_boundary_campaign_plot,
 )
+from .neutral_mixed_term_balance_campaign import (
+    NeutralMixedTermBalanceCampaignArtifacts,
+    build_neutral_mixed_term_balance_campaign_report,
+    create_neutral_mixed_term_balance_campaign_package,
+    save_neutral_mixed_term_balance_campaign_plot,
+)
 from .autodiff_diffusion import (
     DiffusionAutodiffSetup,
     StrongScalingPoint,
@@ -386,6 +392,7 @@ __all__ = [
     "NeutralMixedAnalysisResult",
     "NeutralMixedParityResult",
     "NeutralMixedSeriesError",
+    "NeutralMixedTermBalanceCampaignArtifacts",
     "analyze_neutral_mixed_array_payload",
     "analyze_neutral_mixed_npz",
     "compare_neutral_mixed_analysis_results",
@@ -397,6 +404,9 @@ __all__ = [
     "save_neutral_mixed_parity_plot",
     "write_neutral_mixed_analysis_json",
     "write_neutral_mixed_parity_json",
+    "build_neutral_mixed_term_balance_campaign_report",
+    "create_neutral_mixed_term_balance_campaign_package",
+    "save_neutral_mixed_term_balance_campaign_plot",
     "DiffusionAutodiffSetup",
     "StrongScalingPoint",
     "build_diffusion_autodiff_setup",
