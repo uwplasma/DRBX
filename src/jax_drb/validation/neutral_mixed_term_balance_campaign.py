@@ -41,6 +41,7 @@ def create_neutral_mixed_term_balance_campaign_package(
     input_path: str | Path | None = None,
     reference_arrays_npz: str | Path | None = None,
     native_arrays_npz: str | Path | None = None,
+    hermes_diagnostic_nc: str | Path | None = None,
 ) -> NeutralMixedTermBalanceCampaignArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -54,6 +55,7 @@ def create_neutral_mixed_term_balance_campaign_package(
         input_path=input_path,
         reference_arrays_npz=reference_arrays_npz,
         native_arrays_npz=native_arrays_npz,
+        hermes_diagnostic_nc=hermes_diagnostic_nc,
     )
     report_json_path = data_dir / f"{case_label}.json"
     report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -76,6 +78,7 @@ def build_neutral_mixed_term_balance_campaign_report(
     input_path: str | Path | None = None,
     reference_arrays_npz: str | Path | None = None,
     native_arrays_npz: str | Path | None = None,
+    hermes_diagnostic_nc: str | Path | None = None,
 ) -> dict[str, object]:
     root = Path(reference_root).expanduser().resolve() if reference_root is not None else default_reference_root()
     if input_path is None:
@@ -137,7 +140,7 @@ def build_neutral_mixed_term_balance_campaign_report(
     reference_residual_active = np.asarray(reference_balance["residual_rate"][:, active_y, :], dtype=np.float64)
     native_residual_active = np.asarray(native_balance["residual_rate"][:, active_y, :], dtype=np.float64)
 
-    return {
+    report: dict[str, object] = {
         "case_name": case_name,
         "reference_code": "hermes-3",
         "input_path": _sanitize_public_path(input_path),
@@ -169,6 +172,14 @@ def build_neutral_mixed_term_balance_campaign_report(
             "next_action": "compare the largest residual-rate lineout terms against Hermès operator diagnostics or add a targeted boundary/closure unit test.",
         },
     }
+    if hermes_diagnostic_nc is not None:
+        report["hermes_diagnostic_outputs"] = _hermes_diagnostic_payload(
+            hermes_diagnostic_nc,
+            active_y=active_y,
+            line_x=line_x,
+            line_z=line_z,
+        )
+    return report
 
 
 def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], path: str | Path) -> Path:
@@ -382,8 +393,74 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
     for group_name in ("native_balance", "reference_balance"):
         for term_name, lineout in report[group_name]["lineouts"].items():
             arrays[f"{group_name}_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
+    diagnostics = report.get("hermes_diagnostic_outputs")
+    if isinstance(diagnostics, dict):
+        lineouts = diagnostics.get("lineouts", {})
+        if isinstance(lineouts, dict):
+            for term_name, lineout in lineouts.items():
+                arrays[f"hermes_diagnostic_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
     np.savez(target, **arrays)
     return target
+
+
+def _hermes_diagnostic_payload(
+    path: str | Path,
+    *,
+    active_y: slice,
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    try:
+        from netCDF4 import Dataset
+    except ImportError as exc:  # pragma: no cover - dependency is part of the runtime package
+        raise ImportError("netCDF4 is required to read Hermès diagnostic NetCDF output.") from exc
+
+    target = Path(path).expanduser().resolve()
+    field_names = (
+        "ddt(NVh)",
+        "SNVh",
+        "mfh_visc_par_ylow",
+        "mfh_visc_perp_xlow",
+        "mfh_visc_perp_ylow",
+        "mfh_adv_perp_xlow",
+        "mfh_adv_perp_ylow",
+    )
+    payload: dict[str, object] = {
+        "source_nc": target.name,
+        "lineouts": {},
+        "field_metrics": {},
+        "variables_present": [],
+        "variables_missing": [],
+        "interpretation": {
+            "direct_hermes_outputs": (
+                "Hermès writes ddt(NVh), external/source terms, and selected "
+                "momentum-flow diagnostics when neutral_mixed output_ddt=true "
+                "and diagnose=true."
+            ),
+            "pressure_gradient_limitation": (
+                "The neutral pressure-gradient source appears in Hermès as "
+                "-Grad_par(Pn) inside neutral_mixed.cxx, but it is not written "
+                "as a named diagnostic in the stock output. Direct "
+                "pressure-gradient parity therefore still requires either a "
+                "small Hermès diagnostic patch or a matched postprocessed "
+                "operator reconstruction."
+            ),
+        },
+    }
+    with Dataset(target) as dataset:
+        for name in field_names:
+            if name not in dataset.variables:
+                payload["variables_missing"].append(name)
+                continue
+            data = np.asarray(dataset.variables[name][-1], dtype=np.float64)
+            active = data[:, active_y, :]
+            payload["variables_present"].append(name)
+            payload["lineouts"][name] = data[line_x, active_y, line_z].tolist()
+            payload["field_metrics"][name] = {
+                "max_abs": float(np.max(np.abs(active))),
+                "rms": _rms(active),
+            }
+    return payload
 
 
 def _rms(value: np.ndarray) -> float:

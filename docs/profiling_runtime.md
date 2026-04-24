@@ -42,9 +42,9 @@ this machine:
   - timed local mean dropped from about `75.3 s` to about `54.1 s` after the
     reaction/source allocation cleanup, and then to about `52.76 s` after
     caching target-boundary geometry in the recycling runtime model
-  - the latest one-run cProfile pass on this machine measured `67.00 s`; the
-    separate RSS run measured `53.37 s` with peak process-tree RSS about
-    `229.4 MiB`
+  - the latest post-metric-selector one-run cProfile pass on this machine
+    measured `74.39 s`; the separate RSS run measured `49.25 s` with peak
+    process-tree RSS about `231.2 MiB`
   - fresh live Hermès rerun ratio is about `7.82x`
   - the fidelity band stayed essentially unchanged at about `4.9e-3` relative
     RMS on `NVd`
@@ -119,6 +119,28 @@ packed RHS through eager JAX and slowed one D/T/He RHS call to about
 about `3.7e-3` to `4.2e-3 s`, and a bounded current-code
 `recycling_dthe_one_step --skip-cprofile` timing completed in `44.60 s` on
 this MacBook. The env-enabled promoted parity gate completed in `44.66 s`.
+
+The fresh full cProfile/RSS bundle after that regression fix was:
+
+- command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 35 --rss-profile`
+- cProfile run: `74.39 s` wall, `1.98e8` Python function calls
+- separate unprofiled RSS run: `49.25 s`
+- peak sampled process-tree RSS: `231.2 MiB`
+- BDF callback counts visible in the profile: `11655` packed RHS evaluations,
+  `84` Jacobian callbacks, and `8232` finite-difference color-group
+  perturbation residuals
+- top cumulative costs: sparse finite-difference Jacobian construction
+  `50.9 s`, packed RHS `70.6 s`, species RHS assembly `68.5 s`, collision
+  closure `10.7 s`, fixed-layout D/T/He reaction sources `9.1 s`, open-field
+  parallel advection `7.8 s`, open-field state preparation `7.7 s`, AMJUEL fit
+  evaluation `7.4 s`, and ion RHS assembly `6.8 s`
+
+The absolute cProfile wall time is intentionally not compared directly with the
+unprofiled timing because profiling overhead is large on this Python-heavy
+path. The useful conclusion is the split: the full run is still dominated by
+sparse finite-difference Jacobian assembly plus repeated host-side RHS
+assembly, so the next fix remains fixed-layout JAX residual kernels and
+JVP/Jacobian-action solves, not another local threading sweep.
 
 The shared sparse Newton backend now records per-step diagnostics for:
 

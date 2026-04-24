@@ -38,6 +38,7 @@ from .open_field import (
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
     compute_electron_force_balance,
+    compute_simple_ion_sheath_boundary,
     compute_target_recycling_sources,
     limit_free,
 )
@@ -1004,17 +1005,6 @@ def _apply_ion_sheath_boundary(
             tesheath = np.maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
             tisheath = np.maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
             if simple_settings is not None:
-                c_i_sq = np.maximum(
-                    (simple_settings.sheath_ion_polytropic * tisheath + ion.charge * tesheath) / ion.atomic_mass,
-                    0.0,
-                )
-                visheath = np.maximum(vel[:, j, :], np.sqrt(c_i_sq))
-                if simple_settings.no_flow:
-                    visheath = np.zeros_like(visheath)
-                vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
-                momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
-                q = simple_settings.gamma_i * tisheath * nisheath * visheath
-                q = q - (2.5 * tisheath + 0.5 * ion.atomic_mass * np.square(visheath)) * nisheath * visheath
                 da = (
                     (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
                     * 0.5
@@ -1023,8 +1013,23 @@ def _apply_ion_sheath_boundary(
                     * (dz[:, j, :] + dz[:, jp, :])
                 )
                 dv = dx[:, j, :] * dy[:, j, :] * dz[:, j, :] * J[:, j, :]
-                power = q * da / np.maximum(dv, 1.0e-30)
-                energy_source[ion.name][:, j, :] -= power
+                sheath = compute_simple_ion_sheath_boundary(
+                    sheath_density=nisheath,
+                    sheath_temperature=tisheath,
+                    electron_sheath_temperature=tesheath,
+                    interior_velocity=vel[:, j, :],
+                    interior_momentum=momentum_field[:, j, :],
+                    atomic_mass=ion.atomic_mass,
+                    charge=ion.charge,
+                    gamma_i=simple_settings.gamma_i,
+                    sheath_ion_polytropic=simple_settings.sheath_ion_polytropic,
+                    direction=1.0,
+                    no_flow=simple_settings.no_flow,
+                    source_scale=da / np.maximum(dv, 1.0e-30),
+                )
+                vel[:, jp, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
+                momentum_field[:, jp, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
+                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
             else:
                 nesheath = (
                     0.5 * (electron_density[:, jp, :] + electron_density[:, j, :])
@@ -1083,17 +1088,6 @@ def _apply_ion_sheath_boundary(
             tesheath = np.maximum(0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
             tisheath = np.maximum(0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5)
             if simple_settings is not None:
-                c_i_sq = np.maximum(
-                    (simple_settings.sheath_ion_polytropic * tisheath + ion.charge * tesheath) / ion.atomic_mass,
-                    0.0,
-                )
-                visheath = np.minimum(vel[:, j, :], -np.sqrt(c_i_sq))
-                if simple_settings.no_flow:
-                    visheath = np.zeros_like(visheath)
-                vel[:, jm, :] = 2.0 * visheath - vel[:, j, :]
-                momentum_field[:, jm, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
-                q = simple_settings.gamma_i * tisheath * nisheath * visheath
-                q = q - (2.5 * tisheath + 0.5 * ion.atomic_mass * np.square(visheath)) * nisheath * visheath
                 da = (
                     (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
                     * 0.5
@@ -1102,8 +1096,23 @@ def _apply_ion_sheath_boundary(
                     * (dz[:, j, :] + dz[:, jm, :])
                 )
                 dv = dx[:, j, :] * dy[:, j, :] * dz[:, j, :] * J[:, j, :]
-                power = q * da / np.maximum(dv, 1.0e-30)
-                energy_source[ion.name][:, j, :] += power
+                sheath = compute_simple_ion_sheath_boundary(
+                    sheath_density=nisheath,
+                    sheath_temperature=tisheath,
+                    electron_sheath_temperature=tesheath,
+                    interior_velocity=vel[:, j, :],
+                    interior_momentum=momentum_field[:, j, :],
+                    atomic_mass=ion.atomic_mass,
+                    charge=ion.charge,
+                    gamma_i=simple_settings.gamma_i,
+                    sheath_ion_polytropic=simple_settings.sheath_ion_polytropic,
+                    direction=-1.0,
+                    no_flow=simple_settings.no_flow,
+                    source_scale=da / np.maximum(dv, 1.0e-30),
+                )
+                vel[:, jm, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
+                momentum_field[:, jm, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
+                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
             else:
                 nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
                 s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)

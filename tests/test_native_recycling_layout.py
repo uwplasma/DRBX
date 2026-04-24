@@ -6,6 +6,7 @@ import pytest
 from jax_drb.native.mesh import StructuredMesh
 from jax_drb.native.recycling_fixed_residual import (
     RecyclingFixedState,
+    build_fixed_array_rhs,
     build_fixed_backward_euler_residual,
     fixed_state_from_fields,
     pack_fixed_state,
@@ -218,3 +219,48 @@ def test_fixed_recycling_backward_euler_residual_is_jax_linearizable() -> None:
     assert tangent.shape == candidate.shape
     assert len(unpacked.field_values) == 2
     np.testing.assert_allclose(np.asarray(tangent), np.asarray(jax.jacfwd(residual)(candidate) @ direction))
+
+
+def test_fixed_array_rhs_builds_transformable_term_by_term_residual() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    fields = {
+        "Nd": np.array([[[10.0], [11.0], [12.0], [13.0]], [[20.0], [21.0], [22.0], [23.0]]], dtype=np.float64),
+        "Pd": np.array([[[30.0], [31.0], [32.0], [33.0]], [[40.0], [41.0], [42.0], [43.0]]], dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd"),
+        feedback_names=("controller",),
+        mesh=mesh,
+    )
+    previous_state = fixed_state_from_fields(fields, feedback_integrals={"controller": 0.5}, layout=layout)
+    previous_packed = pack_fixed_state(previous_state)
+
+    def field_rhs(active_fields: dict[str, object], feedback_values: object) -> dict[str, object]:
+        density = jnp.asarray(active_fields["Nd"])
+        pressure = jnp.asarray(active_fields["Pd"])
+        controller = jnp.asarray(feedback_values)[0]
+        return {
+            "Nd": -0.1 * density + 0.02 * pressure + controller,
+            "Pd": 0.05 * density - 0.2 * pressure,
+        }
+
+    def feedback_rhs(active_fields: dict[str, object], feedback_values: object) -> object:
+        return jnp.asarray([-0.5 * jnp.asarray(feedback_values)[0] + 0.01 * jnp.mean(active_fields["Nd"])])
+
+    fixed_rhs = build_fixed_array_rhs(field_rhs, layout=layout, feedback_rhs_function=feedback_rhs)
+    residual = build_fixed_backward_euler_residual(
+        fixed_rhs,
+        layout=layout,
+        previous_packed_state=previous_packed,
+        timestep=0.25,
+    )
+
+    candidate = previous_packed + 0.02
+    value, tangent = jax.jvp(residual, (candidate,), (jnp.ones_like(candidate),))
+
+    assert value.shape == candidate.shape
+    assert tangent.shape == candidate.shape
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(jax.jacfwd(residual)(candidate) @ jnp.ones_like(candidate)))

@@ -104,6 +104,10 @@ used in verification, validation, and differentiable-science papers:
   Hermès mismatch
 - [autodiff_diffusion_uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
   for uncertainty propagation on the differentiable lane
+- [autodiff_diffusion_sensitivity](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+  for gradient-versus-finite-difference sensitivity evidence
+- [autodiff_diffusion_inverse_design](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+  for a closed differentiable optimization example on the same native lane
 - [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
   for workstation throughput on repeated heavy production solves
 
@@ -120,13 +124,42 @@ physics-facing interpretation:
   is an engineering/profile figure rather than a physics validation figure
 - [native_3d_runtime_campaign](data/native_3d_runtime_campaign_artifacts/images/native_3d_runtime_campaign.png)
   is a runtime/supporting figure rather than a primary scientific result
+- [strong_scaling_diffusion](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+  is useful as a differentiable-kernel scaling check, while the heavier local
+  CPU scaling campaign remains the stronger workstation result
 
-This distinction matters because papers such as Roy 2005, the GBS
-parallel-gradient CPC paper, the TCV-X21 benchmark paper, SOLPS-ITER against
-TCV-X21, and Hermes-3 against TCV-X21 all emphasize convergence curves,
-profile/target comparisons, source or diagnostic maps, and scan figures tied to
- a physical question. Summary dashboards are acceptable only as supporting
- context.
+This distinction matters because verification and validation papers such as
+Roy 2005 emphasize order studies, explicit error measures, and model-versus-data
+separation; the GBS parallel-gradient and GBS code papers use analytic-wave,
+operator, and nonlinear-code comparisons; the TCV-X21 and SOLPS-ITER TCV-X21
+papers use profile, target, neutral, and source observables tied to a physical
+question; and JAX performance guidance emphasizes profiling, persistent
+compilation caching, and transformable kernels before broad accelerator claims.
+Summary dashboards are acceptable only as supporting context.
+
+## Literature Anchors For The Validation Ladder
+
+The current validation plan is aligned with the following literature patterns:
+
+- Verification and solution quality: manufactured-solution convergence,
+  observed order, and explicit numerical-error reporting following the
+  verification/validation standards summarized by Roy and related CFD V&V
+  literature.
+- SOL turbulence and open-field numerics: parallel-gradient accuracy, shear
+  Alfvén/operator tests, and nonlinear SOL comparisons following the GBS
+  parallel-gradient and GBS code papers.
+- Diverted tokamak validation: profile and target observables, diagnostic
+  families, neutral sensitivity, and source-distribution interpretation
+  following the TCV-X21, SOLPS-ITER TCV-X21, and Hermes-3 validation style.
+- Differentiable scientific computing: explicit gradient checks, UQ pushforward
+  against Monte Carlo, inverse design, `jax.linearize`/`jvp` Jacobian actions,
+  and measured compile/execute/profiling behavior following the JAX autodiff,
+  profiling, `pmap`, and persistent-cache documentation.
+
+Key public references for this ladder include Roy's NASA V&V overview, the
+TCV-X21 validation case, SOLPS-ITER against TCV-X21, the Hermès-3 code paper,
+the Hermès-3 documentation/source diagnostics, and the official JAX profiling,
+`pmap`, autodiff, and persistent-cache documentation.
 
 ## Fast Validation Policy
 

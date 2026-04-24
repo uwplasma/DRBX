@@ -43,15 +43,20 @@ The current artifact bundle is documented in [autodiff_and_scaling_examples.md](
 On the committed diffusion examples:
 
 - autodiff and finite-difference gradients match closely on the compact four-parameter sensitivity study
+- first-order autodiff uncertainty propagation agrees with the vectorized
+  Monte Carlo comparison on the compact field and scalar quantities of interest
 - the inverse-design example reduces the objective from about `2.95e-3` to about `5.52e-5`
-- the current fixed-workload scaling artifact shows:
-  - local CPU process-parallel reference: about `1.13x` speedup from `1 -> 8`
-  - remote GPU device-parallel reference: about `2.19x` speedup from `1 -> 2`
+- the compact differentiable fixed-workload scaling artifact shows modest
+  local CPU scaling on this MacBook: about `1.08x` from `1 -> 2` and `1.10x`
+  from `1 -> 4` in process-group mode, and about `1.07x` and `1.08x` in
+  host-device CPU `pmap` mode
 
 Those scaling numbers are intentionally framed narrowly:
 
-- the GPU curve is the meaningful accelerator result on the current artifact
-- the CPU curve is a local single-node reference, not the main performance claim
+- the compact diffusion curve is a differentiability and execution-mode check,
+  not the main performance claim
+- the stronger local CPU result is the separate heavy-solve ensemble campaign
+  on repeated recycling solves
 - both are measured on a differentiable objective, not only on a forward solve
 
 ## Current Performance And Differentiability Blockers
@@ -350,10 +355,11 @@ The first fixed-layout residual container is now also in-tree as
 It stores active-domain field blocks and controller scalars as a JAX PyTree and
 provides transformable backward-Euler and BDF2 residual builders. Focused tests
 check active recycling pack/unpack under `jax.jvp`, the fixed-layout residual
-Jacobian action, and compact JVP gates through target recycling, neutral
-parallel diffusion, and collision friction/heat-exchange closures. This is the
-state-layout bridge for the heavy residual migration; it is not yet a claim
-that the full Hermès-compatible recycling history is end-to-end differentiable.
+Jacobian action, the host-oracle bridge against the D/T/He deck, and the new
+active-array RHS adapter that lets source/closure/boundary terms enter without
+full guard-cell dictionary reconstruction. This is the state-layout bridge for
+the heavy residual migration; it is not yet a claim that the full
+Hermès-compatible recycling history is end-to-end differentiable.
 The latest bridge test runs this fixed state on the actual Hermès
 `1D-recycling-dthe` deck: it reconstructs full guard-cell fields, calls the
 current packed RHS oracle through `build_fixed_host_rhs_bridge`, and verifies
@@ -407,6 +413,14 @@ block between accumulated sources and the final ion momentum RHS.
 The corresponding paper/docs artifact is:
 
 - [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)
+
+The latest boundary-kernel step also isolates the simple ion Bohm-sheath guard
+and energy-source formula in a backend-preserving helper. The existing
+simple-sheath branch now calls that helper, and the open-field tests compare
+the NumPy and JAX values plus a JVP against centered finite differences. The
+full current-free electron sheath and full ion sheath branches remain
+host-oriented because they are parity-sensitive; they should be ported only
+after their Hermès diagnostic gates are in place.
 
 ## Current GPU-Native Audit
 
@@ -482,6 +496,17 @@ That avoids eager-JAX execution on the current NumPy/SciPy BDF path while still
 preserving JAX transforms when a future fixed-layout residual supplies JAX
 state. On the D/T/He recycling lane, this restored warm packed-RHS calls to
 about `4e-3 s` and the current bounded one-step timing to `44.60 s`.
+
+A fresh full cProfile/RSS bundle after that fix measured `74.39 s` under
+cProfile and `49.25 s` on the separate RSS run, with peak process-tree RSS
+about `231.2 MiB`. The top split is still decisive: sparse finite-difference
+Jacobian construction consumed about `50.9 s` cumulative, the packed RHS was
+evaluated `11655` times, and the next repeated source-level costs were
+collision closure, fixed-layout D/T/He reaction sources, open-field parallel
+advection, open-field state preparation, AMJUEL fit evaluation, and ion RHS
+assembly. This keeps the next optimization lane focused on fixed-layout JAX
+residual kernels and JVP/Jacobian-action solves rather than per-solve CPU
+threading.
 
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:

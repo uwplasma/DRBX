@@ -35,8 +35,32 @@ specific: compare the pressure-gradient and parallel-viscosity lineouts against
 Hermès-3 operator diagnostics or add targeted boundary/closure unit tests for
 the neutral-mixed momentum equation.
 
+The campaign can now also ingest a one-step Hermès diagnostic NetCDF generated
+with `output_ddt = true` and `diagnose = true` under the `neutral_mixed`
+component. The committed JSON/NPZ bundle includes the direct Hermès diagnostic
+lineouts from that rerun: `ddt(NVh)`, `SNVh`, `mfh_visc_par_ylow`,
+`mfh_visc_perp_xlow`, `mfh_visc_perp_ylow`, `mfh_adv_perp_xlow`, and
+`mfh_adv_perp_ylow`. On the current diagnostic rerun, `mfh_visc_par_ylow` is
+the only non-negligible written neutral-momentum flow diagnostic, with max
+absolute active value about `2.47e-3`; the perpendicular advection/viscosity
+flow diagnostics are at numerical-noise level or exactly zero on this one-step
+surface. Hermès computes the pressure-gradient source as `-Grad_par(Pn)` in
+`neutral_mixed.cxx`, but the stock diagnostic output does not write that term
+under a separate variable. Direct pressure-gradient parity therefore still
+requires either a tiny Hermès diagnostic patch or a matched postprocessed
+Hermès-side operator reconstruction.
+
 Regenerate the artifact with:
 
 ```bash
 PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py
+```
+
+To include direct Hermès diagnostic fields, first run the Hermès neutral-mixed
+case with `output_ddt = true`, `diagnose = true`, and `nout = 1`, then pass the
+resulting dump:
+
+```bash
+JAX_DRB_NEUTRAL_MIXED_HERMES_DIAGNOSTIC_NC=/path/to/BOUT.dmp.0.nc \
+  PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py
 ```

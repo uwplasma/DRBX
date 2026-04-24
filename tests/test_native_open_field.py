@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import jax
 from jax import grad
 import jax.numpy as jnp
 
@@ -13,6 +14,7 @@ from jax_drb.native.open_field import (
     apply_parallel_electric_force,
     build_target_boundary_geometry,
     compute_electron_force_balance,
+    compute_simple_ion_sheath_boundary,
     compute_target_recycling_sources,
     grad_par_y,
     limit_free,
@@ -437,6 +439,94 @@ def test_target_recycling_sources_precomputed_geometry_matches_direct_geometry_p
 
     np.testing.assert_allclose(np.asarray(cached.density_source), np.asarray(direct.density_source), rtol=0.0, atol=0.0)
     np.testing.assert_allclose(np.asarray(cached.energy_source), np.asarray(direct.energy_source), rtol=0.0, atol=0.0)
+
+
+def test_simple_ion_sheath_boundary_matches_numpy_and_is_jvp_transformable() -> None:
+    sheath_density = np.asarray([[1.2, 1.4]], dtype=np.float64)
+    sheath_temperature = np.asarray([[2.0, 2.5]], dtype=np.float64)
+    electron_temperature = np.asarray([[3.0, 3.5]], dtype=np.float64)
+    interior_velocity = np.asarray([[0.1, 2.2]], dtype=np.float64)
+    interior_momentum = np.asarray([[0.25, 0.4]], dtype=np.float64)
+    source_scale = np.asarray([[0.5, 0.75]], dtype=np.float64)
+
+    numpy_result = compute_simple_ion_sheath_boundary(
+        sheath_density=sheath_density,
+        sheath_temperature=sheath_temperature,
+        electron_sheath_temperature=electron_temperature,
+        interior_velocity=interior_velocity,
+        interior_momentum=interior_momentum,
+        atomic_mass=2.0,
+        charge=1.0,
+        gamma_i=3.5,
+        sheath_ion_polytropic=1.0,
+        direction=1.0,
+        source_scale=source_scale,
+    )
+    jax_result = compute_simple_ion_sheath_boundary(
+        sheath_density=jnp.asarray(sheath_density),
+        sheath_temperature=jnp.asarray(sheath_temperature),
+        electron_sheath_temperature=jnp.asarray(electron_temperature),
+        interior_velocity=jnp.asarray(interior_velocity),
+        interior_momentum=jnp.asarray(interior_momentum),
+        atomic_mass=2.0,
+        charge=1.0,
+        gamma_i=3.5,
+        sheath_ion_polytropic=1.0,
+        direction=1.0,
+        source_scale=jnp.asarray(source_scale),
+    )
+
+    np.testing.assert_allclose(np.asarray(jax_result.guard_velocity), numpy_result.guard_velocity, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(np.asarray(jax_result.guard_momentum), numpy_result.guard_momentum, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(
+        np.asarray(jax_result.energy_source_delta),
+        numpy_result.energy_source_delta,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+    def qoi(scale: jnp.ndarray) -> jnp.ndarray:
+        result = compute_simple_ion_sheath_boundary(
+            sheath_density=jnp.asarray(sheath_density) * scale,
+            sheath_temperature=jnp.asarray(sheath_temperature),
+            electron_sheath_temperature=jnp.asarray(electron_temperature),
+            interior_velocity=jnp.asarray(interior_velocity),
+            interior_momentum=jnp.asarray(interior_momentum),
+            atomic_mass=2.0,
+            charge=1.0,
+            gamma_i=3.5,
+            sheath_ion_polytropic=1.0,
+            direction=1.0,
+            source_scale=jnp.asarray(source_scale),
+        )
+        return jnp.sum(result.energy_source_delta)
+
+    _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-5
+    finite_difference = (qoi(jnp.array(1.0 + eps)) - qoi(jnp.array(1.0 - eps))) / (2.0 * eps)
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=2.0e-7, atol=2.0e-9)
+
+
+def test_simple_ion_sheath_boundary_lower_target_no_flow_sign() -> None:
+    result = compute_simple_ion_sheath_boundary(
+        sheath_density=np.asarray([[1.5]], dtype=np.float64),
+        sheath_temperature=np.asarray([[2.0]], dtype=np.float64),
+        electron_sheath_temperature=np.asarray([[3.0]], dtype=np.float64),
+        interior_velocity=np.asarray([[-0.2]], dtype=np.float64),
+        interior_momentum=np.asarray([[0.1]], dtype=np.float64),
+        atomic_mass=2.0,
+        charge=1.0,
+        gamma_i=3.5,
+        sheath_ion_polytropic=1.0,
+        direction=-1.0,
+        no_flow=True,
+        source_scale=np.asarray([[0.25]], dtype=np.float64),
+    )
+
+    assert float(result.sheath_velocity[0, 0]) == pytest.approx(0.0)
+    assert float(result.guard_velocity[0, 0]) == pytest.approx(0.2)
+    assert float(result.guard_momentum[0, 0]) == pytest.approx(-0.1)
+    assert float(result.energy_source_delta[0, 0]) == pytest.approx(0.0)
 
 
 def test_open_field_utilities_are_differentiable() -> None:

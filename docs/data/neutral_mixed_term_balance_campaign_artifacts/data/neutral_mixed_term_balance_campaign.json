@@ -29,6 +29,139 @@
     "max_abs": 0.003373864390831078,
     "rms": 0.001860502508500537
   },
+  "hermes_diagnostic_outputs": {
+    "field_metrics": {
+      "SNVh": {
+        "max_abs": 0.0,
+        "rms": 0.0
+      },
+      "ddt(NVh)": {
+        "max_abs": 2828.437342223743,
+        "rms": 1788.8608441000345
+      },
+      "mfh_adv_perp_xlow": {
+        "max_abs": 2.6633472335529565e-10,
+        "rms": 3.491258802395105e-11
+      },
+      "mfh_adv_perp_ylow": {
+        "max_abs": 0.0,
+        "rms": 0.0
+      },
+      "mfh_visc_par_ylow": {
+        "max_abs": 0.0024683728773068434,
+        "rms": 0.001360634078567657
+      },
+      "mfh_visc_perp_xlow": {
+        "max_abs": 1.050714305551715e-09,
+        "rms": 1.7908974943217147e-10
+      },
+      "mfh_visc_perp_ylow": {
+        "max_abs": 0.0,
+        "rms": 0.0
+      }
+    },
+    "interpretation": {
+      "direct_hermes_outputs": "Herm\u00e8s writes ddt(NVh), external/source terms, and selected momentum-flow diagnostics when neutral_mixed output_ddt=true and diagnose=true.",
+      "pressure_gradient_limitation": "The neutral pressure-gradient source appears in Herm\u00e8s as -Grad_par(Pn) inside neutral_mixed.cxx, but it is not written as a named diagnostic in the stock output. Direct pressure-gradient parity therefore still requires either a small Herm\u00e8s diagnostic patch or a matched postprocessed operator reconstruction."
+    },
+    "lineouts": {
+      "SNVh": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ddt(NVh)": [
+        2.1478624302930112e-05,
+        6.786680183372266e-05,
+        9.374219321845096e-05,
+        6.3751365195023e-05,
+        1.9960459347484114e-05,
+        -1.996219639516071e-05,
+        -6.375015899602273e-05,
+        -9.37422715895466e-05,
+        -6.786658626710884e-05,
+        -2.1478679457531105e-05
+      ],
+      "mfh_adv_perp_xlow": [
+        -3.647604706025006e-12,
+        -1.7934166099664708e-11,
+        1.4292495295073615e-11,
+        1.3856338756833635e-11,
+        -3.834948762396341e-11,
+        -1.2548666073482154e-10,
+        4.4212961897451084e-11,
+        -2.2810705150045506e-11,
+        1.878412504218561e-11,
+        3.7976960001125705e-12
+      ],
+      "mfh_adv_perp_ylow": [
+        0.0,
+        -0.0,
+        0.0,
+        0.0,
+        -0.0,
+        0.0,
+        -0.0,
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "mfh_visc_par_ylow": [
+        0.002402307391474557,
+        0.001973908231351539,
+        0.0007223335648833536,
+        -0.0008791683004918953,
+        -0.0020748194983351365,
+        -0.002468235524616447,
+        -0.002074820462833769,
+        -0.0008791678367421169,
+        0.0007223336299847732,
+        0.001973908198730014
+      ],
+      "mfh_visc_perp_xlow": [
+        7.868836847886258e-11,
+        2.0874168380167245e-10,
+        1.0597499116409017e-10,
+        3.1564984225467944e-10,
+        -1.578456785851169e-11,
+        -1.283010459237877e-10,
+        -2.412056194381707e-10,
+        -1.1675064404393138e-10,
+        -2.0352642342145804e-10,
+        -9.359377740029503e-11
+      ],
+      "mfh_visc_perp_ylow": [
+        -0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.0,
+        -0.0,
+        -0.0,
+        -0.0,
+        -0.0
+      ]
+    },
+    "source_nc": "BOUT.dmp.0.nc",
+    "variables_missing": [],
+    "variables_present": [
+      "ddt(NVh)",
+      "SNVh",
+      "mfh_visc_par_ylow",
+      "mfh_visc_perp_xlow",
+      "mfh_visc_perp_ylow",
+      "mfh_adv_perp_xlow",
+      "mfh_adv_perp_ylow"
+    ]
+  },
   "input_path": "~/local/hermes-3/tests/integrated/neutral_mixed/data/BOUT.inp",
   "interpretation": {
     "balance_form": "backward_euler_rate_residual = (NVh_final - NVh_initial) / dt - native_rhs_terms(NVh_final)",

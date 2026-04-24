@@ -57,6 +57,13 @@ This is the current worst runtime ratio in the live matrix and the main
 production-path runtime target. The latest target-boundary geometry caching
 pass reduced the local timed run from about `54.1 s` to about `52.76 s`
 without changing the fidelity band.
+After the metric-selector regression fix, the fresh profiling bundle measured
+`74.39 s` under cProfile and `49.25 s` on the separate RSS run, with peak
+process-tree RSS about `231.2 MiB`. The cProfile wall time is inflated by
+profiling overhead on this Python-heavy path; the useful result is the split.
+Sparse finite-difference Jacobian assembly still consumes about `50.9 s`
+cumulative, while the packed RHS is evaluated `11655` times and remains the
+dominant repeated host-side workload.
 
 ### 4. Near-zero normalized tokamak recycling mismatch
 
@@ -175,6 +182,15 @@ parity gate passing in `44.66 s`. This is now the metric-selection rule for all
 future residual ports: dynamic arrays select the backend; static metrics are
 converted inside the selected branch.
 
+The fresh full profile after that fix keeps the remediation order unchanged but
+quantifies it more sharply: BDF still requests `84` Jacobian callbacks, which
+expand to `8232` colored perturbation residuals, and the source-level split is
+now collision closure, fixed-layout reactions, parallel advection, open-field
+state preparation, AMJUEL evaluation, and ion/electron/neutral RHS assembly.
+The work should therefore continue by moving those residual pieces into a
+fixed-layout JAX PyTree residual before promoting matrix-free or sparse-JVP
+solves.
+
 The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
 most recent exact RHS evaluation and reuses it as the base state for
 `jac(t, y)` when SciPy requests the Jacobian at that same state. The history
@@ -228,6 +244,9 @@ Items 1, 3, 4, and 5 now have their first compact gates:
 
 - `RecyclingFixedState` provides the active fixed-layout PyTree state and
   transformable backward-Euler/BDF2 residual builders;
+- `build_fixed_array_rhs` now provides the pure active-array RHS adapter for
+  staged source/closure/boundary ports, while `build_fixed_host_rhs_bridge`
+  remains the parity oracle against the current full-field RHS;
 - active-region and recycling active-state pack/unpack preserve JAX tracers;
 - target recycling and the target-source kernel preserve JAX when dynamic state
   is a JAX array even if metrics are static NumPy arrays;
@@ -260,6 +279,9 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   electron-density reconstruction and the boundary-free electron/ion state
   path, giving the fixed-layout residual a transformable no-sheath control
   surface before the full sheath formulas are ported;
+- the simple ion Bohm-sheath guard and energy-source formula is now isolated in
+  a backend-preserving helper and covered by NumPy/JAX parity plus
+  JVP-versus-finite-difference tests;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The

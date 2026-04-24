@@ -28,6 +28,14 @@ class TargetBoundaryGeometry:
     source_scale: jnp.ndarray
 
 
+@dataclass(frozen=True)
+class SimpleIonSheathResult:
+    sheath_velocity: jnp.ndarray
+    guard_velocity: jnp.ndarray
+    guard_momentum: jnp.ndarray
+    energy_source_delta: jnp.ndarray
+
+
 def _use_numpy_backend(*values: object) -> bool:
     if use_jax_backend(*values):
         return False
@@ -183,6 +191,98 @@ def apply_parallel_electric_force(
     if existing_source is not None:
         source = source + jnp.asarray(existing_source, dtype=jnp.float64)
     return source
+
+
+def compute_simple_ion_sheath_boundary(
+    *,
+    sheath_density: jnp.ndarray,
+    sheath_temperature: jnp.ndarray,
+    electron_sheath_temperature: jnp.ndarray,
+    interior_velocity: jnp.ndarray,
+    interior_momentum: jnp.ndarray,
+    atomic_mass: float,
+    charge: float,
+    gamma_i: float,
+    sheath_ion_polytropic: float,
+    direction: float,
+    no_flow: bool = False,
+    source_scale: jnp.ndarray | None = None,
+) -> SimpleIonSheathResult:
+    """Evaluate the simple Bohm-sheath ion guard and energy-source formula.
+
+    ``direction`` is ``+1`` for the upper target and ``-1`` for the lower
+    target. The returned ``energy_source_delta`` is the additive contribution to
+    the cell-centered ion energy source, so it carries the same sign convention
+    as the existing recycling RHS.
+    """
+
+    if _use_numpy_backend(
+        sheath_density,
+        sheath_temperature,
+        electron_sheath_temperature,
+        interior_velocity,
+        interior_momentum,
+        source_scale,
+    ):
+        density = np.asarray(sheath_density, dtype=np.float64)
+        temperature = np.asarray(sheath_temperature, dtype=np.float64)
+        electron_temperature = np.asarray(electron_sheath_temperature, dtype=np.float64)
+        velocity = np.asarray(interior_velocity, dtype=np.float64)
+        momentum = np.asarray(interior_momentum, dtype=np.float64)
+        c_i_sq = np.maximum(
+            (float(sheath_ion_polytropic) * temperature + float(charge) * electron_temperature)
+            / float(atomic_mass),
+            0.0,
+        )
+        sonic_speed = np.sqrt(c_i_sq)
+        if float(direction) >= 0.0:
+            sheath_velocity = np.maximum(velocity, sonic_speed)
+        else:
+            sheath_velocity = np.minimum(velocity, -sonic_speed)
+        if no_flow:
+            sheath_velocity = np.zeros_like(sheath_velocity)
+        guard_velocity = 2.0 * sheath_velocity - velocity
+        guard_momentum = 2.0 * float(atomic_mass) * density * sheath_velocity - momentum
+        q = float(gamma_i) * temperature * density * sheath_velocity
+        q = q - (2.5 * temperature + 0.5 * float(atomic_mass) * np.square(sheath_velocity)) * density * sheath_velocity
+        scale = 1.0 if source_scale is None else np.asarray(source_scale, dtype=np.float64)
+        energy_source_delta = -float(direction) * q * scale
+        return SimpleIonSheathResult(
+            sheath_velocity=sheath_velocity,
+            guard_velocity=guard_velocity,
+            guard_momentum=guard_momentum,
+            energy_source_delta=energy_source_delta,
+        )
+
+    density = jnp.asarray(sheath_density, dtype=jnp.float64)
+    temperature = jnp.asarray(sheath_temperature, dtype=jnp.float64)
+    electron_temperature = jnp.asarray(electron_sheath_temperature, dtype=jnp.float64)
+    velocity = jnp.asarray(interior_velocity, dtype=jnp.float64)
+    momentum = jnp.asarray(interior_momentum, dtype=jnp.float64)
+    c_i_sq = jnp.maximum(
+        (float(sheath_ion_polytropic) * temperature + float(charge) * electron_temperature) / float(atomic_mass),
+        0.0,
+    )
+    sonic_speed = jnp.sqrt(c_i_sq)
+    sheath_velocity = jnp.where(
+        float(direction) >= 0.0,
+        jnp.maximum(velocity, sonic_speed),
+        jnp.minimum(velocity, -sonic_speed),
+    )
+    if no_flow:
+        sheath_velocity = jnp.zeros_like(sheath_velocity)
+    guard_velocity = 2.0 * sheath_velocity - velocity
+    guard_momentum = 2.0 * float(atomic_mass) * density * sheath_velocity - momentum
+    q = float(gamma_i) * temperature * density * sheath_velocity
+    q = q - (2.5 * temperature + 0.5 * float(atomic_mass) * jnp.square(sheath_velocity)) * density * sheath_velocity
+    scale = 1.0 if source_scale is None else jnp.asarray(source_scale, dtype=jnp.float64)
+    energy_source_delta = -float(direction) * q * scale
+    return SimpleIonSheathResult(
+        sheath_velocity=sheath_velocity,
+        guard_velocity=guard_velocity,
+        guard_momentum=guard_momentum,
+        energy_source_delta=energy_source_delta,
+    )
 
 
 def compute_target_recycling_sources(

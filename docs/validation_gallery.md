@@ -33,6 +33,10 @@ JAX-based solver papers.
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 | `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
+| `Autodiff Diffusion Sensitivity` | `differentiable validation` | `jax.grad` sensitivities agree with finite differences on a compact native diffusion objective. |
+| `Autodiff Diffusion Uncertainty` | `differentiable validation` | First-order autodiff covariance propagation is compared with vectorized Monte Carlo. |
+| `Autodiff Diffusion Inverse Design` | `differentiable validation` | Gradient-based parameter recovery closes a compact inverse-design loop. |
+| `Strong Scaling Diffusion` | `supporting performance audit` | Fixed-work differentiable diffusion scaling checks CPU process groups, host-device CPU `pmap`, and optional GPU `pmap`. |
 
 ## Diffusion Short Window
 
@@ -44,6 +48,21 @@ What this locks down:
 - metric normalization on the transport path;
 - Neumann guard handling;
 - repeated output scheduling over a short transient.
+
+## Restartable Diffusion Demo
+
+![Restartable diffusion density snapshots](data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_snapshots.png)
+
+![Restartable diffusion density surface](data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png)
+
+![Restartable diffusion restart consistency](data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_restart_consistency.png)
+
+What this documents:
+
+- the restartable native TOML workflow used by the public quick-start path;
+- density snapshots and a surface view from the same compact diffusion run;
+- restart-versus-continuous consistency as a user-facing artifact rather than
+  only a JSON assertion.
 
 ## Open-Field Operator Campaign
 
@@ -70,6 +89,13 @@ What this locks down:
 - named native `NVh` term decomposition for the neutral mixed momentum equation;
 - backward-Euler residual-rate reconstruction on both native and Hermès-3 final states;
 - a direct diagnostic separating native one-step residual closure from the remaining Hermès final-state mismatch;
+- optional ingestion of direct Hermès diagnostic NetCDF fields from a
+  one-step `output_ddt=true`, `diagnose=true` rerun, including `ddt(NVh)` and
+  neutral momentum-flow diagnostics;
+- an explicit limitation for the current offender: Hermès computes the
+  pressure-gradient source as `-Grad_par(Pn)` but does not write it as a named
+  stock diagnostic, so direct pressure-gradient parity still requires a small
+  reference-side diagnostic patch or matched Hermès-side reconstruction;
 - a publication-grade lineout/bar figure for the current neutral mixed offender.
 
 ## Electrostatic Vorticity Short Window
@@ -143,6 +169,8 @@ What this locks down:
 
 ![Diverted tokamak poster](data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_poster.png)
 
+![Diverted tokamak snapshots](data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_snapshots.png)
+
 ![Diverted tokamak movie](data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
 
 What this locks down:
@@ -158,6 +186,8 @@ What this locks down:
 
 ![TCV-X21 scaffold profiles](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
 
+![TCV-X21 scaffold snapshots](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
+
 What this documents:
 
 - the first 3D tokamak kickoff package in the tree;
@@ -172,7 +202,21 @@ What this documents:
 - a reviewer-friendly bridge between the case manifest and the future selected 3D execution lane.
 - the reduced selected-field parity package now exists as the next explicit gate after the scaffold bundle, on compact `Ne`/`Pe`/`phi` histories from either two 3D workdirs or the public TCV-X21 benchmark-data root plus a reproducible derived candidate.
 
+## TCV-X21 Selected-Field Parity
+
+![TCV-X21 selected-field parity](data/tokamak_tcv_x21_selected_field_artifacts/images/tokamak_tcv_x21_selected_field_parity.png)
+
+What this documents:
+
+- the reduced selected-field parity gate for the benchmark-backed TCV-X21
+  surface;
+- compact `Ne`, `Pe`, and `phi` histories on the shared 3D comparison schema;
+- the bridge between scaffold/sample-data validation and later full native 3D
+  execution.
+
 ## TCV-X21 Toroidal Movie
+
+![TCV-X21 toroidal poster](data/tokamak_tcv_x21_toroidal_movie_artifacts/images/tokamak_tcv_x21_toroidal_poster.png)
 
 ![TCV-X21 toroidal movie](data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
 
@@ -184,6 +228,10 @@ What this documents:
 
 ## Native Tokamak Selected-Field Rung
 
+![Native tokamak selected-field parity](data/tokamak_native_selected_field_artifacts/images/tokamak_native_selected_field.png)
+
+![Native tokamak selected-field comparison](data/tokamak_native_selected_field_artifacts/images/tokamak_native_selected_field_comparison.png)
+
 What this documents:
 
 - the first reduced native 3D execution rung in the tree;
@@ -191,6 +239,21 @@ What this documents:
 - parity JSON/NPZ artifacts on the same compact surface used by the benchmark-backed gate;
 - a direct native-vs-reference selected-field history comparison bundle on the same committed artifact path;
 - a shared observable report plus a runtime/provenance report for the native run.
+
+## Native Tokamak Selected-Field Short Window
+
+![Native tokamak short-window selected-field parity](data/tokamak_native_selected_field_short_window_artifacts/images/tokamak_native_selected_field.png)
+
+![Native tokamak selected-field short-window summary](data/tokamak_native_selected_field_short_window_artifacts/images/tokamak_native_selected_field_short_window.png)
+
+![Native tokamak selected-field short-window comparison](data/tokamak_native_selected_field_short_window_artifacts/images/tokamak_native_selected_field_short_window_comparison.png)
+
+What this documents:
+
+- the short-window extension of the native reduced tokamak selected-field rung;
+- history-level comparison on the same `Ne`/`Pe`/`phi` surface used by the
+  one-step selected-field parity package;
+- a bridge from one-step 3D evidence to transient selected-field validation.
 
 ## Traced-Field-Line Geometry Scaffold
 
@@ -579,6 +642,46 @@ What this documents:
 This is currently the strongest differentiable-science figure in the public
 surface because it presents a standard uncertainty-propagation comparison rather
 than only raw gradients.
+
+## Autodiff Diffusion Sensitivity
+
+![Autodiff diffusion sensitivity](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+
+What this documents:
+
+- a compact native objective differentiated directly with `jax.grad`;
+- centered finite-difference checks for all promoted design parameters;
+- a local sweep that makes the leading tangent direction visible rather than
+  treating the gradient as a black-box number;
+- the first differentiable-science panel in the standard sensitivity, UQ, and
+  inverse-design progression.
+
+## Autodiff Diffusion Inverse Design
+
+![Autodiff diffusion inverse design](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+
+What this documents:
+
+- a gradient-based parameter recovery loop on the same compact native diffusion
+  lane used by the sensitivity and UQ examples;
+- objective reduction and final-profile agreement against a known target;
+- a publication-ready demonstration that the differentiable path supports
+  optimization, not only derivative inspection.
+
+## Strong Scaling Diffusion
+
+![Strong scaling diffusion](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+
+What this documents:
+
+- fixed-work scaling on a differentiable native objective, with the total batch
+  held fixed as device or worker count changes;
+- local CPU process-group and host-device `pmap` modes on the same workload;
+- the optional remote-GPU execution contract used by the docs and profiling
+  plan;
+- a supporting performance figure that is intentionally secondary to the
+  heavier [local_cpu_scaling_campaign](local_cpu_scaling_campaign.md), which is
+  the current reviewer-facing local CPU result on a promoted recycling solve.
 
 ## Impurity And Radiation Campaign
 

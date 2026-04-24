@@ -15,15 +15,6 @@ The codebase is organized around:
 
 ![3D tokamak toroidal dynamics](docs/data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
 
-Two compact movie packages are also included for fast physics QA:
-
-- [Blob2D 2D movie](docs/movies/blob2d_meeting_2d.mp4) and [Blob2D 3D movie](docs/movies/blob2d_meeting_3d.mp4) from the seeded-filament benchmark surface.
-- [Alfven-wave 2D movie](docs/movies/alfven_wave_meeting_2d.mp4) and [Alfven-wave 3D movie](docs/movies/alfven_wave_meeting_3d.mp4) from the electromagnetic short-window benchmark.
-
-![Blob2D movie poster](docs/images/blob2d_meeting_movie_poster.png)
-
-![Alfven-wave movie poster](docs/images/alfven_wave_meeting_movie_poster.png)
-
 ## Install
 
 PyPI:
@@ -203,6 +194,61 @@ The detailed status surface lives in:
 - [docs/hermes_capability_audit.md](docs/hermes_capability_audit.md)
 - [docs/parity_harness.md](docs/parity_harness.md)
 - [docs/parity_matrix.md](docs/parity_matrix.md)
+- [docs/research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
+- [docs/validation_gallery.md](docs/validation_gallery.md)
+
+## Publication-Ready Validation Artifacts
+
+The current public figures are generated from committed regression or campaign
+artifacts, so the docs, tests, and manuscript planning all point to the same
+evidence. The full figure index is in
+[docs/validation_gallery.md](docs/validation_gallery.md); the matrix that
+separates primary scientific figures from supporting engineering figures is in
+[docs/research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md).
+
+Verification and operator accuracy:
+
+![Fluid 1D MMS convergence](docs/data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
+
+![Open-field operator campaign](docs/data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+
+Physics closures and tokamak/recycling observables:
+
+![Reactions and collisions campaign](docs/data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
+
+![Neutral parallel diffusion campaign](docs/data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+
+![Collision closure campaign](docs/data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+
+![Target recycling campaign](docs/data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+
+![Tokamak recycling observable campaign](docs/data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
+
+Live Hermès-3 parity and offender localization:
+
+![Hermes live rerun campaign](docs/data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
+
+![Hermes offender register](docs/data/hermes_offender_register_artifacts/images/hermes_offender_register.png)
+
+![Neutral mixed boundary campaign](docs/data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+
+![Neutral mixed term-balance campaign](docs/data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+
+Differentiability, uncertainty propagation, and local performance:
+
+![Autodiff diffusion sensitivity](docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+
+![Atomic rate differentiability campaign](docs/data/atomic_rate_differentiability_campaign_artifacts/images/atomic_rate_differentiability_campaign.png)
+
+![Autodiff diffusion uncertainty](docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+
+![Autodiff diffusion inverse design](docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+
+![Strong scaling diffusion](docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+
+![Local CPU scaling campaign](docs/data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
+
+![Implicit solver profile audit](docs/data/implicit_solver_profile_audit_artifacts/images/implicit_solver_profile_audit.png)
 
 ## 3D Geometry And Movies
 
