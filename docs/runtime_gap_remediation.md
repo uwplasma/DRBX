@@ -237,6 +237,10 @@ Items 1, 3, 4, and 5 now have their first compact gates:
 - recycling species-state preparation helpers now preserve JAX arrays through
   soft floors, safe temperatures, raw velocities, neutral target density
   guards, no-flow guards, and target-guard merges;
+- density, pressure/energy, and momentum source accumulation now initializes,
+  adds, and overrides per-species sources through one backend-preserving helper
+  instead of forcing the accumulator dictionaries through NumPy at the start of
+  each RHS call;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The
