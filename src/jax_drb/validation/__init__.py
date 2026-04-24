@@ -225,6 +225,12 @@ from .jax_native_profile_audit import (
     create_jax_native_profile_audit_package,
     save_jax_native_profile_audit_plot,
 )
+from .implicit_solver_profile_audit import (
+    ImplicitSolverProfileAuditArtifacts,
+    build_implicit_solver_profile_audit_report,
+    create_implicit_solver_profile_audit_package,
+    save_implicit_solver_profile_audit_plot,
+)
 from .local_cpu_scaling_campaign import (
     LocalCpuScalingCampaignArtifacts,
     build_local_cpu_scaling_campaign_report,
@@ -527,6 +533,10 @@ __all__ = [
     "build_jax_native_profile_audit_report",
     "create_jax_native_profile_audit_package",
     "save_jax_native_profile_audit_plot",
+    "ImplicitSolverProfileAuditArtifacts",
+    "build_implicit_solver_profile_audit_report",
+    "create_implicit_solver_profile_audit_package",
+    "save_implicit_solver_profile_audit_plot",
     "ReactionsCollisionsCampaignArtifacts",
     "ReactionsCollisionsCampaignMetric",
     "build_reactions_collisions_campaign",

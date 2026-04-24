@@ -77,6 +77,38 @@ def amjuel_energy_loss(
     return energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * reaction_rate
 
 
+def amjuel_reaction_rate_and_energy_loss(
+    heavy_density: np.ndarray,
+    electron_density: np.ndarray,
+    electron_temperature: np.ndarray,
+    sigma_v_coeffs: np.ndarray,
+    sigma_v_E_coeffs: np.ndarray,
+    electron_heating: float,
+    dataset_scalars: dict[str, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate paired AMJUEL rate and radiation fits with shared log inputs."""
+
+    electron_temperature_physical = np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"]
+    electron_density_physical = np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"]
+    log_temperature, log_density = amjuel_log_inputs(
+        electron_temperature_physical,
+        electron_density_physical,
+    )
+    sigma_v = eval_amjuel_fit_from_logs(log_temperature, log_density, sigma_v_coeffs)
+    sigma_v_E = eval_amjuel_fit_from_logs(log_temperature, log_density, sigma_v_E_coeffs)
+    heavy = np.asarray(heavy_density, dtype=np.float64)
+    electrons = np.asarray(electron_density, dtype=np.float64)
+    rate = heavy * electrons * sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
+    energy_loss = (
+        heavy
+        * electrons
+        * sigma_v_E
+        * dataset_scalars["Nnorm"]
+        / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+    )
+    return rate, energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * rate
+
+
 def openadas_reaction_rate(
     heavy_density: np.ndarray,
     electron_density: np.ndarray,
@@ -170,10 +202,27 @@ def load_openadas_rate(
 def eval_amjuel_fit(temperature_ev: np.ndarray, density_m3: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
     """Evaluate the packaged AMJUEL polynomial fit."""
 
+    log_temperature, log_density = amjuel_log_inputs(temperature_ev, density_m3)
+    return eval_amjuel_fit_from_logs(log_temperature, log_density, coeffs)
+
+
+def amjuel_log_inputs(temperature_ev: np.ndarray, density_m3: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return clipped AMJUEL log-temperature and normalized log-density inputs."""
+
     temperature = np.clip(np.asarray(temperature_ev, dtype=np.float64), 0.1, 1.0e4)
     density = np.clip(np.asarray(density_m3, dtype=np.float64), 1.0e14, 1.0e22)
-    logn = np.log(density / 1.0e14)
-    logt = np.log(temperature)
+    return np.log(temperature), np.log(density / 1.0e14)
+
+
+def eval_amjuel_fit_from_logs(
+    log_temperature: np.ndarray,
+    log_density: np.ndarray,
+    coeffs: np.ndarray,
+) -> np.ndarray:
+    """Evaluate an AMJUEL polynomial from already-clipped logarithmic inputs."""
+
+    logt = np.asarray(log_temperature, dtype=np.float64)
+    logn = np.asarray(log_density, dtype=np.float64)
     result = np.zeros_like(logt, dtype=np.float64)
     for row in np.asarray(coeffs, dtype=np.float64)[::-1]:
         row_result = np.zeros_like(logn, dtype=np.float64)

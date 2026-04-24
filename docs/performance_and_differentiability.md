@@ -96,6 +96,19 @@ The detailed remediation order is now documented in:
 - [runtime_gap_remediation.md](runtime_gap_remediation.md)
 - [profiling_runtime.md](profiling_runtime.md)
 
+The implicit solver now exposes phase-resolved diagnostics on every sparse
+Newton step used by the neutral and recycling native paths. Those diagnostics
+record residual calls/time, Jacobian refreshes/time, linear-solve time,
+line-search time, and fallback use. This is the instrumentation needed for the
+next `recycling_dthe_one_step` runtime campaign: profiler plots can now be tied
+to the solver phases that reviewers care about rather than only to Python
+function names. The sparse finite-difference Jacobian builder also accepts a
+precomputed color-group extraction plan, reducing repeated host-side indexing
+work during each Newton refresh while keeping the numerical finite-difference
+surface unchanged. The current SciPy BDF recycling path now reuses that plan in
+its Jacobian callback as well, and the AMJUEL source path reuses shared
+log-temperature/log-density inputs across paired rate/radiation fits.
+
 ## What The Current Profiling Already Says
 
 The committed profiling and runtime bundles already answer the first practical
