@@ -88,12 +88,16 @@ as a validated source-kernel cleanup, not as the final performance result.
 The current BDF callback now removes one avoidable source of call inflation:
 when SciPy asks for `rhs(t, y)` and then for `jac(t, y)` at the same state, the
 Jacobian callback reuses the cached base RHS for that state before applying the
-colored sparse finite-difference perturbations. This is a call-count cleanup,
+colored sparse finite-difference perturbations. Perturbed Jacobian residuals now
+bypass the mutable RHS cache directly, so setting
+`JAX_DRB_FD_JACOBIAN_THREADS=<N>` can parallelize the BDF color groups without
+thread races in that cache. This is a call-count and execution-policy cleanup,
 not yet a full runtime solution. A post-change unprofiled
 `recycling_dthe_one_step` timing on this MacBook measured `61.38 s`, which is
 within local noise and not a defensible end-to-end speedup over the earlier
 `~53 s` unprofiled RSS run. Future heavy reports should therefore include the
-new BDF diagnostics counters in addition to wall time.
+new BDF diagnostics counters and `bdf_jacobian_parallel_workers` in addition to
+wall time.
 
 The shared sparse Newton backend now records per-step diagnostics for:
 
