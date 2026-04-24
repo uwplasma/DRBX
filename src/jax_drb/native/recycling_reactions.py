@@ -58,6 +58,23 @@ class FixedLayoutHydrogenReactionSources(NamedTuple):
     recombination_radiation: np.ndarray
 
 
+class FixedLayoutDtheReactionSources(NamedTuple):
+    neutral_density_source: np.ndarray
+    ion_density_source: np.ndarray
+    electron_density_source: np.ndarray
+    neutral_energy_source: np.ndarray
+    ion_energy_source: np.ndarray
+    electron_energy_source: np.ndarray
+    neutral_momentum_source: np.ndarray
+    ion_momentum_source: np.ndarray
+    electron_momentum_source: np.ndarray
+    ionisation_rate: np.ndarray
+    recombination_rate: np.ndarray
+    charge_exchange_rate: np.ndarray
+    ionisation_radiation: np.ndarray
+    recombination_radiation: np.ndarray
+
+
 def _soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
     if _use_jax_backend(value):
         value_array = jnp.maximum(jnp.asarray(value, dtype=jnp.float64), 0.0)
@@ -212,6 +229,246 @@ def fixed_layout_hydrogen_reaction_sources(
         ionisation_radiation=ionisation_radiation,
         recombination_radiation=recombination_radiation,
     )
+
+
+def fixed_layout_dthe_reaction_sources(
+    *,
+    neutral_density: np.ndarray,
+    neutral_pressure: np.ndarray,
+    neutral_momentum: np.ndarray,
+    ion_density: np.ndarray,
+    ion_pressure: np.ndarray,
+    ion_momentum: np.ndarray,
+    electron_density: np.ndarray,
+    electron_pressure: np.ndarray,
+    dataset_scalars: dict[str, float],
+    atom_names: tuple[str, str, str] = ("d", "t", "he"),
+    atom_masses: tuple[float, float, float] = (2.0, 3.0, 4.0),
+    ion_masses: tuple[float, float, float] = (2.0, 3.0, 4.0),
+    neutral_density_floor: float = 1.0e-8,
+    ion_density_floor: float = 1.0e-8,
+    electron_density_floor: float = 1.0e-8,
+) -> FixedLayoutDtheReactionSources:
+    """Return fixed-layout D/T/He ionisation, recombination, and D/T CX sources.
+
+    The returned arrays use species axis order `(d, t, he)` by default. Helium
+    participates in ionisation and recombination on the current Hermès D/T/He
+    lane; hydrogenic charge exchange is included for D-D, T-T, D-T, and T-D.
+    """
+
+    use_jax = _use_jax_backend(neutral_density, neutral_pressure, neutral_momentum, ion_density, ion_pressure, ion_momentum)
+    neutral_density = jnp.asarray(neutral_density, dtype=jnp.float64) if use_jax else np.asarray(neutral_density, dtype=np.float64)
+    neutral_pressure = jnp.asarray(neutral_pressure, dtype=jnp.float64) if use_jax else np.asarray(neutral_pressure, dtype=np.float64)
+    neutral_momentum = jnp.asarray(neutral_momentum, dtype=jnp.float64) if use_jax else np.asarray(neutral_momentum, dtype=np.float64)
+    ion_density = jnp.asarray(ion_density, dtype=jnp.float64) if use_jax else np.asarray(ion_density, dtype=np.float64)
+    ion_pressure = jnp.asarray(ion_pressure, dtype=jnp.float64) if use_jax else np.asarray(ion_pressure, dtype=np.float64)
+    ion_momentum = jnp.asarray(ion_momentum, dtype=jnp.float64) if use_jax else np.asarray(ion_momentum, dtype=np.float64)
+
+    zero_neutral = _zeros_like(neutral_density)
+    zero_field = _zeros_like(electron_density)
+    neutral_density_source = zero_neutral
+    ion_density_source = _zeros_like(ion_density)
+    neutral_energy_source = _zeros_like(neutral_density)
+    ion_energy_source = _zeros_like(ion_density)
+    neutral_momentum_source = _zeros_like(neutral_density)
+    ion_momentum_source = _zeros_like(ion_density)
+    electron_energy_source = zero_field
+    ionisation_rate = _zeros_like(neutral_density)
+    recombination_rate = _zeros_like(ion_density)
+    ionisation_radiation = _zeros_like(neutral_density)
+    recombination_radiation = _zeros_like(ion_density)
+    charge_exchange_rate = _zeros_like(_expand_cx_shape(neutral_density, use_jax=use_jax))
+
+    electron_temperature = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
+    neutral_temperature = tuple(
+        _safe_temperature(neutral_pressure[index], neutral_density[index], neutral_density_floor)
+        for index in range(len(atom_names))
+    )
+    ion_temperature = tuple(
+        _safe_temperature(ion_pressure[index], ion_density[index], ion_density_floor)
+        for index in range(len(atom_names))
+    )
+    neutral_velocity = tuple(
+        _safe_velocity(neutral_momentum[index], neutral_density[index], atom_masses[index])
+        for index in range(len(atom_names))
+    )
+    ion_velocity = tuple(
+        _safe_velocity(ion_momentum[index], ion_density[index], ion_masses[index])
+        for index in range(len(atom_names))
+    )
+
+    for index, atom_name in enumerate(atom_names):
+        iz_rate, iz_radiation = _paired_rate_and_radiation(
+            atom_name,
+            "iz",
+            neutral_density[index],
+            electron_density,
+            electron_temperature,
+            dataset_scalars,
+        )
+        rec_rate, rec_radiation = _paired_rate_and_radiation(
+            atom_name,
+            "rec",
+            ion_density[index],
+            electron_density,
+            electron_temperature,
+            dataset_scalars,
+        )
+        iz_momentum = iz_rate * atom_masses[index] * neutral_velocity[index]
+        rec_momentum = rec_rate * ion_masses[index] * ion_velocity[index]
+        iz_energy = 1.5 * iz_rate * neutral_temperature[index]
+        rec_energy = 1.5 * rec_rate * ion_temperature[index]
+
+        neutral_density_source = _axis_add(neutral_density_source, index, -iz_rate + rec_rate, use_jax=use_jax)
+        ion_density_source = _axis_add(ion_density_source, index, iz_rate - rec_rate, use_jax=use_jax)
+        neutral_momentum_source = _axis_add(neutral_momentum_source, index, -iz_momentum + rec_momentum, use_jax=use_jax)
+        ion_momentum_source = _axis_add(ion_momentum_source, index, iz_momentum - rec_momentum, use_jax=use_jax)
+        neutral_energy_source = _axis_add(neutral_energy_source, index, -iz_energy + rec_energy, use_jax=use_jax)
+        ion_energy_source = _axis_add(ion_energy_source, index, iz_energy - rec_energy, use_jax=use_jax)
+        electron_energy_source = electron_energy_source - iz_radiation - rec_radiation
+        ionisation_rate = _axis_add(ionisation_rate, index, iz_rate, use_jax=use_jax)
+        recombination_rate = _axis_add(recombination_rate, index, rec_rate, use_jax=use_jax)
+        ionisation_radiation = _axis_add(ionisation_radiation, index, iz_radiation, use_jax=use_jax)
+        recombination_radiation = _axis_add(recombination_radiation, index, rec_radiation, use_jax=use_jax)
+
+    for atom_index, ion_index in ((0, 0), (1, 1), (0, 1), (1, 0)):
+        rate = _fixed_layout_cx_rate(
+            neutral_density[atom_index],
+            ion_density[ion_index],
+            neutral_temperature[atom_index],
+            ion_temperature[ion_index],
+            atom_mass=atom_masses[atom_index],
+            ion_mass=ion_masses[ion_index],
+            dataset_scalars=dataset_scalars,
+        )
+        charge_exchange_rate = _axis2_add(charge_exchange_rate, atom_index, ion_index, rate, use_jax=use_jax)
+        atom_velocity = neutral_velocity[atom_index]
+        ion1_velocity = ion_velocity[ion_index]
+        atom2_velocity = neutral_velocity[ion_index]
+        ion2_velocity = ion_velocity[atom_index]
+        atom_momentum = rate * atom_masses[atom_index] * atom_velocity
+        ion1_momentum = rate * ion_masses[ion_index] * ion1_velocity
+        atom_energy = 1.5 * rate * neutral_temperature[atom_index]
+        ion1_energy = 1.5 * rate * ion_temperature[ion_index]
+
+        if atom_index != ion_index:
+            neutral_density_source = _axis_add(neutral_density_source, atom_index, -rate, use_jax=use_jax)
+            ion_density_source = _axis_add(ion_density_source, atom_index, rate, use_jax=use_jax)
+            ion_density_source = _axis_add(ion_density_source, ion_index, -rate, use_jax=use_jax)
+            neutral_density_source = _axis_add(neutral_density_source, ion_index, rate, use_jax=use_jax)
+        neutral_momentum_source = _axis_add(neutral_momentum_source, atom_index, -atom_momentum, use_jax=use_jax)
+        ion_momentum_source = _axis_add(ion_momentum_source, atom_index, atom_momentum, use_jax=use_jax)
+        ion_momentum_source = _axis_add(ion_momentum_source, ion_index, -ion1_momentum, use_jax=use_jax)
+        neutral_momentum_source = _axis_add(neutral_momentum_source, ion_index, ion1_momentum, use_jax=use_jax)
+        neutral_energy_source = _axis_add(neutral_energy_source, atom_index, -atom_energy, use_jax=use_jax)
+        ion_energy_source = _axis_add(ion_energy_source, atom_index, atom_energy, use_jax=use_jax)
+        ion_energy_source = _axis_add(
+            ion_energy_source,
+            atom_index,
+            0.5 * atom_masses[atom_index] * rate * _square(ion2_velocity - atom_velocity),
+            use_jax=use_jax,
+        )
+        ion_energy_source = _axis_add(ion_energy_source, ion_index, -ion1_energy, use_jax=use_jax)
+        neutral_energy_source = _axis_add(neutral_energy_source, ion_index, ion1_energy, use_jax=use_jax)
+        neutral_energy_source = _axis_add(
+            neutral_energy_source,
+            ion_index,
+            0.5 * ion_masses[ion_index] * rate * _square(atom2_velocity - ion1_velocity),
+            use_jax=use_jax,
+        )
+
+    return FixedLayoutDtheReactionSources(
+        neutral_density_source=neutral_density_source,
+        ion_density_source=ion_density_source,
+        electron_density_source=zero_field,
+        neutral_energy_source=neutral_energy_source,
+        ion_energy_source=ion_energy_source,
+        electron_energy_source=electron_energy_source,
+        neutral_momentum_source=neutral_momentum_source,
+        ion_momentum_source=ion_momentum_source,
+        electron_momentum_source=zero_field,
+        ionisation_rate=ionisation_rate,
+        recombination_rate=recombination_rate,
+        charge_exchange_rate=charge_exchange_rate,
+        ionisation_radiation=ionisation_radiation,
+        recombination_radiation=recombination_radiation,
+    )
+
+
+def _paired_rate_and_radiation(
+    atom_name: str,
+    reaction_type: str,
+    heavy_density: np.ndarray,
+    electron_density: np.ndarray,
+    electron_temperature: np.ndarray,
+    dataset_scalars: dict[str, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    if (atom_name, reaction_type) in OPENADAS_FILENAMES:
+        rate = openadas_reaction_rate(
+            heavy_density,
+            electron_density,
+            electron_temperature,
+            atom_name,
+            reaction_type,
+            dataset_scalars,
+        )
+        radiation = openadas_energy_loss(
+            heavy_density,
+            electron_density,
+            electron_temperature,
+            atom_name,
+            reaction_type,
+            reaction_rate=rate,
+            dataset_scalars=dataset_scalars,
+        )
+        return rate, radiation
+    sigma_v, sigma_v_E, electron_heating = load_amjuel_rate(atom_name, reaction_type)
+    return amjuel_reaction_rate_and_energy_loss(
+        heavy_density,
+        electron_density,
+        electron_temperature,
+        sigma_v,
+        sigma_v_E,
+        electron_heating,
+        dataset_scalars,
+    )
+
+
+def _fixed_layout_cx_rate(
+    atom_density: np.ndarray,
+    ion_density: np.ndarray,
+    atom_temperature: np.ndarray,
+    ion_temperature: np.ndarray,
+    *,
+    atom_mass: float,
+    ion_mass: float,
+    dataset_scalars: dict[str, float],
+) -> np.ndarray:
+    teff = _clip(
+        (atom_temperature / atom_mass + ion_temperature / ion_mass) * dataset_scalars["Tnorm"],
+        0.01,
+        10000.0,
+    )
+    return atom_density * ion_density * hydrogen_cx_sigmav(teff, dataset_scalars)
+
+
+def _expand_cx_shape(neutral_density: np.ndarray, *, use_jax: bool) -> np.ndarray:
+    shape = (neutral_density.shape[0], neutral_density.shape[0], *neutral_density.shape[1:])
+    return jnp.zeros(shape, dtype=jnp.float64) if use_jax else np.zeros(shape, dtype=np.float64)
+
+
+def _axis_add(array: np.ndarray, index: int, value: np.ndarray, *, use_jax: bool) -> np.ndarray:
+    if use_jax:
+        return array.at[index].add(value)
+    array[index] += value
+    return array
+
+
+def _axis2_add(array: np.ndarray, index0: int, index1: int, value: np.ndarray, *, use_jax: bool) -> np.ndarray:
+    if use_jax:
+        return array.at[index0, index1].add(value)
+    array[index0, index1] += value
+    return array
 
 
 def is_charge_exchange_reaction(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> bool:

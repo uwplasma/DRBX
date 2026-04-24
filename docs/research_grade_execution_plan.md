@@ -703,6 +703,14 @@ matches the existing dictionary implementation, and supports `jit`/`grad`.
 The next residual refactor should extend this pattern to the D/T/He
 multispecies reaction matrix and then replace the dictionary accumulation in
 the packed recycling residual.
+That D/T/He extension now exists at helper level:
+`fixed_layout_dthe_reaction_sources` stacks D, T, and He neutral/ion source
+arrays, includes the D/T same-isotope and cross-isotope charge-exchange matrix,
+matches the dictionary source path on the Hermès `1D-recycling-dthe` deck, and
+is differentiable under JAX. The next refactor is therefore a wiring task:
+replace the mutable reaction-source accumulation inside the packed residual
+with this fixed-layout PyTree and measure the BDF residual/Jacobian call count
+again.
 
 The direct-tokamak recycling validation surface now also has a target/neutral
 observable campaign. It promotes the `tokamak_recycling_dthe_one_step` lane

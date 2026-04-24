@@ -308,6 +308,10 @@ Current native execution coverage:
 - the first array-only fixed-layout reaction-source kernel now exists for the
   hydrogenic same-isotope reaction block and is parity-tested against the
   existing dictionary-oriented implementation before any full residual wiring;
+- the fixed-layout reaction-source bridge now also covers the D/T/He
+  multispecies block with stacked source arrays, D-D/T-T/D-T/T-D charge
+  exchange, exact dictionary-path parity on the `1D-recycling-dthe` deck, and
+  `jit`/`grad` coverage;
 - the direct-tokamak recycling parity ladder now has a profile-observable
   campaign for target charged-density profiles, target momentum-flux proxies,
   neutral parallel-density buildup, and target electron-temperature proxy

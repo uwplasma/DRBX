@@ -202,6 +202,12 @@ The first such accumulator now exists for the hydrogenic same-isotope reaction
 block and is parity-tested against the dictionary path. The next reaction
 source step is to generalize that pattern to multispecies D/T/He and then
 OpenADAS-enabled impurity states.
+The D/T/He generalization is now in-tree as `fixed_layout_dthe_reaction_sources`:
+it returns stacked neutral/ion/electron source arrays, includes D-D, T-T, D-T,
+and T-D charge exchange, matches the existing dictionary path on the
+`1D-recycling-dthe` deck, and supports `jit`/`grad`. The remaining reaction
+source runtime step is to wire this fixed-layout kernel into the packed
+recycling residual and then add the equivalent OpenADAS impurity source block.
 
 ### Priority 3: tokamak recycling observables
 

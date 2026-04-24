@@ -313,6 +313,15 @@ reaction path and has direct `jit`/`grad` coverage. This is the template for
 the next residual ports: add fixed layouts with parity gates first, then wire
 them into the full recycling solve.
 
+That template has now been widened to the multispecies D/T/He block used by the
+heavy recycling runtime lane. `fixed_layout_dthe_reaction_sources` returns
+stacked neutral, ion, and electron source arrays for D, T, He ionisation and
+recombination plus D-D, T-T, D-T, and T-D charge exchange. It is parity-tested
+against the existing dictionary path on the local Hermès `1D-recycling-dthe`
+deck and has direct `jit`/`grad` coverage. This is the concrete bridge needed
+before replacing the packed recycling residual's mutable reaction-source
+accumulation with a JAX-transformable PyTree.
+
 The corresponding paper/docs artifact is:
 
 - [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)
