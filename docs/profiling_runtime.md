@@ -83,6 +83,10 @@ and, when requested:
 - `jax_trace/` for TensorBoard / Perfetto-compatible traces
 - `device_memory_profile.prof` for JAX device-memory snapshots
 
+When `--rss-profile` and cProfile are both enabled, the script collects RSS on
+a separate unprofiled run so the sampler thread does not contaminate the
+cProfile table.
+
 ## JAX Trace And Perfetto
 
 To capture a JAX trace that can be opened in TensorBoard/XProf or uploaded to
