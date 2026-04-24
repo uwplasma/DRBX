@@ -333,6 +333,12 @@ from .tokamak_anomalous_diffusion_campaign import (
     build_tokamak_anomalous_diffusion_campaign,
     create_tokamak_anomalous_diffusion_campaign_package,
 )
+from .tokamak_recycling_observable_campaign import (
+    TokamakRecyclingObservableCampaignArtifacts,
+    build_tokamak_recycling_observable_campaign_report,
+    create_tokamak_recycling_observable_campaign_package,
+    save_tokamak_recycling_observable_campaign_plot,
+)
 from .target_recycling_campaign import (
     TargetRecyclingCampaignArtifacts,
     TargetRecyclingCampaignMetric,
@@ -573,6 +579,10 @@ __all__ = [
     "TokamakAnomalousDiffusionCampaignMetric",
     "build_tokamak_anomalous_diffusion_campaign",
     "create_tokamak_anomalous_diffusion_campaign_package",
+    "TokamakRecyclingObservableCampaignArtifacts",
+    "build_tokamak_recycling_observable_campaign_report",
+    "create_tokamak_recycling_observable_campaign_package",
+    "save_tokamak_recycling_observable_campaign_plot",
     "TargetRecyclingCampaignArtifacts",
     "TargetRecyclingCampaignMetric",
     "build_target_recycling_campaign",
