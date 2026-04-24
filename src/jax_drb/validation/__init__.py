@@ -83,7 +83,9 @@ from .neutral_mixed_term_balance_campaign import (
     NeutralMixedTermBalanceCampaignArtifacts,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
+    run_neutral_mixed_hermes_diagnostic_rerun,
     save_neutral_mixed_term_balance_campaign_plot,
+    write_neutral_mixed_diagnostic_input,
 )
 from .autodiff_diffusion import (
     DiffusionAutodiffSetup,
@@ -418,7 +420,9 @@ __all__ = [
     "write_neutral_mixed_parity_json",
     "build_neutral_mixed_term_balance_campaign_report",
     "create_neutral_mixed_term_balance_campaign_package",
+    "run_neutral_mixed_hermes_diagnostic_rerun",
     "save_neutral_mixed_term_balance_campaign_plot",
+    "write_neutral_mixed_diagnostic_input",
     "DiffusionAutodiffSetup",
     "StrongScalingPoint",
     "build_diffusion_autodiff_setup",
