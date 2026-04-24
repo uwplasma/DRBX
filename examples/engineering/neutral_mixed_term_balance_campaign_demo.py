@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from jax_drb.reference.paths import require_reference_root
@@ -16,6 +17,7 @@ def main() -> None:
     artifacts = create_neutral_mixed_term_balance_campaign_package(
         output_root=output_root,
         reference_root=require_reference_root(),
+        hermes_diagnostic_nc=os.environ.get("JAX_DRB_NEUTRAL_MIXED_HERMES_DIAGNOSTIC_NC"),
     )
     print(f"summary: {artifacts.report_json_path}")
     print(f"arrays: {artifacts.report_npz_path}")
