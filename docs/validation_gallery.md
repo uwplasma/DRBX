@@ -332,6 +332,8 @@ What this documents:
   recycling physics stack is involved;
 - algebraic agreement between the original colored finite-difference path and
   the precomputed CSC/color extraction-plan path;
+- agreement between serial and batched JAX sparse-JVP Jacobian construction,
+  with the JAX path checked against the finite-difference reference;
 - sparse Newton phase diagnostics for residual evaluation, Jacobian assembly,
   linear solve, and line search;
 - the numerical-methods support figure needed before making stronger runtime
