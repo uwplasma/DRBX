@@ -379,6 +379,13 @@ transport arrays into these backend-preserving assemblers directly instead of
 coercing them through `np.asarray` first; the remaining full-solve barriers are
 therefore increasingly localized to species preparation, neutral RHS assembly,
 and the host-backed nonlinear solve.
+Neutral RHS assembly has now been moved into the same term-object pattern as
+the ion and electron paths. Density transport, pressure advection/divergence,
+neutral pressure-source override semantics, momentum inertia, pressure
+gradient, and momentum-error addition all have NumPy parity and JVP
+finite-difference gates. This narrows the remaining heavy recycling residual
+work to the full-field species-preparation layer, source/closure accumulation,
+and the host/SciPy nonlinear driver.
 
 The corresponding paper/docs artifact is:
 
