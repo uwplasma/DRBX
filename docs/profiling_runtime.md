@@ -109,6 +109,17 @@ For laptop users, the current robust recommendation remains ensemble-level
 parallelism across independent heavy solves, with per-solve BDF threading used
 only after a local timing check.
 
+A later JAX-native residual refactor exposed an important profiling lesson:
+concrete `StructuredMetrics` arrays are stored as JAX arrays even when the
+dynamic state is NumPy. Backend selectors in the hot open-field operators
+therefore must be driven by dynamic state/rate arrays, not by static metric
+arrays. Treating metric arrays as dynamic accidentally routed the production
+packed RHS through eager JAX and slowed one D/T/He RHS call to about
+`8e-2 s`. After correcting the selectors, the same initial packed RHS warms at
+about `3.7e-3` to `4.2e-3 s`, and a bounded current-code
+`recycling_dthe_one_step --skip-cprofile` timing completed in `44.60 s` on
+this MacBook. The env-enabled promoted parity gate completed in `44.66 s`.
+
 The shared sparse Newton backend now records per-step diagnostics for:
 
 - residual evaluation count and wall time

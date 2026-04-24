@@ -90,9 +90,6 @@ def assemble_electron_pressure_rhs_terms(
         electron_velocity,
         electron_fastest_wave,
         electron_energy_source,
-        metrics.dy,
-        metrics.J,
-        metrics.g_22,
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
@@ -143,8 +140,6 @@ def assemble_electron_parallel_force_terms(
         electron_momentum_source,
         *(ion_density.values()),
         *(ion_momentum_source.values()),
-        metrics.dy,
-        metrics.g_22,
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
@@ -195,9 +190,6 @@ def assemble_ion_rhs_terms(
         ion_velocity,
         fastest_wave,
         energy_source,
-        metrics.dy,
-        metrics.J,
-        metrics.g_22,
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64
@@ -288,9 +280,6 @@ def assemble_neutral_rhs_terms(
         neutral_velocity,
         fastest_wave,
         energy_source,
-        metrics.dy,
-        metrics.J,
-        metrics.g_22,
     )
     array = jnp.asarray if use_jax else np.asarray
     dtype = jnp.float64 if use_jax else np.float64

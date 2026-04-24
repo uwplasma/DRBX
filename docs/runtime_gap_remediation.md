@@ -164,6 +164,17 @@ assembly still consumed about `43.3 s`, so the remaining high-value work is
 residual-call reduction and JAX-linearized Jacobian products rather than more
 localized reaction-source tuning.
 
+The latest backend-selector correction keeps that production path on NumPy
+unless a dynamic state or rate array is actually a JAX value. This matters
+because `StructuredMetrics` currently stores concrete JAX arrays, and those
+static metrics had briefly forced eager JAX execution inside hot open-field
+operators. The measured D/T/He packed RHS returned from about `8e-2 s` per warm
+call to about `4e-3 s`, and the bounded current-code
+`recycling_dthe_one_step` timing completed in `44.60 s` with the promoted
+parity gate passing in `44.66 s`. This is now the metric-selection rule for all
+future residual ports: dynamic arrays select the backend; static metrics are
+converted inside the selected branch.
+
 The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
 most recent exact RHS evaluation and reuses it as the base state for
 `jac(t, y)` when SciPy requests the Jacobian at that same state. The history

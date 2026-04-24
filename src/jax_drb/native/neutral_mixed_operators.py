@@ -25,7 +25,7 @@ def gradient_magnitude(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> np.ndarray:
-    if use_jax_backend(field, metrics.dx, metrics.dy, metrics.dz, metrics.J, metrics.g11, metrics.g33):
+    if use_jax_backend(field):
         result = jnp.zeros_like(jnp.asarray(field, dtype=jnp.float64), dtype=jnp.float64)
         dx = jnp.asarray(metrics.dx, dtype=jnp.float64)
         dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
@@ -100,7 +100,7 @@ def div_par_mod_open(
     global _last_parallel_flow
     if not fix_flux:
         raise NotImplementedError("Native neutral mixed advection currently supports fix_flux=True only.")
-    if use_jax_backend(field, velocity, wave_speed, metrics.dx, metrics.dy, metrics.dz, metrics.J, metrics.g_22):
+    if use_jax_backend(field, velocity, wave_speed):
         field_array = jnp.asarray(field, dtype=jnp.float64)
         velocity_array = jnp.asarray(velocity, dtype=jnp.float64)
         wave_array = jnp.asarray(wave_speed, dtype=jnp.float64)
@@ -272,7 +272,7 @@ def div_par_fvv_open(
     metrics: StructuredMetrics,
     fix_flux: bool = True,
 ) -> np.ndarray:
-    if use_jax_backend(density, velocity, wave_speed, metrics.dy, metrics.J, metrics.g_22):
+    if use_jax_backend(density, velocity, wave_speed):
         density_array = jnp.asarray(density, dtype=jnp.float64)
         velocity_array = jnp.asarray(velocity, dtype=jnp.float64)
         wave_array = jnp.asarray(wave_speed, dtype=jnp.float64)
@@ -427,7 +427,7 @@ def div_par_k_grad_par_open(
     metrics: StructuredMetrics,
     boundary_flux: bool,
 ) -> np.ndarray:
-    if use_jax_backend(coefficient, field, metrics.dy, metrics.J, metrics.g_22):
+    if use_jax_backend(coefficient, field):
         field_array = jnp.asarray(field, dtype=jnp.float64)
         coefficient_array = jnp.asarray(coefficient, dtype=jnp.float64)
         result = jnp.zeros_like(field_array, dtype=jnp.float64)
@@ -575,7 +575,7 @@ def grad_par_open(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> np.ndarray:
-    if use_jax_backend(field, metrics.dy, metrics.g_22):
+    if use_jax_backend(field):
         field_array = jnp.asarray(field, dtype=jnp.float64)
         result = jnp.zeros_like(field_array, dtype=jnp.float64)
         dy = jnp.asarray(metrics.dy, dtype=jnp.float64)

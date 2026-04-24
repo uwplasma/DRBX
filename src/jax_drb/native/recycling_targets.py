@@ -36,11 +36,6 @@ def target_recycling_sources(
     use_jax = use_jax_backend(
         *(prepared[sp.name].density for sp in (*ions, *neutrals) if sp.name in prepared),
         *(ion_velocity.get(sp.name) for sp in ions),
-        metrics.J,
-        metrics.dy,
-        metrics.dx,
-        metrics.dz,
-        metrics.g_22,
     )
     density_source = {
         sp.name: (
@@ -124,7 +119,7 @@ def grad_par_electron_force_balance_open(
     metrics: StructuredMetrics,
 ) -> np.ndarray:
     """Match the open-field electron-force-balance centered stencil."""
-    if use_jax_backend(field, metrics.dy, metrics.g_22):
+    if use_jax_backend(field):
         field_array = jnp.asarray(field, dtype=jnp.float64)
         result = jnp.zeros_like(field_array, dtype=jnp.float64)
         dy = jnp.asarray(metrics.dy, dtype=jnp.float64)

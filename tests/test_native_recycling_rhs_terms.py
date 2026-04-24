@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -140,6 +141,47 @@ def test_ion_rhs_terms_sum_to_total() -> None:
         terms.momentum_total,
         terms.momentum_advection + terms.pressure_gradient + terms.momentum_source + terms.momentum_error,
     )
+
+
+def test_ion_rhs_terms_use_numpy_for_numpy_state_with_jax_metrics() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+    mesh, metrics = _mesh_and_metrics()
+    jax_metrics = replace(
+        metrics,
+        dx=jnp.asarray(metrics.dx),
+        dy=jnp.asarray(metrics.dy),
+        dz=jnp.asarray(metrics.dz),
+        J=jnp.asarray(metrics.J),
+        g11=jnp.asarray(metrics.g11),
+        g22=jnp.asarray(metrics.g22),
+        g33=jnp.asarray(metrics.g33),
+        g_22=jnp.asarray(metrics.g_22),
+        g23=jnp.asarray(metrics.g23),
+        Bxy=jnp.asarray(metrics.Bxy),
+    )
+    ion_state = SimpleNamespace(
+        density=np.array([[[2.0], [2.5], [3.0]]], dtype=np.float64),
+        pressure=np.array([[[4.0], [5.0], [6.0]]], dtype=np.float64),
+        momentum_error=np.full((1, 3, 1), 0.125, dtype=np.float64),
+    )
+
+    terms = assemble_ion_rhs_terms(
+        density_source=np.full((1, 3, 1), 1.0, dtype=np.float64),
+        explicit_pressure_source=np.full((1, 3, 1), 2.0, dtype=np.float64),
+        momentum_source=np.full((1, 3, 1), -0.75, dtype=np.float64),
+        atomic_mass=2.0,
+        density_floor=1.0e-6,
+        ion_state=ion_state,
+        ion_velocity=np.array([[[-1.0], [-0.25], [0.5]]], dtype=np.float64),
+        fastest_wave=np.full((1, 3, 1), 1.5, dtype=np.float64),
+        mesh=mesh,
+        metrics=jax_metrics,
+        energy_source=np.full((1, 3, 1), 0.9, dtype=np.float64),
+    )
+
+    assert isinstance(terms.density_total, np.ndarray)
+    assert isinstance(terms.pressure_total, np.ndarray)
+    assert isinstance(terms.momentum_total, np.ndarray)
 
 
 def test_neutral_rhs_terms_sum_to_total_and_respect_total_pressure_source_override() -> None:

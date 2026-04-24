@@ -120,7 +120,7 @@ def parallel_ion_viscous_stress_open(
     metrics: StructuredMetrics,
     bounce_factor: np.ndarray | None = None,
 ) -> np.ndarray:
-    use_jax = use_jax_backend(pressure, tau, velocity, metrics.Bxy, bounce_factor)
+    use_jax = use_jax_backend(pressure, tau, velocity, bounce_factor)
     if use_jax:
         bxy = jnp.maximum(jnp.asarray(metrics.Bxy, dtype=jnp.float64), 1.0e-12)
         pressure_array = jnp.asarray(pressure, dtype=jnp.float64)
@@ -163,7 +163,7 @@ def div_par_parallel_ion_viscosity_open(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> np.ndarray:
-    if use_jax_backend(eta, velocity, metrics.Bxy):
+    if use_jax_backend(eta, velocity):
         bxy = jnp.maximum(jnp.asarray(metrics.Bxy, dtype=jnp.float64), 1.0e-12)
         sqrt_b = jnp.sqrt(bxy)
         return sqrt_b * _div_par_k_grad_par_open(
@@ -272,7 +272,6 @@ def apply_collision_closure(
         *(state.velocity for state in prepared.values()),
         *((rate for rate in collision_rates.values()) if collision_rates is not None else ()),
         *((rate for rate in cx_rates.values()) if cx_rates is not None else ()),
-        metrics.Bxy,
     )
     energy_source = {
         name: (

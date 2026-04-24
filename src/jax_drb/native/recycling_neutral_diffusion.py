@@ -60,9 +60,6 @@ def apply_neutral_parallel_diffusion(
         *((rate for rate in collision_rates.values()) if collision_rates is not None else ()),
         *((rate for rate in ionisation_rates.values()) if ionisation_rates is not None else ()),
         *((rate for rate in charge_exchange_rates.values()) if charge_exchange_rates is not None else ()),
-        metrics.dy,
-        metrics.J,
-        metrics.g_22,
     )
     density_source = {
         name: (

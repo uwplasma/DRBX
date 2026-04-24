@@ -70,6 +70,34 @@ def test_parallel_advection_jax_branch_matches_numpy() -> None:
     np.testing.assert_allclose(np.asarray(jax_result), numpy_result, rtol=1.0e-12, atol=1.0e-12)
 
 
+def test_parallel_advection_uses_numpy_for_numpy_state_with_jax_metrics() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+    mesh, metrics = _mesh_and_metrics()
+    field, velocity, wave_speed = _sample_fields(mesh)
+    jax_metrics = StructuredMetrics(
+        dx=jnp.asarray(metrics.dx),
+        dy=jnp.asarray(metrics.dy),
+        dz=jnp.asarray(metrics.dz),
+        J=jnp.asarray(metrics.J),
+        g11=jnp.asarray(metrics.g11),
+        g22=jnp.asarray(metrics.g22),
+        g33=jnp.asarray(metrics.g33),
+        g_22=jnp.asarray(metrics.g_22),
+        g23=jnp.asarray(metrics.g23),
+        Bxy=jnp.asarray(metrics.Bxy),
+    )
+
+    result = div_par_mod_open(field, velocity, wave_speed, mesh=mesh, metrics=jax_metrics)
+
+    assert isinstance(result, np.ndarray)
+    np.testing.assert_allclose(
+        result,
+        div_par_mod_open(field, velocity, wave_speed, mesh=mesh, metrics=metrics),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
 def test_parallel_inertia_jax_branch_matches_numpy_for_both_flux_modes() -> None:
     jnp = pytest.importorskip("jax.numpy")
     mesh, metrics = _mesh_and_metrics()
