@@ -2223,7 +2223,7 @@ def _recycling_state_error_ratio(
         full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
         half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
         scale = float(absolute_tolerance) + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
-        squared_terms.append(np.square((half - full) / scale).ravel())
+        squared_terms.append(((half - full) / scale).ravel())
     for name in feedback_names:
         full = float(full_integrals.get(name, 0.0))
         half = float(half_integrals.get(name, 0.0))
