@@ -185,6 +185,7 @@ This applies directly to:
 - reaction and collision closures
 - open-field parallel advection/inertia operators and ion/electron/neutral
   RHS-term assembly
+- recycling species-state preparation, safe-temperature, and guard-merge rules
 - electron-force-balance pressure-gradient stencils
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes
