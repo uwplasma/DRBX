@@ -287,6 +287,15 @@ residual kernels JAX-transformable, then select between:
 - VJP/implicit-function sensitivity when the output is a scalar objective or a
   steady-state quantity of interest.
 
+The first residual-kernel step is now also in place. The packaged AMJUEL,
+OpenADAS, and hydrogen charge-exchange rate helpers preserve the existing
+NumPy production path when called with NumPy arrays, but stay in JAX when
+called with JAX arrays. Focused tests now check `jit` and `grad` through the
+paired AMJUEL rate/radiation path, the OpenADAS interpolation path, and the
+hydrogen charge-exchange fit. This does not yet make the full recycling
+transient differentiable, but it removes one of the source-term barriers that
+blocked the JAX residual/JVP backend.
+
 ## Current GPU-Native Audit
 
 The office GPU environment is now usable for the compact native JAX lanes with

@@ -188,6 +188,13 @@ Each port should carry three gates before promotion: current NumPy parity on a
 small deterministic state, JVP-versus-finite-difference derivative parity, and
 the existing Hermès one-RHS/one-step compare surface.
 
+The atomic-rate part of item 2 is now complete at helper level: AMJUEL paired
+rate/radiation evaluation, OpenADAS bilinear interpolation, and the hydrogen
+charge-exchange fit are backend-preserving and have direct `jit`/`grad`
+coverage. The remaining item-2 work is to lift the surrounding reaction-source
+accumulation out of mutable dictionaries and into a fixed array/PyTree layout
+so those differentiable helpers can be used inside the full recycling residual.
+
 ### Priority 3: tokamak recycling observables
 
 1. keep the current one-step compare metrics

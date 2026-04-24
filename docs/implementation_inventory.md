@@ -295,6 +295,11 @@ Current native execution coverage:
 - the neutral source-parity pass now also includes the reference soft-floor formula inside [neutral_mixed.py](src/jax_drb/native/neutral_mixed.py), with direct unit tests so later transient work does not silently regress that low-level rule;
 - the remaining neutral transient blocker is now narrowed: evaluating the native neutral RHS on the reference one-step state shows the dominant mismatch at the target-adjacent active `y` cells in the parallel viscosity/conduction neighborhood, so transient parity should be treated as a boundary-operator problem rather than a generic Newton/BDF infrastructure problem;
 - the active-domain implicit substrate has now been extracted into the shared [solver](src/jax_drb/solver) package, so pack/unpack, backward-Euler/BDF2 residual forms, sparse locality/color grouping, grouped difference-quotient Jacobians, and matrix-free/sparse Newton paths are no longer trapped inside the neutral model;
+- the shared solver now also includes a batched JAX sparse-JVP Jacobian path,
+  and the atomic-rate helpers in [recycling_atomic.py](src/jax_drb/native/recycling_atomic.py)
+  preserve JAX arrays through AMJUEL, OpenADAS, and hydrogen charge-exchange
+  evaluations, with focused `jit`/`grad` coverage in
+  [test_native_recycling_atomic.py](tests/test_native_recycling_atomic.py);
 - the neutral implicit branch now consumes that shared solver backbone, which is the first concrete Step 1 freeze of common stepping/Jacobian infrastructure rather than another case-local implementation;
 - the shared sparse path now includes backtracking globalization before the Krylov fallback, which is what made the `solver_mode="sparse"` neutral backward-Euler regression stable enough to keep in the suite;
 - the electrostatic inversion path is now shared as well through [elliptic.py](src/jax_drb/solver/elliptic.py): blob and vorticity now use the same JAX Fourier-Helmholtz / tridiagonal backend rather than separate dense-mode and custom Thomas implementations;

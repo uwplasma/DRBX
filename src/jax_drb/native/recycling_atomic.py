@@ -4,6 +4,7 @@ from functools import lru_cache
 import json
 from importlib import resources
 
+import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
@@ -24,6 +25,16 @@ OPENADAS_FILENAMES = {
 }
 
 
+def _use_jax_backend(*values: object) -> bool:
+    for value in values:
+        if value is None:
+            continue
+        module = type(value).__module__
+        if module.startswith("jax") or module.startswith("jaxlib"):
+            return True
+    return False
+
+
 def charge_exchange_rate_multiplier(config: BoutConfig, *, atom_name: str) -> float:
     """Return the configured charge-exchange multiplier for one neutral species."""
 
@@ -40,6 +51,19 @@ def amjuel_reaction_rate(
     dataset_scalars: dict[str, float],
 ) -> np.ndarray:
     """Evaluate an AMJUEL reaction rate on code-normalized fields."""
+
+    if _use_jax_backend(heavy_density, electron_density, electron_temperature):
+        sigma_v = eval_amjuel_fit(
+            jnp.asarray(electron_temperature, dtype=jnp.float64) * dataset_scalars["Tnorm"],
+            jnp.asarray(electron_density, dtype=jnp.float64) * dataset_scalars["Nnorm"],
+            sigma_v_coeffs,
+        )
+        return (
+            jnp.asarray(heavy_density, dtype=jnp.float64)
+            * jnp.asarray(electron_density, dtype=jnp.float64)
+            * sigma_v
+            * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
+        )
 
     sigma_v = eval_amjuel_fit(
         np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
@@ -61,6 +85,24 @@ def amjuel_energy_loss(
     dataset_scalars: dict[str, float],
 ) -> np.ndarray:
     """Evaluate AMJUEL energy loss on code-normalized fields."""
+
+    if _use_jax_backend(heavy_density, electron_density, electron_temperature, reaction_rate):
+        sigma_v_E = eval_amjuel_fit(
+            jnp.asarray(electron_temperature, dtype=jnp.float64) * dataset_scalars["Tnorm"],
+            jnp.asarray(electron_density, dtype=jnp.float64) * dataset_scalars["Nnorm"],
+            sigma_v_E_coeffs,
+        )
+        energy_loss = (
+            jnp.asarray(heavy_density, dtype=jnp.float64)
+            * jnp.asarray(electron_density, dtype=jnp.float64)
+            * sigma_v_E
+            * dataset_scalars["Nnorm"]
+            / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+        )
+        return energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * jnp.asarray(
+            reaction_rate,
+            dtype=jnp.float64,
+        )
 
     sigma_v_E = eval_amjuel_fit(
         np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
@@ -87,6 +129,27 @@ def amjuel_reaction_rate_and_energy_loss(
     dataset_scalars: dict[str, float],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate paired AMJUEL rate and radiation fits with shared log inputs."""
+
+    if _use_jax_backend(heavy_density, electron_density, electron_temperature):
+        electron_temperature_physical = jnp.asarray(electron_temperature, dtype=jnp.float64) * dataset_scalars["Tnorm"]
+        electron_density_physical = jnp.asarray(electron_density, dtype=jnp.float64) * dataset_scalars["Nnorm"]
+        log_temperature, log_density = amjuel_log_inputs(
+            electron_temperature_physical,
+            electron_density_physical,
+        )
+        sigma_v = eval_amjuel_fit_from_logs(log_temperature, log_density, sigma_v_coeffs)
+        sigma_v_E = eval_amjuel_fit_from_logs(log_temperature, log_density, sigma_v_E_coeffs)
+        heavy = jnp.asarray(heavy_density, dtype=jnp.float64)
+        electrons = jnp.asarray(electron_density, dtype=jnp.float64)
+        rate = heavy * electrons * sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
+        energy_loss = (
+            heavy
+            * electrons
+            * sigma_v_E
+            * dataset_scalars["Nnorm"]
+            / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+        )
+        return rate, energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * rate
 
     electron_temperature_physical = np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"]
     electron_density_physical = np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"]
@@ -120,6 +183,21 @@ def openadas_reaction_rate(
     """Evaluate an OpenADAS reaction rate on code-normalized fields."""
 
     rate_coeff, _, log_temperature, log_density, _ = load_openadas_rate(species_name, reaction_kind)
+    if _use_jax_backend(heavy_density, electron_density, electron_temperature):
+        rate = eval_openadas_rate(
+            jnp.asarray(electron_temperature, dtype=jnp.float64) * dataset_scalars["Tnorm"],
+            jnp.asarray(electron_density, dtype=jnp.float64) * dataset_scalars["Nnorm"],
+            rate_coeff,
+            log_temperature=log_temperature,
+            log_density=log_density,
+        )
+        return (
+            jnp.maximum(jnp.asarray(heavy_density, dtype=jnp.float64), 0.0)
+            * jnp.maximum(jnp.asarray(electron_density, dtype=jnp.float64), 0.0)
+            * rate
+            * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
+        )
+
     rate = eval_openadas_rate(
         np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
         np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
@@ -148,6 +226,26 @@ def openadas_energy_loss(
     """Evaluate an OpenADAS radiation/energy-loss surface on normalized fields."""
 
     _, radiation_coeff, log_temperature, log_density, electron_heating = load_openadas_rate(species_name, reaction_kind)
+    if _use_jax_backend(heavy_density, electron_density, electron_temperature, reaction_rate):
+        energy_loss_coeff = eval_openadas_rate(
+            jnp.asarray(electron_temperature, dtype=jnp.float64) * dataset_scalars["Tnorm"],
+            jnp.asarray(electron_density, dtype=jnp.float64) * dataset_scalars["Nnorm"],
+            radiation_coeff,
+            log_temperature=log_temperature,
+            log_density=log_density,
+        )
+        energy_loss = (
+            jnp.maximum(jnp.asarray(heavy_density, dtype=jnp.float64), 0.0)
+            * jnp.maximum(jnp.asarray(electron_density, dtype=jnp.float64), 0.0)
+            * energy_loss_coeff
+            * dataset_scalars["Nnorm"]
+            / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+        )
+        return energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * jnp.asarray(
+            reaction_rate,
+            dtype=jnp.float64,
+        )
+
     energy_loss_coeff = eval_openadas_rate(
         np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
         np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
@@ -209,6 +307,11 @@ def eval_amjuel_fit(temperature_ev: np.ndarray, density_m3: np.ndarray, coeffs: 
 def amjuel_log_inputs(temperature_ev: np.ndarray, density_m3: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Return clipped AMJUEL log-temperature and normalized log-density inputs."""
 
+    if _use_jax_backend(temperature_ev, density_m3):
+        temperature = jnp.clip(jnp.asarray(temperature_ev, dtype=jnp.float64), 0.1, 1.0e4)
+        density = jnp.clip(jnp.asarray(density_m3, dtype=jnp.float64), 1.0e14, 1.0e22)
+        return jnp.log(temperature), jnp.log(density / 1.0e14)
+
     temperature = np.clip(np.asarray(temperature_ev, dtype=np.float64), 0.1, 1.0e4)
     density = np.clip(np.asarray(density_m3, dtype=np.float64), 1.0e14, 1.0e22)
     return np.log(temperature), np.log(density / 1.0e14)
@@ -220,6 +323,17 @@ def eval_amjuel_fit_from_logs(
     coeffs: np.ndarray,
 ) -> np.ndarray:
     """Evaluate an AMJUEL polynomial from already-clipped logarithmic inputs."""
+
+    if _use_jax_backend(log_temperature, log_density, coeffs):
+        logt = jnp.asarray(log_temperature, dtype=jnp.float64)
+        logn = jnp.asarray(log_density, dtype=jnp.float64)
+        result = jnp.zeros_like(logt, dtype=jnp.float64)
+        for row in jnp.asarray(coeffs, dtype=jnp.float64)[::-1]:
+            row_result = jnp.zeros_like(logn, dtype=jnp.float64)
+            for coefficient in row[::-1]:
+                row_result = row_result * logn + coefficient
+            result = result * logt + row_result
+        return jnp.exp(result) * 1.0e-6
 
     logt = np.asarray(log_temperature, dtype=np.float64)
     logn = np.asarray(log_density, dtype=np.float64)
@@ -241,6 +355,41 @@ def eval_openadas_rate(
     log_density: np.ndarray,
 ) -> np.ndarray:
     """Evaluate the packaged OpenADAS bilinear table fit."""
+
+    if _use_jax_backend(temperature_ev, density_m3, coeffs, log_temperature, log_density):
+        temperature = jnp.asarray(temperature_ev, dtype=jnp.float64)
+        density = jnp.asarray(density_m3, dtype=jnp.float64)
+        log_temperature_array = jnp.asarray(log_temperature, dtype=jnp.float64)
+        log_density_array = jnp.asarray(log_density, dtype=jnp.float64)
+        coeff_array = jnp.asarray(coeffs, dtype=jnp.float64)
+
+        tmin = jnp.power(10.0, log_temperature_array[0])
+        tmax = jnp.power(10.0, log_temperature_array[-1])
+        nmin = jnp.power(10.0, log_density_array[0])
+        nmax = jnp.power(10.0, log_density_array[-1])
+
+        log10_t = jnp.log10(jnp.clip(temperature, tmin, tmax))
+        log10_n = jnp.log10(jnp.clip(density, nmin, nmax))
+
+        high_t = jnp.searchsorted(log_temperature_array, log10_t, side="left")
+        high_t = jnp.clip(high_t, 1, log_temperature_array.size - 1)
+        low_t = high_t - 1
+        high_n = jnp.searchsorted(log_density_array, log10_n, side="left")
+        high_n = jnp.clip(high_n, 1, log_density_array.size - 1)
+        low_n = high_n - 1
+
+        x = (log10_t - log_temperature_array[low_t]) / (
+            log_temperature_array[high_t] - log_temperature_array[low_t]
+        )
+        y = (log10_n - log_density_array[low_n]) / (
+            log_density_array[high_n] - log_density_array[low_n]
+        )
+
+        eval_log_coeff = (
+            (coeff_array[low_t, low_n] * (1.0 - y) + coeff_array[low_t, high_n] * y) * (1.0 - x)
+            + (coeff_array[high_t, low_n] * (1.0 - y) + coeff_array[high_t, high_n] * y) * x
+        )
+        return jnp.power(10.0, eval_log_coeff)
 
     temperature = np.asarray(temperature_ev, dtype=np.float64)
     density = np.asarray(density_m3, dtype=np.float64)
@@ -271,6 +420,22 @@ def eval_openadas_rate(
 
 def hydrogen_cx_sigmav(teff_ev: np.ndarray, dataset_scalars: dict[str, float]) -> np.ndarray:
     """Evaluate the Janev-style hydrogen charge-exchange fit used by the solver."""
+
+    if _use_jax_backend(teff_ev):
+        lnT = jnp.log(jnp.asarray(teff_ev, dtype=jnp.float64))
+        ln_sigma_v = jnp.full_like(lnT, 5.122435e-7, dtype=jnp.float64)
+        for coefficient in (
+            -1.514243e-5,
+            1.440382e-4,
+            -4.096807e-4,
+            -4.698969e-4,
+            -6.143769e-4,
+            7.949876e-3,
+            0.3708409,
+            -18.5028,
+        ):
+            ln_sigma_v = ln_sigma_v * lnT + coefficient
+        return jnp.exp(ln_sigma_v) * (1.0e-6 * dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
 
     lnT = np.log(np.asarray(teff_ev, dtype=np.float64))
     ln_sigma_v = np.full_like(lnT, 5.122435e-7, dtype=np.float64)

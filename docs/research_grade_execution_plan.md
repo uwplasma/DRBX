@@ -684,6 +684,12 @@ The implementation sequence for that first target is:
 6. only after parity and timing are stable, wire the JAX residual into a
    promoted one-step or short-window recycling lane
 
+The first helper-level port under item 2 is complete: the atomic-rate helpers
+for AMJUEL, OpenADAS, and hydrogen charge exchange now preserve JAX arrays and
+have `jit`/`grad` tests. The next implementation step is not another rate
+formula. It is the fixed-layout reaction-source accumulator that can call those
+helpers without Python dictionaries or host conversions inside the residual.
+
 ### CPU Parallelization
 
 Laptop CPU speedups are possible, but the right target is not one host-side
