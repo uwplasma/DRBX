@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import jax.numpy as jnp
 
+from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .open_field import TargetBoundaryGeometry, compute_target_recycling_sources
@@ -31,8 +33,31 @@ def target_recycling_sources(
     upper_geometry: TargetBoundaryGeometry | None = None,
 ) -> RecyclingTerms:
     neutral_lookup = {sp.name: sp for sp in neutrals}
-    density_source = {sp.name: np.zeros_like(sp.density, dtype=np.float64) for sp in (*ions, *neutrals)}
-    energy_source = {sp.name: np.zeros_like(sp.density, dtype=np.float64) for sp in (*ions, *neutrals)}
+    use_jax = use_jax_backend(
+        *(prepared[sp.name].density for sp in (*ions, *neutrals) if sp.name in prepared),
+        *(ion_velocity.get(sp.name) for sp in ions),
+        metrics.J,
+        metrics.dy,
+        metrics.dx,
+        metrics.dz,
+        metrics.g_22,
+    )
+    density_source = {
+        sp.name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for sp in (*ions, *neutrals)
+    }
+    energy_source = {
+        sp.name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for sp in (*ions, *neutrals)
+    }
     diagnostics: dict[str, np.ndarray] = {}
 
     for ion in ions:
@@ -60,10 +85,14 @@ def target_recycling_sources(
             lower_geometry=lower_geometry,
             upper_geometry=upper_geometry,
         )
-        density_source[neutral.name] += np.asarray(result.density_source, dtype=np.float64)
-        energy_source[neutral.name] += np.asarray(result.energy_source, dtype=np.float64)
-        diagnostics[f"S{neutral.name}_target_recycle"] = np.asarray(result.target_density_source, dtype=np.float64)
-        diagnostics[f"E{neutral.name}_target_recycle"] = np.asarray(result.target_energy_source, dtype=np.float64)
+        density_source[neutral.name] += result.density_source if use_jax else np.asarray(result.density_source, dtype=np.float64)
+        energy_source[neutral.name] += result.energy_source if use_jax else np.asarray(result.energy_source, dtype=np.float64)
+        diagnostics[f"S{neutral.name}_target_recycle"] = (
+            result.target_density_source if use_jax else np.asarray(result.target_density_source, dtype=np.float64)
+        )
+        diagnostics[f"E{neutral.name}_target_recycle"] = (
+            result.target_energy_source if use_jax else np.asarray(result.target_energy_source, dtype=np.float64)
+        )
 
     return RecyclingTerms(density_source=density_source, energy_source=energy_source, diagnostics=diagnostics)
 
@@ -75,9 +104,16 @@ def electron_zero_current_velocity(
     ion_velocity: dict[str, np.ndarray],
     electron_density: np.ndarray,
 ) -> np.ndarray:
-    current = np.zeros_like(electron_density, dtype=np.float64)
+    use_jax = use_jax_backend(electron_density, *(prepared[ion.name].density for ion in ions), *(ion_velocity[ion.name] for ion in ions))
+    current = (
+        jnp.zeros_like(jnp.asarray(electron_density, dtype=jnp.float64), dtype=jnp.float64)
+        if use_jax
+        else np.zeros_like(electron_density, dtype=np.float64)
+    )
     for ion in ions:
         current += ion.charge * prepared[ion.name].density * ion_velocity[ion.name]
+    if use_jax:
+        return current / jnp.maximum(jnp.asarray(electron_density, dtype=jnp.float64), 1.0e-5)
     return current / np.maximum(electron_density, 1.0e-5)
 
 

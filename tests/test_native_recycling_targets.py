@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from jax_drb.config.boutinp import load_bout_input
-from jax_drb.native.mesh import build_structured_mesh
-from jax_drb.native.metrics import build_structured_metrics
+from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
+from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native.recycling_1d import (
     OpenFieldSpecies,
     _initialize_species,
@@ -198,3 +199,82 @@ def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil()
 
     active = (slice(mesh.xstart, mesh.xend + 1), slice(mesh.ystart, mesh.yend + 1), slice(None))
     np.testing.assert_allclose(gradient[active], expected[active], rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_target_recycling_sources_are_jax_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([-1.0, 0.0, 1.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    ones = np.ones((1, 3, 1), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=ones,
+    )
+
+    def qoi(scale):
+        density = jnp.asarray([[[0.5], [2.0], [0.75]]], dtype=jnp.float64) * scale
+        velocity = jnp.asarray([[[-0.2], [1.5], [0.3]]], dtype=jnp.float64)
+        temperature = jnp.asarray([[[0.4], [1.0], [0.8]]], dtype=jnp.float64)
+        ion = SimpleNamespace(
+            name="d+",
+            density=density,
+            pressure=density * temperature,
+            target_recycle=True,
+            recycle_as="d",
+            target_recycle_multiplier=0.8,
+            target_recycle_energy=3.0,
+            target_fast_recycle_fraction=0.0,
+            target_fast_recycle_energy_factor=1.0,
+        )
+        neutral = SimpleNamespace(name="d", density=jnp.ones_like(density))
+        prepared = {
+            "d+": SimpleNamespace(
+                density=density,
+                pressure=density * temperature,
+                temperature=temperature,
+                velocity=velocity,
+                momentum=density * velocity,
+            )
+        }
+        terms = target_recycling_sources(
+            ions=(ion,),
+            prepared=prepared,
+            neutrals=(neutral,),
+            ion_velocity={"d+": velocity},
+            mesh=mesh,
+            metrics=metrics,
+            gamma_i=2.5,
+        )
+        return jnp.sum(terms.density_source["d"]) + 0.25 * jnp.sum(terms.energy_source["d"])
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    assert abs(float(tangent)) > 0.0

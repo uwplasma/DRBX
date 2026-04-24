@@ -262,6 +262,8 @@ residuals that are already JAX-transformable:
 
 - [solve_jax_linearized_newton_system](../src/jax_drb/solver/implicit.py)
 - [build_sparse_jvp_jacobian](../src/jax_drb/solver/implicit.py)
+- [solve_sparse_newton_system](../src/jax_drb/solver/implicit.py) with
+  `jacobian_mode="jvp"`
 
 The grouped sparse-JVP builder uses the same coloring contract as the sparse
 finite-difference builder, but obtains each color group from a JAX linearized
@@ -271,6 +273,13 @@ not forced onto the current promoted recycling BDF path because that RHS is
 still host/NumPy/SciPy based; using JVPs there first requires moving the
 dominant source, closure, boundary, and pack/unpack kernels into a
 JAX-transformable residual.
+
+The sparse Newton bridge now has two tested modes: the legacy materialized
+finite-difference Jacobian and a materialized sparse-JVP Jacobian for
+transformable residuals. The implicit solver audit records both modes on a
+diagonal nonlinear solve and verifies that both recover the same root to
+machine precision. The JVP mode intentionally remains opt-in because a JVP
+Jacobian is only valid when the residual keeps dynamic state inside JAX.
 
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable
@@ -334,6 +343,17 @@ charge-exchange multiplier handling, species-specific floor handling, and the
 packed-RHS diagnostics flag. The remaining production step is broader than
 reaction sources: move the surrounding collision, diffusion, target-recycling,
 and BDF residual assembly into the same JAX-transformable PyTree style.
+
+The first fixed-layout residual container is now also in-tree as
+`RecyclingFixedState` in
+[recycling_fixed_residual.py](../src/jax_drb/native/recycling_fixed_residual.py).
+It stores active-domain field blocks and controller scalars as a JAX PyTree and
+provides transformable backward-Euler and BDF2 residual builders. Focused tests
+check active recycling pack/unpack under `jax.jvp`, the fixed-layout residual
+Jacobian action, and compact JVP gates through target recycling, neutral
+parallel diffusion, and collision friction/heat-exchange closures. This is the
+state-layout bridge for the heavy residual migration; it is not yet a claim
+that the full Hermès-compatible recycling history is end-to-end differentiable.
 
 The corresponding paper/docs artifact is:
 
