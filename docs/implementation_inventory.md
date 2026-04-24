@@ -316,6 +316,10 @@ Current native execution coverage:
   residual/Jacobian evaluations and uses that fixed-layout D/T/He source
   kernel when the Hermès reaction block matches exactly, with direct tests that
   the evolving RHS remains unchanged relative to the full diagnostic path;
+- the D/T/He source hot path now reuses identical D/T AMJUEL fits inside the
+  fixed-layout source kernel and neutral-ionisation collision-rate helper,
+  reducing the latest cProfile AMJUEL fit count on `recycling_dthe_one_step`
+  to `117380` while preserving the promoted parity tests;
 - the direct-tokamak recycling parity ladder now has a profile-observable
   campaign for target charged-density profiles, target momentum-flux proxies,
   neutral parallel-density buildup, and target electron-temperature proxy

@@ -153,6 +153,17 @@ offenders. This argues for fewer host residual calls, stronger source/closure
 caching, and a JAX-native residual/JVP lane before spending more effort on
 generic local-thread tuning.
 
+The latest source-kernel cleanup confirms that ordering. With the packed D/T/He
+residual routed through the fixed-layout reaction-source kernel and D/T AMJUEL
+fits reused inside both source and neutral-ionisation rate assembly, a refreshed
+one-run cProfile measured `64.45 s` and the separate RSS run measured `50.00 s`
+with peak RSS near `232.7 MiB`. Fixed-layout reaction sources fell to about
+`9.64 s`, neutral-ionisation collision-rate assembly to about `2.72 s`, and
+AMJUEL fit evaluations to `117380` calls. Sparse finite-difference Jacobian
+assembly still consumed about `43.3 s`, so the remaining high-value work is
+residual-call reduction and JAX-linearized Jacobian products rather than more
+localized reaction-source tuning.
+
 The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
 most recent exact RHS evaluation and reuses it as the base state for
 `jac(t, y)` when SciPy requests the Jacobian at that same state. The history

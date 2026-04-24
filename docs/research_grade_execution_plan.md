@@ -711,9 +711,11 @@ is differentiable under JAX. The first wiring step is now complete as well:
 diagnostics-free packed D/T/He residual calls dispatch through the fixed-layout
 source kernel, while diagnostic RHS calls still use the dictionary path so
 source terms remain available for validation plots. The next refactor should
-measure the updated BDF residual/Jacobian call profile and then port the
-surrounding collision, diffusion, target-recycling, and BDF residual assembly
-into the same fixed-layout PyTree style.
+port the surrounding collision, diffusion, target-recycling, and BDF residual
+assembly into the same fixed-layout PyTree style. The updated local profile
+already shows the reason: D/T AMJUEL reuse reduces the source-kernel split, but
+the heavy run still spends about `43.3 s` in sparse finite-difference Jacobian
+assembly and calls the packed RHS `11738` times.
 
 The direct-tokamak recycling validation surface now also has a target/neutral
 observable campaign. It promotes the `tokamak_recycling_dthe_one_step` lane

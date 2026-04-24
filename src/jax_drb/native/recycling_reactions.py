@@ -10,9 +10,10 @@ import numpy as np
 from ..config.boutinp import BoutConfig
 from .recycling_atomic import (
     OPENADAS_FILENAMES,
+    amjuel_log_inputs,
     amjuel_reaction_rate_and_energy_loss,
     charge_exchange_rate_multiplier,
-    eval_amjuel_fit,
+    eval_amjuel_fit_from_logs,
     eval_openadas_rate,
     hydrogen_cx_sigmav,
     load_amjuel_rate,
@@ -282,6 +283,11 @@ def fixed_layout_dthe_reaction_sources(
     charge_exchange_rate = _zeros_like(_expand_cx_shape(neutral_density, use_jax=use_jax))
 
     electron_temperature = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
+    amjuel_log_temperature, amjuel_log_density = amjuel_log_inputs(
+        electron_temperature * dataset_scalars["Tnorm"],
+        electron_density * dataset_scalars["Nnorm"],
+    )
+    amjuel_fit_cache: dict[tuple[str, str], tuple[np.ndarray, np.ndarray, float]] = {}
     neutral_floor_values = neutral_density_floors or tuple(float(neutral_density_floor) for _ in atom_names)
     ion_floor_values = ion_density_floors or tuple(float(ion_density_floor) for _ in atom_names)
     neutral_temperature = tuple(
@@ -302,21 +308,27 @@ def fixed_layout_dthe_reaction_sources(
     )
 
     for index, atom_name in enumerate(atom_names):
-        iz_rate, iz_radiation = _paired_rate_and_radiation(
+        iz_rate, iz_radiation = _fixed_layout_paired_rate_and_radiation(
             atom_name,
             "iz",
             neutral_density[index],
             electron_density,
             electron_temperature,
             dataset_scalars,
+            amjuel_log_temperature=amjuel_log_temperature,
+            amjuel_log_density=amjuel_log_density,
+            amjuel_fit_cache=amjuel_fit_cache,
         )
-        rec_rate, rec_radiation = _paired_rate_and_radiation(
+        rec_rate, rec_radiation = _fixed_layout_paired_rate_and_radiation(
             atom_name,
             "rec",
             ion_density[index],
             electron_density,
             electron_temperature,
             dataset_scalars,
+            amjuel_log_temperature=amjuel_log_temperature,
+            amjuel_log_density=amjuel_log_density,
+            amjuel_fit_cache=amjuel_fit_cache,
         )
         iz_momentum = iz_rate * atom_masses[index] * neutral_velocity[index]
         rec_momentum = rec_rate * ion_masses[index] * ion_velocity[index]
@@ -398,6 +410,88 @@ def fixed_layout_dthe_reaction_sources(
         ionisation_radiation=ionisation_radiation,
         recombination_radiation=recombination_radiation,
     )
+
+
+def _fixed_layout_paired_rate_and_radiation(
+    atom_name: str,
+    reaction_type: str,
+    heavy_density: np.ndarray,
+    electron_density: np.ndarray,
+    electron_temperature: np.ndarray,
+    dataset_scalars: dict[str, float],
+    *,
+    amjuel_log_temperature: np.ndarray,
+    amjuel_log_density: np.ndarray,
+    amjuel_fit_cache: dict[tuple[str, str], tuple[np.ndarray, np.ndarray, float]],
+) -> tuple[np.ndarray, np.ndarray]:
+    if (atom_name, reaction_type) in OPENADAS_FILENAMES:
+        return _paired_rate_and_radiation(
+            atom_name,
+            reaction_type,
+            heavy_density,
+            electron_density,
+            electron_temperature,
+            dataset_scalars,
+        )
+
+    # D and T use the same packaged hydrogenic AMJUEL tables.
+    table_atom_name = "d" if atom_name in {"d", "t"} else atom_name
+    cache_key = (table_atom_name, reaction_type)
+    if cache_key not in amjuel_fit_cache:
+        sigma_v_coeffs, sigma_v_E_coeffs, electron_heating = load_amjuel_rate(table_atom_name, reaction_type)
+        sigma_v = eval_amjuel_fit_from_logs(amjuel_log_temperature, amjuel_log_density, sigma_v_coeffs)
+        sigma_v_E = eval_amjuel_fit_from_logs(amjuel_log_temperature, amjuel_log_density, sigma_v_E_coeffs)
+        amjuel_fit_cache[cache_key] = (sigma_v, sigma_v_E, electron_heating)
+    sigma_v, sigma_v_E, electron_heating = amjuel_fit_cache[cache_key]
+    return _amjuel_rate_and_radiation_from_fit_values(
+        heavy_density,
+        electron_density,
+        sigma_v,
+        sigma_v_E,
+        electron_heating,
+        dataset_scalars,
+    )
+
+
+def _amjuel_rate_and_radiation_from_fit_values(
+    heavy_density: np.ndarray,
+    electron_density: np.ndarray,
+    sigma_v: np.ndarray,
+    sigma_v_E: np.ndarray,
+    electron_heating: float,
+    dataset_scalars: dict[str, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    if _use_jax_backend(heavy_density, electron_density, sigma_v, sigma_v_E):
+        heavy = jnp.asarray(heavy_density, dtype=jnp.float64)
+        electrons = jnp.asarray(electron_density, dtype=jnp.float64)
+        rate = heavy * electrons * jnp.asarray(sigma_v, dtype=jnp.float64) * (
+            dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"]
+        )
+        energy_loss = (
+            heavy
+            * electrons
+            * jnp.asarray(sigma_v_E, dtype=jnp.float64)
+            * dataset_scalars["Nnorm"]
+            / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+        )
+        return rate, energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * rate
+
+    heavy = np.asarray(heavy_density, dtype=np.float64)
+    electrons = np.asarray(electron_density, dtype=np.float64)
+    rate = (
+        heavy
+        * electrons
+        * np.asarray(sigma_v, dtype=np.float64)
+        * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"])
+    )
+    energy_loss = (
+        heavy
+        * electrons
+        * np.asarray(sigma_v_E, dtype=np.float64)
+        * dataset_scalars["Nnorm"]
+        / (dataset_scalars["Tnorm"] * dataset_scalars["Omega_ci"])
+    )
+    return rate, energy_loss - (electron_heating / dataset_scalars["Tnorm"]) * rate
 
 
 def _paired_rate_and_radiation(
@@ -863,6 +957,10 @@ def neutral_ionisation_collision_rates(
         if sp.charge > 0.0:
             electron_density += sp.charge * np.asarray(prepared[sp.name].density, dtype=np.float64)
     electron_temperature = _safe_temperature(species["e"].pressure, electron_density, species["e"].density_floor)
+    electron_temperature_physical = np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"]
+    electron_density_physical = np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"]
+    amjuel_log_temperature, amjuel_log_density = amjuel_log_inputs(electron_temperature_physical, electron_density_physical)
+    amjuel_sigma_cache: dict[str, np.ndarray] = {}
     reactions = config.parsed("reactions", "type")
     for reaction in (reactions if isinstance(reactions, tuple) else (reactions,)):
         tokens = tuple(part.strip() for part in str(reaction).split("->"))
@@ -878,19 +976,23 @@ def neutral_ionisation_collision_rates(
         if (atom_name, "iz") in OPENADAS_FILENAMES:
             rate_coeff, _, log_temperature, log_density, _ = load_openadas_rate(atom_name, "iz")
             sigma_v = eval_openadas_rate(
-                np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
-                np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
+                electron_temperature_physical,
+                electron_density_physical,
                 rate_coeff,
                 log_temperature=log_temperature,
                 log_density=log_density,
             )
         else:
-            sigma_v_coeffs, _, _ = load_amjuel_rate(atom_name, "iz")
-            sigma_v = eval_amjuel_fit(
-                np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"],
-                np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"],
-                sigma_v_coeffs,
-            )
+            # D and T use the same packaged hydrogenic AMJUEL ionisation table.
+            table_atom_name = "d" if atom_name in {"d", "t"} else atom_name
+            if table_atom_name not in amjuel_sigma_cache:
+                sigma_v_coeffs, _, _ = load_amjuel_rate(table_atom_name, "iz")
+                amjuel_sigma_cache[table_atom_name] = eval_amjuel_fit_from_logs(
+                    amjuel_log_temperature,
+                    amjuel_log_density,
+                    sigma_v_coeffs,
+                )
+            sigma_v = amjuel_sigma_cache[table_atom_name]
         totals[atom_name] = np.asarray(
             np.asarray(electron_density, dtype=np.float64) * sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"]),
             dtype=np.float64,
