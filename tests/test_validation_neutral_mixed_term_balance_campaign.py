@@ -9,6 +9,7 @@ from jax_drb.validation import (
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
     save_neutral_mixed_term_balance_campaign_plot,
+    write_neutral_mixed_diagnostic_input,
 )
 
 
@@ -132,3 +133,14 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(t
     assert "ddt(NVh)" in diagnostics["variables_present"]
     assert "mfh_visc_perp_ylow" in diagnostics["variables_missing"]
     assert diagnostics["field_metrics"]["mfh_visc_par_ylow"]["max_abs"] == 2.0
+
+
+def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(tmp_path: Path) -> None:
+    source = _write_neutral_mixed_input(tmp_path / "source.inp")
+    target = write_neutral_mixed_diagnostic_input(source, tmp_path / "data" / "BOUT.inp")
+
+    text = target.read_text(encoding="utf-8")
+    assert "nout = 1" in text
+    assert "[h]" in text
+    assert "output_ddt = true" in text
+    assert "diagnose = true" in text

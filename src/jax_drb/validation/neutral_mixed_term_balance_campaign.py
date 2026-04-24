@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +33,64 @@ class NeutralMixedTermBalanceCampaignArtifacts:
     report_json_path: Path
     report_npz_path: Path
     report_plot_png_path: Path
+
+
+def write_neutral_mixed_diagnostic_input(
+    source_input: str | Path,
+    target_input: str | Path,
+    *,
+    nout: int = 1,
+) -> Path:
+    """Write a one-step Hermès neutral-mixed deck with diagnostic outputs on."""
+
+    source = Path(source_input).expanduser().resolve()
+    target = Path(target_input).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = source.read_text(encoding="utf-8")
+    text = _set_root_option(text, "nout", str(int(nout)))
+    text = _set_section_option(text, "h", "output_ddt", "true")
+    text = _set_section_option(text, "h", "diagnose", "true")
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
+def run_neutral_mixed_hermes_diagnostic_rerun(
+    *,
+    reference_root: str | Path,
+    workdir: str | Path,
+    hermes_binary: str | Path | None = None,
+    timeout_seconds: float = 120.0,
+) -> Path:
+    """Run the Hermès neutral-mixed one-step diagnostic case and return the dump."""
+
+    root = Path(reference_root).expanduser().resolve()
+    target_workdir = Path(workdir).expanduser().resolve()
+    data_dir = target_workdir / "data"
+    if target_workdir.exists():
+        shutil.rmtree(target_workdir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    source_input = root / "tests" / "integrated" / "neutral_mixed" / "data" / "BOUT.inp"
+    if not source_input.exists():
+        raise FileNotFoundError(f"Neutral mixed Hermès input not found: {source_input}")
+    write_neutral_mixed_diagnostic_input(source_input, data_dir / "BOUT.inp")
+    binary = Path(hermes_binary).expanduser().resolve() if hermes_binary is not None else _default_hermes_binary(root)
+    completed = subprocess.run(
+        [str(binary), "-d", "data"],
+        cwd=target_workdir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+        timeout=float(timeout_seconds),
+    )
+    (target_workdir / "run.log").write_text(completed.stdout, encoding="utf-8")
+    if completed.returncode != 0:
+        tail = "\n".join(completed.stdout.splitlines()[-40:])
+        raise RuntimeError(f"Hermès neutral-mixed diagnostic rerun failed with exit code {completed.returncode}:\n{tail}")
+    dump_path = data_dir / "BOUT.dmp.0.nc"
+    if not dump_path.exists():
+        raise FileNotFoundError(f"Hermès neutral-mixed diagnostic rerun did not produce {dump_path}")
+    return dump_path
 
 
 def create_neutral_mixed_term_balance_campaign_package(
@@ -461,6 +522,43 @@ def _hermes_diagnostic_payload(
                 "rms": _rms(active),
             }
     return payload
+
+
+def _default_hermes_binary(reference_root: Path) -> Path:
+    candidates = (
+        reference_root / "build" / "hermes-3",
+        reference_root / "hermes-3",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Hermès executable not found. Pass hermes_binary explicitly or build Hermès under reference_root/build/hermes-3."
+    )
+
+
+def _set_root_option(text: str, key: str, value: str) -> str:
+    pattern = re.compile(rf"(?m)^(\s*{re.escape(key)}\s*=\s*).*$")
+    if pattern.search(text):
+        return pattern.sub(rf"\g<1>{value}", text, count=1)
+    return f"{key} = {value}\n{text}"
+
+
+def _set_section_option(text: str, section: str, key: str, value: str) -> str:
+    header = re.search(rf"(?m)^\[{re.escape(section)}\]\s*$", text)
+    if header is None:
+        suffix = "" if text.endswith("\n") else "\n"
+        return f"{text}{suffix}\n[{section}]\n{key} = {value}\n"
+    next_header = re.search(r"(?m)^\[[^\]]+\]\s*$", text[header.end() :])
+    section_end = len(text) if next_header is None else header.end() + next_header.start()
+    body = text[header.end() : section_end]
+    option_pattern = re.compile(rf"(?m)^(\s*{re.escape(key)}\s*=\s*).*$")
+    if option_pattern.search(body):
+        body = option_pattern.sub(rf"\g<1>{value}", body, count=1)
+    else:
+        insertion = f"{key} = {value}\n"
+        body = f"\n{insertion}{body.lstrip()}" if not body.startswith("\n") else f"\n{insertion}{body[1:]}"
+    return text[: header.end()] + body + text[section_end:]
 
 
 def _rms(value: np.ndarray) -> float:

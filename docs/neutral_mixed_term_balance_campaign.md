@@ -64,3 +64,15 @@ resulting dump:
 JAX_DRB_NEUTRAL_MIXED_HERMES_DIAGNOSTIC_NC=/path/to/BOUT.dmp.0.nc \
   PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py
 ```
+
+The demo can also perform that one-step Hermès diagnostic rerun directly:
+
+```bash
+PYTHONPATH=src python examples/engineering/neutral_mixed_term_balance_campaign_demo.py \
+  --rerun-hermes-diagnostics \
+  --diagnostic-workdir tmp/neutral_mixed_hermes_diagnostics
+```
+
+This writes a temporary deck with `nout = 1`, `output_ddt = true`, and
+`diagnose = true`, runs the local Hermès executable, and then packages the
+resulting `BOUT.dmp.0.nc` into the same JSON/NPZ report.
