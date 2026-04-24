@@ -201,7 +201,7 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         axes[0, 0],
         title="Final NVh error at worst x,z",
         xlabel="parallel index",
-        ylabel="JAX-DRB - Hermès-3",
+        ylabel="JAXDRB - Hermès-3",
         grid="both",
     )
 
@@ -246,7 +246,13 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
     )
     axes[1, 0].legend(frameon=False, fontsize=8.0, ncol=2)
 
-    bar_labels = [name.replace("_", "\n") for name in term_order[1:]]
+    bar_labels = [
+        "parallel\ninertia",
+        "pressure\ngradient",
+        "perp.\ndiff.",
+        "parallel\nviscosity",
+        "perp.\nviscosity",
+    ]
     values = np.asarray([float(reference["term_metrics"][name]["max_abs"]) for name in term_order[1:]], dtype=np.float64)
     x = np.arange(len(values))
     axes[1, 1].bar(x, np.maximum(values, 1.0e-16), color=[colors[name] for name in term_order[1:]])
