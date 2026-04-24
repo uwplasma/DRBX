@@ -6,6 +6,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from jax import grad, jit
+import jax.numpy as jnp
+
 from jax_drb.config.boutinp import load_bout_input, parse_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
@@ -80,6 +83,20 @@ def _small_prepared(species: dict[str, SimpleNamespace]) -> dict[str, SimpleName
 
 def _small_scalars() -> dict[str, float]:
     return {"Nnorm": 1.0e19, "Tnorm": 10.0, "Omega_ci": 1.0e6}
+
+
+def _single_species_reaction_config():
+    return parse_bout_input(
+        """
+[reactions]
+diagnose = true
+type = (
+        d + e -> d+ + 2e,
+        d+ + e -> d,
+        d + d+ -> d+ + d,
+       )
+"""
+    )
 
 
 def test_accumulate_terms_adds_sources_and_merges_diagnostics() -> None:
@@ -245,6 +262,65 @@ def test_reaction_sources_include_cross_isotope_charge_exchange_diagnostics() ->
     assert "Etd+_cx" in terms.diagnostics
     assert "Sdt+_cx" in terms.diagnostics
     assert "Std+_cx" in terms.diagnostics
+
+
+def test_reaction_sources_preserve_jax_backend_and_support_grad() -> None:
+    config = _single_species_reaction_config()
+    scalars = _small_scalars()
+
+    def species_for_scale(scale):
+        shape = (1, 1, 1)
+        atom_density = jnp.full(shape, 0.7, dtype=jnp.float64) * scale
+        ion_density = jnp.full(shape, 0.5, dtype=jnp.float64)
+        return {
+            "d": SimpleNamespace(
+                name="d",
+                charge=0.0,
+                atomic_mass=2.0,
+                density=atom_density,
+                pressure=jnp.full(shape, 0.21, dtype=jnp.float64),
+                momentum=jnp.full(shape, 0.14, dtype=jnp.float64),
+                density_floor=1.0e-8,
+            ),
+            "d+": SimpleNamespace(
+                name="d+",
+                charge=1.0,
+                atomic_mass=2.0,
+                density=ion_density,
+                pressure=jnp.full(shape, 0.2, dtype=jnp.float64),
+                momentum=jnp.full(shape, 0.05, dtype=jnp.float64),
+                density_floor=1.0e-8,
+            ),
+            "e": SimpleNamespace(
+                name="e",
+                charge=-1.0,
+                atomic_mass=1.0 / 1836.0,
+                density=ion_density,
+                pressure=jnp.full(shape, 0.3, dtype=jnp.float64),
+                momentum=jnp.zeros(shape, dtype=jnp.float64),
+                density_floor=1.0e-8,
+            ),
+        }
+
+    def objective(scale):
+        species = species_for_scale(scale)
+        terms = reaction_sources(
+            config,
+            species=species,
+            electron_density=species["d+"].density,
+            dataset_scalars=scalars,
+        )
+        return (
+            jnp.sum(terms.density_source["d+"])
+            + jnp.sum(terms.energy_source["e"])
+            + jnp.sum(terms.momentum_source["d+"])
+        )
+
+    value = jit(objective)(jnp.array(1.0, dtype=jnp.float64))
+    derivative = grad(objective)(jnp.array(1.0, dtype=jnp.float64))
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(derivative))
 
 
 def test_collision_rate_helpers_handle_missing_and_malformed_reactions() -> None:

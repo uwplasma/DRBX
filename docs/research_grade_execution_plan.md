@@ -686,9 +686,11 @@ The implementation sequence for that first target is:
 
 The first helper-level port under item 2 is complete: the atomic-rate helpers
 for AMJUEL, OpenADAS, and hydrogen charge exchange now preserve JAX arrays and
-have `jit`/`grad` tests. The next implementation step is not another rate
-formula. It is the fixed-layout reaction-source accumulator that can call those
-helpers without Python dictionaries or host conversions inside the residual.
+have `jit`/`grad` tests. The existing single-isotope reaction-source formulas
+also preserve JAX arrays through the source terms themselves. The next
+implementation step is not another rate formula. It is the fixed-layout
+reaction-source accumulator that can call those helpers without Python
+dictionaries or host conversions inside the residual.
 
 ### CPU Parallelization
 

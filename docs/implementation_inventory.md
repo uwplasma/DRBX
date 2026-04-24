@@ -300,6 +300,11 @@ Current native execution coverage:
   preserve JAX arrays through AMJUEL, OpenADAS, and hydrogen charge-exchange
   evaluations, with focused `jit`/`grad` coverage in
   [test_native_recycling_atomic.py](tests/test_native_recycling_atomic.py);
+- the single-isotope reaction-source formulas in
+  [recycling_reactions.py](src/jax_drb/native/recycling_reactions.py) now also
+  preserve JAX arrays through ionisation, recombination, and charge exchange,
+  with a differentiated compact source objective in
+  [test_native_recycling_reactions.py](tests/test_native_recycling_reactions.py);
 - the neutral implicit branch now consumes that shared solver backbone, which is the first concrete Step 1 freeze of common stepping/Jacobian infrastructure rather than another case-local implementation;
 - the shared sparse path now includes backtracking globalization before the Krylov fallback, which is what made the `solver_mode="sparse"` neutral backward-Euler regression stable enough to keep in the suite;
 - the electrostatic inversion path is now shared as well through [elliptic.py](src/jax_drb/solver/elliptic.py): blob and vorticity now use the same JAX Fourier-Helmholtz / tridiagonal backend rather than separate dense-mode and custom Thomas implementations;

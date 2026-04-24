@@ -194,6 +194,10 @@ charge-exchange fit are backend-preserving and have direct `jit`/`grad`
 coverage. The remaining item-2 work is to lift the surrounding reaction-source
 accumulation out of mutable dictionaries and into a fixed array/PyTree layout
 so those differentiable helpers can be used inside the full recycling residual.
+The current dictionary-oriented reaction-source layer now also preserves JAX
+arrays through the single-isotope ionisation, recombination, and
+charge-exchange formulas, so the fixed-layout accumulator can reuse validated
+formula code rather than reimplementing the physics.
 
 ### Priority 3: tokamak recycling observables
 

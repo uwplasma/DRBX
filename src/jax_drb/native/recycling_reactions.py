@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
+import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig
@@ -21,6 +22,16 @@ from .recycling_atomic import (
 )
 
 
+def _use_jax_backend(*values: object) -> bool:
+    for value in values:
+        if value is None:
+            continue
+        module = type(value).__module__
+        if module.startswith("jax") or module.startswith("jaxlib"):
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class ReactionTerms:
     density_source: dict[str, np.ndarray]
@@ -30,14 +41,53 @@ class ReactionTerms:
 
 
 def _soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
+    if _use_jax_backend(value):
+        value_array = jnp.maximum(jnp.asarray(value, dtype=jnp.float64), 0.0)
+        minimum_value = float(minimum)
+        return value_array + minimum_value * jnp.exp(-value_array / minimum_value)
+
     value_array = np.maximum(np.asarray(value, dtype=np.float64), 0.0)
     minimum_value = float(minimum)
     return value_array + minimum_value * np.exp(-value_array / minimum_value)
 
 
 def _safe_temperature(pressure: np.ndarray, density: np.ndarray, density_floor: float = 1.0e-8) -> np.ndarray:
+    if _use_jax_backend(pressure, density):
+        pressure_floor = jnp.maximum(jnp.asarray(pressure, dtype=jnp.float64), 0.0)
+        return pressure_floor / _soft_floor(jnp.asarray(density, dtype=jnp.float64), density_floor)
+
     pressure_floor = np.maximum(np.asarray(pressure, dtype=np.float64), 0.0)
     return pressure_floor / _soft_floor(np.asarray(density, dtype=np.float64), density_floor)
+
+
+def _zeros_like(value: np.ndarray) -> np.ndarray:
+    if _use_jax_backend(value):
+        return jnp.zeros_like(jnp.asarray(value, dtype=jnp.float64))
+    return np.zeros_like(value, dtype=np.float64)
+
+
+def _safe_velocity(momentum: np.ndarray, density: np.ndarray, atomic_mass: float) -> np.ndarray:
+    if _use_jax_backend(momentum, density):
+        return jnp.asarray(momentum, dtype=jnp.float64) / jnp.maximum(
+            float(atomic_mass) * jnp.asarray(density, dtype=jnp.float64),
+            1.0e-8,
+        )
+    return np.asarray(momentum, dtype=np.float64) / np.maximum(
+        float(atomic_mass) * np.asarray(density, dtype=np.float64),
+        1.0e-8,
+    )
+
+
+def _clip(value: np.ndarray, lower: float, upper: float) -> np.ndarray:
+    if _use_jax_backend(value):
+        return jnp.clip(jnp.asarray(value, dtype=jnp.float64), float(lower), float(upper))
+    return np.clip(np.asarray(value, dtype=np.float64), float(lower), float(upper))
+
+
+def _square(value: np.ndarray) -> np.ndarray:
+    if _use_jax_backend(value):
+        return jnp.square(value)
+    return np.square(value)
 
 
 def is_charge_exchange_reaction(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> bool:
@@ -69,9 +119,9 @@ def accumulate_terms(
 def _initialize_terms(
     species: dict[str, Any],
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
-    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    density_source = {name: _zeros_like(sp.density) for name, sp in species.items()}
+    energy_source = {name: _zeros_like(sp.density) for name, sp in species.items()}
+    momentum_source = {name: _zeros_like(sp.density) for name, sp in species.items()}
     diagnostics: dict[str, np.ndarray] = {}
     return density_source, energy_source, momentum_source, diagnostics
 
@@ -114,7 +164,7 @@ def _accumulate_amjuel_ionisation(
             electron_heating,
             dataset_scalars,
         )
-    atom_velocity = atom.momentum / np.maximum(atom.atomic_mass * atom.density, 1.0e-8)
+    atom_velocity = _safe_velocity(atom.momentum, atom.density, atom.atomic_mass)
     ion_momentum = rate * atom.atomic_mass * atom_velocity
     density_source[atom_name] -= rate
     density_source[ion_name] += rate
@@ -169,7 +219,7 @@ def _accumulate_amjuel_recombination(
             electron_heating,
             dataset_scalars,
         )
-    ion_velocity = ion.momentum / np.maximum(ion.atomic_mass * ion.density, 1.0e-8)
+    ion_velocity = _safe_velocity(ion.momentum, ion.density, ion.atomic_mass)
     ion_momentum = rate * ion.atomic_mass * ion_velocity
     density_source[ion_name] -= rate
     density_source[atom_name] += rate
@@ -205,13 +255,17 @@ def _accumulate_charge_exchange(
     ion2 = species[ion2_name]
     atom_temperature = _safe_temperature(atom1.pressure, atom1.density, atom1.density_floor)
     ion_temperature = _safe_temperature(ion1.pressure, ion1.density, ion1.density_floor)
-    teff = np.clip((atom_temperature / atom1.atomic_mass + ion_temperature / ion1.atomic_mass) * dataset_scalars["Tnorm"], 0.01, 10000.0)
+    teff = _clip(
+        (atom_temperature / atom1.atomic_mass + ion_temperature / ion1.atomic_mass) * dataset_scalars["Tnorm"],
+        0.01,
+        10000.0,
+    )
     sigmav = hydrogen_cx_sigmav(teff, dataset_scalars) * charge_exchange_rate_multiplier(config, atom_name=atom1_name)
     rate = atom1.density * ion1.density * sigmav
-    atom_velocity = atom1.momentum / np.maximum(atom1.atomic_mass * atom1.density, 1.0e-8)
-    ion_velocity = ion1.momentum / np.maximum(ion1.atomic_mass * ion1.density, 1.0e-8)
-    atom2_velocity = atom2.momentum / np.maximum(atom2.atomic_mass * atom2.density, 1.0e-8)
-    ion2_velocity = ion2.momentum / np.maximum(ion2.atomic_mass * ion2.density, 1.0e-8)
+    atom_velocity = _safe_velocity(atom1.momentum, atom1.density, atom1.atomic_mass)
+    ion_velocity = _safe_velocity(ion1.momentum, ion1.density, ion1.atomic_mass)
+    atom2_velocity = _safe_velocity(atom2.momentum, atom2.density, atom2.atomic_mass)
+    ion2_velocity = _safe_velocity(ion2.momentum, ion2.density, ion2.atomic_mass)
     if atom1_name != atom2_name or ion1_name != ion2_name:
         density_source[atom1_name] -= rate
         density_source[ion2_name] += rate
@@ -229,8 +283,8 @@ def _accumulate_charge_exchange(
     energy_source[ion2_name] += atom_energy
     energy_source[ion1_name] -= ion_energy
     energy_source[atom2_name] += ion_energy
-    energy_source[ion2_name] += 0.5 * atom1.atomic_mass * rate * np.square(ion2_velocity - atom_velocity)
-    energy_source[atom2_name] += 0.5 * ion1.atomic_mass * rate * np.square(atom2_velocity - ion_velocity)
+    energy_source[ion2_name] += 0.5 * atom1.atomic_mass * rate * _square(ion2_velocity - atom_velocity)
+    energy_source[atom2_name] += 0.5 * ion1.atomic_mass * rate * _square(atom2_velocity - ion_velocity)
     diag_suffix = f"{atom1_name}{ion1_name}_cx"
     if atom1_name == atom2_name and ion1_name == ion2_name:
         diagnostics[f"E{diag_suffix}"] = ion_energy - atom_energy
