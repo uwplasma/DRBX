@@ -201,6 +201,33 @@ def test_electron_force_balance_gradient_matches_bout_dy_over_sqrt_g22_stencil()
     np.testing.assert_allclose(gradient[active], expected[active], rtol=1.0e-12, atol=1.0e-12)
 
 
+def test_electron_force_balance_gradient_is_jax_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    field = np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    for j in range(mesh.local_ny):
+        field[:, j, :] = 1.0 + 0.2 * float(j)
+    weights = jnp.linspace(0.1, 1.3, field.size, dtype=jnp.float64).reshape(field.shape)
+
+    def qoi(scale):
+        gradient = grad_par_electron_force_balance_open(
+            jnp.asarray(field, dtype=jnp.float64) * scale,
+            mesh=mesh,
+            metrics=metrics,
+        )
+        return jnp.sum(gradient * weights)
+
+    _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-5
+    finite_difference = (qoi(1.0 + eps) - qoi(1.0 - eps)) / (2.0 * eps)
+
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=2.0e-6, atol=2.0e-8)
+
+
 def test_target_recycling_sources_are_jax_jvp_transformable() -> None:
     jax = pytest.importorskip("jax")
     jnp = pytest.importorskip("jax.numpy")

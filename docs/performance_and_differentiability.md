@@ -371,6 +371,9 @@ compare `jax.jvp` tangents with centered finite differences. The full heavy
 recycling transient still calls those assemblers through host-oriented
 dictionary plumbing, but the mathematical kernels needed by the fixed-layout
 residual are no longer NumPy-only.
+The electron-force-balance pressure-gradient stencil used to build `Epar` has
+also been moved from a Python loop to vectorized backend-preserving code and is
+covered by the same JVP-versus-finite-difference standard.
 
 The corresponding paper/docs artifact is:
 

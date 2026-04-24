@@ -124,16 +124,34 @@ def grad_par_electron_force_balance_open(
     metrics: StructuredMetrics,
 ) -> np.ndarray:
     """Match the open-field electron-force-balance centered stencil."""
+    if use_jax_backend(field, metrics.dy, metrics.g_22):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        result = jnp.zeros_like(field_array, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        g_22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+        x_slice = slice(mesh.xstart, mesh.xend + 1)
+        y_slice = slice(mesh.ystart, mesh.yend + 1)
+        active_gradient = (
+            0.5
+            * (
+                field_array[x_slice, mesh.ystart + 1 : mesh.yend + 2, :]
+                - field_array[x_slice, mesh.ystart - 1 : mesh.yend, :]
+            )
+            / (dy[x_slice, y_slice, :] * jnp.sqrt(g_22[x_slice, y_slice, :]))
+        )
+        return result.at[x_slice, y_slice, :].set(active_gradient)
+
     result = np.zeros_like(field, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     g_22 = np.asarray(metrics.g_22, dtype=np.float64)
-
-    for i in range(mesh.xstart, mesh.xend + 1):
-        for j in range(mesh.ystart, mesh.yend + 1):
-            for k in range(mesh.nz):
-                result[i, j, k] = (
-                    0.5
-                    * (field[i, j + 1, k] - field[i, j - 1, k])
-                    / (dy[i, j, k] * np.sqrt(g_22[i, j, k]))
-                )
+    x_slice = slice(mesh.xstart, mesh.xend + 1)
+    y_slice = slice(mesh.ystart, mesh.yend + 1)
+    result[x_slice, y_slice, :] = (
+        0.5
+        * (
+            np.asarray(field[x_slice, mesh.ystart + 1 : mesh.yend + 2, :], dtype=np.float64)
+            - np.asarray(field[x_slice, mesh.ystart - 1 : mesh.yend, :], dtype=np.float64)
+        )
+        / (dy[x_slice, y_slice, :] * np.sqrt(g_22[x_slice, y_slice, :]))
+    )
     return result

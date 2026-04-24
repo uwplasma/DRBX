@@ -184,6 +184,7 @@ This applies directly to:
 - reconstruction rules and guarded-boundary formulas
 - reaction and collision closures
 - open-field parallel advection/inertia operators and RHS-term assembly
+- electron-force-balance pressure-gradient stencils
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes
 - fixed-layout host-bridge parity on full Hermès decks before each heavy

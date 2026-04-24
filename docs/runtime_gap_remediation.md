@@ -227,6 +227,8 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   JVP-versus-finite-difference gates;
 - ion and electron RHS-term assembly now preserves JAX arrays through the
   transport, pressure-gradient, source-addition, and soft-floor pieces;
+- the electron-force-balance parallel pressure-gradient stencil is now
+  vectorized and backend-preserving, with a JVP finite-difference gate;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The
