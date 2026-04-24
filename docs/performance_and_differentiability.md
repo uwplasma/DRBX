@@ -395,7 +395,11 @@ dictionary-oriented closure orchestration and nonlinear solve driver. The
 source-accumulation dictionaries are now less of a backend barrier: source
 zeros, additive updates, and source overrides use a shared backend-preserving
 helper with JVP coverage, so future fixed-layout residual ports can reuse the
-current source composition order without an initial NumPy conversion.
+current source composition order without an initial NumPy conversion. The
+boundary-free open-field state wrapper now also keeps electron-density
+reconstruction and electron/ion boundary-state construction on the JAX backend,
+which provides a transformable control surface before the more parity-sensitive
+sheath formulas are ported.
 
 The corresponding paper/docs artifact is:
 
