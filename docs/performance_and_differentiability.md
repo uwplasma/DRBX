@@ -354,6 +354,12 @@ Jacobian action, and compact JVP gates through target recycling, neutral
 parallel diffusion, and collision friction/heat-exchange closures. This is the
 state-layout bridge for the heavy residual migration; it is not yet a claim
 that the full Hermès-compatible recycling history is end-to-end differentiable.
+The latest bridge test runs this fixed state on the actual Hermès
+`1D-recycling-dthe` deck: it reconstructs full guard-cell fields, calls the
+current packed RHS oracle through `build_fixed_host_rhs_bridge`, and verifies
+the packed RHS and backward-Euler residual value against the legacy packed
+path. That establishes an implementation-level parity seam for the next
+term-by-term ports without hiding the remaining host barrier.
 
 The corresponding paper/docs artifact is:
 

@@ -185,6 +185,8 @@ This applies directly to:
 - reaction and collision closures
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes
+- fixed-layout host-bridge parity on full Hermès decks before each heavy
+  recycling term is promoted into the JAX-native residual
 - parity and benchmark validation surfaces
 
 If a surface is strong enough to be discussed in the paper, it should already
