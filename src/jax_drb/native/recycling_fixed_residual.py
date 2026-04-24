@@ -178,6 +178,40 @@ def build_fixed_array_rhs(
     return rhs
 
 
+def build_fixed_full_field_array_rhs(
+    full_field_rhs_function: Callable[[dict[str, object], jax.Array], dict[str, object]],
+    *,
+    layout: RecyclingPackedStateLayout,
+    feedback_rhs_function: Callable[[dict[str, jax.Array], jax.Array], object] | None = None,
+) -> Callable[[RecyclingFixedState], RecyclingFixedState]:
+    """Stage guard-cell kernels through the fixed-layout active-array RHS.
+
+    This adapter is the migration seam for recycling terms that still need
+    target or guard-cell values, such as sheath recycling, neutral diffusion,
+    and collision closures. The wrapped kernel receives reconstructed full
+    fields, but the public residual interface stays a static PyTree of active
+    arrays, so JAX transformations continue to work when the wrapped kernel is
+    itself JAX-compatible.
+    """
+
+    def field_rhs(active_fields: dict[str, jax.Array], feedback_values: jax.Array) -> dict[str, object]:
+        state = RecyclingFixedState(
+            field_values=tuple(active_fields[name] for name in layout.field_names),
+            feedback_values=feedback_values,
+        )
+        full_fields = fixed_state_to_full_fields(state, layout=layout)
+        full_rhs = full_field_rhs_function(full_fields, feedback_values)
+        rhs_values: dict[str, object] = {}
+        for name in layout.field_names:
+            if name not in full_rhs:
+                continue
+            value = jnp.asarray(full_rhs[name], dtype=jnp.float64)
+            rhs_values[name] = value if value.shape == layout.active_shape else value[layout.active_slices]
+        return rhs_values
+
+    return build_fixed_array_rhs(field_rhs, layout=layout, feedback_rhs_function=feedback_rhs_function)
+
+
 def build_fixed_backward_euler_residual(
     rhs_function: Callable[[RecyclingFixedState], RecyclingFixedState],
     *,

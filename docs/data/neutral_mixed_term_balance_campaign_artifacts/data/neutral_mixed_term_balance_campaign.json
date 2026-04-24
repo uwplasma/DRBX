@@ -150,6 +150,28 @@
         -0.0
       ]
     },
+    "matched_reconstructions": {
+      "pressure_gradient": {
+        "field_metrics": {
+          "max_abs": 0.0016647647470079793,
+          "rms": 0.0008572498977170969
+        },
+        "lineout": [
+          -0.0004153951238204131,
+          -0.0012639448233237283,
+          -0.0016646940628097448,
+          -0.001198486973671311,
+          -0.00038234501787726523,
+          0.000382343060171574,
+          0.0011984893242187387,
+          0.0016646936191387204,
+          0.0012639448826225895,
+          0.00041539512001865006
+        ],
+        "parity_scope": "This isolates the same mathematical source term on the Herm\u00e8s final state. It is not a direct Herm\u00e8s variable because stock Herm\u00e8s diagnostics do not write the pressure-gradient momentum source as a separate field.",
+        "source": "matched postprocessed reconstruction of Herm\u00e8s final Ph through native -Grad_par(Pn) term"
+      }
+    },
     "source_nc": "BOUT.dmp.0.nc",
     "variables_missing": [],
     "variables_present": [

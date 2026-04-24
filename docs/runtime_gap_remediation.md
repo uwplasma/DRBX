@@ -245,8 +245,10 @@ Items 1, 3, 4, and 5 now have their first compact gates:
 - `RecyclingFixedState` provides the active fixed-layout PyTree state and
   transformable backward-Euler/BDF2 residual builders;
 - `build_fixed_array_rhs` now provides the pure active-array RHS adapter for
-  staged source/closure/boundary ports, while `build_fixed_host_rhs_bridge`
-  remains the parity oracle against the current full-field RHS;
+  staged source/closure/boundary ports, `build_fixed_full_field_array_rhs`
+  stages guard-cell kernels such as target recycling through that same fixed
+  PyTree interface, and `build_fixed_host_rhs_bridge` remains the parity oracle
+  against the current full-field RHS;
 - active-region and recycling active-state pack/unpack preserve JAX tracers;
 - target recycling and the target-source kernel preserve JAX when dynamic state
   is a JAX array even if metrics are static NumPy arrays;
@@ -275,6 +277,15 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   updates now use a backend-preserving RHS helper with a direct
   JVP-versus-finite-difference gate, rather than adding those momentum sources
   through a NumPy-only block in the full RHS;
+- electron sheath state preparation now applies no-flow scalar/flow guards,
+  derives safe temperature and momentum, and reconstructs the full
+  zero-current ion-sum/sheath-potential boundary formula through
+  backend-preserving helpers with NumPy/JAX parity and JVP gates;
+- collision friction/heat exchange, neutral parallel diffusion, and target
+  recycling now have fixed-layout full-field adapter gates: each guard-cell or
+  closure kernel can be called from a `RecyclingFixedState` RHS, defaults
+  non-participating fields to zero, and differentiates through the active
+  source response;
 - the open-field state-preparation wrapper now preserves JAX arrays through
   electron-density reconstruction and the boundary-free electron/ion state
   path, giving the fixed-layout residual a transformable no-sheath control

@@ -29,6 +29,15 @@ class TargetBoundaryGeometry:
 
 
 @dataclass(frozen=True)
+class ElectronSheathPreparedState:
+    density: jnp.ndarray
+    pressure: jnp.ndarray
+    temperature: jnp.ndarray
+    velocity: jnp.ndarray
+    momentum: jnp.ndarray
+
+
+@dataclass(frozen=True)
 class SimpleIonSheathResult:
     sheath_velocity: jnp.ndarray
     guard_velocity: jnp.ndarray
@@ -211,6 +220,199 @@ def apply_parallel_electric_force(
     if existing_source is not None:
         source = source + jnp.asarray(existing_source, dtype=jnp.float64)
     return source
+
+
+def safe_temperature_from_pressure_density(
+    pressure: jnp.ndarray,
+    density: jnp.ndarray,
+    *,
+    density_floor: float,
+) -> jnp.ndarray:
+    if _use_numpy_backend(pressure, density):
+        return np.asarray(pressure, dtype=np.float64) / np.maximum(
+            np.asarray(density, dtype=np.float64),
+            float(density_floor),
+        )
+    return jnp.asarray(pressure, dtype=jnp.float64) / jnp.maximum(
+        jnp.asarray(density, dtype=jnp.float64),
+        float(density_floor),
+    )
+
+
+def prepare_electron_sheath_state(
+    *,
+    electron_pressure: jnp.ndarray,
+    electron_density: jnp.ndarray,
+    electron_velocity: jnp.ndarray,
+    electron_mass: float,
+    electron_density_floor: float,
+    mesh: StructuredMesh,
+    lower_y: bool,
+    upper_y: bool,
+) -> ElectronSheathPreparedState:
+    """Apply no-flow guards and derive electron sheath temperature/momentum."""
+
+    density = apply_noflow_scalar_guards(
+        electron_density,
+        mesh=mesh,
+        lower_y=lower_y,
+        upper_y=upper_y,
+    )
+    pressure = apply_noflow_scalar_guards(
+        electron_pressure,
+        mesh=mesh,
+        lower_y=lower_y,
+        upper_y=upper_y,
+    )
+    velocity = apply_noflow_flow_guards(
+        electron_velocity,
+        mesh=mesh,
+        lower_y=lower_y,
+        upper_y=upper_y,
+    )
+    temperature = safe_temperature_from_pressure_density(
+        pressure,
+        density,
+        density_floor=electron_density_floor,
+    )
+    momentum = float(electron_mass) * density * velocity
+    return ElectronSheathPreparedState(
+        density=density,
+        pressure=pressure,
+        temperature=temperature,
+        velocity=velocity,
+        momentum=momentum,
+    )
+
+
+def compute_full_ion_zero_current_sum_term(
+    *,
+    ion_density_boundary: jnp.ndarray,
+    ion_density_neighbor: jnp.ndarray,
+    electron_density_boundary: jnp.ndarray,
+    electron_density_neighbor: jnp.ndarray,
+    ion_temperature_boundary: jnp.ndarray,
+    electron_temperature_boundary: jnp.ndarray,
+    electron_density_gradient: jnp.ndarray,
+    ion_density_gradient: jnp.ndarray,
+    sin_alpha_neighbor: jnp.ndarray,
+    atomic_mass: float,
+    charge: float,
+) -> jnp.ndarray:
+    """Return one ion contribution to the current-free electron sheath sum."""
+
+    if _use_numpy_backend(
+        ion_density_boundary,
+        ion_density_neighbor,
+        electron_density_boundary,
+        electron_density_neighbor,
+        ion_temperature_boundary,
+        electron_temperature_boundary,
+        electron_density_gradient,
+        ion_density_gradient,
+        sin_alpha_neighbor,
+    ):
+        ni_boundary = np.asarray(ion_density_boundary, dtype=np.float64)
+        ni_neighbor = np.asarray(ion_density_neighbor, dtype=np.float64)
+        ne_boundary = np.asarray(electron_density_boundary, dtype=np.float64)
+        ne_neighbor = np.asarray(electron_density_neighbor, dtype=np.float64)
+        ti_boundary = np.asarray(ion_temperature_boundary, dtype=np.float64)
+        te_boundary = np.asarray(electron_temperature_boundary, dtype=np.float64)
+        grad_ne = np.asarray(electron_density_gradient, dtype=np.float64)
+        grad_ni = np.asarray(ion_density_gradient, dtype=np.float64)
+        sin_alpha = np.asarray(sin_alpha_neighbor, dtype=np.float64)
+        s_i = np.clip(
+            0.5 * (3.0 * ni_boundary / np.maximum(ne_boundary, 1.0e-12) - ni_neighbor / np.maximum(ne_neighbor, 1.0e-12)),
+            0.0,
+            1.0,
+        )
+        s_i = np.where(np.isfinite(s_i), s_i, 1.0)
+        use_floor = np.abs(grad_ni) < 2.0e-3
+        grad_ne = np.where(use_floor, 2.0e-3, grad_ne)
+        grad_ni = np.where(use_floor, 2.0e-3, grad_ni)
+        c_i_sq = np.clip(
+            ((5.0 / 3.0) * ti_boundary + float(charge) * s_i * te_boundary * grad_ne / grad_ni) / float(atomic_mass),
+            0.0,
+            100.0,
+        )
+        return s_i * float(charge) * sin_alpha * np.sqrt(c_i_sq)
+
+    ni_boundary = jnp.asarray(ion_density_boundary, dtype=jnp.float64)
+    ni_neighbor = jnp.asarray(ion_density_neighbor, dtype=jnp.float64)
+    ne_boundary = jnp.asarray(electron_density_boundary, dtype=jnp.float64)
+    ne_neighbor = jnp.asarray(electron_density_neighbor, dtype=jnp.float64)
+    ti_boundary = jnp.asarray(ion_temperature_boundary, dtype=jnp.float64)
+    te_boundary = jnp.asarray(electron_temperature_boundary, dtype=jnp.float64)
+    grad_ne = jnp.asarray(electron_density_gradient, dtype=jnp.float64)
+    grad_ni = jnp.asarray(ion_density_gradient, dtype=jnp.float64)
+    sin_alpha = jnp.asarray(sin_alpha_neighbor, dtype=jnp.float64)
+    s_i = jnp.clip(
+        0.5 * (3.0 * ni_boundary / jnp.maximum(ne_boundary, 1.0e-12) - ni_neighbor / jnp.maximum(ne_neighbor, 1.0e-12)),
+        0.0,
+        1.0,
+    )
+    s_i = jnp.where(jnp.isfinite(s_i), s_i, 1.0)
+    use_floor = jnp.abs(grad_ni) < 2.0e-3
+    grad_ne = jnp.where(use_floor, 2.0e-3, grad_ne)
+    grad_ni = jnp.where(use_floor, 2.0e-3, grad_ni)
+    c_i_sq = jnp.clip(
+        ((5.0 / 3.0) * ti_boundary + float(charge) * s_i * te_boundary * grad_ne / grad_ni) / float(atomic_mass),
+        0.0,
+        100.0,
+    )
+    return s_i * float(charge) * sin_alpha * jnp.sqrt(c_i_sq)
+
+
+def compute_zero_current_electron_sheath_potential(
+    *,
+    electron_temperature_boundary: jnp.ndarray,
+    ion_current_sum: jnp.ndarray,
+    wall_potential_boundary: jnp.ndarray,
+    electron_thermal_mass: float,
+    secondary_electron_coef: float,
+) -> jnp.ndarray:
+    """Return the current-free electron sheath potential at one target face."""
+
+    if _use_numpy_backend(electron_temperature_boundary, ion_current_sum, wall_potential_boundary):
+        temperature = np.asarray(electron_temperature_boundary, dtype=np.float64)
+        ion_sum = np.maximum(np.asarray(ion_current_sum, dtype=np.float64), 1.0e-12)
+        wall = np.asarray(wall_potential_boundary, dtype=np.float64)
+        valid = temperature > 0.0
+        safe_temperature = np.maximum(temperature, 1.0e-12)
+        potential = np.where(
+            valid,
+            safe_temperature
+            * np.log(
+                np.maximum(
+                    np.sqrt(safe_temperature / (float(electron_thermal_mass) * (2.0 * np.pi)))
+                    * (1.0 - float(secondary_electron_coef))
+                    / ion_sum,
+                    1.0e-12,
+                )
+            ),
+            0.0,
+        )
+        return potential + wall
+
+    temperature = jnp.asarray(electron_temperature_boundary, dtype=jnp.float64)
+    ion_sum = jnp.maximum(jnp.asarray(ion_current_sum, dtype=jnp.float64), 1.0e-12)
+    wall = jnp.asarray(wall_potential_boundary, dtype=jnp.float64)
+    valid = temperature > 0.0
+    safe_temperature = jnp.maximum(temperature, 1.0e-12)
+    potential = jnp.where(
+        valid,
+        safe_temperature
+        * jnp.log(
+            jnp.maximum(
+                jnp.sqrt(safe_temperature / (float(electron_thermal_mass) * (2.0 * jnp.pi)))
+                * (1.0 - float(secondary_electron_coef))
+                / ion_sum,
+                1.0e-12,
+            )
+        ),
+        0.0,
+    )
+    return potential + wall
 
 
 def compute_simple_ion_sheath_boundary(

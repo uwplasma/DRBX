@@ -46,9 +46,15 @@ absolute active value about `2.47e-3`; the perpendicular advection/viscosity
 flow diagnostics are at numerical-noise level or exactly zero on this one-step
 surface. Hermès computes the pressure-gradient source as `-Grad_par(Pn)` in
 `neutral_mixed.cxx`, but the stock diagnostic output does not write that term
-under a separate variable. Direct pressure-gradient parity therefore still
-requires either a tiny Hermès diagnostic patch or a matched postprocessed
-Hermès-side operator reconstruction.
+under a separate variable. The campaign now fills that gap with a matched
+postprocessed pressure-gradient reconstruction: it evaluates the same
+`-Grad_par(Pn)` source term on the Hermès final pressure field and stores the
+lineout and active-domain metrics under
+`hermes_diagnostic_outputs.matched_reconstructions.pressure_gradient`. This is
+not a direct Hermès diagnostic variable, so a tiny Hermès diagnostic patch
+would still be the cleanest final parity check, but the current report can now
+compare the written Hermès flow diagnostics against the missing pressure
+gradient on the same lineout.
 
 Regenerate the artifact with:
 

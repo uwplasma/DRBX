@@ -15,11 +15,14 @@ from jax_drb.native.open_field import (
     build_target_boundary_geometry,
     compute_electron_force_balance,
     compute_full_electron_sheath_boundary,
+    compute_full_ion_zero_current_sum_term,
     compute_full_ion_sheath_boundary,
     compute_simple_ion_sheath_boundary,
     compute_target_recycling_sources,
+    compute_zero_current_electron_sheath_potential,
     grad_par_y,
     limit_free,
+    prepare_electron_sheath_state,
 )
 
 
@@ -441,6 +444,145 @@ def test_target_recycling_sources_precomputed_geometry_matches_direct_geometry_p
 
     np.testing.assert_allclose(np.asarray(cached.density_source), np.asarray(direct.density_source), rtol=0.0, atol=0.0)
     np.testing.assert_allclose(np.asarray(cached.energy_source), np.asarray(direct.energy_source), rtol=0.0, atol=0.0)
+
+
+def test_prepare_electron_sheath_state_matches_numpy_and_is_jvp_transformable() -> None:
+    mesh = _mesh()
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = np.linspace(1.0, 1.7, num=np.prod(shape), dtype=np.float64).reshape(shape)
+    pressure = 2.0 * density + 0.3
+    velocity = np.linspace(-0.4, 0.6, num=np.prod(shape), dtype=np.float64).reshape(shape)
+
+    numpy_state = prepare_electron_sheath_state(
+        electron_pressure=pressure,
+        electron_density=density,
+        electron_velocity=velocity,
+        electron_mass=1.0 / 1836.0,
+        electron_density_floor=1.0e-5,
+        mesh=mesh,
+        lower_y=True,
+        upper_y=True,
+    )
+    jax_state = prepare_electron_sheath_state(
+        electron_pressure=jnp.asarray(pressure),
+        electron_density=jnp.asarray(density),
+        electron_velocity=jnp.asarray(velocity),
+        electron_mass=1.0 / 1836.0,
+        electron_density_floor=1.0e-5,
+        mesh=mesh,
+        lower_y=True,
+        upper_y=True,
+    )
+
+    np.testing.assert_allclose(np.asarray(jax_state.density), numpy_state.density, rtol=1.0e-6, atol=1.0e-8)
+    np.testing.assert_allclose(np.asarray(jax_state.pressure), numpy_state.pressure, rtol=1.0e-6, atol=1.0e-8)
+    np.testing.assert_allclose(np.asarray(jax_state.velocity), numpy_state.velocity, rtol=1.0e-6, atol=1.0e-8)
+    np.testing.assert_allclose(np.asarray(jax_state.temperature), numpy_state.temperature, rtol=1.0e-6, atol=1.0e-8)
+    np.testing.assert_allclose(np.asarray(jax_state.momentum), numpy_state.momentum, rtol=1.0e-6, atol=1.0e-8)
+    np.testing.assert_allclose(numpy_state.density[:, mesh.ystart - 1, :], numpy_state.density[:, mesh.ystart, :])
+    np.testing.assert_allclose(numpy_state.velocity[:, mesh.yend + 1, :], -numpy_state.velocity[:, mesh.yend, :])
+
+    def qoi(scale: jnp.ndarray) -> jnp.ndarray:
+        state = prepare_electron_sheath_state(
+            electron_pressure=jnp.asarray(pressure) * scale,
+            electron_density=jnp.asarray(density),
+            electron_velocity=jnp.asarray(velocity),
+            electron_mass=1.0 / 1836.0,
+            electron_density_floor=1.0e-5,
+            mesh=mesh,
+            lower_y=True,
+            upper_y=True,
+        )
+        return jnp.sum(state.temperature[:, mesh.ystart : mesh.yend + 1, :])
+
+    _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-3
+    finite_difference = (qoi(jnp.array(1.0 + eps)) - qoi(jnp.array(1.0 - eps))) / (2.0 * eps)
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=1.0e-4, atol=1.0e-6)
+
+
+def test_zero_current_ion_sum_and_potential_match_numpy_and_are_jvp_transformable() -> None:
+    ion_density_boundary = np.asarray([[1.1, 1.3]], dtype=np.float64)
+    ion_density_neighbor = np.asarray([[1.0, 1.2]], dtype=np.float64)
+    electron_density_boundary = np.asarray([[1.2, 1.4]], dtype=np.float64)
+    electron_density_neighbor = np.asarray([[1.1, 1.25]], dtype=np.float64)
+    ion_temperature_boundary = np.asarray([[2.0, 2.4]], dtype=np.float64)
+    electron_temperature_boundary = np.asarray([[3.0, 3.5]], dtype=np.float64)
+    electron_density_gradient = electron_density_neighbor - electron_density_boundary
+    ion_density_gradient = ion_density_neighbor - ion_density_boundary
+    sin_alpha_neighbor = np.asarray([[0.5, 0.75]], dtype=np.float64)
+
+    numpy_sum = compute_full_ion_zero_current_sum_term(
+        ion_density_boundary=ion_density_boundary,
+        ion_density_neighbor=ion_density_neighbor,
+        electron_density_boundary=electron_density_boundary,
+        electron_density_neighbor=electron_density_neighbor,
+        ion_temperature_boundary=ion_temperature_boundary,
+        electron_temperature_boundary=electron_temperature_boundary,
+        electron_density_gradient=electron_density_gradient,
+        ion_density_gradient=ion_density_gradient,
+        sin_alpha_neighbor=sin_alpha_neighbor,
+        atomic_mass=2.0,
+        charge=1.0,
+    )
+    jax_sum = compute_full_ion_zero_current_sum_term(
+        ion_density_boundary=jnp.asarray(ion_density_boundary),
+        ion_density_neighbor=jnp.asarray(ion_density_neighbor),
+        electron_density_boundary=jnp.asarray(electron_density_boundary),
+        electron_density_neighbor=jnp.asarray(electron_density_neighbor),
+        ion_temperature_boundary=jnp.asarray(ion_temperature_boundary),
+        electron_temperature_boundary=jnp.asarray(electron_temperature_boundary),
+        electron_density_gradient=jnp.asarray(electron_density_gradient),
+        ion_density_gradient=jnp.asarray(ion_density_gradient),
+        sin_alpha_neighbor=jnp.asarray(sin_alpha_neighbor),
+        atomic_mass=2.0,
+        charge=1.0,
+    )
+    numpy_phi = compute_zero_current_electron_sheath_potential(
+        electron_temperature_boundary=electron_temperature_boundary,
+        ion_current_sum=numpy_sum,
+        wall_potential_boundary=np.asarray([[0.1, 0.2]], dtype=np.float64),
+        electron_thermal_mass=1.0 / 1836.0,
+        secondary_electron_coef=0.0,
+    )
+    jax_phi = compute_zero_current_electron_sheath_potential(
+        electron_temperature_boundary=jnp.asarray(electron_temperature_boundary),
+        ion_current_sum=jax_sum,
+        wall_potential_boundary=jnp.asarray([[0.1, 0.2]], dtype=jnp.float64),
+        electron_thermal_mass=1.0 / 1836.0,
+        secondary_electron_coef=0.0,
+    )
+
+    np.testing.assert_allclose(np.asarray(jax_sum), numpy_sum, rtol=1.0e-6, atol=1.0e-8)
+    np.testing.assert_allclose(np.asarray(jax_phi), numpy_phi, rtol=1.0e-6, atol=1.0e-8)
+
+    def qoi(scale: jnp.ndarray) -> jnp.ndarray:
+        ion_sum = compute_full_ion_zero_current_sum_term(
+            ion_density_boundary=jnp.asarray(ion_density_boundary) * scale,
+            ion_density_neighbor=jnp.asarray(ion_density_neighbor),
+            electron_density_boundary=jnp.asarray(electron_density_boundary),
+            electron_density_neighbor=jnp.asarray(electron_density_neighbor),
+            ion_temperature_boundary=jnp.asarray(ion_temperature_boundary),
+            electron_temperature_boundary=jnp.asarray(electron_temperature_boundary),
+            electron_density_gradient=jnp.asarray(electron_density_gradient),
+            ion_density_gradient=jnp.asarray(ion_density_gradient),
+            sin_alpha_neighbor=jnp.asarray(sin_alpha_neighbor),
+            atomic_mass=2.0,
+            charge=1.0,
+        )
+        potential = compute_zero_current_electron_sheath_potential(
+            electron_temperature_boundary=jnp.asarray(electron_temperature_boundary),
+            ion_current_sum=ion_sum,
+            wall_potential_boundary=jnp.asarray([[0.1, 0.2]], dtype=jnp.float64),
+            electron_thermal_mass=1.0 / 1836.0,
+            secondary_electron_coef=0.0,
+        )
+        return jnp.sum(ion_sum) + 0.1 * jnp.sum(potential)
+
+    _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-3
+    finite_difference = (qoi(jnp.array(1.0 + eps)) - qoi(jnp.array(1.0 - eps))) / (2.0 * eps)
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=1.0e-4, atol=1.0e-6)
 
 
 def test_simple_ion_sheath_boundary_matches_numpy_and_is_jvp_transformable() -> None:

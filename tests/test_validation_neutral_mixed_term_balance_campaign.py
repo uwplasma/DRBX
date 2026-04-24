@@ -133,6 +133,9 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(t
     assert "ddt(NVh)" in diagnostics["variables_present"]
     assert "mfh_visc_perp_ylow" in diagnostics["variables_missing"]
     assert diagnostics["field_metrics"]["mfh_visc_par_ylow"]["max_abs"] == 2.0
+    reconstruction = diagnostics["matched_reconstructions"]["pressure_gradient"]
+    assert reconstruction["field_metrics"]["max_abs"] >= 0.0
+    assert len(reconstruction["lineout"]) == len(report["active_y_indices"])
 
 
 def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(tmp_path: Path) -> None:

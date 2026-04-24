@@ -239,6 +239,7 @@ def build_neutral_mixed_term_balance_campaign_report(
             active_y=active_y,
             line_x=line_x,
             line_z=line_z,
+            matched_pressure_gradient=reference_balance.get("pressure_gradient"),
         )
     return report
 
@@ -460,6 +461,14 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
         if isinstance(lineouts, dict):
             for term_name, lineout in lineouts.items():
                 arrays[f"hermes_diagnostic_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
+        reconstructions = diagnostics.get("matched_reconstructions", {})
+        if isinstance(reconstructions, dict):
+            for term_name, reconstruction in reconstructions.items():
+                if isinstance(reconstruction, dict) and "lineout" in reconstruction:
+                    arrays[f"hermes_matched_{term_name}_lineout"] = np.asarray(
+                        reconstruction["lineout"],
+                        dtype=np.float64,
+                    )
     np.savez(target, **arrays)
     return target
 
@@ -470,6 +479,7 @@ def _hermes_diagnostic_payload(
     active_y: slice,
     line_x: int,
     line_z: int,
+    matched_pressure_gradient: np.ndarray | None = None,
 ) -> dict[str, object]:
     try:
         from netCDF4 import Dataset
@@ -490,6 +500,7 @@ def _hermes_diagnostic_payload(
         "source_nc": target.name,
         "lineouts": {},
         "field_metrics": {},
+        "matched_reconstructions": {},
         "variables_present": [],
         "variables_missing": [],
         "interpretation": {
@@ -501,13 +512,30 @@ def _hermes_diagnostic_payload(
             "pressure_gradient_limitation": (
                 "The neutral pressure-gradient source appears in Hermès as "
                 "-Grad_par(Pn) inside neutral_mixed.cxx, but it is not written "
-                "as a named diagnostic in the stock output. Direct "
-                "pressure-gradient parity therefore still requires either a "
-                "small Hermès diagnostic patch or a matched postprocessed "
-                "operator reconstruction."
+                "as a named diagnostic in the stock output. This report "
+                "therefore carries a matched postprocessed reconstruction of "
+                "that operator on the Hermès final state when the reference "
+                "arrays are available. Direct Hermès-side parity would still "
+                "require a small diagnostic patch in Hermès itself."
             ),
         },
     }
+    if matched_pressure_gradient is not None:
+        pressure_gradient = np.asarray(matched_pressure_gradient, dtype=np.float64)
+        active = pressure_gradient[:, active_y, :]
+        payload["matched_reconstructions"]["pressure_gradient"] = {
+            "source": "matched postprocessed reconstruction of Hermès final Ph through native -Grad_par(Pn) term",
+            "lineout": pressure_gradient[line_x, active_y, line_z].tolist(),
+            "field_metrics": {
+                "max_abs": float(np.max(np.abs(active))),
+                "rms": _rms(active),
+            },
+            "parity_scope": (
+                "This isolates the same mathematical source term on the Hermès final state. "
+                "It is not a direct Hermès variable because stock Hermès diagnostics do not "
+                "write the pressure-gradient momentum source as a separate field."
+            ),
+        }
     with Dataset(target) as dataset:
         for name in field_names:
             if name not in dataset.variables:

@@ -320,6 +320,12 @@ Current native execution coverage:
   fixed-layout source kernel and neutral-ionisation collision-rate helper,
   reducing the latest cProfile AMJUEL fit count on `recycling_dthe_one_step`
   to `117380` while preserving the promoted parity tests;
+- the fixed-layout residual migration now also has compact adapter gates for
+  the surrounding non-reaction terms: collision friction/heat exchange, neutral
+  parallel diffusion, and target recycling run through
+  `build_fixed_full_field_array_rhs`, while no-flow electron sheath
+  preparation and zero-current electron-sheath reconstruction live as
+  backend-preserving open-field helpers with NumPy/JAX parity and JVP checks;
 - the SciPy BDF recycling Jacobian callback now honors
   `JAX_DRB_FD_JACOBIAN_THREADS`, reports the resolved worker count, and routes
   perturbed finite-difference residuals around the mutable RHS cache so explicit

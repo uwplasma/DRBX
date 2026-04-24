@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from jax_drb.native.mesh import StructuredMesh
+from jax_drb.native.metrics import StructuredMetrics
+from jax_drb.native.open_field import compute_target_recycling_sources
+from jax_drb.native.recycling_collision_closure import apply_collision_closure
 from jax_drb.native.recycling_fixed_residual import (
     RecyclingFixedState,
     build_fixed_array_rhs,
     build_fixed_backward_euler_residual,
+    build_fixed_full_field_array_rhs,
     fixed_state_from_fields,
     pack_fixed_state,
     unpack_fixed_state,
@@ -20,6 +26,7 @@ from jax_drb.native.recycling_layout import (
     recycling_active_shape,
     unpack_recycling_active_state,
 )
+from jax_drb.native.recycling_neutral_diffusion import apply_neutral_parallel_diffusion
 
 
 def _sample_mesh() -> StructuredMesh:
@@ -42,6 +49,37 @@ def _sample_mesh() -> StructuredMesh:
         y=np.array([-1.0, 0.0, 1.0, 2.0], dtype=np.float64),
         z=np.array([0.0], dtype=np.float64),
     )
+
+
+def _sample_metrics(mesh: StructuredMesh) -> StructuredMetrics:
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    ones = np.ones(shape, dtype=np.float64)
+    return StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros(shape, dtype=np.float64),
+        Bxy=ones,
+    )
+
+
+class _MiniConfig:
+    def __init__(self, sections: dict[str, dict[str, object]]) -> None:
+        self._sections = sections
+
+    def has_section(self, section: str) -> bool:
+        return section in self._sections
+
+    def has_option(self, section: str, key: str) -> bool:
+        return key in self._sections.get(section, {})
+
+    def parsed(self, section: str, key: str) -> object:
+        return self._sections[section][key]
 
 
 def test_recycling_active_domain_helpers_match_mesh_core() -> None:
@@ -264,3 +302,335 @@ def test_fixed_array_rhs_builds_transformable_term_by_term_residual() -> None:
     assert value.shape == candidate.shape
     assert tangent.shape == candidate.shape
     np.testing.assert_allclose(np.asarray(tangent), np.asarray(jax.jacfwd(residual)(candidate) @ jnp.ones_like(candidate)))
+
+
+def test_fixed_full_field_array_rhs_stages_target_recycling_kernel() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    fields = {
+        "Nd": np.ones(shape, dtype=np.float64),
+        "Vd": np.zeros(shape, dtype=np.float64),
+        "Td": 2.0 * np.ones(shape, dtype=np.float64),
+        "SNd": np.zeros(shape, dtype=np.float64),
+        "SPd": np.zeros(shape, dtype=np.float64),
+    }
+    fields["Vd"][:, mesh.ystart - 1, :] = -3.0
+    fields["Vd"][:, mesh.ystart, :] = -1.0
+    fields["Vd"][:, mesh.yend, :] = 2.0
+    fields["Vd"][:, mesh.yend + 1, :] = 4.0
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Vd", "Td", "SNd", "SPd"),
+        feedback_names=(),
+        mesh=mesh,
+    )
+    state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
+    unit_metric = jnp.ones(shape, dtype=jnp.float64)
+    dy = 2.0 * unit_metric
+    dx = 3.0 * unit_metric
+    dz = 5.0 * unit_metric
+    g_22 = 4.0 * unit_metric
+
+    def full_field_rhs(full_fields: dict[str, object], _feedback_values: object) -> dict[str, object]:
+        sources = compute_target_recycling_sources(
+            full_fields["Nd"],
+            full_fields["Vd"],
+            full_fields["Td"],
+            mesh=mesh,
+            J=unit_metric,
+            dy=dy,
+            dx=dx,
+            dz=dz,
+            g_22=g_22,
+            target_multiplier=0.5,
+            target_energy=3.0,
+            gamma_i=3.5,
+        )
+        return {
+            "SNd": sources.density_source,
+            "SPd": sources.energy_source,
+        }
+
+    fixed_rhs = build_fixed_full_field_array_rhs(full_field_rhs, layout=layout)
+    rhs_state = fixed_rhs(state)
+    rhs_fields = {name: value for name, value in zip(layout.field_names, rhs_state.field_values, strict=True)}
+    direct = compute_target_recycling_sources(
+        fields["Nd"],
+        fields["Vd"],
+        fields["Td"],
+        mesh=mesh,
+        J=np.ones(shape, dtype=np.float64),
+        dy=2.0 * np.ones(shape, dtype=np.float64),
+        dx=3.0 * np.ones(shape, dtype=np.float64),
+        dz=5.0 * np.ones(shape, dtype=np.float64),
+        g_22=4.0 * np.ones(shape, dtype=np.float64),
+        target_multiplier=0.5,
+        target_energy=3.0,
+        gamma_i=3.5,
+    )
+
+    np.testing.assert_allclose(np.asarray(rhs_fields["Nd"]), np.zeros(layout.active_shape), rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(
+        np.asarray(rhs_fields["SNd"]),
+        direct.density_source[layout.active_slices],
+        rtol=1.0e-6,
+        atol=1.0e-8,
+    )
+    np.testing.assert_allclose(
+        np.asarray(rhs_fields["SPd"]),
+        direct.energy_source[layout.active_slices],
+        rtol=1.0e-6,
+        atol=1.0e-8,
+    )
+
+    def qoi(scale: object) -> object:
+        scaled_state = RecyclingFixedState(
+            field_values=(
+                state.field_values[0],
+                state.field_values[1] * scale,
+                state.field_values[2],
+                state.field_values[3],
+                state.field_values[4],
+            ),
+            feedback_values=state.feedback_values,
+        )
+        result = fixed_rhs(scaled_state)
+        return jnp.sum(result.field_values[3]) + jnp.sum(result.field_values[4])
+
+    _, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-3
+    finite_difference = (qoi(jnp.array(1.0 + eps)) - qoi(jnp.array(1.0 - eps))) / (2.0 * eps)
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=1.0e-4, atol=1.0e-6)
+
+
+def test_fixed_full_field_array_rhs_stages_collision_closure_kernel() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    metrics = _sample_metrics(mesh)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    fields = {
+        "Nd": np.ones(shape, dtype=np.float64),
+        "Pd": np.ones(shape, dtype=np.float64),
+        "Td": np.ones(shape, dtype=np.float64),
+        "Vd": np.zeros(shape, dtype=np.float64),
+        "Md": np.zeros(shape, dtype=np.float64),
+        "Nt": np.ones(shape, dtype=np.float64),
+        "Pt": 2.0 * np.ones(shape, dtype=np.float64),
+        "Tt": 2.0 * np.ones(shape, dtype=np.float64),
+        "Vt": np.ones(shape, dtype=np.float64),
+        "Mt": np.ones(shape, dtype=np.float64),
+        "FNd": np.zeros(shape, dtype=np.float64),
+        "EPd": np.zeros(shape, dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd", "Td", "Vd", "Md", "Nt", "Pt", "Tt", "Vt", "Mt", "FNd", "EPd"),
+        feedback_names=(),
+        mesh=mesh,
+    )
+    state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
+    config = _MiniConfig({"model": {"components": ("braginskii_friction", "braginskii_heat_exchange")}})
+    rates = {("d+", "t+"): jnp.ones(shape, dtype=jnp.float64) * 0.25}
+
+    def full_field_rhs(full_fields: dict[str, object], _feedback_values: object) -> dict[str, object]:
+        species = {
+            "d+": SimpleNamespace(
+                name="d+",
+                charge=1.0,
+                atomic_mass=2.0,
+                has_pressure=True,
+                has_momentum=True,
+                density=full_fields["Nd"],
+            ),
+            "t+": SimpleNamespace(
+                name="t+",
+                charge=1.0,
+                atomic_mass=3.0,
+                has_pressure=True,
+                has_momentum=True,
+                density=full_fields["Nt"],
+            ),
+        }
+        prepared = {
+            "d+": SimpleNamespace(
+                density=full_fields["Nd"],
+                pressure=full_fields["Pd"],
+                temperature=full_fields["Td"],
+                velocity=full_fields["Vd"],
+                momentum=full_fields["Md"],
+            ),
+            "t+": SimpleNamespace(
+                density=full_fields["Nt"],
+                pressure=full_fields["Pt"],
+                temperature=full_fields["Tt"],
+                velocity=full_fields["Vt"],
+                momentum=full_fields["Mt"],
+            ),
+        }
+        terms = apply_collision_closure(
+            config,
+            species,
+            prepared,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars={},
+            collision_rates=rates,
+            cx_rates={},
+        )
+        return {
+            "FNd": terms.momentum_source["d+"],
+            "EPd": terms.energy_source["d+"],
+        }
+
+    fixed_rhs = build_fixed_full_field_array_rhs(full_field_rhs, layout=layout)
+
+    def qoi(scale: object) -> object:
+        scaled_state = RecyclingFixedState(
+            field_values=(
+                state.field_values[0],
+                state.field_values[1],
+                state.field_values[2],
+                state.field_values[3],
+                state.field_values[4],
+                state.field_values[5],
+                state.field_values[6],
+                state.field_values[7],
+                state.field_values[8] * scale,
+                state.field_values[9] * scale,
+                state.field_values[10],
+                state.field_values[11],
+            ),
+            feedback_values=state.feedback_values,
+        )
+        result = fixed_rhs(scaled_state)
+        return jnp.sum(result.field_values[10]) + 0.1 * jnp.sum(result.field_values[11])
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-3
+    finite_difference = (qoi(jnp.array(1.0 + eps)) - qoi(jnp.array(1.0 - eps))) / (2.0 * eps)
+    assert np.isfinite(float(value))
+    assert abs(float(tangent)) > 0.0
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=1.0e-4, atol=1.0e-6)
+
+
+def test_fixed_full_field_array_rhs_stages_neutral_parallel_diffusion_kernel() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    metrics = _sample_metrics(mesh)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    fields = {
+        "Nd": np.ones(shape, dtype=np.float64),
+        "Pd": np.linspace(1.0, 1.4, num=np.prod(shape), dtype=np.float64).reshape(shape),
+        "Td": np.linspace(1.0, 1.4, num=np.prod(shape), dtype=np.float64).reshape(shape),
+        "Vd": np.zeros(shape, dtype=np.float64),
+        "Md": np.zeros(shape, dtype=np.float64),
+        "Ni": np.ones(shape, dtype=np.float64),
+        "SNd": np.zeros(shape, dtype=np.float64),
+        "EPd": np.zeros(shape, dtype=np.float64),
+        "FNd": np.zeros(shape, dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd", "Td", "Vd", "Md", "Ni", "SNd", "EPd", "FNd"),
+        feedback_names=(),
+        mesh=mesh,
+    )
+    state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
+    config = _MiniConfig(
+        {
+            "model": {"components": ("neutral_parallel_diffusion",)},
+            "neutral_parallel_diffusion": {
+                "dneut": 1.0,
+                "diffusion_collisions_mode": "multispecies",
+                "diagnose": True,
+            },
+        }
+    )
+    collision_rates = {("d", "d+"): jnp.ones(shape, dtype=jnp.float64) * 0.5}
+
+    def full_field_rhs(full_fields: dict[str, object], _feedback_values: object) -> dict[str, object]:
+        species = {
+            "d": SimpleNamespace(
+                name="d",
+                charge=0.0,
+                atomic_mass=2.0,
+                has_pressure=True,
+                has_momentum=True,
+                density=full_fields["Nd"],
+                noflow_lower_y=True,
+                noflow_upper_y=True,
+            ),
+            "d+": SimpleNamespace(
+                name="d+",
+                charge=1.0,
+                atomic_mass=2.0,
+                has_pressure=True,
+                has_momentum=True,
+                density=full_fields["Ni"],
+                noflow_lower_y=True,
+                noflow_upper_y=True,
+            ),
+        }
+        prepared = {
+            "d": SimpleNamespace(
+                density=full_fields["Nd"],
+                pressure=full_fields["Pd"],
+                temperature=full_fields["Td"],
+                velocity=full_fields["Vd"],
+                momentum=full_fields["Md"],
+            ),
+            "d+": SimpleNamespace(
+                density=full_fields["Ni"],
+                pressure=full_fields["Ni"],
+                temperature=full_fields["Ni"],
+                velocity=jnp.zeros_like(jnp.asarray(full_fields["Ni"], dtype=jnp.float64)),
+                momentum=jnp.zeros_like(jnp.asarray(full_fields["Ni"], dtype=jnp.float64)),
+            ),
+        }
+        terms = apply_neutral_parallel_diffusion(
+            config,
+            species=species,
+            prepared=prepared,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars={},
+            collision_rates=collision_rates,
+            ionisation_rates={},
+            charge_exchange_rates={},
+        )
+        return {
+            "SNd": terms.density_source["d"],
+            "EPd": terms.energy_source["d"],
+            "FNd": terms.momentum_source["d"],
+        }
+
+    fixed_rhs = build_fixed_full_field_array_rhs(full_field_rhs, layout=layout)
+
+    def qoi(scale: object) -> object:
+        scaled_state = RecyclingFixedState(
+            field_values=(
+                state.field_values[0],
+                state.field_values[1] * scale,
+                state.field_values[2] * scale,
+                state.field_values[3],
+                state.field_values[4],
+                state.field_values[5],
+                state.field_values[6],
+                state.field_values[7],
+                state.field_values[8],
+            ),
+            feedback_values=state.feedback_values,
+        )
+        result = fixed_rhs(scaled_state)
+        return jnp.sum(result.field_values[6]) + 0.1 * jnp.sum(result.field_values[7]) + 0.01 * jnp.sum(result.field_values[8])
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    eps = 1.0e-3
+    finite_difference = (qoi(jnp.array(1.0 + eps)) - qoi(jnp.array(1.0 - eps))) / (2.0 * eps)
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(finite_difference), rtol=1.0e-4, atol=1.0e-6)
