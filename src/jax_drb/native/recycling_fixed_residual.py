@@ -5,7 +5,9 @@ from typing import Callable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
+from .array_backend import use_jax_backend
 from .recycling_layout import RecyclingPackedStateLayout
 
 
@@ -78,6 +80,71 @@ def fixed_state_to_field_dict(state: RecyclingFixedState, *, layout: RecyclingPa
     """Return active-domain field arrays keyed by the static field names."""
 
     return {name: value for name, value in zip(layout.field_names, state.field_values, strict=True)}
+
+
+def fixed_state_to_full_fields(state: RecyclingFixedState, *, layout: RecyclingPackedStateLayout) -> dict[str, object]:
+    """Restore full guard-cell fields from a fixed-layout active state.
+
+    This is the compatibility seam between the fixed PyTree lane and the
+    existing Hermès-compatible recycling RHS, which still expects full arrays
+    with guard cells. When the active state is traced, the reconstructed arrays
+    stay on the JAX backend; host-only callers receive NumPy arrays.
+    """
+
+    fields: dict[str, object] = {}
+    for name, active_value, template in zip(layout.field_names, state.field_values, layout.field_templates, strict=True):
+        if use_jax_backend(active_value):
+            active_array = jnp.asarray(active_value, dtype=jnp.float64)
+            full_field = jnp.asarray(template, dtype=jnp.float64).at[layout.active_slices].set(active_array)
+        else:
+            active_array = np.asarray(active_value, dtype=np.float64)
+            full_field = np.array(template, dtype=np.float64, copy=True)
+            full_field[layout.active_slices] = active_array
+        fields[name] = full_field
+    return fields
+
+
+def fixed_state_to_feedback_integrals(
+    state: RecyclingFixedState,
+    *,
+    layout: RecyclingPackedStateLayout,
+    base_feedback_integrals: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Restore controller integrals keyed by the fixed feedback ordering."""
+
+    integrals = dict(base_feedback_integrals or {})
+    for index, name in enumerate(layout.feedback_names):
+        value = state.feedback_values[index]
+        integrals[name] = value if use_jax_backend(value) else float(value)
+    return integrals
+
+
+def build_fixed_host_rhs_bridge(
+    packed_rhs_function: Callable[[dict[str, object], dict[str, object]], object],
+    *,
+    layout: RecyclingPackedStateLayout,
+    base_feedback_integrals: dict[str, object] | None = None,
+) -> Callable[[RecyclingFixedState], RecyclingFixedState]:
+    """Adapt the current full-field packed RHS into the fixed-state interface.
+
+    The returned function is a parity bridge, not the final production solver
+    path: the wrapped RHS may still perform host-side NumPy/SciPy work. Keeping
+    this adapter explicit lets tests compare the fixed-layout lane against the
+    current validated RHS before each term is ported to pure JAX kernels.
+    """
+
+    def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
+        packed_rhs = packed_rhs_function(
+            fixed_state_to_full_fields(state, layout=layout),
+            fixed_state_to_feedback_integrals(
+                state,
+                layout=layout,
+                base_feedback_integrals=base_feedback_integrals,
+            ),
+        )
+        return unpack_fixed_state(packed_rhs, layout=layout)
+
+    return rhs
 
 
 def build_fixed_backward_euler_residual(

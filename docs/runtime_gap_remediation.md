@@ -225,10 +225,16 @@ Items 1, 3, 4, and 5 now have their first compact gates:
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The
-next production step is to connect the compact fixed-layout residual to a
-Hermès one-RHS recycling deck, then compare its RHS and JVP action against the
-current dictionary residual before replacing the finite-difference Jacobian in
-the heavy BDF path.
+first full-deck bridge is now tested on the local Hermès
+`1D-recycling-dthe` input: `RecyclingFixedState` round-trips the active
+DTHE recycling state, reconstructs full guard-cell fields, and drives the
+current packed RHS oracle through an explicit `build_fixed_host_rhs_bridge`.
+The bridge matches the current packed RHS and backward-Euler residual value.
+It is deliberately named as a host bridge because the wrapped RHS still crosses
+the NumPy/SciPy boundary. The next production step is narrower and safer:
+replace the bridge internals one term at a time with fixed-layout JAX kernels,
+then compare JVP actions against finite differences before replacing the
+finite-difference Jacobian in the heavy BDF path.
 
 The atomic-rate part of item 2 is now complete at helper level: AMJUEL paired
 rate/radiation evaluation, OpenADAS bilinear interpolation, and the hydrogen

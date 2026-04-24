@@ -95,7 +95,12 @@ residual builders. It is the migration target for the heavy recycling residual:
 the existing dictionary/full-field path remains the Hermès-compatible
 production path, while the fixed-layout state gives a small, directly tested
 surface for JVPs, sparse-JVP Jacobian assembly, and eventual matrix-free
-linearized solves.
+linearized solves. The same module also owns the explicit host-oracle bridge
+used during the migration: fixed states can reconstruct full guard-cell fields
+and controller-integral dictionaries, call the current packed RHS, and return a
+fixed-state RHS. Tests keep that bridge in parity with the D/T/He Hermès
+recycling deck while individual source, collision, diffusion, and target terms
+are moved into pure JAX kernels.
 
 The next low-risk extraction is the recycling field metadata layer:
 
