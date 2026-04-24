@@ -241,6 +241,10 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   adds, and overrides per-species sources through one backend-preserving helper
   instead of forcing the accumulator dictionaries through NumPy at the start of
   each RHS call;
+- the open-field state-preparation wrapper now preserves JAX arrays through
+  electron-density reconstruction and the boundary-free electron/ion state
+  path, giving the fixed-layout residual a transformable no-sheath control
+  surface before the full sheath formulas are ported;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The

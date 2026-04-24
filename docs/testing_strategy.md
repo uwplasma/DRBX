@@ -189,6 +189,9 @@ This applies directly to:
 - recycling source accumulation and override semantics, including JAX
   JVP-versus-finite-difference checks so source composition can be promoted into
   the fixed-layout residual without changing physics ordering
+- boundary-free open-field electron/ion state preparation, which is the control
+  surface for promoting fixed-layout recycling residuals before full sheath
+  closure porting
 - electron-force-balance pressure-gradient stencils
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes
