@@ -33,6 +33,18 @@ def _sample_case(
         "reference_elapsed_seconds": 2.0,
         "native_to_reference_runtime_ratio": runtime_ratio,
         "reference_to_native_speedup": 0.0 if runtime_ratio == 0.0 else 1.0 / runtime_ratio,
+        "native_memory_measurement_status": "sampled_process_tree_rss",
+        "reference_memory_measurement_status": "sampled_process_tree_rss",
+        "native_peak_rss_bytes": int(128.0 * runtime_ratio * 1024.0 * 1024.0),
+        "reference_peak_rss_bytes": int(64.0 * 1024.0 * 1024.0),
+        "native_peak_rss_mebibytes": 128.0 * runtime_ratio,
+        "reference_peak_rss_mebibytes": 64.0,
+        "native_peak_rss_delta_bytes": int(16.0 * runtime_ratio * 1024.0 * 1024.0),
+        "reference_peak_rss_delta_bytes": int(8.0 * 1024.0 * 1024.0),
+        "native_peak_rss_delta_mebibytes": 16.0 * runtime_ratio,
+        "reference_peak_rss_delta_mebibytes": 8.0,
+        "native_to_reference_peak_rss_ratio": 2.0 * runtime_ratio,
+        "native_to_reference_peak_rss_delta_ratio": 2.0 * runtime_ratio,
         "worst_relative_l2_field": "Ne",
         "worst_relative_l2_error": rel_l2,
         "worst_relative_rms_field": "Ne",
@@ -127,5 +139,7 @@ def test_build_hermes_live_rerun_campaign_report_aggregates_cases(monkeypatch, t
     assert report["summaries"]["exact_match_case_count"] == 1
     assert report["summaries"]["worst_relative_l2_case"] == "case_b"
     assert report["summaries"]["worst_relative_rms_case"] == "case_b"
+    assert report["summaries"]["worst_native_peak_rss_case"] == "case_b"
+    assert report["summaries"]["worst_native_to_reference_peak_rss_ratio_case"] == "case_b"
     assert report["summaries"]["normalization_sensitive_case_count"] == 1
     assert report["summaries"]["normalization_sensitive_cases"] == ["case_b"]

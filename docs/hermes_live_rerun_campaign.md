@@ -20,7 +20,7 @@ The current case set is intentionally broad rather than narrow:
 
 The output bundle is:
 
-- JSON report with per-case fidelity and runtime metrics
+- JSON report with per-case fidelity, runtime, and sampled peak-RSS metrics
 - NPZ arrays for plotting and secondary analysis
 - publication-grade PNG figure
 
@@ -49,22 +49,22 @@ Key current observations from the refreshed live rerun matrix:
 - the hardest remaining fidelity lane in the current selected set is still the
   neutral mixed case:
   `neutral_mixed_one_step` has worst normalized RMS error about `9.17e-1`,
-  runtime ratio about `4.27x`, and the dominant mismatch field is `NVh`
+  runtime ratio about `2.93x`, and the dominant mismatch field is `NVh`
 - the heavy 1D recycling ladders remain the main runtime gap, but their
   fidelity is still tight:
   - `recycling_1d_one_step`
     - worst normalized RMS error about `4.62e-3`
-    - runtime ratio about `3.80x`
+    - runtime ratio about `3.65x`
     - dominant normalized field `Pd+`
   - `recycling_dthe_one_step`
     - worst normalized RMS error about `4.92e-3`
-    - runtime ratio about `8.45x`
+    - runtime ratio about `7.82x`
     - dominant field `NVd`
 - the integrated and direct tokamak recycling one-step lanes are no longer the
   main runtime concern:
-  - `integrated_2d_recycling_one_step` runs at about `0.83x` the Hermès wall
+  - `integrated_2d_recycling_one_step` runs at about `0.85x` the Hermès wall
     time on the same machine
-  - `tokamak_recycling_one_step` runs at about `0.35x` the Hermès wall time
+  - `tokamak_recycling_one_step` runs at about `0.39x` the Hermès wall time
   - both still show bounded relative mismatch on the guarded compare surface,
     but the updated report now flags them as normalization-sensitive because
     the dominant field is near-zero `NVd`
@@ -75,7 +75,16 @@ Key current observations from the refreshed live rerun matrix:
   `tokamak_isothermal_one_step`, `tokamak_turbulence_one_step`,
   `tokamak_diffusion_transport_short_window`, and `annulus_he_emag_one_step`
 - the best current runtime ratios are now on the compact tokamak transport and
-  turbulence lanes, with native/reference ratios below `3e-3`
+  turbulence lanes, with native/reference ratios down to about `1.2e-3`
+- the refreshed report now samples process-tree peak RSS during each native
+  and Hermès run:
+  - the largest native peak is currently the integrated 2D recycling lane at
+    about `722 MiB`
+  - the largest native/Hermès peak-RSS ratio is currently
+    `recycling_dthe_one_step` at about `0.95`
+  - no lane in this matrix currently has a native peak RSS larger than the
+    matching Hermès peak RSS, so the next memory work should be phase-resolved
+    profiling rather than broad memory triage
 
 The figure now includes both normalized error and absolute max-error. That is
 important because the literature-facing interpretation is different for the two

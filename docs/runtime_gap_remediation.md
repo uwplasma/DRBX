@@ -19,7 +19,7 @@ The refreshed live matrix identifies four distinct categories.
 
 - case: `neutral_mixed_one_step`
 - current worst normalized RMS error: about `9.17e-1`
-- current runtime ratio: about `2.79x`
+- current runtime ratio: about `2.93x`
 - dominant field: `NVh`
 
 This is still the clearest current fidelity gap. The runtime was reduced
@@ -34,7 +34,7 @@ shows the worst-error `Nh`, `Ph`, and `NVh` lineouts plus the
 
 - case: `recycling_1d_one_step`
 - current worst normalized RMS error: about `4.62e-3`
-- current runtime ratio: about `3.80x`
+- current runtime ratio: about `3.65x`
 - dominant normalized field: `Pd+`
 
 This lane is already tight in fidelity and still one of the main runtime
@@ -44,7 +44,7 @@ offenders.
 
 - case: `recycling_dthe_one_step`
 - current worst normalized RMS error: about `4.92e-3`
-- current runtime ratio: about `7.81x`
+- current runtime ratio: about `7.82x`
 - dominant field: `NVd`
 
 This is the current worst runtime ratio in the live matrix and the main
@@ -58,7 +58,7 @@ without changing the fidelity band.
   - `integrated_2d_recycling_one_step`
   - `tokamak_recycling_one_step`
 - current normalized RMS errors: about `1.79e-1` and `1.62e-1`
-- current runtime ratios: about `0.83x` and `0.35x`
+- current runtime ratios: about `0.85x` and `0.39x`
 - dominant field in both cases: `NVd`
 - current worst absolute max-errors:
   - integrated: about `7.48e-12`
@@ -77,13 +77,13 @@ The current optimization pass already changed the runtime picture materially.
 
 - earlier local timed mean: about `1.15 s`
 - current local timed mean: about `0.63 s`
-- current live runtime: about `0.90 s`
+- current live runtime: about `1.32 s`
 - remaining issue: fidelity on `NVh`, not only runtime
 
 ### 1D recycling
 
-- current live runtime: about `15.98 s`
-- current runtime ratio to live Hermès: about `3.80x`
+- current live runtime: about `20.11 s`
+- current runtime ratio to live Hermès: about `3.65x`
 - remaining issue: sparse FD Jacobian plus repeated heavy RHS evaluation
 
 ## Current Root-Cause Hypotheses

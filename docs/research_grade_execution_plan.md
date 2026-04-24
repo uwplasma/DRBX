@@ -455,9 +455,11 @@ with a publication-ready summary figure at
 `docs/data/hermes_offender_register_artifacts/images/hermes_offender_register.png`.
 On the current promoted live matrix, the top parity target is
 `neutral_mixed_one_step` on `NVh`, the top runtime target is
-`recycling_dthe_one_step`, and the top memory-risk targets are the heavy
-implicit recycling solves until peak-memory instrumentation is added to the
-live rerun harness.
+`recycling_dthe_one_step`, and the top measured peak-RSS ratio is also
+`recycling_dthe_one_step` at about `0.95`. The current peak-RSS result is
+useful because it rules out a broad native memory regression relative to
+Hermès on this matrix; the remaining memory task is phase-resolved profiling of
+Jacobian assembly, residual evaluation, packing, and artifact extraction.
 
 The current priority parity offenders are:
 

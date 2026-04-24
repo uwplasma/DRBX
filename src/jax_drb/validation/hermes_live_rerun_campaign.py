@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 import tempfile
+import threading
 from time import perf_counter
+from collections.abc import Callable
+from typing import TypeVar
 
 from matplotlib import pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
 
 from ..native import run_curated_case
@@ -15,6 +19,8 @@ from ..parity.arrays import build_array_payload_from_summary_payload, build_data
 from ..parity.diff import build_scaled_array_diff_entries
 from ..parity.reference import discover_reference_binary, resolve_reference_case, run_reference_case
 from .publication_plotting import save_publication_figure, style_axis
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -29,6 +35,17 @@ class HermesLiveRerunCampaignArtifacts:
     report_json_path: Path
     report_npz_path: Path
     report_plot_png_path: Path
+
+
+@dataclass(frozen=True)
+class PeakRssMeasurement:
+    start_rss_bytes: int | None
+    end_rss_bytes: int | None
+    peak_rss_bytes: int | None
+    peak_rss_delta_bytes: int | None
+    sample_count: int
+    sampling_interval_seconds: float
+    status: str
 
 
 DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS = (
@@ -97,6 +114,10 @@ def build_hermes_live_rerun_campaign_report(
         "notes": {
             "comparison_surface": "live_native_vs_live_reference_curated_cases",
             "runtime_note": "Runtime ratios below one indicate faster native execution on this machine for the selected parity rung.",
+            "memory_note": (
+                "Peak RSS is sampled from the Python process tree during each native and reference run. "
+                "It is an operating-system level validation metric, not a device allocator trace."
+            ),
             "normalization_note": (
                 "Cases flagged as normalization-sensitive have small absolute max-error on the guarded compare "
                 "surface but moderate relative error because the dominant field is near zero in the reference output."
@@ -110,9 +131,8 @@ def save_hermes_live_rerun_campaign_plot(report: dict[str, object], path: str | 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     cases = list(report["cases"])
-    labels = [str(entry["display_label"]) for entry in cases]
+    labels = [str(entry["display_label"]).replace("\n", " ") for entry in cases]
     families = [str(entry["family"]) for entry in cases]
-    x = np.arange(len(cases), dtype=np.float64)
 
     worst_rms_rel = np.asarray([float(entry["worst_relative_rms_error"]) for entry in cases], dtype=np.float64)
     worst_relmax = np.asarray(
@@ -142,64 +162,54 @@ def save_hermes_live_rerun_campaign_plot(report: dict[str, object], path: str | 
 
     figure, axes = plt.subplots(2, 2, figsize=(13.8, 9.8))
 
-    rms_bars = axes[0, 0].bar(x, rms_plot, color=bar_colors, width=0.68)
-    _apply_normalization_sensitive_hatch(rms_bars, normalization_sensitive)
-    style_axis(
+    _plot_live_horizontal_bars(
         axes[0, 0],
+        labels=labels,
+        values=rms_plot,
+        raw_values=worst_rms_rel,
+        bar_colors=bar_colors,
+        normalization_sensitive=normalization_sensitive,
         title="Worst RMS error on the guarded compare surface",
-        ylabel="rms |Δ| / max |reference|",
-        yscale="log",
+        xlabel="rms |Δ| / max |reference|",
+        exact_zero=True,
     )
-    axes[0, 0].set_xticks(x, labels)
-    axes[0, 0].tick_params(axis="x", labelsize=9.6)
-    _annotate_fidelity_bars(axes[0, 0], x, worst_rms_rel)
 
-    relmax_bars = axes[0, 1].bar(x, relmax_plot, color=bar_colors, width=0.68)
-    _apply_normalization_sensitive_hatch(relmax_bars, normalization_sensitive)
-    style_axis(
+    _plot_live_horizontal_bars(
         axes[0, 1],
+        labels=labels,
+        values=relmax_plot,
+        raw_values=worst_relmax,
+        bar_colors=bar_colors,
+        normalization_sensitive=normalization_sensitive,
         title="Worst max-error normalized by reference amplitude",
-        ylabel="max |Δ| / max |reference|",
-        yscale="log",
+        xlabel="max |Δ| / max |reference|",
+        exact_zero=True,
     )
-    axes[0, 1].set_xticks(x, labels)
-    axes[0, 1].tick_params(axis="x", labelsize=9.6)
-    _annotate_fidelity_bars(axes[0, 1], x, worst_relmax)
 
-    ratio_bars = axes[1, 0].bar(x, ratio_plot, color=bar_colors, width=0.68)
-    _apply_normalization_sensitive_hatch(ratio_bars, normalization_sensitive)
-    axes[1, 0].axhline(1.0, color="#6c757d", linestyle="--", linewidth=1.1)
-    style_axis(
+    _plot_live_horizontal_bars(
         axes[1, 0],
+        labels=labels,
+        values=ratio_plot,
+        raw_values=runtime_ratio,
+        bar_colors=bar_colors,
+        normalization_sensitive=normalization_sensitive,
         title="Native to reference wall-time ratio",
-        ylabel="native / Hermès wall time",
-        yscale="log",
+        xlabel="native / Hermès wall time",
+        threshold=1.0,
+        value_suffix="x",
     )
-    axes[1, 0].set_xticks(x, labels)
-    axes[1, 0].tick_params(axis="x", labelsize=9.6)
-    _annotate_runtime_ratio_bars(axes[1, 0], x, runtime_ratio)
 
-    abs_bars = axes[1, 1].bar(x, abs_plot, color=bar_colors, width=0.68)
-    _apply_normalization_sensitive_hatch(abs_bars, normalization_sensitive)
-    style_axis(
+    _plot_live_horizontal_bars(
         axes[1, 1],
+        labels=labels,
+        values=abs_plot,
+        raw_values=worst_abs,
+        bar_colors=bar_colors,
+        normalization_sensitive=normalization_sensitive,
         title="Worst absolute max-error on the compare surface",
-        yscale="log",
-        ylabel="max |Δ|",
+        xlabel="max |Δ|",
+        exact_zero=True,
     )
-    axes[1, 1].set_xticks(x, labels)
-    axes[1, 1].tick_params(axis="x", labelsize=9.6)
-    _annotate_fidelity_bars(axes[1, 1], x, worst_abs)
-
-    legend_handles = [
-        plt.Line2D([0], [0], marker="o", linestyle="", color=color, markeredgecolor="black", label=family)
-        for family, color in family_colors.items()
-    ]
-    if bool(np.any(normalization_sensitive)):
-        legend_handles.append(
-            Patch(facecolor="white", edgecolor="black", hatch="//", label="near-zero normalized field")
-        )
-    axes[1, 1].legend(handles=legend_handles, fontsize=8.2, frameon=False, loc="best")
 
     figure.suptitle(
         "Live JAX-DRB versus live Hermès-3 rerun matrix across curated verification and validation lanes",
@@ -214,7 +224,7 @@ def save_hermes_live_rerun_campaign_plot(report: dict[str, object], path: str | 
         va="center",
         fontsize=8.8,
     )
-    figure.subplots_adjust(left=0.08, right=0.985, bottom=0.16, top=0.90, wspace=0.22, hspace=0.34)
+    figure.subplots_adjust(left=0.19, right=0.985, bottom=0.12, top=0.90, wspace=0.42, hspace=0.38)
     save_publication_figure(figure, target)
     return target
 
@@ -226,16 +236,20 @@ def _run_hermes_live_rerun_case(
 ) -> dict[str, object]:
     reference_case, _ = resolve_reference_case(spec.case_name, reference_root=reference_root)
     native_started_at = perf_counter()
-    native_result = run_curated_case(spec.case_name, reference_root=reference_root)
+    native_result, native_memory = _measure_peak_rss(
+        lambda: run_curated_case(spec.case_name, reference_root=reference_root)
+    )
     native_elapsed_seconds = perf_counter() - native_started_at
 
     with tempfile.TemporaryDirectory(prefix=f"jaxdrb-{spec.case_name}-") as workdir_name:
         workdir = Path(workdir_name)
         reference_started_at = perf_counter()
-        reference_execution = run_reference_case(
-            spec.case_name,
-            reference_root=reference_root,
-            workdir=workdir,
+        reference_execution, reference_memory = _measure_peak_rss(
+            lambda: run_reference_case(
+                spec.case_name,
+                reference_root=reference_root,
+                workdir=workdir,
+            )
         )
         reference_elapsed_seconds = perf_counter() - reference_started_at
         dataset_path = workdir / "BOUT.dmp.0.nc"
@@ -296,6 +310,8 @@ def _run_hermes_live_rerun_case(
         "compare_variable_count": len(compare_variables),
         "native_elapsed_seconds": float(native_elapsed_seconds),
         "reference_elapsed_seconds": float(reference_elapsed_seconds),
+        **_memory_report_fields("native", native_memory),
+        **_memory_report_fields("reference", reference_memory),
         "native_to_reference_runtime_ratio": (
             float(native_elapsed_seconds / reference_elapsed_seconds)
             if reference_elapsed_seconds > 0.0
@@ -305,6 +321,14 @@ def _run_hermes_live_rerun_case(
             float(reference_elapsed_seconds / native_elapsed_seconds)
             if native_elapsed_seconds > 0.0
             else None
+        ),
+        "native_to_reference_peak_rss_ratio": _safe_ratio(
+            native_memory.peak_rss_bytes,
+            reference_memory.peak_rss_bytes,
+        ),
+        "native_to_reference_peak_rss_delta_ratio": _safe_ratio(
+            native_memory.peak_rss_delta_bytes,
+            reference_memory.peak_rss_delta_bytes,
         ),
         "worst_relative_l2_field": worst_l2_field,
         "worst_relative_l2_error": float(worst_l2_error),
@@ -366,11 +390,33 @@ def _build_hermes_live_rerun_summary(cases: list[dict[str, object]]) -> dict[str
             "worst_relative_l2_error": None,
             "worst_relative_rms_case": None,
             "worst_relative_rms_error": None,
+            "worst_native_peak_rss_case": None,
+            "worst_native_peak_rss_mebibytes": None,
+            "worst_native_to_reference_peak_rss_ratio_case": None,
+            "worst_native_to_reference_peak_rss_ratio": None,
         }
     exact_match_case_count = sum(bool(entry["exact_match"]) for entry in cases)
     runtime_sorted = sorted(cases, key=lambda entry: float(entry["native_to_reference_runtime_ratio"]))
     worst_l2_entry = max(cases, key=lambda entry: float(entry["worst_relative_l2_error"]))
     worst_rms_entry = max(cases, key=lambda entry: float(entry["worst_relative_rms_error"]))
+    memory_measured_cases = [
+        entry for entry in cases
+        if entry.get("native_peak_rss_bytes") is not None
+    ]
+    memory_ratio_cases = [
+        entry for entry in cases
+        if entry.get("native_to_reference_peak_rss_ratio") is not None
+    ]
+    worst_native_memory_entry = (
+        None
+        if not memory_measured_cases
+        else max(memory_measured_cases, key=lambda entry: float(entry["native_peak_rss_bytes"]))
+    )
+    worst_memory_ratio_entry = (
+        None
+        if not memory_ratio_cases
+        else max(memory_ratio_cases, key=lambda entry: float(entry["native_to_reference_peak_rss_ratio"]))
+    )
     normalization_sensitive_cases = [
         str(entry["case_name"])
         for entry in cases
@@ -386,6 +432,20 @@ def _build_hermes_live_rerun_summary(cases: list[dict[str, object]]) -> dict[str
         "worst_relative_l2_error": float(worst_l2_entry["worst_relative_l2_error"]),
         "worst_relative_rms_case": worst_rms_entry["case_name"],
         "worst_relative_rms_error": float(worst_rms_entry["worst_relative_rms_error"]),
+        "worst_native_peak_rss_case": None if worst_native_memory_entry is None else worst_native_memory_entry["case_name"],
+        "worst_native_peak_rss_mebibytes": (
+            None
+            if worst_native_memory_entry is None
+            else float(worst_native_memory_entry["native_peak_rss_mebibytes"])
+        ),
+        "worst_native_to_reference_peak_rss_ratio_case": (
+            None if worst_memory_ratio_entry is None else worst_memory_ratio_entry["case_name"]
+        ),
+        "worst_native_to_reference_peak_rss_ratio": (
+            None
+            if worst_memory_ratio_entry is None
+            else float(worst_memory_ratio_entry["native_to_reference_peak_rss_ratio"])
+        ),
         "normalization_sensitive_case_count": len(normalization_sensitive_cases),
         "normalization_sensitive_cases": normalization_sensitive_cases,
     }
@@ -402,6 +462,18 @@ def _write_hermes_live_rerun_campaign_arrays(report: dict[str, object], path: st
         families=np.asarray([str(entry["family"]) for entry in cases], dtype=object),
         native_elapsed_seconds=np.asarray([float(entry["native_elapsed_seconds"]) for entry in cases], dtype=np.float64),
         reference_elapsed_seconds=np.asarray([float(entry["reference_elapsed_seconds"]) for entry in cases], dtype=np.float64),
+        native_peak_rss_bytes=np.asarray(
+            [_nan_if_none(entry.get("native_peak_rss_bytes")) for entry in cases],
+            dtype=np.float64,
+        ),
+        reference_peak_rss_bytes=np.asarray(
+            [_nan_if_none(entry.get("reference_peak_rss_bytes")) for entry in cases],
+            dtype=np.float64,
+        ),
+        native_to_reference_peak_rss_ratio=np.asarray(
+            [_nan_if_none(entry.get("native_to_reference_peak_rss_ratio")) for entry in cases],
+            dtype=np.float64,
+        ),
         native_to_reference_runtime_ratio=np.asarray(
             [float(entry["native_to_reference_runtime_ratio"]) for entry in cases],
             dtype=np.float64,
@@ -424,6 +496,152 @@ def _write_hermes_live_rerun_campaign_arrays(report: dict[str, object], path: st
     return target
 
 
+def _measure_peak_rss(
+    function: Callable[[], T],
+    *,
+    sampling_interval_seconds: float = 0.10,
+) -> tuple[T, PeakRssMeasurement]:
+    samples: list[int] = []
+    sample_failures = 0
+    stop_event = threading.Event()
+    root_pid = os.getpid()
+
+    def append_sample() -> None:
+        nonlocal sample_failures
+        value = _process_tree_rss_bytes(root_pid)
+        if value is None:
+            sample_failures += 1
+            return
+        samples.append(value)
+
+    append_sample()
+
+    def sample_loop() -> None:
+        while not stop_event.wait(sampling_interval_seconds):
+            append_sample()
+
+    sampler = threading.Thread(target=sample_loop, name="jaxdrb-rss-sampler", daemon=True)
+    sampler.start()
+    try:
+        result = function()
+    finally:
+        stop_event.set()
+        sampler.join(timeout=max(1.0, 4.0 * sampling_interval_seconds))
+    append_sample()
+    start_rss_bytes = samples[0] if samples else None
+    end_rss_bytes = samples[-1] if samples else None
+    peak_rss_bytes = max(samples) if samples else None
+    peak_rss_delta_bytes = (
+        None
+        if peak_rss_bytes is None or start_rss_bytes is None
+        else max(int(peak_rss_bytes - start_rss_bytes), 0)
+    )
+    status = "sampled_process_tree_rss"
+    if not samples:
+        status = "unavailable"
+    elif sample_failures:
+        status = "sampled_process_tree_rss_with_partial_failures"
+    return result, PeakRssMeasurement(
+        start_rss_bytes=start_rss_bytes,
+        end_rss_bytes=end_rss_bytes,
+        peak_rss_bytes=peak_rss_bytes,
+        peak_rss_delta_bytes=peak_rss_delta_bytes,
+        sample_count=len(samples),
+        sampling_interval_seconds=float(sampling_interval_seconds),
+        status=status,
+    )
+
+
+def _process_tree_rss_bytes(root_pid: int) -> int | None:
+    pids = _process_tree_pids(root_pid)
+    rss_kib = 0
+    observed = False
+    for pid in pids:
+        pid_rss = _process_rss_kib(pid)
+        if pid_rss is None:
+            continue
+        rss_kib += pid_rss
+        observed = True
+    return int(rss_kib * 1024) if observed else None
+
+
+def _process_tree_pids(root_pid: int) -> list[int]:
+    pids: list[int] = [int(root_pid)]
+    frontier: list[int] = [int(root_pid)]
+    while frontier:
+        parent = frontier.pop()
+        try:
+            completed = subprocess.run(
+                ["pgrep", "-P", str(parent)],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        except OSError:
+            continue
+        if completed.returncode not in (0, 1):
+            continue
+        children = [int(value) for value in completed.stdout.split() if value.isdigit()]
+        for child in children:
+            if child not in pids:
+                pids.append(child)
+                frontier.append(child)
+    return pids
+
+
+def _process_rss_kib(pid: int) -> int | None:
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    text = completed.stdout.strip()
+    if not text:
+        return None
+    try:
+        return int(float(text.splitlines()[-1].strip()))
+    except ValueError:
+        return None
+
+
+def _memory_report_fields(prefix: str, measurement: PeakRssMeasurement) -> dict[str, object]:
+    return {
+        f"{prefix}_memory_measurement_status": measurement.status,
+        f"{prefix}_memory_sample_count": int(measurement.sample_count),
+        f"{prefix}_memory_sampling_interval_seconds": float(measurement.sampling_interval_seconds),
+        f"{prefix}_start_rss_bytes": measurement.start_rss_bytes,
+        f"{prefix}_end_rss_bytes": measurement.end_rss_bytes,
+        f"{prefix}_peak_rss_bytes": measurement.peak_rss_bytes,
+        f"{prefix}_peak_rss_delta_bytes": measurement.peak_rss_delta_bytes,
+        f"{prefix}_peak_rss_mebibytes": _bytes_to_mebibytes(measurement.peak_rss_bytes),
+        f"{prefix}_peak_rss_delta_mebibytes": _bytes_to_mebibytes(measurement.peak_rss_delta_bytes),
+    }
+
+
+def _safe_ratio(numerator: int | None, denominator: int | None) -> float | None:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return float(numerator / denominator)
+
+
+def _bytes_to_mebibytes(value: int | None) -> float | None:
+    if value is None:
+        return None
+    return float(value / (1024.0 * 1024.0))
+
+
+def _nan_if_none(value: object) -> float:
+    return float("nan") if value is None else float(value)
+
+
 def _family_color_map(families: list[str]) -> dict[str, str]:
     palette = (
         "#005f73",
@@ -440,6 +658,43 @@ def _family_color_map(families: list[str]) -> dict[str, str]:
         family: palette[index % len(palette)]
         for index, family in enumerate(ordered_families)
     }
+
+
+def _plot_live_horizontal_bars(
+    axis,
+    *,
+    labels: list[str],
+    values: np.ndarray,
+    raw_values: np.ndarray,
+    bar_colors: list[str],
+    normalization_sensitive: np.ndarray,
+    title: str,
+    xlabel: str,
+    threshold: float | None = None,
+    exact_zero: bool = False,
+    value_suffix: str = "",
+) -> None:
+    y = np.arange(len(labels), dtype=np.float64)
+    bars = axis.barh(y, values, color=bar_colors, height=0.68)
+    _apply_normalization_sensitive_hatch(bars, normalization_sensitive)
+    if threshold is not None:
+        axis.axvline(float(threshold), color="#6c757d", linestyle="--", linewidth=1.1)
+    style_axis(axis, title=title, xlabel=xlabel, xscale="log", grid="x")
+    positive = values[values > 0.0]
+    lower = max(float(np.min(positive)) * 0.45, 1.0e-17) if positive.size else 1.0e-17
+    upper = float(np.max(values)) * 7.0 if values.size else 1.0
+    axis.set_xlim(lower, upper)
+    axis.set_yticks(y, labels)
+    axis.invert_yaxis()
+    axis.tick_params(axis="y", labelsize=8.8)
+    for yi, plotted, raw in zip(y, values, raw_values, strict=True):
+        if exact_zero and raw == 0.0:
+            label = "exact"
+        elif value_suffix == "x":
+            label = f"{raw:.2f}x" if raw >= 1.0e-2 else f"{raw:.2e}x"
+        else:
+            label = f"{raw:.2e}"
+        axis.text(float(plotted * 1.18), float(yi), label, ha="left", va="center", fontsize=8.2)
 
 
 def _annotate_runtime_ratio_bars(axis, x: np.ndarray, runtime_ratio: np.ndarray) -> None:

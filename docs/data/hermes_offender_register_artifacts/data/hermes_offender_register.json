@@ -4,47 +4,152 @@
     {
       "case_name": "recycling_dthe_one_step",
       "family": "1D multispecies recycling",
-      "linked_runtime_ratio": 8.446411698878464,
-      "memory_measurement_status": "not_measured_in_live_register",
+      "memory_measurement_status": "sampled_process_tree_rss",
       "memory_risk": "materialized sparse Jacobians, colored finite-difference states, full-field copies, and long histories",
+      "native_peak_rss_delta_mebibytes": 28.21875,
+      "native_peak_rss_mebibytes": 297.421875,
+      "native_to_reference_peak_rss_delta_ratio": 0.305222241000507,
+      "native_to_reference_peak_rss_ratio": 0.9512268252461147,
       "rank": 1,
-      "recommended_next_action": "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile where the lane is JAX-visible"
-    },
-    {
-      "case_name": "neutral_mixed_one_step",
-      "family": "1D neutral",
-      "linked_runtime_ratio": 4.2709407883678505,
-      "memory_measurement_status": "not_measured_in_live_register",
-      "memory_risk": "implicit residual temporaries and boundary/gradient reconstruction arrays",
-      "rank": 2,
-      "recommended_next_action": "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile where the lane is JAX-visible"
-    },
-    {
-      "case_name": "recycling_1d_one_step",
-      "family": "1D recycling",
-      "linked_runtime_ratio": 3.8035374544513947,
-      "memory_measurement_status": "not_measured_in_live_register",
-      "memory_risk": "materialized sparse Jacobians, colored finite-difference states, full-field copies, and long histories",
-      "rank": 3,
-      "recommended_next_action": "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile where the lane is JAX-visible"
-    },
-    {
-      "case_name": "alfven_wave_one_step",
-      "family": "electromagnetic wave",
-      "linked_runtime_ratio": 1.38490160301701,
-      "memory_measurement_status": "not_measured_in_live_register",
-      "memory_risk": "history arrays, reference dumps, and artifact extraction temporaries",
-      "rank": 4,
-      "recommended_next_action": "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile where the lane is JAX-visible"
+      "rank_metric": 0.9512268252461147,
+      "recommended_next_action": "split RSS peak into Jacobian assembly, residual evaluation, packing, and artifact extraction phases",
+      "reference_peak_rss_delta_mebibytes": 92.453125,
+      "reference_peak_rss_mebibytes": 312.671875
     },
     {
       "case_name": "annulus_he_emag_one_step",
       "family": "annulus electromagnetic",
-      "linked_runtime_ratio": 0.9944051658635582,
-      "memory_measurement_status": "not_measured_in_live_register",
+      "memory_measurement_status": "sampled_process_tree_rss",
       "memory_risk": "history arrays, reference dumps, and artifact extraction temporaries",
+      "native_peak_rss_delta_mebibytes": 157.234375,
+      "native_peak_rss_mebibytes": 431.875,
+      "native_to_reference_peak_rss_delta_ratio": 1.0007956240676281,
+      "native_to_reference_peak_rss_ratio": 0.9322719913653534,
+      "rank": 2,
+      "rank_metric": 0.9322719913653534,
+      "recommended_next_action": "compare native and reference RSS peaks with artifact extraction disabled before optimizing",
+      "reference_peak_rss_delta_mebibytes": 157.109375,
+      "reference_peak_rss_mebibytes": 463.25
+    },
+    {
+      "case_name": "alfven_wave_one_step",
+      "family": "electromagnetic wave",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "history arrays, reference dumps, and artifact extraction temporaries",
+      "native_peak_rss_delta_mebibytes": 30.984375,
+      "native_peak_rss_mebibytes": 338.5625,
+      "native_to_reference_peak_rss_delta_ratio": 0.6544554455445545,
+      "native_to_reference_peak_rss_ratio": 0.927092247133322,
+      "rank": 3,
+      "rank_metric": 0.927092247133322,
+      "recommended_next_action": "compare native and reference RSS peaks with artifact extraction disabled before optimizing",
+      "reference_peak_rss_delta_mebibytes": 47.34375,
+      "reference_peak_rss_mebibytes": 365.1875
+    },
+    {
+      "case_name": "integrated_2d_recycling_one_step",
+      "family": "2D integrated recycling",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "materialized sparse Jacobians, colored finite-difference states, full-field copies, and long histories",
+      "native_peak_rss_delta_mebibytes": 475.578125,
+      "native_peak_rss_mebibytes": 721.984375,
+      "native_to_reference_peak_rss_delta_ratio": 0.8095808064687733,
+      "native_to_reference_peak_rss_ratio": 0.857511366799666,
+      "rank": 4,
+      "rank_metric": 0.857511366799666,
+      "recommended_next_action": "split RSS peak into Jacobian assembly, residual evaluation, packing, and artifact extraction phases",
+      "reference_peak_rss_delta_mebibytes": 587.4375,
+      "reference_peak_rss_mebibytes": 841.953125
+    },
+    {
+      "case_name": "recycling_1d_one_step",
+      "family": "1D recycling",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "materialized sparse Jacobians, colored finite-difference states, full-field copies, and long histories",
+      "native_peak_rss_delta_mebibytes": 35.484375,
+      "native_peak_rss_mebibytes": 264.359375,
+      "native_to_reference_peak_rss_delta_ratio": 0.7522358396820139,
+      "native_to_reference_peak_rss_ratio": 0.8486657303370787,
       "rank": 5,
-      "recommended_next_action": "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile where the lane is JAX-visible"
+      "rank_metric": 0.8486657303370787,
+      "recommended_next_action": "split RSS peak into Jacobian assembly, residual evaluation, packing, and artifact extraction phases",
+      "reference_peak_rss_delta_mebibytes": 47.171875,
+      "reference_peak_rss_mebibytes": 311.5
+    },
+    {
+      "case_name": "neutral_mixed_one_step",
+      "family": "1D neutral",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "implicit residual temporaries and boundary/gradient reconstruction arrays",
+      "native_peak_rss_delta_mebibytes": 81.1875,
+      "native_peak_rss_mebibytes": 221.25,
+      "native_to_reference_peak_rss_delta_ratio": 1.974914481185861,
+      "native_to_reference_peak_rss_ratio": 0.8433089154904413,
+      "rank": 6,
+      "rank_metric": 0.8433089154904413,
+      "recommended_next_action": "split RSS peak into boundary reconstruction, residual assembly, and dataset extraction phases",
+      "reference_peak_rss_delta_mebibytes": 41.109375,
+      "reference_peak_rss_mebibytes": 262.359375
+    },
+    {
+      "case_name": "tokamak_diffusion_transport_short_window",
+      "family": "2D tokamak transport",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "history arrays, reference dumps, and artifact extraction temporaries",
+      "native_peak_rss_delta_mebibytes": 0.140625,
+      "native_peak_rss_mebibytes": 274.546875,
+      "native_to_reference_peak_rss_delta_ratio": 0.0004167438414521208,
+      "native_to_reference_peak_rss_ratio": 0.44861745857482066,
+      "rank": 7,
+      "rank_metric": 0.44861745857482066,
+      "recommended_next_action": "compare native and reference RSS peaks with artifact extraction disabled before optimizing",
+      "reference_peak_rss_delta_mebibytes": 337.4375,
+      "reference_peak_rss_mebibytes": 611.984375
+    },
+    {
+      "case_name": "tokamak_isothermal_one_step",
+      "family": "2D tokamak transport",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "history arrays, reference dumps, and artifact extraction temporaries",
+      "native_peak_rss_delta_mebibytes": 0.78125,
+      "native_peak_rss_mebibytes": 261.859375,
+      "native_to_reference_peak_rss_delta_ratio": 0.0020189783969311527,
+      "native_to_reference_peak_rss_ratio": 0.4035979192755996,
+      "rank": 8,
+      "rank_metric": 0.4035979192755996,
+      "recommended_next_action": "compare native and reference RSS peaks with artifact extraction disabled before optimizing",
+      "reference_peak_rss_delta_mebibytes": 386.953125,
+      "reference_peak_rss_mebibytes": 648.8125
+    },
+    {
+      "case_name": "tokamak_recycling_one_step",
+      "family": "2D diverted tokamak recycling",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "materialized sparse Jacobians, colored finite-difference states, full-field copies, and long histories",
+      "native_peak_rss_delta_mebibytes": 5.765625,
+      "native_peak_rss_mebibytes": 258.0,
+      "native_to_reference_peak_rss_delta_ratio": 0.014815707058540111,
+      "native_to_reference_peak_rss_ratio": 0.39866724612487325,
+      "rank": 9,
+      "rank_metric": 0.39866724612487325,
+      "recommended_next_action": "split RSS peak into Jacobian assembly, residual evaluation, packing, and artifact extraction phases",
+      "reference_peak_rss_delta_mebibytes": 389.15625,
+      "reference_peak_rss_mebibytes": 647.15625
+    },
+    {
+      "case_name": "tokamak_turbulence_one_step",
+      "family": "2D tokamak turbulence",
+      "memory_measurement_status": "sampled_process_tree_rss",
+      "memory_risk": "history arrays, reference dumps, and artifact extraction temporaries",
+      "native_peak_rss_delta_mebibytes": 7.3125,
+      "native_peak_rss_mebibytes": 269.609375,
+      "native_to_reference_peak_rss_delta_ratio": 0.00950890952313225,
+      "native_to_reference_peak_rss_ratio": 0.25958298230834037,
+      "rank": 10,
+      "rank_metric": 0.25958298230834037,
+      "recommended_next_action": "compare native and reference RSS peaks with artifact extraction disabled before optimizing",
+      "reference_peak_rss_delta_mebibytes": 769.015625,
+      "reference_peak_rss_mebibytes": 1038.625
     }
   ],
   "notes": {
@@ -55,7 +160,7 @@
       "add a direct operator test before changing the broad transient runner",
       "record memory peaks for the top slow recycling and neutral cases"
     ],
-    "ranking_policy": "Parity ranks use the largest available relative/scaled error with absolute-error context; runtime ranks use native/Hermes wall-time ratio; memory ranks are measurement gaps until per-case peak-memory instrumentation is available."
+    "ranking_policy": "Parity ranks use the largest available relative/scaled error with absolute-error context; runtime ranks use native/Hermes wall-time ratio; memory ranks use native/Hermes peak-RSS ratio when measured and otherwise fall back to slow-case memory-risk proxies."
   },
   "parity_offenders": [
     {
@@ -84,13 +189,13 @@
       "normalization_sensitive": true,
       "parity_mode": "one_step",
       "rank": 2,
-      "rank_metric": 0.9980012078231077,
+      "rank_metric": 0.9941201168125854,
       "recommended_next_action": "inspect absolute error and near-zero support before changing equations",
       "source": "live_rerun",
-      "worst_max_abs_diff": 7.484517871234827e-12,
-      "worst_relative_l2_error": 0.9980012078231077,
-      "worst_relative_rms_error": 0.1791542040709539,
-      "worst_relative_to_expected_max": 0.996540541301877
+      "worst_max_abs_diff": 7.466220194092024e-12,
+      "worst_relative_l2_error": 0.9941201168125854,
+      "worst_relative_rms_error": 0.1784574977288507,
+      "worst_relative_to_expected_max": 0.9941042618516621
     },
     {
       "capability_tier": "scaffolded_reference_backed",
@@ -101,13 +206,13 @@
       "normalization_sensitive": true,
       "parity_mode": "one_step",
       "rank": 3,
-      "rank_metric": 0.6937972365753762,
+      "rank_metric": 0.6937972365753764,
       "recommended_next_action": "inspect absolute error and near-zero support before changing equations",
       "source": "live_rerun",
-      "worst_max_abs_diff": 3.087642116932213e-07,
-      "worst_relative_l2_error": 0.6488429691715886,
-      "worst_relative_rms_error": 0.1617410692835879,
-      "worst_relative_to_expected_max": 0.6937972365753762
+      "worst_max_abs_diff": 3.087642116932214e-07,
+      "worst_relative_l2_error": 0.6488429691715887,
+      "worst_relative_rms_error": 0.16174106928358786,
+      "worst_relative_to_expected_max": 0.6937972365753764
     },
     {
       "capability_tier": "reduced_geometry_comparison",
@@ -152,13 +257,13 @@
       "normalization_sensitive": false,
       "parity_mode": "one_step",
       "rank": 6,
-      "rank_metric": 0.04881805165255059,
+      "rank_metric": 0.048818112695502194,
       "recommended_next_action": "localize NVd mismatch to component-level source, boundary, or closure",
       "source": "live_rerun",
-      "worst_max_abs_diff": 0.008922794611307877,
-      "worst_relative_l2_error": 0.045669852704452264,
-      "worst_relative_rms_error": 0.004918636025578546,
-      "worst_relative_to_expected_max": 0.04881805165255059
+      "worst_max_abs_diff": 0.008922805768527414,
+      "worst_relative_l2_error": 0.04566991018147146,
+      "worst_relative_rms_error": 0.0049186422158445636,
+      "worst_relative_to_expected_max": 0.048818112695502194
     },
     {
       "capability_tier": "native_exact",
@@ -169,13 +274,13 @@
       "normalization_sensitive": false,
       "parity_mode": "one_step",
       "rank": 7,
-      "rank_metric": 0.03985677771938423,
+      "rank_metric": 0.03985677520839136,
       "recommended_next_action": "localize NVd mismatch to component-level source, boundary, or closure",
       "source": "live_rerun",
-      "worst_max_abs_diff": 0.0013754557489494175,
-      "worst_relative_l2_error": 0.03315253544923,
-      "worst_relative_rms_error": 0.004621747922760494,
-      "worst_relative_to_expected_max": 0.03985677771938423
+      "worst_max_abs_diff": 0.0013754556622951573,
+      "worst_relative_l2_error": 0.03315253375272449,
+      "worst_relative_rms_error": 0.004621747932018189,
+      "worst_relative_to_expected_max": 0.03985677520839136
     },
     {
       "capability_tier": "scaffolded_reference_backed",
@@ -305,23 +410,11 @@
       "component_hint": "parallel momentum, recycling source, or near-zero compare normalization",
       "dominant_field": "NVd",
       "family": "1D multispecies recycling",
-      "native_elapsed_seconds": 65.6633938330051,
-      "native_to_reference_runtime_ratio": 8.446411698878464,
+      "native_elapsed_seconds": 73.40719104197342,
+      "native_to_reference_runtime_ratio": 7.815455603695779,
       "rank": 1,
       "recommended_next_action": "profile sparse Jacobian assembly, residual calls, pack/unpack, target recycling, and closure assembly",
-      "reference_elapsed_seconds": 7.774117124994518,
-      "runtime_status": "native_slower"
-    },
-    {
-      "case_name": "neutral_mixed_one_step",
-      "component_hint": "neutral mixed boundary and parallel momentum closure",
-      "dominant_field": "NVh",
-      "family": "1D neutral",
-      "native_elapsed_seconds": 1.7712232090125326,
-      "native_to_reference_runtime_ratio": 4.2709407883678505,
-      "rank": 2,
-      "recommended_next_action": "profile neutral boundary reconstruction and implicit neutral residual assembly",
-      "reference_elapsed_seconds": 0.4147149999917019,
+      "reference_elapsed_seconds": 9.392567083006725,
       "runtime_status": "native_slower"
     },
     {
@@ -329,11 +422,23 @@
       "component_hint": "parallel momentum, recycling source, or near-zero compare normalization",
       "dominant_field": "NVd",
       "family": "1D recycling",
-      "native_elapsed_seconds": 15.93134499998996,
-      "native_to_reference_runtime_ratio": 3.8035374544513947,
-      "rank": 3,
+      "native_elapsed_seconds": 20.10731241700705,
+      "native_to_reference_runtime_ratio": 3.6519621292622713,
+      "rank": 2,
       "recommended_next_action": "profile sparse Jacobian assembly, residual calls, pack/unpack, target recycling, and closure assembly",
-      "reference_elapsed_seconds": 4.188560042006429,
+      "reference_elapsed_seconds": 5.505892916000448,
+      "runtime_status": "native_slower"
+    },
+    {
+      "case_name": "neutral_mixed_one_step",
+      "component_hint": "neutral mixed boundary and parallel momentum closure",
+      "dominant_field": "NVh",
+      "family": "1D neutral",
+      "native_elapsed_seconds": 1.3178094580071047,
+      "native_to_reference_runtime_ratio": 2.926498744259896,
+      "rank": 3,
+      "recommended_next_action": "profile neutral boundary reconstruction and implicit neutral residual assembly",
+      "reference_elapsed_seconds": 0.45030241704080254,
       "runtime_status": "native_slower"
     },
     {
@@ -341,11 +446,11 @@
       "component_hint": "electromagnetic selected-field reconstruction",
       "dominant_field": "Ajpar",
       "family": "electromagnetic wave",
-      "native_elapsed_seconds": 0.30563866699230857,
-      "native_to_reference_runtime_ratio": 1.38490160301701,
+      "native_elapsed_seconds": 0.4172142500174232,
+      "native_to_reference_runtime_ratio": 1.293545375065188,
       "rank": 4,
       "recommended_next_action": "profile curated native runner path and compare artifact extraction",
-      "reference_elapsed_seconds": 0.22069341700989753,
+      "reference_elapsed_seconds": 0.3225354580208659,
       "runtime_status": "native_slower"
     },
     {
@@ -353,11 +458,11 @@
       "component_hint": "electromagnetic selected-field reconstruction",
       "dominant_field": "Apar",
       "family": "annulus electromagnetic",
-      "native_elapsed_seconds": 4.055476000008639,
-      "native_to_reference_runtime_ratio": 0.9944051658635582,
+      "native_elapsed_seconds": 4.713278874987736,
+      "native_to_reference_runtime_ratio": 0.9979266846922408,
       "rank": 5,
       "recommended_next_action": "profile curated native runner path and compare artifact extraction",
-      "reference_elapsed_seconds": 4.078293375001522,
+      "reference_elapsed_seconds": 4.723071290994994,
       "runtime_status": "native_faster"
     },
     {
@@ -365,11 +470,11 @@
       "component_hint": "parallel momentum, recycling source, or near-zero compare normalization",
       "dominant_field": "NVd",
       "family": "2D integrated recycling",
-      "native_elapsed_seconds": 2.450211874995148,
-      "native_to_reference_runtime_ratio": 0.8300188614374178,
+      "native_elapsed_seconds": 4.242818041006103,
+      "native_to_reference_runtime_ratio": 0.8545638642827248,
       "rank": 6,
       "recommended_next_action": "profile sparse Jacobian assembly, residual calls, pack/unpack, target recycling, and closure assembly",
-      "reference_elapsed_seconds": 2.951995417010039,
+      "reference_elapsed_seconds": 4.964892874995712,
       "runtime_status": "native_faster"
     },
     {
@@ -377,11 +482,11 @@
       "component_hint": "parallel momentum, recycling source, or near-zero compare normalization",
       "dominant_field": "NVd",
       "family": "2D diverted tokamak recycling",
-      "native_elapsed_seconds": 0.5278278330224566,
-      "native_to_reference_runtime_ratio": 0.35438190157426014,
+      "native_elapsed_seconds": 0.7349458750104532,
+      "native_to_reference_runtime_ratio": 0.3936166082123824,
       "rank": 7,
       "recommended_next_action": "profile sparse Jacobian assembly, residual calls, pack/unpack, target recycling, and closure assembly",
-      "reference_elapsed_seconds": 1.489432250004029,
+      "reference_elapsed_seconds": 1.8671617499785498,
       "runtime_status": "native_faster"
     },
     {
@@ -389,11 +494,11 @@
       "component_hint": "case-level diagnostics needed",
       "dominant_field": "Nh+",
       "family": "2D tokamak transport",
-      "native_elapsed_seconds": 0.007411583006614819,
-      "native_to_reference_runtime_ratio": 0.004071255655247046,
+      "native_elapsed_seconds": 0.06479133304674178,
+      "native_to_reference_runtime_ratio": 0.021202196542410255,
       "rank": 8,
       "recommended_next_action": "profile curated native runner path and compare artifact extraction",
-      "reference_elapsed_seconds": 1.8204661250056233,
+      "reference_elapsed_seconds": 3.0558783339802176,
       "runtime_status": "native_faster"
     },
     {
@@ -401,11 +506,11 @@
       "component_hint": "case-level diagnostics needed",
       "dominant_field": "Ne",
       "family": "2D tokamak transport",
-      "native_elapsed_seconds": 0.00759137500426732,
-      "native_to_reference_runtime_ratio": 0.001954408317704306,
+      "native_elapsed_seconds": 0.0669843329815194,
+      "native_to_reference_runtime_ratio": 0.01443153786858378,
       "rank": 9,
       "recommended_next_action": "profile curated native runner path and compare artifact extraction",
-      "reference_elapsed_seconds": 3.8842318340030033,
+      "reference_elapsed_seconds": 4.641524249978829,
       "runtime_status": "native_faster"
     },
     {
@@ -413,11 +518,11 @@
       "component_hint": "case-level diagnostics needed",
       "dominant_field": "Ne",
       "family": "2D tokamak turbulence",
-      "native_elapsed_seconds": 0.016325000004144385,
-      "native_to_reference_runtime_ratio": 0.0003913576336974616,
+      "native_elapsed_seconds": 0.06746504199691117,
+      "native_to_reference_runtime_ratio": 0.0012264675104837512,
       "rank": 10,
       "recommended_next_action": "profile curated native runner path and compare artifact extraction",
-      "reference_elapsed_seconds": 41.71376408301876,
+      "reference_elapsed_seconds": 55.00760633300524,
       "runtime_status": "native_faster"
     }
   ],
@@ -429,11 +534,17 @@
     "memory": {
       "case_name": "recycling_dthe_one_step",
       "family": "1D multispecies recycling",
-      "linked_runtime_ratio": 8.446411698878464,
-      "memory_measurement_status": "not_measured_in_live_register",
+      "memory_measurement_status": "sampled_process_tree_rss",
       "memory_risk": "materialized sparse Jacobians, colored finite-difference states, full-field copies, and long histories",
+      "native_peak_rss_delta_mebibytes": 28.21875,
+      "native_peak_rss_mebibytes": 297.421875,
+      "native_to_reference_peak_rss_delta_ratio": 0.305222241000507,
+      "native_to_reference_peak_rss_ratio": 0.9512268252461147,
       "rank": 1,
-      "recommended_next_action": "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile where the lane is JAX-visible"
+      "rank_metric": 0.9512268252461147,
+      "recommended_next_action": "split RSS peak into Jacobian assembly, residual evaluation, packing, and artifact extraction phases",
+      "reference_peak_rss_delta_mebibytes": 92.453125,
+      "reference_peak_rss_mebibytes": 312.671875
     },
     "parity": {
       "capability_tier": "native_exact",
@@ -457,11 +568,11 @@
       "component_hint": "parallel momentum, recycling source, or near-zero compare normalization",
       "dominant_field": "NVd",
       "family": "1D multispecies recycling",
-      "native_elapsed_seconds": 65.6633938330051,
-      "native_to_reference_runtime_ratio": 8.446411698878464,
+      "native_elapsed_seconds": 73.40719104197342,
+      "native_to_reference_runtime_ratio": 7.815455603695779,
       "rank": 1,
       "recommended_next_action": "profile sparse Jacobian assembly, residual calls, pack/unpack, target recycling, and closure assembly",
-      "reference_elapsed_seconds": 7.774117124994518,
+      "reference_elapsed_seconds": 9.392567083006725,
       "runtime_status": "native_slower"
     }
   }
