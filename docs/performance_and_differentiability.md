@@ -264,6 +264,29 @@ still host/NumPy/SciPy based; using JVPs there first requires moving the
 dominant source, closure, boundary, and pack/unpack kernels into a
 JAX-transformable residual.
 
+That bridge now follows the documented JAX autodiff pattern more closely:
+`jax.linearize` evaluates the primal residual once and returns a reusable
+linear map, while `jax.vmap` batches the colored tangent pushes. The default
+path pushes all color groups in one vectorized batch; `batch_size=1` gives the
+memory-bounded serial form, and intermediate batch sizes provide a knob between
+temporary tangent memory and dispatch overhead. This removes finite-difference
+step-size sensitivity for JAX-transformable residuals and gives a direct
+operator-level check against the older sparse finite-difference builder.
+
+The existing `solve_jax_linearized_newton_system` path is already the stronger
+matrix-free option for residuals that can remain inside JAX: it passes the
+linearized Jacobian action directly to JAX GMRES instead of materializing a
+Jacobian. The next production migration should therefore not wrap the current
+host residual in more solver adapters. It should first make the recycling
+residual kernels JAX-transformable, then select between:
+
+- materialized sparse JVP Jacobian assembly when a sparse direct or SciPy
+  compatibility solve is still needed;
+- matrix-free JVP actions when Krylov solves and differentiable objectives are
+  the target;
+- VJP/implicit-function sensitivity when the output is a scalar objective or a
+  steady-state quantity of interest.
+
 ## Current GPU-Native Audit
 
 The office GPU environment is now usable for the compact native JAX lanes with

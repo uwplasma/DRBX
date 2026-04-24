@@ -289,6 +289,13 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         sparsity=sparsity,
         color_groups=color_groups,
     )
+    serial_jvp_jacobian = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        batch_size=1,
+    )
 
     expected = np.zeros(sparsity.shape, dtype=np.float64)
     active_cells = int(np.prod(active_shape))
@@ -301,6 +308,7 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         )
 
     np.testing.assert_allclose(jvp_jacobian.toarray(), expected * sparsity.toarray(), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(serial_jvp_jacobian.toarray(), jvp_jacobian.toarray(), rtol=1.0e-12, atol=1.0e-12)
     assert active_cells > 0
 
 

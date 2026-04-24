@@ -164,6 +164,30 @@ does not establish an end-to-end speedup against the previous noisy local run.
 The stronger next step remains a JAX-transformable residual plus grouped
 JVP-based Jacobian products for the dominant recycling kernels.
 
+The solver package now has the first production-tested piece of that JAX path:
+the grouped sparse-JVP Jacobian builder batches colored tangent pushes with
+`jax.vmap` after a single `jax.linearize` call. This is the correct derivative
+algorithm for a JAX residual because it removes finite-difference step-size
+choice and perturbation residual calls. It does not by itself fix the heavy
+recycling lane because the current residual is still dominated by NumPy/SciPy
+assembly. The next runtime fixes should therefore be ordered as residual-kernel
+ports first, solver-backend promotion second.
+
+Near-term residual-kernel ports should target the measured hot path in this
+order:
+
+1. active packed-state layout as a static PyTree rather than repeated dict and
+   full-field reconstruction
+2. reaction/source and AMJUEL/OpenADAS table evaluation in JAX arrays
+3. collision closure and neutral parallel diffusion in JAX arrays
+4. target recycling and target-boundary source assembly in JAX arrays
+5. backward-Euler/BDF residual assembly as a pure function with no `np.asarray`
+   barrier inside the nonlinear solve
+
+Each port should carry three gates before promotion: current NumPy parity on a
+small deterministic state, JVP-versus-finite-difference derivative parity, and
+the existing Hermès one-RHS/one-step compare surface.
+
 ### Priority 3: tokamak recycling observables
 
 1. keep the current one-step compare metrics

@@ -421,6 +421,17 @@ The target solver stack should have two explicit tiers:
   Lineax/iterative solve or implicit-function sensitivity path, no unnecessary
   host barriers
 
+The first differentiable-tier primitive is now in-tree and tested:
+`build_sparse_jvp_jacobian` reuses the finite-difference coloring contract but
+fills the sparse Jacobian from `jax.linearize` plus batched `jax.vmap` tangent
+pushes. That gives a bridge for pure-JAX residuals that still need a
+materialized sparse matrix. The stronger long-term path is the existing
+matrix-free JAX Newton/GMRES solver, which applies the linearized Jacobian
+action directly and avoids materializing a sparse matrix altogether. The
+promotion rule is therefore explicit: do not claim a JAX-native implicit
+backend for a lane until its residual can be differentiated without host-side
+NumPy/SciPy barriers.
+
 ### Validation
 
 The validation structure is strong but needs tighter promotion gates:
@@ -655,6 +666,23 @@ The next solver architecture should use:
 The first target should be a compact open-field recycling residual on a fixed
 layout. It should be promoted only after it matches the current NumPy/SciPy
 path on the existing one-RHS and one-step gates.
+
+The implementation sequence for that first target is:
+
+1. define a small fixed-layout recycling residual dataclass/PyTree with arrays
+   only and no mutable dictionaries in the hot path
+2. port the measured hot kernels one at a time: reaction/source rates,
+   collision closure, neutral diffusion, target recycling, and BDF residual
+   assembly
+3. add unit parity tests for each port against the current NumPy helper
+4. add derivative gates for each promoted kernel: JVP versus centered finite
+   difference, VJP/gradient versus finite difference for scalar quantities of
+   interest, and batched `vmap` agreement with serial evaluation
+5. benchmark the pure-JAX residual with three solver backends: current sparse
+   finite-difference compatibility, batched sparse-JVP materialization, and
+   matrix-free JVP/GMRES
+6. only after parity and timing are stable, wire the JAX residual into a
+   promoted one-step or short-window recycling lane
 
 ### CPU Parallelization
 

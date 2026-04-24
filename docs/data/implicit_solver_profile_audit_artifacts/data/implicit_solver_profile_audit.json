@@ -5,54 +5,69 @@
     16
   ],
   "case": "implicit_solver_profile_audit",
-  "color_group_count": 24,
+  "color_group_count": 144,
   "field_count": 3,
   "jacobian_build_samples": {
+    "jvp_batched": [
+      0.008389208000153303,
+      0.007696750049944967,
+      0.007535999990068376
+    ],
+    "jvp_serial": [
+      0.4124784999876283,
+      0.3985402079997584,
+      0.41908699995838106
+    ],
     "planned_parallel": [
-      0.00350679102120921,
-      0.0033727919799275696,
-      0.0025399160222150385
+      0.010523665987420827,
+      0.015485540963709354,
+      0.013239625026471913
     ],
     "planned_serial": [
-      0.0015910830115899444,
-      0.001975083025172353,
-      0.001631791004911065
+      0.008276500040665269,
+      0.00878991704666987,
+      0.006283917056862265
     ],
     "unplanned_serial": [
-      0.002363415958825499,
-      0.0022263749851845205,
-      0.0021835839725099504
+      0.009157708962447941,
+      0.011821041000075638,
+      0.009075040987227112
     ]
   },
   "jacobian_build_seconds": {
-    "planned_parallel_mean": 0.0031398330077839396,
-    "planned_serial_mean": 0.0017326523472244542,
-    "unplanned_serial_mean": 0.00225779163883999
+    "jvp_batched_mean": 0.007873986013388882,
+    "jvp_serial_mean": 0.4100352359819226,
+    "planned_parallel_mean": 0.013082943992534032,
+    "planned_serial_mean": 0.007783444714732468,
+    "unplanned_serial_mean": 0.010017930316583564
   },
   "max_jacobian_abs_diff": 0.0,
+  "max_jvp_batch_abs_diff": 0.0,
+  "max_jvp_vs_fd_abs_diff": 1.7947032748821812e-08,
   "newton": {
     "fallback_used": false,
-    "jacobian_assembly_seconds": 0.0036369169829413295,
+    "jacobian_assembly_seconds": 0.004577916988637298,
     "jacobian_refresh_count": 5,
-    "line_search_seconds": 6.208487320691347e-05,
+    "line_search_seconds": 6.766797741875052e-05,
     "linear_iterations": 5,
-    "linear_solve_seconds": 0.00033825001446530223,
+    "linear_solve_seconds": 0.0003876659320667386,
     "nonlinear_iterations": 5,
     "residual_evaluation_count": 50,
-    "residual_evaluation_seconds": 7.149891462177038e-05,
+    "residual_evaluation_seconds": 9.004102321341634e-05,
     "residual_inf_norm": 2.220446049250313e-16,
     "solution_max_abs_error": 1.1102230246251565e-16
   },
   "notes": {
-    "numerical_role": "This audit verifies that the precomputed color-plan path is algebraically identical to the original sparse finite-difference Jacobian path and records the phase timings needed to interpret heavy recycling implicit solves.",
-    "paper_role": "Use this as the methods/performance support figure for sparse finite-difference Jacobian assembly before showing full Hermes-backed recycling runtime comparisons."
+    "numerical_role": "This audit verifies that the precomputed color-plan path is algebraically identical to the original sparse finite-difference Jacobian path, records the phase timings needed to interpret heavy recycling implicit solves, and checks the JAX sparse-JVP builder against both its serial batching mode and the finite-difference reference. JAX timings are warmed once before sampling so the plotted samples measure steady execution rather than first-trace overhead.",
+    "paper_role": "Use this as the methods/performance support figure for finite-difference versus JAX-linearized Jacobian assembly before showing full Hermes-backed recycling runtime comparisons."
   },
-  "plan_build_seconds": 0.000711207976564765,
+  "plan_build_seconds": 0.0015386660234071314,
   "repeats": 3,
   "sparsity_nnz": 14688,
   "speedups": {
-    "parallel_vs_planned_serial": 0.5518294581046339,
-    "planned_vs_unplanned_serial": 1.3030840505637264
+    "jvp_batched_vs_jvp_serial": 52.074671619266404,
+    "parallel_vs_planned_serial": 0.5949306760905039,
+    "planned_vs_unplanned_serial": 1.2870818363521839
   },
   "state_size": 576
 }

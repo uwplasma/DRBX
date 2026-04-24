@@ -11,17 +11,26 @@ The audit writes:
 - [summary JSON](data/implicit_solver_profile_audit_artifacts/data/implicit_solver_profile_audit.json)
 - [summary figure](data/implicit_solver_profile_audit_artifacts/images/implicit_solver_profile_audit.png)
 
-The left panel compares colored sparse finite-difference Jacobian construction
-with and without the precomputed CSC/color extraction plan. The right panel
-uses the sparse Newton step diagnostics now attached to solver step info:
-residual time, Jacobian assembly time, linear-solve time, line-search time,
-and fallback use.
+The left panel compares colored sparse finite-difference Jacobian construction,
+the precomputed CSC/color extraction plan, thread-parallel finite differences,
+and the new JAX-linearized sparse-JVP path in both serial and batched color
+push modes. The right panel uses the sparse Newton step diagnostics now
+attached to solver step info: residual time, Jacobian assembly time,
+linear-solve time, line-search time, and fallback use.
+
+The JAX timing bars are warmed once before sampling, so they measure steady
+derivative execution rather than first-trace overhead. On this small controlled
+residual the main result is not a universal speed claim; it is that batched
+JVP construction matches the serial JVP construction exactly, agrees with the
+finite-difference reference to roundoff-level finite-difference error, and
+removes the finite-difference perturbation from the derivative path.
 
 This is not a replacement for the full `recycling_dthe_one_step` Hermes
 comparison. Its role is narrower and deliberate: it proves that the optimized
-Jacobian assembly path is algebraically identical to the original path and
-provides a small, reproducible figure for the numerical-methods section before
-the full physics runtime plots are generated.
+Jacobian assembly path is algebraically identical to the original path, that
+the JAX sparse-JVP batched path matches the serial JVP path, and that both can
+be checked against a finite-difference reference before the full physics
+runtime plots are generated.
 
 Run the package locally with:
 

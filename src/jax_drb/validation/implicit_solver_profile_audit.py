@@ -12,6 +12,7 @@ from ..solver import (
     build_locality_sparsity,
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
+    build_sparse_jvp_jacobian,
     prepare_sparse_difference_quotient_plan,
     solve_sparse_newton_system,
 )
@@ -63,7 +64,7 @@ def build_implicit_solver_profile_audit_report(
     color_groups = build_modulo_color_groups(
         active_shape,
         field_count=field_count,
-        color_periods=(2, 1, 4),
+        color_periods=(min(3, active_shape[0]), 1, active_shape[2]),
     )
     plan_started_at = perf_counter()
     plan = prepare_sparse_difference_quotient_plan(
@@ -81,7 +82,11 @@ def build_implicit_solver_profile_audit_report(
             left = np.roll(own, 1, axis=2)
             right = np.roll(own, -1, axis=2)
             coupled = fields[(index + 1) % field_count]
-            outputs.append(np.sin(own) + 0.04 * (left - 2.0 * own + right) - 0.03 * coupled)
+            outputs.append(
+                np.sin(own)
+                + 0.04 * (left - 2.0 * own + right)
+                - 0.03 * coupled
+            )
         return np.concatenate([output.ravel() for output in outputs])
 
     unplanned_seconds = _time_jacobian_builds(
@@ -110,6 +115,42 @@ def build_implicit_solver_profile_audit_report(
         parallel_workers=2,
         difference_plan=plan,
     )
+
+    import jax.numpy as jnp
+
+    def jax_residual(vector):
+        fields = vector.reshape((field_count,) + active_shape)
+        outputs = []
+        for index in range(field_count):
+            own = fields[index]
+            left = jnp.roll(own, 1, axis=2)
+            right = jnp.roll(own, -1, axis=2)
+            coupled = fields[(index + 1) % field_count]
+            outputs.append(
+                jnp.sin(own)
+                + 0.04 * (left - 2.0 * own + right)
+                - 0.03 * coupled
+            )
+        return jnp.concatenate([output.ravel() for output in outputs])
+
+    jvp_serial_seconds = _time_jvp_jacobian_builds(
+        jax_residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        repeats=repeats,
+        difference_plan=plan,
+        batch_size=1,
+    )
+    jvp_batched_seconds = _time_jvp_jacobian_builds(
+        jax_residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        repeats=repeats,
+        difference_plan=plan,
+        batch_size=None,
+    )
     reference_jacobian = build_sparse_difference_quotient_jacobian(
         residual,
         state,
@@ -125,7 +166,24 @@ def build_implicit_solver_profile_audit_report(
         difference_plan=plan,
         parallel_workers=2,
     )
+    jvp_serial_jacobian = build_sparse_jvp_jacobian(
+        jax_residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+        batch_size=1,
+    )
+    jvp_batched_jacobian = build_sparse_jvp_jacobian(
+        jax_residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+    )
     max_jacobian_abs_diff = float(np.max(np.abs((planned_jacobian - reference_jacobian).toarray())))
+    max_jvp_batch_abs_diff = float(np.max(np.abs((jvp_batched_jacobian - jvp_serial_jacobian).toarray())))
+    max_jvp_vs_fd_abs_diff = float(np.max(np.abs((jvp_batched_jacobian - reference_jacobian).toarray())))
 
     target = 0.85 + 0.05 * np.sin(np.linspace(0.0, np.pi, state.size, dtype=np.float64))
 
@@ -162,17 +220,24 @@ def build_implicit_solver_profile_audit_report(
             "unplanned_serial_mean": float(np.mean(unplanned_seconds)),
             "planned_serial_mean": float(np.mean(planned_serial_seconds)),
             "planned_parallel_mean": float(np.mean(planned_parallel_seconds)),
+            "jvp_serial_mean": float(np.mean(jvp_serial_seconds)),
+            "jvp_batched_mean": float(np.mean(jvp_batched_seconds)),
         },
         "jacobian_build_samples": {
             "unplanned_serial": unplanned_seconds,
             "planned_serial": planned_serial_seconds,
             "planned_parallel": planned_parallel_seconds,
+            "jvp_serial": jvp_serial_seconds,
+            "jvp_batched": jvp_batched_seconds,
         },
         "speedups": {
             "planned_vs_unplanned_serial": _safe_ratio(np.mean(unplanned_seconds), np.mean(planned_serial_seconds)),
             "parallel_vs_planned_serial": _safe_ratio(np.mean(planned_serial_seconds), np.mean(planned_parallel_seconds)),
+            "jvp_batched_vs_jvp_serial": _safe_ratio(np.mean(jvp_serial_seconds), np.mean(jvp_batched_seconds)),
         },
         "max_jacobian_abs_diff": max_jacobian_abs_diff,
+        "max_jvp_batch_abs_diff": max_jvp_batch_abs_diff,
+        "max_jvp_vs_fd_abs_diff": max_jvp_vs_fd_abs_diff,
         "newton": {
             "residual_inf_norm": float(info.residual_inf_norm),
             "solution_max_abs_error": float(np.max(np.abs(solved - target))),
@@ -189,12 +254,16 @@ def build_implicit_solver_profile_audit_report(
         "notes": {
             "numerical_role": (
                 "This audit verifies that the precomputed color-plan path is algebraically identical "
-                "to the original sparse finite-difference Jacobian path and records the phase timings "
-                "needed to interpret heavy recycling implicit solves."
+                "to the original sparse finite-difference Jacobian path, records the phase timings "
+                "needed to interpret heavy recycling implicit solves, and checks the JAX sparse-JVP "
+                "builder against both its serial batching mode and the finite-difference reference. "
+                "JAX timings are warmed once before sampling so the plotted samples measure steady "
+                "execution rather than first-trace overhead."
             ),
             "paper_role": (
-                "Use this as the methods/performance support figure for sparse finite-difference "
-                "Jacobian assembly before showing full Hermes-backed recycling runtime comparisons."
+                "Use this as the methods/performance support figure for finite-difference versus "
+                "JAX-linearized Jacobian assembly before showing full Hermes-backed recycling "
+                "runtime comparisons."
             ),
         },
     }
@@ -205,12 +274,20 @@ def save_implicit_solver_profile_audit_plot(report: dict[str, object], path: str
     target.parent.mkdir(parents=True, exist_ok=True)
     timings = report["jacobian_build_seconds"]
     newton = report["newton"]
-    labels = ["unplanned\nserial", "planned\nserial", "planned\n2 threads"]
+    labels = [
+        "FD\nunplanned",
+        "FD\nplanned",
+        "FD\n2 threads",
+        "JVP\nserial",
+        "JVP\nbatched",
+    ]
     values = np.asarray(
         [
             float(timings["unplanned_serial_mean"]),
             float(timings["planned_serial_mean"]),
             float(timings["planned_parallel_mean"]),
+            float(timings["jvp_serial_mean"]),
+            float(timings["jvp_batched_mean"]),
         ],
         dtype=np.float64,
     )
@@ -227,11 +304,15 @@ def save_implicit_solver_profile_audit_plot(report: dict[str, object], path: str
 
     figure, axes = plt.subplots(1, 2, figsize=(13.2, 5.2), constrained_layout=True)
     x = np.arange(len(labels))
-    axes[0].bar(x, np.maximum(values, 1.0e-12), color=["#6c757d", "#0a9396", "#ee9b00"])
+    axes[0].bar(
+        x,
+        np.maximum(values, 1.0e-12),
+        color=["#6c757d", "#0a9396", "#ee9b00", "#9b2226", "#005f73"],
+    )
     axes[0].set_xticks(x, labels)
     style_axis(
         axes[0],
-        title="Colored finite-difference Jacobian assembly",
+        title="Colored sparse Jacobian assembly",
         ylabel="mean seconds",
         yscale="log",
         grid="y",
@@ -264,7 +345,7 @@ def save_implicit_solver_profile_audit_plot(report: dict[str, object], path: str
         bbox={"facecolor": "white", "edgecolor": "#ced4da", "alpha": 0.92},
     )
     figure.suptitle(
-        "Implicit solver audit: sparse finite-difference Jacobian plan and phase diagnostics",
+        "Implicit solver audit: finite-difference and JAX-linearized Jacobian paths",
         fontsize=12.8,
         fontweight="semibold",
     )
@@ -292,6 +373,39 @@ def _time_jacobian_builds(
             color_groups=color_groups,
             difference_plan=difference_plan,
             parallel_workers=parallel_workers,
+        )
+        samples.append(float(perf_counter() - started_at))
+    return samples
+
+
+def _time_jvp_jacobian_builds(
+    residual,
+    state: np.ndarray,
+    *,
+    sparsity,
+    color_groups: tuple[tuple[int, ...], ...],
+    repeats: int,
+    difference_plan=None,
+    batch_size: int | None,
+) -> list[float]:
+    build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=difference_plan,
+        batch_size=batch_size,
+    )
+    samples: list[float] = []
+    for _ in range(max(1, int(repeats))):
+        started_at = perf_counter()
+        build_sparse_jvp_jacobian(
+            residual,
+            state,
+            sparsity=sparsity,
+            color_groups=color_groups,
+            difference_plan=difference_plan,
+            batch_size=batch_size,
         )
         samples.append(float(perf_counter() - started_at))
     return samples

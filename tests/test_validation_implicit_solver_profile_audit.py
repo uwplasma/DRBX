@@ -18,7 +18,10 @@ def test_build_implicit_solver_profile_audit_report_validates_planned_jacobian()
 
     assert report["case"] == "implicit_solver_profile_audit"
     assert report["max_jacobian_abs_diff"] == 0.0
+    assert report["max_jvp_batch_abs_diff"] == 0.0
+    assert report["max_jvp_vs_fd_abs_diff"] < 1.0e-6
     assert report["jacobian_build_seconds"]["planned_serial_mean"] >= 0.0
+    assert report["jacobian_build_seconds"]["jvp_batched_mean"] >= 0.0
     assert report["newton"]["residual_inf_norm"] < 1.0e-9
     assert report["newton"]["solution_max_abs_error"] < 1.0e-8
     assert report["newton"]["residual_evaluation_count"] >= 1

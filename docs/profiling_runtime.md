@@ -104,6 +104,17 @@ direction per color group, avoiding finite-difference residual perturbations
 altogether. The heavy recycling RHS is not yet in that category, so the
 remaining runtime work is to migrate the dominant recycling residual kernels to
 JAX-native array code before making the JVP path a production backend.
+The sparse-JVP builder now batches those color-group pushes with `jax.vmap`.
+That makes the derivative path closer to the JAX autodiff cookbook model:
+linearize once, then push a matrix of tangent directions through the same
+linearized residual. The public `batch_size` parameter should be used during
+profiling to separate memory pressure from dispatch overhead.
+
+The related JAX Newton path is matrix-free: JAX GMRES receives the linearized
+Jacobian action as a callable rather than a materialized sparse matrix. This is
+the preferred algorithmic target for future differentiable recycling kernels,
+but it is intentionally not claimed as a production speedup until the residual
+itself stops crossing the host/SciPy boundary.
 
 ## Basic Usage
 

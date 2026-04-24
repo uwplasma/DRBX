@@ -233,14 +233,16 @@ def build_sparse_jvp_jacobian(
     color_groups: tuple[tuple[int, ...], ...],
     sparsity_csc=None,
     difference_plan: SparseDifferenceQuotientPlan | None = None,
+    batch_size: int | None = None,
 ):
     """Build a sparse Jacobian from grouped JAX JVPs.
 
     The coloring contract is the same as for the finite-difference builder:
     columns in one color group must have disjoint row support in ``sparsity``.
-    A single linearized push of a direction vector containing all columns in
-    the group then fills those disjoint column entries without materializing a
-    dense Jacobian.
+    Batched linearized pushes then fill those disjoint column entries without
+    finite-difference perturbations. ``batch_size`` bounds the number of color
+    groups pushed through ``jax.vmap`` at once; leaving it unset uses one batch
+    for all groups.
     """
 
     try:
@@ -251,6 +253,8 @@ def build_sparse_jvp_jacobian(
         raise ImportError("Sparse JVP Jacobian construction requires jax and scipy.") from exc
 
     state_array = jnp.asarray(state, dtype=jnp.float64)
+    state_shape = tuple(state_array.shape)
+    state_size = int(state_array.size)
     sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
     plan = (
         difference_plan
@@ -264,15 +268,32 @@ def build_sparse_jvp_jacobian(
     col_indices = np.empty(nnz, dtype=np.int32)
     data = np.empty(nnz, dtype=np.float64)
     offset = 0
-    for group in plan.groups:
-        direction = jnp.zeros_like(state_array).at[jnp.asarray(group.columns, dtype=jnp.int32)].set(1.0)
-        pushed = np.asarray(linear_map(direction), dtype=np.float64)
-        group_data = pushed[group.rows]
-        count = len(group.rows)
-        row_indices[offset : offset + count] = group.rows
-        col_indices[offset : offset + count] = group.cols
-        data[offset : offset + count] = group_data
-        offset += count
+    group_count = len(plan.groups)
+    if group_count == 0:
+        return coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
+    resolved_batch_size = group_count if batch_size is None else max(1, int(batch_size))
+    vmapped_linear_map = jax.vmap(linear_map)
+    for batch_start in range(0, group_count, resolved_batch_size):
+        batch_groups = plan.groups[batch_start : batch_start + resolved_batch_size]
+        directions_flat = np.zeros((len(batch_groups), state_size), dtype=np.float64)
+        for batch_index, group in enumerate(batch_groups):
+            directions_flat[batch_index, group.columns] = 1.0
+        directions = jnp.asarray(
+            directions_flat.reshape((len(batch_groups), *state_shape)),
+            dtype=state_array.dtype,
+        )
+        pushed_batch = np.asarray(
+            vmapped_linear_map(directions),
+            dtype=np.float64,
+        ).reshape(len(batch_groups), -1)
+        for batch_index, group in enumerate(batch_groups):
+            pushed = pushed_batch[batch_index]
+            group_data = pushed[group.rows]
+            count = len(group.rows)
+            row_indices[offset : offset + count] = group.rows
+            col_indices[offset : offset + count] = group.cols
+            data[offset : offset + count] = group_data
+            offset += count
 
     return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
 
