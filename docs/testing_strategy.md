@@ -193,6 +193,8 @@ This applies directly to:
   surface for promoting fixed-layout recycling residuals before full sheath
   closure porting
 - electron-force-balance pressure-gradient stencils
+- electron parallel-force source updates, including the use of
+  boundary-conditioned ion densities in the electric-force momentum source
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes
 - fixed-layout host-bridge parity on full Hermès decks before each heavy

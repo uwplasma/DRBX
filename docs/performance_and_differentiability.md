@@ -399,7 +399,10 @@ current source composition order without an initial NumPy conversion. The
 boundary-free open-field state wrapper now also keeps electron-density
 reconstruction and electron/ion boundary-state construction on the JAX backend,
 which provides a transformable control surface before the more parity-sensitive
-sheath formulas are ported.
+sheath formulas are ported. Electron parallel force balance and the
+corresponding ion electric-force source additions have likewise moved into a
+backend-preserving RHS helper with a JVP gate, removing another NumPy-only
+block between accumulated sources and the final ion momentum RHS.
 
 The corresponding paper/docs artifact is:
 
