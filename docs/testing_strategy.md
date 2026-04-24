@@ -183,7 +183,8 @@ This applies directly to:
 - fits and tabulated-rate evaluations
 - reconstruction rules and guarded-boundary formulas
 - reaction and collision closures
-- open-field parallel advection/inertia operators and RHS-term assembly
+- open-field parallel advection/inertia operators and ion/electron/neutral
+  RHS-term assembly
 - electron-force-balance pressure-gradient stencils
 - fixed-layout residual/JVP gates for recycling source, diffusion, collision,
   target-recycling, and BDF assembly lanes

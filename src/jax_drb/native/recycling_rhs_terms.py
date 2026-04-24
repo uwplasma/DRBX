@@ -38,6 +38,23 @@ class IonRhsTerms:
     momentum_total: np.ndarray
 
 
+@dataclass(frozen=True)
+class NeutralRhsTerms:
+    density_source: np.ndarray
+    density_transport: np.ndarray
+    density_total: np.ndarray
+    explicit_pressure_source: np.ndarray
+    parallel_divergence: np.ndarray
+    parallel_advection: np.ndarray
+    energy_source: np.ndarray
+    pressure_total: np.ndarray
+    momentum_advection: np.ndarray
+    pressure_gradient: np.ndarray
+    momentum_source: np.ndarray
+    momentum_error: np.ndarray
+    momentum_total: np.ndarray
+
+
 def soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
     minimum_value = float(minimum)
     if use_jax_backend(value):
@@ -172,6 +189,98 @@ def assemble_ion_rhs_terms(
         + momentum_error_array
     )
     return IonRhsTerms(
+        density_source=density_source_array,
+        density_transport=density_transport,
+        density_total=density_total,
+        explicit_pressure_source=explicit_pressure_source_array,
+        parallel_divergence=parallel_divergence,
+        parallel_advection=parallel_advection,
+        energy_source=energy_source_term,
+        pressure_total=pressure_total,
+        momentum_advection=momentum_advection,
+        pressure_gradient=pressure_gradient,
+        momentum_source=momentum_source_array,
+        momentum_error=momentum_error_array,
+        momentum_total=momentum_total,
+    )
+
+
+def assemble_neutral_rhs_terms(
+    *,
+    density_source: np.ndarray,
+    explicit_pressure_source: np.ndarray,
+    momentum_source: np.ndarray,
+    atomic_mass: float,
+    density_floor: float,
+    neutral_state: Any,
+    neutral_velocity: np.ndarray,
+    fastest_wave: np.ndarray,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    energy_source: np.ndarray,
+    include_energy_source: bool = True,
+) -> NeutralRhsTerms:
+    use_jax = use_jax_backend(
+        density_source,
+        explicit_pressure_source,
+        momentum_source,
+        neutral_state.density,
+        neutral_state.pressure,
+        neutral_state.momentum_error,
+        neutral_velocity,
+        fastest_wave,
+        energy_source,
+        metrics.dy,
+        metrics.J,
+        metrics.g_22,
+    )
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    density_source_array = array(density_source, dtype=dtype)
+    explicit_pressure_source_array = array(explicit_pressure_source, dtype=dtype)
+    momentum_source_array = array(momentum_source, dtype=dtype)
+    density_array = array(neutral_state.density, dtype=dtype)
+    pressure_array = array(neutral_state.pressure, dtype=dtype)
+    momentum_error_array = array(neutral_state.momentum_error, dtype=dtype)
+    velocity_array = array(neutral_velocity, dtype=dtype)
+    fastest_wave_array = array(fastest_wave, dtype=dtype)
+
+    density_transport = -_div_par_mod_open(
+        density_array,
+        velocity_array,
+        fastest_wave_array,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    parallel_divergence = -(5.0 / 3.0) * _div_par_mod_open(
+        pressure_array,
+        velocity_array,
+        fastest_wave_array,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    parallel_advection = (2.0 / 3.0) * velocity_array * _grad_par_open(
+        pressure_array,
+        mesh=mesh,
+        metrics=metrics,
+    )
+    if include_energy_source:
+        energy_source_term = (2.0 / 3.0) * array(energy_source, dtype=dtype)
+    else:
+        energy_source_term = jnp.zeros_like(pressure_array, dtype=jnp.float64) if use_jax else np.zeros_like(pressure_array, dtype=np.float64)
+    momentum_advection = -float(atomic_mass) * _div_par_fvv_open(
+        soft_floor(density_array, density_floor),
+        velocity_array,
+        fastest_wave_array,
+        mesh=mesh,
+        metrics=metrics,
+        fix_flux=False,
+    )
+    pressure_gradient = -_grad_par_open(pressure_array, mesh=mesh, metrics=metrics)
+    density_total = density_source_array + density_transport
+    pressure_total = explicit_pressure_source_array + parallel_divergence + parallel_advection + energy_source_term
+    momentum_total = momentum_advection + pressure_gradient + momentum_source_array + momentum_error_array
+    return NeutralRhsTerms(
         density_source=density_source_array,
         density_transport=density_transport,
         density_total=density_total,

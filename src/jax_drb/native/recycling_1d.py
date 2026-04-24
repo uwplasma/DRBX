@@ -102,10 +102,9 @@ from .recycling_reactions import (
     reaction_sources as _reaction_sources,
 )
 from .recycling_rhs_terms import (
-    ElectronPressureRhsTerms,
-    IonRhsTerms,
     assemble_electron_pressure_rhs_terms as _assemble_electron_pressure_rhs_terms,
     assemble_ion_rhs_terms as _assemble_ion_rhs_terms,
+    assemble_neutral_rhs_terms as _assemble_neutral_rhs_terms,
 )
 from .recycling_setup import (
     DensityFeedbackController as _DensityFeedbackController,
@@ -498,13 +497,6 @@ def _compute_recycling_1d_rhs_from_species(
         neutral_state = prepared[neutral.name]
         temperature = neutral_state.temperature
         fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / neutral.atomic_mass)
-        density_rhs = density_source[neutral.name] - _div_par_mod_open(
-            neutral_state.density,
-            neutral_state.velocity,
-            fastest_wave,
-            mesh=mesh,
-            metrics=metrics,
-        )
         neutral_explicit_pressure_source = pressure_sources.get(neutral.name)
         if neutral_explicit_pressure_source is None:
             neutral_explicit_pressure_source = _explicit_pressure_source(
@@ -513,39 +505,27 @@ def _compute_recycling_1d_rhs_from_species(
                 mesh=mesh,
                 dataset_scalars=dataset_scalars,
             )
-        pressure_rhs = np.asarray(neutral_explicit_pressure_source, dtype=np.float64)
-        pressure_rhs = pressure_rhs - (5.0 / 3.0) * _div_par_mod_open(
-            neutral_state.pressure,
-            neutral_state.velocity,
-            fastest_wave,
+        neutral_rhs_terms = _assemble_neutral_rhs_terms(
+            density_source=density_source[neutral.name],
+            explicit_pressure_source=neutral_explicit_pressure_source,
+            momentum_source=momentum_source[neutral.name],
+            atomic_mass=neutral.atomic_mass,
+            density_floor=neutral.density_floor,
+            neutral_state=neutral_state,
+            neutral_velocity=neutral_state.velocity,
+            fastest_wave=fastest_wave,
             mesh=mesh,
             metrics=metrics,
+            energy_source=energy_source[neutral.name],
+            include_energy_source=neutral.name not in pressure_source_override_names,
         )
-        pressure_rhs = pressure_rhs + (2.0 / 3.0) * neutral_state.velocity * _grad_par_open(
-            neutral_state.pressure,
-            mesh=mesh,
-            metrics=metrics,
-        )
-        if neutral.name not in pressure_source_override_names:
-            pressure_rhs = pressure_rhs + (2.0 / 3.0) * energy_source[neutral.name]
-        momentum_rhs = -neutral.atomic_mass * _div_par_fvv_open(
-            _soft_floor(neutral_state.density, neutral.density_floor),
-            neutral_state.velocity,
-            fastest_wave,
-            mesh=mesh,
-            metrics=metrics,
-            fix_flux=False,
-        )
-        momentum_rhs = momentum_rhs - _grad_par_open(neutral_state.pressure, mesh=mesh, metrics=metrics)
-        momentum_rhs = momentum_rhs + momentum_source[neutral.name]
-        momentum_rhs = momentum_rhs + neutral_state.momentum_error
         variables[neutral.density_name] = neutral_state.density[None, ...]
         variables[neutral.pressure_name] = neutral_state.pressure[None, ...]
         variables[neutral.momentum_name] = neutral_state.momentum[None, ...]
         variables[f"SNV{neutral.name}"] = momentum_source[neutral.name][None, ...]
-        variables[f"ddt({neutral.density_name})"] = density_rhs[None, ...]
-        variables[f"ddt({neutral.pressure_name})"] = pressure_rhs[None, ...]
-        variables[f"ddt({neutral.momentum_name})"] = momentum_rhs[None, ...]
+        variables[f"ddt({neutral.density_name})"] = neutral_rhs_terms.density_total[None, ...]
+        variables[f"ddt({neutral.pressure_name})"] = neutral_rhs_terms.pressure_total[None, ...]
+        variables[f"ddt({neutral.momentum_name})"] = neutral_rhs_terms.momentum_total[None, ...]
 
     for name, value in diagnostics.items():
         variables[name] = value[None, ...]

@@ -231,6 +231,9 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   vectorized and backend-preserving, with a JVP finite-difference gate;
 - the recycling RHS now calls the backend-preserving ion/electron assemblers
   without immediately coercing their inputs through `np.asarray`;
+- neutral density, pressure, and momentum RHS assembly now uses the same
+  backend-preserving term object as ions/electrons, including the Hermès branch
+  where a neutral pressure source override is already a total source;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The
