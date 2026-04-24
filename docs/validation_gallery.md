@@ -92,10 +92,9 @@ What this locks down:
 - optional ingestion of direct Hermès diagnostic NetCDF fields from a
   one-step `output_ddt=true`, `diagnose=true` rerun, including `ddt(NVh)` and
   neutral momentum-flow diagnostics;
-- matched postprocessed reconstruction of the missing Hermès
-  `-Grad_par(Pn)` pressure-gradient source on the Hermès final state, with the
-  caveat that a small reference-side diagnostic patch is still needed for a
-  direct written-variable comparison;
+- direct ingestion of the patched Hermès `SNVh_pressure_gradient` diagnostic,
+  plus the matched postprocessed `-Grad_par(Pn)` reconstruction on the Hermès
+  final state for normalized operator comparison;
 - a publication-grade lineout/bar figure for the current neutral mixed offender.
 
 ## Electrostatic Vorticity Short Window

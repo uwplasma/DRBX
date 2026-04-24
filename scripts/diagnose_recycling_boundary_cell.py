@@ -14,10 +14,10 @@ from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 import jax_drb.native.recycling_1d as recycling_1d_mod
 from jax_drb.native.recycling_1d import (
-    IonRhsTerms,
     advance_recycling_1d_implicit_history,
     compute_recycling_1d_rhs,
 )
+from jax_drb.native.recycling_rhs_terms import IonRhsTerms
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.recycling import extract_recycling_controller_snapshot
 from jax_drb.parity.reference import run_reference_case

@@ -37,6 +37,13 @@ def test_core_runtime_dependencies_are_installed_by_default() -> None:
         assert any(item == requirement or item.startswith(f"{requirement};") for item in project_dependencies)
 
 
+def test_import_version_matches_pyproject() -> None:
+    payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    init_text = (REPO_ROOT / "src" / "jax_drb" / "__init__.py").read_text(encoding="utf-8")
+
+    assert f'__version__ = "{payload["project"]["version"]}"' in init_text
+
+
 def test_publish_pypi_workflow_uses_trusted_publishing() -> None:
     workflow = (REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml").read_text(encoding="utf-8")
 

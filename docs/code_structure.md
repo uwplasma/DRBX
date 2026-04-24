@@ -115,6 +115,11 @@ sheath response formulas now live in
 backend-preserving helpers, while the remaining full-field sheath orchestration
 stays in [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
 until its Hermès parity gates are ready.
+The production backward-Euler/BDF2 recycling steppers now construct their
+nonlinear residual through this fixed-state bridge, and expose both
+`sparse_jvp` and `jax_linearized` solver modes for transformable residual
+surfaces. The legacy SciPy BDF history callback remains separate until the
+entire heavy residual no longer needs host-backed dictionary assembly.
 
 The next low-risk extraction is the recycling field metadata layer:
 

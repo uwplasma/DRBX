@@ -8,7 +8,16 @@ def configured_recycling_transient_solver_mode(config: BoutConfig) -> str | None
         if not config.has_option(section_name, "recycling_transient_solver_mode"):
             continue
         mode = str(config.parsed(section_name, "recycling_transient_solver_mode")).strip()
-        allowed = {"continuation", "bdf", "adaptive_be", "adaptive_bdf"}
+        allowed = {
+            "continuation",
+            "bdf",
+            "adaptive_be",
+            "adaptive_bdf",
+            "matrix_free",
+            "sparse",
+            "sparse_jvp",
+            "jax_linearized",
+        }
         if mode not in allowed:
             raise ValueError(
                 f"Unsupported {section_name}.recycling_transient_solver_mode={mode!r}; "
