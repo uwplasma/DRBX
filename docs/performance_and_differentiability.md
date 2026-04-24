@@ -361,6 +361,17 @@ the packed RHS and backward-Euler residual value against the legacy packed
 path. That establishes an implementation-level parity seam for the next
 term-by-term ports without hiding the remaining host barrier.
 
+The newest core-transport slice moves another residual dependency into the
+JAX-native lane. The open-field parallel advection operator
+`div_par_mod_open` and parallel inertia operator `div_par_fvv_open` now keep
+JAX inputs on the JAX backend, and the ion/electron RHS-term assemblers preserve
+JAX arrays through transport, pressure-gradient, source, and soft-floor terms.
+The gates are not smoke tests: they compare JAX and NumPy operator values and
+compare `jax.jvp` tangents with centered finite differences. The full heavy
+recycling transient still calls those assemblers through host-oriented
+dictionary plumbing, but the mathematical kernels needed by the fixed-layout
+residual are no longer NumPy-only.
+
 The corresponding paper/docs artifact is:
 
 - [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)

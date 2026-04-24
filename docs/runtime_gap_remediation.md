@@ -222,6 +222,11 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   is a JAX array even if metrics are static NumPy arrays;
 - neutral parallel diffusion and key collision/conduction closure helpers have
   compact JVP tests with precomputed rate surfaces;
+- the open-field parallel advection and inertia operators used by the
+  recycling/neutral-mixed RHS now have JAX branches with NumPy parity and
+  JVP-versus-finite-difference gates;
+- ion and electron RHS-term assembly now preserves JAX arrays through the
+  transport, pressure-gradient, source-addition, and soft-floor pieces;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The
