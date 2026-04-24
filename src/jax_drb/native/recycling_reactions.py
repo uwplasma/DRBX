@@ -9,8 +9,7 @@ import numpy as np
 from ..config.boutinp import BoutConfig
 from .recycling_atomic import (
     OPENADAS_FILENAMES,
-    amjuel_energy_loss,
-    amjuel_reaction_rate,
+    amjuel_reaction_rate_and_energy_loss,
     charge_exchange_rate_multiplier,
     eval_amjuel_fit,
     eval_openadas_rate,
@@ -106,8 +105,15 @@ def _accumulate_amjuel_ionisation(
         )
     else:
         sigma_v, sigma_v_E, electron_heating = load_amjuel_rate(atom_name, "iz")
-        rate = amjuel_reaction_rate(atom.density, electron_density, electron_temperature, sigma_v, dataset_scalars)
-        radiation = amjuel_energy_loss(atom.density, electron_density, electron_temperature, sigma_v_E, electron_heating, rate, dataset_scalars)
+        rate, radiation = amjuel_reaction_rate_and_energy_loss(
+            atom.density,
+            electron_density,
+            electron_temperature,
+            sigma_v,
+            sigma_v_E,
+            electron_heating,
+            dataset_scalars,
+        )
     atom_velocity = atom.momentum / np.maximum(atom.atomic_mass * atom.density, 1.0e-8)
     ion_momentum = rate * atom.atomic_mass * atom_velocity
     density_source[atom_name] -= rate
@@ -154,8 +160,15 @@ def _accumulate_amjuel_recombination(
         )
     else:
         sigma_v, sigma_v_E, electron_heating = load_amjuel_rate(atom_name, "rec")
-        rate = amjuel_reaction_rate(ion.density, electron_density, electron_temperature, sigma_v, dataset_scalars)
-        radiation = amjuel_energy_loss(ion.density, electron_density, electron_temperature, sigma_v_E, electron_heating, rate, dataset_scalars)
+        rate, radiation = amjuel_reaction_rate_and_energy_loss(
+            ion.density,
+            electron_density,
+            electron_temperature,
+            sigma_v,
+            sigma_v_E,
+            electron_heating,
+            dataset_scalars,
+        )
     ion_velocity = ion.momentum / np.maximum(ion.atomic_mass * ion.density, 1.0e-8)
     ion_momentum = rate * ion.atomic_mass * ion_velocity
     density_source[ion_name] -= rate

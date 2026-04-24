@@ -12,6 +12,7 @@ from jax_drb.solver import (
     build_sparse_difference_quotient_jacobian,
     difference_quotient_step_size,
     pack_active_fields,
+    prepare_sparse_difference_quotient_plan,
     solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
@@ -209,6 +210,52 @@ def test_sparse_difference_quotient_jacobian_parallel_matches_serial() -> None:
     np.testing.assert_allclose(serial.toarray(), parallel.toarray(), rtol=1e-10, atol=1e-12)
 
 
+def test_sparse_difference_quotient_plan_matches_unplanned_jacobian() -> None:
+    pytest.importorskip("scipy")
+
+    active_shape = (4, 1, 5)
+    state = np.linspace(-0.3, 0.9, 2 * np.prod(active_shape))
+    sparsity = build_locality_sparsity(
+        active_shape,
+        field_count=2,
+        radii=(1, 0, 1),
+        periodic_axes=(2,),
+    )
+    color_groups = build_modulo_color_groups(
+        active_shape,
+        field_count=2,
+        color_periods=(2, 1, 5),
+    )
+    plan = prepare_sparse_difference_quotient_plan(
+        sparsity=sparsity,
+        color_groups=color_groups,
+    )
+
+    def residual(vector: np.ndarray) -> np.ndarray:
+        field0 = vector[: np.prod(active_shape)].reshape(active_shape)
+        field1 = vector[np.prod(active_shape) :].reshape(active_shape)
+        result0 = np.sin(field0) + 0.1 * np.roll(field1, 1, axis=2)
+        result1 = field1 * field1 - 0.2 * np.roll(field0, -1, axis=0)
+        return np.concatenate([result0.ravel(), result1.ravel()])
+
+    unplanned = build_sparse_difference_quotient_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+    )
+    planned = build_sparse_difference_quotient_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+    )
+
+    assert plan.nnz == sparsity.nnz
+    np.testing.assert_allclose(planned.toarray(), unplanned.toarray(), rtol=1.0e-12, atol=1.0e-12)
+
+
 def test_backward_euler_and_bdf2_residual_formulas() -> None:
     state = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     previous = np.array([0.5, 1.5, 2.5], dtype=np.float64)
@@ -259,6 +306,10 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     np.testing.assert_allclose(matrix_free_solution, target, rtol=1e-9, atol=1e-9)
     assert sparse_info.residual_inf_norm < 1.0e-10
     assert matrix_free_info.residual_inf_norm < 1.0e-10
+    assert sparse_info.residual_evaluation_count >= 1
+    assert sparse_info.jacobian_refresh_count >= 1
+    assert sparse_info.jacobian_assembly_seconds >= 0.0
+    assert sparse_info.linear_solve_seconds >= 0.0
 
 
 def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> None:

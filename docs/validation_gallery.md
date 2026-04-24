@@ -29,6 +29,7 @@ JAX-based solver papers.
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
 | `Hermes Live Rerun Matrix` | `live native vs live reference` | Same-machine native/Hermès rerun matrix across representative 1D and 2D lanes. |
 | `Hermes Offender Register` | `triage artifact` | Ranked parity/runtime/memory offender register from the live rerun matrix and reduced geometry summary. |
+| `Implicit Solver Profile Audit` | `numerical-performance audit` | Sparse finite-difference Jacobian plan and Newton phase diagnostics for the shared implicit backend. |
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 
 ## Diffusion Short Window
@@ -308,6 +309,21 @@ What this documents:
 This is an engineering-support figure, not a primary validation figure. It is
 useful because differentiable/JAX papers routinely report compile-versus-execute
 cost, but it should stay secondary to the physics and verification surfaces.
+
+## Implicit Solver Profile Audit
+
+![Implicit solver profile audit](data/implicit_solver_profile_audit_artifacts/images/implicit_solver_profile_audit.png)
+
+What this documents:
+
+- a controlled sparse finite-difference Jacobian assembly audit before the full
+  recycling physics stack is involved;
+- algebraic agreement between the original colored finite-difference path and
+  the precomputed CSC/color extraction-plan path;
+- sparse Newton phase diagnostics for residual evaluation, Jacobian assembly,
+  linear solve, and line search;
+- the numerical-methods support figure needed before making stronger runtime
+  claims on `recycling_dthe_one_step`.
 
 ## Local CPU Scaling Campaign
 

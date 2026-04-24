@@ -122,10 +122,24 @@ The current bottlenecks split into two classes.
    - cProfile
    - JAX trace
    - XLA dump
-2. identify the current Jacobian/RHS hot splits after the recent Horner and
-   vectorization improvements
-3. cut repeated source/closure recomputation where possible
-4. keep the current fidelity band unchanged while reducing runtime
+2. use the sparse Newton phase diagnostics to split the runtime into residual
+   evaluation, finite-difference Jacobian refresh, linear solve, line search,
+   and fallback time
+3. identify the current Jacobian/RHS hot splits after the recent Horner,
+   vectorization, cached-geometry, and precomputed color-plan improvements
+4. cut repeated source/closure recomputation where possible
+5. keep the current fidelity band unchanged while reducing runtime
+
+The latest local cProfile/RSS pass sharpens this target. After AMJUEL log-input
+reuse and BDF Jacobian-plan reuse, a one-run cProfile measurement took about
+`67.00 s`, while the separate RSS run took about `53.37 s` and peaked at about
+`229.4 MiB`. The cProfile split is still dominated by SciPy BDF stepping,
+packed RHS calls, and sparse finite-difference Jacobian construction, with
+reaction-source/AMJUEL evaluation, neutral parallel advection, collision
+closure, state preparation, and target recycling as the next source-level
+offenders. This argues for fewer host residual calls, stronger source/closure
+caching, and a JAX-native residual/JVP lane before spending more effort on
+generic local-thread tuning.
 
 ### Priority 3: tokamak recycling observables
 

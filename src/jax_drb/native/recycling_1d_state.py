@@ -25,6 +25,7 @@ class Recycling1DImplicitStepInfo:
     active_size: int
     nonlinear_iterations: int
     linear_iterations: int
+    diagnostics: dict[str, float | int | bool] = field(default_factory=dict)
 
 
 RecyclingProgressCallback = Callable[[Mapping[str, Any]], None]

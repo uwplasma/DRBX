@@ -1,0 +1,58 @@
+{
+  "active_shape": [
+    12,
+    1,
+    16
+  ],
+  "case": "implicit_solver_profile_audit",
+  "color_group_count": 24,
+  "field_count": 3,
+  "jacobian_build_samples": {
+    "planned_parallel": [
+      0.00350679102120921,
+      0.0033727919799275696,
+      0.0025399160222150385
+    ],
+    "planned_serial": [
+      0.0015910830115899444,
+      0.001975083025172353,
+      0.001631791004911065
+    ],
+    "unplanned_serial": [
+      0.002363415958825499,
+      0.0022263749851845205,
+      0.0021835839725099504
+    ]
+  },
+  "jacobian_build_seconds": {
+    "planned_parallel_mean": 0.0031398330077839396,
+    "planned_serial_mean": 0.0017326523472244542,
+    "unplanned_serial_mean": 0.00225779163883999
+  },
+  "max_jacobian_abs_diff": 0.0,
+  "newton": {
+    "fallback_used": false,
+    "jacobian_assembly_seconds": 0.0036369169829413295,
+    "jacobian_refresh_count": 5,
+    "line_search_seconds": 6.208487320691347e-05,
+    "linear_iterations": 5,
+    "linear_solve_seconds": 0.00033825001446530223,
+    "nonlinear_iterations": 5,
+    "residual_evaluation_count": 50,
+    "residual_evaluation_seconds": 7.149891462177038e-05,
+    "residual_inf_norm": 2.220446049250313e-16,
+    "solution_max_abs_error": 1.1102230246251565e-16
+  },
+  "notes": {
+    "numerical_role": "This audit verifies that the precomputed color-plan path is algebraically identical to the original sparse finite-difference Jacobian path and records the phase timings needed to interpret heavy recycling implicit solves.",
+    "paper_role": "Use this as the methods/performance support figure for sparse finite-difference Jacobian assembly before showing full Hermes-backed recycling runtime comparisons."
+  },
+  "plan_build_seconds": 0.000711207976564765,
+  "repeats": 3,
+  "sparsity_nnz": 14688,
+  "speedups": {
+    "parallel_vs_planned_serial": 0.5518294581046339,
+    "planned_vs_unplanned_serial": 1.3030840505637264
+  },
+  "state_size": 576
+}

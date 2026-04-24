@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import os
+from threading import Lock
+from time import perf_counter
 
 import numpy as np
 
@@ -13,6 +15,29 @@ class ImplicitStepInfo:
     active_shape: tuple[int, ...]
     nonlinear_iterations: int
     linear_iterations: int
+    residual_evaluation_count: int = 0
+    residual_evaluation_seconds: float = 0.0
+    jacobian_refresh_count: int = 0
+    jacobian_assembly_seconds: float = 0.0
+    linear_solve_seconds: float = 0.0
+    line_search_seconds: float = 0.0
+    fallback_used: bool = False
+
+
+@dataclass(frozen=True)
+class SparseDifferenceQuotientGroup:
+    columns: np.ndarray
+    rows: np.ndarray
+    cols: np.ndarray
+    starts: np.ndarray
+    counts: np.ndarray
+
+
+@dataclass(frozen=True)
+class SparseDifferenceQuotientPlan:
+    shape: tuple[int, int]
+    groups: tuple[SparseDifferenceQuotientGroup, ...]
+    nnz: int
 
 
 def difference_quotient_step_size(value: float) -> float:
@@ -92,6 +117,49 @@ def build_modulo_color_groups(
     return tuple(tuple(groups[key]) for key in sorted(groups))
 
 
+def prepare_sparse_difference_quotient_plan(
+    *,
+    sparsity,
+    color_groups: tuple[tuple[int, ...], ...],
+    sparsity_csc=None,
+) -> SparseDifferenceQuotientPlan:
+    """Precompute CSC row/column slices for repeated colored FD Jacobians."""
+
+    sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
+    groups: list[SparseDifferenceQuotientGroup] = []
+    for group in color_groups:
+        columns = np.asarray(group, dtype=np.int32)
+        counts = np.asarray(
+            [sparsity_csc.indptr[column + 1] - sparsity_csc.indptr[column] for column in columns],
+            dtype=np.int32,
+        )
+        starts = np.empty_like(counts)
+        if counts.size:
+            starts[0] = 0
+            starts[1:] = np.cumsum(counts[:-1], dtype=np.int32)
+        rows = np.empty(int(np.sum(counts)), dtype=np.int32)
+        cols = np.empty_like(rows)
+        for index, column in enumerate(columns):
+            start = int(starts[index])
+            stop = start + int(counts[index])
+            rows[start:stop] = sparsity_csc.indices[sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]]
+            cols[start:stop] = int(column)
+        groups.append(
+            SparseDifferenceQuotientGroup(
+                columns=columns,
+                rows=rows,
+                cols=cols,
+                starts=starts,
+                counts=counts,
+            )
+        )
+    return SparseDifferenceQuotientPlan(
+        shape=tuple(int(axis) for axis in sparsity.shape),
+        groups=tuple(groups),
+        nnz=int(sparsity_csc.nnz),
+    )
+
+
 def build_sparse_difference_quotient_jacobian(
     residual,
     state: np.ndarray,
@@ -100,6 +168,7 @@ def build_sparse_difference_quotient_jacobian(
     sparsity,
     color_groups: tuple[tuple[int, ...], ...],
     sparsity_csc=None,
+    difference_plan: SparseDifferenceQuotientPlan | None = None,
     parallel_workers: int = 1,
 ):
     try:
@@ -114,44 +183,37 @@ def build_sparse_difference_quotient_jacobian(
         else np.asarray(residual(state_array), dtype=np.float64)
     )
     sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
+    plan = (
+        difference_plan
+        if difference_plan is not None
+        else prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc)
+    )
 
-    nnz = int(sparsity_csc.nnz)
+    nnz = int(plan.nnz)
     row_indices = np.empty(nnz, dtype=np.int32)
     col_indices = np.empty(nnz, dtype=np.int32)
     data = np.empty(nnz, dtype=np.float64)
     offset = 0
 
-    def _evaluate_group(group: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _evaluate_group(group: SparseDifferenceQuotientGroup) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         perturbed_state = state_array.copy()
-        group_steps: list[tuple[int, float]] = []
-        group_nnz = 0
-        for column in group:
-            step = difference_quotient_step_size(state_array[column])
-            perturbed_state[column] += step
-            group_steps.append((column, step))
-            group_nnz += sparsity_csc.indptr[column + 1] - sparsity_csc.indptr[column]
-
-        group_rows = np.empty(group_nnz, dtype=np.int32)
-        group_cols = np.empty(group_nnz, dtype=np.int32)
-        group_data = np.empty(group_nnz, dtype=np.float64)
-
+        steps = np.sqrt(np.finfo(np.float64).eps) * np.maximum(1.0, np.abs(state_array[group.columns]))
+        perturbed_state[group.columns] += steps
         perturbed_residual = np.asarray(residual(perturbed_state), dtype=np.float64)
         delta = perturbed_residual - residual0
-        group_offset = 0
-        for column, step in group_steps:
-            rows = sparsity_csc.indices[sparsity_csc.indptr[column] : sparsity_csc.indptr[column + 1]]
-            count = len(rows)
-            group_rows[group_offset : group_offset + count] = rows
-            group_cols[group_offset : group_offset + count] = column
-            group_data[group_offset : group_offset + count] = delta[rows] / step
-            group_offset += count
-        return group_rows, group_cols, group_data
+        group_data = np.empty_like(group.rows, dtype=np.float64)
+        for index, step in enumerate(steps):
+            start = int(group.starts[index])
+            stop = start + int(group.counts[index])
+            rows = group.rows[start:stop]
+            group_data[start:stop] = delta[rows] / float(step)
+        return group.rows, group.cols, group_data
 
-    if parallel_workers > 1 and len(color_groups) > 1:
+    if parallel_workers > 1 and len(plan.groups) > 1:
         with ThreadPoolExecutor(max_workers=int(parallel_workers)) as executor:
-            group_results = tuple(executor.map(_evaluate_group, color_groups))
+            group_results = tuple(executor.map(_evaluate_group, plan.groups))
     else:
-        group_results = tuple(_evaluate_group(group) for group in color_groups)
+        group_results = tuple(_evaluate_group(group) for group in plan.groups)
 
     for group_rows, group_cols, group_data in group_results:
         count = len(group_rows)
@@ -160,7 +222,7 @@ def build_sparse_difference_quotient_jacobian(
         data[offset : offset + count] = group_data
         offset += count
 
-    return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=sparsity.shape).tocsr()
+    return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
 
 
 def backward_euler_residual(
@@ -223,6 +285,44 @@ def solve_sparse_newton_system(
     total_linear_iterations = 0
     best_state = np.array(state, copy=True)
     best_residual_inf_norm = np.inf
+    residual_evaluation_count = 0
+    residual_evaluation_seconds = 0.0
+    jacobian_refresh_count = 0
+    jacobian_assembly_seconds = 0.0
+    linear_solve_seconds = 0.0
+    line_search_seconds = 0.0
+    fallback_used = False
+    residual_counter_lock = Lock()
+
+    def evaluate_residual(candidate_state: np.ndarray) -> np.ndarray:
+        nonlocal residual_evaluation_count, residual_evaluation_seconds
+        started_at = perf_counter()
+        value = np.asarray(residual(candidate_state), dtype=np.float64)
+        elapsed = perf_counter() - started_at
+        with residual_counter_lock:
+            residual_evaluation_count += 1
+            residual_evaluation_seconds += elapsed
+        return value
+
+    def build_info(
+        *,
+        residual_inf_norm: float,
+        nonlinear_iterations: int,
+    ) -> ImplicitStepInfo:
+        return ImplicitStepInfo(
+            residual_inf_norm=residual_inf_norm,
+            active_shape=active_shape,
+            nonlinear_iterations=nonlinear_iterations,
+            linear_iterations=total_linear_iterations,
+            residual_evaluation_count=residual_evaluation_count,
+            residual_evaluation_seconds=residual_evaluation_seconds,
+            jacobian_refresh_count=jacobian_refresh_count,
+            jacobian_assembly_seconds=jacobian_assembly_seconds,
+            linear_solve_seconds=linear_solve_seconds,
+            line_search_seconds=line_search_seconds,
+            fallback_used=fallback_used,
+        )
+
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
     if jacobian_parallel_workers is None:
         env_value = os.environ.get("JAX_DRB_FD_JACOBIAN_THREADS")
@@ -235,33 +335,41 @@ def solve_sparse_newton_system(
     jacobian = None
     jacobian_csc = None
     sparsity_csc = sparsity.tocsc()
+    difference_plan = prepare_sparse_difference_quotient_plan(
+        sparsity=sparsity,
+        color_groups=color_groups,
+        sparsity_csc=sparsity_csc,
+    )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
-        residual_value = np.asarray(residual(state), dtype=np.float64)
+        residual_value = evaluate_residual(state)
         residual_inf_norm = float(np.max(np.abs(residual_value)))
         if residual_inf_norm < best_residual_inf_norm:
             best_state = np.array(state, copy=True)
             best_residual_inf_norm = residual_inf_norm
         if residual_inf_norm < float(residual_tolerance):
-            return state, ImplicitStepInfo(
+            return state, build_info(
                 residual_inf_norm=residual_inf_norm,
-                active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration - 1,
-                linear_iterations=total_linear_iterations,
             )
 
         if jacobian is None or nonlinear_iteration == 1 or ((nonlinear_iteration - 1) % refresh_frequency == 0):
+            jacobian_started_at = perf_counter()
             jacobian = build_sparse_difference_quotient_jacobian(
-                residual,
+                evaluate_residual,
                 state,
                 base_residual=residual_value,
                 sparsity=sparsity,
                 color_groups=color_groups,
                 sparsity_csc=sparsity_csc,
+                difference_plan=difference_plan,
                 parallel_workers=int(jacobian_parallel_workers),
             )
             jacobian_csc = jacobian.tocsc()
+            jacobian_assembly_seconds += perf_counter() - jacobian_started_at
+            jacobian_refresh_count += 1
         linear_iterations = 0
+        linear_solve_started_at = perf_counter()
         if prefer_direct_linear_solve:
             update = spsolve(jacobian_csc, -residual_value)
             total_linear_iterations += 1
@@ -284,18 +392,20 @@ def solve_sparse_newton_system(
             if exit_code != 0:
                 update = spsolve(jacobian_csc, -residual_value)
                 total_linear_iterations += 1
+        linear_solve_seconds += perf_counter() - linear_solve_started_at
 
         update = np.asarray(update, dtype=np.float64)
         accepted = False
         step_scale = 1.0
         candidate_state = np.array(state, copy=True)
         candidate_residual_inf_norm = residual_inf_norm
+        line_search_started_at = perf_counter()
         while step_scale >= 1.0 / 64.0:
             trial_state = state + step_scale * update
             if not np.all(np.isfinite(trial_state)):
                 step_scale *= 0.5
                 continue
-            trial_residual = np.asarray(residual(trial_state), dtype=np.float64)
+            trial_residual = evaluate_residual(trial_state)
             trial_residual_inf_norm = float(np.max(np.abs(trial_residual)))
             if np.isfinite(trial_residual_inf_norm) and trial_residual_inf_norm <= residual_inf_norm:
                 candidate_state = trial_state
@@ -303,6 +413,7 @@ def solve_sparse_newton_system(
                 accepted = True
                 break
             step_scale *= 0.5
+        line_search_seconds += perf_counter() - line_search_started_at
 
         if not accepted:
             jacobian = None
@@ -313,23 +424,21 @@ def solve_sparse_newton_system(
             best_state = np.array(state, copy=True)
             best_residual_inf_norm = candidate_residual_inf_norm
         if float(np.max(np.abs(step_scale * update))) < float(step_tolerance):
-            return state, ImplicitStepInfo(
+            return state, build_info(
                 residual_inf_norm=candidate_residual_inf_norm,
-                active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration,
-                linear_iterations=total_linear_iterations,
             )
         if candidate_residual_inf_norm < float(residual_tolerance):
-            return state, ImplicitStepInfo(
+            return state, build_info(
                 residual_inf_norm=candidate_residual_inf_norm,
-                active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration,
-                linear_iterations=total_linear_iterations,
             )
 
+    fallback_used = True
+    fallback_started_at = perf_counter()
     try:
         solved = newton_krylov(
-            residual,
+            evaluate_residual,
             np.asarray(best_state, dtype=np.float64),
             f_tol=float(residual_tolerance),
             maxiter=max(4 * int(max_nonlinear_iterations), 25),
@@ -338,13 +447,12 @@ def solve_sparse_newton_system(
         )
     except NoConvergence as exc:
         solved = np.asarray(exc.args[0], dtype=np.float64)
-    residual_value = np.asarray(residual(np.asarray(solved, dtype=np.float64)), dtype=np.float64)
+    linear_solve_seconds += perf_counter() - fallback_started_at
+    residual_value = evaluate_residual(np.asarray(solved, dtype=np.float64))
     residual_inf_norm = float(np.max(np.abs(residual_value)))
-    return np.asarray(solved, dtype=np.float64), ImplicitStepInfo(
+    return np.asarray(solved, dtype=np.float64), build_info(
         residual_inf_norm=residual_inf_norm,
-        active_shape=active_shape,
         nonlinear_iterations=int(max_nonlinear_iterations),
-        linear_iterations=total_linear_iterations,
     )
 
 
@@ -361,21 +469,37 @@ def solve_matrix_free_newton_system(
     except ImportError as exc:  # pragma: no cover - exercised only when scipy is unavailable
         raise ImportError("Matrix-free implicit stepping requires scipy.") from exc
 
+    residual_evaluation_count = 0
+    residual_evaluation_seconds = 0.0
+
+    def evaluate_residual(candidate_state: np.ndarray) -> np.ndarray:
+        nonlocal residual_evaluation_count, residual_evaluation_seconds
+        started_at = perf_counter()
+        value = np.asarray(residual(candidate_state), dtype=np.float64)
+        residual_evaluation_seconds += perf_counter() - started_at
+        residual_evaluation_count += 1
+        return value
+
     iteration_budget = max(int(max_nonlinear_iterations), 25)
+    solve_started_at = perf_counter()
     solved = newton_krylov(
-        residual,
+        evaluate_residual,
         np.asarray(initial_state, dtype=np.float64),
         f_tol=float(residual_tolerance),
         maxiter=iteration_budget,
         method="lgmres",
         verbose=0,
     )
-    residual_value = np.asarray(residual(np.asarray(solved, dtype=np.float64)), dtype=np.float64)
+    solve_seconds = perf_counter() - solve_started_at
+    residual_value = evaluate_residual(np.asarray(solved, dtype=np.float64))
     return np.asarray(solved, dtype=np.float64), ImplicitStepInfo(
         residual_inf_norm=float(np.max(np.abs(residual_value))),
         active_shape=active_shape,
         nonlinear_iterations=iteration_budget,
         linear_iterations=iteration_budget,
+        residual_evaluation_count=residual_evaluation_count,
+        residual_evaluation_seconds=residual_evaluation_seconds,
+        linear_solve_seconds=solve_seconds,
     )
 
 

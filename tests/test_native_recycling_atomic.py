@@ -5,6 +5,7 @@ import numpy as np
 from jax_drb.native.recycling_atomic import (
     amjuel_energy_loss,
     amjuel_reaction_rate,
+    amjuel_reaction_rate_and_energy_loss,
     eval_amjuel_fit,
     eval_openadas_rate,
     hydrogen_cx_sigmav,
@@ -84,6 +85,15 @@ def test_atomic_rate_helpers_return_finite_positive_arrays() -> None:
         amjuel_rate,
         dataset_scalars,
     )
+    paired_amjuel_rate, paired_amjuel_loss = amjuel_reaction_rate_and_energy_loss(
+        heavy_density,
+        electron_density,
+        electron_temperature,
+        sigma_v_coeffs,
+        sigma_v_E_coeffs,
+        electron_heating,
+        dataset_scalars,
+    )
 
     openadas_rate = openadas_reaction_rate(
         heavy_density,
@@ -109,6 +119,8 @@ def test_atomic_rate_helpers_return_finite_positive_arrays() -> None:
     assert np.all(np.isfinite(openadas_loss))
     assert np.all(amjuel_rate > 0.0)
     assert np.all(openadas_rate > 0.0)
+    np.testing.assert_allclose(paired_amjuel_rate, amjuel_rate, rtol=1.0e-13, atol=0.0)
+    np.testing.assert_allclose(paired_amjuel_loss, amjuel_loss, rtol=1.0e-13, atol=0.0)
 
 
 def test_hydrogen_cx_sigmav_returns_positive_finite_values() -> None:

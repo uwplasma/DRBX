@@ -489,6 +489,13 @@ The current priority runtime offenders are:
 - any live Hermes rerun that requires a high-rank launch or writes large dumps
   before the guarded compare surface is extracted
 
+The first concrete runtime-instrumentation step is now in the shared implicit
+solver: sparse Newton steps expose residual, Jacobian, linear-solve,
+line-search, and fallback diagnostics, and the colored finite-difference
+Jacobian builder reuses a precomputed extraction plan across refreshes. The
+next `recycling_dthe_one_step` run should therefore report both external
+cProfile/JAX trace evidence and solver-phase timings from the same solve.
+
 The current priority memory offenders are:
 
 - materialized sparse Jacobians and temporary colored finite-difference states

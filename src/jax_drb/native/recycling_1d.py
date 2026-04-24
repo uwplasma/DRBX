@@ -16,6 +16,7 @@ from ..solver import (
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
     pack_active_fields,
+    prepare_sparse_difference_quotient_plan,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
     unpack_active_fields,
@@ -2705,6 +2706,11 @@ def _advance_recycling_1d_bdf_history(
         layout=layout,
     )
     sparsity_csc = sparsity.tocsc()
+    difference_plan = prepare_sparse_difference_quotient_plan(
+        sparsity=sparsity,
+        color_groups=color_groups,
+        sparsity_csc=sparsity_csc,
+    )
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         state_fields, state_integrals = _unpack_recycling_active_state(
@@ -2739,6 +2745,7 @@ def _advance_recycling_1d_bdf_history(
             sparsity=sparsity,
             color_groups=color_groups,
             sparsity_csc=sparsity_csc,
+            difference_plan=difference_plan,
         )
 
     run_started_at = time.perf_counter()
@@ -3128,5 +3135,14 @@ def _as_recycling_step_info(info: ImplicitStepInfo) -> Recycling1DImplicitStepIn
         active_size=int(np.prod(info.active_shape)),
         nonlinear_iterations=info.nonlinear_iterations,
         linear_iterations=info.linear_iterations,
+        diagnostics={
+            "residual_evaluation_count": int(getattr(info, "residual_evaluation_count", 0)),
+            "residual_evaluation_seconds": float(getattr(info, "residual_evaluation_seconds", 0.0)),
+            "jacobian_refresh_count": int(getattr(info, "jacobian_refresh_count", 0)),
+            "jacobian_assembly_seconds": float(getattr(info, "jacobian_assembly_seconds", 0.0)),
+            "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
+            "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
+            "fallback_used": bool(getattr(info, "fallback_used", False)),
+        },
     )
     pressure_sources = explicit_pressure_sources or {}

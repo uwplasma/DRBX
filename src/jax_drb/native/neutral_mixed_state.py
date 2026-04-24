@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -35,6 +35,7 @@ class NeutralMixedImplicitStepInfo:
     active_shape: tuple[int, int, int]
     nonlinear_iterations: int
     linear_iterations: int
+    diagnostics: dict[str, float | int | bool] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

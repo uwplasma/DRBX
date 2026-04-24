@@ -42,6 +42,9 @@ this machine:
   - timed local mean dropped from about `75.3 s` to about `54.1 s` after the
     reaction/source allocation cleanup, and then to about `52.76 s` after
     caching target-boundary geometry in the recycling runtime model
+  - the latest one-run cProfile pass on this machine measured `67.00 s`; the
+    separate RSS run measured `53.37 s` with peak process-tree RSS about
+    `229.4 MiB`
   - fresh live Hermès rerun ratio is about `7.82x`
   - the fidelity band stayed essentially unchanged at about `4.9e-3` relative
     RMS on `NVd`
@@ -58,6 +61,32 @@ allocation. The refreshed cProfile still shows the dominant remaining work in:
 - collision closure
 - target recycling / target boundary-source assembly
 - prepared-state and boundary setup on the open-field lane
+
+On the latest `recycling_dthe_one_step` cProfile pass, after AMJUEL log-input
+reuse and BDF Jacobian-plan reuse, the cumulative top costs were: SciPy
+`solve_ivp`/BDF at about `66.4 s`, packed RHS calls at about `64.0 s`, species
+RHS assembly at about `61.2 s`, sparse finite-difference Jacobian construction
+at about `45.7 s`, reaction sources at about `13.7 s`, AMJUEL fit evaluation
+at about `11.4 s`, neutral parallel advection at about `7.6 s`,
+collision closure at about `6.3 s`, state preparation at about `6.1 s`, and
+target recycling at about `6.1 s`. That split confirms that the next runtime
+fix has to attack both the Jacobian/RHS call count and repeated source/closure
+work; local threading alone is not the right primary fix for this path.
+
+The shared sparse Newton backend now records per-step diagnostics for:
+
+- residual evaluation count and wall time
+- sparse finite-difference Jacobian refresh count and wall time
+- sparse/direct or Krylov linear-solve wall time
+- line-search wall time
+- fallback use
+
+Those diagnostics are intentionally attached to the solver step info rather
+than hidden inside one profiler script. They can now be surfaced by recycling,
+neutral, and future tokamak campaign packages when the paper needs
+phase-resolved runtime evidence. The sparse finite-difference Jacobian path
+also precomputes the CSC row/column extraction plan once per solve, so each
+Newton refresh no longer rebuilds the same color-group indexing metadata.
 
 ## Basic Usage
 

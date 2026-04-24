@@ -885,6 +885,15 @@ def _as_neutral_step_info(info: ImplicitStepInfo) -> NeutralMixedImplicitStepInf
         active_shape=tuple(int(axis) for axis in info.active_shape),
         nonlinear_iterations=info.nonlinear_iterations,
         linear_iterations=info.linear_iterations,
+        diagnostics={
+            "residual_evaluation_count": int(getattr(info, "residual_evaluation_count", 0)),
+            "residual_evaluation_seconds": float(getattr(info, "residual_evaluation_seconds", 0.0)),
+            "jacobian_refresh_count": int(getattr(info, "jacobian_refresh_count", 0)),
+            "jacobian_assembly_seconds": float(getattr(info, "jacobian_assembly_seconds", 0.0)),
+            "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
+            "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
+            "fallback_used": bool(getattr(info, "fallback_used", False)),
+        },
     )
 
 

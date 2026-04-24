@@ -425,6 +425,7 @@ def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:
     assert np.all(np.isfinite(stepped.momentum))
     assert info.nonlinear_iterations >= 1
     assert info.linear_iterations >= info.nonlinear_iterations
+    assert info.diagnostics["residual_evaluation_count"] >= 1
 
 
 def test_neutral_mixed_sparse_backward_euler_step_solves_active_residual() -> None:
@@ -470,6 +471,9 @@ def test_neutral_mixed_sparse_backward_euler_step_solves_active_residual() -> No
     assert np.all(np.isfinite(stepped.density))
     assert np.all(np.isfinite(stepped.pressure))
     assert np.all(np.isfinite(stepped.momentum))
+    assert info.diagnostics["residual_evaluation_count"] >= 1
+    assert info.diagnostics["jacobian_refresh_count"] >= 1
+    assert info.diagnostics["jacobian_assembly_seconds"] >= 0.0
 
 
 def test_neutral_mixed_active_jacobian_sparsity_matches_local_stencil() -> None:
