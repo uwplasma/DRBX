@@ -386,6 +386,12 @@ gradient, and momentum-error addition all have NumPy parity and JVP
 finite-difference gates. This narrows the remaining heavy recycling residual
 work to the full-field species-preparation layer, source/closure accumulation,
 and the host/SciPy nonlinear driver.
+The species-preparation layer has now also started moving across that boundary.
+`prepare_species_state`, `safe_temperature`, `raw_species_velocity`, target
+guard merging, and the neutral target/no-flow guard path preserve JAX inputs
+and have focused JVP coverage. The remaining full residual barrier is therefore
+less about individual field algebra and more about the surrounding
+dictionary-oriented accumulation and nonlinear solve orchestration.
 
 The corresponding paper/docs artifact is:
 
