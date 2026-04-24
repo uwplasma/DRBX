@@ -244,3 +244,72 @@ def test_neutral_parallel_diffusion_accepts_precomputed_rates() -> None:
         np.testing.assert_allclose(reused.energy_source[name], baseline.energy_source[name])
     for name in baseline.momentum_source:
         np.testing.assert_allclose(reused.momentum_source[name], baseline.momentum_source[name])
+
+
+def test_neutral_parallel_diffusion_is_jax_jvp_transformable_with_precomputed_rates() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    config, mesh, metrics, species, prepared = _build_prepared_case(
+        overrides=(
+            "model:components=neutral_parallel_diffusion",
+            "neutral_parallel_diffusion:dneut=1.0",
+            "neutral_parallel_diffusion:diffusion_collisions_mode=multispecies",
+            "neutral_parallel_diffusion:diagnose=true",
+        )
+    )
+    scalars = resolved_dataset_scalars(RunConfiguration.from_config(config))
+    collision_rates = {
+        key: jnp.asarray(value, dtype=jnp.float64)
+        for key, value in compute_collision_frequencies(config, species, prepared, dataset_scalars=scalars).items()
+    }
+    ionisation_rates = {
+        key: jnp.asarray(value, dtype=jnp.float64)
+        for key, value in neutral_ionisation_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=scalars,
+        ).items()
+    }
+    cx_rates = {
+        key: jnp.asarray(value, dtype=jnp.float64)
+        for key, value in neutral_charge_exchange_collision_rates(
+            config,
+            species=species,
+            prepared=prepared,
+            dataset_scalars=scalars,
+        ).items()
+    }
+
+    def qoi(scale):
+        transformed = {}
+        for name, state in prepared.items():
+            density = jnp.asarray(state.density, dtype=jnp.float64)
+            pressure = jnp.asarray(state.pressure, dtype=jnp.float64)
+            if name == "d":
+                pressure = pressure * scale
+            transformed[name] = replace(
+                state,
+                density=density,
+                pressure=pressure,
+                temperature=pressure / jnp.maximum(density, 1.0e-8),
+                momentum=jnp.asarray(state.momentum, dtype=jnp.float64),
+                velocity=jnp.asarray(state.velocity, dtype=jnp.float64),
+            )
+        terms = apply_neutral_parallel_diffusion(
+            config,
+            species=species,
+            prepared=transformed,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=scalars,
+            collision_rates=collision_rates,
+            ionisation_rates=ionisation_rates,
+            charge_exchange_rates=cx_rates,
+        )
+        return jnp.sum(terms.density_source["d"]) + 0.1 * jnp.sum(terms.energy_source["d"])
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))

@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
+from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .neutral_mixed import _div_par_k_grad_par_open, _grad_par_open
@@ -102,7 +104,11 @@ def ion_thermal_force_pair(
         mesh=mesh,
         metrics=metrics,
     )
-    return light_name, heavy_name, np.asarray(heavy_force, dtype=np.float64)
+    return (
+        light_name,
+        heavy_name,
+        heavy_force if use_jax_backend(heavy_force) else np.asarray(heavy_force, dtype=np.float64),
+    )
 
 
 def parallel_ion_viscous_stress_open(
@@ -114,6 +120,23 @@ def parallel_ion_viscous_stress_open(
     metrics: StructuredMetrics,
     bounce_factor: np.ndarray | None = None,
 ) -> np.ndarray:
+    use_jax = use_jax_backend(pressure, tau, velocity, metrics.Bxy, bounce_factor)
+    if use_jax:
+        bxy = jnp.maximum(jnp.asarray(metrics.Bxy, dtype=jnp.float64), 1.0e-12)
+        pressure_array = jnp.asarray(pressure, dtype=jnp.float64)
+        tau_array = jnp.asarray(tau, dtype=jnp.float64)
+        velocity_array = jnp.asarray(velocity, dtype=jnp.float64)
+        grad_par_logb = _grad_par_open(jnp.log(bxy), mesh=mesh, metrics=metrics)
+        effective_bounce_factor = (
+            jnp.ones_like(pressure_array, dtype=jnp.float64)
+            if bounce_factor is None
+            else jnp.asarray(bounce_factor, dtype=jnp.float64)
+        )
+        return -0.96 * pressure_array * tau_array * effective_bounce_factor * (
+            2.0 * _grad_par_open(velocity_array, mesh=mesh, metrics=metrics)
+            + velocity_array * grad_par_logb
+        )
+
     bxy = np.maximum(np.asarray(metrics.Bxy, dtype=np.float64), 1.0e-12)
     grad_par_logb = _grad_par_open(np.log(bxy), mesh=mesh, metrics=metrics)
     effective_bounce_factor = (
@@ -140,6 +163,17 @@ def div_par_parallel_ion_viscosity_open(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> np.ndarray:
+    if use_jax_backend(eta, velocity, metrics.Bxy):
+        bxy = jnp.maximum(jnp.asarray(metrics.Bxy, dtype=jnp.float64), 1.0e-12)
+        sqrt_b = jnp.sqrt(bxy)
+        return sqrt_b * _div_par_k_grad_par_open(
+            jnp.asarray(eta, dtype=jnp.float64) / bxy,
+            sqrt_b * jnp.asarray(velocity, dtype=jnp.float64),
+            mesh=mesh,
+            metrics=metrics,
+            boundary_flux=True,
+        )
+
     bxy = np.maximum(np.asarray(metrics.Bxy, dtype=np.float64), 1.0e-12)
     sqrt_b = np.sqrt(bxy)
     return sqrt_b * _div_par_k_grad_par_open(
@@ -172,7 +206,16 @@ def conduction_collision_time(
 ) -> np.ndarray:
     species_type = "electron" if species_name == "e" else ("neutral" if species[species_name].charge == 0.0 else "ion")
     mode = str(config.parsed(species_name, "conduction_collisions_mode")).strip().lower() if config.has_option(species_name, "conduction_collisions_mode") else "multispecies"
-    total = np.zeros_like(prepared[species_name].density, dtype=np.float64)
+    use_jax = use_jax_backend(
+        prepared[species_name].density,
+        *(rate for rate in collision_rates.values()),
+        *(rate for rate in cx_rates.values()),
+    )
+    total = (
+        jnp.zeros_like(jnp.asarray(prepared[species_name].density, dtype=jnp.float64), dtype=jnp.float64)
+        if use_jax
+        else np.zeros_like(prepared[species_name].density, dtype=np.float64)
+    )
 
     if mode == "braginskii":
         if species_type == "electron":
@@ -206,6 +249,8 @@ def conduction_collision_time(
     else:
         raise NotImplementedError(f"Unsupported conduction_collisions_mode={mode!r}.")
 
+    if use_jax:
+        return 1.0 / jnp.maximum(total, 1.0e-30)
     return 1.0 / np.maximum(total, 1.0e-30)
 
 
@@ -221,8 +266,30 @@ def apply_collision_closure(
     cx_rates: dict[str, np.ndarray] | None = None,
 ) -> CollisionClosureTerms:
     configured_components = set(configured_component_names(config))
-    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    use_jax = use_jax_backend(
+        *(state.density for state in prepared.values()),
+        *(state.temperature for state in prepared.values()),
+        *(state.velocity for state in prepared.values()),
+        *((rate for rate in collision_rates.values()) if collision_rates is not None else ()),
+        *((rate for rate in cx_rates.values()) if cx_rates is not None else ()),
+        metrics.Bxy,
+    )
+    energy_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for name, sp in species.items()
+    }
+    momentum_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for name, sp in species.items()
+    }
     diagnostics: dict[str, np.ndarray] = {}
     collision_rates = (
         compute_collision_frequencies(config, species, prepared, dataset_scalars=dataset_scalars)
@@ -265,8 +332,8 @@ def apply_collision_closure(
                 )
                 momentum_source[first_name] += friction
                 momentum_source[second_name] -= friction
-                diagnostics[f"F{first_name}{second_name}_coll"] = np.asarray(friction, dtype=np.float64)
-                diagnostics[f"F{second_name}{first_name}_coll"] = np.asarray(-friction, dtype=np.float64)
+                diagnostics[f"F{first_name}{second_name}_coll"] = friction if use_jax else np.asarray(friction, dtype=np.float64)
+                diagnostics[f"F{second_name}{first_name}_coll"] = -friction if use_jax else np.asarray(-friction, dtype=np.float64)
 
                 if first_species.has_pressure or second_species.has_pressure:
                     velocity_delta = second_state.velocity - first_state.velocity
@@ -274,8 +341,12 @@ def apply_collision_closure(
                     second_heating = (a1 / (a1 + a2)) * velocity_delta * friction
                     energy_source[first_name] += first_heating
                     energy_source[second_name] += second_heating
-                    diagnostics[f"E{first_name}{second_name}_coll_friction"] = np.asarray(first_heating, dtype=np.float64)
-                    diagnostics[f"E{second_name}{first_name}_coll_friction"] = np.asarray(second_heating, dtype=np.float64)
+                    diagnostics[f"E{first_name}{second_name}_coll_friction"] = (
+                        first_heating if use_jax else np.asarray(first_heating, dtype=np.float64)
+                    )
+                    diagnostics[f"E{second_name}{first_name}_coll_friction"] = (
+                        second_heating if use_jax else np.asarray(second_heating, dtype=np.float64)
+                    )
 
             if "braginskii_heat_exchange" in configured_components and (first_species.has_pressure or second_species.has_pressure):
                 heat_exchange = 3.0 * (a1 / (a1 + a2)) * nu_12 * first_state.density * (
@@ -336,7 +407,7 @@ def apply_collision_closure(
             )
             momentum_source[name] += viscosity_source
             energy_source[name] -= prepared[name].velocity * viscosity_source
-            diagnostics[f"DivPiPar_{name}"] = np.asarray(viscosity_source, dtype=np.float64)
+            diagnostics[f"DivPiPar_{name}"] = viscosity_source if use_jax else np.asarray(viscosity_source, dtype=np.float64)
 
     if "braginskii_conduction" in configured_components:
         for name, sp in species.items():
@@ -353,14 +424,17 @@ def apply_collision_closure(
                 species_name=name,
             )
             kappa_coefficient = conduction_kappa_coefficient(config, sp)
-            temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
-            pressure = np.maximum(np.asarray(prepared[name].pressure, dtype=np.float64), 0.0)
+            if use_jax:
+                temperature = jnp.asarray(prepared[name].temperature, dtype=jnp.float64)
+                pressure = jnp.maximum(jnp.asarray(prepared[name].pressure, dtype=jnp.float64), 0.0)
+            else:
+                temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
+                pressure = np.maximum(np.asarray(prepared[name].pressure, dtype=np.float64), 0.0)
             kappa_par = kappa_coefficient * pressure * tau / sp.atomic_mass
             if mesh.myg > 0:
-                kappa_par = np.asarray(
-                    apply_noflow_scalar_guards(kappa_par, mesh=mesh, lower_y=True, upper_y=True),
-                    dtype=np.float64,
-                )
+                kappa_par = apply_noflow_scalar_guards(kappa_par, mesh=mesh, lower_y=True, upper_y=True)
+                if not use_jax:
+                    kappa_par = np.asarray(kappa_par, dtype=np.float64)
             energy_source[name] += _div_par_k_grad_par_open(
                 kappa_par,
                 temperature,

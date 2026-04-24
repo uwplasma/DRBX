@@ -9,65 +9,80 @@
   "field_count": 3,
   "jacobian_build_samples": {
     "jvp_batched": [
-      0.008389208000153303,
-      0.007696750049944967,
-      0.007535999990068376
+      0.008238250040449202,
+      0.008257500012405217,
+      0.00787137501174584
     ],
     "jvp_serial": [
-      0.4124784999876283,
-      0.3985402079997584,
-      0.41908699995838106
+      0.486928166996222,
+      0.5454273750074208,
+      0.6197670840192586
     ],
     "planned_parallel": [
-      0.010523665987420827,
-      0.015485540963709354,
-      0.013239625026471913
+      0.03869125002529472,
+      0.009259583952371031,
+      0.008920292020775378
     ],
     "planned_serial": [
-      0.008276500040665269,
-      0.00878991704666987,
-      0.006283917056862265
+      0.006849000055808574,
+      0.00620950001757592,
+      0.00570029194932431
     ],
     "unplanned_serial": [
-      0.009157708962447941,
-      0.011821041000075638,
-      0.009075040987227112
+      0.010257041023578495,
+      0.007886125007644296,
+      0.008021208981517702
     ]
   },
   "jacobian_build_seconds": {
-    "jvp_batched_mean": 0.007873986013388882,
-    "jvp_serial_mean": 0.4100352359819226,
-    "planned_parallel_mean": 0.013082943992534032,
-    "planned_serial_mean": 0.007783444714732468,
-    "unplanned_serial_mean": 0.010017930316583564
+    "jvp_batched_mean": 0.00812237502153342,
+    "jvp_serial_mean": 0.5507075420076338,
+    "planned_parallel_mean": 0.018957041999480378,
+    "planned_serial_mean": 0.006252930674236268,
+    "unplanned_serial_mean": 0.008721458337580165
   },
   "max_jacobian_abs_diff": 0.0,
   "max_jvp_batch_abs_diff": 0.0,
   "max_jvp_vs_fd_abs_diff": 1.7947032748821812e-08,
   "newton": {
     "fallback_used": false,
-    "jacobian_assembly_seconds": 0.004577916988637298,
+    "jacobian_assembly_seconds": 0.0035507919965311885,
+    "jacobian_mode": "fd",
     "jacobian_refresh_count": 5,
-    "line_search_seconds": 6.766797741875052e-05,
+    "line_search_seconds": 6.416690303012729e-05,
     "linear_iterations": 5,
-    "linear_solve_seconds": 0.0003876659320667386,
+    "linear_solve_seconds": 0.00038904097164049745,
     "nonlinear_iterations": 5,
     "residual_evaluation_count": 50,
-    "residual_evaluation_seconds": 9.004102321341634e-05,
+    "residual_evaluation_seconds": 7.395987631753087e-05,
     "residual_inf_norm": 2.220446049250313e-16,
+    "solution_max_abs_error": 1.1102230246251565e-16
+  },
+  "newton_sparse_jvp": {
+    "fallback_used": false,
+    "jacobian_assembly_seconds": 0.020216708013322204,
+    "jacobian_mode": "jvp",
+    "jacobian_refresh_count": 5,
+    "line_search_seconds": 0.0005582919693551958,
+    "linear_iterations": 5,
+    "linear_solve_seconds": 0.0002848319127224386,
+    "nonlinear_iterations": 5,
+    "residual_evaluation_count": 10,
+    "residual_evaluation_seconds": 0.005999501969199628,
+    "residual_inf_norm": 1.1102230246251565e-16,
     "solution_max_abs_error": 1.1102230246251565e-16
   },
   "notes": {
     "numerical_role": "This audit verifies that the precomputed color-plan path is algebraically identical to the original sparse finite-difference Jacobian path, records the phase timings needed to interpret heavy recycling implicit solves, and checks the JAX sparse-JVP builder against both its serial batching mode and the finite-difference reference. JAX timings are warmed once before sampling so the plotted samples measure steady execution rather than first-trace overhead.",
     "paper_role": "Use this as the methods/performance support figure for finite-difference versus JAX-linearized Jacobian assembly before showing full Hermes-backed recycling runtime comparisons."
   },
-  "plan_build_seconds": 0.0015386660234071314,
+  "plan_build_seconds": 0.0014887499855831265,
   "repeats": 3,
   "sparsity_nnz": 14688,
   "speedups": {
-    "jvp_batched_vs_jvp_serial": 52.074671619266404,
-    "parallel_vs_planned_serial": 0.5949306760905039,
-    "planned_vs_unplanned_serial": 1.2870818363521839
+    "jvp_batched_vs_jvp_serial": 67.80129463951616,
+    "parallel_vs_planned_serial": 0.32984738201285113,
+    "planned_vs_unplanned_serial": 1.394779311006099
   },
   "state_size": 576
 }

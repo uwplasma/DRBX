@@ -135,6 +135,9 @@ percentage chasing. The remaining high-value targets are:
 - `solver/implicit.py`: keep the finite-difference sparse path, fallback
   diagnostics, and JAX-linearized path covered as the solver backend boundary
   is split further
+- `recycling_fixed_residual.py` and the backend-preserving recycling helpers:
+  require JVP/finite-difference gates before any fixed-layout residual is
+  promoted to a Hermès-backed solve
 - `parity/diff.py`, `parity/compare.py`, and `parity/reference.py`: add direct
   tests for guard semantics, missing-field behavior, normalization modes, and
   failure reporting
@@ -180,6 +183,8 @@ This applies directly to:
 - fits and tabulated-rate evaluations
 - reconstruction rules and guarded-boundary formulas
 - reaction and collision closures
+- fixed-layout residual/JVP gates for recycling source, diffusion, collision,
+  target-recycling, and BDF assembly lanes
 - parity and benchmark validation surfaces
 
 If a surface is strong enough to be discussed in the paper, it should already

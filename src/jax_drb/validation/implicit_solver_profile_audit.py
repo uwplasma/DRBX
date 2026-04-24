@@ -190,6 +190,11 @@ def build_implicit_solver_profile_audit_report(
     def diagonal_residual(vector: np.ndarray) -> np.ndarray:
         return vector * vector - target * target
 
+    def diagonal_jax_residual(vector):
+        vector = jnp.asarray(vector, dtype=jnp.float64)
+        target_array = jnp.asarray(target, dtype=jnp.float64)
+        return vector * vector - target_array * target_array
+
     diagonal_sparsity = build_locality_sparsity((state.size,), field_count=1, radii=(0,))
     diagonal_color_groups = build_modulo_color_groups((state.size,), field_count=1, color_periods=(8,))
     solved, info = solve_sparse_newton_system(
@@ -205,6 +210,21 @@ def build_implicit_solver_profile_audit_report(
         linear_maxiter=50,
         linear_rtol=1.0e-10,
         prefer_direct_linear_solve=True,
+    )
+    solved_jvp, info_jvp = solve_sparse_newton_system(
+        diagonal_jax_residual,
+        np.maximum(state, 0.5),
+        active_shape=(state.size,),
+        sparsity=diagonal_sparsity,
+        color_groups=diagonal_color_groups,
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=8,
+        linear_restart=20,
+        linear_maxiter=50,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+        jacobian_mode="jvp",
     )
 
     return {
@@ -250,6 +270,21 @@ def build_implicit_solver_profile_audit_report(
             "linear_solve_seconds": float(info.linear_solve_seconds),
             "line_search_seconds": float(info.line_search_seconds),
             "fallback_used": bool(info.fallback_used),
+            "jacobian_mode": str(info.jacobian_mode),
+        },
+        "newton_sparse_jvp": {
+            "residual_inf_norm": float(info_jvp.residual_inf_norm),
+            "solution_max_abs_error": float(np.max(np.abs(solved_jvp - target))),
+            "nonlinear_iterations": int(info_jvp.nonlinear_iterations),
+            "linear_iterations": int(info_jvp.linear_iterations),
+            "residual_evaluation_count": int(info_jvp.residual_evaluation_count),
+            "residual_evaluation_seconds": float(info_jvp.residual_evaluation_seconds),
+            "jacobian_refresh_count": int(info_jvp.jacobian_refresh_count),
+            "jacobian_assembly_seconds": float(info_jvp.jacobian_assembly_seconds),
+            "linear_solve_seconds": float(info_jvp.linear_solve_seconds),
+            "line_search_seconds": float(info_jvp.line_search_seconds),
+            "fallback_used": bool(info_jvp.fallback_used),
+            "jacobian_mode": str(info_jvp.jacobian_mode),
         },
         "notes": {
             "numerical_role": (

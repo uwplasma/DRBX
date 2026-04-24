@@ -85,6 +85,18 @@ That module exists so the active-domain packing and unpacking rules can be unit
 tested directly, instead of being implied only through large transient-solver
 tests.
 
+The next solver-facing extraction is the fixed-layout recycling residual lane:
+
+- [src/jax_drb/native/recycling_fixed_residual.py](../src/jax_drb/native/recycling_fixed_residual.py)
+
+That module defines `RecyclingFixedState`, a JAX PyTree containing active
+field blocks and controller scalars, plus transformable backward-Euler and BDF2
+residual builders. It is the migration target for the heavy recycling residual:
+the existing dictionary/full-field path remains the Hermès-compatible
+production path, while the fixed-layout state gives a small, directly tested
+surface for JVPs, sparse-JVP Jacobian assembly, and eventual matrix-free
+linearized solves.
+
 The next low-risk extraction is the recycling field metadata layer:
 
 - [src/jax_drb/native/recycling_fields.py](../src/jax_drb/native/recycling_fields.py)

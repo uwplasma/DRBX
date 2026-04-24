@@ -9,6 +9,16 @@ from time import perf_counter
 import numpy as np
 
 
+def _uses_jax_backend(*values: object) -> bool:
+    for value in values:
+        if value is None:
+            continue
+        module = type(value).__module__
+        if hasattr(value, "aval") or module.startswith("jax") or module.startswith("jaxlib"):
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class ImplicitStepInfo:
     residual_inf_norm: float
@@ -22,6 +32,7 @@ class ImplicitStepInfo:
     linear_solve_seconds: float = 0.0
     line_search_seconds: float = 0.0
     fallback_used: bool = False
+    jacobian_mode: str = "fd"
 
 
 @dataclass(frozen=True)
@@ -305,6 +316,14 @@ def backward_euler_residual(
     *,
     timestep: float,
 ) -> np.ndarray:
+    if _uses_jax_backend(packed_state, previous_packed_state, rhs):
+        import jax.numpy as jnp
+
+        packed_state_array = jnp.asarray(packed_state, dtype=jnp.float64)
+        previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64)
+        rhs_array = jnp.asarray(rhs, dtype=jnp.float64)
+        return packed_state_array - previous_array - float(timestep) * rhs_array
+
     packed_state_array = np.asarray(packed_state, dtype=np.float64)
     previous_array = np.asarray(previous_packed_state, dtype=np.float64)
     rhs_array = np.asarray(rhs, dtype=np.float64)
@@ -319,6 +338,20 @@ def bdf2_residual(
     *,
     timestep: float,
 ) -> np.ndarray:
+    if _uses_jax_backend(packed_state, previous_packed_state, previous_previous_packed_state, rhs):
+        import jax.numpy as jnp
+
+        packed_state_array = jnp.asarray(packed_state, dtype=jnp.float64)
+        previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64)
+        previous_previous_array = jnp.asarray(previous_previous_packed_state, dtype=jnp.float64)
+        rhs_array = jnp.asarray(rhs, dtype=jnp.float64)
+        return (
+            packed_state_array
+            - (4.0 / 3.0) * previous_array
+            + (1.0 / 3.0) * previous_previous_array
+            - (2.0 / 3.0) * float(timestep) * rhs_array
+        )
+
     packed_state_array = np.asarray(packed_state, dtype=np.float64)
     previous_array = np.asarray(previous_packed_state, dtype=np.float64)
     previous_previous_array = np.asarray(previous_previous_packed_state, dtype=np.float64)
@@ -347,6 +380,8 @@ def solve_sparse_newton_system(
     prefer_direct_linear_solve: bool = False,
     jacobian_refresh_frequency: int = 1,
     jacobian_parallel_workers: int | None = None,
+    jacobian_mode: str = "fd",
+    jvp_batch_size: int | None = None,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         from scipy.optimize import NoConvergence, newton_krylov
@@ -366,6 +401,9 @@ def solve_sparse_newton_system(
     line_search_seconds = 0.0
     fallback_used = False
     residual_counter_lock = Lock()
+    resolved_jacobian_mode = str(jacobian_mode).strip().lower()
+    if resolved_jacobian_mode not in {"fd", "jvp"}:
+        raise ValueError(f"Unsupported sparse Newton jacobian_mode={jacobian_mode!r}.")
 
     def evaluate_residual(candidate_state: np.ndarray) -> np.ndarray:
         nonlocal residual_evaluation_count, residual_evaluation_seconds
@@ -394,6 +432,7 @@ def solve_sparse_newton_system(
             linear_solve_seconds=linear_solve_seconds,
             line_search_seconds=line_search_seconds,
             fallback_used=fallback_used,
+            jacobian_mode=resolved_jacobian_mode,
         )
 
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
@@ -428,16 +467,27 @@ def solve_sparse_newton_system(
 
         if jacobian is None or nonlinear_iteration == 1 or ((nonlinear_iteration - 1) % refresh_frequency == 0):
             jacobian_started_at = perf_counter()
-            jacobian = build_sparse_difference_quotient_jacobian(
-                evaluate_residual,
-                state,
-                base_residual=residual_value,
-                sparsity=sparsity,
-                color_groups=color_groups,
-                sparsity_csc=sparsity_csc,
-                difference_plan=difference_plan,
-                parallel_workers=int(jacobian_parallel_workers),
-            )
+            if resolved_jacobian_mode == "jvp":
+                jacobian = build_sparse_jvp_jacobian(
+                    residual,
+                    state,
+                    sparsity=sparsity,
+                    color_groups=color_groups,
+                    sparsity_csc=sparsity_csc,
+                    difference_plan=difference_plan,
+                    batch_size=jvp_batch_size,
+                )
+            else:
+                jacobian = build_sparse_difference_quotient_jacobian(
+                    evaluate_residual,
+                    state,
+                    base_residual=residual_value,
+                    sparsity=sparsity,
+                    color_groups=color_groups,
+                    sparsity_csc=sparsity_csc,
+                    difference_plan=difference_plan,
+                    parallel_workers=int(jacobian_parallel_workers),
+                )
             jacobian_csc = jacobian.tocsc()
             jacobian_assembly_seconds += perf_counter() - jacobian_started_at
             jacobian_refresh_count += 1

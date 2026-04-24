@@ -467,3 +467,55 @@ def test_collision_closure_accepts_precomputed_collision_and_cx_rates() -> None:
         np.testing.assert_allclose(reused.energy_source[name], baseline.energy_source[name])
     for name in baseline.momentum_source:
         np.testing.assert_allclose(reused.momentum_source[name], baseline.momentum_source[name])
+
+
+def test_collision_closure_friction_lane_is_jax_jvp_transformable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh, metrics = _line_mesh_and_metrics()
+    config = _MiniConfig({"model": {"components": ("braginskii_friction", "braginskii_heat_exchange")}})
+    species = {
+        "d+": _species("d+", charge=1.0, atomic_mass=2.0),
+        "t+": _species("t+", charge=1.0, atomic_mass=3.0),
+    }
+    species = {
+        name: SimpleNamespace(**{**sp.__dict__, "density": jnp.asarray(sp.density, dtype=jnp.float64)})
+        for name, sp in species.items()
+    }
+    rates = {("d+", "t+"): jnp.ones((1, 3, 1), dtype=jnp.float64) * 0.25}
+    cx_rates: dict[str, object] = {}
+
+    def qoi(scale):
+        prepared = {
+            "d+": SimpleNamespace(
+                density=jnp.ones((1, 3, 1), dtype=jnp.float64),
+                pressure=jnp.ones((1, 3, 1), dtype=jnp.float64),
+                temperature=jnp.ones((1, 3, 1), dtype=jnp.float64),
+                velocity=jnp.zeros((1, 3, 1), dtype=jnp.float64),
+                momentum=jnp.zeros((1, 3, 1), dtype=jnp.float64),
+            ),
+            "t+": SimpleNamespace(
+                density=jnp.ones((1, 3, 1), dtype=jnp.float64),
+                pressure=2.0 * jnp.ones((1, 3, 1), dtype=jnp.float64),
+                temperature=2.0 * jnp.ones((1, 3, 1), dtype=jnp.float64),
+                velocity=scale * jnp.ones((1, 3, 1), dtype=jnp.float64),
+                momentum=scale * jnp.ones((1, 3, 1), dtype=jnp.float64),
+            ),
+        }
+        terms = apply_collision_closure(
+            config,
+            species,
+            prepared,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars={},
+            collision_rates=rates,
+            cx_rates=cx_rates,
+        )
+        return jnp.sum(terms.momentum_source["d+"]) + 0.1 * jnp.sum(terms.energy_source["d+"])
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(tangent))
+    assert abs(float(tangent)) > 0.0

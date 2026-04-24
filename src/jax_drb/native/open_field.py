@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 import numpy as np
 
+from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 
 
@@ -28,6 +29,8 @@ class TargetBoundaryGeometry:
 
 
 def _use_numpy_backend(*values: object) -> bool:
+    if use_jax_backend(*values):
+        return False
     return any(isinstance(value, np.ndarray) for value in values if value is not None)
 
 

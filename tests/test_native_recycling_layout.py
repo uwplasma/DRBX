@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from jax_drb.native.mesh import StructuredMesh
+from jax_drb.native.recycling_fixed_residual import (
+    RecyclingFixedState,
+    build_fixed_backward_euler_residual,
+    fixed_state_from_fields,
+    pack_fixed_state,
+    unpack_fixed_state,
+)
 from jax_drb.native.recycling_layout import (
     build_recycling_packed_state_layout,
     pack_recycling_active_state,
@@ -123,3 +131,90 @@ def test_pack_recycling_state_without_layout_matches_layout_path() -> None:
     )
 
     np.testing.assert_allclose(packed_with_layout, packed_without_layout)
+
+
+def test_recycling_active_pack_unpack_preserves_jax_tracers() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    field_names = ("Nd",)
+    feedback_names = ("controller",)
+    fields = {
+        "Nd": jnp.asarray(
+            [[[1.0], [2.0], [3.0], [4.0]], [[5.0], [6.0], [7.0], [8.0]]],
+            dtype=jnp.float64,
+        ),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields={"Nd": np.asarray(fields["Nd"], dtype=np.float64)},
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+    )
+
+    def qoi(scale):
+        scaled = {"Nd": fields["Nd"] * scale}
+        packed = pack_recycling_active_state(
+            scaled,
+            feedback_integrals={"controller": scale},
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            layout=layout,
+        )
+        restored, integrals = unpack_recycling_active_state(
+            packed,
+            field_templates=fields,
+            feedback_integrals={"controller": 0.0},
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            layout=layout,
+        )
+        return jnp.sum(restored["Nd"][layout.active_slices]) + integrals["controller"]
+
+    value, tangent = jax.jvp(qoi, (jnp.array(2.0),), (jnp.array(1.0),))
+
+    assert value == pytest.approx(2.0 * (2.0 + 3.0 + 6.0 + 7.0) + 2.0)
+    assert tangent == pytest.approx((2.0 + 3.0 + 6.0 + 7.0) + 1.0)
+
+
+def test_fixed_recycling_backward_euler_residual_is_jax_linearizable() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    fields = {
+        "Nd": np.array([[[10.0], [11.0], [12.0], [13.0]], [[20.0], [21.0], [22.0], [23.0]]], dtype=np.float64),
+        "Pd": np.array([[[30.0], [31.0], [32.0], [33.0]], [[40.0], [41.0], [42.0], [43.0]]], dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd"),
+        feedback_names=("controller",),
+        mesh=mesh,
+    )
+    previous_state = fixed_state_from_fields(fields, feedback_integrals={"controller": 0.5}, layout=layout)
+    previous_packed = pack_fixed_state(previous_state)
+
+    def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
+        density, pressure = state.field_values
+        return RecyclingFixedState(
+            field_values=(-0.25 * density + 0.1 * pressure, 0.2 * density - 0.5 * pressure),
+            feedback_values=-0.1 * state.feedback_values,
+        )
+
+    residual = build_fixed_backward_euler_residual(
+        rhs,
+        layout=layout,
+        previous_packed_state=previous_packed,
+        timestep=0.25,
+    )
+    candidate = previous_packed + 0.01
+    direction = jnp.ones_like(candidate)
+    value, tangent = jax.jvp(residual, (candidate,), (direction,))
+    unpacked = unpack_fixed_state(candidate, layout=layout)
+
+    assert value.shape == candidate.shape
+    assert tangent.shape == candidate.shape
+    assert len(unpacked.field_values) == 2
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(jax.jacfwd(residual)(candidate) @ direction))

@@ -191,6 +191,13 @@ recycling lane because the current residual is still dominated by NumPy/SciPy
 assembly. The next runtime fixes should therefore be ordered as residual-kernel
 ports first, solver-backend promotion second.
 
+The sparse Newton interface now exposes that derivative algorithm directly as
+`jacobian_mode="jvp"`, and the implicit-solver profile audit compares it
+against the finite-difference sparse Newton path on a transformable residual.
+The audit is deliberately small: it proves the solver backend boundary, not the
+full recycling migration. The full migration still depends on moving the
+remaining recycling residual kernels out of dictionary/NumPy assembly.
+
 Near-term residual-kernel ports should target the measured hot path in this
 order:
 
@@ -205,6 +212,23 @@ order:
 Each port should carry three gates before promotion: current NumPy parity on a
 small deterministic state, JVP-versus-finite-difference derivative parity, and
 the existing Hermès one-RHS/one-step compare surface.
+
+Items 1, 3, 4, and 5 now have their first compact gates:
+
+- `RecyclingFixedState` provides the active fixed-layout PyTree state and
+  transformable backward-Euler/BDF2 residual builders;
+- active-region and recycling active-state pack/unpack preserve JAX tracers;
+- target recycling and the target-source kernel preserve JAX when dynamic state
+  is a JAX array even if metrics are static NumPy arrays;
+- neutral parallel diffusion and key collision/conduction closure helpers have
+  compact JVP tests with precomputed rate surfaces;
+- BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
+
+Those gates are intentionally not promoted to the full heavy solve yet. The
+next production step is to connect the compact fixed-layout residual to a
+Hermès one-RHS recycling deck, then compare its RHS and JVP action against the
+current dictionary residual before replacing the finite-difference Jacobian in
+the heavy BDF path.
 
 The atomic-rate part of item 2 is now complete at helper level: AMJUEL paired
 rate/radiation evaluation, OpenADAS bilinear interpolation, and the hydrogen

@@ -325,6 +325,29 @@ def test_backward_euler_and_bdf2_residual_formulas() -> None:
     np.testing.assert_allclose(bdf, np.array([0.35, 0.3666666666666667, 0.2]))
 
 
+def test_backward_euler_and_bdf2_residuals_preserve_jax_jvp() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    previous = jnp.array([0.5, 1.5, 2.5], dtype=jnp.float64)
+    previous_previous = jnp.array([0.25, 1.0, 2.0], dtype=jnp.float64)
+    rhs = jnp.array([0.2, -0.1, 0.4], dtype=jnp.float64)
+
+    def qoi(state):
+        be = backward_euler_residual(state, previous, rhs, timestep=0.5)
+        bdf = bdf2_residual(state, previous, previous_previous, rhs, timestep=0.5)
+        return jnp.sum(be + bdf)
+
+    value, tangent = jax.jvp(
+        qoi,
+        (jnp.array([1.0, 2.0, 3.0], dtype=jnp.float64),),
+        (jnp.ones(3, dtype=jnp.float64),),
+    )
+
+    assert np.isfinite(float(value))
+    assert tangent == pytest.approx(6.0)
+
+
 def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     pytest.importorskip("scipy")
 
@@ -366,6 +389,40 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     assert sparse_info.jacobian_refresh_count >= 1
     assert sparse_info.jacobian_assembly_seconds >= 0.0
     assert sparse_info.linear_solve_seconds >= 0.0
+
+
+def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
+    pytest.importorskip("scipy")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (3,)
+    target = jnp.array([1.0, 0.5, 2.0], dtype=jnp.float64)
+    initial = np.array([0.8, 0.7, 1.7], dtype=np.float64)
+    sparsity = build_locality_sparsity(active_shape, field_count=1, radii=(0,))
+    color_groups = build_modulo_color_groups(active_shape, field_count=1, color_periods=(3,))
+
+    def residual(state):
+        return jnp.asarray(state, dtype=jnp.float64) * jnp.asarray(state, dtype=jnp.float64) - target * target
+
+    solution, info = solve_sparse_newton_system(
+        residual,
+        initial,
+        active_shape=active_shape,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        residual_tolerance=1.0e-10,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=8,
+        linear_restart=5,
+        linear_maxiter=20,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+        jacobian_mode="jvp",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1e-9, atol=1e-9)
+    assert info.residual_inf_norm < 1.0e-10
+    assert info.jacobian_mode == "jvp"
 
 
 def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> None:

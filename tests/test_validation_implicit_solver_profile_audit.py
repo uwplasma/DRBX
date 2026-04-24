@@ -26,6 +26,10 @@ def test_build_implicit_solver_profile_audit_report_validates_planned_jacobian()
     assert report["newton"]["solution_max_abs_error"] < 1.0e-8
     assert report["newton"]["residual_evaluation_count"] >= 1
     assert report["newton"]["jacobian_refresh_count"] >= 1
+    assert report["newton"]["jacobian_mode"] == "fd"
+    assert report["newton_sparse_jvp"]["residual_inf_norm"] < 1.0e-9
+    assert report["newton_sparse_jvp"]["solution_max_abs_error"] < 1.0e-8
+    assert report["newton_sparse_jvp"]["jacobian_mode"] == "jvp"
 
 
 def test_create_implicit_solver_profile_audit_package_writes_artifacts(tmp_path: Path) -> None:

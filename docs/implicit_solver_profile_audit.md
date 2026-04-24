@@ -13,10 +13,11 @@ The audit writes:
 
 The left panel compares colored sparse finite-difference Jacobian construction,
 the precomputed CSC/color extraction plan, thread-parallel finite differences,
-and the new JAX-linearized sparse-JVP path in both serial and batched color
-push modes. The right panel uses the sparse Newton step diagnostics now
-attached to solver step info: residual time, Jacobian assembly time,
-linear-solve time, line-search time, and fallback use.
+and the JAX-linearized sparse-JVP path in both serial and batched color-push
+modes. The right panel shows the finite-difference sparse Newton phase timing;
+the JSON also records the matching sparse-JVP Newton solve under
+`newton_sparse_jvp`, including residual norm, solution error, phase timings,
+fallback use, and `jacobian_mode`.
 
 The JAX timing bars are warmed once before sampling, so they measure steady
 derivative execution rather than first-trace overhead. On this small controlled
@@ -31,6 +32,11 @@ Jacobian assembly path is algebraically identical to the original path, that
 the JAX sparse-JVP batched path matches the serial JVP path, and that both can
 be checked against a finite-difference reference before the full physics
 runtime plots are generated.
+
+The current JSON therefore contains two solver-backend gates:
+
+- `newton`: sparse Newton with finite-difference Jacobian assembly
+- `newton_sparse_jvp`: sparse Newton with grouped JVP Jacobian assembly
 
 Run the package locally with:
 

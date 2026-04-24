@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import jax.numpy as jnp
 
+from .array_backend import use_jax_backend
 from ..solver import pack_active_fields, unpack_active_fields
 from .mesh import StructuredMesh
 
@@ -87,11 +89,14 @@ def pack_recycling_active_state(
     """Pack active-domain field values and controller integrals into one vector."""
 
     field_block = pack_active_fields(
-        tuple(np.asarray(fields[name], dtype=np.float64) for name in field_names),
+        tuple(fields[name] for name in field_names),
         active_slices=(layout.active_slices if layout is not None else recycling_active_domain_slices(mesh)),
     )
     if not feedback_names:
         return field_block
+    if use_jax_backend(field_block, *(feedback_integrals.get(name, 0.0) for name in feedback_names)):
+        scalar_block = jnp.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=jnp.float64)
+        return jnp.concatenate([field_block, scalar_block])
     scalar_block = np.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=np.float64)
     return np.concatenate([field_block, scalar_block])
 
@@ -108,7 +113,8 @@ def unpack_recycling_active_state(
 ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
     """Restore field arrays and controller integrals from a packed state vector."""
 
-    packed_array = np.asarray(packed, dtype=np.float64)
+    use_jax = use_jax_backend(packed, *(field_templates[name] for name in field_names))
+    packed_array = jnp.asarray(packed, dtype=jnp.float64) if use_jax else np.asarray(packed, dtype=np.float64)
     field_size = layout.field_size if layout is not None else (recycling_active_field_size(mesh) * len(field_names))
     field_block = packed_array[:field_size]
     scalar_block = packed_array[field_size:]
@@ -122,7 +128,7 @@ def unpack_recycling_active_state(
         active_slices=(layout.active_slices if layout is not None else recycling_active_domain_slices(mesh)),
     )
     restored_fields = {name: value for name, value in zip(field_names, unpacked_fields, strict=True)}
-    restored_integrals = {name: float(value) for name, value in feedback_integrals.items()}
+    restored_integrals = {name: value if use_jax_backend(value) else float(value) for name, value in feedback_integrals.items()}
     for index, name in enumerate(feedback_names):
-        restored_integrals[name] = float(scalar_block[index])
+        restored_integrals[name] = scalar_block[index] if use_jax else float(scalar_block[index])
     return restored_fields, restored_integrals

@@ -6,6 +6,7 @@ import os
 import re
 import time
 
+import jax.numpy as jnp
 import numpy as np
 
 from ..config.boutinp import BoutConfig, NumericResolver
@@ -23,6 +24,7 @@ from ..solver import (
     unpack_active_fields,
 )
 from .mesh import StructuredMesh
+from .array_backend import use_jax_backend
 from .metrics import StructuredMetrics
 from .neutral_mixed import (
     _div_a_grad_perp_flows,
@@ -2984,11 +2986,14 @@ def _pack_recycling_active_state(
     layout: _RecyclingPackedStateLayout | None = None,
 ) -> np.ndarray:
     field_block = pack_active_fields(
-        tuple(np.asarray(fields[name], dtype=np.float64) for name in field_names),
+        tuple(fields[name] for name in field_names),
         active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
     )
     if not feedback_names:
         return field_block
+    if use_jax_backend(field_block, *(feedback_integrals.get(name, 0.0) for name in feedback_names)):
+        scalar_block = jnp.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=jnp.float64)
+        return jnp.concatenate([field_block, scalar_block])
     scalar_block = np.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=np.float64)
     return np.concatenate([field_block, scalar_block])
 
@@ -3003,7 +3008,8 @@ def _unpack_recycling_active_state(
     mesh: StructuredMesh,
     layout: _RecyclingPackedStateLayout | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float]]:
-    packed_array = np.asarray(packed, dtype=np.float64)
+    use_jax = use_jax_backend(packed, *(field_templates[name] for name in field_names))
+    packed_array = jnp.asarray(packed, dtype=jnp.float64) if use_jax else np.asarray(packed, dtype=np.float64)
     field_size = layout.field_size if layout is not None else (_recycling_active_field_size(mesh) * len(field_names))
     field_block = packed_array[:field_size]
     scalar_block = packed_array[field_size:]
@@ -3017,9 +3023,9 @@ def _unpack_recycling_active_state(
         active_slices=(layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)),
     )
     restored_fields = {name: value for name, value in zip(field_names, unpacked_fields, strict=True)}
-    restored_integrals = {name: float(value) for name, value in feedback_integrals.items()}
+    restored_integrals = {name: value if use_jax_backend(value) else float(value) for name, value in feedback_integrals.items()}
     for index, name in enumerate(feedback_names):
-        restored_integrals[name] = float(scalar_block[index])
+        restored_integrals[name] = scalar_block[index] if use_jax else float(scalar_block[index])
     return restored_fields, restored_integrals
 
 
@@ -3073,12 +3079,15 @@ def _build_recycling_mixed_be_residual(
     feedback_names: tuple[str, ...],
     timestep: float,
 ) -> np.ndarray:
-    field_size = np.asarray(previous_packed_state, dtype=np.float64).size - len(feedback_names)
-    rhs_array = np.asarray(rhs_fields, dtype=np.float64)
+    use_jax = use_jax_backend(packed_state, previous_packed_state, rhs_fields)
+    previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64) if use_jax else np.asarray(previous_packed_state, dtype=np.float64)
+    packed_array = jnp.asarray(packed_state, dtype=jnp.float64) if use_jax else np.asarray(packed_state, dtype=np.float64)
+    rhs_array = jnp.asarray(rhs_fields, dtype=jnp.float64) if use_jax else np.asarray(rhs_fields, dtype=np.float64)
+    field_size = previous_array.size - len(feedback_names)
     field_rhs = rhs_array[:field_size]
     field_block = backward_euler_residual(
-        np.asarray(packed_state, dtype=np.float64)[:field_size],
-        np.asarray(previous_packed_state, dtype=np.float64)[:field_size],
+        packed_array[:field_size],
+        previous_array[:field_size],
         field_rhs,
         timestep=timestep,
     )
@@ -3089,7 +3098,9 @@ def _build_recycling_mixed_be_residual(
         controller_rhs if feedback_names else _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
         timestep=timestep,
     )
-    return np.concatenate([field_block, controller_block]) if feedback_names else field_block
+    if not feedback_names:
+        return field_block
+    return jnp.concatenate([field_block, controller_block]) if use_jax else np.concatenate([field_block, controller_block])
 
 
 def _build_recycling_mixed_bdf2_residual(
@@ -3107,13 +3118,21 @@ def _build_recycling_mixed_bdf2_residual(
     feedback_names: tuple[str, ...],
     timestep: float,
 ) -> np.ndarray:
-    field_size = np.asarray(previous_packed_state, dtype=np.float64).size - len(feedback_names)
-    rhs_array = np.asarray(rhs_fields, dtype=np.float64)
+    use_jax = use_jax_backend(packed_state, previous_packed_state, previous_previous_packed_state, rhs_fields)
+    previous_array = jnp.asarray(previous_packed_state, dtype=jnp.float64) if use_jax else np.asarray(previous_packed_state, dtype=np.float64)
+    previous_previous_array = (
+        jnp.asarray(previous_previous_packed_state, dtype=jnp.float64)
+        if use_jax
+        else np.asarray(previous_previous_packed_state, dtype=np.float64)
+    )
+    packed_array = jnp.asarray(packed_state, dtype=jnp.float64) if use_jax else np.asarray(packed_state, dtype=np.float64)
+    rhs_array = jnp.asarray(rhs_fields, dtype=jnp.float64) if use_jax else np.asarray(rhs_fields, dtype=np.float64)
+    field_size = previous_array.size - len(feedback_names)
     field_rhs = rhs_array[:field_size]
     field_block = bdf2_residual(
-        np.asarray(packed_state, dtype=np.float64)[:field_size],
-        np.asarray(previous_packed_state, dtype=np.float64)[:field_size],
-        np.asarray(previous_previous_packed_state, dtype=np.float64)[:field_size],
+        packed_array[:field_size],
+        previous_array[:field_size],
+        previous_previous_array[:field_size],
         field_rhs,
         timestep=timestep,
     )
@@ -3125,7 +3144,9 @@ def _build_recycling_mixed_bdf2_residual(
         controller_rhs if feedback_names else _feedback_error_vector(current_feedback_errors, feedback_names=feedback_names),
         timestep=timestep,
     )
-    return np.concatenate([field_block, controller_block]) if feedback_names else field_block
+    if not feedback_names:
+        return field_block
+    return jnp.concatenate([field_block, controller_block]) if use_jax else np.concatenate([field_block, controller_block])
 
 
 @lru_cache(maxsize=None)

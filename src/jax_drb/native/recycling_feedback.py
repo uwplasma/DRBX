@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 import numpy as np
+import jax.numpy as jnp
+
+from .array_backend import use_jax_backend
 
 
 def current_feedback_errors(
@@ -80,6 +83,8 @@ def feedback_integral_vector(
     *,
     feedback_names: tuple[str, ...],
 ) -> np.ndarray:
+    if use_jax_backend(*(feedback_integrals.get(name, 0.0) for name in feedback_names)):
+        return jnp.asarray([feedback_integrals.get(name, 0.0) for name in feedback_names], dtype=jnp.float64)
     return np.asarray([float(feedback_integrals.get(name, 0.0)) for name in feedback_names], dtype=np.float64)
 
 

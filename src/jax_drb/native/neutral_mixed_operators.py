@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import numpy as np
+import jax.numpy as jnp
 
+from .array_backend import use_jax_backend
 from .limiters import monotonic_centered_edges_numpy as _mc_edges
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
@@ -20,6 +22,32 @@ def gradient_magnitude(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> np.ndarray:
+    if use_jax_backend(field, metrics.dx, metrics.dy, metrics.dz, metrics.J, metrics.g11, metrics.g33):
+        result = jnp.zeros_like(jnp.asarray(field, dtype=jnp.float64), dtype=jnp.float64)
+        dx = jnp.asarray(metrics.dx, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        dz = jnp.asarray(metrics.dz, dtype=jnp.float64)
+        J = jnp.asarray(metrics.J, dtype=jnp.float64)
+        g11 = jnp.asarray(metrics.g11, dtype=jnp.float64)
+        g33 = jnp.asarray(metrics.g33, dtype=jnp.float64)
+
+        ix = slice(mesh.xstart, mesh.xend + 1)
+        jy = slice(mesh.ystart, mesh.yend + 1)
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        active_field = field_array[ix, jy, :]
+        dfdx = (
+            field_array[mesh.xstart + 1 : mesh.xend + 2, mesh.ystart : mesh.yend + 1, :]
+            - field_array[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :]
+        ) / (dx[ix, jy, :] + dx[mesh.xstart - 1 : mesh.xend, mesh.ystart : mesh.yend + 1, :])
+        dfdy = (
+            field_array[ix, mesh.ystart + 1 : mesh.yend + 2, :]
+            - field_array[ix, mesh.ystart - 1 : mesh.yend, :]
+        ) / (dy[ix, jy, :] + dy[ix, mesh.ystart - 1 : mesh.yend, :])
+        dfdz = (jnp.roll(active_field, -1, axis=2) - jnp.roll(active_field, 1, axis=2)) / (2.0 * dz[ix, jy, :])
+        j_active = J[ix, jy, :]
+        active_result = jnp.sqrt(g11[ix, jy, :] * dfdx * dfdx + g33[ix, jy, :] * dfdz * dfdz + jnp.square(dfdy / j_active))
+        return result.at[ix, jy, :].set(active_result)
+
     result = np.zeros_like(field, dtype=np.float64)
     dx = np.asarray(metrics.dx, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
@@ -232,6 +260,50 @@ def div_par_k_grad_par_open(
     metrics: StructuredMetrics,
     boundary_flux: bool,
 ) -> np.ndarray:
+    if use_jax_backend(coefficient, field, metrics.dy, metrics.J, metrics.g_22):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        coefficient_array = jnp.asarray(coefficient, dtype=jnp.float64)
+        result = jnp.zeros_like(field_array, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        J = jnp.asarray(metrics.J, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+        xs = slice(mesh.xstart, mesh.xend + 1)
+
+        if boundary_flux:
+            up_cells = slice(mesh.ystart, mesh.yend + 1)
+            down_cells = slice(mesh.ystart, mesh.yend + 1)
+        else:
+            up_cells = slice(mesh.ystart, mesh.yend)
+            down_cells = slice(mesh.ystart + 1, mesh.yend + 1)
+
+        if up_cells.start < up_cells.stop:
+            coefficient_up = 0.5 * (
+                coefficient_array[xs, up_cells, :]
+                + coefficient_array[xs, up_cells.start + 1 : up_cells.stop + 1, :]
+            )
+            jacobian_up = 0.5 * (J[xs, up_cells, :] + J[xs, up_cells.start + 1 : up_cells.stop + 1, :])
+            metric_up = 0.5 * (g22[xs, up_cells, :] + g22[xs, up_cells.start + 1 : up_cells.stop + 1, :])
+            gradient_up = 2.0 * (
+                field_array[xs, up_cells.start + 1 : up_cells.stop + 1, :] - field_array[xs, up_cells, :]
+            ) / (dy[xs, up_cells, :] + dy[xs, up_cells.start + 1 : up_cells.stop + 1, :])
+            flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
+            result = result.at[xs, up_cells, :].add(flux_up / (dy[xs, up_cells, :] * J[xs, up_cells, :]))
+
+        if down_cells.start < down_cells.stop:
+            coefficient_down = 0.5 * (
+                coefficient_array[xs, down_cells, :]
+                + coefficient_array[xs, down_cells.start - 1 : down_cells.stop - 1, :]
+            )
+            jacobian_down = 0.5 * (J[xs, down_cells, :] + J[xs, down_cells.start - 1 : down_cells.stop - 1, :])
+            metric_down = 0.5 * (g22[xs, down_cells, :] + g22[xs, down_cells.start - 1 : down_cells.stop - 1, :])
+            gradient_down = 2.0 * (
+                field_array[xs, down_cells, :] - field_array[xs, down_cells.start - 1 : down_cells.stop - 1, :]
+            ) / (dy[xs, down_cells, :] + dy[xs, down_cells.start - 1 : down_cells.stop - 1, :])
+            flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
+            result = result.at[xs, down_cells, :].add(-flux_down / (dy[xs, down_cells, :] * J[xs, down_cells, :]))
+
+        return result
+
     result = np.zeros_like(field, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     J = np.asarray(metrics.J, dtype=np.float64)
@@ -336,6 +408,23 @@ def grad_par_open(
     mesh: StructuredMesh,
     metrics: StructuredMetrics,
 ) -> np.ndarray:
+    if use_jax_backend(field, metrics.dy, metrics.g_22):
+        field_array = jnp.asarray(field, dtype=jnp.float64)
+        result = jnp.zeros_like(field_array, dtype=jnp.float64)
+        dy = jnp.asarray(metrics.dy, dtype=jnp.float64)
+        g22 = jnp.asarray(metrics.g_22, dtype=jnp.float64)
+        x_slice = slice(mesh.xstart, mesh.xend + 1)
+        y_slice = slice(mesh.ystart, mesh.yend + 1)
+        active_gradient = (
+            0.5
+            * (
+                field_array[x_slice, mesh.ystart + 1 : mesh.yend + 2, :]
+                - field_array[x_slice, mesh.ystart - 1 : mesh.yend, :]
+            )
+            / (dy[x_slice, y_slice, :] * jnp.sqrt(g22[x_slice, y_slice, :]))
+        )
+        return result.at[x_slice, y_slice, :].set(active_gradient)
+
     result = np.zeros_like(field, dtype=np.float64)
     dy = np.asarray(metrics.dy, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)

@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
+from .array_backend import use_jax_backend
 from .metrics import StructuredMetrics
 from .mesh import StructuredMesh
 from .neutral_mixed import _div_par_k_grad_par_open
@@ -51,9 +53,41 @@ def apply_neutral_parallel_diffusion(
     ionisation_rates: dict[str, np.ndarray] | None = None,
     charge_exchange_rates: dict[str, np.ndarray] | None = None,
 ) -> NeutralParallelDiffusionTerms:
-    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    use_jax = use_jax_backend(
+        *(state.density for state in prepared.values()),
+        *(state.pressure for state in prepared.values()),
+        *(state.temperature for state in prepared.values()),
+        *((rate for rate in collision_rates.values()) if collision_rates is not None else ()),
+        *((rate for rate in ionisation_rates.values()) if ionisation_rates is not None else ()),
+        *((rate for rate in charge_exchange_rates.values()) if charge_exchange_rates is not None else ()),
+        metrics.dy,
+        metrics.J,
+        metrics.g_22,
+    )
+    density_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for name, sp in species.items()
+    }
+    energy_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for name, sp in species.items()
+    }
+    momentum_source = {
+        name: (
+            jnp.zeros_like(jnp.asarray(sp.density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(sp.density, dtype=np.float64)
+        )
+        for name, sp in species.items()
+    }
     diagnostics: dict[str, np.ndarray] = {}
 
     if "neutral_parallel_diffusion" not in set(configured_component_names(config)):
@@ -125,7 +159,11 @@ def apply_neutral_parallel_diffusion(
         if name == "e" or sp.charge != 0.0:
             continue
 
-        nu = np.zeros_like(prepared[name].density, dtype=np.float64)
+        nu = (
+            jnp.zeros_like(jnp.asarray(prepared[name].density, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(prepared[name].density, dtype=np.float64)
+        )
         if diffusion_mode == "afn":
             if name in ionisation_rates:
                 nu = nu + ionisation_rates[name]
@@ -143,20 +181,28 @@ def apply_neutral_parallel_diffusion(
                 f"Unsupported neutral_parallel_diffusion diffusion_collisions_mode={diffusion_mode!r}."
             )
 
-        density = np.asarray(prepared[name].density, dtype=np.float64)
-        pressure = np.asarray(prepared[name].pressure, dtype=np.float64)
-        temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
-        momentum = np.asarray(prepared[name].momentum, dtype=np.float64)
-        velocity = np.asarray(prepared[name].velocity, dtype=np.float64)
+        if use_jax:
+            density = jnp.asarray(prepared[name].density, dtype=jnp.float64)
+            pressure = jnp.asarray(prepared[name].pressure, dtype=jnp.float64)
+            temperature = jnp.asarray(prepared[name].temperature, dtype=jnp.float64)
+            momentum = jnp.asarray(prepared[name].momentum, dtype=jnp.float64)
+            velocity = jnp.asarray(prepared[name].velocity, dtype=jnp.float64)
+            diffusion = dneut * temperature / jnp.maximum(sp.atomic_mass * nu, 1.0e-10)
+        else:
+            density = np.asarray(prepared[name].density, dtype=np.float64)
+            pressure = np.asarray(prepared[name].pressure, dtype=np.float64)
+            temperature = np.asarray(prepared[name].temperature, dtype=np.float64)
+            momentum = np.asarray(prepared[name].momentum, dtype=np.float64)
+            velocity = np.asarray(prepared[name].velocity, dtype=np.float64)
+            diffusion = dneut * temperature / np.maximum(sp.atomic_mass * nu, 1.0e-10)
 
-        diffusion = dneut * temperature / np.maximum(sp.atomic_mass * nu, 1.0e-10)
         diffusion = apply_open_field_dirichlet_scalar_guards(
             diffusion,
             mesh=mesh,
             lower_y=sp.noflow_lower_y,
             upper_y=sp.noflow_upper_y,
         )
-        log_pressure = np.log(np.maximum(pressure, 1.0e-7))
+        log_pressure = jnp.log(jnp.maximum(pressure, 1.0e-7)) if use_jax else np.log(np.maximum(pressure, 1.0e-7))
         log_pressure = apply_open_field_neumann_scalar_guards(
             log_pressure,
             mesh=mesh,
@@ -197,7 +243,11 @@ def apply_neutral_parallel_diffusion(
             )
         energy_source[name] = energy_source[name] + energy_rhs
 
-        momentum_rhs = np.zeros_like(density_rhs, dtype=np.float64)
+        momentum_rhs = (
+            jnp.zeros_like(jnp.asarray(density_rhs, dtype=jnp.float64), dtype=jnp.float64)
+            if use_jax
+            else np.zeros_like(density_rhs, dtype=np.float64)
+        )
         if sp.has_momentum and perpendicular_viscosity:
             eta_n = (2.0 / 5.0) * conductivity
             momentum_rhs = _div_par_k_grad_par_open(
@@ -217,11 +267,11 @@ def apply_neutral_parallel_diffusion(
             momentum_source[name] = momentum_source[name] + momentum_rhs
 
         if diagnose:
-            diagnostics[f"D{name}_Dpar"] = np.asarray(diffusion, dtype=np.float64)
-            diagnostics[f"S{name}_Dpar"] = np.asarray(density_rhs, dtype=np.float64)
-            diagnostics[f"E{name}_Dpar"] = np.asarray(energy_rhs, dtype=np.float64)
+            diagnostics[f"D{name}_Dpar"] = diffusion if use_jax else np.asarray(diffusion, dtype=np.float64)
+            diagnostics[f"S{name}_Dpar"] = density_rhs if use_jax else np.asarray(density_rhs, dtype=np.float64)
+            diagnostics[f"E{name}_Dpar"] = energy_rhs if use_jax else np.asarray(energy_rhs, dtype=np.float64)
             if sp.has_momentum and perpendicular_viscosity:
-                diagnostics[f"F{name}_Dpar"] = np.asarray(momentum_rhs, dtype=np.float64)
+                diagnostics[f"F{name}_Dpar"] = momentum_rhs if use_jax else np.asarray(momentum_rhs, dtype=np.float64)
 
     return NeutralParallelDiffusionTerms(
         density_source=density_source,
