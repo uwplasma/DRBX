@@ -620,6 +620,7 @@ def test_bdf_history_raises_on_failed_solve(monkeypatch: pytest.MonkeyPatch) -> 
 def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[dict[str, object]] = []
     rhs_call_count = 0
+    captured_parallel_workers: list[int] = []
 
     def fake_solve_ivp(rhs, time_span, y0, **kwargs):
         np.testing.assert_allclose(kwargs["t_eval"], np.array([0.0, 0.5, 1.0]))
@@ -648,6 +649,7 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: object())
     monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
     monkeypatch.setattr(recycling, "_unpack_recycling_active_state", fake_unpack)
+    monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "2")
 
     def fake_packed_rhs(*args, **kwargs):
         nonlocal rhs_call_count
@@ -655,7 +657,12 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
         return np.zeros(2)
 
     monkeypatch.setattr(recycling, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
-    monkeypatch.setattr(recycling, "build_sparse_difference_quotient_jacobian", lambda *args, **kwargs: "jacobian")
+
+    def fake_build_jacobian(*args, parallel_workers: int, **kwargs):
+        captured_parallel_workers.append(parallel_workers)
+        return "jacobian"
+
+    monkeypatch.setattr(recycling, "build_sparse_difference_quotient_jacobian", fake_build_jacobian)
     monkeypatch.setattr(recycling, "_sanitize_recycling_fields", lambda config, fields: fields)
     monkeypatch.setattr(recycling, "_sanitize_feedback_integrals", lambda integrals, **kwargs: integrals)
     monkeypatch.setattr(
@@ -686,6 +693,22 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
         {"interval_index": 2, "solver_mode": "bdf"},
     ]
     assert rhs_call_count == 1
+    assert captured_parallel_workers == [2]
     assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_rhs_cache_hit_count"] == 1
     assert result.diagnostics["bdf_jacobian_callback_count"] == 1
+    assert result.diagnostics["bdf_jacobian_parallel_workers"] == 2
+
+
+def test_bdf_jacobian_parallel_worker_env_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JAX_DRB_FD_JACOBIAN_THREADS", raising=False)
+    assert recycling._resolve_recycling_bdf_jacobian_parallel_workers() == 1
+
+    monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "4")
+    assert recycling._resolve_recycling_bdf_jacobian_parallel_workers() == 4
+
+    monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "0")
+    assert recycling._resolve_recycling_bdf_jacobian_parallel_workers() == 1
+
+    monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "not-an-int")
+    assert recycling._resolve_recycling_bdf_jacobian_parallel_workers() == 1

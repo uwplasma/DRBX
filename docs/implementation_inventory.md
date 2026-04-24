@@ -320,6 +320,10 @@ Current native execution coverage:
   fixed-layout source kernel and neutral-ionisation collision-rate helper,
   reducing the latest cProfile AMJUEL fit count on `recycling_dthe_one_step`
   to `117380` while preserving the promoted parity tests;
+- the SciPy BDF recycling Jacobian callback now honors
+  `JAX_DRB_FD_JACOBIAN_THREADS`, reports the resolved worker count, and routes
+  perturbed finite-difference residuals around the mutable RHS cache so explicit
+  local CPU threading does not race that cache;
 - the direct-tokamak recycling parity ladder now has a profile-observable
   campaign for target charged-density profiles, target momentum-flux proxies,
   neutral parallel-density buildup, and target electron-temperature proxy

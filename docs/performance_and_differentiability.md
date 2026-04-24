@@ -366,6 +366,9 @@ parallelization policy:
 - by default that threading now turns on automatically for heavy sparse solves;
 - users can still override it explicitly with
   `JAX_DRB_FD_JACOBIAN_THREADS=<N>`;
+- the SciPy BDF recycling callback now honors the same environment variable
+  while keeping its default serial, which avoids oversubscription on one-off
+  runs but lets MacBook users opt into multiple cores for heavy local runs;
 - on the profiled neon tokamak one-step case, that gives a small but real
   additional local speedup on top of the larger residual/Jacobian cleanup.
 

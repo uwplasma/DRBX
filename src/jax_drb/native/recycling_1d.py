@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import math
+import os
 import re
 import time
 
@@ -2719,6 +2720,7 @@ def _advance_recycling_1d_bdf_history(
     rhs_evaluation_count = 0
     rhs_cache_hit_count = 0
     jacobian_callback_count = 0
+    jacobian_parallel_workers = _resolve_recycling_bdf_jacobian_parallel_workers()
 
     def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         nonlocal rhs_evaluation_count
@@ -2770,13 +2772,14 @@ def _advance_recycling_1d_bdf_history(
         jacobian_callback_count += 1
         rhs_value = rhs(_time, packed_state)
         return build_sparse_difference_quotient_jacobian(
-            lambda state: rhs(_time, state),
+            lambda state: _evaluate_rhs(_time, state),
             packed_state,
             base_residual=rhs_value,
             sparsity=sparsity,
             color_groups=color_groups,
             sparsity_csc=sparsity_csc,
             difference_plan=difference_plan,
+            parallel_workers=jacobian_parallel_workers,
         )
 
     run_started_at = time.perf_counter()
@@ -2841,8 +2844,19 @@ def _advance_recycling_1d_bdf_history(
             "bdf_rhs_evaluation_count": int(rhs_evaluation_count),
             "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
             "bdf_jacobian_callback_count": int(jacobian_callback_count),
+            "bdf_jacobian_parallel_workers": int(jacobian_parallel_workers),
         },
     )
+
+
+def _resolve_recycling_bdf_jacobian_parallel_workers() -> int:
+    env_value = os.environ.get("JAX_DRB_FD_JACOBIAN_THREADS")
+    if env_value is None:
+        return 1
+    try:
+        return max(1, int(env_value))
+    except ValueError:
+        return 1
 
 
 def _compute_recycling_1d_packed_rhs(

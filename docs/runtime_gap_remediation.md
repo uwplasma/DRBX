@@ -167,7 +167,10 @@ localized reaction-source tuning.
 The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
 most recent exact RHS evaluation and reuses it as the base state for
 `jac(t, y)` when SciPy requests the Jacobian at that same state. The history
-result exposes BDF RHS evaluation, cache-hit, and Jacobian-callback counters.
+result exposes BDF RHS evaluation, cache-hit, Jacobian-callback, and
+Jacobian-worker counters. The BDF callback now also sends finite-difference
+perturbation residuals around the mutable RHS cache and honors
+`JAX_DRB_FD_JACOBIAN_THREADS=<N>` for explicit local CPU threading.
 This closes an avoidable duplicate-base-RHS path, but it should be treated as
 instrumentation and cleanup rather than a solved performance milestone; a
 post-change one-run `recycling_dthe_one_step` timing measured `61.38 s`, which
