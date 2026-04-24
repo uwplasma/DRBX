@@ -374,6 +374,11 @@ residual are no longer NumPy-only.
 The electron-force-balance pressure-gradient stencil used to build `Epar` has
 also been moved from a Python loop to vectorized backend-preserving code and is
 covered by the same JVP-versus-finite-difference standard.
+The recycling RHS assembly boundary now passes ion/electron source and
+transport arrays into these backend-preserving assemblers directly instead of
+coercing them through `np.asarray` first; the remaining full-solve barriers are
+therefore increasingly localized to species preparation, neutral RHS assembly,
+and the host-backed nonlinear solve.
 
 The corresponding paper/docs artifact is:
 

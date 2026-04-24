@@ -229,6 +229,8 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   transport, pressure-gradient, source-addition, and soft-floor pieces;
 - the electron-force-balance parallel pressure-gradient stencil is now
   vectorized and backend-preserving, with a JVP finite-difference gate;
+- the recycling RHS now calls the backend-preserving ion/electron assemblers
+  without immediately coercing their inputs through `np.asarray`;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The

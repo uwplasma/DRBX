@@ -451,17 +451,17 @@ def _compute_recycling_1d_rhs_from_species(
                 dataset_scalars=dataset_scalars,
             )
         ion_rhs_terms = _assemble_ion_rhs_terms(
-            density_source=np.asarray(density_source[ion.name], dtype=np.float64),
-            explicit_pressure_source=np.asarray(explicit_pressure_source, dtype=np.float64),
-            momentum_source=np.asarray(momentum_source[ion.name], dtype=np.float64),
+            density_source=density_source[ion.name],
+            explicit_pressure_source=explicit_pressure_source,
+            momentum_source=momentum_source[ion.name],
             atomic_mass=ion.atomic_mass,
             density_floor=ion.density_floor,
             ion_state=ion_state,
-            ion_velocity=np.asarray(ion_velocity[ion.name], dtype=np.float64),
-            fastest_wave=np.asarray(fastest_wave, dtype=np.float64),
+            ion_velocity=ion_velocity[ion.name],
+            fastest_wave=fastest_wave,
             mesh=mesh,
             metrics=metrics,
-            energy_source=np.asarray(energy_source[ion.name], dtype=np.float64),
+            energy_source=energy_source[ion.name],
         )
 
         variables[ion.density_name] = ion_state.density[None, ...]
@@ -483,7 +483,7 @@ def _compute_recycling_1d_rhs_from_species(
             dataset_scalars=dataset_scalars,
         )
     electron_pressure_rhs_terms = _assemble_electron_pressure_rhs_terms(
-        explicit_pressure_source=np.asarray(electron_explicit_pressure_source, dtype=np.float64),
+        explicit_pressure_source=electron_explicit_pressure_source,
         electron_pressure=electron_boundary.pressure,
         electron_velocity=electron_velocity,
         electron_fastest_wave=electron_fastest_wave,
