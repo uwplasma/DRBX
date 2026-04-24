@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
-import subprocess
 import tempfile
-import threading
 from time import perf_counter
-from collections.abc import Callable
-from typing import TypeVar
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -18,9 +13,8 @@ from ..native import run_curated_case
 from ..parity.arrays import build_array_payload_from_summary_payload, build_dataset_array_payload
 from ..parity.diff import build_scaled_array_diff_entries
 from ..parity.reference import discover_reference_binary, resolve_reference_case, run_reference_case
+from ..runtime.memory import PeakRssMeasurement, bytes_to_mebibytes, measure_peak_rss
 from .publication_plotting import save_publication_figure, style_axis
-
-T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -35,17 +29,6 @@ class HermesLiveRerunCampaignArtifacts:
     report_json_path: Path
     report_npz_path: Path
     report_plot_png_path: Path
-
-
-@dataclass(frozen=True)
-class PeakRssMeasurement:
-    start_rss_bytes: int | None
-    end_rss_bytes: int | None
-    peak_rss_bytes: int | None
-    peak_rss_delta_bytes: int | None
-    sample_count: int
-    sampling_interval_seconds: float
-    status: str
 
 
 DEFAULT_HERMES_LIVE_RERUN_CASE_SPECS = (
@@ -236,7 +219,7 @@ def _run_hermes_live_rerun_case(
 ) -> dict[str, object]:
     reference_case, _ = resolve_reference_case(spec.case_name, reference_root=reference_root)
     native_started_at = perf_counter()
-    native_result, native_memory = _measure_peak_rss(
+    native_result, native_memory = measure_peak_rss(
         lambda: run_curated_case(spec.case_name, reference_root=reference_root)
     )
     native_elapsed_seconds = perf_counter() - native_started_at
@@ -244,7 +227,7 @@ def _run_hermes_live_rerun_case(
     with tempfile.TemporaryDirectory(prefix=f"jaxdrb-{spec.case_name}-") as workdir_name:
         workdir = Path(workdir_name)
         reference_started_at = perf_counter()
-        reference_execution, reference_memory = _measure_peak_rss(
+        reference_execution, reference_memory = measure_peak_rss(
             lambda: run_reference_case(
                 spec.case_name,
                 reference_root=reference_root,
@@ -496,122 +479,6 @@ def _write_hermes_live_rerun_campaign_arrays(report: dict[str, object], path: st
     return target
 
 
-def _measure_peak_rss(
-    function: Callable[[], T],
-    *,
-    sampling_interval_seconds: float = 0.10,
-) -> tuple[T, PeakRssMeasurement]:
-    samples: list[int] = []
-    sample_failures = 0
-    stop_event = threading.Event()
-    root_pid = os.getpid()
-
-    def append_sample() -> None:
-        nonlocal sample_failures
-        value = _process_tree_rss_bytes(root_pid)
-        if value is None:
-            sample_failures += 1
-            return
-        samples.append(value)
-
-    append_sample()
-
-    def sample_loop() -> None:
-        while not stop_event.wait(sampling_interval_seconds):
-            append_sample()
-
-    sampler = threading.Thread(target=sample_loop, name="jaxdrb-rss-sampler", daemon=True)
-    sampler.start()
-    try:
-        result = function()
-    finally:
-        stop_event.set()
-        sampler.join(timeout=max(1.0, 4.0 * sampling_interval_seconds))
-    append_sample()
-    start_rss_bytes = samples[0] if samples else None
-    end_rss_bytes = samples[-1] if samples else None
-    peak_rss_bytes = max(samples) if samples else None
-    peak_rss_delta_bytes = (
-        None
-        if peak_rss_bytes is None or start_rss_bytes is None
-        else max(int(peak_rss_bytes - start_rss_bytes), 0)
-    )
-    status = "sampled_process_tree_rss"
-    if not samples:
-        status = "unavailable"
-    elif sample_failures:
-        status = "sampled_process_tree_rss_with_partial_failures"
-    return result, PeakRssMeasurement(
-        start_rss_bytes=start_rss_bytes,
-        end_rss_bytes=end_rss_bytes,
-        peak_rss_bytes=peak_rss_bytes,
-        peak_rss_delta_bytes=peak_rss_delta_bytes,
-        sample_count=len(samples),
-        sampling_interval_seconds=float(sampling_interval_seconds),
-        status=status,
-    )
-
-
-def _process_tree_rss_bytes(root_pid: int) -> int | None:
-    pids = _process_tree_pids(root_pid)
-    rss_kib = 0
-    observed = False
-    for pid in pids:
-        pid_rss = _process_rss_kib(pid)
-        if pid_rss is None:
-            continue
-        rss_kib += pid_rss
-        observed = True
-    return int(rss_kib * 1024) if observed else None
-
-
-def _process_tree_pids(root_pid: int) -> list[int]:
-    pids: list[int] = [int(root_pid)]
-    frontier: list[int] = [int(root_pid)]
-    while frontier:
-        parent = frontier.pop()
-        try:
-            completed = subprocess.run(
-                ["pgrep", "-P", str(parent)],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-        except OSError:
-            continue
-        if completed.returncode not in (0, 1):
-            continue
-        children = [int(value) for value in completed.stdout.split() if value.isdigit()]
-        for child in children:
-            if child not in pids:
-                pids.append(child)
-                frontier.append(child)
-    return pids
-
-
-def _process_rss_kib(pid: int) -> int | None:
-    try:
-        completed = subprocess.run(
-            ["ps", "-o", "rss=", "-p", str(pid)],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-    except OSError:
-        return None
-    if completed.returncode != 0:
-        return None
-    text = completed.stdout.strip()
-    if not text:
-        return None
-    try:
-        return int(float(text.splitlines()[-1].strip()))
-    except ValueError:
-        return None
-
-
 def _memory_report_fields(prefix: str, measurement: PeakRssMeasurement) -> dict[str, object]:
     return {
         f"{prefix}_memory_measurement_status": measurement.status,
@@ -621,8 +488,8 @@ def _memory_report_fields(prefix: str, measurement: PeakRssMeasurement) -> dict[
         f"{prefix}_end_rss_bytes": measurement.end_rss_bytes,
         f"{prefix}_peak_rss_bytes": measurement.peak_rss_bytes,
         f"{prefix}_peak_rss_delta_bytes": measurement.peak_rss_delta_bytes,
-        f"{prefix}_peak_rss_mebibytes": _bytes_to_mebibytes(measurement.peak_rss_bytes),
-        f"{prefix}_peak_rss_delta_mebibytes": _bytes_to_mebibytes(measurement.peak_rss_delta_bytes),
+        f"{prefix}_peak_rss_mebibytes": bytes_to_mebibytes(measurement.peak_rss_bytes),
+        f"{prefix}_peak_rss_delta_mebibytes": bytes_to_mebibytes(measurement.peak_rss_delta_bytes),
     }
 
 
@@ -630,12 +497,6 @@ def _safe_ratio(numerator: int | None, denominator: int | None) -> float | None:
     if numerator is None or denominator is None or denominator <= 0:
         return None
     return float(numerator / denominator)
-
-
-def _bytes_to_mebibytes(value: int | None) -> float | None:
-    if value is None:
-        return None
-    return float(value / (1024.0 * 1024.0))
 
 
 def _nan_if_none(value: object) -> float:

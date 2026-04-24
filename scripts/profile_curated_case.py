@@ -51,6 +51,11 @@ def _parse_args() -> argparse.Namespace:
         help="Capture a JAX device-memory profile after the profiled run.",
     )
     parser.add_argument(
+        "--rss-profile",
+        action="store_true",
+        help="Sample process-tree peak RSS during timed runs.",
+    )
+    parser.add_argument(
         "--compilation-cache-dir",
         type=Path,
         default=None,
@@ -87,7 +92,16 @@ def _block_result(result: Any) -> None:
                 blocker()
 
 
-def _time_case(run_curated_case, jax, args: argparse.Namespace, *, trace_dir: Path | None, enable_cprofile: bool):
+def _time_case(
+    run_curated_case,
+    jax,
+    measure_peak_rss,
+    args: argparse.Namespace,
+    *,
+    trace_dir: Path | None,
+    enable_cprofile: bool,
+    enable_rss_profile: bool,
+):
     profiler = cProfile.Profile() if enable_cprofile else None
     trace_cm = (
         jax.profiler.trace(
@@ -101,19 +115,28 @@ def _time_case(run_curated_case, jax, args: argparse.Namespace, *, trace_dir: Pa
     with trace_cm:
         if profiler is not None:
             profiler.enable()
-        started = perf_counter()
         run_kwargs: dict[str, Any] = {}
         if args.reference_root is not None:
             run_kwargs["reference_root"] = args.reference_root
-        result = run_curated_case(
-            args.case_name,
-            **run_kwargs,
-        )
-        _block_result(result)
+
+        def execute_case():
+            run_result = run_curated_case(
+                args.case_name,
+                **run_kwargs,
+            )
+            _block_result(run_result)
+            return run_result
+
+        started = perf_counter()
+        if enable_rss_profile:
+            result, rss_measurement = measure_peak_rss(execute_case)
+        else:
+            result = execute_case()
+            rss_measurement = None
         elapsed = perf_counter() - started
         if profiler is not None:
             profiler.disable()
-    return result, elapsed, profiler
+    return result, elapsed, profiler, rss_measurement
 
 
 class _NullContext:
@@ -137,6 +160,7 @@ def main() -> int:
     import jax
 
     from jax_drb.native import run_curated_case
+    from jax_drb.runtime.memory import bytes_to_mebibytes, measure_peak_rss
 
     output_dir = (
         args.output_dir.expanduser().resolve()
@@ -150,25 +174,38 @@ def main() -> int:
 
     warm_durations: list[float] = []
     for _ in range(max(0, args.warm_runs)):
-        _, elapsed, _ = _time_case(run_curated_case, jax, args, trace_dir=None, enable_cprofile=False)
+        _, elapsed, _, _ = _time_case(
+            run_curated_case,
+            jax,
+            measure_peak_rss,
+            args,
+            trace_dir=None,
+            enable_cprofile=False,
+            enable_rss_profile=False,
+        )
         warm_durations.append(float(elapsed))
 
     timed_durations: list[float] = []
+    rss_measurements: list[dict[str, object]] = []
     profiled_result = None
     profiled_elapsed = None
     profiler = None
     for timed_index in range(max(1, args.timed_runs)):
         use_trace = trace_dir if timed_index == 0 else None
         use_cprofile = (timed_index == 0) and (not args.skip_cprofile)
-        result, elapsed, run_profiler = _time_case(
+        result, elapsed, run_profiler, rss_measurement = _time_case(
             run_curated_case,
             jax,
+            measure_peak_rss,
             args,
             trace_dir=use_trace,
             enable_cprofile=use_cprofile,
+            enable_rss_profile=args.rss_profile,
         )
         profiled_result = result
         timed_durations.append(float(elapsed))
+        if rss_measurement is not None:
+            rss_measurements.append(_rss_measurement_payload(rss_measurement, bytes_to_mebibytes))
         if timed_index == 0:
             profiled_elapsed = float(elapsed)
             profiler = run_profiler
@@ -190,6 +227,11 @@ def main() -> int:
         memory_profile_path = output_dir / "device_memory_profile.prof"
         jax.profiler.save_device_memory_profile(str(memory_profile_path))
 
+    peak_rss_values = [
+        float(entry["peak_rss_mebibytes"])
+        for entry in rss_measurements
+        if entry.get("peak_rss_mebibytes") is not None
+    ]
     summary = {
         "case_name": args.case_name,
         "reference_root": None if args.reference_root is None else str(args.reference_root.expanduser().resolve()),
@@ -199,6 +241,11 @@ def main() -> int:
         "warm_run_seconds": warm_durations,
         "timed_run_count": len(timed_durations),
         "timed_run_seconds": timed_durations,
+        "rss_profile_enabled": bool(args.rss_profile),
+        "timed_run_peak_rss": rss_measurements,
+        "timed_run_peak_rss_max_mebibytes": (
+            None if not peak_rss_values else max(peak_rss_values)
+        ),
         "profiled_run_seconds": profiled_elapsed,
         "timed_run_mean_seconds": float(sum(timed_durations) / len(timed_durations)),
         "timed_run_min_seconds": float(min(timed_durations)),
@@ -226,6 +273,20 @@ def main() -> int:
     if memory_profile_path is not None:
         print(memory_profile_path)
     return 0
+
+
+def _rss_measurement_payload(measurement, bytes_to_mebibytes) -> dict[str, object]:
+    return {
+        "status": measurement.status,
+        "sample_count": int(measurement.sample_count),
+        "sampling_interval_seconds": float(measurement.sampling_interval_seconds),
+        "start_rss_bytes": measurement.start_rss_bytes,
+        "end_rss_bytes": measurement.end_rss_bytes,
+        "peak_rss_bytes": measurement.peak_rss_bytes,
+        "peak_rss_delta_bytes": measurement.peak_rss_delta_bytes,
+        "peak_rss_mebibytes": bytes_to_mebibytes(measurement.peak_rss_bytes),
+        "peak_rss_delta_mebibytes": bytes_to_mebibytes(measurement.peak_rss_delta_bytes),
+    }
 
 
 if __name__ == "__main__":

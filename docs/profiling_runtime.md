@@ -68,13 +68,15 @@ PYTHONPATH=src python3 scripts/profile_curated_case.py neutral_mixed_one_step \
   --reference-root /path/to/hermes-3 \
   --output-dir tmp/profiles/neutral_mixed_one_step \
   --warm-runs 1 \
-  --timed-runs 2
+  --timed-runs 2 \
+  --rss-profile
 ```
 
 The script writes:
 
 - `profile_summary.json`
 - `cprofile_top.txt`
+- process-tree peak RSS fields in the summary when `--rss-profile` is enabled
 
 and, when requested:
 
