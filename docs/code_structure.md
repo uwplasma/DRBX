@@ -104,7 +104,12 @@ active-domain field dictionaries and controller scalars directly, returns
 fixed-layout RHS arrays, and is JVP-tested without rebuilding full-field
 dictionaries. New source, collision, diffusion, target, and sheath terms should
 enter through that active-array adapter before being promoted into the full
-transient solve.
+transient solve. The current sheath extraction follows that rule: simple ion,
+full ion, and full electron sheath response formulas now live in
+[src/jax_drb/native/open_field.py](../src/jax_drb/native/open_field.py) as
+backend-preserving helpers, while the remaining full-field sheath orchestration
+stays in [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
+until its Hermès parity gates are ready.
 
 The next low-risk extraction is the recycling field metadata layer:
 

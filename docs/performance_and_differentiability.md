@@ -414,13 +414,16 @@ The corresponding paper/docs artifact is:
 
 - [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)
 
-The latest boundary-kernel step also isolates the simple ion Bohm-sheath guard
-and energy-source formula in a backend-preserving helper. The existing
-simple-sheath branch now calls that helper, and the open-field tests compare
-the NumPy and JAX values plus a JVP against centered finite differences. The
-full current-free electron sheath and full ion sheath branches remain
-host-oriented because they are parity-sensitive; they should be ported only
-after their Hermès diagnostic gates are in place.
+The latest boundary-kernel steps also isolate the simple ion Bohm-sheath guard
+and energy-source formula, the full electron sheath response after the
+zero-current potential is known, and the full ion sheath Bohm/energy response
+in backend-preserving helpers. The existing simple and full sheath branches
+call those helpers, and the open-field tests compare NumPy and JAX values plus
+JVPs against centered finite differences. The remaining host-oriented sheath
+barrier is now the surrounding orchestration: no-flow guard application,
+zero-current ion-sum reconstruction, full-field dictionary plumbing, and the
+Hermès parity gates that decide when those pieces can move into the fixed
+active-array residual.
 
 ## Current GPU-Native Audit
 
