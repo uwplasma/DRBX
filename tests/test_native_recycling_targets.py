@@ -274,7 +274,10 @@ def test_target_recycling_sources_are_jax_jvp_transformable() -> None:
         return jnp.sum(terms.density_source["d"]) + 0.25 * jnp.sum(terms.energy_source["d"])
 
     value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    step = 1.0e-5
+    finite_difference = (qoi(jnp.array(1.0 + step)) - qoi(jnp.array(1.0 - step))) / (2.0 * step)
 
     assert np.isfinite(float(value))
     assert np.isfinite(float(tangent))
     assert abs(float(tangent)) > 0.0
+    np.testing.assert_allclose(float(tangent), float(finite_difference), rtol=1.0e-7, atol=1.0e-9)
