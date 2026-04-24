@@ -4,17 +4,54 @@ import numpy as np
 import pytest
 
 from jax_drb.solver import (
+    active_region_from_slices,
     backward_euler_residual,
     bdf2_residual,
     build_locality_sparsity,
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
+    difference_quotient_step_size,
     pack_active_fields,
     solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
     unpack_active_fields,
 )
+
+
+def test_active_region_from_slices_reports_shape_and_size() -> None:
+    region = active_region_from_slices(
+        (6, 7, 3),
+        (slice(1, 6, 2), slice(None, None, 3), slice(None)),
+    )
+
+    assert region.slices == (slice(1, 6, 2), slice(None, None, 3), slice(None))
+    assert region.shape == (3, 3, 3)
+    assert region.size == 27
+
+
+def test_active_region_from_slices_rejects_rank_mismatch() -> None:
+    with pytest.raises(ValueError, match="same rank"):
+        active_region_from_slices((4, 5), (slice(None),))
+
+
+def test_pack_unpack_active_fields_handles_empty_field_tuple() -> None:
+    active = (slice(1, 2), slice(None))
+
+    packed = pack_active_fields((), active_slices=active)
+    restored = unpack_active_fields(packed, templates=(), active_slices=active)
+
+    assert packed.dtype == np.float64
+    assert packed.size == 0
+    assert restored == ()
+
+
+def test_unpack_active_fields_rejects_wrong_packed_size() -> None:
+    active = (slice(1, 3), slice(None))
+    template = np.zeros((4, 2), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="Packed state has size 3, expected 4"):
+        unpack_active_fields(np.ones(3, dtype=np.float64), templates=(template,), active_slices=active)
 
 
 def test_pack_unpack_active_fields_round_trip() -> None:
@@ -58,6 +95,22 @@ def test_build_locality_sparsity_respects_periodic_axis() -> None:
     assert periodic_neighbor in columns
     assert active_cells + periodic_neighbor in columns
     assert far_x_neighbor not in columns
+
+
+def test_difference_quotient_step_size_scales_with_state_magnitude() -> None:
+    base = np.sqrt(np.finfo(np.float64).eps)
+
+    assert difference_quotient_step_size(0.25) == pytest.approx(base)
+    assert difference_quotient_step_size(-4.0) == pytest.approx(4.0 * base)
+
+
+def test_sparsity_and_coloring_reject_rank_mismatch() -> None:
+    pytest.importorskip("scipy")
+
+    with pytest.raises(ValueError, match="same rank"):
+        build_locality_sparsity((3, 2), field_count=1, radii=(1,))
+    with pytest.raises(ValueError, match="same rank"):
+        build_modulo_color_groups((3, 2), field_count=1, color_periods=(2,))
 
 
 def test_build_modulo_color_groups_partitions_state() -> None:
@@ -206,6 +259,225 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     np.testing.assert_allclose(matrix_free_solution, target, rtol=1e-9, atol=1e-9)
     assert sparse_info.residual_inf_norm < 1.0e-10
     assert matrix_free_info.residual_inf_norm < 1.0e-10
+
+
+def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> None:
+    pytest.importorskip("scipy")
+
+    initial = np.array([1.0, 2.0], dtype=np.float64)
+    sparsity = build_locality_sparsity((2,), field_count=1, radii=(0,))
+    color_groups = build_modulo_color_groups((2,), field_count=1, color_periods=(2,))
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: state - initial,
+        initial,
+        active_shape=(2,),
+        sparsity=sparsity,
+        color_groups=color_groups,
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+    )
+
+    np.testing.assert_allclose(solution, initial)
+    assert info.nonlinear_iterations == 0
+    assert info.linear_iterations == 0
+
+
+def test_sparse_newton_solver_uses_thread_count_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+    import jax_drb.solver.implicit as implicit
+
+    captured_workers: list[int] = []
+
+    def fake_build_jacobian(*args, parallel_workers: int, **kwargs):
+        captured_workers.append(parallel_workers)
+        return scipy_sparse.eye(1, format="csr")
+
+    monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "3")
+    monkeypatch.setattr(implicit, "build_sparse_difference_quotient_jacobian", fake_build_jacobian)
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: state - np.array([1.0]),
+        np.array([0.0]),
+        active_shape=(1,),
+        sparsity=scipy_sparse.eye(1, format="csr"),
+        color_groups=((0,),),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]))
+    assert captured_workers == [3]
+    assert info.linear_iterations == 1
+
+
+def test_sparse_newton_solver_falls_back_to_direct_solve_when_gmres_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    gmres_calls: list[int] = []
+
+    def fake_gmres(matrix, rhs, *, callback=None, **kwargs):
+        gmres_calls.append(1)
+        if callback is not None:
+            callback(1.0)
+        return np.zeros_like(rhs), 1
+
+    monkeypatch.setattr("scipy.sparse.linalg.gmres", fake_gmres)
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: state - np.array([1.0]),
+        np.array([0.0]),
+        active_shape=(1,),
+        sparsity=scipy_sparse.eye(1, format="csr"),
+        color_groups=((0,),),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]))
+    assert gmres_calls == [1]
+    assert info.linear_iterations == 2
+
+
+def test_sparse_newton_solver_can_exit_on_step_tolerance() -> None:
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: state - np.array([1.0]),
+        np.array([0.9]),
+        active_shape=(1,),
+        sparsity=scipy_sparse.eye(1, format="csr"),
+        color_groups=((0,),),
+        residual_tolerance=1.0e-30,
+        step_tolerance=1.0,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]))
+    assert info.nonlinear_iterations == 1
+    assert info.residual_inf_norm <= 1.0e-12
+
+
+def test_sparse_newton_solver_uses_newton_krylov_fallback_after_rejected_line_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+    scipy_optimize = pytest.importorskip("scipy.optimize")
+
+    def fake_spsolve(*args, **kwargs):
+        return np.array([1.0], dtype=np.float64)
+
+    def fake_newton_krylov(*args, **kwargs):
+        raise scipy_optimize.NoConvergence(np.array([0.25], dtype=np.float64))
+
+    monkeypatch.setattr("scipy.sparse.linalg.spsolve", fake_spsolve)
+    monkeypatch.setattr("scipy.optimize.newton_krylov", fake_newton_krylov)
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: state + 1.0,
+        np.array([0.0]),
+        active_shape=(1,),
+        sparsity=scipy_sparse.eye(1, format="csr"),
+        color_groups=((0,),),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=2,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.25]))
+    assert info.residual_inf_norm == pytest.approx(1.25)
+    assert info.nonlinear_iterations == 2
+
+
+def test_sparse_newton_solver_rejects_nonfinite_trial_then_uses_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    monkeypatch.setattr("scipy.sparse.linalg.spsolve", lambda *args, **kwargs: np.array([np.inf]))
+    monkeypatch.setattr("scipy.optimize.newton_krylov", lambda *args, **kwargs: np.array([0.5]))
+
+    solution, info = solve_sparse_newton_system(
+        lambda state: state - 1.0,
+        np.array([0.0]),
+        active_shape=(1,),
+        sparsity=scipy_sparse.eye(1, format="csr"),
+        color_groups=((0,),),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=1,
+        linear_restart=2,
+        linear_maxiter=4,
+        linear_rtol=1.0e-10,
+        prefer_direct_linear_solve=True,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.5]))
+    assert info.residual_inf_norm == pytest.approx(0.5)
+    assert info.nonlinear_iterations == 1
+
+
+def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    initial = np.array([1.0, 2.0], dtype=np.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - jnp.asarray(initial),
+        initial,
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+    )
+
+    np.testing.assert_allclose(solution, initial)
+    assert info.nonlinear_iterations == 0
+    assert info.linear_iterations == 0
+
+
+def test_jax_linearized_newton_solver_can_exit_on_step_tolerance() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - jnp.array([1.0], dtype=jnp.float64),
+        np.array([0.9], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-30,
+        step_tolerance=1.0,
+        max_nonlinear_iterations=4,
+        linear_restart=2,
+        linear_maxiter=4,
+    )
+
+    np.testing.assert_allclose(solution, np.array([1.0]))
+    assert info.nonlinear_iterations == 1
+    assert info.residual_inf_norm <= 1.0e-12
 
 
 def test_jax_linearized_newton_solver_recovers_known_root() -> None:
