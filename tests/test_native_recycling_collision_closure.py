@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -12,9 +13,12 @@ from jax_drb.native.metrics import StructuredMetrics, build_structured_metrics
 from jax_drb.native.neutral_mixed import _grad_par_open
 from jax_drb.native.recycling_collision_closure import (
     apply_collision_closure,
+    conduction_collision_time,
     conduction_kappa_coefficient,
     ion_thermal_force_pair,
+    momentum_coefficient,
     parallel_ion_viscous_stress_open,
+    thermal_force_enabled,
 )
 from jax_drb.native.recycling_collisions import compute_collision_frequencies
 from jax_drb.native.recycling_reactions import charge_exchange_collision_rates
@@ -25,6 +29,296 @@ from jax_drb.native.units import resolved_dataset_scalars
 
 
 _DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+
+
+class _MiniConfig:
+    def __init__(self, sections: dict[str, dict[str, object]] | None = None) -> None:
+        self._sections = sections or {}
+
+    def has_section(self, section: str) -> bool:
+        return section in self._sections
+
+    def has_option(self, section: str, key: str) -> bool:
+        return key in self._sections.get(section, {})
+
+    def parsed(self, section: str, key: str) -> object:
+        return self._sections[section][key]
+
+
+def _field(value: float) -> np.ndarray:
+    return np.asarray([[[value]]], dtype=np.float64)
+
+
+def _species(
+    name: str,
+    *,
+    charge: float,
+    atomic_mass: float,
+    has_pressure: bool = True,
+    has_momentum: bool = True,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name,
+        charge=charge,
+        atomic_mass=atomic_mass,
+        has_pressure=has_pressure,
+        has_momentum=has_momentum,
+        density=_field(1.0),
+    )
+
+
+def _prepared(
+    *,
+    density: float = 1.0,
+    pressure: float = 1.0,
+    temperature: float = 1.0,
+    velocity: float = 0.0,
+    momentum: float = 0.0,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        density=_field(density),
+        pressure=_field(pressure),
+        temperature=_field(temperature),
+        velocity=_field(velocity),
+        momentum=_field(momentum),
+    )
+
+
+def _line_field(values: tuple[float, float, float]) -> np.ndarray:
+    return np.asarray(values, dtype=np.float64).reshape(1, 3, 1)
+
+
+def _line_prepared(*, temperature: tuple[float, float, float] = (1.0, 2.0, 4.0)) -> SimpleNamespace:
+    return SimpleNamespace(
+        density=_line_field((1.0, 1.0, 1.0)),
+        pressure=_line_field(temperature),
+        temperature=_line_field(temperature),
+        velocity=_line_field((0.0, 0.0, 0.0)),
+        momentum=_line_field((0.0, 0.0, 0.0)),
+    )
+
+
+def _line_mesh_and_metrics() -> tuple[StructuredMesh, StructuredMetrics]:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([-1.0, 0.0, 1.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    ones = np.ones((1, 3, 1), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=ones,
+    )
+    return mesh, metrics
+
+
+def test_momentum_coefficient_matches_braginskii_charge_branches() -> None:
+    assert momentum_coefficient("e", -1.0, "d+", 1.0) == pytest.approx(0.51)
+    assert momentum_coefficient("e", -1.0, "he+", 2.0) == pytest.approx(0.44)
+    assert momentum_coefficient("ne+++", 3.0, "e", -1.0) == pytest.approx(0.40)
+    assert momentum_coefficient("c++++", 4.0, "e", -1.0) == pytest.approx(0.38)
+    assert momentum_coefficient("d+", 1.0, "t+", 1.0) == pytest.approx(1.0)
+
+
+def test_ion_thermal_force_pair_covers_mass_ordering_and_skip_rules() -> None:
+    mesh, metrics = _line_mesh_and_metrics()
+    species = {
+        "e": _species("e", charge=-1.0, atomic_mass=1.0),
+        "d": _species("d", charge=0.0, atomic_mass=2.0),
+        "d+": _species("d+", charge=1.0, atomic_mass=2.0),
+        "t+": _species("t+", charge=1.0, atomic_mass=3.0),
+        "ne+": _species("ne+", charge=1.0, atomic_mass=20.0),
+    }
+    prepared = {name: _line_prepared() for name in species}
+
+    assert (
+        ion_thermal_force_pair(
+            "e",
+            "d+",
+            species=species,
+            prepared=prepared,
+            mesh=mesh,
+            metrics=metrics,
+            override_mass_restrictions=True,
+        )
+        is None
+    )
+    assert (
+        ion_thermal_force_pair(
+            "d",
+            "d+",
+            species=species,
+            prepared=prepared,
+            mesh=mesh,
+            metrics=metrics,
+            override_mass_restrictions=True,
+        )
+        is None
+    )
+
+    light_name, heavy_name, heavy_force = ion_thermal_force_pair(
+        "d+",
+        "ne+",
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        override_mass_restrictions=False,
+    )
+    assert (light_name, heavy_name) == ("d+", "ne+")
+    assert heavy_force.shape == prepared["ne+"].density.shape
+
+    light_name, heavy_name, _ = ion_thermal_force_pair(
+        "ne+",
+        "d+",
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        override_mass_restrictions=False,
+    )
+    assert (light_name, heavy_name) == ("d+", "ne+")
+
+    assert (
+        ion_thermal_force_pair(
+            "d+",
+            "t+",
+            species=species,
+            prepared=prepared,
+            mesh=mesh,
+            metrics=metrics,
+            override_mass_restrictions=False,
+        )
+        is None
+    )
+    light_name, heavy_name, _ = ion_thermal_force_pair(
+        "t+",
+        "d+",
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        override_mass_restrictions=True,
+    )
+    assert (light_name, heavy_name) == ("d+", "t+")
+
+
+def test_thermal_force_enabled_uses_default_when_option_missing() -> None:
+    assert thermal_force_enabled(_MiniConfig(), "electron_ion", True) is True
+    assert thermal_force_enabled(_MiniConfig({"braginskii_thermal_force": {}}), "ion_ion", False) is False
+    assert (
+        thermal_force_enabled(
+            _MiniConfig({"braginskii_thermal_force": {"electron_ion": False}}),
+            "electron_ion",
+            True,
+        )
+        is False
+    )
+
+
+def test_conduction_collision_time_covers_braginskii_multispecies_and_afn_modes() -> None:
+    species = {
+        "e": _species("e", charge=-1.0, atomic_mass=1.0),
+        "d+": _species("d+", charge=1.0, atomic_mass=2.0),
+        "d": _species("d", charge=0.0, atomic_mass=2.0),
+    }
+    prepared = {name: _prepared(density=1.0) for name in species}
+    rates = {
+        ("e", "e"): _field(2.0),
+        ("d+", "d+"): _field(4.0),
+        ("d", "e"): _field(5.0),
+        ("d", "d+"): _field(7.0),
+        ("d", "d"): _field(11.0),
+    }
+    cx_rates = {"d": _field(3.0), "d+": _field(13.0)}
+
+    electron_tau = conduction_collision_time(
+        _MiniConfig({"e": {"conduction_collisions_mode": "braginskii"}}),
+        species=species,
+        prepared=prepared,
+        collision_rates=rates,
+        cx_rates=cx_rates,
+        species_name="e",
+    )
+    ion_tau = conduction_collision_time(
+        _MiniConfig({"d+": {"conduction_collisions_mode": "braginskii"}}),
+        species=species,
+        prepared=prepared,
+        collision_rates=rates,
+        cx_rates=cx_rates,
+        species_name="d+",
+    )
+    neutral_afn_tau = conduction_collision_time(
+        _MiniConfig({"d": {"conduction_collisions_mode": "afn"}}),
+        species=species,
+        prepared=prepared,
+        collision_rates=rates,
+        cx_rates=cx_rates,
+        species_name="d",
+    )
+    default_multispecies_tau = conduction_collision_time(
+        _MiniConfig(),
+        species=species,
+        prepared=prepared,
+        collision_rates=rates,
+        cx_rates=cx_rates,
+        species_name="d+",
+    )
+
+    np.testing.assert_allclose(electron_tau, _field(0.5))
+    np.testing.assert_allclose(ion_tau, _field(0.25))
+    np.testing.assert_allclose(neutral_afn_tau, _field(1.0 / (5.0 + 7.0 + 3.0)))
+    np.testing.assert_allclose(default_multispecies_tau, _field(1.0 / (4.0 + 13.0)))
+
+    with pytest.raises(NotImplementedError, match="Neutral conduction_collisions_mode='braginskii'"):
+        conduction_collision_time(
+            _MiniConfig({"d": {"conduction_collisions_mode": "braginskii"}}),
+            species=species,
+            prepared=prepared,
+            collision_rates=rates,
+            cx_rates=cx_rates,
+            species_name="d",
+        )
+    with pytest.raises(NotImplementedError, match="only supported for neutrals"):
+        conduction_collision_time(
+            _MiniConfig({"d+": {"conduction_collisions_mode": "afn"}}),
+            species=species,
+            prepared=prepared,
+            collision_rates=rates,
+            cx_rates=cx_rates,
+            species_name="d+",
+        )
+    with pytest.raises(NotImplementedError, match="Unsupported conduction_collisions_mode"):
+        conduction_collision_time(
+            _MiniConfig({"d": {"conduction_collisions_mode": "other"}}),
+            species=species,
+            prepared=prepared,
+            collision_rates=rates,
+            cx_rates=cx_rates,
+            species_name="d",
+        )
 
 
 def test_parallel_ion_viscous_stress_matches_braginskii_formula() -> None:

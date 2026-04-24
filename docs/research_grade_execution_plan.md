@@ -438,6 +438,68 @@ The validation structure is strong but needs tighter promotion gates:
 - every paper-strength figure should already exist as a docs artifact from a
   tested validation campaign
 
+### Hermes Parity, Runtime, And Memory Offender Register
+
+The next validation push should explicitly rank the main offenders between
+JAXDRB and Hermes-3 instead of treating each mismatch or slow run as an
+isolated bug. The offender register should be regenerated whenever a promoted
+Hermes-backed lane changes and should contain, for each case, the compare
+surface, dominant field, dominant component when known, absolute error,
+relative/scaled error, JAXDRB wall time, Hermes wall time, peak resident memory
+or best available memory proxy, and the artifact path used to reproduce the
+diagnosis.
+
+The current priority parity offenders are:
+
+- heavy 1D open-field recycling transients, especially neutral and recycling
+  closure drift over longer windows
+- neutral mixed transport, especially the boundary-local `NVh` mismatch that
+  already has a dedicated boundary-audit figure
+- integrated 2D production/recycling target-band residuals, historically led
+  by `Pe`, `Pd+`, `NVd+`, and neutral-side transient terms depending on the
+  rung
+- direct tokamak multispecies recycling windows where the largest scaled
+  mismatch is often a near-zero `NVd`/`NVt` field and therefore must be reported
+  with absolute-error context
+- OpenADAS/neon-enabled recycling paths where table lookup, radiation/source
+  partitioning, and species-state preparation must stay component-local
+
+The current priority runtime offenders are:
+
+- sparse finite-difference Jacobian construction and repeated residual calls in
+  the host-backed implicit recycling path
+- active-state pack/unpack and prepared-state reconstruction inside implicit
+  iterations
+- target boundary geometry, target recycling, neutral diffusion, and collision
+  closure assembly on heavy multispecies cases
+- long-history artifact writing and compare-surface extraction for transient
+  validation
+- any live Hermes rerun that requires a high-rank launch or writes large dumps
+  before the guarded compare surface is extracted
+
+The current priority memory offenders are:
+
+- materialized sparse Jacobians and temporary colored finite-difference states
+  in heavy implicit solves
+- repeated full-field copies in state preparation, boundary reconstruction, and
+  active-domain packing
+- stored long histories and optional reference snapshots that are useful for
+  validation but should not be required for ordinary package use
+- multi-MB NPZ/GIF artifacts that need explicit classification as CI baselines,
+  documentation assets, release assets, or external research artifacts
+
+The register should drive the next fixes in this order:
+
+1. localize the largest parity error to an equation term, closure, boundary
+   rule, or compare-window convention
+2. add a direct unit/operator test and, where useful, a small artifact-producing
+   diagnostic plot for that term
+3. profile the same lane before and after the fix, including memory when
+   available
+4. update the validation report with both absolute and relative errors so
+   near-zero-field mismatches are not overstated
+5. only then widen the case matrix or promote a new manuscript/docs figure
+
 ### CI And Automation
 
 The current workflow is intentionally narrow because of billing constraints.
@@ -756,6 +818,9 @@ Exit criteria:
 
 Deliverables:
 
+- maintain a Hermes parity/runtime/memory offender register that ranks cases by
+  dominant field, component, absolute error, scaled error, wall time, and memory
+  footprint
 - fix neutral-mixed `NVh` boundary-local mismatch or document the exact
   bounded cause with an equation-level explanation
 - promote the open-field recycling transient ladder through one-RHS,
