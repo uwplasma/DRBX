@@ -113,7 +113,10 @@ callback also caches the most recent exact `(t, y)` RHS evaluation, so a
 instead of recomputing the full recycling source/closure assembly. The
 recycling history object records `bdf_rhs_evaluation_count`,
 `bdf_rhs_cache_hit_count`, and `bdf_jacobian_callback_count` for future runtime
-audits.
+audits. The packed recycling RHS now also disables reaction diagnostics during
+implicit residual/Jacobian evaluations and routes the exact D/T/He Hermès
+reaction block through the fixed-layout array kernel, so the solver hot path no
+longer pays for dictionary diagnostics that are only needed for reporting.
 
 ## What The Current Profiling Already Says
 
@@ -319,8 +322,13 @@ stacked neutral, ion, and electron source arrays for D, T, He ionisation and
 recombination plus D-D, T-T, D-T, and T-D charge exchange. It is parity-tested
 against the existing dictionary path on the local Hermès `1D-recycling-dthe`
 deck and has direct `jit`/`grad` coverage. This is the concrete bridge needed
-before replacing the packed recycling residual's mutable reaction-source
-accumulation with a JAX-transformable PyTree.
+for the packed recycling residual: diagnostics-free D/T/He residual calls now
+use this fixed-layout kernel, while the full dictionary path remains available
+for reported reaction diagnostics. Focused tests lock dictionary parity,
+charge-exchange multiplier handling, species-specific floor handling, and the
+packed-RHS diagnostics flag. The remaining production step is broader than
+reaction sources: move the surrounding collision, diffusion, target-recycling,
+and BDF residual assembly into the same JAX-transformable PyTree style.
 
 The corresponding paper/docs artifact is:
 
