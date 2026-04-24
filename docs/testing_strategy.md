@@ -121,14 +121,20 @@ operator, parity, and artifact-producing tests, the same command should be run
 without `--audit` and must satisfy the default `95%` threshold before the solver
 surface is called research-grade.
 
-The first measured baseline for this slice, run locally on April 23, 2026, is
-`73%` total coverage with all selected tests passing. The top coverage targets
-for the next implementation pass are:
+The first measured baseline for this slice was `73%` total coverage with all
+selected tests passing. The current promoted solver/public-surface audit now
+passes the `95%` gate at `96%`, with the shared active-region pack/unpack
+primitive and the extracted recycling layout module covered directly. The next
+coverage work should therefore be treated as architecture hardening, not as
+percentage chasing. The remaining high-value targets are:
 
 - `runner.py`: split setup, execution policy, logging/provenance, restart, and
   artifact writing into directly tested helpers
 - `recycling_1d.py`: extract residual assembly, continuation control, neutral
   reconstruction, pressure/source preparation, and target recycling branches
+- `solver/implicit.py`: keep the finite-difference sparse path, fallback
+  diagnostics, and JAX-linearized path covered as the solver backend boundary
+  is split further
 - `parity/diff.py`, `parity/compare.py`, and `parity/reference.py`: add direct
   tests for guard semantics, missing-field behavior, normalization modes, and
   failure reporting
