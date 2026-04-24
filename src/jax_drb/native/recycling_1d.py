@@ -38,6 +38,8 @@ from .open_field import (
     apply_noflow_flow_guards,
     apply_noflow_scalar_guards,
     compute_electron_force_balance,
+    compute_full_electron_sheath_boundary,
+    compute_full_ion_sheath_boundary,
     compute_simple_ion_sheath_boundary,
     compute_target_recycling_sources,
     limit_free,
@@ -1036,26 +1038,28 @@ def _apply_ion_sheath_boundary(
                     if jp < electron_density.shape[1]
                     else 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
                 )
-                s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
                 grad_ne = electron_density[:, j, :] - nesheath
                 grad_ni = density[:, j, :] - nisheath
-                mask = np.abs(grad_ni) < 1.0e-3
-                grad_ne = np.where(mask, 1.0e-3, grad_ne)
-                grad_ni = np.where(mask, 1.0e-3, grad_ni)
-                c_i_sq = np.clip(
-                    ((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass,
-                    0.0,
-                    100.0,
+                source_scale = (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :])) / (
+                    dy[:, j, :] * J[:, j, :]
                 )
-                gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
-                visheath = np.sqrt(c_i_sq)
-                vel[:, jp, :] = 2.0 * visheath - vel[:, j, :]
-                momentum_field[:, jp, :] = 2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
-                q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
-                q = np.maximum(q, 0.0)
-                flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
-                power = flux / (dy[:, j, :] * J[:, j, :])
-                energy_source[ion.name][:, j, :] -= power
+                sheath = compute_full_ion_sheath_boundary(
+                    sheath_density=nisheath,
+                    sheath_temperature=tisheath,
+                    electron_sheath_density=nesheath,
+                    electron_sheath_temperature=tesheath,
+                    electron_density_gradient=grad_ne,
+                    ion_density_gradient=grad_ni,
+                    interior_velocity=vel[:, j, :],
+                    interior_momentum=momentum_field[:, j, :],
+                    atomic_mass=ion.atomic_mass,
+                    charge=ion.charge,
+                    direction=1.0,
+                    source_scale=source_scale,
+                )
+                vel[:, jp, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
+                momentum_field[:, jp, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
+                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
 
         if mesh.has_lower_y_target and lower_y_enabled:
             j = mesh.ystart
@@ -1115,26 +1119,28 @@ def _apply_ion_sheath_boundary(
                 energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
             else:
                 nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
-                s_i = np.clip(nisheath / np.maximum(nesheath, 1.0e-10), 0.0, 1.0)
                 grad_ne = electron_density[:, j, :] - nesheath
                 grad_ni = density[:, j, :] - nisheath
-                mask = np.abs(grad_ni) < 1.0e-3
-                grad_ne = np.where(mask, 1.0e-3, grad_ne)
-                grad_ni = np.where(mask, 1.0e-3, grad_ni)
-                c_i_sq = np.clip(
-                    ((5.0 / 3.0) * tisheath + ion.charge * s_i * tesheath * grad_ne / grad_ni) / ion.atomic_mass,
-                    0.0,
-                    100.0,
+                source_scale = (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :])) / (
+                    dy[:, j, :] * J[:, j, :]
                 )
-                gamma_i = 2.5 + 0.5 * ion.atomic_mass * c_i_sq / tisheath
-                visheath = np.sqrt(c_i_sq)
-                vel[:, jm, :] = -2.0 * visheath - vel[:, j, :]
-                momentum_field[:, jm, :] = -2.0 * ion.atomic_mass * nisheath * visheath - momentum_field[:, j, :]
-                q = ((gamma_i - 1.0 - 1.0 / ((5.0 / 3.0) - 1.0)) * tisheath - 0.5 * c_i_sq * ion.atomic_mass) * nisheath * visheath
-                q = np.maximum(q, 0.0)
-                flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
-                power = flux / (dy[:, j, :] * J[:, j, :])
-                energy_source[ion.name][:, j, :] -= power
+                sheath = compute_full_ion_sheath_boundary(
+                    sheath_density=nisheath,
+                    sheath_temperature=tisheath,
+                    electron_sheath_density=nesheath,
+                    electron_sheath_temperature=tesheath,
+                    electron_density_gradient=grad_ne,
+                    ion_density_gradient=grad_ni,
+                    interior_velocity=vel[:, j, :],
+                    interior_momentum=momentum_field[:, j, :],
+                    atomic_mass=ion.atomic_mass,
+                    charge=ion.charge,
+                    direction=-1.0,
+                    source_scale=source_scale,
+                )
+                vel[:, jm, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
+                momentum_field[:, jm, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
+                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
 
         boundary_density[ion.name] = density
         boundary_pressure[ion.name] = pressure
@@ -1291,27 +1297,29 @@ def _apply_electron_sheath_boundary(
         phi[:, jp, :] = 2.0 * phi[:, j, :] - phi[:, jm, :]
         phi_wall = wall_potential[:, j, :]
         phisheath_raw = 0.5 * (phi[:, jp, :] + phi[:, j, :])
-        phisheath = np.maximum(phisheath_raw, phi_wall) if settings.floor_potential else phisheath_raw
         tesheath = 0.5 * (temperature[:, jp, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-        gamma_e = np.maximum(
-            2.0 / (1.0 - secondary_coef) + (phisheath - phi_wall) / np.maximum(tesheath, 1.0e-5),
-            0.0,
+        source_scale = (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :])) / (
+            dy[:, j, :] * J[:, j, :]
         )
-        vesheath = np.where(
-            tesheath < 1.0e-10,
-            0.0,
-            np.sqrt(tesheath / (2.0 * math.pi * me))
-            * (1.0 - secondary_coef)
-            * np.exp(-(phisheath - phi_wall) / np.maximum(tesheath, 1.0e-12)),
+        sheath = compute_full_electron_sheath_boundary(
+            sheath_density=nesheath,
+            sheath_temperature=tesheath,
+            sheath_potential_raw=phisheath_raw,
+            wall_potential=phi_wall,
+            interior_velocity=velocity[:, j, :],
+            interior_momentum=momentum[:, j, :],
+            electron_mass=electron_mass,
+            electron_thermal_mass=me,
+            secondary_electron_coef=secondary_coef,
+            electron_adiabatic=electron_adiabatic,
+            direction=1.0,
+            floor_potential=settings.floor_potential,
+            source_scale=source_scale,
         )
-        velocity[:, jp, :] = 2.0 * vesheath - velocity[:, j, :]
-        momentum[:, jp, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-        q = ((gamma_e - 1.0 - 1.0 / (electron_adiabatic - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
-        q = np.maximum(q, 0.0)
-        flux = q * (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
-        power = flux / (dy[:, j, :] * J[:, j, :])
-        energy_source[:, j, :] -= power
+        velocity[:, jp, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
+        momentum[:, jp, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
+        energy_source[:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
 
     if mesh.has_lower_y_target and settings.lower_y:
         j = mesh.ystart
@@ -1324,27 +1332,29 @@ def _apply_electron_sheath_boundary(
         phi[:, jm, :] = 2.0 * phi[:, j, :] - phi[:, jp, :]
         phi_wall = wall_potential[:, j, :]
         phisheath_raw = 0.5 * (phi[:, jm, :] + phi[:, j, :])
-        phisheath = np.maximum(phisheath_raw, phi_wall) if settings.floor_potential else phisheath_raw
         tesheath = 0.5 * (temperature[:, jm, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jm, :] + density[:, j, :])
-        gamma_e = np.maximum(
-            2.0 / (1.0 - secondary_coef) + (phisheath - phi_wall) / np.maximum(tesheath, 1.0e-5),
-            0.0,
+        source_scale = (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :])) / (
+            dy[:, j, :] * J[:, j, :]
         )
-        vesheath = np.where(
-            tesheath < 1.0e-10,
-            0.0,
-            -np.sqrt(tesheath / (2.0 * math.pi * me))
-            * (1.0 - secondary_coef)
-            * np.exp(-(phisheath - phi_wall) / np.maximum(tesheath, 1.0e-12)),
+        sheath = compute_full_electron_sheath_boundary(
+            sheath_density=nesheath,
+            sheath_temperature=tesheath,
+            sheath_potential_raw=phisheath_raw,
+            wall_potential=phi_wall,
+            interior_velocity=velocity[:, j, :],
+            interior_momentum=momentum[:, j, :],
+            electron_mass=electron_mass,
+            electron_thermal_mass=me,
+            secondary_electron_coef=secondary_coef,
+            electron_adiabatic=electron_adiabatic,
+            direction=-1.0,
+            floor_potential=settings.floor_potential,
+            source_scale=source_scale,
         )
-        velocity[:, jm, :] = 2.0 * vesheath - velocity[:, j, :]
-        momentum[:, jm, :] = 2.0 * electron_mass * nesheath * vesheath - momentum[:, j, :]
-        q = ((gamma_e - 1.0 - 1.0 / (electron_adiabatic - 1.0)) * tesheath - 0.5 * me * np.square(vesheath)) * nesheath * vesheath
-        q = np.minimum(q, 0.0)
-        flux = q * (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
-        power = flux / (dy[:, j, :] * J[:, j, :])
-        energy_source[:, j, :] += power
+        velocity[:, jm, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
+        momentum[:, jm, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
+        energy_source[:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
     return _ElectronBoundaryResult(
         density=density,
         temperature=temperature,

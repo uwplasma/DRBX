@@ -282,6 +282,10 @@ Items 1, 3, 4, and 5 now have their first compact gates:
 - the simple ion Bohm-sheath guard and energy-source formula is now isolated in
   a backend-preserving helper and covered by NumPy/JAX parity plus
   JVP-versus-finite-difference tests;
+- the full electron sheath response after zero-current potential and the full
+  ion sheath Bohm/energy response are now isolated in backend-preserving
+  helpers, wired back into the existing full-sheath branches, and covered by
+  NumPy/JAX parity plus JVP-versus-finite-difference tests;
 - BE/BDF2 residual algebra no longer forces NumPy on JAX inputs.
 
 Those gates are intentionally not promoted to the full heavy solve yet. The
