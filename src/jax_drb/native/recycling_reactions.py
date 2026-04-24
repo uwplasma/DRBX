@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import NamedTuple
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
@@ -245,8 +244,11 @@ def fixed_layout_dthe_reaction_sources(
     atom_names: tuple[str, str, str] = ("d", "t", "he"),
     atom_masses: tuple[float, float, float] = (2.0, 3.0, 4.0),
     ion_masses: tuple[float, float, float] = (2.0, 3.0, 4.0),
+    cx_multipliers: tuple[float, float, float] = (1.0, 1.0, 1.0),
     neutral_density_floor: float = 1.0e-8,
+    neutral_density_floors: tuple[float, float, float] | None = None,
     ion_density_floor: float = 1.0e-8,
+    ion_density_floors: tuple[float, float, float] | None = None,
     electron_density_floor: float = 1.0e-8,
 ) -> FixedLayoutDtheReactionSources:
     """Return fixed-layout D/T/He ionisation, recombination, and D/T CX sources.
@@ -280,12 +282,14 @@ def fixed_layout_dthe_reaction_sources(
     charge_exchange_rate = _zeros_like(_expand_cx_shape(neutral_density, use_jax=use_jax))
 
     electron_temperature = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
+    neutral_floor_values = neutral_density_floors or tuple(float(neutral_density_floor) for _ in atom_names)
+    ion_floor_values = ion_density_floors or tuple(float(ion_density_floor) for _ in atom_names)
     neutral_temperature = tuple(
-        _safe_temperature(neutral_pressure[index], neutral_density[index], neutral_density_floor)
+        _safe_temperature(neutral_pressure[index], neutral_density[index], neutral_floor_values[index])
         for index in range(len(atom_names))
     )
     ion_temperature = tuple(
-        _safe_temperature(ion_pressure[index], ion_density[index], ion_density_floor)
+        _safe_temperature(ion_pressure[index], ion_density[index], ion_floor_values[index])
         for index in range(len(atom_names))
     )
     neutral_velocity = tuple(
@@ -340,6 +344,7 @@ def fixed_layout_dthe_reaction_sources(
             atom_mass=atom_masses[atom_index],
             ion_mass=ion_masses[ion_index],
             dataset_scalars=dataset_scalars,
+            multiplier=float(cx_multipliers[atom_index]),
         )
         charge_exchange_rate = _axis2_add(charge_exchange_rate, atom_index, ion_index, rate, use_jax=use_jax)
         atom_velocity = neutral_velocity[atom_index]
@@ -443,13 +448,14 @@ def _fixed_layout_cx_rate(
     atom_mass: float,
     ion_mass: float,
     dataset_scalars: dict[str, float],
+    multiplier: float = 1.0,
 ) -> np.ndarray:
     teff = _clip(
         (atom_temperature / atom_mass + ion_temperature / ion_mass) * dataset_scalars["Tnorm"],
         0.01,
         10000.0,
     )
-    return atom_density * ion_density * hydrogen_cx_sigmav(teff, dataset_scalars)
+    return atom_density * ion_density * hydrogen_cx_sigmav(teff, dataset_scalars) * float(multiplier)
 
 
 def _expand_cx_shape(neutral_density: np.ndarray, *, use_jax: bool) -> np.ndarray:
@@ -686,7 +692,16 @@ def reaction_sources(
     species: dict[str, Any],
     electron_density: np.ndarray,
     dataset_scalars: dict[str, float],
+    include_diagnostics: bool = True,
 ) -> ReactionTerms:
+    if not include_diagnostics and _can_use_fixed_layout_dthe_reaction_sources(config, species):
+        return _fixed_layout_dthe_reaction_terms(
+            config,
+            species=species,
+            electron_density=electron_density,
+            dataset_scalars=dataset_scalars,
+        )
+
     density_source, energy_source, momentum_source, diagnostics = _initialize_terms(species)
 
     if not config.has_section("reactions") or not config.has_option("reactions", "type"):
@@ -746,7 +761,91 @@ def reaction_sources(
                 momentum_source=momentum_source,
                 diagnostics=diagnostics,
             )
+    if not include_diagnostics:
+        diagnostics = {}
     return ReactionTerms(density_source=density_source, energy_source=energy_source, momentum_source=momentum_source, diagnostics=diagnostics)
+
+
+def _can_use_fixed_layout_dthe_reaction_sources(config: BoutConfig, species: dict[str, Any]) -> bool:
+    if not config.has_section("reactions") or not config.has_option("reactions", "type"):
+        return False
+    required_species = {"d", "d+", "t", "t+", "he", "he+", "e"}
+    if not required_species.issubset(species):
+        return False
+    reactions = config.parsed("reactions", "type")
+    reaction_tuple = tuple(
+        str(reaction).strip()
+        for reaction in (reactions if isinstance(reactions, tuple) else (reactions,))
+    )
+    expected_reactions = {
+        "d + e -> d+ + 2e",
+        "d+ + e -> d",
+        "d + d+ -> d+ + d",
+        "t + e -> t+ + 2e",
+        "t+ + e -> t",
+        "t + t+ -> t+ + t",
+        "d + t+ -> d+ + t",
+        "t + d+ -> t+ + d",
+        "he + e -> he+ + 2e",
+        "he+ + e -> he",
+    }
+    return set(reaction_tuple) == expected_reactions
+
+
+def _fixed_layout_dthe_reaction_terms(
+    config: BoutConfig,
+    *,
+    species: dict[str, Any],
+    electron_density: np.ndarray,
+    dataset_scalars: dict[str, float],
+) -> ReactionTerms:
+    atom_names = ("d", "t", "he")
+    ion_names = ("d+", "t+", "he+")
+    fixed = fixed_layout_dthe_reaction_sources(
+        neutral_density=_stack_species_axis(species, atom_names, "density"),
+        neutral_pressure=_stack_species_axis(species, atom_names, "pressure"),
+        neutral_momentum=_stack_species_axis(species, atom_names, "momentum"),
+        ion_density=_stack_species_axis(species, ion_names, "density"),
+        ion_pressure=_stack_species_axis(species, ion_names, "pressure"),
+        ion_momentum=_stack_species_axis(species, ion_names, "momentum"),
+        electron_density=electron_density,
+        electron_pressure=species["e"].pressure,
+        dataset_scalars=dataset_scalars,
+        atom_names=atom_names,
+        atom_masses=tuple(float(species[name].atomic_mass) for name in atom_names),
+        ion_masses=tuple(float(species[name].atomic_mass) for name in ion_names),
+        cx_multipliers=tuple(charge_exchange_rate_multiplier(config, atom_name=name) for name in atom_names),
+        neutral_density_floors=tuple(float(species[name].density_floor) for name in atom_names),
+        ion_density_floors=tuple(float(species[name].density_floor) for name in ion_names),
+        electron_density_floor=float(species["e"].density_floor),
+    )
+    density_source = {name: _zeros_like(sp.density) for name, sp in species.items()}
+    energy_source = {name: _zeros_like(sp.density) for name, sp in species.items()}
+    momentum_source = {name: _zeros_like(sp.density) for name, sp in species.items()}
+    for index, name in enumerate(atom_names):
+        density_source[name] = fixed.neutral_density_source[index]
+        energy_source[name] = fixed.neutral_energy_source[index]
+        momentum_source[name] = fixed.neutral_momentum_source[index]
+    for index, name in enumerate(ion_names):
+        density_source[name] = fixed.ion_density_source[index]
+        energy_source[name] = fixed.ion_energy_source[index]
+        momentum_source[name] = fixed.ion_momentum_source[index]
+    density_source["e"] = fixed.electron_density_source
+    energy_source["e"] = fixed.electron_energy_source
+    momentum_source["e"] = fixed.electron_momentum_source
+    return ReactionTerms(
+        density_source=density_source,
+        energy_source=energy_source,
+        momentum_source=momentum_source,
+        diagnostics={},
+    )
+
+
+def _stack_species_axis(species: dict[str, Any], names: tuple[str, ...], field_name: str) -> np.ndarray:
+    arrays = [getattr(species[name], field_name) for name in names]
+    if _use_jax_backend(*arrays):
+        return jnp.stack([jnp.asarray(array, dtype=jnp.float64) for array in arrays], axis=0)
+    return np.stack([np.asarray(array, dtype=np.float64) for array in arrays], axis=0)
 
 
 def neutral_ionisation_collision_rates(

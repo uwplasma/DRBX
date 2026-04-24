@@ -206,8 +206,13 @@ The D/T/He generalization is now in-tree as `fixed_layout_dthe_reaction_sources`
 it returns stacked neutral/ion/electron source arrays, includes D-D, T-T, D-T,
 and T-D charge exchange, matches the existing dictionary path on the
 `1D-recycling-dthe` deck, and supports `jit`/`grad`. The remaining reaction
-source runtime step is to wire this fixed-layout kernel into the packed
-recycling residual and then add the equivalent OpenADAS impurity source block.
+source runtime step is partly complete: the packed recycling RHS now requests
+reaction sources without diagnostics, and the exact D/T/He Hermès reaction
+block is dispatched through the fixed-layout array kernel on that hot path. The
+full dictionary implementation remains the reporting path when diagnostics are
+requested. The next source-runtime step is the equivalent OpenADAS impurity
+source block, followed by moving collision, diffusion, target-recycling, and
+BDF residual assembly into a pure-JAX residual.
 
 ### Priority 3: tokamak recycling observables
 

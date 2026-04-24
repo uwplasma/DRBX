@@ -312,6 +312,10 @@ Current native execution coverage:
   multispecies block with stacked source arrays, D-D/T-T/D-T/T-D charge
   exchange, exact dictionary-path parity on the `1D-recycling-dthe` deck, and
   `jit`/`grad` coverage;
+- the packed recycling RHS now disables reaction diagnostics during implicit
+  residual/Jacobian evaluations and uses that fixed-layout D/T/He source
+  kernel when the Hermès reaction block matches exactly, with direct tests that
+  the evolving RHS remains unchanged relative to the full diagnostic path;
 - the direct-tokamak recycling parity ladder now has a profile-observable
   campaign for target charged-density profiles, target momentum-flux proxies,
   neutral parallel-density buildup, and target electron-temperature proxy

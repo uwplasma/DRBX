@@ -158,6 +158,33 @@ type = malformed reaction
     assert all(np.allclose(value, 0.0) for value in no_reactions.density_source.values())
 
 
+def test_reaction_sources_without_diagnostics_suppresses_dictionary_diagnostics() -> None:
+    species = _small_reaction_species()
+    electron_density = _small_field(0.5)
+    scalars = _small_scalars()
+
+    with_diagnostics = reaction_sources(
+        _single_species_reaction_config(),
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+    )
+    without_diagnostics = reaction_sources(
+        _single_species_reaction_config(),
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+        include_diagnostics=False,
+    )
+
+    assert with_diagnostics.diagnostics
+    assert without_diagnostics.diagnostics == {}
+    for name in species:
+        np.testing.assert_allclose(without_diagnostics.density_source[name], with_diagnostics.density_source[name])
+        np.testing.assert_allclose(without_diagnostics.energy_source[name], with_diagnostics.energy_source[name])
+        np.testing.assert_allclose(without_diagnostics.momentum_source[name], with_diagnostics.momentum_source[name])
+
+
 def test_direct_reaction_wrappers_emit_expected_diagnostics() -> None:
     species = _small_reaction_species()
     electron_density = _small_field(0.5)
@@ -432,6 +459,88 @@ def test_fixed_layout_dthe_reaction_sources_match_dictionary_path() -> None:
     np.testing.assert_allclose(fixed_terms.electron_density_source, dictionary_terms.density_source["e"])
     np.testing.assert_allclose(fixed_terms.electron_energy_source, dictionary_terms.energy_source["e"])
     np.testing.assert_allclose(fixed_terms.electron_momentum_source, dictionary_terms.momentum_source["e"])
+
+
+def test_reaction_sources_without_diagnostics_matches_fixed_dthe_dictionary_path() -> None:
+    config = load_bout_input(_INPUT_DTHE)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    species = _initialize_species(config, mesh=mesh)
+    electron_density = sum(species[name].density for name in ("d+", "t+", "he+"))
+    scalars = resolved_dataset_scalars(run_config)
+
+    dictionary_terms = reaction_sources(
+        config,
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+    )
+    lean_terms = reaction_sources(
+        config,
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+        include_diagnostics=False,
+    )
+
+    assert lean_terms.diagnostics == {}
+    for name in species:
+        np.testing.assert_allclose(lean_terms.density_source[name], dictionary_terms.density_source[name])
+        np.testing.assert_allclose(lean_terms.energy_source[name], dictionary_terms.energy_source[name])
+        np.testing.assert_allclose(lean_terms.momentum_source[name], dictionary_terms.momentum_source[name])
+
+
+def test_fixed_layout_dthe_reaction_sources_apply_atom_charge_exchange_multipliers() -> None:
+    scalars = _small_scalars()
+    shape = (3, 1, 1, 1)
+    neutral_density = np.asarray([0.7, 0.6, 0.02], dtype=np.float64).reshape(shape)
+    ion_density = np.asarray([0.5, 0.4, 0.01], dtype=np.float64).reshape(shape)
+    common_kwargs = {
+        "neutral_density": neutral_density,
+        "neutral_pressure": np.asarray([0.21, 0.18, 0.006], dtype=np.float64).reshape(shape),
+        "neutral_momentum": np.asarray([0.14, 0.09, 0.0], dtype=np.float64).reshape(shape),
+        "ion_density": ion_density,
+        "ion_pressure": np.asarray([0.2, 0.16, 0.004], dtype=np.float64).reshape(shape),
+        "ion_momentum": np.asarray([0.05, 0.04, 0.0], dtype=np.float64).reshape(shape),
+        "electron_density": np.sum(ion_density, axis=0),
+        "electron_pressure": np.full((1, 1, 1), 0.3, dtype=np.float64),
+        "dataset_scalars": scalars,
+    }
+
+    base_terms = fixed_layout_dthe_reaction_sources(**common_kwargs)
+    boosted_terms = fixed_layout_dthe_reaction_sources(**common_kwargs, cx_multipliers=(3.0, 1.0, 1.0))
+
+    np.testing.assert_allclose(boosted_terms.charge_exchange_rate[0, 0], 3.0 * base_terms.charge_exchange_rate[0, 0])
+    np.testing.assert_allclose(boosted_terms.charge_exchange_rate[0, 1], 3.0 * base_terms.charge_exchange_rate[0, 1])
+    np.testing.assert_allclose(boosted_terms.charge_exchange_rate[1, 0], base_terms.charge_exchange_rate[1, 0])
+
+
+def test_fixed_layout_dthe_reaction_sources_accept_species_specific_density_floors() -> None:
+    scalars = _small_scalars()
+    shape = (3, 1, 1, 1)
+    neutral_density = np.asarray([0.7, 0.6, 1.0e-12], dtype=np.float64).reshape(shape)
+    ion_density = np.asarray([0.5, 0.4, 1.0e-12], dtype=np.float64).reshape(shape)
+    common_kwargs = {
+        "neutral_density": neutral_density,
+        "neutral_pressure": np.asarray([0.21, 0.18, 1.0e-7], dtype=np.float64).reshape(shape),
+        "neutral_momentum": np.asarray([0.14, 0.09, 0.0], dtype=np.float64).reshape(shape),
+        "ion_density": ion_density,
+        "ion_pressure": np.asarray([0.2, 0.16, 1.0e-7], dtype=np.float64).reshape(shape),
+        "ion_momentum": np.asarray([0.05, 0.04, 0.0], dtype=np.float64).reshape(shape),
+        "electron_density": np.sum(ion_density, axis=0),
+        "electron_pressure": np.full((1, 1, 1), 0.3, dtype=np.float64),
+        "dataset_scalars": scalars,
+    }
+
+    uniform_floor_terms = fixed_layout_dthe_reaction_sources(**common_kwargs)
+    species_floor_terms = fixed_layout_dthe_reaction_sources(
+        **common_kwargs,
+        neutral_density_floors=(1.0e-8, 1.0e-8, 1.0e-3),
+        ion_density_floors=(1.0e-8, 1.0e-8, 1.0e-3),
+    )
+
+    assert np.all(np.isfinite(species_floor_terms.neutral_energy_source))
+    assert np.max(np.abs(species_floor_terms.neutral_energy_source[2] - uniform_floor_terms.neutral_energy_source[2])) > 0.0
 
 
 def test_fixed_layout_dthe_reaction_sources_support_jit_and_grad() -> None:

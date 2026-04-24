@@ -234,6 +234,7 @@ def _compute_recycling_1d_rhs_from_species(
     apply_sheath_boundaries: bool = True,
     preserve_dump_target_state: bool = False,
     preserve_dump_ion_target_state_only: bool = False,
+    include_reaction_diagnostics: bool = True,
     density_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides: dict[str, np.ndarray] | None = None,
     pressure_source_overrides_are_total: bool = False,
@@ -267,6 +268,7 @@ def _compute_recycling_1d_rhs_from_species(
         species=species,
         electron_density=electron_density,
         dataset_scalars=dataset_scalars,
+        include_diagnostics=include_reaction_diagnostics,
     )
     for name, value in reaction_terms.density_source.items():
         density_source[name] += value
@@ -2887,6 +2889,7 @@ def _compute_recycling_1d_packed_rhs(
         upper_target_geometry=runtime_model.upper_target_geometry,
         preserve_dump_target_state=runtime_model.preserve_dump_target_state,
         preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
+        include_reaction_diagnostics=False,
     )
     active_slices = layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)
     pieces = [

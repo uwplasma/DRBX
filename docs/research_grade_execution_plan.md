@@ -707,10 +707,13 @@ That D/T/He extension now exists at helper level:
 `fixed_layout_dthe_reaction_sources` stacks D, T, and He neutral/ion source
 arrays, includes the D/T same-isotope and cross-isotope charge-exchange matrix,
 matches the dictionary source path on the Hermès `1D-recycling-dthe` deck, and
-is differentiable under JAX. The next refactor is therefore a wiring task:
-replace the mutable reaction-source accumulation inside the packed residual
-with this fixed-layout PyTree and measure the BDF residual/Jacobian call count
-again.
+is differentiable under JAX. The first wiring step is now complete as well:
+diagnostics-free packed D/T/He residual calls dispatch through the fixed-layout
+source kernel, while diagnostic RHS calls still use the dictionary path so
+source terms remain available for validation plots. The next refactor should
+measure the updated BDF residual/Jacobian call profile and then port the
+surrounding collision, diffusion, target-recycling, and BDF residual assembly
+into the same fixed-layout PyTree style.
 
 The direct-tokamak recycling validation surface now also has a target/neutral
 observable campaign. It promotes the `tokamak_recycling_dthe_one_step` lane

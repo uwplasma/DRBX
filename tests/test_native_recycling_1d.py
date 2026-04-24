@@ -1741,6 +1741,103 @@ def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
     assert np.allclose(cached, uncached, rtol=1.0e-12, atol=1.0e-12)
 
 
+def test_dthe_rhs_without_reaction_diagnostics_preserves_evolving_rhs() -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    species = recycling_1d_mod._override_species_fields(runtime_model.species_templates, fields=fields, mesh=mesh)
+    common_kwargs = {
+        "species": species,
+        "controllers": runtime_model.controllers,
+        "mesh": mesh,
+        "metrics": metrics,
+        "dataset_scalars": scalars,
+        "feedback_integrals": {name: 0.0 for name in runtime_model.feedback_names},
+        "explicit_pressure_sources": runtime_model.explicit_pressure_sources,
+        "density_source_overrides": runtime_model.density_source_overrides,
+        "pressure_source_overrides": runtime_model.pressure_source_overrides,
+        "momentum_source_overrides": runtime_model.momentum_source_overrides,
+        "lower_target_geometry": runtime_model.lower_target_geometry,
+        "upper_target_geometry": runtime_model.upper_target_geometry,
+        "preserve_dump_target_state": runtime_model.preserve_dump_target_state,
+        "preserve_dump_ion_target_state_only": runtime_model.preserve_dump_ion_target_state_only,
+    }
+
+    with_diagnostics = _compute_recycling_1d_rhs_from_species(
+        config,
+        **common_kwargs,
+        include_reaction_diagnostics=True,
+    )
+    without_diagnostics = _compute_recycling_1d_rhs_from_species(
+        config,
+        **common_kwargs,
+        include_reaction_diagnostics=False,
+    )
+
+    assert "Sd+_iz" in with_diagnostics.variables
+    assert "Sd+_iz" not in without_diagnostics.variables
+    for name in runtime_model.field_names:
+        np.testing.assert_allclose(
+            without_diagnostics.variables[f"ddt({name})"],
+            with_diagnostics.variables[f"ddt({name})"],
+            rtol=1.0e-12,
+            atol=1.0e-12,
+        )
+    for name in ("d", "d+", "t", "t+"):
+        np.testing.assert_allclose(
+            without_diagnostics.variables[f"SNV{name}"],
+            with_diagnostics.variables[f"SNV{name}"],
+            rtol=1.0e-12,
+            atol=1.0e-12,
+        )
+
+
+def test_dthe_packed_rhs_disables_reaction_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = load_bout_input(_DTHE_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    captured_include_diagnostics: list[bool | None] = []
+    original_reaction_sources = recycling_1d_mod._reaction_sources
+
+    def wrapped_reaction_sources(*args, **kwargs):
+        captured_include_diagnostics.append(kwargs.get("include_diagnostics"))
+        return original_reaction_sources(*args, **kwargs)
+
+    monkeypatch.setattr(recycling_1d_mod, "_reaction_sources", wrapped_reaction_sources)
+
+    packed = _compute_recycling_1d_packed_rhs(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        field_names=runtime_model.field_names,
+        feedback_names=runtime_model.feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+
+    assert captured_include_diagnostics == [False]
+    assert np.all(np.isfinite(packed))
+
+
 @pytest.mark.slow
 def test_recycling_continuation_history_produces_finite_small_step() -> None:
     input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
