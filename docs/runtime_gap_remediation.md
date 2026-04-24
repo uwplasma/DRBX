@@ -175,6 +175,10 @@ This closes an avoidable duplicate-base-RHS path, but it should be treated as
 instrumentation and cleanup rather than a solved performance milestone; a
 post-change one-run `recycling_dthe_one_step` timing measured `61.38 s`, which
 does not establish an end-to-end speedup against the previous noisy local run.
+The follow-up timing-only check reinforces that point: serial, two-thread, and
+four-thread BDF runs measured about `50.00 s`, `49.81 s`, and `54.57 s`,
+respectively, so one-solve threading is not the reviewer-grade scaling result
+for this host-backed residual.
 The stronger next step remains a JAX-transformable residual plus grouped
 JVP-based Jacobian products for the dominant recycling kernels.
 

@@ -99,6 +99,16 @@ within local noise and not a defensible end-to-end speedup over the earlier
 new BDF diagnostics counters and `bdf_jacobian_parallel_workers` in addition to
 wall time.
 
+A direct timing-only check on the same local machine confirms that this is an
+opt-in capability rather than a universal default. With the latest source
+cleanup, the serial RSS run measured about `50.00 s`; setting
+`JAX_DRB_FD_JACOBIAN_THREADS=2` measured `49.81 s`, while `4` threads measured
+`54.57 s`. The BDF residual is still dominated by Python/NumPy host work, so
+per-solve color-group threading is not strong-scaling evidence for this lane.
+For laptop users, the current robust recommendation remains ensemble-level
+parallelism across independent heavy solves, with per-solve BDF threading used
+only after a local timing check.
+
 The shared sparse Newton backend now records per-step diagnostics for:
 
 - residual evaluation count and wall time
