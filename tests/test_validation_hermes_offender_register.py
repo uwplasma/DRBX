@@ -18,8 +18,12 @@ def _case(
     rel_max: float,
     abs_error: float,
     runtime_ratio: float,
+    native_peak_mib: float = 500.0,
+    reference_peak_mib: float = 250.0,
     normalization_sensitive: bool = False,
 ) -> dict[str, object]:
+    native_peak_bytes = int(native_peak_mib * 1024.0 * 1024.0)
+    reference_peak_bytes = int(reference_peak_mib * 1024.0 * 1024.0)
     return {
         "case_name": name,
         "display_label": name,
@@ -29,6 +33,18 @@ def _case(
         "native_elapsed_seconds": 2.0 * runtime_ratio,
         "reference_elapsed_seconds": 2.0,
         "native_to_reference_runtime_ratio": runtime_ratio,
+        "native_memory_measurement_status": "sampled_process_tree_rss",
+        "reference_memory_measurement_status": "sampled_process_tree_rss",
+        "native_peak_rss_bytes": native_peak_bytes,
+        "reference_peak_rss_bytes": reference_peak_bytes,
+        "native_peak_rss_mebibytes": native_peak_mib,
+        "reference_peak_rss_mebibytes": reference_peak_mib,
+        "native_peak_rss_delta_bytes": native_peak_bytes // 4,
+        "reference_peak_rss_delta_bytes": reference_peak_bytes // 4,
+        "native_peak_rss_delta_mebibytes": native_peak_mib / 4.0,
+        "reference_peak_rss_delta_mebibytes": reference_peak_mib / 4.0,
+        "native_to_reference_peak_rss_ratio": native_peak_mib / reference_peak_mib,
+        "native_to_reference_peak_rss_delta_ratio": native_peak_mib / reference_peak_mib,
         "worst_relative_l2_field": field,
         "worst_relative_l2_error": rel_l2,
         "worst_relative_rms_field": field,
@@ -57,6 +73,8 @@ def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
                         rel_max=2.4,
                         abs_error=3.0e-3,
                         runtime_ratio=4.0,
+                        native_peak_mib=600.0,
+                        reference_peak_mib=200.0,
                     ),
                     _case(
                         "tokamak_recycling_one_step",
@@ -65,6 +83,8 @@ def _write_inputs(tmp_path: Path) -> tuple[Path, Path]:
                         rel_max=0.9,
                         abs_error=1.0e-8,
                         runtime_ratio=0.5,
+                        native_peak_mib=200.0,
+                        reference_peak_mib=400.0,
                         normalization_sensitive=True,
                     ),
                 ],
@@ -110,7 +130,8 @@ def test_build_hermes_offender_register_ranks_parity_runtime_and_memory(tmp_path
     assert report["parity_offenders"][0]["component_hint"] == "neutral mixed boundary and parallel momentum closure"
     assert report["runtime_offenders"][0]["case_name"] == "neutral_mixed_one_step"
     assert report["runtime_offenders"][0]["runtime_status"] == "native_slower"
-    assert report["memory_offenders"][0]["memory_measurement_status"] == "not_measured_in_live_register"
+    assert report["memory_offenders"][0]["memory_measurement_status"] == "sampled_process_tree_rss"
+    assert report["memory_offenders"][0]["native_to_reference_peak_rss_ratio"] == 3.0
     assert report["top_offenders"]["parity"]["rank"] == 1
 
 
@@ -139,3 +160,21 @@ def test_save_hermes_offender_register_plot_handles_empty_report(tmp_path: Path)
 
     assert output.exists()
     assert output.stat().st_size > 0
+
+
+def test_build_hermes_offender_register_falls_back_to_runtime_memory_proxy(tmp_path: Path) -> None:
+    live_path, comparison_path = _write_inputs(tmp_path)
+    live_payload = json.loads(live_path.read_text(encoding="utf-8"))
+    for case in live_payload["cases"]:
+        for key in tuple(case):
+            if "rss" in key or "memory" in key:
+                case.pop(key)
+    live_path.write_text(json.dumps(live_payload), encoding="utf-8")
+
+    report = build_hermes_offender_register_report(
+        live_rerun_json=live_path,
+        comparison_summary_json=comparison_path,
+    )
+
+    assert report["memory_offenders"][0]["memory_measurement_status"] == "not_measured_in_live_register"
+    assert report["memory_offenders"][0]["case_name"] == "neutral_mixed_one_step"

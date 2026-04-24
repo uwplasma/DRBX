@@ -75,15 +75,15 @@ blockers into specific case priorities:
 
 - `neutral_mixed_one_step`
   - worst normalized RMS mismatch about `9.17e-1`
-  - native/reference wall-time ratio now about `2.79x`
+  - native/reference wall-time ratio now about `2.93x`
   - dominant field: `NVh`
 - `recycling_1d_one_step`
   - worst normalized RMS mismatch about `4.62e-3`
-  - native/reference wall-time ratio about `3.80x`
+  - native/reference wall-time ratio about `3.65x`
   - dominant normalized field: `Pd+`
 - `recycling_dthe_one_step`
   - worst normalized RMS mismatch about `4.92e-3`
-  - native/reference wall-time ratio now about `7.81x`
+  - native/reference wall-time ratio now about `7.82x`
   - dominant field: `NVd`
 
 The current integrated and direct tokamak recycling one-step ladders still show

@@ -80,8 +80,8 @@ def build_hermes_offender_register_report(
         "notes": {
             "ranking_policy": (
                 "Parity ranks use the largest available relative/scaled error with absolute-error context; "
-                "runtime ranks use native/Hermes wall-time ratio; memory ranks are measurement gaps until "
-                "per-case peak-memory instrumentation is available."
+                "runtime ranks use native/Hermes wall-time ratio; memory ranks use native/Hermes peak-RSS "
+                "ratio when measured and otherwise fall back to slow-case memory-risk proxies."
             ),
             "near_zero_policy": (
                 "Normalization-sensitive cases are not automatically treated as physical failures; "
@@ -102,14 +102,15 @@ def save_hermes_offender_register_plot(report: dict[str, object], path: str | Pa
     target.parent.mkdir(parents=True, exist_ok=True)
     parity = list(report.get("parity_offenders", []))[:8]
     runtime = list(report.get("runtime_offenders", []))[:8]
-    if not parity and not runtime:
+    memory = list(report.get("memory_offenders", []))[:8]
+    if not parity and not runtime and not memory:
         figure, axis = plt.subplots(1, 1, figsize=(7.0, 3.8))
         axis.text(0.5, 0.5, "No Hermes offenders available", ha="center", va="center")
         axis.set_axis_off()
         save_publication_figure(figure, target)
         return target
 
-    figure, axes = plt.subplots(1, 2, figsize=(14.2, 5.4))
+    figure, axes = plt.subplots(1, 3, figsize=(18.0, 5.6))
     _plot_offender_bars(
         axes[0],
         parity,
@@ -129,6 +130,16 @@ def save_hermes_offender_register_plot(report: dict[str, object], path: str | Pa
         ylabel="native / Hermès wall time",
         threshold=1.0,
     )
+    _plot_offender_bars(
+        axes[2],
+        memory,
+        value_key="rank_metric",
+        label_key="case_name",
+        field_key="dominant_field",
+        title="Largest native/reference memory offenders",
+        ylabel="peak RSS ratio or risk proxy",
+        threshold=1.0,
+    )
     figure.suptitle(
         "Hermès offender register: where to spend the next parity, runtime, and memory effort",
         fontsize=13.0,
@@ -142,7 +153,7 @@ def save_hermes_offender_register_plot(report: dict[str, object], path: str | Pa
         va="center",
         fontsize=8.8,
     )
-    figure.subplots_adjust(left=0.17, right=0.985, bottom=0.16, top=0.82, wspace=0.72)
+    figure.subplots_adjust(left=0.12, right=0.99, bottom=0.16, top=0.82, wspace=0.92)
     save_publication_figure(figure, target)
     return target
 
@@ -235,6 +246,42 @@ def _build_runtime_offenders(live_cases: list[dict[str, Any]]) -> list[dict[str,
 
 
 def _build_memory_offenders(live_cases: list[dict[str, Any]]) -> list[dict[str, object]]:
+    measured: list[dict[str, object]] = []
+    for case in live_cases:
+        native_peak = _optional_float(case.get("native_peak_rss_bytes"))
+        reference_peak = _optional_float(case.get("reference_peak_rss_bytes"))
+        native_delta = _optional_float(case.get("native_peak_rss_delta_bytes"))
+        reference_delta = _optional_float(case.get("reference_peak_rss_delta_bytes"))
+        if native_peak is None and reference_peak is None and native_delta is None:
+            continue
+        case_name = str(case.get("case_name", ""))
+        ratio = _optional_float(case.get("native_to_reference_peak_rss_ratio"))
+        delta_ratio = _optional_float(case.get("native_to_reference_peak_rss_delta_ratio"))
+        rank_metric = ratio
+        if rank_metric is None:
+            rank_metric = native_peak
+        if rank_metric is None:
+            rank_metric = native_delta
+        measured.append(
+            {
+                "case_name": case_name,
+                "family": str(case.get("family", "")),
+                "memory_measurement_status": str(case.get("native_memory_measurement_status", "measured")),
+                "memory_risk": _memory_risk(case_name),
+                "native_peak_rss_mebibytes": _optional_float(case.get("native_peak_rss_mebibytes")),
+                "reference_peak_rss_mebibytes": _optional_float(case.get("reference_peak_rss_mebibytes")),
+                "native_peak_rss_delta_mebibytes": _optional_float(case.get("native_peak_rss_delta_mebibytes")),
+                "reference_peak_rss_delta_mebibytes": _optional_float(case.get("reference_peak_rss_delta_mebibytes")),
+                "native_to_reference_peak_rss_ratio": ratio,
+                "native_to_reference_peak_rss_delta_ratio": delta_ratio,
+                "rank_metric": float(rank_metric or 0.0),
+                "recommended_next_action": _recommended_memory_action(case_name, measured=True),
+            }
+        )
+    if measured:
+        measured.sort(key=lambda entry: float(entry["rank_metric"]), reverse=True)
+        return _with_ranks(measured)
+
     slow_cases = _build_runtime_offenders(live_cases)[:5]
     offenders: list[dict[str, object]] = []
     for case in slow_cases:
@@ -245,11 +292,9 @@ def _build_memory_offenders(live_cases: list[dict[str, Any]]) -> list[dict[str, 
                 "family": str(case["family"]),
                 "memory_measurement_status": "not_measured_in_live_register",
                 "memory_risk": _memory_risk(case_name),
-                "recommended_next_action": (
-                    "profile with /usr/bin/time -l or psutil RSS sampling plus JAX device-memory profile "
-                    "where the lane is JAX-visible"
-                ),
+                "recommended_next_action": _recommended_memory_action(case_name, measured=False),
                 "linked_runtime_ratio": float(case["native_to_reference_runtime_ratio"]),
+                "rank_metric": float(case["native_to_reference_runtime_ratio"]),
             }
         )
     return _with_ranks(offenders)
@@ -338,6 +383,20 @@ def _memory_risk(case_name: str) -> str:
     if "neutral_mixed" in case:
         return "implicit residual temporaries and boundary/gradient reconstruction arrays"
     return "history arrays, reference dumps, and artifact extraction temporaries"
+
+
+def _recommended_memory_action(case_name: str, *, measured: bool) -> str:
+    case = case_name.lower()
+    if not measured:
+        return (
+            "profile with process-tree RSS sampling plus JAX device-memory profile "
+            "where the lane is JAX-visible"
+        )
+    if "recycling" in case:
+        return "split RSS peak into Jacobian assembly, residual evaluation, packing, and artifact extraction phases"
+    if "neutral_mixed" in case:
+        return "split RSS peak into boundary reconstruction, residual assembly, and dataset extraction phases"
+    return "compare native and reference RSS peaks with artifact extraction disabled before optimizing"
 
 
 def _with_ranks(entries: list[dict[str, object]]) -> list[dict[str, object]]:

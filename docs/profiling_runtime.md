@@ -36,13 +36,13 @@ this machine:
 - `neutral_mixed_one_step`
   - timed local mean dropped from about `1.15 s` to about `0.63 s` after
     vectorizing `_gradient_magnitude`
-  - live Hermès rerun ratio improved from about `4.27x` to about `2.79x`
+  - fresh live Hermès rerun ratio is about `2.93x`
   - the dominant mismatch remains the boundary-localized `NVh` field
 - `recycling_dthe_one_step`
   - timed local mean dropped from about `75.3 s` to about `54.1 s` after the
     reaction/source allocation cleanup, and then to about `52.76 s` after
     caching target-boundary geometry in the recycling runtime model
-  - live Hermès rerun ratio improved from about `8.45x` to about `7.81x`
+  - fresh live Hermès rerun ratio is about `7.82x`
   - the fidelity band stayed essentially unchanged at about `4.9e-3` relative
     RMS on `NVd`
   - the isolated target-recycling operator now also shows a direct kernel-level
