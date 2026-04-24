@@ -474,6 +474,15 @@ remaining bottleneck split after the recent optimization work:
   implicit/recycling residual and Jacobian path rather than another cosmetic
   CPU-thread sweep.
 
+One concrete backend-policy fix is now part of that restructuring. Static
+metric arrays are stored as JAX arrays, but they are not dynamic solve state.
+The hot open-field operators therefore select JAX only from dynamic field,
+source, closure, or rate arrays, and convert metrics inside the chosen branch.
+That avoids eager-JAX execution on the current NumPy/SciPy BDF path while still
+preserving JAX transforms when a future fixed-layout residual supplies JAX
+state. On the D/T/He recycling lane, this restored warm packed-RHS calls to
+about `4e-3 s` and the current bounded one-step timing to `44.60 s`.
+
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
 
