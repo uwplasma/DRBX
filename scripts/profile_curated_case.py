@@ -187,6 +187,7 @@ def main() -> int:
 
     timed_durations: list[float] = []
     rss_measurements: list[dict[str, object]] = []
+    rss_profile_durations: list[float] = []
     profiled_result = None
     profiled_elapsed = None
     profiler = None
@@ -200,15 +201,31 @@ def main() -> int:
             args,
             trace_dir=use_trace,
             enable_cprofile=use_cprofile,
-            enable_rss_profile=args.rss_profile,
+            enable_rss_profile=args.rss_profile and not use_cprofile,
         )
         profiled_result = result
         timed_durations.append(float(elapsed))
         if rss_measurement is not None:
             rss_measurements.append(_rss_measurement_payload(rss_measurement, bytes_to_mebibytes))
+            rss_profile_durations.append(float(elapsed))
         if timed_index == 0:
             profiled_elapsed = float(elapsed)
             profiler = run_profiler
+
+    if args.rss_profile and not rss_measurements:
+        result, elapsed, _, rss_measurement = _time_case(
+            run_curated_case,
+            jax,
+            measure_peak_rss,
+            args,
+            trace_dir=None,
+            enable_cprofile=False,
+            enable_rss_profile=True,
+        )
+        profiled_result = result
+        rss_profile_durations.append(float(elapsed))
+        if rss_measurement is not None:
+            rss_measurements.append(_rss_measurement_payload(rss_measurement, bytes_to_mebibytes))
 
     cprofile_path = output_dir / "cprofile_top.txt"
     cprofile_binary_path = output_dir / "cprofile_stats.pstats"
@@ -242,6 +259,7 @@ def main() -> int:
         "timed_run_count": len(timed_durations),
         "timed_run_seconds": timed_durations,
         "rss_profile_enabled": bool(args.rss_profile),
+        "rss_profile_run_seconds": rss_profile_durations,
         "timed_run_peak_rss": rss_measurements,
         "timed_run_peak_rss_max_mebibytes": (
             None if not peak_rss_values else max(peak_rss_values)
