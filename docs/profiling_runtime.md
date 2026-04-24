@@ -73,6 +73,18 @@ target recycling at about `6.1 s`. That split confirms that the next runtime
 fix has to attack both the Jacobian/RHS call count and repeated source/closure
 work; local threading alone is not the right primary fix for this path.
 
+A follow-up `recycling_dthe_one_step` pass after wiring the diagnostics-free
+packed RHS through `fixed_layout_dthe_reaction_sources` and reusing D/T AMJUEL
+fits measured `64.45 s` under cProfile and `50.00 s` on the separate RSS run,
+with a sampled peak process-tree RSS of about `232.7 MiB`. The source-level
+split moved in the intended direction: fixed-layout D/T/He reaction sources
+dropped to about `9.64 s`, neutral-ionisation collision-rate assembly dropped
+to about `2.72 s`, and AMJUEL polynomial evaluations dropped to `117380` calls
+with about `7.81 s` cumulative time. The full solve did not show a defensible
+end-to-end speedup because the sparse finite-difference Jacobian still consumed
+about `43.3 s` and the packed RHS was still called `11738` times. Treat this
+as a validated source-kernel cleanup, not as the final performance result.
+
 The current BDF callback now removes one avoidable source of call inflation:
 when SciPy asks for `rhs(t, y)` and then for `jac(t, y)` at the same state, the
 Jacobian callback reuses the cached base RHS for that state before applying the

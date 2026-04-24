@@ -226,6 +226,11 @@ changing the validated physics surface:
 - on the profiled `recycling_dthe_one_step` case, the current allocation and
   source-assembly pass drops the local timed mean from about `75.3 s` to about
   `54.1 s`;
+- the diagnostics-free packed D/T/He residual path now uses the fixed-layout
+  reaction-source kernel, and a refreshed cProfile shows that D/T AMJUEL reuse
+  reduces the fixed-layout reaction-source split to about `9.64 s` and AMJUEL
+  polynomial evaluations to `117380` calls, although the full BDF solve remains
+  dominated by sparse finite-difference Jacobian work;
 - the live neon direct-tokamak recycling parity slice still passes after those
   changes, which means the refactor removed overhead without changing the
   compare surface.
