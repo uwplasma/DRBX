@@ -10,7 +10,10 @@ from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_collisions import compute_collision_frequencies
-from jax_drb.native.recycling_neutral_diffusion import apply_neutral_parallel_diffusion
+from jax_drb.native.recycling_neutral_diffusion import (
+    apply_neutral_parallel_diffusion,
+    configured_component_names,
+)
 from jax_drb.native.recycling_reactions import (
     neutral_charge_exchange_collision_rates,
     neutral_ionisation_collision_rates,
@@ -24,6 +27,20 @@ from jax_drb.native.units import resolved_dataset_scalars
 _INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
 
 
+class _ComponentConfig:
+    def __init__(self, sections: dict[str, dict[str, object]]) -> None:
+        self._sections = sections
+
+    def has_section(self, section: str) -> bool:
+        return section in self._sections
+
+    def has_option(self, section: str, key: str) -> bool:
+        return key in self._sections.get(section, {})
+
+    def parsed(self, section: str, key: str) -> object:
+        return self._sections[section][key]
+
+
 def _build_prepared_case(*, overrides: tuple[str, ...] = ()) -> tuple[object, object, object, dict[str, object], dict[str, object]]:
     config = apply_bout_overrides(load_bout_input(_INPUT_1D), overrides)
     run_config = RunConfiguration.from_config(config)
@@ -35,8 +52,46 @@ def _build_prepared_case(*, overrides: tuple[str, ...] = ()) -> tuple[object, ob
     return config, mesh, metrics, species, prepared
 
 
+def test_configured_component_names_prefers_model_then_hermes_and_handles_missing_sections() -> None:
+    assert configured_component_names(_ComponentConfig({})) == ()
+    assert configured_component_names(_ComponentConfig({"hermes": {"components": "neutral_parallel_diffusion"}})) == (
+        "neutral_parallel_diffusion",
+    )
+    assert configured_component_names(
+        _ComponentConfig(
+            {
+                "model": {"components": ("density", " neutral_parallel_diffusion ")},
+                "hermes": {"components": "ignored"},
+            }
+        )
+    ) == ("density", "neutral_parallel_diffusion")
+
+
 def test_neutral_parallel_diffusion_returns_zero_when_component_disabled() -> None:
     config, mesh, metrics, species, prepared = _build_prepared_case()
+
+    terms = apply_neutral_parallel_diffusion(
+        config,
+        species=species,
+        prepared=prepared,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=resolved_dataset_scalars(RunConfiguration.from_config(config)),
+    )
+
+    assert all(np.allclose(value, 0.0) for value in terms.density_source.values())
+    assert all(np.allclose(value, 0.0) for value in terms.energy_source.values())
+    assert all(np.allclose(value, 0.0) for value in terms.momentum_source.values())
+    assert terms.diagnostics == {}
+
+
+def test_neutral_parallel_diffusion_returns_zero_when_dneut_is_not_positive() -> None:
+    config, mesh, metrics, species, prepared = _build_prepared_case(
+        overrides=(
+            "model:components=neutral_parallel_diffusion",
+            "neutral_parallel_diffusion:dneut=0.0",
+        )
+    )
 
     terms = apply_neutral_parallel_diffusion(
         config,
