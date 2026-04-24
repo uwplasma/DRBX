@@ -296,6 +296,15 @@ hydrogen charge-exchange fit. This does not yet make the full recycling
 transient differentiable, but it removes one of the source-term barriers that
 blocked the JAX residual/JVP backend.
 
+The surrounding single-isotope reaction-source formulas have also been made
+backend-preserving for JAX array inputs. Ionisation, recombination, and
+charge-exchange source accumulation still use the existing dictionary-oriented
+public API for compatibility, but the temperature floors, velocity
+reconstruction, charge-exchange effective temperature, and kinetic-energy
+exchange pieces no longer force NumPy when the caller supplies JAX arrays.
+Focused tests now differentiate through a compact hydrogen
+ionisation/recombination/charge-exchange source objective.
+
 ## Current GPU-Native Audit
 
 The office GPU environment is now usable for the compact native JAX lanes with
