@@ -704,6 +704,14 @@ The next residual refactor should extend this pattern to the D/T/He
 multispecies reaction matrix and then replace the dictionary accumulation in
 the packed recycling residual.
 
+The direct-tokamak recycling validation surface now also has a target/neutral
+observable campaign. It promotes the `tokamak_recycling_dthe_one_step` lane
+from scalar parity evidence to target-index charged-density profiles,
+momentum-flux proxies, neutral parallel-density buildup, and target
+electron-temperature proxy errors. This is the profile-observable bridge needed
+before the JAXDRB paper compares tokamak recycling behavior with the TCV-X21,
+SOLPS-ITER, and Hermes-3 validation literature.
+
 ### CPU Parallelization
 
 Laptop CPU speedups are possible, but the right target is not one host-side

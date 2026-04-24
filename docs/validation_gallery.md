@@ -32,6 +32,7 @@ JAX-based solver papers.
 | `Implicit Solver Profile Audit` | `numerical-performance audit` | Sparse finite-difference Jacobian plan and Newton phase diagnostics for the shared implicit backend. |
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
+| `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
 
 ## Diffusion Short Window
 
@@ -450,6 +451,22 @@ What this documents:
 - species-resolved anomalous coefficient summaries together with representative `d+` and `t+` anomalous-energy lineouts on the active direct-tokamak state;
 - a machine-readable JSON/NPZ/plot package so this non-orthogonal transport evidence can feed the docs and future paper directly.
 
+## Tokamak Recycling Observable Campaign
+
+![Tokamak recycling observable campaign](data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
+
+What this documents:
+
+- profile-level observables from the direct-tokamak `D/T/He` recycling one-step
+  surface instead of only scalar parity summaries;
+- charged-species target-density profiles and target momentum-flux proxies in
+  the same target-profile spirit used by TCV-X21, SOLPS-ITER, and Hermes-3
+  validation papers;
+- neutral-density buildup along the parallel coordinate, which is the right
+  bridge from one-step code parity to neutral/recycling interpretation;
+- a machine-readable JSON/NPZ/plot package that can feed the JAXDRB paper and
+  future LMX validation comparisons directly.
+
 ## Target Recycling Campaign
 
 ![Target recycling campaign](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
@@ -617,6 +634,8 @@ These figures are generated from the committed baseline arrays plus native case 
 - live Hermès reruns across the representative 1D and 2D curated matrix
 - atomic-rate differentiability audit for AMJUEL, OpenADAS, and hydrogen
   charge exchange
+- tokamak recycling target/neutral observable profiles on the direct D/T/He
+  validation lane
 
 The next gallery pass should add:
 

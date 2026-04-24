@@ -213,6 +213,15 @@ OpenADAS-enabled impurity states.
 3. move the paper-facing story from raw `NVd` relative mismatch to physically
    interpretable observables
 
+The first version of this observable layer is now in-tree as
+[tokamak_recycling_observable_campaign.md](tokamak_recycling_observable_campaign.md).
+It uses the direct-tokamak D/T/He recycling one-step lane to report charged
+target-density profiles, `|NV_s+|` target momentum-flux proxies, neutral
+parallel-density buildup, and target electron-temperature proxy errors. The
+next expansion should add source-diagnostic fields from live or cached Hermes
+dumps so the same package can show explicit ionisation/recombination source
+lineouts rather than neutral-density proxies only.
+
 ## Literature Standard
 
 The expected validation and runtime storytelling standard is set by:
