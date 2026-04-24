@@ -225,6 +225,58 @@ def build_sparse_difference_quotient_jacobian(
     return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
 
 
+def build_sparse_jvp_jacobian(
+    residual,
+    state,
+    *,
+    sparsity,
+    color_groups: tuple[tuple[int, ...], ...],
+    sparsity_csc=None,
+    difference_plan: SparseDifferenceQuotientPlan | None = None,
+):
+    """Build a sparse Jacobian from grouped JAX JVPs.
+
+    The coloring contract is the same as for the finite-difference builder:
+    columns in one color group must have disjoint row support in ``sparsity``.
+    A single linearized push of a direction vector containing all columns in
+    the group then fills those disjoint column entries without materializing a
+    dense Jacobian.
+    """
+
+    try:
+        import jax
+        import jax.numpy as jnp
+        from scipy.sparse import coo_matrix
+    except ImportError as exc:  # pragma: no cover - exercised only when optional deps are unavailable
+        raise ImportError("Sparse JVP Jacobian construction requires jax and scipy.") from exc
+
+    state_array = jnp.asarray(state, dtype=jnp.float64)
+    sparsity_csc = sparsity.tocsc() if sparsity_csc is None else sparsity_csc
+    plan = (
+        difference_plan
+        if difference_plan is not None
+        else prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc)
+    )
+    _, linear_map = jax.linearize(residual, state_array)
+
+    nnz = int(plan.nnz)
+    row_indices = np.empty(nnz, dtype=np.int32)
+    col_indices = np.empty(nnz, dtype=np.int32)
+    data = np.empty(nnz, dtype=np.float64)
+    offset = 0
+    for group in plan.groups:
+        direction = jnp.zeros_like(state_array).at[jnp.asarray(group.columns, dtype=jnp.int32)].set(1.0)
+        pushed = np.asarray(linear_map(direction), dtype=np.float64)
+        group_data = pushed[group.rows]
+        count = len(group.rows)
+        row_indices[offset : offset + count] = group.rows
+        col_indices[offset : offset + count] = group.cols
+        data[offset : offset + count] = group_data
+        offset += count
+
+    return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
+
+
 def backward_euler_residual(
     packed_state: np.ndarray,
     previous_packed_state: np.ndarray,
@@ -523,9 +575,25 @@ def solve_jax_linearized_newton_system(
 
     state = jnp.asarray(initial_state, dtype=jnp.float64)
     total_linear_iterations = 0
+    residual_evaluation_count = 0
+    residual_evaluation_seconds = 0.0
+    jacobian_refresh_count = 0
+    jacobian_assembly_seconds = 0.0
+    linear_solve_seconds = 0.0
+    line_search_seconds = 0.0
+
+    def _block(value):
+        return jax.block_until_ready(value)
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
+        linearize_started_at = perf_counter()
         residual_value, linear_map = jax.linearize(residual, state)
+        residual_value = _block(residual_value)
+        elapsed = perf_counter() - linearize_started_at
+        residual_evaluation_count += 1
+        residual_evaluation_seconds += elapsed
+        jacobian_refresh_count += 1
+        jacobian_assembly_seconds += elapsed
         residual_inf_norm = float(jnp.max(jnp.abs(residual_value)))
         if residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
@@ -533,8 +601,15 @@ def solve_jax_linearized_newton_system(
                 active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration - 1,
                 linear_iterations=total_linear_iterations,
+                residual_evaluation_count=residual_evaluation_count,
+                residual_evaluation_seconds=residual_evaluation_seconds,
+                jacobian_refresh_count=jacobian_refresh_count,
+                jacobian_assembly_seconds=jacobian_assembly_seconds,
+                linear_solve_seconds=linear_solve_seconds,
+                line_search_seconds=line_search_seconds,
             )
 
+        linear_solve_started_at = perf_counter()
         update, _ = gmres(
             linear_map,
             -residual_value,
@@ -543,6 +618,8 @@ def solve_jax_linearized_newton_system(
             restart=int(linear_restart),
             maxiter=int(linear_maxiter),
         )
+        update = _block(update)
+        linear_solve_seconds += perf_counter() - linear_solve_started_at
         total_linear_iterations += int(linear_restart) * int(linear_maxiter)
         update = jnp.asarray(update, dtype=jnp.float64)
 
@@ -550,9 +627,14 @@ def solve_jax_linearized_newton_system(
         step_scale = 1.0
         candidate_state = state
         candidate_residual_inf_norm = residual_inf_norm
+        line_search_started_at = perf_counter()
         while step_scale >= 1.0 / 64.0:
             trial_state = state + step_scale * update
+            residual_started_at = perf_counter()
             trial_residual = residual(trial_state)
+            trial_residual = _block(trial_residual)
+            residual_evaluation_count += 1
+            residual_evaluation_seconds += perf_counter() - residual_started_at
             trial_residual_inf_norm = float(jnp.max(jnp.abs(trial_residual)))
             if np.isfinite(trial_residual_inf_norm) and trial_residual_inf_norm <= residual_inf_norm:
                 candidate_state = trial_state
@@ -560,6 +642,7 @@ def solve_jax_linearized_newton_system(
                 accepted = True
                 break
             step_scale *= 0.5
+        line_search_seconds += perf_counter() - line_search_started_at
 
         if not accepted:
             break
@@ -571,6 +654,12 @@ def solve_jax_linearized_newton_system(
                 active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration,
                 linear_iterations=total_linear_iterations,
+                residual_evaluation_count=residual_evaluation_count,
+                residual_evaluation_seconds=residual_evaluation_seconds,
+                jacobian_refresh_count=jacobian_refresh_count,
+                jacobian_assembly_seconds=jacobian_assembly_seconds,
+                linear_solve_seconds=linear_solve_seconds,
+                line_search_seconds=line_search_seconds,
             )
         if candidate_residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
@@ -578,12 +667,28 @@ def solve_jax_linearized_newton_system(
                 active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration,
                 linear_iterations=total_linear_iterations,
+                residual_evaluation_count=residual_evaluation_count,
+                residual_evaluation_seconds=residual_evaluation_seconds,
+                jacobian_refresh_count=jacobian_refresh_count,
+                jacobian_assembly_seconds=jacobian_assembly_seconds,
+                linear_solve_seconds=linear_solve_seconds,
+                line_search_seconds=line_search_seconds,
             )
 
+    residual_started_at = perf_counter()
     final_residual = residual(state)
+    final_residual = _block(final_residual)
+    residual_evaluation_count += 1
+    residual_evaluation_seconds += perf_counter() - residual_started_at
     return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
         residual_inf_norm=float(jnp.max(jnp.abs(final_residual))),
         active_shape=active_shape,
         nonlinear_iterations=int(max_nonlinear_iterations),
         linear_iterations=total_linear_iterations,
+        residual_evaluation_count=residual_evaluation_count,
+        residual_evaluation_seconds=residual_evaluation_seconds,
+        jacobian_refresh_count=jacobian_refresh_count,
+        jacobian_assembly_seconds=jacobian_assembly_seconds,
+        linear_solve_seconds=linear_solve_seconds,
+        line_search_seconds=line_search_seconds,
     )

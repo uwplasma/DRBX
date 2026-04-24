@@ -2711,8 +2711,16 @@ def _advance_recycling_1d_bdf_history(
         color_groups=color_groups,
         sparsity_csc=sparsity_csc,
     )
+    rhs_cache_time: float | None = None
+    rhs_cache_state: np.ndarray | None = None
+    rhs_cache_value: np.ndarray | None = None
+    rhs_evaluation_count = 0
+    rhs_cache_hit_count = 0
+    jacobian_callback_count = 0
 
-    def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
+    def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
+        nonlocal rhs_evaluation_count
+        rhs_evaluation_count += 1
         state_fields, state_integrals = _unpack_recycling_active_state(
             packed_state,
             field_templates=current_fields,
@@ -2736,7 +2744,28 @@ def _advance_recycling_1d_bdf_history(
             layout=layout,
         )
 
+    def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
+        nonlocal rhs_cache_hit_count, rhs_cache_time, rhs_cache_state, rhs_cache_value
+        packed_array = np.asarray(packed_state, dtype=np.float64)
+        if (
+            rhs_cache_time is not None
+            and rhs_cache_value is not None
+            and rhs_cache_state is not None
+            and float(_time) == rhs_cache_time
+            and packed_array.shape == rhs_cache_state.shape
+            and np.array_equal(packed_array, rhs_cache_state)
+        ):
+            rhs_cache_hit_count += 1
+            return np.array(rhs_cache_value, dtype=np.float64, copy=True)
+        value = np.asarray(_evaluate_rhs(_time, packed_array), dtype=np.float64)
+        rhs_cache_time = float(_time)
+        rhs_cache_state = np.array(packed_array, dtype=np.float64, copy=True)
+        rhs_cache_value = np.array(value, dtype=np.float64, copy=True)
+        return value
+
     def jacobian(_time: float, packed_state: np.ndarray):
+        nonlocal jacobian_callback_count
+        jacobian_callback_count += 1
         rhs_value = rhs(_time, packed_state)
         return build_sparse_difference_quotient_jacobian(
             lambda state: rhs(_time, state),
@@ -2806,6 +2835,11 @@ def _advance_recycling_1d_bdf_history(
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
         feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        diagnostics={
+            "bdf_rhs_evaluation_count": int(rhs_evaluation_count),
+            "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
+            "bdf_jacobian_callback_count": int(jacobian_callback_count),
+        },
     )
 
 

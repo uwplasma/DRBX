@@ -17,6 +17,7 @@ class Recycling1DRhsResult:
 class Recycling1DHistoryResult:
     variable_history: dict[str, np.ndarray]
     feedback_integral_history: dict[str, np.ndarray]
+    diagnostics: dict[str, float | int | bool] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

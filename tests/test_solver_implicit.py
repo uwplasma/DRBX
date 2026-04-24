@@ -10,6 +10,7 @@ from jax_drb.solver import (
     build_locality_sparsity,
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
+    build_sparse_jvp_jacobian,
     difference_quotient_step_size,
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
@@ -254,6 +255,53 @@ def test_sparse_difference_quotient_plan_matches_unplanned_jacobian() -> None:
 
     assert plan.nnz == sparsity.nnz
     np.testing.assert_allclose(planned.toarray(), unplanned.toarray(), rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
+    pytest.importorskip("scipy")
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    active_shape = (4, 1, 5)
+    state = np.linspace(-0.3, 0.9, 2 * np.prod(active_shape))
+    sparsity = build_locality_sparsity(
+        active_shape,
+        field_count=2,
+        radii=(1, 0, 1),
+        periodic_axes=(0, 2),
+    )
+    color_groups = build_modulo_color_groups(
+        active_shape,
+        field_count=2,
+        color_periods=(4, 1, 5),
+    )
+
+    def residual(vector):
+        field0 = vector[: np.prod(active_shape)].reshape(active_shape)
+        field1 = vector[np.prod(active_shape) :].reshape(active_shape)
+        result0 = jnp.sin(field0) + 0.1 * jnp.roll(field1, 1, axis=2)
+        result1 = field1 * field1 - 0.2 * jnp.roll(field0, -1, axis=0)
+        return jnp.concatenate([result0.ravel(), result1.ravel()])
+
+    jvp_jacobian = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+    )
+
+    expected = np.zeros(sparsity.shape, dtype=np.float64)
+    active_cells = int(np.prod(active_shape))
+    for column in range(sparsity.shape[1]):
+        direction = np.zeros_like(state)
+        direction[column] = 1.0
+        expected[:, column] = np.asarray(
+            jax.jvp(residual, (jnp.asarray(state),), (jnp.asarray(direction),))[1],
+            dtype=np.float64,
+        )
+
+    np.testing.assert_allclose(jvp_jacobian.toarray(), expected * sparsity.toarray(), rtol=1.0e-12, atol=1.0e-12)
+    assert active_cells > 0
 
 
 def test_backward_euler_and_bdf2_residual_formulas() -> None:
@@ -555,6 +603,10 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
 
     np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-9, atol=1.0e-9)
     assert info.residual_inf_norm < 1.0e-10
+    assert info.residual_evaluation_count >= 1
+    assert info.jacobian_refresh_count >= 1
+    assert info.jacobian_assembly_seconds >= 0.0
+    assert info.linear_solve_seconds >= 0.0
 
 
 def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:

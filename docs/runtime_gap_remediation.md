@@ -153,6 +153,17 @@ offenders. This argues for fewer host residual calls, stronger source/closure
 caching, and a JAX-native residual/JVP lane before spending more effort on
 generic local-thread tuning.
 
+The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
+most recent exact RHS evaluation and reuses it as the base state for
+`jac(t, y)` when SciPy requests the Jacobian at that same state. The history
+result exposes BDF RHS evaluation, cache-hit, and Jacobian-callback counters.
+This closes an avoidable duplicate-base-RHS path, but it should be treated as
+instrumentation and cleanup rather than a solved performance milestone; a
+post-change one-run `recycling_dthe_one_step` timing measured `61.38 s`, which
+does not establish an end-to-end speedup against the previous noisy local run.
+The stronger next step remains a JAX-transformable residual plus grouped
+JVP-based Jacobian products for the dominant recycling kernels.
+
 ### Priority 3: tokamak recycling observables
 
 1. keep the current one-step compare metrics
