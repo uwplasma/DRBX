@@ -511,6 +511,17 @@ assembly. This keeps the next optimization lane focused on fixed-layout JAX
 residual kernels and JVP/Jacobian-action solves rather than per-solve CPU
 threading.
 
+The fixed-layout residual migration now has two concrete boundary gates. The
+electron sheath path uses backend-preserving no-flow state preparation plus the
+current-free ion-sum/sheath-potential reconstruction, with NumPy/JAX parity
+and JVP checks. Collision friction/heat exchange, neutral parallel diffusion,
+and target recycling can also be staged through
+`build_fixed_full_field_array_rhs`, which reconstructs guard-cell fields for
+the kernel while keeping the public residual a static `RecyclingFixedState`.
+Those are still migration gates, not yet the production nonlinear solve, but
+they remove several pieces of closure and boundary algebra from the list of
+formulas that only exist inside the host-side BDF residual loop.
+
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
 

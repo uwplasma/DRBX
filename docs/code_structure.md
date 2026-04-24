@@ -102,10 +102,15 @@ fixed-state RHS for parity against the D/T/He Hermès recycling deck. The
 active-array RHS adapter is the production-facing lane for new ports: it takes
 active-domain field dictionaries and controller scalars directly, returns
 fixed-layout RHS arrays, and is JVP-tested without rebuilding full-field
-dictionaries. New source, collision, diffusion, target, and sheath terms should
-enter through that active-array adapter before being promoted into the full
-transient solve. The current sheath extraction follows that rule: simple ion,
-full ion, and full electron sheath response formulas now live in
+dictionaries. A second adapter, `build_fixed_full_field_array_rhs`, stages
+guard-cell kernels and closure terms such as collision friction/heat exchange,
+neutral parallel diffusion, and target recycling through the same fixed-state
+interface while each term is still being migrated to active-array form. New
+source, collision, diffusion, target, and sheath terms should enter through
+one of those adapters before being promoted into the full transient solve. The
+current sheath extraction follows that rule: no-flow electron preparation,
+zero-current ion-sum reconstruction, simple ion, full ion, and full electron
+sheath response formulas now live in
 [src/jax_drb/native/open_field.py](../src/jax_drb/native/open_field.py) as
 backend-preserving helpers, while the remaining full-field sheath orchestration
 stays in [src/jax_drb/native/recycling_1d.py](../src/jax_drb/native/recycling_1d.py)
