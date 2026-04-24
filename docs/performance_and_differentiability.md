@@ -305,6 +305,10 @@ exchange pieces no longer force NumPy when the caller supplies JAX arrays.
 Focused tests now differentiate through a compact hydrogen
 ionisation/recombination/charge-exchange source objective.
 
+The corresponding paper/docs artifact is:
+
+- [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)
+
 ## Current GPU-Native Audit
 
 The office GPU environment is now usable for the compact native JAX lanes with

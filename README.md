@@ -15,6 +15,15 @@ The codebase is organized around:
 
 ![3D tokamak toroidal dynamics](docs/data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
 
+Two compact movie packages are also included for fast physics QA:
+
+- [Blob2D 2D movie](docs/movies/blob2d_meeting_2d.mp4) and [Blob2D 3D movie](docs/movies/blob2d_meeting_3d.mp4) from the seeded-filament benchmark surface.
+- [Alfven-wave 2D movie](docs/movies/alfven_wave_meeting_2d.mp4) and [Alfven-wave 3D movie](docs/movies/alfven_wave_meeting_3d.mp4) from the electromagnetic short-window benchmark.
+
+![Blob2D movie poster](docs/images/blob2d_meeting_movie_poster.png)
+
+![Alfven-wave movie poster](docs/images/alfven_wave_meeting_movie_poster.png)
+
 ## Install
 
 PyPI:
@@ -286,6 +295,7 @@ workers on a `16`-solve heavy ensemble, with intermediate speedups of about
 Focused engineering and benchmark packages:
 
 - [docs/reactions_collisions_campaign.md](docs/reactions_collisions_campaign.md)
+- [docs/atomic_rate_differentiability_campaign.md](docs/atomic_rate_differentiability_campaign.md)
 - [docs/neutral_parallel_diffusion_campaign.md](docs/neutral_parallel_diffusion_campaign.md)
 - [docs/collision_closure_campaign.md](docs/collision_closure_campaign.md)
 - [docs/tokamak_anomalous_diffusion_campaign.md](docs/tokamak_anomalous_diffusion_campaign.md)

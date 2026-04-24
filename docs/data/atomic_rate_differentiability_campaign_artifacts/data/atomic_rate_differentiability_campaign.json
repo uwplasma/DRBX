@@ -1,0 +1,33 @@
+{
+  "case": "atomic_rate_differentiability_campaign",
+  "density_m3": 2e+18,
+  "literature_context": {
+    "autodiff_context": "JAX recommends composing grad/jvp/vjp with vmap for batched derivative products; this campaign checks the atomic-rate derivative surface before full residual promotion.",
+    "hermes_3_reactions": "Hermes-3 documents AMJUEL H.4 ionisation/recombination, AMJUEL H.3 charge exchange, and OpenADAS impurity reactions as reaction-source components."
+  },
+  "metric_count": 3,
+  "metrics": [
+    {
+      "max_abs_derivative_error": 6.722505929701583e-08,
+      "max_relative_derivative_error": 3.659610192953452e-08,
+      "name": "amjuel_d_ionisation",
+      "passed": true
+    },
+    {
+      "max_abs_derivative_error": 6.094680315982259e-11,
+      "max_relative_derivative_error": 3.491848046152099e-11,
+      "name": "openadas_ne_ionisation",
+      "passed": true
+    },
+    {
+      "max_abs_derivative_error": 2.4651902741368303e-10,
+      "max_relative_derivative_error": 7.625570162619247e-10,
+      "name": "hydrogen_charge_exchange",
+      "passed": true
+    }
+  ],
+  "passed_metric_count": 3,
+  "point_count": 96,
+  "temperature_max_ev": 299.99999999999994,
+  "temperature_min_ev": 0.2
+}
