@@ -30,9 +30,9 @@ Interpretation:
 - the repeated heavy-solve ensemble gives the stronger local scaling story
   because per-worker warmup is amortized and the workload is naturally parallel
 - on the committed local artifact the steady-state speedup is about:
-  - `1.88x` from `1 -> 2` workers
-  - `3.67x` from `1 -> 4` workers
-  - `4.94x` from `1 -> 8` workers
+  - `1.90x` from `1 -> 2` workers
+  - `3.59x` from `1 -> 4` workers
+  - `4.95x` from `1 -> 8` workers
 - this is the right local-CPU figure for the paper because it is tied to a real
   promoted production solve rather than a tiny synthetic kernel
 - the retained `16`-solve ensemble is deliberate: heavier local sweeps were

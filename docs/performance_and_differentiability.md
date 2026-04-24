@@ -500,27 +500,43 @@ preserving JAX transforms when a future fixed-layout residual supplies JAX
 state. On the D/T/He recycling lane, this restored warm packed-RHS calls to
 about `4e-3 s` and the current bounded one-step timing to `44.60 s`.
 
-A fresh full cProfile/RSS bundle after that fix measured `74.39 s` under
-cProfile and `49.25 s` on the separate RSS run, with peak process-tree RSS
-about `231.2 MiB`. The top split is still decisive: sparse finite-difference
-Jacobian construction consumed about `50.9 s` cumulative, the packed RHS was
-evaluated `11655` times, and the next repeated source-level costs were
-collision closure, fixed-layout D/T/He reaction sources, open-field parallel
-advection, open-field state preparation, AMJUEL fit evaluation, and ion RHS
-assembly. This keeps the next optimization lane focused on fixed-layout JAX
-residual kernels and JVP/Jacobian-action solves rather than per-solve CPU
-threading.
+A fresh full cProfile/RSS bundle after promoting the fixed-layout bridge into
+the production implicit steppers measured `74.33 s` under cProfile and
+`49.22 s` on the separate RSS run, with peak process-tree RSS about
+`231.4 MiB`. The top split is still decisive: sparse finite-difference
+Jacobian construction consumed about `51.2 s` cumulative, the packed RHS was
+evaluated `11838` times, and the next repeated source-level costs were
+collision closure, fixed-layout D/T/He reaction sources, open-field state
+preparation, open-field parallel advection, AMJUEL fit evaluation, ion RHS
+assembly, target recycling, and neutral parallel diffusion. This keeps the
+next optimization lane focused on fixed-layout JAX residual kernels and
+JVP/Jacobian-action solves rather than per-solve CPU threading.
 
-The fixed-layout residual migration now has two concrete boundary gates. The
+The fixed-layout residual migration now has concrete boundary gates. The
 electron sheath path uses backend-preserving no-flow state preparation plus the
 current-free ion-sum/sheath-potential reconstruction, with NumPy/JAX parity
 and JVP checks. Collision friction/heat exchange, neutral parallel diffusion,
 and target recycling can also be staged through
 `build_fixed_full_field_array_rhs`, which reconstructs guard-cell fields for
 the kernel while keeping the public residual a static `RecyclingFixedState`.
-Those are still migration gates, not yet the production nonlinear solve, but
-they remove several pieces of closure and boundary algebra from the list of
-formulas that only exist inside the host-side BDF residual loop.
+Those gates now feed the same fixed-state bridge used by the production
+backward-Euler, BDF2, and legacy BDF RHS paths, but the individual source and
+boundary kernels still need to be ported term by term before the heavy SciPy
+BDF path can be replaced by a fully JAX-linearized solve.
+
+The production backward-Euler/BDF2 recycling steppers now build their nonlinear
+residuals through the same fixed-layout state bridge. The default sparse path
+still uses finite-difference Jacobians unless explicitly configured otherwise,
+because several production RHS branches remain host-backed. Two promoted
+JAX-native lanes are available for residuals that stay transformable:
+`solver_mode="sparse_jvp"` materializes a sparse Jacobian from grouped JVPs,
+and `solver_mode="jax_linearized"` sends JAX-linearized Jacobian actions
+directly to GMRES. The environment variable
+`JAX_DRB_RECYCLING_JACOBIAN_MODE=jvp` can select the sparse-JVP Jacobian for
+the standard sparse solver, and `JAX_DRB_RECYCLING_JVP_BATCH_SIZE` bounds the
+color-group batch size. These modes should be used only on gates where the
+residual has been proven JAX-transformable; the heavy SciPy BDF callback
+remains a host compatibility path.
 
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
@@ -572,26 +588,17 @@ to the same curated cases that define the public Hermès comparison surface.
 
 ## Current GPU Status
 
-The reachable `office` machine already exposes two CUDA-visible JAX devices
-(`RTX A4000`). GPU performance work is now limited by environment consistency
-rather than missing hardware.
+The reachable `office` machine exposes two CUDA-visible JAX devices
+(`RTX A4000`). The refreshed reduced-kernel audit was run there in a clean GPU
+environment and records `backend="gpu"` with devices `cuda:0` and `cuda:1` in
+the committed `jax_native_profile_audit` artifact. The two promoted reduced 3D
+lanes remain tiny compared with the recycling transient backbone, but they now
+provide a reproducible GPU trace bundle for the JAX-native geometry kernels.
 
-The current blocker there is a package mismatch:
-
-- JAX sees both GPUs
-- `numpy`, `scipy`, `matplotlib`, and `netCDF4` import cleanly
-- `diffrax` and `equinox` currently fail in the system environment because of a
-  `jaxlib` extension mismatch
-
-So the next GPU step is operationally clear:
-
-1. create a clean repo-local environment on `office`
-2. install a matching JAX/JAXLIB pair plus `jax_drb`
-3. rerun the current worst-offender profiling cases with:
-   - JAX trace
-   - memory profile
-   - persistent compilation cache
-4. compare CPU and GPU runtime splits before making broader accelerator claims
+The next GPU step is not to claim acceleration for the whole code from these
+small kernels. It is to move heavier recycling residual pieces into the same
+array-native contract, then rerun the profiling script with JAX traces, device
+memory snapshots, and persistent compilation cache enabled on the GPU host.
 
 ### Lower-Risk Structural JAX Improvements
 

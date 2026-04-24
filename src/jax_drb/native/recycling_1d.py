@@ -19,6 +19,7 @@ from ..solver import (
     build_sparse_difference_quotient_jacobian,
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
+    solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
     unpack_active_fields,
@@ -170,6 +171,13 @@ from .recycling_layout import (
     recycling_active_field_size as _recycling_active_field_size,
     recycling_active_shape as _recycling_active_shape,
     unpack_recycling_active_state as _unpack_recycling_active_state,
+)
+from .recycling_fixed_residual import (
+    build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
+    build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
+    build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
+    pack_fixed_state as _pack_fixed_state,
+    unpack_fixed_state as _unpack_fixed_state,
 )
 from .recycling_progress import build_recycling_progress_details as _build_recycling_progress_details
 from .recycling_1d_state import (
@@ -2395,17 +2403,8 @@ def advance_recycling_1d_backward_euler_step(
         layout=layout,
     )
 
-    def residual(packed_state: np.ndarray) -> np.ndarray:
-        state_fields, state_integrals = _unpack_recycling_active_state(
-            packed_state,
-            field_templates=fields,
-            feedback_integrals=feedback_integrals,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
-            mesh=mesh,
-            layout=layout,
-        )
-        rhs = _compute_recycling_1d_packed_rhs(
+    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+        return _compute_recycling_1d_packed_rhs(
             config,
             state_fields,
             sanitize_fields=False,
@@ -2423,20 +2422,23 @@ def advance_recycling_1d_backward_euler_step(
             runtime_model=runtime_model,
             layout=layout,
         )
-        return _build_recycling_mixed_be_residual(
-            packed_state,
-            packed_previous,
-            rhs_fields=rhs,
-            feedback_integrals=state_integrals,
-            previous_feedback_integrals=feedback_integrals,
-            current_feedback_errors=previous_feedback_errors,
-            previous_feedback_errors=previous_feedback_errors,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
-            timestep=timestep,
-        )
 
-    if solver_mode == "sparse":
+    fixed_rhs = _build_fixed_host_rhs_bridge(
+        packed_rhs,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+    )
+    fixed_residual = _build_fixed_backward_euler_residual(
+        fixed_rhs,
+        layout=layout,
+        previous_packed_state=packed_previous,
+        timestep=timestep,
+    )
+
+    def residual(packed_state: object) -> object:
+        return fixed_residual(packed_state)
+
+    if solver_mode in {"sparse", "sparse_jvp"}:
         solved, info = solve_sparse_newton_system(
             residual,
             packed_initial_guess,
@@ -2459,6 +2461,8 @@ def advance_recycling_1d_backward_euler_step(
             linear_rtol=1.0e-8,
             prefer_direct_linear_solve=True,
             jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
+            jacobian_mode="jvp" if solver_mode == "sparse_jvp" else _resolve_recycling_sparse_jacobian_mode(),
+            jvp_batch_size=_resolve_recycling_jvp_batch_size(),
         )
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
@@ -2467,6 +2471,17 @@ def advance_recycling_1d_backward_euler_step(
             active_shape=(packed_previous.size,),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+    elif solver_mode == "jax_linearized":
+        solved, info = solve_jax_linearized_newton_system(
+            residual,
+            packed_initial_guess,
+            active_shape=(packed_previous.size,),
+            residual_tolerance=residual_tolerance,
+            step_tolerance=1.0e-11,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            linear_restart=20,
+            linear_maxiter=20,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -2557,17 +2572,8 @@ def advance_recycling_1d_bdf2_step(
         layout=layout,
     )
 
-    def residual(packed_state: np.ndarray) -> np.ndarray:
-        state_fields, state_integrals = _unpack_recycling_active_state(
-            packed_state,
-            field_templates=fields,
-            feedback_integrals=feedback_integrals,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
-            mesh=mesh,
-            layout=layout,
-        )
-        rhs = _compute_recycling_1d_packed_rhs(
+    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+        return _compute_recycling_1d_packed_rhs(
             config,
             state_fields,
             sanitize_fields=False,
@@ -2585,22 +2591,24 @@ def advance_recycling_1d_bdf2_step(
             runtime_model=runtime_model,
             layout=layout,
         )
-        return _build_recycling_mixed_bdf2_residual(
-            packed_state,
-            packed_previous,
-            packed_previous_previous,
-            rhs_fields=rhs,
-            feedback_integrals=state_integrals,
-            previous_feedback_integrals=feedback_integrals,
-            previous_previous_feedback_integrals=previous_feedback_integrals,
-            current_feedback_errors=previous_feedback_errors,
-            previous_feedback_errors=previous_feedback_errors,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
-            timestep=timestep,
-        )
 
-    if solver_mode == "sparse":
+    fixed_rhs = _build_fixed_host_rhs_bridge(
+        packed_rhs,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+    )
+    fixed_residual = _build_fixed_bdf2_residual(
+        fixed_rhs,
+        layout=layout,
+        previous_packed_state=packed_previous,
+        previous_previous_packed_state=packed_previous_previous,
+        timestep=timestep,
+    )
+
+    def residual(packed_state: object) -> object:
+        return fixed_residual(packed_state)
+
+    if solver_mode in {"sparse", "sparse_jvp"}:
         solved, info = solve_sparse_newton_system(
             residual,
             packed_initial_guess,
@@ -2623,6 +2631,8 @@ def advance_recycling_1d_bdf2_step(
             linear_rtol=1.0e-8,
             prefer_direct_linear_solve=True,
             jacobian_refresh_frequency=3 if len(field_names) > 10 else 1,
+            jacobian_mode="jvp" if solver_mode == "sparse_jvp" else _resolve_recycling_sparse_jacobian_mode(),
+            jvp_batch_size=_resolve_recycling_jvp_batch_size(),
         )
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
@@ -2631,6 +2641,17 @@ def advance_recycling_1d_bdf2_step(
             active_shape=(packed_previous.size,),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+        )
+    elif solver_mode == "jax_linearized":
+        solved, info = solve_jax_linearized_newton_system(
+            residual,
+            packed_initial_guess,
+            active_shape=(packed_previous.size,),
+            residual_tolerance=residual_tolerance,
+            step_tolerance=1.0e-11,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            linear_restart=20,
+            linear_maxiter=20,
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -2723,22 +2744,15 @@ def _advance_recycling_1d_bdf_history(
     jacobian_callback_count = 0
     jacobian_parallel_workers = _resolve_recycling_bdf_jacobian_parallel_workers()
 
-    def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
-        nonlocal rhs_evaluation_count
-        rhs_evaluation_count += 1
-        state_fields, state_integrals = _unpack_recycling_active_state(
-            packed_state,
-            field_templates=current_fields,
-            feedback_integrals=current_integrals,
-            field_names=field_names,
-            feedback_names=feedback_names,
-            mesh=mesh,
-            layout=layout,
+    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+        use_jax_state = use_jax_backend(
+            *(state_fields[name] for name in state_fields),
+            *(state_integrals[name] for name in state_integrals),
         )
         return _compute_recycling_1d_packed_rhs(
             config,
             state_fields,
-            sanitize_fields=True,
+            sanitize_fields=not use_jax_state,
             feedback_integrals=state_integrals,
             field_names=field_names,
             feedback_names=feedback_names,
@@ -2748,6 +2762,18 @@ def _advance_recycling_1d_bdf_history(
             runtime_model=runtime_model,
             layout=layout,
         )
+
+    fixed_rhs = _build_fixed_host_rhs_bridge(
+        packed_rhs,
+        layout=layout,
+        base_feedback_integrals=current_integrals,
+    )
+
+    def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
+        nonlocal rhs_evaluation_count
+        rhs_evaluation_count += 1
+        fixed_state = _unpack_fixed_state(packed_state, layout=layout)
+        return np.asarray(_pack_fixed_state(fixed_rhs(fixed_state)), dtype=np.float64)
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         nonlocal rhs_cache_hit_count, rhs_cache_time, rhs_cache_state, rhs_cache_value
@@ -2860,6 +2886,31 @@ def _resolve_recycling_bdf_jacobian_parallel_workers() -> int:
         return 1
 
 
+def _resolve_recycling_sparse_jacobian_mode() -> str:
+    env_value = os.environ.get("JAX_DRB_RECYCLING_JACOBIAN_MODE", "fd").strip().lower()
+    aliases = {
+        "finite_difference": "fd",
+        "finite-difference": "fd",
+        "difference_quotient": "fd",
+        "difference-quotient": "fd",
+        "jvp": "jvp",
+        "autodiff": "jvp",
+        "jax": "jvp",
+    }
+    resolved = aliases.get(env_value, env_value)
+    return resolved if resolved in {"fd", "jvp"} else "fd"
+
+
+def _resolve_recycling_jvp_batch_size() -> int | None:
+    env_value = os.environ.get("JAX_DRB_RECYCLING_JVP_BATCH_SIZE")
+    if env_value is None or not env_value.strip():
+        return None
+    try:
+        return max(1, int(env_value))
+    except ValueError:
+        return None
+
+
 def _compute_recycling_1d_packed_rhs(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -2882,9 +2933,12 @@ def _compute_recycling_1d_packed_rhs(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
     )
-    sanitized_fields = _sanitize_recycling_fields(config, fields) if sanitize_fields else {
-        name: np.asarray(value, dtype=np.float64) for name, value in fields.items()
-    }
+    if sanitize_fields:
+        sanitized_fields = _sanitize_recycling_fields(config, fields)
+    elif use_jax_backend(*(fields[name] for name in fields)):
+        sanitized_fields = {name: jnp.asarray(value, dtype=jnp.float64) for name, value in fields.items()}
+    else:
+        sanitized_fields = {name: np.asarray(value, dtype=np.float64) for name, value in fields.items()}
     species = _override_species_fields(runtime_model.species_templates, fields=sanitized_fields, mesh=mesh)
     result = _compute_recycling_1d_rhs_from_species(
         config,

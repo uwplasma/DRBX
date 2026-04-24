@@ -32,6 +32,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "autodiff_diffusion_uncertainty_demo.md",
     REPO_ROOT / "docs" / "closeout_coverage.md",
     REPO_ROOT / "docs" / "release_packaging.md",
+    REPO_ROOT / "docs" / "release_notes_1_0_1.md",
     REPO_ROOT / "docs" / "release_notes_1_0_0.md",
     REPO_ROOT / "docs" / "native_3d_runtime_campaign.md",
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",

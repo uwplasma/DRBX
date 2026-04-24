@@ -116,6 +116,7 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(t
         for name, scale in {
             "ddt(NVh)": 1.0,
             "SNVh": 0.0,
+            "SNVh_pressure_gradient": -4.0,
             "mfh_visc_par_ylow": 2.0,
             "mfh_visc_perp_xlow": 3.0,
         }.items():
@@ -131,7 +132,9 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(t
 
     diagnostics = report["hermes_diagnostic_outputs"]
     assert "ddt(NVh)" in diagnostics["variables_present"]
+    assert "SNVh_pressure_gradient" in diagnostics["variables_present"]
     assert "mfh_visc_perp_ylow" in diagnostics["variables_missing"]
+    assert diagnostics["field_metrics"]["SNVh_pressure_gradient"]["max_abs"] == 4.0
     assert diagnostics["field_metrics"]["mfh_visc_par_ylow"]["max_abs"] == 2.0
     reconstruction = diagnostics["matched_reconstructions"]["pressure_gradient"]
     assert reconstruction["field_metrics"]["max_abs"] >= 0.0

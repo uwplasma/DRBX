@@ -598,7 +598,15 @@ def test_bdf_history_raises_on_failed_solve(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(recycling, "_recycling_active_shape", lambda mesh: (1,))
     monkeypatch.setattr(recycling, "_build_recycling_residual_sparsity", lambda **kwargs: _FakeSparsity())
     monkeypatch.setattr(recycling, "_build_recycling_color_groups", lambda **kwargs: ())
-    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: object())
+    layout = SimpleNamespace(
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        active_slices=(slice(None),),
+        active_shape=(1,),
+        field_size=1,
+        field_templates=(np.array([1.0], dtype=np.float64),),
+    )
+    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout)
     monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
 
     with pytest.raises(RuntimeError, match="linear solve failed"):
@@ -646,7 +654,15 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     monkeypatch.setattr(recycling, "_recycling_active_shape", lambda mesh: (1,))
     monkeypatch.setattr(recycling, "_build_recycling_residual_sparsity", lambda **kwargs: _FakeSparsity())
     monkeypatch.setattr(recycling, "_build_recycling_color_groups", lambda **kwargs: ())
-    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: object())
+    layout = SimpleNamespace(
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        active_slices=(slice(None),),
+        active_shape=(1,),
+        field_size=1,
+        field_templates=(np.array([1.0], dtype=np.float64),),
+    )
+    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout)
     monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
     monkeypatch.setattr(recycling, "_unpack_recycling_active_state", fake_unpack)
     monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "2")

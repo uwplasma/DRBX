@@ -57,13 +57,13 @@ This is the current worst runtime ratio in the live matrix and the main
 production-path runtime target. The latest target-boundary geometry caching
 pass reduced the local timed run from about `54.1 s` to about `52.76 s`
 without changing the fidelity band.
-After the metric-selector regression fix, the fresh profiling bundle measured
-`74.39 s` under cProfile and `49.25 s` on the separate RSS run, with peak
-process-tree RSS about `231.2 MiB`. The cProfile wall time is inflated by
-profiling overhead on this Python-heavy path; the useful result is the split.
-Sparse finite-difference Jacobian assembly still consumes about `50.9 s`
-cumulative, while the packed RHS is evaluated `11655` times and remains the
-dominant repeated host-side workload.
+After the metric-selector regression fix and fixed-layout bridge promotion, the
+fresh profiling bundle measured `74.33 s` under cProfile and `49.22 s` on the
+separate RSS run, with peak process-tree RSS about `231.4 MiB`. The cProfile
+wall time is inflated by profiling overhead on this Python-heavy path; the
+useful result is the split. Sparse finite-difference Jacobian assembly still
+consumes about `51.2 s` cumulative, while the packed RHS is evaluated `11838`
+times and remains the dominant repeated host-side workload.
 
 ### 4. Near-zero normalized tokamak recycling mismatch
 
@@ -183,13 +183,13 @@ future residual ports: dynamic arrays select the backend; static metrics are
 converted inside the selected branch.
 
 The fresh full profile after that fix keeps the remediation order unchanged but
-quantifies it more sharply: BDF still requests `84` Jacobian callbacks, which
-expand to `8232` colored perturbation residuals, and the source-level split is
-now collision closure, fixed-layout reactions, parallel advection, open-field
-state preparation, AMJUEL evaluation, and ion/electron/neutral RHS assembly.
-The work should therefore continue by moving those residual pieces into a
-fixed-layout JAX PyTree residual before promoting matrix-free or sparse-JVP
-solves.
+quantifies it more sharply: BDF still requests `86` Jacobian callbacks, which
+expand to `8428` colored perturbation residuals, and the source-level split is
+now collision closure, fixed-layout reactions, open-field state preparation,
+parallel advection, AMJUEL evaluation, ion/electron/neutral RHS assembly,
+target recycling, and neutral parallel diffusion. The work should therefore
+continue by moving those residual pieces into fixed-layout JAX kernels before
+promoting matrix-free or sparse-JVP solves as the default heavy backend.
 
 The next call-count cleanup is now in-tree: the SciPy BDF callback caches the
 most recent exact RHS evaluation and reuses it as the base state for
@@ -286,6 +286,9 @@ Items 1, 3, 4, and 5 now have their first compact gates:
   closure kernel can be called from a `RecyclingFixedState` RHS, defaults
   non-participating fields to zero, and differentiates through the active
   source response;
+- the production backward-Euler/BDF2 recycling steppers now construct their
+  residuals through the fixed-layout bridge and expose `sparse_jvp` and
+  `jax_linearized` solver modes for transformable residual gates;
 - the open-field state-preparation wrapper now preserves JAX arrays through
   electron-density reconstruction and the boundary-free electron/ion state
   path, giving the fixed-layout residual a transformable no-sheath control

@@ -35,9 +35,13 @@
         "max_abs": 0.0,
         "rms": 0.0
       },
+      "SNVh_pressure_gradient": {
+        "max_abs": 1444.9695328628068,
+        "rms": 913.8789746796006
+      },
       "ddt(NVh)": {
-        "max_abs": 2828.437342223743,
-        "rms": 1788.8608441000345
+        "max_abs": 1383.4678093609364,
+        "rms": 874.9818694208362
       },
       "mfh_adv_perp_xlow": {
         "max_abs": 2.6633472335529565e-10,
@@ -61,8 +65,8 @@
       }
     },
     "interpretation": {
-      "direct_hermes_outputs": "Herm\u00e8s writes ddt(NVh), external/source terms, and selected momentum-flow diagnostics when neutral_mixed output_ddt=true and diagnose=true.",
-      "pressure_gradient_limitation": "The neutral pressure-gradient source appears in Herm\u00e8s as -Grad_par(Pn) inside neutral_mixed.cxx, but it is not written as a named diagnostic in the stock output. Direct pressure-gradient parity therefore still requires either a small Herm\u00e8s diagnostic patch or a matched postprocessed operator reconstruction."
+      "direct_hermes_outputs": "Herm\u00e8s writes ddt(NVh), external/source terms, and selected momentum-source and momentum-flow diagnostics when neutral_mixed output_ddt=true and diagnose=true. A local Herm\u00e8s diagnostic patch can also write SNVh_pressure_gradient for direct -Grad_par(Pn) parity.",
+      "pressure_gradient_limitation": "The neutral pressure-gradient source appears in Herm\u00e8s as -Grad_par(Pn) inside neutral_mixed.cxx. Stock Herm\u00e8s output does not write that term as a named diagnostic, so this report always carries a matched postprocessed reconstruction when reference arrays are available. When the local Herm\u00e8s diagnostic patch is present, SNVh_pressure_gradient provides the direct written-variable comparison."
     },
     "lineouts": {
       "SNVh": [
@@ -76,6 +80,18 @@
         0.0,
         0.0,
         0.0
+      ],
+      "SNVh_pressure_gradient": [
+        -0.0004153951261543183,
+        -0.0012639448233237283,
+        -0.0016646940628097448,
+        -0.001198486973671311,
+        -0.00038234501787726523,
+        0.000382343060171574,
+        0.0011984893242187387,
+        0.0016646936191387206,
+        0.0012639448826225895,
+        0.00041539511768474486
       ],
       "ddt(NVh)": [
         2.1478624302930112e-05,
@@ -177,6 +193,7 @@
     "variables_present": [
       "ddt(NVh)",
       "SNVh",
+      "SNVh_pressure_gradient",
       "mfh_visc_par_ylow",
       "mfh_visc_perp_xlow",
       "mfh_visc_perp_ylow",
@@ -184,7 +201,7 @@
       "mfh_adv_perp_ylow"
     ]
   },
-  "input_path": "~/local/hermes-3/tests/integrated/neutral_mixed/data/BOUT.inp",
+  "input_path": "<reference-root>/tests/integrated/neutral_mixed/data/BOUT.inp",
   "interpretation": {
     "balance_form": "backward_euler_rate_residual = (NVh_final - NVh_initial) / dt - native_rhs_terms(NVh_final)",
     "diagnostic_role": "The Herm\u00e8s final state is inserted into the native neutral momentum operator. A nonzero residual localizes the one-step mismatch to the terms that cannot balance the Herm\u00e8s update under the current native closure and boundary rules.",
@@ -326,7 +343,7 @@
       }
     }
   },
-  "reference_arrays_npz": "~/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_one_step.npz",
+  "reference_arrays_npz": "<repo>/references/baselines/reference_arrays/neutral_mixed_one_step.npz",
   "reference_balance": {
     "lineouts": {
       "parallel_inertia": [

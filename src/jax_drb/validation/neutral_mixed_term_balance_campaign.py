@@ -490,6 +490,7 @@ def _hermes_diagnostic_payload(
     field_names = (
         "ddt(NVh)",
         "SNVh",
+        "SNVh_pressure_gradient",
         "mfh_visc_par_ylow",
         "mfh_visc_perp_xlow",
         "mfh_visc_perp_ylow",
@@ -506,17 +507,19 @@ def _hermes_diagnostic_payload(
         "interpretation": {
             "direct_hermes_outputs": (
                 "Hermès writes ddt(NVh), external/source terms, and selected "
-                "momentum-flow diagnostics when neutral_mixed output_ddt=true "
-                "and diagnose=true."
+                "momentum-source and momentum-flow diagnostics when "
+                "neutral_mixed output_ddt=true and diagnose=true. A local "
+                "Hermès diagnostic patch can also write SNVh_pressure_gradient "
+                "for direct -Grad_par(Pn) parity."
             ),
             "pressure_gradient_limitation": (
                 "The neutral pressure-gradient source appears in Hermès as "
-                "-Grad_par(Pn) inside neutral_mixed.cxx, but it is not written "
-                "as a named diagnostic in the stock output. This report "
-                "therefore carries a matched postprocessed reconstruction of "
-                "that operator on the Hermès final state when the reference "
-                "arrays are available. Direct Hermès-side parity would still "
-                "require a small diagnostic patch in Hermès itself."
+                "-Grad_par(Pn) inside neutral_mixed.cxx. Stock Hermès output "
+                "does not write that term as a named diagnostic, so this "
+                "report always carries a matched postprocessed reconstruction "
+                "when reference arrays are available. When the local Hermès "
+                "diagnostic patch is present, SNVh_pressure_gradient provides "
+                "the direct written-variable comparison."
             ),
         },
     }

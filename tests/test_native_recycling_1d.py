@@ -476,12 +476,14 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
     assert "Nd+" in variables
 
 
+@pytest.mark.parametrize("requested_mode", ["adaptive_bdf", "sparse_jvp", "jax_linearized"])
 def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
+    requested_mode: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = apply_bout_overrides(
         load_bout_input(_INPUT_1D),
-        ("runtime:recycling_transient_solver_mode=adaptive_bdf",),
+        (f"runtime:recycling_transient_solver_mode={requested_mode}",),
     )
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
@@ -506,7 +508,7 @@ def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
         parity_mode="one_step",
     )
 
-    assert calls == ["adaptive_bdf"]
+    assert calls == [requested_mode]
 
 
 def test_recycling_one_step_progress_callback_receives_interval_updates(

@@ -38,23 +38,18 @@ the neutral-mixed momentum equation.
 The campaign can now also ingest a one-step Hermès diagnostic NetCDF generated
 with `output_ddt = true` and `diagnose = true` under the `neutral_mixed`
 component. The committed JSON/NPZ bundle includes the direct Hermès diagnostic
-lineouts from that rerun: `ddt(NVh)`, `SNVh`, `mfh_visc_par_ylow`,
-`mfh_visc_perp_xlow`, `mfh_visc_perp_ylow`, `mfh_adv_perp_xlow`, and
-`mfh_adv_perp_ylow`. On the current diagnostic rerun, `mfh_visc_par_ylow` is
-the only non-negligible written neutral-momentum flow diagnostic, with max
-absolute active value about `2.47e-3`; the perpendicular advection/viscosity
-flow diagnostics are at numerical-noise level or exactly zero on this one-step
-surface. Hermès computes the pressure-gradient source as `-Grad_par(Pn)` in
-`neutral_mixed.cxx`, but the stock diagnostic output does not write that term
-under a separate variable. The campaign now fills that gap with a matched
-postprocessed pressure-gradient reconstruction: it evaluates the same
-`-Grad_par(Pn)` source term on the Hermès final pressure field and stores the
-lineout and active-domain metrics under
-`hermes_diagnostic_outputs.matched_reconstructions.pressure_gradient`. This is
-not a direct Hermès diagnostic variable, so a tiny Hermès diagnostic patch
-would still be the cleanest final parity check, but the current report can now
-compare the written Hermès flow diagnostics against the missing pressure
-gradient on the same lineout.
+lineouts from that rerun: `ddt(NVh)`, `SNVh`,
+`SNVh_pressure_gradient`, `mfh_visc_par_ylow`, `mfh_visc_perp_xlow`,
+`mfh_visc_perp_ylow`, `mfh_adv_perp_xlow`, and `mfh_adv_perp_ylow`. The
+`SNVh_pressure_gradient` variable comes from the local Hermès diagnostic patch
+recorded in [hermes_neutral_mixed_pressure_gradient_diagnostic.patch](hermes_neutral_mixed_pressure_gradient_diagnostic.patch);
+it writes the same `-Grad_par(Pn)` source that enters the neutral momentum
+equation. The report still stores the matched postprocessed reconstruction
+under `hermes_diagnostic_outputs.matched_reconstructions.pressure_gradient`
+because it is the normalized JAXDRB-side operator lineout used for native term
+balance. The direct Hermès variable is therefore the reference-side written
+diagnostic, while the matched reconstruction is the normalized comparison
+operator evaluated on the Hermès final pressure field.
 
 Regenerate the artifact with:
 

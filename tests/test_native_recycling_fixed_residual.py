@@ -20,6 +20,7 @@ from jax_drb.native.recycling_fixed_residual import (
     fixed_state_to_feedback_integrals,
     fixed_state_to_full_fields,
     pack_fixed_state,
+    unpack_fixed_state,
 )
 from jax_drb.native.recycling_layout import (
     build_recycling_packed_state_layout,
@@ -81,6 +82,23 @@ def test_fixed_state_round_trips_actual_dthe_recycling_deck() -> None:
     for name in runtime_model.field_names:
         np.testing.assert_allclose(np.asarray(restored_fields[name]), fields[name], rtol=0.0, atol=0.0)
     assert set(restored_integrals) == set(feedback_integrals)
+
+
+def test_unpack_fixed_state_preserves_host_arrays_for_scipy_bridge() -> None:
+    _, mesh, _, _, runtime_model, fields, feedback_integrals, layout = _dthe_context()
+    packed = pack_recycling_active_state(
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=runtime_model.field_names,
+        feedback_names=runtime_model.feedback_names,
+        mesh=mesh,
+        layout=layout,
+    )
+
+    fixed_state = unpack_fixed_state(np.asarray(packed, dtype=np.float64), layout=layout)
+
+    assert all(isinstance(value, np.ndarray) for value in fixed_state.field_values)
+    assert isinstance(fixed_state.feedback_values, np.ndarray)
 
 
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:

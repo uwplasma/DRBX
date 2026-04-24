@@ -120,20 +120,23 @@ about `3.7e-3` to `4.2e-3 s`, and a bounded current-code
 `recycling_dthe_one_step --skip-cprofile` timing completed in `44.60 s` on
 this MacBook. The env-enabled promoted parity gate completed in `44.66 s`.
 
-The fresh full cProfile/RSS bundle after that regression fix was:
+The fresh full cProfile/RSS bundle after the fixed-layout bridge was promoted
+into the production backward-Euler/BDF2 steppers and the legacy BDF RHS
+callback was routed through the same bridge was:
 
 - command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 35 --rss-profile`
-- cProfile run: `74.39 s` wall, `1.98e8` Python function calls
-- separate unprofiled RSS run: `49.25 s`
-- peak sampled process-tree RSS: `231.2 MiB`
-- BDF callback counts visible in the profile: `11655` packed RHS evaluations,
-  `84` Jacobian callbacks, and `8232` finite-difference color-group
+- cProfile run: `74.33 s` wall, `2.11e8` Python function calls
+- separate unprofiled RSS run: `49.22 s`
+- peak sampled process-tree RSS: `231.4 MiB`
+- BDF callback counts visible in the profile: `11838` packed RHS evaluations,
+  `86` Jacobian callbacks, and `8428` finite-difference color-group
   perturbation residuals
 - top cumulative costs: sparse finite-difference Jacobian construction
-  `50.9 s`, packed RHS `70.6 s`, species RHS assembly `68.5 s`, collision
-  closure `10.7 s`, fixed-layout D/T/He reaction sources `9.1 s`, open-field
-  parallel advection `7.8 s`, open-field state preparation `7.7 s`, AMJUEL fit
-  evaluation `7.4 s`, and ion RHS assembly `6.8 s`
+  `51.2 s`, packed RHS `69.9 s`, species RHS assembly `67.9 s`, collision
+  closure `10.5 s`, fixed-layout D/T/He reaction sources `9.0 s`, open-field
+  state preparation `8.5 s`, open-field parallel advection `7.7 s`, AMJUEL fit
+  evaluation `7.4 s`, ion RHS assembly `6.7 s`, target recycling `5.7 s`,
+  and neutral parallel diffusion `5.3 s`
 
 The absolute cProfile wall time is intentionally not compared directly with the
 unprofiled timing because profiling overhead is large on this Python-heavy
@@ -174,6 +177,14 @@ Jacobian action as a callable rather than a materialized sparse matrix. This is
 the preferred algorithmic target for future differentiable recycling kernels,
 but it is intentionally not claimed as a production speedup until the residual
 itself stops crossing the host/SciPy boundary.
+
+The current production split should be read narrowly. The fixed-layout bridge
+is now the state contract for the implicit recycling steppers, so future
+term-level ports no longer have to rediscover packing, active slices, or
+controller-scalar handling. The legacy SciPy BDF history mode still calls a
+host RHS many times and still builds finite-difference sparse Jacobians, so its
+profile remains the evidence for the next refactor rather than evidence that
+the JVP path is already the default heavy-solve backend.
 
 ## Basic Usage
 

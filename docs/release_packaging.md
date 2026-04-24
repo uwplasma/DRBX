@@ -55,6 +55,11 @@ The PyPI publish workflow:
 3. publishes them to PyPI through OIDC with `id-token: write`,
 4. uses the `pypi` GitHub environment for the publish job.
 
+Publishing is triggered by a published GitHub release or by manual
+`workflow_dispatch`. It is intentionally not triggered directly by tag pushes,
+so creating a version tag and then publishing its GitHub release cannot submit
+the same distribution to PyPI twice.
+
 ## Release Checklist
 
 Before publishing a version:

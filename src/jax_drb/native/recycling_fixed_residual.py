@@ -51,21 +51,34 @@ def fixed_state_from_fields(
     )
 
 
-def pack_fixed_state(state: RecyclingFixedState) -> jax.Array:
+def pack_fixed_state(state: RecyclingFixedState) -> object:
     """Pack a fixed-layout PyTree state into a single JAX vector."""
 
-    field_blocks = tuple(jnp.ravel(jnp.asarray(value, dtype=jnp.float64)) for value in state.field_values)
-    if field_blocks and state.feedback_values.size:
-        return jnp.concatenate((*field_blocks, jnp.ravel(jnp.asarray(state.feedback_values, dtype=jnp.float64))))
+    if use_jax_backend(*state.field_values, state.feedback_values):
+        field_blocks = tuple(jnp.ravel(jnp.asarray(value, dtype=jnp.float64)) for value in state.field_values)
+        feedback_values = jnp.ravel(jnp.asarray(state.feedback_values, dtype=jnp.float64))
+        if field_blocks and feedback_values.size:
+            return jnp.concatenate((*field_blocks, feedback_values))
+        if field_blocks:
+            return jnp.concatenate(field_blocks)
+        return feedback_values
+
+    field_blocks = tuple(np.ravel(np.asarray(value, dtype=np.float64)) for value in state.field_values)
+    feedback_values = np.ravel(np.asarray(state.feedback_values, dtype=np.float64))
+    if field_blocks and feedback_values.size:
+        return np.concatenate((*field_blocks, feedback_values))
     if field_blocks:
-        return jnp.concatenate(field_blocks)
-    return jnp.ravel(jnp.asarray(state.feedback_values, dtype=jnp.float64))
+        return np.concatenate(field_blocks)
+    return feedback_values
 
 
 def unpack_fixed_state(packed: object, *, layout: RecyclingPackedStateLayout) -> RecyclingFixedState:
     """Unpack a vector into active arrays using static recycling layout metadata."""
 
-    packed_array = jnp.asarray(packed, dtype=jnp.float64)
+    if use_jax_backend(packed):
+        packed_array = jnp.asarray(packed, dtype=jnp.float64)
+    else:
+        packed_array = np.asarray(packed, dtype=np.float64)
     active_cell_count = int(layout.field_size // max(len(layout.field_names), 1)) if layout.field_names else 0
     field_values = []
     offset = 0

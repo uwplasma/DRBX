@@ -1,0 +1,44 @@
+diff --git a/include/neutral_mixed.hxx b/include/neutral_mixed.hxx
+--- a/include/neutral_mixed.hxx
++++ b/include/neutral_mixed.hxx
+@@
+   Field3D density_source, pressure_source, momentum_source; ///< External input source
+   Field3D Sn, Sp, Snv; ///< Particle, pressure and momentum source
+   Field3D sound_speed; ///< Sound speed for use with Lax flux
++  Field3D momentum_pressure_gradient_source; ///< -Grad_par(Pn) momentum source diagnostic
+   bool output_ddt; ///< Save time derivatives?
+diff --git a/src/neutral_mixed.cxx b/src/neutral_mixed.cxx
+--- a/src/neutral_mixed.cxx
++++ b/src/neutral_mixed.cxx
+@@
+     // Neutral momentum
+     TRACE("Neutral momentum");
++    momentum_pressure_gradient_source = -Grad_par(Pn);
+     ddt(NVn) = -AA
+                    * FV::Div_par_fvv<ParLimiter>( // Momentum flow
+                        Nnlim, Vn, sound_speed)
+-               - Grad_par(Pn); // Pressure gradient
++               + momentum_pressure_gradient_source; // Pressure gradient
+@@
+     set_with_attrs(state[std::string("SNV") + name], Snv,
+                    {{"time_dimension", "t"},
+                     {"units", "kg m^-2 s^-2"},
+                     {"conversion", SI::Mp * Nnorm * Cs0 * Omega_ci},
+                     {"standard_name", "momentum source"},
+                     {"long_name", name + " momentum source"},
+                     {"source", "neutral_mixed"}});
++    if (momentum_pressure_gradient_source.isAllocated()) {
++      set_with_attrs(
++          state[std::string("SNV") + name + std::string("_pressure_gradient")],
++          momentum_pressure_gradient_source,
++          {{"time_dimension", "t"},
++           {"units", "kg m^-2 s^-2"},
++           {"conversion", SI::Mp * Nnorm * Cs0 * Omega_ci},
++           {"standard_name", "momentum source"},
++           {"long_name", name + " pressure-gradient momentum source"},
++           {"species", name},
++           {"source", "neutral_mixed"}});
++    }
+     set_with_attrs(state[std::string("S") + name + std::string("_src")], density_source,
+                    {{"time_dimension", "t"},
+                     {"units", "m^-3 s^-1"},
