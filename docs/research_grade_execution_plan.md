@@ -449,6 +449,16 @@ relative/scaled error, JAXDRB wall time, Hermes wall time, peak resident memory
 or best available memory proxy, and the artifact path used to reproduce the
 diagnosis.
 
+The committed implementation of this triage layer is
+`docs/data/hermes_offender_register_artifacts/data/hermes_offender_register.json`,
+with a publication-ready summary figure at
+`docs/data/hermes_offender_register_artifacts/images/hermes_offender_register.png`.
+On the current promoted live matrix, the top parity target is
+`neutral_mixed_one_step` on `NVh`, the top runtime target is
+`recycling_dthe_one_step`, and the top memory-risk targets are the heavy
+implicit recycling solves until peak-memory instrumentation is added to the
+live rerun harness.
+
 The current priority parity offenders are:
 
 - heavy 1D open-field recycling transients, especially neutral and recycling

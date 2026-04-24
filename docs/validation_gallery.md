@@ -28,6 +28,7 @@ JAX-based solver papers.
 | `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
 | `Hermes Live Rerun Matrix` | `live native vs live reference` | Same-machine native/Hermès rerun matrix across representative 1D and 2D lanes. |
+| `Hermes Offender Register` | `triage artifact` | Ranked parity/runtime/memory offender register from the live rerun matrix and reduced geometry summary. |
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 
 ## Diffusion Short Window
@@ -448,6 +449,25 @@ This is the current main live code-to-code validation figure for the docs. It
 also shows the honest remaining gap: full live 3D Hermès reruns are still not
 part of this matrix, so the 3D evidence remains the selected-field
 reference-backed packages.
+
+## Hermes Offender Register
+
+![Hermes offender register](data/hermes_offender_register_artifacts/images/hermes_offender_register.png)
+
+What this documents:
+
+- a ranked triage artifact that turns the live rerun matrix into concrete next
+  debugging targets;
+- the current top parity offender: `neutral_mixed_one_step` on `NVh`, pointing
+  to neutral mixed boundary and parallel momentum closure;
+- the current top runtime offender: `recycling_dthe_one_step`, pointing to
+  sparse Jacobian, residual, pack/unpack, and target-recycling closure
+  profiling;
+- memory risk is currently recorded as a measurement gap, with top risks on
+  heavy recycling implicit solves because peak-memory data is not yet captured
+  in the live matrix;
+- near-zero normalized `NVd`/`NVt` mismatches are explicitly flagged so
+  absolute error is inspected before changing equations.
 
 ## Neutral Mixed Boundary Audit
 

@@ -267,6 +267,12 @@ from .hermes_live_rerun_campaign import (
     create_hermes_live_rerun_campaign_package,
     save_hermes_live_rerun_campaign_plot,
 )
+from .hermes_offender_register import (
+    HermesOffenderRegisterArtifacts,
+    build_hermes_offender_register_report,
+    create_hermes_offender_register_package,
+    save_hermes_offender_register_plot,
+)
 from .controller_feedback_campaign import (
     ControllerFeedbackCampaignArtifacts,
     ControllerFeedbackMetric,
@@ -501,6 +507,10 @@ __all__ = [
     "build_hermes_live_rerun_campaign_report",
     "create_hermes_live_rerun_campaign_package",
     "save_hermes_live_rerun_campaign_plot",
+    "HermesOffenderRegisterArtifacts",
+    "build_hermes_offender_register_report",
+    "create_hermes_offender_register_package",
+    "save_hermes_offender_register_plot",
     "ControllerFeedbackCampaignArtifacts",
     "ControllerFeedbackMetric",
     "build_controller_feedback_campaign",
