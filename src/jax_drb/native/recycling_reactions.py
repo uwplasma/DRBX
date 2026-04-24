@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import NamedTuple
 from typing import Any
 
 import jax.numpy as jnp
@@ -38,6 +39,23 @@ class ReactionTerms:
     energy_source: dict[str, np.ndarray]
     momentum_source: dict[str, np.ndarray]
     diagnostics: dict[str, np.ndarray]
+
+
+class FixedLayoutHydrogenReactionSources(NamedTuple):
+    atom_density_source: np.ndarray
+    ion_density_source: np.ndarray
+    electron_density_source: np.ndarray
+    atom_energy_source: np.ndarray
+    ion_energy_source: np.ndarray
+    electron_energy_source: np.ndarray
+    atom_momentum_source: np.ndarray
+    ion_momentum_source: np.ndarray
+    electron_momentum_source: np.ndarray
+    ionisation_rate: np.ndarray
+    recombination_rate: np.ndarray
+    charge_exchange_rate: np.ndarray
+    ionisation_radiation: np.ndarray
+    recombination_radiation: np.ndarray
 
 
 def _soft_floor(value: np.ndarray, minimum: float) -> np.ndarray:
@@ -88,6 +106,112 @@ def _square(value: np.ndarray) -> np.ndarray:
     if _use_jax_backend(value):
         return jnp.square(value)
     return np.square(value)
+
+
+def fixed_layout_hydrogen_reaction_sources(
+    *,
+    atom_density: np.ndarray,
+    atom_pressure: np.ndarray,
+    atom_momentum: np.ndarray,
+    ion_density: np.ndarray,
+    ion_pressure: np.ndarray,
+    ion_momentum: np.ndarray,
+    electron_density: np.ndarray,
+    electron_pressure: np.ndarray,
+    dataset_scalars: dict[str, float],
+    atom_name: str = "d",
+    atom_mass: float = 2.0,
+    ion_mass: float = 2.0,
+    atom_density_floor: float = 1.0e-8,
+    ion_density_floor: float = 1.0e-8,
+    electron_density_floor: float = 1.0e-8,
+    cx_multiplier: float = 1.0,
+) -> FixedLayoutHydrogenReactionSources:
+    """Return array-only H-isotope ionisation, recombination, and CX sources.
+
+    This is the first fixed-layout bridge toward a JAX-native recycling
+    residual. It intentionally covers the common same-isotope hydrogenic
+    reaction block and mirrors the existing dictionary-oriented implementation.
+    """
+
+    electron_temperature = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
+    atom_temperature = _safe_temperature(atom_pressure, atom_density, atom_density_floor)
+    ion_temperature = _safe_temperature(ion_pressure, ion_density, ion_density_floor)
+    atom_velocity = _safe_velocity(atom_momentum, atom_density, atom_mass)
+    ion_velocity = _safe_velocity(ion_momentum, ion_density, ion_mass)
+
+    iz_sigma_v, iz_sigma_v_E, iz_electron_heating = load_amjuel_rate(atom_name, "iz")
+    ionisation_rate, ionisation_radiation = amjuel_reaction_rate_and_energy_loss(
+        atom_density,
+        electron_density,
+        electron_temperature,
+        iz_sigma_v,
+        iz_sigma_v_E,
+        iz_electron_heating,
+        dataset_scalars,
+    )
+
+    rec_sigma_v, rec_sigma_v_E, rec_electron_heating = load_amjuel_rate(atom_name, "rec")
+    recombination_rate, recombination_radiation = amjuel_reaction_rate_and_energy_loss(
+        ion_density,
+        electron_density,
+        electron_temperature,
+        rec_sigma_v,
+        rec_sigma_v_E,
+        rec_electron_heating,
+        dataset_scalars,
+    )
+
+    teff = _clip(
+        (atom_temperature / atom_mass + ion_temperature / ion_mass) * dataset_scalars["Tnorm"],
+        0.01,
+        10000.0,
+    )
+    charge_exchange_rate = (
+        atom_density
+        * ion_density
+        * hydrogen_cx_sigmav(teff, dataset_scalars)
+        * float(cx_multiplier)
+    )
+
+    ionisation_momentum = ionisation_rate * atom_mass * atom_velocity
+    recombination_momentum = recombination_rate * ion_mass * ion_velocity
+    cx_atom_momentum = charge_exchange_rate * atom_mass * atom_velocity
+    cx_ion_momentum = charge_exchange_rate * ion_mass * ion_velocity
+
+    ionisation_atom_energy = 1.5 * ionisation_rate * atom_temperature
+    recombination_ion_energy = 1.5 * recombination_rate * ion_temperature
+    cx_atom_energy = 1.5 * charge_exchange_rate * atom_temperature
+    cx_ion_energy = 1.5 * charge_exchange_rate * ion_temperature
+    velocity_delta = ion_velocity - atom_velocity
+    cx_ion_kinetic = 0.5 * atom_mass * charge_exchange_rate * _square(velocity_delta)
+    cx_atom_kinetic = 0.5 * ion_mass * charge_exchange_rate * _square(-velocity_delta)
+
+    zero = _zeros_like(atom_density)
+    atom_density_source = -ionisation_rate + recombination_rate
+    ion_density_source = ionisation_rate - recombination_rate
+    atom_momentum_source = -ionisation_momentum + recombination_momentum - cx_atom_momentum + cx_ion_momentum
+    ion_momentum_source = ionisation_momentum - recombination_momentum + cx_atom_momentum - cx_ion_momentum
+    atom_energy_source = -ionisation_atom_energy + recombination_ion_energy - cx_atom_energy + cx_ion_energy + cx_atom_kinetic
+    ion_energy_source = ionisation_atom_energy - recombination_ion_energy + cx_atom_energy - cx_ion_energy + cx_ion_kinetic
+    electron_energy_source = -ionisation_radiation - recombination_radiation
+
+    return FixedLayoutHydrogenReactionSources(
+        atom_density_source=atom_density_source,
+        ion_density_source=ion_density_source,
+        electron_density_source=zero,
+        atom_energy_source=atom_energy_source,
+        ion_energy_source=ion_energy_source,
+        electron_energy_source=electron_energy_source,
+        atom_momentum_source=atom_momentum_source,
+        ion_momentum_source=ion_momentum_source,
+        electron_momentum_source=zero,
+        ionisation_rate=ionisation_rate,
+        recombination_rate=recombination_rate,
+        charge_exchange_rate=charge_exchange_rate,
+        ionisation_radiation=ionisation_radiation,
+        recombination_radiation=recombination_radiation,
+    )
 
 
 def is_charge_exchange_reaction(lhs: tuple[str, ...], rhs: tuple[str, ...]) -> bool:

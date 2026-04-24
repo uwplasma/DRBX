@@ -697,6 +697,13 @@ differentiability campaign. It produces a publication-ready figure comparing
 JAX autodiff slopes against centered finite differences on the AMJUEL,
 OpenADAS, and hydrogen charge-exchange rate surfaces.
 
+The first fixed-layout reaction-source kernel is also in-tree for the
+hydrogenic same-isotope reaction block. It returns array-only source terms,
+matches the existing dictionary implementation, and supports `jit`/`grad`.
+The next residual refactor should extend this pattern to the D/T/He
+multispecies reaction matrix and then replace the dictionary accumulation in
+the packed recycling residual.
+
 ### CPU Parallelization
 
 Laptop CPU speedups are possible, but the right target is not one host-side

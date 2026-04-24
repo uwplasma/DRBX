@@ -20,6 +20,7 @@ from jax_drb.native.recycling_reactions import (
     amjuel_recombination,
     charge_exchange,
     charge_exchange_collision_rates,
+    fixed_layout_hydrogen_reaction_sources,
     is_charge_exchange_reaction,
     neutral_charge_exchange_collision_rates,
     neutral_ionisation_collision_rates,
@@ -314,6 +315,70 @@ def test_reaction_sources_preserve_jax_backend_and_support_grad() -> None:
             jnp.sum(terms.density_source["d+"])
             + jnp.sum(terms.energy_source["e"])
             + jnp.sum(terms.momentum_source["d+"])
+        )
+
+    value = jit(objective)(jnp.array(1.0, dtype=jnp.float64))
+    derivative = grad(objective)(jnp.array(1.0, dtype=jnp.float64))
+
+    assert np.isfinite(float(value))
+    assert np.isfinite(float(derivative))
+
+
+def test_fixed_layout_hydrogen_reaction_sources_match_dictionary_path() -> None:
+    species = _small_reaction_species()
+    config = _single_species_reaction_config()
+    scalars = _small_scalars()
+    electron_density = species["d+"].density
+
+    dictionary_terms = reaction_sources(
+        config,
+        species=species,
+        electron_density=electron_density,
+        dataset_scalars=scalars,
+    )
+    fixed_terms = fixed_layout_hydrogen_reaction_sources(
+        atom_density=species["d"].density,
+        atom_pressure=species["d"].pressure,
+        atom_momentum=species["d"].momentum,
+        ion_density=species["d+"].density,
+        ion_pressure=species["d+"].pressure,
+        ion_momentum=species["d+"].momentum,
+        electron_density=electron_density,
+        electron_pressure=species["e"].pressure,
+        dataset_scalars=scalars,
+    )
+
+    np.testing.assert_allclose(fixed_terms.atom_density_source, dictionary_terms.density_source["d"])
+    np.testing.assert_allclose(fixed_terms.ion_density_source, dictionary_terms.density_source["d+"])
+    np.testing.assert_allclose(fixed_terms.electron_density_source, dictionary_terms.density_source["e"])
+    np.testing.assert_allclose(fixed_terms.atom_energy_source, dictionary_terms.energy_source["d"])
+    np.testing.assert_allclose(fixed_terms.ion_energy_source, dictionary_terms.energy_source["d+"])
+    np.testing.assert_allclose(fixed_terms.electron_energy_source, dictionary_terms.energy_source["e"])
+    np.testing.assert_allclose(fixed_terms.atom_momentum_source, dictionary_terms.momentum_source["d"])
+    np.testing.assert_allclose(fixed_terms.ion_momentum_source, dictionary_terms.momentum_source["d+"])
+    np.testing.assert_allclose(fixed_terms.electron_momentum_source, dictionary_terms.momentum_source["e"])
+
+
+def test_fixed_layout_hydrogen_reaction_sources_support_jit_and_grad() -> None:
+    scalars = _small_scalars()
+
+    def objective(scale):
+        shape = (1, 1, 1)
+        fixed_terms = fixed_layout_hydrogen_reaction_sources(
+            atom_density=jnp.full(shape, 0.7, dtype=jnp.float64) * scale,
+            atom_pressure=jnp.full(shape, 0.21, dtype=jnp.float64),
+            atom_momentum=jnp.full(shape, 0.14, dtype=jnp.float64),
+            ion_density=jnp.full(shape, 0.5, dtype=jnp.float64),
+            ion_pressure=jnp.full(shape, 0.2, dtype=jnp.float64),
+            ion_momentum=jnp.full(shape, 0.05, dtype=jnp.float64),
+            electron_density=jnp.full(shape, 0.5, dtype=jnp.float64),
+            electron_pressure=jnp.full(shape, 0.3, dtype=jnp.float64),
+            dataset_scalars=scalars,
+        )
+        return (
+            jnp.sum(fixed_terms.ion_density_source)
+            + jnp.sum(fixed_terms.electron_energy_source)
+            + jnp.sum(fixed_terms.ion_momentum_source)
         )
 
     value = jit(objective)(jnp.array(1.0, dtype=jnp.float64))

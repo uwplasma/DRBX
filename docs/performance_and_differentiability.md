@@ -305,6 +305,14 @@ exchange pieces no longer force NumPy when the caller supplies JAX arrays.
 Focused tests now differentiate through a compact hydrogen
 ionisation/recombination/charge-exchange source objective.
 
+The first fixed-layout source kernel is now in-tree as well:
+`fixed_layout_hydrogen_reaction_sources` returns array-only ionisation,
+recombination, and same-isotope charge-exchange sources for the hydrogenic
+reaction block. It is parity-tested against the existing dictionary-oriented
+reaction path and has direct `jit`/`grad` coverage. This is the template for
+the next residual ports: add fixed layouts with parity gates first, then wire
+them into the full recycling solve.
+
 The corresponding paper/docs artifact is:
 
 - [atomic_rate_differentiability_campaign.md](atomic_rate_differentiability_campaign.md)

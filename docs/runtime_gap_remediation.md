@@ -198,6 +198,10 @@ The current dictionary-oriented reaction-source layer now also preserves JAX
 arrays through the single-isotope ionisation, recombination, and
 charge-exchange formulas, so the fixed-layout accumulator can reuse validated
 formula code rather than reimplementing the physics.
+The first such accumulator now exists for the hydrogenic same-isotope reaction
+block and is parity-tested against the dictionary path. The next reaction
+source step is to generalize that pattern to multispecies D/T/He and then
+OpenADAS-enabled impurity states.
 
 ### Priority 3: tokamak recycling observables
 
