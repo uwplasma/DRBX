@@ -10,10 +10,10 @@ object database:
 
 - full working tree: about `1.5G`, dominated by local `.venv` and ignored
   profile/cache directories;
-- `.git`: about `73M`;
-- packed history: about `62M`;
-- tracked checkout: about `58M`;
-- tracked `docs/data`: about `37M`;
+- `.git`: about `75M` after local garbage collection;
+- packed history: about `74M`;
+- tracked checkout: about `66M`;
+- tracked `docs/data`: about `32M`;
 - tracked `references`: about `26M`.
 
 The new non-axisymmetric validation artifacts are kept intentionally smaller:
@@ -32,6 +32,8 @@ The largest clone-size offenders are generated baselines and media files:
   about `3.6M`;
 - `references/baselines/reference_snapshots/tokamak_turbulence_short_window_field_history.npz`,
   about `3.2M`;
+- `docs/data/stellarator_fci_validation_artifacts/showcase/movies/stellarator_sol_showcase.gif`,
+  about `2.8M`;
 - `references/baselines/reference_arrays/alfven_wave_medium_window.npz`,
   about `2.2M`;
 - `references/baselines/reference_arrays/tokamak_turbulence_short_window.npz`,
