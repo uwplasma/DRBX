@@ -77,6 +77,12 @@ The current lane is split into small, directly tested modules:
 - `conservative_parallel_diffusion_fci` and
   `conservative_perp_diffusion_xz` provide the first conservative
   metric-weighted transport kernels, with constant-state and dissipation gates.
+- `metric_weighted_scalar_laplacian_3d` evaluates the full
+  \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) scalar diffusion operator using
+  all contravariant cross terms. The corresponding manufactured-solution
+  campaign verifies the JAX-native stencil on an analytic identity metric and
+  checks constant-state, dissipation, and cross-term activity on the synthetic
+  stellarator metric.
 - `compute_fci_neutral_reaction_diffusion` adds neutral diffusion,
   ionisation, recombination, and charge-exchange source accounting on the same
   geometry.
@@ -141,6 +147,24 @@ div_parallel(K grad_parallel f)
 
 with boundary-distance fallback where the traced line leaves the domain before
 a full stencil is available.
+
+The full 3D metric gate now verifies the scalar form used for perpendicular
+and non-axisymmetric diffusion terms:
+
+```text
+L_K f = J^(-1) partial_i(J K g^ij partial_j f)
+F^i = J K g^ij partial_j f
+L_K f = J^(-1) partial_i F^i
+```
+
+Here \(K\) is a scalar transport coefficient, \(g^{ij}\) includes the
+non-orthogonal cross terms \(g^{12}\), \(g^{13}\), and \(g^{23}\), and
+summation over repeated logical-coordinate indices is implied. The present
+implementation uses centered differences with periodic toroidal/binormal axes
+and one-sided radial boundaries by default. The manufactured-solution test uses
+fully periodic axes on an identity metric so the exact source is known, while
+the synthetic stellarator probe checks that constants are annihilated and that
+cross terms contribute nontrivially on a non-axisymmetric metric.
 
 The reduced dynamics benchmark evolves a scalar fluctuation field:
 
@@ -234,6 +258,18 @@ The operator campaign currently passes:
 - conservative constant-state residual: about `9.35e-17`.
 
 ![Stellarator FCI operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
+
+The full metric manufactured-solution campaign currently passes:
+
+- identity-metric MMS observed order: about `1.90`;
+- RMS error decreases from about `2.00` at `16 x 16 x 32` to about `2.48e-1`
+  at `48 x 48 x 96`;
+- synthetic non-axisymmetric constant-state residual: below display precision;
+- synthetic metric energy monotone fraction: `1.0`;
+- synthetic metric energy drop fraction: about `4.86e-3`;
+- cross-term contribution fraction relative to the full operator: about `0.17`.
+
+![Stellarator full metric MMS validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png)
 
 The sheath/recycling campaign currently passes:
 

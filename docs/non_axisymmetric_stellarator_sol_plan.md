@@ -69,7 +69,10 @@ The first native lane now consists of:
   interpolation, forward/backward map application, central traced
   parallel-gradient, traced parallel diffusion, compact perpendicular
   diffusion, conservative metric-weighted parallel diffusion, and conservative
-  metric-weighted perpendicular diffusion.
+  metric-weighted perpendicular diffusion. It also now exposes the full
+  \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) scalar operator with all
+  contravariant cross terms for the non-axisymmetric manufactured-solution
+  gate.
 - `src/jax_drb/native/fci_sheath_recycling.py`, which implements the first
   non-axisymmetric target closure gate: traced endpoint masks, Bohm ion loss,
   zero-current electron particle reconstruction, sheath heat transmission, and
@@ -94,6 +97,10 @@ The first native lane now consists of:
 - `src/jax_drb/validation/stellarator_fci_operator_campaign.py`, which writes
   interpolation convergence, parallel-gradient convergence, and diffusion
   dissipation diagnostics.
+- `src/jax_drb/validation/stellarator_metric_mms_campaign.py`, which writes
+  the full 3D metric scalar-operator manufactured-solution convergence gate
+  plus synthetic-stellarator constant-state, dissipation, and cross-term
+  activity diagnostics.
 - `src/jax_drb/validation/stellarator_sheath_recycling_campaign.py`, which
   writes the first target/sheath/recycling source-balance artifact on the same
   non-axisymmetric field-line maps.
@@ -125,14 +132,17 @@ zero-current balance error below display precision.
 
 The current conservative-operator, neutral, vorticity, and PyTree-RHS gates
 also pass. The conservative diffusion probe has constant-state residual about
-`9.35e-17` and monotone energy decay. The neutral gate closes particle
-reaction balance to about `1.2e-18` relative error and momentum balance below
-display precision. The vorticity inversion reconstructs the manufactured
-potential with relative L2 error about `1.30e-3` and residual about `2.01e-4`.
-The compact PyTree RHS is `jax.jvp` transformable on the combined component
-state, with documentation-grid JVP relative error about `6.4e-14`, `vmap`
-serial mismatch about `8.9e-16`, and a passing two-device GPU smoke profile on
-the same fixed-layout objective.
+`9.35e-17` and monotone energy decay. The full 3D metric scalar gate observes
+about `1.90` order on the identity-metric manufactured solution, annihilates a
+constant field on the synthetic stellarator metric, dissipates metric-weighted
+energy monotonically, and shows about `17%` cross-term contribution relative to
+the full operator. The neutral gate closes particle reaction balance to about
+`1.2e-18` relative error and momentum balance below display precision. The
+vorticity inversion reconstructs the manufactured potential with relative L2
+error about `1.30e-3` and residual about `2.01e-4`. The compact PyTree RHS is
+`jax.jvp` transformable on the combined component state, with documentation-grid
+JVP relative error about `6.4e-14`, `vmap` serial mismatch about `8.9e-16`, and
+a passing two-device GPU smoke profile on the same fixed-layout objective.
 
 ## Geometry And Metric Equations
 
@@ -200,15 +210,24 @@ The current operator campaign validates three properties:
 - Parallel diffusion dissipates energy monotonically over the reduced test,
   with a final energy drop of about `1.35e-2`.
 
-The next operator promotion should replace the compact diffusion form with a
-metric-weighted conservative finite-volume form:
+The current full-metric scalar gate validates the differential form needed for
+non-axisymmetric perpendicular diffusion:
+
+```text
+L_K f = J^(-1) partial_i(J K g^ij partial_j f)
+```
+
+The remaining operator promotion is to turn this centered strong-form gate into
+a face-conservative finite-volume production kernel with the same cross-metric
+terms and with short-connection-length boundary interpolation:
 
 ```text
 div_parallel(K grad_parallel f)
   = J^(-1) partial_parallel(J K partial_parallel f)
 ```
 
-and then add short-connection-length boundary interpolation gates.
+The compact parallel diffusion gate and the full metric scalar MMS gate now
+provide the reference behavior for that production promotion.
 
 ## Reduced SOL Dynamics Benchmark
 
@@ -362,24 +381,23 @@ recycling residual.
 
 ## Validation Gates To Add Next
 
-The next gates should be added in this order:
+The full metric scalar MMS gate is now implemented and documented. The next
+gates should be added in this order:
 
-1. Manufactured-solution convergence for metric-weighted
-   \(J^{-1}\partial_i(J g^{ij}\partial_j f)\) on the analytic 3D geometry.
-2. Conservative traced parallel diffusion with variable \(J\), variable
+1. Conservative traced parallel diffusion with variable \(J\), variable
    \(K\), forward/backward map masks, and boundary-distance fallback.
-3. Promote the current target/sheath response gate into the full field RHS,
+2. Promote the current target/sheath response gate into the full field RHS,
    including density, momentum, electron pressure, ion pressure, and neutral
    source slots.
-4. Reduced seeded-filament propagation in the rotating-ellipse geometry,
+3. Reduced seeded-filament propagation in the rotating-ellipse geometry,
    reporting center-of-mass motion, skewness, fluctuation amplitude, and
    connection-length localization.
-5. Flux-driven reduced turbulence with source, damping, target losses,
+4. Flux-driven reduced turbulence with source, damping, target losses,
    spectra, radial-flux proxy, and mode-number diagnostics.
-6. Imported equilibrium-map ingestion from a clean NetCDF geometry bundle,
+5. Imported equilibrium-map ingestion from a clean NetCDF geometry bundle,
    including metric consistency, wall/target masks, and selected-field
    visualization.
-7. Differentiability gates for geometry parameters, source amplitude,
+6. Differentiability gates for geometry parameters, source amplitude,
    damping/transport coefficients, and objective functions based on radial
    flux, RMS fluctuation, target load, and connection-length-weighted
    observables.
@@ -393,10 +411,10 @@ remaining production closures should be implemented as separate gates:
 1. Convert `SyntheticStellaratorGeometry` and imported geometry bundles into
    explicit PyTrees with static metadata and dynamic arrays separated for JIT,
    `vmap`, `grad`, `jvp`, and multi-device execution.
-2. Replace compact \(L_\parallel\) and \(L_\perp\) probes with conservative
-   \(J^{-1}\partial_i(J g^{ij}\partial_j f)\) operators, including
-   coefficient weighting, boundary-distance fallback, and manufactured
-   convergence gates.
+2. Promote the centered full-metric scalar gate into a face-conservative
+   production \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) operator, including
+   coefficient weighting, boundary-distance fallback, and full-field RHS
+   integration.
 3. Expand the current `fci_sheath_recycling.py` fixed-layout RHS bridge from
    density and pressure source arrays to the full momentum and target-normal
    boundary-condition slots used by the production recycling residual.

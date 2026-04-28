@@ -177,3 +177,86 @@ def conservative_perp_diffusion_xz(
     flux_z_minus = jnp.roll(flux_z_plus, 1, axis=2)
     div_z = (flux_z_plus - flux_z_minus) / jnp.maximum(dz, 1.0e-30)
     return (div_x + div_z) / jnp.maximum(jac, 1.0e-30)
+
+
+def metric_weighted_scalar_laplacian_3d(
+    field: jnp.ndarray,
+    metric: MetricTensor3D,
+    coefficient: jnp.ndarray | float = 1.0,
+    *,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+) -> jnp.ndarray:
+    """Return ``J^-1 d_i(J K g^ij d_j f)`` on a logical 3D grid.
+
+    This is the full contravariant-metric scalar diffusion form used by the
+    non-axisymmetric manufactured-solution gate. It includes all cross-metric
+    terms and is written only with JAX array operations, so it can be used under
+    ``jit``, ``vmap``, ``jvp``, and ``linearize``. The default boundary choice
+    treats the radial direction as open/one-sided and the field-line/toroidal
+    directions as periodic; analytic verification tests can request fully
+    periodic axes.
+    """
+
+    values = jnp.asarray(field, dtype=jnp.float64)
+    coef = jnp.asarray(coefficient, dtype=jnp.float64)
+    if coef.ndim == 0:
+        coef = jnp.ones_like(values) * coef
+    jac = jnp.asarray(metric.J, dtype=jnp.float64)
+    weighted = jac * coef
+    df_dx = _first_derivative_3d(values, metric.dx, axis=0, periodic=periodic_axes[0])
+    df_dy = _first_derivative_3d(values, metric.dy, axis=1, periodic=periodic_axes[1])
+    df_dz = _first_derivative_3d(values, metric.dz, axis=2, periodic=periodic_axes[2])
+
+    flux_x = weighted * (
+        jnp.asarray(metric.g11, dtype=jnp.float64) * df_dx
+        + jnp.asarray(metric.g12, dtype=jnp.float64) * df_dy
+        + jnp.asarray(metric.g13, dtype=jnp.float64) * df_dz
+    )
+    flux_y = weighted * (
+        jnp.asarray(metric.g12, dtype=jnp.float64) * df_dx
+        + jnp.asarray(metric.g22, dtype=jnp.float64) * df_dy
+        + jnp.asarray(metric.g23, dtype=jnp.float64) * df_dz
+    )
+    flux_z = weighted * (
+        jnp.asarray(metric.g13, dtype=jnp.float64) * df_dx
+        + jnp.asarray(metric.g23, dtype=jnp.float64) * df_dy
+        + jnp.asarray(metric.g33, dtype=jnp.float64) * df_dz
+    )
+
+    divergence = (
+        _first_derivative_3d(flux_x, metric.dx, axis=0, periodic=periodic_axes[0])
+        + _first_derivative_3d(flux_y, metric.dy, axis=1, periodic=periodic_axes[1])
+        + _first_derivative_3d(flux_z, metric.dz, axis=2, periodic=periodic_axes[2])
+    )
+    return divergence / jnp.maximum(jac, 1.0e-30)
+
+
+def _first_derivative_3d(
+    values: jnp.ndarray,
+    spacing: jnp.ndarray | float,
+    *,
+    axis: int,
+    periodic: bool,
+) -> jnp.ndarray:
+    """Centered first derivative with periodic or one-sided edge treatment."""
+
+    h = jnp.asarray(spacing, dtype=jnp.float64)
+    if h.ndim == 0:
+        h = jnp.ones_like(values) * h
+    centered = (jnp.roll(values, -1, axis=axis) - jnp.roll(values, 1, axis=axis)) / jnp.maximum(2.0 * h, 1.0e-30)
+    if periodic:
+        return centered
+
+    first = _axis_index(axis, 0)
+    second = _axis_index(axis, 1)
+    last = _axis_index(axis, -1)
+    penultimate = _axis_index(axis, -2)
+    forward = (values[second] - values[first]) / jnp.maximum(h[first], 1.0e-30)
+    backward = (values[last] - values[penultimate]) / jnp.maximum(h[last], 1.0e-30)
+    return centered.at[first].set(forward).at[last].set(backward)
+
+
+def _axis_index(axis: int, index: int) -> tuple[object, object, object]:
+    slices: list[object] = [slice(None), slice(None), slice(None)]
+    slices[axis] = index
+    return tuple(slices)

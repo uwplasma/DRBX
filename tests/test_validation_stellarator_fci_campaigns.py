@@ -8,6 +8,7 @@ from jax_drb.validation import (
     create_stellarator_fci_operator_campaign_package,
     create_stellarator_fci_suite_campaign_package,
     create_stellarator_drb_pytree_campaign_package,
+    create_stellarator_metric_mms_campaign_package,
     create_stellarator_neutral_physics_campaign_package,
     create_stellarator_sheath_recycling_campaign_package,
     create_stellarator_sol_showcase_package,
@@ -33,6 +34,22 @@ def test_stellarator_fci_operator_campaign_generates_passing_artifacts(tmp_path:
 
     assert report["passed"] is True
     assert report["interpolation_convergence_slope"] > 1.55
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+
+
+def test_stellarator_metric_mms_campaign_generates_passing_artifacts(tmp_path: Path) -> None:
+    artifacts = create_stellarator_metric_mms_campaign_package(
+        output_root=tmp_path / "metric_mms",
+        resolutions=(12, 16, 24),
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+
+    assert report["passed"] is True
+    assert report["identity_mms_observed_order"] > 1.7
+    assert report["synthetic_constant_residual_linf"] < 1.0e-12
+    assert report["synthetic_cross_term_fraction"] > 1.0e-3
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
 

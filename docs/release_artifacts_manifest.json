@@ -414,6 +414,16 @@
       "size_bytes": 279433,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png"
     },
+    "docs/data/stellarator_fci_validation_artifacts/metric_mms/data/stellarator_metric_mms_campaign.npz": {
+      "asset": "docs__data__stellarator_fci_validation_artifacts__metric_mms__data__stellarator_metric_mms_campaign.npz",
+      "size_bytes": 18189,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__data__stellarator_metric_mms_campaign.npz"
+    },
+    "docs/data/stellarator_fci_validation_artifacts/metric_mms/images/stellarator_metric_mms_campaign.png": {
+      "asset": "docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png",
+      "size_bytes": 243372,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png"
+    },
     "docs/data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png": {
       "asset": "docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png",
       "size_bytes": 288135,

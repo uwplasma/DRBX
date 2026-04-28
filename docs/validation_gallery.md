@@ -309,6 +309,8 @@ What this documents:
 
 ![Stellarator FCI operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
 
+![Stellarator full metric MMS validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png)
+
 ![Stellarator sheath/recycling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
 
 ![Stellarator neutral physics validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
@@ -328,6 +330,8 @@ What this documents:
 - the first native non-axisymmetric field-line-map geometry lane;
 - full covariant/contravariant metric checks with inverse residual about `1.44e-14`;
 - three analytic 3D non-axisymmetric geometry variants passing the same metric/map gate;
+- full \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) manufactured-solution
+  convergence with observed order about `1.90`;
 - interpolation and traced parallel-gradient convergence with observed orders about `1.96` and `1.54`;
 - monotone parallel-diffusion energy decay on both compact and
   metric-weighted conservative operator probes;

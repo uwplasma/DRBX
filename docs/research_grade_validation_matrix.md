@@ -113,6 +113,10 @@ used in verification, validation, and differentiable-science papers:
 - [stellarator_fci_validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
   for the first native non-axisymmetric metric, field-line-map, operator, and
   reduced 3D SOL dynamics evidence bundle
+- [stellarator_metric_mms_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__metric_mms__images__stellarator_metric_mms_campaign.png)
+  for the full \(J^{-1}\partial_i(JK g^{ij}\partial_j f)\) scalar-operator
+  manufactured-solution gate, including non-orthogonal metric cross-term
+  activity on the synthetic stellarator geometry
 - [stellarator_sheath_recycling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
   for non-axisymmetric traced-endpoint sheath losses, zero-current particle
   reconstruction, and exact recycling source accounting
