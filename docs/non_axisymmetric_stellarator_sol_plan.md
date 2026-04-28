@@ -89,6 +89,10 @@ The first native lane now consists of:
 - `src/jax_drb/native/recycling_fixed_residual.py`, which now exposes
   `linearize_fixed_residual_action` and `fixed_residual_jvp_action` for
   JAX-native Jacobian-vector products on fixed-layout residuals.
+- `src/jax_drb/geometry/biot_savart.py`, which loads ESSOS-format Fourier
+  coil JSON files, expands field-period and stellarator symmetries, evaluates
+  the filament Biot-Savart magnetic field with JAX, and exposes a
+  JVP-transformable observation-point field map.
 - `src/jax_drb/validation/stellarator_fci_geometry_campaign.py`, which writes
   a metric/map/connection-length validation bundle.
 - `src/jax_drb/validation/stellarator_fci_suite_campaign.py`, which runs the
@@ -114,9 +118,22 @@ The first native lane now consists of:
 - `src/jax_drb/validation/stellarator_sol_showcase.py`, which writes a reduced
   3D SOL dynamics package with snapshots, an opened toroidal 3D poster, and a
   README-ready GIF.
+- `src/jax_drb/validation/essos_biot_savart_campaign.py`, which writes the
+  first coil-produced Landreman-Paul QA field gate: Fourier-coil ingestion,
+  Biot-Savart \(\mathbf{B}\), closed-like/open-SOL-like annular FCI maps, and
+  compact reduced turbulence response on both regions.
 
 The current generated artifact bundle lives in
 `docs/data/stellarator_fci_validation_artifacts/`.
+
+The first coil-produced field artifact lives in
+`docs/data/essos_biot_savart_landreman_paul_qa_artifacts/` and is documented in
+`docs/essos_biot_savart_landreman_paul_qa.md`. It currently uses the
+Landreman-Paul QA Fourier-coil JSON, expands `16` coils from four base coils,
+and separates the annular FCI response into a closed-like region with boundary
+fraction about `0.413` and an open/SOL-like region with boundary fraction about
+`0.681`. This is a coil-field FCI gate, not yet an imported-wall predictive
+stellarator edge simulation.
 
 The current suite gives three passing 3D analytic configurations rather than a
 single showcase-only geometry. Their mirror ratios span about `0.45` to
@@ -228,6 +245,20 @@ div_parallel(K grad_parallel f)
 
 The compact parallel diffusion gate and the full metric scalar MMS gate now
 provide the reference behavior for that production promotion.
+
+The coil-produced annular FCI gate uses the same map abstraction, but builds
+the maps directly from a Biot-Savart field. With cylindrical projections
+\((B_R,B_\phi,B_Z)\), it advances field lines plane-to-plane using
+
+```text
+dR / dphi = R B_R / B_phi
+dZ / dphi = R B_Z / B_phi
+```
+
+and maps the endpoint back to annular \((\rho,\theta)\) coordinates. This
+gives the next bridge from analytic non-axisymmetric geometry to imported coil
+fields: first a small coil-field gate, then Poincare/connection-length
+diagnostics, then wall/target-aware source terms.
 
 ## Reduced SOL Dynamics Benchmark
 
@@ -397,7 +428,10 @@ gates should be added in this order:
 5. Imported equilibrium-map ingestion from a clean NetCDF geometry bundle,
    including metric consistency, wall/target masks, and selected-field
    visualization.
-6. Differentiability gates for geometry parameters, source amplitude,
+6. Coil-produced Biot-Savart field maps with Poincare plots, connection-length
+   histograms, closed/island/open region classification, and target-aware
+   annular or imported-surface FCI maps.
+7. Differentiability gates for geometry parameters, source amplitude,
    damping/transport coefficients, and objective functions based on radial
    flux, RMS fluctuation, target load, and connection-length-weighted
    observables.

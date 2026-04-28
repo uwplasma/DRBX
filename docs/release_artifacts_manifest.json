@@ -828,6 +828,21 @@
       "asset": "docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png",
       "size_bytes": 81086,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png"
+    },
+    "docs/data/essos_biot_savart_landreman_paul_qa_artifacts/images/essos_biot_savart_landreman_paul_qa_campaign.png": {
+      "asset": "docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png",
+      "size_bytes": 1101957,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png"
+    },
+    "docs/data/essos_biot_savart_landreman_paul_qa_artifacts/movies/essos_biot_savart_landreman_paul_qa_campaign.gif": {
+      "asset": "docs__data__essos_biot_savart_landreman_paul_qa_artifacts__movies__essos_biot_savart_landreman_paul_qa_campaign.gif",
+      "size_bytes": 238642,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__movies__essos_biot_savart_landreman_paul_qa_campaign.gif"
+    },
+    "docs/data/essos_biot_savart_landreman_paul_qa_artifacts/data/essos_biot_savart_landreman_paul_qa_campaign.npz": {
+      "asset": "docs__data__essos_biot_savart_landreman_paul_qa_artifacts__data__essos_biot_savart_landreman_paul_qa_campaign.npz",
+      "size_bytes": 70085,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__data__essos_biot_savart_landreman_paul_qa_campaign.npz"
     }
   },
   "tag": "validation-artifacts-2026-04-28"

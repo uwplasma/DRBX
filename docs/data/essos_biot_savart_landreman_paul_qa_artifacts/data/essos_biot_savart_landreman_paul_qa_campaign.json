@@ -1,0 +1,80 @@
+{
+  "axis_guess_major_radius": 1.10566037455423,
+  "axis_guess_vertical_axis": 0.07180085781076388,
+  "case": "essos_biot_savart_landreman_paul_qa_closed_open_turbulence",
+  "coil_json_file": "ESSOS_biot_savart_LandremanPaulQA.json",
+  "coil_json_format": "ESSOS Fourier-coil JSON",
+  "coil_metadata": {
+    "geometry_family": "essos_biot_savart_coils",
+    "n_base_coils": 4,
+    "n_coils": 16,
+    "n_segments": 75,
+    "nfp": 2,
+    "order": 5,
+    "source": "ESSOS_biot_savart_LandremanPaulQA.json",
+    "stellsym": true
+  },
+  "passed": true,
+  "regions": {
+    "closed_like_inner_annulus": {
+      "boundary_fraction": 0.41298185941043086,
+      "connection_length_mean": 63.11618209395314,
+      "energy_final": 0.004994700672055359,
+      "energy_growth_factor": 1.123495757961017,
+      "energy_initial": 0.00444567826506085,
+      "final_rms_fluctuation": 0.07067319627733953,
+      "frame_count": 26,
+      "label": "closed_like_inner_annulus",
+      "max_B": 6.994584339744497,
+      "mean_B": 0.28694345643611263,
+      "metadata": {
+        "geometry_family": "essos_biot_savart_annular_fci",
+        "major_radius": 1.10566037455423,
+        "nx": 14,
+        "ny": 18,
+        "nz": 28,
+        "radius_max": 0.72,
+        "radius_min": 0.18,
+        "region_label": "closed_like_inner_annulus",
+        "vertical_axis": 0.07180085781076388
+      },
+      "min_B": 0.032132183725122526,
+      "passed": true,
+      "positive_fluctuation_minor_radius_center": 0.4054775921034249,
+      "radial_field_fraction_rms": 0.3808317932063284,
+      "radial_flux_proxy": 0.0008713377201803185,
+      "time_end": 0.6,
+      "time_start": 0.0
+    },
+    "open_sol_like_outer_annulus": {
+      "boundary_fraction": 0.6805555555555556,
+      "connection_length_mean": 124.73292832590721,
+      "energy_final": 0.0035543849341618918,
+      "energy_growth_factor": 0.9997902266051486,
+      "energy_initial": 0.0035551307059992297,
+      "final_rms_fluctuation": 0.05961866263312095,
+      "frame_count": 26,
+      "label": "open_sol_like_outer_annulus",
+      "max_B": 6.638756836807675,
+      "mean_B": 0.15786740805934568,
+      "metadata": {
+        "geometry_family": "essos_biot_savart_annular_fci",
+        "major_radius": 1.10566037455423,
+        "nx": 14,
+        "ny": 18,
+        "nz": 28,
+        "radius_max": 1.0,
+        "radius_min": 0.55,
+        "region_label": "open_sol_like_outer_annulus",
+        "vertical_axis": 0.07180085781076388
+      },
+      "min_B": 0.010929665757098056,
+      "passed": true,
+      "positive_fluctuation_minor_radius_center": 0.6505991880489167,
+      "radial_field_fraction_rms": 0.5191853033065463,
+      "radial_flux_proxy": 0.00020055649323415397,
+      "time_end": 0.6,
+      "time_start": 0.0
+    }
+  }
+}

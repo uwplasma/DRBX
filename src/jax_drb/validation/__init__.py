@@ -124,6 +124,17 @@ from .diverted_tokamak_movie import (
     write_diverted_tokamak_analysis_json,
     write_diverted_tokamak_arrays_npz,
 )
+from .essos_biot_savart_campaign import (
+    BiotSavartAnnulusGeometry,
+    EssosBiotSavartCampaignArtifacts,
+    build_biot_savart_annulus_geometry,
+    build_essos_biot_savart_campaign,
+    create_essos_biot_savart_campaign_package,
+    resolve_essos_landreman_qa_json,
+    save_essos_biot_savart_campaign_movie,
+    save_essos_biot_savart_campaign_plot,
+    simulate_biot_savart_annulus_turbulence,
+)
 from .geometry_profiles import (
     build_diagnostic_profile_report,
     save_diagnostic_profile_summary_plot,
@@ -513,6 +524,15 @@ __all__ = [
     "toroidal_mean_fluctuation",
     "write_diverted_tokamak_analysis_json",
     "write_diverted_tokamak_arrays_npz",
+    "BiotSavartAnnulusGeometry",
+    "EssosBiotSavartCampaignArtifacts",
+    "build_biot_savart_annulus_geometry",
+    "build_essos_biot_savart_campaign",
+    "create_essos_biot_savart_campaign_package",
+    "resolve_essos_landreman_qa_json",
+    "save_essos_biot_savart_campaign_movie",
+    "save_essos_biot_savart_campaign_plot",
+    "simulate_biot_savart_annulus_turbulence",
     "build_diagnostic_profile_report",
     "build_geometry_observable_report",
     "LineoutSpec",
