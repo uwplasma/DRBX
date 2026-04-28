@@ -184,14 +184,13 @@ Curated validation cases are labeled explicitly:
 The current promoted matrix includes:
 
 - exact compact 2D blob, drift-wave, and tokamak lanes,
-- exact and operational recycling lanes with live Hermes-backed gates,
+- exact and operational recycling lanes with external-reference gates,
 - native 3D reduced tokamak, traced-field-line, and stellarator selected-field bundles,
 - control, reaction, impurity, neutral, and profiling campaign packages.
 
 The detailed status surface lives in:
 
 - [docs/implementation_inventory.md](docs/implementation_inventory.md)
-- [docs/hermes_capability_audit.md](docs/hermes_capability_audit.md)
 - [docs/parity_harness.md](docs/parity_harness.md)
 - [docs/parity_matrix.md](docs/parity_matrix.md)
 - [docs/research_grade_validation_matrix.md](docs/research_grade_validation_matrix.md)
@@ -224,15 +223,31 @@ Physics closures and tokamak/recycling observables:
 
 ![Tokamak recycling observable campaign](docs/data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
 
-Live Hermès-3 parity and offender localization:
-
-![Hermes live rerun campaign](docs/data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
-
-![Hermes offender register](docs/data/hermes_offender_register_artifacts/images/hermes_offender_register.png)
+Reference parity and offender localization:
 
 ![Neutral mixed boundary campaign](docs/data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
 
 ![Neutral mixed term-balance campaign](docs/data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+
+Non-axisymmetric 3D geometry and reduced SOL dynamics:
+
+![Stellarator FCI geometry validation](docs/data/stellarator_fci_validation_artifacts/geometry/images/stellarator_fci_geometry_campaign.png)
+
+![Stellarator FCI multi-configuration suite](docs/data/stellarator_fci_validation_artifacts/suite/images/stellarator_fci_suite_campaign.png)
+
+![Stellarator FCI operator validation](docs/data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+
+![Stellarator sheath/recycling validation](docs/data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+
+![Stellarator neutral physics validation](docs/data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+
+![Stellarator vorticity validation](docs/data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+
+![Stellarator PyTree/JVP/scaling validation](docs/data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+
+![Stellarator SOL diagnostics](docs/data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_diagnostics.png)
+
+![Stellarator SOL 3D movie](docs/data/stellarator_fci_validation_artifacts/showcase/movies/stellarator_sol_showcase.gif)
 
 Differentiability, uncertainty propagation, and local performance:
 
@@ -256,7 +271,7 @@ Differentiability, uncertainty propagation, and local performance:
 
 - tokamak sample-data scaffolds,
 - traced-field-line metric and selected-plane workflows,
-- stellarator/VMEC equilibrium scaffolds,
+- analytic stellarator and imported-equilibrium scaffolds,
 - native reduced selected-field comparisons,
 - toroidal and slice-based movie generation.
 
@@ -269,9 +284,8 @@ Useful entry points:
 - [docs/traced_field_line_scaffold_demo.md](docs/traced_field_line_scaffold_demo.md)
 - [docs/traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
 - [docs/traced_field_line_native_selected_field_demo.md](docs/traced_field_line_native_selected_field_demo.md)
-- [docs/stellarator_vmec_scaffold_demo.md](docs/stellarator_vmec_scaffold_demo.md)
-- [docs/stellarator_vmec_selected_field_demo.md](docs/stellarator_vmec_selected_field_demo.md)
-- [docs/stellarator_vmec_native_selected_field_demo.md](docs/stellarator_vmec_native_selected_field_demo.md)
+- [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
+- [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
 - [docs/dynamics_gallery.md](docs/dynamics_gallery.md)
 - [docs/validation_gallery.md](docs/validation_gallery.md)
 
@@ -313,21 +327,18 @@ The runtime/performance audit tools include:
 - [docs/native_3d_runtime_campaign.md](docs/native_3d_runtime_campaign.md)
 - [docs/native_3d_convergence_campaign.md](docs/native_3d_convergence_campaign.md)
 - [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
-- [docs/hermes_live_rerun_campaign.md](docs/hermes_live_rerun_campaign.md)
 - [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
+- [docs/repo_size_audit.md](docs/repo_size_audit.md)
 - [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
+- [scripts/profile_stellarator_drb_pytree.py](scripts/profile_stellarator_drb_pytree.py)
 
-The strongest current same-machine native-versus-live-Hermes evidence is the
-public [docs/hermes_live_rerun_campaign.md](docs/hermes_live_rerun_campaign.md)
-matrix. It currently shows four exact-match compact 2D lanes on the guarded
-compare surface, bounded but normalization-sensitive one-step mismatch on the
-integrated and direct-tokamak recycling ladders, and the remaining main live
-runtime/fidelity gaps on the heavy 1D neutral/recycling paths. On the current
-refreshed matrix, `neutral_mixed_one_step` remains the hardest fidelity lane
-with worst normalized RMS error about `9.17e-1`, while the slowest current live
-lane is `recycling_dthe_one_step` at about `8.45x` the Hermès wall time on the
-same machine.
+The strongest current same-machine native-versus-reference evidence is the
+public live-rerun matrix in the validation docs. It shows exact compact 2D
+lanes on guarded compare surfaces, bounded but normalization-sensitive
+one-step mismatch on the integrated and direct-tokamak recycling ladders, and
+the remaining main runtime/fidelity gaps on the heavy 1D neutral/recycling
+paths.
 
 For local MacBook-class CPU use, the strongest current scaling result is the
 heavy fixed-work ensemble on repeated neon-enabled direct tokamak recycling
@@ -335,6 +346,12 @@ solves rather than extra threads on one warmed single solve. The committed
 local artifact reaches about `4.94x` steady-state speedup from `1 -> 8`
 workers on a `16`-solve heavy ensemble, with intermediate speedups of about
 `1.88x` and `3.67x` at `2` and `4` workers.
+
+For the new non-axisymmetric 3D lane, the current performance gate is the
+fixed-layout PyTree RHS campaign. It verifies JVP derivatives against finite
+differences, checks `vmap` against serial objective evaluation, records
+single-device batched throughput, and runs `pmap` automatically when multiple
+local devices are visible.
 
 ## Validation And Control Packages
 
@@ -351,7 +368,7 @@ Focused engineering and benchmark packages:
 - [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
 - [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)
 - [docs/detachment_controller_campaign.md](docs/detachment_controller_campaign.md)
-- [docs/hermes_comparison_gallery.md](docs/hermes_comparison_gallery.md)
+- [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
 
 ## Testing
 

@@ -1,0 +1,34 @@
+{
+  "campaign_batch_sizes": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "campaign_batch_throughput_cases_per_second": [
+    53.37722506583252,
+    95.34947215173695,
+    111.39632928014898,
+    183.7585971667749
+  ],
+  "campaign_jvp_relative_error": 7.775305984817645e-13,
+  "campaign_passed": true,
+  "campaign_pmap_execute_seconds": 0.07037944300100207,
+  "campaign_vmap_serial_linf": 2.9976021664879227e-15,
+  "campaign_warm_execute_seconds": 0.019155011046677828,
+  "case": "stellarator_drb_pytree_profile",
+  "default_backend": "gpu",
+  "grid": {
+    "nx": 18,
+    "ny": 16,
+    "nz": 32,
+    "steps": 8
+  },
+  "local_device_count": 2,
+  "local_devices": [
+    "cuda:0",
+    "cuda:1"
+  ],
+  "peak_rss_max_mebibytes": 2199.93359375,
+  "timed_run_min_seconds": 7.747698429971933
+}

@@ -189,6 +189,52 @@ therefore appear across 1D open-field lanes, direct tokamak lanes, and staged
 3D geometry adapters, while the provenance/runtime layer records which compare
 surface each result belongs to.
 
+The non-axisymmetric traced-field-line lane now has its first target closure
+gate. `native/fci_sheath_recycling.py` derives endpoint masks from forward and
+backward map exits and evaluates
+
+```text
+c_s = sqrt((T_e + T_i) / m_i)
+Gamma_i,target = N_endpoint n c_s
+Gamma_e,target = Gamma_i,target
+q_e,target = gamma_e Gamma_i,target T_e
+q_i,target = gamma_i Gamma_i,target T_i
+Gamma_n,recycle = R_recycle Gamma_i,target
+Q_n,recycle = E_recycle Gamma_n,recycle
+```
+
+The corresponding validation campaign checks exact particle recycling,
+neutral-energy source accounting, and zero-current particle balance on a 3D
+non-axisymmetric map. The next model step is to route these same arrays into
+the full density, pressure, neutral, momentum, and vorticity residual rather
+than keeping them as a standalone diagnostic closure.
+
+The same lane now also has a compact neutral and vorticity layer. The neutral
+gate evaluates diffusion plus
+
+```text
+S_ion = k_ion n_n n_e sqrt(T_e)
+S_rec = k_rec n_i n_e / sqrt(T_e)
+S_cx = k_cx n_n n_i sqrt(T_n + T_i)
+```
+
+and verifies that ionisation/recombination conserve plasma-plus-neutral
+particles while charge exchange conserves particles and exchanges ion/neutral
+momentum. The vorticity gate applies and inverts
+
+```text
+Omega = - div_perp((n / B^2) grad_perp phi)
+```
+
+with the metric-weighted perpendicular operator. These are still component
+gates, but they are now source-compatible with the fixed-layout residual
+interface and have JAX-native Jacobian-vector products through
+`linearize_fixed_residual_action` and `fixed_residual_jvp_action`.
+The compact combined state in `native/fci_drb_rhs.py` is the first PyTree RHS
+surface for this lane; it is intentionally small, but already combines the
+target, neutral, and vorticity components in a form that can be passed through
+`jax.jvp`.
+
 ## Numerical Algorithms
 
 The code paths above are not solved with one monolithic algorithm. The current

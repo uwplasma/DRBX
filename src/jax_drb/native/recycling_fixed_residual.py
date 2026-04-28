@@ -268,3 +268,35 @@ def build_fixed_bdf2_residual(
         )
 
     return residual
+
+
+def linearize_fixed_residual_action(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+) -> tuple[jax.Array, Callable[[object], jax.Array]]:
+    """Return residual value and a reusable JAX linearized Jacobian action."""
+
+    residual_value, linear_action = jax.linearize(
+        residual_function,
+        jnp.asarray(packed_state, dtype=jnp.float64),
+    )
+
+    def apply_action(tangent: object) -> jax.Array:
+        return linear_action(jnp.asarray(tangent, dtype=jnp.float64))
+
+    return residual_value, apply_action
+
+
+def fixed_residual_jvp_action(
+    residual_function: Callable[[object], jax.Array],
+    packed_state: object,
+    tangent: object,
+) -> jax.Array:
+    """Apply the residual Jacobian to ``tangent`` with a JAX JVP."""
+
+    _, tangent_out = jax.jvp(
+        residual_function,
+        (jnp.asarray(packed_state, dtype=jnp.float64),),
+        (jnp.asarray(tangent, dtype=jnp.float64),),
+    )
+    return tangent_out

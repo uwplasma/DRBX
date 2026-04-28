@@ -110,6 +110,21 @@ used in verification, validation, and differentiable-science papers:
   for a closed differentiable optimization example on the same native lane
 - [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
   for workstation throughput on repeated heavy production solves
+- [stellarator_fci_validation](data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+  for the first native non-axisymmetric metric, field-line-map, operator, and
+  reduced 3D SOL dynamics evidence bundle
+- [stellarator_sheath_recycling_campaign](data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+  for non-axisymmetric traced-endpoint sheath losses, zero-current particle
+  reconstruction, and exact recycling source accounting
+- [stellarator_neutral_physics_campaign](data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+  for neutral diffusion plus ionisation, recombination, and charge-exchange
+  conservation on the non-axisymmetric map
+- [stellarator_vorticity_campaign](data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+  for metric-weighted vorticity inversion and the first non-axisymmetric
+  radial \(E\times B\) diagnostic seam
+- [stellarator_drb_pytree_campaign](data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+  for the current fixed-layout 3D PyTree RHS, JVP derivative check, batched
+  objective equivalence, and local/multi-device profiling seam
 
 ### Supporting engineering figures
 

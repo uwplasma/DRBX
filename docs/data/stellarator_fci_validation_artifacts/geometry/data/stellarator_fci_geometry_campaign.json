@@ -1,0 +1,157 @@
+{
+  "case": "non_axisymmetric_fci_geometry",
+  "connection_length": {
+    "maximum": 32.96794158974354,
+    "mean": 21.30369509030315,
+    "minimum": 0.7526927301285551,
+    "outer_midplane_mean": 6.425540297810423,
+    "std": 7.661329236310429
+  },
+  "curvature": {
+    "maximum": 0.35526315789473684,
+    "mean": 8.355885909891756e-18,
+    "minimum": -0.35526315789473684,
+    "std": 0.14634498897259246
+  },
+  "geometry": {
+    "elongation": 1.45,
+    "field_periods": 5,
+    "geometry_family": "analytic_non_axisymmetric_stellarator",
+    "iota_axis": 0.38,
+    "iota_edge": 0.58,
+    "island_amplitude": 0.03,
+    "island_mode": 2,
+    "major_radius": 3.8,
+    "minor_radius": 0.7,
+    "mirror_amplitude": 0.16,
+    "nx": 36,
+    "ny": 32,
+    "nz": 64
+  },
+  "magnetic_field": {
+    "maximum": 1.2409999999999999,
+    "minimum": 0.7911999999999999,
+    "mirror_ratio": 0.4498
+  },
+  "map_diagnostics": {
+    "backward_boundary_fraction": 0.026869032118055556,
+    "forward_boundary_fraction": 0.026787651909722224,
+    "poloidal_shift_mean_cells": 0.9220522368548514,
+    "poloidal_shift_std_cells": 0.12993543024941998,
+    "radial_shift_linf_cells": 0.20612040277295307
+  },
+  "metric": {
+    "fields": {
+      "Bxy": {
+        "finite": true,
+        "maximum": 1.2409999999999999,
+        "mean": 1.0,
+        "minimum": 0.7911999999999999,
+        "std": 0.11734527441943042
+      },
+      "J": {
+        "finite": true,
+        "maximum": 4.015380289330089,
+        "mean": 1.4601381098575272,
+        "minimum": 0.17996624323269592,
+        "std": 0.7862782211995496
+      },
+      "g11": {
+        "finite": true,
+        "maximum": 2.96242755672135,
+        "mean": 1.521416768238189,
+        "minimum": 0.8340536108769355,
+        "std": 0.4552118081199672
+      },
+      "g12": {
+        "finite": true,
+        "maximum": 0.07135008348249568,
+        "mean": 0.00011502262932677274,
+        "minimum": -0.0724790734394275,
+        "std": 0.013612464488844431
+      },
+      "g13": {
+        "finite": true,
+        "maximum": 9.562371327043426,
+        "mean": -0.002786374984224567,
+        "minimum": -9.451374487439988,
+        "std": 1.521708389142569
+      },
+      "g22": {
+        "finite": true,
+        "maximum": 0.1114908432798914,
+        "mean": 0.07129043092164195,
+        "minimum": 0.04524107361449392,
+        "std": 0.011374430234057167
+      },
+      "g23": {
+        "finite": true,
+        "maximum": 0.2625733881641078,
+        "mean": 0.0017130664301486683,
+        "minimum": -0.17936260583482724,
+        "std": 0.08444322182609168
+      },
+      "g33": {
+        "finite": true,
+        "maximum": 392.73017095425547,
+        "mean": 22.38735199946179,
+        "minimum": 0.8432964479489521,
+        "std": 47.77524280906988
+      },
+      "g_11": {
+        "finite": true,
+        "maximum": 1.200474473284719,
+        "mean": 0.7669071997293404,
+        "minimum": 0.3375610000000201,
+        "std": 0.20831766556295472
+      },
+      "g_12": {
+        "finite": true,
+        "maximum": 0.6178917729495728,
+        "mean": -0.001994082622009807,
+        "minimum": -0.7377879678597412,
+        "std": 0.18043772741291178
+      },
+      "g_13": {
+        "finite": true,
+        "maximum": 0.3185975028785738,
+        "mean": -4.312288982531836e-06,
+        "minimum": -0.36593670442419823,
+        "std": 0.11620494111568908
+      },
+      "g_22": {
+        "finite": true,
+        "maximum": 28.283301283638387,
+        "mean": 14.784085553850547,
+        "minimum": 9.595953387850928,
+        "std": 2.3362775631045007
+      },
+      "g_23": {
+        "finite": true,
+        "maximum": 1.5794979974011447,
+        "mean": -0.03364800513261891,
+        "minimum": -2.6837743766096676,
+        "std": 0.44220837199632934
+      },
+      "g_33": {
+        "finite": true,
+        "maximum": 1.1987306969730565,
+        "mean": 0.2797100910233526,
+        "minimum": 0.0025474851293412776,
+        "std": 0.25292485590839675
+      }
+    },
+    "inverse_residual_linf": 1.4390891576784546e-14,
+    "passed": true,
+    "shape": [
+      36,
+      32,
+      64
+    ]
+  },
+  "passed": true,
+  "rotational_transform": {
+    "axis_proxy": 0.38273075648412563,
+    "edge_proxy": 0.58
+  }
+}

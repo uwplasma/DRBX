@@ -32,6 +32,7 @@ JAX-based solver papers.
 | `Implicit Solver Profile Audit` | `numerical-performance audit` | Sparse finite-difference Jacobian plan and Newton phase diagnostics for the shared implicit backend. |
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
+| `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
 | `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
 | `Autodiff Diffusion Sensitivity` | `differentiable validation` | `jax.grad` sensitivities agree with finite differences on a compact native diffusion objective. |
 | `Autodiff Diffusion Uncertainty` | `differentiable validation` | First-order autodiff covariance propagation is compared with vectorized Monte Carlo. |
@@ -299,6 +300,48 @@ What this documents:
 - a JAX-native radial-profile reduction on explicit traced-field-line metric pairs;
 - the same public parity, comparison, observable, and runtime artifact surfaces used by the native tokamak reduced rung;
 - an honest bridge between external-pair validation-only geometry adapters and future broader native non-tokamak execution work.
+
+## Stellarator FCI Validation
+
+![Stellarator FCI geometry validation](data/stellarator_fci_validation_artifacts/geometry/images/stellarator_fci_geometry_campaign.png)
+
+![Stellarator FCI multi-configuration suite](data/stellarator_fci_validation_artifacts/suite/images/stellarator_fci_suite_campaign.png)
+
+![Stellarator FCI operator validation](data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+
+![Stellarator sheath/recycling validation](data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+
+![Stellarator neutral physics validation](data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+
+![Stellarator vorticity validation](data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+
+![Stellarator PyTree/JVP/scaling validation](data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+
+![Stellarator SOL snapshots](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_snapshots.png)
+
+![Stellarator SOL diagnostics](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_diagnostics.png)
+
+![Stellarator SOL 3D movie](data/stellarator_fci_validation_artifacts/showcase/movies/stellarator_sol_showcase.gif)
+
+What this documents:
+
+- the first native non-axisymmetric field-line-map geometry lane;
+- full covariant/contravariant metric checks with inverse residual about `1.44e-14`;
+- three analytic 3D non-axisymmetric geometry variants passing the same metric/map gate;
+- interpolation and traced parallel-gradient convergence with observed orders about `1.96` and `1.54`;
+- monotone parallel-diffusion energy decay on both compact and
+  metric-weighted conservative operator probes;
+- non-axisymmetric traced-endpoint sheath/recycling balance with particle
+  recycling and zero-current residuals closed to roundoff;
+- neutral ionisation/recombination/charge-exchange reaction balances with
+  particle and momentum residuals closed to roundoff;
+- a fixed-layout PyTree RHS gate where the combined 3D state is compiled,
+  differentiated with JVP, checked against finite differences, matched under
+  `vmap`, and profiled for local CPU and multi-device GPU execution;
+- metric-weighted vorticity inversion with relative potential error about `1.30e-3`;
+- a reduced 3D SOL dynamics benchmark with R-Z panel snapshots at four toroidal angles;
+- RMS, skewness, radial-flux proxy, time-trace, and toroidal-poloidal spectrum diagnostics;
+- a README-ready opened traced-surface movie with radial cuts, field-line overlays, colorbar, and time annotation.
 
 ## Stellarator VMEC Scaffold
 
