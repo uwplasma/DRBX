@@ -221,6 +221,59 @@ from .stellarator_vmec_native_selected_field import (
     compare_native_stellarator_vmec_selected_fields,
     create_native_stellarator_vmec_selected_field_package,
 )
+from .stellarator_fci_geometry_campaign import (
+    StellaratorFciGeometryCampaignArtifacts,
+    build_stellarator_fci_geometry_report,
+    create_stellarator_fci_geometry_campaign_package,
+    save_stellarator_fci_geometry_plot,
+)
+from .stellarator_fci_operator_campaign import (
+    StellaratorFciOperatorCampaignArtifacts,
+    build_stellarator_fci_operator_campaign,
+    create_stellarator_fci_operator_campaign_package,
+    save_stellarator_fci_operator_plot,
+)
+from .stellarator_fci_suite_campaign import (
+    StellaratorFciSuiteCampaignArtifacts,
+    build_stellarator_fci_suite_campaign,
+    create_stellarator_fci_suite_campaign_package,
+    save_stellarator_fci_suite_plot,
+)
+from .stellarator_sheath_recycling_campaign import (
+    StellaratorSheathRecyclingCampaignArtifacts,
+    build_stellarator_sheath_recycling_campaign,
+    create_stellarator_sheath_recycling_campaign_package,
+    save_stellarator_sheath_recycling_plot,
+)
+from .stellarator_neutral_physics_campaign import (
+    StellaratorNeutralPhysicsCampaignArtifacts,
+    build_stellarator_neutral_physics_campaign,
+    create_stellarator_neutral_physics_campaign_package,
+    save_stellarator_neutral_physics_plot,
+)
+from .stellarator_vorticity_campaign import (
+    StellaratorVorticityCampaignArtifacts,
+    build_stellarator_vorticity_campaign,
+    create_stellarator_vorticity_campaign_package,
+    save_stellarator_vorticity_plot,
+)
+from .stellarator_drb_pytree_campaign import (
+    StellaratorDrbPytreeCampaignArtifacts,
+    build_stellarator_drb_pytree_campaign,
+    create_stellarator_drb_pytree_campaign_package,
+    initial_fci_drb_state,
+    save_stellarator_drb_pytree_plot,
+)
+from .stellarator_sol_showcase import (
+    StellaratorSolShowcaseArtifacts,
+    build_stellarator_sol_showcase_report,
+    create_stellarator_sol_showcase_package,
+    save_stellarator_sol_3d_frame,
+    save_stellarator_sol_3d_movie,
+    save_stellarator_sol_diagnostics_panel,
+    save_stellarator_sol_snapshot_panel,
+    simulate_reduced_stellarator_sol_dynamics,
+)
 from .native_3d_runtime_campaign import (
     Native3DRuntimeCampaignArtifacts,
     build_native_3d_runtime_campaign_report,
@@ -519,6 +572,43 @@ __all__ = [
     "NativeStellaratorVmecSelectedFieldVariableError",
     "compare_native_stellarator_vmec_selected_fields",
     "create_native_stellarator_vmec_selected_field_package",
+    "StellaratorFciGeometryCampaignArtifacts",
+    "build_stellarator_fci_geometry_report",
+    "create_stellarator_fci_geometry_campaign_package",
+    "save_stellarator_fci_geometry_plot",
+    "StellaratorFciOperatorCampaignArtifacts",
+    "build_stellarator_fci_operator_campaign",
+    "create_stellarator_fci_operator_campaign_package",
+    "save_stellarator_fci_operator_plot",
+    "StellaratorFciSuiteCampaignArtifacts",
+    "build_stellarator_fci_suite_campaign",
+    "create_stellarator_fci_suite_campaign_package",
+    "save_stellarator_fci_suite_plot",
+    "StellaratorSheathRecyclingCampaignArtifacts",
+    "build_stellarator_sheath_recycling_campaign",
+    "create_stellarator_sheath_recycling_campaign_package",
+    "save_stellarator_sheath_recycling_plot",
+    "StellaratorNeutralPhysicsCampaignArtifacts",
+    "build_stellarator_neutral_physics_campaign",
+    "create_stellarator_neutral_physics_campaign_package",
+    "save_stellarator_neutral_physics_plot",
+    "StellaratorVorticityCampaignArtifacts",
+    "build_stellarator_vorticity_campaign",
+    "create_stellarator_vorticity_campaign_package",
+    "save_stellarator_vorticity_plot",
+    "StellaratorDrbPytreeCampaignArtifacts",
+    "build_stellarator_drb_pytree_campaign",
+    "create_stellarator_drb_pytree_campaign_package",
+    "initial_fci_drb_state",
+    "save_stellarator_drb_pytree_plot",
+    "StellaratorSolShowcaseArtifacts",
+    "build_stellarator_sol_showcase_report",
+    "create_stellarator_sol_showcase_package",
+    "save_stellarator_sol_3d_frame",
+    "save_stellarator_sol_3d_movie",
+    "save_stellarator_sol_diagnostics_panel",
+    "save_stellarator_sol_snapshot_panel",
+    "simulate_reduced_stellarator_sol_dynamics",
     "Native3DRuntimeCampaignArtifacts",
     "build_native_3d_runtime_campaign_report",
     "create_native_3d_runtime_campaign_package",

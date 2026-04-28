@@ -1,0 +1,516 @@
+{
+  "case": "stellarator_fci_multi_configuration_suite",
+  "configuration_labels": [
+    "baseline island SOL",
+    "strong island map",
+    "high mirror shear"
+  ],
+  "configurations": [
+    {
+      "case": "non_axisymmetric_fci_geometry",
+      "connection_length": {
+        "maximum": 37.37225913585505,
+        "mean": 23.998670161165922,
+        "minimum": 0.8581120462959088,
+        "outer_midplane_mean": 8.256245642900796,
+        "std": 8.916883060850646
+      },
+      "curvature": {
+        "maximum": 0.35526315789473684,
+        "mean": 7.451050358719428e-18,
+        "minimum": -0.35526315789473684,
+        "std": 0.14638484869612292
+      },
+      "geometry": {
+        "elongation": 1.45,
+        "field_periods": 5,
+        "geometry_family": "analytic_non_axisymmetric_stellarator",
+        "iota_axis": 0.38,
+        "iota_edge": 0.58,
+        "island_amplitude": 0.03,
+        "island_mode": 2,
+        "major_radius": 3.8,
+        "minor_radius": 0.7,
+        "mirror_amplitude": 0.16,
+        "nx": 30,
+        "ny": 28,
+        "nz": 56
+      },
+      "magnetic_field": {
+        "maximum": 1.2409999999999999,
+        "minimum": 0.7911999999999999,
+        "mirror_ratio": 0.4498
+      },
+      "map_diagnostics": {
+        "backward_boundary_fraction": 0.03212159863945578,
+        "forward_boundary_fraction": 0.031909013605442176,
+        "poloidal_shift_mean_cells": 0.9223002609245229,
+        "poloidal_shift_std_cells": 0.1304949436048747,
+        "radial_shift_linf_cells": 0.1950193096918582
+      },
+      "metric": {
+        "fields": {
+          "Bxy": {
+            "finite": true,
+            "maximum": 1.2409999999999999,
+            "mean": 1.0,
+            "minimum": 0.7911999999999999,
+            "std": 0.11738297620800163
+          },
+          "J": {
+            "finite": true,
+            "maximum": 4.022934038060798,
+            "mean": 1.457590418871733,
+            "minimum": 0.17940899282692555,
+            "std": 0.7889833290256762
+          },
+          "g11": {
+            "finite": true,
+            "maximum": 2.962427585597167,
+            "mean": 1.5213421113450416,
+            "minimum": 0.8323762078348613,
+            "std": 0.4552197867579716
+          },
+          "g12": {
+            "finite": true,
+            "maximum": 0.07039620355442373,
+            "mean": 0.00035756315226772033,
+            "minimum": -0.07186809623129918,
+            "std": 0.013416039360024353
+          },
+          "g13": {
+            "finite": true,
+            "maximum": 9.576171917419757,
+            "mean": -0.0017045564949044868,
+            "minimum": -9.450271384687174,
+            "std": 1.54652813941324
+          },
+          "g22": {
+            "finite": true,
+            "maximum": 0.110782635159362,
+            "mean": 0.07148776763223726,
+            "minimum": 0.044869686397086,
+            "std": 0.011398318298583066
+          },
+          "g23": {
+            "finite": true,
+            "maximum": 0.26318591800792646,
+            "mean": 0.0017028071265434439,
+            "minimum": -0.17056997364096846,
+            "std": 0.08078573101535554
+          },
+          "g33": {
+            "finite": true,
+            "maximum": 393.11420198893666,
+            "mean": 23.116590193367013,
+            "minimum": 0.8423086984485861,
+            "std": 49.9165221596313
+          },
+          "g_11": {
+            "finite": true,
+            "maximum": 1.2014201224842347,
+            "mean": 0.7669077002727889,
+            "minimum": 0.3375610000000201,
+            "std": 0.20831924335392124
+          },
+          "g_12": {
+            "finite": true,
+            "maximum": 0.5957418937390493,
+            "mean": -0.004958750235889112,
+            "minimum": -0.8004810602050703,
+            "std": 0.17577063866747025
+          },
+          "g_13": {
+            "finite": true,
+            "maximum": 0.31787673425532514,
+            "mean": -6.856993562881527e-06,
+            "minimum": -0.365952742143126,
+            "std": 0.11628297104672601
+          },
+          "g_22": {
+            "finite": true,
+            "maximum": 28.706413095369783,
+            "mean": 14.712489404902565,
+            "minimum": 9.55876701117703,
+            "std": 2.3349774131566123
+          },
+          "g_23": {
+            "finite": true,
+            "maximum": 1.4989681642086568,
+            "mean": -0.03309903398473476,
+            "minimum": -2.7578418493861214,
+            "std": 0.4256693156290986
+          },
+          "g_33": {
+            "finite": true,
+            "maximum": 1.1970085707301472,
+            "mean": 0.28012906854942793,
+            "minimum": 0.0025448865857640936,
+            "std": 0.25413568806554415
+          }
+        },
+        "inverse_residual_linf": 1.0733098659873353e-14,
+        "passed": true,
+        "shape": [
+          30,
+          28,
+          56
+        ]
+      },
+      "passed": true,
+      "rotational_transform": {
+        "axis_proxy": 0.38273075648412563,
+        "edge_proxy": 0.5800000000000001
+      }
+    },
+    {
+      "case": "non_axisymmetric_fci_geometry",
+      "connection_length": {
+        "maximum": 37.33066779966557,
+        "mean": 24.716209438922416,
+        "minimum": 0.8571570591629099,
+        "outer_midplane_mean": 8.590399283393275,
+        "std": 9.182693516806413
+      },
+      "curvature": {
+        "maximum": 0.35526315789473684,
+        "mean": 7.451050358719428e-18,
+        "minimum": -0.35526315789473684,
+        "std": 0.14638484869612292
+      },
+      "geometry": {
+        "elongation": 1.35,
+        "field_periods": 5,
+        "geometry_family": "analytic_non_axisymmetric_stellarator",
+        "iota_axis": 0.34,
+        "iota_edge": 0.64,
+        "island_amplitude": 0.055,
+        "island_mode": 2,
+        "major_radius": 3.8,
+        "minor_radius": 0.7,
+        "mirror_amplitude": 0.18,
+        "nx": 30,
+        "ny": 28,
+        "nz": 56
+      },
+      "magnetic_field": {
+        "maximum": 1.261,
+        "minimum": 0.7712,
+        "mirror_ratio": 0.4897999999999999
+      },
+      "map_diagnostics": {
+        "backward_boundary_fraction": 0.03212159863945578,
+        "forward_boundary_fraction": 0.031909013605442176,
+        "poloidal_shift_mean_cells": 0.9234503913867842,
+        "poloidal_shift_std_cells": 0.18776433840896778,
+        "radial_shift_linf_cells": 0.35753540110173887
+      },
+      "metric": {
+        "fields": {
+          "Bxy": {
+            "finite": true,
+            "maximum": 1.261,
+            "mean": 1.0,
+            "minimum": 0.7712,
+            "std": 0.13106778056962845
+          },
+          "J": {
+            "finite": true,
+            "maximum": 3.745490311297986,
+            "mean": 1.3570669417081656,
+            "minimum": 0.1670359588388617,
+            "std": 0.7345706856445952
+          },
+          "g11": {
+            "finite": true,
+            "maximum": 2.962427593023407,
+            "mean": 1.5970553882531073,
+            "minimum": 0.96024751742554,
+            "std": 0.414323607615701
+          },
+          "g12": {
+            "finite": true,
+            "maximum": 0.07039620355442375,
+            "mean": 0.0003575631522677209,
+            "minimum": -0.0718680962312992,
+            "std": 0.013416039360024355
+          },
+          "g13": {
+            "finite": true,
+            "maximum": 8.617209879568126,
+            "mean": -0.0015432522127449887,
+            "minimum": -8.490727514350034,
+            "std": 1.34792252381036
+          },
+          "g22": {
+            "finite": true,
+            "maximum": 0.110782635159362,
+            "mean": 0.07148776763223726,
+            "minimum": 0.044869686397085995,
+            "std": 0.011398318298583066
+          },
+          "g23": {
+            "finite": true,
+            "maximum": 0.2631859180079264,
+            "mean": 0.0017028071265434439,
+            "minimum": -0.17056997364096882,
+            "std": 0.08078573101535554
+          },
+          "g33": {
+            "finite": true,
+            "maximum": 393.11420198893666,
+            "mean": 24.250519110379244,
+            "minimum": 0.9705051197170455,
+            "std": 51.73641092677225
+          },
+          "g_11": {
+            "finite": true,
+            "maximum": 1.041423589145589,
+            "mean": 0.698088180272789,
+            "minimum": 0.3375610000000201,
+            "std": 0.1621779642227652
+          },
+          "g_12": {
+            "finite": true,
+            "maximum": 0.47336916869212275,
+            "mean": -0.004530447591603426,
+            "minimum": -0.6222314563557689,
+            "std": 0.14594974729712856
+          },
+          "g_13": {
+            "finite": true,
+            "maximum": 0.24461326109504083,
+            "mean": -5.64066632737889e-06,
+            "minimum": -0.29007161368889156,
+            "std": 0.08723823187070025
+          },
+          "g_22": {
+            "finite": true,
+            "maximum": 27.81965623744118,
+            "mean": 14.679247981877227,
+            "minimum": 9.558759414756672,
+            "std": 2.3174059523890107
+          },
+          "g_23": {
+            "finite": true,
+            "maximum": 1.3003083542010556,
+            "mean": -0.031088040339676302,
+            "minimum": -2.4040711340336745,
+            "std": 0.3836901831343897
+          },
+          "g_33": {
+            "finite": true,
+            "maximum": 1.0376822985911351,
+            "mean": 0.2549574338119281,
+            "minimum": 0.0025448865857640936,
+            "std": 0.22634640352412408
+          }
+        },
+        "inverse_residual_linf": 1.6327969198379788e-15,
+        "passed": true,
+        "shape": [
+          30,
+          28,
+          56
+        ]
+      },
+      "passed": true,
+      "rotational_transform": {
+        "axis_proxy": 0.3440961347261888,
+        "edge_proxy": 0.6399999999999998
+      }
+    },
+    {
+      "case": "non_axisymmetric_fci_geometry",
+      "connection_length": {
+        "maximum": 37.30863029827008,
+        "mean": 23.797021289611894,
+        "minimum": 0.8566510516093159,
+        "outer_midplane_mean": 8.120587645069007,
+        "std": 8.961021859445092
+      },
+      "curvature": {
+        "maximum": 0.35302933772523093,
+        "mean": 6.863368528082388e-18,
+        "minimum": -0.35302933772523093,
+        "std": 0.14638484869612292
+      },
+      "geometry": {
+        "elongation": 1.65,
+        "field_periods": 4,
+        "geometry_family": "analytic_non_axisymmetric_stellarator",
+        "iota_axis": 0.3,
+        "iota_edge": 0.7,
+        "island_amplitude": 0.026,
+        "island_mode": 3,
+        "major_radius": 3.8,
+        "minor_radius": 0.7,
+        "mirror_amplitude": 0.24,
+        "nx": 30,
+        "ny": 28,
+        "nz": 56
+      },
+      "magnetic_field": {
+        "maximum": 1.321,
+        "minimum": 0.7111999999999999,
+        "mirror_ratio": 0.6098
+      },
+      "map_diagnostics": {
+        "backward_boundary_fraction": 0.032695578231292516,
+        "forward_boundary_fraction": 0.03263180272108843,
+        "poloidal_shift_mean_cells": 0.9246005218490457,
+        "poloidal_shift_std_cells": 0.2465209318466944,
+        "radial_shift_linf_cells": 0.169016735066279
+      },
+      "metric": {
+        "fields": {
+          "Bxy": {
+            "finite": true,
+            "maximum": 1.321,
+            "mean": 1.0,
+            "minimum": 0.7111999999999999,
+            "std": 0.17256524303418774
+          },
+          "J": {
+            "finite": true,
+            "maximum": 4.59379146016024,
+            "mean": 1.649220074935347,
+            "minimum": 0.20507678356894724,
+            "std": 0.8905549534616981
+          },
+          "g11": {
+            "finite": true,
+            "maximum": 2.764117002321956,
+            "mean": 1.4190801407232072,
+            "minimum": 0.6480366459716247,
+            "std": 0.5134039763993716
+          },
+          "g12": {
+            "finite": true,
+            "maximum": 0.041754532865079255,
+            "mean": 5.8590651097385276e-05,
+            "minimum": -0.050204257644930174,
+            "std": 0.009979739498169176
+          },
+          "g13": {
+            "finite": true,
+            "maximum": 10.885731000612003,
+            "mean": -0.0028145679304040134,
+            "minimum": -10.878201349981666,
+            "std": 1.848183713708756
+          },
+          "g22": {
+            "finite": true,
+            "maximum": 0.10586529211906108,
+            "mean": 0.07148947590153375,
+            "minimum": 0.04496164463744039,
+            "std": 0.011394477405554443
+          },
+          "g23": {
+            "finite": true,
+            "maximum": 0.1997370985755042,
+            "mean": 0.0013805565785066614,
+            "minimum": -0.1250652302750975,
+            "std": 0.06886868889063782
+          },
+          "g33": {
+            "finite": true,
+            "maximum": 388.18291720386355,
+            "mean": 21.423707040539686,
+            "minimum": 0.665410522561247,
+            "std": 47.442725623141406
+          },
+          "g_11": {
+            "finite": true,
+            "maximum": 1.5459309060886186,
+            "mean": 0.9155922303701146,
+            "minimum": 0.3650077964114789,
+            "std": 0.31785008725846436
+          },
+          "g_12": {
+            "finite": true,
+            "maximum": 0.8134070454643482,
+            "mean": -0.0006898804670408809,
+            "minimum": -0.9040387486727497,
+            "std": 0.2135043245872983
+          },
+          "g_13": {
+            "finite": true,
+            "maximum": 0.5460847497069113,
+            "mean": -1.0386525109310886e-05,
+            "minimum": -0.5439091569058854,
+            "std": 0.18354730201277658
+          },
+          "g_22": {
+            "finite": true,
+            "maximum": 27.167517342481997,
+            "mean": 14.66184012575684,
+            "minimum": 9.682898598586254,
+            "std": 2.3153822743907666
+          },
+          "g_23": {
+            "finite": true,
+            "maximum": 1.588034741427105,
+            "mean": -0.0300568931497762,
+            "minimum": -2.728266952677968,
+            "std": 0.4430271779587354
+          },
+          "g_33": {
+            "finite": true,
+            "maximum": 1.5400446077124077,
+            "mean": 0.3350785672917493,
+            "minimum": 0.0025882602325456245,
+            "std": 0.31653738316953456
+          }
+        },
+        "inverse_residual_linf": 1.509954768725305e-14,
+        "passed": true,
+        "shape": [
+          30,
+          28,
+          56
+        ]
+      },
+      "passed": true,
+      "rotational_transform": {
+        "axis_proxy": 0.3054615129682515,
+        "edge_proxy": 0.7
+      }
+    }
+  ],
+  "passed": true,
+  "summary": [
+    [
+      0.4498,
+      23.998670161165922,
+      8.916883060850646,
+      0.14638484869612292,
+      0.1950193096918582,
+      0.06403061224489795
+    ],
+    [
+      0.4897999999999999,
+      24.716209438922416,
+      9.182693516806413,
+      0.14638484869612292,
+      0.35753540110173887,
+      0.06403061224489795
+    ],
+    [
+      0.6098,
+      23.797021289611894,
+      8.961021859445092,
+      0.14638484869612292,
+      0.169016735066279,
+      0.06532738095238094
+    ]
+  ],
+  "summary_columns": [
+    "mirror_ratio",
+    "connection_length_mean",
+    "connection_length_std",
+    "curvature_std",
+    "radial_shift_linf_cells",
+    "two_sided_boundary_fraction"
+  ]
+}

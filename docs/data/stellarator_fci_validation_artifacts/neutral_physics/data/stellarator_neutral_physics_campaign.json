@@ -1,0 +1,31 @@
+{
+  "case": "non_axisymmetric_neutral_diffusion_reaction_gate",
+  "cx_to_ionisation_ratio": 0.5350291708892694,
+  "geometry": {
+    "elongation": 1.45,
+    "field_periods": 5,
+    "geometry_family": "analytic_non_axisymmetric_stellarator",
+    "iota_axis": 0.38,
+    "iota_edge": 0.58,
+    "island_amplitude": 0.03,
+    "island_mode": 2,
+    "major_radius": 3.8,
+    "minor_radius": 0.7,
+    "mirror_amplitude": 0.16,
+    "nx": 34,
+    "ny": 30,
+    "nz": 60
+  },
+  "max_charge_exchange_rate": 0.007383525118500732,
+  "max_ionisation_rate": 0.013265603949957181,
+  "momentum_reaction_relative_error": 0.0,
+  "momentum_reaction_residual": 0.0,
+  "neutral_diffusion_integral": -6.308744750536599,
+  "neutral_diffusion_relative_integral": 0.010361756069999823,
+  "particle_reaction_relative_error": 1.1627633926336613e-18,
+  "particle_reaction_residual": -2.0903417885520525e-15,
+  "passed": true,
+  "total_charge_exchange": 134.668539872962,
+  "total_ionisation": 251.70317283659517,
+  "total_recombination": 1546.0329803608533
+}

@@ -1,0 +1,39 @@
+{
+  "case": "non_axisymmetric_fci_operator_validation",
+  "conservative_constant_residual_linf": 9.352021549060572e-17,
+  "conservative_diffusion_energy_drop_fraction": 0.004989813957437694,
+  "conservative_diffusion_energy_final": 0.2715354574701951,
+  "conservative_diffusion_energy_initial": 0.27289716354580107,
+  "conservative_diffusion_energy_monotone_fraction": 1.0,
+  "diffusion_energy_drop_fraction": 0.013480870047015592,
+  "diffusion_energy_final": 0.26921827234784096,
+  "diffusion_energy_initial": 0.27289716354580107,
+  "diffusion_energy_monotone_fraction": 1.0,
+  "gradient_convergence_slope": 1.5390235047667558,
+  "gradient_rms_error": [
+    0.01226025491984779,
+    0.007545382230427857,
+    0.0047304049049744085,
+    0.0022748250918879337
+  ],
+  "interpolation_convergence_slope": 1.9586061262301486,
+  "interpolation_max_error": [
+    0.010697302848111323,
+    0.004889259874243601,
+    0.0029124000780669235,
+    0.0013494458959049105
+  ],
+  "interpolation_rms_error": [
+    0.004912812199857768,
+    0.0022227369372705462,
+    0.0012674065300947493,
+    0.0005710122660232991
+  ],
+  "passed": true,
+  "resolution": [
+    16,
+    24,
+    32,
+    48
+  ]
+}
