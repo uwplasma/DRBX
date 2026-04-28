@@ -33,6 +33,7 @@ JAX-based solver papers.
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
+| `ESSOS Biot-Savart Landreman-Paul QA` | `coil-field FCI gate` | ESSOS-format Fourier-coil ingestion, JAX Biot-Savart field evaluation, and closed/open annular FCI reduced dynamics. |
 | `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
 | `Autodiff Diffusion Sensitivity` | `differentiable validation` | `jax.grad` sensitivities agree with finite differences on a compact native diffusion objective. |
 | `Autodiff Diffusion Uncertainty` | `differentiable validation` | First-order autodiff covariance propagation is compared with vectorized Monte Carlo. |
@@ -319,11 +320,15 @@ What this documents:
 
 ![Stellarator PyTree/JVP/scaling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
+![ESSOS Biot-Savart Landreman-Paul QA campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png)
+
 ![Stellarator SOL snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
 
 ![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
 
 ![Stellarator SOL 3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
+
+![ESSOS Biot-Savart closed/open FCI movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__movies__essos_biot_savart_landreman_paul_qa_campaign.gif)
 
 What this documents:
 
@@ -342,6 +347,9 @@ What this documents:
 - a fixed-layout PyTree RHS gate where the combined 3D state is compiled,
   differentiated with JVP, checked against finite differences, matched under
   `vmap`, and profiled for local CPU and multi-device GPU execution;
+- ESSOS-format Fourier-coil ingestion, JAX Biot-Savart evaluation, and
+  closed-like versus open/SOL-like annular FCI maps from the Landreman-Paul QA
+  coil set, with boundary-hit fractions about `0.413` and `0.681`;
 - metric-weighted vorticity inversion with relative potential error about `1.30e-3`;
 - a reduced 3D SOL dynamics benchmark with R-Z panel snapshots at four toroidal angles;
 - RMS, skewness, radial-flux proxy, time-trace, and toroidal-poloidal spectrum diagnostics;
