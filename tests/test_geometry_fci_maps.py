@@ -4,12 +4,13 @@ import jax.numpy as jnp
 import numpy as np
 import jax
 
-from jax_drb.geometry import build_metric_report, build_synthetic_stellarator_geometry, identity_fci_maps
+from jax_drb.geometry import MetricTensor3D, build_metric_report, build_synthetic_stellarator_geometry, identity_fci_maps
 from jax_drb.native.fci import (
     conservative_parallel_diffusion_fci,
     conservative_perp_diffusion_xz,
     fci_yup,
     grad_parallel_fci,
+    metric_weighted_scalar_laplacian_3d,
 )
 from jax_drb.native.fci_sheath_recycling import compute_fci_sheath_recycling, fci_sheath_recycling_field_rhs
 from jax_drb.native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
@@ -86,6 +87,30 @@ def test_conservative_fci_diffusion_annihilates_constants_and_dissipates() -> No
     assert float(jnp.max(jnp.abs(perpendicular_constant))) < 1.0e-12
     assert float(parallel_energy_rate) < 0.0
     assert float(perpendicular_energy_rate) < 0.0
+
+
+def test_metric_weighted_scalar_laplacian_3d_matches_cartesian_mms() -> None:
+    errors = []
+    resolutions = np.asarray([12, 16, 24], dtype=np.int64)
+    for resolution in resolutions:
+        metric = _identity_metric_3d(nx=resolution, ny=resolution, nz=2 * resolution)
+        x = jnp.arange(resolution, dtype=jnp.float64) / float(resolution)
+        y = 2.0 * jnp.pi * jnp.arange(resolution, dtype=jnp.float64) / float(resolution)
+        z = 2.0 * jnp.pi * jnp.arange(2 * resolution, dtype=jnp.float64) / float(2 * resolution)
+        X, Y, Z = jnp.meshgrid(x, y, z, indexing="ij")
+        field = jnp.sin(2.0 * jnp.pi * X) * jnp.cos(3.0 * Y) * jnp.sin(2.0 * Z)
+        exact = -((2.0 * jnp.pi) ** 2 + 3.0**2 + 2.0**2) * field
+
+        actual = metric_weighted_scalar_laplacian_3d(
+            field,
+            metric,
+            periodic_axes=(True, True, True),
+        )
+        errors.append(float(jnp.sqrt(jnp.mean(jnp.square(actual - exact)))))
+
+    slope, _ = np.polyfit(np.log(1.0 / resolutions.astype(np.float64)), np.log(np.asarray(errors)), 1)
+    assert float(slope) > 1.7
+    assert errors[-1] < 0.35 * errors[0]
 
 
 def test_fci_sheath_recycling_promotes_to_fixed_layout_rhs() -> None:
@@ -201,3 +226,28 @@ def test_fci_drb_pytree_rhs_is_jvp_transformable() -> None:
 
     assert bool(jnp.isfinite(value))
     assert bool(jnp.isfinite(derivative))
+
+
+def _identity_metric_3d(*, nx: int, ny: int, nz: int) -> MetricTensor3D:
+    shape = (nx, ny, nz)
+    ones = jnp.ones(shape, dtype=jnp.float64)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    return MetricTensor3D(
+        dx=ones * (1.0 / float(nx)),
+        dy=ones * (2.0 * np.pi / float(ny)),
+        dz=ones * (2.0 * np.pi / float(nz)),
+        J=ones,
+        Bxy=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g12=zeros,
+        g13=zeros,
+        g23=zeros,
+        g_11=ones,
+        g_22=ones,
+        g_33=ones,
+        g_12=zeros,
+        g_13=zeros,
+        g_23=zeros,
+    )

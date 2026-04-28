@@ -12,15 +12,16 @@ live in the GitHub release
 Current tracked checkout size after removing release-backed artifacts:
 
 - tracked checkout: about `7M`;
+- local `.git` after rewrite and garbage collection: about `9.4M`;
+- fresh-clone `.git` check after rewrite: about `6.7M`;
 - tracked `docs/data`: about `704K`, mostly JSON reports;
 - tracked `references`: about `404K`, mostly JSON summaries and metrics;
 - release-backed reference baseline bundle: about `24M`;
 - release-backed docs/media bundle: about `31M`.
 
-The local `.git` directory remains large until the history rewrite is applied
-because earlier commits still contain generated `.npz`, media, and trace blobs.
-After `git filter-repo` and garbage collection, the clone-relevant history
-should be dominated by source, tests, JSON metadata, and documentation text.
+The history rewrite has been applied. The clone-relevant history is now
+dominated by source, tests, JSON metadata, and documentation text rather than
+generated `.npz`, media, trace, and profile blobs.
 
 ## Release-Backed Artifacts
 
@@ -43,9 +44,9 @@ lightweight clone, this restores ignored `.npz` baselines under
 can set `JAX_DRB_OFFLINE_ARTIFACTS=1` to require preexisting artifacts, or
 `JAX_DRB_ARTIFACT_CACHE=/path/to/cache` to choose the download cache.
 
-## Rewrite Target
+## Rewrite Record
 
-The history rewrite should remove generated blobs from all earlier commits:
+The completed history rewrite removed generated blobs from all earlier commits:
 
 ```bash
 git filter-repo --force \
@@ -61,6 +62,6 @@ git gc --prune=now --aggressive
 git push --force-with-lease origin main
 ```
 
-This intentionally keeps source files, tests, JSON reference summaries,
+This intentionally kept source files, tests, JSON reference summaries,
 validation reports, and documentation text in git, while release assets retain
 the publication figures, movies, and heavyweight baselines.

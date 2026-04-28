@@ -233,6 +233,12 @@ from .stellarator_fci_operator_campaign import (
     create_stellarator_fci_operator_campaign_package,
     save_stellarator_fci_operator_plot,
 )
+from .stellarator_metric_mms_campaign import (
+    StellaratorMetricMmsCampaignArtifacts,
+    build_stellarator_metric_mms_campaign,
+    create_stellarator_metric_mms_campaign_package,
+    save_stellarator_metric_mms_plot,
+)
 from .stellarator_fci_suite_campaign import (
     StellaratorFciSuiteCampaignArtifacts,
     build_stellarator_fci_suite_campaign,
@@ -580,6 +586,10 @@ __all__ = [
     "build_stellarator_fci_operator_campaign",
     "create_stellarator_fci_operator_campaign_package",
     "save_stellarator_fci_operator_plot",
+    "StellaratorMetricMmsCampaignArtifacts",
+    "build_stellarator_metric_mms_campaign",
+    "create_stellarator_metric_mms_campaign_package",
+    "save_stellarator_metric_mms_plot",
     "StellaratorFciSuiteCampaignArtifacts",
     "build_stellarator_fci_suite_campaign",
     "create_stellarator_fci_suite_campaign_package",
