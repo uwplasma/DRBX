@@ -9,10 +9,10 @@ observable-level error bars rather than only a single scalar parity metric.
 The generated artifact bundle is:
 
 - [summary JSON](data/tokamak_recycling_observable_campaign_artifacts/data/tokamak_recycling_observable_campaign.json)
-- [summary arrays](data/tokamak_recycling_observable_campaign_artifacts/data/tokamak_recycling_observable_campaign.npz)
-- [summary figure](data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
+- [summary arrays](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_recycling_observable_campaign_artifacts__data__tokamak_recycling_observable_campaign.npz)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_recycling_observable_campaign_artifacts__images__tokamak_recycling_observable_campaign.png)
 
-![Tokamak recycling observable campaign](data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
+![Tokamak recycling observable campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_recycling_observable_campaign_artifacts__images__tokamak_recycling_observable_campaign.png)
 
 The figure reports:
 

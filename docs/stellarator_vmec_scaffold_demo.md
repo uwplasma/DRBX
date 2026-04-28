@@ -32,8 +32,8 @@ Committed preview bundle:
 - `docs/data/stellarator_vmec_scaffold_artifacts/data/stellarator_vmec_scaffold_profile_report.json`
 - `docs/data/stellarator_vmec_scaffold_artifacts/data/stellarator_vmec_scaffold_surface_report.json`
 - `docs/data/stellarator_vmec_scaffold_artifacts/data/stellarator_vmec_scaffold_observable_report.json`
-- `docs/data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_profiles.png`
-- `docs/data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_surface_summary.png`
-- `docs/data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_surface_movie.gif`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_profiles.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_surface_summary.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_surface_movie.gif`
 
 This is still a scaffold package, not a native 3D execution claim. Its job is to prove that the public 3D diagnostics layer can support a third geometry family with different source data and different observable structure before the broader 3D program is widened further.

@@ -11,9 +11,9 @@ The codebase is organized around:
 - reusable 3D geometry, movie, and selected-field comparison tools,
 - differentiable driver paths for sensitivity analysis, uncertainty propagation, and inverse design.
 
-![Diverted tokamak dynamics](docs/data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
+![Diverted tokamak dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
-![3D tokamak toroidal dynamics](docs/data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
+![3D tokamak toroidal dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__movies__tokamak_tcv_x21_toroidal.gif)
 
 ## Install
 
@@ -207,63 +207,63 @@ separates primary scientific figures from supporting engineering figures is in
 
 Verification and operator accuracy:
 
-![Fluid 1D MMS convergence](docs/data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
+![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
 
-![Open-field operator campaign](docs/data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+![Open-field operator campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
 
 Physics closures and tokamak/recycling observables:
 
-![Reactions and collisions campaign](docs/data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
+![Reactions and collisions campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__reactions_collisions_campaign_artifacts__images__reactions_collisions_campaign.png)
 
-![Neutral parallel diffusion campaign](docs/data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+![Neutral parallel diffusion campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_parallel_diffusion_campaign_artifacts__images__neutral_parallel_diffusion_campaign.png)
 
-![Collision closure campaign](docs/data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+![Collision closure campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__collision_closure_campaign_artifacts__images__collision_closure_campaign.png)
 
-![Target recycling campaign](docs/data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+![Target recycling campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__images__target_recycling_campaign.png)
 
-![Tokamak recycling observable campaign](docs/data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
+![Tokamak recycling observable campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_recycling_observable_campaign_artifacts__images__tokamak_recycling_observable_campaign.png)
 
 Reference parity and offender localization:
 
-![Neutral mixed boundary campaign](docs/data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+![Neutral mixed boundary campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_boundary_campaign_artifacts__images__neutral_mixed_boundary_campaign.png)
 
-![Neutral mixed term-balance campaign](docs/data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+![Neutral mixed term-balance campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
 Non-axisymmetric 3D geometry and reduced SOL dynamics:
 
-![Stellarator FCI geometry validation](docs/data/stellarator_fci_validation_artifacts/geometry/images/stellarator_fci_geometry_campaign.png)
+![Stellarator FCI geometry validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png)
 
-![Stellarator FCI multi-configuration suite](docs/data/stellarator_fci_validation_artifacts/suite/images/stellarator_fci_suite_campaign.png)
+![Stellarator FCI multi-configuration suite](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png)
 
-![Stellarator FCI operator validation](docs/data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+![Stellarator FCI operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
 
-![Stellarator sheath/recycling validation](docs/data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+![Stellarator sheath/recycling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
 
-![Stellarator neutral physics validation](docs/data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+![Stellarator neutral physics validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
 
-![Stellarator vorticity validation](docs/data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+![Stellarator vorticity validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)
 
-![Stellarator PyTree/JVP/scaling validation](docs/data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+![Stellarator PyTree/JVP/scaling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
-![Stellarator SOL diagnostics](docs/data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_diagnostics.png)
+![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
 
-![Stellarator SOL 3D movie](docs/data/stellarator_fci_validation_artifacts/showcase/movies/stellarator_sol_showcase.gif)
+![Stellarator SOL 3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
 
 Differentiability, uncertainty propagation, and local performance:
 
-![Autodiff diffusion sensitivity](docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+![Autodiff diffusion sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
 
-![Atomic rate differentiability campaign](docs/data/atomic_rate_differentiability_campaign_artifacts/images/atomic_rate_differentiability_campaign.png)
+![Atomic rate differentiability campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__atomic_rate_differentiability_campaign_artifacts__images__atomic_rate_differentiability_campaign.png)
 
-![Autodiff diffusion uncertainty](docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
 
-![Autodiff diffusion inverse design](docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+![Autodiff diffusion inverse design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
 
-![Strong scaling diffusion](docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+![Strong scaling diffusion](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
 
-![Local CPU scaling campaign](docs/data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
+![Local CPU scaling campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
 
-![Implicit solver profile audit](docs/data/implicit_solver_profile_audit_artifacts/images/implicit_solver_profile_audit.png)
+![Implicit solver profile audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__implicit_solver_profile_audit_artifacts__images__implicit_solver_profile_audit.png)
 
 ## 3D Geometry And Movies
 

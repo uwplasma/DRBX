@@ -4,11 +4,11 @@ This benchmark page turns the committed short-window drift-wave baseline into a 
 
 The diagnostic figure below is generated directly from the committed array baseline and the same benchmark-analysis code exercised by the regression suite.
 
-![Drift-wave benchmark diagnostics](images/drift_wave_short_window_diagnostics.png)
+![Drift-wave benchmark diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_diagnostics.png)
 
 The parity figure below compares the current native short-window output against the committed reference baseline, using the same portable array payload schema as the automated regressions.
 
-![Drift-wave short-window parity](images/drift_wave_short_window_parity.png)
+![Drift-wave short-window parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_parity.png)
 
 ## Locked Scalars
 
@@ -59,15 +59,15 @@ PYTHONPATH=src python -m jax_drb analyze-drift-wave \
   /path/to/curated/drift_wave/BOUT.inp \
   references/baselines/reference_arrays/drift_wave_short_window.npz \
   --json-out docs/data/drift_wave_short_window_analysis.json \
-  --plot-out docs/images/drift_wave_short_window_diagnostics.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_diagnostics.png
 ```
 
 Artifacts:
 
 - analysis JSON: [docs/data/drift_wave_short_window_analysis.json](docs/data/drift_wave_short_window_analysis.json)
-- diagnostic figure: [docs/images/drift_wave_short_window_diagnostics.png](docs/images/drift_wave_short_window_diagnostics.png)
+- diagnostic figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_diagnostics.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_diagnostics.png)
 - parity JSON: [docs/data/drift_wave_short_window_parity.json](docs/data/drift_wave_short_window_parity.json)
-- parity figure: [docs/images/drift_wave_short_window_parity.png](docs/images/drift_wave_short_window_parity.png)
+- parity figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_parity.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_parity.png)
 
 The CLI command is source-neutral: it operates on any compatible input file plus any portable drift-wave array payload with `Ni` time history and normalization metadata.
 
@@ -79,5 +79,5 @@ PYTHONPATH=src python -m jax_drb compare-drift-wave \
   references/baselines/reference_arrays/drift_wave_short_window.npz \
   /tmp/jax_drb_drift_wave_short_window_native.npz \
   --json-out docs/data/drift_wave_short_window_parity.json \
-  --plot-out docs/images/drift_wave_short_window_parity.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_parity.png
 ```

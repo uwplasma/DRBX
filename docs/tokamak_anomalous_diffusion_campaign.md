@@ -16,8 +16,8 @@ contrast on a realistic evolved tokamak recycling state.
 The generated artifact bundle is:
 
 - [summary JSON](data/tokamak_anomalous_diffusion_campaign_artifacts/data/tokamak_anomalous_diffusion_campaign.json)
-- [summary arrays](data/tokamak_anomalous_diffusion_campaign_artifacts/data/tokamak_anomalous_diffusion_campaign.npz)
-- [summary figure](data/tokamak_anomalous_diffusion_campaign_artifacts/images/tokamak_anomalous_diffusion_campaign.png)
+- [summary arrays](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_anomalous_diffusion_campaign_artifacts__data__tokamak_anomalous_diffusion_campaign.npz)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_anomalous_diffusion_campaign_artifacts__images__tokamak_anomalous_diffusion_campaign.png)
 
 The figure reports four summaries:
 

@@ -463,7 +463,7 @@ diagnosis.
 The committed implementation of this triage layer is
 `docs/data/hermes_offender_register_artifacts/data/hermes_offender_register.json`,
 with a publication-ready summary figure at
-`docs/data/hermes_offender_register_artifacts/images/hermes_offender_register.png`.
+`https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_offender_register_artifacts__images__hermes_offender_register.png`.
 On the current promoted live matrix, the top parity target is
 `neutral_mixed_one_step` on `NVh`, the top runtime target is
 `recycling_dthe_one_step`, and the top measured peak-RSS ratio is also

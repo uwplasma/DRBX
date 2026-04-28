@@ -406,22 +406,22 @@ Future JAX runs should emit the same portable schema through the generic summary
 
 The first committed full-array baselines are:
 
-- [diffusion_one_step.npz](references/baselines/reference_arrays/diffusion_one_step.npz)
-- [diffusion_short_window.npz](references/baselines/reference_arrays/diffusion_short_window.npz)
-- [fluid_1d_mms_rhs.npz](references/baselines/reference_arrays/fluid_1d_mms_rhs.npz)
-- [fluid_1d_mms_one_step.npz](references/baselines/reference_arrays/fluid_1d_mms_one_step.npz)
-- [fluid_1d_mms.npz](references/baselines/reference_arrays/fluid_1d_mms.npz)
-- [vorticity_rhs.npz](references/baselines/reference_arrays/vorticity_rhs.npz)
-- [vorticity_one_step.npz](references/baselines/reference_arrays/vorticity_one_step.npz)
-- [vorticity_short_window.npz](references/baselines/reference_arrays/vorticity_short_window.npz)
-- [neutral_mixed_rhs.npz](references/baselines/reference_arrays/neutral_mixed_rhs.npz)
-- [neutral_mixed_one_step.npz](references/baselines/reference_arrays/neutral_mixed_one_step.npz)
-- [neutral_mixed_short_window.npz](references/baselines/reference_arrays/neutral_mixed_short_window.npz)
-- [drift_wave_rhs.npz](references/baselines/reference_arrays/drift_wave_rhs.npz)
-- [drift_wave_one_step.npz](references/baselines/reference_arrays/drift_wave_one_step.npz)
-- [drift_wave_short_window.npz](references/baselines/reference_arrays/drift_wave_short_window.npz)
-- [blob2d_rhs.npz](references/baselines/reference_arrays/blob2d_rhs.npz)
-- [blob2d_one_step.npz](references/baselines/reference_arrays/blob2d_one_step.npz)
+- [diffusion_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [diffusion_short_window.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [fluid_1d_mms_rhs.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [fluid_1d_mms_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [fluid_1d_mms.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [vorticity_rhs.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [vorticity_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [vorticity_short_window.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [neutral_mixed_rhs.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [neutral_mixed_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [neutral_mixed_short_window.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [drift_wave_rhs.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [drift_wave_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [drift_wave_short_window.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [blob2d_rhs.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
+- [blob2d_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip)
 
 These are written and read through [arrays.py](src/jax_drb/parity/arrays.py). For the current diffusion milestone, the intended comparison command is:
 
@@ -461,7 +461,7 @@ PYTHONPATH=src python -m jax_drb compare-drift-wave \
   references/baselines/reference_arrays/drift_wave_short_window.npz \
   /tmp/jax_drb_drift_wave_short_window_native.npz \
   --json-out docs/data/drift_wave_short_window_parity.json \
-  --plot-out docs/images/drift_wave_short_window_parity.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_parity.png
 ```
 
 For the current blob `short_window` milestone, the summary comparison command is:
@@ -471,7 +471,7 @@ PYTHONPATH=src python -m jax_drb compare-blob2d \
   references/baselines/reference_metrics/blob2d_short_window_metrics.json \
   /tmp/jax_drb_blob2d_short_window_native.npz \
   --json-out docs/data/blob2d_short_window_parity.json \
-  --plot-out docs/images/blob2d_short_window_parity.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__blob2d_short_window_parity.png
 ```
 
 For the staged neutral `short_window` benchmark target, the current compact-analysis command is:
@@ -483,7 +483,7 @@ PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \
   --y-index 3 \
   --z-index 5 \
   --json-out references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json \
-  --plot-out docs/images/neutral_mixed_short_window_diagnostics.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__neutral_mixed_short_window_diagnostics.png
 ```
 
 For the current electromagnetic short-window benchmark rung, use:
@@ -493,7 +493,7 @@ PYTHONPATH=src .venv/bin/python -m jax_drb analyze-alfven-wave \
   /path/to/reference-suite/tests/integrated/alfven-wave/data/BOUT.inp \
   references/baselines/reference_arrays/alfven_wave_short_window.npz \
   --json-out docs/data/alfven_wave_short_window_analysis.json \
-  --plot-out docs/images/alfven_wave_short_window_diagnostics.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_short_window_diagnostics.png
 ```
 
 And for the corresponding native/reference parity report:
@@ -504,5 +504,5 @@ PYTHONPATH=src .venv/bin/python -m jax_drb compare-alfven-wave \
   references/baselines/reference_arrays/alfven_wave_short_window.npz \
   /tmp/jax_drb_alfven_wave_short_window_native.npz \
   --json-out docs/data/alfven_wave_short_window_parity.json \
-  --plot-out docs/images/alfven_wave_short_window_parity.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_short_window_parity.png
 ```

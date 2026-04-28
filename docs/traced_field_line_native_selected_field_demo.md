@@ -27,5 +27,5 @@ Committed artifacts:
 - `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_comparison.json`
 - `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_observable_report.json`
 - `docs/data/traced_field_line_native_selected_field_artifacts/data/traced_field_line_native_selected_field_runtime_report.json`
-- `docs/data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field.png`
-- `docs/data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field_comparison.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_native_selected_field_artifacts__images__traced_field_line_native_selected_field.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_native_selected_field_artifacts__images__traced_field_line_native_selected_field_comparison.png`

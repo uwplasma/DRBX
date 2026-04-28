@@ -35,14 +35,14 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/traced-field-line/selected_f
 ## Artifacts
 
 - parity JSON: [traced_field_line_selected_field_parity.json](data/traced_field_line_selected_field_artifacts/data/traced_field_line_selected_field_parity.json)
-- parity arrays: [traced_field_line_selected_field_parity.npz](data/traced_field_line_selected_field_artifacts/data/traced_field_line_selected_field_parity.npz)
+- parity arrays: [traced_field_line_selected_field_parity.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_selected_field_artifacts__data__traced_field_line_selected_field_parity.npz)
 - observable report: [traced_field_line_selected_field_parity_observable_report.json](data/traced_field_line_selected_field_artifacts/data/traced_field_line_selected_field_parity_observable_report.json)
 - source report: [traced_field_line_selected_field_parity_source_report.json](data/traced_field_line_selected_field_artifacts/data/traced_field_line_selected_field_parity_source_report.json)
-- parity figure: [traced_field_line_selected_field_parity.png](data/traced_field_line_selected_field_artifacts/images/traced_field_line_selected_field_parity.png)
+- parity figure: [traced_field_line_selected_field_parity.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_selected_field_artifacts__images__traced_field_line_selected_field_parity.png)
 
 ## Preview
 
-![Traced-field-line selected-field parity](data/traced_field_line_selected_field_artifacts/images/traced_field_line_selected_field_parity.png)
+![Traced-field-line selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_selected_field_artifacts__images__traced_field_line_selected_field_parity.png)
 
 ## What This Gate Does
 

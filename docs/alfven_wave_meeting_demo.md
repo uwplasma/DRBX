@@ -15,7 +15,7 @@ To regenerate plots and movies from an existing `.npz` payload without rerunning
 
 ```bash
 PYTHONPATH=src .venv/bin/python examples/alfven_wave_meeting_demo.py \
-  --arrays-in docs/data/alfven_wave_short_window_native.npz \
+  --arrays-in https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__alfven_wave_short_window_native.npz \
   --output-root docs
 ```
 
@@ -23,22 +23,22 @@ By default this writes:
 
 - [analysis JSON](docs/data/alfven_wave_meeting_analysis.json)
 - [parity JSON](docs/data/alfven_wave_meeting_parity.json)
-- [snapshot panel](docs/images/alfven_wave_meeting_snapshots.png)
-- [diagnostics plot](docs/images/alfven_wave_meeting_diagnostics.png)
-- [parity plot](docs/images/alfven_wave_meeting_parity.png)
-- [movie poster](docs/images/alfven_wave_meeting_movie_poster.png)
-- [2D movie](docs/movies/alfven_wave_meeting_2d.mp4)
-- [3D movie](docs/movies/alfven_wave_meeting_3d.mp4)
+- [snapshot panel](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_snapshots.png)
+- [diagnostics plot](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_diagnostics.png)
+- [parity plot](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_parity.png)
+- [movie poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_movie_poster.png)
+- [2D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__movies__alfven_wave_meeting_2d.mp4)
+- [3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__movies__alfven_wave_meeting_3d.mp4)
 
 ## Figures
 
-![Alfven-wave meeting snapshots](docs/images/alfven_wave_meeting_snapshots.png)
+![Alfven-wave meeting snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_snapshots.png)
 
-![Alfven-wave meeting diagnostics](docs/images/alfven_wave_meeting_diagnostics.png)
+![Alfven-wave meeting diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_diagnostics.png)
 
-![Alfven-wave meeting parity](docs/images/alfven_wave_meeting_parity.png)
+![Alfven-wave meeting parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_parity.png)
 
-![Alfven-wave meeting poster](docs/images/alfven_wave_meeting_movie_poster.png)
+![Alfven-wave meeting poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_meeting_movie_poster.png)
 
 ## Why This Case
 

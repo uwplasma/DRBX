@@ -21,7 +21,7 @@ python examples/engineering/local_cpu_scaling_campaign_demo.py
 The committed artifacts are:
 
 - `docs/data/local_cpu_scaling_campaign_artifacts/data/local_cpu_scaling_campaign.json`
-- `docs/data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png`
 
 Interpretation:
 

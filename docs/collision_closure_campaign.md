@@ -15,8 +15,8 @@ state.
 The generated artifact bundle is:
 
 - [summary JSON](data/collision_closure_campaign_artifacts/data/collision_closure_campaign.json)
-- [summary arrays](data/collision_closure_campaign_artifacts/data/collision_closure_campaign.npz)
-- [summary figure](data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+- [summary arrays](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__collision_closure_campaign_artifacts__data__collision_closure_campaign.npz)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__collision_closure_campaign_artifacts__images__collision_closure_campaign.png)
 
 The figure reports four closure summaries:
 

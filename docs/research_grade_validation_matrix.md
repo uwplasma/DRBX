@@ -78,51 +78,51 @@ The literature does not treat every dashboard as equal evidence. The current
 These are the current figure families that are close to the literature pattern
 used in verification, validation, and differentiable-science papers:
 
-- [fluid_1d_mms_convergence](data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
+- [fluid_1d_mms_convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
   for order-of-accuracy evidence
-- [open_field_operator_campaign](data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+- [open_field_operator_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
   for open-field parallel-gradient, force-balance, target-recycling, and
   autodiff evidence
-- [reactions_collisions_campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
+- [reactions_collisions_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__reactions_collisions_campaign_artifacts__images__reactions_collisions_campaign.png)
   for rate, source-partition, and closure checks
-- [neutral_parallel_diffusion_campaign](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+- [neutral_parallel_diffusion_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_parallel_diffusion_campaign_artifacts__images__neutral_parallel_diffusion_campaign.png)
   for AFN-versus-multispecies neutral closure comparison
-- [collision_closure_campaign](data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+- [collision_closure_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__collision_closure_campaign_artifacts__images__collision_closure_campaign.png)
   for friction, conduction, and viscosity closure activity
-- [tokamak_anomalous_diffusion_campaign](data/tokamak_anomalous_diffusion_campaign_artifacts/images/tokamak_anomalous_diffusion_campaign.png)
+- [tokamak_anomalous_diffusion_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_anomalous_diffusion_campaign_artifacts__images__tokamak_anomalous_diffusion_campaign.png)
   for geometry-sensitive transport effects on an evolved tokamak state
-- [target_recycling_campaign](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+- [target_recycling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__images__target_recycling_campaign.png)
   for target-localized recycling and sheath-conditioned closure activity
-- [hermes_live_rerun_campaign](data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
+- [hermes_live_rerun_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_live_rerun_campaign_artifacts__images__hermes_live_rerun_campaign.png)
   for same-machine native-versus-live-Hermès code-to-code comparison across the
   current representative 1D and 2D matrix
-- [neutral_mixed_boundary_campaign](data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+- [neutral_mixed_boundary_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_boundary_campaign_artifacts__images__neutral_mixed_boundary_campaign.png)
   for boundary-localized neutral-mixed mismatch analysis on the live rerun
   surface
-- [neutral_mixed_term_balance_campaign](data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+- [neutral_mixed_term_balance_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
   for term-level `NVh` residual localization on the neutral-mixed one-step
   Hermès mismatch
-- [autodiff_diffusion_uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+- [autodiff_diffusion_uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
   for uncertainty propagation on the differentiable lane
-- [autodiff_diffusion_sensitivity](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+- [autodiff_diffusion_sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
   for gradient-versus-finite-difference sensitivity evidence
-- [autodiff_diffusion_inverse_design](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+- [autodiff_diffusion_inverse_design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
   for a closed differentiable optimization example on the same native lane
-- [local_cpu_scaling_campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
+- [local_cpu_scaling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
   for workstation throughput on repeated heavy production solves
-- [stellarator_fci_validation](data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+- [stellarator_fci_validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
   for the first native non-axisymmetric metric, field-line-map, operator, and
   reduced 3D SOL dynamics evidence bundle
-- [stellarator_sheath_recycling_campaign](data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+- [stellarator_sheath_recycling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
   for non-axisymmetric traced-endpoint sheath losses, zero-current particle
   reconstruction, and exact recycling source accounting
-- [stellarator_neutral_physics_campaign](data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+- [stellarator_neutral_physics_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
   for neutral diffusion plus ionisation, recombination, and charge-exchange
   conservation on the non-axisymmetric map
-- [stellarator_vorticity_campaign](data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+- [stellarator_vorticity_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)
   for metric-weighted vorticity inversion and the first non-axisymmetric
   radial \(E\times B\) diagnostic seam
-- [stellarator_drb_pytree_campaign](data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+- [stellarator_drb_pytree_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
   for the current fixed-layout 3D PyTree RHS, JVP derivative check, batched
   objective equivalence, and local/multi-device profiling seam
 
@@ -132,14 +132,14 @@ These remain useful and should stay in the docs, but they should not be the
 main evidence panels in the future paper unless they are paired with a more
 physics-facing interpretation:
 
-- [hermes_comparison_summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)
+- [hermes_comparison_summary](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_comparison_summary_artifacts__images__hermes_comparison_summary.png)
   is an index figure across heterogeneous lanes, not a direct literature-style
   benchmark figure
-- [jax_native_profile_audit](data/jax_native_profile_audit_artifacts/images/jax_native_profile_audit.png)
+- [jax_native_profile_audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__jax_native_profile_audit_artifacts__images__jax_native_profile_audit.png)
   is an engineering/profile figure rather than a physics validation figure
-- [native_3d_runtime_campaign](data/native_3d_runtime_campaign_artifacts/images/native_3d_runtime_campaign.png)
+- [native_3d_runtime_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__native_3d_runtime_campaign_artifacts__images__native_3d_runtime_campaign.png)
   is a runtime/supporting figure rather than a primary scientific result
-- [strong_scaling_diffusion](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+- [strong_scaling_diffusion](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
   is useful as a differentiable-kernel scaling check, while the heavier local
   CPU scaling campaign remains the stronger workstation result
 

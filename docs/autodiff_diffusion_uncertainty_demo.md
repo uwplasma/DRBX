@@ -20,8 +20,8 @@ PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_uncertainty_demo.py
 Outputs:
 
 - `docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json`
-- `docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz`
-- `docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__data__autodiff_diffusion_uncertainty_arrays.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png`
 
 Interpretation:
 
@@ -34,4 +34,4 @@ native differentiable lane can propagate uncertainty in both scalar and field
 observables without claiming that the full 2D or 3D parity matrix is already
 end-to-end differentiable.
 
-![Autodiff diffusion uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)

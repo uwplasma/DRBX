@@ -53,20 +53,20 @@ PYTHONPATH=src .venv/bin/python examples/tokamak-3D/tcv-x21/scaffold_demo.py \
 - validation contract: [tokamak_tcv_x21_scaffold_validation_contract.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_validation_contract.json)
 - observable report: [tokamak_tcv_x21_scaffold_observable_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_observable_report.json)
 - profile report: [tokamak_tcv_x21_scaffold_profile_report.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_report.json)
-- profile arrays: [tokamak_tcv_x21_scaffold_profile_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_profile_arrays.npz)
-- assembled arrays: [tokamak_tcv_x21_scaffold_arrays.npz](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_arrays.npz)
+- profile arrays: [tokamak_tcv_x21_scaffold_profile_arrays.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__data__tokamak_tcv_x21_scaffold_profile_arrays.npz)
+- assembled arrays: [tokamak_tcv_x21_scaffold_arrays.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__data__tokamak_tcv_x21_scaffold_arrays.npz)
 - analysis JSON: [tokamak_tcv_x21_scaffold_analysis.json](data/tokamak_tcv_x21_scaffold_artifacts/data/tokamak_tcv_x21_scaffold_analysis.json)
-- profile summary plot: [tokamak_tcv_x21_scaffold_profiles.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
-- snapshot panel: [tokamak_tcv_x21_scaffold_snapshots.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
-- poster frame: [tokamak_tcv_x21_scaffold_poster.png](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_poster.png)
-- GIF: [tokamak_tcv_x21_scaffold.gif](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+- profile summary plot: [tokamak_tcv_x21_scaffold_profiles.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_profiles.png)
+- snapshot panel: [tokamak_tcv_x21_scaffold_snapshots.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_snapshots.png)
+- poster frame: [tokamak_tcv_x21_scaffold_poster.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_poster.png)
+- GIF: [tokamak_tcv_x21_scaffold.gif](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__movies__tokamak_tcv_x21_scaffold.gif)
 - toroidal movie package: [tokamak_tcv_x21_toroidal_movie_demo.md](tokamak_tcv_x21_toroidal_movie_demo.md)
 
 ## Preview
 
-![TCV-X21 scaffold movie](data/tokamak_tcv_x21_scaffold_artifacts/movies/tokamak_tcv_x21_scaffold.gif)
+![TCV-X21 scaffold movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__movies__tokamak_tcv_x21_scaffold.gif)
 
-![TCV-X21 scaffold profiles](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
+![TCV-X21 scaffold profiles](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_profiles.png)
 
 If you want a toroidal 3D visualization of the staged dynamics rather than the
 flat scaffold slice GIF, use

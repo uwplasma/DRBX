@@ -18,12 +18,12 @@ PYTHONPATH=src python -m jax_drb analyze-neutral-mixed \
   --y-index 3 \
   --z-index 5 \
   --json-out references/baselines/reference_metrics/neutral_mixed_short_window_metrics.json \
-  --plot-out docs/images/neutral_mixed_short_window_diagnostics.png
+  --plot-out https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__neutral_mixed_short_window_diagnostics.png
 ```
 
 ## Diagnostic Figure
 
-![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
+![Neutral mixed short-window diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__neutral_mixed_short_window_diagnostics.png)
 
 The current locked target values at the final stored output are:
 

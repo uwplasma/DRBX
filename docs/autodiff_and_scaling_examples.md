@@ -33,9 +33,9 @@ PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_sensitivity_demo.py
 Outputs:
 
 - analysis JSON: [docs/data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json](data/autodiff_diffusion_sensitivity_artifacts/data/autodiff_diffusion_sensitivity_analysis.json)
-- figure: [docs/data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
 
-![Autodiff sensitivity](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+![Autodiff sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
 
 Current committed result:
 
@@ -54,10 +54,10 @@ PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_uncertainty_demo.py
 Outputs:
 
 - analysis JSON: [docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json](data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_analysis.json)
-- arrays NPZ: [docs/data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz](data/autodiff_diffusion_uncertainty_artifacts/data/autodiff_diffusion_uncertainty_arrays.npz)
-- figure: [docs/data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+- arrays NPZ: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__data__autodiff_diffusion_uncertainty_arrays.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__data__autodiff_diffusion_uncertainty_arrays.npz)
+- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
 
-![Autodiff uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+![Autodiff uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
 
 Current committed result:
 
@@ -77,9 +77,9 @@ PYTHONPATH=src .venv/bin/python examples/autodiff_diffusion_inverse_design_demo.
 Outputs:
 
 - analysis JSON: [docs/data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json](data/autodiff_diffusion_inverse_design_artifacts/data/autodiff_diffusion_inverse_design_analysis.json)
-- figure: [docs/data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
 
-![Autodiff inverse design](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+![Autodiff inverse design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
 
 Current committed result:
 
@@ -134,9 +134,9 @@ PYTHONPATH=src .venv/bin/python examples/strong_scaling_diffusion_demo.py \
 Outputs:
 
 - analysis JSON: [docs/data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json](data/strong_scaling_diffusion_artifacts/data/strong_scaling_diffusion_analysis.json)
-- figure: [docs/data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+- figure: [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
 
-![Strong scaling](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+![Strong scaling](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
 
 Current committed result:
 

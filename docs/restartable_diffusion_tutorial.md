@@ -90,14 +90,14 @@ A QA-checked example output package from a local run is currently staged under:
 
 - [docs/data/restartable_diffusion_demo_artifacts](docs/data/restartable_diffusion_demo_artifacts)
 - [docs/data/restartable_diffusion_demo_artifacts/input/input.toml](docs/data/restartable_diffusion_demo_artifacts/input/input.toml)
-- [docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png](docs/data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png)
-- [docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif](docs/data/restartable_diffusion_demo_artifacts/movies/restartable_diffusion_density.gif)
+- [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_surface.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_surface.png)
+- [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__movies__restartable_diffusion_density.gif](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__movies__restartable_diffusion_density.gif)
 
 The companion precision benchmark is:
 
 - [examples/diffusion_precision_benchmark.py](examples/diffusion_precision_benchmark.py)
 - [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
-- [docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png](docs/runtime_precision_benchmark/images/diffusion_precision_elapsed.png)
+- [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png)
 
 ## What To Edit First
 

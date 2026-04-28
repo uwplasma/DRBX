@@ -19,13 +19,13 @@ the native one-step balance. A larger residual when the Hermès-3 final state is
 inserted identifies the operator and boundary terms that cannot reproduce the
 Hermès update under the current native closure.
 
-![Neutral mixed term-balance audit](data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+![Neutral mixed term-balance audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
 Current artifact outputs:
 
 - JSON summary: [neutral_mixed_term_balance_campaign.json](data/neutral_mixed_term_balance_campaign_artifacts/data/neutral_mixed_term_balance_campaign.json)
-- compact arrays: [neutral_mixed_term_balance_campaign.npz](data/neutral_mixed_term_balance_campaign_artifacts/data/neutral_mixed_term_balance_campaign.npz)
-- figure: [neutral_mixed_term_balance_campaign.png](data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+- compact arrays: [neutral_mixed_term_balance_campaign.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__data__neutral_mixed_term_balance_campaign.npz)
+- figure: [neutral_mixed_term_balance_campaign.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
 The current generated report shows a worst active-domain final `NVh` difference
 of about `3.37e-3`. Inserting the native final state back into the native

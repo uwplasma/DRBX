@@ -16,8 +16,8 @@ study rather than only a hidden operator test.
 The generated artifact bundle is:
 
 - [summary JSON](data/neutral_parallel_diffusion_campaign_artifacts/data/neutral_parallel_diffusion_campaign.json)
-- [profile arrays](data/neutral_parallel_diffusion_campaign_artifacts/data/neutral_parallel_diffusion_campaign.npz)
-- [summary figure](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+- [profile arrays](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_parallel_diffusion_campaign_artifacts__data__neutral_parallel_diffusion_campaign.npz)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_parallel_diffusion_campaign_artifacts__images__neutral_parallel_diffusion_campaign.png)
 
 The figure reports four closure summaries on the same prepared state:
 
