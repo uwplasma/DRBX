@@ -32,5 +32,5 @@ python examples/engineering/fluid_1d_mms_convergence_demo.py
 Committed artifacts:
 
 - `docs/data/fluid_1d_mms_convergence_artifacts/data/fluid_1d_mms_convergence.json`
-- `docs/data/fluid_1d_mms_convergence_artifacts/data/fluid_1d_mms_convergence.npz`
-- `docs/data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__data__fluid_1d_mms_convergence.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png`

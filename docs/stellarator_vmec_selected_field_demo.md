@@ -37,4 +37,4 @@ Committed preview bundle:
 - `docs/data/stellarator_vmec_selected_field_artifacts/data/stellarator_vmec_selected_field_parity.json`
 - `docs/data/stellarator_vmec_selected_field_artifacts/data/stellarator_vmec_selected_field_parity_observable_report.json`
 - `docs/data/stellarator_vmec_selected_field_artifacts/data/stellarator_vmec_selected_field_parity_source_report.json`
-- `docs/data/stellarator_vmec_selected_field_artifacts/images/stellarator_vmec_selected_field_parity.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_selected_field_artifacts__images__stellarator_vmec_selected_field_parity.png`

@@ -9,7 +9,7 @@ solve.
 The audit writes:
 
 - [summary JSON](data/implicit_solver_profile_audit_artifacts/data/implicit_solver_profile_audit.json)
-- [summary figure](data/implicit_solver_profile_audit_artifacts/images/implicit_solver_profile_audit.png)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__implicit_solver_profile_audit_artifacts__images__implicit_solver_profile_audit.png)
 
 The left panel compares colored sparse finite-difference Jacobian construction,
 the precomputed CSC/color extraction plan, thread-parallel finite differences,

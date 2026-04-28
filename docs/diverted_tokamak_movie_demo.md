@@ -31,11 +31,11 @@ The default field is `phi`, which gives the clearest diverted-geometry fluctuati
 
 ## Output Files
 
-- assembled arrays: [diverted_tokamak_turbulence_arrays.npz](data/diverted_tokamak_turbulence_artifacts/data/diverted_tokamak_turbulence_arrays.npz)
+- assembled arrays: [diverted_tokamak_turbulence_arrays.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__data__diverted_tokamak_turbulence_arrays.npz)
 - analysis JSON: [diverted_tokamak_turbulence_analysis.json](data/diverted_tokamak_turbulence_artifacts/data/diverted_tokamak_turbulence_analysis.json)
-- snapshot panel: [diverted_tokamak_turbulence_snapshots.png](data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_snapshots.png)
-- poster frame: [diverted_tokamak_turbulence_poster.png](data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_poster.png)
-- GIF: [diverted_tokamak_turbulence.gif](data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
+- snapshot panel: [diverted_tokamak_turbulence_snapshots.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_snapshots.png)
+- poster frame: [diverted_tokamak_turbulence_poster.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_poster.png)
+- GIF: [diverted_tokamak_turbulence.gif](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
 ## What The Script Does
 

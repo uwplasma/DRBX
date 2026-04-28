@@ -27,13 +27,13 @@ and target recycling model are written explicitly. The campaign therefore
 connects a mathematically controlled refinement test to the same boundary
 operator family used in the multi-component edge/SOL model.
 
-![Open-field operator campaign](data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+![Open-field operator campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
 
 The generated artifact bundle contains:
 
 - `docs/data/open_field_operator_campaign_artifacts/data/open_field_operator_campaign.json`
-- `docs/data/open_field_operator_campaign_artifacts/data/open_field_operator_campaign.npz`
-- `docs/data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__data__open_field_operator_campaign.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png`
 
 Run it with:
 

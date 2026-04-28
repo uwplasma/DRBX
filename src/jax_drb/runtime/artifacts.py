@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import urllib.request
+import zipfile
+
+from ..reference.paths import repo_root
+
+
+ARTIFACT_RELEASE_TAG = "validation-artifacts-2026-04-28"
+ARTIFACT_BASE_URL = f"https://github.com/uwplasma/jax_drb/releases/download/{ARTIFACT_RELEASE_TAG}"
+REFERENCE_BASELINES_ASSET = "jax_drb_reference_baselines.zip"
+
+
+def ensure_reference_baselines(
+    *,
+    root: str | Path | None = None,
+    base_url: str | None = None,
+    force: bool = False,
+) -> Path:
+    """Restore heavy validation baselines for research tests when absent."""
+
+    resolved_root = Path(root) if root is not None else repo_root()
+    reference_arrays = resolved_root / "references" / "baselines" / "reference_arrays"
+    reference_snapshots = resolved_root / "references" / "baselines" / "reference_snapshots"
+    sentinel = reference_arrays / "alfven_wave_short_window.npz"
+    snapshot_sentinel = reference_snapshots / "tokamak_turbulence_rhs_field_history.npz"
+    if not force and sentinel.exists() and snapshot_sentinel.exists():
+        return resolved_root / "references" / "baselines"
+    if os.environ.get("JAX_DRB_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
+        raise FileNotFoundError(
+            "Heavy reference baselines are not present and JAX_DRB_OFFLINE_ARTIFACTS is enabled."
+        )
+
+    cache_dir = Path(os.environ.get("JAX_DRB_ARTIFACT_CACHE", resolved_root / ".jax_drb_artifact_cache"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = cache_dir / REFERENCE_BASELINES_ASSET
+    if force or not archive_path.exists():
+        resolved_base_url = (base_url or os.environ.get("JAX_DRB_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL).rstrip("/")
+        _download_release_asset(
+            f"{resolved_base_url}/{REFERENCE_BASELINES_ASSET}",
+            archive_path,
+            asset_name=REFERENCE_BASELINES_ASSET,
+        )
+    with zipfile.ZipFile(archive_path) as archive:
+        archive.extractall(resolved_root)
+    if not sentinel.exists() or not snapshot_sentinel.exists():
+        raise FileNotFoundError(f"Reference artifact archive did not restore expected baselines under {resolved_root}")
+    return resolved_root / "references" / "baselines"
+
+
+def _download_release_asset(url: str, destination: Path, *, asset_name: str) -> None:
+    if _download_with_gh(asset_name, destination):
+        return
+    _download_with_urllib(url, destination)
+
+
+def _download_with_gh(asset_name: str, destination: Path) -> bool:
+    gh = shutil.which("gh")
+    if gh is None:
+        return False
+    completed = subprocess.run(
+        [
+            gh,
+            "release",
+            "download",
+            ARTIFACT_RELEASE_TAG,
+            "--repo",
+            "uwplasma/jax_drb",
+            "--pattern",
+            asset_name,
+            "--dir",
+            str(destination.parent),
+            "--clobber",
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    downloaded = destination.parent / asset_name
+    if completed.returncode == 0 and downloaded.exists():
+        if downloaded != destination:
+            downloaded.replace(destination)
+        return True
+    return False
+
+
+def _download_with_urllib(url: str, destination: Path) -> None:
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    request = urllib.request.Request(url)
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as output:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()

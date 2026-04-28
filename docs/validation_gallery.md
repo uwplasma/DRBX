@@ -41,7 +41,7 @@ JAX-based solver papers.
 
 ## Diffusion Short Window
 
-![Diffusion short-window parity](images/diffusion_short_window_parity.png)
+![Diffusion short-window parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__diffusion_short_window_parity.png)
 
 What this locks down:
 
@@ -52,11 +52,11 @@ What this locks down:
 
 ## Restartable Diffusion Demo
 
-![Restartable diffusion density snapshots](data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_snapshots.png)
+![Restartable diffusion density snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_snapshots.png)
 
-![Restartable diffusion density surface](data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_density_surface.png)
+![Restartable diffusion density surface](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_density_surface.png)
 
-![Restartable diffusion restart consistency](data/restartable_diffusion_demo_artifacts/images/restartable_diffusion_restart_consistency.png)
+![Restartable diffusion restart consistency](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__restartable_diffusion_demo_artifacts__images__restartable_diffusion_restart_consistency.png)
 
 What this documents:
 
@@ -67,7 +67,7 @@ What this documents:
 
 ## Open-Field Operator Campaign
 
-![Open-field operator campaign](data/open_field_operator_campaign_artifacts/images/open_field_operator_campaign.png)
+![Open-field operator campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__open_field_operator_campaign_artifacts__images__open_field_operator_campaign.png)
 
 What this locks down:
 
@@ -83,7 +83,7 @@ What this locks down:
 
 ## Neutral Mixed Term-Balance Campaign
 
-![Neutral mixed term-balance audit](data/neutral_mixed_term_balance_campaign_artifacts/images/neutral_mixed_term_balance_campaign.png)
+![Neutral mixed term-balance audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
 What this locks down:
 
@@ -100,7 +100,7 @@ What this locks down:
 
 ## Electrostatic Vorticity Short Window
 
-![Vorticity short-window parity](images/vorticity_short_window_parity.png)
+![Vorticity short-window parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__vorticity_short_window_parity.png)
 
 What this locks down:
 
@@ -110,7 +110,7 @@ What this locks down:
 
 ## Coupled Drift-Wave One Step
 
-![Drift-wave one-step parity](images/drift_wave_one_step_parity.png)
+![Drift-wave one-step parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_one_step_parity.png)
 
 What this locks down:
 
@@ -121,7 +121,7 @@ What this locks down:
 
 ## Drift-Wave Short-Window Parity
 
-![Drift-wave short-window parity](images/drift_wave_short_window_parity.png)
+![Drift-wave short-window parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_parity.png)
 
 What this locks down:
 
@@ -132,7 +132,7 @@ What this locks down:
 
 ## Drift-Wave Short-Window Benchmark
 
-![Drift-wave short-window diagnostics](images/drift_wave_short_window_diagnostics.png)
+![Drift-wave short-window diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__drift_wave_short_window_diagnostics.png)
 
 What this locks down:
 
@@ -143,7 +143,7 @@ What this locks down:
 
 ## Blob2d Short-Window Parity
 
-![Blob2d short-window parity](images/blob2d_short_window_parity.png)
+![Blob2d short-window parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__blob2d_short_window_parity.png)
 
 What this locks down:
 
@@ -154,24 +154,24 @@ What this locks down:
 
 ## Blob2d Meeting Movie
 
-![Blob2D meeting snapshots](images/blob2d_meeting_snapshots.png)
+![Blob2D meeting snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__blob2d_meeting_snapshots.png)
 
-![Blob2D meeting poster](images/blob2d_meeting_movie_poster.png)
+![Blob2D meeting poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__blob2d_meeting_movie_poster.png)
 
 What this locks down:
 
 - a fast saved-result visualization workflow using [examples/blob2d_meeting_demo.py](examples/blob2d_meeting_demo.py);
-- a real 2D movie artifact from [blob2d_one_step.npz](references/baselines/reference_arrays/blob2d_one_step.npz), written to [docs/movies/blob2d_meeting_2d.mp4](docs/movies/blob2d_meeting_2d.mp4);
+- a real 2D movie artifact from [blob2d_one_step.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/jax_drb_reference_baselines.zip), written to [https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__movies__blob2d_meeting_2d.mp4](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__movies__blob2d_meeting_2d.mp4);
 - a matching 3D surface movie and poster for presentation use;
 - an explicit `--skip-parity` mode for saved payloads whose output timeline does not match the short-window parity metrics.
 
 ## Diverted Tokamak Geometry Movie
 
-![Diverted tokamak poster](data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_poster.png)
+![Diverted tokamak poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_poster.png)
 
-![Diverted tokamak snapshots](data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_snapshots.png)
+![Diverted tokamak snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_snapshots.png)
 
-![Diverted tokamak movie](data/diverted_tokamak_turbulence_artifacts/movies/diverted_tokamak_turbulence.gif)
+![Diverted tokamak movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
 
 What this locks down:
 
@@ -182,11 +182,11 @@ What this locks down:
 
 ## TCV-X21 Tokamak Scaffold
 
-![TCV-X21 scaffold poster](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_poster.png)
+![TCV-X21 scaffold poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_poster.png)
 
-![TCV-X21 scaffold profiles](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_profiles.png)
+![TCV-X21 scaffold profiles](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_profiles.png)
 
-![TCV-X21 scaffold snapshots](data/tokamak_tcv_x21_scaffold_artifacts/images/tokamak_tcv_x21_scaffold_snapshots.png)
+![TCV-X21 scaffold snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_scaffold_artifacts__images__tokamak_tcv_x21_scaffold_snapshots.png)
 
 What this documents:
 
@@ -204,7 +204,7 @@ What this documents:
 
 ## TCV-X21 Selected-Field Parity
 
-![TCV-X21 selected-field parity](data/tokamak_tcv_x21_selected_field_artifacts/images/tokamak_tcv_x21_selected_field_parity.png)
+![TCV-X21 selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_selected_field_artifacts__images__tokamak_tcv_x21_selected_field_parity.png)
 
 What this documents:
 
@@ -216,9 +216,9 @@ What this documents:
 
 ## TCV-X21 Toroidal Movie
 
-![TCV-X21 toroidal poster](data/tokamak_tcv_x21_toroidal_movie_artifacts/images/tokamak_tcv_x21_toroidal_poster.png)
+![TCV-X21 toroidal poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__images__tokamak_tcv_x21_toroidal_poster.png)
 
-![TCV-X21 toroidal movie](data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/tokamak_tcv_x21_toroidal.gif)
+![TCV-X21 toroidal movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_tcv_x21_toroidal_movie_artifacts__movies__tokamak_tcv_x21_toroidal.gif)
 
 What this documents:
 
@@ -228,9 +228,9 @@ What this documents:
 
 ## Native Tokamak Selected-Field Rung
 
-![Native tokamak selected-field parity](data/tokamak_native_selected_field_artifacts/images/tokamak_native_selected_field.png)
+![Native tokamak selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_native_selected_field_artifacts__images__tokamak_native_selected_field.png)
 
-![Native tokamak selected-field comparison](data/tokamak_native_selected_field_artifacts/images/tokamak_native_selected_field_comparison.png)
+![Native tokamak selected-field comparison](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_native_selected_field_artifacts__images__tokamak_native_selected_field_comparison.png)
 
 What this documents:
 
@@ -242,11 +242,11 @@ What this documents:
 
 ## Native Tokamak Selected-Field Short Window
 
-![Native tokamak short-window selected-field parity](data/tokamak_native_selected_field_short_window_artifacts/images/tokamak_native_selected_field.png)
+![Native tokamak short-window selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_native_selected_field_short_window_artifacts__images__tokamak_native_selected_field.png)
 
-![Native tokamak selected-field short-window summary](data/tokamak_native_selected_field_short_window_artifacts/images/tokamak_native_selected_field_short_window.png)
+![Native tokamak selected-field short-window summary](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_native_selected_field_short_window_artifacts__images__tokamak_native_selected_field_short_window.png)
 
-![Native tokamak selected-field short-window comparison](data/tokamak_native_selected_field_short_window_artifacts/images/tokamak_native_selected_field_short_window_comparison.png)
+![Native tokamak selected-field short-window comparison](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_native_selected_field_short_window_artifacts__images__tokamak_native_selected_field_short_window_comparison.png)
 
 What this documents:
 
@@ -257,13 +257,13 @@ What this documents:
 
 ## Traced-Field-Line Geometry Scaffold
 
-![Traced-field-line scaffold metrics](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_metrics.png)
+![Traced-field-line scaffold metrics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_scaffold_artifacts__images__traced_field_line_scaffold_metrics.png)
 
-![Traced-field-line scaffold lineouts](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_lineouts.png)
+![Traced-field-line scaffold lineouts](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_scaffold_artifacts__images__traced_field_line_scaffold_lineouts.png)
 
-![Traced-field-line scaffold slice summary](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_slice_summary.png)
+![Traced-field-line scaffold slice summary](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_scaffold_artifacts__images__traced_field_line_scaffold_slice_summary.png)
 
-![Traced-field-line scaffold slice movie](data/traced_field_line_scaffold_artifacts/images/traced_field_line_scaffold_slice_movie.gif)
+![Traced-field-line scaffold slice movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_scaffold_artifacts__images__traced_field_line_scaffold_slice_movie.gif)
 
 What this documents:
 
@@ -278,7 +278,7 @@ What this documents:
 
 ## Traced-Field-Line Selected-Field Parity
 
-![Traced-field-line selected-field parity](data/traced_field_line_selected_field_artifacts/images/traced_field_line_selected_field_parity.png)
+![Traced-field-line selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_selected_field_artifacts__images__traced_field_line_selected_field_parity.png)
 
 What this documents:
 
@@ -290,9 +290,9 @@ What this documents:
 
 ## Traced-Field-Line Native Reduced Selected-Field
 
-![Traced-field-line native selected-field parity](data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field.png)
+![Traced-field-line native selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_native_selected_field_artifacts__images__traced_field_line_native_selected_field.png)
 
-![Traced-field-line native selected-field comparison](data/traced_field_line_native_selected_field_artifacts/images/traced_field_line_native_selected_field_comparison.png)
+![Traced-field-line native selected-field comparison](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__traced_field_line_native_selected_field_artifacts__images__traced_field_line_native_selected_field_comparison.png)
 
 What this documents:
 
@@ -303,25 +303,25 @@ What this documents:
 
 ## Stellarator FCI Validation
 
-![Stellarator FCI geometry validation](data/stellarator_fci_validation_artifacts/geometry/images/stellarator_fci_geometry_campaign.png)
+![Stellarator FCI geometry validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png)
 
-![Stellarator FCI multi-configuration suite](data/stellarator_fci_validation_artifacts/suite/images/stellarator_fci_suite_campaign.png)
+![Stellarator FCI multi-configuration suite](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png)
 
-![Stellarator FCI operator validation](data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+![Stellarator FCI operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
 
-![Stellarator sheath/recycling validation](data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+![Stellarator sheath/recycling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
 
-![Stellarator neutral physics validation](data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+![Stellarator neutral physics validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
 
-![Stellarator vorticity validation](data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+![Stellarator vorticity validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)
 
-![Stellarator PyTree/JVP/scaling validation](data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+![Stellarator PyTree/JVP/scaling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
-![Stellarator SOL snapshots](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_snapshots.png)
+![Stellarator SOL snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
 
-![Stellarator SOL diagnostics](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_diagnostics.png)
+![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
 
-![Stellarator SOL 3D movie](data/stellarator_fci_validation_artifacts/showcase/movies/stellarator_sol_showcase.gif)
+![Stellarator SOL 3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
 
 What this documents:
 
@@ -345,11 +345,11 @@ What this documents:
 
 ## Stellarator VMEC Scaffold
 
-![Stellarator VMEC profiles](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_profiles.png)
+![Stellarator VMEC profiles](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_profiles.png)
 
-![Stellarator VMEC surface summary](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_surface_summary.png)
+![Stellarator VMEC surface summary](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_surface_summary.png)
 
-![Stellarator VMEC surface movie](data/stellarator_vmec_scaffold_artifacts/images/stellarator_vmec_scaffold_surface_movie.gif)
+![Stellarator VMEC surface movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_scaffold_artifacts__images__stellarator_vmec_scaffold_surface_movie.gif)
 
 What this documents:
 
@@ -361,7 +361,7 @@ What this documents:
 
 ## Stellarator VMEC Selected-Field Parity
 
-![Stellarator VMEC selected-field parity](data/stellarator_vmec_selected_field_artifacts/images/stellarator_vmec_selected_field_parity.png)
+![Stellarator VMEC selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_selected_field_artifacts__images__stellarator_vmec_selected_field_parity.png)
 
 What this documents:
 
@@ -372,9 +372,9 @@ What this documents:
 
 ## Stellarator VMEC Native Reduced Selected-Field
 
-![Stellarator VMEC native selected-field parity](data/stellarator_vmec_native_selected_field_artifacts/images/stellarator_vmec_native_selected_field.png)
+![Stellarator VMEC native selected-field parity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_native_selected_field_artifacts__images__stellarator_vmec_native_selected_field.png)
 
-![Stellarator VMEC native selected-field comparison](data/stellarator_vmec_native_selected_field_artifacts/images/stellarator_vmec_native_selected_field_comparison.png)
+![Stellarator VMEC native selected-field comparison](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_vmec_native_selected_field_artifacts__images__stellarator_vmec_native_selected_field_comparison.png)
 
 What this documents:
 
@@ -385,7 +385,7 @@ What this documents:
 
 ## Native 3D Runtime Campaign
 
-![Native 3D runtime campaign](data/native_3d_runtime_campaign_artifacts/images/native_3d_runtime_campaign.png)
+![Native 3D runtime campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__native_3d_runtime_campaign_artifacts__images__native_3d_runtime_campaign.png)
 
 What this documents:
 
@@ -396,7 +396,7 @@ What this documents:
 
 ## Native 3D Convergence Campaign
 
-![Native 3D convergence campaign](data/native_3d_convergence_campaign_artifacts/images/native_3d_convergence_campaign.png)
+![Native 3D convergence campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__native_3d_convergence_campaign_artifacts__images__native_3d_convergence_campaign.png)
 
 What this documents:
 
@@ -406,7 +406,7 @@ What this documents:
 
 ## Fluid 1D MMS Convergence
 
-![Fluid 1D MMS convergence](data/fluid_1d_mms_convergence_artifacts/images/fluid_1d_mms_convergence.png)
+![Fluid 1D MMS convergence](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__fluid_1d_mms_convergence_artifacts__images__fluid_1d_mms_convergence.png)
 
 What this documents:
 
@@ -416,7 +416,7 @@ What this documents:
 
 ## JAX Native Profile Audit
 
-![JAX native profile audit](data/jax_native_profile_audit_artifacts/images/jax_native_profile_audit.png)
+![JAX native profile audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__jax_native_profile_audit_artifacts__images__jax_native_profile_audit.png)
 
 What this documents:
 
@@ -430,7 +430,7 @@ cost, but it should stay secondary to the physics and verification surfaces.
 
 ## Implicit Solver Profile Audit
 
-![Implicit solver profile audit](data/implicit_solver_profile_audit_artifacts/images/implicit_solver_profile_audit.png)
+![Implicit solver profile audit](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__implicit_solver_profile_audit_artifacts__images__implicit_solver_profile_audit.png)
 
 What this documents:
 
@@ -447,7 +447,7 @@ What this documents:
 
 ## Local CPU Scaling Campaign
 
-![Local CPU scaling campaign](data/local_cpu_scaling_campaign_artifacts/images/local_cpu_scaling_campaign.png)
+![Local CPU scaling campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__local_cpu_scaling_campaign_artifacts__images__local_cpu_scaling_campaign.png)
 
 What this documents:
 
@@ -464,7 +464,7 @@ scans better than a tiny-kernel strong-scaling plot.
 
 ## Hermes Comparison Summary
 
-![Hermes comparison summary](data/hermes_comparison_summary_artifacts/images/hermes_comparison_summary.png)
+![Hermes comparison summary](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_comparison_summary_artifacts__images__hermes_comparison_summary.png)
 
 What this documents:
 
@@ -479,7 +479,7 @@ campaigns rather than on this rollup alone.
 
 ## Controller Feedback Campaign
 
-![Controller feedback campaign](data/controller_feedback_campaign_artifacts/images/controller_feedback_campaign.png)
+![Controller feedback campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__controller_feedback_campaign_artifacts__images__controller_feedback_campaign.png)
 
 What this documents:
 
@@ -489,7 +489,7 @@ What this documents:
 
 ## Detachment Controller Campaign
 
-![Detachment controller campaign](data/detachment_controller_campaign_artifacts/images/detachment_controller_campaign.png)
+![Detachment controller campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__detachment_controller_campaign_artifacts__images__detachment_controller_campaign.png)
 
 What this documents:
 
@@ -499,7 +499,7 @@ What this documents:
 
 ## Reactions And Collisions Campaign
 
-![Reactions and collisions campaign](data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png)
+![Reactions and collisions campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__reactions_collisions_campaign_artifacts__images__reactions_collisions_campaign.png)
 
 What this documents:
 
@@ -510,7 +510,7 @@ What this documents:
 
 ## Atomic Rate Differentiability Campaign
 
-![Atomic rate differentiability campaign](data/atomic_rate_differentiability_campaign_artifacts/images/atomic_rate_differentiability_campaign.png)
+![Atomic rate differentiability campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__atomic_rate_differentiability_campaign_artifacts__images__atomic_rate_differentiability_campaign.png)
 
 What this documents:
 
@@ -525,7 +525,7 @@ What this documents:
 
 ## Neutral Parallel Diffusion Campaign
 
-![Neutral parallel diffusion campaign](data/neutral_parallel_diffusion_campaign_artifacts/images/neutral_parallel_diffusion_campaign.png)
+![Neutral parallel diffusion campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_parallel_diffusion_campaign_artifacts__images__neutral_parallel_diffusion_campaign.png)
 
 What this documents:
 
@@ -536,7 +536,7 @@ What this documents:
 
 ## Collision Closure Campaign
 
-![Collision closure campaign](data/collision_closure_campaign_artifacts/images/collision_closure_campaign.png)
+![Collision closure campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__collision_closure_campaign_artifacts__images__collision_closure_campaign.png)
 
 What this documents:
 
@@ -547,7 +547,7 @@ What this documents:
 
 ## Tokamak Anomalous Diffusion Campaign
 
-![Tokamak anomalous diffusion campaign](data/tokamak_anomalous_diffusion_campaign_artifacts/images/tokamak_anomalous_diffusion_campaign.png)
+![Tokamak anomalous diffusion campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_anomalous_diffusion_campaign_artifacts__images__tokamak_anomalous_diffusion_campaign.png)
 
 What this documents:
 
@@ -558,7 +558,7 @@ What this documents:
 
 ## Tokamak Recycling Observable Campaign
 
-![Tokamak recycling observable campaign](data/tokamak_recycling_observable_campaign_artifacts/images/tokamak_recycling_observable_campaign.png)
+![Tokamak recycling observable campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__tokamak_recycling_observable_campaign_artifacts__images__tokamak_recycling_observable_campaign.png)
 
 What this documents:
 
@@ -574,7 +574,7 @@ What this documents:
 
 ## Target Recycling Campaign
 
-![Target recycling campaign](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+![Target recycling campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__images__target_recycling_campaign.png)
 
 What this documents:
 
@@ -585,7 +585,7 @@ What this documents:
 
 ## Hermes Live Rerun Matrix
 
-![Hermes live rerun campaign](data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
+![Hermes live rerun campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_live_rerun_campaign_artifacts__images__hermes_live_rerun_campaign.png)
 
 What this documents:
 
@@ -623,7 +623,7 @@ reference-backed packages.
 
 ## Hermes Offender Register
 
-![Hermes offender register](data/hermes_offender_register_artifacts/images/hermes_offender_register.png)
+![Hermes offender register](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_offender_register_artifacts__images__hermes_offender_register.png)
 
 What this documents:
 
@@ -642,7 +642,7 @@ What this documents:
 
 ## Neutral Mixed Boundary Audit
 
-![Neutral mixed boundary campaign](data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+![Neutral mixed boundary campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_boundary_campaign_artifacts__images__neutral_mixed_boundary_campaign.png)
 
 What this documents:
 
@@ -662,7 +662,7 @@ can be tied back to closures and boundary treatment.
 
 ## Temperature Feedback Campaign
 
-![Temperature feedback campaign](data/temperature_feedback_campaign_artifacts/images/temperature_feedback_campaign.png)
+![Temperature feedback campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__temperature_feedback_campaign_artifacts__images__temperature_feedback_campaign.png)
 
 What this documents:
 
@@ -673,7 +673,7 @@ What this documents:
 
 ## Autodiff Diffusion Uncertainty
 
-![Autodiff diffusion uncertainty](data/autodiff_diffusion_uncertainty_artifacts/images/autodiff_diffusion_uncertainty.png)
+![Autodiff diffusion uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
 
 What this documents:
 
@@ -687,7 +687,7 @@ than only raw gradients.
 
 ## Autodiff Diffusion Sensitivity
 
-![Autodiff diffusion sensitivity](data/autodiff_diffusion_sensitivity_artifacts/images/autodiff_diffusion_sensitivity.png)
+![Autodiff diffusion sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
 
 What this documents:
 
@@ -700,7 +700,7 @@ What this documents:
 
 ## Autodiff Diffusion Inverse Design
 
-![Autodiff diffusion inverse design](data/autodiff_diffusion_inverse_design_artifacts/images/autodiff_diffusion_inverse_design.png)
+![Autodiff diffusion inverse design](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_inverse_design_artifacts__images__autodiff_diffusion_inverse_design.png)
 
 What this documents:
 
@@ -712,7 +712,7 @@ What this documents:
 
 ## Strong Scaling Diffusion
 
-![Strong scaling diffusion](data/strong_scaling_diffusion_artifacts/images/strong_scaling_diffusion.png)
+![Strong scaling diffusion](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__strong_scaling_diffusion_artifacts__images__strong_scaling_diffusion.png)
 
 What this documents:
 
@@ -727,7 +727,7 @@ What this documents:
 
 ## Impurity And Radiation Campaign
 
-![Impurity and radiation campaign](data/impurity_radiation_campaign_artifacts/images/impurity_radiation_campaign.png)
+![Impurity and radiation campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__impurity_radiation_campaign_artifacts__images__impurity_radiation_campaign.png)
 
 What this documents:
 
@@ -738,7 +738,7 @@ What this documents:
 
 ## Neutral Mixed Short-Window Benchmark Target
 
-![Neutral mixed short-window diagnostics](images/neutral_mixed_short_window_diagnostics.png)
+![Neutral mixed short-window diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__neutral_mixed_short_window_diagnostics.png)
 
 What this locks down:
 
@@ -749,7 +749,7 @@ What this locks down:
 
 ## Alfven-Wave Short-Window Benchmark
 
-![Alfven-wave short-window diagnostics](images/alfven_wave_short_window_diagnostics.png)
+![Alfven-wave short-window diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__images__alfven_wave_short_window_diagnostics.png)
 
 What this locks down:
 

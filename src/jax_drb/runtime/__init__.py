@@ -1,3 +1,4 @@
+from .artifacts import ARTIFACT_BASE_URL, ARTIFACT_RELEASE_TAG, REFERENCE_BASELINES_ASSET, ensure_reference_baselines
 from .performance import (
     configure_jax_runtime,
     resolve_host_device_count,
@@ -14,6 +15,8 @@ from .state import SimulationState
 
 __all__ = [
     "ComponentRequest",
+    "ARTIFACT_BASE_URL",
+    "ARTIFACT_RELEASE_TAG",
     "RestartBundle",
     "build_run_log_payload",
     "configure_jax_runtime",
@@ -22,7 +25,9 @@ __all__ = [
     "MeshScalarConfig",
     "ParallelTransformConfig",
     "PeakRssMeasurement",
+    "REFERENCE_BASELINES_ASSET",
     "bytes_to_mebibytes",
+    "ensure_reference_baselines",
     "print_run_log",
     "process_tree_rss_bytes",
     "resolve_host_device_count",

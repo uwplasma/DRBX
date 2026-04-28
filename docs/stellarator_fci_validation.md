@@ -215,14 +215,14 @@ The geometry campaign currently passes:
 - backward boundary fraction: about `2.69e-2`;
 - magnetic-field range: about `0.791` to `1.241`.
 
-![Stellarator FCI geometry validation](data/stellarator_fci_validation_artifacts/geometry/images/stellarator_fci_geometry_campaign.png)
+![Stellarator FCI geometry validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png)
 
 The multi-configuration geometry suite currently passes all three metric/map
 gates. The three cases span mirror ratios from about `0.45` to `0.61`, mean
 connection-length proxies from about `23.8` to `24.7`, and maximum radial map
 shifts from about `0.17` to `0.36` cells:
 
-![Stellarator FCI multi-configuration suite](data/stellarator_fci_validation_artifacts/suite/images/stellarator_fci_suite_campaign.png)
+![Stellarator FCI multi-configuration suite](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png)
 
 The operator campaign currently passes:
 
@@ -233,7 +233,7 @@ The operator campaign currently passes:
 - conservative metric-weighted diffusion energy drop: about `4.99e-3`;
 - conservative constant-state residual: about `9.35e-17`.
 
-![Stellarator FCI operator validation](data/stellarator_fci_validation_artifacts/operators/images/stellarator_fci_operator_campaign.png)
+![Stellarator FCI operator validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__operators__images__stellarator_fci_operator_campaign.png)
 
 The sheath/recycling campaign currently passes:
 
@@ -245,7 +245,7 @@ The sheath/recycling campaign currently passes:
 - neutral-energy recycling relative error: about `8.6e-16`;
 - zero-current balance relative error: below display precision.
 
-![Stellarator sheath/recycling validation](data/stellarator_fci_validation_artifacts/sheath_recycling/images/stellarator_sheath_recycling_campaign.png)
+![Stellarator sheath/recycling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
 
 The neutral physics campaign currently passes:
 
@@ -256,7 +256,7 @@ The neutral physics campaign currently passes:
 - particle reaction relative error: about `1.2e-18`;
 - momentum reaction relative error: below display precision.
 
-![Stellarator neutral physics validation](data/stellarator_fci_validation_artifacts/neutral_physics/images/stellarator_neutral_physics_campaign.png)
+![Stellarator neutral physics validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
 
 The vorticity/potential campaign currently passes:
 
@@ -264,7 +264,7 @@ The vorticity/potential campaign currently passes:
 - relative residual: about `2.01e-4`;
 - radial \(E\times B\) proxy RMS: about `1.04`.
 
-![Stellarator vorticity validation](data/stellarator_fci_validation_artifacts/vorticity/images/stellarator_vorticity_campaign.png)
+![Stellarator vorticity validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__vorticity__images__stellarator_vorticity_campaign.png)
 
 The PyTree DRB campaign currently passes:
 
@@ -278,7 +278,7 @@ The PyTree DRB campaign currently passes:
 - remote two-device GPU smoke profile: passing, with `pmap` execution around
   `7.0e-2` seconds on the same compact grid.
 
-![Stellarator PyTree/JVP/scaling validation](data/stellarator_fci_validation_artifacts/pytree_drb/images/stellarator_drb_pytree_campaign.png)
+![Stellarator PyTree/JVP/scaling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
 The reduced dynamics campaign currently passes:
 
@@ -293,13 +293,13 @@ The reduced dynamics campaign currently passes:
 - connection-length-weighted RMS: about `8.53e-2`;
 - radial-flux proxy: about `-1.20e-4`.
 
-![Stellarator SOL snapshots](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_snapshots.png)
+![Stellarator SOL snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
 
-![Stellarator SOL diagnostics](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_diagnostics.png)
+![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
 
-![Stellarator SOL 3D poster](data/stellarator_fci_validation_artifacts/showcase/images/stellarator_sol_showcase_poster.png)
+![Stellarator SOL 3D poster](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_poster.png)
 
-![Stellarator SOL 3D movie](data/stellarator_fci_validation_artifacts/showcase/movies/stellarator_sol_showcase.gif)
+![Stellarator SOL 3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
 
 ## Interpretation
 

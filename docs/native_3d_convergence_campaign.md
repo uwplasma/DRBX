@@ -12,7 +12,7 @@ PYTHONPATH=src .venv/bin/python examples/engineering/native_3d_convergence_campa
 
 Artifacts:
 - `docs/data/native_3d_convergence_campaign_artifacts/data/native_3d_convergence_campaign.json`
-- `docs/data/native_3d_convergence_campaign_artifacts/images/native_3d_convergence_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__native_3d_convergence_campaign_artifacts__images__native_3d_convergence_campaign.png`
 
 Claim boundary:
 - this is an operator-level convergence gate on the promoted reduced non-tokamak native surface;

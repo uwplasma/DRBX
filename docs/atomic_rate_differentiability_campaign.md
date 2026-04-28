@@ -33,5 +33,5 @@ python examples/engineering/atomic_rate_differentiability_campaign_demo.py
 Committed artifacts:
 
 - `docs/data/atomic_rate_differentiability_campaign_artifacts/data/atomic_rate_differentiability_campaign.json`
-- `docs/data/atomic_rate_differentiability_campaign_artifacts/data/atomic_rate_differentiability_campaign.npz`
-- `docs/data/atomic_rate_differentiability_campaign_artifacts/images/atomic_rate_differentiability_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__atomic_rate_differentiability_campaign_artifacts__data__atomic_rate_differentiability_campaign.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__atomic_rate_differentiability_campaign_artifacts__images__atomic_rate_differentiability_campaign.png`

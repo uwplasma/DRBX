@@ -16,8 +16,8 @@ PYTHONPATH=src .venv/bin/python examples/engineering/controller_feedback_campaig
 
 Artifacts:
 - `docs/data/controller_feedback_campaign_artifacts/data/controller_feedback_campaign.json`
-- `docs/data/controller_feedback_campaign_artifacts/data/controller_feedback_campaign.npz`
-- `docs/data/controller_feedback_campaign_artifacts/images/controller_feedback_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__controller_feedback_campaign_artifacts__data__controller_feedback_campaign.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__controller_feedback_campaign_artifacts__images__controller_feedback_campaign.png`
 
 Claim boundary:
 - this is a real controller-oriented validation surface for the native density-feedback path;

@@ -17,8 +17,8 @@ as a dashboard scalar.
 The generated artifact bundle is:
 
 - [summary JSON](data/neutral_mixed_boundary_campaign_artifacts/data/neutral_mixed_boundary_campaign.json)
-- [summary arrays](data/neutral_mixed_boundary_campaign_artifacts/data/neutral_mixed_boundary_campaign.npz)
-- [summary figure](data/neutral_mixed_boundary_campaign_artifacts/images/neutral_mixed_boundary_campaign.png)
+- [summary arrays](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_boundary_campaign_artifacts__data__neutral_mixed_boundary_campaign.npz)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_boundary_campaign_artifacts__images__neutral_mixed_boundary_campaign.png)
 
 The figure reports:
 

@@ -16,8 +16,8 @@ finite, and interpretable on a realistic multispecies open-field state.
 The generated artifact bundle is:
 
 - [summary JSON](data/target_recycling_campaign_artifacts/data/target_recycling_campaign.json)
-- [summary arrays](data/target_recycling_campaign_artifacts/data/target_recycling_campaign.npz)
-- [summary figure](data/target_recycling_campaign_artifacts/images/target_recycling_campaign.png)
+- [summary arrays](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__data__target_recycling_campaign.npz)
+- [summary figure](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__target_recycling_campaign_artifacts__images__target_recycling_campaign.png)
 
 The figure reports four summaries:
 

@@ -44,5 +44,5 @@ python examples/engineering/reactions_collisions_campaign_demo.py
 Committed artifacts:
 
 - `docs/data/reactions_collisions_campaign_artifacts/data/reactions_collisions_campaign.json`
-- `docs/data/reactions_collisions_campaign_artifacts/data/reactions_collisions_campaign.npz`
-- `docs/data/reactions_collisions_campaign_artifacts/images/reactions_collisions_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__reactions_collisions_campaign_artifacts__data__reactions_collisions_campaign.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__reactions_collisions_campaign_artifacts__images__reactions_collisions_campaign.png`

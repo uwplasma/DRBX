@@ -15,8 +15,8 @@ PYTHONPATH=src .venv/bin/python examples/engineering/impurity_radiation_campaign
 Committed artifacts:
 
 - `docs/data/impurity_radiation_campaign_artifacts/data/impurity_radiation_campaign.json`
-- `docs/data/impurity_radiation_campaign_artifacts/data/impurity_radiation_campaign.npz`
-- `docs/data/impurity_radiation_campaign_artifacts/images/impurity_radiation_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__impurity_radiation_campaign_artifacts__data__impurity_radiation_campaign.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__impurity_radiation_campaign_artifacts__images__impurity_radiation_campaign.png`
 
 Current claim boundary:
 

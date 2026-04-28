@@ -42,7 +42,7 @@ packages. Full live 3D Hermès reruns are not yet part of this matrix.
 
 Generated artifact:
 
-![Hermes live rerun campaign](data/hermes_live_rerun_campaign_artifacts/images/hermes_live_rerun_campaign.png)
+![Hermes live rerun campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__hermes_live_rerun_campaign_artifacts__images__hermes_live_rerun_campaign.png)
 
 Key current observations from the refreshed live rerun matrix:
 

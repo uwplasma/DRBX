@@ -22,8 +22,8 @@ PYTHONPATH=src .venv/bin/python examples/engineering/detachment_controller_campa
 Artifacts:
 
 - `docs/data/detachment_controller_campaign_artifacts/data/detachment_controller_campaign.json`
-- `docs/data/detachment_controller_campaign_artifacts/data/detachment_controller_campaign.npz`
-- `docs/data/detachment_controller_campaign_artifacts/images/detachment_controller_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__detachment_controller_campaign_artifacts__data__detachment_controller_campaign.npz`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__detachment_controller_campaign_artifacts__images__detachment_controller_campaign.png`
 
 Claim boundary:
 

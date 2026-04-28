@@ -12,7 +12,7 @@ PYTHONPATH=src .venv/bin/python examples/engineering/native_3d_runtime_campaign_
 Committed artifacts:
 
 - `docs/data/native_3d_runtime_campaign_artifacts/data/native_3d_runtime_campaign.json`
-- `docs/data/native_3d_runtime_campaign_artifacts/images/native_3d_runtime_campaign.png`
+- `https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__native_3d_runtime_campaign_artifacts__images__native_3d_runtime_campaign.png`
 
 Current scope:
 
