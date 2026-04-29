@@ -122,10 +122,10 @@ The first native lane now consists of:
   the first external Landreman-Paul QA field-line import gate: ESSOS-owned
   field evaluation, adaptive field-line tracing, Poincare extraction, and
   portable JSON/NPZ/PNG artifacts for subsequent FCI/operator workflows.
-- `src/jax_drb/validation/essos_imported_fci_campaign.py`, which converts an
-  annular grid of ESSOS-owned field-line trajectories into fixed-shape FCI
-  maps, then runs JAXDRB sheath/recycling and neutral closure gates on the
-  imported maps.
+- `src/jax_drb/validation/essos_imported_fci_campaign.py`, which converts a
+  scaled VMEC Landreman-Paul QA shell of ESSOS-owned field-line trajectories
+  into fixed-shape FCI maps, then runs JAXDRB sheath/recycling and neutral
+  closure gates on the imported maps.
 - `src/jax_drb/validation/essos_imported_pytree_campaign.py`, which drives
   the fixed-layout JAXDRB PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
   from the same ESSOS-imported field-line maps.
@@ -143,10 +143,11 @@ The first external field-line import artifact lives in
 through ESSOS, then stores only sanitized arrays and metadata in `jax_drb`.
 The first imported-FCI downstream artifact lives in
 `docs/data/essos_imported_fci_artifacts/` and is documented in
-`docs/essos_imported_fci_validation.md`. It is still an annular validation
-bridge rather than an imported-wall predictive stellarator edge simulation,
-but the imported maps now feed the same JAX-native sheath/recycling and
-neutral kernels used by the analytic non-axisymmetric validation suite.
+`docs/essos_imported_fci_validation.md`. It is still a validation bridge
+rather than an imported-wall predictive stellarator edge simulation, but the
+imported maps now use a scaled VMEC QA surface and feed the same JAX-native
+sheath/recycling and neutral kernels used by the analytic non-axisymmetric
+validation suite.
 The imported PyTree/JVP artifact lives in
 `docs/data/essos_imported_pytree_artifacts/` and is documented in
 `docs/essos_imported_pytree_validation.md`; it verifies that the imported maps

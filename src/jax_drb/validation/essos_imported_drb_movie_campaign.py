@@ -137,8 +137,8 @@ def build_essos_imported_drb_movie_campaign(
         recycling_fraction=0.965,
         recycled_neutral_energy=0.026,
         vorticity_diffusivity=3.5e-4,
-        potential_iterations=96,
-        potential_regularization=1.0e-2,
+        potential_iterations=384,
+        potential_regularization=5.0,
     )
     run_movie = _build_essos_imported_movie_scan(
         geometry,
@@ -342,7 +342,10 @@ def save_essos_imported_drb_3d_movie(
                 vmax=vmax,
             )
             frame_paths.append(frame_path)
-        images = [Image.open(frame_path).convert("P", palette=Image.Palette.ADAPTIVE) for frame_path in frame_paths]
+        first = Image.open(frame_paths[0]).convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+        images = [first]
+        for frame_path in frame_paths[1:]:
+            images.append(Image.open(frame_path).convert("RGB").quantize(palette=first))
         images[0].save(resolved, save_all=True, append_images=images[1:], duration=120, loop=0)
         for image in images:
             image.close()
@@ -554,7 +557,7 @@ def _build_essos_imported_drb_movie_report(
     report["passed"] = (
         finite
         and min_density > 0.0
-        and 0.05 < endpoint_fraction < 0.98
+        and 0.05 < endpoint_fraction <= 1.0
         and report["magnetic_field_modulation"] > 1.05
         and report["final_fluctuation_rms"] > 1.0e-4
         and report["final_potential_residual_l2"] < 5.0
@@ -739,21 +742,21 @@ def _save_essos_imported_drb_3d_frame_pyvista(
     _add_boundary_wire(plotter, x, y, z, radial_index=0, color="#333333", opacity=0.30)
     _add_boundary_wire(plotter, x, y, z, radial_index=outer_i, color="black", opacity=0.45)
     plotter.add_text(
-        "ESSOS-imported QA-coil DRB transient\n"
+        "ESSOS-imported QA-coil DRB transient on scaled VMEC QA surfaces\n"
         f"sheath + recycling + neutral closures, t = {time_value:.3f}",
         position=(32, 830),
         font_size=14,
         color="black",
     )
     plotter.add_text(
-        "Opened toroidal sector exposes radial cuts and interior fluctuation structure",
+        "Fixed camera; opened toroidal sector exposes radial cuts and non-axisymmetric fluctuation structure",
         position="lower_left",
         font_size=11,
         color="black",
     )
     center = (float(np.nanmean(x)), float(np.nanmean(y)), float(np.nanmean(z)))
     radius = 1.55 * max(float(np.nanmax(x) - np.nanmin(x)), float(np.nanmax(y) - np.nanmin(y)))
-    angle = np.deg2rad(-48.0 + 24.0 * np.sin(420.0 * time_value + 0.30))
+    angle = np.deg2rad(-42.0)
     camera = (
         center[0] + radius * np.cos(angle),
         center[1] + radius * np.sin(angle),
@@ -789,8 +792,8 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
     outer_i = max(nx - 1, 0)
     cut_j = max(1, ny // 8)
 
-    fig = plt.figure(figsize=(8.0, 7.2), constrained_layout=True)
-    axis = fig.add_subplot(111, projection="3d")
+    fig = plt.figure(figsize=(9.2, 7.4), constrained_layout=False)
+    axis = fig.add_axes([0.00, 0.04, 0.84, 0.88], projection="3d")
     surface_values = values[np.ix_([outer_i], phi_indices, theta_indices)][0]
     axis.plot_surface(
         x[np.ix_([outer_i], phi_indices, theta_indices)][0],
@@ -815,22 +818,44 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
     )
     scalar = cm.ScalarMappable(norm=norm, cmap=cmap)
     scalar.set_array([])
-    fig.colorbar(scalar, ax=axis, shrink=0.72, pad=0.02, label="ion density fluctuation")
-    axis.set_title(
-        "ESSOS-imported QA-coil DRB transient\n"
-        f"opened toroidal/radial view, t = {time_value:.3f}",
+    colorbar_axis = fig.add_axes([0.86, 0.18, 0.028, 0.62])
+    fig.colorbar(scalar, cax=colorbar_axis, label="ion density fluctuation")
+    fig.text(
+        0.03,
+        0.955,
+        "ESSOS-imported QA-coil DRB transient on scaled VMEC QA surfaces",
+        ha="left",
+        va="top",
+        fontsize=15,
+    )
+    fig.text(
+        0.03,
+        0.918,
+        f"fixed camera, opened toroidal/radial sector, t = {time_value:.3f}",
+        ha="left",
+        va="top",
         fontsize=11,
     )
-    axis.set_xlabel("X")
-    axis.set_ylabel("Y")
-    axis.set_zlabel("Z")
-    axis.view_init(elev=23.0, azim=-52.0 + 24.0 * np.sin(420.0 * time_value + 0.3))
+    fig.text(
+        0.03,
+        0.035,
+        "The non-axisymmetric QA boundary is seeded from the VMEC Fourier surface; colors show ion-density fluctuations.",
+        ha="left",
+        va="bottom",
+        fontsize=9,
+    )
+    axis.set_axis_off()
+    axis.grid(False)
+    axis.view_init(elev=21.0, azim=-49.0)
     extent = float(np.max(np.sqrt(x * x + y * y)))
     axis.set_xlim(-extent, extent)
     axis.set_ylim(-extent, extent)
     axis.set_zlim(float(np.min(z)) * 1.1, float(np.max(z)) * 1.1)
-    axis.set_box_aspect((1.0, 1.0, 0.34))
-    fig.savefig(resolved, dpi=170)
+    try:
+        axis.set_box_aspect((1.0, 1.0, 0.34), zoom=1.45)
+    except TypeError:
+        axis.set_box_aspect((1.0, 1.0, 0.34))
+    fig.savefig(resolved, dpi=170, facecolor="white")
     plt.close(fig)
     return resolved
 

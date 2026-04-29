@@ -73,9 +73,9 @@ evaluates the coil magnetic field or traces the field lines.
 
 The first downstream validation is documented in
 [ESSOS imported FCI validation](essos_imported_fci_validation.md). That gate
-converts an annular grid of externally traced trajectories into fixed-shape
-FCI maps, builds connection-length and endpoint-mask diagnostics, and routes
-JAXDRB sheath/recycling and neutral closures through the imported maps. The
-remaining production work is to replace the simple annular metric with
-wall-resolved target geometry and to promote the imported-map residuals into
-the same PyTree/JVP implicit-solver lane used by the native 3D operators.
+converts a scaled VMEC QA shell of externally traced trajectories into
+fixed-shape FCI maps, builds connection-length and endpoint-mask diagnostics,
+and routes JAXDRB sheath/recycling and neutral closures through the imported
+maps. The remaining production work is to add wall-resolved target geometry
+and to promote the imported-map residuals into the same PyTree/JVP
+implicit-solver lane used by the native 3D operators.

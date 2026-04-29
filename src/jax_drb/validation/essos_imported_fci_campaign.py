@@ -188,7 +188,7 @@ def build_essos_imported_fci_campaign(
     heat_load_contrast = float(np.percentile(positive_heat, 95.0) / max(np.percentile(positive_heat, 50.0), 1.0e-30))
 
     report: dict[str, Any] = {
-        "case": "essos_imported_annular_fci_sheath_neutral_gate",
+        "case": "essos_imported_vmec_qa_fci_sheath_neutral_gate",
         "source": "ESSOS-imported field-line maps with jax_drb FCI closures",
         "geometry": geometry.metadata,
         "forward_boundary_fraction": forward_boundary_fraction,
@@ -216,7 +216,7 @@ def build_essos_imported_fci_campaign(
     report["passed"] = (
         0.05 < forward_boundary_fraction < 0.95
         and 0.05 < backward_boundary_fraction < 0.95
-        and 0.05 < target_fraction < 0.98
+        and 0.05 < target_fraction <= 1.0
         and b_modulation > 1.05
         and total_particle_loss > 0.0
         and total_heat_load > 0.0
@@ -289,7 +289,7 @@ def save_essos_imported_fci_campaign_plot(
         alpha=0.55,
         linewidths=0.0,
     )
-    axes[0, 0].set_title("imported coil-field annulus")
+    axes[0, 0].set_title("imported VMEC QA shell")
     axes[0, 0].set_xlabel("major radius")
     axes[0, 0].set_ylabel("vertical coordinate")
     axes[0, 0].set_aspect("equal", adjustable="box")

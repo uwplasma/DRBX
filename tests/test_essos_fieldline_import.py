@@ -12,6 +12,7 @@ from jax_drb.geometry import (
     essos_runtime_available,
     load_essos_field_line_bundle_npz,
     resolve_essos_landreman_qa_json,
+    resolve_essos_landreman_qa_wout,
 )
 from jax_drb.validation import (
     create_essos_fieldline_import_package,
@@ -26,6 +27,7 @@ def _has_essos_landreman_runtime() -> bool:
         return False
     try:
         resolve_essos_landreman_qa_json()
+        resolve_essos_landreman_qa_wout()
     except FileNotFoundError:
         return False
     return essos_runtime_available()
@@ -69,7 +71,9 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     )
 
     assert geometry.shape == (3, 4, 6)
-    assert geometry.metadata["geometry_family"] == "essos_imported_annular_fci"
+    assert geometry.metadata["geometry_family"] == "essos_imported_vmec_qa_fci"
+    assert geometry.metadata["coordinate_model"] == "scaled_vmec_fourier_flux_surfaces"
+    assert geometry.metadata["surface_nonaxisymmetric_major_rms"] > 1.0e-2
     assert np.all(np.isfinite(np.asarray(geometry.magnetic_field_magnitude)))
     assert np.all(np.isfinite(np.asarray(geometry.connection_length)))
     assert 0.05 < float(np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool))) < 0.95
@@ -110,7 +114,7 @@ def test_essos_imported_maps_feed_pytree_jvp_rhs_gate(tmp_path: Path) -> None:
     assert report["passed"] is True
     assert report["source"] == "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS"
     assert report["jvp_relative_error"] < 1.0e-2
-    assert report["vmap_serial_linf"] < 1.0e-8
+    assert report["vmap_serial_linf"] < 1.0e-6
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
 

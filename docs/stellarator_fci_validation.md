@@ -319,10 +319,11 @@ The PyTree DRB campaign currently passes:
 The imported FCI campaign currently passes:
 
 - external field-line maps converted to fixed-shape FCI endpoints on an
-  annular Landreman-Paul QA grid;
-- forward and backward boundary fractions: about `0.61` and `0.68`;
-- target endpoint fraction: about `0.845`;
-- magnetic-field modulation: about `11.6`;
+  scaled VMEC Landreman-Paul QA shell;
+- forward and backward boundary fractions: about `0.67` and `0.75`;
+- target endpoint fraction: about `0.90`;
+- magnetic-field modulation: about `1.42`;
+- scaled-surface non-axisymmetric major-radius RMS: about `0.116`;
 - neutral particle and momentum balance errors: below display precision.
 
 ![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
@@ -340,13 +341,13 @@ The imported PyTree/JVP campaign currently passes:
 The ESSOS-imported QA-coil DRB movie campaign currently passes:
 
 - fixed-layout DRB transient on the imported Landreman-Paul QA FCI maps;
-- endpoint fraction: about `0.82`;
-- magnetic-field modulation: about `9.47`;
-- ion-density fluctuation RMS growth from about `1.3e-2` to `6.6e-2`;
-- compact potential residual: about `9.5e-11`;
+- endpoint fraction: about `0.87`;
+- magnetic-field modulation: about `1.42`;
+- ion-density fluctuation RMS growth from about `1.3e-2` to `8.0e-2`;
+- compact potential residual: about `6.3e-10`;
 - particle recycling, zero-current sheath, and neutral particle/momentum
   residuals at roundoff;
-- low-mode spectral-power fraction: about `0.33`.
+- low-mode spectral-power fraction: about `0.24`.
 
 ![ESSOS imported QA-coil DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
 

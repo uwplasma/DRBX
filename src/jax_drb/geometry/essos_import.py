@@ -15,6 +15,7 @@ from .metric_tensor import MetricTensor3D
 
 
 ESSOS_LANDREMAN_QA_RELATIVE_JSON = Path("examples/input_files/ESSOS_biot_savart_LandremanPaulQA.json")
+ESSOS_LANDREMAN_QA_RELATIVE_WOUT = Path("examples/input_files/wout_LandremanPaul2021_QA_reactorScale_lowres.nc")
 _PRIVATE_DEFAULT_ESSOS_ROOT = Path.home() / "local" / "ESSOS"
 
 
@@ -87,6 +88,23 @@ def resolve_essos_landreman_qa_json(path: str | Path | None = None, *, essos_roo
             "ESSOS Landreman-Paul QA coil JSON was not found. Pass coil_json_path "
             "or set JAX_DRB_ESSOS_ROOT to an ESSOS checkout containing "
             f"{ESSOS_LANDREMAN_QA_RELATIVE_JSON}."
+        )
+    return resolved
+
+
+def resolve_essos_landreman_qa_wout(path: str | Path | None = None, *, essos_root: str | Path | None = None) -> Path:
+    """Resolve the matching Landreman-Paul QA VMEC wout file."""
+
+    if path is not None:
+        resolved = Path(path)
+    else:
+        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("JAX_DRB_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
+        resolved = root / ESSOS_LANDREMAN_QA_RELATIVE_WOUT
+    if not resolved.exists():
+        raise FileNotFoundError(
+            "ESSOS Landreman-Paul QA VMEC wout file was not found. Pass vmec_wout_path "
+            "or set JAX_DRB_ESSOS_ROOT to an ESSOS checkout containing "
+            f"{ESSOS_LANDREMAN_QA_RELATIVE_WOUT}."
         )
     return resolved
 
@@ -205,6 +223,7 @@ def trace_essos_coil_field_lines(
 def build_essos_imported_fci_geometry(
     *,
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
     nx: int = 6,
     ny: int = 8,
@@ -215,7 +234,7 @@ def build_essos_imported_fci_geometry(
     times_to_trace: int = 768,
     trace_tolerance: float = 1.0e-8,
 ) -> EssosImportedFciGeometry:
-    """Build FCI maps from an ESSOS-traced annular seed grid.
+    """Build FCI maps from ESSOS tracing on a VMEC-shaped QA seed grid.
 
     The magnetic field and field-line integration remain external. `jax_drb`
     provides only the logical-grid conversion needed by the native FCI,
@@ -235,18 +254,32 @@ def build_essos_imported_fci_geometry(
     axis_major_radius = float(field.r_axis)
     axis_vertical = float(field.z_axis)
 
-    rho_1d = np.linspace(float(rho_min), float(rho_max), int(nx))
-    phi_1d = np.linspace(0.0, 2.0 * np.pi, int(ny), endpoint=False)
-    theta_1d = np.linspace(0.0, 2.0 * np.pi, int(nz), endpoint=False)
-    rho, phi, theta = np.meshgrid(rho_1d, phi_1d, theta_1d, indexing="ij")
-    major = axis_major_radius + rho * np.cos(theta)
-    vertical = axis_vertical + rho * np.sin(theta)
-    coordinates_x = major * np.cos(phi)
-    coordinates_y = major * np.sin(phi)
-    coordinates_z = vertical
+    resolved_vmec_wout = resolve_essos_landreman_qa_wout(vmec_wout_path, essos_root=essos_root)
+    coordinates = _build_vmec_scaled_qa_coordinates(
+        resolved_vmec_wout,
+        nx=int(nx),
+        ny=int(ny),
+        nz=int(nz),
+        rho_min=float(rho_min),
+        rho_max=float(rho_max),
+        axis_major_radius=axis_major_radius,
+        axis_vertical=axis_vertical,
+    )
+    rho_1d = coordinates["rho_1d"]
+    phi_1d = coordinates["phi_1d"]
+    theta_1d = coordinates["theta_1d"]
+    rho = coordinates["rho"]
+    phi = coordinates["phi"]
+    theta = coordinates["theta"]
+    major = coordinates["major"]
+    vertical = coordinates["vertical"]
+    coordinates_x = coordinates["x"]
+    coordinates_y = coordinates["y"]
+    coordinates_z = coordinates["z"]
     initial_xyz = np.stack([coordinates_x, coordinates_y, coordinates_z], axis=-1).reshape((-1, 3))
     start_phi = phi.reshape(-1)
     dphi = float(2.0 * np.pi / float(ny))
+    start_y_index = np.broadcast_to(np.arange(int(ny), dtype=int)[None, :, None], (int(nx), int(ny), int(nz))).reshape(-1)
 
     forward_trajectories = _trace_essos_initial_conditions(
         modules=modules,
@@ -288,25 +321,21 @@ def build_essos_imported_fci_geometry(
         backward_trajectories,
         target_phi=start_phi - dphi,
     )
-    forward_x, forward_z, forward_boundary = _cartesian_to_annular_indices(
+    forward_x, forward_z, forward_boundary = _cartesian_to_structured_surface_indices(
         forward_endpoint,
         crossed=forward_crossed,
-        axis_major_radius=axis_major_radius,
-        axis_vertical=axis_vertical,
-        rho_min=float(rho_min),
-        rho_max=float(rho_max),
-        nx=int(nx),
-        nz=int(nz),
+        target_y_index=(start_y_index + 1) % int(ny),
+        coordinates_x=coordinates_x,
+        coordinates_y=coordinates_y,
+        coordinates_z=coordinates_z,
     )
-    backward_x, backward_z, backward_boundary = _cartesian_to_annular_indices(
+    backward_x, backward_z, backward_boundary = _cartesian_to_structured_surface_indices(
         backward_endpoint,
         crossed=backward_crossed,
-        axis_major_radius=axis_major_radius,
-        axis_vertical=axis_vertical,
-        rho_min=float(rho_min),
-        rho_max=float(rho_max),
-        nx=int(nx),
-        nz=int(nz),
+        target_y_index=(start_y_index - 1) % int(ny),
+        coordinates_x=coordinates_x,
+        coordinates_y=coordinates_y,
+        coordinates_z=coordinates_z,
     )
     maps = FciMaps(
         forward_x=jnp.asarray(forward_x.reshape((nx, ny, nz)), dtype=jnp.float64),
@@ -320,23 +349,25 @@ def build_essos_imported_fci_geometry(
 
     b_xyz = np.asarray(jax.vmap(field.B)(local_jnp.asarray(initial_xyz, dtype=local_jnp.float64)), dtype=np.float64)
     bmag = np.linalg.norm(b_xyz, axis=1).reshape((nx, ny, nz))
-    exit_length = _annular_exit_length_from_trajectories(
+    exit_length = _structured_exit_length_from_trajectories(
         forward_trajectories,
-        axis_major_radius=axis_major_radius,
-        axis_vertical=axis_vertical,
-        rho_min=float(rho_min),
-        rho_max=float(rho_max),
+        coordinates_x=coordinates_x,
+        coordinates_y=coordinates_y,
+        coordinates_z=coordinates_z,
     ).reshape((nx, ny, nz))
     adjacent_length = 0.5 * (forward_length + backward_length).reshape((nx, ny, nz))
     connection_length = np.where(np.isfinite(exit_length), exit_length, adjacent_length)
-    metric = _annular_metric_tensor(
-        rho=rho,
-        major=major,
-        bmag=bmag,
-        drho=float(rho_1d[1] - rho_1d[0]) if nx > 1 else 1.0,
-        dphi=dphi,
-        dtheta=float(2.0 * np.pi / float(nz)),
+    metric = _metric_from_coordinates(
+        coordinates_x,
+        coordinates_y,
+        coordinates_z,
+        s_1d=rho_1d,
+        phi_1d=phi_1d,
+        theta_1d=theta_1d,
+        Bxy=bmag,
     )
+    forward_boundary_fraction = float(np.mean(forward_boundary))
+    backward_boundary_fraction = float(np.mean(backward_boundary))
     return EssosImportedFciGeometry(
         coordinates_x=jnp.asarray(coordinates_x, dtype=jnp.float64),
         coordinates_y=jnp.asarray(coordinates_y, dtype=jnp.float64),
@@ -349,9 +380,12 @@ def build_essos_imported_fci_geometry(
         metric=metric,
         maps=maps,
         metadata={
-            "geometry_family": "essos_imported_annular_fci",
+            "geometry_family": "essos_imported_vmec_qa_fci",
             "source": "ESSOS",
             "coil_json_file": resolved_coil_json.name,
+            "vmec_wout_file": resolved_vmec_wout.name,
+            "coordinate_model": "scaled_vmec_fourier_flux_surfaces",
+            **coordinates["metadata"],
             "field_model": "essos.fields.BiotSavart",
             "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)",
             "nx": int(nx),
@@ -364,6 +398,8 @@ def build_essos_imported_fci_geometry(
             "maxtime": float(maxtime),
             "times_to_trace": int(times_to_trace),
             "trace_tolerance": float(trace_tolerance),
+            "forward_boundary_fraction": forward_boundary_fraction,
+            "backward_boundary_fraction": backward_boundary_fraction,
         },
     )
 
@@ -528,6 +564,151 @@ def _cartesian_to_annular_indices(
     return x_index, z_index, boundary
 
 
+def _build_vmec_scaled_qa_coordinates(
+    wout_path: Path,
+    *,
+    nx: int,
+    ny: int,
+    nz: int,
+    rho_min: float,
+    rho_max: float,
+    axis_major_radius: float,
+    axis_vertical: float,
+) -> dict[str, Any]:
+    from netCDF4 import Dataset
+
+    with Dataset(wout_path) as dataset:
+        xm = np.asarray(dataset.variables["xm"][:], dtype=np.float64)
+        xn = np.asarray(dataset.variables["xn"][:], dtype=np.float64)
+        rmnc = np.asarray(dataset.variables["rmnc"][:], dtype=np.float64)
+        zmns = np.asarray(dataset.variables["zmns"][:], dtype=np.float64)
+        nfp = int(np.asarray(dataset.variables["nfp"][:]).reshape(()))
+
+    if rmnc.ndim != 2 or zmns.shape != rmnc.shape:
+        raise ValueError("VMEC wout Fourier arrays must have shape (ns, mnmax)")
+
+    rho_1d = np.linspace(float(rho_min), float(rho_max), int(nx))
+    phi_1d = np.linspace(0.0, 2.0 * np.pi, int(ny), endpoint=False)
+    theta_1d = np.linspace(0.0, 2.0 * np.pi, int(nz), endpoint=False)
+    rho, phi, theta = np.meshgrid(rho_1d, phi_1d, theta_1d, indexing="ij")
+
+    ns = int(rmnc.shape[0])
+    s_full = np.linspace(0.0, 1.0, ns)
+    normalized_radius = (rho_1d - float(rho_min)) / max(float(rho_max - rho_min), 1.0e-30)
+    normalized_radius = (float(rho_min) / max(float(rho_max), 1.0e-30)) + (
+        1.0 - float(rho_min) / max(float(rho_max), 1.0e-30)
+    ) * normalized_radius
+    s_requested = np.clip(normalized_radius * normalized_radius, 0.0, 1.0)
+
+    rmnc_shells = np.empty((int(nx), rmnc.shape[1]), dtype=np.float64)
+    zmns_shells = np.empty_like(rmnc_shells)
+    for mode_index in range(rmnc.shape[1]):
+        rmnc_shells[:, mode_index] = np.interp(s_requested, s_full, rmnc[:, mode_index])
+        zmns_shells[:, mode_index] = np.interp(s_requested, s_full, zmns[:, mode_index])
+
+    raw_axis_major = float(rmnc[0, 0])
+    raw_axis_vertical = float(zmns[0, 0])
+    scale = float(axis_major_radius) / max(abs(raw_axis_major), 1.0e-30)
+    phase = xm[None, None, None, :] * theta[..., None] - xn[None, None, None, :] * phi[..., None]
+    raw_major = np.sum(rmnc_shells[:, None, None, :] * np.cos(phase), axis=-1)
+    raw_vertical = np.sum(zmns_shells[:, None, None, :] * np.sin(phase), axis=-1)
+    major = float(axis_major_radius) + scale * (raw_major - raw_axis_major)
+    vertical = float(axis_vertical) + scale * (raw_vertical - raw_axis_vertical)
+    x = major * np.cos(phi)
+    y = major * np.sin(phi)
+    z = vertical
+
+    edge_major = major[-1]
+    edge_vertical = vertical[-1]
+    mean_edge_major_by_phi = np.mean(edge_major, axis=1)
+    nonaxisymmetric_major_rms = float(np.std(mean_edge_major_by_phi) / max(abs(float(np.mean(mean_edge_major_by_phi))), 1.0e-30))
+    edge_extent = np.sqrt((edge_major - np.mean(edge_major, axis=1, keepdims=True)) ** 2 + edge_vertical**2)
+    poloidal_extent_rms = float(np.sqrt(np.mean(edge_extent * edge_extent)))
+
+    return {
+        "rho_1d": rho_1d,
+        "phi_1d": phi_1d,
+        "theta_1d": theta_1d,
+        "rho": rho,
+        "phi": phi,
+        "theta": theta,
+        "major": major,
+        "vertical": vertical,
+        "x": x,
+        "y": y,
+        "z": z,
+        "metadata": {
+            "vmec_nfp": int(nfp),
+            "vmec_ns": ns,
+            "vmec_mnmax": int(rmnc.shape[1]),
+            "vmec_raw_axis_major_radius": raw_axis_major,
+            "vmec_raw_axis_vertical": raw_axis_vertical,
+            "vmec_to_essos_length_scale": scale,
+            "vmec_s_min": float(np.min(s_requested)),
+            "vmec_s_max": float(np.max(s_requested)),
+            "surface_nonaxisymmetric_major_rms": nonaxisymmetric_major_rms,
+            "surface_poloidal_extent_rms": poloidal_extent_rms,
+        },
+    }
+
+
+def _cartesian_to_structured_surface_indices(
+    points_xyz: np.ndarray,
+    *,
+    crossed: np.ndarray,
+    target_y_index: np.ndarray,
+    coordinates_x: np.ndarray,
+    coordinates_y: np.ndarray,
+    coordinates_z: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    nx, ny, nz = coordinates_x.shape
+    x_index = np.zeros(points_xyz.shape[0], dtype=np.float64)
+    z_index = np.zeros(points_xyz.shape[0], dtype=np.float64)
+    boundary = np.ones(points_xyz.shape[0], dtype=bool)
+
+    plane_spacing = _structured_plane_spacing(coordinates_x, coordinates_y, coordinates_z)
+    for index, point in enumerate(points_xyz):
+        if not bool(crossed[index]) or not np.all(np.isfinite(point)):
+            continue
+        y_index = int(target_y_index[index]) % ny
+        plane = np.column_stack(
+            [
+                coordinates_x[:, y_index, :].reshape(-1),
+                coordinates_y[:, y_index, :].reshape(-1),
+                coordinates_z[:, y_index, :].reshape(-1),
+            ]
+        )
+        distance_squared = np.sum((plane - point[None, :]) ** 2, axis=1)
+        nearest = int(np.argmin(distance_squared))
+        nearest_distance = float(np.sqrt(distance_squared[nearest]))
+        radial_index = nearest // nz
+        poloidal_index = nearest % nz
+        x_index[index] = float(radial_index)
+        z_index[index] = float(poloidal_index)
+        max_distance = 2.75 * float(plane_spacing[y_index])
+        boundary[index] = (
+            nearest_distance > max_distance
+            or radial_index <= 0
+            or radial_index >= nx - 1
+        )
+        if boundary[index]:
+            x_index[index] = 0.0
+            z_index[index] = 0.0
+    return x_index, z_index, boundary
+
+
+def _structured_plane_spacing(coordinates_x: np.ndarray, coordinates_y: np.ndarray, coordinates_z: np.ndarray) -> np.ndarray:
+    coords = np.stack([coordinates_x, coordinates_y, coordinates_z], axis=-1)
+    radial_spacing = np.linalg.norm(np.diff(coords, axis=0), axis=-1)
+    poloidal_spacing = np.linalg.norm(np.diff(np.concatenate([coords, coords[:, :, :1, :]], axis=2), axis=2), axis=-1)
+    spacing = []
+    for y_index in range(coords.shape[1]):
+        values = np.concatenate([radial_spacing[:, y_index, :].reshape(-1), poloidal_spacing[:, y_index, :].reshape(-1)])
+        finite = values[np.isfinite(values) & (values > 0.0)]
+        spacing.append(float(np.median(finite)) if finite.size else 1.0)
+    return np.asarray(spacing, dtype=np.float64)
+
+
 def _annular_exit_length_from_trajectories(
     trajectories_xyz: np.ndarray,
     *,
@@ -551,6 +732,110 @@ def _annular_exit_length_from_trajectories(
     first_exit = np.argmax(outside, axis=1)
     has_exit = np.any(outside, axis=1)
     return np.where(has_exit, arc_length[np.arange(trajectories_xyz.shape[0]), first_exit], arc_length[:, -1])
+
+
+def _structured_exit_length_from_trajectories(
+    trajectories_xyz: np.ndarray,
+    *,
+    coordinates_x: np.ndarray,
+    coordinates_y: np.ndarray,
+    coordinates_z: np.ndarray,
+) -> np.ndarray:
+    nx, ny, nz = coordinates_x.shape
+    coords = np.stack([coordinates_x, coordinates_y, coordinates_z], axis=-1)
+    radial_min = np.nanmin(np.sqrt(coordinates_x[0] * coordinates_x[0] + coordinates_y[0] * coordinates_y[0]))
+    radial_max = np.nanmax(np.sqrt(coordinates_x[-1] * coordinates_x[-1] + coordinates_y[-1] * coordinates_y[-1]))
+    vertical_min = np.nanmin(coordinates_z[-1])
+    vertical_max = np.nanmax(coordinates_z[-1])
+    padding = max(float(np.nanmedian(_structured_plane_spacing(coordinates_x, coordinates_y, coordinates_z))), 1.0e-6)
+    arc_length = np.concatenate(
+        [
+            np.zeros((trajectories_xyz.shape[0], 1), dtype=np.float64),
+            np.cumsum(np.linalg.norm(np.diff(trajectories_xyz, axis=1), axis=2), axis=1),
+        ],
+        axis=1,
+    )
+    major = np.sqrt(trajectories_xyz[:, :, 0] ** 2 + trajectories_xyz[:, :, 1] ** 2)
+    vertical = trajectories_xyz[:, :, 2]
+    broad_exit = (
+        (major < radial_min - padding)
+        | (major > radial_max + padding)
+        | (vertical < vertical_min - padding)
+        | (vertical > vertical_max + padding)
+        | (~np.isfinite(major))
+        | (~np.isfinite(vertical))
+    )
+    first_exit = np.argmax(broad_exit, axis=1)
+    has_exit = np.any(broad_exit, axis=1)
+    if nx * ny * nz <= 4096:
+        flat_coords = coords.reshape((-1, 3))
+        max_distance = 3.0 * padding
+        for line_index, trajectory in enumerate(trajectories_xyz):
+            if has_exit[line_index]:
+                continue
+            stride = max(int(trajectory.shape[0] // 48), 1)
+            sampled = trajectory[::stride]
+            distances = np.sqrt(np.min(np.sum((sampled[:, None, :] - flat_coords[None, :, :]) ** 2, axis=-1), axis=1))
+            exit_candidates = np.flatnonzero(distances > max_distance)
+            if exit_candidates.size:
+                first_exit[line_index] = min(int(exit_candidates[0]) * stride, trajectory.shape[0] - 1)
+                has_exit[line_index] = True
+    return np.where(has_exit, arc_length[np.arange(trajectories_xyz.shape[0]), first_exit], np.nan)
+
+
+def _metric_from_coordinates(
+    x_cart: np.ndarray,
+    y_cart: np.ndarray,
+    z_cart: np.ndarray,
+    *,
+    s_1d: np.ndarray,
+    phi_1d: np.ndarray,
+    theta_1d: np.ndarray,
+    Bxy: np.ndarray,
+) -> MetricTensor3D:
+    ds = float(s_1d[1] - s_1d[0]) if s_1d.size > 1 else 1.0
+    dphi = float(phi_1d[1] - phi_1d[0]) if phi_1d.size > 1 else 2.0 * np.pi
+    dtheta = float(theta_1d[1] - theta_1d[0]) if theta_1d.size > 1 else 2.0 * np.pi
+    edge_order = 2 if min(x_cart.shape) > 2 else 1
+
+    derivs = []
+    for coords in (x_cart, y_cart, z_cart):
+        derivs.append(np.gradient(coords, ds, dphi, dtheta, edge_order=edge_order))
+
+    r_s = np.stack([derivs[0][0], derivs[1][0], derivs[2][0]], axis=-1)
+    r_phi = np.stack([derivs[0][1], derivs[1][1], derivs[2][1]], axis=-1)
+    r_theta = np.stack([derivs[0][2], derivs[1][2], derivs[2][2]], axis=-1)
+    cov = np.empty(x_cart.shape + (3, 3), dtype=np.float64)
+    basis = (r_s, r_phi, r_theta)
+    for i, left in enumerate(basis):
+        for j, right in enumerate(basis):
+            cov[..., i, j] = np.sum(left * right, axis=-1)
+    determinant = np.linalg.det(cov)
+    regularization = np.maximum(1.0e-12, 1.0e-11 * np.nanmax(np.abs(determinant)))
+    bad = determinant <= regularization
+    if np.any(bad):
+        cov[bad] = cov[bad] + np.eye(3) * regularization
+    contrav = np.linalg.inv(cov)
+    jacobian = np.sqrt(np.maximum(np.linalg.det(cov), regularization))
+    return MetricTensor3D(
+        dx=jnp.asarray(np.full_like(x_cart, ds), dtype=jnp.float64),
+        dy=jnp.asarray(np.full_like(x_cart, dphi), dtype=jnp.float64),
+        dz=jnp.asarray(np.full_like(x_cart, dtheta), dtype=jnp.float64),
+        J=jnp.asarray(jacobian, dtype=jnp.float64),
+        Bxy=jnp.asarray(Bxy, dtype=jnp.float64),
+        g11=jnp.asarray(contrav[..., 0, 0], dtype=jnp.float64),
+        g22=jnp.asarray(contrav[..., 1, 1], dtype=jnp.float64),
+        g33=jnp.asarray(contrav[..., 2, 2], dtype=jnp.float64),
+        g12=jnp.asarray(contrav[..., 0, 1], dtype=jnp.float64),
+        g13=jnp.asarray(contrav[..., 0, 2], dtype=jnp.float64),
+        g23=jnp.asarray(contrav[..., 1, 2], dtype=jnp.float64),
+        g_11=jnp.asarray(cov[..., 0, 0], dtype=jnp.float64),
+        g_22=jnp.asarray(cov[..., 1, 1], dtype=jnp.float64),
+        g_33=jnp.asarray(cov[..., 2, 2], dtype=jnp.float64),
+        g_12=jnp.asarray(cov[..., 0, 1], dtype=jnp.float64),
+        g_13=jnp.asarray(cov[..., 0, 2], dtype=jnp.float64),
+        g_23=jnp.asarray(cov[..., 1, 2], dtype=jnp.float64),
+    )
 
 
 def _annular_metric_tensor(

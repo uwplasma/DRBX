@@ -5,6 +5,7 @@ from .essos_import import (
     essos_runtime_available,
     load_essos_field_line_bundle_npz,
     resolve_essos_landreman_qa_json,
+    resolve_essos_landreman_qa_wout,
     save_essos_field_line_bundle_npz,
     trace_essos_coil_field_lines,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "load_fci_maps_netcdf",
     "metric_inverse_residual",
     "resolve_essos_landreman_qa_json",
+    "resolve_essos_landreman_qa_wout",
     "save_essos_field_line_bundle_npz",
     "trace_essos_coil_field_lines",
 ]
