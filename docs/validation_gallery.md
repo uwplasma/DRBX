@@ -34,6 +34,7 @@ JAX-based solver papers.
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
 | `ESSOS Field-Line Import` | `external geometry import gate` | ESSOS-owned field evaluation, adaptive field-line tracing, Poincare extraction, and portable trajectory/field-sample artifacts for later FCI use. |
+| `ESSOS Imported QA-Coil DRB Movie` | `movie-grade reduced transient` | Imported Landreman-Paul QA coil FCI maps feeding a fixed-layout DRB transient with sheath/recycling/neutrals and movie-facing physics gates. |
 | `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
 | `Autodiff Diffusion Sensitivity` | `differentiable validation` | `jax.grad` sensitivities agree with finite differences on a compact native diffusion objective. |
 | `Autodiff Diffusion Uncertainty` | `differentiable validation` | First-order autodiff covariance propagation is compared with vectorized Monte Carlo. |
@@ -326,6 +327,10 @@ What this documents:
 
 ![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
 
+![ESSOS imported QA-coil DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
+
+![ESSOS imported QA-coil DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
+
 ![Stellarator SOL snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
 
 ![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
@@ -349,6 +354,9 @@ What this documents:
 - a fixed-layout PyTree RHS gate where the combined 3D state is compiled,
   differentiated with JVP, checked against finite differences, matched under
   `vmap`, and profiled for local CPU and multi-device GPU execution;
+- a movie-grade ESSOS-imported QA-coil transient where the same fixed-layout
+  DRB state is advanced with sheath/recycling/neutrals, nontrivial fluctuation
+  growth, tight potential residual, and roundoff target/neutral balance gates;
 - ESSOS-owned field evaluation, adaptive field-line tracing, and Poincare
   extraction exported into portable `jax_drb` JSON/NPZ artifacts without
   maintaining a duplicate coil-field or field-line tracer in this repository;
