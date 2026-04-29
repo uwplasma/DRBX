@@ -22,8 +22,11 @@ The movie geometry now uses the VMEC Fourier surface from
 `wout_LandremanPaul2021_QA_reactorScale_lowres.nc`, scaled and translated onto
 the ESSOS coil-field axis. That removes the earlier circular-annulus
 visualization shortcut and makes the opened 3D view show a genuinely
-non-axisymmetric QA boundary. The camera is fixed across frames and the GIF is
-quantized with a shared palette to suppress frame-to-frame jitter.
+non-axisymmetric QA boundary. Rendering uses a higher-resolution VMEC surface
+than the transient solve grid, with the solver fluctuation field interpolated
+onto smooth outer, mid-radius, and radial-cut surfaces. The camera is fixed
+across frames and the GIF is quantized with a shared, no-dither palette to
+suppress frame-to-frame jitter.
 
 Regenerate the campaign with:
 

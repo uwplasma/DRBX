@@ -231,7 +231,7 @@
     },
     "docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_poster.png": {
       "asset": "docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_poster.png",
-      "size_bytes": 124911,
+      "size_bytes": 446891,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_poster.png"
     },
     "docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_snapshots.png": {
@@ -241,7 +241,7 @@
     },
     "docs/data/essos_imported_drb_movie_artifacts/movies/essos_imported_drb_movie_campaign.gif": {
       "asset": "docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif",
-      "size_bytes": 2528172,
+      "size_bytes": 1468536,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif"
     },
     "docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.npz": {

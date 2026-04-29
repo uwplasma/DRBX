@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 from dataclasses import dataclass
@@ -15,7 +16,12 @@ from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
 
-from ..geometry import EssosImportedFciGeometry, build_essos_imported_fci_geometry
+from ..geometry import (
+    EssosImportedFciGeometry,
+    build_essos_imported_fci_geometry,
+    build_essos_vmec_scaled_qa_coordinates,
+    resolve_essos_landreman_qa_wout,
+)
 from ..native.fci import conservative_perp_diffusion_xz
 from ..native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
 from ..native.fci_neutral import compute_fci_neutral_reaction_diffusion
@@ -342,10 +348,14 @@ def save_essos_imported_drb_3d_movie(
                 vmax=vmax,
             )
             frame_paths.append(frame_path)
-        first = Image.open(frame_paths[0]).convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+        first = Image.open(frame_paths[0]).convert("RGB").quantize(
+            colors=256,
+            method=Image.Quantize.MEDIANCUT,
+            dither=Image.Dither.NONE,
+        )
         images = [first]
         for frame_path in frame_paths[1:]:
-            images.append(Image.open(frame_path).convert("RGB").quantize(palette=first))
+            images.append(Image.open(frame_path).convert("RGB").quantize(palette=first, dither=Image.Dither.NONE))
         images[0].save(resolved, save_all=True, append_images=images[1:], duration=120, loop=0)
         for image in images:
             image.close()
@@ -778,44 +788,81 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
 ) -> Path:
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    x = np.asarray(geometry.coordinates_x, dtype=np.float64)
-    y = np.asarray(geometry.coordinates_y, dtype=np.float64)
-    z = np.asarray(geometry.coordinates_z, dtype=np.float64)
     values = np.asarray(field, dtype=np.float64)
     value_limit = _movie_value_limit(values, vmax)
     norm = colors.TwoSlopeNorm(vmin=-value_limit, vcenter=0.0, vmax=value_limit)
     cmap = plt.get_cmap("coolwarm")
-    nx, ny, nz = geometry.shape
-    phi_indices = np.arange(0, max(3, ny - max(1, ny // 4)), max(1, ny // 20), dtype=int)
-    theta_indices = np.arange(0, nz, max(1, nz // 36), dtype=int)
-    radial_indices = np.arange(0, nx, dtype=int)
-    outer_i = max(nx - 1, 0)
-    cut_j = max(1, ny // 8)
+    render = _build_movie_render_coordinates(geometry)
+    x = render["x"]
+    y = render["y"]
+    z = render["z"]
+    phi = render["phi"]
+    theta = render["theta"]
+    nr, nphi, _ntheta = x.shape
+    outer_i = nr - 1
+    middle_i = max(int(0.54 * (nr - 1)), 0)
+    phi_segments = ((0, int(0.54 * nphi)), (int(0.70 * nphi), nphi))
+    cut_indices = (int(0.54 * nphi), int(0.70 * nphi))
 
     fig = plt.figure(figsize=(9.2, 7.4), constrained_layout=False)
     axis = fig.add_axes([0.00, 0.04, 0.84, 0.88], projection="3d")
-    surface_values = values[np.ix_([outer_i], phi_indices, theta_indices)][0]
-    axis.plot_surface(
-        x[np.ix_([outer_i], phi_indices, theta_indices)][0],
-        y[np.ix_([outer_i], phi_indices, theta_indices)][0],
-        z[np.ix_([outer_i], phi_indices, theta_indices)][0],
-        facecolors=cmap(norm(surface_values)),
-        linewidth=0,
-        antialiased=False,
-        alpha=0.82,
-        shade=False,
-    )
-    cut_values = values[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :]
-    axis.plot_surface(
-        x[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :],
-        y[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :],
-        z[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :],
-        facecolors=cmap(norm(cut_values)),
-        linewidth=0,
-        antialiased=False,
-        alpha=0.95,
-        shade=False,
-    )
+    for start, stop in phi_segments:
+        if stop - start < 3:
+            continue
+        segment = np.s_[start:stop, :]
+        outer_values = _interpolate_movie_field_surface(
+            values,
+            radial_fraction=1.0,
+            phi=phi[outer_i][segment],
+            theta=theta[outer_i][segment],
+        )
+        axis.plot_surface(
+            x[outer_i][segment],
+            y[outer_i][segment],
+            z[outer_i][segment],
+            facecolors=cmap(norm(outer_values)),
+            linewidth=0,
+            antialiased=True,
+            alpha=0.70,
+            shade=False,
+        )
+        middle_values = _interpolate_movie_field_surface(
+            values,
+            radial_fraction=0.54,
+            phi=phi[middle_i][segment],
+            theta=theta[middle_i][segment],
+        )
+        axis.plot_surface(
+            x[middle_i][segment],
+            y[middle_i][segment],
+            z[middle_i][segment],
+            facecolors=cmap(norm(middle_values)),
+            linewidth=0,
+            antialiased=True,
+            alpha=0.30,
+            shade=False,
+        )
+
+    for cut_index in cut_indices:
+        cut_index = int(np.clip(cut_index, 0, nphi - 1))
+        cut_values = _interpolate_movie_field_cut(
+            values,
+            radial_fractions=np.linspace(0.0, 1.0, nr)[:, None],
+            phi=phi[:, cut_index, :],
+            theta=theta[:, cut_index, :],
+        )
+        axis.plot_surface(
+            x[:, cut_index, :],
+            y[:, cut_index, :],
+            z[:, cut_index, :],
+            facecolors=cmap(norm(cut_values)),
+            linewidth=0,
+            antialiased=True,
+            alpha=0.96,
+            shade=False,
+        )
+
+    _plot_movie_boundary_rings(axis, x, y, z, color="0.22", alpha=0.28)
     scalar = cm.ScalarMappable(norm=norm, cmap=cmap)
     scalar.set_array([])
     colorbar_axis = fig.add_axes([0.86, 0.18, 0.028, 0.62])
@@ -858,6 +905,93 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
     fig.savefig(resolved, dpi=170, facecolor="white")
     plt.close(fig)
     return resolved
+
+
+def _build_movie_render_coordinates(geometry: EssosImportedFciGeometry) -> dict[str, np.ndarray]:
+    metadata = dict(geometry.metadata)
+    if metadata.get("coordinate_model") == "scaled_vmec_fourier_flux_surfaces":
+        try:
+            wout_path = resolve_essos_landreman_qa_wout(essos_root=os.environ.get("JAX_DRB_ESSOS_ROOT"))
+            return build_essos_vmec_scaled_qa_coordinates(
+                wout_path,
+                nx=18,
+                ny=96,
+                nz=112,
+                rho_min=float(metadata["rho_min"]),
+                rho_max=float(metadata["rho_max"]),
+                axis_major_radius=float(metadata["axis_major_radius"]),
+                axis_vertical=float(metadata["axis_vertical"]),
+            )
+        except Exception:
+            pass
+    return {
+        "x": np.asarray(geometry.coordinates_x, dtype=np.float64),
+        "y": np.asarray(geometry.coordinates_y, dtype=np.float64),
+        "z": np.asarray(geometry.coordinates_z, dtype=np.float64),
+        "phi": np.asarray(geometry.toroidal_angle, dtype=np.float64),
+        "theta": np.asarray(geometry.poloidal_angle, dtype=np.float64),
+    }
+
+
+def _interpolate_movie_field_surface(
+    values: np.ndarray,
+    *,
+    radial_fraction: float,
+    phi: np.ndarray,
+    theta: np.ndarray,
+) -> np.ndarray:
+    from scipy.ndimage import map_coordinates
+
+    nx, ny, nz = values.shape
+    radial = np.full_like(phi, float(radial_fraction) * float(nx - 1), dtype=np.float64)
+    if radial_fraction >= 1.0:
+        radial = np.full_like(phi, np.nextafter(float(nx - 1), 0.0), dtype=np.float64)
+    coords = np.asarray(
+        [
+            radial,
+            np.mod(phi, 2.0 * np.pi) / (2.0 * np.pi) * float(ny),
+            np.mod(theta, 2.0 * np.pi) / (2.0 * np.pi) * float(nz),
+        ],
+        dtype=np.float64,
+    )
+    return map_coordinates(values, coords, order=1, mode="wrap")
+
+
+def _interpolate_movie_field_cut(
+    values: np.ndarray,
+    *,
+    radial_fractions: np.ndarray,
+    phi: np.ndarray,
+    theta: np.ndarray,
+) -> np.ndarray:
+    from scipy.ndimage import map_coordinates
+
+    nx, ny, nz = values.shape
+    radial = np.broadcast_to(radial_fractions * float(nx - 1), theta.shape)
+    coords = np.asarray(
+        [
+            radial,
+            np.mod(phi, 2.0 * np.pi) / (2.0 * np.pi) * float(ny),
+            np.mod(theta, 2.0 * np.pi) / (2.0 * np.pi) * float(nz),
+        ],
+        dtype=np.float64,
+    )
+    return map_coordinates(values, coords, order=1, mode="wrap")
+
+
+def _plot_movie_boundary_rings(
+    axis: Any,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    *,
+    color: str,
+    alpha: float,
+) -> None:
+    for theta_index in np.linspace(0, x.shape[2] - 1, 7, dtype=int):
+        axis.plot(x[-1, :, theta_index], y[-1, :, theta_index], z[-1, :, theta_index], color=color, alpha=alpha, lw=0.55)
+    for phi_index in np.linspace(0, x.shape[1] - 1, 9, dtype=int):
+        axis.plot(x[-1, phi_index, :], y[-1, phi_index, :], z[-1, phi_index, :], color=color, alpha=alpha, lw=0.55)
 
 
 def _add_boundary_wire(plotter: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, *, radial_index: int, color: str, opacity: float) -> None:
