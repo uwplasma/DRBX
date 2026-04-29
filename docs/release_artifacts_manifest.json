@@ -838,6 +838,16 @@
       "asset": "docs__data__essos_fieldline_import_artifacts__data__essos_landreman_paul_qa_fieldline_import.npz",
       "size_bytes": 596558,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_fieldline_import_artifacts__data__essos_landreman_paul_qa_fieldline_import.npz"
+    },
+    "docs/data/essos_imported_fci_artifacts/images/essos_imported_fci_campaign.png": {
+      "asset": "docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png",
+      "size_bytes": 307420,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png"
+    },
+    "docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.npz": {
+      "asset": "docs__data__essos_imported_fci_artifacts__data__essos_imported_fci_campaign.npz",
+      "size_bytes": 4914,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__data__essos_imported_fci_campaign.npz"
     }
   },
   "tag": "validation-artifacts-2026-04-28"

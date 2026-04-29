@@ -130,6 +130,12 @@ from .essos_fieldline_import_campaign import (
     create_essos_fieldline_import_package,
     save_essos_fieldline_import_plot,
 )
+from .essos_imported_fci_campaign import (
+    EssosImportedFciCampaignArtifacts,
+    build_essos_imported_fci_campaign,
+    create_essos_imported_fci_campaign_package,
+    save_essos_imported_fci_campaign_plot,
+)
 from .geometry_profiles import (
     build_diagnostic_profile_report,
     save_diagnostic_profile_summary_plot,

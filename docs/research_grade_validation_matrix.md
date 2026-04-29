@@ -133,6 +133,9 @@ used in verification, validation, and differentiable-science papers:
   for ESSOS-owned field evaluation, adaptive field-line tracing, Poincare
   extraction, and portable geometry arrays that `jax_drb` can consume without
   maintaining duplicate coil-field or field-line-tracing code
+- [essos_imported_fci_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
+  for imported field-line maps feeding JAXDRB sheath/recycling and neutral
+  closures with fixed-shape FCI endpoint masks
 
 ### Supporting engineering figures
 

@@ -122,6 +122,10 @@ The first native lane now consists of:
   the first external Landreman-Paul QA field-line import gate: ESSOS-owned
   field evaluation, adaptive field-line tracing, Poincare extraction, and
   portable JSON/NPZ/PNG artifacts for subsequent FCI/operator workflows.
+- `src/jax_drb/validation/essos_imported_fci_campaign.py`, which converts an
+  annular grid of ESSOS-owned field-line trajectories into fixed-shape FCI
+  maps, then runs JAXDRB sheath/recycling and neutral closure gates on the
+  imported maps.
 
 The current generated artifact bundle lives in
 `docs/data/stellarator_fci_validation_artifacts/`.
@@ -130,8 +134,12 @@ The first external field-line import artifact lives in
 `docs/data/essos_fieldline_import_artifacts/` and is documented in
 `docs/essos_fieldline_import.md`. It uses the Landreman-Paul QA coil JSON
 through ESSOS, then stores only sanitized arrays and metadata in `jax_drb`.
-This is a geometry-import gate, not yet an imported-wall predictive
-stellarator edge simulation.
+The first imported-FCI downstream artifact lives in
+`docs/data/essos_imported_fci_artifacts/` and is documented in
+`docs/essos_imported_fci_validation.md`. It is still an annular validation
+bridge rather than an imported-wall predictive stellarator edge simulation,
+but the imported maps now feed the same JAX-native sheath/recycling and
+neutral kernels used by the analytic non-axisymmetric validation suite.
 
 The current suite gives three passing 3D analytic configurations rather than a
 single showcase-only geometry. Their mirror ratios span about `0.45` to
