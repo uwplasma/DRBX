@@ -234,6 +234,19 @@ def load_essos_coil_field_axis(
     return float(field.r_axis), float(field.z_axis)
 
 
+def load_essos_vmec_field_axis(
+    *,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+) -> tuple[float, float]:
+    """Return the magnetic-axis location in an ESSOS VMEC field object."""
+
+    resolved_wout = resolve_essos_landreman_qa_wout(vmec_wout_path, essos_root=essos_root)
+    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_wout.parents[2])
+    vmec = modules["Vmec"](str(resolved_wout))
+    return float(vmec.r_axis), float(vmec.z_axis)
+
+
 def trace_essos_coil_initial_conditions(
     initial_xyz: np.ndarray,
     *,
@@ -253,6 +266,29 @@ def trace_essos_coil_initial_conditions(
         resolved_coil_json=resolved_coil_json,
         initial_xyz=np.asarray(initial_xyz, dtype=np.float64),
         current_sign=float(current_sign),
+        maxtime=float(maxtime),
+        times_to_trace=int(times_to_trace),
+        trace_tolerance=float(trace_tolerance),
+    )
+
+
+def trace_essos_vmec_initial_conditions(
+    initial_stp: np.ndarray,
+    *,
+    vmec_wout_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    maxtime: float = 1000.0,
+    times_to_trace: int = 6000,
+    trace_tolerance: float = 1.0e-8,
+) -> np.ndarray:
+    """Trace VMEC-coordinate seed points through the optional ESSOS VMEC field."""
+
+    resolved_wout = resolve_essos_landreman_qa_wout(vmec_wout_path, essos_root=essos_root)
+    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_wout.parents[2])
+    return _trace_essos_vmec_initial_conditions(
+        modules=modules,
+        resolved_wout=resolved_wout,
+        initial_stp=np.asarray(initial_stp, dtype=np.float64),
         maxtime=float(maxtime),
         times_to_trace=int(times_to_trace),
         trace_tolerance=float(trace_tolerance),
@@ -507,6 +543,7 @@ def _import_essos_modules(*, essos_root: str | Path | None = None) -> dict[str, 
     return {
         "Coils_from_json": coils_module.Coils_from_json,
         "BiotSavart": fields_module.BiotSavart,
+        "Vmec": fields_module.Vmec,
         "Tracing": dynamics_module.Tracing,
     }
 
@@ -533,6 +570,33 @@ def _trace_essos_initial_conditions(
             field=field,
             model="FieldLineAdaptative",
             initial_conditions=local_jnp.asarray(initial_xyz, dtype=local_jnp.float64),
+            maxtime=float(maxtime),
+            times_to_trace=int(times_to_trace),
+            atol=float(trace_tolerance),
+            rtol=float(trace_tolerance),
+        )
+    )
+    return np.asarray(tracing.trajectories[:, :, :3], dtype=np.float64)
+
+
+def _trace_essos_vmec_initial_conditions(
+    *,
+    modules: dict[str, Any],
+    resolved_wout: Path,
+    initial_stp: np.ndarray,
+    maxtime: float,
+    times_to_trace: int,
+    trace_tolerance: float,
+) -> np.ndarray:
+    import jax
+    import jax.numpy as local_jnp
+
+    vmec = modules["Vmec"](str(resolved_wout))
+    tracing = jax.block_until_ready(
+        modules["Tracing"](
+            field=vmec,
+            model="FieldLineAdaptative",
+            initial_conditions=local_jnp.asarray(initial_stp, dtype=local_jnp.float64),
             maxtime=float(maxtime),
             times_to_trace=int(times_to_trace),
             atol=float(trace_tolerance),
@@ -668,6 +732,7 @@ def build_essos_vmec_scaled_qa_coordinates(
 
     return {
         "rho_1d": rho_1d,
+        "s_1d": s_requested,
         "phi_1d": phi_1d,
         "theta_1d": theta_1d,
         "rho": rho,
