@@ -3,9 +3,10 @@
 This page documents the first fixed-layout PyTree/JVP gate driven by
 externally traced Landreman-Paul QA field-line maps. ESSOS supplies the coil
 field and trajectories. `jax_drb` imports those trajectories as FCI maps,
-builds a compact annular metric, initializes ion, electron, and neutral
-fields on the imported logical grid, and advances the JAX-native drift-reduced
-Braginskii RHS through a short transformable transient.
+builds a compact metric from the scaled VMEC QA surface coordinates,
+initializes ion, electron, and neutral fields on the imported logical grid,
+and advances the JAX-native drift-reduced Braginskii RHS through a short
+transformable transient.
 
 Regenerate the campaign with:
 

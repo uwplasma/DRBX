@@ -10,7 +10,7 @@ from jax_drb.validation import create_essos_imported_fci_campaign_package
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Trace a small annular seed grid with ESSOS, import the resulting field-line "
+            "Trace a scaled VMEC QA seed grid with ESSOS, import the resulting field-line "
             "maps, and run JAXDRB FCI sheath/recycling and neutral validation gates."
         ),
     )
@@ -32,11 +32,11 @@ def main() -> None:
         default=Path("docs/data/essos_imported_fci_artifacts"),
         help="Directory where JSON/NPZ/PNG validation artifacts are written.",
     )
-    parser.add_argument("--nx", type=int, default=5, help="Number of annular radial grid points.")
+    parser.add_argument("--nx", type=int, default=5, help="Number of VMEC-shaped radial grid points.")
     parser.add_argument("--ny", type=int, default=8, help="Number of toroidal planes.")
     parser.add_argument("--nz", type=int, default=20, help="Number of poloidal grid points.")
-    parser.add_argument("--rho-min", type=float, default=0.12, help="Inner minor radius of the imported annulus.")
-    parser.add_argument("--rho-max", type=float, default=0.34, help="Outer minor radius of the imported annulus.")
+    parser.add_argument("--rho-min", type=float, default=0.12, help="Inner logical minor radius of the imported VMEC-shaped shell.")
+    parser.add_argument("--rho-max", type=float, default=0.34, help="Outer logical minor radius of the imported VMEC-shaped shell.")
     parser.add_argument("--times-to-trace", type=int, default=360, help="ESSOS trace samples per seed.")
     parser.add_argument("--maxtime", type=float, default=80.0, help="ESSOS field-line integration time.")
     args = parser.parse_args()

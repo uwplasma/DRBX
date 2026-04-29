@@ -10,7 +10,7 @@ from jax_drb.validation import create_essos_imported_drb_movie_package
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Trace an ESSOS Landreman-Paul QA annulus, import the field-line maps, "
+            "Trace an ESSOS Landreman-Paul QA coil field on scaled VMEC QA surfaces, import the field-line maps, "
             "and render a reduced JAXDRB DRB transient movie with sheath, recycling, "
             "and neutral closures."
         ),
@@ -23,11 +23,11 @@ def main() -> None:
         default=Path("docs/data/essos_imported_drb_movie_artifacts"),
         help="Directory where JSON/NPZ/PNG/GIF validation artifacts are written.",
     )
-    parser.add_argument("--nx", type=int, default=6, help="Number of annular radial grid points.")
+    parser.add_argument("--nx", type=int, default=6, help="Number of VMEC-shaped radial grid points.")
     parser.add_argument("--ny", type=int, default=10, help="Number of toroidal planes.")
     parser.add_argument("--nz", type=int, default=24, help="Number of poloidal grid points.")
-    parser.add_argument("--rho-min", type=float, default=0.12, help="Inner minor radius of the imported annulus.")
-    parser.add_argument("--rho-max", type=float, default=0.34, help="Outer minor radius of the imported annulus.")
+    parser.add_argument("--rho-min", type=float, default=0.12, help="Inner logical minor radius of the imported VMEC-shaped shell.")
+    parser.add_argument("--rho-max", type=float, default=0.34, help="Outer logical minor radius of the imported VMEC-shaped shell.")
     parser.add_argument("--times-to-trace", type=int, default=320, help="ESSOS trace samples per seed.")
     parser.add_argument("--maxtime", type=float, default=70.0, help="ESSOS field-line integration time.")
     parser.add_argument("--frames", type=int, default=26, help="Number of saved movie frames.")

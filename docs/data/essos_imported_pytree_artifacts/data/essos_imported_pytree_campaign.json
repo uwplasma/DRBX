@@ -1,8 +1,8 @@
 {
   "batch_execute_seconds": [
-    0.0012435000389814377,
-    0.0015825420850887895,
-    0.0029975000070407987
+    0.00109737494494766,
+    0.0015574999852105975,
+    0.0031492080306634307
   ],
   "batch_sizes": [
     1,
@@ -10,26 +10,29 @@
     4
   ],
   "batch_throughput_cases_per_second": [
-    804.1817198647691,
-    1263.7894554872382,
-    1334.445368008153
+    911.2655657066197,
+    1284.1091614710801,
+    1270.1606121451864
   ],
   "case": "essos_imported_fci_drb_pytree_transient",
-  "compile_and_first_execute_seconds": 0.23146854096557945,
+  "compile_and_first_execute_seconds": 0.16506062494590878,
   "dt": 1e-05,
-  "endpoint_fraction": 0.8506944444444444,
-  "final_ion_density_mean": 0.7910238514612623,
-  "final_min_density": 0.1100004094233087,
-  "final_neutral_density_mean": 0.15125123030160992,
-  "final_potential_residual_l2": 4.969519170840217e-10,
-  "final_vorticity_rms": 0.022360657281877593,
-  "finite_difference_derivative": 0.2513507766962464,
+  "endpoint_fraction": 0.9444444444444444,
+  "final_ion_density_mean": 0.7910209238653121,
+  "final_min_density": 0.11000043133964739,
+  "final_neutral_density_mean": 0.15125408333341547,
+  "final_potential_residual_l2": 1.0942200716686814,
+  "final_vorticity_rms": 0.022360519276857505,
+  "finite_difference_derivative": 0.25135003164944436,
   "geometry": {
     "axis_major_radius": 1.1056603745542297,
     "axis_vertical": 0.07180085781076388,
+    "backward_boundary_fraction": 0.7916666666666666,
     "coil_json_file": "ESSOS_biot_savart_LandremanPaulQA.json",
+    "coordinate_model": "scaled_vmec_fourier_flux_surfaces",
     "field_model": "essos.fields.BiotSavart",
-    "geometry_family": "essos_imported_annular_fci",
+    "forward_boundary_fraction": 0.7083333333333334,
+    "geometry_family": "essos_imported_vmec_qa_fci",
     "maxtime": 60.0,
     "nx": 4,
     "ny": 6,
@@ -37,17 +40,28 @@
     "rho_max": 0.34,
     "rho_min": 0.12,
     "source": "ESSOS",
+    "surface_nonaxisymmetric_major_rms": 0.12376435891650703,
+    "surface_poloidal_extent_rms": 0.2684140262678505,
     "times_to_trace": 280,
     "trace_tolerance": 1e-08,
-    "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)"
+    "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)",
+    "vmec_mnmax": 128,
+    "vmec_nfp": 2,
+    "vmec_ns": 151,
+    "vmec_raw_axis_major_radius": 10.165805372132498,
+    "vmec_raw_axis_vertical": -0.0,
+    "vmec_s_max": 1.0,
+    "vmec_s_min": 0.12456747404844289,
+    "vmec_to_essos_length_scale": 0.1087626935673168,
+    "vmec_wout_file": "wout_LandremanPaul2021_QA_reactorScale_lowres.nc"
   },
-  "jvp_derivative": 0.2513507766976715,
-  "jvp_objective_value": 0.8299546919057283,
-  "jvp_relative_error": 5.669695129412874e-12,
-  "magnetic_field_modulation": 4.746922598414629,
+  "jvp_derivative": 0.2513500316489977,
+  "jvp_objective_value": 0.8299524706625087,
+  "jvp_relative_error": 1.7769750012589181e-12,
+  "magnetic_field_modulation": 1.4235881123899505,
   "passed": true,
   "source": "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS",
   "steps": 5,
-  "vmap_serial_linf": 8.97393270804514e-13,
-  "warm_execute_seconds": 0.00135441601742059
+  "vmap_serial_linf": 2.220446049250313e-16,
+  "warm_execute_seconds": 0.0009794579818844795
 }
