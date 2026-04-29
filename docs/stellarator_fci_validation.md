@@ -327,6 +327,16 @@ The imported FCI campaign currently passes:
 
 ![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
+The imported PyTree/JVP campaign currently passes:
+
+- external field-line maps feeding the same fixed-layout DRB PyTree RHS used
+  by the synthetic non-axisymmetric lane;
+- endpoint fraction: about `0.85`;
+- JVP-versus-finite-difference relative error below `1e-11`;
+- `vmap` serial mismatch below `1e-12`.
+
+![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
+
 The reduced dynamics campaign currently passes:
 
 - energy growth factor: about `1.13`;

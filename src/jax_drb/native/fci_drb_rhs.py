@@ -52,6 +52,7 @@ class FciDrbRhsParameters:
     recycled_neutral_energy: float = 0.03
     vorticity_diffusivity: float = 2.0e-4
     potential_iterations: int = 40
+    potential_regularization: float = 1.0e-9
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ def compute_fci_drb_rhs(
         state.ion_density,
         metric,
         iterations=parameters.potential_iterations,
+        regularization=parameters.potential_regularization,
     )
     vorticity_rhs = conservative_perp_diffusion_xz(
         state.vorticity,

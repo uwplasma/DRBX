@@ -126,6 +126,9 @@ The first native lane now consists of:
   annular grid of ESSOS-owned field-line trajectories into fixed-shape FCI
   maps, then runs JAXDRB sheath/recycling and neutral closure gates on the
   imported maps.
+- `src/jax_drb/validation/essos_imported_pytree_campaign.py`, which drives
+  the fixed-layout JAXDRB PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
+  from the same ESSOS-imported field-line maps.
 
 The current generated artifact bundle lives in
 `docs/data/stellarator_fci_validation_artifacts/`.
@@ -140,6 +143,10 @@ The first imported-FCI downstream artifact lives in
 bridge rather than an imported-wall predictive stellarator edge simulation,
 but the imported maps now feed the same JAX-native sheath/recycling and
 neutral kernels used by the analytic non-axisymmetric validation suite.
+The imported PyTree/JVP artifact lives in
+`docs/data/essos_imported_pytree_artifacts/` and is documented in
+`docs/essos_imported_pytree_validation.md`; it verifies that the imported maps
+also feed the fixed-layout RHS and differentiability gates.
 
 The current suite gives three passing 3D analytic configurations rather than a
 single showcase-only geometry. Their mirror ratios span about `0.45` to

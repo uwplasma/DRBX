@@ -13,7 +13,11 @@ from jax_drb.geometry import (
     load_essos_field_line_bundle_npz,
     resolve_essos_landreman_qa_json,
 )
-from jax_drb.validation import create_essos_fieldline_import_package, create_essos_imported_fci_campaign_package
+from jax_drb.validation import (
+    create_essos_fieldline_import_package,
+    create_essos_imported_fci_campaign_package,
+    create_essos_imported_pytree_campaign_package,
+)
 
 
 def _has_essos_landreman_runtime() -> bool:
@@ -83,5 +87,28 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["source"] == "ESSOS-imported field-line maps with jax_drb FCI closures"
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+
+
+@pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
+def test_essos_imported_maps_feed_pytree_jvp_rhs_gate(tmp_path: Path) -> None:
+    artifacts = create_essos_imported_pytree_campaign_package(
+        output_root=tmp_path / "essos_imported_pytree",
+        nx=3,
+        ny=4,
+        nz=6,
+        rho_min=0.12,
+        rho_max=0.34,
+        maxtime=40.0,
+        times_to_trace=160,
+        steps=3,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["source"] == "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS"
+    assert report["jvp_relative_error"] < 1.0e-2
+    assert report["vmap_serial_linf"] < 1.0e-8
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()

@@ -1,0 +1,53 @@
+{
+  "batch_execute_seconds": [
+    0.0012435000389814377,
+    0.0015825420850887895,
+    0.0029975000070407987
+  ],
+  "batch_sizes": [
+    1,
+    2,
+    4
+  ],
+  "batch_throughput_cases_per_second": [
+    804.1817198647691,
+    1263.7894554872382,
+    1334.445368008153
+  ],
+  "case": "essos_imported_fci_drb_pytree_transient",
+  "compile_and_first_execute_seconds": 0.23146854096557945,
+  "dt": 1e-05,
+  "endpoint_fraction": 0.8506944444444444,
+  "final_ion_density_mean": 0.7910238514612623,
+  "final_min_density": 0.1100004094233087,
+  "final_neutral_density_mean": 0.15125123030160992,
+  "final_potential_residual_l2": 4.969519170840217e-10,
+  "final_vorticity_rms": 0.022360657281877593,
+  "finite_difference_derivative": 0.2513507766962464,
+  "geometry": {
+    "axis_major_radius": 1.1056603745542297,
+    "axis_vertical": 0.07180085781076388,
+    "coil_json_file": "ESSOS_biot_savart_LandremanPaulQA.json",
+    "field_model": "essos.fields.BiotSavart",
+    "geometry_family": "essos_imported_annular_fci",
+    "maxtime": 60.0,
+    "nx": 4,
+    "ny": 6,
+    "nz": 12,
+    "rho_max": 0.34,
+    "rho_min": 0.12,
+    "source": "ESSOS",
+    "times_to_trace": 280,
+    "trace_tolerance": 1e-08,
+    "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)"
+  },
+  "jvp_derivative": 0.2513507766976715,
+  "jvp_objective_value": 0.8299546919057283,
+  "jvp_relative_error": 5.669695129412874e-12,
+  "magnetic_field_modulation": 4.746922598414629,
+  "passed": true,
+  "source": "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS",
+  "steps": 5,
+  "vmap_serial_linf": 8.97393270804514e-13,
+  "warm_execute_seconds": 0.00135441601742059
+}
