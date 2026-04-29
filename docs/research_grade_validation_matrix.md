@@ -129,10 +129,10 @@ used in verification, validation, and differentiable-science papers:
 - [stellarator_drb_pytree_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
   for the current fixed-layout 3D PyTree RHS, JVP derivative check, batched
   objective equivalence, and local/multi-device profiling seam
-- [essos_biot_savart_landreman_paul_qa_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png)
-  for ESSOS-format Fourier-coil ingestion, JAX Biot-Savart field evaluation,
-  annular FCI map construction, Poincare/residence classification, and a
-  bounded closed/open reduced-dynamics gate on the Landreman-Paul QA coil field
+- [essos_landreman_paul_qa_fieldline_import](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_fieldline_import_artifacts__images__essos_landreman_paul_qa_fieldline_import.png)
+  for ESSOS-owned field evaluation, adaptive field-line tracing, Poincare
+  extraction, and portable geometry arrays that `jax_drb` can consume without
+  maintaining duplicate coil-field or field-line-tracing code
 
 ### Supporting engineering figures
 

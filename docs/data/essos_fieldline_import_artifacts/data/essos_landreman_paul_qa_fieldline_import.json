@@ -1,0 +1,35 @@
+{
+  "case": "essos_landreman_paul_qa_fieldline_import",
+  "coil_count": 16,
+  "coil_segments": 75,
+  "field_magnitude_max": 0.37256476413637607,
+  "field_magnitude_mean": 0.29389497546419774,
+  "field_magnitude_min": 0.24055798660511624,
+  "field_sample_count": 256,
+  "metadata": {
+    "coil_json_file": "ESSOS_biot_savart_LandremanPaulQA.json",
+    "field_model": "essos.fields.BiotSavart",
+    "maxtime": 1000.0,
+    "n_field_lines": 8,
+    "poincare_method": "essos.dynamics.Tracing.poincare_plot",
+    "poincare_shifts": [
+      0.0,
+      1.5707963267948966
+    ],
+    "r_max": 1.4,
+    "r_min": 1.21,
+    "source": "ESSOS",
+    "times_to_trace": 6000,
+    "trace_tolerance": 1e-08,
+    "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)"
+  },
+  "n_field_lines": 8,
+  "n_times": 6000,
+  "passed": true,
+  "poincare_point_count": 95984,
+  "radial_span_max": 0.9914728892754112,
+  "radial_span_mean": 0.692763379840174,
+  "source": "ESSOS external field and field-line import",
+  "vertical_span_max": 1.1205635218539252,
+  "vertical_span_mean": 0.7667255716596986
+}

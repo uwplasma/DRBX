@@ -36,7 +36,7 @@ def restart_variable_names(run_config: Any) -> tuple[str, ...]:
 
 def _is_supported_diffusion_case(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    implementations = tuple(component.implementation for component in components)
+    implementations = _component_implementations(components)
     return implementations == ("evolve_density", "evolve_pressure", "anomalous_diffusion") and _has_one_section(
         components
     )
@@ -44,23 +44,33 @@ def _is_supported_diffusion_case(run_config: Any) -> bool:
 
 def _is_supported_periodic_fluid_mms_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    implementations = tuple(component.implementation for component in components)
+    implementations = _component_implementations(components)
     return implementations == ("evolve_density", "evolve_pressure", "evolve_momentum") and _has_one_section(components)
 
 
 def _is_supported_electrostatic_vorticity_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    return len(components) == 1 and components[0].implementation == "vorticity"
+    return _component_implementations(components) == ("vorticity",)
 
 
 def _is_supported_blob2d_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    return len(components) == 1 and components[0].implementation == "blob2d"
+    return _component_implementations(components) == ("blob2d",)
 
 
 def _is_supported_drift_wave_case_placeholder(run_config: Any) -> bool:
     components = getattr(run_config, "components", ())
-    return len(components) == 1 and components[0].implementation == "drift_wave"
+    return _component_implementations(components) == ("drift_wave",)
+
+
+def _component_implementations(components: tuple[Any, ...]) -> tuple[str, ...]:
+    values: list[str] = []
+    for component in components:
+        if hasattr(component, "implementation"):
+            values.append(str(component.implementation))
+            continue
+        values.extend(str(value) for value in getattr(component, "types", ()))
+    return tuple(values)
 
 
 def _has_one_section(components: tuple[Any, ...]) -> bool:
