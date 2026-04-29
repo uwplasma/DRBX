@@ -47,6 +47,7 @@ class EssosBiotSavartCampaignArtifacts:
     report_json_path: Path
     arrays_npz_path: Path
     plot_png_path: Path
+    field_line_png_path: Path
     movie_gif_path: Path
 
 
@@ -83,12 +84,15 @@ def create_essos_biot_savart_campaign_package(
     np.savez_compressed(arrays_npz_path, **arrays)
     plot_png_path = images_dir / f"{case_label}.png"
     save_essos_biot_savart_campaign_plot(report, arrays, coils, closed_geometry, open_geometry, plot_png_path)
+    field_line_png_path = images_dir / f"{case_label}_field_lines.png"
+    save_essos_biot_savart_field_line_plot(report, arrays, field_line_png_path)
     movie_gif_path = movies_dir / f"{case_label}.gif"
     save_essos_biot_savart_campaign_movie(closed_geometry, open_geometry, closed_history, open_history, time, movie_gif_path)
     return EssosBiotSavartCampaignArtifacts(
         report_json_path=report_json_path,
         arrays_npz_path=arrays_npz_path,
         plot_png_path=plot_png_path,
+        field_line_png_path=field_line_png_path,
         movie_gif_path=movie_gif_path,
     )
 
@@ -150,6 +154,13 @@ def build_essos_biot_savart_campaign(
     open_history, _ = simulate_biot_savart_annulus_turbulence(open_geometry, region_kind="open")
     closed_metrics = _region_report(closed_geometry, closed_history, time, "closed_like_inner_annulus")
     open_metrics = _region_report(open_geometry, open_history, time, "open_sol_like_outer_annulus")
+    field_line_report, field_line_arrays = build_essos_biot_savart_field_line_diagnostics(
+        coils=coils,
+        major_radius=major_radius,
+        vertical_axis=vertical_axis,
+        closed_radius_range=(0.18, 0.72),
+        open_radius_range=(0.55, 1.00),
+    )
     report: dict[str, object] = {
         "case": "essos_biot_savart_landreman_paul_qa_closed_open_turbulence",
         "coil_metadata": coils.metadata,
@@ -159,10 +170,12 @@ def build_essos_biot_savart_campaign(
             "closed_like_inner_annulus": closed_metrics,
             "open_sol_like_outer_annulus": open_metrics,
         },
+        "field_line_diagnostics": field_line_report,
     }
     report["passed"] = bool(
         closed_metrics["passed"]
         and open_metrics["passed"]
+        and field_line_report["passed"]
         and closed_metrics["boundary_fraction"] < open_metrics["boundary_fraction"]
         and open_metrics["boundary_fraction"] > 0.0
     )
@@ -182,7 +195,196 @@ def build_essos_biot_savart_campaign(
         "coil_gamma": np.asarray(coils.gamma, dtype=np.float32),
         "coil_currents": np.asarray(coils.currents, dtype=np.float64),
     }
+    arrays.update(field_line_arrays)
     return report, arrays, closed_geometry, open_geometry, closed_history, open_history, time
+
+
+def build_essos_biot_savart_field_line_diagnostics(
+    *,
+    coils: FourierCoilSet,
+    major_radius: float,
+    vertical_axis: float,
+    closed_radius_range: tuple[float, float] = (0.18, 0.72),
+    open_radius_range: tuple[float, float] = (0.55, 1.00),
+    max_turns: float = 5.0,
+    steps_per_turn: int = 96,
+) -> tuple[dict[str, object], dict[str, np.ndarray]]:
+    """Trace annular field lines and classify closed-like/open-like regions."""
+
+    closed_report, closed_arrays = trace_biot_savart_annular_field_lines(
+        coils=coils,
+        region_label="closed_like_inner_annulus",
+        radius_range=closed_radius_range,
+        major_radius=major_radius,
+        vertical_axis=vertical_axis,
+        max_turns=max_turns,
+        steps_per_turn=steps_per_turn,
+    )
+    open_report, open_arrays = trace_biot_savart_annular_field_lines(
+        coils=coils,
+        region_label="open_sol_like_outer_annulus",
+        radius_range=open_radius_range,
+        major_radius=major_radius,
+        vertical_axis=vertical_axis,
+        max_turns=max_turns,
+        steps_per_turn=steps_per_turn,
+    )
+    report: dict[str, object] = {
+        "method": "annular_biot_savart_field_line_trace",
+        "max_turns": float(max_turns),
+        "steps_per_turn": int(steps_per_turn),
+        "closed_like_inner_annulus": closed_report,
+        "open_sol_like_outer_annulus": open_report,
+    }
+    report["passed"] = bool(
+        closed_report["passed"]
+        and open_report["passed"]
+        and closed_report["mean_exit_turns"] > 1.8 * open_report["mean_exit_turns"]
+        and closed_report["mean_exit_connection_length"] > open_report["mean_exit_connection_length"]
+        and open_report["escaped_fraction"] > 0.5
+    )
+    arrays: dict[str, np.ndarray] = {}
+    arrays.update({f"closed_field_line_{key}": value for key, value in closed_arrays.items()})
+    arrays.update({f"open_field_line_{key}": value for key, value in open_arrays.items()})
+    return report, arrays
+
+
+def trace_biot_savart_annular_field_lines(
+    *,
+    coils: FourierCoilSet,
+    region_label: str,
+    radius_range: tuple[float, float],
+    major_radius: float,
+    vertical_axis: float,
+    max_turns: float = 5.0,
+    steps_per_turn: int = 96,
+    seed_radii: int = 5,
+    seed_angles: int = 12,
+    trace_sample_count: int = 8,
+) -> tuple[dict[str, object], dict[str, np.ndarray]]:
+    """Trace a seed grid in an annulus using toroidal angle as the independent variable."""
+
+    rho_min, rho_max = float(radius_range[0]), float(radius_range[1])
+    radial_width = max(rho_max - rho_min, 1.0e-12)
+    seed_rho_1d = np.linspace(rho_min + 0.12 * radial_width, rho_max - 0.12 * radial_width, int(seed_radii))
+    seed_theta_1d = np.linspace(0.0, 2.0 * np.pi, int(seed_angles), endpoint=False)
+    seed_rho, seed_theta = np.meshgrid(seed_rho_1d, seed_theta_1d, indexing="ij")
+    seed_rho = seed_rho.ravel()
+    seed_theta = seed_theta.ravel()
+    seed_count = int(seed_rho.size)
+    radial_offset = seed_rho * np.cos(seed_theta)
+    vertical_offset = seed_rho * np.sin(seed_theta)
+    major = float(major_radius) + radial_offset
+    vertical = float(vertical_axis) + vertical_offset
+    active = np.ones(seed_count, dtype=bool)
+    exit_length = np.full(seed_count, np.nan, dtype=np.float64)
+    exit_turns = np.full(seed_count, float(max_turns), dtype=np.float64)
+    path_length = np.zeros(seed_count, dtype=np.float64)
+    radial_min_seen = seed_rho.copy()
+    radial_max_seen = seed_rho.copy()
+    total_steps = int(round(float(max_turns) * int(steps_per_turn)))
+    dphi = 2.0 * np.pi / float(steps_per_turn)
+    field_period_stride = max(1, int(round(float(steps_per_turn) / max(int(coils.nfp), 1))))
+    sample_indices = np.linspace(0, seed_count - 1, min(int(trace_sample_count), seed_count), dtype=int)
+    sample_major = [major[sample_indices].copy()]
+    sample_vertical = [vertical[sample_indices].copy()]
+    sample_phi = [0.0]
+    poincare_major = [major.copy()]
+    poincare_vertical = [vertical.copy()]
+    poincare_turn = [np.zeros(seed_count, dtype=np.float64)]
+
+    for step in range(1, total_steps + 1):
+        phi = (step - 1) * dphi
+        k1_major, k1_vertical, k1_length = _biot_savart_cylindrical_rhs(
+            coils,
+            major,
+            vertical,
+            phi,
+        )
+        k2_major, k2_vertical, k2_length = _biot_savart_cylindrical_rhs(
+            coils,
+            major + 0.5 * dphi * k1_major,
+            vertical + 0.5 * dphi * k1_vertical,
+            phi + 0.5 * dphi,
+        )
+        k3_major, k3_vertical, k3_length = _biot_savart_cylindrical_rhs(
+            coils,
+            major + 0.5 * dphi * k2_major,
+            vertical + 0.5 * dphi * k2_vertical,
+            phi + 0.5 * dphi,
+        )
+        k4_major, k4_vertical, k4_length = _biot_savart_cylindrical_rhs(
+            coils,
+            major + dphi * k3_major,
+            vertical + dphi * k3_vertical,
+            phi + dphi,
+        )
+        next_major = major + dphi * (k1_major + 2.0 * k2_major + 2.0 * k3_major + k4_major) / 6.0
+        next_vertical = vertical + dphi * (k1_vertical + 2.0 * k2_vertical + 2.0 * k3_vertical + k4_vertical) / 6.0
+        step_length = dphi * (k1_length + 2.0 * k2_length + 2.0 * k3_length + k4_length) / 6.0
+        major = np.where(active, next_major, major)
+        vertical = np.where(active, next_vertical, vertical)
+        path_length = np.where(active, path_length + step_length, path_length)
+        rho = np.sqrt((major - float(major_radius)) ** 2 + (vertical - float(vertical_axis)) ** 2)
+        radial_min_seen = np.where(active, np.minimum(radial_min_seen, rho), radial_min_seen)
+        radial_max_seen = np.where(active, np.maximum(radial_max_seen, rho), radial_max_seen)
+        finite = np.isfinite(major) & np.isfinite(vertical) & np.isfinite(path_length)
+        exited_now = active & ((rho < rho_min) | (rho > rho_max) | ~finite)
+        exit_length = np.where(exited_now, path_length, exit_length)
+        exit_turns = np.where(exited_now, step / float(steps_per_turn), exit_turns)
+        active = active & ~exited_now
+        if step % max(1, steps_per_turn // 24) == 0:
+            sample_major.append(major[sample_indices].copy())
+            sample_vertical.append(vertical[sample_indices].copy())
+            sample_phi.append(step * dphi)
+        if step % field_period_stride == 0:
+            poincare_major.append(major.copy())
+            poincare_vertical.append(vertical.copy())
+            poincare_turn.append(np.full(seed_count, step / float(steps_per_turn), dtype=np.float64))
+
+    escaped = ~active
+    observed_exit_length = np.where(np.isfinite(exit_length), exit_length, path_length)
+    survival_turns = np.linspace(0.0, float(max_turns), 64)
+    survival_fraction = np.asarray([float(np.mean(exit_turns >= turn)) for turn in survival_turns], dtype=np.float64)
+    radial_excursion = radial_max_seen - radial_min_seen
+    report = {
+        "label": region_label,
+        "radius_min": rho_min,
+        "radius_max": rho_max,
+        "seed_count": seed_count,
+        "escaped_fraction": float(np.mean(escaped)),
+        "confined_fraction": float(np.mean(~escaped)),
+        "mean_exit_connection_length": float(np.mean(observed_exit_length)),
+        "median_exit_connection_length": float(np.median(observed_exit_length)),
+        "max_observed_connection_length": float(np.max(observed_exit_length)),
+        "mean_exit_turns": float(np.mean(exit_turns)),
+        "median_exit_turns": float(np.median(exit_turns)),
+        "radial_excursion_mean": float(np.mean(radial_excursion)),
+        "radial_excursion_max": float(np.max(radial_excursion)),
+        "poincare_points": int(np.asarray(poincare_major).size),
+    }
+    report["passed"] = bool(
+        np.isfinite(report["mean_exit_connection_length"])
+        and report["mean_exit_connection_length"] > 0.0
+        and np.isfinite(report["radial_excursion_mean"])
+    )
+    arrays = {
+        "seed_rho": seed_rho.astype(np.float32),
+        "seed_theta": seed_theta.astype(np.float32),
+        "exit_length": observed_exit_length.astype(np.float32),
+        "exit_turns": exit_turns.astype(np.float32),
+        "escaped": escaped.astype(np.int8),
+        "radial_excursion": radial_excursion.astype(np.float32),
+        "survival_turns": survival_turns.astype(np.float32),
+        "survival_fraction": survival_fraction.astype(np.float32),
+        "poincare_major": np.asarray(poincare_major, dtype=np.float32),
+        "poincare_vertical": np.asarray(poincare_vertical, dtype=np.float32),
+        "poincare_turn": np.asarray(poincare_turn, dtype=np.float32),
+        "sample_major": np.asarray(sample_major, dtype=np.float32),
+        "sample_vertical": np.asarray(sample_vertical, dtype=np.float32),
+        "sample_phi": np.asarray(sample_phi, dtype=np.float32),
+    }
+    return report, arrays
 
 
 def build_biot_savart_annulus_geometry(
@@ -442,6 +644,153 @@ def save_essos_biot_savart_campaign_movie(
             plt.close(fig)
     frames[0].save(resolved, save_all=True, append_images=frames[1:], duration=125, loop=0)
     return resolved
+
+
+def save_essos_biot_savart_field_line_plot(
+    report: dict[str, object],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    """Save the Poincare/connection-length figure for the coil-field gate."""
+
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    major_radius = float(report["axis_guess_major_radius"])
+    vertical_axis = float(report["axis_guess_vertical_axis"])
+    trace_report = report["field_line_diagnostics"]
+    closed = trace_report["closed_like_inner_annulus"]
+    open_region = trace_report["open_sol_like_outer_annulus"]
+    fig = plt.figure(figsize=(14.8, 10.0), constrained_layout=True)
+    grid = fig.add_gridspec(2, 2)
+
+    ax0 = fig.add_subplot(grid[0, 0])
+    plot_radius = 1.15 * max(float(open_region["radius_max"]), float(closed["radius_max"]))
+    for prefix, color, label, alpha in (
+        ("closed", "#005f73", "closed-like annulus", 0.42),
+        ("open", "#ca6702", "open/SOL-like annulus", 0.34),
+    ):
+        poincare_major = arrays[f"{prefix}_field_line_poincare_major"].reshape(-1)
+        poincare_vertical = arrays[f"{prefix}_field_line_poincare_vertical"].reshape(-1)
+        plot_x = poincare_major - major_radius
+        plot_z = poincare_vertical - vertical_axis
+        display = np.sqrt(plot_x * plot_x + plot_z * plot_z) <= plot_radius
+        ax0.scatter(
+            plot_x[display],
+            plot_z[display],
+            s=5.0,
+            color=color,
+            alpha=alpha,
+            label=label,
+            linewidths=0.0,
+        )
+    _draw_annulus(ax0, closed["radius_min"], closed["radius_max"], color="#005f73", lw=1.3)
+    _draw_annulus(ax0, open_region["radius_min"], open_region["radius_max"], color="#ca6702", lw=1.3)
+    ax0.set_aspect("equal")
+    ax0.set_xlim(-plot_radius, plot_radius)
+    ax0.set_ylim(-plot_radius, plot_radius)
+    ax0.set_xlabel("R - R0")
+    ax0.set_ylabel("Z - Z0")
+    ax0.set_title("Near-annulus Poincare samples from coil-produced field")
+    ax0.legend(frameon=False, loc="upper right")
+
+    ax1 = fig.add_subplot(grid[0, 1])
+    for prefix, color, label in (
+        ("closed", "#005f73", "closed-like"),
+        ("open", "#ca6702", "open/SOL-like"),
+    ):
+        major = arrays[f"{prefix}_field_line_sample_major"]
+        vertical = arrays[f"{prefix}_field_line_sample_vertical"]
+        for trace_index in range(major.shape[1]):
+            ax1.plot(
+                major[:, trace_index] - major_radius,
+                vertical[:, trace_index] - vertical_axis,
+                color=color,
+                alpha=0.55,
+                lw=1.0,
+            )
+        ax1.plot([], [], color=color, lw=2.0, label=label)
+    _draw_annulus(ax1, closed["radius_min"], closed["radius_max"], color="#005f73", lw=1.1)
+    _draw_annulus(ax1, open_region["radius_min"], open_region["radius_max"], color="#ca6702", lw=1.1)
+    ax1.set_aspect("equal")
+    ax1.set_xlabel("R - R0")
+    ax1.set_ylabel("Z - Z0")
+    ax1.set_title("Sample annular field-line traces")
+    ax1.legend(frameon=False)
+
+    ax2 = fig.add_subplot(grid[1, 0])
+    bins = np.linspace(
+        0.0,
+        max(
+            float(np.max(arrays["closed_field_line_exit_length"])),
+            float(np.max(arrays["open_field_line_exit_length"])),
+        ),
+        28,
+    )
+    ax2.hist(arrays["closed_field_line_exit_length"], bins=bins, color="#005f73", alpha=0.62, label="closed-like")
+    ax2.hist(arrays["open_field_line_exit_length"], bins=bins, color="#ca6702", alpha=0.62, label="open/SOL-like")
+    ax2.set_xlabel("annular exit connection-length proxy")
+    ax2.set_ylabel("seed count")
+    ax2.set_title("Connection-length proxy to annular exit")
+    ax2.legend(frameon=False)
+
+    ax3 = fig.add_subplot(grid[1, 1])
+    ax3.plot(
+        arrays["closed_field_line_survival_turns"],
+        arrays["closed_field_line_survival_fraction"],
+        color="#005f73",
+        lw=2.2,
+        label=f"closed-like mean exit {closed['mean_exit_turns']:.2f} turns",
+    )
+    ax3.plot(
+        arrays["open_field_line_survival_turns"],
+        arrays["open_field_line_survival_fraction"],
+        color="#ca6702",
+        lw=2.2,
+        label=f"open/SOL-like mean exit {open_region['mean_exit_turns']:.2f} turns",
+    )
+    ax3.set_xlabel("toroidal turns")
+    ax3.set_ylabel("seed survival fraction")
+    ax3.set_ylim(-0.02, 1.02)
+    ax3.set_title("Annular residence classification")
+    ax3.legend(frameon=False)
+
+    fig.suptitle(
+        "ESSOS Landreman-Paul QA coil field: field-line classification "
+        f"(closed mean exit {closed['mean_exit_turns']:.2f} turns, "
+        f"open mean exit {open_region['mean_exit_turns']:.2f} turns)",
+        fontsize=12,
+    )
+    fig.savefig(resolved, dpi=180)
+    plt.close(fig)
+    return resolved
+
+
+def _biot_savart_cylindrical_rhs(
+    coils: FourierCoilSet,
+    major: np.ndarray,
+    vertical: np.ndarray,
+    phi: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    cos_phi = np.cos(float(phi))
+    sin_phi = np.sin(float(phi))
+    points = np.stack([major * cos_phi, major * sin_phi, vertical], axis=-1)
+    field = np.asarray(biot_savart_field(coils, jnp.asarray(points, dtype=jnp.float64)), dtype=np.float64)
+    b_radial = cos_phi * field[:, 0] + sin_phi * field[:, 1]
+    b_phi = -sin_phi * field[:, 0] + cos_phi * field[:, 1]
+    b_vertical = field[:, 2]
+    b_magnitude = np.linalg.norm(field, axis=-1)
+    bphi_floor = 1.0e-9 * max(float(np.nanmax(np.abs(b_phi))), 1.0e-30)
+    safe_bphi = np.where(np.abs(b_phi) > bphi_floor, b_phi, np.sign(b_phi + 1.0e-30) * bphi_floor)
+    dmajor_dphi = major * b_radial / safe_bphi
+    dvertical_dphi = major * b_vertical / safe_bphi
+    dlength_dphi = np.abs(major) * b_magnitude / np.maximum(np.abs(safe_bphi), bphi_floor)
+    return dmajor_dphi, dvertical_dphi, dlength_dphi
+
+
+def _draw_annulus(axis: plt.Axes, radius_min: float, radius_max: float, *, color: str, lw: float) -> None:
+    theta = np.linspace(0.0, 2.0 * np.pi, 256)
+    for radius, linestyle in ((float(radius_min), "--"), (float(radius_max), "-")):
+        axis.plot(radius * np.cos(theta), radius * np.sin(theta), color=color, lw=lw, ls=linestyle, alpha=0.8)
 
 
 def _annular_fci_step(

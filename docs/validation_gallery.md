@@ -322,6 +322,8 @@ What this documents:
 
 ![ESSOS Biot-Savart Landreman-Paul QA campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png)
 
+![ESSOS Biot-Savart Landreman-Paul QA field-line classification](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign_field_lines.png)
+
 ![Stellarator SOL snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_snapshots.png)
 
 ![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
@@ -350,6 +352,9 @@ What this documents:
 - ESSOS-format Fourier-coil ingestion, JAX Biot-Savart evaluation, and
   closed-like versus open/SOL-like annular FCI maps from the Landreman-Paul QA
   coil set, with boundary-hit fractions about `0.413` and `0.681`;
+- coil-field Poincare/residence diagnostics showing longer inner-annulus
+  residence than the outer annulus, with mean annular exit times about `0.381`
+  and `0.155` toroidal turns;
 - metric-weighted vorticity inversion with relative potential error about `1.30e-3`;
 - a reduced 3D SOL dynamics benchmark with R-Z panel snapshots at four toroidal angles;
 - RMS, skewness, radial-flux proxy, time-trace, and toroidal-poloidal spectrum diagnostics;
