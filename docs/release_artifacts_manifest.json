@@ -858,6 +858,31 @@
       "asset": "docs__data__essos_imported_pytree_artifacts__data__essos_imported_pytree_campaign.npz",
       "size_bytes": 3671,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__data__essos_imported_pytree_campaign.npz"
+    },
+    "docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_snapshots.png": {
+      "asset": "docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_snapshots.png",
+      "size_bytes": 1407816,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_snapshots.png"
+    },
+    "docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_diagnostics.png": {
+      "asset": "docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png",
+      "size_bytes": 696697,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png"
+    },
+    "docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_poster.png": {
+      "asset": "docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_poster.png",
+      "size_bytes": 395066,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_poster.png"
+    },
+    "docs/data/essos_imported_drb_movie_artifacts/movies/essos_imported_drb_movie_campaign.gif": {
+      "asset": "docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif",
+      "size_bytes": 3593390,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif"
+    },
+    "docs/data/essos_imported_drb_movie_artifacts/data/essos_imported_drb_movie_campaign.npz": {
+      "asset": "docs__data__essos_imported_drb_movie_artifacts__data__essos_imported_drb_movie_campaign.npz",
+      "size_bytes": 93824,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__data__essos_imported_drb_movie_campaign.npz"
     }
   },
   "tag": "validation-artifacts-2026-04-28"

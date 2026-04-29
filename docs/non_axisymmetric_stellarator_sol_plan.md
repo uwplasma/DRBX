@@ -129,6 +129,10 @@ The first native lane now consists of:
 - `src/jax_drb/validation/essos_imported_pytree_campaign.py`, which drives
   the fixed-layout JAXDRB PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
   from the same ESSOS-imported field-line maps.
+- `src/jax_drb/validation/essos_imported_drb_movie_campaign.py`, which
+  advances the imported Landreman-Paul QA FCI maps through a movie-grade
+  fixed-layout DRB transient with sheath/recycling/neutrals, nonlinear
+  reduced forcing, potential-residual gating, and opened 3D rendering.
 
 The current generated artifact bundle lives in
 `docs/data/stellarator_fci_validation_artifacts/`.
@@ -147,6 +151,11 @@ The imported PyTree/JVP artifact lives in
 `docs/data/essos_imported_pytree_artifacts/` and is documented in
 `docs/essos_imported_pytree_validation.md`; it verifies that the imported maps
 also feed the fixed-layout RHS and differentiability gates.
+The imported QA-coil movie artifact lives in
+`docs/data/essos_imported_drb_movie_artifacts/` and is documented in
+`docs/essos_imported_drb_movie.md`; it is the first end-to-end visual bridge
+from external coil-field tracing to a JAXDRB fixed-layout DRB transient with
+sheath, recycling, neutral closures, and explicit physics gates.
 
 The current suite gives three passing 3D analytic configurations rather than a
 single showcase-only geometry. Their mirror ratios span about `0.45` to
@@ -312,10 +321,12 @@ current metrics are:
 - mean and maximum cell RMS fluctuation: about `9.99e-3` and `1.17e-1`
 - radial-flux proxy: about `-1.20e-4`
 
-Those quantities are the first documentation-facing physics metrics. The next
-step is to add sustained flux drive, target loss, sheath response, and a
-potential/vorticity solve so that the radial-flux proxy becomes a real
-\(E \times B\) transport diagnostic.
+Those quantities are the first documentation-facing physics metrics. The
+ESSOS-imported QA-coil movie now adds the next bridge: a fixed-layout DRB
+state, target loss, recycling, neutral reactions, and a compact potential solve
+on externally traced Landreman-Paul QA FCI maps. The remaining promotion step
+is not visualization, but longer nonlinear runs with convergence, external
+code comparison, and device-geometry wall/target information.
 
 The current media now follow the more useful review pattern: R-Z panels at
 several toroidal angles, RMS/skewness/flux/spectrum diagnostics, and opened

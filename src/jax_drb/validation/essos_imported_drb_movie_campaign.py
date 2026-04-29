@@ -1,0 +1,954 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import jax
+import jax.numpy as jnp
+from matplotlib import cm
+from matplotlib import colors
+from matplotlib import pyplot as plt
+import numpy as np
+from PIL import Image
+
+from ..geometry import EssosImportedFciGeometry, build_essos_imported_fci_geometry
+from ..native.fci import conservative_perp_diffusion_xz
+from ..native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
+from ..native.fci_neutral import compute_fci_neutral_reaction_diffusion
+from ..native.fci_sheath_recycling import compute_fci_sheath_recycling
+from .essos_imported_pytree_campaign import initial_essos_imported_drb_state
+
+
+@dataclass(frozen=True)
+class EssosImportedDrbMovieArtifacts:
+    report_json_path: Path
+    arrays_npz_path: Path
+    snapshot_png_path: Path
+    diagnostics_png_path: Path
+    poster_png_path: Path
+    movie_gif_path: Path
+
+
+@dataclass(frozen=True)
+class EssosImportedDrbMovieResult:
+    geometry: EssosImportedFciGeometry
+    report: dict[str, Any]
+    arrays: dict[str, np.ndarray]
+
+
+def create_essos_imported_drb_movie_package(
+    *,
+    output_root: str | Path,
+    case_label: str = "essos_imported_drb_movie_campaign",
+    coil_json_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    nx: int = 6,
+    ny: int = 10,
+    nz: int = 24,
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 70.0,
+    times_to_trace: int = 320,
+    frames: int = 26,
+    substeps_per_frame: int = 4,
+    dt: float = 2.0e-3,
+) -> EssosImportedDrbMovieArtifacts:
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    movies_dir = root / "movies"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    movies_dir.mkdir(parents=True, exist_ok=True)
+
+    result = build_essos_imported_drb_movie_campaign(
+        coil_json_path=coil_json_path,
+        essos_root=essos_root,
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        frames=frames,
+        substeps_per_frame=substeps_per_frame,
+        dt=dt,
+    )
+    report_json_path = data_dir / f"{case_label}.json"
+    report_json_path.write_text(json.dumps(result.report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    arrays_npz_path = data_dir / f"{case_label}.npz"
+    np.savez_compressed(arrays_npz_path, **result.arrays)
+    snapshot_png_path = images_dir / f"{case_label}_snapshots.png"
+    save_essos_imported_drb_snapshot_panel(result.geometry, result.arrays, snapshot_png_path)
+    diagnostics_png_path = images_dir / f"{case_label}_diagnostics.png"
+    save_essos_imported_drb_diagnostics_panel(result.geometry, result.report, result.arrays, diagnostics_png_path)
+    poster_png_path = images_dir / f"{case_label}_poster.png"
+    save_essos_imported_drb_3d_frame(
+        result.geometry,
+        result.arrays["density_fluctuation_history"][-1],
+        float(result.arrays["time"][-1]),
+        poster_png_path,
+        vmax=float(result.arrays["movie_vmax"][0]),
+    )
+    movie_gif_path = movies_dir / f"{case_label}.gif"
+    save_essos_imported_drb_3d_movie(result.geometry, result.arrays, movie_gif_path)
+    return EssosImportedDrbMovieArtifacts(
+        report_json_path=report_json_path,
+        arrays_npz_path=arrays_npz_path,
+        snapshot_png_path=snapshot_png_path,
+        diagnostics_png_path=diagnostics_png_path,
+        poster_png_path=poster_png_path,
+        movie_gif_path=movie_gif_path,
+    )
+
+
+def build_essos_imported_drb_movie_campaign(
+    *,
+    coil_json_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    nx: int = 6,
+    ny: int = 10,
+    nz: int = 24,
+    rho_min: float = 0.12,
+    rho_max: float = 0.34,
+    maxtime: float = 70.0,
+    times_to_trace: int = 320,
+    frames: int = 26,
+    substeps_per_frame: int = 4,
+    dt: float = 2.0e-3,
+) -> EssosImportedDrbMovieResult:
+    geometry = build_essos_imported_fci_geometry(
+        coil_json_path=coil_json_path,
+        essos_root=essos_root,
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        rho_min=rho_min,
+        rho_max=rho_max,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+    )
+    parameters = FciDrbRhsParameters(
+        recycling_fraction=0.965,
+        recycled_neutral_energy=0.026,
+        vorticity_diffusivity=3.5e-4,
+        potential_iterations=96,
+        potential_regularization=1.0e-2,
+    )
+    run_movie = _build_essos_imported_movie_scan(
+        geometry,
+        parameters=parameters,
+        frames=frames,
+        substeps_per_frame=substeps_per_frame,
+        dt=dt,
+    )
+    initial = initial_essos_imported_drb_state(geometry, drive_scale=1.08)
+    t0 = time.perf_counter()
+    final_state, movie_history, diagnostics = run_movie(initial)
+    _block_until_ready((final_state, movie_history, diagnostics))
+    execute_seconds = time.perf_counter() - t0
+
+    movie_history_np = np.asarray(movie_history, dtype=np.float64)
+    diagnostics_np = np.asarray(diagnostics, dtype=np.float64)
+    final_state_np = _state_to_numpy(final_state)
+    final_sheath, final_neutral = _final_closure_diagnostics(geometry, final_state)
+    report = _build_essos_imported_drb_movie_report(
+        geometry=geometry,
+        movie_history=movie_history_np,
+        diagnostics=diagnostics_np,
+        final_state=final_state_np,
+        final_sheath=final_sheath,
+        final_neutral=final_neutral,
+        frames=frames,
+        substeps_per_frame=substeps_per_frame,
+        dt=dt,
+        execute_seconds=execute_seconds,
+    )
+    arrays = _build_essos_imported_drb_movie_arrays(
+        geometry=geometry,
+        movie_history=movie_history_np,
+        diagnostics=diagnostics_np,
+        final_state=final_state_np,
+        frame_dt=float(dt) * float(substeps_per_frame),
+    )
+    return EssosImportedDrbMovieResult(geometry=geometry, report=report, arrays=arrays)
+
+
+def save_essos_imported_drb_snapshot_panel(
+    geometry: EssosImportedFciGeometry,
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    history = np.asarray(arrays["density_fluctuation_history"], dtype=np.float64)
+    time = np.asarray(arrays["time"], dtype=np.float64)
+    major_radius, vertical = _major_radius_and_vertical(geometry)
+    time_indices = np.asarray([0, history.shape[0] // 2, history.shape[0] - 1], dtype=int)
+    toroidal_indices = np.linspace(0, geometry.shape[1] - 1, min(4, geometry.shape[1]), dtype=int)
+    vmax = float(arrays["movie_vmax"][0])
+    norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
+    fig, axes = plt.subplots(
+        len(time_indices),
+        len(toroidal_indices),
+        figsize=(4.1 * len(toroidal_indices), 3.3 * len(time_indices)),
+        constrained_layout=True,
+    )
+    axes = np.atleast_2d(axes)
+    image = None
+    for row, time_index in enumerate(time_indices):
+        for col, toroidal_index in enumerate(toroidal_indices):
+            axis = axes[row, col]
+            image = axis.pcolormesh(
+                major_radius[:, toroidal_index, :],
+                vertical[:, toroidal_index, :],
+                history[time_index, :, toroidal_index, :],
+                shading="gouraud",
+                cmap="coolwarm",
+                norm=norm,
+            )
+            axis.plot(major_radius[0, toroidal_index, :], vertical[0, toroidal_index, :], color="white", lw=1.4)
+            axis.plot(major_radius[-1, toroidal_index, :], vertical[-1, toroidal_index, :], color="0.20", lw=1.0)
+            axis.set_aspect("equal", adjustable="box")
+            phi_value = 2.0 * np.pi * toroidal_index / max(geometry.shape[1], 1)
+            axis.set_title(rf"$t={time[time_index]:.3f}$, $\phi={phi_value:.2f}$")
+            axis.set_xlabel("R")
+            axis.set_ylabel("Z")
+    if image is not None:
+        fig.colorbar(image, ax=axes, shrink=0.76, label=r"$\tilde{n}_i/\langle n_i\rangle_\phi$")
+    fig.suptitle("ESSOS-imported QA-coil DRB transient: density fluctuations on FCI planes", fontsize=15)
+    fig.savefig(resolved, dpi=180)
+    plt.close(fig)
+    return resolved
+
+
+def save_essos_imported_drb_diagnostics_panel(
+    geometry: EssosImportedFciGeometry,
+    report: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics = np.asarray(arrays["diagnostics"], dtype=np.float64)
+    time = np.asarray(arrays["time"], dtype=np.float64)
+    major_radius, vertical = _major_radius_and_vertical(geometry)
+    toroidal_index = min(geometry.shape[1] // 3, geometry.shape[1] - 1)
+    endpoint_count = np.asarray(arrays["endpoint_count_toroidal"], dtype=np.float64)
+    spectrum = np.asarray(arrays["final_spectrum_log10"], dtype=np.float64)
+
+    fig, axes = plt.subplots(2, 3, figsize=(15.4, 8.5), constrained_layout=True)
+    density_image = axes[0, 0].pcolormesh(
+        major_radius[:, toroidal_index, :],
+        vertical[:, toroidal_index, :],
+        arrays["final_ion_density"][:, toroidal_index, :],
+        shading="gouraud",
+        cmap="turbo",
+    )
+    axes[0, 0].set_title("final ion density")
+    fig.colorbar(density_image, ax=axes[0, 0], label=r"$N_i$")
+
+    neutral_image = axes[0, 1].pcolormesh(
+        major_radius[:, toroidal_index, :],
+        vertical[:, toroidal_index, :],
+        arrays["final_neutral_density"][:, toroidal_index, :],
+        shading="gouraud",
+        cmap="magma",
+    )
+    axes[0, 1].set_title("final neutral density")
+    fig.colorbar(neutral_image, ax=axes[0, 1], label=r"$N_n$")
+
+    endpoint_image = axes[0, 2].imshow(endpoint_count.T, origin="lower", aspect="auto", cmap="inferno")
+    axes[0, 2].set_title("imported endpoint count")
+    axes[0, 2].set_xlabel("toroidal index")
+    axes[0, 2].set_ylabel("poloidal index")
+    fig.colorbar(endpoint_image, ax=axes[0, 2], label="target crossings")
+
+    axes[1, 0].plot(time, diagnostics[:, 0], lw=2.2, label="fluctuation RMS")
+    axes[1, 0].plot(time, diagnostics[:, 1], lw=2.0, label="mean ion density")
+    axes[1, 0].plot(time, diagnostics[:, 2], lw=2.0, label="mean neutral density")
+    axes[1, 0].set_title("global transient diagnostics")
+    axes[1, 0].set_xlabel("normalized time")
+    axes[1, 0].legend(frameon=False, fontsize=8)
+    axes[1, 0].grid(alpha=0.25)
+
+    spectrum_image = axes[1, 1].imshow(spectrum.T, origin="lower", aspect="auto", cmap="viridis")
+    axes[1, 1].set_title("final toroidal-poloidal spectrum")
+    axes[1, 1].set_xlabel("toroidal mode index")
+    axes[1, 1].set_ylabel("poloidal mode index")
+    fig.colorbar(spectrum_image, ax=axes[1, 1], label=r"$\log_{10}$ power")
+
+    radial = np.asarray(arrays["radial_coordinate"], dtype=np.float64)
+    axes[1, 2].plot(radial, arrays["final_radial_flux_proxy"], lw=2.2, color="#005f73")
+    axes[1, 2].axhline(0.0, lw=0.9, color="0.35")
+    axes[1, 2].set_title("final radial flux proxy")
+    axes[1, 2].set_xlabel(r"$\rho$")
+    axes[1, 2].set_ylabel(r"$\langle \tilde{n}_i \tilde{v}_\rho\rangle$")
+    axes[1, 2].grid(alpha=0.25)
+    axes[1, 2].text(
+        0.04,
+        0.95,
+        "\n".join(
+            [
+                f"RMS = {report['final_fluctuation_rms']:.2e}",
+                f"endpoint frac. = {report['endpoint_fraction']:.2f}",
+                f"sheath residual = {report['particle_recycling_relative_error']:.1e}",
+                f"neutral residual = {report['neutral_particle_relative_error']:.1e}",
+            ]
+        ),
+        transform=axes[1, 2].transAxes,
+        va="top",
+        fontsize=8,
+        bbox={"facecolor": "white", "alpha": 0.84, "edgecolor": "0.82"},
+    )
+
+    for axis in (axes[0, 0], axes[0, 1]):
+        axis.plot(major_radius[0, toroidal_index, :], vertical[0, toroidal_index, :], color="white", lw=1.4)
+        axis.plot(major_radius[-1, toroidal_index, :], vertical[-1, toroidal_index, :], color="0.22", lw=1.0)
+        axis.set_aspect("equal", adjustable="box")
+        axis.set_xlabel("R")
+        axis.set_ylabel("Z")
+    fig.suptitle("ESSOS-imported QA-coil DRB transient: sheath, recycling, neutrals, and fluctuation gates", fontsize=15)
+    fig.savefig(resolved, dpi=180)
+    plt.close(fig)
+    return resolved
+
+
+def save_essos_imported_drb_3d_movie(
+    geometry: EssosImportedFciGeometry,
+    arrays: dict[str, np.ndarray],
+    path: str | Path,
+) -> Path:
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    history = np.asarray(arrays["density_fluctuation_history"], dtype=np.float64)
+    time_values = np.asarray(arrays["time"], dtype=np.float64)
+    frame_indices = np.linspace(0, history.shape[0] - 1, min(24, history.shape[0]), dtype=int)
+    vmax = float(arrays["movie_vmax"][0])
+    with tempfile.TemporaryDirectory(prefix="jax_drb_essos_drb_movie_") as temp_dir:
+        frame_paths = []
+        for local_index, frame_index in enumerate(frame_indices):
+            frame_path = Path(temp_dir) / f"frame_{local_index:03d}.png"
+            save_essos_imported_drb_3d_frame(
+                geometry,
+                history[frame_index],
+                float(time_values[frame_index]),
+                frame_path,
+                vmax=vmax,
+            )
+            frame_paths.append(frame_path)
+        images = [Image.open(frame_path).convert("P", palette=Image.Palette.ADAPTIVE) for frame_path in frame_paths]
+        images[0].save(resolved, save_all=True, append_images=images[1:], duration=120, loop=0)
+        for image in images:
+            image.close()
+    return resolved
+
+
+def save_essos_imported_drb_3d_frame(
+    geometry: EssosImportedFciGeometry,
+    field: np.ndarray,
+    time_value: float,
+    path: str | Path,
+    *,
+    vmax: float | None = None,
+) -> Path:
+    if max(geometry.shape) >= 16:
+        try:
+            return _save_essos_imported_drb_3d_frame_pyvista(geometry, field, time_value, path, vmax=vmax)
+        except Exception:
+            pass
+    return _save_essos_imported_drb_3d_frame_matplotlib(geometry, field, time_value, path, vmax=vmax)
+
+
+def _build_essos_imported_movie_scan(
+    geometry: EssosImportedFciGeometry,
+    *,
+    parameters: FciDrbRhsParameters,
+    frames: int,
+    substeps_per_frame: int,
+    dt: float,
+):
+    radial = _normalized_minor_radius_jax(geometry)
+    curvature_proxy = _magnetic_curvature_proxy_jax(geometry)
+    source_envelope = jnp.exp(-jnp.square((radial - 0.30) / 0.20))
+    neutral_puff_envelope = jnp.exp(-jnp.square((radial - 0.86) / 0.12))
+    edge_sink_envelope = jnp.exp(-jnp.square((radial - 0.98) / 0.16))
+    theta = geometry.poloidal_angle
+    phi = geometry.toroidal_angle
+    helical = jnp.sin(2.0 * theta - phi) + 0.35 * jnp.cos(3.0 * theta - 2.0 * phi)
+    helical = helical / jnp.maximum(jnp.std(helical), 1.0e-12)
+
+    def step_state(state: FciDrbState, scalar_time: jax.Array) -> FciDrbState:
+        result = compute_fci_drb_rhs(state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
+        phi_field = result.potential
+        pressure = state.ion_pressure + state.electron_pressure
+        grad_pressure = _radial_derivative(pressure, geometry)
+        fluctuation_drive = source_envelope * (1.0 + 0.22 * jnp.sin(31.0 * scalar_time + helical))
+        neutral_puff = neutral_puff_envelope * (1.0 + 0.18 * jnp.cos(17.0 * scalar_time - helical))
+        ion_diffusion = conservative_perp_diffusion_xz(state.ion_density, 7.0e-4 * jnp.ones_like(state.ion_density), geometry.metric)
+        electron_diffusion = conservative_perp_diffusion_xz(
+            state.electron_density,
+            7.0e-4 * jnp.ones_like(state.electron_density),
+            geometry.metric,
+        )
+        ion_pressure_diffusion = conservative_perp_diffusion_xz(
+            state.ion_pressure,
+            5.0e-4 * jnp.ones_like(state.ion_pressure),
+            geometry.metric,
+        )
+        electron_pressure_diffusion = conservative_perp_diffusion_xz(
+            state.electron_pressure,
+            5.0e-4 * jnp.ones_like(state.electron_pressure),
+            geometry.metric,
+        )
+        ion_adv = _logical_exb_advection(phi_field, state.ion_density, geometry)
+        electron_adv = _logical_exb_advection(phi_field, state.electron_density, geometry)
+        neutral_adv = 0.35 * _logical_exb_advection(phi_field, state.neutral_density, geometry)
+        pressure_adv = _logical_exb_advection(phi_field, pressure, geometry)
+        vorticity_adv = _logical_exb_advection(phi_field, state.vorticity, geometry)
+        edge_particle_sink = 0.030 * edge_sink_envelope * state.ion_density
+        edge_energy_sink = 0.030 * edge_sink_envelope * pressure
+
+        source_strength = 0.11
+        neutral_puff_strength = 0.045
+        rhs = FciDrbState(
+            ion_density=(
+                result.rhs.ion_density
+                - 0.070 * ion_adv
+                + ion_diffusion
+                + source_strength * fluctuation_drive
+                - edge_particle_sink
+            ),
+            electron_density=(
+                result.rhs.electron_density
+                - 0.070 * electron_adv
+                + electron_diffusion
+                + source_strength * fluctuation_drive
+                - edge_particle_sink
+                + 0.22 * (state.ion_density - state.electron_density)
+            ),
+            neutral_density=result.rhs.neutral_density - 0.022 * neutral_adv + neutral_puff_strength * neutral_puff,
+            ion_pressure=(
+                result.rhs.ion_pressure
+                - 0.042 * pressure_adv
+                + ion_pressure_diffusion
+                + 0.026 * fluctuation_drive
+                - 0.45 * edge_energy_sink
+            ),
+            electron_pressure=(
+                result.rhs.electron_pressure
+                - 0.042 * pressure_adv
+                + electron_pressure_diffusion
+                + 0.035 * fluctuation_drive
+                - 0.55 * edge_energy_sink
+            ),
+            neutral_pressure=result.rhs.neutral_pressure + 0.012 * neutral_puff - 0.010 * neutral_adv,
+            ion_momentum=result.rhs.ion_momentum - 0.018 * _logical_exb_advection(phi_field, state.ion_momentum, geometry),
+            neutral_momentum=result.rhs.neutral_momentum - 0.010 * neutral_adv,
+            vorticity=(
+                result.rhs.vorticity
+                - 0.050 * vorticity_adv
+                + 0.034 * curvature_proxy * grad_pressure
+                + 0.011 * curvature_proxy * fluctuation_drive
+                - 0.028 * state.vorticity
+            ),
+        )
+        return _clip_movie_state(_add_scaled_state(state, rhs, dt))
+
+    def run(initial_state: FciDrbState) -> tuple[FciDrbState, jax.Array, jax.Array]:
+        def frame_step(state: FciDrbState, frame_index: jax.Array) -> tuple[FciDrbState, tuple[jax.Array, jax.Array]]:
+            def substep(local_index: int, carry: FciDrbState) -> FciDrbState:
+                scalar_time = (frame_index * int(substeps_per_frame) + local_index) * float(dt)
+                return step_state(carry, scalar_time)
+
+            next_state = jax.lax.fori_loop(0, int(substeps_per_frame), substep, state)
+            movie_field = _density_fluctuation(next_state.ion_density)
+            result = compute_fci_drb_rhs(next_state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
+            diagnostics = jnp.asarray(
+                [
+                    jnp.sqrt(jnp.mean(jnp.square(movie_field))),
+                    jnp.mean(next_state.ion_density),
+                    jnp.mean(next_state.neutral_density),
+                    jnp.sqrt(jnp.mean(jnp.square(next_state.vorticity))),
+                    result.potential_residual_l2,
+                    jnp.min(next_state.ion_density),
+                    jnp.min(next_state.neutral_density),
+                ],
+                dtype=jnp.float64,
+            )
+            return next_state, (movie_field, diagnostics)
+
+        final_state, (movie_history, diagnostics) = jax.lax.scan(
+            frame_step,
+            initial_state,
+            jnp.arange(int(frames), dtype=jnp.int32),
+        )
+        return final_state, movie_history, diagnostics
+
+    return jax.jit(run)
+
+
+def _build_essos_imported_drb_movie_report(
+    *,
+    geometry: EssosImportedFciGeometry,
+    movie_history: np.ndarray,
+    diagnostics: np.ndarray,
+    final_state: dict[str, np.ndarray],
+    final_sheath: dict[str, float],
+    final_neutral: dict[str, float],
+    frames: int,
+    substeps_per_frame: int,
+    dt: float,
+    execute_seconds: float,
+) -> dict[str, Any]:
+    final_fluctuation = movie_history[-1]
+    spectrum = np.abs(np.fft.rfftn(final_fluctuation, axes=(1, 2))) ** 2
+    total_power = float(np.sum(spectrum))
+    low_mode_fraction = float(np.sum(spectrum[:, :4, :6]) / max(total_power, 1.0e-30))
+    mode_power = np.mean(spectrum, axis=0)
+    if mode_power.size:
+        mode_power[0, 0] = 0.0
+    peak_mode = np.unravel_index(int(np.argmax(mode_power)), mode_power.shape)
+    endpoint_fraction = float(
+        np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool) | np.asarray(geometry.maps.backward_boundary, dtype=bool))
+    )
+    bmag = np.asarray(geometry.magnetic_field_magnitude, dtype=np.float64)
+    finite = all(np.all(np.isfinite(value)) for value in [movie_history, diagnostics, *final_state.values()])
+    min_density = float(min(np.min(final_state["ion_density"]), np.min(final_state["neutral_density"])))
+    radial_flux = _radial_flux_proxy(movie_history, geometry)
+    report: dict[str, Any] = {
+        "case": "essos_imported_qa_coil_drb_transient_movie",
+        "source": "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient",
+        "claim_scope": (
+            "movie-grade reduced DRB transient with sheath/recycling/neutrals; "
+            "not yet a promoted long-time turbulence validation"
+        ),
+        "geometry": geometry.metadata,
+        "frames": int(frames),
+        "substeps_per_frame": int(substeps_per_frame),
+        "dt": float(dt),
+        "execute_seconds": float(execute_seconds),
+        "endpoint_fraction": endpoint_fraction,
+        "magnetic_field_modulation": float(np.max(bmag) / max(float(np.min(bmag)), 1.0e-30)),
+        "connection_length_mean": float(np.mean(np.asarray(geometry.connection_length, dtype=np.float64))),
+        "final_min_density": min_density,
+        "initial_fluctuation_rms": float(diagnostics[0, 0]),
+        "final_fluctuation_rms": float(diagnostics[-1, 0]),
+        "max_fluctuation_rms": float(np.max(diagnostics[:, 0])),
+        "final_ion_density_mean": float(np.mean(final_state["ion_density"])),
+        "final_neutral_density_mean": float(np.mean(final_state["neutral_density"])),
+        "final_vorticity_rms": float(diagnostics[-1, 3]),
+        "final_potential_residual_l2": float(diagnostics[-1, 4]),
+        "radial_flux_proxy": float(np.mean(radial_flux)),
+        "low_mode_spectral_power_fraction": low_mode_fraction,
+        "dominant_poloidal_mode_index": int(peak_mode[1]),
+        "dominant_toroidal_mode_index": int(peak_mode[0]),
+        **final_sheath,
+        **final_neutral,
+    }
+    report["passed"] = (
+        finite
+        and min_density > 0.0
+        and 0.05 < endpoint_fraction < 0.98
+        and report["magnetic_field_modulation"] > 1.05
+        and report["final_fluctuation_rms"] > 1.0e-4
+        and report["final_potential_residual_l2"] < 5.0
+        and report["max_fluctuation_rms"] > report["initial_fluctuation_rms"] * 0.80
+        and abs(report["radial_flux_proxy"]) > 1.0e-8
+        and 0.0 < low_mode_fraction <= 1.0
+        and report["particle_recycling_relative_error"] < 1.0e-10
+        and report["current_balance_relative_error"] < 1.0e-10
+        and report["neutral_particle_relative_error"] < 1.0e-10
+        and report["neutral_momentum_relative_error"] < 1.0e-10
+    )
+    return report
+
+
+def _build_essos_imported_drb_movie_arrays(
+    *,
+    geometry: EssosImportedFciGeometry,
+    movie_history: np.ndarray,
+    diagnostics: np.ndarray,
+    final_state: dict[str, np.ndarray],
+    frame_dt: float,
+) -> dict[str, np.ndarray]:
+    vmax = float(np.nanpercentile(np.abs(movie_history), 99.0))
+    if not np.isfinite(vmax) or vmax <= 0.0:
+        vmax = 1.0
+    final_spectrum = np.mean(np.abs(np.fft.rfftn(movie_history[-1], axes=(1, 2))) ** 2, axis=0)
+    final_spectrum[0, 0] = 0.0
+    return {
+        "density_fluctuation_history": movie_history.astype(np.float16),
+        "diagnostics": diagnostics.astype(np.float32),
+        "time": (np.arange(movie_history.shape[0], dtype=np.float64) * float(frame_dt)).astype(np.float64),
+        "movie_vmax": np.asarray([vmax], dtype=np.float32),
+        "x": np.asarray(geometry.coordinates_x, dtype=np.float32),
+        "y": np.asarray(geometry.coordinates_y, dtype=np.float32),
+        "z": np.asarray(geometry.coordinates_z, dtype=np.float32),
+        "radial_coordinate": np.mean(np.asarray(geometry.minor_radius, dtype=np.float64), axis=(1, 2)).astype(np.float32),
+        "magnetic_field_section": np.asarray(geometry.magnetic_field_magnitude[:, 0, :], dtype=np.float32),
+        "endpoint_count_toroidal": (
+            np.asarray(geometry.maps.forward_boundary, dtype=np.float64)
+            + np.asarray(geometry.maps.backward_boundary, dtype=np.float64)
+        ).sum(axis=0).astype(np.float32),
+        "final_ion_density": final_state["ion_density"].astype(np.float32),
+        "final_neutral_density": final_state["neutral_density"].astype(np.float32),
+        "final_vorticity": final_state["vorticity"].astype(np.float32),
+        "final_radial_flux_proxy": _radial_flux_proxy(movie_history, geometry).astype(np.float32),
+        "final_spectrum_log10": np.log10(np.maximum(final_spectrum, 1.0e-18)).astype(np.float32),
+    }
+
+
+def _final_closure_diagnostics(
+    geometry: EssosImportedFciGeometry,
+    state: FciDrbState,
+) -> tuple[dict[str, float], dict[str, float]]:
+    ion_density = jnp.asarray(state.ion_density, dtype=jnp.float64)
+    electron_density = jnp.asarray(state.electron_density, dtype=jnp.float64)
+    ion_temperature = state.ion_pressure / jnp.maximum(ion_density, 1.0e-12)
+    electron_temperature = state.electron_pressure / jnp.maximum(electron_density, 1.0e-12)
+    sheath = compute_fci_sheath_recycling(
+        ion_density,
+        electron_temperature,
+        ion_temperature,
+        geometry.maps,
+        recycling_fraction=0.965,
+        recycled_neutral_energy=0.026,
+    )
+    neutral = compute_fci_neutral_reaction_diffusion(
+        neutral_density=state.neutral_density,
+        neutral_pressure=state.neutral_pressure,
+        neutral_momentum=state.neutral_momentum,
+        ion_density=state.ion_density,
+        ion_pressure=state.ion_pressure,
+        ion_momentum=state.ion_momentum,
+        electron_density=state.electron_density,
+        electron_pressure=state.electron_pressure,
+        maps=geometry.maps,
+        metric=geometry.metric,
+    )
+    sheath_report = {
+        "total_particle_loss": float(sheath.total_ion_particle_loss),
+        "total_target_heat_load": float(sheath.total_target_heat_load),
+        "particle_recycling_relative_error": float(
+            jnp.abs(sheath.particle_recycling_residual) / jnp.maximum(jnp.abs(sheath.total_recycled_particle_source), 1.0e-30)
+        ),
+        "current_balance_relative_error": float(
+            jnp.abs(sheath.current_balance_residual) / jnp.maximum(jnp.abs(sheath.total_ion_particle_loss), 1.0e-30)
+        ),
+    }
+    neutral_report = {
+        "total_ionisation": float(jnp.sum(neutral.ionisation_rate)),
+        "total_recombination": float(jnp.sum(neutral.recombination_rate)),
+        "total_charge_exchange": float(jnp.sum(neutral.charge_exchange_rate)),
+        "neutral_particle_relative_error": float(
+            jnp.abs(neutral.total_particle_residual)
+            / jnp.maximum(jnp.sum(jnp.abs(neutral.ion_density_source)), 1.0e-30)
+        ),
+        "neutral_momentum_relative_error": float(
+            jnp.abs(neutral.total_momentum_residual)
+            / jnp.maximum(jnp.sum(jnp.abs(neutral.ion_momentum_source)), 1.0e-30)
+        ),
+    }
+    return sheath_report, neutral_report
+
+
+def _save_essos_imported_drb_3d_frame_pyvista(
+    geometry: EssosImportedFciGeometry,
+    field: np.ndarray,
+    time_value: float,
+    path: str | Path,
+    *,
+    vmax: float | None,
+) -> Path:
+    import pyvista as pv
+
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    x = np.asarray(geometry.coordinates_x, dtype=np.float64)
+    y = np.asarray(geometry.coordinates_y, dtype=np.float64)
+    z = np.asarray(geometry.coordinates_z, dtype=np.float64)
+    values = np.asarray(field, dtype=np.float64)
+    value_limit = _movie_value_limit(values, vmax)
+    scalar_name = "ion density fluctuation"
+    nx, ny, nz = geometry.shape
+    phi_window = np.arange(0, max(3, ny - max(1, ny // 4)), dtype=int)
+    theta_window = np.arange(0, nz, dtype=int)
+    radial_window = np.arange(0, nx, dtype=int)
+    outer_i = max(nx - 1, 0)
+    middle_i = max(int(0.58 * (nx - 1)), 0)
+
+    plotter = pv.Plotter(off_screen=True, window_size=(1280, 900))
+    plotter.set_background("white")
+    plotter.enable_anti_aliasing("ssaa")
+
+    def add_surface(
+        x_surface: np.ndarray,
+        y_surface: np.ndarray,
+        z_surface: np.ndarray,
+        scalar_values: np.ndarray,
+        *,
+        opacity: float,
+        show_scalar_bar: bool,
+    ) -> None:
+        mesh = pv.StructuredGrid(x_surface, y_surface, z_surface)
+        mesh[scalar_name] = np.asarray(scalar_values, dtype=np.float64).ravel(order="F")
+        plotter.add_mesh(
+            mesh,
+            scalars=scalar_name,
+            cmap="coolwarm",
+            clim=(-value_limit, value_limit),
+            opacity=opacity,
+            smooth_shading=True,
+            show_edges=False,
+            show_scalar_bar=show_scalar_bar,
+            scalar_bar_args={
+                "title": scalar_name,
+                "title_font_size": 18,
+                "label_font_size": 14,
+                "fmt": "%.2e",
+                "shadow": False,
+            },
+        )
+
+    for radial_index, opacity, show_bar in ((outer_i, 0.74, True), (middle_i, 0.46, False)):
+        add_surface(
+            x[np.ix_([radial_index], phi_window, theta_window)][0],
+            y[np.ix_([radial_index], phi_window, theta_window)][0],
+            z[np.ix_([radial_index], phi_window, theta_window)][0],
+            values[np.ix_([radial_index], phi_window, theta_window)][0],
+            opacity=opacity,
+            show_scalar_bar=show_bar,
+        )
+
+    for cut_j in (max(1, ny // 10), max(2, 3 * ny // 5)):
+        add_surface(
+            x[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
+            y[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
+            z[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
+            values[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
+            opacity=0.95,
+            show_scalar_bar=False,
+        )
+
+    _add_boundary_wire(plotter, x, y, z, radial_index=0, color="#333333", opacity=0.30)
+    _add_boundary_wire(plotter, x, y, z, radial_index=outer_i, color="black", opacity=0.45)
+    plotter.add_text(
+        "ESSOS-imported QA-coil DRB transient\n"
+        f"sheath + recycling + neutral closures, t = {time_value:.3f}",
+        position=(32, 830),
+        font_size=14,
+        color="black",
+    )
+    plotter.add_text(
+        "Opened toroidal sector exposes radial cuts and interior fluctuation structure",
+        position="lower_left",
+        font_size=11,
+        color="black",
+    )
+    center = (float(np.nanmean(x)), float(np.nanmean(y)), float(np.nanmean(z)))
+    radius = 1.55 * max(float(np.nanmax(x) - np.nanmin(x)), float(np.nanmax(y) - np.nanmin(y)))
+    angle = np.deg2rad(-48.0 + 24.0 * np.sin(420.0 * time_value + 0.30))
+    camera = (
+        center[0] + radius * np.cos(angle),
+        center[1] + radius * np.sin(angle),
+        center[2] + 0.48 * radius,
+    )
+    plotter.camera_position = [camera, center, (0.0, 0.0, 1.0)]
+    plotter.screenshot(str(resolved))
+    plotter.close()
+    return resolved
+
+
+def _save_essos_imported_drb_3d_frame_matplotlib(
+    geometry: EssosImportedFciGeometry,
+    field: np.ndarray,
+    time_value: float,
+    path: str | Path,
+    *,
+    vmax: float | None,
+) -> Path:
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    x = np.asarray(geometry.coordinates_x, dtype=np.float64)
+    y = np.asarray(geometry.coordinates_y, dtype=np.float64)
+    z = np.asarray(geometry.coordinates_z, dtype=np.float64)
+    values = np.asarray(field, dtype=np.float64)
+    value_limit = _movie_value_limit(values, vmax)
+    norm = colors.TwoSlopeNorm(vmin=-value_limit, vcenter=0.0, vmax=value_limit)
+    cmap = plt.get_cmap("coolwarm")
+    nx, ny, nz = geometry.shape
+    phi_indices = np.arange(0, max(3, ny - max(1, ny // 4)), max(1, ny // 20), dtype=int)
+    theta_indices = np.arange(0, nz, max(1, nz // 36), dtype=int)
+    radial_indices = np.arange(0, nx, dtype=int)
+    outer_i = max(nx - 1, 0)
+    cut_j = max(1, ny // 8)
+
+    fig = plt.figure(figsize=(8.0, 7.2), constrained_layout=True)
+    axis = fig.add_subplot(111, projection="3d")
+    surface_values = values[np.ix_([outer_i], phi_indices, theta_indices)][0]
+    axis.plot_surface(
+        x[np.ix_([outer_i], phi_indices, theta_indices)][0],
+        y[np.ix_([outer_i], phi_indices, theta_indices)][0],
+        z[np.ix_([outer_i], phi_indices, theta_indices)][0],
+        facecolors=cmap(norm(surface_values)),
+        linewidth=0,
+        antialiased=False,
+        alpha=0.82,
+        shade=False,
+    )
+    cut_values = values[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :]
+    axis.plot_surface(
+        x[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :],
+        y[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :],
+        z[np.ix_(radial_indices, [cut_j], theta_indices)][:, 0, :],
+        facecolors=cmap(norm(cut_values)),
+        linewidth=0,
+        antialiased=False,
+        alpha=0.95,
+        shade=False,
+    )
+    scalar = cm.ScalarMappable(norm=norm, cmap=cmap)
+    scalar.set_array([])
+    fig.colorbar(scalar, ax=axis, shrink=0.72, pad=0.02, label="ion density fluctuation")
+    axis.set_title(
+        "ESSOS-imported QA-coil DRB transient\n"
+        f"opened toroidal/radial view, t = {time_value:.3f}",
+        fontsize=11,
+    )
+    axis.set_xlabel("X")
+    axis.set_ylabel("Y")
+    axis.set_zlabel("Z")
+    axis.view_init(elev=23.0, azim=-52.0 + 24.0 * np.sin(420.0 * time_value + 0.3))
+    extent = float(np.max(np.sqrt(x * x + y * y)))
+    axis.set_xlim(-extent, extent)
+    axis.set_ylim(-extent, extent)
+    axis.set_zlim(float(np.min(z)) * 1.1, float(np.max(z)) * 1.1)
+    axis.set_box_aspect((1.0, 1.0, 0.34))
+    fig.savefig(resolved, dpi=170)
+    plt.close(fig)
+    return resolved
+
+
+def _add_boundary_wire(plotter: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, *, radial_index: int, color: str, opacity: float) -> None:
+    try:
+        import pyvista as pv
+
+        for theta_index in np.linspace(0, x.shape[2] - 1, min(5, x.shape[2]), dtype=int):
+            points = np.column_stack([x[radial_index, :, theta_index], y[radial_index, :, theta_index], z[radial_index, :, theta_index]])
+            points = np.vstack([points, points[:1]])
+            line = pv.PolyData(points)
+            line.lines = np.hstack([[points.shape[0]], np.arange(points.shape[0])])
+            plotter.add_mesh(line, color=color, line_width=1.4, opacity=opacity)
+    except Exception:
+        return
+
+
+def _state_to_numpy(state: FciDrbState) -> dict[str, np.ndarray]:
+    return {
+        "ion_density": np.asarray(state.ion_density, dtype=np.float64),
+        "electron_density": np.asarray(state.electron_density, dtype=np.float64),
+        "neutral_density": np.asarray(state.neutral_density, dtype=np.float64),
+        "ion_pressure": np.asarray(state.ion_pressure, dtype=np.float64),
+        "electron_pressure": np.asarray(state.electron_pressure, dtype=np.float64),
+        "neutral_pressure": np.asarray(state.neutral_pressure, dtype=np.float64),
+        "ion_momentum": np.asarray(state.ion_momentum, dtype=np.float64),
+        "neutral_momentum": np.asarray(state.neutral_momentum, dtype=np.float64),
+        "vorticity": np.asarray(state.vorticity, dtype=np.float64),
+    }
+
+
+def _density_fluctuation(ion_density: jax.Array) -> jax.Array:
+    mean = jnp.mean(ion_density, axis=1, keepdims=True)
+    return (ion_density - mean) / jnp.maximum(mean, 1.0e-12)
+
+
+def _logical_exb_advection(potential: jax.Array, field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
+    dphi_dr = _radial_derivative(potential, geometry)
+    dphi_dtheta = _poloidal_derivative(potential, geometry)
+    df_dr = _radial_derivative(field, geometry)
+    df_dtheta = _poloidal_derivative(field, geometry)
+    bracket = dphi_dtheta * df_dr - dphi_dr * df_dtheta
+    scale = jnp.maximum(jnp.mean(jnp.abs(bracket)), 1.0e-8)
+    return bracket / scale
+
+
+def _radial_derivative(field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
+    values = jnp.asarray(field, dtype=jnp.float64)
+    spacing = jnp.asarray(geometry.metric.dx, dtype=jnp.float64)
+    centered = (jnp.roll(values, -1, axis=0) - jnp.roll(values, 1, axis=0)) / jnp.maximum(2.0 * spacing, 1.0e-30)
+    first = (values[1, :, :] - values[0, :, :]) / jnp.maximum(spacing[0, :, :], 1.0e-30)
+    last = (values[-1, :, :] - values[-2, :, :]) / jnp.maximum(spacing[-1, :, :], 1.0e-30)
+    return centered.at[0, :, :].set(first).at[-1, :, :].set(last)
+
+
+def _poloidal_derivative(field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
+    values = jnp.asarray(field, dtype=jnp.float64)
+    spacing = jnp.asarray(geometry.metric.dz, dtype=jnp.float64)
+    return (jnp.roll(values, -1, axis=2) - jnp.roll(values, 1, axis=2)) / jnp.maximum(2.0 * spacing, 1.0e-30)
+
+
+def _normalized_minor_radius_jax(geometry: EssosImportedFciGeometry) -> jax.Array:
+    rho = jnp.asarray(geometry.minor_radius, dtype=jnp.float64)
+    return (rho - jnp.min(rho)) / jnp.maximum(jnp.max(rho) - jnp.min(rho), 1.0e-12)
+
+
+def _magnetic_curvature_proxy_jax(geometry: EssosImportedFciGeometry) -> jax.Array:
+    bmag = jnp.asarray(geometry.magnetic_field_magnitude, dtype=jnp.float64)
+    proxy = (bmag - jnp.mean(bmag, axis=1, keepdims=True)) / jnp.maximum(jnp.mean(bmag), 1.0e-12)
+    return proxy / jnp.maximum(jnp.std(proxy), 1.0e-12)
+
+
+def _clip_movie_state(state: FciDrbState) -> FciDrbState:
+    ion_density = jnp.maximum(state.ion_density, 1.0e-6)
+    electron_density = jnp.maximum(state.electron_density, 1.0e-6)
+    neutral_density = jnp.maximum(state.neutral_density, 1.0e-8)
+    return FciDrbState(
+        ion_density=ion_density,
+        electron_density=electron_density,
+        neutral_density=neutral_density,
+        ion_pressure=jnp.maximum(state.ion_pressure, 1.0e-7 * ion_density),
+        electron_pressure=jnp.maximum(state.electron_pressure, 1.0e-7 * electron_density),
+        neutral_pressure=jnp.maximum(state.neutral_pressure, 1.0e-8 * neutral_density),
+        ion_momentum=jnp.clip(state.ion_momentum, -2.0, 2.0),
+        neutral_momentum=jnp.clip(state.neutral_momentum, -1.0, 1.0),
+        vorticity=jnp.clip(state.vorticity, -2.0, 2.0),
+    )
+
+
+def _add_scaled_state(state: FciDrbState, rhs: FciDrbState, scale: float) -> FciDrbState:
+    return jax.tree_util.tree_map(lambda value, increment: value + float(scale) * increment, state, rhs)
+
+
+def _radial_flux_proxy(movie_history: np.ndarray, geometry: EssosImportedFciGeometry) -> np.ndarray:
+    final = np.asarray(movie_history[-1], dtype=np.float64)
+    potential_proxy = np.roll(final, 2, axis=2)
+    dz = np.asarray(geometry.metric.dz, dtype=np.float64)
+    radial_velocity = -(np.roll(potential_proxy, -1, axis=2) - np.roll(potential_proxy, 1, axis=2)) / np.maximum(2.0 * dz, 1.0e-30)
+    return np.mean(final * radial_velocity, axis=(1, 2))
+
+
+def _major_radius_and_vertical(geometry: EssosImportedFciGeometry) -> tuple[np.ndarray, np.ndarray]:
+    x = np.asarray(geometry.coordinates_x, dtype=np.float64)
+    y = np.asarray(geometry.coordinates_y, dtype=np.float64)
+    z = np.asarray(geometry.coordinates_z, dtype=np.float64)
+    return np.sqrt(x * x + y * y), z
+
+
+def _movie_value_limit(values: np.ndarray, vmax: float | None) -> float:
+    if vmax is None:
+        vmax = float(np.nanpercentile(np.abs(values), 99.0))
+    if not np.isfinite(vmax) or vmax <= 0.0:
+        return 1.0
+    return float(vmax)
+
+
+def _block_until_ready(value: object) -> None:
+    for leaf in jax.tree_util.tree_leaves(value):
+        if hasattr(leaf, "block_until_ready"):
+            leaf.block_until_ready()

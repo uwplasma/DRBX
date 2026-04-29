@@ -337,6 +337,21 @@ The imported PyTree/JVP campaign currently passes:
 
 ![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
 
+The ESSOS-imported QA-coil DRB movie campaign currently passes:
+
+- fixed-layout DRB transient on the imported Landreman-Paul QA FCI maps;
+- endpoint fraction: about `0.82`;
+- magnetic-field modulation: about `9.47`;
+- ion-density fluctuation RMS growth from about `1.3e-2` to `6.6e-2`;
+- compact potential residual: about `9.5e-11`;
+- particle recycling, zero-current sheath, and neutral particle/momentum
+  residuals at roundoff;
+- low-mode spectral-power fraction: about `0.33`.
+
+![ESSOS imported QA-coil DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
+
+![ESSOS imported QA-coil DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
+
 The reduced dynamics campaign currently passes:
 
 - energy growth factor: about `1.13`;

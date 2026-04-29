@@ -143,6 +143,15 @@ from .essos_imported_pytree_campaign import (
     initial_essos_imported_drb_state,
     save_essos_imported_pytree_campaign_plot,
 )
+from .essos_imported_drb_movie_campaign import (
+    EssosImportedDrbMovieArtifacts,
+    build_essos_imported_drb_movie_campaign,
+    create_essos_imported_drb_movie_package,
+    save_essos_imported_drb_3d_frame,
+    save_essos_imported_drb_3d_movie,
+    save_essos_imported_drb_diagnostics_panel,
+    save_essos_imported_drb_snapshot_panel,
+)
 from .geometry_profiles import (
     build_diagnostic_profile_report,
     save_diagnostic_profile_summary_plot,

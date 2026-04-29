@@ -15,6 +15,7 @@ from jax_drb.geometry import (
 )
 from jax_drb.validation import (
     create_essos_fieldline_import_package,
+    create_essos_imported_drb_movie_package,
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
 )
@@ -112,3 +113,33 @@ def test_essos_imported_maps_feed_pytree_jvp_rhs_gate(tmp_path: Path) -> None:
     assert report["vmap_serial_linf"] < 1.0e-8
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
+
+
+@pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
+def test_essos_imported_maps_generate_drb_movie_gate(tmp_path: Path) -> None:
+    artifacts = create_essos_imported_drb_movie_package(
+        output_root=tmp_path / "essos_imported_drb_movie",
+        nx=3,
+        ny=4,
+        nz=8,
+        rho_min=0.12,
+        rho_max=0.34,
+        maxtime=32.0,
+        times_to_trace=120,
+        frames=4,
+        substeps_per_frame=2,
+        dt=2.0e-3,
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["source"] == "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient"
+    assert report["final_potential_residual_l2"] < 5.0
+    assert report["final_fluctuation_rms"] > 1.0e-4
+    assert report["particle_recycling_relative_error"] < 1.0e-10
+    assert report["neutral_particle_relative_error"] < 1.0e-10
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.snapshot_png_path.exists()
+    assert artifacts.diagnostics_png_path.exists()
+    assert artifacts.poster_png_path.exists()
+    assert artifacts.movie_gif_path.exists()

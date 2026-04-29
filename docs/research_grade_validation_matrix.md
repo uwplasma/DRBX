@@ -120,6 +120,10 @@ used in verification, validation, and differentiable-science papers:
 - [stellarator_sheath_recycling_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__sheath_recycling__images__stellarator_sheath_recycling_campaign.png)
   for non-axisymmetric traced-endpoint sheath losses, zero-current particle
   reconstruction, and exact recycling source accounting
+- [essos_imported_drb_movie_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
+  for the first imported Landreman-Paul QA coil movie-grade transient with
+  fixed-layout DRB state, sheath/recycling/neutrals, tight potential residual,
+  and explicit reduced-transient scope labeling
 - [stellarator_neutral_physics_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__neutral_physics__images__stellarator_neutral_physics_campaign.png)
   for neutral diffusion plus ionisation, recombination, and charge-exchange
   conservation on the non-axisymmetric map
