@@ -19,6 +19,7 @@ from jax_drb.validation import (
     create_essos_imported_drb_movie_package,
     create_essos_imported_fci_campaign_package,
     create_essos_imported_pytree_campaign_package,
+    create_essos_vmec_fieldline_surface_package,
 )
 
 
@@ -92,6 +93,31 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["source"] == "ESSOS-imported field-line maps with jax_drb FCI closures"
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.plot_png_path.exists()
+
+
+@pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
+def test_essos_fieldline_poincare_quantifies_scaled_vmec_surface_registration(tmp_path: Path) -> None:
+    artifacts = create_essos_vmec_fieldline_surface_package(
+        output_root=tmp_path / "essos_vmec_fieldline_surface",
+        rho_min=0.20,
+        rho_max=0.82,
+        n_surfaces=3,
+        ntheta_surface=96,
+        maxtime=180.0,
+        times_to_trace=768,
+        sections=(0.0, float(np.pi / 2.0)),
+    )
+
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["source"] == "ESSOS coil field-line tracing compared with scaled Landreman-Paul QA VMEC surfaces"
+    assert report["surface_nonaxisymmetric_major_rms"] > 5.0e-2
+    assert report["poincare_point_count"] >= 2 * report["n_surfaces"]
+    assert np.isfinite(report["same_surface_distance_normalized_p95"])
+    assert np.isfinite(report["nearest_surface_distance_normalized_p95"])
+    assert isinstance(report["fieldline_surface_match_passed"], bool)
     assert artifacts.arrays_npz_path.exists()
     assert artifacts.plot_png_path.exists()
 

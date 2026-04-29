@@ -249,6 +249,8 @@ Non-axisymmetric 3D geometry and reduced SOL dynamics:
 
 ![ESSOS field-line import](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_fieldline_import_artifacts__images__essos_landreman_paul_qa_fieldline_import.png)
 
+![ESSOS field-line/VMEC surface registration](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_vmec_fieldline_surface_artifacts__images__essos_vmec_fieldline_surface_campaign.png)
+
 ![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
 ![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
@@ -295,6 +297,7 @@ Useful entry points:
 - [docs/traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
 - [docs/traced_field_line_native_selected_field_demo.md](docs/traced_field_line_native_selected_field_demo.md)
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
+- [docs/essos_vmec_fieldline_surface.md](docs/essos_vmec_fieldline_surface.md)
 - [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
 - [docs/dynamics_gallery.md](docs/dynamics_gallery.md)
 - [docs/validation_gallery.md](docs/validation_gallery.md)

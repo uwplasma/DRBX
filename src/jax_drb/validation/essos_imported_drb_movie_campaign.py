@@ -52,16 +52,16 @@ def create_essos_imported_drb_movie_package(
     case_label: str = "essos_imported_drb_movie_campaign",
     coil_json_path: str | Path | None = None,
     essos_root: str | Path | None = None,
-    nx: int = 6,
-    ny: int = 10,
-    nz: int = 24,
-    rho_min: float = 0.12,
-    rho_max: float = 0.34,
-    maxtime: float = 70.0,
-    times_to_trace: int = 320,
-    frames: int = 26,
-    substeps_per_frame: int = 4,
-    dt: float = 2.0e-3,
+    nx: int = 7,
+    ny: int = 14,
+    nz: int = 40,
+    rho_min: float = 0.20,
+    rho_max: float = 0.92,
+    maxtime: float = 90.0,
+    times_to_trace: int = 420,
+    frames: int = 28,
+    substeps_per_frame: int = 5,
+    dt: float = 1.5e-3,
 ) -> EssosImportedDrbMovieArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -85,8 +85,8 @@ def create_essos_imported_drb_movie_package(
         substeps_per_frame=substeps_per_frame,
         dt=dt,
     )
+    report = dict(result.report)
     report_json_path = data_dir / f"{case_label}.json"
-    report_json_path.write_text(json.dumps(result.report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     arrays_npz_path = data_dir / f"{case_label}.npz"
     np.savez_compressed(arrays_npz_path, **result.arrays)
     snapshot_png_path = images_dir / f"{case_label}_snapshots.png"
@@ -103,6 +103,8 @@ def create_essos_imported_drb_movie_package(
     )
     movie_gif_path = movies_dir / f"{case_label}.gif"
     save_essos_imported_drb_3d_movie(result.geometry, result.arrays, movie_gif_path)
+    report.update(_audit_movie_gif(movie_gif_path))
+    report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return EssosImportedDrbMovieArtifacts(
         report_json_path=report_json_path,
         arrays_npz_path=arrays_npz_path,
@@ -117,16 +119,16 @@ def build_essos_imported_drb_movie_campaign(
     *,
     coil_json_path: str | Path | None = None,
     essos_root: str | Path | None = None,
-    nx: int = 6,
-    ny: int = 10,
-    nz: int = 24,
-    rho_min: float = 0.12,
-    rho_max: float = 0.34,
-    maxtime: float = 70.0,
-    times_to_trace: int = 320,
-    frames: int = 26,
-    substeps_per_frame: int = 4,
-    dt: float = 2.0e-3,
+    nx: int = 7,
+    ny: int = 14,
+    nz: int = 40,
+    rho_min: float = 0.20,
+    rho_max: float = 0.92,
+    maxtime: float = 90.0,
+    times_to_trace: int = 420,
+    frames: int = 28,
+    substeps_per_frame: int = 5,
+    dt: float = 1.5e-3,
 ) -> EssosImportedDrbMovieResult:
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
@@ -153,7 +155,7 @@ def build_essos_imported_drb_movie_campaign(
         substeps_per_frame=substeps_per_frame,
         dt=dt,
     )
-    initial = initial_essos_imported_drb_state(geometry, drive_scale=1.08)
+    initial = _seed_movie_multimode_fluctuations(initial_essos_imported_drb_state(geometry, drive_scale=1.08), geometry)
     t0 = time.perf_counter()
     final_state, movie_history, diagnostics = run_movie(initial)
     _block_until_ready((final_state, movie_history, diagnostics))
@@ -395,28 +397,41 @@ def _build_essos_imported_movie_scan(
     phi = geometry.toroidal_angle
     helical = jnp.sin(2.0 * theta - phi) + 0.35 * jnp.cos(3.0 * theta - 2.0 * phi)
     helical = helical / jnp.maximum(jnp.std(helical), 1.0e-12)
+    fine_helical = (
+        0.65 * jnp.sin(5.0 * theta - 3.0 * phi + 0.45 * curvature_proxy)
+        + 0.45 * jnp.cos(7.0 * theta + 2.0 * phi)
+        + 0.25 * jnp.sin(11.0 * theta - 5.0 * phi)
+    )
+    fine_helical = fine_helical / jnp.maximum(jnp.std(fine_helical), 1.0e-12)
 
     def step_state(state: FciDrbState, scalar_time: jax.Array) -> FciDrbState:
         result = compute_fci_drb_rhs(state, maps=geometry.maps, metric=geometry.metric, parameters=parameters)
         phi_field = result.potential
         pressure = state.ion_pressure + state.electron_pressure
         grad_pressure = _radial_derivative(pressure, geometry)
-        fluctuation_drive = source_envelope * (1.0 + 0.22 * jnp.sin(31.0 * scalar_time + helical))
-        neutral_puff = neutral_puff_envelope * (1.0 + 0.18 * jnp.cos(17.0 * scalar_time - helical))
-        ion_diffusion = conservative_perp_diffusion_xz(state.ion_density, 7.0e-4 * jnp.ones_like(state.ion_density), geometry.metric)
+        fluctuation_drive = source_envelope * (
+            1.0
+            + 0.18 * jnp.sin(31.0 * scalar_time + helical)
+            + 0.120 * jnp.sin(53.0 * scalar_time + fine_helical)
+            + 0.070 * fine_helical
+        )
+        neutral_puff = neutral_puff_envelope * (
+            1.0 + 0.16 * jnp.cos(17.0 * scalar_time - helical) + 0.055 * jnp.sin(37.0 * scalar_time + fine_helical)
+        )
+        ion_diffusion = conservative_perp_diffusion_xz(state.ion_density, 3.0e-4 * jnp.ones_like(state.ion_density), geometry.metric)
         electron_diffusion = conservative_perp_diffusion_xz(
             state.electron_density,
-            7.0e-4 * jnp.ones_like(state.electron_density),
+            3.0e-4 * jnp.ones_like(state.electron_density),
             geometry.metric,
         )
         ion_pressure_diffusion = conservative_perp_diffusion_xz(
             state.ion_pressure,
-            5.0e-4 * jnp.ones_like(state.ion_pressure),
+            2.5e-4 * jnp.ones_like(state.ion_pressure),
             geometry.metric,
         )
         electron_pressure_diffusion = conservative_perp_diffusion_xz(
             state.electron_pressure,
-            5.0e-4 * jnp.ones_like(state.electron_pressure),
+            2.5e-4 * jnp.ones_like(state.electron_pressure),
             geometry.metric,
         )
         ion_adv = _logical_exb_advection(phi_field, state.ion_density, geometry)
@@ -427,7 +442,7 @@ def _build_essos_imported_movie_scan(
         edge_particle_sink = 0.030 * edge_sink_envelope * state.ion_density
         edge_energy_sink = 0.030 * edge_sink_envelope * pressure
 
-        source_strength = 0.11
+        source_strength = 0.13
         neutral_puff_strength = 0.045
         rhs = FciDrbState(
             ion_density=(
@@ -468,6 +483,7 @@ def _build_essos_imported_movie_scan(
                 - 0.050 * vorticity_adv
                 + 0.034 * curvature_proxy * grad_pressure
                 + 0.011 * curvature_proxy * fluctuation_drive
+                + 0.010 * source_envelope * fine_helical
                 - 0.028 * state.vorticity
             ),
         )
@@ -538,8 +554,8 @@ def _build_essos_imported_drb_movie_report(
         "case": "essos_imported_qa_coil_drb_transient_movie",
         "source": "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient",
         "claim_scope": (
-            "movie-grade reduced DRB transient with sheath/recycling/neutrals; "
-            "not yet a promoted long-time turbulence validation"
+            "movie-grade reduced DRB transient with sheath/recycling/neutrals on a near-boundary "
+            "VMEC-shaped physics grid; not yet a promoted long-time turbulence validation"
         ),
         "geometry": geometry.metadata,
         "frames": int(frames),
@@ -590,7 +606,7 @@ def _build_essos_imported_drb_movie_arrays(
     final_state: dict[str, np.ndarray],
     frame_dt: float,
 ) -> dict[str, np.ndarray]:
-    vmax = float(np.nanpercentile(np.abs(movie_history), 99.0))
+    vmax = float(np.nanpercentile(np.abs(movie_history), 95.0))
     if not np.isfinite(vmax) or vmax <= 0.0:
         vmax = 1.0
     final_spectrum = np.mean(np.abs(np.fft.rfftn(movie_history[-1], axes=(1, 2))) ** 2, axis=0)
@@ -823,7 +839,7 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
             facecolors=cmap(norm(outer_values)),
             linewidth=0,
             antialiased=True,
-            alpha=0.70,
+            alpha=0.90,
             shade=False,
         )
         middle_values = _interpolate_movie_field_surface(
@@ -839,7 +855,7 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
             facecolors=cmap(norm(middle_values)),
             linewidth=0,
             antialiased=True,
-            alpha=0.30,
+            alpha=0.48,
             shade=False,
         )
 
@@ -858,11 +874,11 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
             facecolors=cmap(norm(cut_values)),
             linewidth=0,
             antialiased=True,
-            alpha=0.96,
+            alpha=0.98,
             shade=False,
         )
 
-    _plot_movie_boundary_rings(axis, x, y, z, color="0.22", alpha=0.28)
+    _plot_movie_boundary_rings(axis, x, y, z, color="0.08", alpha=0.48)
     scalar = cm.ScalarMappable(norm=norm, cmap=cmap)
     scalar.set_array([])
     colorbar_axis = fig.add_axes([0.86, 0.18, 0.028, 0.62])
@@ -1027,6 +1043,35 @@ def _density_fluctuation(ion_density: jax.Array) -> jax.Array:
     return (ion_density - mean) / jnp.maximum(mean, 1.0e-12)
 
 
+def _seed_movie_multimode_fluctuations(state: FciDrbState, geometry: EssosImportedFciGeometry) -> FciDrbState:
+    radial = _normalized_minor_radius_jax(geometry)
+    theta = geometry.poloidal_angle
+    phi = geometry.toroidal_angle
+    envelope = jnp.exp(-jnp.square((radial - 0.58) / 0.34))
+    modes = (
+        jnp.sin(3.0 * theta - 2.0 * phi)
+        + 0.55 * jnp.cos(5.0 * theta + 3.0 * phi)
+        + 0.35 * jnp.sin(8.0 * theta - 5.0 * phi)
+        + 0.20 * jnp.cos(13.0 * theta + 4.0 * phi)
+    )
+    modes = modes / jnp.maximum(jnp.std(modes), 1.0e-12)
+    perturbation = 0.038 * envelope * modes
+    ion_density = jnp.maximum(state.ion_density * (1.0 + perturbation), 1.0e-6)
+    electron_density = jnp.maximum(state.electron_density * (1.0 + 0.85 * perturbation), 1.0e-6)
+    neutral_density = jnp.maximum(state.neutral_density * (1.0 + 0.35 * perturbation), 1.0e-8)
+    return FciDrbState(
+        ion_density=ion_density,
+        electron_density=electron_density,
+        neutral_density=neutral_density,
+        ion_pressure=jnp.maximum(state.ion_pressure * (1.0 + 0.75 * perturbation), 1.0e-7 * ion_density),
+        electron_pressure=jnp.maximum(state.electron_pressure * (1.0 + 0.65 * perturbation), 1.0e-7 * electron_density),
+        neutral_pressure=jnp.maximum(state.neutral_pressure * (1.0 + 0.25 * perturbation), 1.0e-8 * neutral_density),
+        ion_momentum=state.ion_momentum + 0.012 * ion_density * envelope * modes,
+        neutral_momentum=state.neutral_momentum + 0.004 * neutral_density * envelope * modes,
+        vorticity=state.vorticity + 0.018 * envelope * modes,
+    )
+
+
 def _logical_exb_advection(potential: jax.Array, field: jax.Array, geometry: EssosImportedFciGeometry) -> jax.Array:
     dphi_dr = _radial_derivative(potential, geometry)
     dphi_dtheta = _poloidal_derivative(potential, geometry)
@@ -1105,6 +1150,46 @@ def _movie_value_limit(values: np.ndarray, vmax: float | None) -> float:
     if not np.isfinite(vmax) or vmax <= 0.0:
         return 1.0
     return float(vmax)
+
+
+def _audit_movie_gif(path: str | Path) -> dict[str, Any]:
+    resolved = Path(path)
+    if not resolved.exists():
+        return {"movie_audit_passed": False, "movie_audit_reason": "missing_gif"}
+    frames: list[Image.Image] = []
+    try:
+        image = Image.open(resolved)
+        frame_index = 0
+        while True:
+            frames.append(image.convert("RGB"))
+            frame_index += 1
+            image.seek(frame_index)
+    except EOFError:
+        pass
+    except Exception as exc:
+        return {"movie_audit_passed": False, "movie_audit_reason": type(exc).__name__}
+    if len(frames) < 2:
+        return {"movie_audit_passed": False, "movie_frame_count": len(frames), "movie_audit_reason": "too_few_frames"}
+    from PIL import ImageChops, ImageStat
+
+    white = Image.new("RGB", frames[0].size, "white")
+    bboxes = [ImageChops.difference(frame, white).getbbox() for frame in frames]
+    rms_values = []
+    for left, right in zip(frames[:-1], frames[1:], strict=True):
+        stat = ImageStat.Stat(ImageChops.difference(left, right))
+        rms_values.append(float(np.sqrt(np.mean(np.square(stat.rms)))))
+    unique_bbox_count = len({str(value) for value in bboxes})
+    rms_array = np.asarray(rms_values, dtype=np.float64)
+    return {
+        "movie_audit_passed": bool(unique_bbox_count <= 3 and float(np.max(rms_array)) < 12.0),
+        "movie_frame_count": len(frames),
+        "movie_frame_size": [int(frames[0].size[0]), int(frames[0].size[1])],
+        "movie_file_size_bytes": int(resolved.stat().st_size),
+        "movie_bbox_unique_count": int(unique_bbox_count),
+        "movie_frame_rms_min": float(np.min(rms_array)),
+        "movie_frame_rms_median": float(np.median(rms_array)),
+        "movie_frame_rms_max": float(np.max(rms_array)),
+    }
 
 
 def _block_until_ready(value: object) -> None:

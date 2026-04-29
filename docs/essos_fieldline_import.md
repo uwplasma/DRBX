@@ -69,6 +69,14 @@ imports the resulting field-line bundle into `jax_drb`. This replaces the
 previous internal annular coil-field proxy: no `jax_drb` source file now
 evaluates the coil magnetic field or traces the field lines.
 
+The companion
+[field-line/VMEC surface registration gate](essos_vmec_fieldline_surface.md)
+overlays independently traced coil-field Poincare points on the scaled
+Landreman-Paul QA VMEC surfaces used by the imported FCI and movie campaigns.
+That diagnostic is intentionally stricter than this import smoke gate: it
+records the current order-unity long-trace departure from the seeded VMEC
+surface instead of hiding it behind aggregate import success.
+
 ## Downstream FCI Map Validation
 
 The first downstream validation is documented in

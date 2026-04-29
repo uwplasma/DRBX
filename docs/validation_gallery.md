@@ -323,6 +323,8 @@ What this documents:
 
 ![ESSOS Landreman-Paul QA field-line import](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_fieldline_import_artifacts__images__essos_landreman_paul_qa_fieldline_import.png)
 
+![ESSOS field-line/VMEC surface registration](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_vmec_fieldline_surface_artifacts__images__essos_vmec_fieldline_surface_campaign.png)
+
 ![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
 ![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
@@ -357,6 +359,10 @@ What this documents:
 - a movie-grade ESSOS-imported QA-coil transient where the same fixed-layout
   DRB state is advanced with sheath/recycling/neutrals, nontrivial fluctuation
   growth, tight potential residual, and roundoff target/neutral balance gates;
+- an independent field-line/VMEC registration diagnostic that overlays
+  long-trace coil-field Poincare points on the scaled Landreman-Paul QA VMEC
+  surfaces and reports the strict closed-surface match flag separately from
+  the finite-trace diagnostic pass;
 - ESSOS-owned field evaluation, adaptive field-line tracing, and Poincare
   extraction exported into portable `jax_drb` JSON/NPZ artifacts without
   maintaining a duplicate coil-field or field-line tracer in this repository;
