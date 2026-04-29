@@ -82,6 +82,11 @@ the magnetic field and trajectories are not implemented in `jax_drb`, but the
 imported maps feed the same JAX-native closure kernels used by the synthetic
 non-axisymmetric validation suite.
 
+The next imported-map gate is documented in
+[ESSOS imported PyTree/JVP validation](essos_imported_pytree_validation.md).
+It drives the fixed-layout drift-reduced Braginskii PyTree RHS, `jax.jvp`, and
+`jax.vmap` checks from the same external field-line map construction.
+
 ## Artifact Files
 
 - `docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.json`

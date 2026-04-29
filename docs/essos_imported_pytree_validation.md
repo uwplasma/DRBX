@@ -1,0 +1,59 @@
+# ESSOS Imported PyTree/JVP Validation
+
+This page documents the first fixed-layout PyTree/JVP gate driven by
+externally traced Landreman-Paul QA field-line maps. ESSOS supplies the coil
+field and trajectories. `jax_drb` imports those trajectories as FCI maps,
+builds a compact annular metric, initializes ion, electron, and neutral
+fields on the imported logical grid, and advances the JAX-native drift-reduced
+Braginskii RHS through a short transformable transient.
+
+Regenerate the campaign with:
+
+```bash
+JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
+PYTHONPATH=src .venv/bin/python \
+  examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py
+```
+
+This is a differentiability and software-architecture gate, not yet a
+wall-resolved stellarator edge prediction. Its purpose is to prove that the
+imported non-axisymmetric FCI maps feed the same fixed-layout PyTree state
+used by the native 3D RHS, and that the resulting objective is compatible
+with `jax.jvp` and `jax.vmap`.
+
+## Model Path
+
+The imported state contains the fixed component fields
+\((N_i,N_e,N_n,P_i,P_e,P_n,M_i,M_n,\Omega)\). The RHS assembly uses the same
+JAX kernels as the synthetic non-axisymmetric PyTree gate:
+
+- target endpoint masks from the imported FCI maps;
+- Bohm sheath losses and exact recycled neutral accounting;
+- FCI neutral diffusion, perpendicular metric diffusion, ionisation,
+  recombination, and charge exchange;
+- metric-weighted vorticity diffusion and compact potential inversion;
+- a clipped explicit short transient used only for transformability and
+  regression diagnostics.
+
+The derivative gate defines a scalar objective from the final ion density,
+neutral density, vorticity RMS, and potential residual. It compares
+`jax.jvp` with a centered finite-difference derivative and checks that
+batched `vmap` evaluations agree with serial evaluations on the same drive
+parameter.
+
+## Current Artifact
+
+![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
+
+The figure shows the short imported-map transient, endpoint distribution,
+final ion and neutral sections, serial-versus-batched objective parity, and
+JVP derivative comparison. The current report records the imported map
+resolution, endpoint fraction, magnetic-field modulation, warm execution
+time, JVP relative error, `vmap` serial mismatch, and final density/vorticity
+diagnostics.
+
+## Artifact Files
+
+- `docs/data/essos_imported_pytree_artifacts/data/essos_imported_pytree_campaign.json`
+- `docs/data/essos_imported_pytree_artifacts/data/essos_imported_pytree_campaign.npz`
+- `docs/data/essos_imported_pytree_artifacts/images/essos_imported_pytree_campaign.png`
