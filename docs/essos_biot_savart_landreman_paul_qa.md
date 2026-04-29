@@ -127,14 +127,20 @@ short documentation run.
 
 ![ESSOS Biot-Savart Landreman-Paul QA campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png)
 
+![ESSOS Biot-Savart Landreman-Paul QA field-line classification](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign_field_lines.png)
+
 ![ESSOS Biot-Savart Landreman-Paul QA movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__movies__essos_biot_savart_landreman_paul_qa_campaign.gif)
 
 The current report passes with `16` symmetry-expanded coils, `75` coil
 segments, two field periods, and stellarator symmetry enabled. The closed-like
 annulus has final RMS fluctuation about `7.07e-2`; the open/SOL-like annulus
-has final RMS fluctuation about `5.96e-2`. Those values are intentionally
-reported as reduced-dynamics diagnostics rather than as physical turbulence
-predictions.
+has final RMS fluctuation about `5.96e-2`. A separate annular field-line trace
+now verifies that the inner annulus has a longer residence-length proxy than
+the outer annulus: the mean annular exit time is about `0.381` toroidal turns
+inside and about `0.155` toroidal turns outside, while the mean exit
+connection-length proxy is about `3.11` inside and `1.77` outside. Those values
+are intentionally reported as reduced geometry/dynamics diagnostics rather than
+as physical turbulence predictions or wall strike-point predictions.
 
 ## Next Implementation Steps
 
@@ -143,8 +149,9 @@ stellarator FCI lane:
 
 1. Replace the annular axis estimate with a traced magnetic-axis or imported
    surface/wall bundle.
-2. Add field-line Poincare and connection-length maps for closed, island,
-   stochastic, and open-field regions.
+2. Promote the annular Poincare and residence diagnostics to imported
+   surface/wall bundles with real closed, island, stochastic, and open-field
+   region labels.
 3. Add conservative metric-weighted FCI diffusion using the coil-produced
    field and imported geometry metrics.
 4. Route sheath, target recycling, and neutral sources through the production

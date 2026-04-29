@@ -39,6 +39,7 @@ def main() -> None:
     print(f"wrote report: {artifacts.report_json_path}")
     print(f"wrote arrays: {artifacts.arrays_npz_path}")
     print(f"wrote plot: {artifacts.plot_png_path}")
+    print(f"wrote field-line plot: {artifacts.field_line_png_path}")
     print(f"wrote movie: {artifacts.movie_gif_path}")
 
 

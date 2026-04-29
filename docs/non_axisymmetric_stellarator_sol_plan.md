@@ -120,8 +120,9 @@ The first native lane now consists of:
   README-ready GIF.
 - `src/jax_drb/validation/essos_biot_savart_campaign.py`, which writes the
   first coil-produced Landreman-Paul QA field gate: Fourier-coil ingestion,
-  Biot-Savart \(\mathbf{B}\), closed-like/open-SOL-like annular FCI maps, and
-  compact reduced turbulence response on both regions.
+  Biot-Savart \(\mathbf{B}\), annular field-line Poincare/residence
+  diagnostics, closed-like/open-SOL-like annular FCI maps, and compact reduced
+  turbulence response on both regions.
 
 The current generated artifact bundle lives in
 `docs/data/stellarator_fci_validation_artifacts/`.
@@ -132,8 +133,10 @@ The first coil-produced field artifact lives in
 Landreman-Paul QA Fourier-coil JSON, expands `16` coils from four base coils,
 and separates the annular FCI response into a closed-like region with boundary
 fraction about `0.413` and an open/SOL-like region with boundary fraction about
-`0.681`. This is a coil-field FCI gate, not yet an imported-wall predictive
-stellarator edge simulation.
+`0.681`. The companion field-line trace shows longer inner-annulus residence
+than outer-annulus residence, with mean annular exit times about `0.381` and
+`0.155` toroidal turns. This is a coil-field FCI gate, not yet an imported-wall
+predictive stellarator edge simulation.
 
 The current suite gives three passing 3D analytic configurations rather than a
 single showcase-only geometry. Their mirror ratios span about `0.45` to

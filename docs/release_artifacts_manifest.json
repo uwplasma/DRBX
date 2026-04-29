@@ -841,8 +841,13 @@
     },
     "docs/data/essos_biot_savart_landreman_paul_qa_artifacts/data/essos_biot_savart_landreman_paul_qa_campaign.npz": {
       "asset": "docs__data__essos_biot_savart_landreman_paul_qa_artifacts__data__essos_biot_savart_landreman_paul_qa_campaign.npz",
-      "size_bytes": 70085,
+      "size_bytes": 82572,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__data__essos_biot_savart_landreman_paul_qa_campaign.npz"
+    },
+    "docs/data/essos_biot_savart_landreman_paul_qa_artifacts/images/essos_biot_savart_landreman_paul_qa_campaign_field_lines.png": {
+      "asset": "docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign_field_lines.png",
+      "size_bytes": 346061,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign_field_lines.png"
     }
   },
   "tag": "validation-artifacts-2026-04-28"

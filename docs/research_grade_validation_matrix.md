@@ -131,8 +131,8 @@ used in verification, validation, and differentiable-science papers:
   objective equivalence, and local/multi-device profiling seam
 - [essos_biot_savart_landreman_paul_qa_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png)
   for ESSOS-format Fourier-coil ingestion, JAX Biot-Savart field evaluation,
-  annular FCI map construction, and a bounded closed/open reduced-dynamics
-  gate on the Landreman-Paul QA coil field
+  annular FCI map construction, Poincare/residence classification, and a
+  bounded closed/open reduced-dynamics gate on the Landreman-Paul QA coil field
 
 ### Supporting engineering figures
 

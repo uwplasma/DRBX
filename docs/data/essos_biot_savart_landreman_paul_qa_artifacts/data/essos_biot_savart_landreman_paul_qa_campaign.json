@@ -14,6 +14,46 @@
     "source": "ESSOS_biot_savart_LandremanPaulQA.json",
     "stellsym": true
   },
+  "field_line_diagnostics": {
+    "closed_like_inner_annulus": {
+      "confined_fraction": 0.0,
+      "escaped_fraction": 1.0,
+      "label": "closed_like_inner_annulus",
+      "max_observed_connection_length": 15.266385385872384,
+      "mean_exit_connection_length": 3.112198684128672,
+      "mean_exit_turns": 0.3809027777777778,
+      "median_exit_connection_length": 1.9384092745477481,
+      "median_exit_turns": 0.23958333333333334,
+      "passed": true,
+      "poincare_points": 660,
+      "radial_excursion_max": 2.894439740166251,
+      "radial_excursion_mean": 0.3716196736856038,
+      "radius_max": 0.72,
+      "radius_min": 0.18,
+      "seed_count": 60
+    },
+    "max_turns": 5.0,
+    "method": "annular_biot_savart_field_line_trace",
+    "open_sol_like_outer_annulus": {
+      "confined_fraction": 0.0,
+      "escaped_fraction": 1.0,
+      "label": "open_sol_like_outer_annulus",
+      "max_observed_connection_length": 9.141112009432833,
+      "mean_exit_connection_length": 1.7707906650844278,
+      "mean_exit_turns": 0.15486111111111114,
+      "median_exit_connection_length": 1.270870215334001,
+      "median_exit_turns": 0.140625,
+      "passed": true,
+      "poincare_points": 660,
+      "radial_excursion_max": 6.577004391546077,
+      "radial_excursion_mean": 0.5254790365312162,
+      "radius_max": 1.0,
+      "radius_min": 0.55,
+      "seed_count": 60
+    },
+    "passed": true,
+    "steps_per_turn": 96
+  },
   "passed": true,
   "regions": {
     "closed_like_inner_annulus": {
