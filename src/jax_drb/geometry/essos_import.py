@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import jax.numpy as jnp
+
+from .fci_maps import FciMaps
+from .metric_tensor import MetricTensor3D
 
 
 ESSOS_LANDREMAN_QA_RELATIVE_JSON = Path("examples/input_files/ESSOS_biot_savart_LandremanPaulQA.json")
@@ -47,6 +51,27 @@ class EssosFieldLineBundle:
     @property
     def poincare_point_count(self) -> int:
         return int(self.poincare_r.size)
+
+
+@dataclass(frozen=True)
+class EssosImportedFciGeometry:
+    """Annular FCI geometry whose field-line maps are exported from ESSOS."""
+
+    coordinates_x: jnp.ndarray
+    coordinates_y: jnp.ndarray
+    coordinates_z: jnp.ndarray
+    minor_radius: jnp.ndarray
+    toroidal_angle: jnp.ndarray
+    poloidal_angle: jnp.ndarray
+    magnetic_field_magnitude: jnp.ndarray
+    connection_length: jnp.ndarray
+    metric: MetricTensor3D
+    maps: FciMaps
+    metadata: dict[str, Any]
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        return tuple(int(value) for value in self.minor_radius.shape)
 
 
 def resolve_essos_landreman_qa_json(path: str | Path | None = None, *, essos_root: str | Path | None = None) -> Path:
@@ -177,6 +202,172 @@ def trace_essos_coil_field_lines(
     )
 
 
+def build_essos_imported_fci_geometry(
+    *,
+    coil_json_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    nx: int = 6,
+    ny: int = 8,
+    nz: int = 16,
+    rho_min: float = 0.10,
+    rho_max: float = 0.46,
+    maxtime: float = 140.0,
+    times_to_trace: int = 768,
+    trace_tolerance: float = 1.0e-8,
+) -> EssosImportedFciGeometry:
+    """Build FCI maps from an ESSOS-traced annular seed grid.
+
+    The magnetic field and field-line integration remain external. `jax_drb`
+    provides only the logical-grid conversion needed by the native FCI,
+    sheath/recycling, neutral, and PyTree RHS kernels.
+    """
+
+    if nx < 2 or ny < 2 or nz < 4:
+        raise ValueError("ESSOS imported FCI geometry requires nx >= 2, ny >= 2, and nz >= 4")
+    resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
+    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+
+    import jax
+    import jax.numpy as local_jnp
+
+    coils = modules["Coils_from_json"](str(resolved_coil_json))
+    field = modules["BiotSavart"](coils)
+    axis_major_radius = float(field.r_axis)
+    axis_vertical = float(field.z_axis)
+
+    rho_1d = np.linspace(float(rho_min), float(rho_max), int(nx))
+    phi_1d = np.linspace(0.0, 2.0 * np.pi, int(ny), endpoint=False)
+    theta_1d = np.linspace(0.0, 2.0 * np.pi, int(nz), endpoint=False)
+    rho, phi, theta = np.meshgrid(rho_1d, phi_1d, theta_1d, indexing="ij")
+    major = axis_major_radius + rho * np.cos(theta)
+    vertical = axis_vertical + rho * np.sin(theta)
+    coordinates_x = major * np.cos(phi)
+    coordinates_y = major * np.sin(phi)
+    coordinates_z = vertical
+    initial_xyz = np.stack([coordinates_x, coordinates_y, coordinates_z], axis=-1).reshape((-1, 3))
+    start_phi = phi.reshape(-1)
+    dphi = float(2.0 * np.pi / float(ny))
+
+    forward_trajectories = _trace_essos_initial_conditions(
+        modules=modules,
+        resolved_coil_json=resolved_coil_json,
+        initial_xyz=initial_xyz,
+        current_sign=1.0,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        trace_tolerance=trace_tolerance,
+    )
+    if _median_toroidal_advance(forward_trajectories) < 0.0:
+        forward_current_sign = -1.0
+        forward_trajectories = _trace_essos_initial_conditions(
+            modules=modules,
+            resolved_coil_json=resolved_coil_json,
+            initial_xyz=initial_xyz,
+            current_sign=forward_current_sign,
+            maxtime=maxtime,
+            times_to_trace=times_to_trace,
+            trace_tolerance=trace_tolerance,
+        )
+    else:
+        forward_current_sign = 1.0
+    backward_trajectories = _trace_essos_initial_conditions(
+        modules=modules,
+        resolved_coil_json=resolved_coil_json,
+        initial_xyz=initial_xyz,
+        current_sign=-forward_current_sign,
+        maxtime=maxtime,
+        times_to_trace=times_to_trace,
+        trace_tolerance=trace_tolerance,
+    )
+
+    forward_endpoint, forward_length, forward_crossed = _interpolate_trajectories_at_toroidal_plane(
+        forward_trajectories,
+        target_phi=start_phi + dphi,
+    )
+    backward_endpoint, backward_length, backward_crossed = _interpolate_trajectories_at_toroidal_plane(
+        backward_trajectories,
+        target_phi=start_phi - dphi,
+    )
+    forward_x, forward_z, forward_boundary = _cartesian_to_annular_indices(
+        forward_endpoint,
+        crossed=forward_crossed,
+        axis_major_radius=axis_major_radius,
+        axis_vertical=axis_vertical,
+        rho_min=float(rho_min),
+        rho_max=float(rho_max),
+        nx=int(nx),
+        nz=int(nz),
+    )
+    backward_x, backward_z, backward_boundary = _cartesian_to_annular_indices(
+        backward_endpoint,
+        crossed=backward_crossed,
+        axis_major_radius=axis_major_radius,
+        axis_vertical=axis_vertical,
+        rho_min=float(rho_min),
+        rho_max=float(rho_max),
+        nx=int(nx),
+        nz=int(nz),
+    )
+    maps = FciMaps(
+        forward_x=jnp.asarray(forward_x.reshape((nx, ny, nz)), dtype=jnp.float64),
+        forward_z=jnp.asarray(forward_z.reshape((nx, ny, nz)), dtype=jnp.float64),
+        backward_x=jnp.asarray(backward_x.reshape((nx, ny, nz)), dtype=jnp.float64),
+        backward_z=jnp.asarray(backward_z.reshape((nx, ny, nz)), dtype=jnp.float64),
+        forward_boundary=jnp.asarray(forward_boundary.reshape((nx, ny, nz))),
+        backward_boundary=jnp.asarray(backward_boundary.reshape((nx, ny, nz))),
+        dphi=dphi,
+    )
+
+    b_xyz = np.asarray(jax.vmap(field.B)(local_jnp.asarray(initial_xyz, dtype=local_jnp.float64)), dtype=np.float64)
+    bmag = np.linalg.norm(b_xyz, axis=1).reshape((nx, ny, nz))
+    exit_length = _annular_exit_length_from_trajectories(
+        forward_trajectories,
+        axis_major_radius=axis_major_radius,
+        axis_vertical=axis_vertical,
+        rho_min=float(rho_min),
+        rho_max=float(rho_max),
+    ).reshape((nx, ny, nz))
+    adjacent_length = 0.5 * (forward_length + backward_length).reshape((nx, ny, nz))
+    connection_length = np.where(np.isfinite(exit_length), exit_length, adjacent_length)
+    metric = _annular_metric_tensor(
+        rho=rho,
+        major=major,
+        bmag=bmag,
+        drho=float(rho_1d[1] - rho_1d[0]) if nx > 1 else 1.0,
+        dphi=dphi,
+        dtheta=float(2.0 * np.pi / float(nz)),
+    )
+    return EssosImportedFciGeometry(
+        coordinates_x=jnp.asarray(coordinates_x, dtype=jnp.float64),
+        coordinates_y=jnp.asarray(coordinates_y, dtype=jnp.float64),
+        coordinates_z=jnp.asarray(coordinates_z, dtype=jnp.float64),
+        minor_radius=jnp.asarray(rho, dtype=jnp.float64),
+        toroidal_angle=jnp.asarray(phi, dtype=jnp.float64),
+        poloidal_angle=jnp.asarray(theta, dtype=jnp.float64),
+        magnetic_field_magnitude=jnp.asarray(bmag, dtype=jnp.float64),
+        connection_length=jnp.asarray(connection_length, dtype=jnp.float64),
+        metric=metric,
+        maps=maps,
+        metadata={
+            "geometry_family": "essos_imported_annular_fci",
+            "source": "ESSOS",
+            "coil_json_file": resolved_coil_json.name,
+            "field_model": "essos.fields.BiotSavart",
+            "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)",
+            "nx": int(nx),
+            "ny": int(ny),
+            "nz": int(nz),
+            "rho_min": float(rho_min),
+            "rho_max": float(rho_max),
+            "axis_major_radius": float(axis_major_radius),
+            "axis_vertical": float(axis_vertical),
+            "maxtime": float(maxtime),
+            "times_to_trace": int(times_to_trace),
+            "trace_tolerance": float(trace_tolerance),
+        },
+    )
+
+
 def save_essos_field_line_bundle_npz(bundle: EssosFieldLineBundle, path: str | Path) -> Path:
     """Write a portable ESSOS field-line import bundle."""
 
@@ -236,11 +427,164 @@ def _import_essos_modules(*, essos_root: str | Path | None = None) -> dict[str, 
     coils_module = importlib.import_module("essos.coils")
     fields_module = importlib.import_module("essos.fields")
     dynamics_module = importlib.import_module("essos.dynamics")
+    if os.environ.get("JAX_DRB_ESSOS_PROGRESS") != "1" and hasattr(dynamics_module, "NoProgressMeter"):
+        dynamics_module.TqdmProgressMeter = dynamics_module.NoProgressMeter
     return {
         "Coils_from_json": coils_module.Coils_from_json,
         "BiotSavart": fields_module.BiotSavart,
         "Tracing": dynamics_module.Tracing,
     }
+
+
+def _trace_essos_initial_conditions(
+    *,
+    modules: dict[str, Any],
+    resolved_coil_json: Path,
+    initial_xyz: np.ndarray,
+    current_sign: float,
+    maxtime: float,
+    times_to_trace: int,
+    trace_tolerance: float,
+) -> np.ndarray:
+    import jax
+    import jax.numpy as local_jnp
+
+    coils = modules["Coils_from_json"](str(resolved_coil_json))
+    if current_sign < 0.0:
+        coils.dofs_currents = -coils.dofs_currents
+    field = modules["BiotSavart"](coils)
+    tracing = jax.block_until_ready(
+        modules["Tracing"](
+            field=field,
+            model="FieldLineAdaptative",
+            initial_conditions=local_jnp.asarray(initial_xyz, dtype=local_jnp.float64),
+            maxtime=float(maxtime),
+            times_to_trace=int(times_to_trace),
+            atol=float(trace_tolerance),
+            rtol=float(trace_tolerance),
+        )
+    )
+    return np.asarray(tracing.trajectories[:, :, :3], dtype=np.float64)
+
+
+def _median_toroidal_advance(trajectories_xyz: np.ndarray) -> float:
+    phi = np.unwrap(np.arctan2(trajectories_xyz[:, :, 1], trajectories_xyz[:, :, 0]), axis=1)
+    return float(np.nanmedian(phi[:, -1] - phi[:, 0]))
+
+
+def _interpolate_trajectories_at_toroidal_plane(
+    trajectories_xyz: np.ndarray,
+    *,
+    target_phi: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    endpoints = np.full((trajectories_xyz.shape[0], 3), np.nan, dtype=np.float64)
+    lengths = np.full(trajectories_xyz.shape[0], np.nan, dtype=np.float64)
+    crossed = np.zeros(trajectories_xyz.shape[0], dtype=bool)
+    for index, trajectory in enumerate(trajectories_xyz):
+        phi = np.unwrap(np.arctan2(trajectory[:, 1], trajectory[:, 0]))
+        arc_length = np.concatenate(
+            [
+                np.zeros(1, dtype=np.float64),
+                np.cumsum(np.linalg.norm(np.diff(trajectory, axis=0), axis=1)),
+            ]
+        )
+        if phi[-1] < phi[0]:
+            phi = phi[::-1]
+            trajectory = trajectory[::-1]
+            arc_length = arc_length[-1] - arc_length[::-1]
+        target = float(target_phi[index])
+        if target < phi[0] or target > phi[-1] or not np.all(np.isfinite(phi)):
+            continue
+        endpoints[index, 0] = np.interp(target, phi, trajectory[:, 0])
+        endpoints[index, 1] = np.interp(target, phi, trajectory[:, 1])
+        endpoints[index, 2] = np.interp(target, phi, trajectory[:, 2])
+        lengths[index] = np.interp(target, phi, arc_length)
+        crossed[index] = True
+    return endpoints, lengths, crossed
+
+
+def _cartesian_to_annular_indices(
+    points_xyz: np.ndarray,
+    *,
+    crossed: np.ndarray,
+    axis_major_radius: float,
+    axis_vertical: float,
+    rho_min: float,
+    rho_max: float,
+    nx: int,
+    nz: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    major = np.sqrt(points_xyz[:, 0] ** 2 + points_xyz[:, 1] ** 2)
+    vertical = points_xyz[:, 2]
+    radial_offset = major - float(axis_major_radius)
+    vertical_offset = vertical - float(axis_vertical)
+    rho = np.sqrt(radial_offset * radial_offset + vertical_offset * vertical_offset)
+    theta = np.mod(np.arctan2(vertical_offset, radial_offset), 2.0 * np.pi)
+    x_index = (rho - float(rho_min)) / max(float(rho_max - rho_min), 1.0e-30) * float(nx - 1)
+    z_index = theta / (2.0 * np.pi) * float(nz)
+    boundary = (~crossed) | (~np.isfinite(x_index)) | (x_index < 0.0) | (x_index > float(nx - 1))
+    x_index = np.where(boundary, 0.0, x_index)
+    z_index = np.where(boundary | (~np.isfinite(z_index)), 0.0, z_index)
+    return x_index, z_index, boundary
+
+
+def _annular_exit_length_from_trajectories(
+    trajectories_xyz: np.ndarray,
+    *,
+    axis_major_radius: float,
+    axis_vertical: float,
+    rho_min: float,
+    rho_max: float,
+) -> np.ndarray:
+    major = np.sqrt(trajectories_xyz[:, :, 0] ** 2 + trajectories_xyz[:, :, 1] ** 2)
+    vertical = trajectories_xyz[:, :, 2]
+    rho = np.sqrt((major - float(axis_major_radius)) ** 2 + (vertical - float(axis_vertical)) ** 2)
+    tolerance = 1.0e-10 * max(float(rho_max - rho_min), 1.0)
+    outside = (rho < float(rho_min) - tolerance) | (rho > float(rho_max) + tolerance) | (~np.isfinite(rho))
+    arc_length = np.concatenate(
+        [
+            np.zeros((trajectories_xyz.shape[0], 1), dtype=np.float64),
+            np.cumsum(np.linalg.norm(np.diff(trajectories_xyz, axis=1), axis=2), axis=1),
+        ],
+        axis=1,
+    )
+    first_exit = np.argmax(outside, axis=1)
+    has_exit = np.any(outside, axis=1)
+    return np.where(has_exit, arc_length[np.arange(trajectories_xyz.shape[0]), first_exit], arc_length[:, -1])
+
+
+def _annular_metric_tensor(
+    *,
+    rho: np.ndarray,
+    major: np.ndarray,
+    bmag: np.ndarray,
+    drho: float,
+    dphi: float,
+    dtheta: float,
+) -> MetricTensor3D:
+    zeros = np.zeros_like(rho)
+    safe_rho = np.maximum(rho, 1.0e-8)
+    safe_major = np.maximum(major, 1.0e-8)
+    jacobian = safe_major * safe_rho
+    return MetricTensor3D(
+        dx=jnp.asarray(np.full_like(rho, float(drho)), dtype=jnp.float64),
+        dy=jnp.asarray(np.full_like(rho, float(dphi)), dtype=jnp.float64),
+        dz=jnp.asarray(np.full_like(rho, float(dtheta)), dtype=jnp.float64),
+        J=jnp.asarray(jacobian, dtype=jnp.float64),
+        Bxy=jnp.asarray(bmag, dtype=jnp.float64),
+        g11=jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
+        g22=jnp.asarray(1.0 / (safe_major * safe_major), dtype=jnp.float64),
+        g33=jnp.asarray(1.0 / (safe_rho * safe_rho), dtype=jnp.float64),
+        g12=jnp.asarray(zeros, dtype=jnp.float64),
+        g13=jnp.asarray(zeros, dtype=jnp.float64),
+        g23=jnp.asarray(zeros, dtype=jnp.float64),
+        g_11=jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
+        g_22=jnp.asarray(safe_major * safe_major, dtype=jnp.float64),
+        g_33=jnp.asarray(safe_rho * safe_rho, dtype=jnp.float64),
+        g_12=jnp.asarray(zeros, dtype=jnp.float64),
+        g_13=jnp.asarray(zeros, dtype=jnp.float64),
+        g_23=jnp.asarray(zeros, dtype=jnp.float64),
+    )
 
 
 def _flatten_essos_poincare_data(

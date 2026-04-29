@@ -69,20 +69,13 @@ imports the resulting field-line bundle into `jax_drb`. This replaces the
 previous internal annular coil-field proxy: no `jax_drb` source file now
 evaluates the coil magnetic field or traces the field lines.
 
-## Next Implementation Steps
+## Downstream FCI Map Validation
 
-The next production steps are:
-
-1. Convert ESSOS-imported trajectories into plane-to-plane FCI maps on the
-   same geometry schema used by the analytic stellarator validation suite.
-2. Add imported wall, plasma-boundary, limiter, and target masks so open,
-   closed, island, stochastic, and divertor-connected field-line classes are
-   physics labels rather than plot annotations.
-3. Build connection-length and target-incidence diagnostics directly from the
-   imported trajectories.
-4. Route sheath, recycling, neutral diffusion/reaction, vorticity, and PyTree
-   RHS gates through imported-map cases after the analytic geometry gates are
-   clean.
-5. Add CPU/GPU profiling and differentiability tests on the `jax_drb` SOL
-   operators driven by the imported maps, while keeping field generation in
-   ESSOS.
+The first downstream validation is documented in
+[ESSOS imported FCI validation](essos_imported_fci_validation.md). That gate
+converts an annular grid of externally traced trajectories into fixed-shape
+FCI maps, builds connection-length and endpoint-mask diagnostics, and routes
+JAXDRB sheath/recycling and neutral closures through the imported maps. The
+remaining production work is to replace the simple annular metric with
+wall-resolved target geometry and to promote the imported-map residuals into
+the same PyTree/JVP implicit-solver lane used by the native 3D operators.

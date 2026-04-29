@@ -316,6 +316,17 @@ The PyTree DRB campaign currently passes:
 
 ![Stellarator PyTree/JVP/scaling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
+The imported FCI campaign currently passes:
+
+- external field-line maps converted to fixed-shape FCI endpoints on an
+  annular Landreman-Paul QA grid;
+- forward and backward boundary fractions: about `0.61` and `0.68`;
+- target endpoint fraction: about `0.845`;
+- magnetic-field modulation: about `11.6`;
+- neutral particle and momentum balance errors: below display precision.
+
+![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
+
 The reduced dynamics campaign currently passes:
 
 - energy growth factor: about `1.13`;
