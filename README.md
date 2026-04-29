@@ -247,15 +247,11 @@ Non-axisymmetric 3D geometry and reduced SOL dynamics:
 
 ![Stellarator PyTree/JVP/scaling validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__pytree_drb__images__stellarator_drb_pytree_campaign.png)
 
-![ESSOS Biot-Savart coil-field campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign.png)
-
-![ESSOS Biot-Savart field-line classification](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__images__essos_biot_savart_landreman_paul_qa_campaign_field_lines.png)
+![ESSOS field-line import](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_fieldline_import_artifacts__images__essos_landreman_paul_qa_fieldline_import.png)
 
 ![Stellarator SOL diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__images__stellarator_sol_showcase_diagnostics.png)
 
 ![Stellarator SOL 3D movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__showcase__movies__stellarator_sol_showcase.gif)
-
-![ESSOS Biot-Savart closed/open FCI movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_biot_savart_landreman_paul_qa_artifacts__movies__essos_biot_savart_landreman_paul_qa_campaign.gif)
 
 Differentiability, uncertainty propagation, and local performance:
 
