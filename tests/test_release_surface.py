@@ -27,6 +27,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "essos_imported_fci_validation.md",
     REPO_ROOT / "docs" / "essos_imported_pytree_validation.md",
     REPO_ROOT / "docs" / "essos_imported_drb_movie.md",
+    REPO_ROOT / "docs" / "essos_vmec_fieldline_surface.md",
     REPO_ROOT / "docs" / "stellarator_fci_validation.md",
     REPO_ROOT / "docs" / "non_axisymmetric_stellarator_sol_plan.md",
     REPO_ROOT / "docs" / "traced_field_line_native_selected_field_demo.md",
@@ -71,6 +72,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_pytree_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_drb_movie_campaign.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "vmec_fieldline_surface_campaign.py",
     REPO_ROOT / "examples" / "engineering" / "native_3d_runtime_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "native_3d_convergence_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "jax_native_profile_audit_demo.py",
@@ -107,6 +109,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_imported_fci_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_imported_pytree_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_imported_drb_movie_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_vmec_fieldline_surface_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_runtime_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_convergence_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "jax_native_profile_audit.py",
@@ -185,6 +188,13 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "essos_imported_fci_artifacts" / "data" / "essos_imported_fci_campaign.json",
     REPO_ROOT / "docs" / "data" / "essos_imported_pytree_artifacts" / "data" / "essos_imported_pytree_campaign.json",
     REPO_ROOT / "docs" / "data" / "essos_imported_drb_movie_artifacts" / "data" / "essos_imported_drb_movie_campaign.json",
+    REPO_ROOT / "docs" / "data" / "essos_vmec_fieldline_surface_artifacts" / "data" / "essos_vmec_fieldline_surface_campaign.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "essos_vmec_equilibrium_fieldline_surface_artifacts"
+    / "data"
+    / "essos_vmec_equilibrium_fieldline_surface_campaign.json",
     REPO_ROOT / "docs" / "data" / "native_3d_runtime_campaign_artifacts" / "data" / "native_3d_runtime_campaign.json",
     REPO_ROOT / "docs" / "data" / "native_3d_convergence_campaign_artifacts" / "data" / "native_3d_convergence_campaign.json",
     REPO_ROOT / "docs" / "data" / "jax_native_profile_audit_artifacts" / "data" / "jax_native_profile_audit.json",

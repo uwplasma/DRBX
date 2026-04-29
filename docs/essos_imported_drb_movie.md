@@ -18,12 +18,14 @@ connects the imported coil-field geometry to the same fixed-layout JAXDRB state
 used by the differentiability and PyTree RHS validation path, while enforcing
 physics checks on the rendered artifact.
 
-The movie geometry uses the VMEC Fourier surface from
+The physics grid is seeded from the VMEC Fourier surface in
 `wout_LandremanPaul2021_QA_reactorScale_lowres.nc`, scaled and translated onto
-the ESSOS coil-field axis. The current default movie is no longer just a
-renderer-side interpolation of a coarse transient. It advances a heavier
-near-boundary physics grid (`7 x 14 x 40`, `rho = 0.20 ... 0.92`) and then
-renders the resulting field on a smooth VMEC surface for visual continuity.
+the ESSOS coil-field axis before tracing the FCI maps. The rendered boundary is
+the raw VMEC Fourier surface, so the movie shape follows the same convention as
+`vmec_jax --plot` while the reduced state remains indexed on the traced
+fixed-layout physics grid. The current default movie advances a heavier
+near-boundary physics grid (`8 x 28 x 80`, `rho = 0.20 ... 0.92`) rather than
+relying on a renderer-only high-resolution interpolation of a coarse transient.
 The transient also seeds deterministic multi-mode perturbations so the visible
 structure is supported by the evolved state rather than by post-processing
 noise. The camera is fixed across frames, the GIF is quantized with a shared
@@ -35,7 +37,9 @@ shows that the imported coil field traces finite Poincare points but does not
 remain on a single scaled VMEC seed surface over the long trace. The movie
 therefore treats the VMEC Fourier surface as the geometric boundary and the
 imported coil traces as the FCI map source, without claiming exact
-closed-surface confinement for the coil field.
+closed-surface confinement for the coil field. The same page also includes the
+VMEC-coordinate control trace, which verifies that the rendered QA boundary is
+surface-preserving for the VMEC equilibrium field itself.
 
 Regenerate the campaign with:
 
@@ -49,18 +53,19 @@ PYTHONPATH=src .venv/bin/python \
 
 The current public report passes the following checks:
 
-- endpoint fraction on the imported FCI maps: about `0.78`;
+- endpoint fraction on the imported FCI maps: about `0.72`;
 - magnetic-field modulation from the coil field: about `1.42`;
 - non-axisymmetric major-radius RMS of the scaled VMEC QA surface: about
   `0.116`;
-- ion-density fluctuation RMS grows from about `2.6e-2` to `7.9e-2`;
-- compact potential residual: about `6.3e-2`;
+- ion-density fluctuation RMS grows from about `2.7e-2` to `8.7e-2`;
+- compact potential residual: about `2.3e-1`;
 - target recycling and zero-current sheath residuals are at roundoff;
 - neutral particle and momentum residuals are at roundoff;
 - the final toroidal/poloidal spectrum has nontrivial mode content, including
   a high toroidal index selected by the seeded near-boundary transient;
 - the GIF audit passes with a fixed camera, `24` frames, and only two
-  detected frame bounding boxes;
+  detected frame bounding boxes; the median inter-frame RMS is about `3.2` on
+  an 8-bit RGB scale;
 - the radial-flux proxy remains finite and nonzero during the transient.
 
 ![ESSOS imported QA-coil DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)

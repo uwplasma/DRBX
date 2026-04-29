@@ -23,6 +23,17 @@ def main() -> None:
         default=Path("docs/data/essos_vmec_fieldline_surface_artifacts"),
         help="Directory where JSON/NPZ/PNG validation artifacts are written.",
     )
+    parser.add_argument(
+        "--case-label",
+        default="essos_vmec_fieldline_surface_campaign",
+        help="Base filename for JSON/NPZ/PNG validation artifacts.",
+    )
+    parser.add_argument(
+        "--field-source",
+        choices=("coil", "vmec"),
+        default="coil",
+        help="Trace either the external coil field or the VMEC-coordinate equilibrium field.",
+    )
     parser.add_argument("--rho-min", type=float, default=0.20, help="Innermost scaled VMEC seed radius.")
     parser.add_argument("--rho-max", type=float, default=0.92, help="Outermost scaled VMEC seed radius.")
     parser.add_argument("--n-surfaces", type=int, default=7, help="Number of VMEC surfaces to seed and compare.")
@@ -34,6 +45,7 @@ def main() -> None:
     configure_jax_runtime(precision="float64")
     artifacts = create_essos_vmec_fieldline_surface_package(
         output_root=args.output_root,
+        case_label=args.case_label,
         coil_json_path=args.coil_json,
         vmec_wout_path=args.vmec_wout,
         essos_root=args.essos_root,
@@ -43,6 +55,7 @@ def main() -> None:
         ntheta_surface=args.ntheta_surface,
         times_to_trace=args.times_to_trace,
         maxtime=args.maxtime,
+        field_source=args.field_source,
     )
     print(f"wrote report: {artifacts.report_json_path}")
     print(f"wrote arrays: {artifacts.arrays_npz_path}")

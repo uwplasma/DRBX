@@ -52,16 +52,16 @@ def create_essos_imported_drb_movie_package(
     case_label: str = "essos_imported_drb_movie_campaign",
     coil_json_path: str | Path | None = None,
     essos_root: str | Path | None = None,
-    nx: int = 7,
-    ny: int = 14,
-    nz: int = 40,
+    nx: int = 8,
+    ny: int = 28,
+    nz: int = 80,
     rho_min: float = 0.20,
     rho_max: float = 0.92,
-    maxtime: float = 90.0,
-    times_to_trace: int = 420,
-    frames: int = 28,
-    substeps_per_frame: int = 5,
-    dt: float = 1.5e-3,
+    maxtime: float = 135.0,
+    times_to_trace: int = 720,
+    frames: int = 32,
+    substeps_per_frame: int = 6,
+    dt: float = 1.2e-3,
 ) -> EssosImportedDrbMovieArtifacts:
     root = Path(output_root)
     data_dir = root / "data"
@@ -119,16 +119,16 @@ def build_essos_imported_drb_movie_campaign(
     *,
     coil_json_path: str | Path | None = None,
     essos_root: str | Path | None = None,
-    nx: int = 7,
-    ny: int = 14,
-    nz: int = 40,
+    nx: int = 8,
+    ny: int = 28,
+    nz: int = 80,
     rho_min: float = 0.20,
     rho_max: float = 0.92,
-    maxtime: float = 90.0,
-    times_to_trace: int = 420,
-    frames: int = 28,
-    substeps_per_frame: int = 5,
-    dt: float = 1.5e-3,
+    maxtime: float = 135.0,
+    times_to_trace: int = 720,
+    frames: int = 32,
+    substeps_per_frame: int = 6,
+    dt: float = 1.2e-3,
 ) -> EssosImportedDrbMovieResult:
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
@@ -145,7 +145,7 @@ def build_essos_imported_drb_movie_campaign(
         recycling_fraction=0.965,
         recycled_neutral_energy=0.026,
         vorticity_diffusivity=3.5e-4,
-        potential_iterations=384,
+        potential_iterations=768,
         potential_regularization=5.0,
     )
     run_movie = _build_essos_imported_movie_scan(
@@ -558,6 +558,8 @@ def _build_essos_imported_drb_movie_report(
             "VMEC-shaped physics grid; not yet a promoted long-time turbulence validation"
         ),
         "geometry": geometry.metadata,
+        "movie_physics_grid": [int(value) for value in geometry.shape],
+        "movie_render_coordinate_model": "raw_vmec_fourier_surface_registered_to_vmec_jax_plot",
         "frames": int(frames),
         "substeps_per_frame": int(substeps_per_frame),
         "dt": float(dt),
@@ -699,18 +701,21 @@ def _save_essos_imported_drb_3d_frame_pyvista(
 
     resolved = Path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    x = np.asarray(geometry.coordinates_x, dtype=np.float64)
-    y = np.asarray(geometry.coordinates_y, dtype=np.float64)
-    z = np.asarray(geometry.coordinates_z, dtype=np.float64)
+    render = _build_movie_render_coordinates(geometry, raw_vmec_scale=True)
+    x = render["x"]
+    y = render["y"]
+    z = render["z"]
+    phi = render["phi"]
+    theta = render["theta"]
     values = np.asarray(field, dtype=np.float64)
     value_limit = _movie_value_limit(values, vmax)
     scalar_name = "ion density fluctuation"
-    nx, ny, nz = geometry.shape
-    phi_window = np.arange(0, max(3, ny - max(1, ny // 4)), dtype=int)
-    theta_window = np.arange(0, nz, dtype=int)
-    radial_window = np.arange(0, nx, dtype=int)
-    outer_i = max(nx - 1, 0)
-    middle_i = max(int(0.58 * (nx - 1)), 0)
+    nr, nphi, ntheta = x.shape
+    phi_window = np.arange(0, max(3, nphi - max(1, nphi // 4)), dtype=int)
+    theta_window = np.arange(0, ntheta, dtype=int)
+    radial_window = np.arange(0, nr, dtype=int)
+    outer_i = max(nr - 1, 0)
+    middle_i = max(int(0.58 * (nr - 1)), 0)
 
     plotter = pv.Plotter(off_screen=True, window_size=(1280, 900))
     plotter.set_background("white")
@@ -746,21 +751,36 @@ def _save_essos_imported_drb_3d_frame_pyvista(
         )
 
     for radial_index, opacity, show_bar in ((outer_i, 0.74, True), (middle_i, 0.46, False)):
+        radial_fraction = float(radial_index) / max(float(nr - 1), 1.0)
+        surface_phi = phi[np.ix_([radial_index], phi_window, theta_window)][0]
+        surface_theta = theta[np.ix_([radial_index], phi_window, theta_window)][0]
         add_surface(
             x[np.ix_([radial_index], phi_window, theta_window)][0],
             y[np.ix_([radial_index], phi_window, theta_window)][0],
             z[np.ix_([radial_index], phi_window, theta_window)][0],
-            values[np.ix_([radial_index], phi_window, theta_window)][0],
+            _interpolate_movie_field_surface(
+                values,
+                radial_fraction=radial_fraction,
+                phi=surface_phi,
+                theta=surface_theta,
+            ),
             opacity=opacity,
             show_scalar_bar=show_bar,
         )
 
-    for cut_j in (max(1, ny // 10), max(2, 3 * ny // 5)):
+    for cut_j in (max(1, nphi // 10), max(2, 3 * nphi // 5)):
+        cut_phi = phi[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :]
+        cut_theta = theta[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :]
         add_surface(
             x[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
             y[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
             z[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
-            values[np.ix_(radial_window, [cut_j], theta_window)][:, 0, :],
+            _interpolate_movie_field_cut(
+                values,
+                radial_fractions=np.linspace(0.0, 1.0, nr)[:, None],
+                phi=cut_phi,
+                theta=cut_theta,
+            ),
             opacity=0.95,
             show_scalar_bar=False,
         )
@@ -768,7 +788,7 @@ def _save_essos_imported_drb_3d_frame_pyvista(
     _add_boundary_wire(plotter, x, y, z, radial_index=0, color="#333333", opacity=0.30)
     _add_boundary_wire(plotter, x, y, z, radial_index=outer_i, color="black", opacity=0.45)
     plotter.add_text(
-        "ESSOS-imported QA-coil DRB transient on scaled VMEC QA surfaces\n"
+        "ESSOS-imported QA-coil DRB transient on Landreman-Paul QA VMEC surfaces\n"
         f"sheath + recycling + neutral closures, t = {time_value:.3f}",
         position=(32, 830),
         font_size=14,
@@ -886,7 +906,7 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
     fig.text(
         0.03,
         0.955,
-        "ESSOS-imported QA-coil DRB transient on scaled VMEC QA surfaces",
+        "ESSOS-imported QA-coil DRB transient on Landreman-Paul QA VMEC surfaces",
         ha="left",
         va="top",
         fontsize=15,
@@ -923,20 +943,30 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
     return resolved
 
 
-def _build_movie_render_coordinates(geometry: EssosImportedFciGeometry) -> dict[str, np.ndarray]:
+def _build_movie_render_coordinates_impl(
+    geometry: EssosImportedFciGeometry,
+    *,
+    raw_vmec_scale: bool,
+) -> dict[str, np.ndarray]:
     metadata = dict(geometry.metadata)
     if metadata.get("coordinate_model") == "scaled_vmec_fourier_flux_surfaces":
         try:
             wout_path = resolve_essos_landreman_qa_wout(essos_root=os.environ.get("JAX_DRB_ESSOS_ROOT"))
+            if raw_vmec_scale:
+                axis_major_radius = float(metadata.get("vmec_raw_axis_major_radius", metadata["axis_major_radius"]))
+                axis_vertical = float(metadata.get("vmec_raw_axis_vertical", metadata["axis_vertical"]))
+            else:
+                axis_major_radius = float(metadata["axis_major_radius"])
+                axis_vertical = float(metadata["axis_vertical"])
             return build_essos_vmec_scaled_qa_coordinates(
                 wout_path,
-                nx=18,
-                ny=96,
-                nz=112,
+                nx=max(int(geometry.shape[0]), 18),
+                ny=max(4 * int(geometry.shape[1]), 96),
+                nz=max(2 * int(geometry.shape[2]), 112),
                 rho_min=float(metadata["rho_min"]),
                 rho_max=float(metadata["rho_max"]),
-                axis_major_radius=float(metadata["axis_major_radius"]),
-                axis_vertical=float(metadata["axis_vertical"]),
+                axis_major_radius=axis_major_radius,
+                axis_vertical=axis_vertical,
             )
         except Exception:
             pass
@@ -947,6 +977,10 @@ def _build_movie_render_coordinates(geometry: EssosImportedFciGeometry) -> dict[
         "phi": np.asarray(geometry.toroidal_angle, dtype=np.float64),
         "theta": np.asarray(geometry.poloidal_angle, dtype=np.float64),
     }
+
+
+def _build_movie_render_coordinates(geometry: EssosImportedFciGeometry, *, raw_vmec_scale: bool = False) -> dict[str, np.ndarray]:
+    return _build_movie_render_coordinates_impl(geometry, raw_vmec_scale=raw_vmec_scale)
 
 
 def _interpolate_movie_field_surface(
