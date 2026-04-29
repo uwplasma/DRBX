@@ -56,7 +56,7 @@ class EssosFieldLineBundle:
 
 @dataclass(frozen=True)
 class EssosImportedFciGeometry:
-    """Annular FCI geometry whose field-line maps are exported from ESSOS."""
+    """VMEC-shaped FCI geometry whose field-line maps are exported from ESSOS."""
 
     coordinates_x: jnp.ndarray
     coordinates_y: jnp.ndarray
@@ -217,6 +217,45 @@ def trace_essos_coil_field_lines(
         coil_gamma_xyz=np.asarray(coils.gamma, dtype=np.float64),
         coil_currents=np.asarray(coils.currents, dtype=np.float64),
         metadata=metadata,
+    )
+
+
+def load_essos_coil_field_axis(
+    *,
+    coil_json_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+) -> tuple[float, float]:
+    """Return the magnetic-axis location reported by the imported ESSOS coil field."""
+
+    resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
+    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+    coils = modules["Coils_from_json"](str(resolved_coil_json))
+    field = modules["BiotSavart"](coils)
+    return float(field.r_axis), float(field.z_axis)
+
+
+def trace_essos_coil_initial_conditions(
+    initial_xyz: np.ndarray,
+    *,
+    coil_json_path: str | Path | None = None,
+    essos_root: str | Path | None = None,
+    current_sign: float = 1.0,
+    maxtime: float = 1000.0,
+    times_to_trace: int = 6000,
+    trace_tolerance: float = 1.0e-8,
+) -> np.ndarray:
+    """Trace arbitrary Cartesian seed points through the optional ESSOS coil field."""
+
+    resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
+    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+    return _trace_essos_initial_conditions(
+        modules=modules,
+        resolved_coil_json=resolved_coil_json,
+        initial_xyz=np.asarray(initial_xyz, dtype=np.float64),
+        current_sign=float(current_sign),
+        maxtime=float(maxtime),
+        times_to_trace=int(times_to_trace),
+        trace_tolerance=float(trace_tolerance),
     )
 
 
@@ -575,6 +614,8 @@ def build_essos_vmec_scaled_qa_coordinates(
     axis_major_radius: float,
     axis_vertical: float,
 ) -> dict[str, Any]:
+    """Evaluate scaled Landreman-Paul QA VMEC Fourier surfaces on a logical grid."""
+
     from netCDF4 import Dataset
 
     with Dataset(wout_path) as dataset:
