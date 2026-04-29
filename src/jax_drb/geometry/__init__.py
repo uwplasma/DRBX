@@ -1,6 +1,7 @@
 from .essos_import import (
     EssosFieldLineBundle,
     EssosImportedFciGeometry,
+    build_essos_vmec_scaled_qa_coordinates,
     build_essos_imported_fci_geometry,
     essos_runtime_available,
     load_essos_field_line_bundle_npz,
@@ -16,6 +17,7 @@ from .stellarator import SyntheticStellaratorGeometry, build_synthetic_stellarat
 __all__ = [
     "EssosFieldLineBundle",
     "EssosImportedFciGeometry",
+    "build_essos_vmec_scaled_qa_coordinates",
     "build_essos_imported_fci_geometry",
     "essos_runtime_available",
     "FciMaps",

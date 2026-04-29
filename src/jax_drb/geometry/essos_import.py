@@ -255,7 +255,7 @@ def build_essos_imported_fci_geometry(
     axis_vertical = float(field.z_axis)
 
     resolved_vmec_wout = resolve_essos_landreman_qa_wout(vmec_wout_path, essos_root=essos_root)
-    coordinates = _build_vmec_scaled_qa_coordinates(
+    coordinates = build_essos_vmec_scaled_qa_coordinates(
         resolved_vmec_wout,
         nx=int(nx),
         ny=int(ny),
@@ -564,7 +564,7 @@ def _cartesian_to_annular_indices(
     return x_index, z_index, boundary
 
 
-def _build_vmec_scaled_qa_coordinates(
+def build_essos_vmec_scaled_qa_coordinates(
     wout_path: Path,
     *,
     nx: int,
