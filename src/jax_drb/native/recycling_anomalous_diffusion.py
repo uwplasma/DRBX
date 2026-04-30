@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
+from .array_backend import use_jax_backend
 from .mesh import StructuredMesh
 from .metrics import StructuredMetrics
 from .neutral_mixed import _div_a_grad_perp_flows
@@ -28,9 +30,11 @@ def apply_anomalous_diffusion(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
 ) -> AnomalousDiffusionTerms:
-    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    momentum_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    use_jax = use_jax_backend(*(sp.density for sp in species.values()), *(sp.pressure for sp in species.values()))
+    xp = jnp if use_jax else np
+    density_source = {name: xp.zeros_like(sp.density, dtype=xp.float64) for name, sp in species.items()}
+    energy_source = {name: xp.zeros_like(sp.density, dtype=xp.float64) for name, sp in species.items()}
+    momentum_source = {name: xp.zeros_like(sp.density, dtype=xp.float64) for name, sp in species.items()}
     diagnostics: dict[str, np.ndarray] = {}
 
     supports_nz1_nonorthogonal = mesh.nz == 1 and getattr(metrics, "g_23", None) is not None
@@ -72,7 +76,7 @@ def apply_anomalous_diffusion(
         if sp.has_momentum:
             velocity_2d = axisymmetric_profile(raw_species_velocity(sp))
         else:
-            velocity_2d = np.zeros_like(sp.density, dtype=np.float64)
+            velocity_2d = xp.zeros_like(sp.density, dtype=xp.float64)
 
         if not anomalous_sheath_flux:
             density_2d[:, mesh.ystart - 1, :] = density_2d[:, mesh.ystart, :]
@@ -83,19 +87,19 @@ def apply_anomalous_diffusion(
             velocity_2d[:, mesh.yend + 1, :] = velocity_2d[:, mesh.yend, :]
 
         anomalous_d = (
-            np.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_D") / diffusion_norm, dtype=np.float64)
+            xp.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_D") / diffusion_norm, dtype=xp.float64)
             if include_d
-            else np.zeros_like(sp.density, dtype=np.float64)
+            else xp.zeros_like(sp.density, dtype=xp.float64)
         )
         anomalous_chi = (
-            np.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_chi") / diffusion_norm, dtype=np.float64)
+            xp.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_chi") / diffusion_norm, dtype=xp.float64)
             if include_chi
-            else np.zeros_like(sp.density, dtype=np.float64)
+            else xp.zeros_like(sp.density, dtype=xp.float64)
         )
         anomalous_nu = (
-            np.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_nu") / diffusion_norm, dtype=np.float64)
+            xp.full_like(sp.density, resolve_species_numeric_option(config, name, "anomalous_nu") / diffusion_norm, dtype=xp.float64)
             if include_nu
-            else np.zeros_like(sp.density, dtype=np.float64)
+            else xp.zeros_like(sp.density, dtype=xp.float64)
         )
 
         if include_d:

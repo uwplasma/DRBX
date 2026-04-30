@@ -145,6 +145,20 @@ sparse finite-difference Jacobian assembly plus repeated host-side RHS
 assembly, so the next fix remains fixed-layout JAX residual kernels and
 JVP/Jacobian-action solves, not another local threading sweep.
 
+The first real transformable recycling gate now has its own profile artifact:
+`docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/`. It
+profiles the hydrogen `1D-recycling` fixed-layout backward-Euler residual
+through `solver_mode="jax_linearized"` rather than the host-backed adaptive BDF
+runner. The local run used cProfile, a process-tree RSS sampler, a JAX
+Perfetto trace, a device-memory profile, persistent compilation cache, and an
+XLA text dump. The cProfile+trace run completed the physical solve in about
+`2.06 s` with residual `2.49e-12`; the separate RSS run completed in about
+`0.83 s`, with sampled process-tree peak RSS about `2.85 GiB` and sub-MiB
+incremental RSS during the timed gate. Solver diagnostics show one
+JAX linearization refresh, one residual evaluation, no line search, and no
+fallback. This is the right evidence for transformability of the fixed-layout
+hydrogen BE residual; it is not yet the heavy D/T/He adaptive-BDF result.
+
 The shared sparse Newton backend now records per-step diagnostics for:
 
 - residual evaluation count and wall time

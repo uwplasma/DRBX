@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import numpy as np
+import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig, NumericResolver
+from .array_backend import use_jax_backend
 from .expression import ArrayExpressionEvaluator
 from .mesh import StructuredMesh, broadcast_to_field_shape
 from .metrics import StructuredMetrics
@@ -275,18 +277,29 @@ def override_species_fields(
     mesh: StructuredMesh,
 ) -> dict[str, OpenFieldSpecies]:
     species: dict[str, OpenFieldSpecies] = {}
+    dynamic_values = tuple(
+        fields.get(field_name)
+        for template in species_templates.values()
+        for field_name in (template.density_name, template.pressure_name, template.momentum_name)
+        if field_name in fields
+    )
+    use_jax = use_jax_backend(*dynamic_values)
+
+    def _array(value):
+        return jnp.asarray(value, dtype=jnp.float64) if use_jax else np.asarray(value, dtype=np.float64)
+
     for name, template in species_templates.items():
-        density = np.asarray(fields.get(template.density_name, template.density), dtype=np.float64)
-        pressure = np.asarray(fields.get(template.pressure_name, template.pressure), dtype=np.float64)
-        momentum = np.asarray(fields.get(template.momentum_name, template.momentum), dtype=np.float64)
+        density = _array(fields.get(template.density_name, template.density))
+        pressure = _array(fields.get(template.pressure_name, template.pressure))
+        momentum = _array(fields.get(template.momentum_name, template.momentum))
         if template.noflow_lower_y and mesh.has_lower_y_target:
-            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
-            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64)
+            density = _array(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False))
+            pressure = _array(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False))
+            momentum = _array(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=True, upper_y=False))
         if template.noflow_upper_y and mesh.has_upper_y_target:
-            density = np.asarray(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-            pressure = np.asarray(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
-            momentum = np.asarray(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True), dtype=np.float64)
+            density = _array(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=False, upper_y=True))
+            pressure = _array(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=False, upper_y=True))
+            momentum = _array(apply_noflow_flow_guards(momentum, mesh=mesh, lower_y=False, upper_y=True))
         species[name] = OpenFieldSpecies(**{**template.__dict__, "density": density, "pressure": pressure, "momentum": momentum})
     return species
 

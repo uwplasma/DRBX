@@ -524,6 +524,26 @@ backward-Euler, BDF2, and legacy BDF RHS paths, but the individual source and
 boundary kernels still need to be ported term by term before the heavy SciPy
 BDF path can be replaced by a fully JAX-linearized solve.
 
+The latest residual-seam pass moves the hydrogen recycling one-step path
+further down that migration. The species override, collision-rate helpers,
+full electron and ion sheath orchestration, target-adjacent feedback source,
+charge-exchange rate helpers, and packed-RHS output now preserve JAX arrays
+when the fixed residual is traced. A real `1D-recycling` reference deck at a
+small backward-Euler step now reaches `solver_mode="jax_linearized"` without a
+host-array conversion barrier, and the regression test checks that the
+linearized residual is assembled through JAX. This is still a gate, not the
+default heavy transient backend: the long adaptive BDF path and D/T/He branch
+need the same treatment before the paper can claim end-to-end differentiability
+for the full recycling solve.
+
+The gate has a concrete profile bundle in
+`docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/`. The
+local cProfile/JAX-trace run completed with residual `2.49e-12`, one JAX
+linearization refresh, one residual evaluation, no fallback, and a separate RSS
+timing of about `0.83 s`. This is now the reference evidence for the
+transformable hydrogen BE residual seam; the heavier D/T/He adaptive-BDF
+profile remains the next runtime target.
+
 The production backward-Euler/BDF2 recycling steppers now build their nonlinear
 residuals through the same fixed-layout state bridge. The default sparse path
 still uses finite-difference Jacobians unless explicitly configured otherwise,
@@ -537,6 +557,14 @@ the standard sparse solver, and `JAX_DRB_RECYCLING_JVP_BATCH_SIZE` bounds the
 color-group batch size. These modes should be used only on gates where the
 residual has been proven JAX-transformable; the heavy SciPy BDF callback
 remains a host compatibility path.
+
+There is also an optional Lineax evaluation seam for transformable gates:
+`solver_mode="jax_linearized_lineax"` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER=lineax` routes the JAX-linearized Newton
+update through a Lineax GMRES `FunctionLinearOperator`. This is intentionally
+not a required dependency and not the default; it gives a controlled way to
+compare JAX-native Krylov backends once the residual itself is free of host
+barriers.
 
 The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
