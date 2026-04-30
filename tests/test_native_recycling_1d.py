@@ -1993,10 +1993,17 @@ def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
 def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", raising=False)
     assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None
+    monkeypatch.delenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", raising=False)
+    monkeypatch.delenv("JAX_DRB_RECYCLING_JACOBIAN_MODE", raising=False)
+    assert recycling_1d_mod._resolve_recycling_bdf_jacobian_mode() == "fd"
     monkeypatch.setenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", "0")
     assert recycling_1d_mod._resolve_recycling_jvp_batch_size() == 1
     monkeypatch.setenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", "bad")
     assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JACOBIAN_MODE", "jax")
+    assert recycling_1d_mod._resolve_recycling_bdf_jacobian_mode() == "jvp"
+    monkeypatch.setenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", "finite-difference")
+    assert recycling_1d_mod._resolve_recycling_bdf_jacobian_mode() == "fd"
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "lineax")
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "lineax_gmres"
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "unknown")
@@ -2066,6 +2073,90 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     assert calls == [(expected_solver, expected_backend)]
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert np.isfinite(next_fields["Nd+"]).all()
+
+
+def test_recycling_bdf_history_can_use_sparse_jvp_jacobian_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scipy.integrate
+    import scipy.sparse
+
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 5
+        ny = 3
+        nz = 1
+        ixseps1 = -1
+        ixseps2 = -1
+
+        [model]
+        components = d+
+
+        [d+]
+        type = evolve_density
+        charge = 1
+        """
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    fields = {"Nd+": np.ones((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)}
+    runtime_model = SimpleNamespace(field_names=("Nd+",), feedback_names=(), controllers={})
+    calls: list[str] = []
+
+    def fake_packed_rhs(_config, state_fields, *, field_names, feedback_names, mesh, layout, **_kwargs):
+        return -recycling_1d_mod._pack_recycling_active_state(
+            state_fields,
+            feedback_integrals={},
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            layout=layout,
+        )
+
+    def fake_jvp_jacobian(residual, state, **kwargs):
+        calls.append("jvp")
+        value = np.asarray(residual(state), dtype=np.float64)
+        assert value.shape == np.asarray(state, dtype=np.float64).shape
+        return scipy.sparse.eye(value.size, format="csr")
+
+    def fake_solve_ivp(fun, t_span, y0, **kwargs):
+        rhs0 = np.asarray(fun(0.0, y0), dtype=np.float64)
+        jacobian = kwargs["jac"](0.0, y0)
+        assert rhs0.shape == y0.shape
+        assert jacobian.shape == (y0.size, y0.size)
+        return SimpleNamespace(
+            success=True,
+            message="ok",
+            y=np.stack([np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)], axis=1),
+        )
+
+    monkeypatch.setenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", "jvp")
+    monkeypatch.setattr(recycling_1d_mod, "_compute_recycling_1d_packed_rhs", fake_packed_rhs)
+    monkeypatch.setattr(recycling_1d_mod, "build_sparse_jvp_jacobian", fake_jvp_jacobian)
+    monkeypatch.setattr(scipy.integrate, "solve_ivp", fake_solve_ivp)
+
+    history = recycling_1d_mod._advance_recycling_1d_bdf_history(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals={},
+        field_names=("Nd+",),
+        feedback_names=(),
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars={},
+        timestep=1.0,
+        steps=1,
+    )
+
+    assert calls == ["jvp"]
+    assert history.variable_history["Nd+"].shape == (2, mesh.nx, mesh.local_ny, mesh.nz)
+    assert history.diagnostics["bdf_jacobian_callback_count"] == 1
 
 
 @pytest.mark.parametrize(

@@ -286,6 +286,18 @@ diagonal nonlinear solve and verifies that both recover the same root to
 machine precision. The JVP mode intentionally remains opt-in because a JVP
 Jacobian is only valid when the residual keeps dynamic state inside JAX.
 
+The legacy SciPy BDF recycling history path now has the same opt-in derivative
+knob for its Jacobian callback:
+`JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE=jvp`. The default remains finite
+difference because the full output-window BDF residual still contains
+host-oriented source, closure, boundary, and nonlinear-driver pieces. Trial
+full-output adaptive JAX-linearized D/T/He runs are therefore not promoted as
+the default path yet: the bounded direct run either failed the nonlinear update
+guard or exceeded the local runtime budget before producing a stable output
+window. The safe production policy is to expose the JVP callback for
+transformable residual experiments while continuing to keep the validated BDF
+path as the default.
+
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable
 linear map, while `jax.vmap` batches the colored tangent pushes. The default
@@ -439,6 +451,18 @@ measurements are:
 Those are the right GPU benchmark surfaces for the current codebase. The heavy
 recycling lanes remain primarily CPU/runtime-architecture problems until more
 of the transient backbone is moved out of the host/SciPy path.
+
+The heavier D/T/He fixed-layout recycling residual has now also been profiled
+on the same GPU host. The CPU gate has `950` active variables, reaches residual
+`2.41e-11`, and completes the profiled run in about `4.74 s`. The first GPU
+run reaches the same residual with two visible CUDA devices, completes in about
+`13.21 s`, and samples peak process-tree RSS near `1.49 GiB`; a second run
+with the same persistent compilation cache completes in about `6.66 s` with
+sampled peak RSS near `1.43 GiB`. This is useful accelerator evidence for the
+fixed-layout residual seam, but it is deliberately not described as GPU
+speedup: the current gate is still too small and launch/compile dominated.
+The next GPU claim must come from a larger transformed residual or a batched
+ensemble of independent residual solves.
 
 That path is appropriate for compact pure-JAX residuals and future reduced
 native kernels. It is not yet the default on the promoted recycling/tokamak

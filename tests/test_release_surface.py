@@ -45,6 +45,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "native_3d_convergence_campaign.md",
     REPO_ROOT / "docs" / "jax_native_profile_audit.md",
     REPO_ROOT / "docs" / "local_cpu_scaling_campaign.md",
+    REPO_ROOT / "docs" / "research_campaigns.md",
     REPO_ROOT / "docs" / "hermes_comparison_gallery.md",
     REPO_ROOT / "docs" / "dynamics_gallery.md",
     REPO_ROOT / "docs" / "hermes_capability_audit.md",
@@ -94,6 +95,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "detachment_controller_campaign_demo.py",
     REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
     REPO_ROOT / "scripts" / "profile_curated_case.py",
+    REPO_ROOT / "scripts" / "run_research_campaign_bundle.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_toroidal_movie.py",
@@ -133,6 +135,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / ".github" / "workflows" / "coverage.yml",
     REPO_ROOT / ".github" / "workflows" / "docs.yml",
     REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml",
+    REPO_ROOT / ".github" / "workflows" / "research-campaigns.yml",
     REPO_ROOT / ".github" / "workflows" / "test.yml",
 )
 
@@ -222,6 +225,8 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "temperature_feedback_campaign_artifacts" / "data" / "temperature_feedback_campaign.json",
     REPO_ROOT / "docs" / "data" / "detachment_controller_campaign_artifacts" / "data" / "detachment_controller_campaign.json",
     REPO_ROOT / "docs" / "data" / "autodiff_diffusion_uncertainty_artifacts" / "data" / "autodiff_diffusion_uncertainty_analysis.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu" / "profile_summary.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu_warm" / "profile_summary.json",
 )
 
 

@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import time
+
+
+DEFAULT_TIMEOUT_SECONDS = 7200
+
+
+@dataclass(frozen=True)
+class CampaignCommand:
+    name: str
+    description: str
+    command: tuple[str, ...]
+    requires_reference: bool = False
+
+
+@dataclass(frozen=True)
+class CampaignResult:
+    name: str
+    command: tuple[str, ...]
+    returncode: int
+    elapsed_seconds: float
+    timed_out: bool = False
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _default_reference_root() -> Path | None:
+    value = os.environ.get("JAX_DRB_REFERENCE_ROOT")
+    return None if not value else Path(value).expanduser()
+
+
+def _reference_root_args(reference_root: Path | None) -> tuple[str, ...]:
+    return () if reference_root is None else ("--reference-root", str(reference_root.expanduser()))
+
+
+def _campaign_command_map(
+    *,
+    python_executable: str,
+    repo_root: Path,
+    reference_root: Path | None,
+    output_root: Path,
+    fast_timeout_seconds: int,
+) -> dict[str, CampaignCommand]:
+    scripts = repo_root / "scripts"
+    examples = repo_root / "examples" / "engineering"
+    output_root = output_root.expanduser()
+    reference_args = _reference_root_args(reference_root)
+    return {
+        "scheduled-fast-research": CampaignCommand(
+            name="scheduled-fast-research",
+            description="Bounded public research-grade pytest slices that do not require external reference decks.",
+            command=(
+                python_executable,
+                str(scripts / "run_fast_research_checks.py"),
+                "--timeout-seconds",
+                str(int(fast_timeout_seconds)),
+            ),
+        ),
+        "closeout-coverage": CampaignCommand(
+            name="closeout-coverage",
+            description="95% closeout coverage gate over the promoted public surface.",
+            command=(python_executable, str(scripts / "run_closeout_coverage.py")),
+        ),
+        "promoted-solver-coverage": CampaignCommand(
+            name="promoted-solver-coverage",
+            description="95% promoted native-solver and public-surface coverage gate.",
+            command=(python_executable, str(scripts / "run_promoted_solver_coverage.py")),
+        ),
+        "local-cpu-scaling": CampaignCommand(
+            name="local-cpu-scaling",
+            description="Heavy fixed-work ensemble scaling campaign on local CPU workers.",
+            command=(python_executable, str(examples / "local_cpu_scaling_campaign_demo.py")),
+        ),
+        "live-reference": CampaignCommand(
+            name="live-reference",
+            description="Same-machine native-versus-live-reference validation matrix.",
+            command=(
+                python_executable,
+                str(examples / "hermes_live_rerun_campaign_demo.py"),
+                *reference_args,
+                "--output-root",
+                str(output_root / "hermes_live_rerun_campaign_artifacts"),
+            ),
+            requires_reference=True,
+        ),
+        "heavy-recycling-profile": CampaignCommand(
+            name="heavy-recycling-profile",
+            description="Full production D/T/He recycling one-step cProfile/RSS bundle.",
+            command=(
+                python_executable,
+                str(scripts / "profile_curated_case.py"),
+                "recycling_dthe_one_step",
+                *reference_args,
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_one_step"),
+                "--warm-runs",
+                "0",
+                "--timed-runs",
+                "1",
+                "--cprofile-top",
+                "35",
+                "--rss-profile",
+            ),
+            requires_reference=True,
+        ),
+        "dthe-jax-linearized-gate": CampaignCommand(
+            name="dthe-jax-linearized-gate",
+            description="D/T/He fixed-layout recycling residual through the JAX-linearized gate.",
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_jax_linearized_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate"),
+                "--rss-profile",
+                "--skip-cprofile",
+            ),
+            requires_reference=True,
+        ),
+    }
+
+
+def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
+    names = requested or ("scheduled-fast-research",)
+    expanded: list[str] = []
+    for name in names:
+        if name == "all-local":
+            expanded.extend(
+                (
+                    "scheduled-fast-research",
+                    "local-cpu-scaling",
+                    "dthe-jax-linearized-gate",
+                    "heavy-recycling-profile",
+                    "live-reference",
+                )
+            )
+        elif name == "all-ci":
+            expanded.extend(("scheduled-fast-research", "closeout-coverage", "promoted-solver-coverage"))
+        else:
+            expanded.append(name)
+    return tuple(dict.fromkeys(expanded))
+
+
+def build_campaign_commands(
+    *,
+    campaign_names: tuple[str, ...],
+    python_executable: str,
+    repo_root: Path,
+    reference_root: Path | None,
+    output_root: Path,
+    fast_timeout_seconds: int,
+) -> tuple[CampaignCommand, ...]:
+    mapping = _campaign_command_map(
+        python_executable=python_executable,
+        repo_root=repo_root,
+        reference_root=reference_root,
+        output_root=output_root,
+        fast_timeout_seconds=fast_timeout_seconds,
+    )
+    commands: list[CampaignCommand] = []
+    for name in expand_campaign_names(campaign_names):
+        try:
+            command = mapping[name]
+        except KeyError as exc:
+            known = ", ".join(sorted((*mapping, "all-ci", "all-local")))
+            raise ValueError(f"unknown campaign {name!r}; expected one of: {known}") from exc
+        if command.requires_reference and reference_root is None:
+            raise ValueError(f"campaign {name!r} requires --reference-root or JAX_DRB_REFERENCE_ROOT")
+        commands.append(command)
+    return tuple(commands)
+
+
+def _format_command(command: tuple[str, ...]) -> str:
+    return " ".join(shlex.quote(part) for part in command)
+
+
+def run_campaign_command(command: CampaignCommand, *, cwd: Path, timeout_seconds: int) -> CampaignResult:
+    started = time.monotonic()
+    env = dict(os.environ)
+    src_path = str(cwd / "src")
+    env["PYTHONPATH"] = src_path if not env.get("PYTHONPATH") else os.pathsep.join((src_path, env["PYTHONPATH"]))
+    env["JAX_DRB_PRECISION"] = "float64"
+    env["JAX_ENABLE_X64"] = "true"
+    try:
+        completed = subprocess.run(command.command, cwd=cwd, env=env, check=False, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        return CampaignResult(
+            name=command.name,
+            command=command.command,
+            returncode=124,
+            elapsed_seconds=time.monotonic() - started,
+            timed_out=True,
+        )
+    return CampaignResult(
+        name=command.name,
+        command=command.command,
+        returncode=int(completed.returncode),
+        elapsed_seconds=time.monotonic() - started,
+        timed_out=False,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run reproducible research-grade campaign bundles. Hosted CI should use "
+            "scheduled-fast-research/all-ci; live reference and heavy profiling "
+            "campaigns are intended for local or self-hosted machines with reference decks."
+        )
+    )
+    parser.add_argument(
+        "--campaign",
+        action="append",
+        default=[],
+        help=(
+            "Campaign to run. Repeat for multiple campaigns. Supported names include "
+            "scheduled-fast-research, closeout-coverage, promoted-solver-coverage, "
+            "local-cpu-scaling, live-reference, heavy-recycling-profile, "
+            "dthe-jax-linearized-gate, all-ci, and all-local."
+        ),
+    )
+    parser.add_argument("--reference-root", type=Path, default=_default_reference_root())
+    parser.add_argument("--output-root", type=Path, default=_repo_root() / "docs" / "data")
+    parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--fast-timeout-seconds", type=int, default=300)
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    repo_root = _repo_root()
+    try:
+        commands = build_campaign_commands(
+            campaign_names=tuple(args.campaign),
+            python_executable=sys.executable,
+            repo_root=repo_root,
+            reference_root=args.reference_root,
+            output_root=args.output_root,
+            fast_timeout_seconds=int(args.fast_timeout_seconds),
+        )
+    except ValueError as exc:
+        print(f"[campaign] {exc}", file=sys.stderr)
+        return 2
+
+    for command in commands:
+        print(f"[campaign] {command.name}: {command.description}")
+        print(f"[campaign] command: {_format_command(command.command)}")
+        if args.dry_run:
+            continue
+        result = run_campaign_command(command, cwd=repo_root, timeout_seconds=int(args.timeout_seconds))
+        if result.timed_out:
+            print(
+                f"[campaign] {result.name} exceeded {args.timeout_seconds}s after {result.elapsed_seconds:.1f}s",
+                file=sys.stderr,
+            )
+            return result.returncode
+        if result.returncode != 0:
+            print(
+                f"[campaign] {result.name} failed with exit code {result.returncode} "
+                f"after {result.elapsed_seconds:.1f}s",
+                file=sys.stderr,
+            )
+            return result.returncode
+        print(f"[campaign] {result.name} passed in {result.elapsed_seconds:.1f}s")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

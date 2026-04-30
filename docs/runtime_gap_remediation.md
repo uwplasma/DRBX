@@ -231,6 +231,18 @@ recycling lane because the current residual is still dominated by NumPy/SciPy
 assembly. The next runtime fixes should therefore be ordered as residual-kernel
 ports first, solver-backend promotion second.
 
+The BDF compatibility callback now exposes this algorithm through
+`JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE=jvp`, with
+`JAX_DRB_RECYCLING_JVP_BATCH_SIZE` controlling tangent batching. This closes
+the API lane needed to test JVP Jacobian construction on a full history solve,
+but the default remains finite difference. The reason is empirical and should
+stay visible in the paper plan: bounded full-output adaptive JAX-linearized
+D/T/He trials are not yet stable or fast enough to replace the validated BDF
+path, while the fixed-layout backward-Euler D/T/He gate is stable and
+transformable. The next promotion criterion is therefore a full output-window
+run that passes the live-reference compare surface and shows lower residual
+call count or memory than the finite-difference BDF callback.
+
 The sparse Newton interface now exposes that derivative algorithm directly as
 `jacobian_mode="jvp"`, and the implicit-solver profile audit compares it
 against the finite-difference sparse Newton path on a transformable residual.
@@ -410,10 +422,11 @@ available on the compact native JAX lanes:
 That means the next GPU work should be:
 
 1. enable persistent compilation cache
-2. keep GPU runtime work on the compact native JAX lanes first
+2. keep GPU runtime work on compact and fixed-layout JAX residual lanes first
 3. compare CPU and GPU runtime splits on:
    - traced-field-line reduced kernels
    - stellarator VMEC reduced kernels
+   - D/T/He fixed-layout recycling residual gates
    - other selected-field compact lanes before promoted transient ladders
 4. keep the heavy recycling and neutral-mixed lanes on the CPU remediation
    path until the host/SciPy structure is reduced enough for accelerator work
@@ -423,6 +436,13 @@ That means the next GPU work should be:
    - batched independent solves
    - multi-device sharding on accelerator hardware
 
+The first D/T/He fixed-layout GPU gate has been run. It reaches the same
+residual norm as the CPU gate and samples much lower process-tree RSS on the
+small active-state problem, but the warm GPU wall time is still slower than
+CPU. That result is a useful architectural gate, not a performance closeout:
+future GPU evidence needs a larger transformed residual or a batched ensemble
+before the paper can claim accelerator speedup.
+
 ## Required New Evidence
 
 Before the next paper-facing performance pass, the codebase should have:
@@ -431,5 +451,5 @@ Before the next paper-facing performance pass, the codebase should have:
 - one dedicated neutral-mixed boundary campaign and one term-level `NVh`
   balance campaign
 - one refreshed heavy recycling runtime profile bundle
-- one committed GPU profiling bundle from `office`
+- one committed CPU/GPU profiling bundle for the D/T/He fixed-layout residual
 - one tokamak-observable comparison package closer to the TCV-X21/Hermès style

@@ -1,0 +1,65 @@
+name: research-campaigns
+
+on:
+  schedule:
+    - cron: "17 10 * * 1"
+  workflow_dispatch:
+    inputs:
+      campaign:
+        description: "Campaign bundle to run"
+        required: true
+        default: "scheduled-fast-research"
+        type: choice
+        options:
+          - scheduled-fast-research
+          - all-ci
+          - closeout-coverage
+          - promoted-solver-coverage
+          - live-reference
+          - heavy-recycling-profile
+          - dthe-jax-linearized-gate
+          - all-local
+      reference-root:
+        description: "Reference checkout path for live-reference/heavy campaigns on a self-hosted runner"
+        required: false
+        default: ""
+        type: string
+      runner:
+        description: "Runner label; use self-hosted when reference decks live on a lab machine"
+        required: true
+        default: "ubuntu-latest"
+        type: choice
+        options:
+          - ubuntu-latest
+          - self-hosted
+
+jobs:
+  research-campaigns:
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      CAMPAIGN: ${{ github.event_name == 'workflow_dispatch' && inputs.campaign || 'scheduled-fast-research' }}
+      REFERENCE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs['reference-root'] || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install package and campaign tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest pytest-cov coverage
+      - name: Run selected research campaign bundle
+        run: |
+          if [ -n "$REFERENCE_ROOT" ]; then
+            python scripts/run_research_campaign_bundle.py \
+              --campaign "$CAMPAIGN" \
+              --reference-root "$REFERENCE_ROOT" \
+              --timeout-seconds 7200 \
+              --fast-timeout-seconds 300
+          else
+            python scripts/run_research_campaign_bundle.py \
+              --campaign "$CAMPAIGN" \
+              --timeout-seconds 7200 \
+              --fast-timeout-seconds 300
+          fi

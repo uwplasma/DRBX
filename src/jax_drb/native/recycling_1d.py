@@ -17,6 +17,7 @@ from ..solver import (
     build_locality_sparsity,
     build_modulo_color_groups,
     build_sparse_difference_quotient_jacobian,
+    build_sparse_jvp_jacobian,
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
     solve_jax_linearized_newton_system,
@@ -2888,11 +2889,14 @@ def _advance_recycling_1d_bdf_history(
         base_feedback_integrals=current_integrals,
     )
 
+    def _evaluate_rhs_object(packed_state: object) -> object:
+        fixed_state = _unpack_fixed_state(packed_state, layout=layout)
+        return _pack_fixed_state(fixed_rhs(fixed_state))
+
     def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         nonlocal rhs_evaluation_count
         rhs_evaluation_count += 1
-        fixed_state = _unpack_fixed_state(packed_state, layout=layout)
-        return np.asarray(_pack_fixed_state(fixed_rhs(fixed_state)), dtype=np.float64)
+        return np.asarray(_evaluate_rhs_object(packed_state), dtype=np.float64)
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
         nonlocal rhs_cache_hit_count, rhs_cache_time, rhs_cache_state, rhs_cache_value
@@ -2917,6 +2921,16 @@ def _advance_recycling_1d_bdf_history(
         nonlocal jacobian_callback_count
         jacobian_callback_count += 1
         rhs_value = rhs(_time, packed_state)
+        if _resolve_recycling_bdf_jacobian_mode() == "jvp":
+            return build_sparse_jvp_jacobian(
+                lambda state: _evaluate_rhs_object(state),
+                packed_state,
+                sparsity=sparsity,
+                color_groups=color_groups,
+                sparsity_csc=sparsity_csc,
+                difference_plan=difference_plan,
+                batch_size=_resolve_recycling_jvp_batch_size(),
+            )
         return build_sparse_difference_quotient_jacobian(
             lambda state: _evaluate_rhs(_time, state),
             packed_state,
@@ -3003,6 +3017,24 @@ def _resolve_recycling_bdf_jacobian_parallel_workers() -> int:
         return max(1, int(env_value))
     except ValueError:
         return 1
+
+
+def _resolve_recycling_bdf_jacobian_mode() -> str:
+    env_value = os.environ.get(
+        "JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE",
+        os.environ.get("JAX_DRB_RECYCLING_JACOBIAN_MODE", "fd"),
+    ).strip().lower()
+    aliases = {
+        "finite_difference": "fd",
+        "finite-difference": "fd",
+        "difference_quotient": "fd",
+        "difference-quotient": "fd",
+        "jvp": "jvp",
+        "autodiff": "jvp",
+        "jax": "jvp",
+    }
+    resolved = aliases.get(env_value, env_value)
+    return resolved if resolved in {"fd", "jvp"} else "fd"
 
 
 def _resolve_recycling_sparse_jacobian_mode() -> str:
