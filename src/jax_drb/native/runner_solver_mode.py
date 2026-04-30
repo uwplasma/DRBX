@@ -13,10 +13,14 @@ def configured_recycling_transient_solver_mode(config: BoutConfig) -> str | None
             "bdf",
             "adaptive_be",
             "adaptive_bdf",
+            "adaptive_bdf_sparse_jvp",
+            "adaptive_bdf_jax_linearized",
+            "adaptive_bdf_jax_linearized_lineax",
             "matrix_free",
             "sparse",
             "sparse_jvp",
             "jax_linearized",
+            "jax_linearized_lineax",
         }
         if mode not in allowed:
             raise ValueError(

@@ -45,6 +45,35 @@ def test_structured_mesh_matches_expected_coordinate_convention() -> None:
         np.asarray(mesh.y),
         np.array([-0.15, -0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 1.05, 1.15]),
     )
+    assert mesh.has_lower_y_target is False
+    assert mesh.has_upper_y_target is False
+
+
+def test_structured_mesh_marks_explicit_y_boundary_inputs_as_open_field() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 1
+        ny = 6
+        nz = 1
+        ixseps1 = -1
+        ixseps2 = -1
+
+        [model]
+        components = h
+
+        [h]
+        type = evolve_density
+        """
+    )
+
+    mesh = build_structured_mesh(config, RunConfiguration.from_config(config))
+
+    assert mesh.has_lower_y_target is False
+    assert mesh.has_upper_y_target is True
 
 
 def test_structured_mesh_rejects_missing_explicit_dimensions() -> None:

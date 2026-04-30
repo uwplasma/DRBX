@@ -16,6 +16,7 @@ profiling/
 .jax_cache/
 xla_dumps/
 jax_traces/
+tmp/
 *.pstats
 device_memory_profile.prof
 docs/data/stellarator_fci_validation_artifacts/**/data/*.npz
