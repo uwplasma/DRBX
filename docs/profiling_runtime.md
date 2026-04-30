@@ -261,12 +261,13 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu
 ```
 
-The retained local CPU artifact shows about `3.0x` residual throughput speedup
-and `2.2x` JVP throughput speedup at batch 64, with batched/serial residual
-and JVP mismatch at roundoff. The residual JVP agrees with centered finite
-difference to about `6e-9`. A remote GPU run on the same heavy residual was
-not retained as a release speedup because the JVP compile latency was still
-too high for a bounded validation gate.
+The retained local CPU artifact now sweeps batches through 256 states and
+shows about `2.8x` residual throughput speedup and `2.2x` JVP throughput
+speedup over serial same-kernel calls, with batched/serial residual and JVP
+mismatch at roundoff. The residual JVP agrees with centered finite difference
+to about `6e-9`. A remote GPU run on the same heavy residual was not retained
+as a release speedup because the JVP compile latency was still too high for a
+bounded validation gate.
 
 The current GPU speedup evidence instead comes from the source-term throughput
 gate:
@@ -278,11 +279,20 @@ PYTHONPATH=src python scripts/profile_atomic_rate_throughput_gate.py \
 
 The matched office-GPU artifact lives in
 `docs/data/runtime_profile_artifacts/atomic_rate_throughput_gate_gpu/profile_summary.json`.
-At `4,194,304` temperature points the GPU is about `2.4x` faster than the
-local CPU for the batched rate surface and about `2.0x` faster for the
-autodiff derivative. This is the correct release claim: dense JAX-native
-source kernels accelerate on GPU today; full heavy recycling output-window
-GPU speedup is still blocked by host/SciPy residual structure.
+At `4,194,304` temperature points the GPU is about `2.5x` faster than the
+local CPU for the batched rate surface and about `2.1x` faster for the
+autodiff derivative. The same report checks a scalar mean-rate sensitivity to
+a log-temperature shift; autodiff and centered finite difference agree at
+about `1e-10` relative error on CPU and GPU. This is the correct release
+claim: dense JAX-native source kernels accelerate on GPU today; full heavy
+recycling output-window GPU speedup is still blocked by host/SciPy residual
+structure.
+
+The source-throughput profiler also has an opt-in `--enable-pmap` flag. It is
+not enabled in the committed office-GPU artifact because the currently exposed
+second GPU on that machine fails a basic `pmap` parity check in this
+environment. Multi-device source speedup should therefore not be claimed until
+the device-level parity gate passes.
 
 ## Basic Usage
 

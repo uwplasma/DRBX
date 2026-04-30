@@ -390,8 +390,8 @@ workers on a `16`-solve heavy ensemble, with intermediate speedups of about
 For the new non-axisymmetric 3D lane, the current performance gate is the
 fixed-layout PyTree RHS campaign. It verifies JVP derivatives against finite
 differences, checks `vmap` against serial objective evaluation, records
-single-device batched throughput, and runs `pmap` automatically when multiple
-local devices are visible.
+single-device batched throughput, and can run `pmap` when multiple local
+devices are visible and pass parity checks.
 
 The heavier D/T/He fixed-layout recycling residual also has CPU and GPU
 profile evidence. The current GPU gate reaches the same residual norm as the
@@ -402,13 +402,16 @@ active target for JAX-native residual and Jacobian-action promotion.
 
 The new batched recycling residual/JVP gate verifies the D/T/He fixed-layout
 residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
-On the local CPU run with `mesh:ny=100`, batch 64 gives about `3.0x` residual
-throughput speedup and about `2.2x` JVP throughput speedup over serial
-same-kernel calls, while the JVP/finite-difference error is about `6e-9`.
+On the local CPU run with `mesh:ny=100`, the retained batch sweep through 256
+states gives about `2.8x` residual throughput speedup and about `2.2x` JVP
+throughput speedup over serial same-kernel calls, while the
+JVP/finite-difference error is about `6e-9`.
 For accelerator evidence, the source-term throughput gate now shows a real
 GPU win on the office machine for batched atomic-rate kernels: at `4,194,304`
-temperature points the GPU is about `2.4x` faster for the rate surface and
-about `2.0x` faster for its autodiff derivative. Heavy output-window recycling
+temperature points the GPU is about `2.5x` faster for the rate surface and
+about `2.1x` faster for its autodiff derivative. The same gate checks a
+log-temperature sensitivity objective against finite differences at about
+`1e-10` relative error. Heavy output-window recycling
 GPU speedup is still not claimed until that path exits the host/SciPy barrier.
 
 ## Validation And Control Packages

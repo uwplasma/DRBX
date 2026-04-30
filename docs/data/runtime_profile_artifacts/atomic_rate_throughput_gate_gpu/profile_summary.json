@@ -13,122 +13,182 @@
       "platform": "gpu"
     }
   ],
-  "interpretation": "This gate measures a batched reaction-source kernel and its reverse-mode derivative. It is the current GPU-throughput evidence for source terms; full recycling implicit output-window GPU speedup is intentionally not claimed by this gate.",
+  "differentiability_showcase": {
+    "autodiff_sensitivity": 0.03644363482051284,
+    "finite_difference_sensitivity": 0.03644363482470381,
+    "objective": "mean combined AMJUEL ionisation plus charge-exchange rate under a log-temperature shift",
+    "objective_value": 0.12014873248596852,
+    "point_count": 65536,
+    "sensitivity_relative_error": 1.1499860093617205e-10
+  },
+  "host_device_count_requested": null,
+  "interpretation": "This gate measures a batched reaction-source kernel and its reverse-mode derivative. When --enable-pmap is set and more than one local device is visible, it also measures fixed-work pmap throughput against the single-device kernel. It is the current GPU-throughput evidence for source terms; full recycling implicit output-window GPU speedup is intentionally not claimed by this gate.",
+  "pmap_enabled": false,
   "results": [
     {
       "grad_samples": [
-        9.528687223792076e-05,
-        7.858988828957081e-05,
-        7.369183003902435e-05,
-        6.937305442988873e-05,
-        6.90738670527935e-05,
-        7.01479148119688e-05,
-        7.617194205522537e-05
+        0.00010770908556878567,
+        9.529688395559788e-05,
+        8.691893890500069e-05,
+        9.532691910862923e-05,
+        8.323695510625839e-05,
+        8.440995588898659e-05,
+        8.423300459980965e-05
       ],
-      "grad_seconds_median": 7.369183003902435e-05,
+      "grad_seconds_median": 8.691893890500069e-05,
+      "pmap_device_count": 0,
+      "pmap_grad_samples": [],
+      "pmap_grad_seconds_median": null,
+      "pmap_grad_single_max_abs_error": null,
+      "pmap_grad_speedup_vs_single": null,
+      "pmap_parity_passed": null,
+      "pmap_rate_samples": [],
+      "pmap_rate_seconds_median": null,
+      "pmap_rate_single_max_abs_error": null,
+      "pmap_rate_speedup_vs_single": null,
       "point_count": 4096,
       "rate_samples": [
-        0.0001318780705332756,
-        8.111097849905491e-05,
-        7.550185546278954e-05,
-        6.864010356366634e-05,
-        6.739096716046333e-05,
-        6.685196422040462e-05,
-        6.796908564865589e-05
+        0.00014544790610671043,
+        9.704800322651863e-05,
+        9.003211744129658e-05,
+        8.254987187683582e-05,
+        8.437177166342735e-05,
+        8.161691948771477e-05,
+        8.224090561270714e-05
       ],
-      "rate_seconds_median": 6.864010356366634e-05
+      "rate_seconds_median": 8.437177166342735e-05
     },
     {
       "grad_samples": [
-        0.000212494982406497,
-        0.00020172307267785072,
-        0.00020048697479069233,
-        0.00019703898578882217,
-        0.0002000550739467144,
-        0.00020015984773635864,
-        0.00019759614951908588
+        0.0001942750532180071,
+        0.00018457812257111073,
+        0.00018299208022654057,
+        0.0001825240906327963,
+        0.00017929705791175365,
+        0.00018238509073853493,
+        0.00018804380670189857
       ],
-      "grad_seconds_median": 0.00020015984773635864,
+      "grad_seconds_median": 0.00018299208022654057,
+      "pmap_device_count": 0,
+      "pmap_grad_samples": [],
+      "pmap_grad_seconds_median": null,
+      "pmap_grad_single_max_abs_error": null,
+      "pmap_grad_speedup_vs_single": null,
+      "pmap_parity_passed": null,
+      "pmap_rate_samples": [],
+      "pmap_rate_seconds_median": null,
+      "pmap_rate_single_max_abs_error": null,
+      "pmap_rate_speedup_vs_single": null,
       "point_count": 65536,
       "rate_samples": [
-        0.00020162691362202168,
-        0.00016592210158705711,
-        0.00016055884771049023,
-        0.00015907688066363335,
-        0.00015697604976594448,
-        0.00015917583368718624,
-        0.00015794718638062477
+        0.00015478418208658695,
+        0.00014727306552231312,
+        0.00014120107516646385,
+        0.00014329515397548676,
+        0.00014021899551153183,
+        0.00014120806008577347,
+        0.00014223484322428703
       ],
-      "rate_seconds_median": 0.00015917583368718624
+      "rate_seconds_median": 0.00014223484322428703
     },
     {
       "grad_samples": [
-        0.0005418551154434681,
-        0.000537235988304019,
-        0.0005347069818526506,
-        0.0005383200477808714,
-        0.0005320538766682148,
-        0.0005310580600053072,
-        0.0005311321001499891
+        0.0005677880253642797,
+        0.0005576619878411293,
+        0.0005560219287872314,
+        0.0005568470805883408,
+        0.0005567318294197321,
+        0.0005568829365074635,
+        0.0005645931232720613
       ],
-      "grad_seconds_median": 0.0005347069818526506,
+      "grad_seconds_median": 0.0005568829365074635,
+      "pmap_device_count": 0,
+      "pmap_grad_samples": [],
+      "pmap_grad_seconds_median": null,
+      "pmap_grad_single_max_abs_error": null,
+      "pmap_grad_speedup_vs_single": null,
+      "pmap_parity_passed": null,
+      "pmap_rate_samples": [],
+      "pmap_rate_seconds_median": null,
+      "pmap_rate_single_max_abs_error": null,
+      "pmap_rate_speedup_vs_single": null,
       "point_count": 262144,
       "rate_samples": [
-        0.0004025560338050127,
-        0.00037760892882943153,
-        0.00037669786252081394,
-        0.0003738550003618002,
-        0.00037388294003903866,
-        0.0003752480261027813,
-        0.0003760030958801508
+        0.0004343208856880665,
+        0.0004015939775854349,
+        0.0004001741763204336,
+        0.00039847311563789845,
+        0.00039895111694931984,
+        0.00039717182517051697,
+        0.0003987529780715704
       ],
-      "rate_seconds_median": 0.0003760030958801508
+      "rate_seconds_median": 0.00039895111694931984
     },
     {
       "grad_samples": [
-        0.002182218013331294,
-        0.0021719448268413544,
-        0.002176612848415971,
-        0.002199233043938875,
-        0.0022121439687907696,
-        0.0023010580334812403,
-        0.002300707856193185
+        0.002170924097299576,
+        0.0022052789572626352,
+        0.0022160580847412348,
+        0.002211502054706216,
+        0.0022181239910423756,
+        0.0022282449062913656,
+        0.002211553044617176
       ],
-      "grad_seconds_median": 0.002199233043938875,
+      "grad_seconds_median": 0.002211553044617176,
+      "pmap_device_count": 0,
+      "pmap_grad_samples": [],
+      "pmap_grad_seconds_median": null,
+      "pmap_grad_single_max_abs_error": null,
+      "pmap_grad_speedup_vs_single": null,
+      "pmap_parity_passed": null,
+      "pmap_rate_samples": [],
+      "pmap_rate_seconds_median": null,
+      "pmap_rate_single_max_abs_error": null,
+      "pmap_rate_speedup_vs_single": null,
       "point_count": 1048576,
       "rate_samples": [
-        0.0015719509683549404,
-        0.0015632249414920807,
-        0.0015647390391677618,
-        0.0015559010207653046,
-        0.0015910479705780745,
-        0.0015881541185081005,
-        0.0015948370564728975
+        0.0016422579064965248,
+        0.0016263469588011503,
+        0.001653169048950076,
+        0.0015203519724309444,
+        0.0015376610681414604,
+        0.0014376230537891388,
+        0.0015313818585127592
       ],
-      "rate_seconds_median": 0.0015719509683549404
+      "rate_seconds_median": 0.0015376610681414604
     },
     {
       "grad_samples": [
-        0.007641015108674765,
-        0.007631778018549085,
-        0.007701345020905137,
-        0.007698080036789179,
-        0.007674121996387839,
-        0.007692933082580566,
-        0.007700284942984581
+        0.007634404115378857,
+        0.007646206067875028,
+        0.007686623837798834,
+        0.007731487043201923,
+        0.007709230063483119,
+        0.0077055569272488356,
+        0.0077149688731879
       ],
-      "grad_seconds_median": 0.007692933082580566,
+      "grad_seconds_median": 0.0077055569272488356,
+      "pmap_device_count": 0,
+      "pmap_grad_samples": [],
+      "pmap_grad_seconds_median": null,
+      "pmap_grad_single_max_abs_error": null,
+      "pmap_grad_speedup_vs_single": null,
+      "pmap_parity_passed": null,
+      "pmap_rate_samples": [],
+      "pmap_rate_seconds_median": null,
+      "pmap_rate_single_max_abs_error": null,
+      "pmap_rate_speedup_vs_single": null,
       "point_count": 4194304,
       "rate_samples": [
-        0.005170882912352681,
-        0.0052504821214824915,
-        0.005223342915996909,
-        0.005228889174759388,
-        0.005230214912444353,
-        0.005225128959864378,
-        0.0052260830998420715
+        0.005173444049432874,
+        0.005186121910810471,
+        0.0051782631780952215,
+        0.005246142158284783,
+        0.005238537909463048,
+        0.005239804973825812,
+        0.00523738213814795
       ],
-      "rate_seconds_median": 0.0052260830998420715
+      "rate_seconds_median": 0.00523738213814795
     }
   ],
   "timed_runs": 7
