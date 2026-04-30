@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from time import perf_counter
+from typing import Callable
+
+import numpy as np
+
+from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
+from jax_drb.native.mesh import build_structured_mesh
+from jax_drb.native.metrics import build_structured_metrics
+from jax_drb.native.recycling_1d import (
+    build_recycling_1d_backward_euler_residual_context,
+    _build_recycling_runtime_model,
+    _build_recycling_state_fields,
+)
+from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.runtime.run_config import RunConfiguration
+
+
+@dataclass(frozen=True)
+class RecyclingBatchedJvpProblem:
+    residual: Callable[[object], object]
+    base_state: object
+    field_names: tuple[str, ...]
+    feedback_names: tuple[str, ...]
+    mesh_active_shape: tuple[int, int, int]
+    state_size: int
+
+
+def _block_until_ready(value):
+    import jax
+
+    return jax.block_until_ready(value)
+
+
+def _median_seconds(samples: list[float]) -> float:
+    return float(np.median(np.asarray(samples, dtype=np.float64)))
+
+
+def _norm(value) -> float:
+    import jax.numpy as jnp
+
+    return float(jnp.linalg.norm(jnp.ravel(value)))
+
+
+def _deterministic_directions(batch_size: int, state_size: int, *, phase: float = 0.2):
+    import jax.numpy as jnp
+
+    coordinates = jnp.arange(int(batch_size) * int(state_size), dtype=jnp.float64).reshape(
+        (int(batch_size), int(state_size))
+    )
+    directions = jnp.sin(3.1e-4 * coordinates + float(phase)) + 0.5 * jnp.cos(1.7e-4 * coordinates + 0.3)
+    return directions / jnp.maximum(jnp.linalg.norm(directions, axis=1, keepdims=True), 1.0e-30)
+
+
+def build_recycling_batched_jvp_problem(
+    input_path: str | Path,
+    *,
+    overrides: tuple[str, ...] = (),
+    timestep: float = 1.0e-4,
+    evolve_feedback_integrals: bool = False,
+) -> RecyclingBatchedJvpProblem:
+    """Build the real D/T/He recycling residual used for batched JVP gates."""
+
+    import jax
+    import jax.numpy as jnp
+
+    jax.config.update("jax_enable_x64", True)
+    config = load_bout_input(Path(input_path).expanduser().resolve())
+    if overrides:
+        config = apply_bout_overrides(config, tuple(overrides))
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    context = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=float(timestep),
+        evolve_feedback_integrals=bool(evolve_feedback_integrals),
+    )
+    base_state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)
+    return RecyclingBatchedJvpProblem(
+        residual=context.residual,
+        base_state=base_state,
+        field_names=context.field_names,
+        feedback_names=context.feedback_names,
+        mesh_active_shape=(
+            int(mesh.xend - mesh.xstart + 1),
+            int(mesh.yend - mesh.ystart + 1),
+            int(mesh.nz),
+        ),
+        state_size=int(base_state.size),
+    )
+
+
+def _time_repeated(callable_: Callable[[], object], *, timed_runs: int) -> tuple[float, list[float]]:
+    samples: list[float] = []
+    for _ in range(max(1, int(timed_runs))):
+        started_at = perf_counter()
+        _block_until_ready(callable_())
+        samples.append(perf_counter() - started_at)
+    return _median_seconds(samples), samples
+
+
+def profile_recycling_batched_jvp_problem(
+    problem: RecyclingBatchedJvpProblem,
+    *,
+    batch_sizes: tuple[int, ...] = (1, 4, 16, 64),
+    perturbation_scale: float = 1.0e-6,
+    fd_epsilon: float = 1.0e-6,
+    timed_runs: int = 5,
+    enable_pmap: bool = True,
+    check_objective_grad: bool = True,
+) -> dict[str, object]:
+    """Measure fixed-work vectorized residual/JVP throughput on a real residual."""
+
+    import jax
+    import jax.numpy as jnp
+
+    jax.config.update("jax_enable_x64", True)
+    residual = problem.residual
+    base_state = jnp.asarray(problem.base_state, dtype=jnp.float64)
+    residual_jit = jax.jit(residual)
+    residual_jit(base_state).block_until_ready()
+
+    def single_jvp(state, tangent):
+        return jax.jvp(residual, (state,), (tangent,))[1]
+
+    jvp_jit = jax.jit(single_jvp)
+
+    def objective(state):
+        value = residual(state)
+        return 0.5 * jnp.mean(jnp.square(value))
+
+    objective_jit = jax.jit(objective)
+    base_direction = _deterministic_directions(1, problem.state_size)[0]
+    base_jvp = jvp_jit(base_state, base_direction).block_until_ready()
+    fd_jvp = (
+        residual_jit(base_state + float(fd_epsilon) * base_direction)
+        - residual_jit(base_state - float(fd_epsilon) * base_direction)
+    ) / (2.0 * float(fd_epsilon))
+    fd_jvp = fd_jvp.block_until_ready()
+    jvp_fd_relative_error = _norm(base_jvp - fd_jvp) / max(1.0e-30, _norm(fd_jvp))
+
+    grad_directional = None
+    fd_directional = None
+    objective_directional_relative_error = None
+    if check_objective_grad:
+        objective_grad_jit = jax.jit(jax.grad(objective))
+        objective_grad = objective_grad_jit(base_state).block_until_ready()
+        grad_directional = float(jnp.vdot(objective_grad, base_direction))
+        fd_directional = float(
+            (
+                objective_jit(base_state + float(fd_epsilon) * base_direction)
+                - objective_jit(base_state - float(fd_epsilon) * base_direction)
+            )
+            / (2.0 * float(fd_epsilon))
+        )
+        objective_directional_relative_error = abs(grad_directional - fd_directional) / max(1.0e-30, abs(fd_directional))
+
+    batch_results: list[dict[str, object]] = []
+    devices = tuple(jax.local_devices())
+    for batch_size in tuple(int(size) for size in batch_sizes):
+        directions = _deterministic_directions(batch_size, problem.state_size)
+        states = base_state[None, :] + float(perturbation_scale) * directions
+        batched_residual = jax.jit(jax.vmap(residual))
+        batched_jvp = jax.jit(jax.vmap(single_jvp))
+        batched_residual(states).block_until_ready()
+        batched_jvp(states, directions).block_until_ready()
+        for state, direction in zip(states, directions, strict=True):
+            residual_jit(state).block_until_ready()
+            jvp_jit(state, direction).block_until_ready()
+
+        serial_residual_seconds, serial_residual_samples = _time_repeated(
+            lambda: tuple(residual_jit(state) for state in states),
+            timed_runs=timed_runs,
+        )
+        batched_residual_seconds, batched_residual_samples = _time_repeated(
+            lambda: batched_residual(states),
+            timed_runs=timed_runs,
+        )
+        serial_jvp_seconds, serial_jvp_samples = _time_repeated(
+            lambda: tuple(jvp_jit(state, direction) for state, direction in zip(states, directions, strict=True)),
+            timed_runs=timed_runs,
+        )
+        batched_jvp_seconds, batched_jvp_samples = _time_repeated(
+            lambda: batched_jvp(states, directions),
+            timed_runs=timed_runs,
+        )
+        serial_residual_values = jnp.stack([residual_jit(state) for state in states])
+        serial_jvp_values = jnp.stack([jvp_jit(state, direction) for state, direction in zip(states, directions, strict=True)])
+        batched_residual_values = batched_residual(states)
+        batched_jvp_values = batched_jvp(states, directions)
+        residual_mismatch = float(jnp.max(jnp.abs(batched_residual_values - serial_residual_values)))
+        jvp_mismatch = float(jnp.max(jnp.abs(batched_jvp_values - serial_jvp_values)))
+
+        pmap_jvp_seconds = None
+        pmap_jvp_speedup_vs_batched = None
+        pmap_jvp_speedup_vs_serial = None
+        pmap_device_count = 0
+        if enable_pmap and len(devices) > 1 and batch_size >= len(devices):
+            pmap_device_count = min(len(devices), batch_size)
+            pmap_batch_size = (batch_size // pmap_device_count) * pmap_device_count
+            if pmap_batch_size >= pmap_device_count:
+                per_device = pmap_batch_size // pmap_device_count
+                sharded_states = states[:pmap_batch_size].reshape(
+                    (pmap_device_count, per_device, problem.state_size)
+                )
+                sharded_directions = directions[:pmap_batch_size].reshape(
+                    (pmap_device_count, per_device, problem.state_size)
+                )
+                pmap_jvp = jax.pmap(
+                    lambda shard_states, shard_directions: jax.vmap(single_jvp)(shard_states, shard_directions),
+                    devices=devices[:pmap_device_count],
+                )
+                pmap_jvp(sharded_states, sharded_directions).block_until_ready()
+                pmap_jvp_seconds, _ = _time_repeated(
+                    lambda: pmap_jvp(sharded_states, sharded_directions),
+                    timed_runs=timed_runs,
+                )
+                pmap_jvp_speedup_vs_batched = batched_jvp_seconds / max(pmap_jvp_seconds, 1.0e-30)
+                pmap_jvp_speedup_vs_serial = serial_jvp_seconds / max(pmap_jvp_seconds, 1.0e-30)
+
+        batch_results.append(
+            {
+                "batch_size": int(batch_size),
+                "serial_residual_seconds_median": float(serial_residual_seconds),
+                "batched_residual_seconds_median": float(batched_residual_seconds),
+                "residual_speedup_vs_serial": float(serial_residual_seconds / max(batched_residual_seconds, 1.0e-30)),
+                "serial_jvp_seconds_median": float(serial_jvp_seconds),
+                "batched_jvp_seconds_median": float(batched_jvp_seconds),
+                "jvp_speedup_vs_serial": float(serial_jvp_seconds / max(batched_jvp_seconds, 1.0e-30)),
+                "serial_residual_samples": [float(value) for value in serial_residual_samples],
+                "batched_residual_samples": [float(value) for value in batched_residual_samples],
+                "serial_jvp_samples": [float(value) for value in serial_jvp_samples],
+                "batched_jvp_samples": [float(value) for value in batched_jvp_samples],
+                "residual_batched_serial_max_abs_error": residual_mismatch,
+                "jvp_batched_serial_max_abs_error": jvp_mismatch,
+                "pmap_device_count": int(pmap_device_count),
+                "pmap_jvp_seconds_median": pmap_jvp_seconds,
+                "pmap_jvp_speedup_vs_batched": pmap_jvp_speedup_vs_batched,
+                "pmap_jvp_speedup_vs_serial": pmap_jvp_speedup_vs_serial,
+            }
+        )
+
+    return {
+        "case": "recycling_batched_jvp_profile",
+        "backend": jax.default_backend(),
+        "devices": [
+            {"id": int(device.id), "platform": str(device.platform), "kind": str(device.device_kind)}
+            for device in devices
+        ],
+        "mesh_active_shape": list(problem.mesh_active_shape),
+        "state_size": int(problem.state_size),
+        "field_names": list(problem.field_names),
+        "feedback_names": list(problem.feedback_names),
+        "timed_runs": int(timed_runs),
+        "perturbation_scale": float(perturbation_scale),
+        "fd_epsilon": float(fd_epsilon),
+        "differentiability": {
+            "jvp_fd_relative_error": float(jvp_fd_relative_error),
+            "objective_grad_checked": bool(check_objective_grad),
+            "objective_grad_directional_derivative": grad_directional,
+            "objective_fd_directional_derivative": fd_directional,
+            "objective_directional_relative_error": objective_directional_relative_error,
+        },
+        "batch_results": batch_results,
+        "interpretation": (
+            "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, "
+            "and optional pmap. It is the current differentiable residual-throughput lane; it does not promote "
+            "the full production BDF output-window solve as the default implicit backend."
+        ),
+    }
+
+
+def create_recycling_batched_jvp_profile_package(
+    input_path: str | Path,
+    output_dir: str | Path,
+    *,
+    overrides: tuple[str, ...] = (),
+    batch_sizes: tuple[int, ...] = (1, 4, 16, 64),
+    timestep: float = 1.0e-4,
+    perturbation_scale: float = 1.0e-6,
+    fd_epsilon: float = 1.0e-6,
+    timed_runs: int = 5,
+    enable_pmap: bool = True,
+    check_objective_grad: bool = True,
+) -> dict[str, object]:
+    problem = build_recycling_batched_jvp_problem(
+        input_path,
+        overrides=overrides,
+        timestep=timestep,
+    )
+    report = profile_recycling_batched_jvp_problem(
+        problem,
+        batch_sizes=batch_sizes,
+        perturbation_scale=perturbation_scale,
+        fd_epsilon=fd_epsilon,
+        timed_runs=timed_runs,
+        enable_pmap=enable_pmap,
+        check_objective_grad=check_objective_grad,
+    )
+    report = {
+        **report,
+        "input_path": "<input-path>/BOUT.inp",
+        "overrides": list(overrides),
+        "timestep": float(timestep),
+    }
+    output_path = Path(output_dir).expanduser()
+    output_path.mkdir(parents=True, exist_ok=True)
+    (output_path / "profile_summary.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return report

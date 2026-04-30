@@ -370,6 +370,8 @@ The runtime/performance audit tools include:
 - [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
 - [scripts/run_research_campaign_bundle.py](scripts/run_research_campaign_bundle.py)
 - [scripts/profile_stellarator_drb_pytree.py](scripts/profile_stellarator_drb_pytree.py)
+- [scripts/profile_recycling_batched_jvp_gate.py](scripts/profile_recycling_batched_jvp_gate.py)
+- [scripts/profile_atomic_rate_throughput_gate.py](scripts/profile_atomic_rate_throughput_gate.py)
 
 The strongest current same-machine native-versus-reference evidence is the
 public live-rerun matrix in the validation docs. It shows exact compact 2D
@@ -397,6 +399,17 @@ CPU gate and lowers peak RSS on the small fixed-layout problem, but it is not
 yet claimed as a GPU speedup because this problem size is still launch- and
 compile-overhead limited. The full production BDF recycling lane remains the
 active target for JAX-native residual and Jacobian-action promotion.
+
+The new batched recycling residual/JVP gate verifies the D/T/He fixed-layout
+residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
+On the local CPU run with `mesh:ny=100`, batch 64 gives about `3.0x` residual
+throughput speedup and about `2.2x` JVP throughput speedup over serial
+same-kernel calls, while the JVP/finite-difference error is about `6e-9`.
+For accelerator evidence, the source-term throughput gate now shows a real
+GPU win on the office machine for batched atomic-rate kernels: at `4,194,304`
+temperature points the GPU is about `2.4x` faster for the rate surface and
+about `2.0x` faster for its autodiff derivative. Heavy output-window recycling
+GPU speedup is still not claimed until that path exits the host/SciPy barrier.
 
 ## Validation And Control Packages
 

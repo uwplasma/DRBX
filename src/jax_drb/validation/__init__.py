@@ -338,6 +338,12 @@ from .local_cpu_scaling_campaign import (
     create_local_cpu_scaling_campaign_package,
     save_local_cpu_scaling_campaign_plot,
 )
+from .recycling_batched_jvp_profile import (
+    RecyclingBatchedJvpProblem,
+    build_recycling_batched_jvp_problem,
+    create_recycling_batched_jvp_profile_package,
+    profile_recycling_batched_jvp_problem,
+)
 from .fluid_1d_mms_convergence import (
     Fluid1DMmsConvergenceArtifacts,
     build_fluid_1d_mms_convergence_report,
@@ -701,6 +707,10 @@ __all__ = [
     "build_jax_native_profile_audit_report",
     "create_jax_native_profile_audit_package",
     "save_jax_native_profile_audit_plot",
+    "RecyclingBatchedJvpProblem",
+    "build_recycling_batched_jvp_problem",
+    "create_recycling_batched_jvp_profile_package",
+    "profile_recycling_batched_jvp_problem",
     "ImplicitSolverProfileAuditArtifacts",
     "build_implicit_solver_profile_audit_report",
     "create_implicit_solver_profile_audit_package",

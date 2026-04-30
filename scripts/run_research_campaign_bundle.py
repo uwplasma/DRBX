@@ -82,6 +82,18 @@ def _campaign_command_map(
             description="Heavy fixed-work ensemble scaling campaign on local CPU workers.",
             command=(python_executable, str(examples / "local_cpu_scaling_campaign_demo.py")),
         ),
+        "atomic-rate-throughput-gate": CampaignCommand(
+            name="atomic-rate-throughput-gate",
+            description="Batched atomic-rate and autodiff source-kernel throughput gate.",
+            command=(
+                python_executable,
+                str(scripts / "profile_atomic_rate_throughput_gate.py"),
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "atomic_rate_throughput_gate_cpu"),
+                "--timed-runs",
+                "3",
+            ),
+        ),
         "live-reference": CampaignCommand(
             name="live-reference",
             description="Same-machine native-versus-live-reference validation matrix.",
@@ -130,6 +142,26 @@ def _campaign_command_map(
             ),
             requires_reference=True,
         ),
+        "dthe-batched-jvp-gate": CampaignCommand(
+            name="dthe-batched-jvp-gate",
+            description="Batched D/T/He recycling residual/JVP differentiability and throughput gate.",
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_batched_jvp_gate_cpu"),
+                "--override",
+                "mesh:ny=100",
+                "--batch-sizes",
+                "1,4,16,64",
+                "--timed-runs",
+                "3",
+            ),
+            requires_reference=True,
+        ),
     }
 
 
@@ -141,8 +173,10 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
             expanded.extend(
                 (
                     "scheduled-fast-research",
+                    "atomic-rate-throughput-gate",
                     "local-cpu-scaling",
                     "dthe-jax-linearized-gate",
+                    "dthe-batched-jvp-gate",
                     "heavy-recycling-profile",
                     "live-reference",
                 )

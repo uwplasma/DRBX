@@ -221,6 +221,7 @@ The current GPU evidence for the heavier fixed-layout seam lives in:
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny100_dt1e4_gpu/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny200_dt1e4_cpu/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny200_dt1e4_gpu/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu/profile_summary.json`
 
 Those summaries show equal residual closure between CPU and GPU, lower sampled
 peak RSS on GPU for the small D/T/He fixed-layout gate, and slower warm GPU
@@ -247,6 +248,41 @@ controller-scalar handling. The legacy SciPy BDF history mode still calls a
 host RHS many times and still builds finite-difference sparse Jacobians, so its
 profile remains the evidence for the next refactor rather than evidence that
 the JVP path is already the default heavy-solve backend.
+
+The batched residual/JVP gate is the current fixed-layout differentiability
+and parallel-throughput test:
+
+```bash
+PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
+  --reference-root /path/to/reference/root \
+  --case dthe \
+  --override mesh:ny=100 \
+  --batch-sizes 1,4,16,64 \
+  --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu
+```
+
+The retained local CPU artifact shows about `3.0x` residual throughput speedup
+and `2.2x` JVP throughput speedup at batch 64, with batched/serial residual
+and JVP mismatch at roundoff. The residual JVP agrees with centered finite
+difference to about `6e-9`. A remote GPU run on the same heavy residual was
+not retained as a release speedup because the JVP compile latency was still
+too high for a bounded validation gate.
+
+The current GPU speedup evidence instead comes from the source-term throughput
+gate:
+
+```bash
+PYTHONPATH=src python scripts/profile_atomic_rate_throughput_gate.py \
+  --output-dir docs/data/runtime_profile_artifacts/atomic_rate_throughput_gate_cpu
+```
+
+The matched office-GPU artifact lives in
+`docs/data/runtime_profile_artifacts/atomic_rate_throughput_gate_gpu/profile_summary.json`.
+At `4,194,304` temperature points the GPU is about `2.4x` faster than the
+local CPU for the batched rate surface and about `2.0x` faster for the
+autodiff derivative. This is the correct release claim: dense JAX-native
+source kernels accelerate on GPU today; full heavy recycling output-window
+GPU speedup is still blocked by host/SciPy residual structure.
 
 ## Basic Usage
 

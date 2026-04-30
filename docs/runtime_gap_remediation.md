@@ -443,6 +443,15 @@ CPU. That result is a useful architectural gate, not a performance closeout:
 future GPU evidence needs a larger transformed residual or a batched ensemble
 before the paper can claim accelerator speedup.
 
+The new batched D/T/He residual/JVP CPU gate is the first version of that
+batched-ensemble evidence. It confirms that the fixed-layout residual is
+transformable and that vectorized residual/JVP products amortize dispatch and
+kernel work on CPU. The remote GPU attempt on the same heavy residual still has
+unacceptable compile latency, so it remains an open solver-backbone target
+rather than a release claim. By contrast, the atomic-rate source kernel already
+shows a measured GPU throughput win because it is a dense, batched, fully
+JAX-native calculation with no host/SciPy barrier.
+
 ## Required New Evidence
 
 Before the next paper-facing performance pass, the codebase should have:
@@ -452,4 +461,6 @@ Before the next paper-facing performance pass, the codebase should have:
   balance campaign
 - one refreshed heavy recycling runtime profile bundle
 - one committed CPU/GPU profiling bundle for the D/T/He fixed-layout residual
+- one committed CPU/GPU source-kernel throughput bundle for batched reaction
+  rates and derivatives
 - one tokamak-observable comparison package closer to the TCV-X21/Hermès style

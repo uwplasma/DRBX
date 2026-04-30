@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 import math
 import os
 import re
 import time
+from typing import Callable
 
 import jax.numpy as jnp
 import numpy as np
@@ -192,6 +194,21 @@ from .recycling_1d_state import (
     RecyclingProgressCallback,
     SimpleSheathSettings as _SimpleSheathSettings,
 )
+
+
+@dataclass(frozen=True)
+class Recycling1DBackwardEulerResidualContext:
+    """Fixed-layout backward-Euler residual and metadata for recycling gates."""
+
+    residual: Callable[[object], object]
+    packed_previous_state: np.ndarray
+    packed_initial_guess: np.ndarray
+    layout: _RecyclingPackedStateLayout
+    runtime_model: _RecyclingRuntimeModel
+    field_names: tuple[str, ...]
+    feedback_names: tuple[str, ...]
+    feedback_previous_errors: dict[str, float]
+
 
 def compute_recycling_1d_rhs(
     config: BoutConfig,
@@ -2367,6 +2384,112 @@ def _initial_recycling_continuation_dt(
     return min(float(timestep), base_dt)
 
 
+def build_recycling_1d_backward_euler_residual_context(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    runtime_model: _RecyclingRuntimeModel | None = None,
+    feedback_integrals: dict[str, float],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+    evolve_feedback_integrals: bool = False,
+) -> Recycling1DBackwardEulerResidualContext:
+    """Build the fixed-layout BE residual used by implicit recycling solves.
+
+    The returned residual is the promoted differentiability seam for recycling:
+    it packs the active domain into a static vector, reconstructs fixed-layout
+    fields for the currently validated RHS, and remains compatible with
+    ``jax.jit``, ``jax.vmap`` and ``jax.jvp`` when the selected RHS terms are
+    backend-preserving.
+    """
+
+    runtime_model = runtime_model or _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+    field_names = runtime_model.field_names
+    packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
+    layout = _build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+    )
+    previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
+    packed_previous = _pack_recycling_active_state(
+        fields,
+        feedback_integrals=feedback_integrals,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+        layout=layout,
+    )
+    packed_initial_guess = _predict_recycling_packed_state(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        feedback_previous_errors=previous_feedback_errors,
+        field_names=field_names,
+        feedback_names=packed_feedback_names,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+        timestep=timestep,
+        layout=layout,
+    )
+
+    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+        return _compute_recycling_1d_packed_rhs(
+            config,
+            state_fields,
+            sanitize_fields=False,
+            feedback_integrals=state_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            # When controller integrals are part of the implicit state, the
+            # source path should consume that state directly rather than
+            # applying a second trapezoid predictor to the same integral.
+            feedback_timestep=None if packed_feedback_names else timestep,
+            field_names=field_names,
+            feedback_names=packed_feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            runtime_model=runtime_model,
+            layout=layout,
+        )
+
+    fixed_rhs = _build_fixed_host_rhs_bridge(
+        packed_rhs,
+        layout=layout,
+        base_feedback_integrals=feedback_integrals,
+    )
+    fixed_residual = _build_fixed_backward_euler_residual(
+        fixed_rhs,
+        layout=layout,
+        previous_packed_state=packed_previous,
+        timestep=timestep,
+    )
+
+    def residual(packed_state: object) -> object:
+        return fixed_residual(packed_state)
+
+    return Recycling1DBackwardEulerResidualContext(
+        residual=residual,
+        packed_previous_state=np.asarray(packed_previous, dtype=np.float64),
+        packed_initial_guess=np.asarray(packed_initial_guess, dtype=np.float64),
+        layout=layout,
+        runtime_model=runtime_model,
+        field_names=tuple(field_names),
+        feedback_names=tuple(packed_feedback_names),
+        feedback_previous_errors=previous_feedback_errors,
+    )
+
+
 def _advance_recycling_1d_output_interval(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -2475,78 +2598,25 @@ def advance_recycling_1d_backward_euler_step(
     max_nonlinear_iterations: int = 20,
     evolve_feedback_integrals: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
-    runtime_model = runtime_model or _build_recycling_runtime_model(
-        config,
-        mesh=mesh,
-        metrics=metrics,
-        dataset_scalars=dataset_scalars,
-    )
-    field_names = runtime_model.field_names
-    packed_feedback_names = runtime_model.feedback_names if evolve_feedback_integrals else ()
-    layout = _build_recycling_packed_state_layout(
-        fields=fields,
-        field_names=field_names,
-        feedback_names=packed_feedback_names,
-        mesh=mesh,
-    )
-    previous_feedback_errors = _current_feedback_errors(fields, controllers=runtime_model.controllers, mesh=mesh)
-    packed_previous = _pack_recycling_active_state(
-        fields,
-        feedback_integrals=feedback_integrals,
-        field_names=field_names,
-        feedback_names=packed_feedback_names,
-        mesh=mesh,
-        layout=layout,
-    )
-    packed_initial_guess = _predict_recycling_packed_state(
+    context = build_recycling_1d_backward_euler_residual_context(
         config,
         fields,
         runtime_model=runtime_model,
         feedback_integrals=feedback_integrals,
-        feedback_previous_errors=previous_feedback_errors,
-        field_names=field_names,
-        feedback_names=packed_feedback_names,
         mesh=mesh,
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         timestep=timestep,
-        layout=layout,
+        evolve_feedback_integrals=evolve_feedback_integrals,
     )
-
-    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
-        return _compute_recycling_1d_packed_rhs(
-            config,
-            state_fields,
-            sanitize_fields=False,
-            feedback_integrals=state_integrals,
-            feedback_previous_errors=previous_feedback_errors,
-            # When controller integrals are part of the implicit state, the source
-            # path should consume that state directly rather than applying a second
-            # trapezoid predictor to the same integral.
-            feedback_timestep=None if packed_feedback_names else timestep,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
-            mesh=mesh,
-            metrics=metrics,
-            dataset_scalars=dataset_scalars,
-            runtime_model=runtime_model,
-            layout=layout,
-        )
-
-    fixed_rhs = _build_fixed_host_rhs_bridge(
-        packed_rhs,
-        layout=layout,
-        base_feedback_integrals=feedback_integrals,
-    )
-    fixed_residual = _build_fixed_backward_euler_residual(
-        fixed_rhs,
-        layout=layout,
-        previous_packed_state=packed_previous,
-        timestep=timestep,
-    )
-
-    def residual(packed_state: object) -> object:
-        return fixed_residual(packed_state)
+    runtime_model = context.runtime_model
+    field_names = context.field_names
+    packed_feedback_names = context.feedback_names
+    layout = context.layout
+    previous_feedback_errors = context.feedback_previous_errors
+    packed_previous = context.packed_previous_state
+    packed_initial_guess = context.packed_initial_guess
+    residual = context.residual
 
     if solver_mode in {"sparse", "sparse_jvp"}:
         solved, info = solve_sparse_newton_system(

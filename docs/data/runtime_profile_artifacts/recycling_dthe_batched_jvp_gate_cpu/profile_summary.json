@@ -1,0 +1,261 @@
+{
+  "backend": "cpu",
+  "batch_results": [
+    {
+      "batch_size": 1,
+      "batched_jvp_samples": [
+        0.00030858395621180534,
+        0.00027070799842476845,
+        0.0002573330421000719,
+        0.00024866603780537844,
+        0.0002800829242914915,
+        0.0002525829477235675,
+        0.00023208302445709705
+      ],
+      "batched_jvp_seconds_median": 0.0002573330421000719,
+      "batched_residual_samples": [
+        0.00017854198813438416,
+        0.00010562501847743988,
+        0.00011583406012505293,
+        0.00010208401363343,
+        0.00010608299635350704,
+        0.00010270904749631882,
+        0.00010149995796382427
+      ],
+      "batched_residual_seconds_median": 0.00010562501847743988,
+      "jvp_batched_serial_max_abs_error": 0.0,
+      "jvp_speedup_vs_serial": 1.08986398392381,
+      "pmap_device_count": 0,
+      "pmap_jvp_seconds_median": null,
+      "pmap_jvp_speedup_vs_batched": null,
+      "pmap_jvp_speedup_vs_serial": null,
+      "residual_batched_serial_max_abs_error": 0.0,
+      "residual_speedup_vs_serial": 1.09704159098524,
+      "serial_jvp_samples": [
+        0.00028787506744265556,
+        0.0002707920502871275,
+        0.00028233404736965895,
+        0.00030099996365606785,
+        0.00025962491054087877,
+        0.0002739160554483533,
+        0.0002804580144584179
+      ],
+      "serial_jvp_seconds_median": 0.0002804580144584179,
+      "serial_residual_samples": [
+        0.00013699999544769526,
+        0.00011441705282777548,
+        0.00011054100468754768,
+        0.00010433397255837917,
+        0.00011587503831833601,
+        0.00012362503912299871,
+        0.00013470801059156656
+      ],
+      "serial_residual_seconds_median": 0.00011587503831833601
+    },
+    {
+      "batch_size": 4,
+      "batched_jvp_samples": [
+        0.0008045840077102184,
+        0.0006611249409615993,
+        0.0007972499588504434,
+        0.0006655839970335364,
+        0.0006835419917479157,
+        0.0007844159845262766,
+        0.0007747500203549862
+      ],
+      "batched_jvp_seconds_median": 0.0007747500203549862,
+      "batched_residual_samples": [
+        0.00024295796174556017,
+        0.00021883298177272081,
+        0.00020150002092123032,
+        0.00020116707310080528,
+        0.0002097500255331397,
+        0.00016370904631912708,
+        0.0002122499281540513
+      ],
+      "batched_residual_seconds_median": 0.0002097500255331397,
+      "jvp_batched_serial_max_abs_error": 0.0,
+      "jvp_speedup_vs_serial": 1.0769603302874267,
+      "pmap_device_count": 0,
+      "pmap_jvp_seconds_median": null,
+      "pmap_jvp_speedup_vs_batched": null,
+      "pmap_jvp_speedup_vs_serial": null,
+      "residual_batched_serial_max_abs_error": 0.0,
+      "residual_speedup_vs_serial": 1.4213351656371982,
+      "serial_jvp_samples": [
+        0.0008537910180166364,
+        0.0007588750449940562,
+        0.0007954579778015614,
+        0.0008343750378116965,
+        0.0007845839718356729,
+        0.0008891250472515821,
+        0.0010313749080523849
+      ],
+      "serial_jvp_seconds_median": 0.0008343750378116965,
+      "serial_residual_samples": [
+        0.0005697080632671714,
+        0.0004480000352486968,
+        0.0003761249827221036,
+        0.0002981250872835517,
+        0.000295375008136034,
+        0.00029808294493705034,
+        0.00029379199258983135
+      ],
+      "serial_residual_seconds_median": 0.0002981250872835517
+    },
+    {
+      "batch_size": 16,
+      "batched_jvp_samples": [
+        0.0019307920010760427,
+        0.001933791907504201,
+        0.0017248750664293766,
+        0.001585374935530126,
+        0.0024622499477118254,
+        0.001836166949942708,
+        0.0017176249530166388
+      ],
+      "batched_jvp_seconds_median": 0.001836166949942708,
+      "batched_residual_samples": [
+        0.0008549160556867719,
+        0.0007526250556111336,
+        0.0007527089910581708,
+        0.0007822080515325069,
+        0.0007256249664351344,
+        0.000763624906539917,
+        0.000709167099557817
+      ],
+      "batched_residual_seconds_median": 0.0007527089910581708,
+      "jvp_batched_serial_max_abs_error": 0.0,
+      "jvp_speedup_vs_serial": 2.226785528836991,
+      "pmap_device_count": 0,
+      "pmap_jvp_seconds_median": null,
+      "pmap_jvp_speedup_vs_batched": null,
+      "pmap_jvp_speedup_vs_serial": null,
+      "residual_batched_serial_max_abs_error": 0.0,
+      "residual_speedup_vs_serial": 2.079932616950221,
+      "serial_jvp_samples": [
+        0.0043503339402377605,
+        0.004088749992661178,
+        0.003941125003620982,
+        0.0038759999442845583,
+        0.00416791602037847,
+        0.004091916955076158,
+        0.003923750016838312
+      ],
+      "serial_jvp_seconds_median": 0.004088749992661178,
+      "serial_residual_samples": [
+        0.0015655839815735817,
+        0.0018187920795753598,
+        0.0016615410568192601,
+        0.0014589580241590738,
+        0.0015119999879971147,
+        0.0014644169714301825,
+        0.0015682920347899199
+      ],
+      "serial_residual_seconds_median": 0.0015655839815735817
+    },
+    {
+      "batch_size": 64,
+      "batched_jvp_samples": [
+        0.007721583009697497,
+        0.00661254208534956,
+        0.007181582972407341,
+        0.006674707983620465,
+        0.006673666066490114,
+        0.007192625082097948,
+        0.00655749998986721
+      ],
+      "batched_jvp_seconds_median": 0.006674707983620465,
+      "batched_residual_samples": [
+        0.0020281659672036767,
+        0.0019834580598399043,
+        0.002033625030890107,
+        0.0019058749312534928,
+        0.0019696250092238188,
+        0.0022995840990915895,
+        0.0024528750218451023
+      ],
+      "batched_residual_seconds_median": 0.0020281659672036767,
+      "jvp_batched_serial_max_abs_error": 0.0,
+      "jvp_speedup_vs_serial": 2.389985908333443,
+      "pmap_device_count": 0,
+      "pmap_jvp_seconds_median": null,
+      "pmap_jvp_speedup_vs_batched": null,
+      "pmap_jvp_speedup_vs_serial": null,
+      "residual_batched_serial_max_abs_error": 1.6940658945086007e-21,
+      "residual_speedup_vs_serial": 3.0060409327088977,
+      "serial_jvp_samples": [
+        0.016319749993272126,
+        0.015664124977774918,
+        0.015963625046424568,
+        0.01595245802309364,
+        0.015888666966930032,
+        0.01595858298242092,
+        0.01581500004976988
+      ],
+      "serial_jvp_seconds_median": 0.01595245802309364,
+      "serial_residual_samples": [
+        0.006254457985050976,
+        0.006096749915741384,
+        0.006010791985318065,
+        0.006182083976455033,
+        0.006018750020302832,
+        0.0059871249832212925,
+        0.0062123340321704745
+      ],
+      "serial_residual_seconds_median": 0.006096749915741384
+    }
+  ],
+  "case": "recycling_batched_jvp_profile",
+  "devices": [
+    {
+      "id": 0,
+      "kind": "cpu",
+      "platform": "cpu"
+    }
+  ],
+  "differentiability": {
+    "jvp_fd_relative_error": 5.970822088758896e-09,
+    "objective_directional_relative_error": 1.3400199333876716e-07,
+    "objective_fd_directional_derivative": -7.073761816627443e-08,
+    "objective_grad_checked": true,
+    "objective_grad_directional_derivative": -7.073762764525627e-08
+  },
+  "fd_epsilon": 1e-06,
+  "feedback_names": [],
+  "field_names": [
+    "Nd+",
+    "Pd+",
+    "NVd+",
+    "Nd",
+    "Pd",
+    "NVd",
+    "Nt+",
+    "Pt+",
+    "NVt+",
+    "Nt",
+    "Pt",
+    "NVt",
+    "Nhe+",
+    "Phe+",
+    "NVhe+",
+    "Nhe",
+    "Phe",
+    "NVhe",
+    "Pe"
+  ],
+  "input_path": "<input-path>/BOUT.inp",
+  "interpretation": "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, and optional pmap. It is the current differentiable residual-throughput lane; it does not promote the full production BDF output-window solve as the default implicit backend.",
+  "mesh_active_shape": [
+    1,
+    100,
+    1
+  ],
+  "overrides": [
+    "mesh:ny=100"
+  ],
+  "perturbation_scale": 1e-06,
+  "state_size": 1900,
+  "timed_runs": 7,
+  "timestep": 0.0001
+}

@@ -10,6 +10,7 @@ from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import (
     advance_recycling_1d_backward_euler_step,
+    build_recycling_1d_backward_euler_residual_context,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     _compute_recycling_1d_packed_rhs,
@@ -208,3 +209,35 @@ def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:
     assert info.residual_inf_norm < 1.0e-8
     assert info.diagnostics["jacobian_refresh_count"] == 1
     assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"
+
+
+def test_backward_euler_residual_context_exposes_jvp_gate_on_dthe_deck() -> None:
+    jax = pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    jax.config.update("jax_enable_x64", True)
+    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = _dthe_context()
+    context = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-6,
+    )
+    state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)
+    direction = jnp.sin(jnp.arange(state.size, dtype=jnp.float64) * 0.01)
+    direction = direction / jnp.maximum(jnp.linalg.norm(direction), 1.0e-30)
+    residual = jax.jit(context.residual)
+    _, jvp_value = jax.jvp(residual, (state,), (direction,))
+    epsilon = 1.0e-6
+    finite_difference = (residual(state + epsilon * direction) - residual(state - epsilon * direction)) / (2.0 * epsilon)
+    relative_error = jnp.linalg.norm(jvp_value - finite_difference) / jnp.maximum(
+        jnp.linalg.norm(finite_difference),
+        1.0e-30,
+    )
+
+    assert tuple(context.field_names) == tuple(runtime_model.field_names)
+    assert float(relative_error) < 1.0e-6

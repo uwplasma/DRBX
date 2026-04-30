@@ -23,6 +23,15 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   runs at `ny=100` and `ny=200`. They close to the same residuals, but the
   current GPU path is slower despite lower sampled RSS, so GPU speedup is not
   promoted as a release claim.
+- A new batched D/T/He residual/JVP gate exercises the real fixed-layout
+  recycling backward-Euler residual under `jit`, `vmap`, `jvp`, and `grad`.
+  The local CPU artifact reaches about `3.0x` residual throughput speedup and
+  about `2.2x` JVP throughput speedup at batch 64, with JVP/finite-difference
+  error about `6e-9`.
+- A new batched atomic-rate throughput gate gives the release a measured GPU
+  speedup on a fully JAX-native source kernel: at `4,194,304` temperature
+  points, the office GPU is about `2.4x` faster for the rate surface and about
+  `2.0x` faster for the autodiff derivative than the local CPU reference.
 - Public validation/profile summaries now sanitize local reference and repo
   paths before writing committed JSON artifacts.
 

@@ -96,6 +96,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "detachment_controller_campaign_demo.py",
     REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
     REPO_ROOT / "scripts" / "profile_curated_case.py",
+    REPO_ROOT / "scripts" / "profile_recycling_batched_jvp_gate.py",
+    REPO_ROOT / "scripts" / "profile_atomic_rate_throughput_gate.py",
     REPO_ROOT / "scripts" / "run_research_campaign_bundle.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
@@ -117,6 +119,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_convergence_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "jax_native_profile_audit.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "local_cpu_scaling_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "recycling_batched_jvp_profile.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_comparison_summary.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_capability_audit.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "fluid_1d_mms_convergence.py",
@@ -228,6 +231,9 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "autodiff_diffusion_uncertainty_artifacts" / "data" / "autodiff_diffusion_uncertainty_analysis.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu" / "profile_summary.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu_warm" / "profile_summary.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_batched_jvp_gate_cpu" / "profile_summary.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "atomic_rate_throughput_gate_cpu" / "profile_summary.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "atomic_rate_throughput_gate_gpu" / "profile_summary.json",
 )
 
 
