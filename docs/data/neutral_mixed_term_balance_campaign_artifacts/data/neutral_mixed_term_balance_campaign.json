@@ -1,4 +1,12 @@
 {
+  "active_x_indices": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
   "active_y_indices": [
     2,
     3,
@@ -27,25 +35,71 @@
       0.003373864390831078
     ],
     "max_abs": 0.003373864390831078,
-    "rms": 0.001860502508500537
+    "rms": 0.0020812002766776886
   },
   "hermes_diagnostic_outputs": {
+    "direct_comparisons": {
+      "SNVh_pressure_gradient": {
+        "comparison": "least-squares scale of direct written reference -Grad_par(Pn) diagnostic to native-normalized matched reconstruction",
+        "least_squares_scale_to_native_units": 0.9999999999999999,
+        "matched_reconstruction_lineout": [
+          -0.0004153951238204131,
+          -0.0012639448233237283,
+          -0.0016646940628097448,
+          -0.001198486973671311,
+          -0.00038234501787726523,
+          0.000382343060171574,
+          0.0011984893242187387,
+          0.0016646936191387204,
+          0.0012639448826225895,
+          0.00041539512001865006
+        ],
+        "scaled_difference_lineout": [
+          -2.3339051503055985e-12,
+          2.168404344971009e-19,
+          2.168404344971009e-19,
+          2.168404344971009e-19,
+          5.421010862427522e-20,
+          -5.421010862427522e-20,
+          -2.168404344971009e-19,
+          0.0,
+          -2.168404344971009e-19,
+          -2.3339052587258158e-12
+        ],
+        "scaled_difference_metrics": {
+          "max_abs": 1.2659772481628945e-11,
+          "rms": 2.3806360189868145e-12
+        },
+        "scaled_direct_lineout": [
+          -0.00041539512615431826,
+          -0.0012639448233237281,
+          -0.0016646940628097446,
+          -0.0011984869736713108,
+          -0.0003823450178772652,
+          0.00038234306017157394,
+          0.0011984893242187385,
+          0.0016646936191387204,
+          0.0012639448826225893,
+          0.0004153951176847448
+        ]
+      }
+    },
     "field_metrics": {
       "SNVh": {
         "max_abs": 0.0,
         "rms": 0.0
       },
       "SNVh_pressure_gradient": {
-        "max_abs": 1444.9695328628068,
-        "rms": 913.8789746796006
+        "max_abs": 0.0016647647470079791,
+        "rms": 0.0011067048591321092
       },
       "ddt(NVh)": {
-        "max_abs": 1383.4678093609364,
-        "rms": 874.9818694208362
+        "max_abs": 9.376458088056856e-05,
+        "rms": 6.053033864318341e-05
       },
       "mfh_adv_perp_xlow": {
         "max_abs": 2.6633472335529565e-10,
-        "rms": 3.491258802395105e-11
+        "rms": 4.507195732992098e-11
       },
       "mfh_adv_perp_ylow": {
         "max_abs": 0.0,
@@ -53,11 +107,11 @@
       },
       "mfh_visc_par_ylow": {
         "max_abs": 0.0024683728773068434,
-        "rms": 0.001360634078567657
+        "rms": 0.0017565710421916032
       },
       "mfh_visc_perp_xlow": {
         "max_abs": 1.050714305551715e-09,
-        "rms": 1.7908974943217147e-10
+        "rms": 2.312038723424198e-10
       },
       "mfh_visc_perp_ylow": {
         "max_abs": 0.0,
@@ -170,7 +224,7 @@
       "pressure_gradient": {
         "field_metrics": {
           "max_abs": 0.0016647647470079793,
-          "rms": 0.0008572498977170969
+          "rms": 0.0011067048591321092
         },
         "lineout": [
           -0.0004153951238204131,
@@ -201,7 +255,7 @@
       "mfh_adv_perp_ylow"
     ]
   },
-  "input_path": "<reference-root>/tests/integrated/neutral_mixed/data/BOUT.inp",
+  "input_path": "~/local/hermes-3/tests/integrated/neutral_mixed/data/BOUT.inp",
   "interpretation": {
     "balance_form": "backward_euler_rate_residual = (NVh_final - NVh_initial) / dt - native_rhs_terms(NVh_final)",
     "diagnostic_role": "The Herm\u00e8s final state is inserted into the native neutral momentum operator. A nonzero residual localizes the one-step mismatch to the terms that cannot balance the Herm\u00e8s update under the current native closure and boundary rules.",
@@ -311,39 +365,308 @@
     "term_metrics": {
       "parallel_inertia": {
         "max_abs": 4.116494370990005e-05,
-        "rms": 1.7267513420627572e-05
+        "rms": 2.2292263969501218e-05
       },
       "parallel_viscosity": {
         "max_abs": 0.00157516242786897,
-        "rms": 0.0007856818356311239
+        "rms": 0.0010143108882723385
       },
       "perpendicular_diffusion": {
         "max_abs": 3.936443619049905e-05,
-        "rms": 1.0487216640930069e-05
+        "rms": 1.3538938466130482e-05
       },
       "perpendicular_viscosity": {
         "max_abs": 0.00010392998531584432,
-        "rms": 2.6121824660820577e-05
+        "rms": 3.3723130627969435e-05
       },
       "pressure_gradient": {
         "max_abs": 0.0017353735630770285,
-        "rms": 0.0008828653030917674
+        "rms": 0.0011397742052729263
       },
       "residual_rate": {
-        "max_abs": 0.00018485267771136614,
-        "rms": 6.389369483568265e-05
+        "max_abs": 4.204800949699633e-12,
+        "rms": 1.6119866055494793e-12
       },
       "rhs_sum": {
         "max_abs": 0.00018584615948545792,
-        "rms": 0.00011078659186889801
+        "rms": 0.00014302487509710668
       },
       "time_derivative": {
         "max_abs": 0.00018584615808127567,
-        "rms": 0.00012789086439487485
+        "rms": 0.00014302487520190864
       }
     }
   },
-  "reference_arrays_npz": "<repo>/references/baselines/reference_arrays/neutral_mixed_one_step.npz",
+  "offender_register": {
+    "dominant_residual_cells": [
+      {
+        "terms": {
+          "parallel_inertia": 1.8574135964233025e-05,
+          "parallel_viscosity": 0.0021055132743400037,
+          "perpendicular_diffusion": -1.3484561734251976e-09,
+          "perpendicular_viscosity": -6.037954713698483e-08,
+          "pressure_gradient": 0.0004153953224854793,
+          "residual_rate": -0.0025222680675055743,
+          "time_derivative": 1.7152937280831284e-05
+        },
+        "x": 3,
+        "y": 11,
+        "z": 5
+      },
+      {
+        "terms": {
+          "parallel_inertia": -1.857413590923012e-05,
+          "parallel_viscosity": -0.0021055133272693655,
+          "perpendicular_diffusion": 1.347826162859884e-09,
+          "perpendicular_viscosity": 6.042918239104527e-08,
+          "pressure_gradient": -0.0004153952816003723,
+          "residual_rate": 0.0025222680294845856,
+          "time_derivative": -1.7152938285828297e-05
+        },
+        "x": 6,
+        "y": 2,
+        "z": 5
+      },
+      {
+        "terms": {
+          "parallel_inertia": -1.85741348746267e-05,
+          "parallel_viscosity": -0.0021055132543061125,
+          "perpendicular_diffusion": 1.3478456193866658e-09,
+          "perpendicular_viscosity": 6.040912146789e-08,
+          "pressure_gradient": -0.00041539531642111315,
+          "residual_rate": 0.0025222680107768376,
+          "time_derivative": -1.7152937857927547e-05
+        },
+        "x": 3,
+        "y": 2,
+        "z": 5
+      },
+      {
+        "terms": {
+          "parallel_inertia": -1.857414135519013e-05,
+          "parallel_viscosity": -0.0021055135243311595,
+          "perpendicular_diffusion": 1.3366417855491218e-09,
+          "perpendicular_viscosity": 6.050783543301429e-08,
+          "pressure_gradient": -0.0004153951238204131,
+          "residual_rate": 0.002522268006124852,
+          "time_derivative": -1.7152938904691666e-05
+        },
+        "x": 4,
+        "y": 2,
+        "z": 5
+      },
+      {
+        "terms": {
+          "parallel_inertia": 1.8574142760981627e-05,
+          "parallel_viscosity": 0.0021055135943071368,
+          "perpendicular_diffusion": -1.336205663602013e-09,
+          "perpendicular_viscosity": -6.058160054754834e-08,
+          "pressure_gradient": 0.00041539507973445313,
+          "residual_rate": -0.002522267959976578,
+          "time_derivative": 1.7152939019781926e-05
+        },
+        "x": 5,
+        "y": 11,
+        "z": 5
+      },
+      {
+        "terms": {
+          "parallel_inertia": 1.85741408551424e-05,
+          "parallel_viscosity": 0.00210551348504627,
+          "perpendicular_diffusion": -1.3362921254059166e-09,
+          "perpendicular_viscosity": -6.051880302671992e-08,
+          "pressure_gradient": 0.00041539512001865006,
+          "residual_rate": -0.0025222679522851886,
+          "time_derivative": 1.7152938539721778e-05
+        },
+        "x": 4,
+        "y": 11,
+        "z": 5
+      }
+    ],
+    "hermes_final_residual_rate": [
+      {
+        "max_abs": 0.0025394210047864057,
+        "rms": 0.0011372173190538333,
+        "target_adjacent_max_abs": 0.0025394210047864057,
+        "target_adjacent_rms": 0.00179625353381899,
+        "term": "rhs_sum"
+      },
+      {
+        "max_abs": 0.0025222680675055743,
+        "rms": 0.0011329712376914518,
+        "target_adjacent_max_abs": 0.0025222680675055743,
+        "target_adjacent_rms": 0.001785498825307706,
+        "term": "residual_rate"
+      },
+      {
+        "max_abs": 0.00210567566657003,
+        "rms": 0.001478978769844024,
+        "target_adjacent_max_abs": 0.00210567566657003,
+        "target_adjacent_rms": 0.0017628413170735315,
+        "term": "parallel_viscosity"
+      },
+      {
+        "max_abs": 0.0016647647470079793,
+        "rms": 0.0011067048591321092,
+        "target_adjacent_max_abs": 0.0012639448826225895,
+        "target_adjacent_rms": 0.0009405576204687381,
+        "term": "pressure_gradient"
+      },
+      {
+        "max_abs": 7.175580650165575e-05,
+        "rms": 4.722411172373661e-05,
+        "target_adjacent_max_abs": 5.240466363299966e-05,
+        "target_adjacent_rms": 3.898622677825855e-05,
+        "term": "time_derivative"
+      },
+      {
+        "max_abs": 5.0177045782373976e-05,
+        "rms": 2.5871334493851617e-05,
+        "target_adjacent_max_abs": 1.8574142760981627e-05,
+        "target_adjacent_rms": 1.34457303160945e-05,
+        "term": "parallel_inertia"
+      },
+      {
+        "max_abs": 1.0920317940769532e-07,
+        "rms": 5.207729413339721e-08,
+        "target_adjacent_max_abs": 8.265510749263729e-08,
+        "target_adjacent_rms": 5.137234048289142e-08,
+        "term": "perpendicular_viscosity"
+      },
+      {
+        "max_abs": 1.0331578454438517e-08,
+        "rms": 4.21479708299806e-09,
+        "target_adjacent_max_abs": 6.31316444501029e-09,
+        "target_adjacent_rms": 3.209675721049768e-09,
+        "term": "perpendicular_diffusion"
+      }
+    ],
+    "interpretation": "The ranked target-adjacent register separates large physical terms from terms whose native-vs-reference final-state delta is largest. A pressure-gradient or viscosity entry near the top is therefore a concrete parity target rather than an aggregate NVh mismatch.",
+    "native_final_residual_rate": [
+      {
+        "max_abs": 0.0017353735630770285,
+        "rms": 0.0011397742052729263,
+        "target_adjacent_max_abs": 0.001318747744848688,
+        "target_adjacent_rms": 0.0008554496910165737,
+        "term": "pressure_gradient"
+      },
+      {
+        "max_abs": 0.00157516242786897,
+        "rms": 0.0010143108882723385,
+        "target_adjacent_max_abs": 0.0010737950745726987,
+        "target_adjacent_rms": 0.0006978243810854362,
+        "term": "parallel_viscosity"
+      },
+      {
+        "max_abs": 0.00018584615948545792,
+        "rms": 0.00014302487509710668,
+        "target_adjacent_max_abs": 0.00018584615948545792,
+        "target_adjacent_rms": 0.0001823727028711323,
+        "term": "rhs_sum"
+      },
+      {
+        "max_abs": 0.00018584615808127567,
+        "rms": 0.00014302487520190864,
+        "target_adjacent_max_abs": 0.00018584615808127567,
+        "target_adjacent_rms": 0.00018237270288699457,
+        "term": "time_derivative"
+      },
+      {
+        "max_abs": 0.00010392998531584432,
+        "rms": 3.3723130627969435e-05,
+        "target_adjacent_max_abs": 7.206227074844992e-05,
+        "target_adjacent_rms": 2.9911689753184838e-05,
+        "term": "perpendicular_viscosity"
+      },
+      {
+        "max_abs": 3.936443619049905e-05,
+        "rms": 1.3538938466130482e-05,
+        "target_adjacent_max_abs": 3.936443619049905e-05,
+        "target_adjacent_rms": 1.70617310338753e-05,
+        "term": "perpendicular_diffusion"
+      },
+      {
+        "max_abs": 4.116494370990005e-05,
+        "rms": 2.2292263969501218e-05,
+        "target_adjacent_max_abs": 1.649470839242917e-05,
+        "target_adjacent_rms": 1.1757815676425637e-05,
+        "term": "parallel_inertia"
+      },
+      {
+        "max_abs": 4.204800949699633e-12,
+        "rms": 1.6119866055494793e-12,
+        "target_adjacent_max_abs": 3.3457344967430247e-12,
+        "target_adjacent_rms": 1.7690570081021776e-12,
+        "term": "residual_rate"
+      }
+    ],
+    "native_minus_hermes_term_delta": [
+      {
+        "max_abs": 0.0025222680697096493,
+        "rms": 0.0011329712376064547,
+        "target_adjacent_max_abs": 0.0025222680697096493,
+        "target_adjacent_rms": 0.0017854988251895568,
+        "term": "residual_rate"
+      },
+      {
+        "max_abs": 0.0023594842834125307,
+        "rms": 0.001068404529334029,
+        "target_adjacent_max_abs": 0.0023594842834125307,
+        "target_adjacent_rms": 0.0016755462225462332,
+        "term": "rhs_sum"
+      },
+      {
+        "max_abs": 0.0023054162859987145,
+        "rms": 0.001040702222021321,
+        "target_adjacent_max_abs": 0.0023054162859987145,
+        "target_adjacent_rms": 0.0016388938629795162,
+        "term": "parallel_viscosity"
+      },
+      {
+        "max_abs": 0.0003033901186370719,
+        "rms": 0.0001250348972234607,
+        "target_adjacent_max_abs": 0.0003033901186370719,
+        "target_adjacent_rms": 0.00012326947105613463,
+        "term": "pressure_gradient"
+      },
+      {
+        "max_abs": 0.0001686932195415539,
+        "rms": 0.00010406001383388441,
+        "target_adjacent_max_abs": 0.0001686932195415539,
+        "target_adjacent_rms": 0.00014871504009023647,
+        "term": "time_derivative"
+      },
+      {
+        "max_abs": 0.00010382304708108432,
+        "rms": 3.3683386947057494e-05,
+        "target_adjacent_max_abs": 7.200087390050443e-05,
+        "target_adjacent_rms": 2.98691934996137e-05,
+        "term": "perpendicular_viscosity"
+      },
+      {
+        "max_abs": 3.935814056411835e-05,
+        "rms": 1.3536461796003252e-05,
+        "target_adjacent_max_abs": 3.935814056411835e-05,
+        "target_adjacent_rms": 1.705982206668211e-05,
+        "term": "perpendicular_diffusion"
+      },
+      {
+        "max_abs": 1.649260906082348e-05,
+        "rms": 7.493749000721698e-06,
+        "target_adjacent_max_abs": 1.458206124837084e-05,
+        "target_adjacent_rms": 6.007312795547379e-06,
+        "term": "parallel_inertia"
+      }
+    ],
+    "target_y_indices": [
+      2,
+      3,
+      10,
+      11
+    ]
+  },
+  "reference_arrays_npz": "~/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_one_step.npz",
   "reference_balance": {
     "lineouts": {
       "parallel_inertia": [
@@ -446,39 +769,189 @@
     "term_metrics": {
       "parallel_inertia": {
         "max_abs": 5.0177045782373976e-05,
-        "rms": 2.003984952776976e-05
+        "rms": 2.5871334493851617e-05
       },
       "parallel_viscosity": {
         "max_abs": 0.00210567566657003,
-        "rms": 0.0011456120290000474
+        "rms": 0.001478978769844024
       },
       "perpendicular_diffusion": {
         "max_abs": 1.0331578454438517e-08,
-        "rms": 3.2647677820190177e-09
+        "rms": 4.21479708299806e-09
       },
       "perpendicular_viscosity": {
         "max_abs": 1.0920317940769532e-07,
-        "rms": 4.033889857883852e-08
+        "rms": 5.207729413339721e-08
       },
       "pressure_gradient": {
         "max_abs": 0.0016647647470079793,
-        "rms": 0.0008572498977170969
+        "rms": 0.0011067048591321092
       },
       "residual_rate": {
         "max_abs": 0.0025222680675055743,
-        "rms": 0.0008778498268857761
+        "rms": 0.0011329712376914518
       },
       "rhs_sum": {
         "max_abs": 0.0025394210047864057,
-        "rms": 0.0008808847475428287
+        "rms": 0.0011372173190538333
       },
       "time_derivative": {
         "max_abs": 7.175580650165575e-05,
-        "rms": 4.2238529076953985e-05
+        "rms": 4.722411172373661e-05
       }
     }
   },
   "reference_code": "hermes-3",
+  "term_delta": {
+    "lineouts": {
+      "parallel_inertia": [
+        2.0794330401418767e-06,
+        1.4582058581102389e-05,
+        -1.6492605149445424e-05,
+        -1.0585791889533488e-05,
+        -2.480451243625653e-06,
+        2.480457045812536e-06,
+        1.0585784265808296e-05,
+        1.649260906082348e-05,
+        -1.458206124837084e-05,
+        -2.079432462713228e-06
+      ],
+      "parallel_viscosity": [
+        0.002305416213609151,
+        -0.00026122514243874734,
+        -0.00013311548959425885,
+        -4.727665355595215e-06,
+        1.2424778142729968e-05,
+        -1.242579726986031e-05,
+        4.729189751947419e-06,
+        0.00013311505954327683,
+        0.0002612250302672667,
+        -0.00230541617665591
+      ],
+      "perpendicular_diffusion": [
+        2.7481523411172426e-05,
+        2.8110653330445926e-05,
+        2.4046750324371716e-05,
+        1.484667762147137e-05,
+        5.1060246116895944e-06,
+        -5.105575559152617e-06,
+        -1.4846850192320342e-05,
+        -2.404672364932468e-05,
+        -2.8110655084482733e-05,
+        -2.748152385334453e-05
+      ],
+      "perpendicular_viscosity": [
+        5.6690548502990126e-05,
+        2.1439317464786727e-05,
+        -5.574987679703973e-05,
+        -0.00010382268638928811,
+        -6.416165313256282e-05,
+        6.416200510218632e-05,
+        0.00010382248843834916,
+        5.574990602917398e-05,
+        -2.1439364243725167e-05,
+        -5.669053724330419e-05
+      ],
+      "pressure_gradient": [
+        -3.809293268471688e-05,
+        -5.480292073855209e-05,
+        -7.067949801009012e-05,
+        -5.4177626089891174e-05,
+        -2.0571145252843e-07,
+        2.07659022635569e-07,
+        5.417527194421308e-05,
+        7.067994393830808e-05,
+        5.4802862226098524e-05,
+        3.8092935890475944e-05
+      ],
+      "residual_rate": [
+        -0.0025222680045762476,
+        0.00011949189807462275,
+        0.00016549679812051608,
+        0.00011546025406496493,
+        3.691585954400903e-05,
+        -3.691759564041838e-05,
+        -0.00011545904583761126,
+        -0.00016549687327822724,
+        -0.0001194916750220481,
+        0.00252226795386635
+      ],
+      "rhs_sum": [
+        0.002353574785878738,
+        -0.00025189603380096435,
+        -0.00025199071922646246,
+        -0.00015846709210283634,
+        -4.9317013074297344e-05,
+        4.931874834162151e-05,
+        0.0001584658842079976,
+        0.00025199079492225796,
+        0.0002518958119167863,
+        -0.0023535747343247965
+      ],
+      "time_derivative": [
+        -0.00016869321869750935,
+        -0.0001324041357263416,
+        -8.649392110594639e-05,
+        -4.30068380378714e-05,
+        -1.2401153530288308e-05,
+        1.2401152701203128e-05,
+        4.300683837038634e-05,
+        8.649392164403075e-05,
+        0.00013240413689473825,
+        0.0001686932195415539
+      ]
+    },
+    "term_metrics": {
+      "parallel_inertia": {
+        "max_abs": 1.649260906082348e-05,
+        "rms": 7.493749000721698e-06,
+        "target_adjacent_max_abs": 1.458206124837084e-05,
+        "target_adjacent_rms": 6.007312795547379e-06
+      },
+      "parallel_viscosity": {
+        "max_abs": 0.0023054162859987145,
+        "rms": 0.001040702222021321,
+        "target_adjacent_max_abs": 0.0023054162859987145,
+        "target_adjacent_rms": 0.0016388938629795162
+      },
+      "perpendicular_diffusion": {
+        "max_abs": 3.935814056411835e-05,
+        "rms": 1.3536461796003252e-05,
+        "target_adjacent_max_abs": 3.935814056411835e-05,
+        "target_adjacent_rms": 1.705982206668211e-05
+      },
+      "perpendicular_viscosity": {
+        "max_abs": 0.00010382304708108432,
+        "rms": 3.3683386947057494e-05,
+        "target_adjacent_max_abs": 7.200087390050443e-05,
+        "target_adjacent_rms": 2.98691934996137e-05
+      },
+      "pressure_gradient": {
+        "max_abs": 0.0003033901186370719,
+        "rms": 0.0001250348972234607,
+        "target_adjacent_max_abs": 0.0003033901186370719,
+        "target_adjacent_rms": 0.00012326947105613463
+      },
+      "residual_rate": {
+        "max_abs": 0.0025222680697096493,
+        "rms": 0.0011329712376064547,
+        "target_adjacent_max_abs": 0.0025222680697096493,
+        "target_adjacent_rms": 0.0017854988251895568
+      },
+      "rhs_sum": {
+        "max_abs": 0.0023594842834125307,
+        "rms": 0.001068404529334029,
+        "target_adjacent_max_abs": 0.0023594842834125307,
+        "target_adjacent_rms": 0.0016755462225462332
+      },
+      "time_derivative": {
+        "max_abs": 0.0001686932195415539,
+        "rms": 0.00010406001383388441,
+        "target_adjacent_max_abs": 0.0001686932195415539,
+        "target_adjacent_rms": 0.00014871504009023647
+      }
+    }
+  },
   "timestep": 20.0,
   "worst_final_error_index": {
     "x": 4,

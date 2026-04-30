@@ -636,6 +636,7 @@ def solve_jax_linearized_newton_system(
     max_nonlinear_iterations: int,
     linear_restart: int = 20,
     linear_maxiter: int = 20,
+    linear_solver_backend: str = "jax_gmres",
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         import jax
@@ -652,9 +653,30 @@ def solve_jax_linearized_newton_system(
     jacobian_assembly_seconds = 0.0
     linear_solve_seconds = 0.0
     line_search_seconds = 0.0
+    linear_backend = _resolve_jax_linear_solver_backend(linear_solver_backend)
+    jacobian_mode = f"jax_linearized:{linear_backend}"
 
     def _block(value):
         return jax.block_until_ready(value)
+
+    def _info(
+        *,
+        residual_inf_norm: float,
+        nonlinear_iterations: int,
+    ) -> ImplicitStepInfo:
+        return ImplicitStepInfo(
+            residual_inf_norm=float(residual_inf_norm),
+            active_shape=active_shape,
+            nonlinear_iterations=int(nonlinear_iterations),
+            linear_iterations=total_linear_iterations,
+            residual_evaluation_count=residual_evaluation_count,
+            residual_evaluation_seconds=residual_evaluation_seconds,
+            jacobian_refresh_count=jacobian_refresh_count,
+            jacobian_assembly_seconds=jacobian_assembly_seconds,
+            linear_solve_seconds=linear_solve_seconds,
+            line_search_seconds=line_search_seconds,
+            jacobian_mode=jacobian_mode,
+        )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         linearize_started_at = perf_counter()
@@ -667,27 +689,20 @@ def solve_jax_linearized_newton_system(
         jacobian_assembly_seconds += elapsed
         residual_inf_norm = float(jnp.max(jnp.abs(residual_value)))
         if residual_inf_norm < float(residual_tolerance):
-            return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+            return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=residual_inf_norm,
-                active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration - 1,
-                linear_iterations=total_linear_iterations,
-                residual_evaluation_count=residual_evaluation_count,
-                residual_evaluation_seconds=residual_evaluation_seconds,
-                jacobian_refresh_count=jacobian_refresh_count,
-                jacobian_assembly_seconds=jacobian_assembly_seconds,
-                linear_solve_seconds=linear_solve_seconds,
-                line_search_seconds=line_search_seconds,
             )
 
         linear_solve_started_at = perf_counter()
-        update, _ = gmres(
+        update = _solve_jax_linearized_update(
             linear_map,
             -residual_value,
-            tol=float(residual_tolerance),
-            atol=0.0,
-            restart=int(linear_restart),
-            maxiter=int(linear_maxiter),
+            backend=linear_backend,
+            residual_tolerance=float(residual_tolerance),
+            linear_restart=int(linear_restart),
+            linear_maxiter=int(linear_maxiter),
+            jax_gmres=gmres,
         )
         update = _block(update)
         linear_solve_seconds += perf_counter() - linear_solve_started_at
@@ -720,30 +735,14 @@ def solve_jax_linearized_newton_system(
 
         state = candidate_state
         if float(jnp.max(jnp.abs(step_scale * update))) < float(step_tolerance):
-            return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+            return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=candidate_residual_inf_norm,
-                active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration,
-                linear_iterations=total_linear_iterations,
-                residual_evaluation_count=residual_evaluation_count,
-                residual_evaluation_seconds=residual_evaluation_seconds,
-                jacobian_refresh_count=jacobian_refresh_count,
-                jacobian_assembly_seconds=jacobian_assembly_seconds,
-                linear_solve_seconds=linear_solve_seconds,
-                line_search_seconds=line_search_seconds,
             )
         if candidate_residual_inf_norm < float(residual_tolerance):
-            return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+            return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=candidate_residual_inf_norm,
-                active_shape=active_shape,
                 nonlinear_iterations=nonlinear_iteration,
-                linear_iterations=total_linear_iterations,
-                residual_evaluation_count=residual_evaluation_count,
-                residual_evaluation_seconds=residual_evaluation_seconds,
-                jacobian_refresh_count=jacobian_refresh_count,
-                jacobian_assembly_seconds=jacobian_assembly_seconds,
-                linear_solve_seconds=linear_solve_seconds,
-                line_search_seconds=line_search_seconds,
             )
 
     residual_started_at = perf_counter()
@@ -751,15 +750,64 @@ def solve_jax_linearized_newton_system(
     final_residual = _block(final_residual)
     residual_evaluation_count += 1
     residual_evaluation_seconds += perf_counter() - residual_started_at
-    return np.asarray(state, dtype=np.float64), ImplicitStepInfo(
+    return np.asarray(state, dtype=np.float64), _info(
         residual_inf_norm=float(jnp.max(jnp.abs(final_residual))),
-        active_shape=active_shape,
         nonlinear_iterations=int(max_nonlinear_iterations),
-        linear_iterations=total_linear_iterations,
-        residual_evaluation_count=residual_evaluation_count,
-        residual_evaluation_seconds=residual_evaluation_seconds,
-        jacobian_refresh_count=jacobian_refresh_count,
-        jacobian_assembly_seconds=jacobian_assembly_seconds,
-        linear_solve_seconds=linear_solve_seconds,
-        line_search_seconds=line_search_seconds,
     )
+
+
+def _resolve_jax_linear_solver_backend(name: str) -> str:
+    normalized = str(name).strip().lower().replace("-", "_")
+    aliases = {
+        "jax": "jax_gmres",
+        "jax_scipy": "jax_gmres",
+        "gmres": "jax_gmres",
+        "jax_gmres": "jax_gmres",
+        "lineax": "lineax_gmres",
+        "lineax_gmres": "lineax_gmres",
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported JAX linear solver backend {name!r}.") from exc
+
+
+def _solve_jax_linearized_update(
+    linear_map,
+    rhs,
+    *,
+    backend: str,
+    residual_tolerance: float,
+    linear_restart: int,
+    linear_maxiter: int,
+    jax_gmres,
+):
+    if backend == "jax_gmres":
+        update, _ = jax_gmres(
+            linear_map,
+            rhs,
+            tol=float(residual_tolerance),
+            atol=0.0,
+            restart=int(linear_restart),
+            maxiter=int(linear_maxiter),
+        )
+        return update
+    if backend == "lineax_gmres":
+        try:
+            import jax
+            import lineax as lx
+        except ImportError as exc:  # pragma: no cover - depends on optional local install
+            raise ImportError("Lineax GMRES requires the optional lineax package.") from exc
+
+        rhs_array = jax.numpy.asarray(rhs)
+        structure = jax.ShapeDtypeStruct(rhs_array.shape, rhs_array.dtype)
+        operator = lx.FunctionLinearOperator(linear_map, structure)
+        solver = lx.GMRES(
+            rtol=float(residual_tolerance),
+            atol=0.0,
+            restart=int(linear_restart),
+            max_steps=max(1, int(linear_restart) * int(linear_maxiter)),
+        )
+        solution = lx.linear_solve(operator, rhs_array, solver, throw=False)
+        return solution.value
+    raise ValueError(f"Unsupported JAX linear solver backend {backend!r}.")

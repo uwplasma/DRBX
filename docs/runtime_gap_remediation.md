@@ -209,6 +209,19 @@ for this host-backed residual.
 The stronger next step remains a JAX-transformable residual plus grouped
 JVP-based Jacobian products for the dominant recycling kernels.
 
+That residual path now has a concrete first production gate. A real hydrogen
+`1D-recycling` backward-Euler step with the fixed-layout residual reaches the
+JAX-linearized solver without crossing the previous species, sheath,
+charge-exchange, feedback, or RHS-pack host barriers. The gate is intentionally
+small-step so it proves transformability rather than a physical transient. The
+current cProfile/RSS/JAX-trace artifact for this gate lives under
+`docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/` and
+records residual `2.49e-12`, one JAX linearization refresh, one residual
+evaluation, and no fallback. The remaining runtime lane is to repeat the same
+barrier removal for the full adaptive BDF callback and for the D/T/He branch,
+then refresh the heavy cProfile/RSS/JAX-trace bundle before promoting grouped
+JVP or matrix-free solves as a default backend.
+
 The solver package now has the first production-tested piece of that JAX path:
 the grouped sparse-JVP Jacobian builder batches colored tangent pushes with
 `jax.vmap` after a single `jax.linearize` call. This is the correct derivative

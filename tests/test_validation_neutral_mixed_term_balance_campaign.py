@@ -68,11 +68,15 @@ def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_pa
 
     assert report["case_name"] == "neutral_mixed_one_step"
     assert report["field"] == "NVh"
+    assert report["active_x_indices"]
     assert report["final_momentum_error"]["max_abs"] == 0.0
     reference_terms = report["reference_balance"]["lineouts"]
     assert "parallel_inertia" in reference_terms
     assert "pressure_gradient" in reference_terms
     assert "residual_rate" in reference_terms
+    assert "pressure_gradient" in report["term_delta"]["lineouts"]
+    assert report["offender_register"]["native_minus_hermes_term_delta"][0]["target_adjacent_max_abs"] >= 0.0
+    assert report["offender_register"]["dominant_residual_cells"]
     assert report["reference_balance"]["term_metrics"]["residual_rate"]["max_abs"] >= 0.0
 
 
@@ -139,6 +143,11 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(t
     reconstruction = diagnostics["matched_reconstructions"]["pressure_gradient"]
     assert reconstruction["field_metrics"]["max_abs"] >= 0.0
     assert len(reconstruction["lineout"]) == len(report["active_y_indices"])
+    comparison = diagnostics["direct_comparisons"]["SNVh_pressure_gradient"]
+    assert "least_squares_scale_to_native_units" in comparison
+    assert np.isfinite(comparison["least_squares_scale_to_native_units"])
+    assert "scaled_difference_metrics" in comparison
+    assert len(comparison["scaled_direct_lineout"]) == len(report["active_y_indices"])
 
 
 def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(tmp_path: Path) -> None:

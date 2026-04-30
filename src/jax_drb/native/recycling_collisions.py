@@ -5,8 +5,10 @@ import math
 from typing import Any, Mapping
 
 import numpy as np
+import jax.numpy as jnp
 
 from ..config.boutinp import BoutConfig
+from .array_backend import use_jax_backend
 
 
 _QE = 1.602176634e-19
@@ -23,7 +25,9 @@ class IonParallelViscosityInputs:
 
 
 def electron_density(ions: tuple[Any, ...]) -> np.ndarray:
-    density = np.zeros_like(ions[0].density, dtype=np.float64)
+    use_jax = use_jax_backend(*(ion.density for ion in ions))
+    xp = jnp if use_jax else np
+    density = xp.zeros_like(ions[0].density, dtype=xp.float64)
     for ion in ions:
         density = density + ion.charge * ion.density
     return density
@@ -33,9 +37,11 @@ def prepared_electron_density(
     ions: tuple[Any, ...],
     prepared: Mapping[str, Any],
 ) -> np.ndarray:
-    density = np.zeros_like(prepared[ions[0].name].density, dtype=np.float64)
+    use_jax = use_jax_backend(*(prepared[ion.name].density for ion in ions))
+    xp = jnp if use_jax else np
+    density = xp.zeros_like(prepared[ions[0].name].density, dtype=xp.float64)
     for ion in ions:
-        density = density + ion.charge * np.asarray(prepared[ion.name].density, dtype=np.float64)
+        density = density + ion.charge * xp.asarray(prepared[ion.name].density, dtype=xp.float64)
     return density
 
 
@@ -47,6 +53,11 @@ def compute_collision_frequencies(
     dataset_scalars: Mapping[str, float],
 ) -> dict[tuple[str, str], np.ndarray]:
     collision_rates: dict[tuple[str, str], np.ndarray] = {}
+    use_jax = use_jax_backend(
+        *(state.density for state in prepared.values()),
+        *(state.temperature for state in prepared.values()),
+    )
+    xp = jnp if use_jax else np
     nnorm = float(dataset_scalars["Nnorm"])
     tnorm = float(dataset_scalars["Tnorm"])
     rho_s0 = float(dataset_scalars["rho_s0"])
@@ -64,19 +75,19 @@ def compute_collision_frequencies(
     ne_m3 = electron_state.density * nnorm
 
     if electron_electron:
-        te_limited = np.maximum(te_ev, 0.1)
-        ne_limited = np.maximum(ne_m3, 1.0e10)
-        log_te = np.log(te_limited)
-        coulomb_log = 30.4 - 0.5 * np.log(ne_limited) + 1.25 * log_te - np.sqrt(1.0e-5 + np.square(log_te - 2.0) / 16.0)
+        te_limited = xp.maximum(te_ev, 0.1)
+        ne_limited = xp.maximum(ne_m3, 1.0e10)
+        log_te = xp.log(te_limited)
+        coulomb_log = 30.4 - 0.5 * xp.log(ne_limited) + 1.25 * log_te - xp.sqrt(1.0e-5 + xp.square(log_te - 2.0) / 16.0)
         v1sq = 2.0 * te_limited * _QE / _ME
         nu_ee = (
             (_QE**4)
-            * np.maximum(ne_m3, 0.0)
-            * np.maximum(coulomb_log, 1.0)
+            * xp.maximum(ne_m3, 0.0)
+            * xp.maximum(coulomb_log, 1.0)
             * 2.0
-            / (3.0 * np.power(math.pi * 2.0 * v1sq, 1.5) * ((_EPS0 * _ME) ** 2))
+            / (3.0 * xp.power(math.pi * 2.0 * v1sq, 1.5) * ((_EPS0 * _ME) ** 2))
         )
-        collision_rates[("e", "e")] = np.asarray(nu_ee / omega_ci, dtype=np.float64)
+        collision_rates[("e", "e")] = xp.asarray(nu_ee / omega_ci, dtype=xp.float64)
 
     for species_name, sp in species.items():
         if not electron_ion or species_name == "e" or sp.charge <= 0.0:
@@ -88,23 +99,23 @@ def compute_collision_frequencies(
         ai = sp.atomic_mass
         me_mi = _ME / (_MP * ai)
 
-        te_limited = np.maximum(te_ev, 0.1)
-        ti_limited = np.maximum(ti_ev, 0.1)
-        ne_limited = np.maximum(ne_m3, 1.0e10)
-        ni_limited = np.maximum(ni_m3, 1.0e10)
+        te_limited = xp.maximum(te_ev, 0.1)
+        ti_limited = xp.maximum(ti_ev, 0.1)
+        ne_limited = xp.maximum(ne_m3, 1.0e10)
+        ni_limited = xp.maximum(ni_m3, 1.0e10)
         mask_very_low = (te_ev < 0.1) | (ni_m3 < 1.0e10) | (ne_m3 < 1.0e10)
         mask_low_te = te_ev < (ti_ev * me_mi)
         mask_mid_te = te_ev < (math.exp(2.0) * zi * zi)
-        coulomb_log = np.where(
+        coulomb_log = xp.where(
             mask_very_low,
             10.0,
-            np.where(
+            xp.where(
                 mask_low_te,
-                23.0 - 0.5 * np.log(ni_limited) + 1.5 * np.log(ti_limited) - np.log((zi * zi) * ai),
-                np.where(
+                23.0 - 0.5 * xp.log(ni_limited) + 1.5 * xp.log(ti_limited) - math.log((zi * zi) * ai),
+                xp.where(
                     mask_mid_te,
-                    30.0 - 0.5 * np.log(ne_limited) - np.log(zi) + 1.5 * np.log(te_limited),
-                    31.0 - 0.5 * np.log(ne_limited) + np.log(te_limited),
+                    30.0 - 0.5 * xp.log(ne_limited) - math.log(zi) + 1.5 * xp.log(te_limited),
+                    31.0 - 0.5 * xp.log(ne_limited) + xp.log(te_limited),
                 ),
             ),
         )
@@ -112,33 +123,33 @@ def compute_collision_frequencies(
         visq = 2.0 * ti_limited * _QE / (_MP * ai)
         nu_ei = (
             (((_QE * _QE) * zi) ** 2)
-            * np.maximum(ni_m3, 0.0)
-            * np.maximum(coulomb_log, 1.0)
+            * xp.maximum(ni_m3, 0.0)
+            * xp.maximum(coulomb_log, 1.0)
             * (1.0 + me_mi)
-            / (3.0 * np.power(math.pi * (vesq + visq), 1.5) * ((_EPS0 * _ME) ** 2))
+            / (3.0 * xp.power(math.pi * (vesq + visq), 1.5) * ((_EPS0 * _ME) ** 2))
         )
-        nu_ei = np.asarray(nu_ei / omega_ci, dtype=np.float64)
+        nu_ei = xp.asarray(nu_ei / omega_ci, dtype=xp.float64)
         collision_rates[("e", species_name)] = nu_ei
         collision_rates[(species_name, "e")] = (
             nu_ei
             * (electron.atomic_mass / sp.atomic_mass)
             * prepared["e"].density
-            / np.maximum(state.density, 1.0e-5)
+            / xp.maximum(state.density, 1.0e-5)
         )
 
     for neutral_name, neutral_species in species.items():
         if not electron_neutral or neutral_name == "e" or neutral_species.charge != 0.0:
             continue
         neutral_state = prepared[neutral_name]
-        vth_e = np.sqrt((_MP / _ME) * np.maximum(prepared["e"].temperature, 0.0))
+        vth_e = xp.sqrt((_MP / _ME) * xp.maximum(prepared["e"].temperature, 0.0))
         nu_en = vth_e * nnorm * neutral_state.density * 5.0e-19 * rho_s0
-        nu_en = np.asarray(nu_en, dtype=np.float64)
+        nu_en = xp.asarray(nu_en, dtype=xp.float64)
         collision_rates[("e", neutral_name)] = nu_en
         collision_rates[(neutral_name, "e")] = (
             nu_en
             * (electron.atomic_mass / neutral_species.atomic_mass)
             * prepared["e"].density
-            / np.maximum(neutral_state.density, 1.0e-5)
+            / xp.maximum(neutral_state.density, 1.0e-5)
         )
 
     names = tuple(sorted(name for name in species if name != "e"))
@@ -148,7 +159,7 @@ def compute_collision_frequencies(
         second_species = species[name2]
         first_state = prepared[name1]
         second_state = prepared[name2]
-        nu_12 = np.asarray(nu_12, dtype=np.float64)
+        nu_12 = xp.asarray(nu_12, dtype=xp.float64)
         collision_rates[(name1, name2)] = nu_12
         if name1 == name2:
             return
@@ -156,7 +167,7 @@ def compute_collision_frequencies(
             nu_12
             * (first_species.atomic_mass / second_species.atomic_mass)
             * first_state.density
-            / np.maximum(second_state.density, 1.0e-5)
+            / xp.maximum(second_state.density, 1.0e-5)
         )
 
     for index, first_name in enumerate(names):
@@ -183,29 +194,29 @@ def compute_collision_frequencies(
                     a2 = second_species.atomic_mass
                     m1 = a1 * _MP
                     m2 = a2 * _MP
-                    t1_limited = np.maximum(t1_ev, 0.1)
-                    t2_limited = np.maximum(t2_ev, 0.1)
-                    n1_limited = np.maximum(n1_m3, 1.0e10)
-                    n2_limited = np.maximum(n2_m3, 1.0e10)
-                    coulomb_log = 29.91 - np.log(
+                    t1_limited = xp.maximum(t1_ev, 0.1)
+                    t2_limited = xp.maximum(t2_ev, 0.1)
+                    n1_limited = xp.maximum(n1_m3, 1.0e10)
+                    n2_limited = xp.maximum(n2_m3, 1.0e10)
+                    coulomb_log = 29.91 - xp.log(
                         ((z1 * z2 * (a1 + a2)) / (a1 * t2_limited + a2 * t1_limited))
-                        * np.sqrt(n1_limited * (z1 * z1) / t1_limited + n2_limited * (z2 * z2) / t2_limited)
+                        * xp.sqrt(n1_limited * (z1 * z1) / t1_limited + n2_limited * (z2 * z2) / t2_limited)
                     )
                     v1sq = 2.0 * t1_limited * _QE / m1
                     v2sq = 2.0 * t2_limited * _QE / m2
                     nu_12 = (
                         (((z1 * _QE) * (z2 * _QE)) ** 2)
                         * n2_limited
-                        * np.maximum(coulomb_log, 1.0)
+                        * xp.maximum(coulomb_log, 1.0)
                         * (1.0 + (m1 / m2))
-                        / (3.0 * np.power(math.pi * (v1sq + v2sq), 1.5) * ((_EPS0 * m1) ** 2))
+                        / (3.0 * xp.power(math.pi * (v1sq + v2sq), 1.5) * ((_EPS0 * m1) ** 2))
                     )
                     collide(first_name, second_name, nu_12 / omega_ci)
                 else:
                     if not ion_neutral:
                         continue
-                    vrel = np.sqrt(
-                        np.maximum(
+                    vrel = xp.sqrt(
+                        xp.maximum(
                             first_state.temperature / first_species.atomic_mass
                             + second_state.temperature / second_species.atomic_mass,
                             0.0,
@@ -216,8 +227,8 @@ def compute_collision_frequencies(
                 if second_charged:
                     if not ion_neutral:
                         continue
-                    vrel = np.sqrt(
-                        np.maximum(
+                    vrel = xp.sqrt(
+                        xp.maximum(
                             first_state.temperature / first_species.atomic_mass
                             + second_state.temperature / second_species.atomic_mass,
                             0.0,
@@ -227,8 +238,8 @@ def compute_collision_frequencies(
                 else:
                     if not neutral_neutral:
                         continue
-                    vrel = np.sqrt(
-                        np.maximum(
+                    vrel = xp.sqrt(
+                        xp.maximum(
                             first_state.temperature / first_species.atomic_mass
                             + second_state.temperature / second_species.atomic_mass,
                             0.0,
@@ -246,16 +257,23 @@ def ion_parallel_viscosity_inputs(
     collision_rates: Mapping[tuple[str, str], np.ndarray],
     cx_rates: Mapping[str, np.ndarray],
 ) -> IonParallelViscosityInputs:
-    total_collisionality = np.zeros_like(prepared[species_name].density, dtype=np.float64)
+    use_jax = use_jax_backend(
+        prepared[species_name].density,
+        prepared[species_name].pressure,
+        *(collision_rates.values()),
+        *(cx_rates.values()),
+    )
+    xp = jnp if use_jax else np
+    total_collisionality = xp.zeros_like(prepared[species_name].density, dtype=xp.float64)
     for other_name in species:
         rate = collision_rates.get((species_name, other_name))
         if rate is not None:
             total_collisionality = total_collisionality + rate
     if species_name in cx_rates:
         total_collisionality = total_collisionality + cx_rates[species_name]
-    total_collisionality = np.maximum(total_collisionality, 1.0e-12)
+    total_collisionality = xp.maximum(total_collisionality, 1.0e-12)
     tau = 1.0 / total_collisionality
-    eta = 1.28 * np.asarray(prepared[species_name].pressure, dtype=np.float64) * tau
+    eta = 1.28 * xp.asarray(prepared[species_name].pressure, dtype=xp.float64) * tau
     return IonParallelViscosityInputs(
         total_collisionality=total_collisionality,
         tau=tau,

@@ -674,6 +674,28 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solve_seconds >= 0.0
 
 
+def test_jax_linearized_newton_solver_supports_lineax_gmres_backend() -> None:
+    pytest.importorskip("lineax")
+    jnp = pytest.importorskip("jax.numpy")
+
+    target = jnp.array([0.75, 1.25], dtype=jnp.float64)
+    initial = np.array([0.5, 1.0], dtype=np.float64)
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) - target,
+        initial,
+        active_shape=(2,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=4,
+        linear_solver_backend="lineax_gmres",
+    )
+
+    np.testing.assert_allclose(solution, np.asarray(target), rtol=1.0e-12, atol=1.0e-12)
+    assert info.residual_inf_norm < 1.0e-12
+    assert info.jacobian_mode == "jax_linearized:lineax_gmres"
+
+
 def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:
     pytest.importorskip("scipy")
 

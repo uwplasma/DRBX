@@ -9,6 +9,7 @@ from jax_drb.config.boutinp import load_bout_input
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import (
+    advance_recycling_1d_backward_euler_step,
     _build_recycling_runtime_model,
     _build_recycling_state_fields,
     _compute_recycling_1d_packed_rhs,
@@ -31,6 +32,7 @@ from jax_drb.runtime.run_config import RunConfiguration
 
 
 _DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
+_HYDROGEN_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
 
 
 def _dthe_context():
@@ -145,3 +147,41 @@ def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
         rtol=1.0e-12,
         atol=1.0e-12,
     )
+
+
+def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_barrier() -> None:
+    pytest.importorskip("jax")
+    if not _HYDROGEN_INPUT.exists():
+        pytest.skip("Hermès hydrogen recycling reference deck is not available.")
+    config = load_bout_input(_HYDROGEN_INPUT)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(
+        config,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+    )
+    fields = _build_recycling_state_fields(runtime_model)
+    feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+
+    _, _, info = advance_recycling_1d_backward_euler_step(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-6,
+        solver_mode="jax_linearized",
+        residual_tolerance=1.0e-6,
+        max_nonlinear_iterations=1,
+    )
+
+    assert info.residual_inf_norm < 1.0e-8
+    assert info.diagnostics["jacobian_refresh_count"] == 1
+    assert info.diagnostics["jacobian_assembly_seconds"] >= 0.0
+    assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"

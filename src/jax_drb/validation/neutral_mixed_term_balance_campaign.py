@@ -191,15 +191,20 @@ def build_neutral_mixed_term_balance_campaign_report(
         timestep=timestep,
     )
 
+    active_x = slice(mesh.xstart, mesh.xend + 1)
     active_y = slice(mesh.ystart, mesh.yend + 1)
-    final_error = np.asarray(native_final.momentum[:, active_y, :] - reference_final.momentum[:, active_y, :], dtype=np.float64)
-    worst_x, worst_y_active, worst_z = np.unravel_index(np.argmax(np.abs(final_error)), final_error.shape)
+    final_error = np.asarray(
+        native_final.momentum[active_x, active_y, :] - reference_final.momentum[active_x, active_y, :],
+        dtype=np.float64,
+    )
+    worst_x_active, worst_y_active, worst_z = np.unravel_index(np.argmax(np.abs(final_error)), final_error.shape)
+    worst_x = int(mesh.xstart + worst_x_active)
     worst_y = int(mesh.ystart + worst_y_active)
-    line_x = int(worst_x)
+    line_x = worst_x
     line_z = int(worst_z)
+    x_indices = np.arange(mesh.xstart, mesh.xend + 1, dtype=np.int32)
     y_indices = np.arange(mesh.ystart, mesh.yend + 1, dtype=np.int32)
-    reference_residual_active = np.asarray(reference_balance["residual_rate"][:, active_y, :], dtype=np.float64)
-    native_residual_active = np.asarray(native_balance["residual_rate"][:, active_y, :], dtype=np.float64)
+    target_y_indices = _target_adjacent_y_indices(mesh)
 
     report: dict[str, object] = {
         "case_name": case_name,
@@ -208,6 +213,7 @@ def build_neutral_mixed_term_balance_campaign_report(
         "reference_arrays_npz": _sanitize_public_path(reference_npz),
         "timestep": timestep,
         "field": "NVh",
+        "active_x_indices": x_indices.tolist(),
         "active_y_indices": y_indices.tolist(),
         "lineout_x_index": line_x,
         "lineout_z_index": line_z,
@@ -219,10 +225,65 @@ def build_neutral_mixed_term_balance_campaign_report(
         "final_momentum_error": {
             "max_abs": float(np.max(np.abs(final_error))),
             "rms": _rms(final_error),
-            "lineout": final_error[line_x, :, line_z].tolist(),
+            "lineout": final_error[worst_x_active, :, line_z].tolist(),
         },
-        "native_balance": _balance_payload(native_balance, active_y=active_y, line_x=line_x, line_z=line_z),
-        "reference_balance": _balance_payload(reference_balance, active_y=active_y, line_x=line_x, line_z=line_z),
+        "native_balance": _balance_payload(
+            native_balance,
+            active_x=active_x,
+            active_y=active_y,
+            line_x=line_x,
+            line_z=line_z,
+        ),
+        "reference_balance": _balance_payload(
+            reference_balance,
+            active_x=active_x,
+            active_y=active_y,
+            line_x=line_x,
+            line_z=line_z,
+        ),
+        "term_delta": _term_delta_payload(
+            native_balance,
+            reference_balance,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        ),
+        "offender_register": {
+            "target_y_indices": list(target_y_indices),
+            "native_final_residual_rate": _ranked_term_metrics(
+                native_balance,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+            ),
+            "hermes_final_residual_rate": _ranked_term_metrics(
+                reference_balance,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+            ),
+            "native_minus_hermes_term_delta": _ranked_term_delta_metrics(
+                native_balance,
+                reference_balance,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+            ),
+            "dominant_residual_cells": _dominant_residual_cells(
+                reference_balance,
+                active_x=active_x,
+                active_y=active_y,
+                count=6,
+            ),
+            "interpretation": (
+                "The ranked target-adjacent register separates large physical terms from terms whose "
+                "native-vs-reference final-state delta is largest. A pressure-gradient or viscosity "
+                "entry near the top is therefore a concrete parity target rather than an aggregate "
+                "NVh mismatch."
+            ),
+        },
         "interpretation": {
             "balance_form": "backward_euler_rate_residual = (NVh_final - NVh_initial) / dt - native_rhs_terms(NVh_final)",
             "diagnostic_role": (
@@ -236,6 +297,7 @@ def build_neutral_mixed_term_balance_campaign_report(
     if hermes_diagnostic_nc is not None:
         report["hermes_diagnostic_outputs"] = _hermes_diagnostic_payload(
             hermes_diagnostic_nc,
+            active_x=active_x,
             active_y=active_y,
             line_x=line_x,
             line_z=line_z,
@@ -266,7 +328,7 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         "parallel_viscosity": "#ca6702",
         "perpendicular_viscosity": "#ee9b00",
     }
-    figure, axes = plt.subplots(2, 2, figsize=(14.2, 9.0), constrained_layout=True)
+    figure, axes = plt.subplots(2, 3, figsize=(16.8, 9.2), constrained_layout=True)
 
     error = np.asarray(report["final_momentum_error"]["lineout"], dtype=np.float64)
     axes[0, 0].plot(y, error, color="#9b2226", linewidth=2.2)
@@ -338,6 +400,69 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         grid="y",
     )
     annotate_bars(axes[1, 1], x, np.maximum(values, 1.0e-16), fmt="{:.1e}", fontsize=7.8)
+
+    delta = report.get("term_delta", {})
+    delta_metrics = delta.get("term_metrics", {}) if isinstance(delta, dict) else {}
+    delta_values = np.asarray(
+        [float(delta_metrics.get(name, {}).get("target_adjacent_max_abs", 0.0)) for name in term_order[1:]],
+        dtype=np.float64,
+    )
+    axes[0, 2].bar(x, np.maximum(delta_values, 1.0e-16), color=[colors[name] for name in term_order[1:]])
+    axes[0, 2].set_xticks(x, bar_labels)
+    style_axis(
+        axes[0, 2],
+        title="Target-adjacent |native - Hermès| term delta",
+        ylabel="max absolute delta",
+        yscale="log",
+        grid="y",
+    )
+    annotate_bars(axes[0, 2], x, np.maximum(delta_values, 1.0e-16), fmt="{:.1e}", fontsize=7.5)
+
+    diagnostics = report.get("hermes_diagnostic_outputs", {})
+    direct_comparisons = diagnostics.get("direct_comparisons", {}) if isinstance(diagnostics, dict) else {}
+    pressure_direct = direct_comparisons.get("SNVh_pressure_gradient", {}) if isinstance(direct_comparisons, dict) else {}
+    if isinstance(pressure_direct, dict) and "scaled_direct_lineout" in pressure_direct:
+        axes[1, 2].plot(
+            y,
+            np.asarray(pressure_direct["matched_reconstruction_lineout"], dtype=np.float64),
+            color=colors["pressure_gradient"],
+            linewidth=2.0,
+            label="matched native -Grad_par(Pn)",
+        )
+        axes[1, 2].plot(
+            y,
+            np.asarray(pressure_direct["scaled_direct_lineout"], dtype=np.float64),
+            color="#005f73",
+            linewidth=1.8,
+            linestyle="--",
+            label="scaled direct reference diagnostic",
+        )
+        style_axis(
+            axes[1, 2],
+            title="Direct pressure-gradient diagnostic check",
+            xlabel="parallel index",
+            ylabel="native-normalized term",
+            grid="both",
+        )
+        axes[1, 2].legend(frameon=False, fontsize=7.8)
+    else:
+        for name in ("pressure_gradient", "parallel_viscosity", "perpendicular_viscosity"):
+            if isinstance(delta, dict) and name in delta.get("lineouts", {}):
+                axes[1, 2].plot(
+                    y,
+                    np.asarray(delta["lineouts"][name], dtype=np.float64),
+                    linewidth=1.8,
+                    color=colors[name],
+                    label=name.replace("_", " "),
+                )
+        style_axis(
+            axes[1, 2],
+            title="Native - Hermès final-state term deltas",
+            xlabel="parallel index",
+            ylabel="term delta",
+            grid="both",
+        )
+        axes[1, 2].legend(frameon=False, fontsize=7.8)
 
     figure.suptitle(
         "Neutral mixed NVh term-balance audit",
@@ -429,6 +554,7 @@ def _momentum_balance(
 def _balance_payload(
     balance: dict[str, np.ndarray],
     *,
+    active_x: slice,
     active_y: slice,
     line_x: int,
     line_z: int,
@@ -436,13 +562,154 @@ def _balance_payload(
     payload = {"lineouts": {}, "term_metrics": {}}
     for name, value in balance.items():
         array = np.asarray(value, dtype=np.float64)
-        active = array[:, active_y, :]
+        active = array[active_x, active_y, :]
         payload["lineouts"][name] = array[line_x, active_y, line_z].tolist()
         payload["term_metrics"][name] = {
             "max_abs": float(np.max(np.abs(active))),
             "rms": _rms(active),
         }
     return payload
+
+
+def _target_adjacent_y_indices(mesh) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            {
+                int(mesh.ystart),
+                int(min(mesh.ystart + 1, mesh.yend)),
+                int(max(mesh.yend - 1, mesh.ystart)),
+                int(mesh.yend),
+            }
+        )
+    )
+
+
+def _diagnostic_term_names(balance: dict[str, np.ndarray]) -> tuple[str, ...]:
+    preferred = (
+        "time_derivative",
+        "parallel_inertia",
+        "pressure_gradient",
+        "perpendicular_diffusion",
+        "parallel_viscosity",
+        "perpendicular_viscosity",
+        "rhs_sum",
+        "residual_rate",
+    )
+    return tuple(name for name in preferred if name in balance)
+
+
+def _array_metrics(array: np.ndarray) -> dict[str, float]:
+    value = np.asarray(array, dtype=np.float64)
+    return {
+        "max_abs": float(np.max(np.abs(value))) if value.size else 0.0,
+        "rms": _rms(value) if value.size else 0.0,
+    }
+
+
+def _target_offsets(active_y: slice, target_y_indices: tuple[int, ...]) -> np.ndarray:
+    active_indices = np.arange(active_y.start, active_y.stop, dtype=np.int32)
+    return np.flatnonzero(np.isin(active_indices, np.asarray(target_y_indices, dtype=np.int32)))
+
+
+def _ranked_term_metrics(
+    balance: dict[str, np.ndarray],
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+) -> list[dict[str, object]]:
+    target_offsets = _target_offsets(active_y, target_y_indices)
+    ranked: list[dict[str, object]] = []
+    for name in _diagnostic_term_names(balance):
+        active = np.asarray(balance[name], dtype=np.float64)[active_x, active_y, :]
+        target = active[:, target_offsets, :] if target_offsets.size else active
+        metrics = _array_metrics(active)
+        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
+        ranked.append({"term": name, **metrics})
+    return sorted(ranked, key=lambda item: float(item["target_adjacent_max_abs"]), reverse=True)
+
+
+def _ranked_term_delta_metrics(
+    native_balance: dict[str, np.ndarray],
+    reference_balance: dict[str, np.ndarray],
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+) -> list[dict[str, object]]:
+    target_offsets = _target_offsets(active_y, target_y_indices)
+    ranked: list[dict[str, object]] = []
+    for name in _diagnostic_term_names(reference_balance):
+        if name not in native_balance:
+            continue
+        delta = np.asarray(native_balance[name], dtype=np.float64) - np.asarray(reference_balance[name], dtype=np.float64)
+        active = delta[active_x, active_y, :]
+        target = active[:, target_offsets, :] if target_offsets.size else active
+        metrics = _array_metrics(active)
+        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
+        ranked.append({"term": name, **metrics})
+    return sorted(ranked, key=lambda item: float(item["target_adjacent_max_abs"]), reverse=True)
+
+
+def _term_delta_payload(
+    native_balance: dict[str, np.ndarray],
+    reference_balance: dict[str, np.ndarray],
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    payload: dict[str, object] = {"lineouts": {}, "term_metrics": {}}
+    target_offsets = _target_offsets(active_y, target_y_indices)
+    for name in _diagnostic_term_names(reference_balance):
+        if name not in native_balance:
+            continue
+        delta = np.asarray(native_balance[name], dtype=np.float64) - np.asarray(reference_balance[name], dtype=np.float64)
+        active = delta[active_x, active_y, :]
+        target = active[:, target_offsets, :] if target_offsets.size else active
+        metrics = _array_metrics(active)
+        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
+        payload["lineouts"][name] = delta[line_x, active_y, line_z].tolist()
+        payload["term_metrics"][name] = metrics
+    return payload
+
+
+def _dominant_residual_cells(
+    balance: dict[str, np.ndarray],
+    *,
+    active_x: slice,
+    active_y: slice,
+    count: int,
+) -> list[dict[str, object]]:
+    residual = np.asarray(balance["residual_rate"][active_x, active_y, :], dtype=np.float64)
+    flat_count = min(int(count), residual.size)
+    if flat_count == 0:
+        return []
+    flat_indices = np.argpartition(np.abs(residual).ravel(), -flat_count)[-flat_count:]
+    flat_indices = flat_indices[np.argsort(np.abs(residual).ravel()[flat_indices])[::-1]]
+    terms = tuple(name for name in _diagnostic_term_names(balance) if name != "rhs_sum")
+    cells: list[dict[str, object]] = []
+    for flat_index in flat_indices:
+        x_offset, y_offset, z = np.unravel_index(int(flat_index), residual.shape)
+        x = int(active_x.start + x_offset)
+        y = int(active_y.start + y_offset)
+        cells.append(
+            {
+                "x": x,
+                "y": y,
+                "z": int(z),
+                "terms": {
+                    name: float(np.asarray(balance[name], dtype=np.float64)[x, y, z])
+                    for name in terms
+                },
+            }
+        )
+    return cells
 
 
 def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: str | Path) -> Path:
@@ -455,6 +722,10 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
     for group_name in ("native_balance", "reference_balance"):
         for term_name, lineout in report[group_name]["lineouts"].items():
             arrays[f"{group_name}_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
+    term_delta = report.get("term_delta")
+    if isinstance(term_delta, dict):
+        for term_name, lineout in term_delta.get("lineouts", {}).items():
+            arrays[f"term_delta_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
     diagnostics = report.get("hermes_diagnostic_outputs")
     if isinstance(diagnostics, dict):
         lineouts = diagnostics.get("lineouts", {})
@@ -469,6 +740,17 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
                         reconstruction["lineout"],
                         dtype=np.float64,
                     )
+        direct_comparisons = diagnostics.get("direct_comparisons", {})
+        if isinstance(direct_comparisons, dict):
+            for term_name, comparison in direct_comparisons.items():
+                if not isinstance(comparison, dict):
+                    continue
+                for line_name in ("matched_reconstruction_lineout", "scaled_direct_lineout", "scaled_difference_lineout"):
+                    if line_name in comparison:
+                        arrays[f"hermes_direct_comparison_{term_name}_{line_name}"] = np.asarray(
+                            comparison[line_name],
+                            dtype=np.float64,
+                        )
     np.savez(target, **arrays)
     return target
 
@@ -476,6 +758,7 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
 def _hermes_diagnostic_payload(
     path: str | Path,
     *,
+    active_x: slice,
     active_y: slice,
     line_x: int,
     line_z: int,
@@ -502,6 +785,7 @@ def _hermes_diagnostic_payload(
         "lineouts": {},
         "field_metrics": {},
         "matched_reconstructions": {},
+        "direct_comparisons": {},
         "variables_present": [],
         "variables_missing": [],
         "interpretation": {
@@ -523,9 +807,10 @@ def _hermes_diagnostic_payload(
             ),
         },
     }
+    direct_pressure_gradient: np.ndarray | None = None
     if matched_pressure_gradient is not None:
         pressure_gradient = np.asarray(matched_pressure_gradient, dtype=np.float64)
-        active = pressure_gradient[:, active_y, :]
+        active = pressure_gradient[active_x, active_y, :]
         payload["matched_reconstructions"]["pressure_gradient"] = {
             "source": "matched postprocessed reconstruction of Hermès final Ph through native -Grad_par(Pn) term",
             "lineout": pressure_gradient[line_x, active_y, line_z].tolist(),
@@ -545,13 +830,36 @@ def _hermes_diagnostic_payload(
                 payload["variables_missing"].append(name)
                 continue
             data = np.asarray(dataset.variables[name][-1], dtype=np.float64)
-            active = data[:, active_y, :]
+            active = data[active_x, active_y, :]
             payload["variables_present"].append(name)
             payload["lineouts"][name] = data[line_x, active_y, line_z].tolist()
             payload["field_metrics"][name] = {
                 "max_abs": float(np.max(np.abs(active))),
                 "rms": _rms(active),
             }
+            if name == "SNVh_pressure_gradient":
+                direct_pressure_gradient = data
+    if direct_pressure_gradient is not None and matched_pressure_gradient is not None:
+        matched = np.asarray(matched_pressure_gradient, dtype=np.float64)
+        direct = np.asarray(direct_pressure_gradient, dtype=np.float64)
+        matched_active = matched[active_x, active_y, :]
+        direct_active = direct[active_x, active_y, :]
+        denominator = float(np.sum(np.square(direct_active)))
+        scale = float(np.sum(matched_active * direct_active) / denominator) if denominator > 0.0 else 0.0
+        scaled_direct = scale * direct
+        difference = scaled_direct - matched
+        active_difference = difference[active_x, active_y, :]
+        payload["direct_comparisons"]["SNVh_pressure_gradient"] = {
+            "comparison": "least-squares scale of direct written reference -Grad_par(Pn) diagnostic to native-normalized matched reconstruction",
+            "least_squares_scale_to_native_units": scale,
+            "scaled_difference_metrics": {
+                "max_abs": float(np.max(np.abs(active_difference))),
+                "rms": _rms(active_difference),
+            },
+            "matched_reconstruction_lineout": matched[line_x, active_y, line_z].tolist(),
+            "scaled_direct_lineout": scaled_direct[line_x, active_y, line_z].tolist(),
+            "scaled_difference_lineout": difference[line_x, active_y, line_z].tolist(),
+        }
     return payload
 
 

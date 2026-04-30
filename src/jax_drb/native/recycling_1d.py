@@ -427,8 +427,17 @@ def _compute_recycling_1d_rhs_from_species(
     for ion in ions:
         momentum_source[ion.name] = electron_force_terms.ion_momentum_source[ion.name]
     electron_epar = electron_force_terms.epar
-    diagnostics["Epar"] = np.asarray(electron_force_terms.epar, dtype=np.float64)
-    diagnostics["Ve"] = np.asarray(electron_boundary.velocity, dtype=np.float64)
+    use_jax_rhs = use_jax_backend(
+        electron_boundary.velocity,
+        electron_force_terms.epar,
+        *(prepared[name].temperature for name in prepared),
+    )
+    rhs_array = jnp.asarray if use_jax_rhs else np.asarray
+    rhs_dtype = jnp.float64 if use_jax_rhs else np.float64
+    rhs_maximum = jnp.maximum if use_jax_rhs else np.maximum
+    rhs_sqrt = jnp.sqrt if use_jax_rhs else np.sqrt
+    diagnostics["Epar"] = rhs_array(electron_force_terms.epar, dtype=rhs_dtype)
+    diagnostics["Ve"] = rhs_array(electron_boundary.velocity, dtype=rhs_dtype)
 
     variables: dict[str, np.ndarray] = {}
     variables[electron.density_name] = prepared["e"].density[None, ...]
@@ -436,7 +445,7 @@ def _compute_recycling_1d_rhs_from_species(
     for ion in ions:
         ion_state = prepared[ion.name]
         temperature = ion_state.temperature
-        fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / ion.atomic_mass)
+        fastest_wave = rhs_sqrt(rhs_maximum(temperature, 0.0) / ion.atomic_mass)
         explicit_pressure_source = pressure_sources.get(ion.name)
         if explicit_pressure_source is None:
             explicit_pressure_source = _explicit_pressure_source(
@@ -467,8 +476,8 @@ def _compute_recycling_1d_rhs_from_species(
         variables[f"ddt({ion.pressure_name})"] = ion_rhs_terms.pressure_total[None, ...]
         variables[f"ddt({ion.momentum_name})"] = ion_rhs_terms.momentum_total[None, ...]
 
-    electron_velocity = np.asarray(electron_boundary.velocity, dtype=np.float64)
-    electron_fastest_wave = np.sqrt(np.maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
+    electron_velocity = rhs_array(electron_boundary.velocity, dtype=rhs_dtype)
+    electron_fastest_wave = rhs_sqrt(rhs_maximum(prepared["e"].temperature, 0.0) / electron.atomic_mass)
     electron_explicit_pressure_source = pressure_sources.get("e")
     if electron_explicit_pressure_source is None:
         electron_explicit_pressure_source = _explicit_pressure_source(
@@ -492,7 +501,7 @@ def _compute_recycling_1d_rhs_from_species(
     for neutral in neutrals:
         neutral_state = prepared[neutral.name]
         temperature = neutral_state.temperature
-        fastest_wave = np.sqrt(np.maximum(temperature, 0.0) / neutral.atomic_mass)
+        fastest_wave = rhs_sqrt(rhs_maximum(temperature, 0.0) / neutral.atomic_mass)
         neutral_explicit_pressure_source = pressure_sources.get(neutral.name)
         if neutral_explicit_pressure_source is None:
             neutral_explicit_pressure_source = _explicit_pressure_source(
@@ -897,36 +906,46 @@ def _apply_upstream_density_feedback(
     feedback_previous_errors: dict[str, float] | None = None,
     feedback_timestep: float | None = None,
 ) -> _DensityFeedbackTerms:
-    density_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
-    energy_source = {name: np.zeros_like(sp.density, dtype=np.float64) for name, sp in species.items()}
+    use_jax = use_jax_backend(
+        *(sp.density for sp in species.values()),
+        *(state.density for state in prepared.values()),
+        *((feedback_integrals or {}).values()),
+    )
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    zeros_like = jnp.zeros_like if use_jax else np.zeros_like
+    maximum = jnp.maximum if use_jax else np.maximum
+    square = jnp.square if use_jax else np.square
+    density_source = {name: zeros_like(sp.density, dtype=dtype) for name, sp in species.items()}
+    energy_source = {name: zeros_like(sp.density, dtype=dtype) for name, sp in species.items()}
     diagnostics: dict[str, np.ndarray] = {}
     integral_rhs: dict[str, float] = {}
     integrals = feedback_integrals or {}
 
     for name, controller in controllers.items():
-        upstream_density = float(prepared[name].density[mesh.xstart, mesh.ystart, 0])
+        upstream_density = array(prepared[name].density, dtype=dtype)[mesh.xstart, mesh.ystart, 0]
         error = controller.density_upstream - upstream_density
-        stored_integral = float(integrals.get(name, 0.0))
+        stored_integral = array(integrals.get(name, 0.0), dtype=dtype)
         integrated_error = stored_integral
         if feedback_timestep is not None:
-            previous_error = error if feedback_previous_errors is None else float(feedback_previous_errors.get(name, error))
+            previous_error = error if feedback_previous_errors is None else array(feedback_previous_errors.get(name, error), dtype=dtype)
             integrated_error = stored_integral + float(feedback_timestep) * 0.5 * (error + previous_error)
-        if controller.density_integral_positive and integrated_error < 0.0:
-            integrated_error = 0.0
+        if controller.density_integral_positive:
+            integrated_error = maximum(integrated_error, 0.0)
         proportional_term = controller.density_controller_p * error
         integral_term = controller.density_controller_i * integrated_error
         source_multiplier = proportional_term + integral_term
-        if controller.density_source_positive and source_multiplier < 0.0:
-            source_multiplier = 0.0
-        source = source_multiplier * controller.density_source_shape
+        if controller.density_source_positive:
+            source_multiplier = maximum(source_multiplier, 0.0)
+        source = source_multiplier * array(controller.density_source_shape, dtype=dtype)
         density_source[name] += source
-        velocity = np.asarray(prepared[name].velocity, dtype=np.float64)
-        energy_source[name] += 0.5 * species[name].atomic_mass * np.square(velocity) * source
-        diagnostics[f"S{name}_feedback"] = np.asarray(source, dtype=np.float64)
-        diagnostics[f"density_feedback_src_mult_{name}"] = np.asarray(source_multiplier, dtype=np.float64)
-        diagnostics[f"density_feedback_src_p_{name}"] = np.asarray(proportional_term, dtype=np.float64)
-        diagnostics[f"density_feedback_src_i_{name}"] = np.asarray(integral_term, dtype=np.float64)
-        diagnostics[f"density_feedback_src_shape_{name}"] = np.asarray(controller.density_source_shape, dtype=np.float64)
+        velocity = array(prepared[name].velocity, dtype=dtype)
+        energy_source[name] += 0.5 * species[name].atomic_mass * square(velocity) * source
+        diagnostics[f"S{name}_feedback"] = array(source, dtype=dtype)
+        diagnostics[f"density_feedback_src_mult_{name}"] = array(source_multiplier, dtype=dtype)
+        diagnostics[f"density_feedback_src_p_{name}"] = array(proportional_term, dtype=dtype)
+        diagnostics[f"density_feedback_src_i_{name}"] = array(integral_term, dtype=dtype)
+        diagnostics[f"density_feedback_src_shape_{name}"] = array(controller.density_source_shape, dtype=dtype)
         integral_rhs[name] = error
 
     return _DensityFeedbackTerms(
@@ -949,33 +968,63 @@ def _apply_ion_sheath_boundary(
     full_settings: _FullSheathSettings | None = None,
 ) -> _IonBoundaryResult:
     te = _safe_temperature(electron_pressure, electron_density, electron_density_floor)
-    dx = np.asarray(metrics.dx, dtype=np.float64)
-    dz = np.asarray(metrics.dz, dtype=np.float64)
-    g22 = np.asarray(metrics.g_22, dtype=np.float64)
-    dy = np.asarray(metrics.dy, dtype=np.float64)
-    J = np.asarray(metrics.J, dtype=np.float64)
+    use_jax = use_jax_backend(
+        electron_pressure,
+        electron_density,
+        te,
+        *(ion.density for ion in ions),
+        *(ion.pressure for ion in ions),
+        *(ion.momentum for ion in ions),
+    )
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    zeros_like = jnp.zeros_like if use_jax else np.zeros_like
+    maximum = jnp.maximum if use_jax else np.maximum
+    sqrt = jnp.sqrt if use_jax else np.sqrt
+    dx = array(metrics.dx, dtype=dtype)
+    dz = array(metrics.dz, dtype=dtype)
+    g22 = array(metrics.g_22, dtype=dtype)
+    dy = array(metrics.dy, dtype=dtype)
+    J = array(metrics.J, dtype=dtype)
+    te = array(te, dtype=dtype)
     boundary_density: dict[str, np.ndarray] = {}
     boundary_pressure: dict[str, np.ndarray] = {}
     boundary_temperature: dict[str, np.ndarray] = {}
     velocity: dict[str, np.ndarray] = {}
     momentum: dict[str, np.ndarray] = {}
-    energy_source: dict[str, np.ndarray] = {ion.name: np.zeros_like(ion.density, dtype=np.float64) for ion in ions}
+    energy_source: dict[str, np.ndarray] = {ion.name: zeros_like(ion.density, dtype=dtype) for ion in ions}
+
+    def _copy_field(value):
+        field = array(value, dtype=dtype)
+        return field if use_jax else np.array(field, dtype=np.float64, copy=True)
+
+    def _set_y(field, j: int, value):
+        if use_jax:
+            return field.at[:, j, :].set(array(value, dtype=dtype))
+        field[:, j, :] = np.asarray(value, dtype=np.float64)
+        return field
+
+    def _add_y(field, j: int, value):
+        if use_jax:
+            return field.at[:, j, :].add(array(value, dtype=dtype))
+        field[:, j, :] += np.asarray(value, dtype=np.float64)
+        return field
 
     for ion in ions:
-        density = ion.density.copy()
-        pressure = ion.pressure.copy()
+        density = _copy_field(ion.density)
+        pressure = _copy_field(ion.pressure)
         temperature = _safe_temperature(pressure, density, ion.density_floor)
-        vel = ion.momentum / np.maximum(
+        vel = array(ion.momentum, dtype=dtype) / maximum(
             ion.atomic_mass * _soft_floor(density, ion.density_floor),
             1.0e-8,
         )
         if ion.noflow_lower_y:
-            density = np.array(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
-            temperature = np.array(apply_noflow_scalar_guards(temperature, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
-            pressure = np.array(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
-            vel = np.array(apply_noflow_flow_guards(vel, mesh=mesh, lower_y=True, upper_y=False), dtype=np.float64, copy=True)
+            density = _copy_field(apply_noflow_scalar_guards(density, mesh=mesh, lower_y=True, upper_y=False))
+            temperature = _copy_field(apply_noflow_scalar_guards(temperature, mesh=mesh, lower_y=True, upper_y=False))
+            pressure = _copy_field(apply_noflow_scalar_guards(pressure, mesh=mesh, lower_y=True, upper_y=False))
+            vel = _copy_field(apply_noflow_flow_guards(vel, mesh=mesh, lower_y=True, upper_y=False))
 
-        momentum_field = ion.momentum.copy()
+        momentum_field = _copy_field(ion.momentum)
         lower_y_enabled = (
             simple_settings.lower_y
             if simple_settings is not None
@@ -993,33 +1042,36 @@ def _apply_ion_sheath_boundary(
             jm = j - 1
             ni_i = density[:, j, :]
             ni_m = density[:, jm, :]
-            density[:, jp, :] = np.asarray(
+            density = _set_y(
+                density,
+                jp,
                 limit_free(ni_m, ni_i, 0.0 if simple_settings is None else simple_settings.density_boundary_mode),
-                dtype=np.float64,
             )
-            temperature[:, jp, :] = np.asarray(
+            temperature = _set_y(
+                temperature,
+                jp,
                 limit_free(
                     temperature[:, jm, :],
                     temperature[:, j, :],
                     0.0 if simple_settings is None else simple_settings.temperature_boundary_mode,
                 ),
-                dtype=np.float64,
             )
-            pressure[:, jp, :] = np.asarray(
+            pressure = _set_y(
+                pressure,
+                jp,
                 limit_free(
                     pressure[:, jm, :],
                     pressure[:, j, :],
                     0.0 if simple_settings is None else simple_settings.pressure_boundary_mode,
                 ),
-                dtype=np.float64,
             )
 
             nisheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-            tesheath = np.maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
-            tisheath = np.maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
+            tesheath = maximum(0.5 * (te[:, jp, :] + te[:, j, :]) if jp < te.shape[1] else 0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
+            tisheath = maximum(0.5 * (temperature[:, jp, :] + temperature[:, j, :]), 1.0e-5)
             if simple_settings is not None:
                 da = (
-                    (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :]))
+                    (J[:, j, :] + J[:, jp, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :]))
                     * 0.5
                     * (dx[:, j, :] + dx[:, jp, :])
                     * 0.5
@@ -1038,11 +1090,11 @@ def _apply_ion_sheath_boundary(
                     sheath_ion_polytropic=simple_settings.sheath_ion_polytropic,
                     direction=1.0,
                     no_flow=simple_settings.no_flow,
-                    source_scale=da / np.maximum(dv, 1.0e-30),
+                    source_scale=da / maximum(dv, 1.0e-30),
                 )
-                vel[:, jp, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
-                momentum_field[:, jp, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
-                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
+                vel = _set_y(vel, jp, sheath.guard_velocity)
+                momentum_field = _set_y(momentum_field, jp, sheath.guard_momentum)
+                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
             else:
                 nesheath = (
                     0.5 * (electron_density[:, jp, :] + electron_density[:, j, :])
@@ -1051,7 +1103,7 @@ def _apply_ion_sheath_boundary(
                 )
                 grad_ne = electron_density[:, j, :] - nesheath
                 grad_ni = density[:, j, :] - nisheath
-                source_scale = (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :])) / (
+                source_scale = (J[:, j, :] + J[:, jp, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :])) / (
                     dy[:, j, :] * J[:, j, :]
                 )
                 sheath = compute_full_ion_sheath_boundary(
@@ -1068,9 +1120,9 @@ def _apply_ion_sheath_boundary(
                     direction=1.0,
                     source_scale=source_scale,
                 )
-                vel[:, jp, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
-                momentum_field[:, jp, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
-                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
+                vel = _set_y(vel, jp, sheath.guard_velocity)
+                momentum_field = _set_y(momentum_field, jp, sheath.guard_momentum)
+                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
 
         if mesh.has_lower_y_target and lower_y_enabled:
             j = mesh.ystart
@@ -1078,33 +1130,36 @@ def _apply_ion_sheath_boundary(
             jp = j + 1
             ni_i = density[:, j, :]
             ni_p = density[:, jp, :]
-            density[:, jm, :] = np.asarray(
+            density = _set_y(
+                density,
+                jm,
                 limit_free(ni_p, ni_i, 0.0 if simple_settings is None else simple_settings.density_boundary_mode),
-                dtype=np.float64,
             )
-            temperature[:, jm, :] = np.asarray(
+            temperature = _set_y(
+                temperature,
+                jm,
                 limit_free(
                     temperature[:, jp, :],
                     temperature[:, j, :],
                     0.0 if simple_settings is None else simple_settings.temperature_boundary_mode,
                 ),
-                dtype=np.float64,
             )
-            pressure[:, jm, :] = np.asarray(
+            pressure = _set_y(
+                pressure,
+                jm,
                 limit_free(
                     pressure[:, jp, :],
                     pressure[:, j, :],
                     0.0 if simple_settings is None else simple_settings.pressure_boundary_mode,
                 ),
-                dtype=np.float64,
             )
 
             nisheath = 0.5 * (density[:, jm, :] + density[:, j, :])
-            tesheath = np.maximum(0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
-            tisheath = np.maximum(0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5)
+            tesheath = maximum(0.5 * (te[:, jm, :] + te[:, j, :]), 1.0e-5)
+            tisheath = maximum(0.5 * (temperature[:, jm, :] + temperature[:, j, :]), 1.0e-5)
             if simple_settings is not None:
                 da = (
-                    (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :]))
+                    (J[:, j, :] + J[:, jm, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :]))
                     * 0.5
                     * (dx[:, j, :] + dx[:, jm, :])
                     * 0.5
@@ -1123,16 +1178,16 @@ def _apply_ion_sheath_boundary(
                     sheath_ion_polytropic=simple_settings.sheath_ion_polytropic,
                     direction=-1.0,
                     no_flow=simple_settings.no_flow,
-                    source_scale=da / np.maximum(dv, 1.0e-30),
+                    source_scale=da / maximum(dv, 1.0e-30),
                 )
-                vel[:, jm, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
-                momentum_field[:, jm, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
-                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
+                vel = _set_y(vel, jm, sheath.guard_velocity)
+                momentum_field = _set_y(momentum_field, jm, sheath.guard_momentum)
+                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
             else:
                 nesheath = 0.5 * (electron_density[:, jm, :] + electron_density[:, j, :])
                 grad_ne = electron_density[:, j, :] - nesheath
                 grad_ni = density[:, j, :] - nisheath
-                source_scale = (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :])) / (
+                source_scale = (J[:, j, :] + J[:, jm, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :])) / (
                     dy[:, j, :] * J[:, j, :]
                 )
                 sheath = compute_full_ion_sheath_boundary(
@@ -1149,9 +1204,9 @@ def _apply_ion_sheath_boundary(
                     direction=-1.0,
                     source_scale=source_scale,
                 )
-                vel[:, jm, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
-                momentum_field[:, jm, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
-                energy_source[ion.name][:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
+                vel = _set_y(vel, jm, sheath.guard_velocity)
+                momentum_field = _set_y(momentum_field, jm, sheath.guard_momentum)
+                energy_source[ion.name] = _add_y(energy_source[ion.name], j, sheath.energy_source_delta)
 
         boundary_density[ion.name] = density
         boundary_pressure[ion.name] = pressure
@@ -1215,29 +1270,58 @@ def _apply_electron_sheath_boundary(
         lower_y=settings.lower_y,
         upper_y=settings.upper_y,
     )
-    density = np.array(prepared_electron.density, dtype=np.float64, copy=True)
-    pressure = np.array(prepared_electron.pressure, dtype=np.float64, copy=True)
-    temperature = np.array(prepared_electron.temperature, dtype=np.float64, copy=True)
-    velocity = np.array(prepared_electron.velocity, dtype=np.float64, copy=True)
-    momentum = np.array(prepared_electron.momentum, dtype=np.float64, copy=True)
+    use_jax = use_jax_backend(
+        prepared_electron.density,
+        prepared_electron.pressure,
+        prepared_electron.temperature,
+        prepared_electron.velocity,
+        prepared_electron.momentum,
+    )
+    array = jnp.asarray if use_jax else np.asarray
+    dtype = jnp.float64 if use_jax else np.float64
+    zeros_like = jnp.zeros_like if use_jax else np.zeros_like
+    sqrt = jnp.sqrt if use_jax else np.sqrt
+    density = array(prepared_electron.density, dtype=dtype)
+    pressure = array(prepared_electron.pressure, dtype=dtype)
+    temperature = array(prepared_electron.temperature, dtype=dtype)
+    velocity = array(prepared_electron.velocity, dtype=dtype)
+    momentum = array(prepared_electron.momentum, dtype=dtype)
+    if not use_jax:
+        density = np.array(density, dtype=np.float64, copy=True)
+        pressure = np.array(pressure, dtype=np.float64, copy=True)
+        temperature = np.array(temperature, dtype=np.float64, copy=True)
+        velocity = np.array(velocity, dtype=np.float64, copy=True)
+        momentum = np.array(momentum, dtype=np.float64, copy=True)
     me = 1.0 / 1836.0
-    g22 = np.asarray(metrics.g_22, dtype=np.float64)
-    dy = np.asarray(metrics.dy, dtype=np.float64)
-    J = np.asarray(metrics.J, dtype=np.float64)
-    phi = np.zeros_like(density, dtype=np.float64)
-    energy_source = np.zeros_like(density, dtype=np.float64)
+    g22 = array(metrics.g_22, dtype=dtype)
+    dy = array(metrics.dy, dtype=dtype)
+    J = array(metrics.J, dtype=dtype)
+    phi = zeros_like(density, dtype=dtype)
+    energy_source = zeros_like(density, dtype=dtype)
     secondary_coef = float(settings.secondary_electron_coef)
-    sin_alpha = np.asarray(settings.sin_alpha, dtype=np.float64)
-    wall_potential = np.asarray(settings.wall_potential, dtype=np.float64)
+    sin_alpha = array(settings.sin_alpha, dtype=dtype)
+    wall_potential = array(settings.wall_potential, dtype=dtype)
     electron_adiabatic = 5.0 / 3.0
 
+    def _set_y(field, j: int, value):
+        if use_jax:
+            return field.at[:, j, :].set(array(value, dtype=dtype))
+        field[:, j, :] = np.asarray(value, dtype=np.float64)
+        return field
+
+    def _add_y(field, j: int, value):
+        if use_jax:
+            return field.at[:, j, :].add(array(value, dtype=dtype))
+        field[:, j, :] += np.asarray(value, dtype=np.float64)
+        return field
+
     def _full_ion_sum_at_boundary(*, j: int, neighbor: int) -> np.ndarray:
-        total = np.zeros_like(density[:, j, :], dtype=np.float64)
+        total = zeros_like(density[:, j, :], dtype=dtype)
         for ion in ions:
             ion_state = prepared_ions[ion.name]
-            ti = np.asarray(ion_state.temperature, dtype=np.float64)
-            ni = np.asarray(ion_state.density, dtype=np.float64)
-            total = total + np.asarray(
+            ti = array(ion_state.temperature, dtype=dtype)
+            ni = array(ion_state.density, dtype=dtype)
+            total = total + array(
                 compute_full_ion_zero_current_sum_term(
                     ion_density_boundary=ni[:, j, :],
                     ion_density_neighbor=ni[:, neighbor, :],
@@ -1251,12 +1335,12 @@ def _apply_electron_sheath_boundary(
                     atomic_mass=ion.atomic_mass,
                     charge=ion.charge,
                 ),
-                dtype=np.float64,
+                dtype=dtype,
             )
         return total
 
-    def _set_zero_current_phi(*, j: int, neighbor: int, ghost: int) -> None:
-        phi[:, j, :] = np.asarray(
+    def _set_zero_current_phi(phi_field, *, j: int, neighbor: int, ghost: int):
+        boundary_phi = array(
             compute_zero_current_electron_sheath_potential(
                 electron_temperature_boundary=temperature[:, j, :],
                 ion_current_sum=_full_ion_sum_at_boundary(j=j, neighbor=neighbor),
@@ -1264,25 +1348,27 @@ def _apply_electron_sheath_boundary(
                 electron_thermal_mass=me,
                 secondary_electron_coef=secondary_coef,
             ),
-            dtype=np.float64,
+            dtype=dtype,
         )
-        phi[:, neighbor, :] = phi[:, j, :]
-        phi[:, ghost, :] = phi[:, j, :]
+        phi_field = _set_y(phi_field, j, boundary_phi)
+        phi_field = _set_y(phi_field, neighbor, boundary_phi)
+        phi_field = _set_y(phi_field, ghost, boundary_phi)
+        return phi_field
 
     if mesh.has_upper_y_target and settings.upper_y:
         j = mesh.yend
         jp = j + 1
         jm = j - 1
-        density[:, jp, :] = np.asarray(limit_free(density[:, jm, :], density[:, j, :], 0), dtype=np.float64)
-        temperature[:, jp, :] = np.asarray(limit_free(temperature[:, jm, :], temperature[:, j, :], 0), dtype=np.float64)
-        pressure[:, jp, :] = np.asarray(limit_free(pressure[:, jm, :], pressure[:, j, :], 0), dtype=np.float64)
-        _set_zero_current_phi(j=j, neighbor=jm, ghost=jp)
-        phi[:, jp, :] = 2.0 * phi[:, j, :] - phi[:, jm, :]
+        density = _set_y(density, jp, limit_free(density[:, jm, :], density[:, j, :], 0))
+        temperature = _set_y(temperature, jp, limit_free(temperature[:, jm, :], temperature[:, j, :], 0))
+        pressure = _set_y(pressure, jp, limit_free(pressure[:, jm, :], pressure[:, j, :], 0))
+        phi = _set_zero_current_phi(phi, j=j, neighbor=jm, ghost=jp)
+        phi = _set_y(phi, jp, 2.0 * phi[:, j, :] - phi[:, jm, :])
         phi_wall = wall_potential[:, j, :]
         phisheath_raw = 0.5 * (phi[:, jp, :] + phi[:, j, :])
         tesheath = 0.5 * (temperature[:, jp, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jp, :] + density[:, j, :])
-        source_scale = (J[:, j, :] + J[:, jp, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jp, :])) / (
+        source_scale = (J[:, j, :] + J[:, jp, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jp, :])) / (
             dy[:, j, :] * J[:, j, :]
         )
         sheath = compute_full_electron_sheath_boundary(
@@ -1300,24 +1386,24 @@ def _apply_electron_sheath_boundary(
             floor_potential=settings.floor_potential,
             source_scale=source_scale,
         )
-        velocity[:, jp, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
-        momentum[:, jp, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
-        energy_source[:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
+        velocity = _set_y(velocity, jp, sheath.guard_velocity)
+        momentum = _set_y(momentum, jp, sheath.guard_momentum)
+        energy_source = _add_y(energy_source, j, sheath.energy_source_delta)
 
     if mesh.has_lower_y_target and settings.lower_y:
         j = mesh.ystart
         jm = j - 1
         jp = j + 1
-        density[:, jm, :] = np.asarray(limit_free(density[:, jp, :], density[:, j, :], 0), dtype=np.float64)
-        temperature[:, jm, :] = np.asarray(limit_free(temperature[:, jp, :], temperature[:, j, :], 0), dtype=np.float64)
-        pressure[:, jm, :] = np.asarray(limit_free(pressure[:, jp, :], pressure[:, j, :], 0), dtype=np.float64)
-        _set_zero_current_phi(j=j, neighbor=jp, ghost=jm)
-        phi[:, jm, :] = 2.0 * phi[:, j, :] - phi[:, jp, :]
+        density = _set_y(density, jm, limit_free(density[:, jp, :], density[:, j, :], 0))
+        temperature = _set_y(temperature, jm, limit_free(temperature[:, jp, :], temperature[:, j, :], 0))
+        pressure = _set_y(pressure, jm, limit_free(pressure[:, jp, :], pressure[:, j, :], 0))
+        phi = _set_zero_current_phi(phi, j=j, neighbor=jp, ghost=jm)
+        phi = _set_y(phi, jm, 2.0 * phi[:, j, :] - phi[:, jp, :])
         phi_wall = wall_potential[:, j, :]
         phisheath_raw = 0.5 * (phi[:, jm, :] + phi[:, j, :])
         tesheath = 0.5 * (temperature[:, jm, :] + temperature[:, j, :])
         nesheath = 0.5 * (density[:, jm, :] + density[:, j, :])
-        source_scale = (J[:, j, :] + J[:, jm, :]) / (np.sqrt(g22[:, j, :]) + np.sqrt(g22[:, jm, :])) / (
+        source_scale = (J[:, j, :] + J[:, jm, :]) / (sqrt(g22[:, j, :]) + sqrt(g22[:, jm, :])) / (
             dy[:, j, :] * J[:, j, :]
         )
         sheath = compute_full_electron_sheath_boundary(
@@ -1335,9 +1421,9 @@ def _apply_electron_sheath_boundary(
             floor_potential=settings.floor_potential,
             source_scale=source_scale,
         )
-        velocity[:, jm, :] = np.asarray(sheath.guard_velocity, dtype=np.float64)
-        momentum[:, jm, :] = np.asarray(sheath.guard_momentum, dtype=np.float64)
-        energy_source[:, j, :] += np.asarray(sheath.energy_source_delta, dtype=np.float64)
+        velocity = _set_y(velocity, jm, sheath.guard_velocity)
+        momentum = _set_y(momentum, jm, sheath.guard_momentum)
+        energy_source = _add_y(energy_source, j, sheath.energy_source_delta)
     return _ElectronBoundaryResult(
         density=density,
         temperature=temperature,
@@ -2472,7 +2558,7 @@ def advance_recycling_1d_backward_euler_step(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
-    elif solver_mode == "jax_linearized":
+    elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -2482,6 +2568,11 @@ def advance_recycling_1d_backward_euler_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
             linear_restart=20,
             linear_maxiter=20,
+            linear_solver_backend=(
+                "lineax_gmres"
+                if solver_mode == "jax_linearized_lineax"
+                else _resolve_recycling_jax_linear_solver_backend()
+            ),
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -2642,7 +2733,7 @@ def advance_recycling_1d_bdf2_step(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
-    elif solver_mode == "jax_linearized":
+    elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -2652,6 +2743,11 @@ def advance_recycling_1d_bdf2_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
             linear_restart=20,
             linear_maxiter=20,
+            linear_solver_backend=(
+                "lineax_gmres"
+                if solver_mode == "jax_linearized_lineax"
+                else _resolve_recycling_jax_linear_solver_backend()
+            ),
         )
     else:
         raise ValueError(f"Unsupported recycling implicit solver_mode={solver_mode!r}.")
@@ -2911,6 +3007,19 @@ def _resolve_recycling_jvp_batch_size() -> int | None:
         return None
 
 
+def _resolve_recycling_jax_linear_solver_backend() -> str:
+    env_value = os.environ.get("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "jax_gmres").strip().lower()
+    aliases = {
+        "jax": "jax_gmres",
+        "jax_scipy": "jax_gmres",
+        "gmres": "jax_gmres",
+        "jax_gmres": "jax_gmres",
+        "lineax": "lineax_gmres",
+        "lineax_gmres": "lineax_gmres",
+    }
+    return aliases.get(env_value, "jax_gmres")
+
+
 def _compute_recycling_1d_packed_rhs(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -2961,12 +3070,17 @@ def _compute_recycling_1d_packed_rhs(
         include_reaction_diagnostics=False,
     )
     active_slices = layout.active_slices if layout is not None else _recycling_active_domain_slices(mesh)
+    use_jax_result = use_jax_backend(*(result.variables[f"ddt({name})"] for name in field_names))
+    rhs_array = jnp.asarray if use_jax_result else np.asarray
+    rhs_dtype = jnp.float64 if use_jax_result else np.float64
+    concatenate = jnp.concatenate if use_jax_result else np.concatenate
+    empty = jnp.array([], dtype=jnp.float64) if use_jax_result else np.array([], dtype=np.float64)
     pieces = [
-        np.asarray(result.variables[f"ddt({name})"][0][active_slices], dtype=np.float64).ravel()
+        rhs_array(result.variables[f"ddt({name})"][0][active_slices], dtype=rhs_dtype).ravel()
         for name in field_names
     ]
-    pieces.extend(np.asarray(result.feedback_integral_rhs.get(name, 0.0), dtype=np.float64).reshape(1) for name in feedback_names)
-    return np.concatenate(pieces) if pieces else np.array([], dtype=np.float64)
+    pieces.extend(rhs_array(result.feedback_integral_rhs.get(name, 0.0), dtype=rhs_dtype).reshape(1) for name in feedback_names)
+    return concatenate(pieces) if pieces else empty
 
 
 def _predict_recycling_packed_state(
@@ -3268,6 +3382,7 @@ def _as_recycling_step_info(info: ImplicitStepInfo) -> Recycling1DImplicitStepIn
             "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
             "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
             "fallback_used": bool(getattr(info, "fallback_used", False)),
+            "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
         },
     )
     pressure_sources = explicit_pressure_sources or {}

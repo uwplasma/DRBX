@@ -952,13 +952,21 @@ def neutral_ionisation_collision_rates(
     if not config.has_section("reactions") or not config.has_option("reactions", "type"):
         return {}
     totals: dict[str, np.ndarray] = {}
-    electron_density = np.zeros_like(prepared[next(name for name, sp in species.items() if sp.charge > 0.0)].density, dtype=np.float64)
+    use_jax = _use_jax_backend(
+        *(getattr(state, "density", None) for state in prepared.values()),
+        *(getattr(state, "temperature", None) for state in prepared.values()),
+    )
+    xp = jnp if use_jax else np
+    electron_density = xp.zeros_like(
+        prepared[next(name for name, sp in species.items() if sp.charge > 0.0)].density,
+        dtype=xp.float64,
+    )
     for sp in species.values():
         if sp.charge > 0.0:
-            electron_density += sp.charge * np.asarray(prepared[sp.name].density, dtype=np.float64)
+            electron_density += sp.charge * xp.asarray(prepared[sp.name].density, dtype=xp.float64)
     electron_temperature = _safe_temperature(species["e"].pressure, electron_density, species["e"].density_floor)
-    electron_temperature_physical = np.asarray(electron_temperature, dtype=np.float64) * dataset_scalars["Tnorm"]
-    electron_density_physical = np.asarray(electron_density, dtype=np.float64) * dataset_scalars["Nnorm"]
+    electron_temperature_physical = xp.asarray(electron_temperature, dtype=xp.float64) * dataset_scalars["Tnorm"]
+    electron_density_physical = xp.asarray(electron_density, dtype=xp.float64) * dataset_scalars["Nnorm"]
     amjuel_log_temperature, amjuel_log_density = amjuel_log_inputs(electron_temperature_physical, electron_density_physical)
     amjuel_sigma_cache: dict[str, np.ndarray] = {}
     reactions = config.parsed("reactions", "type")
@@ -993,9 +1001,9 @@ def neutral_ionisation_collision_rates(
                     sigma_v_coeffs,
                 )
             sigma_v = amjuel_sigma_cache[table_atom_name]
-        totals[atom_name] = np.asarray(
-            np.asarray(electron_density, dtype=np.float64) * sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"]),
-            dtype=np.float64,
+        totals[atom_name] = xp.asarray(
+            xp.asarray(electron_density, dtype=xp.float64) * sigma_v * (dataset_scalars["Nnorm"] / dataset_scalars["Omega_ci"]),
+            dtype=xp.float64,
         )
     return totals
 
@@ -1010,6 +1018,11 @@ def neutral_charge_exchange_collision_rates(
     if not config.has_section("reactions") or not config.has_option("reactions", "type"):
         return {}
     totals: dict[str, np.ndarray] = {}
+    use_jax = _use_jax_backend(
+        *(getattr(state, "density", None) for state in prepared.values()),
+        *(getattr(state, "temperature", None) for state in prepared.values()),
+    )
+    xp = jnp if use_jax else np
     reactions = config.parsed("reactions", "type")
     for reaction in (reactions if isinstance(reactions, tuple) else (reactions,)):
         tokens = tuple(part.strip() for part in str(reaction).split("->"))
@@ -1027,7 +1040,7 @@ def neutral_charge_exchange_collision_rates(
         ion = species[ion_name]
         atom_temperature = prepared[atom_name].temperature
         ion_temperature = prepared[ion_name].temperature
-        teff = np.clip(
+        teff = xp.clip(
             (atom_temperature / atom.atomic_mass + ion_temperature / ion.atomic_mass) * dataset_scalars["Tnorm"],
             0.01,
             10000.0,
@@ -1036,7 +1049,7 @@ def neutral_charge_exchange_collision_rates(
         if atom_name in totals:
             totals[atom_name] += prepared[ion_name].density * sigma_v
         else:
-            totals[atom_name] = np.asarray(prepared[ion_name].density * sigma_v, dtype=np.float64)
+            totals[atom_name] = xp.asarray(prepared[ion_name].density * sigma_v, dtype=xp.float64)
     return totals
 
 
@@ -1123,6 +1136,11 @@ def charge_exchange_collision_rates(
     if not config.has_section("reactions") or not config.has_option("reactions", "type"):
         return {}
     totals: dict[str, np.ndarray] = {}
+    use_jax = _use_jax_backend(
+        *(getattr(state, "density", None) for state in prepared.values()),
+        *(getattr(state, "temperature", None) for state in prepared.values()),
+    )
+    xp = jnp if use_jax else np
     reactions = config.parsed("reactions", "type")
     for reaction in (reactions if isinstance(reactions, tuple) else (reactions,)):
         tokens = tuple(part.strip() for part in str(reaction).split("->"))
@@ -1140,16 +1158,20 @@ def charge_exchange_collision_rates(
         ion1 = species[ion1_name]
         atom_temperature = prepared[atom1_name].temperature
         ion_temperature = prepared[ion1_name].temperature
-        teff = np.clip((atom_temperature / atom1.atomic_mass + ion_temperature / ion1.atomic_mass) * dataset_scalars["Tnorm"], 0.01, 10000.0)
+        teff = xp.clip(
+            (atom_temperature / atom1.atomic_mass + ion_temperature / ion1.atomic_mass) * dataset_scalars["Tnorm"],
+            0.01,
+            10000.0,
+        )
         sigmav = hydrogen_cx_sigmav(teff, dataset_scalars) * charge_exchange_rate_multiplier(config, atom_name=atom1_name)
         atom_rate = prepared[ion1_name].density * sigmav
         ion_rate = prepared[atom1_name].density * sigmav
         if atom1_name in totals:
             totals[atom1_name] += atom_rate
         else:
-            totals[atom1_name] = np.asarray(atom_rate, dtype=np.float64)
+            totals[atom1_name] = xp.asarray(atom_rate, dtype=xp.float64)
         if ion1_name in totals:
             totals[ion1_name] += ion_rate
         else:
-            totals[ion1_name] = np.asarray(ion_rate, dtype=np.float64)
+            totals[ion1_name] = xp.asarray(ion_rate, dtype=xp.float64)
     return totals
