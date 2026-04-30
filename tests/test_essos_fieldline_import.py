@@ -97,6 +97,56 @@ def test_essos_imported_fci_maps_feed_native_sheath_and_neutral_gates(tmp_path: 
     assert artifacts.plot_png_path.exists()
 
 
+@pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil/VMEC inputs are not available")
+def test_essos_imported_fci_map_sources_expose_coil_vmec_and_hybrid_semantics() -> None:
+    geometries = {
+        source: build_essos_imported_fci_geometry(
+            map_source=source,
+            nx=3,
+            ny=4,
+            nz=6,
+            rho_min=0.12,
+            rho_max=0.34,
+            maxtime=40.0,
+            times_to_trace=160,
+        )
+        for source in ("coil", "vmec", "hybrid")
+    }
+
+    for source, geometry in geometries.items():
+        assert geometry.shape == (3, 4, 6)
+        assert geometry.metadata["map_source"] == source
+        assert np.all(np.isfinite(np.asarray(geometry.maps.forward_x)))
+        assert np.all(np.isfinite(np.asarray(geometry.maps.forward_z)))
+        assert np.all(np.isfinite(np.asarray(geometry.maps.backward_x)))
+        assert np.all(np.isfinite(np.asarray(geometry.maps.backward_z)))
+        assert np.all(np.isfinite(np.asarray(geometry.magnetic_field_magnitude)))
+        assert np.all(np.isfinite(np.asarray(geometry.connection_length)))
+        assert geometry.metadata["surface_nonaxisymmetric_major_rms"] > 1.0e-2
+
+    coil = geometries["coil"]
+    vmec = geometries["vmec"]
+    hybrid = geometries["hybrid"]
+    coil_forward_fraction = float(np.mean(np.asarray(coil.maps.forward_boundary, dtype=bool)))
+    coil_backward_fraction = float(np.mean(np.asarray(coil.maps.backward_boundary, dtype=bool)))
+    vmec_forward_fraction = float(np.mean(np.asarray(vmec.maps.forward_boundary, dtype=bool)))
+    vmec_backward_fraction = float(np.mean(np.asarray(vmec.maps.backward_boundary, dtype=bool)))
+    hybrid_forward_fraction = float(np.mean(np.asarray(hybrid.maps.forward_boundary, dtype=bool)))
+    hybrid_backward_fraction = float(np.mean(np.asarray(hybrid.maps.backward_boundary, dtype=bool)))
+
+    assert 0.05 < coil_forward_fraction < 0.95
+    assert 0.05 < coil_backward_fraction < 0.95
+    assert vmec_forward_fraction == 0.0
+    assert vmec_backward_fraction == 0.0
+    assert hybrid_forward_fraction == coil_forward_fraction
+    assert hybrid_backward_fraction == coil_backward_fraction
+    assert np.allclose(np.asarray(hybrid.maps.forward_x), np.asarray(vmec.maps.forward_x))
+    assert np.allclose(np.asarray(hybrid.maps.forward_z), np.asarray(vmec.maps.forward_z))
+    assert not np.allclose(np.asarray(coil.maps.forward_z), np.asarray(vmec.maps.forward_z))
+    assert float(np.min(np.asarray(vmec.connection_length))) > 0.0
+    assert float(np.max(np.asarray(vmec.magnetic_field_magnitude)) / np.min(np.asarray(vmec.magnetic_field_magnitude))) > 1.01
+
+
 @pytest.mark.skipif(not _has_essos_landreman_runtime(), reason="ESSOS runtime and Landreman-Paul QA coil JSON are not available")
 def test_essos_fieldline_poincare_quantifies_scaled_vmec_surface_registration(tmp_path: Path) -> None:
     artifacts = create_essos_vmec_fieldline_surface_package(

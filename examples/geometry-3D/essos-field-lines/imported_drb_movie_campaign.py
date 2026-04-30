@@ -16,7 +16,19 @@ def main() -> None:
         ),
     )
     parser.add_argument("--coil-json", type=Path, default=None, help="Optional ESSOS Landreman-Paul QA coil JSON path.")
+    parser.add_argument(
+        "--vmec-wout",
+        type=Path,
+        default=None,
+        help="Optional Landreman-Paul QA VMEC wout path used by VMEC and hybrid map sources.",
+    )
     parser.add_argument("--essos-root", type=Path, default=None, help="Optional ESSOS checkout root.")
+    parser.add_argument(
+        "--map-source",
+        choices=("coil", "vmec", "hybrid"),
+        default="coil",
+        help="FCI map source: coil trace, VMEC-coordinate map, or VMEC map with coil target masks.",
+    )
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -39,7 +51,9 @@ def main() -> None:
     artifacts = create_essos_imported_drb_movie_package(
         output_root=args.output_root,
         coil_json_path=args.coil_json,
+        vmec_wout_path=args.vmec_wout,
         essos_root=args.essos_root,
+        map_source=args.map_source,
         nx=args.nx,
         ny=args.ny,
         nz=args.nz,

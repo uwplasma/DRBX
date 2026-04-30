@@ -231,6 +231,11 @@ Reference parity and offender localization:
 
 Non-axisymmetric 3D geometry and reduced SOL dynamics:
 
+The imported QA geometry lane supports three map sources for development and
+validation: `coil` for open Biot-Savart coil traces, `vmec` for a closed
+surface-preserving VMEC-coordinate control, and `hybrid` for VMEC-coordinate
+interpolation with coil-derived sheath/recycling endpoint masks.
+
 ![Stellarator FCI geometry validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__geometry__images__stellarator_fci_geometry_campaign.png)
 
 ![Stellarator FCI multi-configuration suite](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__stellarator_fci_validation_artifacts__suite__images__stellarator_fci_suite_campaign.png)

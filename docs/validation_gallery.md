@@ -34,7 +34,7 @@ JAX-based solver papers.
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
 | `ESSOS Field-Line Import` | `external geometry import gate` | ESSOS-owned field evaluation, adaptive field-line tracing, Poincare extraction, and portable trajectory/field-sample artifacts for later FCI use. |
-| `ESSOS Imported QA-Coil DRB Movie` | `movie-grade reduced transient` | Imported Landreman-Paul QA coil FCI maps feeding a fixed-layout DRB transient with sheath/recycling/neutrals and movie-facing physics gates. |
+| `ESSOS Imported QA DRB Movie` | `movie-grade reduced transient` | Imported Landreman-Paul QA coil, VMEC-coordinate, and hybrid FCI maps feeding a fixed-layout DRB transient with sheath/recycling/neutrals where open endpoints are present. |
 | `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
 | `Autodiff Diffusion Sensitivity` | `differentiable validation` | `jax.grad` sensitivities agree with finite differences on a compact native diffusion objective. |
 | `Autodiff Diffusion Uncertainty` | `differentiable validation` | First-order autodiff covariance propagation is compared with vectorized Monte Carlo. |
@@ -356,9 +356,9 @@ What this documents:
 - a fixed-layout PyTree RHS gate where the combined 3D state is compiled,
   differentiated with JVP, checked against finite differences, matched under
   `vmap`, and profiled for local CPU and multi-device GPU execution;
-- a movie-grade ESSOS-imported QA-coil transient where the same fixed-layout
-  DRB state is advanced with sheath/recycling/neutrals, nontrivial fluctuation
-  growth, tight potential residual, and roundoff target/neutral balance gates;
+- a movie-grade ESSOS-imported QA transient where the same fixed-layout DRB
+  state is advanced on coil, VMEC-coordinate, or hybrid maps, with
+  sheath/recycling/neutrals active where imported endpoint masks are present;
 - an independent field-line/VMEC registration diagnostic that overlays
   long-trace coil-field Poincare points on the scaled Landreman-Paul QA VMEC
   surfaces and reports the strict closed-surface match flag separately from

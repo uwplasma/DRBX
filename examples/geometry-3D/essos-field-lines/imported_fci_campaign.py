@@ -21,10 +21,22 @@ def main() -> None:
         help="Path to ESSOS_biot_savart_LandremanPaulQA.json. If omitted, JAX_DRB_ESSOS_ROOT is used.",
     )
     parser.add_argument(
+        "--vmec-wout",
+        type=Path,
+        default=None,
+        help="Optional Landreman-Paul QA VMEC wout path used by VMEC and hybrid map sources.",
+    )
+    parser.add_argument(
         "--essos-root",
         type=Path,
         default=None,
         help="ESSOS checkout used only for the field-line import step.",
+    )
+    parser.add_argument(
+        "--map-source",
+        choices=("coil", "vmec", "hybrid"),
+        default="coil",
+        help="FCI map source: coil trace, VMEC-coordinate map, or VMEC map with coil target masks.",
     )
     parser.add_argument(
         "--output-root",
@@ -45,7 +57,9 @@ def main() -> None:
     artifacts = create_essos_imported_fci_campaign_package(
         output_root=args.output_root,
         coil_json_path=args.coil_json,
+        vmec_wout_path=args.vmec_wout,
         essos_root=args.essos_root,
+        map_source=args.map_source,
         nx=args.nx,
         ny=args.ny,
         nz=args.nz,
