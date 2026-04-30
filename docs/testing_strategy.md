@@ -123,10 +123,11 @@ surface is called research-grade.
 
 The first measured baseline for this slice was `73%` total coverage with all
 selected tests passing. The current promoted solver/public-surface audit now
-passes the `95%` gate at `96%`, with the shared active-region pack/unpack
-primitive and the extracted recycling layout module covered directly. The next
-coverage work should therefore be treated as architecture hardening, not as
-percentage chasing. The remaining high-value targets are:
+passes the `95%` gate at `95%` (`428 passed`, `7 deselected`, `1 xfailed`),
+with the shared active-region pack/unpack primitive, extracted recycling layout
+module, and native solver-backend routing covered directly. The next coverage
+work should therefore be treated as architecture hardening, not as percentage
+chasing. The remaining high-value targets are:
 
 - `runner.py`: split setup, execution policy, logging/provenance, restart, and
   artifact writing into directly tested helpers

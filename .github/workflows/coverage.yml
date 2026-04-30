@@ -1,0 +1,26 @@
+name: coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  closeout-coverage:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install package and coverage tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest coverage
+      - name: Run bounded closeout coverage gate
+        run: |
+          python scripts/run_closeout_coverage.py
