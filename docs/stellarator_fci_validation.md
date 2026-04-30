@@ -328,6 +328,17 @@ The imported FCI campaign currently passes:
 
 ![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
+The VMEC-coordinate imported FCI control closes the field-line map on VMEC
+surfaces, disables target endpoint masks, and preserves neutral source
+accounting without sheath heat load. The hybrid imported FCI control uses
+VMEC-coordinate interpolation locations with coil-derived endpoint masks,
+connection-length proxy, and \(|B|\), so it is the current open-field SOL
+bridge for non-axisymmetric sheath/recycling work.
+
+![ESSOS imported FCI VMEC-coordinate validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
+
+![ESSOS imported FCI hybrid validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
+
 The imported PyTree/JVP campaign currently passes:
 
 - external field-line maps feeding the same fixed-layout DRB PyTree RHS used
@@ -337,6 +348,10 @@ The imported PyTree/JVP campaign currently passes:
 - `vmap` serial mismatch below `1e-12`.
 
 ![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
+
+![ESSOS imported PyTree/JVP VMEC-coordinate validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png)
+
+![ESSOS imported PyTree/JVP hybrid validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png)
 
 The ESSOS-imported QA-coil DRB movie campaign currently passes:
 
@@ -352,6 +367,15 @@ The ESSOS-imported QA-coil DRB movie campaign currently passes:
 ![ESSOS imported QA-coil DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__images__essos_imported_drb_movie_campaign_diagnostics.png)
 
 ![ESSOS imported QA-coil DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
+
+The hybrid DRB movie is the preferred current showcase for the imported-map
+lane because the visual interpolation follows the VMEC-coordinate map while
+the open-field endpoint masks still activate sheath, recycling, and neutral
+closures.
+
+![ESSOS imported QA-hybrid DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png)
+
+![ESSOS imported QA-hybrid DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif)
 
 The reduced dynamics campaign currently passes:
 

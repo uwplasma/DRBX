@@ -140,9 +140,17 @@ used in verification, validation, and differentiable-science papers:
 - [essos_imported_fci_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
   for imported field-line maps feeding JAXDRB sheath/recycling and neutral
   closures with fixed-shape FCI endpoint masks
+- [essos_imported_fci_vmec_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
+  for the closed-field VMEC-coordinate map control with zero endpoint masks
+- [essos_imported_fci_hybrid_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
+  for VMEC-coordinate interpolation combined with coil-derived open-field
+  sheath/recycling endpoint masks
 - [essos_imported_pytree_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
   for imported field-line maps feeding the fixed-layout PyTree RHS, `jax.jvp`,
   and `jax.vmap` gates
+- [essos_imported_drb_movie_hybrid_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif)
+  for the current QA-hybrid movie-grade reduced transient with sheath,
+  recycling, neutral, potential-residual, and fixed-camera GIF gates
 
 ### Supporting engineering figures
 

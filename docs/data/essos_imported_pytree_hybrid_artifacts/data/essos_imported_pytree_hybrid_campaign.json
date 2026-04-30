@@ -1,8 +1,8 @@
 {
   "batch_execute_seconds": [
-    0.0009100829483941197,
-    0.0014153339434415102,
-    0.002601874992251396
+    0.0008590000215917826,
+    0.0016545410035178065,
+    0.0026261250022798777
   ],
   "batch_sizes": [
     1,
@@ -10,20 +10,20 @@
     4
   ],
   "batch_throughput_cases_per_second": [
-    1098.8009409082356,
-    1413.094068200486,
-    1537.3528751044298
+    1164.144324638008,
+    1208.7944606677593,
+    1523.1567410261846
   ],
   "case": "essos_imported_fci_drb_pytree_transient",
-  "compile_and_first_execute_seconds": 0.1554655000800267,
+  "compile_and_first_execute_seconds": 0.44913125003222376,
   "dt": 1e-05,
   "endpoint_fraction": 0.9444444444444444,
-  "final_ion_density_mean": 0.7910209238653121,
-  "final_min_density": 0.11000043133964739,
-  "final_neutral_density_mean": 0.15125408333341547,
-  "final_potential_residual_l2": 1.0942200716686814,
+  "final_ion_density_mean": 0.791020923865312,
+  "final_min_density": 0.11000042021286634,
+  "final_neutral_density_mean": 0.1512540850458732,
+  "final_potential_residual_l2": 0.8506206202502425,
   "final_vorticity_rms": 0.022360519276857505,
-  "finite_difference_derivative": 0.25135003164944436,
+  "finite_difference_derivative": 0.2513500320778239,
   "geometry": {
     "axis_major_radius": 1.1056603745542297,
     "axis_vertical": 0.07180085781076388,
@@ -31,10 +31,10 @@
     "coil_json_file": "ESSOS_biot_savart_LandremanPaulQA.json",
     "coil_trace_current_sign": -1.0,
     "coordinate_model": "scaled_vmec_fourier_flux_surfaces",
-    "field_model": "essos.fields.BiotSavart",
+    "field_model": "hybrid: VMEC map coordinates with Biot-Savart |B| and target masks",
     "forward_boundary_fraction": 0.7083333333333334,
     "geometry_family": "essos_imported_vmec_qa_fci",
-    "map_source": "coil",
+    "map_source": "hybrid",
     "maxtime": 60.0,
     "nx": 4,
     "ny": 6,
@@ -46,8 +46,8 @@
     "surface_poloidal_extent_rms": 0.2684140262678505,
     "times_to_trace": 280,
     "trace_tolerance": 1e-08,
-    "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)",
-    "vmec_map_theta_step_count": 0,
+    "tracing_model": "vmec_coordinate_rk4_map + essos.dynamics.Tracing(FieldLineAdaptative) masks",
+    "vmec_map_theta_step_count": 12,
     "vmec_mnmax": 128,
     "vmec_nfp": 2,
     "vmec_ns": 151,
@@ -58,14 +58,14 @@
     "vmec_to_essos_length_scale": 0.1087626935673168,
     "vmec_wout_file": "wout_LandremanPaul2021_QA_reactorScale_lowres.nc"
   },
-  "jvp_derivative": 0.2513500316489977,
-  "jvp_objective_value": 0.8299524706625087,
-  "jvp_relative_error": 1.7769750012589181e-12,
+  "jvp_derivative": 0.25135003207711604,
+  "jvp_objective_value": 0.8299524710906231,
+  "jvp_relative_error": 2.816304396897089e-12,
   "magnetic_field_modulation": 1.4235881123899505,
-  "map_source": "coil",
+  "map_source": "hybrid",
   "passed": true,
   "source": "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS",
   "steps": 5,
-  "vmap_serial_linf": 2.220446049250313e-16,
-  "warm_execute_seconds": 0.0009738329099491239
+  "vmap_serial_linf": 1.1102230246251565e-16,
+  "warm_execute_seconds": 0.0008954160148277879
 }

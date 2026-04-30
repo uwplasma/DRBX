@@ -244,6 +244,31 @@
       "size_bytes": 1645712,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif"
     },
+    "docs/data/essos_imported_drb_movie_hybrid_artifacts/data/essos_imported_drb_movie_hybrid_campaign.npz": {
+      "asset": "docs__data__essos_imported_drb_movie_hybrid_artifacts__data__essos_imported_drb_movie_hybrid_campaign.npz",
+      "size_bytes": 668750,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__data__essos_imported_drb_movie_hybrid_campaign.npz"
+    },
+    "docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_diagnostics.png": {
+      "asset": "docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png",
+      "size_bytes": 619266,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png"
+    },
+    "docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_poster.png": {
+      "asset": "docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_poster.png",
+      "size_bytes": 436210,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_poster.png"
+    },
+    "docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_snapshots.png": {
+      "asset": "docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_snapshots.png",
+      "size_bytes": 1544572,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_snapshots.png"
+    },
+    "docs/data/essos_imported_drb_movie_hybrid_artifacts/movies/essos_imported_drb_movie_hybrid_campaign.gif": {
+      "asset": "docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif",
+      "size_bytes": 1762990,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif"
+    },
     "docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.npz": {
       "asset": "docs__data__essos_imported_fci_artifacts__data__essos_imported_fci_campaign.npz",
       "size_bytes": 4983,
@@ -251,8 +276,28 @@
     },
     "docs/data/essos_imported_fci_artifacts/images/essos_imported_fci_campaign.png": {
       "asset": "docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png",
-      "size_bytes": 287289,
+      "size_bytes": 289562,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png"
+    },
+    "docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.npz": {
+      "asset": "docs__data__essos_imported_fci_hybrid_artifacts__data__essos_imported_fci_hybrid_campaign.npz",
+      "size_bytes": 4983,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__data__essos_imported_fci_hybrid_campaign.npz"
+    },
+    "docs/data/essos_imported_fci_hybrid_artifacts/images/essos_imported_fci_hybrid_campaign.png": {
+      "asset": "docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png",
+      "size_bytes": 296188,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png"
+    },
+    "docs/data/essos_imported_fci_vmec_artifacts/data/essos_imported_fci_vmec_campaign.npz": {
+      "asset": "docs__data__essos_imported_fci_vmec_artifacts__data__essos_imported_fci_vmec_campaign.npz",
+      "size_bytes": 4058,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__data__essos_imported_fci_vmec_campaign.npz"
+    },
+    "docs/data/essos_imported_fci_vmec_artifacts/images/essos_imported_fci_vmec_campaign.png": {
+      "asset": "docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png",
+      "size_bytes": 284726,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png"
     },
     "docs/data/essos_imported_pytree_artifacts/data/essos_imported_pytree_campaign.npz": {
       "asset": "docs__data__essos_imported_pytree_artifacts__data__essos_imported_pytree_campaign.npz",
@@ -263,6 +308,26 @@
       "asset": "docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png",
       "size_bytes": 264771,
       "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png"
+    },
+    "docs/data/essos_imported_pytree_hybrid_artifacts/data/essos_imported_pytree_hybrid_campaign.npz": {
+      "asset": "docs__data__essos_imported_pytree_hybrid_artifacts__data__essos_imported_pytree_hybrid_campaign.npz",
+      "size_bytes": 3703,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__data__essos_imported_pytree_hybrid_campaign.npz"
+    },
+    "docs/data/essos_imported_pytree_hybrid_artifacts/images/essos_imported_pytree_hybrid_campaign.png": {
+      "asset": "docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png",
+      "size_bytes": 265356,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png"
+    },
+    "docs/data/essos_imported_pytree_vmec_artifacts/data/essos_imported_pytree_vmec_campaign.npz": {
+      "asset": "docs__data__essos_imported_pytree_vmec_artifacts__data__essos_imported_pytree_vmec_campaign.npz",
+      "size_bytes": 3466,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_vmec_artifacts__data__essos_imported_pytree_vmec_campaign.npz"
+    },
+    "docs/data/essos_imported_pytree_vmec_artifacts/images/essos_imported_pytree_vmec_campaign.png": {
+      "asset": "docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png",
+      "size_bytes": 273655,
+      "url": "https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png"
     },
     "docs/data/essos_vmec_equilibrium_fieldline_surface_artifacts/data/essos_vmec_equilibrium_fieldline_surface_campaign.npz": {
       "asset": "docs__data__essos_vmec_equilibrium_fieldline_surface_artifacts__data__essos_vmec_equilibrium_fieldline_surface_campaign.npz",

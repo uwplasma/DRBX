@@ -34,6 +34,7 @@ def main() -> None:
         default=Path("docs/data/essos_imported_pytree_artifacts"),
         help="Directory where JSON/NPZ/PNG validation artifacts are written.",
     )
+    parser.add_argument("--case-label", default="essos_imported_pytree_campaign", help="Artifact filename stem.")
     parser.add_argument("--nx", type=int, default=4, help="Number of VMEC-shaped radial grid points.")
     parser.add_argument("--ny", type=int, default=6, help="Number of toroidal planes.")
     parser.add_argument("--nz", type=int, default=12, help="Number of poloidal grid points.")
@@ -47,6 +48,7 @@ def main() -> None:
     configure_jax_runtime(precision="float64")
     artifacts = create_essos_imported_pytree_campaign_package(
         output_root=args.output_root,
+        case_label=args.case_label,
         coil_json_path=args.coil_json,
         vmec_wout_path=args.vmec_wout,
         essos_root=args.essos_root,

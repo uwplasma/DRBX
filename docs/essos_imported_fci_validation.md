@@ -86,17 +86,25 @@ on the same imported maps. The report records endpoint fractions, magnetic
 field modulation, connection-length statistics, target heat-load contrast,
 particle balance residuals, current residuals, and neutral momentum balance.
 
-## Current Artifact
+## Current Artifacts
 
-![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
+![ESSOS imported FCI coil validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
-The figure shows the default `coil` artifact: imported VMEC-shaped QA
+![ESSOS imported FCI VMEC-coordinate validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_vmec_artifacts__images__essos_imported_fci_vmec_campaign.png)
+
+![ESSOS imported FCI hybrid validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_hybrid_artifacts__images__essos_imported_fci_hybrid_campaign.png)
+
+The first figure shows the default `coil` artifact: imported VMEC-shaped QA
 cross-section, endpoint map structure, connection-length proxy, sheath
 heat-load response, neutral ionisation response, and radial diagnostics. The
-same script can be rerun with `--map-source vmec` as a closed-field
-surface-preservation control or `--map-source hybrid` as the open-field
-non-axisymmetric SOL bridge. All three routes feed the same JAX-native closure
-kernels used by the synthetic non-axisymmetric validation suite.
+`vmec` artifact is the closed-field surface-preservation control; it has zero
+target endpoint fraction and zero target heat load while still exercising
+metric diffusion and neutral source accounting on the VMEC-coordinate map. The
+`hybrid` artifact uses the VMEC-coordinate map positions but keeps the
+coil-derived endpoint masks, connection-length proxy, and \(|B|\), making it
+the preferred open-field SOL bridge. All three routes pass and feed the same
+JAX-native closure kernels used by the synthetic non-axisymmetric validation
+suite.
 
 The next imported-map gate is documented in
 [ESSOS imported PyTree/JVP validation](essos_imported_pytree_validation.md).
@@ -108,3 +116,9 @@ It drives the fixed-layout drift-reduced Braginskii PyTree RHS, `jax.jvp`, and
 - `docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.json`
 - `docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.npz`
 - `docs/data/essos_imported_fci_artifacts/images/essos_imported_fci_campaign.png`
+- `docs/data/essos_imported_fci_vmec_artifacts/data/essos_imported_fci_vmec_campaign.json`
+- `docs/data/essos_imported_fci_vmec_artifacts/data/essos_imported_fci_vmec_campaign.npz`
+- `docs/data/essos_imported_fci_vmec_artifacts/images/essos_imported_fci_vmec_campaign.png`
+- `docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json`
+- `docs/data/essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.npz`
+- `docs/data/essos_imported_fci_hybrid_artifacts/images/essos_imported_fci_hybrid_campaign.png`

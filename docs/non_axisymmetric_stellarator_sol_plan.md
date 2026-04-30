@@ -150,15 +150,18 @@ geometry lanes: open coil-traced maps, closed VMEC-coordinate maps, and a
 hybrid map that uses VMEC-coordinate interpolation with coil endpoint masks.
 All three lanes feed the same JAX-native sheath/recycling and neutral kernels
 used by the analytic non-axisymmetric validation suite.
-The imported PyTree/JVP artifact lives in
-`docs/data/essos_imported_pytree_artifacts/` and is documented in
-`docs/essos_imported_pytree_validation.md`; it verifies that the imported maps
-also feed the fixed-layout RHS and differentiability gates.
-The imported QA-coil movie artifact lives in
-`docs/data/essos_imported_drb_movie_artifacts/` and is documented in
-`docs/essos_imported_drb_movie.md`; it is the first end-to-end visual bridge
-from external coil-field tracing to a JAXDRB fixed-layout DRB transient with
-sheath, recycling, neutral closures, and explicit physics gates.
+The imported PyTree/JVP artifacts live in
+`docs/data/essos_imported_pytree_artifacts/`,
+`docs/data/essos_imported_pytree_vmec_artifacts/`, and
+`docs/data/essos_imported_pytree_hybrid_artifacts/`; they verify that all
+three map sources feed the fixed-layout RHS and differentiability gates.
+The imported QA movie artifacts live in
+`docs/data/essos_imported_drb_movie_artifacts/` and
+`docs/data/essos_imported_drb_movie_hybrid_artifacts/` and are documented in
+`docs/essos_imported_drb_movie.md`; the hybrid movie is now the preferred
+end-to-end visual bridge from imported VMEC-coordinate maps plus coil endpoint
+masks to a JAXDRB fixed-layout DRB transient with sheath, recycling, neutral
+closures, and explicit physics gates.
 
 The current suite gives three passing 3D analytic configurations rather than a
 single showcase-only geometry. Their mirror ratios span about `0.45` to

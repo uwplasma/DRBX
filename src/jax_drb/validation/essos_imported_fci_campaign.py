@@ -302,6 +302,12 @@ def save_essos_imported_fci_campaign_plot(
     resolved.parent.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(2, 3, figsize=(16.0, 9.0), constrained_layout=True)
     extent = [0.0, 2.0 * np.pi, 0.0, 2.0 * np.pi]
+    map_source = str(report.get("map_source", report.get("geometry", {}).get("map_source", "coil")))
+    map_label = {
+        "coil": "coil-traced open-field map",
+        "vmec": "VMEC-coordinate closed-field map",
+        "hybrid": "hybrid VMEC-coordinate map with coil endpoint masks",
+    }.get(map_source, f"{map_source} map")
 
     section = axes[0, 0].tricontourf(
         arrays["major_radius_section"].ravel(),
@@ -331,7 +337,7 @@ def save_essos_imported_fci_campaign_plot(
         extent=extent,
         cmap="magma",
     )
-    axes[0, 1].set_title("traced endpoint count")
+    axes[0, 1].set_title("endpoint count from map masks")
     axes[0, 1].set_xlabel("toroidal angle")
     axes[0, 1].set_ylabel("poloidal angle")
     fig.colorbar(endpoint, ax=axes[0, 1], label="open endpoints")
@@ -407,7 +413,7 @@ def save_essos_imported_fci_campaign_plot(
         bbox={"facecolor": "white", "alpha": 0.84, "edgecolor": "0.8"},
     )
     fig.suptitle(
-        "Imported non-axisymmetric FCI gate: external field-line maps with JAXDRB sheath and neutral closures",
+        f"Imported non-axisymmetric FCI gate ({map_label}): JAXDRB sheath and neutral closures",
         fontsize=14,
     )
     fig.savefig(resolved, dpi=190)

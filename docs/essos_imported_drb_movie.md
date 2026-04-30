@@ -82,6 +82,20 @@ The current public report passes the following checks:
 
 ![ESSOS imported QA-coil DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_artifacts__movies__essos_imported_drb_movie_campaign.gif)
 
+The promoted `hybrid` movie uses VMEC-coordinate map locations with
+coil-derived endpoint masks. It passes the same closure checks while reducing
+the compact potential residual to about `1.0e-2` on a `7 x 24 x 64` grid. The
+report records endpoint fraction about `0.74`, magnetic-field modulation about
+`1.43`, ion-density fluctuation RMS growth from about `2.6e-2` to `6.0e-2`,
+particle recycling residual about `1.1e-15`, neutral particle residual about
+`1.2e-18`, and a fixed-camera GIF audit with `24` frames.
+
+![ESSOS imported QA-hybrid DRB diagnostics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_diagnostics.png)
+
+![ESSOS imported QA-hybrid DRB snapshots](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__images__essos_imported_drb_movie_hybrid_campaign_snapshots.png)
+
+![ESSOS imported QA-hybrid DRB movie](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_drb_movie_hybrid_artifacts__movies__essos_imported_drb_movie_hybrid_campaign.gif)
+
 ## Artifact Files
 
 - `docs/data/essos_imported_drb_movie_artifacts/data/essos_imported_drb_movie_campaign.json`
@@ -90,3 +104,9 @@ The current public report passes the following checks:
 - `docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_snapshots.png`
 - `docs/data/essos_imported_drb_movie_artifacts/images/essos_imported_drb_movie_campaign_poster.png`
 - `docs/data/essos_imported_drb_movie_artifacts/movies/essos_imported_drb_movie_campaign.gif`
+- `docs/data/essos_imported_drb_movie_hybrid_artifacts/data/essos_imported_drb_movie_hybrid_campaign.json`
+- `docs/data/essos_imported_drb_movie_hybrid_artifacts/data/essos_imported_drb_movie_hybrid_campaign.npz`
+- `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_diagnostics.png`
+- `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_snapshots.png`
+- `docs/data/essos_imported_drb_movie_hybrid_artifacts/images/essos_imported_drb_movie_hybrid_campaign_poster.png`
+- `docs/data/essos_imported_drb_movie_hybrid_artifacts/movies/essos_imported_drb_movie_hybrid_campaign.gif`

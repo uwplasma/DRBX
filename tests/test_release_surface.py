@@ -186,8 +186,13 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "stellarator_vmec_native_selected_field_artifacts" / "data" / "stellarator_vmec_native_selected_field_runtime_report.json",
     REPO_ROOT / "docs" / "data" / "essos_fieldline_import_artifacts" / "data" / "essos_landreman_paul_qa_fieldline_import.json",
     REPO_ROOT / "docs" / "data" / "essos_imported_fci_artifacts" / "data" / "essos_imported_fci_campaign.json",
+    REPO_ROOT / "docs" / "data" / "essos_imported_fci_vmec_artifacts" / "data" / "essos_imported_fci_vmec_campaign.json",
+    REPO_ROOT / "docs" / "data" / "essos_imported_fci_hybrid_artifacts" / "data" / "essos_imported_fci_hybrid_campaign.json",
     REPO_ROOT / "docs" / "data" / "essos_imported_pytree_artifacts" / "data" / "essos_imported_pytree_campaign.json",
+    REPO_ROOT / "docs" / "data" / "essos_imported_pytree_vmec_artifacts" / "data" / "essos_imported_pytree_vmec_campaign.json",
+    REPO_ROOT / "docs" / "data" / "essos_imported_pytree_hybrid_artifacts" / "data" / "essos_imported_pytree_hybrid_campaign.json",
     REPO_ROOT / "docs" / "data" / "essos_imported_drb_movie_artifacts" / "data" / "essos_imported_drb_movie_campaign.json",
+    REPO_ROOT / "docs" / "data" / "essos_imported_drb_movie_hybrid_artifacts" / "data" / "essos_imported_drb_movie_hybrid_campaign.json",
     REPO_ROOT / "docs" / "data" / "essos_vmec_fieldline_surface_artifacts" / "data" / "essos_vmec_fieldline_surface_campaign.json",
     REPO_ROOT
     / "docs"

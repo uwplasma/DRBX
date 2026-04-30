@@ -35,6 +35,7 @@ def main() -> None:
         default=Path("docs/data/essos_imported_drb_movie_artifacts"),
         help="Directory where JSON/NPZ/PNG/GIF validation artifacts are written.",
     )
+    parser.add_argument("--case-label", default="essos_imported_drb_movie_campaign", help="Artifact filename stem.")
     parser.add_argument("--nx", type=int, default=8, help="Number of VMEC-shaped radial grid points.")
     parser.add_argument("--ny", type=int, default=28, help="Number of toroidal planes.")
     parser.add_argument("--nz", type=int, default=80, help="Number of poloidal grid points.")
@@ -50,6 +51,7 @@ def main() -> None:
     configure_jax_runtime(precision="float64")
     artifacts = create_essos_imported_drb_movie_package(
         output_root=args.output_root,
+        case_label=args.case_label,
         coil_json_path=args.coil_json,
         vmec_wout_path=args.vmec_wout,
         essos_root=args.essos_root,

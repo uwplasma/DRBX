@@ -558,17 +558,20 @@ def _build_essos_imported_drb_movie_report(
     endpoint_gate = endpoint_fraction < 1.0e-12 if map_source == "vmec" else 0.05 < endpoint_fraction <= 1.0
     b_modulation_gate = 1.01 if map_source == "vmec" else 1.05
     if map_source == "coil":
+        case = "essos_imported_qa_coil_drb_transient_movie"
         source = "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient"
     elif map_source == "vmec":
+        case = "essos_imported_qa_vmec_drb_transient_movie"
         source = "ESSOS-imported Landreman-Paul QA VMEC-coordinate FCI maps with JAXDRB fixed-layout DRB transient"
     else:
+        case = "essos_imported_qa_hybrid_drb_transient_movie"
         source = "ESSOS-imported Landreman-Paul QA hybrid FCI maps with JAXDRB fixed-layout DRB transient"
     bmag = np.asarray(geometry.magnetic_field_magnitude, dtype=np.float64)
     finite = all(np.all(np.isfinite(value)) for value in [movie_history, diagnostics, *final_state.values()])
     min_density = float(min(np.min(final_state["ion_density"]), np.min(final_state["neutral_density"])))
     radial_flux = _radial_flux_proxy(movie_history, geometry)
     report: dict[str, Any] = {
-        "case": "essos_imported_qa_coil_drb_transient_movie",
+        "case": case,
         "source": source,
         "map_source": map_source,
         "claim_scope": (
