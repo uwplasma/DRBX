@@ -124,6 +124,7 @@ def advance_neutral_mixed_implicit_history(
     tnorm: float,
     timestep: float,
     steps: int,
+    internal_substeps: int = 1,
     solver_mode: str = "sparse",
     residual_tolerance: float = 1.0e-8,
     step_tolerance: float = 1.0e-10,
@@ -134,6 +135,8 @@ def advance_neutral_mixed_implicit_history(
 ) -> NeutralMixedHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
+    if internal_substeps <= 0:
+        raise ValueError("internal_substeps must be positive")
 
     state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
     density_history = [np.asarray(state.density, dtype=np.float64)]
@@ -147,48 +150,49 @@ def advance_neutral_mixed_implicit_history(
             momentum_history=np.stack(momentum_history, axis=0),
         )
 
-    previous_state = state
-    current_state, _ = advance_neutral_mixed_backward_euler_step(
-        config,
-        state,
-        section=section,
-        mesh=mesh,
-        metrics=metrics,
-        meters_scale=meters_scale,
-        tnorm=tnorm,
-        timestep=timestep,
-        solver_mode=solver_mode,
-        residual_tolerance=residual_tolerance,
-        step_tolerance=step_tolerance,
-        max_nonlinear_iterations=max_nonlinear_iterations,
-        linear_restart=linear_restart,
-        linear_maxiter=linear_maxiter,
-        linear_rtol=linear_rtol,
-    )
-    density_history.append(np.asarray(current_state.density, dtype=np.float64))
-    pressure_history.append(np.asarray(current_state.pressure, dtype=np.float64))
-    momentum_history.append(np.asarray(current_state.momentum, dtype=np.float64))
-
-    for _ in range(1, steps):
-        next_state, _ = advance_neutral_mixed_bdf2_step(
-            config,
-            current_state,
-            previous_state,
-            section=section,
-            mesh=mesh,
-            metrics=metrics,
-            meters_scale=meters_scale,
-            tnorm=tnorm,
-            timestep=timestep,
-            solver_mode=solver_mode,
-            residual_tolerance=residual_tolerance,
-            step_tolerance=step_tolerance,
-            max_nonlinear_iterations=max_nonlinear_iterations,
-            linear_restart=linear_restart,
-            linear_maxiter=linear_maxiter,
-            linear_rtol=linear_rtol,
-        )
-        previous_state, current_state = current_state, next_state
+    previous_state: NeutralMixedState | None = None
+    current_state = state
+    sub_timestep = float(timestep) / float(internal_substeps)
+    for _ in range(steps):
+        for _ in range(internal_substeps):
+            if previous_state is None:
+                next_state, _ = advance_neutral_mixed_backward_euler_step(
+                    config,
+                    current_state,
+                    section=section,
+                    mesh=mesh,
+                    metrics=metrics,
+                    meters_scale=meters_scale,
+                    tnorm=tnorm,
+                    timestep=sub_timestep,
+                    solver_mode=solver_mode,
+                    residual_tolerance=residual_tolerance,
+                    step_tolerance=step_tolerance,
+                    max_nonlinear_iterations=max_nonlinear_iterations,
+                    linear_restart=linear_restart,
+                    linear_maxiter=linear_maxiter,
+                    linear_rtol=linear_rtol,
+                )
+            else:
+                next_state, _ = advance_neutral_mixed_bdf2_step(
+                    config,
+                    current_state,
+                    previous_state,
+                    section=section,
+                    mesh=mesh,
+                    metrics=metrics,
+                    meters_scale=meters_scale,
+                    tnorm=tnorm,
+                    timestep=sub_timestep,
+                    solver_mode=solver_mode,
+                    residual_tolerance=residual_tolerance,
+                    step_tolerance=step_tolerance,
+                    max_nonlinear_iterations=max_nonlinear_iterations,
+                    linear_restart=linear_restart,
+                    linear_maxiter=linear_maxiter,
+                    linear_rtol=linear_rtol,
+                )
+            previous_state, current_state = current_state, next_state
         density_history.append(np.asarray(current_state.density, dtype=np.float64))
         pressure_history.append(np.asarray(current_state.pressure, dtype=np.float64))
         momentum_history.append(np.asarray(current_state.momentum, dtype=np.float64))

@@ -30,16 +30,17 @@ Current artifact outputs:
 The current generated report uses the physical active `x-y` domain for all
 term metrics and direct-reference scaling, so guard-cell-only diagnostics do
 not contaminate the offender ranking. It shows a worst active-domain final
-`NVh` difference of about `1.37e-3`, down from the earlier boundary-local
-`3.37e-3` mismatch after the neutral-mixed mesh topology was corrected for
-cases without explicit `ixseps` y-boundary declarations. Inserting the Hermès-3
-final state into the native operator now gives a residual-rate max of about
-`1.66e-4`, so the remaining final-state drift is no longer dominated by the
-direct pressure-gradient or viscosity source formulas.
+`NVh` difference of about `5.81e-4`, down from the earlier boundary-local
+`3.37e-3` mismatch after the neutral-mixed mesh topology and one-step history
+substepping were tightened. Inserting the Hermès-3 final state into the native
+operator now gives a residual-rate max of about `1.66e-4`; inserting the
+native final state gives a residual-rate difference of about `9.01e-5` against
+the Hermès balance. The remaining final-state drift is therefore no longer a
+missing direct pressure-gradient or viscosity source formula.
 
 The report now carries a target-adjacent offender register rather than only
 aggregate field errors. On the native-minus-Hermès final-state term deltas,
-pressure gradient (`1.49e-3`) and parallel viscosity (`1.17e-3`) remain the
+pressure gradient (`6.60e-4`) and parallel viscosity (`6.42e-4`) remain the
 largest named differences because the native and Hermès final states are not
 identical. Direct source-level diagnostics close the implementation question:
 after active-domain scaling, `SNVh_pressure_gradient`,

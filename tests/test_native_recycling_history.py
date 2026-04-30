@@ -713,6 +713,8 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_rhs_cache_hit_count"] == 1
     assert result.diagnostics["bdf_jacobian_callback_count"] == 1
+    assert result.diagnostics["bdf_jacobian_mode"] == "fd"
+    assert result.diagnostics["bdf_jvp_batch_size"] is None
     assert result.diagnostics["bdf_jacobian_parallel_workers"] == 2
 
 

@@ -89,8 +89,8 @@ def build_hermes_live_rerun_campaign_report(
     ]
     return {
         "reference_code": "hermes-3",
-        "reference_root": _sanitize_public_path(reference_root_path),
-        "reference_binary": _sanitize_public_path(reference_binary),
+        "reference_root": _sanitize_public_path(reference_root_path, reference_root=reference_root_path),
+        "reference_binary": _sanitize_public_path(reference_binary, reference_root=reference_root_path),
         "case_count": len(cases),
         "cases": cases,
         "summaries": _build_hermes_live_rerun_summary(cases),
@@ -613,8 +613,24 @@ def _is_normalization_sensitive_case(worst_scaled_entry) -> bool:
     )
 
 
-def _sanitize_public_path(path: str | Path) -> str:
+def _sanitize_public_path(path: str | Path, *, reference_root: Path | None = None) -> str:
     resolved = Path(path).expanduser().resolve()
+    if reference_root is not None:
+        root = Path(reference_root).expanduser().resolve()
+        try:
+            suffix = resolved.relative_to(root).as_posix()
+            return "<reference-root>" if suffix == "." else f"<reference-root>/{suffix}"
+        except ValueError:
+            pass
+    parts = resolved.parts
+    if "hermes-3" in parts and parts.index("hermes-3") < len(parts) - 1:
+        index = parts.index("hermes-3")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<reference-root>" if not suffix else f"<reference-root>/{suffix}"
+    if "jax_drb" in parts:
+        index = parts.index("jax_drb")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<repo-root>" if not suffix else f"<repo-root>/{suffix}"
     home = Path.home().resolve()
     try:
         return f"~/{resolved.relative_to(home).as_posix()}"

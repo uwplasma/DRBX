@@ -13,6 +13,40 @@ from time import perf_counter
 from typing import Any
 
 
+def _sanitize_public_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    resolved = Path(path).expanduser().resolve()
+    cwd = Path.cwd().resolve()
+    try:
+        return resolved.relative_to(cwd).as_posix()
+    except ValueError:
+        pass
+    for base_name in ("HOME",):
+        base_value = os.environ.get(base_name)
+        if not base_value:
+            continue
+        base_path = Path(base_value).expanduser().resolve()
+        try:
+            return f"~/{resolved.relative_to(base_path).as_posix()}"
+        except ValueError:
+            pass
+    return resolved.as_posix()
+
+
+def _public_input_path(args: argparse.Namespace, input_path: Path) -> str:
+    root = args.reference_root
+    if root is None:
+        env_root = os.environ.get("JAX_DRB_REFERENCE_ROOT")
+        root = Path(env_root) if env_root else None
+    if root is not None:
+        try:
+            return f"<reference-root>/{input_path.resolve().relative_to(root.expanduser().resolve()).as_posix()}"
+        except ValueError:
+            pass
+    return f"<input-path>/{input_path.name}"
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -46,6 +80,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--timestep", type=float, default=1.0e-6)
     parser.add_argument("--residual-tolerance", type=float, default=1.0e-6)
     parser.add_argument("--max-nonlinear-iterations", type=int, default=1)
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help=(
+            "BOUT.inp override such as 'mesh:ny=100'. May be repeated. "
+            "Use this for heavier real-kernel CPU/GPU scaling gates without "
+            "copying large input decks into the repository."
+        ),
+    )
+    parser.add_argument(
+        "--warmup-runs",
+        type=int,
+        default=0,
+        help="Run this many unprofiled solves before timing to amortize JAX compilation.",
+    )
     parser.add_argument(
         "--linear-solver-backend",
         choices=("jax_gmres", "lineax_gmres"),
@@ -89,7 +139,7 @@ def _resolve_input(args: argparse.Namespace) -> Path:
 
 
 def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str, Any], float]:
-    from jax_drb.config.boutinp import load_bout_input
+    from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
     from jax_drb.native.mesh import build_structured_mesh
     from jax_drb.native.metrics import build_structured_metrics
     from jax_drb.native.recycling_1d import (
@@ -101,6 +151,8 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
     from jax_drb.runtime.run_config import RunConfiguration
 
     config = load_bout_input(input_path)
+    if args.override:
+        config = apply_bout_overrides(config, args.override)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -135,10 +187,12 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
         if name in runtime_model.field_names
     }
     report = {
-        "input_path": str(input_path),
+        "input_path": _public_input_path(args, input_path),
         "case": str(args.case),
         "solver_mode": "jax_linearized",
         "linear_solver_backend": str(args.linear_solver_backend),
+        "overrides": list(args.override),
+        "warmup_runs": int(max(args.warmup_runs, 0)),
         "timestep": float(args.timestep),
         "residual_tolerance": float(args.residual_tolerance),
         "max_nonlinear_iterations": int(args.max_nonlinear_iterations),
@@ -161,6 +215,11 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
 
 
 def _run_with_optional_profile(args: argparse.Namespace, input_path: Path, jax):
+    warmup_elapsed: list[float] = []
+    for _ in range(max(int(args.warmup_runs), 0)):
+        _, elapsed = _profile_once(args, input_path)
+        warmup_elapsed.append(float(elapsed))
+
     profiler = None if args.skip_cprofile else cProfile.Profile()
     if profiler is not None:
         profiler.enable()
@@ -182,7 +241,7 @@ def _run_with_optional_profile(args: argparse.Namespace, input_path: Path, jax):
         report, elapsed = _profile_once(args, input_path)
     if profiler is not None:
         profiler.disable()
-    return report, elapsed, profiler, trace_dir
+    return report, elapsed, profiler, trace_dir, warmup_elapsed
 
 
 class _NullContext:
@@ -204,7 +263,7 @@ def main() -> int:
 
     from jax_drb.runtime.memory import bytes_to_mebibytes, measure_peak_rss
 
-    profile_report, elapsed, profiler, trace_dir = _run_with_optional_profile(args, input_path, jax)
+    profile_report, elapsed, profiler, trace_dir, warmup_elapsed = _run_with_optional_profile(args, input_path, jax)
     rss_payload = None
     rss_elapsed = None
     if args.rss_profile:
@@ -238,15 +297,16 @@ def main() -> int:
         "backend": jax.default_backend(),
         "devices": [str(device) for device in jax.devices()],
         "profiled_run_seconds": float(elapsed),
+        "warmup_run_seconds": warmup_elapsed,
         "rss_profile": rss_payload,
         "profile": profile_report,
-        "cprofile_top_path": None if not cprofile_path.exists() else str(cprofile_path),
-        "cprofile_binary_path": None if profiler is None else str(cprofile_binary_path),
-        "jax_trace_dir": None if trace_dir is None else str(trace_dir),
-        "device_memory_profile_path": None if memory_profile_path is None else str(memory_profile_path),
-        "xla_dump_dir": None if args.xla_dump_dir is None else str(args.xla_dump_dir.expanduser().resolve()),
+        "cprofile_top_path": None if profiler is None else _sanitize_public_path(cprofile_path),
+        "cprofile_binary_path": None if profiler is None else _sanitize_public_path(cprofile_binary_path),
+        "jax_trace_dir": None if trace_dir is None else _sanitize_public_path(trace_dir),
+        "device_memory_profile_path": None if memory_profile_path is None else _sanitize_public_path(memory_profile_path),
+        "xla_dump_dir": None if args.xla_dump_dir is None else _sanitize_public_path(args.xla_dump_dir),
         "compilation_cache_dir": (
-            None if args.compilation_cache_dir is None else str(args.compilation_cache_dir.expanduser().resolve())
+            None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
         ),
         "interpretation": (
             "This gate profiles a real integrated recycling fixed-layout "

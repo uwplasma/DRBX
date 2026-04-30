@@ -9,6 +9,7 @@ import pytest
 from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
+from jax_drb.native import neutral_mixed as neutral_mixed_mod
 from jax_drb.native.neutral_mixed import (
     _apply_density_y_boundaries,
     _div_a_grad_perp_flows,
@@ -783,6 +784,49 @@ def test_neutral_mixed_implicit_history_returns_finite_step_sequence() -> None:
     assert np.all(np.isfinite(history.momentum_history))
 
 
+def test_neutral_mixed_internal_substeps_use_be_startup_then_bdf2(monkeypatch: pytest.MonkeyPatch) -> None:
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+    scalars = resolved_dataset_scalars(run_config)
+    calls: list[tuple[str, float]] = []
+
+    def fake_be(_config, state, **kwargs):
+        calls.append(("be", float(kwargs["timestep"])))
+        return state.__class__(
+            density=state.density + 1.0,
+            pressure=state.pressure + 2.0,
+            momentum=state.momentum + 3.0,
+        ), object()
+
+    def fake_bdf2(_config, state, previous_state, **kwargs):
+        calls.append(("bdf2", float(kwargs["timestep"])))
+        return state.__class__(
+            density=state.density + 1.0,
+            pressure=state.pressure + 2.0,
+            momentum=state.momentum + 3.0,
+        ), object()
+
+    monkeypatch.setattr(neutral_mixed_mod, "advance_neutral_mixed_backward_euler_step", fake_be)
+    monkeypatch.setattr(neutral_mixed_mod, "advance_neutral_mixed_bdf2_step", fake_bdf2)
+
+    history = advance_neutral_mixed_implicit_history(
+        config,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=5.0,
+        steps=1,
+        internal_substeps=2,
+        solver_mode="matrix_free",
+    )
+
+    assert calls == [("be", 2.5), ("bdf2", 2.5)]
+    np.testing.assert_allclose(history.density_history[-1], history.density_history[0] + 2.0)
+    np.testing.assert_allclose(history.pressure_history[-1], history.pressure_history[0] + 4.0)
+    np.testing.assert_allclose(history.momentum_history[-1], history.momentum_history[0] + 6.0)
+
+
 def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypatch: pytest.MonkeyPatch) -> None:
     config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
 
@@ -791,10 +835,10 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
         pressure_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
         momentum_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
 
-    captured: list[tuple[int, str]] = []
+    captured: list[tuple[int, int, str]] = []
 
     def _fake_history(*args, **kwargs):
-        captured.append((kwargs["steps"], kwargs["solver_mode"]))
+        captured.append((kwargs["steps"], kwargs["internal_substeps"], kwargs["solver_mode"]))
         return _History()
 
     monkeypatch.setattr(
@@ -811,7 +855,7 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     )
     assert time_points == (0.0, 20.0)
     assert variables["Nh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
-    assert captured[-1] == (1, "matrix_free")
+    assert captured[-1] == (1, 4, "matrix_free")
 
     time_points, variables = _execute_neutral_mixed_case(
         config,
@@ -823,7 +867,7 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     assert time_points[0] == 0.0
     assert time_points[-1] == run_config.time.nout * run_config.time.timestep
     assert variables["NVh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
-    assert captured[-1] == (run_config.time.nout, "matrix_free")
+    assert captured[-1] == (run_config.time.nout, 4, "matrix_free")
 
 
 def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -834,10 +878,10 @@ def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: py
         pressure_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
         momentum_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
 
-    captured: list[tuple[int, str]] = []
+    captured: list[tuple[int, int, str]] = []
 
     def _fake_history(*args, **kwargs):
-        captured.append((kwargs["steps"], kwargs["solver_mode"]))
+        captured.append((kwargs["steps"], kwargs["internal_substeps"], kwargs["solver_mode"]))
         return _History()
 
     monkeypatch.setattr(
@@ -854,7 +898,7 @@ def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: py
         output_steps=4,
     )
 
-    assert captured == [(4, "matrix_free")]
+    assert captured == [(4, 4, "matrix_free")]
     assert time_points == (0.0, 20.0, 40.0, 60.0, 80.0)
     assert variables["Nh"].shape == (5, mesh.nx, mesh.local_ny, mesh.nz)
 

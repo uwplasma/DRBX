@@ -1,43 +1,43 @@
 {
   "case_name": "recycling_dthe_one_step",
   "compare_variable_count": 19,
-  "compilation_cache_dir": "/Users/rogerio/local/jax_drb/tmp/jax_cache/recycling_dthe_one_step",
-  "cprofile_binary_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_one_step/cprofile_stats.pstats",
-  "cprofile_top_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_one_step/cprofile_top.txt",
+  "compilation_cache_dir": null,
+  "cprofile_binary_path": "docs/data/runtime_profile_artifacts/recycling_dthe_one_step/cprofile_stats.pstats",
+  "cprofile_top_path": "docs/data/runtime_profile_artifacts/recycling_dthe_one_step/cprofile_top.txt",
   "default_backend": "cpu",
-  "device_memory_profile_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_one_step/device_memory_profile.prof",
+  "device_memory_profile_path": null,
   "devices": [
     "TFRT_CPU_0"
   ],
-  "jax_trace_dir": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_one_step/jax_trace",
-  "profiled_run_seconds": 103.49593862495385,
-  "reference_root": "/Users/rogerio/local/hermes-3",
+  "jax_trace_dir": null,
+  "profiled_run_seconds": 79.92446358304005,
+  "reference_root": "<reference-root>",
   "rss_profile_enabled": true,
   "rss_profile_run_seconds": [
-    169.62297779205255
+    51.47541483398527
   ],
   "timed_run_count": 1,
-  "timed_run_max_seconds": 103.49593862495385,
-  "timed_run_mean_seconds": 103.49593862495385,
-  "timed_run_min_seconds": 103.49593862495385,
+  "timed_run_max_seconds": 79.92446358304005,
+  "timed_run_mean_seconds": 79.92446358304005,
+  "timed_run_min_seconds": 79.92446358304005,
   "timed_run_peak_rss": [
     {
-      "end_rss_bytes": 14698414080,
-      "peak_rss_bytes": 16225959936,
-      "peak_rss_delta_bytes": 36372480,
-      "peak_rss_delta_mebibytes": 34.6875,
-      "peak_rss_mebibytes": 15474.28125,
-      "sample_count": 244,
+      "end_rss_bytes": 235667456,
+      "peak_rss_bytes": 238665728,
+      "peak_rss_delta_bytes": 7143424,
+      "peak_rss_delta_mebibytes": 6.8125,
+      "peak_rss_mebibytes": 227.609375,
+      "sample_count": 389,
       "sampling_interval_seconds": 0.1,
-      "start_rss_bytes": 16189587456,
+      "start_rss_bytes": 231522304,
       "status": "sampled_process_tree_rss"
     }
   ],
-  "timed_run_peak_rss_max_mebibytes": 15474.28125,
+  "timed_run_peak_rss_max_mebibytes": 227.609375,
   "timed_run_seconds": [
-    103.49593862495385
+    79.92446358304005
   ],
   "warm_run_count": 0,
   "warm_run_seconds": [],
-  "xla_dump_dir": "/Users/rogerio/local/jax_drb/tmp/xla/recycling_dthe_one_step"
+  "xla_dump_dir": null
 }

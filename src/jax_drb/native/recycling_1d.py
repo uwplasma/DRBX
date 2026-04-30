@@ -2862,6 +2862,8 @@ def _advance_recycling_1d_bdf_history(
     rhs_evaluation_count = 0
     rhs_cache_hit_count = 0
     jacobian_callback_count = 0
+    bdf_jacobian_mode = _resolve_recycling_bdf_jacobian_mode()
+    bdf_jvp_batch_size = _resolve_recycling_jvp_batch_size()
     jacobian_parallel_workers = _resolve_recycling_bdf_jacobian_parallel_workers()
 
     def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
@@ -2921,7 +2923,7 @@ def _advance_recycling_1d_bdf_history(
         nonlocal jacobian_callback_count
         jacobian_callback_count += 1
         rhs_value = rhs(_time, packed_state)
-        if _resolve_recycling_bdf_jacobian_mode() == "jvp":
+        if bdf_jacobian_mode == "jvp":
             return build_sparse_jvp_jacobian(
                 lambda state: _evaluate_rhs_object(state),
                 packed_state,
@@ -2929,7 +2931,7 @@ def _advance_recycling_1d_bdf_history(
                 color_groups=color_groups,
                 sparsity_csc=sparsity_csc,
                 difference_plan=difference_plan,
-                batch_size=_resolve_recycling_jvp_batch_size(),
+                batch_size=bdf_jvp_batch_size,
             )
         return build_sparse_difference_quotient_jacobian(
             lambda state: _evaluate_rhs(_time, state),
@@ -3004,6 +3006,8 @@ def _advance_recycling_1d_bdf_history(
             "bdf_rhs_evaluation_count": int(rhs_evaluation_count),
             "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
             "bdf_jacobian_callback_count": int(jacobian_callback_count),
+            "bdf_jacobian_mode": bdf_jacobian_mode,
+            "bdf_jvp_batch_size": None if bdf_jvp_batch_size is None else int(bdf_jvp_batch_size),
             "bdf_jacobian_parallel_workers": int(jacobian_parallel_workers),
         },
     )

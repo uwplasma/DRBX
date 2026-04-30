@@ -976,6 +976,15 @@ def _rms(value: np.ndarray) -> float:
 
 def _sanitize_public_path(path: str | Path) -> str:
     resolved = Path(path).expanduser().resolve()
+    parts = resolved.parts
+    if "hermes-3" in parts:
+        index = parts.index("hermes-3")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<reference-root>" if not suffix else f"<reference-root>/{suffix}"
+    if "jax_drb" in parts:
+        index = parts.index("jax_drb")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<repo-root>" if not suffix else f"<repo-root>/{suffix}"
     home = Path.home().resolve()
     try:
         return f"~/{resolved.relative_to(home).as_posix()}"

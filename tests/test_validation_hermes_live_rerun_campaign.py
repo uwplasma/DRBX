@@ -134,7 +134,8 @@ def test_build_hermes_live_rerun_campaign_report_aggregates_cases(monkeypatch, t
 
     report = build_hermes_live_rerun_campaign_report(reference_root=tmp_path, case_specs=specs)
 
-    assert report["reference_binary"] == str(tmp_path / "build" / "hermes-3")
+    assert report["reference_binary"] == "<reference-root>/build/hermes-3"
+    assert report["reference_root"] == "<reference-root>"
     assert report["case_count"] == 2
     assert report["summaries"]["exact_match_case_count"] == 1
     assert report["summaries"]["worst_relative_l2_case"] == "case_b"

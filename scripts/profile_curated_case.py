@@ -12,6 +12,23 @@ from time import perf_counter
 from typing import Any
 
 
+def _sanitize_public_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    resolved = Path(path).expanduser().resolve()
+    cwd = Path.cwd().resolve()
+    try:
+        return resolved.relative_to(cwd).as_posix()
+    except ValueError:
+        pass
+    parts = resolved.parts
+    if "hermes-3" in parts:
+        index = parts.index("hermes-3")
+        suffix = Path(*parts[index + 1 :]).as_posix() if parts[index + 1 :] else ""
+        return "<reference-root>" if not suffix else f"<reference-root>/{suffix}"
+    return resolved.name
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -251,7 +268,7 @@ def main() -> int:
     ]
     summary = {
         "case_name": args.case_name,
-        "reference_root": None if args.reference_root is None else str(args.reference_root.expanduser().resolve()),
+        "reference_root": None if args.reference_root is None else _sanitize_public_path(args.reference_root),
         "devices": [str(device) for device in jax.devices()],
         "default_backend": jax.default_backend(),
         "warm_run_count": len(warm_durations),
@@ -268,13 +285,13 @@ def main() -> int:
         "timed_run_mean_seconds": float(sum(timed_durations) / len(timed_durations)),
         "timed_run_min_seconds": float(min(timed_durations)),
         "timed_run_max_seconds": float(max(timed_durations)),
-        "cprofile_top_path": None if not cprofile_path.exists() else str(cprofile_path),
-        "cprofile_binary_path": None if cprofile_binary_path is None else str(cprofile_binary_path),
-        "jax_trace_dir": None if trace_dir is None else str(trace_dir),
-        "device_memory_profile_path": None if memory_profile_path is None else str(memory_profile_path),
-        "xla_dump_dir": None if args.xla_dump_dir is None else str(args.xla_dump_dir.expanduser().resolve()),
+        "cprofile_top_path": None if not cprofile_path.exists() else _sanitize_public_path(cprofile_path),
+        "cprofile_binary_path": None if cprofile_binary_path is None else _sanitize_public_path(cprofile_binary_path),
+        "jax_trace_dir": None if trace_dir is None else _sanitize_public_path(trace_dir),
+        "device_memory_profile_path": None if memory_profile_path is None else _sanitize_public_path(memory_profile_path),
+        "xla_dump_dir": None if args.xla_dump_dir is None else _sanitize_public_path(args.xla_dump_dir),
         "compilation_cache_dir": (
-            None if args.compilation_cache_dir is None else str(args.compilation_cache_dir.expanduser().resolve())
+            None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
         ),
         "compare_variable_count": None if profiled_result is None else len(getattr(profiled_result, "variables", {})),
     }

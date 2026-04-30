@@ -1,7 +1,7 @@
 {
   "backend": "cpu",
   "case": "recycling_1d_dthe_jax_linearized_gate",
-  "compilation_cache_dir": null,
+  "compilation_cache_dir": "tmp/jax_cache/recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu",
   "cprofile_binary_path": null,
   "cprofile_top_path": null,
   "device_memory_profile_path": null,
@@ -11,17 +11,17 @@
   "interpretation": "This gate profiles a real integrated recycling fixed-layout residual that reaches JAX linearization. The D/T/He mode exercises the multispecies residual seam used by the adaptive BDF trial solves; it is still a controlled BE gate, not a full production output-window profile.",
   "jax_trace_dir": null,
   "profile": {
-    "active_size": 950,
+    "active_size": 1900,
     "case": "dthe",
     "diagnostics": {
       "fallback_used": false,
-      "jacobian_assembly_seconds": 1.4774501250358298,
+      "jacobian_assembly_seconds": 1.1675607500365004,
       "jacobian_mode": "jax_linearized:jax_gmres",
       "jacobian_refresh_count": 1,
-      "line_search_seconds": 0.0,
-      "linear_solve_seconds": 0.0,
-      "residual_evaluation_count": 1,
-      "residual_evaluation_seconds": 1.4774501250358298
+      "line_search_seconds": 0.13808370800688863,
+      "linear_solve_seconds": 5.9596883750054985,
+      "residual_evaluation_count": 2,
+      "residual_evaluation_seconds": 1.305578958010301
     },
     "feedback_names": [
       "d+",
@@ -50,54 +50,58 @@
       "Pe"
     ],
     "input_path": "<reference-root>/tests/integrated/1D-recycling-dthe/data/BOUT.inp",
-    "linear_iterations": 0,
+    "linear_iterations": 400,
     "linear_solver_backend": "jax_gmres",
-    "max_nonlinear_iterations": 1,
+    "max_nonlinear_iterations": 2,
     "mesh_active_shape": [
       1,
-      50,
+      100,
       1
     ],
-    "nonlinear_iterations": 0,
-    "overrides": [],
-    "residual_inf_norm": 2.4089232828637317e-11,
+    "nonlinear_iterations": 1,
+    "overrides": [
+      "mesh:ny=100"
+    ],
+    "residual_inf_norm": 1.7408881615820626e-12,
     "residual_tolerance": 1e-06,
     "solver_mode": "jax_linearized",
-    "state_size": 1029,
-    "timestep": 1e-06,
+    "state_size": 1979,
+    "timestep": 0.0001,
     "variable_cell_count": {
-      "NVd": 54,
-      "NVd+": 54,
-      "NVhe": 54,
-      "NVhe+": 54,
-      "NVt": 54,
-      "NVt+": 54,
-      "Nd": 54,
-      "Nd+": 54,
-      "Nhe": 54,
-      "Nhe+": 54,
-      "Nt": 54,
-      "Nt+": 54,
-      "Pd": 54,
-      "Pd+": 54,
-      "Pe": 54,
-      "Phe": 54,
-      "Phe+": 54,
-      "Pt": 54,
-      "Pt+": 54
+      "NVd": 104,
+      "NVd+": 104,
+      "NVhe": 104,
+      "NVhe+": 104,
+      "NVt": 104,
+      "NVt+": 104,
+      "Nd": 104,
+      "Nd+": 104,
+      "Nhe": 104,
+      "Nhe+": 104,
+      "Nt": 104,
+      "Nt+": 104,
+      "Pd": 104,
+      "Pd+": 104,
+      "Pe": 104,
+      "Phe": 104,
+      "Phe+": 104,
+      "Pt": 104,
+      "Pt+": 104
     },
-    "warmup_runs": 0
+    "warmup_runs": 1
   },
-  "profiled_run_seconds": 1.5052714999765158,
+  "profiled_run_seconds": 7.2775909579358995,
   "rss_profile": {
-    "peak_rss_delta_mebibytes": 4.3125,
-    "peak_rss_mebibytes": 395.171875,
-    "residual_inf_norm": 2.4089232828637317e-11,
-    "run_seconds": 1.3228633750695735,
-    "sample_count": 11,
+    "peak_rss_delta_mebibytes": 694.140625,
+    "peak_rss_mebibytes": 3469.734375,
+    "residual_inf_norm": 1.7408881615820626e-12,
+    "run_seconds": 11.495770124951378,
+    "sample_count": 47,
     "sampling_interval_seconds": 0.1,
     "status": "sampled_process_tree_rss"
   },
-  "warmup_run_seconds": [],
+  "warmup_run_seconds": [
+    7.573471707990393
+  ],
   "xla_dump_dir": null
 }

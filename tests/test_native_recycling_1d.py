@@ -2157,6 +2157,7 @@ def test_recycling_bdf_history_can_use_sparse_jvp_jacobian_callback(
     assert calls == ["jvp"]
     assert history.variable_history["Nd+"].shape == (2, mesh.nx, mesh.local_ny, mesh.nz)
     assert history.diagnostics["bdf_jacobian_callback_count"] == 1
+    assert history.diagnostics["bdf_jacobian_mode"] == "jvp"
 
 
 @pytest.mark.parametrize(

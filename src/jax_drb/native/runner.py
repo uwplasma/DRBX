@@ -2053,6 +2053,7 @@ def _execute_neutral_mixed_case(
         tnorm=float(scalars["Tnorm"]),
         timestep=run_config.time.timestep,
         steps=steps,
+        internal_substeps=_neutral_mixed_internal_substeps(config, parity_mode=parity_mode),
         solver_mode="matrix_free",
         residual_tolerance=1.0e-8,
         step_tolerance=1.0e-10,
@@ -2067,6 +2068,17 @@ def _execute_neutral_mixed_case(
         f"P{section}": np.asarray(history.pressure_history, dtype=np.float64),
         f"NV{section}": np.asarray(history.momentum_history, dtype=np.float64),
     }
+
+
+def _neutral_mixed_internal_substeps(config: BoutConfig, *, parity_mode: str) -> int:
+    for section_name in ("runtime", "jax_drb"):
+        if not config.has_option(section_name, "neutral_mixed_internal_substeps"):
+            continue
+        try:
+            return max(1, int(config.parsed(section_name, "neutral_mixed_internal_substeps")))
+        except Exception:
+            return 1
+    return 4 if parity_mode in {"one_step", "short_window"} else 1
 
 
 def _is_supported_periodic_fluid_mms_case(

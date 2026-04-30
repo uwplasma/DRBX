@@ -29,6 +29,14 @@ The figure reports:
 - the corresponding `max_{x,z} |Δ|(y)` profiles so boundary localization is
   visible even when a single centerline looks cleaner than the full field
 
+The current package was regenerated after the neutral mixed history integrator
+started using internal BDF substeps for the one-step and short-window parity
+surfaces. The maximum `NVh` history error is now about `5.81e-4`, down from
+the earlier `3.37e-3` boundary-local mismatch. The worst scalar neutral-state
+error is still on `Nh`, about `1.02e-2`, so the campaign now separates the
+closed neutral-momentum source-formula question from the remaining
+density/pressure boundary-history fidelity work.
+
 Run the package locally with:
 
 ```bash
