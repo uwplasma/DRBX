@@ -68,6 +68,7 @@ from jax_drb.parity.diff import build_scaled_array_diff_entries
 from jax_drb.reference.cases import load_reference_cases
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
+from jax_drb.solver.implicit import ImplicitStepInfo
 
 
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
@@ -1978,6 +1979,160 @@ def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver
     )
 
     assert calls == ["jax_linearized", "jax_linearized"]
+
+
+def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
+    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf") == "sparse"
+    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_sparse_jvp") == "sparse_jvp"
+    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized") == "jax_linearized"
+    assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized_lineax") == "jax_linearized_lineax"
+    with pytest.raises(ValueError, match="Unsupported adaptive BDF solver mode"):
+        recycling_1d_mod._adaptive_bdf_step_solver_mode("bad")
+
+
+def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", raising=False)
+    assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", "0")
+    assert recycling_1d_mod._resolve_recycling_jvp_batch_size() == 1
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", "bad")
+    assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "lineax")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "lineax_gmres"
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "unknown")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "jax_gmres"
+
+
+@pytest.mark.parametrize(
+    ("solver_mode", "expected_solver", "expected_backend"),
+    [
+        ("matrix_free", "matrix_free", None),
+        ("jax_linearized", "jax_linearized", "jax_gmres"),
+        ("jax_linearized_lineax", "jax_linearized", "lineax_gmres"),
+    ],
+)
+def test_recycling_backward_euler_routes_jax_native_solver_backends(
+    solver_mode: str,
+    expected_solver: str,
+    expected_backend: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(config, mesh=mesh, dataset_scalars=scalars)
+    fields = _build_recycling_state_fields(runtime_model)
+    integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    calls: list[tuple[str, str | None]] = []
+
+    def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
+        calls.append(("matrix_free", None))
+        return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
+            residual_inf_norm=0.0,
+            active_shape=tuple(active_shape),
+            nonlinear_iterations=1,
+            linear_iterations=0,
+        )
+
+    def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
+        calls.append(("jax_linearized", linear_solver_backend))
+        return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
+            residual_inf_norm=0.0,
+            active_shape=tuple(active_shape),
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            jacobian_mode="jvp",
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
+    monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
+
+    next_fields, _, info = advance_recycling_1d_backward_euler_step(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=0.1,
+        solver_mode=solver_mode,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=3,
+    )
+
+    assert calls == [(expected_solver, expected_backend)]
+    assert info.residual_inf_norm == pytest.approx(0.0)
+    assert np.isfinite(next_fields["Nd+"]).all()
+
+
+@pytest.mark.parametrize(
+    ("solver_mode", "expected_solver", "expected_backend"),
+    [
+        ("matrix_free", "matrix_free", None),
+        ("jax_linearized_lineax", "jax_linearized", "lineax_gmres"),
+    ],
+)
+def test_recycling_bdf2_routes_jax_native_solver_backends(
+    solver_mode: str,
+    expected_solver: str,
+    expected_backend: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_bout_input(_INPUT_1D)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    runtime_model = _build_recycling_runtime_model(config, mesh=mesh, dataset_scalars=scalars)
+    fields = _build_recycling_state_fields(runtime_model)
+    previous_fields = {name: np.asarray(value, dtype=np.float64) for name, value in fields.items()}
+    integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    calls: list[tuple[str, str | None]] = []
+
+    def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
+        calls.append(("matrix_free", None))
+        return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
+            residual_inf_norm=0.0,
+            active_shape=tuple(active_shape),
+            nonlinear_iterations=1,
+            linear_iterations=0,
+        )
+
+    def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
+        calls.append(("jax_linearized", linear_solver_backend))
+        return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
+            residual_inf_norm=0.0,
+            active_shape=tuple(active_shape),
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            jacobian_mode="jvp",
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
+    monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
+
+    next_fields, _, info = advance_recycling_1d_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        runtime_model=runtime_model,
+        feedback_integrals=integrals,
+        previous_feedback_integrals=integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=0.1,
+        solver_mode=solver_mode,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=3,
+    )
+
+    assert calls == [(expected_solver, expected_backend)]
+    assert info.residual_inf_norm == pytest.approx(0.0)
+    assert np.isfinite(next_fields["Nd+"]).all()
 
 
 @pytest.mark.slow

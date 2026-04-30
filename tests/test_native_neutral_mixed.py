@@ -372,7 +372,8 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
                 dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
             )
 
-    if not boundary_flux and not mesh.has_lower_y_target:
+    has_connected_y_ends = not mesh.has_lower_y_target and not mesh.has_upper_y_target
+    if not boundary_flux and has_connected_y_ends:
         lower = mesh.ystart
         connected = mesh.yend
         coefficient_down = 0.5 * (
@@ -395,7 +396,7 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
             dy[mesh.xstart : mesh.xend + 1, lower, :] * J[mesh.xstart : mesh.xend + 1, lower, :]
         )
 
-    if not boundary_flux and not mesh.has_upper_y_target:
+    if not boundary_flux and has_connected_y_ends:
         upper = mesh.yend
         connected = mesh.ystart
         coefficient_up = 0.5 * (
@@ -427,6 +428,62 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
     )
 
     np.testing.assert_allclose(actual, expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_div_par_k_grad_par_open_does_not_wrap_open_field_lower_boundary() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 5
+        ny = 5
+        nz = 1
+        ixseps1 = -1
+        ixseps2 = -1
+
+        dx = 1
+        dy = 1
+        dz = 1
+
+        [model]
+        components = h
+
+        [h]
+        type = neutral_mixed
+        """
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    field = np.zeros((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)
+    coefficient = np.ones_like(field)
+    field[:, mesh.ystart : mesh.yend + 1, :] = np.arange(1.0, 6.0)[None, :, None]
+
+    actual = _div_par_k_grad_par_open(
+        coefficient,
+        field,
+        mesh=mesh,
+        metrics=metrics,
+        boundary_flux=False,
+    )
+
+    assert mesh.has_lower_y_target is False
+    assert mesh.has_upper_y_target is True
+    xs = mesh.xstart
+    lower = mesh.ystart
+    upper = mesh.yend
+    dy = np.asarray(metrics.dy, dtype=np.float64)
+    J = np.asarray(metrics.J, dtype=np.float64)
+    g22 = np.asarray(metrics.g_22, dtype=np.float64)
+    lower_gradient = 2.0 * (field[xs, lower + 1, 0] - field[xs, lower, 0]) / (dy[xs, lower, 0] + dy[xs, lower + 1, 0])
+    upper_gradient = 2.0 * (field[xs, upper, 0] - field[xs, upper - 1, 0]) / (dy[xs, upper, 0] + dy[xs, upper - 1, 0])
+    expected_lower = lower_gradient / g22[xs, lower, 0] / dy[xs, lower, 0]
+    expected_upper = -upper_gradient / g22[xs, upper, 0] / dy[xs, upper, 0]
+
+    assert float(actual[xs, lower, 0]) == pytest.approx(expected_lower)
+    assert float(actual[xs, upper, 0]) == pytest.approx(expected_upper)
 
 
 def test_neutral_mixed_active_state_round_trip_preserves_interior() -> None:

@@ -532,8 +532,10 @@ The register should drive the next fixes in this order:
 
 ### CI And Automation
 
-The current workflow is intentionally narrow because of billing constraints.
-That is acceptable short-term but not the final research-code standard.
+The current workflow has explicit fast, docs, closeout-coverage, and PyPI
+publishing gates. That is enough for release hygiene, but not the final
+research-code standard because the slow live-reference, performance, and
+artifact-regeneration lanes still need to remain manual or scheduled.
 
 The final automated gate should have tiers:
 
@@ -952,11 +954,11 @@ Exit criteria:
 Deliverables:
 
 - turn the fast research gate into a CI job when billing is available
-- use `scripts/run_promoted_solver_coverage.py --audit` to track the promoted
-  solver/public slice until the refactor raises it from the April 23, 2026
-  local baseline of `73%` to the required `95%`
-- add coverage gate for promoted solver/public slice once that audit clears the
-  threshold without `--audit`
+- keep `scripts/run_promoted_solver_coverage.py` as the promoted
+  solver/public-surface gate now that the April 30, 2026 local audit reaches
+  the required `95%` threshold
+- keep `scripts/run_closeout_coverage.py` as the bounded release-closeout gate;
+  the April 30, 2026 local audit reaches `96%`
 - add nightly/manual heavy reference reruns
 - add release smoke install from wheel
 - validate PyPI workflow on a test release before versioned public release

@@ -469,7 +469,10 @@ def div_par_k_grad_par_open(
             flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
             result = result.at[xs, down_cells, :].add(-flux_down / (dy[xs, down_cells, :] * J[xs, down_cells, :]))
 
-        if not boundary_flux and not mesh.has_lower_y_target:
+        # A non-target lower end is a no-flow boundary on open-field recycling
+        # decks. Only wrap the parallel operator when both Y ends are connected.
+        has_connected_y_ends = not mesh.has_lower_y_target and not mesh.has_upper_y_target
+        if not boundary_flux and has_connected_y_ends:
             lower = mesh.ystart
             connected = mesh.yend
             coefficient_down = 0.5 * (coefficient_array[xs, lower, :] + coefficient_array[xs, connected, :])
@@ -481,7 +484,7 @@ def div_par_k_grad_par_open(
             flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
             result = result.at[xs, lower, :].add(-flux_down / (dy[xs, lower, :] * J[xs, lower, :]))
 
-        if not boundary_flux and not mesh.has_upper_y_target:
+        if not boundary_flux and has_connected_y_ends:
             upper = mesh.yend
             connected = mesh.ystart
             coefficient_up = 0.5 * (coefficient_array[xs, upper, :] + coefficient_array[xs, connected, :])
@@ -532,7 +535,10 @@ def div_par_k_grad_par_open(
         flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
         result[xs, down_cells, :] -= flux_down / (dy[xs, down_cells, :] * J[xs, down_cells, :])
 
-    if not boundary_flux and not mesh.has_lower_y_target:
+    # A non-target lower end is a no-flow boundary on open-field recycling
+    # decks. Only wrap the parallel operator when both Y ends are connected.
+    has_connected_y_ends = not mesh.has_lower_y_target and not mesh.has_upper_y_target
+    if not boundary_flux and has_connected_y_ends:
         lower = mesh.ystart
         connected = mesh.yend
         coefficient_down = 0.5 * (coefficient[xs, lower, :] + coefficient[xs, connected, :])
@@ -544,7 +550,7 @@ def div_par_k_grad_par_open(
         flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
         result[xs, lower, :] -= flux_down / (dy[xs, lower, :] * J[xs, lower, :])
 
-    if not boundary_flux and not mesh.has_upper_y_target:
+    if not boundary_flux and has_connected_y_ends:
         upper = mesh.yend
         connected = mesh.ystart
         coefficient_up = 0.5 * (coefficient[xs, upper, :] + coefficient[xs, connected, :])

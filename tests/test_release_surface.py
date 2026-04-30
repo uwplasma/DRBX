@@ -130,6 +130,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "temperature_feedback_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "detachment_controller_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "autodiff_diffusion_uncertainty.py",
+    REPO_ROOT / ".github" / "workflows" / "coverage.yml",
+    REPO_ROOT / ".github" / "workflows" / "docs.yml",
     REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml",
     REPO_ROOT / ".github" / "workflows" / "test.yml",
 )
