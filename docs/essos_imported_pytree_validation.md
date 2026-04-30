@@ -51,19 +51,32 @@ neutral density, vorticity RMS, and potential residual. It compares
 batched `vmap` evaluations agree with serial evaluations on the same drive
 parameter.
 
-## Current Artifact
+## Current Artifacts
 
-![ESSOS imported PyTree/JVP validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
+![ESSOS imported PyTree/JVP coil validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_artifacts__images__essos_imported_pytree_campaign.png)
 
-The figure shows the short imported-map transient, endpoint distribution,
+![ESSOS imported PyTree/JVP VMEC-coordinate validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_vmec_artifacts__images__essos_imported_pytree_vmec_campaign.png)
+
+![ESSOS imported PyTree/JVP hybrid validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_pytree_hybrid_artifacts__images__essos_imported_pytree_hybrid_campaign.png)
+
+The figures show the short imported-map transient, endpoint distribution,
 final ion and neutral sections, serial-versus-batched objective parity, and
-JVP derivative comparison. The current report records the imported map
-resolution, endpoint fraction, magnetic-field modulation, warm execution
-time, JVP relative error, `vmap` serial mismatch, and final density/vorticity
-diagnostics.
+JVP derivative comparison for `coil`, `vmec`, and `hybrid` maps. The closed
+VMEC-coordinate control has zero endpoint fraction and a much smaller compact
+potential residual; the hybrid map keeps the open-field endpoint fraction and
+passes the same JVP and `vmap` gates as the coil-traced map. The current
+reports record imported map resolution, endpoint fraction, magnetic-field
+modulation, warm execution time, JVP relative error, `vmap` serial mismatch,
+and final density/vorticity diagnostics.
 
 ## Artifact Files
 
 - `docs/data/essos_imported_pytree_artifacts/data/essos_imported_pytree_campaign.json`
 - `docs/data/essos_imported_pytree_artifacts/data/essos_imported_pytree_campaign.npz`
 - `docs/data/essos_imported_pytree_artifacts/images/essos_imported_pytree_campaign.png`
+- `docs/data/essos_imported_pytree_vmec_artifacts/data/essos_imported_pytree_vmec_campaign.json`
+- `docs/data/essos_imported_pytree_vmec_artifacts/data/essos_imported_pytree_vmec_campaign.npz`
+- `docs/data/essos_imported_pytree_vmec_artifacts/images/essos_imported_pytree_vmec_campaign.png`
+- `docs/data/essos_imported_pytree_hybrid_artifacts/data/essos_imported_pytree_hybrid_campaign.json`
+- `docs/data/essos_imported_pytree_hybrid_artifacts/data/essos_imported_pytree_hybrid_campaign.npz`
+- `docs/data/essos_imported_pytree_hybrid_artifacts/images/essos_imported_pytree_hybrid_campaign.png`
