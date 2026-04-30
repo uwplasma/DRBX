@@ -47,16 +47,20 @@ differentiability evidence because it exercises the multispecies recycling
 state rather than a synthetic diffusion objective. On the committed local CPU
 run with `mesh:ny=100`, the residual JVP agrees with a centered finite
 difference to about `6e-9`, the objective directional derivative agrees to
-about `1.3e-7`, and batch 64 reaches about `3.0x` residual throughput speedup
-and `2.2x` JVP throughput speedup over serial same-kernel calls.
+about `1.3e-7`, and the retained batch sweep through 256 states reaches about
+`2.8x` residual throughput speedup and `2.2x` JVP throughput speedup over
+serial same-kernel calls.
 
 The source-term lane now also has a dedicated accelerator-throughput gate:
 `scripts/profile_atomic_rate_throughput_gate.py`. That gate evaluates a
-batched AMJUEL/CX reaction-source surface and its reverse-mode derivative. On
-the office GPU run, the largest committed batch (`4,194,304` points) is about
-`2.4x` faster than the local CPU run for the rate surface and about `2.0x`
-faster for the autodiff derivative. This is an accelerator speedup claim for a
-source kernel, not for the full output-window recycling solve.
+batched AMJUEL/CX reaction-source surface, its reverse-mode derivative, and a
+scalar log-temperature sensitivity objective. On the office GPU run, the
+largest committed batch (`4,194,304` points) is about `2.5x` faster than the
+local CPU run for the rate surface and about `2.1x` faster for the autodiff
+derivative. The scalar sensitivity agrees with centered finite differences at
+about `1e-10` relative error on both CPU and GPU. This is an accelerator
+speedup claim for a source kernel, not for the full output-window recycling
+solve.
 
 ## Current Differentiable Example Results
 

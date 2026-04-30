@@ -450,7 +450,10 @@ kernel work on CPU. The remote GPU attempt on the same heavy residual still has
 unacceptable compile latency, so it remains an open solver-backbone target
 rather than a release claim. By contrast, the atomic-rate source kernel already
 shows a measured GPU throughput win because it is a dense, batched, fully
-JAX-native calculation with no host/SciPy barrier.
+JAX-native calculation with no host/SciPy barrier: the retained largest batch
+is about `2.5x` faster for the rate surface and about `2.1x` faster for its
+autodiff derivative on the office GPU, with scalar sensitivity parity at about
+`1e-10` relative error.
 
 ## Required New Evidence
 
