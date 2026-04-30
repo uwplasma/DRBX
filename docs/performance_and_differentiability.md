@@ -117,8 +117,9 @@ callback also caches the most recent exact `(t, y)` RHS evaluation, so a
 `jac(t, y)` request immediately following `rhs(t, y)` reuses the base RHS
 instead of recomputing the full recycling source/closure assembly. The
 recycling history object records `bdf_rhs_evaluation_count`,
-`bdf_rhs_cache_hit_count`, and `bdf_jacobian_callback_count` for future runtime
-audits. The packed recycling RHS now also disables reaction diagnostics during
+`bdf_rhs_cache_hit_count`, `bdf_jacobian_callback_count`,
+`bdf_jacobian_mode`, and `bdf_jvp_batch_size` for future runtime audits. The
+packed recycling RHS now also disables reaction diagnostics during
 implicit residual/Jacobian evaluations and routes the exact D/T/He Hermès
 reaction block through the fixed-layout array kernel, so the solver hot path no
 longer pays for dictionary diagnostics that are only needed for reporting.
@@ -454,10 +455,11 @@ of the transient backbone is moved out of the host/SciPy path.
 
 The heavier D/T/He fixed-layout recycling residual has now also been profiled
 on the same GPU host. The CPU gate has `950` active variables, reaches residual
-`2.41e-11`, and completes the profiled run in about `4.74 s`. The first GPU
-run reaches the same residual with two visible CUDA devices, completes in about
-`13.21 s`, and samples peak process-tree RSS near `1.49 GiB`; a second run
-with the same persistent compilation cache completes in about `6.66 s` with
+`2.41e-11`, and the current all-local profiling bundle completes the
+skip-cProfile run in about `1.51 s`. The first retained GPU run reaches the
+same residual with two visible CUDA devices, completes in about `13.21 s`, and
+samples peak process-tree RSS near `1.49 GiB`; a second run with the same
+persistent compilation cache completes in about `6.66 s` with
 sampled peak RSS near `1.43 GiB`. This is useful accelerator evidence for the
 fixed-layout residual seam, but it is deliberately not described as GPU
 speedup: the current gate is still too small and launch/compile dominated.
@@ -572,10 +574,22 @@ The D/T/He gate has a separate profile bundle in
 `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/`.
 That run exercised the real 19-field multispecies deck with residual
 `2.41e-11`, one JAX linearization refresh, one residual evaluation, no
-fallback, and an RSS-sampled replay taking about `3.19 s` with an incremental
-RSS increase of about `76 MiB`. This is the current proof that the
+fallback, and an RSS-sampled replay taking about `1.32 s` with an incremental
+RSS increase of about `4.3 MiB` in the current skip-cProfile all-local bundle.
+This is the current proof that the
 multispecies fixed-layout residual seam is transformable. The heavier
 `recycling_dthe_one_step` profile remains the production offender baseline.
+
+The heavier real-kernel GMRES scaling pass uses the same D/T/He residual seam
+with `mesh:ny=100` and `mesh:ny=200`, `timestep=1e-4`, and two nonlinear
+iterations allowed. This forces a nontrivial JAX-linearized update and records
+400 GMRES-equivalent iterations. Local CPU runs closed to `1.74e-12` and
+`7.47e-11` in about `7.28 s` and `7.32 s`; office-GPU runs closed to the same
+residuals in about `30.19 s` and `30.76 s`, with large shape-specific compile
+warmups. The GPU memory delta is lower, but the current JAX GMRES heavy
+recycling path is not a production speedup. This is why the release keeps the
+full output-window BDF default on the stable finite-difference compatibility
+path while retaining JAX-linearized/JVP modes as explicit development gates.
 
 The production backward-Euler/BDF2 recycling steppers now build their nonlinear
 residuals through the same fixed-layout state bridge. The default sparse path

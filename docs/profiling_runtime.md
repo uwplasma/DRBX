@@ -96,8 +96,8 @@ not yet a full runtime solution. A post-change unprofiled
 `recycling_dthe_one_step` timing on this MacBook measured `61.38 s`, which is
 within local noise and not a defensible end-to-end speedup over the earlier
 `~53 s` unprofiled RSS run. Future heavy reports should therefore include the
-new BDF diagnostics counters and `bdf_jacobian_parallel_workers` in addition to
-wall time.
+new BDF diagnostics counters, `bdf_jacobian_mode`, `bdf_jvp_batch_size`, and
+`bdf_jacobian_parallel_workers` in addition to wall time.
 
 A direct timing-only check on the same local machine confirms that this is an
 opt-in capability rather than a universal default. With the latest source
@@ -125,18 +125,18 @@ into the production backward-Euler/BDF2 steppers and the legacy BDF RHS
 callback was routed through the same bridge was:
 
 - command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 35 --rss-profile`
-- cProfile run: `74.33 s` wall, `2.11e8` Python function calls
-- separate unprofiled RSS run: `49.22 s`
-- peak sampled process-tree RSS: `231.4 MiB`
+- cProfile run: `79.92 s` wall, `2.33e8` Python function calls
+- separate unprofiled RSS run: `51.48 s`
+- peak sampled process-tree RSS: `227.6 MiB`
 - BDF callback counts visible in the profile: `11838` packed RHS evaluations,
   `86` Jacobian callbacks, and `8428` finite-difference color-group
   perturbation residuals
 - top cumulative costs: sparse finite-difference Jacobian construction
-  `51.2 s`, packed RHS `69.9 s`, species RHS assembly `67.9 s`, collision
-  closure `10.5 s`, fixed-layout D/T/He reaction sources `9.0 s`, open-field
-  state preparation `8.5 s`, open-field parallel advection `7.7 s`, AMJUEL fit
-  evaluation `7.4 s`, ion RHS assembly `6.7 s`, target recycling `5.7 s`,
-  and neutral parallel diffusion `5.3 s`
+  `55.0 s`, packed RHS `75.3 s`, species RHS assembly `72.5 s`, collision
+  closure `12.1 s`, reaction sources `10.5 s`, fixed-layout D/T/He reaction
+  sources `9.2 s`, open-field state preparation `9.2 s`, and the backend
+  dispatch/type-detection helpers that still appear inside the repeated
+  host-side RHS loop
 
 The absolute cProfile wall time is intentionally not compared directly with the
 unprofiled timing because profiling overhead is large on this Python-heavy
@@ -217,6 +217,10 @@ The current GPU evidence for the heavier fixed-layout seam lives in:
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu/profile_summary.json`
 - `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu_warm/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny100_dt1e4_gpu/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny200_dt1e4_cpu/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_ny200_dt1e4_gpu/profile_summary.json`
 
 Those summaries show equal residual closure between CPU and GPU, lower sampled
 peak RSS on GPU for the small D/T/He fixed-layout gate, and slower warm GPU
@@ -224,6 +228,17 @@ wall time on the retained problem size. The correct profiling conclusion is
 that the residual seam is accelerator-executable, while the reviewer-facing
 speedup claim still requires a larger transformed residual or a batched heavy
 ensemble.
+
+The larger real-kernel D/T/He GMRES gates use `mesh:ny=100` and `mesh:ny=200`
+with `timestep=1e-4`, which forces a real JAX-linearized Newton/GMRES update
+rather than the near-trivial one-residual gate. The matched local CPU runs
+closed to `1.74e-12` and `7.47e-11` in about `7.28 s` and `7.32 s`,
+respectively. The matched office-GPU runs closed to the same residuals but
+took about `30.19 s` and `30.76 s` after large shape-specific compilation
+warmups. GPU sampled RSS deltas were lower, roughly `341-344 MiB` versus
+`585-694 MiB` locally, but the current JAX GMRES path is not a speedup on this
+problem family. For the release, GPU acceleration should therefore remain a
+measured development lane, not a promoted production claim.
 
 The current production split should be read narrowly. The fixed-layout bridge
 is now the state contract for the implicit recycling steppers, so future
