@@ -242,6 +242,7 @@ The current promoted example of this policy is:
 The supported runtime-profiling workflow for those campaigns is now:
 
 - [profiling_runtime.md](profiling_runtime.md)
+- [research_campaigns.md](research_campaigns.md)
 
 ## CI Gate Target
 
@@ -257,6 +258,13 @@ The final automated gate should be tiered rather than one monolithic slow job:
   artifacts
 - nightly/manual heavy gate: live reference reruns, convergence campaigns,
   memory profiling, and selected performance campaigns
+
+The concrete wrapper for the research-fast, manual live-reference, and heavy
+profiling gates is
+[scripts/run_research_campaign_bundle.py](../scripts/run_research_campaign_bundle.py).
+Hosted CI runs the scheduled public slice; live reference and heavy recycling
+campaigns remain explicit manual/self-hosted campaigns because they need
+external reference data and a larger runtime budget.
 
 Until CI billing is available again, the narrow GitHub Actions slice is a
 shipping-surface guard, not the final research-code gate.

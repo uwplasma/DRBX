@@ -3,6 +3,7 @@
 [![Tests](https://github.com/uwplasma/jax_drb/actions/workflows/test.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/test.yml)
 [![Docs](https://github.com/uwplasma/jax_drb/actions/workflows/docs.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/docs.yml)
 [![Closeout Coverage](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/coverage.yml)
+[![Research Campaigns](https://github.com/uwplasma/jax_drb/actions/workflows/research-campaigns.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/research-campaigns.yml)
 [![PyPI publish](https://github.com/uwplasma/jax_drb/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/uwplasma/jax_drb/actions/workflows/publish-pypi.yml)
 [![PyPI](https://img.shields.io/pypi/v/jax-drb.svg)](https://pypi.org/project/jax-drb/)
 [![Python](https://img.shields.io/pypi/pyversions/jax-drb.svg)](https://pypi.org/project/jax-drb/)
@@ -364,8 +365,10 @@ The runtime/performance audit tools include:
 - [docs/fluid_1d_mms_convergence.md](docs/fluid_1d_mms_convergence.md)
 - [docs/jax_native_profile_audit.md](docs/jax_native_profile_audit.md)
 - [docs/local_cpu_scaling_campaign.md](docs/local_cpu_scaling_campaign.md)
+- [docs/research_campaigns.md](docs/research_campaigns.md)
 - [docs/repo_size_audit.md](docs/repo_size_audit.md)
 - [scripts/profile_curated_case.py](scripts/profile_curated_case.py)
+- [scripts/run_research_campaign_bundle.py](scripts/run_research_campaign_bundle.py)
 - [scripts/profile_stellarator_drb_pytree.py](scripts/profile_stellarator_drb_pytree.py)
 
 The strongest current same-machine native-versus-reference evidence is the
@@ -387,6 +390,13 @@ fixed-layout PyTree RHS campaign. It verifies JVP derivatives against finite
 differences, checks `vmap` against serial objective evaluation, records
 single-device batched throughput, and runs `pmap` automatically when multiple
 local devices are visible.
+
+The heavier D/T/He fixed-layout recycling residual also has CPU and GPU
+profile evidence. The current GPU gate reaches the same residual norm as the
+CPU gate and lowers peak RSS on the small fixed-layout problem, but it is not
+yet claimed as a GPU speedup because this problem size is still launch- and
+compile-overhead limited. The full production BDF recycling lane remains the
+active target for JAX-native residual and Jacobian-action promotion.
 
 ## Validation And Control Packages
 
@@ -429,6 +439,12 @@ Run the promoted native-solver and public-surface coverage gate:
 
 ```bash
 python scripts/run_promoted_solver_coverage.py
+```
+
+Run the scheduled/manual research campaign wrapper:
+
+```bash
+python scripts/run_research_campaign_bundle.py --campaign scheduled-fast-research
 ```
 
 The shipping CI matrix runs on Python 3.10, 3.11, and 3.12.

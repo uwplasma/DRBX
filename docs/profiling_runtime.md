@@ -186,11 +186,44 @@ linearize once, then push a matrix of tangent directions through the same
 linearized residual. The public `batch_size` parameter should be used during
 profiling to separate memory pressure from dispatch overhead.
 
+The SciPy BDF compatibility path can now exercise that same derivative
+interface with:
+
+```bash
+JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE=jvp \
+PYTHONPATH=src python scripts/profile_curated_case.py recycling_dthe_one_step \
+  --reference-root /path/to/reference/root \
+  --output-dir tmp/profiles/recycling_dthe_one_step_jvp_bdf \
+  --warm-runs 0 \
+  --timed-runs 1 \
+  --rss-profile
+```
+
+This is intentionally an opt-in profiling lane, not the default solver mode.
+It is only meaningful when the callback residual is transformable enough for
+JAX to see the dynamic state. If it falls back to host callbacks or forces
+large host-device copies, the finite-difference BDF callback remains the
+validated compatibility path and the result should be treated as diagnostic
+evidence for the next residual-porting step.
+
 The related JAX Newton path is matrix-free: JAX GMRES receives the linearized
 Jacobian action as a callable rather than a materialized sparse matrix. This is
 the preferred algorithmic target for future differentiable recycling kernels,
 but it is intentionally not claimed as a production speedup until the residual
 itself stops crossing the host/SciPy boundary.
+
+The current GPU evidence for the heavier fixed-layout seam lives in:
+
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu/profile_summary.json`
+- `docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate_gpu_warm/profile_summary.json`
+
+Those summaries show equal residual closure between CPU and GPU, lower sampled
+peak RSS on GPU for the small D/T/He fixed-layout gate, and slower warm GPU
+wall time on the retained problem size. The correct profiling conclusion is
+that the residual seam is accelerator-executable, while the reviewer-facing
+speedup claim still requires a larger transformed residual or a batched heavy
+ensemble.
 
 The current production split should be read narrowly. The fixed-layout bridge
 is now the state contract for the implicit recycling steppers, so future
