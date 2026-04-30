@@ -123,9 +123,9 @@ The first native lane now consists of:
   field evaluation, adaptive field-line tracing, Poincare extraction, and
   portable JSON/NPZ/PNG artifacts for subsequent FCI/operator workflows.
 - `src/jax_drb/validation/essos_imported_fci_campaign.py`, which converts a
-  scaled VMEC Landreman-Paul QA shell of ESSOS-owned field-line trajectories
-  into fixed-shape FCI maps, then runs JAXDRB sheath/recycling and neutral
-  closure gates on the imported maps.
+  scaled VMEC Landreman-Paul QA shell into fixed-shape FCI maps through
+  `coil`, `vmec`, or `hybrid` map sources, then runs JAXDRB sheath/recycling
+  and neutral closure gates on the selected maps.
 - `src/jax_drb/validation/essos_imported_pytree_campaign.py`, which drives
   the fixed-layout JAXDRB PyTree RHS, `jax.jvp`, and `jax.vmap` diagnostics
   from the same ESSOS-imported field-line maps.
@@ -145,9 +145,11 @@ The first imported-FCI downstream artifact lives in
 `docs/data/essos_imported_fci_artifacts/` and is documented in
 `docs/essos_imported_fci_validation.md`. It is still a validation bridge
 rather than an imported-wall predictive stellarator edge simulation, but the
-imported maps now use a scaled VMEC QA surface and feed the same JAX-native
-sheath/recycling and neutral kernels used by the analytic non-axisymmetric
-validation suite.
+imported maps now use a scaled VMEC QA surface and expose three explicit
+geometry lanes: open coil-traced maps, closed VMEC-coordinate maps, and a
+hybrid map that uses VMEC-coordinate interpolation with coil endpoint masks.
+All three lanes feed the same JAX-native sheath/recycling and neutral kernels
+used by the analytic non-axisymmetric validation suite.
 The imported PyTree/JVP artifact lives in
 `docs/data/essos_imported_pytree_artifacts/` and is documented in
 `docs/essos_imported_pytree_validation.md`; it verifies that the imported maps
@@ -323,11 +325,12 @@ current metrics are:
 - radial-flux proxy: about `-1.20e-4`
 
 Those quantities are the first documentation-facing physics metrics. The
-ESSOS-imported QA-coil movie now adds the next bridge: a fixed-layout DRB
-state, target loss, recycling, neutral reactions, and a compact potential solve
-on externally traced Landreman-Paul QA FCI maps. The remaining promotion step
-is not visualization, but longer nonlinear runs with convergence, external
-code comparison, and device-geometry wall/target information.
+ESSOS-imported QA movie now adds the next bridge: a fixed-layout DRB state,
+target loss where map endpoints are present, recycling, neutral reactions, and
+a compact potential solve on imported Landreman-Paul QA FCI maps. The
+remaining promotion step is not visualization, but longer nonlinear runs with
+convergence, external code comparison, and device-geometry wall/target
+information.
 
 The current media now follow the more useful review pattern: R-Z panels at
 several toroidal angles, RMS/skewness/flux/spectrum diagnostics, and opened

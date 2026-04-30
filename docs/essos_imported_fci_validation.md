@@ -15,8 +15,19 @@ PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
 ```
 
-The example accepts `--coil-json` or `--essos-root` when the ESSOS checkout
-is not located at the default `~/local/ESSOS`.
+The example accepts `--coil-json`, `--vmec-wout`, or `--essos-root` when the
+external checkout is not located at the default `~/local/ESSOS`. The
+`--map-source` switch selects one of three imported-map semantics:
+
+- `coil` traces the external Biot-Savart coil field to adjacent toroidal
+  planes and keeps the resulting open-field endpoint masks.
+- `vmec` evaluates a VMEC-coordinate field-line map from
+  \(d\theta/d\phi=B^\theta/B^\phi\), preserving closed flux surfaces and
+  disabling target endpoint masks.
+- `hybrid` uses the VMEC-coordinate map locations but keeps the coil-derived
+  endpoint masks, connection-length proxy, and \(|B|\) modulation. This is the
+  intended bridge for open-field SOL closure tests while the VMEC map supplies
+  smooth non-axisymmetric interpolation coordinates.
 
 ## Geometry Import
 
@@ -34,14 +45,22 @@ R(s,\theta,\phi)=\sum_{mn} R_{mn}(s)\cos(m\theta-n\phi),\qquad
 Z(s,\theta,\phi)=\sum_{mn} Z_{mn}(s)\sin(m\theta-n\phi),
 \]
 
-Forward and backward trajectories are traced from every seed. For each seed,
-the adapter interpolates the external trajectory to the adjacent toroidal
+Forward and backward coil trajectories are traced from every seed. For each
+seed, the adapter interpolates the external trajectory to the adjacent toroidal
 planes \(\phi\pm\Delta\phi\), projects the endpoint onto the nearest structured
 VMEC-shaped target plane, and marks a boundary if the endpoint leaves the
-resolved shell or lands on a radial edge. Boundary map indices are stored as
-finite placeholders and the boundary mask carries the physics meaning; this
-keeps the JAX interpolation kernels shape-stable and safe under `jit`, `vmap`,
-`jvp`, and future implicit residual promotion.
+resolved shell or lands on a radial edge. For VMEC-coordinate maps the adapter
+instead integrates
+
+\[
+\frac{d\theta}{d\phi} = \frac{B^\theta(s,\theta,\phi)}{B^\phi(s,\theta,\phi)}
+\]
+
+with a fixed-step RK4 rule over one toroidal-plane spacing and stores the
+resulting poloidal interpolation coordinate at fixed \(s\). Boundary map
+indices are stored as finite placeholders and the boundary mask carries the
+physics meaning; this keeps the JAX interpolation kernels shape-stable and
+safe under `jit`, `vmap`, `jvp`, and future implicit residual promotion.
 
 The metric is computed from the Cartesian embedding
 \(\mathbf{x}(\rho,\phi,\theta)\). The covariant basis vectors are finite
@@ -71,12 +90,13 @@ particle balance residuals, current residuals, and neutral momentum balance.
 
 ![ESSOS imported FCI validation](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__essos_imported_fci_artifacts__images__essos_imported_fci_campaign.png)
 
-The figure shows the imported VMEC-shaped QA cross-section, endpoint map structure,
-connection-length proxy, sheath heat-load response, neutral ionisation
-response, and radial diagnostics. It is a geometry-to-physics validation gate:
-the magnetic field and trajectories are not implemented in `jax_drb`, but the
-imported maps feed the same JAX-native closure kernels used by the synthetic
-non-axisymmetric validation suite.
+The figure shows the default `coil` artifact: imported VMEC-shaped QA
+cross-section, endpoint map structure, connection-length proxy, sheath
+heat-load response, neutral ionisation response, and radial diagnostics. The
+same script can be rerun with `--map-source vmec` as a closed-field
+surface-preservation control or `--map-source hybrid` as the open-field
+non-axisymmetric SOL bridge. All three routes feed the same JAX-native closure
+kernels used by the synthetic non-axisymmetric validation suite.
 
 The next imported-map gate is documented in
 [ESSOS imported PyTree/JVP validation](essos_imported_pytree_validation.md).

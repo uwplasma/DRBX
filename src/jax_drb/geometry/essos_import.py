@@ -300,6 +300,7 @@ def build_essos_imported_fci_geometry(
     coil_json_path: str | Path | None = None,
     vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 6,
     ny: int = 8,
     nz: int = 16,
@@ -311,18 +312,24 @@ def build_essos_imported_fci_geometry(
 ) -> EssosImportedFciGeometry:
     """Build FCI maps from ESSOS tracing on a VMEC-shaped QA seed grid.
 
-    The magnetic field and field-line integration remain external. `jax_drb`
+    ``map_source`` selects the field-line-map semantics:
+
+    - ``"coil"`` traces the imported coil field and keeps its open-field masks;
+    - ``"vmec"`` builds surface-preserving VMEC-coordinate maps with closed
+      field-line masks;
+    - ``"hybrid"`` uses VMEC-coordinate map coordinates with coil-derived
+      boundary masks, connection lengths, and magnetic-field modulation.
+
+    The external field implementation owns the field evaluation. `jax_drb`
     provides only the logical-grid conversion needed by the native FCI,
     sheath/recycling, neutral, and PyTree RHS kernels.
     """
 
     if nx < 2 or ny < 2 or nz < 4:
         raise ValueError("ESSOS imported FCI geometry requires nx >= 2, ny >= 2, and nz >= 4")
+    map_source = _normalize_essos_map_source(map_source)
     resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
     modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
-
-    import jax
-    import jax.numpy as local_jnp
 
     coils = modules["Coils_from_json"](str(resolved_coil_json))
     field = modules["BiotSavart"](coils)
@@ -346,8 +353,6 @@ def build_essos_imported_fci_geometry(
     rho = coordinates["rho"]
     phi = coordinates["phi"]
     theta = coordinates["theta"]
-    major = coordinates["major"]
-    vertical = coordinates["vertical"]
     coordinates_x = coordinates["x"]
     coordinates_y = coordinates["y"]
     coordinates_z = coordinates["z"]
@@ -355,7 +360,153 @@ def build_essos_imported_fci_geometry(
     start_phi = phi.reshape(-1)
     dphi = float(2.0 * np.pi / float(ny))
     start_y_index = np.broadcast_to(np.arange(int(ny), dtype=int)[None, :, None], (int(nx), int(ny), int(nz))).reshape(-1)
+    coil_data: dict[str, Any] | None = None
+    if map_source in {"coil", "hybrid"}:
+        coil_data = _build_essos_coil_fci_map_data(
+            modules=modules,
+            resolved_coil_json=resolved_coil_json,
+            field=field,
+            initial_xyz=initial_xyz,
+            start_phi=start_phi,
+            start_y_index=start_y_index,
+            dphi=dphi,
+            shape=(int(nx), int(ny), int(nz)),
+            coordinates_x=coordinates_x,
+            coordinates_y=coordinates_y,
+            coordinates_z=coordinates_z,
+            maxtime=float(maxtime),
+            times_to_trace=int(times_to_trace),
+            trace_tolerance=float(trace_tolerance),
+        )
+    vmec_data: dict[str, Any] | None = None
+    if map_source in {"vmec", "hybrid"}:
+        vmec_data = _build_essos_vmec_fci_map_data(
+            modules=modules,
+            resolved_wout=resolved_vmec_wout,
+            coordinates=coordinates,
+            shape=(int(nx), int(ny), int(nz)),
+            dphi=dphi,
+        )
 
+    if map_source == "coil":
+        assert coil_data is not None
+        maps = coil_data["maps"]
+        bmag = coil_data["bmag"]
+        connection_length = coil_data["connection_length"]
+        field_model = "essos.fields.BiotSavart"
+        tracing_model = "essos.dynamics.Tracing(FieldLineAdaptative)"
+    elif map_source == "vmec":
+        assert vmec_data is not None
+        maps = vmec_data["maps"]
+        bmag = vmec_data["bmag"]
+        connection_length = vmec_data["connection_length"]
+        field_model = "essos.fields.Vmec"
+        tracing_model = "vmec_coordinate_rk4_map"
+    else:
+        assert coil_data is not None
+        assert vmec_data is not None
+        maps = FciMaps(
+            forward_x=vmec_data["maps"].forward_x,
+            forward_z=vmec_data["maps"].forward_z,
+            backward_x=vmec_data["maps"].backward_x,
+            backward_z=vmec_data["maps"].backward_z,
+            forward_boundary=coil_data["maps"].forward_boundary,
+            backward_boundary=coil_data["maps"].backward_boundary,
+            dphi=dphi,
+        )
+        bmag = coil_data["bmag"]
+        connection_length = coil_data["connection_length"]
+        field_model = "hybrid: VMEC map coordinates with Biot-Savart |B| and target masks"
+        tracing_model = "vmec_coordinate_rk4_map + essos.dynamics.Tracing(FieldLineAdaptative) masks"
+
+    forward_boundary = np.asarray(maps.forward_boundary, dtype=bool)
+    backward_boundary = np.asarray(maps.backward_boundary, dtype=bool)
+    metric = _metric_from_coordinates(
+        coordinates_x,
+        coordinates_y,
+        coordinates_z,
+        s_1d=rho_1d,
+        phi_1d=phi_1d,
+        theta_1d=theta_1d,
+        Bxy=bmag,
+    )
+    forward_boundary_fraction = float(np.mean(forward_boundary))
+    backward_boundary_fraction = float(np.mean(backward_boundary))
+    return EssosImportedFciGeometry(
+        coordinates_x=jnp.asarray(coordinates_x, dtype=jnp.float64),
+        coordinates_y=jnp.asarray(coordinates_y, dtype=jnp.float64),
+        coordinates_z=jnp.asarray(coordinates_z, dtype=jnp.float64),
+        minor_radius=jnp.asarray(rho, dtype=jnp.float64),
+        toroidal_angle=jnp.asarray(phi, dtype=jnp.float64),
+        poloidal_angle=jnp.asarray(theta, dtype=jnp.float64),
+        magnetic_field_magnitude=jnp.asarray(bmag, dtype=jnp.float64),
+        connection_length=jnp.asarray(connection_length, dtype=jnp.float64),
+        metric=metric,
+        maps=maps,
+        metadata={
+            "geometry_family": "essos_imported_vmec_qa_fci",
+            "source": "ESSOS",
+            "coil_json_file": resolved_coil_json.name,
+            "vmec_wout_file": resolved_vmec_wout.name,
+            "coordinate_model": "scaled_vmec_fourier_flux_surfaces",
+            **coordinates["metadata"],
+            "map_source": map_source,
+            "field_model": field_model,
+            "tracing_model": tracing_model,
+            "nx": int(nx),
+            "ny": int(ny),
+            "nz": int(nz),
+            "rho_min": float(rho_min),
+            "rho_max": float(rho_max),
+            "axis_major_radius": float(axis_major_radius),
+            "axis_vertical": float(axis_vertical),
+            "maxtime": float(maxtime),
+            "times_to_trace": int(times_to_trace),
+            "trace_tolerance": float(trace_tolerance),
+            "coil_trace_current_sign": float(coil_data["current_sign"]) if coil_data is not None else 0.0,
+            "vmec_map_theta_step_count": int(vmec_data["theta_step_count"]) if vmec_data is not None else 0,
+            "forward_boundary_fraction": forward_boundary_fraction,
+            "backward_boundary_fraction": backward_boundary_fraction,
+        },
+    )
+
+
+def _normalize_essos_map_source(map_source: str) -> str:
+    normalized = str(map_source).strip().lower().replace("-", "_")
+    aliases = {
+        "essos": "coil",
+        "essos_coil": "coil",
+        "coil_map": "coil",
+        "vmec_map": "vmec",
+        "hybrid_map": "hybrid",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"coil", "vmec", "hybrid"}:
+        raise ValueError("map_source must be one of 'coil', 'vmec', or 'hybrid'")
+    return normalized
+
+
+def _build_essos_coil_fci_map_data(
+    *,
+    modules: dict[str, Any],
+    resolved_coil_json: Path,
+    field: Any,
+    initial_xyz: np.ndarray,
+    start_phi: np.ndarray,
+    start_y_index: np.ndarray,
+    dphi: float,
+    shape: tuple[int, int, int],
+    coordinates_x: np.ndarray,
+    coordinates_y: np.ndarray,
+    coordinates_z: np.ndarray,
+    maxtime: float,
+    times_to_trace: int,
+    trace_tolerance: float,
+) -> dict[str, Any]:
+    import jax
+    import jax.numpy as local_jnp
+
+    nx, ny, nz = shape
     forward_trajectories = _trace_essos_initial_conditions(
         modules=modules,
         resolved_coil_json=resolved_coil_json,
@@ -387,7 +538,6 @@ def build_essos_imported_fci_geometry(
         times_to_trace=times_to_trace,
         trace_tolerance=trace_tolerance,
     )
-
     forward_endpoint, forward_length, forward_crossed = _interpolate_trajectories_at_toroidal_plane(
         forward_trajectories,
         target_phi=start_phi + dphi,
@@ -412,71 +562,193 @@ def build_essos_imported_fci_geometry(
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
     )
-    maps = FciMaps(
-        forward_x=jnp.asarray(forward_x.reshape((nx, ny, nz)), dtype=jnp.float64),
-        forward_z=jnp.asarray(forward_z.reshape((nx, ny, nz)), dtype=jnp.float64),
-        backward_x=jnp.asarray(backward_x.reshape((nx, ny, nz)), dtype=jnp.float64),
-        backward_z=jnp.asarray(backward_z.reshape((nx, ny, nz)), dtype=jnp.float64),
-        forward_boundary=jnp.asarray(forward_boundary.reshape((nx, ny, nz))),
-        backward_boundary=jnp.asarray(backward_boundary.reshape((nx, ny, nz))),
-        dphi=dphi,
-    )
-
     b_xyz = np.asarray(jax.vmap(field.B)(local_jnp.asarray(initial_xyz, dtype=local_jnp.float64)), dtype=np.float64)
-    bmag = np.linalg.norm(b_xyz, axis=1).reshape((nx, ny, nz))
+    bmag = np.linalg.norm(b_xyz, axis=1).reshape(shape)
     exit_length = _structured_exit_length_from_trajectories(
         forward_trajectories,
         coordinates_x=coordinates_x,
         coordinates_y=coordinates_y,
         coordinates_z=coordinates_z,
-    ).reshape((nx, ny, nz))
-    adjacent_length = 0.5 * (forward_length + backward_length).reshape((nx, ny, nz))
+    ).reshape(shape)
+    adjacent_length = 0.5 * (forward_length + backward_length).reshape(shape)
     connection_length = np.where(np.isfinite(exit_length), exit_length, adjacent_length)
-    metric = _metric_from_coordinates(
-        coordinates_x,
-        coordinates_y,
-        coordinates_z,
-        s_1d=rho_1d,
-        phi_1d=phi_1d,
-        theta_1d=theta_1d,
-        Bxy=bmag,
+    maps = FciMaps(
+        forward_x=jnp.asarray(forward_x.reshape(shape), dtype=jnp.float64),
+        forward_z=jnp.asarray(forward_z.reshape(shape), dtype=jnp.float64),
+        backward_x=jnp.asarray(backward_x.reshape(shape), dtype=jnp.float64),
+        backward_z=jnp.asarray(backward_z.reshape(shape), dtype=jnp.float64),
+        forward_boundary=jnp.asarray(forward_boundary.reshape(shape)),
+        backward_boundary=jnp.asarray(backward_boundary.reshape(shape)),
+        dphi=dphi,
     )
-    forward_boundary_fraction = float(np.mean(forward_boundary))
-    backward_boundary_fraction = float(np.mean(backward_boundary))
-    return EssosImportedFciGeometry(
-        coordinates_x=jnp.asarray(coordinates_x, dtype=jnp.float64),
-        coordinates_y=jnp.asarray(coordinates_y, dtype=jnp.float64),
-        coordinates_z=jnp.asarray(coordinates_z, dtype=jnp.float64),
-        minor_radius=jnp.asarray(rho, dtype=jnp.float64),
-        toroidal_angle=jnp.asarray(phi, dtype=jnp.float64),
-        poloidal_angle=jnp.asarray(theta, dtype=jnp.float64),
-        magnetic_field_magnitude=jnp.asarray(bmag, dtype=jnp.float64),
-        connection_length=jnp.asarray(connection_length, dtype=jnp.float64),
-        metric=metric,
-        maps=maps,
-        metadata={
-            "geometry_family": "essos_imported_vmec_qa_fci",
-            "source": "ESSOS",
-            "coil_json_file": resolved_coil_json.name,
-            "vmec_wout_file": resolved_vmec_wout.name,
-            "coordinate_model": "scaled_vmec_fourier_flux_surfaces",
-            **coordinates["metadata"],
-            "field_model": "essos.fields.BiotSavart",
-            "tracing_model": "essos.dynamics.Tracing(FieldLineAdaptative)",
-            "nx": int(nx),
-            "ny": int(ny),
-            "nz": int(nz),
-            "rho_min": float(rho_min),
-            "rho_max": float(rho_max),
-            "axis_major_radius": float(axis_major_radius),
-            "axis_vertical": float(axis_vertical),
-            "maxtime": float(maxtime),
-            "times_to_trace": int(times_to_trace),
-            "trace_tolerance": float(trace_tolerance),
-            "forward_boundary_fraction": forward_boundary_fraction,
-            "backward_boundary_fraction": backward_boundary_fraction,
-        },
+    return {
+        "maps": maps,
+        "bmag": bmag,
+        "connection_length": connection_length,
+        "current_sign": float(forward_current_sign),
+    }
+
+
+def _build_essos_vmec_fci_map_data(
+    *,
+    modules: dict[str, Any],
+    resolved_wout: Path,
+    coordinates: dict[str, Any],
+    shape: tuple[int, int, int],
+    dphi: float,
+) -> dict[str, Any]:
+    import jax
+    import jax.numpy as local_jnp
+
+    nx, ny, nz = shape
+    vmec = modules["Vmec"](str(resolved_wout))
+    s = np.broadcast_to(np.asarray(coordinates["s_1d"], dtype=np.float64)[:, None, None], shape).reshape(-1)
+    theta = np.asarray(coordinates["theta"], dtype=np.float64).reshape(-1)
+    phi = np.asarray(coordinates["phi"], dtype=np.float64).reshape(-1)
+    x_index = np.broadcast_to(np.arange(nx, dtype=np.float64)[:, None, None], shape).reshape(-1)
+    step_count = max(12, min(48, int(2 * ny)))
+    forward_theta = _integrate_vmec_theta_to_toroidal_offset(
+        vmec,
+        s=s,
+        theta=theta,
+        phi=phi,
+        delta_phi=float(dphi),
+        step_count=step_count,
     )
+    backward_theta = _integrate_vmec_theta_to_toroidal_offset(
+        vmec,
+        s=s,
+        theta=theta,
+        phi=phi,
+        delta_phi=-float(dphi),
+        step_count=step_count,
+    )
+    forward_z = np.mod(forward_theta, 2.0 * np.pi) / (2.0 * np.pi) * float(nz)
+    backward_z = np.mod(backward_theta, 2.0 * np.pi) / (2.0 * np.pi) * float(nz)
+    finite = np.isfinite(forward_z) & np.isfinite(backward_z) & (s >= 0.0) & (s <= 1.0)
+    forward_boundary = ~finite
+    backward_boundary = ~finite
+    initial_stp = np.stack([s, theta, phi], axis=-1)
+    bmag = np.asarray(jax.vmap(vmec.AbsB)(local_jnp.asarray(initial_stp, dtype=local_jnp.float64)), dtype=np.float64).reshape(shape)
+    forward_length = _vmec_map_step_length(
+        coordinates=coordinates,
+        x_index=x_index,
+        y_index=(np.broadcast_to(np.arange(ny, dtype=int)[None, :, None], shape).reshape(-1) + 1) % ny,
+        z_index=forward_z,
+    )
+    backward_length = _vmec_map_step_length(
+        coordinates=coordinates,
+        x_index=x_index,
+        y_index=(np.broadcast_to(np.arange(ny, dtype=int)[None, :, None], shape).reshape(-1) - 1) % ny,
+        z_index=backward_z,
+    )
+    connection_length = 0.5 * (forward_length + backward_length).reshape(shape)
+    maps = FciMaps(
+        forward_x=jnp.asarray(x_index.reshape(shape), dtype=jnp.float64),
+        forward_z=jnp.asarray(forward_z.reshape(shape), dtype=jnp.float64),
+        backward_x=jnp.asarray(x_index.reshape(shape), dtype=jnp.float64),
+        backward_z=jnp.asarray(backward_z.reshape(shape), dtype=jnp.float64),
+        forward_boundary=jnp.asarray(forward_boundary.reshape(shape)),
+        backward_boundary=jnp.asarray(backward_boundary.reshape(shape)),
+        dphi=float(dphi),
+    )
+    return {
+        "maps": maps,
+        "bmag": bmag,
+        "connection_length": connection_length,
+        "theta_step_count": int(step_count),
+    }
+
+
+def _integrate_vmec_theta_to_toroidal_offset(
+    vmec: Any,
+    *,
+    s: np.ndarray,
+    theta: np.ndarray,
+    phi: np.ndarray,
+    delta_phi: float,
+    step_count: int,
+) -> np.ndarray:
+    import jax
+    import jax.numpy as local_jnp
+
+    s_jax = local_jnp.asarray(s, dtype=local_jnp.float64)
+    theta_jax = local_jnp.asarray(theta, dtype=local_jnp.float64)
+    phi_jax = local_jnp.asarray(phi, dtype=local_jnp.float64)
+    h = float(delta_phi) / float(step_count)
+
+    def rhs(theta_value: jax.Array, phi_value: jax.Array) -> jax.Array:
+        points = local_jnp.stack([s_jax, theta_value, phi_value], axis=-1)
+        b_contra = jax.vmap(vmec.B_contravariant)(points)
+        b_phi = local_jnp.where(local_jnp.abs(b_contra[:, 2]) > 1.0e-30, b_contra[:, 2], 1.0e-30)
+        return b_contra[:, 1] / b_phi
+
+    def body(_: int, carry: tuple[jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+        theta_value, phi_value = carry
+        k1 = rhs(theta_value, phi_value)
+        k2 = rhs(theta_value + 0.5 * h * k1, phi_value + 0.5 * h)
+        k3 = rhs(theta_value + 0.5 * h * k2, phi_value + 0.5 * h)
+        k4 = rhs(theta_value + h * k3, phi_value + h)
+        next_theta = theta_value + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        return next_theta, phi_value + h
+
+    integrate = jax.jit(lambda theta0, phi0: jax.lax.fori_loop(0, int(step_count), body, (theta0, phi0))[0])
+    return np.asarray(integrate(theta_jax, phi_jax), dtype=np.float64)
+
+
+def _vmec_map_step_length(
+    *,
+    coordinates: dict[str, Any],
+    x_index: np.ndarray,
+    y_index: np.ndarray,
+    z_index: np.ndarray,
+) -> np.ndarray:
+    current = np.stack(
+        [
+            np.asarray(coordinates["x"], dtype=np.float64).reshape(-1),
+            np.asarray(coordinates["y"], dtype=np.float64).reshape(-1),
+            np.asarray(coordinates["z"], dtype=np.float64).reshape(-1),
+        ],
+        axis=-1,
+    )
+    endpoint = _sample_structured_coordinates(
+        np.asarray(coordinates["x"], dtype=np.float64),
+        np.asarray(coordinates["y"], dtype=np.float64),
+        np.asarray(coordinates["z"], dtype=np.float64),
+        x_index=x_index,
+        y_index=y_index,
+        z_index=z_index,
+    )
+    length = np.linalg.norm(endpoint - current, axis=1)
+    return np.where(np.isfinite(length), length, 0.0)
+
+
+def _sample_structured_coordinates(
+    coordinates_x: np.ndarray,
+    coordinates_y: np.ndarray,
+    coordinates_z: np.ndarray,
+    *,
+    x_index: np.ndarray,
+    y_index: np.ndarray,
+    z_index: np.ndarray,
+) -> np.ndarray:
+    nx, ny, nz = coordinates_x.shape
+    x0 = np.clip(np.floor(x_index).astype(int), 0, nx - 1)
+    x1 = np.clip(x0 + 1, 0, nx - 1)
+    y = np.mod(y_index.astype(int), ny)
+    z = np.mod(z_index, float(nz))
+    z0 = np.floor(z).astype(int) % nz
+    z1 = (z0 + 1) % nz
+    wx = np.clip(x_index - x0.astype(np.float64), 0.0, 1.0)
+    wz = z - np.floor(z)
+    result = []
+    for values in (coordinates_x, coordinates_y, coordinates_z):
+        f00 = values[x0, y, z0]
+        f10 = values[x1, y, z0]
+        f01 = values[x0, y, z1]
+        f11 = values[x1, y, z1]
+        result.append((1.0 - wx) * (1.0 - wz) * f00 + wx * (1.0 - wz) * f10 + (1.0 - wx) * wz * f01 + wx * wz * f11)
+    return np.stack(result, axis=-1)
 
 
 def save_essos_field_line_bundle_npz(bundle: EssosFieldLineBundle, path: str | Path) -> Path:

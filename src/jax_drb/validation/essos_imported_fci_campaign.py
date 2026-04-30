@@ -25,7 +25,9 @@ def create_essos_imported_fci_campaign_package(
     output_root: str | Path,
     case_label: str = "essos_imported_fci_campaign",
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 5,
     ny: int = 8,
     nz: int = 20,
@@ -45,7 +47,9 @@ def create_essos_imported_fci_campaign_package(
 
     report, arrays = build_essos_imported_fci_campaign(
         coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
         essos_root=essos_root,
+        map_source=map_source,
         nx=nx,
         ny=ny,
         nz=nz,
@@ -71,7 +75,9 @@ def create_essos_imported_fci_campaign_package(
 def build_essos_imported_fci_campaign(
     *,
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 5,
     ny: int = 8,
     nz: int = 20,
@@ -85,7 +91,9 @@ def build_essos_imported_fci_campaign(
 
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
         essos_root=essos_root,
+        map_source=map_source,
         nx=nx,
         ny=ny,
         nz=nz,
@@ -185,11 +193,17 @@ def build_essos_imported_fci_campaign(
     )
     b_modulation = float(np.max(bmag) / max(float(np.min(bmag)), 1.0e-30))
     positive_heat = heat_load[heat_load > 0.0]
-    heat_load_contrast = float(np.percentile(positive_heat, 95.0) / max(np.percentile(positive_heat, 50.0), 1.0e-30))
+    heat_load_contrast = (
+        float(np.percentile(positive_heat, 95.0) / max(np.percentile(positive_heat, 50.0), 1.0e-30))
+        if positive_heat.size
+        else 0.0
+    )
+    actual_map_source = str(geometry.metadata.get("map_source", "coil"))
 
     report: dict[str, Any] = {
         "case": "essos_imported_vmec_qa_fci_sheath_neutral_gate",
         "source": "ESSOS-imported field-line maps with jax_drb FCI closures",
+        "map_source": actual_map_source,
         "geometry": geometry.metadata,
         "forward_boundary_fraction": forward_boundary_fraction,
         "backward_boundary_fraction": backward_boundary_fraction,
@@ -213,22 +227,37 @@ def build_essos_imported_fci_campaign(
         "neutral_diffusion_relative_integral": neutral_diffusion_relative_integral,
         "heat_load_contrast": heat_load_contrast,
     }
-    report["passed"] = (
-        0.05 < forward_boundary_fraction < 0.95
-        and 0.05 < backward_boundary_fraction < 0.95
-        and 0.05 < target_fraction <= 1.0
-        and b_modulation > 1.05
-        and total_particle_loss > 0.0
-        and total_heat_load > 0.0
-        and total_ionisation > 0.0
-        and total_charge_exchange > 0.0
-        and particle_recycling_relative_error < 1.0e-12
-        and current_balance_relative_error < 1.0e-12
-        and neutral_particle_relative_error < 1.0e-12
-        and neutral_momentum_relative_error < 1.0e-12
-        and neutral_diffusion_relative_integral < 5.0e-2
-        and heat_load_contrast > 1.01
-    )
+    if actual_map_source == "vmec":
+        report["passed"] = (
+            forward_boundary_fraction < 1.0e-12
+            and backward_boundary_fraction < 1.0e-12
+            and target_fraction < 1.0e-12
+            and b_modulation > 1.01
+            and total_ionisation > 0.0
+            and total_charge_exchange > 0.0
+            and particle_recycling_relative_error < 1.0e-12
+            and current_balance_relative_error < 1.0e-12
+            and neutral_particle_relative_error < 1.0e-12
+            and neutral_momentum_relative_error < 1.0e-12
+            and neutral_diffusion_relative_integral < 5.0e-2
+        )
+    else:
+        report["passed"] = (
+            0.05 < forward_boundary_fraction < 0.95
+            and 0.05 < backward_boundary_fraction < 0.95
+            and 0.05 < target_fraction <= 1.0
+            and b_modulation > 1.05
+            and total_particle_loss > 0.0
+            and total_heat_load > 0.0
+            and total_ionisation > 0.0
+            and total_charge_exchange > 0.0
+            and particle_recycling_relative_error < 1.0e-12
+            and current_balance_relative_error < 1.0e-12
+            and neutral_particle_relative_error < 1.0e-12
+            and neutral_momentum_relative_error < 1.0e-12
+            and neutral_diffusion_relative_integral < 5.0e-2
+            and heat_load_contrast > 1.01
+        )
 
     major_radius = np.sqrt(np.asarray(geometry.coordinates_x, dtype=np.float64) ** 2 + np.asarray(geometry.coordinates_y, dtype=np.float64) ** 2)
     arrays = {

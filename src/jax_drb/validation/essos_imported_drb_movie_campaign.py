@@ -51,7 +51,9 @@ def create_essos_imported_drb_movie_package(
     output_root: str | Path,
     case_label: str = "essos_imported_drb_movie_campaign",
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 8,
     ny: int = 28,
     nz: int = 80,
@@ -73,7 +75,9 @@ def create_essos_imported_drb_movie_package(
 
     result = build_essos_imported_drb_movie_campaign(
         coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
         essos_root=essos_root,
+        map_source=map_source,
         nx=nx,
         ny=ny,
         nz=nz,
@@ -118,7 +122,9 @@ def create_essos_imported_drb_movie_package(
 def build_essos_imported_drb_movie_campaign(
     *,
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 8,
     ny: int = 28,
     nz: int = 80,
@@ -132,7 +138,9 @@ def build_essos_imported_drb_movie_campaign(
 ) -> EssosImportedDrbMovieResult:
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
         essos_root=essos_root,
+        map_source=map_source,
         nx=nx,
         ny=ny,
         nz=nz,
@@ -229,7 +237,7 @@ def save_essos_imported_drb_snapshot_panel(
             axis.set_ylabel("Z")
     if image is not None:
         fig.colorbar(image, ax=axes, shrink=0.76, label=r"$\tilde{n}_i/\langle n_i\rangle_\phi$")
-    fig.suptitle("ESSOS-imported QA-coil DRB transient: density fluctuations on FCI planes", fontsize=15)
+    fig.suptitle(f"ESSOS-imported {_essos_imported_map_label(geometry)} DRB transient: density fluctuations on FCI planes", fontsize=15)
     fig.savefig(resolved, dpi=180)
     plt.close(fig)
     return resolved
@@ -321,7 +329,7 @@ def save_essos_imported_drb_diagnostics_panel(
         axis.set_aspect("equal", adjustable="box")
         axis.set_xlabel("R")
         axis.set_ylabel("Z")
-    fig.suptitle("ESSOS-imported QA-coil DRB transient: sheath, recycling, neutrals, and fluctuation gates", fontsize=15)
+    fig.suptitle(f"ESSOS-imported {_essos_imported_map_label(geometry)} DRB transient: sheath, recycling, neutrals, and fluctuation gates", fontsize=15)
     fig.savefig(resolved, dpi=180)
     plt.close(fig)
     return resolved
@@ -546,16 +554,27 @@ def _build_essos_imported_drb_movie_report(
     endpoint_fraction = float(
         np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool) | np.asarray(geometry.maps.backward_boundary, dtype=bool))
     )
+    map_source = str(geometry.metadata.get("map_source", "coil"))
+    endpoint_gate = endpoint_fraction < 1.0e-12 if map_source == "vmec" else 0.05 < endpoint_fraction <= 1.0
+    b_modulation_gate = 1.01 if map_source == "vmec" else 1.05
+    if map_source == "coil":
+        source = "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient"
+    elif map_source == "vmec":
+        source = "ESSOS-imported Landreman-Paul QA VMEC-coordinate FCI maps with JAXDRB fixed-layout DRB transient"
+    else:
+        source = "ESSOS-imported Landreman-Paul QA hybrid FCI maps with JAXDRB fixed-layout DRB transient"
     bmag = np.asarray(geometry.magnetic_field_magnitude, dtype=np.float64)
     finite = all(np.all(np.isfinite(value)) for value in [movie_history, diagnostics, *final_state.values()])
     min_density = float(min(np.min(final_state["ion_density"]), np.min(final_state["neutral_density"])))
     radial_flux = _radial_flux_proxy(movie_history, geometry)
     report: dict[str, Any] = {
         "case": "essos_imported_qa_coil_drb_transient_movie",
-        "source": "ESSOS-imported Landreman-Paul QA coil FCI maps with JAXDRB fixed-layout DRB transient",
+        "source": source,
+        "map_source": map_source,
         "claim_scope": (
-            "movie-grade reduced DRB transient with sheath/recycling/neutrals on a near-boundary "
-            "VMEC-shaped physics grid; not yet a promoted long-time turbulence validation"
+            "movie-grade reduced DRB transient on a near-boundary VMEC-shaped physics grid; "
+            "coil and hybrid map sources include open-field sheath/recycling endpoints, while "
+            "the VMEC map source is a closed-field coordinate-map reference"
         ),
         "geometry": geometry.metadata,
         "movie_physics_grid": [int(value) for value in geometry.shape],
@@ -585,8 +604,8 @@ def _build_essos_imported_drb_movie_report(
     report["passed"] = (
         finite
         and min_density > 0.0
-        and 0.05 < endpoint_fraction <= 1.0
-        and report["magnetic_field_modulation"] > 1.05
+        and endpoint_gate
+        and report["magnetic_field_modulation"] > b_modulation_gate
         and report["final_fluctuation_rms"] > 1.0e-4
         and report["final_potential_residual_l2"] < 5.0
         and report["max_fluctuation_rms"] > report["initial_fluctuation_rms"] * 0.80
@@ -788,7 +807,7 @@ def _save_essos_imported_drb_3d_frame_pyvista(
     _add_boundary_wire(plotter, x, y, z, radial_index=0, color="#333333", opacity=0.30)
     _add_boundary_wire(plotter, x, y, z, radial_index=outer_i, color="black", opacity=0.45)
     plotter.add_text(
-        "ESSOS-imported QA-coil DRB transient on Landreman-Paul QA VMEC surfaces\n"
+        f"ESSOS-imported {_essos_imported_map_label(geometry)} DRB transient on Landreman-Paul QA VMEC surfaces\n"
         f"sheath + recycling + neutral closures, t = {time_value:.3f}",
         position=(32, 830),
         font_size=14,
@@ -906,7 +925,7 @@ def _save_essos_imported_drb_3d_frame_matplotlib(
     fig.text(
         0.03,
         0.955,
-        "ESSOS-imported QA-coil DRB transient on Landreman-Paul QA VMEC surfaces",
+        f"ESSOS-imported {_essos_imported_map_label(geometry)} DRB transient on Landreman-Paul QA VMEC surfaces",
         ha="left",
         va="top",
         fontsize=15,
@@ -1176,6 +1195,16 @@ def _major_radius_and_vertical(geometry: EssosImportedFciGeometry) -> tuple[np.n
     y = np.asarray(geometry.coordinates_y, dtype=np.float64)
     z = np.asarray(geometry.coordinates_z, dtype=np.float64)
     return np.sqrt(x * x + y * y), z
+
+
+def _essos_imported_map_label(geometry: EssosImportedFciGeometry) -> str:
+    map_source = str(geometry.metadata.get("map_source", "coil"))
+    labels = {
+        "coil": "QA-coil",
+        "vmec": "QA VMEC-coordinate",
+        "hybrid": "QA hybrid",
+    }
+    return labels.get(map_source, f"QA {map_source}")
 
 
 def _movie_value_limit(values: np.ndarray, vmax: float | None) -> float:

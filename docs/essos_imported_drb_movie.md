@@ -1,11 +1,11 @@
 # ESSOS Imported QA-Coil DRB Movie
 
 This page documents the first movie-grade non-axisymmetric DRB transient run
-on externally traced Landreman-Paul QA coil field-line maps. The magnetic
-field and field-line integration are supplied by ESSOS, then `jax_drb`
-imports trajectories seeded on a scaled VMEC QA flux-surface shell as
-fixed-layout FCI maps and advances the JAX-native `FciDrbState` with sheath
-losses, target recycling, neutral
+on imported Landreman-Paul QA FCI maps. The geometry adapter now supports
+three map sources: coil-traced maps, VMEC-coordinate maps, and a hybrid map
+that uses VMEC-coordinate interpolation with coil endpoint masks. `jax_drb`
+advances the JAX-native `FciDrbState` on those fixed-layout maps with sheath
+losses where endpoints are present, target recycling, neutral
 reaction/diffusion, charge exchange, metric-weighted vorticity diffusion, a
 compact potential solve, and reduced nonlinear/interchange forcing used only
 for this visualization gate.
@@ -14,9 +14,9 @@ This is intentionally labeled as a reduced QA-coil transient movie, not yet as
 a promoted long-time turbulence validation. Promotion to a headline turbulence
 claim still requires longer nonlinear runs, grid refinement, and comparison
 against an external 3D edge/SOL reference. The value of this gate is that it
-connects the imported coil-field geometry to the same fixed-layout JAXDRB state
-used by the differentiability and PyTree RHS validation path, while enforcing
-physics checks on the rendered artifact.
+connects imported non-axisymmetric geometry to the same fixed-layout JAXDRB
+state used by the differentiability and PyTree RHS validation path, while
+enforcing physics checks on the rendered artifact.
 
 The physics grid is seeded from the VMEC Fourier surface in
 `wout_LandremanPaul2021_QA_reactorScale_lowres.nc`, scaled and translated onto
@@ -28,9 +28,11 @@ near-boundary physics grid (`8 x 28 x 80`, `rho = 0.20 ... 0.92`) rather than
 relying on a renderer-only high-resolution interpolation of a coarse transient.
 The transient also seeds deterministic multi-mode perturbations so the visible
 structure is supported by the evolved state rather than by post-processing
-noise. The camera is fixed across frames, the GIF is quantized with a shared
-no-dither palette, and the report includes a frame-by-frame audit of bounding
-box and RMS changes.
+noise. Run the script with `--map-source coil`, `--map-source vmec`, or
+`--map-source hybrid` to switch between the open coil trace, the closed
+VMEC-coordinate control, and the hybrid open-field SOL bridge. The camera is
+fixed across frames, the GIF is quantized with a shared no-dither palette, and
+the report includes a frame-by-frame audit of bounding box and RMS changes.
 
 The companion [field-line/VMEC registration gate](essos_vmec_fieldline_surface.md)
 shows that the imported coil field traces finite Poincare points but does not
@@ -41,13 +43,17 @@ closed-surface confinement for the coil field. The same page also includes the
 VMEC-coordinate control trace, which verifies that the rendered QA boundary is
 surface-preserving for the VMEC equilibrium field itself.
 
-Regenerate the campaign with:
+Regenerate the default coil-traced campaign with:
 
 ```bash
 JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
 PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py
 ```
+
+For the hybrid bridge, add `--map-source hybrid --output-root
+docs/data/essos_imported_drb_movie_hybrid_artifacts`; for the closed-field
+control, use `--map-source vmec` and a separate output root.
 
 ## Current Gate
 

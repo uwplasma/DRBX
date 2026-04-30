@@ -1,12 +1,13 @@
 # ESSOS Imported PyTree/JVP Validation
 
-This page documents the first fixed-layout PyTree/JVP gate driven by
-externally traced Landreman-Paul QA field-line maps. ESSOS supplies the coil
-field and trajectories. `jax_drb` imports those trajectories as FCI maps,
-builds a compact metric from the scaled VMEC QA surface coordinates,
-initializes ion, electron, and neutral fields on the imported logical grid,
-and advances the JAX-native drift-reduced Braginskii RHS through a short
-transformable transient.
+This page documents the first fixed-layout PyTree/JVP gate driven by imported
+Landreman-Paul QA field-line maps. The external geometry adapter can supply
+coil-traced maps, VMEC-coordinate maps, or a hybrid map that uses VMEC
+coordinates with coil endpoint masks. `jax_drb` imports those maps, builds a
+compact metric from the scaled VMEC QA surface coordinates, initializes ion,
+electron, and neutral fields on the imported logical grid, and advances the
+JAX-native drift-reduced Braginskii RHS through a short transformable
+transient.
 
 Regenerate the campaign with:
 
@@ -15,6 +16,14 @@ JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
 PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py
 ```
+
+Use `--map-source coil`, `--map-source vmec`, or `--map-source hybrid` to
+select the map semantics. The `coil` source is the open-field endpoint path
+for sheath/recycling masks from external coil traces. The `vmec` source is a
+closed-field coordinate-map control for differentiability checks when target
+losses vanish. The `hybrid` source combines VMEC-coordinate interpolation with
+coil endpoint masks and is the preferred bridge for non-axisymmetric SOL
+closure development.
 
 This is a differentiability and software-architecture gate, not yet a
 wall-resolved stellarator edge prediction. Its purpose is to prove that the

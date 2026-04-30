@@ -27,7 +27,9 @@ def create_essos_imported_pytree_campaign_package(
     output_root: str | Path,
     case_label: str = "essos_imported_pytree_campaign",
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 4,
     ny: int = 6,
     nz: int = 12,
@@ -45,7 +47,9 @@ def create_essos_imported_pytree_campaign_package(
 
     report, arrays = build_essos_imported_pytree_campaign(
         coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
         essos_root=essos_root,
+        map_source=map_source,
         nx=nx,
         ny=ny,
         nz=nz,
@@ -71,7 +75,9 @@ def create_essos_imported_pytree_campaign_package(
 def build_essos_imported_pytree_campaign(
     *,
     coil_json_path: str | Path | None = None,
+    vmec_wout_path: str | Path | None = None,
     essos_root: str | Path | None = None,
+    map_source: str = "coil",
     nx: int = 4,
     ny: int = 6,
     nz: int = 12,
@@ -83,7 +89,9 @@ def build_essos_imported_pytree_campaign(
 ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
     geometry = build_essos_imported_fci_geometry(
         coil_json_path=coil_json_path,
+        vmec_wout_path=vmec_wout_path,
         essos_root=essos_root,
+        map_source=map_source,
         nx=nx,
         ny=ny,
         nz=nz,
@@ -150,10 +158,14 @@ def build_essos_imported_pytree_campaign(
     endpoint_fraction = float(
         np.mean(np.asarray(geometry.maps.forward_boundary, dtype=bool) | np.asarray(geometry.maps.backward_boundary, dtype=bool))
     )
+    actual_map_source = str(geometry.metadata.get("map_source", "coil"))
+    endpoint_gate = endpoint_fraction < 1.0e-12 if actual_map_source == "vmec" else 0.05 < endpoint_fraction <= 1.0
+    b_modulation_gate = 1.01 if actual_map_source == "vmec" else 1.05
     min_density = float(min(np.min(final_ion), np.min(final_neutral)))
     report: dict[str, Any] = {
         "case": "essos_imported_fci_drb_pytree_transient",
         "source": "ESSOS-imported field-line maps with JAXDRB fixed-layout PyTree RHS",
+        "map_source": actual_map_source,
         "geometry": geometry.metadata,
         "steps": int(steps),
         "dt": float(dt),
@@ -180,8 +192,8 @@ def build_essos_imported_pytree_campaign(
     report["passed"] = (
         np.all(np.isfinite(history_np))
         and min_density > 0.0
-        and 0.05 < endpoint_fraction <= 1.0
-        and report["magnetic_field_modulation"] > 1.05
+        and endpoint_gate
+        and report["magnetic_field_modulation"] > b_modulation_gate
         and report["final_vorticity_rms"] > 0.0
         and report["final_potential_residual_l2"] < 2.5
         and jvp_relative_error < 1.0e-2
