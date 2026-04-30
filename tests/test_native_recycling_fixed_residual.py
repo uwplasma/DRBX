@@ -185,3 +185,26 @@ def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_
     assert info.diagnostics["jacobian_refresh_count"] == 1
     assert info.diagnostics["jacobian_assembly_seconds"] >= 0.0
     assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"
+
+
+def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:
+    pytest.importorskip("jax")
+    config, mesh, metrics, scalars, runtime_model, fields, feedback_integrals, _ = _dthe_context()
+
+    _, _, info = advance_recycling_1d_backward_euler_step(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals=feedback_integrals,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=scalars,
+        timestep=1.0e-6,
+        solver_mode="jax_linearized",
+        residual_tolerance=1.0e-6,
+        max_nonlinear_iterations=1,
+    )
+
+    assert info.residual_inf_norm < 1.0e-8
+    assert info.diagnostics["jacobian_refresh_count"] == 1
+    assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"

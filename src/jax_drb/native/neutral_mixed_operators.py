@@ -469,6 +469,30 @@ def div_par_k_grad_par_open(
             flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
             result = result.at[xs, down_cells, :].add(-flux_down / (dy[xs, down_cells, :] * J[xs, down_cells, :]))
 
+        if not boundary_flux and not mesh.has_lower_y_target:
+            lower = mesh.ystart
+            connected = mesh.yend
+            coefficient_down = 0.5 * (coefficient_array[xs, lower, :] + coefficient_array[xs, connected, :])
+            jacobian_down = 0.5 * (J[xs, lower, :] + J[xs, connected, :])
+            metric_down = 0.5 * (g22[xs, lower, :] + g22[xs, connected, :])
+            gradient_down = 2.0 * (field_array[xs, lower, :] - field_array[xs, connected, :]) / (
+                dy[xs, lower, :] + dy[xs, connected, :]
+            )
+            flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
+            result = result.at[xs, lower, :].add(-flux_down / (dy[xs, lower, :] * J[xs, lower, :]))
+
+        if not boundary_flux and not mesh.has_upper_y_target:
+            upper = mesh.yend
+            connected = mesh.ystart
+            coefficient_up = 0.5 * (coefficient_array[xs, upper, :] + coefficient_array[xs, connected, :])
+            jacobian_up = 0.5 * (J[xs, upper, :] + J[xs, connected, :])
+            metric_up = 0.5 * (g22[xs, upper, :] + g22[xs, connected, :])
+            gradient_up = 2.0 * (field_array[xs, connected, :] - field_array[xs, upper, :]) / (
+                dy[xs, upper, :] + dy[xs, connected, :]
+            )
+            flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
+            result = result.at[xs, upper, :].add(flux_up / (dy[xs, upper, :] * J[xs, upper, :]))
+
         return result
 
     result = np.zeros_like(field, dtype=np.float64)
@@ -507,6 +531,30 @@ def div_par_k_grad_par_open(
         )
         flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
         result[xs, down_cells, :] -= flux_down / (dy[xs, down_cells, :] * J[xs, down_cells, :])
+
+    if not boundary_flux and not mesh.has_lower_y_target:
+        lower = mesh.ystart
+        connected = mesh.yend
+        coefficient_down = 0.5 * (coefficient[xs, lower, :] + coefficient[xs, connected, :])
+        jacobian_down = 0.5 * (J[xs, lower, :] + J[xs, connected, :])
+        metric_down = 0.5 * (g22[xs, lower, :] + g22[xs, connected, :])
+        gradient_down = 2.0 * (field[xs, lower, :] - field[xs, connected, :]) / (
+            dy[xs, lower, :] + dy[xs, connected, :]
+        )
+        flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
+        result[xs, lower, :] -= flux_down / (dy[xs, lower, :] * J[xs, lower, :])
+
+    if not boundary_flux and not mesh.has_upper_y_target:
+        upper = mesh.yend
+        connected = mesh.ystart
+        coefficient_up = 0.5 * (coefficient[xs, upper, :] + coefficient[xs, connected, :])
+        jacobian_up = 0.5 * (J[xs, upper, :] + J[xs, connected, :])
+        metric_up = 0.5 * (g22[xs, upper, :] + g22[xs, connected, :])
+        gradient_up = 2.0 * (field[xs, connected, :] - field[xs, upper, :]) / (
+            dy[xs, upper, :] + dy[xs, connected, :]
+        )
+        flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
+        result[xs, upper, :] += flux_up / (dy[xs, upper, :] * J[xs, upper, :])
 
     return result
 

@@ -33,6 +33,12 @@ def _parse_args() -> argparse.Namespace:
         help="Explicit 1D-recycling BOUT.inp. Defaults under --reference-root.",
     )
     parser.add_argument(
+        "--case",
+        choices=("hydrogen", "dthe"),
+        default="hydrogen",
+        help="Reference integrated recycling deck to profile when --input-path is not supplied.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("docs") / "data" / "runtime_profile_artifacts" / "recycling_1d_jax_linearized_gate",
@@ -78,7 +84,8 @@ def _resolve_input(args: argparse.Namespace) -> Path:
         root = Path(env_root) if env_root else None
     if root is None:
         raise SystemExit("--reference-root or JAX_DRB_REFERENCE_ROOT is required.")
-    return (root.expanduser().resolve() / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp").resolve()
+    case_dir = "1D-recycling-dthe" if args.case == "dthe" else "1D-recycling"
+    return (root.expanduser().resolve() / "tests" / "integrated" / case_dir / "data" / "BOUT.inp").resolve()
 
 
 def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str, Any], float]:
@@ -129,6 +136,7 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
     }
     report = {
         "input_path": str(input_path),
+        "case": str(args.case),
         "solver_mode": "jax_linearized",
         "linear_solver_backend": str(args.linear_solver_backend),
         "timestep": float(args.timestep),
@@ -226,7 +234,7 @@ def main() -> int:
         jax.profiler.save_device_memory_profile(str(memory_profile_path))
 
     summary = {
-        "case": "recycling_1d_jax_linearized_gate",
+        "case": f"recycling_1d_{args.case}_jax_linearized_gate",
         "backend": jax.default_backend(),
         "devices": [str(device) for device in jax.devices()],
         "profiled_run_seconds": float(elapsed),
@@ -241,9 +249,10 @@ def main() -> int:
             None if args.compilation_cache_dir is None else str(args.compilation_cache_dir.expanduser().resolve())
         ),
         "interpretation": (
-            "This gate profiles the first real hydrogen recycling fixed-layout "
-            "residual that reaches JAX linearization. It proves the BE residual "
-            "is transformable; it is not yet the full adaptive D/T/He BDF profile."
+            "This gate profiles a real integrated recycling fixed-layout "
+            "residual that reaches JAX linearization. The D/T/He mode exercises "
+            "the multispecies residual seam used by the adaptive BDF trial solves; "
+            "it is still a controlled BE gate, not a full production output-window profile."
         ),
     }
     summary_path = args.output_dir / "profile_summary.json"

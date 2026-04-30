@@ -301,7 +301,11 @@ def build_neutral_mixed_term_balance_campaign_report(
             active_y=active_y,
             line_x=line_x,
             line_z=line_z,
-            matched_pressure_gradient=reference_balance.get("pressure_gradient"),
+            matched_sources={
+                "SNVh_pressure_gradient": reference_balance.get("pressure_gradient"),
+                "SNVh_parallel_viscosity": reference_balance.get("parallel_viscosity"),
+                "SNVh_perpendicular_viscosity": reference_balance.get("perpendicular_viscosity"),
+            },
         )
     return report
 
@@ -421,7 +425,49 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
     diagnostics = report.get("hermes_diagnostic_outputs", {})
     direct_comparisons = diagnostics.get("direct_comparisons", {}) if isinstance(diagnostics, dict) else {}
     pressure_direct = direct_comparisons.get("SNVh_pressure_gradient", {}) if isinstance(direct_comparisons, dict) else {}
-    if isinstance(pressure_direct, dict) and "scaled_direct_lineout" in pressure_direct:
+    closure_names = [
+        ("SNVh_pressure_gradient", "pressure\ngrad."),
+        ("SNVh_parallel_viscosity", "parallel\nvisc."),
+        ("SNVh_perpendicular_viscosity", "perp.\nvisc."),
+    ]
+    closure_values: list[float] = []
+    closure_labels: list[str] = []
+    closure_source_names: list[str] = []
+    for name, label in closure_names:
+        comparison = direct_comparisons.get(name, {})
+        if not isinstance(comparison, dict):
+            continue
+        metrics = comparison.get("scaled_difference_metrics", {})
+        if not isinstance(metrics, dict) or "max_abs" not in metrics:
+            continue
+        closure_values.append(float(metrics["max_abs"]))
+        closure_labels.append(label)
+        closure_source_names.append(name)
+    if closure_values:
+        closure_x = np.arange(len(closure_values))
+        closure_color_map = {
+            "SNVh_pressure_gradient": colors["pressure_gradient"],
+            "SNVh_parallel_viscosity": colors["parallel_viscosity"],
+            "SNVh_perpendicular_viscosity": colors["perpendicular_viscosity"],
+        }
+        closure_colors = [closure_color_map[name] for name in closure_source_names]
+        axes[1, 2].bar(closure_x, np.maximum(np.asarray(closure_values, dtype=np.float64), 1.0e-16), color=closure_colors)
+        axes[1, 2].set_xticks(closure_x, closure_labels)
+        style_axis(
+            axes[1, 2],
+            title="Direct source diagnostic closure",
+            ylabel="max |scaled direct - native|",
+            yscale="log",
+            grid="y",
+        )
+        annotate_bars(
+            axes[1, 2],
+            closure_x,
+            np.maximum(np.asarray(closure_values, dtype=np.float64), 1.0e-16),
+            fmt="{:.1e}",
+            fontsize=7.5,
+        )
+    elif isinstance(pressure_direct, dict) and "scaled_direct_lineout" in pressure_direct:
         axes[1, 2].plot(
             y,
             np.asarray(pressure_direct["matched_reconstruction_lineout"], dtype=np.float64),
@@ -762,7 +808,7 @@ def _hermes_diagnostic_payload(
     active_y: slice,
     line_x: int,
     line_z: int,
-    matched_pressure_gradient: np.ndarray | None = None,
+    matched_sources: dict[str, np.ndarray | None] | None = None,
 ) -> dict[str, object]:
     try:
         from netCDF4 import Dataset
@@ -774,6 +820,8 @@ def _hermes_diagnostic_payload(
         "ddt(NVh)",
         "SNVh",
         "SNVh_pressure_gradient",
+        "SNVh_parallel_viscosity",
+        "SNVh_perpendicular_viscosity",
         "mfh_visc_par_ylow",
         "mfh_visc_perp_xlow",
         "mfh_visc_perp_ylow",
@@ -805,23 +853,45 @@ def _hermes_diagnostic_payload(
                 "diagnostic patch is present, SNVh_pressure_gradient provides "
                 "the direct written-variable comparison."
             ),
+            "viscosity_limitation": (
+                "Stock Hermès writes viscosity flows but not the parallel and "
+                "perpendicular viscosity source terms separately. When the "
+                "local diagnostic patch is present, SNVh_parallel_viscosity "
+                "and SNVh_perpendicular_viscosity provide direct source-level "
+                "comparisons for the native closure."
+            ),
         },
     }
-    direct_pressure_gradient: np.ndarray | None = None
-    if matched_pressure_gradient is not None:
-        pressure_gradient = np.asarray(matched_pressure_gradient, dtype=np.float64)
-        active = pressure_gradient[active_x, active_y, :]
-        payload["matched_reconstructions"]["pressure_gradient"] = {
-            "source": "matched postprocessed reconstruction of Hermès final Ph through native -Grad_par(Pn) term",
-            "lineout": pressure_gradient[line_x, active_y, line_z].tolist(),
+    direct_fields: dict[str, np.ndarray] = {}
+    matched_arrays: dict[str, np.ndarray] = {}
+    matched_sources = matched_sources or {}
+    reconstruction_names = {
+        "SNVh_pressure_gradient": "pressure_gradient",
+        "SNVh_parallel_viscosity": "parallel_viscosity",
+        "SNVh_perpendicular_viscosity": "perpendicular_viscosity",
+    }
+    reconstruction_descriptions = {
+        "SNVh_pressure_gradient": "matched postprocessed reconstruction of Hermès final Ph through native -Grad_par(Pn) term",
+        "SNVh_parallel_viscosity": "matched postprocessed reconstruction of Hermès final NVh through native parallel-viscosity term",
+        "SNVh_perpendicular_viscosity": "matched postprocessed reconstruction of Hermès final NVh through native perpendicular-viscosity term",
+    }
+    for diagnostic_name, matched_source in matched_sources.items():
+        if matched_source is None:
+            continue
+        matched = np.asarray(matched_source, dtype=np.float64)
+        matched_arrays[diagnostic_name] = matched
+        active = matched[active_x, active_y, :]
+        reconstruction_name = reconstruction_names.get(diagnostic_name, diagnostic_name)
+        payload["matched_reconstructions"][reconstruction_name] = {
+            "source": reconstruction_descriptions.get(diagnostic_name, "matched postprocessed native reconstruction"),
+            "lineout": matched[line_x, active_y, line_z].tolist(),
             "field_metrics": {
                 "max_abs": float(np.max(np.abs(active))),
                 "rms": _rms(active),
             },
             "parity_scope": (
                 "This isolates the same mathematical source term on the Hermès final state. "
-                "It is not a direct Hermès variable because stock Hermès diagnostics do not "
-                "write the pressure-gradient momentum source as a separate field."
+                "A direct Hermès variable is compared when the local diagnostic patch writes it."
             ),
         }
     with Dataset(target) as dataset:
@@ -837,11 +907,10 @@ def _hermes_diagnostic_payload(
                 "max_abs": float(np.max(np.abs(active))),
                 "rms": _rms(active),
             }
-            if name == "SNVh_pressure_gradient":
-                direct_pressure_gradient = data
-    if direct_pressure_gradient is not None and matched_pressure_gradient is not None:
-        matched = np.asarray(matched_pressure_gradient, dtype=np.float64)
-        direct = np.asarray(direct_pressure_gradient, dtype=np.float64)
+            if name in matched_arrays:
+                direct_fields[name] = data
+    for diagnostic_name, direct in direct_fields.items():
+        matched = matched_arrays[diagnostic_name]
         matched_active = matched[active_x, active_y, :]
         direct_active = direct[active_x, active_y, :]
         denominator = float(np.sum(np.square(direct_active)))
@@ -849,8 +918,8 @@ def _hermes_diagnostic_payload(
         scaled_direct = scale * direct
         difference = scaled_direct - matched
         active_difference = difference[active_x, active_y, :]
-        payload["direct_comparisons"]["SNVh_pressure_gradient"] = {
-            "comparison": "least-squares scale of direct written reference -Grad_par(Pn) diagnostic to native-normalized matched reconstruction",
+        payload["direct_comparisons"][diagnostic_name] = {
+            "comparison": "least-squares scale of direct written reference diagnostic to native-normalized matched reconstruction",
             "least_squares_scale_to_native_units": scale,
             "scaled_difference_metrics": {
                 "max_abs": float(np.max(np.abs(active_difference))),

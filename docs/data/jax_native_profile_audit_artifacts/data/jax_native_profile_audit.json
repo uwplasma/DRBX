@@ -1,9 +1,8 @@
 {
-  "backend": "gpu",
+  "backend": "cpu",
   "case": "jax_native_profile_audit",
   "devices": [
-    "cuda:0",
-    "cuda:1"
+    "TFRT_CPU_0"
   ],
   "lanes": [
     {
@@ -13,39 +12,39 @@
         4,
         3
       ],
-      "compile_seconds": 0.0015197149477899075,
+      "compile_seconds": 0.0006383750587701797,
       "field_names": [
         "g11",
         "g33"
       ],
-      "first_execute_seconds": 0.00047097797505557537,
+      "first_execute_seconds": 7.037504110485315e-05,
       "lane_name": "traced_field_line_native_selected_field",
       "trace_files": [
         "normalized/perfetto_trace.json.gz",
         "normalized/runtime.trace.json.gz",
         "normalized/runtime.xplane.pb"
       ],
-      "warm_execute_seconds": 0.00010627484880387783
+      "warm_execute_seconds": 7.665948942303658e-06
     },
     {
       "batched_shape": [
         3,
         24
       ],
-      "compile_seconds": 0.0009756479412317276,
+      "compile_seconds": 0.0005029999883845448,
       "field_names": [
         "iota",
         "pressure",
         "toroidal_flux"
       ],
-      "first_execute_seconds": 0.0003118619788438082,
+      "first_execute_seconds": 6.250001024454832e-05,
       "lane_name": "stellarator_vmec_native_selected_field",
       "trace_files": [
         "normalized/perfetto_trace.json.gz",
         "normalized/runtime.trace.json.gz",
         "normalized/runtime.xplane.pb"
       ],
-      "warm_execute_seconds": 0.00011243298649787903
+      "warm_execute_seconds": 6.375019438564777e-06
     }
   ],
   "recommendations": [

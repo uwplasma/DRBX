@@ -500,17 +500,17 @@ preserving JAX transforms when a future fixed-layout residual supplies JAX
 state. On the D/T/He recycling lane, this restored warm packed-RHS calls to
 about `4e-3 s` and the current bounded one-step timing to `44.60 s`.
 
-A fresh full cProfile/RSS bundle after promoting the fixed-layout bridge into
-the production implicit steppers measured `74.33 s` under cProfile and
-`49.22 s` on the separate RSS run, with peak process-tree RSS about
-`231.4 MiB`. The top split is still decisive: sparse finite-difference
-Jacobian construction consumed about `51.2 s` cumulative, the packed RHS was
-evaluated `11838` times, and the next repeated source-level costs were
-collision closure, fixed-layout D/T/He reaction sources, open-field state
-preparation, open-field parallel advection, AMJUEL fit evaluation, ion RHS
-assembly, target recycling, and neutral parallel diffusion. This keeps the
-next optimization lane focused on fixed-layout JAX residual kernels and
-JVP/Jacobian-action solves rather than per-solve CPU threading.
+A fresh full cProfile/RSS bundle after the fixed-layout residual-seam pass
+measured the production `recycling_dthe_one_step` path at `103.50 s` under
+cProfile and `169.62 s` on the separate RSS replay, with peak process-tree RSS
+about `15474 MiB`. The top split is still decisive: sparse finite-difference
+Jacobian construction consumed about `64.7 s` cumulative, the packed RHS was
+evaluated `8872` times, and the next repeated source-level costs were collision
+closure, fixed-layout D/T/He reaction sources, open-field state preparation,
+target recycling, AMJUEL fit evaluation, ion/neutral RHS assembly, and neutral
+parallel diffusion. This keeps the next optimization lane focused on replacing
+the production SciPy BDF finite-difference Jacobian with the fixed-layout
+JAX-linearized/JVP seam rather than per-solve CPU threading.
 
 The fixed-layout residual migration now has concrete boundary gates. The
 electron sheath path uses backend-preserving no-flow state preparation plus the
@@ -524,25 +524,34 @@ backward-Euler, BDF2, and legacy BDF RHS paths, but the individual source and
 boundary kernels still need to be ported term by term before the heavy SciPy
 BDF path can be replaced by a fully JAX-linearized solve.
 
-The latest residual-seam pass moves the hydrogen recycling one-step path
-further down that migration. The species override, collision-rate helpers,
-full electron and ion sheath orchestration, target-adjacent feedback source,
-charge-exchange rate helpers, and packed-RHS output now preserve JAX arrays
-when the fixed residual is traced. A real `1D-recycling` reference deck at a
-small backward-Euler step now reaches `solver_mode="jax_linearized"` without a
-host-array conversion barrier, and the regression test checks that the
-linearized residual is assembled through JAX. This is still a gate, not the
-default heavy transient backend: the long adaptive BDF path and D/T/He branch
-need the same treatment before the paper can claim end-to-end differentiability
-for the full recycling solve.
+The latest residual-seam pass moves both the hydrogen and D/T/He recycling
+one-step paths further down that migration. The species override,
+collision-rate helpers, full electron and ion sheath orchestration,
+target-adjacent feedback source, charge-exchange rate helpers, and packed-RHS
+output now preserve JAX arrays when the fixed residual is traced. Real
+`1D-recycling` and `1D-recycling-dthe` reference decks at small backward-Euler
+steps now reach `solver_mode="jax_linearized"` without a host-array conversion
+barrier, and the regression tests check that the linearized residual is
+assembled through JAX. This is still a gate, not the default heavy transient
+backend: the long production output-window solve remains on the SciPy BDF
+compatibility path until the same residual is promoted to a production
+JAX-linearized or matrix-free timestepper.
 
-The gate has a concrete profile bundle in
+The hydrogen gate has a concrete profile bundle in
 `docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/`. The
 local cProfile/JAX-trace run completed with residual `2.49e-12`, one JAX
 linearization refresh, one residual evaluation, no fallback, and a separate RSS
 timing of about `0.83 s`. This is now the reference evidence for the
-transformable hydrogen BE residual seam; the heavier D/T/He adaptive-BDF
-profile remains the next runtime target.
+transformable hydrogen BE residual seam.
+
+The D/T/He gate has a separate profile bundle in
+`docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/`.
+That run exercised the real 19-field multispecies deck with residual
+`2.41e-11`, one JAX linearization refresh, one residual evaluation, no
+fallback, and an RSS-sampled replay taking about `3.19 s` with an incremental
+RSS increase of about `76 MiB`. This is the current proof that the
+multispecies fixed-layout residual seam is transformable. The heavier
+`recycling_dthe_one_step` profile remains the production offender baseline.
 
 The production backward-Euler/BDF2 recycling steppers now build their nonlinear
 residuals through the same fixed-layout state bridge. The default sparse path
@@ -551,7 +560,13 @@ because several production RHS branches remain host-backed. Two promoted
 JAX-native lanes are available for residuals that stay transformable:
 `solver_mode="sparse_jvp"` materializes a sparse Jacobian from grouped JVPs,
 and `solver_mode="jax_linearized"` sends JAX-linearized Jacobian actions
-directly to GMRES. The environment variable
+directly to GMRES. The adaptive BDF controller can route its trial BE/BDF2
+steps through the same seam with
+`solver_mode="adaptive_bdf_jax_linearized"` or
+`solver_mode="adaptive_bdf_jax_linearized_lineax"`, while
+`solver_mode="adaptive_bdf_sparse_jvp"` uses the sparse-JVP Jacobian path.
+These variants are promoted as controlled solver gates, not yet as the default
+production backend. The environment variable
 `JAX_DRB_RECYCLING_JACOBIAN_MODE=jvp` can select the sparse-JVP Jacobian for
 the standard sparse solver, and `JAX_DRB_RECYCLING_JVP_BATCH_SIZE` bounds the
 color-group batch size. These modes should be used only on gates where the

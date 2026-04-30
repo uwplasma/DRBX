@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
+from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input, parse_bout_input
 import jax_drb.native.recycling_1d as recycling_1d_mod
 import jax_drb.native.runner as native_runner
 from jax_drb.native.mesh import StructuredMesh, build_structured_mesh
@@ -476,7 +476,10 @@ def test_recycling_one_step_selects_expected_transient_solver_mode(
     assert "Nd+" in variables
 
 
-@pytest.mark.parametrize("requested_mode", ["adaptive_bdf", "sparse_jvp", "jax_linearized"])
+@pytest.mark.parametrize(
+    "requested_mode",
+    ["adaptive_bdf", "adaptive_bdf_jax_linearized", "sparse_jvp", "jax_linearized", "jax_linearized_lineax"],
+)
 def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
     requested_mode: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -1919,6 +1922,62 @@ def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
     assert history.variable_history["Nd+"].shape[0] == 2
     assert np.isfinite(history.variable_history["Nd+"]).all()
     assert np.isfinite(history.variable_history["Pe"]).all()
+
+
+def test_recycling_adaptive_bdf_routes_bdf2_trials_through_requested_step_solver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    field_names = ("Nd+",)
+    feedback_names: tuple[str, ...] = ()
+    fields = {"Nd+": np.ones((1, 4, 1), dtype=np.float64)}
+    previous_fields = {"Nd+": np.full((1, 4, 1), 0.9, dtype=np.float64)}
+    calls: list[str] = []
+
+    def fake_be(config, step_fields, **kwargs):
+        calls.append(kwargs["solver_mode"])
+        return {name: np.asarray(value, dtype=np.float64) for name, value in step_fields.items()}, {}, SimpleNamespace(
+            residual_inf_norm=0.0
+        )
+
+    def fake_bdf2(config, step_fields, previous_step_fields, **kwargs):
+        calls.append(kwargs["solver_mode"])
+        return {name: np.asarray(value, dtype=np.float64) for name, value in step_fields.items()}, {}, SimpleNamespace(
+            residual_inf_norm=0.0
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_backward_euler_step", fake_be)
+    monkeypatch.setattr(recycling_1d_mod, "advance_recycling_1d_bdf2_step", fake_bdf2)
+    monkeypatch.setattr(recycling_1d_mod, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.0)
+
+    recycling_1d_mod._advance_recycling_1d_adaptive_bdf_interval(
+        parse_bout_input(
+            """
+            nout = 1
+            timestep = 1
+            [solver]
+            rtol = 1e-6
+            atol = 1e-9
+            """
+        ),
+        fields,
+        runtime_model=SimpleNamespace(),
+        feedback_integrals={},
+        previous_fields=previous_fields,
+        previous_integrals={},
+        previous_dt=1.0,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=SimpleNamespace(),
+        metrics=SimpleNamespace(),
+        dataset_scalars={},
+        output_timestep=1.0,
+        suggested_dt=1.0,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=1,
+        step_solver_mode="jax_linearized",
+    )
+
+    assert calls == ["jax_linearized", "jax_linearized"]
 
 
 @pytest.mark.slow

@@ -1,0 +1,100 @@
+{
+  "backend": "cpu",
+  "case": "recycling_1d_dthe_jax_linearized_gate",
+  "compilation_cache_dir": "/Users/rogerio/local/jax_drb/tmp/jax_cache/recycling_dthe_jax_linearized_gate",
+  "cprofile_binary_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/cprofile_stats.pstats",
+  "cprofile_top_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/cprofile_top.txt",
+  "device_memory_profile_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/device_memory_profile.prof",
+  "devices": [
+    "TFRT_CPU_0"
+  ],
+  "interpretation": "This gate profiles a real integrated recycling fixed-layout residual that reaches JAX linearization. The D/T/He mode exercises the multispecies residual seam used by the adaptive BDF trial solves; it is still a controlled BE gate, not a full production output-window profile.",
+  "jax_trace_dir": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_dthe_jax_linearized_gate/jax_trace",
+  "profile": {
+    "active_size": 950,
+    "case": "dthe",
+    "diagnostics": {
+      "fallback_used": false,
+      "jacobian_assembly_seconds": 4.677378833061084,
+      "jacobian_mode": "jax_linearized:jax_gmres",
+      "jacobian_refresh_count": 1,
+      "line_search_seconds": 0.0,
+      "linear_solve_seconds": 0.0,
+      "residual_evaluation_count": 1,
+      "residual_evaluation_seconds": 4.677378833061084
+    },
+    "feedback_names": [
+      "d+",
+      "he+",
+      "t+"
+    ],
+    "field_names": [
+      "Nd+",
+      "Pd+",
+      "NVd+",
+      "Nd",
+      "Pd",
+      "NVd",
+      "Nt+",
+      "Pt+",
+      "NVt+",
+      "Nt",
+      "Pt",
+      "NVt",
+      "Nhe+",
+      "Phe+",
+      "NVhe+",
+      "Nhe",
+      "Phe",
+      "NVhe",
+      "Pe"
+    ],
+    "input_path": "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp",
+    "linear_iterations": 0,
+    "linear_solver_backend": "jax_gmres",
+    "max_nonlinear_iterations": 1,
+    "mesh_active_shape": [
+      1,
+      50,
+      1
+    ],
+    "nonlinear_iterations": 0,
+    "residual_inf_norm": 2.4089232828637317e-11,
+    "residual_tolerance": 1e-06,
+    "solver_mode": "jax_linearized",
+    "state_size": 1029,
+    "timestep": 1e-06,
+    "variable_cell_count": {
+      "NVd": 54,
+      "NVd+": 54,
+      "NVhe": 54,
+      "NVhe+": 54,
+      "NVt": 54,
+      "NVt+": 54,
+      "Nd": 54,
+      "Nd+": 54,
+      "Nhe": 54,
+      "Nhe+": 54,
+      "Nt": 54,
+      "Nt+": 54,
+      "Pd": 54,
+      "Pd+": 54,
+      "Pe": 54,
+      "Phe": 54,
+      "Phe+": 54,
+      "Pt": 54,
+      "Pt+": 54
+    }
+  },
+  "profiled_run_seconds": 4.743401124957018,
+  "rss_profile": {
+    "peak_rss_delta_mebibytes": 76.421875,
+    "peak_rss_mebibytes": 5107.609375,
+    "residual_inf_norm": 2.4089232828637317e-11,
+    "run_seconds": 3.1905962920282036,
+    "sample_count": 13,
+    "sampling_interval_seconds": 0.1,
+    "status": "sampled_process_tree_rss"
+  },
+  "xla_dump_dir": "/Users/rogerio/local/jax_drb/tmp/xla/recycling_dthe_jax_linearized_gate"
+}

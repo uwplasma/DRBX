@@ -92,6 +92,9 @@ def build_structured_mesh(config: BoutConfig, run_config: RunConfiguration) -> S
     )
     dtype = runtime_jax_dtype()
     z = jnp.arange(nz, dtype=dtype) / float(nz)
+    has_explicit_y_boundaries = config.has_option("mesh", "ixseps1") or config.has_option("mesh", "ixseps2")
+    has_lower_y_target = False
+    has_upper_y_target = bool(has_explicit_y_boundaries)
     return StructuredMesh(
         nx=nx,
         ny=ny,
@@ -105,8 +108,8 @@ def build_structured_mesh(config: BoutConfig, run_config: RunConfiguration) -> S
         jyseps1_2=jyseps1_2,
         jyseps2_2=jyseps2_2,
         ny_inner=ny_inner,
-        has_lower_y_target=False,
-        has_upper_y_target=True,
+        has_lower_y_target=has_lower_y_target,
+        has_upper_y_target=has_upper_y_target,
         x=x,
         y=y,
         z=z,

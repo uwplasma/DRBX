@@ -372,6 +372,52 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
                 dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
             )
 
+    if not boundary_flux and not mesh.has_lower_y_target:
+        lower = mesh.ystart
+        connected = mesh.yend
+        coefficient_down = 0.5 * (
+            coefficient[mesh.xstart : mesh.xend + 1, lower, :]
+            + coefficient[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        jacobian_down = 0.5 * (
+            J[mesh.xstart : mesh.xend + 1, lower, :] + J[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        metric_down = 0.5 * (
+            g22[mesh.xstart : mesh.xend + 1, lower, :] + g22[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        gradient_down = 2.0 * (
+            field[mesh.xstart : mesh.xend + 1, lower, :] - field[mesh.xstart : mesh.xend + 1, connected, :]
+        ) / (
+            dy[mesh.xstart : mesh.xend + 1, lower, :] + dy[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
+        expected[mesh.xstart : mesh.xend + 1, lower, :] -= flux_down / (
+            dy[mesh.xstart : mesh.xend + 1, lower, :] * J[mesh.xstart : mesh.xend + 1, lower, :]
+        )
+
+    if not boundary_flux and not mesh.has_upper_y_target:
+        upper = mesh.yend
+        connected = mesh.ystart
+        coefficient_up = 0.5 * (
+            coefficient[mesh.xstart : mesh.xend + 1, upper, :]
+            + coefficient[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        jacobian_up = 0.5 * (
+            J[mesh.xstart : mesh.xend + 1, upper, :] + J[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        metric_up = 0.5 * (
+            g22[mesh.xstart : mesh.xend + 1, upper, :] + g22[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        gradient_up = 2.0 * (
+            field[mesh.xstart : mesh.xend + 1, connected, :] - field[mesh.xstart : mesh.xend + 1, upper, :]
+        ) / (
+            dy[mesh.xstart : mesh.xend + 1, upper, :] + dy[mesh.xstart : mesh.xend + 1, connected, :]
+        )
+        flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
+        expected[mesh.xstart : mesh.xend + 1, upper, :] += flux_up / (
+            dy[mesh.xstart : mesh.xend + 1, upper, :] * J[mesh.xstart : mesh.xend + 1, upper, :]
+        )
+
     actual = _div_par_k_grad_par_open(
         coefficient,
         field,

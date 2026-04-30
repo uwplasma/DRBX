@@ -30,20 +30,22 @@ Current artifact outputs:
 The current generated report uses the physical active `x-y` domain for all
 term metrics and direct-reference scaling, so guard-cell-only diagnostics do
 not contaminate the offender ranking. It shows a worst active-domain final
-`NVh` difference of about `3.37e-3`. Inserting the native final state back into
-the native operator gives a residual-rate max of about `1.85e-4`, while
-inserting the Hermès-3 final state gives about `2.52e-3`. The report now
-carries a target-adjacent offender register rather than only aggregate field
-errors. On the Hermès final state, the largest native momentum terms near the
-targets are the RHS sum (`2.54e-3`), residual rate (`2.52e-3`), parallel
-viscosity (`2.11e-3`), and pressure gradient (`1.26e-3`). The
-native-minus-Hermès final-state term deltas rank parallel viscosity first among
-named physical terms (`2.31e-3`) and pressure gradient second (`3.03e-4`). This
-narrows the remaining `NVh` lane to target-adjacent viscosity/boundary closure
-first. The direct `SNVh_pressure_gradient` diagnostic now closes the
-pressure-gradient operator itself: after active-domain scaling, the direct
-Hermès lineout and the matched JAXDRB `-Grad_par(Pn)` reconstruction agree
-with max absolute difference about `1.3e-11`.
+`NVh` difference of about `1.37e-3`, down from the earlier boundary-local
+`3.37e-3` mismatch after the neutral-mixed mesh topology was corrected for
+cases without explicit `ixseps` y-boundary declarations. Inserting the Hermès-3
+final state into the native operator now gives a residual-rate max of about
+`1.66e-4`, so the remaining final-state drift is no longer dominated by the
+direct pressure-gradient or viscosity source formulas.
+
+The report now carries a target-adjacent offender register rather than only
+aggregate field errors. On the native-minus-Hermès final-state term deltas,
+pressure gradient (`1.49e-3`) and parallel viscosity (`1.17e-3`) remain the
+largest named differences because the native and Hermès final states are not
+identical. Direct source-level diagnostics close the implementation question:
+after active-domain scaling, `SNVh_pressure_gradient`,
+`SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` agree with the
+matched JAXDRB reconstructions with max absolute differences of about
+`1.3e-11`, `1.2e-11`, and machine precision, respectively.
 
 The campaign can now also ingest a one-step Hermès diagnostic NetCDF generated
 with `output_ddt = true` and `diagnose = true` under the `neutral_mixed`
@@ -51,18 +53,19 @@ component. The committed JSON/NPZ bundle includes the direct Hermès diagnostic
 lineouts from that rerun: `ddt(NVh)`, `SNVh`,
 `SNVh_pressure_gradient`, `mfh_visc_par_ylow`, `mfh_visc_perp_xlow`,
 `mfh_visc_perp_ylow`, `mfh_adv_perp_xlow`, and `mfh_adv_perp_ylow`. The
-`SNVh_pressure_gradient` variable comes from the local Hermès diagnostic patch
-recorded in [hermes_neutral_mixed_pressure_gradient_diagnostic.patch](hermes_neutral_mixed_pressure_gradient_diagnostic.patch);
-it writes the same `-Grad_par(Pn)` source that enters the neutral momentum
-equation. The report still stores the matched postprocessed reconstruction
-under `hermes_diagnostic_outputs.matched_reconstructions.pressure_gradient`
-because it is the normalized JAXDRB-side operator lineout used for native term
-balance. The direct Hermès variable is therefore the reference-side written
-diagnostic, while the matched reconstruction is the normalized comparison
-operator evaluated on the Hermès final pressure field. The same diagnostic
-bundle keeps the parallel and perpendicular viscosity flow fields, which are
-now the next reference-side quantities for closing the remaining boundary-local
-viscosity source mismatch.
+`SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
+`SNVh_perpendicular_viscosity` variables come from the local Hermès diagnostic
+patch recorded in
+[hermes_neutral_mixed_pressure_gradient_diagnostic.patch](hermes_neutral_mixed_pressure_gradient_diagnostic.patch)
+and the follow-on local viscosity-source patch used for this audit. They write
+the same `-Grad_par(Pn)`, parallel-viscosity, and perpendicular-viscosity
+sources that enter the neutral momentum equation. The report still stores the
+matched postprocessed reconstructions under
+`hermes_diagnostic_outputs.matched_reconstructions` because those are the
+normalized JAXDRB-side operator lineouts used for native term balance. The
+direct Hermès variables are therefore the reference-side written diagnostics,
+while the matched reconstructions are the normalized comparison operators
+evaluated on the Hermès final fields.
 
 Regenerate the artifact with:
 

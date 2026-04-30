@@ -1694,7 +1694,12 @@ def advance_recycling_1d_implicit_history(
             progress_callback=progress_callback,
         )
 
-    if solver_mode == "adaptive_bdf":
+    if solver_mode in {
+        "adaptive_bdf",
+        "adaptive_bdf_sparse_jvp",
+        "adaptive_bdf_jax_linearized",
+        "adaptive_bdf_jax_linearized_lineax",
+    }:
         return _advance_recycling_1d_adaptive_bdf_history(
             config,
             fields,
@@ -1710,6 +1715,7 @@ def advance_recycling_1d_implicit_history(
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
             progress_callback=progress_callback,
+            step_solver_mode=_adaptive_bdf_step_solver_mode(solver_mode),
         )
 
     if solver_mode == "bdf":
@@ -1913,6 +1919,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
     residual_tolerance: float,
     max_nonlinear_iterations: int,
     progress_callback: RecyclingProgressCallback | None = None,
+    step_solver_mode: str = "sparse",
 ) -> Recycling1DHistoryResult:
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
@@ -1950,6 +1957,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
             suggested_dt=suggested_dt,
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
+            step_solver_mode=step_solver_mode,
         )
         for name in field_names:
             variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
@@ -1992,6 +2000,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     suggested_dt: float,
     residual_tolerance: float,
     max_nonlinear_iterations: int,
+    step_solver_mode: str = "sparse",
 ) -> tuple[
     dict[str, np.ndarray],
     dict[str, float],
@@ -2035,6 +2044,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 max_nonlinear_iterations=max_nonlinear_iterations,
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
+                step_solver_mode=step_solver_mode,
             )
         else:
             be_fields, be_integrals, _ = advance_recycling_1d_backward_euler_step(
@@ -2046,7 +2056,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 metrics=metrics,
                 dataset_scalars=dataset_scalars,
                 timestep=dt,
-                solver_mode="sparse",
+                solver_mode=step_solver_mode,
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
             )
@@ -2061,7 +2071,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 metrics=metrics,
                 dataset_scalars=dataset_scalars,
                 timestep=dt,
-                solver_mode="sparse",
+                solver_mode=step_solver_mode,
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
             )
@@ -2141,6 +2151,18 @@ def _choose_recycling_next_dt(
     return max(min(current_dt * factor, remaining), minimum_dt)
 
 
+def _adaptive_bdf_step_solver_mode(history_solver_mode: str) -> str:
+    if history_solver_mode == "adaptive_bdf":
+        return "sparse"
+    if history_solver_mode == "adaptive_bdf_sparse_jvp":
+        return "sparse_jvp"
+    if history_solver_mode == "adaptive_bdf_jax_linearized":
+        return "jax_linearized"
+    if history_solver_mode == "adaptive_bdf_jax_linearized_lineax":
+        return "jax_linearized_lineax"
+    raise ValueError(f"Unsupported adaptive BDF solver mode {history_solver_mode!r}.")
+
+
 def _advance_recycling_1d_startup_step(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -2157,6 +2179,7 @@ def _advance_recycling_1d_startup_step(
     max_nonlinear_iterations: int,
     relative_tolerance: float,
     absolute_tolerance: float,
+    step_solver_mode: str = "sparse",
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
     full_fields, full_integrals, _ = advance_recycling_1d_backward_euler_step(
         config,
@@ -2167,7 +2190,7 @@ def _advance_recycling_1d_startup_step(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         timestep=timestep,
-        solver_mode="sparse",
+        solver_mode=step_solver_mode,
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
@@ -2180,7 +2203,7 @@ def _advance_recycling_1d_startup_step(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         timestep=0.5 * timestep,
-        solver_mode="sparse",
+        solver_mode=step_solver_mode,
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
@@ -2193,7 +2216,7 @@ def _advance_recycling_1d_startup_step(
         metrics=metrics,
         dataset_scalars=dataset_scalars,
         timestep=0.5 * timestep,
-        solver_mode="sparse",
+        solver_mode=step_solver_mode,
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
