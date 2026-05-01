@@ -39,6 +39,8 @@ jobs:
     needs: build
     environment: pypi
     permissions:
+      actions: read
+      contents: read
       id-token: write
     steps:
       - name: download distributions
