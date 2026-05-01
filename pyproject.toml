@@ -29,6 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
+docs = ["mkdocs"]
 
 [project.scripts]
 jax-drb = "jax_drb.cli:main"
