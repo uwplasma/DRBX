@@ -33,11 +33,16 @@ on:
           - ubuntu-latest
           - self-hosted
 
+permissions:
+  contents: read
+
 jobs:
   research-campaigns:
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       CAMPAIGN: ${{ github.event_name == 'workflow_dispatch' && inputs.campaign || 'scheduled-fast-research' }}
       REFERENCE_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs['reference-root'] || '' }}
     steps:
