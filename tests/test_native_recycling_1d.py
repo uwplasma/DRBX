@@ -66,22 +66,44 @@ from jax_drb.parity.arrays import (
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 from jax_drb.parity.diff import build_scaled_array_diff_entries
 from jax_drb.reference.cases import load_reference_cases
+from jax_drb.reference.paths import default_reference_root, repo_root
 from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.solver.implicit import ImplicitStepInfo
 
 
-_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
-_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference")
-_ARRAY_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
-_DTHE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
-_INPUT_1D = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-_TOKAMAK_RECYCLING_INPUT = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
+_REPO_ROOT = repo_root()
+_REFERENCE_ROOT = default_reference_root()
+_BASELINE_DIR = _REPO_ROOT / "references" / "baselines" / "reference"
+_ARRAY_BASELINE_DIR = _REPO_ROOT / "references" / "baselines" / "reference_arrays"
+_SNAPSHOT_DIR = _REPO_ROOT / "references" / "baselines" / "reference_snapshots"
+_DTHE_INPUT = "tests/integrated/1D-recycling-dthe/data/BOUT.inp"
+_INPUT_1D = "tests/integrated/1D-recycling/data/BOUT.inp"
+_TOKAMAK_RECYCLING_INPUT = "examples/tokamak-2D/recycling/BOUT.inp"
+_INTEGRATED_2D_RECYCLING_INPUT = "tests/integrated/2D-recycling/data/BOUT.inp"
+_INTEGRATED_2D_RECYCLING_DUMP = "tests/integrated/2D-recycling/data/BOUT.dmp.0.nc"
+
+
+def _reference_root() -> Path:
+    if _REFERENCE_ROOT is None or not _REFERENCE_ROOT.exists():
+        pytest.skip("external reference decks are not available")
+    return _REFERENCE_ROOT
+
+
+def _reference_input(relative_path: str) -> Path:
+    path = _reference_root() / relative_path
+    if not path.exists():
+        pytest.skip(f"external reference input is unavailable: {relative_path}")
+    return path
+
+
+def _load_reference_bout_input(relative_path: str):
+    return load_bout_input(_reference_input(relative_path))
 
 
 def _run_open_field_case_against_committed_baseline(case_name: str):
     case = next(case for case in load_reference_cases() if case.name == case_name)
-    result = run_curated_case(case_name, reference_root=_REFERENCE_ROOT)
+    result = run_curated_case(case_name, reference_root=_reference_root())
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / f"{case_name}.npz")
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
     entries = build_scaled_array_diff_entries(
@@ -258,9 +280,9 @@ def test_apply_electron_sheath_boundary_matches_full_hermes_lower_boundary_formu
     assert result.velocity[0, jm, 0] == pytest.approx(2.0 * vesheath)
     assert result.energy_source[0, j, 0] == pytest.approx(expected_q)
 def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() -> None:
-    config = load_bout_input(_TOKAMAK_RECYCLING_INPUT)
+    config = _load_reference_bout_input(_TOKAMAK_RECYCLING_INPUT)
     snapshot = load_local_reference_snapshot_cache(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_rhs_snapshot.npz"),
+        _SNAPSHOT_DIR / "tokamak_recycling_rhs_snapshot.npz",
         field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
         optional_field_names=("SNd+", "SNVd+", "SPd+", "SNd", "SNVd", "SPd", "SPe"),
         scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
@@ -296,7 +318,7 @@ def test_compute_recycling_1d_rhs_applies_neutral_pressure_source_overrides() ->
 def test_compute_recycling_1d_rhs_uses_preloaded_explicit_pressure_sources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -331,7 +353,7 @@ def test_compute_recycling_1d_rhs_uses_preloaded_explicit_pressure_sources(
 
 def test_recycling_1d_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_1d_rhs.json")
-    actual = run_curated_case("recycling_1d_rhs", reference_root=_REFERENCE_ROOT).payload
+    actual = run_curated_case("recycling_1d_rhs", reference_root=_reference_root()).payload
 
     comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
 
@@ -340,7 +362,7 @@ def test_recycling_1d_rhs_matches_summary_baseline() -> None:
 
 def test_recycling_1d_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "recycling_1d_rhs.npz")
-    result = run_curated_case("recycling_1d_rhs", reference_root=_REFERENCE_ROOT)
+    result = run_curated_case("recycling_1d_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
@@ -362,7 +384,7 @@ def test_recycling_1d_short_window_stays_within_operational_baseline_band() -> N
 
 def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_rhs.json")
-    actual = run_curated_case("tokamak_recycling_rhs", reference_root=_REFERENCE_ROOT).payload
+    actual = run_curated_case("tokamak_recycling_rhs", reference_root=_reference_root()).payload
 
     comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
 
@@ -371,7 +393,7 @@ def test_tokamak_recycling_rhs_matches_summary_baseline() -> None:
 
 def test_tokamak_recycling_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_rhs.npz")
-    result = run_curated_case("tokamak_recycling_rhs", reference_root=_REFERENCE_ROOT)
+    result = run_curated_case("tokamak_recycling_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
@@ -381,7 +403,7 @@ def test_tokamak_recycling_rhs_matches_array_baseline() -> None:
 
 def test_tokamak_recycling_dthe_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_dthe_rhs.json")
-    actual = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_REFERENCE_ROOT).payload
+    actual = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_reference_root()).payload
 
     comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
 
@@ -390,7 +412,7 @@ def test_tokamak_recycling_dthe_rhs_matches_summary_baseline() -> None:
 
 def test_tokamak_recycling_dthe_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthe_rhs.npz")
-    result = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_REFERENCE_ROOT)
+    result = run_curated_case("tokamak_recycling_dthe_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
@@ -400,7 +422,7 @@ def test_tokamak_recycling_dthe_rhs_matches_array_baseline() -> None:
 
 def test_tokamak_recycling_dthene_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "tokamak_recycling_dthene_rhs.json")
-    actual = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_REFERENCE_ROOT).payload
+    actual = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_reference_root()).payload
 
     comparison = compare_summary_payloads(expected, actual, scalar_rtol=1.0e-6, scalar_atol=1.0e-9)
 
@@ -409,7 +431,7 @@ def test_tokamak_recycling_dthene_rhs_matches_summary_baseline() -> None:
 
 def test_tokamak_recycling_dthene_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "tokamak_recycling_dthene_rhs.npz")
-    result = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_REFERENCE_ROOT)
+    result = run_curated_case("tokamak_recycling_dthene_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=1.0e-6, array_atol=1.0e-9)
@@ -419,7 +441,7 @@ def test_tokamak_recycling_dthene_rhs_matches_array_baseline() -> None:
 
 def test_recycling_dthe_rhs_matches_summary_baseline() -> None:
     expected = load_summary_json(_BASELINE_DIR / "recycling_dthe_rhs.json")
-    actual = run_curated_case("recycling_dthe_rhs", reference_root=_REFERENCE_ROOT).payload
+    actual = run_curated_case("recycling_dthe_rhs", reference_root=_reference_root()).payload
 
     comparison = compare_summary_payloads(expected, actual, scalar_rtol=5.0e-2, scalar_atol=1.0e-9)
 
@@ -428,7 +450,7 @@ def test_recycling_dthe_rhs_matches_summary_baseline() -> None:
 
 def test_recycling_dthe_rhs_matches_array_baseline() -> None:
     expected = load_portable_array_payload(_ARRAY_BASELINE_DIR / "recycling_dthe_rhs.npz")
-    result = run_curated_case("recycling_dthe_rhs", reference_root=_REFERENCE_ROOT)
+    result = run_curated_case("recycling_dthe_rhs", reference_root=_reference_root())
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
     comparison = compare_array_payloads(expected, actual, array_rtol=5.0e-2, array_atol=1.0e-9)
@@ -444,11 +466,11 @@ def test_recycling_dthe_rhs_matches_array_baseline() -> None:
     ],
 )
 def test_recycling_one_step_selects_expected_transient_solver_mode(
-    input_path: Path,
+    input_path: str,
     expected_solver_mode: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -486,7 +508,7 @@ def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = apply_bout_overrides(
-        load_bout_input(_INPUT_1D),
+        _load_reference_bout_input(_INPUT_1D),
         (f"runtime:recycling_transient_solver_mode={requested_mode}",),
     )
     run_config = RunConfiguration.from_config(config)
@@ -518,7 +540,7 @@ def test_recycling_one_step_runtime_override_selects_requested_solver_mode(
 def test_recycling_one_step_progress_callback_receives_interval_updates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -595,9 +617,7 @@ def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    input_path = _INPUT_1D
-    if not input_path.exists():
-        pytest.skip("open-field recycling reference input is unavailable")
+    input_path = _reference_input(_INPUT_1D)
 
     mesh = StructuredMesh(
         nx=1,
@@ -690,7 +710,7 @@ def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
     result = native_runner._run_open_field_recycling_one_step_case(
         case,
         input_path=input_path,
-        reference_root=_REFERENCE_ROOT,
+        reference_root=_reference_root(),
     )
 
     assert captured["solver_mode"] == "continuation"
@@ -703,7 +723,7 @@ def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(
 def test_continuation_output_interval_uses_small_startup_substeps_on_first_open_field_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -777,7 +797,7 @@ def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
 
     monkeypatch.setattr(native_runner, "run_config_case", fake_run_config_case)
 
-    native_runner.run_curated_case("recycling_1d_short_window", reference_root=_REFERENCE_ROOT)
+    native_runner.run_curated_case("recycling_1d_short_window", reference_root=_reference_root())
 
     applied_config = captured["config"]
     applied_run_config = RunConfiguration.from_config(applied_config)
@@ -786,7 +806,7 @@ def test_run_curated_recycling_case_applies_manifest_overrides_on_default_path(
 
 
 def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange() -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     species = _initialize_species(config, mesh=mesh)
@@ -805,8 +825,7 @@ def test_recycling_dthe_reaction_sources_include_cross_isotope_charge_exchange()
 
 
 def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -849,7 +868,7 @@ def test_charge_exchange_collision_rates_include_both_atom_and_ion_species() -> 
 
 
 def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None:
-    config = apply_bout_overrides(load_bout_input(_DTHE_INPUT), ("d:K_cx_multiplier=3.0",))
+    config = apply_bout_overrides(_load_reference_bout_input(_DTHE_INPUT), ("d:K_cx_multiplier=3.0",))
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -919,9 +938,9 @@ def test_charge_exchange_collision_rates_apply_species_rate_multiplier() -> None
 
 
 def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_ion_target_state_only() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp"))
+    config = _load_reference_bout_input(_INTEGRATED_2D_RECYCLING_INPUT)
     snapshot = load_local_reference_snapshot(
-        Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.dmp.0.nc"),
+        _reference_input(_INTEGRATED_2D_RECYCLING_DUMP),
         field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe"),
         scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
     )
@@ -963,7 +982,7 @@ def test_prepare_open_field_states_keeps_dump_backed_ion_guards_when_preserving_
     np.testing.assert_allclose(ion_boundary_ion_only.energy_source["d+"], 0.0)
 
 def test_ion_sheath_boundary_reconstructs_velocity_with_density_floor() -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1095,7 +1114,7 @@ def test_ion_simple_sheath_energy_source_matches_hermes_formula() -> None:
 def test_compute_recycling_1d_rhs_uses_boundary_conditioned_electron_velocity_for_pe_rhs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1149,7 +1168,7 @@ def test_compute_recycling_1d_rhs_uses_boundary_conditioned_electron_velocity_fo
 def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_force(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1224,7 +1243,7 @@ def test_recycling_rhs_uses_boundary_conditioned_density_for_parallel_electric_f
 
 
 def test_multispecies_neutral_charge_exchange_collision_rates_include_cross_isotope_channels() -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1322,8 +1341,7 @@ def test_apply_neutral_target_density_guards_extrapolates_boundary_density() -> 
 
 
 def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_density() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1357,8 +1375,7 @@ def test_neutral_ionisation_collision_rates_match_reaction_diagnostic_per_densit
 
 
 def test_single_species_feedback_diagnostics_are_present_and_zero_initially() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1375,7 +1392,7 @@ def test_single_species_feedback_diagnostics_are_present_and_zero_initially() ->
 
 
 def test_multispecies_feedback_controller_detects_initial_helium_density_error() -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1396,7 +1413,7 @@ def test_multispecies_feedback_controller_detects_initial_helium_density_error()
 
 
 def test_recycling_source_overrides_replace_total_density_momentum_and_pressure_sources() -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1449,7 +1466,7 @@ def test_recycling_source_overrides_replace_total_density_momentum_and_pressure_
 
 
 def test_feedback_integrals_advance_with_reference_trapezoid_rule() -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     runtime_model = _build_recycling_runtime_model(
@@ -1477,7 +1494,7 @@ def test_feedback_integrals_advance_with_reference_trapezoid_rule() -> None:
 def test_backward_euler_implicit_controller_state_does_not_reapply_trapezoid_predictor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1532,7 +1549,7 @@ def test_backward_euler_implicit_controller_state_does_not_reapply_trapezoid_pre
 def test_backward_euler_explicit_controller_update_keeps_trapezoid_predictor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1587,7 +1604,7 @@ def test_backward_euler_explicit_controller_update_keeps_trapezoid_predictor(
 def test_backward_euler_sparse_solver_uses_explicit_rhs_predictor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1646,7 +1663,7 @@ def test_backward_euler_sparse_solver_uses_explicit_rhs_predictor(
 def test_bdf2_sparse_solver_uses_explicit_rhs_predictor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1709,8 +1726,7 @@ def test_bdf2_sparse_solver_uses_explicit_rhs_predictor(
 
 
 def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1751,7 +1767,7 @@ def test_runtime_model_packed_rhs_matches_uncached_path() -> None:
 
 
 def test_dthe_rhs_without_reaction_diagnostics_preserves_evolving_rhs() -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1810,7 +1826,7 @@ def test_dthe_rhs_without_reaction_diagnostics_preserves_evolving_rhs() -> None:
 
 
 def test_dthe_packed_rhs_disables_reaction_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = load_bout_input(_DTHE_INPUT)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1849,8 +1865,7 @@ def test_dthe_packed_rhs_disables_reaction_diagnostics(monkeypatch: pytest.Monke
 
 @pytest.mark.slow
 def test_recycling_continuation_history_produces_finite_small_step() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1875,8 +1890,7 @@ def test_recycling_continuation_history_produces_finite_small_step() -> None:
 
 @pytest.mark.slow
 def test_recycling_adaptive_be_history_produces_finite_small_step() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -1901,8 +1915,7 @@ def test_recycling_adaptive_be_history_produces_finite_small_step() -> None:
 
 @pytest.mark.slow
 def test_recycling_adaptive_bdf_history_produces_finite_small_step() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -2024,7 +2037,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     expected_backend: str | None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -2173,7 +2186,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     expected_backend: str | None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = load_bout_input(_INPUT_1D)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -2229,8 +2242,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
 
 @pytest.mark.slow
 def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: pytest.MonkeyPatch) -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_DTHE_INPUT)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -2273,8 +2285,7 @@ def test_recycling_bdf_history_supplies_sparse_jacobian_callback(monkeypatch: py
 
 @pytest.mark.slow
 def test_recycling_bdf2_step_produces_finite_small_step() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -2323,8 +2334,7 @@ def test_recycling_bdf2_step_produces_finite_small_step() -> None:
 
 @pytest.mark.slow
 def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_state() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -2365,8 +2375,7 @@ def test_recycling_backward_euler_advances_feedback_integrals_from_accepted_stat
 
 @pytest.mark.slow
 def test_recycling_backward_euler_can_evolve_feedback_integrals_in_implicit_state() -> None:
-    input_path = Path("/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp")
-    config = load_bout_input(input_path)
+    config = _load_reference_bout_input(_INPUT_1D)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)

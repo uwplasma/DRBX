@@ -18,9 +18,10 @@ from jax_drb.parity.diff import (
     format_array_diff_report,
     format_recycling_diff_report,
 )
+from jax_drb.reference.paths import repo_root
 
 
-_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference")
+_BASELINE_DIR = repo_root() / "references" / "baselines" / "reference"
 
 
 def test_array_diff_report_tracks_max_abs_diff_and_location() -> None:
