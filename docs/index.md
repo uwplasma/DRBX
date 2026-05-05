@@ -13,6 +13,8 @@ used by the test suite:
   closures, boundary models, and current implementation status.
 - [Validation gallery](validation_gallery.md) collects the public
   publication-ready figures and their backing campaign artifacts.
+- [VMEC-extender edge field import](vmec_extender_edge_fields.md) documents the
+  prescribed exterior-field NetCDF contract and JAX interpolation/RHS bridge.
 - [Research-grade validation matrix](research_grade_validation_matrix.md)
   separates primary scientific evidence from supporting engineering gates.
 - [Profiling runtime](profiling_runtime.md) documents the runtime,

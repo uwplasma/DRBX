@@ -22,6 +22,7 @@ The codebase is organized around:
 - portable analysis and visualization artifacts,
 - explicit capability tiers for curated benchmark lanes,
 - reusable 3D geometry, movie, and selected-field comparison tools,
+- gridded VMEC-extender edge-field import with physical-phi interpolation and FCI map construction,
 - differentiable driver paths for sensitivity analysis, uncertainty propagation, and inverse design.
 
 ![Diverted tokamak dynamics](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
