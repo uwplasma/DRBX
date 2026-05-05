@@ -1,8 +1,23 @@
 # JAX-DRB handoff plan for VMEC-extender edge fields
 
-Status: actionable provisional handoff.
+Status: implemented first imported-field layer on `feature/vmec-extender-edge-fields`.
 
 Last updated: 2026-05-05.
+
+Implementation update:
+
+- Added `src/jax_drb/geometry/vmec_extender_import.py` with strict NetCDF
+  metadata validation, physical-phi periodic interpolation, `absB`,
+  field-line RHS, and one-plane FCI map construction.
+- Added synthetic numerical tests in `tests/test_vmec_extender_import.py`.
+- Added `src/jax_drb/validation/vmec_extender_edge_field_campaign.py` plus
+  synthetic campaign tests and public JSON/NPZ/PNG artifact generation.
+- Added `docs/vmec_extender_edge_fields.md` and
+  `examples/geometry-3D/vmec-extender/imported_field_demo.py`.
+- Registered the public docs/example/modules in release-surface tests and the
+  focused CI test workflow.
+- Verified the implementation with the focused VMEC-extender/release-surface
+  checks and the full local test suite (`956 passed, 30 skipped, 1 xfailed`).
 
 This document is the handoff for the `jax_drb` agent that will start the
 scrape-off-layer and edge-turbulence work using VMEC-extender fields. The
@@ -373,15 +388,15 @@ and `netCDF4` in its broader validation stack.
 
 ## Acceptance checklist for the first jax_drb PR
 
-- [ ] `VmecExtenderGrid` loader validates NetCDF shape and metadata.
-- [ ] JAX interpolation returns `BR`, `Bphi`, `BZ` for batched target points.
-- [ ] Physical-phi periodicity is implemented and tested.
-- [ ] `absB` consistency is checked.
-- [ ] Field-line RHS in `phi` is implemented and tested.
-- [ ] A small validation campaign writes JSON, NPZ, and PNG artifacts.
-- [ ] Docs and example are registered in release-surface tests if required.
-- [ ] Tests are numerical/physics tests, not smoke-only tests.
-- [ ] Normal CI does not require `vmec_jax`, `virtual_casing_jax`, ESSOS, or
+- [x] `VmecExtenderGrid` loader validates NetCDF shape and metadata.
+- [x] JAX interpolation returns `BR`, `Bphi`, `BZ` for batched target points.
+- [x] Physical-phi periodicity is implemented and tested.
+- [x] `absB` consistency is checked.
+- [x] Field-line RHS in `phi` is implemented and tested.
+- [x] A small validation campaign writes JSON, NPZ, and PNG artifacts.
+- [x] Docs and example are registered in release-surface tests if required.
+- [x] Tests are numerical/physics tests, not smoke-only tests.
+- [x] Normal CI does not require `vmec_jax`, `virtual_casing_jax`, ESSOS, or
       external STELLOPT artifacts.
 
 ## Work that should wait for upstream merge

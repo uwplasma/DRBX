@@ -136,6 +136,12 @@ from .essos_vmec_fieldline_surface_campaign import (
     create_essos_vmec_fieldline_surface_package,
     save_essos_vmec_fieldline_surface_plot,
 )
+from .vmec_extender_edge_field_campaign import (
+    VmecExtenderEdgeFieldCampaignArtifacts,
+    build_vmec_extender_edge_field_campaign_report,
+    create_vmec_extender_edge_field_campaign_package,
+    save_vmec_extender_edge_field_campaign_plot,
+)
 from .essos_imported_fci_campaign import (
     EssosImportedFciCampaignArtifacts,
     build_essos_imported_fci_campaign,
@@ -561,6 +567,10 @@ __all__ = [
     "build_essos_vmec_fieldline_surface_campaign",
     "create_essos_vmec_fieldline_surface_package",
     "save_essos_vmec_fieldline_surface_plot",
+    "VmecExtenderEdgeFieldCampaignArtifacts",
+    "build_vmec_extender_edge_field_campaign_report",
+    "create_vmec_extender_edge_field_campaign_package",
+    "save_vmec_extender_edge_field_campaign_plot",
     "build_diagnostic_profile_report",
     "build_geometry_observable_report",
     "LineoutSpec",
