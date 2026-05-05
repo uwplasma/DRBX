@@ -142,6 +142,14 @@ from .vmec_extender_edge_field_campaign import (
     create_vmec_extender_edge_field_campaign_package,
     save_vmec_extender_edge_field_campaign_plot,
 )
+from .vmec_extender_sol_smoke_campaign import (
+    VmecExtenderSolSmokeArtifacts,
+    VmecExtenderSolSmokeResult,
+    build_vmec_extender_sol_smoke_report,
+    create_vmec_extender_sol_smoke_package,
+    save_vmec_extender_sol_smoke_plot,
+    simulate_vmec_extender_scalar_sol_smoke,
+)
 from .essos_imported_fci_campaign import (
     EssosImportedFciCampaignArtifacts,
     build_essos_imported_fci_campaign,
@@ -571,6 +579,12 @@ __all__ = [
     "build_vmec_extender_edge_field_campaign_report",
     "create_vmec_extender_edge_field_campaign_package",
     "save_vmec_extender_edge_field_campaign_plot",
+    "VmecExtenderSolSmokeArtifacts",
+    "VmecExtenderSolSmokeResult",
+    "build_vmec_extender_sol_smoke_report",
+    "create_vmec_extender_sol_smoke_package",
+    "save_vmec_extender_sol_smoke_plot",
+    "simulate_vmec_extender_scalar_sol_smoke",
     "build_diagnostic_profile_report",
     "build_geometry_observable_report",
     "LineoutSpec",

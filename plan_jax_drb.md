@@ -18,6 +18,11 @@ Implementation update:
   focused CI test workflow.
 - Verified the implementation with the focused VMEC-extender/release-surface
   checks and the full local test suite (`956 passed, 30 skipped, 1 xfailed`).
+- Added the next local SOL coupling gate in
+  `src/jax_drb/validation/vmec_extender_sol_smoke_campaign.py`: imported FCI
+  maps drive a compact scalar model with conservative field-aligned diffusion,
+  open R-Z perpendicular diffusion, localized source, edge/endpoint loss, and
+  an analytic toroidal-field Fourier-mode decay check.
 
 This document is the handoff for the `jax_drb` agent that will start the
 scrape-off-layer and edge-turbulence work using VMEC-extender fields. The
@@ -292,6 +297,12 @@ Initial SOL model smoke should be conservative and small:
 - cross-field diffusion in `R`/`Z`
 - simple source and parallel-loss sink
 - fixed time step or existing time integrator path
+
+Implementation status: this is now covered by
+`create_vmec_extender_sol_smoke_package`. The campaign remains synthetic and
+CPU-only in normal tests; it validates imported-field map/operator coupling
+without claiming real VMEC-extender SOL turbulence before upstream exporters
+and real artifacts are stable.
 
 Do not claim a research-grade turbulence result from the first PR. The first
 PR should establish the imported-field geometry contract, interpolation, maps,

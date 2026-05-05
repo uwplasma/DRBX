@@ -124,6 +124,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_vmec_fieldline_surface_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "geometry" / "vmec_extender_import.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "vmec_extender_edge_field_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "vmec_extender_sol_smoke_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_runtime_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_convergence_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "jax_native_profile_audit.py",
