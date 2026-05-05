@@ -22,8 +22,10 @@ from .vmec_extender_import import (
     build_vmec_extender_fci_maps,
     interpolate_vmec_extender_B_cyl,
     load_vmec_extender_grid_netcdf,
+    validate_vmec_extender_points_in_bounds,
     vmec_extender_absB,
     vmec_extender_fieldline_rhs_RZ_phi,
+    vmec_extender_points_in_bounds,
 )
 
 __all__ = [
@@ -53,6 +55,8 @@ __all__ = [
     "trace_essos_coil_field_lines",
     "trace_essos_coil_initial_conditions",
     "trace_essos_vmec_initial_conditions",
+    "validate_vmec_extender_points_in_bounds",
     "vmec_extender_absB",
     "vmec_extender_fieldline_rhs_RZ_phi",
+    "vmec_extender_points_in_bounds",
 ]
