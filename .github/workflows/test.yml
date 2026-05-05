@@ -38,4 +38,5 @@ jobs:
             tests/test_closeout_coverage.py \
             tests/test_validation_tokamak_tcv_x21_toroidal_movie.py \
             tests/test_vmec_extender_import.py \
-            tests/test_validation_vmec_extender_edge_field_campaign.py
+            tests/test_validation_vmec_extender_edge_field_campaign.py \
+            tests/test_validation_vmec_extender_sol_smoke_campaign.py

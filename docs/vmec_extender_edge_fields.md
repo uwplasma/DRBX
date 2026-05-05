@@ -63,6 +63,15 @@ trilinear interpolation, physical-field-period wrapping, `absB` consistency,
 and the field-line RHS definition. The default tests build a synthetic NetCDF
 fixture and do not require external VMEC, virtual-casing, or tracing checkouts.
 
+`create_vmec_extender_sol_smoke_package` adds the first downstream SOL coupling
+gate. It loads an imported field grid, builds one-plane FCI maps, and advances
+a compact scalar model with conservative field-aligned diffusion, open R-Z
+perpendicular diffusion, a localized source, and edge or endpoint losses. The
+campaign also runs an analytic toroidal-field diffusion decay check: for a pure
+toroidal imported field, the FCI parallel operator must reproduce the exact
+discrete decay rate of a single toroidal Fourier mode. This separates the
+geometry/map/operator check from any claim of self-consistent edge turbulence.
+
 Hard Poincare, wall-hit, and connection-length diagnostics remain downstream
 non-smooth validation outputs rather than differentiable objectives. Once the
 upstream VMEC-extender exporters are merged and their artifact contract is
