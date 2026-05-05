@@ -126,10 +126,20 @@ def load_vmec_extender_grid_netcdf(
 def interpolate_vmec_extender_B_cyl(
     grid: VmecExtenderGrid,
     R_phi_Z: jax.Array,
+    *,
+    strict_bounds: bool = False,
 ) -> jax.Array:
-    """Return `(BR, Bphi, BZ)` at target points with physical-phi wrapping."""
+    """Return `(BR, Bphi, BZ)` at target points with physical-phi wrapping.
+
+    Nonperiodic `R` and `Z` coordinates are clamped at the loaded grid edges by
+    the JAX interpolation kernel. Pass `strict_bounds=True` for an eager
+    preflight check that raises when any target point lies outside the imported
+    `R`/`Z` domain.
+    """
 
     points = _as_points(R_phi_Z)
+    if strict_bounds:
+        validate_vmec_extender_points_in_bounds(grid, points)
     BR = _interpolate_component(grid, grid.BR, points)
     Bphi = _interpolate_component(grid, grid.Bphi, points)
     BZ = _interpolate_component(grid, grid.BZ, points)
@@ -139,10 +149,15 @@ def interpolate_vmec_extender_B_cyl(
 def vmec_extender_absB(
     grid: VmecExtenderGrid,
     R_phi_Z: jax.Array,
+    *,
+    strict_bounds: bool = False,
 ) -> jax.Array:
     """Return interpolated magnetic-field magnitude at target points."""
 
-    return _interpolate_component(grid, grid.absB, _as_points(R_phi_Z))
+    points = _as_points(R_phi_Z)
+    if strict_bounds:
+        validate_vmec_extender_points_in_bounds(grid, points)
+    return _interpolate_component(grid, grid.absB, points)
 
 
 def vmec_extender_fieldline_rhs_RZ_phi(
@@ -150,6 +165,7 @@ def vmec_extender_fieldline_rhs_RZ_phi(
     R_phi_Z: jax.Array,
     *,
     min_abs_Bphi: float = 1.0e-12,
+    strict_bounds: bool = False,
 ) -> jax.Array:
     """Return `(dR/dphi, dZ/dphi)` using `R * BR / Bphi` and `R * BZ / Bphi`.
 
@@ -159,6 +175,8 @@ def vmec_extender_fieldline_rhs_RZ_phi(
     """
 
     points = _as_points(R_phi_Z)
+    if strict_bounds:
+        validate_vmec_extender_points_in_bounds(grid, points)
     B = interpolate_vmec_extender_B_cyl(grid, points)
     R = points[..., 0]
     BR = B[..., 0]
@@ -168,6 +186,51 @@ def vmec_extender_fieldline_rhs_RZ_phi(
     sign = jnp.where(Bphi < 0.0, -1.0, 1.0)
     safe_Bphi = jnp.where(jnp.abs(Bphi) < floor, sign * floor, Bphi)
     return jnp.stack((R * BR / safe_Bphi, R * BZ / safe_Bphi), axis=-1)
+
+
+def vmec_extender_points_in_bounds(grid: VmecExtenderGrid, R_phi_Z: jax.Array) -> jax.Array:
+    """Return a boolean mask for points inside the imported nonperiodic `R`/`Z` domain."""
+
+    points = _as_points(R_phi_Z)
+    return (
+        (points[..., 0] >= grid.R[0])
+        & (points[..., 0] <= grid.R[-1])
+        & (points[..., 2] >= grid.Z[0])
+        & (points[..., 2] <= grid.Z[-1])
+    )
+
+
+def validate_vmec_extender_points_in_bounds(grid: VmecExtenderGrid, R_phi_Z: jax.Array) -> None:
+    """Raise if any point lies outside the imported nonperiodic `R`/`Z` domain.
+
+    This is an eager host-side guard intended for setup, tests, and production
+    preflight checks. It is deliberately separate from the JAX interpolation
+    kernel so the kernel remains usable under `jax.jit`.
+    """
+
+    points = np.asarray(R_phi_Z, dtype=np.float64)
+    if points.shape == (3,):
+        points = points.reshape((1, 3))
+    elif points.ndim == 0 or points.shape[-1] != 3:
+        raise ValueError("R_phi_Z must have shape (3,) or (..., 3).")
+    flat = points.reshape((-1, 3))
+    R_min = float(np.asarray(grid.R[0]))
+    R_max = float(np.asarray(grid.R[-1]))
+    Z_min = float(np.asarray(grid.Z[0]))
+    Z_max = float(np.asarray(grid.Z[-1]))
+    mask = (
+        (flat[:, 0] >= R_min)
+        & (flat[:, 0] <= R_max)
+        & (flat[:, 2] >= Z_min)
+        & (flat[:, 2] <= Z_max)
+    )
+    if not bool(np.all(mask)):
+        first_bad = flat[np.flatnonzero(~mask)[0]]
+        raise ValueError(
+            "VMEC-extender target point lies outside imported R/Z domain: "
+            f"point=(R={first_bad[0]:.6g}, phi={first_bad[1]:.6g}, Z={first_bad[2]:.6g}), "
+            f"R_range=({R_min:.6g}, {R_max:.6g}), Z_range=({Z_min:.6g}, {Z_max:.6g})"
+        )
 
 
 def build_vmec_extender_fci_maps(

@@ -34,12 +34,14 @@ After loading, the following operations are JAX-transformable:
 from jax_drb.geometry import (
     load_vmec_extender_grid_netcdf,
     interpolate_vmec_extender_B_cyl,
+    validate_vmec_extender_points_in_bounds,
     vmec_extender_absB,
     vmec_extender_fieldline_rhs_RZ_phi,
     build_vmec_extender_fci_maps,
 )
 
 grid = load_vmec_extender_grid_netcdf("vmec_extender_field.nc")
+validate_vmec_extender_points_in_bounds(grid, points_R_phi_Z)
 B = interpolate_vmec_extender_B_cyl(grid, points_R_phi_Z)
 absB = vmec_extender_absB(grid, points_R_phi_Z)
 rhs = vmec_extender_fieldline_rhs_RZ_phi(grid, points_R_phi_Z)
@@ -54,6 +56,14 @@ Small `Bphi` values are bounded by a sign-preserving denominator so the RHS can
 remain inside compiled JAX code. File I/O and NetCDF metadata validation are
 not differentiable. Interpolation is differentiable with respect to field
 values and target coordinates inside a fixed interpolation cell.
+
+The compiled interpolation kernels wrap physical `phi` and clamp nonperiodic
+`R` and `Z` at the imported grid edges. Use
+`validate_vmec_extender_points_in_bounds` or `strict_bounds=True` on the field
+helpers for eager production preflight when silent edge clamping is not
+acceptable. FCI map construction uses the same clamped kernel while separately
+recording forward/backward boundary masks for field lines that leave the
+imported `R`/`Z` box.
 
 ## Validation Campaign
 

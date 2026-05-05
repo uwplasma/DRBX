@@ -12,8 +12,10 @@ from jax_drb.geometry.vmec_extender_import import (
     build_vmec_extender_fci_maps,
     interpolate_vmec_extender_B_cyl,
     load_vmec_extender_grid_netcdf,
+    validate_vmec_extender_points_in_bounds,
     vmec_extender_absB,
     vmec_extender_fieldline_rhs_RZ_phi,
+    vmec_extender_points_in_bounds,
 )
 
 
@@ -126,6 +128,35 @@ def test_vmec_extender_import_wraps_physical_phi_and_handles_shapes(tmp_path: Pa
     assert interpolate_vmec_extender_B_cyl(grid, point).shape == (3,)
     assert interpolate_vmec_extender_B_cyl(grid, batched).shape == (2, 3)
     assert interpolate_vmec_extender_B_cyl(grid, higher_rank).shape == (2, 2, 3)
+
+
+def test_vmec_extender_import_marks_and_rejects_out_of_bounds_RZ_points(tmp_path: Path) -> None:
+    grid = load_vmec_extender_grid_netcdf(_write_synthetic_vmec_extender_grid(tmp_path / "field.nc"))
+    points = jnp.asarray(
+        [
+            [1.2, 0.1, 0.0],
+            [0.8, 0.1, 0.0],
+            [1.2, 0.1, 1.2],
+        ],
+        dtype=jnp.float64,
+    )
+
+    np.testing.assert_array_equal(np.asarray(vmec_extender_points_in_bounds(grid, points)), [True, False, False])
+    validate_vmec_extender_points_in_bounds(grid, points[0])
+    with pytest.raises(ValueError, match="outside imported R/Z domain"):
+        validate_vmec_extender_points_in_bounds(grid, points)
+    with pytest.raises(ValueError, match="outside imported R/Z domain"):
+        interpolate_vmec_extender_B_cyl(grid, points, strict_bounds=True)
+    with pytest.raises(ValueError, match="outside imported R/Z domain"):
+        vmec_extender_absB(grid, points, strict_bounds=True)
+    with pytest.raises(ValueError, match="outside imported R/Z domain"):
+        vmec_extender_fieldline_rhs_RZ_phi(grid, points, strict_bounds=True)
+
+    # The transformable interpolation kernel keeps documented edge-clamping
+    # behavior for FCI setup and compiled workflows that handle exits separately.
+    clipped = np.asarray(interpolate_vmec_extender_B_cyl(grid, points[1]))
+    expected = _analytic_B(np.asarray([float(grid.R[0]), 0.1, 0.0], dtype=np.float64))
+    np.testing.assert_allclose(clipped, expected, rtol=1.0e-12, atol=1.0e-12)
 
 
 def test_vmec_extender_interpolation_is_jittable_and_locally_differentiable(tmp_path: Path) -> None:
