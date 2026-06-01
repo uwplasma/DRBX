@@ -17,6 +17,16 @@ from .essos_import import (
 from .fci_maps import FciMaps, identity_fci_maps, load_fci_maps_netcdf
 from .metric_tensor import MetricTensor3D, build_metric_report, metric_inverse_residual
 from .stellarator import SyntheticStellaratorGeometry, build_synthetic_stellarator_geometry
+from .vmec_extender_import import (
+    VmecExtenderGrid,
+    build_vmec_extender_fci_maps,
+    interpolate_vmec_extender_B_cyl,
+    load_vmec_extender_grid_netcdf,
+    validate_vmec_extender_points_in_bounds,
+    vmec_extender_absB,
+    vmec_extender_fieldline_rhs_RZ_phi,
+    vmec_extender_points_in_bounds,
+)
 
 __all__ = [
     "EssosFieldLineBundle",
@@ -27,13 +37,17 @@ __all__ = [
     "FciMaps",
     "MetricTensor3D",
     "SyntheticStellaratorGeometry",
+    "VmecExtenderGrid",
     "build_metric_report",
     "build_synthetic_stellarator_geometry",
+    "build_vmec_extender_fci_maps",
     "identity_fci_maps",
+    "interpolate_vmec_extender_B_cyl",
     "load_essos_field_line_bundle_npz",
     "load_essos_coil_field_axis",
     "load_essos_vmec_field_axis",
     "load_fci_maps_netcdf",
+    "load_vmec_extender_grid_netcdf",
     "metric_inverse_residual",
     "resolve_essos_landreman_qa_json",
     "resolve_essos_landreman_qa_wout",
@@ -41,4 +55,8 @@ __all__ = [
     "trace_essos_coil_field_lines",
     "trace_essos_coil_initial_conditions",
     "trace_essos_vmec_initial_conditions",
+    "validate_vmec_extender_points_in_bounds",
+    "vmec_extender_absB",
+    "vmec_extender_fieldline_rhs_RZ_phi",
+    "vmec_extender_points_in_bounds",
 ]

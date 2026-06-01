@@ -8,12 +8,10 @@ Run it with:
 PYTHONPATH=src .venv/bin/python examples/geometry-3D/stellarator-vmec/scaffold_demo.py
 ```
 
-Or point it at a VMEC `wout*.nc` file:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/geometry-3D/stellarator-vmec/scaffold_demo.py \
-  --equilibrium-path /path/to/wout_case.nc
-```
+The script is a SIMSOPT-style driver: edit `OUTPUT_ROOT` and
+`EQUILIBRIUM_PATH` near the top of
+`examples/geometry-3D/stellarator-vmec/scaffold_demo.py` to point at a VMEC
+`wout*.nc` file or to change the artifact directory.
 
 The scaffold writes:
 

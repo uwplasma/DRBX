@@ -8,11 +8,10 @@ Run:
 PYTHONPATH=src .venv/bin/python examples/geometry-3D/stellarator-vmec/native_selected_field_demo.py
 ```
 
-Optional inputs:
-
-- `--reference-equilibrium-path /path/to/wout_reference.nc`
-- `--candidate-equilibrium-path /path/to/wout_candidate.nc`
-- `--output-root docs/data/stellarator_vmec_native_selected_field_artifacts`
+Optional inputs are configured as constants near the top of
+`examples/geometry-3D/stellarator-vmec/native_selected_field_demo.py`: set
+`REFERENCE_EQUILIBRIUM_PATH`, `CANDIDATE_EQUILIBRIUM_PATH`, or `OUTPUT_ROOT`
+before running the file.
 
 Default behavior:
 

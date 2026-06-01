@@ -13,9 +13,12 @@ JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
 PYTHONPATH=src .venv/bin/python examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py
 ```
 
-If `--coil-json` is passed, the example uses that JSON file directly. The
-committed report stores only the source filename and ESSOS method names so
-public docs do not depend on a local checkout path.
+The script is configured by constants near the top of
+`examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py`. Set
+`COIL_JSON_PATH` to use a JSON file directly; otherwise the example resolves
+the default file from `JAX_DRB_ESSOS_ROOT`. The committed report stores only
+the source filename and ESSOS method names so public docs do not depend on a
+local checkout path.
 
 ## Scope
 

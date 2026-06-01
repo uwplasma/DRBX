@@ -12,6 +12,12 @@ The generated artifacts live in
 PYTHONPATH=src .venv/bin/python examples/geometry-3D/stellarator-fci/validation_campaign_demo.py
 ```
 
+For a step-by-step, user-editable version of the same workflow, start with
+[Stellarator examples](stellarator_examples.md). That page maps each README
+figure to a runnable script, links the source code functions used by the
+examples, and separates the linear mode, nonlinear reduced-turbulence, and
+geometry plotting cases.
+
 The focused regression gate is:
 
 ```bash

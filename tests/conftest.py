@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 
@@ -31,6 +33,24 @@ def _reset_default_jax_runtime_precision() -> None:
     configure_jax_runtime(precision="float64")
     yield
     configure_jax_runtime(precision="float64")
+
+
+@pytest.fixture
+def require_working_ffmpeg() -> None:
+    """Skip movie tests unless ffmpeg is present and can actually start."""
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is unavailable")
+    result = subprocess.run(
+        [ffmpeg, "-version"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"ffmpeg is installed but cannot start: {result.stderr.strip()}")
 
 
 def reference_input(relative_path: str) -> Path:

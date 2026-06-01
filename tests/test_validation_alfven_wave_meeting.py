@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -48,10 +47,10 @@ density = 1e19
 """
 
 
-def test_create_alfven_wave_meeting_package_writes_expected_artifacts(tmp_path: Path) -> None:
-    if shutil.which("ffmpeg") is None:
-        pytest.skip("ffmpeg is unavailable")
-
+def test_create_alfven_wave_meeting_package_writes_expected_artifacts(
+    tmp_path: Path,
+    require_working_ffmpeg: None,
+) -> None:
     input_file = tmp_path / "BOUT.inp"
     input_file.write_text(_ALFVEN_WAVE_INPUT, encoding="utf-8")
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,10 +27,10 @@ def _synthetic_blob_payload() -> dict[str, object]:
     }
 
 
-def test_create_blob2d_meeting_package_writes_expected_artifacts(tmp_path: Path) -> None:
-    if shutil.which("ffmpeg") is None:
-        pytest.skip("ffmpeg is unavailable")
-
+def test_create_blob2d_meeting_package_writes_expected_artifacts(
+    tmp_path: Path,
+    require_working_ffmpeg: None,
+) -> None:
     payload = _synthetic_blob_payload()
     analysis = analyze_blob2d_array_payload(payload, density_variable="Ne", background_density=1.0)
     reference_metrics = tmp_path / "reference_metrics.json"
@@ -82,10 +81,10 @@ def test_create_blob2d_meeting_package_writes_expected_artifacts(tmp_path: Path)
         assert path.stat().st_size > 0
 
 
-def test_blob2d_example_skip_parity_visualizes_saved_payload(tmp_path: Path) -> None:
-    if shutil.which("ffmpeg") is None:
-        pytest.skip("ffmpeg is unavailable")
-
+def test_blob2d_example_skip_parity_visualizes_saved_payload(
+    tmp_path: Path,
+    require_working_ffmpeg: None,
+) -> None:
     payload = _synthetic_blob_payload()
     native_arrays = tmp_path / "native_blob.npz"
     from jax_drb.parity.arrays import write_portable_array_payload

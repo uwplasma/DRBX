@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import shutil
 import time
 from dataclasses import dataclass
@@ -27,41 +26,14 @@ def _default_repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def parse_args() -> argparse.Namespace:
-    repo_root = _default_repo_root()
-    parser = argparse.ArgumentParser(
-        description=(
-            "Generate a detailed 2D diverted-tokamak movie from the closed "
-            "tokamak turbulence short-window benchmark output."
-        )
-    )
-    parser.add_argument("--reference-root", type=Path, default=default_reference_root())
-    parser.add_argument("--case-name", default="tokamak_turbulence_short_window")
-    parser.add_argument("--field-name", default="phi")
-    parser.add_argument("--output-root", type=Path, default=repo_root / "docs" / "data" / "diverted_tokamak_turbulence_artifacts")
-    parser.add_argument(
-        "--workdir-in",
-        type=Path,
-        default=None,
-        help="Reuse an existing reference workdir that already contains BOUT.dmp.*.nc files.",
-    )
-    parser.add_argument("--fps", type=int, default=10)
-    parser.add_argument("--frames-per-interval", type=int, default=10)
-    parser.add_argument("--quiet", action="store_true")
-    return parser.parse_args()
-
-
-def build_settings(args: argparse.Namespace) -> DivertedTokamakMovieSettings:
-    return DivertedTokamakMovieSettings(
-        reference_root=args.reference_root,
-        case_name=args.case_name,
-        field_name=args.field_name,
-        output_root=args.output_root,
-        workdir_in=args.workdir_in,
-        fps=args.fps,
-        frames_per_interval=args.frames_per_interval,
-        verbose=not args.quiet,
-    )
+REFERENCE_ROOT = default_reference_root()
+CASE_NAME = "tokamak_turbulence_short_window"
+FIELD_NAME = "phi"
+OUTPUT_ROOT = _default_repo_root() / "docs" / "data" / "diverted_tokamak_turbulence_artifacts"
+WORKDIR_IN: Path | None = None
+FPS = 10
+FRAMES_PER_INTERVAL = 10
+VERBOSE = True
 
 
 def describe_requested_case(settings: DivertedTokamakMovieSettings) -> None:
@@ -144,26 +116,6 @@ def maybe_cleanup_workdir(settings: DivertedTokamakMovieSettings, workdir: Path,
     shutil.rmtree(workdir, ignore_errors=True)
 
 
-def main() -> None:
-    settings = build_settings(parse_args())
-    describe_requested_case(settings)
-    workdir, mesh_path, created_here = run_or_reuse_reference_case(settings)
-    try:
-        artifacts = create_plots_and_movie(settings, workdir=workdir, mesh_path=mesh_path)
-    finally:
-        maybe_cleanup_workdir(settings, workdir, created_here=created_here)
-    _print_section("Artifacts")
-    _print_kv(
-        {
-            "arrays_npz": artifacts.arrays_npz_path,
-            "analysis_json": artifacts.analysis_json_path,
-            "snapshots_png": artifacts.snapshots_png_path,
-            "poster_png": artifacts.poster_png_path,
-            "movie_gif": artifacts.movie_gif_path,
-        }
-    )
-
-
 def _print_section(title: str) -> None:
     print(f"\n== {title} ==")
 
@@ -178,5 +130,31 @@ def _print_kv(values: dict[str, object]) -> None:
         print(f"  - {key}: {value}")
 
 
-if __name__ == "__main__":
-    main()
+settings = DivertedTokamakMovieSettings(
+    reference_root=REFERENCE_ROOT,
+    case_name=CASE_NAME,
+    field_name=FIELD_NAME,
+    output_root=OUTPUT_ROOT,
+    workdir_in=WORKDIR_IN,
+    fps=FPS,
+    frames_per_interval=FRAMES_PER_INTERVAL,
+    verbose=VERBOSE,
+)
+
+describe_requested_case(settings)
+workdir, mesh_path, created_here = run_or_reuse_reference_case(settings)
+try:
+    artifacts = create_plots_and_movie(settings, workdir=workdir, mesh_path=mesh_path)
+finally:
+    maybe_cleanup_workdir(settings, workdir, created_here=created_here)
+
+_print_section("Artifacts")
+_print_kv(
+    {
+        "arrays_npz": artifacts.arrays_npz_path,
+        "analysis_json": artifacts.analysis_json_path,
+        "snapshots_png": artifacts.snapshots_png_path,
+        "poster_png": artifacts.poster_png_path,
+        "movie_gif": artifacts.movie_gif_path,
+    }
+)

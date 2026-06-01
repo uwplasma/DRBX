@@ -8,13 +8,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from jax_drb.reference.paths import default_reference_root
 from jax_drb.validation.reactions_collisions_campaign import (
     ReactionsCollisionsCampaignMetric,
     build_reactions_collisions_campaign,
     create_reactions_collisions_campaign_package,
 )
 import jax_drb.validation.reactions_collisions_campaign as reactions_campaign_mod
+from tests.ci_reference_fixtures import reference_root_or_ci_fixture
 
 
 def _synthetic_reactions_context(*, multispecies: bool = False) -> dict[str, object]:
@@ -105,7 +105,6 @@ def test_create_reactions_collisions_campaign_package_writes_artifacts(
     assert payload["family"] == "reactions_collisions_and_atomic_data"
     assert payload["passed_metric_count"] == 2
     assert payload["profiles"] == {}
-
 
 def test_reactions_collisions_campaign_runs_synthetic_physics_gates_without_external_decks(
     monkeypatch: pytest.MonkeyPatch,
@@ -250,11 +249,8 @@ def test_reactions_collisions_context_builder_uses_prepared_open_field_state(
     assert context["species"] is species
     assert context["prepared"] is prepared
 
-
-def test_build_reactions_collisions_campaign_passes_reference_checks() -> None:
-    reference_root = default_reference_root()
-    if reference_root is None:
-        pytest.skip("external reference decks are not available")
+def test_build_reactions_collisions_campaign_passes_reference_checks(tmp_path: Path) -> None:
+    reference_root = reference_root_or_ci_fixture(tmp_path)
     metrics = build_reactions_collisions_campaign(
         single_species_input=reference_root / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp",
         multispecies_input=reference_root / "tests" / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp",
@@ -270,10 +266,8 @@ def test_build_reactions_collisions_campaign_passes_reference_checks() -> None:
     assert all(metric.passed for metric in metrics)
 
 
-def test_create_reactions_collisions_campaign_package_writes_profile_arrays() -> None:
-    reference_root = default_reference_root()
-    if reference_root is None:
-        pytest.skip("external reference decks are not available")
+def test_create_reactions_collisions_campaign_package_writes_profile_arrays(tmp_path: Path) -> None:
+    reference_root = reference_root_or_ci_fixture(tmp_path)
     with tempfile.TemporaryDirectory() as tmp_root:
         artifacts = create_reactions_collisions_campaign_package(
             output_root=tmp_root,
