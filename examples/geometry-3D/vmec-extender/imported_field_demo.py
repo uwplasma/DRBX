@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -11,42 +10,9 @@ from jax_drb.validation import (
     create_vmec_extender_sol_smoke_package,
 )
 
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Create a small synthetic VMEC-extender-style field grid, import it "
-            "through the JAXDRB edge-field contract, and write validation artifacts."
-        )
-    )
-    parser.add_argument(
-        "--output-root",
-        type=Path,
-        default=Path("docs/data/vmec_extender_edge_field_artifacts"),
-        help="Directory where JSON, NPZ, and PNG validation artifacts are written.",
-    )
-    args = parser.parse_args()
-
-    args.output_root.mkdir(parents=True, exist_ok=True)
-    grid_path = args.output_root / "synthetic_vmec_extender_field.nc"
-    write_synthetic_vmec_extender_grid(grid_path)
-    artifacts = create_vmec_extender_edge_field_campaign_package(
-        output_root=args.output_root,
-        field_grid_path=grid_path,
-    )
-    smoke_grid_path = args.output_root / "synthetic_vmec_extender_toroidal_field.nc"
-    write_synthetic_toroidal_vmec_extender_grid(smoke_grid_path)
-    smoke_artifacts = create_vmec_extender_sol_smoke_package(
-        output_root=args.output_root,
-        field_grid_path=smoke_grid_path,
-    )
-    print(f"edge summary: {artifacts.summary_json_path}")
-    print(f"edge arrays:  {artifacts.arrays_npz_path}")
-    print(f"edge plot:    {artifacts.plot_png_path}")
-    print(f"sol summary:  {smoke_artifacts.summary_json_path}")
-    print(f"sol arrays:   {smoke_artifacts.arrays_npz_path}")
-    print(f"sol plot:     {smoke_artifacts.plot_png_path}")
-    return 0
+OUTPUT_ROOT = Path("docs/data/vmec_extender_edge_field_artifacts")
+EDGE_GRID_PATH = OUTPUT_ROOT / "synthetic_vmec_extender_field.nc"
+SOL_GRID_PATH = OUTPUT_ROOT / "synthetic_vmec_extender_toroidal_field.nc"
 
 
 def write_synthetic_vmec_extender_grid(path: Path) -> Path:
@@ -122,5 +88,21 @@ def write_synthetic_toroidal_vmec_extender_grid(path: Path) -> Path:
     return path
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+write_synthetic_vmec_extender_grid(EDGE_GRID_PATH)
+edge_artifacts = create_vmec_extender_edge_field_campaign_package(
+    output_root=OUTPUT_ROOT,
+    field_grid_path=EDGE_GRID_PATH,
+)
+write_synthetic_toroidal_vmec_extender_grid(SOL_GRID_PATH)
+sol_artifacts = create_vmec_extender_sol_smoke_package(
+    output_root=OUTPUT_ROOT,
+    field_grid_path=SOL_GRID_PATH,
+)
+
+print(f"edge summary: {edge_artifacts.summary_json_path}")
+print(f"edge arrays:  {edge_artifacts.arrays_npz_path}")
+print(f"edge plot:    {edge_artifacts.plot_png_path}")
+print(f"sol summary:  {sol_artifacts.summary_json_path}")
+print(f"sol arrays:   {sol_artifacts.arrays_npz_path}")
+print(f"sol plot:     {sol_artifacts.plot_png_path}")

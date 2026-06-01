@@ -13,13 +13,10 @@ Run it with:
 PYTHONPATH=src .venv/bin/python examples/geometry-3D/stellarator-vmec/selected_field_parity_demo.py
 ```
 
-Or point it at an explicit VMEC pair:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/geometry-3D/stellarator-vmec/selected_field_parity_demo.py \
-  --reference-equilibrium-path /path/to/reference_wout.nc \
-  --candidate-equilibrium-path /path/to/candidate_wout.nc
-```
+The script is configured by constants near the top of
+`examples/geometry-3D/stellarator-vmec/selected_field_parity_demo.py`. Set
+`REFERENCE_EQUILIBRIUM_PATH`, `CANDIDATE_EQUILIBRIUM_PATH`, or `OUTPUT_ROOT`
+there when using an explicit VMEC pair or a non-default artifact directory.
 
 If the local `/tmp/jax_drb_wout_reference.nc` and `/tmp/jax_drb_wout_candidate.nc`
 fixtures exist, the example will use that explicit pair automatically instead of

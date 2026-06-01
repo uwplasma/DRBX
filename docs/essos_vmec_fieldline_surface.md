@@ -17,15 +17,17 @@ PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py
 ```
 
-Regenerate the VMEC-coordinate control gate with:
+Regenerate the VMEC-coordinate control gate by setting these constants near the
+top of `examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py`:
+`FIELD_SOURCE = "vmec"`,
+`OUTPUT_ROOT = Path("docs/data/essos_vmec_equilibrium_fieldline_surface_artifacts")`,
+and `CASE_LABEL = "essos_vmec_equilibrium_fieldline_surface_campaign"`.
+Then run:
 
 ```bash
 JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \
 PYTHONPATH=src .venv/bin/python \
-  examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py \
-  --field-source vmec \
-  --output-root docs/data/essos_vmec_equilibrium_fieldline_surface_artifacts \
-  --case-label essos_vmec_equilibrium_fieldline_surface_campaign
+  examples/geometry-3D/essos-field-lines/vmec_fieldline_surface_campaign.py
 ```
 
 The diagnostic deliberately separates two questions. The first is whether the
