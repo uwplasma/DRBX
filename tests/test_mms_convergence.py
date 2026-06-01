@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 
-_REPO = Path("/Users/rogerio/local/jax_drb")
+_REPO = Path(__file__).resolve().parents[1]
 
 
 def _load_script_module(relative_path: str, module_name: str):

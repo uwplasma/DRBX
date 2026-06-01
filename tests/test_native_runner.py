@@ -24,6 +24,9 @@ from jax_drb.validation import (
 )
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 _EVOLVE_DENSITY_INPUT = """
 nout = 5
 timestep = 20
@@ -390,7 +393,7 @@ def test_native_runner_matches_committed_smallest_case_baseline() -> None:
         compare_variables=("Ne",),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/evolve_density_rhs.json")
+        _REPO_ROOT / "references/baselines/reference/evolve_density_rhs.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-12, scalar_atol=1e-12)
@@ -406,7 +409,7 @@ def test_native_runner_tracks_committed_diffusion_baseline() -> None:
         compare_variables=("Nh", "Ph"),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_one_step.json")
+        _REPO_ROOT / "references/baselines/reference/diffusion_one_step.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-3, scalar_atol=2e-6)
@@ -423,7 +426,7 @@ def test_native_runner_tracks_diffusion_short_window_summary_baseline() -> None:
         compare_variables=("Nh", "Ph"),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/diffusion_short_window.json")
+        _REPO_ROOT / "references/baselines/reference/diffusion_short_window.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=2e-3, scalar_atol=2e-6)
@@ -440,7 +443,7 @@ def test_native_runner_tracks_diffusion_one_step_array_baseline() -> None:
         compare_variables=("Nh", "Ph"),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_one_step.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/diffusion_one_step.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -457,7 +460,7 @@ def test_native_runner_tracks_diffusion_short_window_array_baseline() -> None:
         compare_variables=("Nh", "Ph"),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/diffusion_short_window.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/diffusion_short_window.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -484,7 +487,7 @@ def test_native_runner_tracks_fluid_rhs_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_rhs.json")
+        _REPO_ROOT / "references/baselines/reference/fluid_1d_mms_rhs.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-6, scalar_atol=1e-8)
@@ -510,7 +513,7 @@ def test_native_runner_tracks_fluid_rhs_array_baseline() -> None:
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_rhs.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/fluid_1d_mms_rhs.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -527,7 +530,7 @@ def test_native_runner_tracks_fluid_one_step_summary_baseline() -> None:
         compare_variables=("Ni", "Pi", "NVi"),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms_one_step.json")
+        _REPO_ROOT / "references/baselines/reference/fluid_1d_mms_one_step.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-5, scalar_atol=1e-8)
@@ -544,7 +547,7 @@ def test_native_runner_tracks_fluid_one_step_array_baseline() -> None:
         compare_variables=("Ni", "Pi", "NVi"),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms_one_step.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/fluid_1d_mms_one_step.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -561,7 +564,7 @@ def test_native_runner_tracks_fluid_short_window_summary_baseline() -> None:
         compare_variables=("Ni", "Pi", "NVi"),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/fluid_1d_mms.json")
+        _REPO_ROOT / "references/baselines/reference/fluid_1d_mms.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-5, scalar_atol=1e-8)
@@ -578,7 +581,7 @@ def test_native_runner_tracks_fluid_short_window_array_baseline() -> None:
         compare_variables=("Ni", "Pi", "NVi"),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/fluid_1d_mms.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/fluid_1d_mms.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -604,7 +607,7 @@ def test_native_runner_tracks_vorticity_rhs_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_rhs.json")
+        _REPO_ROOT / "references/baselines/reference/vorticity_rhs.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-9, scalar_atol=1e-12)
@@ -629,7 +632,7 @@ def test_native_runner_tracks_vorticity_rhs_array_baseline() -> None:
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_rhs.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/vorticity_rhs.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -646,7 +649,7 @@ def test_native_runner_tracks_vorticity_one_step_summary_baseline() -> None:
         compare_variables=("Vort", "phi"),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_one_step.json")
+        _REPO_ROOT / "references/baselines/reference/vorticity_one_step.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-3, scalar_atol=1e-6)
@@ -663,7 +666,7 @@ def test_native_runner_tracks_vorticity_one_step_array_baseline() -> None:
         compare_variables=("Vort", "phi"),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_one_step.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/vorticity_one_step.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -691,7 +694,7 @@ def test_native_runner_tracks_drift_wave_rhs_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_rhs.json")
+        _REPO_ROOT / "references/baselines/reference/drift_wave_rhs.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-6, scalar_atol=1e-6)
@@ -718,7 +721,7 @@ def test_native_runner_tracks_drift_wave_rhs_array_baseline() -> None:
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_rhs.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/drift_wave_rhs.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -745,7 +748,7 @@ def test_native_runner_tracks_drift_wave_one_step_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/drift_wave_one_step.json")
+        _REPO_ROOT / "references/baselines/reference/drift_wave_one_step.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-3, scalar_atol=5e-6)
@@ -772,7 +775,7 @@ def test_native_runner_tracks_drift_wave_one_step_array_baseline() -> None:
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_one_step.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/drift_wave_one_step.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -832,7 +835,7 @@ def test_native_runner_tracks_drift_wave_short_window_arrays_with_documented_tol
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/drift_wave_short_window.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/drift_wave_short_window.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -856,7 +859,7 @@ def test_native_runner_tracks_vorticity_short_window_summary_baseline() -> None:
         compare_variables=("Vort", "phi"),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/vorticity_short_window.json")
+        _REPO_ROOT / "references/baselines/reference/vorticity_short_window.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=2e-3, scalar_atol=1e-6)
@@ -873,7 +876,7 @@ def test_native_runner_tracks_vorticity_short_window_array_baseline() -> None:
         compare_variables=("Vort", "phi"),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/vorticity_short_window.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/vorticity_short_window.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -900,7 +903,7 @@ def test_native_runner_tracks_blob2d_rhs_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_rhs.json")
+        _REPO_ROOT / "references/baselines/reference/blob2d_rhs.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=1e-12, scalar_atol=1e-12)
@@ -927,7 +930,7 @@ def test_native_runner_tracks_blob2d_rhs_array_baseline() -> None:
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_rhs.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/blob2d_rhs.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -953,7 +956,7 @@ def test_native_runner_tracks_blob2d_one_step_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_one_step.json")
+        _REPO_ROOT / "references/baselines/reference/blob2d_one_step.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=2e-3, scalar_atol=2e-6)
@@ -979,7 +982,7 @@ def test_native_runner_tracks_blob2d_one_step_array_baseline() -> None:
         ),
     )
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/blob2d_one_step.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/blob2d_one_step.npz"
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
 
@@ -1005,14 +1008,14 @@ def test_native_runner_tracks_blob2d_short_window_summary_and_blob_metrics() -> 
         ),
     )
     expected_summary = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/blob2d_short_window.json")
+        _REPO_ROOT / "references/baselines/reference/blob2d_short_window.json"
     )
     summary_comparison = compare_summary_payloads(expected_summary, result.payload, scalar_rtol=2e-2, scalar_atol=2e-6)
     assert summary_comparison.ok, summary_comparison.issues
     assert result.time_points == tuple(50.0 * index for index in range(51))
 
     expected_analysis = load_blob2d_analysis_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_metrics/blob2d_short_window_metrics.json")
+        _REPO_ROOT / "references/baselines/reference_metrics/blob2d_short_window_metrics.json"
     )
     actual_arrays = build_array_payload_from_summary_payload(result.payload, result.variables)
     actual_analysis = analyze_blob2d_array_payload(actual_arrays)
@@ -1042,7 +1045,7 @@ def test_native_runner_tracks_neutral_mixed_rhs_summary_baseline() -> None:
         ),
     )
     expected = load_summary_json(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference/neutral_mixed_rhs.json")
+        _REPO_ROOT / "references/baselines/reference/neutral_mixed_rhs.json"
     )
 
     comparison = compare_summary_payloads(expected, result.payload, scalar_rtol=5e-2, scalar_atol=2e-6)
@@ -1069,7 +1072,7 @@ def test_native_runner_tracks_neutral_mixed_rhs_array_baseline() -> None:
     )
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
     expected = load_portable_array_payload(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/neutral_mixed_rhs.npz")
+        _REPO_ROOT / "references/baselines/reference_arrays/neutral_mixed_rhs.npz"
     )
     metadata_comparison = compare_array_payloads(
         expected,

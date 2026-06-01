@@ -35,8 +35,9 @@ from jax_drb.reference.cases import load_reference_cases
 from jax_drb.runtime.run_config import RunConfiguration
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
-_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
+_BASELINE_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
 _STAGED_REFERENCE_1D = Path("/private/tmp/jax_drb_recycling_1d_one_step_inspect")
 _STAGED_REFERENCE_DTHE = Path("/private/tmp/jax_drb_recycling_dthe_one_step_inspect")
 _STAGED_REFERENCE_DTHE_DIAG = Path("/private/tmp/jax_drb_recycling_dthe_one_step_diag2")

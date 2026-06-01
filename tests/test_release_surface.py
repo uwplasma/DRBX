@@ -273,6 +273,25 @@ def test_public_release_surface_avoids_local_path_leaks() -> None:
             assert needle not in text, f"{path} still contains {needle!r}"
 
 
+def test_public_docs_pages_avoid_local_path_leaks() -> None:
+    forbidden = ("/Users/", "local/hermes", "local/jax_drb")
+    for path in sorted((REPO_ROOT / "docs").glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for needle in forbidden:
+            assert needle not in text, f"{path} still contains {needle!r}"
+
+
+def test_public_docs_data_text_artifacts_avoid_local_path_leaks() -> None:
+    forbidden = ("/Users/", "local/hermes", "local/jax_drb")
+    text_suffixes = {".json", ".md", ".txt", ".toml", ".yaml", ".yml"}
+    for path in sorted((REPO_ROOT / "docs" / "data").rglob("*")):
+        if not path.is_file() or path.suffix not in text_suffixes:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for needle in forbidden:
+            assert needle not in text, f"{path} still contains {needle!r}"
+
+
 def test_readthedocs_configuration_points_to_mkdocs_site() -> None:
     rtd_config = (REPO_ROOT / ".readthedocs.yaml").read_text(encoding="utf-8")
     mkdocs_config = (REPO_ROOT / "mkdocs.yml").read_text(encoding="utf-8")

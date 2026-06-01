@@ -17,10 +17,12 @@ from jax_drb.parity.arrays import build_array_payload_from_summary_payload, comp
 from jax_drb.parity.compare import compare_summary_payloads, load_summary_json
 from jax_drb.reference.cases import ReferenceCase
 
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/diffusion-flow-evolveT/BOUT.inp")
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
-_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference")
-_ARRAY_BASELINE_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
+_BASELINE_DIR = _REPO_ROOT / "references/baselines/reference"
+_ARRAY_BASELINE_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
 
 
 @dataclass(frozen=True)

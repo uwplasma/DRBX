@@ -58,6 +58,11 @@ from jax_drb.native.recycling_1d import (
     compute_recycling_1d_rhs,
 )
 from jax_drb.native.recycling_rhs_terms import ElectronPressureRhsTerms, IonRhsTerms
+from jax_drb.native.recycling_targets import (
+    electron_zero_current_velocity as public_electron_zero_current_velocity,
+    grad_par_electron_force_balance_open as public_grad_par_electron_force_balance_open,
+    target_recycling_sources as public_target_recycling_sources,
+)
 from jax_drb.parity.arrays import (
     build_array_payload_from_summary_payload,
     compare_array_payloads,
@@ -99,6 +104,42 @@ def _reference_input(relative_path: str) -> Path:
 
 def _load_reference_bout_input(relative_path: str):
     return load_bout_input(_reference_input(relative_path))
+
+
+def _minimal_open_field_mesh_and_metrics() -> tuple[StructuredMesh, StructuredMetrics]:
+    mesh = StructuredMesh(
+        nx=1,
+        ny=1,
+        nz=1,
+        mxg=0,
+        myg=1,
+        symmetric_global_x=False,
+        symmetric_global_y=False,
+        jyseps1_1=0,
+        jyseps2_1=0,
+        jyseps1_2=0,
+        jyseps2_2=0,
+        ny_inner=1,
+        has_lower_y_target=True,
+        has_upper_y_target=True,
+        x=np.array([0.0], dtype=np.float64),
+        y=np.array([-1.0, 0.0, 1.0], dtype=np.float64),
+        z=np.array([0.0], dtype=np.float64),
+    )
+    ones = np.ones((1, 3, 1), dtype=np.float64)
+    metrics = StructuredMetrics(
+        dx=ones,
+        dy=ones,
+        dz=ones,
+        J=ones,
+        g11=ones,
+        g22=ones,
+        g33=ones,
+        g_22=ones,
+        g23=np.zeros_like(ones),
+        Bxy=ones,
+    )
+    return mesh, metrics
 
 
 def _run_open_field_case_against_committed_baseline(case_name: str):
@@ -611,6 +652,85 @@ def test_recycling_progress_details_include_eta_metrics() -> None:
     assert details["simulated_time"] == pytest.approx(20.0)
     assert details["total_simulated_time"] == pytest.approx(50.0)
     assert details["live_progress"] is True
+
+
+def test_public_target_recycling_sources_skip_non_recycling_ions_with_jax_state() -> None:
+    mesh, metrics = _minimal_open_field_mesh_and_metrics()
+    density = jnp.asarray([[[0.5], [2.0], [0.75]]], dtype=jnp.float64)
+    velocity = jnp.asarray([[[-0.2], [1.5], [0.3]]], dtype=jnp.float64)
+    temperature = jnp.asarray([[[0.4], [1.0], [0.8]]], dtype=jnp.float64)
+    ion = SimpleNamespace(
+        name="d+",
+        density=density,
+        pressure=density * temperature,
+        target_recycle=False,
+        recycle_as="d",
+        target_recycle_multiplier=1.0,
+        target_recycle_energy=3.0,
+        target_fast_recycle_fraction=0.0,
+        target_fast_recycle_energy_factor=1.0,
+    )
+    neutral = SimpleNamespace(name="d", density=jnp.ones_like(density))
+    prepared = {
+        "d+": SimpleNamespace(density=density),
+        "d": SimpleNamespace(density=neutral.density),
+    }
+
+    terms = public_target_recycling_sources(
+        ions=(ion,),
+        prepared=prepared,
+        neutrals=(neutral,),
+        ion_velocity={"d+": velocity},
+        mesh=mesh,
+        metrics=metrics,
+        gamma_i=2.5,
+    )
+
+    assert terms.diagnostics == {}
+    np.testing.assert_allclose(np.asarray(terms.density_source["d"]), 0.0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(np.asarray(terms.energy_source["d"]), 0.0, rtol=0.0, atol=0.0)
+
+
+def test_public_electron_zero_current_velocity_matches_charge_weighted_ion_flux_jvp() -> None:
+    jax = pytest.importorskip("jax")
+    density = jnp.asarray([[[1.0], [2.0], [3.0]]], dtype=jnp.float64)
+    electron_density = jnp.asarray([[[4.0], [5.0], [6.0]]], dtype=jnp.float64)
+    velocity_d = jnp.asarray([[[0.3], [0.5], [0.7]]], dtype=jnp.float64)
+    velocity_t = jnp.asarray([[[0.2], [0.4], [0.6]]], dtype=jnp.float64)
+    ions = (
+        SimpleNamespace(name="d+", charge=1.0),
+        SimpleNamespace(name="t+", charge=1.0),
+    )
+    prepared = {
+        "d+": SimpleNamespace(density=density),
+        "t+": SimpleNamespace(density=2.0 * density),
+    }
+
+    def qoi(scale):
+        electron_velocity = public_electron_zero_current_velocity(
+            ions,
+            prepared=prepared,
+            ion_velocity={"d+": scale * velocity_d, "t+": scale * velocity_t},
+            electron_density=electron_density,
+        )
+        return jnp.sum(electron_velocity)
+
+    value, tangent = jax.jvp(qoi, (jnp.array(1.0),), (jnp.array(1.0),))
+    expected = jnp.sum((density * velocity_d + 2.0 * density * velocity_t) / electron_density)
+
+    np.testing.assert_allclose(np.asarray(value), np.asarray(expected), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(tangent), np.asarray(expected), rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_public_force_balance_gradient_jax_path_matches_centered_stencil() -> None:
+    mesh, metrics = _minimal_open_field_mesh_and_metrics()
+    field = jnp.asarray([[[1.0], [2.5], [4.0]]], dtype=jnp.float64)
+
+    gradient = public_grad_par_electron_force_balance_open(field, mesh=mesh, metrics=metrics)
+
+    expected = np.zeros((1, 3, 1), dtype=np.float64)
+    expected[:, mesh.ystart, :] = 0.5 * (4.0 - 1.0)
+    np.testing.assert_allclose(np.asarray(gradient), expected, rtol=1.0e-12, atol=1.0e-12)
 
 
 def test_recycling_1d_one_step_uses_committed_snapshot_without_field_templates(

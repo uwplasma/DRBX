@@ -34,9 +34,10 @@ from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.reference.cases import ReferenceCase, load_reference_cases
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
-_BASELINE_ARRAY_DIR = Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays")
+_BASELINE_ARRAY_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
 
 
 def test_run_curated_case_dispatches_tokamak_recycling_rhs_to_dedicated_helper(

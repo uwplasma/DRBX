@@ -527,8 +527,8 @@
     }
   ],
   "source_artifacts": {
-    "comparison_summary_json": "/Users/rogerio/local/jax_drb/docs/data/hermes_comparison_summary_artifacts/data/hermes_comparison_summary.json",
-    "live_rerun_json": "/Users/rogerio/local/jax_drb/docs/data/hermes_live_rerun_campaign_artifacts/data/hermes_live_rerun_campaign.json"
+    "comparison_summary_json": "<repo-root>/docs/data/hermes_comparison_summary_artifacts/data/hermes_comparison_summary.json",
+    "live_rerun_json": "<repo-root>/docs/data/hermes_live_rerun_campaign_artifacts/data/hermes_live_rerun_campaign.json"
   },
   "top_offenders": {
     "memory": {

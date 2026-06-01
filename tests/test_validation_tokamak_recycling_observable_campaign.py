@@ -27,6 +27,8 @@ def test_tokamak_recycling_observable_campaign_report_uses_profile_observables()
     )
 
     assert report["case_name"] == "tokamak_recycling_dthe_one_step"
+    assert "/Users/" not in report["native_source"]
+    assert "local/hermes" not in report["native_source"]
     assert report["passed_metric_count"] == report["metric_count"]
     assert "solps_iter_tcv_x21" in report["literature_anchor"]
     profiles = report["profiles"]
@@ -54,4 +56,5 @@ def test_tokamak_recycling_observable_campaign_package_writes_outputs(tmp_path: 
     assert artifacts.report_plot_png_path.exists()
     assert plot.exists()
     payload = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
+    assert "/Users/" not in json.dumps(payload, sort_keys=True)
     assert payload["observable_contract"]["target_density_profiles"].startswith("final")

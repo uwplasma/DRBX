@@ -19,6 +19,9 @@ from jax_drb.runtime.run_config import RunConfiguration
 from jax_drb.native.units import resolved_dataset_scalars
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved_state() -> None:
     config = load_bout_input(Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp"))
     config = apply_bout_overrides(
@@ -33,14 +36,14 @@ def test_apply_anomalous_diffusion_uses_nonorthogonal_tokamak_metrics_on_evolved
     run_config = RunConfiguration.from_config(config)
     dataset_scalars = resolved_dataset_scalars(run_config)
     snapshot = load_local_reference_snapshot_cache(
-        Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_dthe_rhs_snapshot.npz"),
+        _REPO_ROOT / "references/baselines/reference_snapshots/tokamak_recycling_dthe_rhs_snapshot.npz",
         field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"),
         scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
     )
     evolved = synthesize_local_reference_snapshot_from_active_history(
         initial_snapshot=snapshot,
-        array_history_path=Path("/Users/rogerio/local/jax_drb/references/baselines/reference_arrays/tokamak_recycling_dthe_one_step.npz"),
-        optional_history_path=Path("/Users/rogerio/local/jax_drb/references/baselines/reference_snapshots/tokamak_recycling_dthe_one_step_optional_history.npz"),
+        array_history_path=_REPO_ROOT / "references/baselines/reference_arrays/tokamak_recycling_dthe_one_step.npz",
+        optional_history_path=_REPO_ROOT / "references/baselines/reference_snapshots/tokamak_recycling_dthe_one_step_optional_history.npz",
         timestep=0.1,
         state_field_names=("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Nt+", "Pt+", "NVt+", "Nt", "Pt", "NVt", "Nhe+", "Phe+", "NVhe+", "Nhe", "Phe", "NVhe", "Pe"),
         optional_field_names=(),

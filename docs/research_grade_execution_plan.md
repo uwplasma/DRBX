@@ -15,7 +15,7 @@ Audit date: 2026-04-23.
 
 Active repository:
 
-- working tree: `/Users/rogerio/local/jax_drb`
+- working tree: a local checkout of `https://github.com/uwplasma/jax_drb`
 - remote: `https://github.com/uwplasma/jax_drb.git`
 - branch: `main`
 - audit base commit: `631c2f74 Cache target geometry and add neutral mismatch audit`
