@@ -31,4 +31,4 @@ jobs:
           pytest -q tests/test_release_surface.py
       - name: Build Read the Docs site
         run: |
-          mkdocs build --clean
+          mkdocs build --strict --clean
