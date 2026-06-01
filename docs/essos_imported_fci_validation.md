@@ -15,9 +15,12 @@ PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/imported_fci_campaign.py
 ```
 
-The example accepts `--coil-json`, `--vmec-wout`, or `--essos-root` when the
-external checkout is not located at the default `~/local/ESSOS`. The
-`--map-source` switch selects one of three imported-map semantics:
+The example follows the same SIMSOPT-style pattern as the other geometry
+drivers: edit constants near the top of
+`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`. Set
+`COIL_JSON_PATH`, `VMEC_WOUT_PATH`, or `ESSOS_ROOT` when the external checkout
+is not located at the default `~/local/ESSOS`. Set `MAP_SOURCE` to one of three
+imported-map semantics:
 
 - `coil` traces the external Biot-Savart coil field to adjacent toroidal
   planes and keeps the resulting open-field endpoint masks.

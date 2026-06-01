@@ -17,9 +17,10 @@ PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py
 ```
 
-Use `--map-source coil`, `--map-source vmec`, or `--map-source hybrid` to
-select the map semantics. The `coil` source is the open-field endpoint path
-for sheath/recycling masks from external coil traces. The `vmec` source is a
+Set `MAP_SOURCE = "coil"`, `"vmec"`, or `"hybrid"` near the top of
+`examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py` to choose
+the map semantics. The `coil` source is the open-field endpoint path for
+sheath/recycling masks from external coil traces. The `vmec` source is a
 closed-field coordinate-map control for differentiability checks when target
 losses vanish. The `hybrid` source combines VMEC-coordinate interpolation with
 coil endpoint masks and is the preferred bridge for non-axisymmetric SOL

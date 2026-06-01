@@ -15,6 +15,9 @@ used by the test suite:
   publication-ready figures and their backing campaign artifacts.
 - [VMEC-extender edge field import](vmec_extender_edge_fields.md) documents the
   prescribed exterior-field NetCDF contract and JAX interpolation/RHS bridge.
+- [Stellarator examples](stellarator_examples.md) explains the 3D stellarator
+  geometry, linear mode, nonlinear turbulence, plotting, equations, and
+  literature links behind the example scripts.
 - [Research-grade validation matrix](research_grade_validation_matrix.md)
   separates primary scientific evidence from supporting engineering gates.
 - [Profiling runtime](profiling_runtime.md) documents the runtime,

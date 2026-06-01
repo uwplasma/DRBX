@@ -8,6 +8,9 @@ from netCDF4 import Dataset
 
 from jax_drb.validation import create_native_traced_field_line_selected_field_package
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+OUTPUT_ROOT = REPO_ROOT / "docs" / "data" / "traced_field_line_native_selected_field_artifacts"
+
 
 def _write_demo_grid(path: Path, *, offset: float) -> None:
     with Dataset(path, "w") as dataset:
@@ -28,32 +31,27 @@ def _resolve_external_pair() -> tuple[Path, Path] | None:
     return None
 
 
-def main() -> None:
-    repo_root = Path(__file__).resolve().parents[3]
-    external_pair = _resolve_external_pair()
-    if external_pair is None:
-        with tempfile.TemporaryDirectory(prefix="jax_drb_native_traced_demo_") as temp_dir:
-            temp_root = Path(temp_dir)
-            reference = temp_root / "reference.fci.nc"
-            candidate = temp_root / "candidate.fci.nc"
-            _write_demo_grid(reference, offset=0.0)
-            _write_demo_grid(candidate, offset=0.25)
-            artifacts = create_native_traced_field_line_selected_field_package(
-                reference_mesh_spec=reference,
-                candidate_mesh_spec=candidate,
-                output_root=repo_root / "docs" / "data" / "traced_field_line_native_selected_field_artifacts",
-            )
-    else:
+external_pair = _resolve_external_pair()
+if external_pair is None:
+    with tempfile.TemporaryDirectory(prefix="jax_drb_native_traced_demo_") as temp_dir:
+        temp_root = Path(temp_dir)
+        reference = temp_root / "reference.fci.nc"
+        candidate = temp_root / "candidate.fci.nc"
+        _write_demo_grid(reference, offset=0.0)
+        _write_demo_grid(candidate, offset=0.25)
         artifacts = create_native_traced_field_line_selected_field_package(
-            reference_mesh_spec=external_pair[0],
-            candidate_mesh_spec=external_pair[1],
-            output_root=repo_root / "docs" / "data" / "traced_field_line_native_selected_field_artifacts",
+            reference_mesh_spec=reference,
+            candidate_mesh_spec=candidate,
+            output_root=OUTPUT_ROOT,
         )
-    print(f"parity: {artifacts.parity_json_path}")
-    print(f"comparison: {artifacts.comparison_json_path}")
-    print(f"observable: {artifacts.observable_report_json_path}")
-    print(f"runtime: {artifacts.runtime_report_json_path}")
+else:
+    artifacts = create_native_traced_field_line_selected_field_package(
+        reference_mesh_spec=external_pair[0],
+        candidate_mesh_spec=external_pair[1],
+        output_root=OUTPUT_ROOT,
+    )
 
-
-if __name__ == "__main__":
-    main()
+print(f"parity: {artifacts.parity_json_path}")
+print(f"comparison: {artifacts.comparison_json_path}")
+print(f"observable: {artifacts.observable_report_json_path}")
+print(f"runtime: {artifacts.runtime_report_json_path}")
