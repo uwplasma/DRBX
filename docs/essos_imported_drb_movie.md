@@ -28,11 +28,12 @@ near-boundary physics grid (`8 x 28 x 80`, `rho = 0.20 ... 0.92`) rather than
 relying on a renderer-only high-resolution interpolation of a coarse transient.
 The transient also seeds deterministic multi-mode perturbations so the visible
 structure is supported by the evolved state rather than by post-processing
-noise. Run the script with `--map-source coil`, `--map-source vmec`, or
-`--map-source hybrid` to switch between the open coil trace, the closed
-VMEC-coordinate control, and the hybrid open-field SOL bridge. The camera is
-fixed across frames, the GIF is quantized with a shared no-dither palette, and
-the report includes a frame-by-frame audit of bounding box and RMS changes.
+noise. Set `MAP_SOURCE = "coil"`, `"vmec"`, or `"hybrid"` near the top of
+`examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py` to
+switch between the open coil trace, the closed VMEC-coordinate control, and the
+hybrid open-field SOL bridge. The camera is fixed across frames, the GIF is
+quantized with a shared no-dither palette, and the report includes a
+frame-by-frame audit of bounding box and RMS changes.
 
 The companion [field-line/VMEC registration gate](essos_vmec_fieldline_surface.md)
 shows that the imported coil field traces finite Poincare points but does not
@@ -51,9 +52,9 @@ PYTHONPATH=src .venv/bin/python \
   examples/geometry-3D/essos-field-lines/imported_drb_movie_campaign.py
 ```
 
-For the hybrid bridge, add `--map-source hybrid --output-root
-docs/data/essos_imported_drb_movie_hybrid_artifacts`; for the closed-field
-control, use `--map-source vmec` and a separate output root.
+For the hybrid bridge, set `MAP_SOURCE = "hybrid"` and `OUTPUT_ROOT =
+Path("docs/data/essos_imported_drb_movie_hybrid_artifacts")`; for the
+closed-field control, set `MAP_SOURCE = "vmec"` and use a separate output root.
 
 ## Current Gate
 

@@ -1,0 +1,114 @@
+site_name: JAXDRB
+site_description: JAX-native drift-reduced Braginskii edge and scrape-off-layer plasma solver
+site_url: https://jax-drb.readthedocs.io/
+repo_url: https://github.com/uwplasma/jax_drb
+repo_name: uwplasma/jax_drb
+edit_uri: blob/main/docs/
+docs_dir: docs
+site_dir: site
+exclude_docs: |
+  data/**
+  release_artifacts_manifest.json
+theme:
+  name: readthedocs
+markdown_extensions:
+  - admonition
+  - fenced_code
+  - tables
+  - toc:
+      permalink: true
+validation:
+  nav:
+    omitted_files: info
+  links:
+    not_found: info
+    unrecognized_links: info
+    anchors: warn
+    absolute_links: info
+nav:
+  - Home: index.md
+  - User Guide:
+      - Installation: installation.md
+      - Inputs And Outputs: input_output_reference.md
+      - Native Runtime CLI: native_runtime_cli.md
+      - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md
+      - Examples And Artifacts: examples.md
+  - Physics And Numerics:
+      - Physics Models: physics_models.md
+      - Code Structure: code_structure.md
+      - Performance And Differentiability: performance_and_differentiability.md
+      - Autodiff And Scaling Examples: autodiff_and_scaling_examples.md
+      - Profiling Runtime: profiling_runtime.md
+      - Runtime Gap Remediation: runtime_gap_remediation.md
+  - Geometry:
+      - Stellarator Examples: stellarator_examples.md
+      - Stellarator FCI Validation: stellarator_fci_validation.md
+      - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
+      - ESSOS Field-Line Import: essos_fieldline_import.md
+      - ESSOS VMEC Field-Line Surface: essos_vmec_fieldline_surface.md
+      - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
+      - ESSOS Imported PyTree Validation: essos_imported_pytree_validation.md
+      - ESSOS Imported DRB Movie: essos_imported_drb_movie.md
+      - TCV-X21 Scaffold: tokamak_tcv_x21_scaffold_demo.md
+      - TCV-X21 Selected Field: tokamak_tcv_x21_selected_field_demo.md
+      - TCV-X21 Toroidal Movie: tokamak_tcv_x21_toroidal_movie_demo.md
+      - Native Tokamak Selected Field: tokamak_native_selected_field_demo.md
+      - Traced Field-Line Scaffold: traced_field_line_scaffold_demo.md
+      - Traced Field-Line Selected Field: traced_field_line_selected_field_demo.md
+      - Traced Field-Line Native Selected Field: traced_field_line_native_selected_field_demo.md
+      - Stellarator VMEC Scaffold: stellarator_vmec_scaffold_demo.md
+      - Stellarator VMEC Selected Field: stellarator_vmec_selected_field_demo.md
+      - Stellarator VMEC Native Selected Field: stellarator_vmec_native_selected_field_demo.md
+      - Non-Axisymmetric SOL Plan: non_axisymmetric_stellarator_sol_plan.md
+  - Validation:
+      - Validation Gallery: validation_gallery.md
+      - Research-Grade Validation Matrix: research_grade_validation_matrix.md
+      - Parity Matrix: parity_matrix.md
+      - Parity Harness: parity_harness.md
+      - Hermes Comparison Gallery: hermes_comparison_gallery.md
+      - Hermes Live Rerun Campaign: hermes_live_rerun_campaign.md
+      - Hermes Capability Audit: hermes_capability_audit.md
+      - TCV-X21 Validation Methodology: tokamak_tcv_x21_validation_methodology.md
+      - Fluid 1D MMS Convergence: fluid_1d_mms_convergence.md
+      - Open-Field Operator Campaign: open_field_operator_campaign.md
+      - Reactions And Collisions: reactions_collisions_campaign.md
+      - Collision Closure: collision_closure_campaign.md
+      - Neutral Parallel Diffusion: neutral_parallel_diffusion_campaign.md
+      - Neutral Mixed Boundary: neutral_mixed_boundary_campaign.md
+      - Neutral Mixed Term Balance: neutral_mixed_term_balance_campaign.md
+      - Target Recycling: target_recycling_campaign.md
+      - Tokamak Anomalous Diffusion: tokamak_anomalous_diffusion_campaign.md
+      - Tokamak Recycling Observable: tokamak_recycling_observable_campaign.md
+      - Controller Feedback: controller_feedback_campaign.md
+      - Temperature Feedback: temperature_feedback_campaign.md
+      - Detachment Controller: detachment_controller_campaign.md
+      - Impurity Radiation: impurity_radiation_campaign.md
+      - Atomic Rate Differentiability: atomic_rate_differentiability_campaign.md
+      - Autodiff Diffusion Uncertainty: autodiff_diffusion_uncertainty_demo.md
+      - Local CPU Scaling: local_cpu_scaling_campaign.md
+      - Native 3D Runtime: native_3d_runtime_campaign.md
+      - Native 3D Convergence: native_3d_convergence_campaign.md
+      - JAX Native Profile Audit: jax_native_profile_audit.md
+      - Implicit Solver Profile Audit: implicit_solver_profile_audit.md
+  - Benchmarks And Movies:
+      - Dynamics Gallery: dynamics_gallery.md
+      - Drift-Wave Benchmark: drift_wave_benchmark.md
+      - Blob2D Meeting Demo: blob2d_meeting_demo.md
+      - Alfven-Wave Benchmark: alfven_wave_benchmark.md
+      - Alfven-Wave Meeting Demo: alfven_wave_meeting_demo.md
+      - Diverted Tokamak Movie: diverted_tokamak_movie_demo.md
+      - Neutral Mixed Benchmark: neutral_mixed_benchmark.md
+  - Plans And Release:
+      - Testing Strategy: testing_strategy.md
+      - Closeout Coverage: closeout_coverage.md
+      - Research Campaigns: research_campaigns.md
+      - Research Directions: research_directions.md
+      - Research-Grade Execution Plan: research_grade_execution_plan.md
+      - Refactoring Plan: refactoring_plan.md
+      - Geometry Roadmap: geometry_roadmap.md
+      - Implementation Inventory: implementation_inventory.md
+      - Release Packaging: release_packaging.md
+      - Release Notes 1.0.2: release_notes_1_0_2.md
+      - Release Notes 1.0.1: release_notes_1_0_1.md
+      - Release Notes 1.0.0: release_notes_1_0_0.md
+      - Repo Size Audit: repo_size_audit.md

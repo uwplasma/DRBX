@@ -7,13 +7,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from jax_drb.reference.paths import default_reference_root
 from jax_drb.validation import (
     ImpurityRadiationCampaignMetric,
     build_impurity_radiation_campaign,
     create_impurity_radiation_campaign_package,
 )
 import jax_drb.validation.impurity_radiation_campaign as impurity_campaign_mod
+from tests.ci_reference_fixtures import reference_root_or_ci_fixture
 
 
 def test_create_impurity_radiation_campaign_package_writes_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,11 +39,9 @@ def test_create_impurity_radiation_campaign_package_writes_artifacts(tmp_path: P
     assert payload["passed_metric_count"] == 1
 
 
-def test_build_impurity_radiation_campaign_reports_expected_neon_metrics() -> None:
-    reference_root = default_reference_root()
-    if reference_root is None:
-        pytest.skip("external reference decks are not available")
-    metrics = build_impurity_radiation_campaign()
+def test_build_impurity_radiation_campaign_reports_expected_neon_metrics(tmp_path: Path) -> None:
+    reference_root = reference_root_or_ci_fixture(tmp_path)
+    metrics = build_impurity_radiation_campaign(reference_root=reference_root)
     names = {metric.name for metric in metrics}
     assert "openadas_neon_full_bundle_finite_fraction" in names
     assert "tokamak_dthene_rhs_neon_density_exact" in names

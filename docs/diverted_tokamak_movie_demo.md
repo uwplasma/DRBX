@@ -14,20 +14,17 @@ The current committed artifact is generated from the exact `tokamak_turbulence_s
 Fresh benchmark run:
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/diverted_tokamak_movie_demo.py \
-  --reference-root /path/to/reference-suite \
-  --output-root docs/data/diverted_tokamak_turbulence_artifacts
+PYTHONPATH=src .venv/bin/python examples/diverted_tokamak_movie_demo.py
 ```
 
-If you already have a kept reference workdir with `BOUT.dmp.*.nc` files, reuse it:
-
-```bash
-PYTHONPATH=src .venv/bin/python examples/diverted_tokamak_movie_demo.py \
-  --workdir-in /path/to/jaxdrb-tokamak-workdir \
-  --output-root docs/data/diverted_tokamak_turbulence_artifacts
-```
-
-The default field is `phi`, which gives the clearest diverted-geometry fluctuation movie on the current exact turbulence rung. You can switch to another saved field with `--field-name`.
+The example follows the SIMSOPT-style script pattern used by the 3D geometry
+examples: edit the constants near the top of
+`examples/diverted_tokamak_movie_demo.py`, then run the file. Set
+`REFERENCE_ROOT` to a reference-suite checkout, `WORKDIR_IN` to an existing
+work directory with `BOUT.dmp.*.nc` files when you want to reuse a kept run,
+`OUTPUT_ROOT` to the artifact directory, and `FIELD_NAME` to the saved field to
+render. The default field is `phi`, which gives the clearest diverted-geometry
+fluctuation movie on the current exact turbulence rung.
 
 ## Output Files
 

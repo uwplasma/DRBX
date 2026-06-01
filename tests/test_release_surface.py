@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
-from conftest import REPO_ROOT
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 PUBLIC_RELEASE_FILES = (
+    REPO_ROOT / ".readthedocs.yaml",
+    REPO_ROOT / "mkdocs.yml",
     REPO_ROOT / "README.md",
+    REPO_ROOT / "docs" / "index.md",
+    REPO_ROOT / "docs" / "installation.md",
+    REPO_ROOT / "docs" / "input_output_reference.md",
+    REPO_ROOT / "docs" / "examples.md",
     REPO_ROOT / "docs" / "native_runtime_cli.md",
     REPO_ROOT / "docs" / "restartable_diffusion_tutorial.md",
     REPO_ROOT / "docs" / "validation_gallery.md",
     REPO_ROOT / "docs" / "physics_models.md",
     REPO_ROOT / "docs" / "profiling_runtime.md",
+    REPO_ROOT / "docs" / "autodiff_and_scaling_examples.md",
     REPO_ROOT / "docs" / "research_directions.md",
     REPO_ROOT / "docs" / "runtime_gap_remediation.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_scaffold_demo.md",
@@ -28,6 +38,8 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "essos_imported_pytree_validation.md",
     REPO_ROOT / "docs" / "essos_imported_drb_movie.md",
     REPO_ROOT / "docs" / "essos_vmec_fieldline_surface.md",
+    REPO_ROOT / "docs" / "vmec_extender_edge_fields.md",
+    REPO_ROOT / "docs" / "stellarator_examples.md",
     REPO_ROOT / "docs" / "stellarator_fci_validation.md",
     REPO_ROOT / "docs" / "non_axisymmetric_stellarator_sol_plan.md",
     REPO_ROOT / "docs" / "traced_field_line_native_selected_field_demo.md",
@@ -50,6 +62,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "hermes_comparison_gallery.md",
     REPO_ROOT / "docs" / "dynamics_gallery.md",
     REPO_ROOT / "docs" / "hermes_capability_audit.md",
+    REPO_ROOT / "docs" / "tokamak_tcv_x21_validation_methodology.md",
     REPO_ROOT / "docs" / "fluid_1d_mms_convergence.md",
     REPO_ROOT / "docs" / "open_field_operator_campaign.md",
     REPO_ROOT / "docs" / "hermes_live_rerun_campaign.md",
@@ -70,11 +83,16 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "scaffold_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "selected_field_parity_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-vmec" / "native_selected_field_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "geometry_plotting_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "linear_mode_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "nonlinear_turbulence_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "validation_campaign_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "landreman_paul_qa_import.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_pytree_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_drb_movie_campaign.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "vmec_fieldline_surface_campaign.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "vmec-extender" / "imported_field_demo.py",
     REPO_ROOT / "examples" / "engineering" / "native_3d_runtime_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "native_3d_convergence_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "jax_native_profile_audit_demo.py",
@@ -115,6 +133,9 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_imported_pytree_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_imported_drb_movie_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "essos_vmec_fieldline_surface_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "geometry" / "vmec_extender_import.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "vmec_extender_edge_field_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "vmec_extender_sol_smoke_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_runtime_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "native_3d_convergence_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "jax_native_profile_audit.py",
@@ -236,6 +257,13 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "atomic_rate_throughput_gate_gpu" / "profile_summary.json",
 )
 
+SIMSOPT_STYLE_EXAMPLES = tuple(
+    path for path in PUBLIC_RELEASE_FILES if "examples/geometry-3D/" in path.as_posix()
+) + (
+    REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
+    REPO_ROOT / "examples" / "diverted_tokamak_movie_demo.py",
+)
+
 
 def test_public_release_surface_avoids_local_path_leaks() -> None:
     forbidden = ("/Users/", "local/hermes", "local/jax_drb")
@@ -243,6 +271,29 @@ def test_public_release_surface_avoids_local_path_leaks() -> None:
         text = path.read_text(encoding="utf-8")
         for needle in forbidden:
             assert needle not in text, f"{path} still contains {needle!r}"
+
+
+def test_readthedocs_configuration_points_to_mkdocs_site() -> None:
+    rtd_config = (REPO_ROOT / ".readthedocs.yaml").read_text(encoding="utf-8")
+    mkdocs_config = (REPO_ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    assert "configuration: mkdocs.yml" in rtd_config
+    assert 'python: "3.12"' in rtd_config
+    assert "site_url: https://jax-drb.readthedocs.io/" in mkdocs_config
+    assert "Installation: installation.md" in mkdocs_config
+    assert "Inputs And Outputs: input_output_reference.md" in mkdocs_config
+    assert "Examples And Artifacts: examples.md" in mkdocs_config
+
+
+def test_simsopt_style_examples_have_top_level_parameters() -> None:
+    forbidden_patterns = (
+        re.compile(r"\bimport argparse\b"),
+        re.compile(r"\bdef main\("),
+        re.compile(r"if __name__ == [\"']__main__[\"']"),
+    )
+    for path in SIMSOPT_STYLE_EXAMPLES:
+        text = path.read_text(encoding="utf-8")
+        for pattern in forbidden_patterns:
+            assert pattern.search(text) is None, f"{path} is not a top-level parameter script"
 
 
 def test_public_release_surface_avoids_legacy_branding_in_user_docs() -> None:
