@@ -13,11 +13,15 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "mkdocs.yml",
     REPO_ROOT / "README.md",
     REPO_ROOT / "docs" / "index.md",
+    REPO_ROOT / "docs" / "installation.md",
+    REPO_ROOT / "docs" / "input_output_reference.md",
+    REPO_ROOT / "docs" / "examples.md",
     REPO_ROOT / "docs" / "native_runtime_cli.md",
     REPO_ROOT / "docs" / "restartable_diffusion_tutorial.md",
     REPO_ROOT / "docs" / "validation_gallery.md",
     REPO_ROOT / "docs" / "physics_models.md",
     REPO_ROOT / "docs" / "profiling_runtime.md",
+    REPO_ROOT / "docs" / "autodiff_and_scaling_examples.md",
     REPO_ROOT / "docs" / "research_directions.md",
     REPO_ROOT / "docs" / "runtime_gap_remediation.md",
     REPO_ROOT / "docs" / "tokamak_tcv_x21_scaffold_demo.md",
@@ -58,6 +62,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "hermes_comparison_gallery.md",
     REPO_ROOT / "docs" / "dynamics_gallery.md",
     REPO_ROOT / "docs" / "hermes_capability_audit.md",
+    REPO_ROOT / "docs" / "tokamak_tcv_x21_validation_methodology.md",
     REPO_ROOT / "docs" / "fluid_1d_mms_convergence.md",
     REPO_ROOT / "docs" / "open_field_operator_campaign.md",
     REPO_ROOT / "docs" / "hermes_live_rerun_campaign.md",
@@ -266,6 +271,17 @@ def test_public_release_surface_avoids_local_path_leaks() -> None:
         text = path.read_text(encoding="utf-8")
         for needle in forbidden:
             assert needle not in text, f"{path} still contains {needle!r}"
+
+
+def test_readthedocs_configuration_points_to_mkdocs_site() -> None:
+    rtd_config = (REPO_ROOT / ".readthedocs.yaml").read_text(encoding="utf-8")
+    mkdocs_config = (REPO_ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    assert "configuration: mkdocs.yml" in rtd_config
+    assert 'python: "3.12"' in rtd_config
+    assert "site_url: https://jax-drb.readthedocs.io/" in mkdocs_config
+    assert "Installation: installation.md" in mkdocs_config
+    assert "Inputs And Outputs: input_output_reference.md" in mkdocs_config
+    assert "Examples And Artifacts: examples.md" in mkdocs_config
 
 
 def test_simsopt_style_examples_have_top_level_parameters() -> None:

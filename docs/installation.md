@@ -1,0 +1,61 @@
+# Installation
+
+`jax_drb` is packaged as `jax-drb` on PyPI and can also be installed from a
+local checkout.
+
+## PyPI
+
+```bash
+pip install jax-drb
+```
+
+This installs the runtime dependencies used by the public solver, geometry,
+and plotting paths: `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`,
+`netCDF4`, `rich`, `pillow`, and `tomli` on Python versions that do not provide
+`tomllib`.
+
+## Editable Checkout
+
+```bash
+git clone https://github.com/uwplasma/jax_drb
+cd jax_drb
+pip install -e .
+```
+
+For local documentation builds:
+
+```bash
+pip install -e .[docs]
+python -m mkdocs build --clean
+```
+
+Read the Docs builds the same `mkdocs.yml` configuration through the root
+`.readthedocs.yaml` file. The public site is
+[jax-drb.readthedocs.io](https://jax-drb.readthedocs.io/).
+
+## Verify The Install
+
+Run a small deck:
+
+```bash
+jax_drb examples/inputs/restartable_diffusion.toml
+```
+
+Inspect the same deck without advancing the simulation:
+
+```bash
+jax_drb inspect examples/inputs/restartable_diffusion.toml
+```
+
+Build the lightweight docs locally:
+
+```bash
+python -m mkdocs build --clean --site-dir /tmp/jax_drb_docs
+```
+
+## Optional Reference Campaigns
+
+Some validation campaigns compare against external reference outputs. Those
+workflows use environment variables such as `JAX_DRB_REFERENCE_ROOT` or
+`JAX_DRB_ESSOS_ROOT` and are documented on their campaign pages. They are not
+required for installation or for the basic native examples.
