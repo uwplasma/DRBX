@@ -323,7 +323,7 @@ def _load_or_run_native_payload(
         "time_points": list(result.time_points),
         "component_labels": [request.label for request in result.run_config.components],
     }
-    return {"metadata": metadata, "variables": variables}, f"native_run:{_public_path(resolved_root)}"
+    return {"metadata": metadata, "variables": variables}, "native_run:reference_root"
 
 
 def _load_array_payload(path: Path) -> dict[str, Any]:

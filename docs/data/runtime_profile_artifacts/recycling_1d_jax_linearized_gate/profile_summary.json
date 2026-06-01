@@ -1,15 +1,15 @@
 {
   "backend": "cpu",
   "case": "recycling_1d_jax_linearized_gate",
-  "compilation_cache_dir": "/Users/rogerio/local/jax_drb/tmp/jax_cache/recycling_1d_jax_linearized_gate",
-  "cprofile_binary_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/cprofile_stats.pstats",
-  "cprofile_top_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/cprofile_top.txt",
-  "device_memory_profile_path": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/device_memory_profile.prof",
+  "compilation_cache_dir": "<repo-root>/tmp/jax_cache/recycling_1d_jax_linearized_gate",
+  "cprofile_binary_path": "<repo-root>/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/cprofile_stats.pstats",
+  "cprofile_top_path": "<repo-root>/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/cprofile_top.txt",
+  "device_memory_profile_path": "<repo-root>/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/device_memory_profile.prof",
   "devices": [
     "TFRT_CPU_0"
   ],
   "interpretation": "This gate profiles the first real hydrogen recycling fixed-layout residual that reaches JAX linearization. It proves the BE residual is transformable; it is not yet the full adaptive D/T/He BDF profile.",
-  "jax_trace_dir": "/Users/rogerio/local/jax_drb/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/jax_trace",
+  "jax_trace_dir": "<repo-root>/docs/data/runtime_profile_artifacts/recycling_1d_jax_linearized_gate/jax_trace",
   "profile": {
     "active_size": 350,
     "diagnostics": {
@@ -34,7 +34,7 @@
       "NVd",
       "Pe"
     ],
-    "input_path": "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp",
+    "input_path": "<reference-root>/tests/integrated/1D-recycling/data/BOUT.inp",
     "linear_iterations": 0,
     "linear_solver_backend": "jax_gmres",
     "max_nonlinear_iterations": 1,
@@ -69,5 +69,5 @@
     "sampling_interval_seconds": 0.1,
     "status": "sampled_process_tree_rss"
   },
-  "xla_dump_dir": "/Users/rogerio/local/jax_drb/tmp/xla/recycling_1d_jax_linearized_gate"
+  "xla_dump_dir": "<repo-root>/tmp/xla/recycling_1d_jax_linearized_gate"
 }
