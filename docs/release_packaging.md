@@ -45,6 +45,12 @@ Set `JAX_DRB_ARTIFACT_CACHE=/path/to/cache` to reuse downloaded archives across
 checkouts, or `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that artifacts already
 exist locally.
 
+This artifact path is the supported self-contained user workflow. Users do not
+need to download any external plasma code to run the examples, view or
+regenerate the README/docs movies, or execute the cached validation checks.
+Fresh live-reference reruns are developer-maintenance tasks for refreshing the
+release bundles.
+
 ## Build The Package
 
 Build the source distribution and wheel locally:

@@ -367,6 +367,21 @@ def test_public_release_surface_avoids_legacy_branding_in_user_docs() -> None:
             assert needle not in text, f"{path} still contains {needle!r}"
 
 
+def test_user_examples_are_self_contained_by_default() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    examples_doc = (REPO_ROOT / "docs" / "examples.md").read_text(encoding="utf-8")
+    diverted_demo = (REPO_ROOT / "examples" / "diverted_tokamak_movie_demo.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Users do not need to install or download any" in readme
+    assert "external plasma code to run the examples and movies" in readme
+    assert "do not require users" in examples_doc
+    assert "to download external plasma codes" in examples_doc
+    assert "from jax_drb.reference.paths import default_reference_root" not in diverted_demo
+    assert "REFERENCE_ROOT: Path | None = None" in diverted_demo
+
+
 def test_committed_demo_run_logs_use_sanitized_paths() -> None:
     for path in PUBLIC_RUN_LOGS:
         payload = json.loads(path.read_text(encoding="utf-8"))

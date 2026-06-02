@@ -21,6 +21,12 @@ to `uwplasma/jax_drb`. The fetch script restores PNG/GIF/NPZ docs media under
 `python scripts/fetch_example_artifacts.py --skip-baselines` when you only need
 the README/docs movies and figures.
 
+After this step, the user-facing examples and movies are self-contained: they
+use JAXDRB source code plus release-backed arrays/media and do not require users
+to download external plasma codes. Live reference-code reruns remain available
+as developer validation campaigns, but they are not part of the normal examples
+workflow.
+
 | Example | What it teaches |
 | --- | --- |
 | [`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml) | Small native TOML deck with restartable output. |
@@ -100,7 +106,7 @@ regenerate publication-grade validation packages:
 | --- | --- |
 | MMS and open-field operators | [Fluid 1D MMS](fluid_1d_mms_convergence.md), [Open-Field Operator Campaign](open_field_operator_campaign.md) |
 | Reactions, collisions, neutrals, target recycling | [Reactions And Collisions](reactions_collisions_campaign.md), [Collision Closure](collision_closure_campaign.md), [Neutral Parallel Diffusion](neutral_parallel_diffusion_campaign.md), [Target Recycling](target_recycling_campaign.md) |
-| Reference comparison | [Hermes Live Rerun Campaign](hermes_live_rerun_campaign.md), [Hermes Comparison Gallery](hermes_comparison_gallery.md) |
+| Reference comparison | [Hermes Comparison Gallery](hermes_comparison_gallery.md), with live reruns reserved for developer validation. |
 | Performance | [Local CPU Scaling](local_cpu_scaling_campaign.md), [Native 3D Runtime](native_3d_runtime_campaign.md), [JAX Native Profile Audit](jax_native_profile_audit.md) |
 | Control and detachment | [Controller Feedback](controller_feedback_campaign.md), [Temperature Feedback](temperature_feedback_campaign.md), [Detachment Controller](detachment_controller_campaign.md) |
 
