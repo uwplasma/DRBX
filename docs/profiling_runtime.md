@@ -296,10 +296,14 @@ persistent compilation cache, optional JAX traces, device-memory profiles, and
 pmap parity metadata where applicable:
 
 ```bash
+REFERENCE_ROOT=/path/to/reference/root
+test -f "$REFERENCE_ROOT/tests/integrated/1D-recycling-dthe/data/BOUT.inp"
+
 JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
 PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
   --campaign all-gpu \
-  --reference-root /path/to/reference/root
+  --reference-root "$REFERENCE_ROOT" \
+  --timeout-seconds 7200
 ```
 
 The `gpu-dthe-jax-linearized-gate` command is a large fixed-layout residual
@@ -307,6 +311,30 @@ trace/memory run. The `gpu-dthe-batched-jvp-gate` command is the multi-device
 batched residual/JVP throughput run. Neither command promotes the full
 output-window BDF solve as GPU-accelerated; they are evidence-gathering gates
 for the residual and derivative kernels that must become production-safe first.
+The wrapper intentionally rejects reference roots that do not contain
+`tests/integrated/1D-recycling-dthe/data/BOUT.inp`; that failure means the
+reference prerequisite is missing, not that the GPU gate has failed.
+
+If a self-hosted machine has only a staged D/T/He `BOUT.inp` outside that
+reference-root layout, use the direct profiler until a full reference root is
+installed. This is the safest reduced multi-GPU readiness command:
+
+```bash
+INPUT_PATH=/path/to/1D-recycling-dthe/data/BOUT.inp
+
+JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
+PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
+  --input-path "$INPUT_PATH" \
+  --case dthe \
+  --override mesh:ny=100 \
+  --batch-sizes 2,4,8,16 \
+  --timed-runs 3 \
+  --skip-objective-grad-check \
+  --jax-trace \
+  --device-memory-profile \
+  --compilation-cache-dir tmp/jax_cache/recycling_dthe_batched_jvp_gate_gpu_readiness \
+  --output-dir tmp/profiles/recycling_dthe_batched_jvp_gate_gpu_readiness
+```
 
 The current GPU speedup evidence instead comes from the source-term throughput
 gate:
@@ -328,10 +356,12 @@ recycling output-window GPU speedup is still blocked by host/SciPy residual
 structure.
 
 The source-throughput profiler also has an opt-in `--enable-pmap` flag. It is
-not enabled in the committed office-GPU artifact because the currently exposed
-second GPU on that machine fails a basic `pmap` parity check in this
-environment. Multi-device source speedup should therefore not be claimed until
-the device-level parity gate passes.
+not enabled in the committed office-GPU artifact, so that artifact remains a
+single-device GPU result. A 2026-06-02 self-hosted smoke check did pass a basic
+two-device `pmap` operation, but no real source-kernel or recycling-kernel
+multi-device artifact has been regenerated. Multi-device source speedup should
+therefore not be claimed until the device-level real-kernel parity gate passes
+and the matching summary is committed.
 
 ## Basic Usage
 
@@ -420,17 +450,12 @@ The supporting JAX references are:
 
 ## GPU Workflow On Self-Hosted Machines
 
-The currently reachable `office` machine has:
+The self-hosted GPU readiness audit on 2026-06-02 found that the reachable
+`office` machine exposes:
 
 - two `NVIDIA RTX A4000` GPUs
-- a clean repo-local `jax_drb` environment with
-  `jax[cuda12]==0.6.2`
-- CUDA-visible JAX devices in that repo-local environment
-
-The remote environment is now operational rather than speculative:
-
-- `jax.devices()` reports `CudaDevice(id=0)` and `CudaDevice(id=1)`
-- `jax.default_backend()` reports `gpu`
+- no valid wrapper reference root at
+  `tests/integrated/1D-recycling-dthe/data/BOUT.inp`
 
 Do not cite `docs/data/jax_native_profile_audit_artifacts/data/jax_native_profile_audit.json`
 as GPU-backed until that artifact is regenerated on a CUDA-visible backend.
@@ -438,6 +463,20 @@ The committed native-profile audit currently records the `cpu` backend and one
 `TFRT_CPU_0` device. GPU-backed release evidence is limited to the committed
 profile summaries listed above, especially the fixed-layout D/T/He gate
 summaries and the dense atomic-rate throughput gate.
+
+Before running the wrapper on `office` or any other self-hosted GPU node, prove
+both prerequisites in the same shell:
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
+REFERENCE_ROOT=/path/to/reference/root
+test -f "$REFERENCE_ROOT/tests/integrated/1D-recycling-dthe/data/BOUT.inp"
+PYTHONPATH=src python - <<'PY'
+import jax
+print(jax.default_backend())
+print(jax.devices())
+PY
+```
 
 That is the correct runtime split for the current codebase:
 

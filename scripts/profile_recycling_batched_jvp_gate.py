@@ -8,6 +8,12 @@ from pathlib import Path
 import shutil
 
 
+REFERENCE_INPUT_RELATIVE_PATHS = {
+    "hydrogen": Path("tests") / "integrated" / "1D-recycling" / "data" / "BOUT.inp",
+    "dthe": Path("tests") / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp",
+}
+
+
 def _sanitize_public_path(path: str | Path | None) -> str | None:
     if path is None:
         return None
@@ -34,14 +40,33 @@ def _resolve_reference_root(args: argparse.Namespace) -> Path | None:
     return None if not value else Path(value).expanduser().resolve()
 
 
+def _reference_input_relative_path(case: str) -> Path:
+    return REFERENCE_INPUT_RELATIVE_PATHS[case]
+
+
 def _resolve_input(args: argparse.Namespace) -> Path:
     if args.input_path is not None:
-        return args.input_path.expanduser().resolve()
+        input_path = args.input_path.expanduser().resolve()
+        if not input_path.is_file():
+            raise SystemExit(f"--input-path {input_path} does not exist or is not a file.")
+        return input_path
     root = _resolve_reference_root(args)
     if root is None:
-        raise SystemExit("--reference-root, --input-path, or JAX_DRB_REFERENCE_ROOT is required.")
-    case_dir = "1D-recycling-dthe" if args.case == "dthe" else "1D-recycling"
-    return (root / "tests" / "integrated" / case_dir / "data" / "BOUT.inp").resolve()
+        relative_path = _reference_input_relative_path(args.case)
+        raise SystemExit(
+            "--reference-root, --input-path, or JAX_DRB_REFERENCE_ROOT is required. "
+            f"Expected reference-root input: {relative_path.as_posix()}. "
+            "For nonstandard staged decks, pass --input-path /path/to/BOUT.inp."
+        )
+    relative_path = _reference_input_relative_path(args.case)
+    input_path = (root / relative_path).resolve()
+    if not input_path.is_file():
+        raise SystemExit(
+            f"reference root {root} is missing required input {relative_path.as_posix()}; "
+            "set --reference-root/JAX_DRB_REFERENCE_ROOT to a root containing that file, "
+            "or pass --input-path /path/to/BOUT.inp for nonstandard staged decks."
+        )
+    return input_path
 
 
 def _parse_batch_sizes(value: str) -> tuple[int, ...]:
