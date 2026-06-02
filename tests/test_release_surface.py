@@ -68,6 +68,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "docs" / "hermes_live_rerun_campaign.md",
     REPO_ROOT / "docs" / "neutral_parallel_diffusion_campaign.md",
     REPO_ROOT / "docs" / "neutral_mixed_boundary_campaign.md",
+    REPO_ROOT / "docs" / "neutral_mixed_term_balance_campaign.md",
     REPO_ROOT / "docs" / "collision_closure_campaign.md",
     REPO_ROOT / "docs" / "tokamak_anomalous_diffusion_campaign.md",
     REPO_ROOT / "docs" / "target_recycling_campaign.md",
@@ -104,6 +105,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "hermes_live_rerun_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "neutral_parallel_diffusion_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "neutral_mixed_boundary_campaign_demo.py",
+    REPO_ROOT / "examples" / "engineering" / "neutral_mixed_term_balance_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "collision_closure_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "tokamak_anomalous_diffusion_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "target_recycling_campaign_demo.py",
@@ -148,6 +150,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "src" / "jax_drb" / "validation" / "hermes_live_rerun_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "neutral_parallel_diffusion_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "neutral_mixed_boundary_campaign.py",
+    REPO_ROOT / "src" / "jax_drb" / "validation" / "neutral_mixed_term_balance_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "collision_closure_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_anomalous_diffusion_campaign.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "target_recycling_campaign.py",
@@ -241,6 +244,12 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "hermes_live_rerun_campaign_artifacts" / "data" / "hermes_live_rerun_campaign.json",
     REPO_ROOT / "docs" / "data" / "neutral_parallel_diffusion_campaign_artifacts" / "data" / "neutral_parallel_diffusion_campaign.json",
     REPO_ROOT / "docs" / "data" / "neutral_mixed_boundary_campaign_artifacts" / "data" / "neutral_mixed_boundary_campaign.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "neutral_mixed_term_balance_campaign_artifacts"
+    / "data"
+    / "neutral_mixed_term_balance_campaign.json",
     REPO_ROOT / "docs" / "data" / "collision_closure_campaign_artifacts" / "data" / "collision_closure_campaign.json",
     REPO_ROOT / "docs" / "data" / "tokamak_anomalous_diffusion_campaign_artifacts" / "data" / "tokamak_anomalous_diffusion_campaign.json",
     REPO_ROOT / "docs" / "data" / "target_recycling_campaign_artifacts" / "data" / "target_recycling_campaign.json",

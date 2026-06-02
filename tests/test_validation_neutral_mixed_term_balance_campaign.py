@@ -84,6 +84,15 @@ def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_pa
     assert set(field_register["fields"]) == {"Nh", "Ph", "NVh"}
     assert field_register["fields"]["Nh"]["target_adjacent_max_abs"] >= 0.0
     assert len(field_register["fields"]["Ph"]["lineout"]) == len(report["active_y_indices"])
+    state_driver_register = report["state_driver_register"]
+    assert set(state_driver_register["state_rate_errors"]) == {"Nh", "Ph", "NVh"}
+    assert state_driver_register["ranked_state_rate_errors"][0]["field"] in {"Nh", "Ph", "NVh"}
+    assert "pressure_to_pressure_gradient" in state_driver_register["momentum_driver_deltas"]
+    assert "momentum_to_parallel_viscosity" in state_driver_register["momentum_driver_deltas"]
+    pressure_driver = state_driver_register["momentum_driver_deltas"]["pressure_to_pressure_gradient"]
+    assert pressure_driver["field"] == "Ph"
+    assert pressure_driver["term"] == "pressure_gradient"
+    assert len(pressure_driver["term_delta_lineout"]) == len(report["active_y_indices"])
 
 
 def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_path: Path) -> None:
@@ -115,6 +124,9 @@ def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_p
         assert "final_field_error_Nh_lineout" in arrays
         assert "final_field_error_Ph_lineout" in arrays
         assert "final_field_error_NVh_lineout" in arrays
+        assert "state_rate_error_Nh_lineout" in arrays
+        assert "state_driver_pressure_to_pressure_gradient_term_delta_lineout" in arrays
+        assert "state_driver_momentum_to_parallel_viscosity_term_delta_lineout" in arrays
 
 
 def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(tmp_path: Path) -> None:

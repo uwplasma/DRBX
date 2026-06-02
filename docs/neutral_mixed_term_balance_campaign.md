@@ -48,6 +48,17 @@ after active-domain scaling, `SNVh_pressure_gradient`,
 matched JAXDRB reconstructions with max absolute differences of about
 `1.3e-11`, `1.2e-11`, and machine precision, respectively.
 
+The JSON report also carries `state_driver_register`, which turns that
+interpretation into a regression target. Dividing the final-state differences
+by the one-step interval ranks the target-adjacent state-rate errors as `Nh`
+(`5.11e-4`), then `Ph` (`4.53e-5`), then `NVh` (`2.90e-5`). The induced
+momentum-driver deltas are led by `Ph -> pressure_gradient` (`6.60e-4`) and
+`NVh -> parallel_viscosity` (`6.42e-4`), with target-to-interior ratios of
+about `3.22` and `4.65`. The next implementation target is therefore the
+target-adjacent state history and boundary reconstruction that feeds those
+closed operators, not a replacement of the pressure-gradient or viscosity
+formula.
+
 The campaign can now also ingest a one-step Hermès diagnostic NetCDF generated
 with `output_ddt = true` and `diagnose = true` under the `neutral_mixed`
 component. The committed JSON/NPZ bundle includes the direct Hermès diagnostic

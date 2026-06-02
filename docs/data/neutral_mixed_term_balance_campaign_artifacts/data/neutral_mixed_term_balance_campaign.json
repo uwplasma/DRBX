@@ -524,7 +524,7 @@
       "mfh_adv_perp_ylow"
     ]
   },
-  "input_path": "<repo-root>/tmp/neutral_mixed_hermes_diagnostics/data/BOUT.inp",
+  "input_path": "<reference-root>/tests/integrated/neutral_mixed/data/BOUT.inp",
   "interpretation": {
     "balance_form": "backward_euler_rate_residual = (NVh_final - NVh_initial) / dt - native_rhs_terms(NVh_final)",
     "diagnostic_role": "The Herm\u00e8s final state is inserted into the native neutral momentum operator. A nonzero residual localizes the one-step mismatch to the terms that cannot balance the Herm\u00e8s update under the current native closure and boundary rules.",
@@ -1071,6 +1071,314 @@
     }
   },
   "reference_code": "hermes-3",
+  "state_driver_register": {
+    "interpretation": "This register links final-state Nh, Ph, and NVh drift to the named NVh driver-term deltas. Large pressure-gradient or viscosity deltas with machine-precision direct source closure indicate a boundary/history state mismatch feeding an otherwise closed operator.",
+    "momentum_driver_deltas": {
+      "density_to_parallel_inertia": {
+        "field": "Nh",
+        "interior_max_abs": 3.657539561138632e-05,
+        "interior_rms": 2.1314367470217917e-05,
+        "max_abs": 7.050867091295973e-05,
+        "rms": 4.066145003084592e-05,
+        "state_delta_lineout": [
+          -0.008481902453478352,
+          0.003481626148019057,
+          0.005590239648099904,
+          0.0030017581704544494,
+          0.0014609645108581981,
+          0.001460949873327122,
+          0.0030017603753532685,
+          0.00559023988378704,
+          0.0034816254378113864,
+          -0.008481904165759002
+        ],
+        "target_adjacent_max_abs": 7.050867091295973e-05,
+        "target_adjacent_rms": 5.8753131027582045e-05,
+        "target_state_term_correlation": -5.581852173627776e-08,
+        "target_term_per_state_max_abs": 0.006901154922976655,
+        "target_term_to_interior_term_max_abs_ratio": 1.9277623586663164,
+        "term": "parallel_inertia",
+        "term_delta_lineout": [
+          -5.230617854417647e-05,
+          7.050865607644691e-05,
+          1.2191661787649196e-05,
+          -3.657539561138632e-05,
+          3.4092327055340457e-06,
+          -3.4092251250967946e-06,
+          3.657539076430368e-05,
+          -1.2191665073945995e-05,
+          -7.05086595210092e-05,
+          5.2306182541681e-05
+        ]
+      },
+      "momentum_to_parallel_viscosity": {
+        "field": "NVh",
+        "interior_max_abs": 0.00013788775582990187,
+        "interior_rms": 7.632204251072962e-05,
+        "max_abs": 0.0006416065718869734,
+        "rms": 0.00039286992444864487,
+        "state_delta_lineout": [
+          -0.00027214642739251365,
+          -0.0005807994860577181,
+          -0.00033663160447044375,
+          -0.000111108322612157,
+          -2.7775468036512715e-05,
+          2.7775431793295737e-05,
+          0.00011110834341435615,
+          0.00033663166742304196,
+          0.0005807995859449886,
+          0.0002721465043868395
+        ],
+        "target_adjacent_max_abs": 0.0006416065718869734,
+        "target_adjacent_rms": 0.0006141085918477248,
+        "target_state_term_correlation": -0.9438810208119212,
+        "target_term_per_state_max_abs": 1.104695298367076,
+        "target_term_to_interior_term_max_abs_ratio": 4.653107652853951,
+        "term": "parallel_viscosity",
+        "term_delta_lineout": [
+          0.0006250690482988929,
+          0.000641606318748838,
+          7.5029595879650204e-06,
+          -0.00013788605425266273,
+          -6.632927736953094e-05,
+          6.632821869911832e-05,
+          0.00013788775582990187,
+          -7.503470027503097e-06,
+          -0.0006416064318897721,
+          -0.0006250690676252472
+        ]
+      },
+      "momentum_to_perpendicular_viscosity": {
+        "field": "NVh",
+        "interior_max_abs": 1.9814242445565503e-05,
+        "interior_rms": 8.005413369835964e-06,
+        "max_abs": 1.9814242445565503e-05,
+        "rms": 6.637897441973638e-06,
+        "state_delta_lineout": [
+          -0.00027214642739251365,
+          -0.0005807994860577181,
+          -0.00033663160447044375,
+          -0.000111108322612157,
+          -2.7775468036512715e-05,
+          2.7775431793295737e-05,
+          0.00011110834341435615,
+          0.00033663166742304196,
+          0.0005807995859449886,
+          0.0002721465043868395
+        ],
+        "target_adjacent_max_abs": 9.402590599803523e-06,
+        "target_adjacent_rms": 3.7448953646901536e-06,
+        "target_state_term_correlation": -0.008161315697751819,
+        "target_term_per_state_max_abs": 0.016189044943110728,
+        "target_term_to_interior_term_max_abs_ratio": 0.4745369713545549,
+        "term": "perpendicular_viscosity",
+        "term_delta_lineout": [
+          9.402590599803523e-06,
+          6.945888737979168e-06,
+          -1.2576758301423056e-05,
+          -1.9814242445565503e-05,
+          -1.0272612212409366e-05,
+          1.0273067068733743e-05,
+          1.9814036543243173e-05,
+          1.2576738456919548e-05,
+          -6.945905031716157e-06,
+          -9.402579527651348e-06
+        ]
+      },
+      "pressure_to_pressure_gradient": {
+        "field": "Ph",
+        "interior_max_abs": 0.00020474416773241994,
+        "interior_rms": 0.00010707697761776054,
+        "max_abs": 0.0006596784378774007,
+        "rms": 0.0003829109292254039,
+        "state_delta_lineout": [
+          -0.0008030718328929931,
+          0.0002890994576176531,
+          0.0004882025328863393,
+          0.00023562459895162813,
+          8.743787952360249e-05,
+          8.74327521718371e-05,
+          0.0002356254500572863,
+          0.0004882024921827738,
+          0.0002890993837799394,
+          -0.0008030720132122526
+        ],
+        "target_adjacent_max_abs": 0.0006596784378774007,
+        "target_adjacent_rms": 0.0005910615286051225,
+        "target_state_term_correlation": -9.007220586299018e-08,
+        "target_term_per_state_max_abs": 0.7283818569774109,
+        "target_term_to_interior_term_max_abs_ratio": 3.221964489555249,
+        "term": "pressure_gradient",
+        "term_delta_lineout": [
+          -0.0005579617822385836,
+          -0.0006596783423526641,
+          2.7318908403370888e-05,
+          0.00020474019248752735,
+          7.57073434001544e-05,
+          -7.57051587777239e-05,
+          -0.00020474279112321745,
+          -2.7318435873963792e-05,
+          0.0006596784136786752,
+          0.0005579618366372238
+        ]
+      }
+    },
+    "ranked_momentum_driver_deltas": [
+      {
+        "driver": "pressure_to_pressure_gradient",
+        "field": "Ph",
+        "interior_max_abs": 0.00020474416773241994,
+        "interior_rms": 0.00010707697761776054,
+        "max_abs": 0.0006596784378774007,
+        "rms": 0.0003829109292254039,
+        "target_adjacent_max_abs": 0.0006596784378774007,
+        "target_adjacent_rms": 0.0005910615286051225,
+        "target_state_term_correlation": -9.007220586299018e-08,
+        "target_term_per_state_max_abs": 0.7283818569774109,
+        "target_term_to_interior_term_max_abs_ratio": 3.221964489555249,
+        "term": "pressure_gradient"
+      },
+      {
+        "driver": "momentum_to_parallel_viscosity",
+        "field": "NVh",
+        "interior_max_abs": 0.00013788775582990187,
+        "interior_rms": 7.632204251072962e-05,
+        "max_abs": 0.0006416065718869734,
+        "rms": 0.00039286992444864487,
+        "target_adjacent_max_abs": 0.0006416065718869734,
+        "target_adjacent_rms": 0.0006141085918477248,
+        "target_state_term_correlation": -0.9438810208119212,
+        "target_term_per_state_max_abs": 1.104695298367076,
+        "target_term_to_interior_term_max_abs_ratio": 4.653107652853951,
+        "term": "parallel_viscosity"
+      },
+      {
+        "driver": "density_to_parallel_inertia",
+        "field": "Nh",
+        "interior_max_abs": 3.657539561138632e-05,
+        "interior_rms": 2.1314367470217917e-05,
+        "max_abs": 7.050867091295973e-05,
+        "rms": 4.066145003084592e-05,
+        "target_adjacent_max_abs": 7.050867091295973e-05,
+        "target_adjacent_rms": 5.8753131027582045e-05,
+        "target_state_term_correlation": -5.581852173627776e-08,
+        "target_term_per_state_max_abs": 0.006901154922976655,
+        "target_term_to_interior_term_max_abs_ratio": 1.9277623586663164,
+        "term": "parallel_inertia"
+      },
+      {
+        "driver": "momentum_to_perpendicular_viscosity",
+        "field": "NVh",
+        "interior_max_abs": 1.9814242445565503e-05,
+        "interior_rms": 8.005413369835964e-06,
+        "max_abs": 1.9814242445565503e-05,
+        "rms": 6.637897441973638e-06,
+        "target_adjacent_max_abs": 9.402590599803523e-06,
+        "target_adjacent_rms": 3.7448953646901536e-06,
+        "target_state_term_correlation": -0.008161315697751819,
+        "target_term_per_state_max_abs": 0.016189044943110728,
+        "target_term_to_interior_term_max_abs_ratio": 0.4745369713545549,
+        "term": "perpendicular_viscosity"
+      }
+    ],
+    "ranked_state_rate_errors": [
+      {
+        "field": "Nh",
+        "interior_max_abs": 0.0002795120069065793,
+        "interior_rms": 0.00014250173203450561,
+        "max_abs": 0.0005108468922948584,
+        "rms": 0.00024221959199549915,
+        "target_adjacent_max_abs": 0.0005108468922948584,
+        "target_adjacent_rms": 0.0003409042554983937
+      },
+      {
+        "field": "Ph",
+        "interior_max_abs": 2.4410126644316966e-05,
+        "interior_rms": 1.2828726022534367e-05,
+        "max_abs": 4.528383234412847e-05,
+        "rms": 2.2031266638773845e-05,
+        "target_adjacent_max_abs": 4.528383234412847e-05,
+        "target_adjacent_rms": 3.108982883886622e-05
+      },
+      {
+        "field": "NVh",
+        "interior_max_abs": 1.786989295971186e-05,
+        "interior_rms": 1.0687686571729571e-05,
+        "max_abs": 2.903997929724943e-05,
+        "rms": 1.6349270195497014e-05,
+        "target_adjacent_max_abs": 2.903997929724943e-05,
+        "target_adjacent_rms": 2.2291402455433905e-05
+      }
+    ],
+    "state_rate_errors": {
+      "NVh": {
+        "interior_max_abs": 1.786989295971186e-05,
+        "interior_rms": 1.0687686571729571e-05,
+        "lineout": [
+          -1.3607321369625683e-05,
+          -2.9039974302885902e-05,
+          -1.6831580223522188e-05,
+          -5.5554161306078495e-06,
+          -1.3887734018256357e-06,
+          1.388771589664787e-06,
+          5.5554171707178075e-06,
+          1.6831583371152097e-05,
+          2.903997929724943e-05,
+          1.3607325219341975e-05
+        ],
+        "max_abs": 2.903997929724943e-05,
+        "rms": 1.6349270195497014e-05,
+        "target_adjacent_max_abs": 2.903997929724943e-05,
+        "target_adjacent_rms": 2.2291402455433905e-05
+      },
+      "Nh": {
+        "interior_max_abs": 0.0002795120069065793,
+        "interior_rms": 0.00014250173203450561,
+        "lineout": [
+          -0.00042409512267391756,
+          0.00017408130740095284,
+          0.0002795119824049952,
+          0.00015008790852272247,
+          7.30482255429099e-05,
+          7.30474936663561e-05,
+          0.0001500880187676634,
+          0.000279511994189352,
+          0.00017408127189056933,
+          -0.00042409520828795013
+        ],
+        "max_abs": 0.0005108468922948584,
+        "rms": 0.00024221959199549915,
+        "target_adjacent_max_abs": 0.0005108468922948584,
+        "target_adjacent_rms": 0.0003409042554983937
+      },
+      "Ph": {
+        "interior_max_abs": 2.4410126644316966e-05,
+        "interior_rms": 1.2828726022534367e-05,
+        "lineout": [
+          -4.0153591644649654e-05,
+          1.4454972880882655e-05,
+          2.4410126644316966e-05,
+          1.1781229947581407e-05,
+          4.371893976180125e-06,
+          4.371637608591855e-06,
+          1.1781272502864315e-05,
+          2.441012460913869e-05,
+          1.4454969188996969e-05,
+          -4.015360066061263e-05
+        ],
+        "max_abs": 4.528383234412847e-05,
+        "rms": 2.2031266638773845e-05,
+        "target_adjacent_max_abs": 4.528383234412847e-05,
+        "target_adjacent_rms": 3.108982883886622e-05
+      }
+    },
+    "target_y_indices": [
+      2,
+      3,
+      10,
+      11
+    ]
+  },
   "term_delta": {
     "lineouts": {
       "parallel_inertia": [

@@ -236,6 +236,18 @@ def build_neutral_mixed_term_balance_campaign_report(
             line_x=line_x,
             line_z=line_z,
         ),
+        "state_driver_register": _state_driver_register(
+            native_final,
+            reference_final,
+            native_balance,
+            reference_balance,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+            timestep=timestep,
+        ),
         "native_balance": _balance_payload(
             native_balance,
             active_x=active_x,
@@ -794,6 +806,129 @@ def _final_field_error_register(
     }
 
 
+def _state_driver_register(
+    native_final: NeutralMixedState,
+    reference_final: NeutralMixedState,
+    native_balance: dict[str, np.ndarray],
+    reference_balance: dict[str, np.ndarray],
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+    timestep: float,
+) -> dict[str, object]:
+    target_offsets = _target_offsets(active_y, target_y_indices)
+    active_y_indices = np.arange(active_y.start, active_y.stop, dtype=np.int32)
+    interior_offsets = np.asarray(
+        [index for index in range(active_y_indices.size) if index not in set(int(value) for value in target_offsets)],
+        dtype=np.int32,
+    )
+    state_fields = {
+        "Nh": (native_final.density, reference_final.density),
+        "Ph": (native_final.pressure, reference_final.pressure),
+        "NVh": (native_final.momentum, reference_final.momentum),
+    }
+    state_rate_errors: dict[str, object] = {}
+    ranked_state_rates: list[dict[str, object]] = []
+    for name, (native_value, reference_value) in state_fields.items():
+        delta_rate = (np.asarray(native_value, dtype=np.float64) - np.asarray(reference_value, dtype=np.float64)) / float(timestep)
+        active = delta_rate[active_x, active_y, :]
+        target = active[:, target_offsets, :] if target_offsets.size else active
+        interior = active[:, interior_offsets, :] if interior_offsets.size else np.asarray([], dtype=np.float64)
+        metrics = _array_metrics(active)
+        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
+        metrics["interior_max_abs"] = float(np.max(np.abs(interior))) if interior.size else 0.0
+        metrics["interior_rms"] = _rms(interior) if interior.size else 0.0
+        state_rate_errors[name] = {
+            **metrics,
+            "lineout": delta_rate[line_x, active_y, line_z].tolist(),
+        }
+        ranked_state_rates.append({"field": name, **metrics})
+
+    driver_pairs = (
+        ("Nh", "parallel_inertia", "density_to_parallel_inertia"),
+        ("Ph", "pressure_gradient", "pressure_to_pressure_gradient"),
+        ("NVh", "parallel_viscosity", "momentum_to_parallel_viscosity"),
+        ("NVh", "perpendicular_viscosity", "momentum_to_perpendicular_viscosity"),
+    )
+    driver_metrics: dict[str, object] = {}
+    ranked_drivers: list[dict[str, object]] = []
+    for field_name, term_name, label in driver_pairs:
+        if term_name not in native_balance or term_name not in reference_balance:
+            continue
+        native_field, reference_field = state_fields[field_name]
+        state_delta = np.asarray(native_field, dtype=np.float64) - np.asarray(reference_field, dtype=np.float64)
+        term_delta = np.asarray(native_balance[term_name], dtype=np.float64) - np.asarray(reference_balance[term_name], dtype=np.float64)
+        active_state = state_delta[active_x, active_y, :]
+        active_term = term_delta[active_x, active_y, :]
+        target_state = active_state[:, target_offsets, :] if target_offsets.size else active_state
+        target_term = active_term[:, target_offsets, :] if target_offsets.size else active_term
+        interior_term = active_term[:, interior_offsets, :] if interior_offsets.size else np.asarray([], dtype=np.float64)
+        target_state_flat = target_state.ravel()
+        target_term_flat = target_term.ravel()
+        term_metrics = _array_metrics(active_term)
+        term_metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target_term))) if target_term.size else 0.0
+        term_metrics["target_adjacent_rms"] = _rms(target_term) if target_term.size else 0.0
+        term_metrics["interior_max_abs"] = float(np.max(np.abs(interior_term))) if interior_term.size else 0.0
+        term_metrics["interior_rms"] = _rms(interior_term) if interior_term.size else 0.0
+        term_metrics["target_term_to_interior_term_max_abs_ratio"] = (
+            term_metrics["target_adjacent_max_abs"] / max(term_metrics["interior_max_abs"], 1.0e-30)
+            if interior_term.size
+            else None
+        )
+        term_metrics["target_term_per_state_max_abs"] = (
+            term_metrics["target_adjacent_max_abs"] / max(float(np.max(np.abs(target_state))), 1.0e-30)
+            if target_state.size
+            else None
+        )
+        term_metrics["target_state_term_correlation"] = _signed_correlation(target_state_flat, target_term_flat)
+        driver_metrics[label] = {
+            "field": field_name,
+            "term": term_name,
+            **term_metrics,
+            "state_delta_lineout": state_delta[line_x, active_y, line_z].tolist(),
+            "term_delta_lineout": term_delta[line_x, active_y, line_z].tolist(),
+        }
+        ranked_drivers.append({"driver": label, "field": field_name, "term": term_name, **term_metrics})
+
+    return {
+        "state_rate_errors": state_rate_errors,
+        "ranked_state_rate_errors": sorted(
+            ranked_state_rates,
+            key=lambda item: float(item["target_adjacent_max_abs"]),
+            reverse=True,
+        ),
+        "momentum_driver_deltas": driver_metrics,
+        "ranked_momentum_driver_deltas": sorted(
+            ranked_drivers,
+            key=lambda item: float(item["target_adjacent_max_abs"]),
+            reverse=True,
+        ),
+        "target_y_indices": [int(value) for value in active_y_indices[target_offsets]],
+        "interpretation": (
+            "This register links final-state Nh, Ph, and NVh drift to the named NVh driver-term deltas. "
+            "Large pressure-gradient or viscosity deltas with machine-precision direct source closure "
+            "indicate a boundary/history state mismatch feeding an otherwise closed operator."
+        ),
+    }
+
+
+def _signed_correlation(left: np.ndarray, right: np.ndarray) -> float | None:
+    left_array = np.asarray(left, dtype=np.float64).ravel()
+    right_array = np.asarray(right, dtype=np.float64).ravel()
+    if left_array.size == 0 or right_array.size == 0:
+        return None
+    left_centered = left_array - float(np.mean(left_array))
+    right_centered = right_array - float(np.mean(right_array))
+    denominator = float(np.linalg.norm(left_centered) * np.linalg.norm(right_centered))
+    if denominator <= 0.0:
+        return None
+    return float(np.dot(left_centered, right_centered) / denominator)
+
+
 def _dominant_residual_cells(
     balance: dict[str, np.ndarray],
     *,
@@ -841,6 +976,28 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
             for field_name, payload in fields.items():
                 if isinstance(payload, dict) and "lineout" in payload:
                     arrays[f"final_field_error_{field_name}_lineout"] = np.asarray(payload["lineout"], dtype=np.float64)
+    state_driver_register = report.get("state_driver_register")
+    if isinstance(state_driver_register, dict):
+        state_rates = state_driver_register.get("state_rate_errors", {})
+        if isinstance(state_rates, dict):
+            for field_name, payload in state_rates.items():
+                if isinstance(payload, dict) and "lineout" in payload:
+                    arrays[f"state_rate_error_{field_name}_lineout"] = np.asarray(payload["lineout"], dtype=np.float64)
+        driver_deltas = state_driver_register.get("momentum_driver_deltas", {})
+        if isinstance(driver_deltas, dict):
+            for driver_name, payload in driver_deltas.items():
+                if not isinstance(payload, dict):
+                    continue
+                if "state_delta_lineout" in payload:
+                    arrays[f"state_driver_{driver_name}_state_delta_lineout"] = np.asarray(
+                        payload["state_delta_lineout"],
+                        dtype=np.float64,
+                    )
+                if "term_delta_lineout" in payload:
+                    arrays[f"state_driver_{driver_name}_term_delta_lineout"] = np.asarray(
+                        payload["term_delta_lineout"],
+                        dtype=np.float64,
+                    )
     for group_name in ("native_balance", "reference_balance"):
         for term_name, lineout in report[group_name]["lineouts"].items():
             arrays[f"{group_name}_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
