@@ -59,7 +59,8 @@ run the file, inspect the output directory.
 | --- | --- |
 | [`geometry_plotting_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py) | Non-axisymmetric geometry, metric, connection-length, and curvature-map figure. |
 | [`linear_mode_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/linear_mode_demo.py) | Linear FCI mode history plus diagnostics and snapshots. |
-| [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py) | Compact nonlinear reduced SOL history, diagnostics, snapshots, and 3D poster. |
+| [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py) | Compact nonlinear reduced SOL history, diagnostics, snapshots, 3D poster, and GIF movie. |
+| [`turbulent_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py) | Radial fluctuation, RMS, transport-proxy, connection-length, and energy-trace analysis from the nonlinear SOL history. |
 | [`validation_campaign_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/validation_campaign_demo.py) | Full promoted synthetic stellarator FCI validation bundle. |
 
 Representative output:
@@ -88,6 +89,7 @@ Representative output:
 | Example | What it teaches |
 | --- | --- |
 | [`examples/diverted_tokamak_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_movie_demo.py) | Full-domain diverted tokamak movie from benchmark output. |
+| [`examples/diverted_tokamak_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/diverted_tokamak_profile_analysis_demo.py) | Radial profiles, target lineouts, time traces, and final diverted-domain field analysis from release-backed arrays. |
 | [`examples/tokamak-3D/tcv-x21/scaffold_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/scaffold_demo.py) | TCV-X21 scaffold package. |
 | [`examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/selected_field_parity_demo.py) | Compact selected-field parity package. |
 | [`examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/tokamak-3D/tcv-x21/toroidal_movie_demo.py) | Toroidal 3D movie from scaffold arrays. |

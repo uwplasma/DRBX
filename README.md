@@ -267,8 +267,10 @@ closely reproduced from:
 - [examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py](examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py)
 - [examples/geometry-3D/stellarator-fci/linear_mode_demo.py](examples/geometry-3D/stellarator-fci/linear_mode_demo.py)
 - [examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py](examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py)
+- [examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py](examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py)
 - [examples/geometry-3D/stellarator-fci/validation_campaign_demo.py](examples/geometry-3D/stellarator-fci/validation_campaign_demo.py)
 - [examples/diverted_tokamak_movie_demo.py](examples/diverted_tokamak_movie_demo.py)
+- [examples/diverted_tokamak_profile_analysis_demo.py](examples/diverted_tokamak_profile_analysis_demo.py)
 - [examples/autodiff_diffusion_uncertainty_demo.py](examples/autodiff_diffusion_uncertainty_demo.py)
 
 Detailed guides:

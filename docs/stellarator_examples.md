@@ -23,12 +23,14 @@ operator, plotting, and artifact APIs used by the regression campaigns.
 | [`geometry_plotting_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py) | Build a deterministic non-axisymmetric geometry, export arrays, and plot surfaces, \(|B|\), connection length, and curvature-weighted FCI displacement. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/stellarator.py), [`build_stellarator_fci_geometry_report`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_fci_geometry_campaign.py), [`save_stellarator_fci_geometry_plot`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_fci_geometry_campaign.py) |
 | [`linear_mode_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/linear_mode_demo.py) | Evolve a single field-aligned mode with linear drive, damping, parallel FCI diffusion, and perpendicular diffusion. | [`laplace_parallel_fci`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`laplace_perp_xz`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/native/fci.py), [`save_stellarator_sol_snapshot_panel`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
 | [`nonlinear_turbulence_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py) | Run the compact nonlinear reduced SOL benchmark and write snapshot, diagnostic, 3D poster, and GIF movie artifacts. | [`simulate_reduced_stellarator_sol_dynamics`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py), [`build_stellarator_sol_showcase_report`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py), [`save_stellarator_sol_3d_movie`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/stellarator_sol_showcase.py) |
+| [`turbulent_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py) | Analyze the nonlinear SOL history with radial fluctuation profiles, RMS intensity, transport-proxy profiles, connection-length weighting, and nonlinear energy traces. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/geometry/stellarator.py), NumPy/Matplotlib postprocessing of the NPZ history written by `nonlinear_turbulence_demo.py` |
 | [`validation_campaign_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/validation_campaign_demo.py) | Regenerate the full promoted stellarator validation package. | Campaign builders in [`jax_drb.validation`](https://github.com/uwplasma/jax_drb/blob/main/src/jax_drb/validation/__init__.py) |
 
 Run an example with:
 
 ```bash
 PYTHONPATH=src python examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py
+PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py
 ```
 
 Every script writes arrays and figures under `docs/data/stellarator_fci_example_artifacts/`.
@@ -173,6 +175,16 @@ broader edge/SOL modeling context in the
 [GBS code paper](https://www.sciencedirect.com/science/article/pii/S0021999116001923),
 [Hermes-3 paper](https://www.sciencedirect.com/science/article/pii/S0010465523003363),
 and [GENE-X edge/SOL paper](https://www.sciencedirect.com/science/article/pii/S0010465521000989).
+
+After the nonlinear script writes the NPZ history, run
+[`turbulent_profile_analysis_demo.py`](https://github.com/uwplasma/jax_drb/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py)
+to create a compact profile-analysis figure. The profile script bins the final
+fluctuation field and time-RMS intensity over normalized radius, computes a
+curvature-weighted radial-flux proxy, compares it with a connection-length
+weighted amplitude, and plots the nonlinear energy trace. These are lightweight
+analysis diagnostics rather than a replacement for the promoted validation
+campaign, but they teach the same profile-and-transport workflow users need
+before moving to larger 3D cases.
 
 ## JAX Execution Model
 
