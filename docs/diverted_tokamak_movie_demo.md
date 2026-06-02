@@ -1,13 +1,16 @@
 # Diverted Tokamak Movie Demo
 
-This demo generates a detailed 2D diverted tokamak GIF with:
+This self-contained demo generates a detailed 2D diverted tokamak GIF with:
 
 - toroidally averaged field fluctuations on the full poloidal mesh
 - LCFS overlay from `psixy = 0`
 - wall and divertor target curves from `tokamak.nc`
 - saved analysis JSON and assembled NPZ payloads for reuse
 
-The current committed artifact is generated from the exact `tokamak_turbulence_short_window` benchmark lane. The figure is therefore benchmark-backed, not a claim that the full-domain diverted tokamak transient is already promoted as a native exact lane.
+The current committed artifact is generated from the exact
+`tokamak_turbulence_short_window` benchmark lane and stored in the private
+release artifact bundle. Normal users do not need an external reference-code
+checkout to run the demo or regenerate the PNG/GIF package.
 
 ## Run It
 
@@ -21,37 +24,26 @@ python scripts/fetch_example_artifacts.py --skip-baselines
 This is enough to inspect the README/docs GIF and the saved
 `diverted_tokamak_turbulence_arrays.npz` payload. With the restored arrays in
 place, `examples/diverted_tokamak_movie_demo.py` regenerates the PNG/GIF package
-without launching a fresh external run. A fresh benchmark rerun requires the
-external reference suite described below.
-
-Fresh benchmark run:
+without launching a fresh external run:
 
 ```bash
-export JAX_DRB_REFERENCE_ROOT=/path/to/hermes-3
-export JAX_DRB_REFERENCE_BINARY=/path/to/hermes-3/build/hermes-3
 PYTHONPATH=src python examples/diverted_tokamak_movie_demo.py
 ```
 
 The example follows the SIMSOPT-style script pattern used by the 3D geometry
 examples: edit the constants near the top of
-`examples/diverted_tokamak_movie_demo.py`, then run the file. Set
-`REFERENCE_ROOT` to a reference-suite checkout, `WORKDIR_IN` to an existing
-work directory with `BOUT.dmp.*.nc` files when you want to reuse a kept run,
-`MESH_PATH` to a specific `tokamak.nc` when the work directory does not contain
-one, `OUTPUT_ROOT` to the artifact directory, and `FIELD_NAME` to the saved
-field to render. The default field is `phi`, which gives the clearest
-diverted-geometry fluctuation movie on the current exact turbulence rung.
-Set `USE_RELEASE_ARRAYS_IF_AVAILABLE = False` when you explicitly want to
-ignore the restored arrays and force a fresh reference-backed run.
+`examples/diverted_tokamak_movie_demo.py`, then run the file. For the
+self-contained path, leave `REFERENCE_ROOT = None`, keep
+`USE_RELEASE_ARRAYS_IF_AVAILABLE = True`, and adjust `OUTPUT_ROOT`,
+`FIELD_NAME`, `FPS`, or `FRAMES_PER_INTERVAL` if desired.
 
-The reference root is a local external benchmark checkout that contains both
-`tests/integrated` and `examples/tokamak-2D`. For the default movie case, the
-mesh is expected at
-`$JAX_DRB_REFERENCE_ROOT/examples/tokamak-2D/tokamak.nc`, and the fresh run
-creates `BOUT.dmp.*.nc` files by launching the curated
-`tokamak_turbulence_short_window` reference case. If the auto-discovery helper
-cannot find such a checkout, set `JAX_DRB_REFERENCE_ROOT` explicitly before
-running the example.
+## Optional Developer Reference Regeneration
+
+The public example path above is self-contained. Developers who are refreshing
+the validation bundle can still set `REFERENCE_ROOT` to a local reference-suite
+checkout, set `USE_RELEASE_ARRAYS_IF_AVAILABLE = False`, and rerun the case from
+fresh `tokamak.nc` and `BOUT.dmp.*.nc` files. That path is for maintaining the
+benchmark artifact bundle; it is not required for users running JAXDRB examples.
 
 ## Output Files
 
@@ -63,16 +55,14 @@ running the example.
 
 ## What The Script Does
 
-1. launches or reuses the curated `tokamak_turbulence_short_window` benchmark case
-2. stitches the multi-rank `BOUT.dmp.*.nc` files into one full-domain field history
-3. reduces the 3D field to a toroidally averaged 2D fluctuation history
-4. loads `Rxy`, `Zxy`, and `psixy` from `tokamak.nc`
-5. renders a snapshot panel, poster frame, and animated GIF with LCFS, wall, and divertor overlays
+1. restores or reuses the release-backed `diverted_tokamak_turbulence_arrays.npz`
+2. reconstructs the diverted geometry and toroidally averaged field history
+3. renders a snapshot panel, poster frame, and animated GIF with LCFS, wall, and divertor overlays
 
 ## Why This Is Useful
 
 This closes a practical gap in the current 2D program:
 
-- the exact direct tokamak parity lanes are currently rank-local for native compare surfaces
-- summary figures need the stitched full diverted geometry
-- this script turns the same validated benchmark output into a summary geometry figure without pretending that the whole direct tokamak recycling transient is already a claim-bearing native exact lane
+- the README/docs can show the full diverted geometry without storing large media in git
+- users can regenerate the visible figures and GIFs from a fresh clone
+- developers can refresh the same artifact bundle separately when the reference validation suite is updated

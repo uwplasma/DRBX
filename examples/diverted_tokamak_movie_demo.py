@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jax_drb.parity.reference import run_reference_case
-from jax_drb.reference.paths import default_reference_root, require_reference_root
+from jax_drb.reference.paths import require_reference_root
 from jax_drb.runtime.artifacts import ensure_docs_media
 from jax_drb.validation import (
     create_diverted_tokamak_movie_package,
@@ -34,7 +34,10 @@ def _default_repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-REFERENCE_ROOT = default_reference_root()
+# Keep the public example self-contained by default. The script regenerates the
+# movie from release-backed JAXDRB arrays and only enters the external-reference
+# path when a developer explicitly sets REFERENCE_ROOT or WORKDIR_IN below.
+REFERENCE_ROOT: Path | None = None
 REFERENCE_BINARY: Path | None = None
 CASE_NAME = "tokamak_turbulence_short_window"
 FIELD_NAME = "phi"
@@ -56,19 +59,19 @@ def describe_requested_case(settings: DivertedTokamakMovieSettings) -> None:
         {
             "reference_root": settings.reference_root
             if settings.reference_root is not None
-            else "<required for fresh run>",
+            else "<not used in self-contained release-array mode>",
             "reference_binary": settings.reference_binary
             if settings.reference_binary is not None
-            else "<auto-discover or JAX_DRB_REFERENCE_BINARY>",
+            else "<not used in self-contained release-array mode>",
             "case_name": settings.case_name,
             "field_name": settings.field_name,
             "output_root": settings.output_root,
             "workdir_in": settings.workdir_in
             if settings.workdir_in is not None
-            else "<run fresh benchmark case>",
+            else "<not used in self-contained release-array mode>",
             "mesh_path": settings.mesh_path
             if settings.mesh_path is not None
-            else "<workdir/tokamak.nc or reference examples/tokamak-2D/tokamak.nc>",
+            else "<loaded from release arrays in self-contained mode>",
             "release_arrays_path": settings.release_arrays_path,
             "use_release_arrays_if_available": settings.use_release_arrays_if_available,
             "fps": settings.fps,
@@ -90,8 +93,8 @@ def should_use_release_arrays(settings: DivertedTokamakMovieSettings) -> bool:
     except Exception as error:
         raise FileNotFoundError(
             "Release arrays are missing. Run `gh auth login --hostname github.com` "
-            "and `python scripts/fetch_example_artifacts.py --skip-baselines`, "
-            "or set JAX_DRB_REFERENCE_ROOT for a fresh reference-backed run."
+            "and `python scripts/fetch_example_artifacts.py --skip-baselines` "
+            "before running this self-contained example."
         ) from error
     return settings.release_arrays_path.exists()
 
@@ -182,7 +185,8 @@ def _resolve_mesh_path_for_workdir(settings: DivertedTokamakMovieSettings) -> Pa
             return reference_mesh
     raise FileNotFoundError(
         "Could not find tokamak.nc. Set MESH_PATH, keep a reference workdir containing tokamak.nc, "
-        "or set JAX_DRB_REFERENCE_ROOT to a checkout with examples/tokamak-2D/tokamak.nc."
+        "or set REFERENCE_ROOT in this script to a reference-suite checkout with "
+        "examples/tokamak-2D/tokamak.nc."
     )
 
 
