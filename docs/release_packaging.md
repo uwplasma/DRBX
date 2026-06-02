@@ -20,6 +20,31 @@ pip install -e .
 
 The default package install already includes the runtime, solver, plotting, and geometry dependencies used by the main CLI and analysis workflows.
 
+## Private Release Artifacts
+
+The repository keeps large generated `.npz`, `.png`, and `.gif` files out of
+git. They are stored in the private release
+`validation-artifacts-2026-04-28` as two bundles:
+
+- `jax_drb_docs_media.zip` restores README/docs figures, movie GIFs, and
+  example arrays under `docs/data/`;
+- `jax_drb_reference_baselines.zip` restores heavy validation baselines under
+  `references/baselines/`.
+
+Users with repository access can restore both bundles from a fresh clone with:
+
+```bash
+gh auth login --hostname github.com
+python scripts/fetch_example_artifacts.py
+```
+
+For non-CLI automation, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
+to `uwplasma/jax_drb`. The downloader uses the GitHub CLI first because private
+release assets need authentication, then falls back to token-authenticated HTTPS.
+Set `JAX_DRB_ARTIFACT_CACHE=/path/to/cache` to reuse downloaded archives across
+checkouts, or `JAX_DRB_OFFLINE_ARTIFACTS=1` to require that artifacts already
+exist locally.
+
 ## Build The Package
 
 Build the source distribution and wheel locally:

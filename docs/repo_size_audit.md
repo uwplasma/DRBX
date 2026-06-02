@@ -44,6 +44,17 @@ lightweight clone, this restores ignored `.npz` baselines under
 can set `JAX_DRB_OFFLINE_ARTIFACTS=1` to require preexisting artifacts, or
 `JAX_DRB_ARTIFACT_CACHE=/path/to/cache` to choose the download cache.
 
+Users who want all README/docs movies and example media in a lightweight clone
+should run:
+
+```bash
+python scripts/fetch_example_artifacts.py
+```
+
+Because the repository and release are private, the fetch path requires either
+`gh auth login --hostname github.com` or `GH_TOKEN`/`GITHUB_TOKEN` with access
+to `uwplasma/jax_drb`.
+
 ## Rewrite Record
 
 The completed history rewrite removed generated blobs from all earlier commits:

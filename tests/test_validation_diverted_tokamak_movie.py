@@ -7,8 +7,11 @@ from netCDF4 import Dataset
 
 from jax_drb.validation.diverted_tokamak_movie import (
     assemble_tokamak_rank_history,
+    create_diverted_tokamak_movie_package_from_arrays,
+    load_diverted_tokamak_arrays_npz,
     load_diverted_tokamak_geometry,
     toroidal_mean_fluctuation,
+    write_diverted_tokamak_arrays_npz,
 )
 
 
@@ -94,3 +97,69 @@ def test_toroidal_mean_fluctuation_is_zero_at_initial_time(tmp_path: Path) -> No
 
     assert fluctuation.shape == (2, 4, 6)
     np.testing.assert_allclose(fluctuation[0], 0.0)
+
+
+def test_diverted_tokamak_package_can_be_regenerated_from_saved_arrays(
+    monkeypatch, tmp_path: Path
+) -> None:
+    geometry = load_diverted_tokamak_geometry(_make_mesh(tmp_path), active_nx=4)
+    history = assemble_tokamak_rank_history(_make_dumps(tmp_path), field_name="Nd+")
+    field_history_2d = toroidal_mean_fluctuation(history)
+    arrays_path = write_diverted_tokamak_arrays_npz(
+        geometry,
+        history,
+        field_history_2d=field_history_2d,
+        path=tmp_path / "arrays.npz",
+    )
+
+    loaded_geometry, field_name, time_points, loaded_field = load_diverted_tokamak_arrays_npz(arrays_path)
+
+    assert field_name == "Nd+"
+    np.testing.assert_allclose(loaded_geometry.rxy, geometry.rxy)
+    np.testing.assert_allclose(time_points, history.time_points)
+    np.testing.assert_allclose(loaded_field, field_history_2d)
+
+    def fake_writer(*args, path, **kwargs):
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("stub", encoding="utf-8")
+        return target
+
+    monkeypatch.setattr(
+        "jax_drb.validation.diverted_tokamak_movie.save_diverted_tokamak_snapshot_panel",
+        fake_writer,
+    )
+    monkeypatch.setattr(
+        "jax_drb.validation.diverted_tokamak_movie.save_diverted_tokamak_poster_frame",
+        fake_writer,
+    )
+    monkeypatch.setattr(
+        "jax_drb.validation.diverted_tokamak_movie.save_diverted_tokamak_gif",
+        fake_writer,
+    )
+
+    artifacts = create_diverted_tokamak_movie_package_from_arrays(
+        arrays_npz_path=arrays_path,
+        output_root=tmp_path / "release_replay",
+        case_label="case",
+    )
+
+    assert artifacts.arrays_npz_path.exists()
+    assert artifacts.analysis_json_path.exists()
+    assert artifacts.snapshots_png_path.read_text(encoding="utf-8") == "stub"
+    assert artifacts.poster_png_path.read_text(encoding="utf-8") == "stub"
+    assert artifacts.movie_gif_path.read_text(encoding="utf-8") == "stub"
+
+
+def _make_mesh(tmp_path: Path) -> Path:
+    mesh_path = tmp_path / "tokamak.nc"
+    _write_tokamak_mesh(mesh_path)
+    return mesh_path
+
+
+def _make_dumps(tmp_path: Path) -> Path:
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _write_dump(workdir / "BOUT.dmp.0.nc", pe_yind=0)
+    _write_dump(workdir / "BOUT.dmp.1.nc", pe_yind=1)
+    return workdir

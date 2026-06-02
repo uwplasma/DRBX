@@ -119,6 +119,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "scripts" / "profile_recycling_batched_jvp_gate.py",
     REPO_ROOT / "scripts" / "profile_atomic_rate_throughput_gate.py",
     REPO_ROOT / "scripts" / "run_research_campaign_bundle.py",
+    REPO_ROOT / "scripts" / "fetch_example_artifacts.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_scaffold.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_selected_field.py",
     REPO_ROOT / "src" / "jax_drb" / "validation" / "tokamak_tcv_x21_toroidal_movie.py",

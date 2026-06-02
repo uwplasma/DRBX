@@ -6,6 +6,21 @@ JSON/NPZ/PNG/GIF artifacts that are also used by tests and documentation.
 
 ## Quick Start
 
+Large generated example outputs are release-backed so that cloning the private
+repository stays fast. Authenticate with the GitHub CLI or a token, then restore
+the media and baseline bundles before running the movie and validation examples:
+
+```bash
+gh auth login --hostname github.com
+python scripts/fetch_example_artifacts.py
+```
+
+Without the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token with access
+to `uwplasma/jax_drb`. The fetch script restores PNG/GIF/NPZ docs media under
+`docs/data/` and heavy reference baselines under `references/baselines/`. Use
+`python scripts/fetch_example_artifacts.py --skip-baselines` when you only need
+the README/docs movies and figures.
+
 | Example | What it teaches |
 | --- | --- |
 | [`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml) | Small native TOML deck with restartable output. |

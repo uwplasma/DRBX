@@ -1,4 +1,11 @@
-from .artifacts import ARTIFACT_BASE_URL, ARTIFACT_RELEASE_TAG, REFERENCE_BASELINES_ASSET, ensure_reference_baselines
+from .artifacts import (
+    ARTIFACT_BASE_URL,
+    ARTIFACT_RELEASE_TAG,
+    DOCS_MEDIA_ASSET,
+    REFERENCE_BASELINES_ASSET,
+    ensure_docs_media,
+    ensure_reference_baselines,
+)
 from .performance import (
     configure_jax_runtime,
     resolve_host_device_count,
@@ -20,6 +27,7 @@ __all__ = [
     "RestartBundle",
     "build_run_log_payload",
     "configure_jax_runtime",
+    "DOCS_MEDIA_ASSET",
     "format_run_log_text",
     "load_restart_bundle",
     "MeshScalarConfig",
@@ -28,6 +36,7 @@ __all__ = [
     "REFERENCE_BASELINES_ASSET",
     "bytes_to_mebibytes",
     "ensure_reference_baselines",
+    "ensure_docs_media",
     "print_run_log",
     "process_tree_rss_bytes",
     "resolve_host_device_count",
