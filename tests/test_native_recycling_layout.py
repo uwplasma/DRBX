@@ -13,8 +13,14 @@ from jax_drb.native.recycling_fixed_residual import (
     RecyclingFixedState,
     build_fixed_array_rhs,
     build_fixed_backward_euler_residual,
+    build_fixed_bdf2_residual,
     build_fixed_full_field_array_rhs,
+    build_fixed_host_rhs_bridge,
+    fixed_residual_jvp_action,
     fixed_state_from_fields,
+    fixed_state_to_feedback_integrals,
+    fixed_state_to_full_fields,
+    linearize_fixed_residual_action,
     pack_fixed_state,
     unpack_fixed_state,
 )
@@ -216,6 +222,162 @@ def test_recycling_active_pack_unpack_preserves_jax_tracers() -> None:
 
     assert value == pytest.approx(2.0 * (2.0 + 3.0 + 6.0 + 7.0) + 2.0)
     assert tangent == pytest.approx((2.0 + 3.0 + 6.0 + 7.0) + 1.0)
+
+
+def test_fixed_state_pytree_pack_and_numpy_restore_edge_cases() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    fields = {
+        "Nd": np.array([[[1.0], [2.0], [3.0], [4.0]], [[5.0], [6.0], [7.0], [8.0]]], dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd",),
+        feedback_names=("controller",),
+        mesh=mesh,
+    )
+    active = fields["Nd"][layout.active_slices]
+    state = RecyclingFixedState(
+        field_values=(jnp.asarray(active, dtype=jnp.float64),),
+        feedback_values=jnp.asarray([0.25], dtype=jnp.float64),
+    )
+
+    leaves, aux = state.tree_flatten()
+    rebuilt = RecyclingFixedState.tree_unflatten(aux, leaves)
+    packed_without_feedback = pack_fixed_state(
+        RecyclingFixedState(field_values=state.field_values, feedback_values=jnp.asarray([], dtype=jnp.float64))
+    )
+    packed_feedback_only = pack_fixed_state(
+        RecyclingFixedState(field_values=(), feedback_values=jnp.asarray([1.0, 2.0], dtype=jnp.float64))
+    )
+    packed_numpy_without_feedback = pack_fixed_state(
+        RecyclingFixedState(field_values=(active,), feedback_values=np.asarray([], dtype=np.float64))
+    )
+    packed_empty_numpy = pack_fixed_state(
+        RecyclingFixedState(field_values=(), feedback_values=np.asarray([], dtype=np.float64))
+    )
+
+    assert len(rebuilt.field_values) == 1
+    np.testing.assert_allclose(np.asarray(packed_without_feedback), np.ravel(active))
+    np.testing.assert_allclose(np.asarray(packed_feedback_only), np.array([1.0, 2.0]))
+    np.testing.assert_allclose(packed_numpy_without_feedback, np.ravel(active))
+    assert isinstance(packed_empty_numpy, np.ndarray)
+    assert packed_empty_numpy.size == 0
+    scaled = jax.tree_util.tree_map(lambda value: value + 1.0, state)
+    np.testing.assert_allclose(np.asarray(scaled.field_values[0]), active + 1.0)
+
+    numpy_state = RecyclingFixedState(field_values=(active + 10.0,), feedback_values=np.asarray([1.5], dtype=np.float64))
+    packed_numpy = pack_fixed_state(numpy_state)
+    restored = unpack_fixed_state(packed_numpy, layout=layout)
+    full_fields = fixed_state_to_full_fields(restored, layout=layout)
+    integrals = fixed_state_to_feedback_integrals(
+        restored,
+        layout=layout,
+        base_feedback_integrals={"unused": 9.0},
+    )
+
+    assert isinstance(packed_numpy, np.ndarray)
+    assert isinstance(full_fields["Nd"], np.ndarray)
+    np.testing.assert_allclose(full_fields["Nd"][layout.active_slices], active + 10.0)
+    assert integrals["controller"] == pytest.approx(1.5)
+    assert integrals["unused"] == pytest.approx(9.0)
+
+
+def test_fixed_host_bridge_and_bdf2_residual_use_static_layout_without_reference_deck() -> None:
+    mesh = _sample_mesh()
+    fields = {
+        "Nd": np.array([[[1.0], [2.0], [3.0], [4.0]], [[5.0], [6.0], [7.0], [8.0]]], dtype=np.float64),
+        "Pd": np.array([[[2.0], [4.0], [6.0], [8.0]], [[10.0], [12.0], [14.0], [16.0]]], dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd"),
+        feedback_names=("controller",),
+        mesh=mesh,
+    )
+    previous_state = fixed_state_from_fields(fields, feedback_integrals={"controller": 0.5}, layout=layout)
+    previous = np.asarray(pack_fixed_state(previous_state), dtype=np.float64)
+    previous_previous = previous - 0.1
+
+    def packed_rhs(full_fields: dict[str, object], feedback_integrals: dict[str, object]) -> object:
+        density = np.asarray(full_fields["Nd"], dtype=np.float64)
+        pressure = np.asarray(full_fields["Pd"], dtype=np.float64)
+        assert feedback_integrals["unused"] == pytest.approx(7.0)
+        rhs_fields = {
+            "Nd": 0.2 * density + 0.1 * pressure,
+            "Pd": -0.05 * density + 0.3 * pressure,
+        }
+        rhs_integrals = {"controller": 0.25 * float(feedback_integrals["controller"])}
+        return pack_recycling_active_state(
+            rhs_fields,
+            feedback_integrals=rhs_integrals,
+            field_names=layout.field_names,
+            feedback_names=layout.feedback_names,
+            mesh=mesh,
+            layout=layout,
+        )
+
+    bridge = build_fixed_host_rhs_bridge(
+        packed_rhs,
+        layout=layout,
+        base_feedback_integrals={"unused": 7.0},
+    )
+    residual = build_fixed_bdf2_residual(
+        bridge,
+        layout=layout,
+        previous_packed_state=previous,
+        previous_previous_packed_state=previous_previous,
+        timestep=0.2,
+    )
+    candidate = previous + 0.03
+    rhs_state = bridge(unpack_fixed_state(candidate, layout=layout))
+    rhs_packed = np.asarray(pack_fixed_state(rhs_state), dtype=np.float64)
+    expected = candidate - (4.0 / 3.0) * previous + (1.0 / 3.0) * previous_previous - (2.0 / 3.0) * 0.2 * rhs_packed
+
+    np.testing.assert_allclose(np.asarray(residual(candidate)), expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_fixed_residual_linearize_and_jvp_actions_match_dense_jacobian() -> None:
+    jax = pytest.importorskip("jax")
+    jnp = pytest.importorskip("jax.numpy")
+    mesh = _sample_mesh()
+    fields = {
+        "Nd": np.array([[[1.0], [2.0], [3.0], [4.0]], [[5.0], [6.0], [7.0], [8.0]]], dtype=np.float64),
+        "Pd": np.array([[[2.0], [4.0], [6.0], [8.0]], [[10.0], [12.0], [14.0], [16.0]]], dtype=np.float64),
+    }
+    layout = build_recycling_packed_state_layout(
+        fields=fields,
+        field_names=("Nd", "Pd"),
+        feedback_names=(),
+        mesh=mesh,
+    )
+    previous_state = fixed_state_from_fields(fields, feedback_integrals={}, layout=layout)
+    previous = pack_fixed_state(previous_state)
+
+    def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
+        density, pressure = state.field_values
+        return RecyclingFixedState(
+            field_values=(0.2 * density + 0.1 * pressure, -0.05 * density + 0.3 * pressure),
+            feedback_values=state.feedback_values,
+        )
+
+    residual = build_fixed_backward_euler_residual(
+        rhs,
+        layout=layout,
+        previous_packed_state=previous,
+        timestep=0.2,
+    )
+    candidate = jnp.asarray(previous, dtype=jnp.float64) + 0.03
+    direction = jnp.linspace(0.1, 0.8, candidate.size, dtype=jnp.float64)
+    residual_value, action = linearize_fixed_residual_action(residual, candidate)
+    action_value = action(direction)
+    jvp_value = fixed_residual_jvp_action(residual, candidate, direction)
+    dense_value = jax.jacfwd(residual)(candidate) @ direction
+
+    assert residual_value.shape == candidate.shape
+    np.testing.assert_allclose(np.asarray(action_value), np.asarray(dense_value), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(np.asarray(jvp_value), np.asarray(dense_value), rtol=1.0e-12, atol=1.0e-12)
 
 
 def test_fixed_recycling_backward_euler_residual_is_jax_linearizable() -> None:

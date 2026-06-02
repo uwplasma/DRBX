@@ -67,7 +67,7 @@ offender. Those results are documented in
 The local CPU scaling evidence is the heavy fixed-work ensemble in
 [local_cpu_scaling_campaign.md](local_cpu_scaling_campaign.md). It uses
 repeated direct tokamak recycling solves rather than a synthetic microkernel,
-and the committed artifact reaches about `4.95x` steady-state speedup from
+and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU

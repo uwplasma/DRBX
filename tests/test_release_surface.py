@@ -250,11 +250,45 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT / "docs" / "data" / "temperature_feedback_campaign_artifacts" / "data" / "temperature_feedback_campaign.json",
     REPO_ROOT / "docs" / "data" / "detachment_controller_campaign_artifacts" / "data" / "detachment_controller_campaign.json",
     REPO_ROOT / "docs" / "data" / "autodiff_diffusion_uncertainty_artifacts" / "data" / "autodiff_diffusion_uncertainty_analysis.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_1d_jax_linearized_gate" / "profile_summary.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_one_step" / "profile_summary.json",
+    REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate" / "profile_summary.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu" / "profile_summary.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu_warm" / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_gpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny200_dt1e4_cpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny200_dt1e4_gpu"
+    / "profile_summary.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "recycling_dthe_batched_jvp_gate_cpu" / "profile_summary.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "atomic_rate_throughput_gate_cpu" / "profile_summary.json",
     REPO_ROOT / "docs" / "data" / "runtime_profile_artifacts" / "atomic_rate_throughput_gate_gpu" / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "stellarator_fci_validation_artifacts"
+    / "pytree_drb"
+    / "data"
+    / "stellarator_drb_pytree_gpu_profile_summary.json",
 )
 
 SIMSOPT_STYLE_EXAMPLES = tuple(

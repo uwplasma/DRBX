@@ -78,6 +78,12 @@ def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_pa
     assert report["offender_register"]["native_minus_hermes_term_delta"][0]["target_adjacent_max_abs"] >= 0.0
     assert report["offender_register"]["dominant_residual_cells"]
     assert report["reference_balance"]["term_metrics"]["residual_rate"]["max_abs"] >= 0.0
+    field_register = report["final_field_error_register"]
+    assert field_register["target_y_indices"]
+    assert field_register["ranked_by_target_adjacent_max_abs"][0]["field"] in {"Nh", "Ph", "NVh"}
+    assert set(field_register["fields"]) == {"Nh", "Ph", "NVh"}
+    assert field_register["fields"]["Nh"]["target_adjacent_max_abs"] >= 0.0
+    assert len(field_register["fields"]["Ph"]["lineout"]) == len(report["active_y_indices"])
 
 
 def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_path: Path) -> None:
@@ -104,6 +110,11 @@ def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_p
     assert plot.exists()
     payload = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
     assert payload["field"] == "NVh"
+    assert "final_field_error_register" in payload
+    with np.load(artifacts.report_npz_path) as arrays:
+        assert "final_field_error_Nh_lineout" in arrays
+        assert "final_field_error_Ph_lineout" in arrays
+        assert "final_field_error_NVh_lineout" in arrays
 
 
 def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(tmp_path: Path) -> None:

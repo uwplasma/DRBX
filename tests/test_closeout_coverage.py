@@ -68,8 +68,11 @@ def test_promoted_solver_coverage_script_tracks_solver_targets() -> None:
     assert "not slow" in module.PROMOTED_SOLVER_TESTS
     assert "tests/test_validation_open_field_operator_campaign.py" in module.PROMOTED_SOLVER_TESTS
     assert "tests/test_native_recycling_1d.py" in module.PROMOTED_SOLVER_TESTS
+    assert "tests/test_native_recycling_layout.py" in module.PROMOTED_SOLVER_TESTS
     assert "tests/test_native_runner.py" in module.PROMOTED_SOLVER_TESTS
     assert "src/jax_drb/native/recycling_1d.py" in module.PROMOTED_SOLVER_TARGETS
+    assert "src/jax_drb/native/recycling_fixed_residual.py" in module.PROMOTED_SOLVER_TARGETS
+    assert "src/jax_drb/native/recycling_layout.py" in module.PROMOTED_SOLVER_TARGETS
     assert "src/jax_drb/native/runner.py" in module.PROMOTED_SOLVER_TARGETS
     assert "src/jax_drb/cli.py" in module.PROMOTED_SOLVER_TARGETS
 

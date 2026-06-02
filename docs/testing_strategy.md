@@ -113,21 +113,22 @@ python scripts/run_promoted_solver_coverage.py --audit
 ```
 
 That audit covers the native mesh/metric/open-field/recycling/runner surface,
-portable parity helpers, and CLI entry points. It exists to prevent the project
-from confusing the narrower release-closeout coverage gate with meaningful
-solver coverage. During the refactor, use audit mode to identify the largest
-uncovered modules and branches. When the extraction work has enough direct unit,
-operator, parity, and artifact-producing tests, the same command should be run
-without `--audit` and must satisfy the default `95%` threshold before the solver
-surface is called research-grade.
+the fixed-layout recycling residual seam, portable parity helpers, and CLI
+entry points. It exists to prevent the project from confusing the narrower
+release-closeout coverage gate with meaningful solver coverage. During the
+refactor, use audit mode to identify the largest uncovered modules and
+branches. When the extraction work has enough direct unit, operator, parity,
+and artifact-producing tests, the same command should be run without `--audit`
+and must satisfy the default `95%` threshold before the solver surface is
+called research-grade.
 
 The first measured baseline for this slice was `73%` total coverage with all
 selected tests passing. The current promoted solver/public-surface audit now
-passes the `95%` gate at `95%` (`428 passed`, `7 deselected`, `1 xfailed`),
-with the shared active-region pack/unpack primitive, extracted recycling layout
-module, and native solver-backend routing covered directly. The next coverage
-work should therefore be treated as architecture hardening, not as percentage
-chasing. The remaining high-value targets are:
+passes the `95%` gate at `95%`; the fixed-layout recycling residual and layout
+modules are included directly and each has a local reference-free `100%`
+module-coverage gate. The next coverage work should therefore be treated as
+architecture hardening, not as percentage chasing. The remaining high-value
+targets are:
 
 - `runner.py`: split setup, execution policy, logging/provenance, restart, and
   artifact writing into directly tested helpers
@@ -136,9 +137,9 @@ chasing. The remaining high-value targets are:
 - `solver/implicit.py`: keep the finite-difference sparse path, fallback
   diagnostics, and JAX-linearized path covered as the solver backend boundary
   is split further
-- `recycling_fixed_residual.py` and the backend-preserving recycling helpers:
-  require JVP/finite-difference gates before any fixed-layout residual is
-  promoted to a Hermès-backed solve
+- backend-preserving recycling helper families outside the fixed-layout
+  residual module: require JVP/finite-difference gates before each new
+  production term is promoted into a Hermès-backed solve
 - `parity/diff.py`, `parity/compare.py`, and `parity/reference.py`: add direct
   tests for guard semantics, missing-field behavior, normalization modes, and
   failure reporting
@@ -266,8 +267,10 @@ Hosted CI runs the scheduled public slice; live reference and heavy recycling
 campaigns remain explicit manual/self-hosted campaigns because they need
 external reference data and a larger runtime budget.
 
-Until CI billing is available again, the narrow GitHub Actions slice is a
-shipping-surface guard, not the final research-code gate.
+The hosted GitHub Actions slice is a shipping-surface guard, not the final
+research-code gate. Manual live-reference, heavy recycling, and CPU/GPU
+profiling campaigns remain required before making new research claims that
+depend on external reference data or large runtime budgets.
 
 ## Immediate Refactor Priorities
 

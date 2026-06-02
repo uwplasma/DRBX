@@ -21,6 +21,112 @@
   ],
   "case_name": "neutral_mixed_one_step",
   "field": "NVh",
+  "final_field_error_register": {
+    "fields": {
+      "NVh": {
+        "interior_max_abs": 0.0003573978591942372,
+        "interior_rms": 0.0002137537314345914,
+        "lineout": [
+          -0.00027214642739251365,
+          -0.0005807994860577181,
+          -0.00033663160447044375,
+          -0.000111108322612157,
+          -2.7775468036512715e-05,
+          2.7775431793295737e-05,
+          0.00011110834341435615,
+          0.00033663166742304196,
+          0.0005807995859449886,
+          0.0002721465043868395
+        ],
+        "max_abs": 0.0005807995859449886,
+        "rms": 0.0003269854039099403,
+        "target_adjacent_max_abs": 0.0005807995859449886,
+        "target_adjacent_rms": 0.00044582804910867806,
+        "target_to_interior_max_abs_ratio": 1.625078525244713
+      },
+      "Nh": {
+        "interior_max_abs": 0.005590240138131586,
+        "interior_rms": 0.002850034640690112,
+        "lineout": [
+          -0.008481902453478352,
+          0.003481626148019057,
+          0.005590239648099904,
+          0.0030017581704544494,
+          0.0014609645108581981,
+          0.001460949873327122,
+          0.0030017603753532685,
+          0.00559023988378704,
+          0.0034816254378113864,
+          -0.008481904165759002
+        ],
+        "max_abs": 0.010216937845897167,
+        "rms": 0.004844391839909983,
+        "target_adjacent_max_abs": 0.010216937845897167,
+        "target_adjacent_rms": 0.006818085109967874,
+        "target_to_interior_max_abs_ratio": 1.8276384544210211
+      },
+      "Ph": {
+        "interior_max_abs": 0.0004882025328863393,
+        "interior_rms": 0.0002565745204506873,
+        "lineout": [
+          -0.0008030718328929931,
+          0.0002890994576176531,
+          0.0004882025328863393,
+          0.00023562459895162813,
+          8.743787952360249e-05,
+          8.74327521718371e-05,
+          0.0002356254500572863,
+          0.0004882024921827738,
+          0.0002890993837799394,
+          -0.0008030720132122526
+        ],
+        "max_abs": 0.0009056766468825694,
+        "rms": 0.0004406253327754769,
+        "target_adjacent_max_abs": 0.0009056766468825694,
+        "target_adjacent_rms": 0.0006217965767773244,
+        "target_to_interior_max_abs_ratio": 1.8551248424051585
+      }
+    },
+    "interpretation": "This register ranks final-state Nh, Ph, and NVh errors by target-adjacent and interior bands. It distinguishes a remaining NVh source-formula mismatch from density/pressure state drift that feeds the already-closed pressure-gradient and viscosity operators.",
+    "ranked_by_target_adjacent_max_abs": [
+      {
+        "field": "Nh",
+        "interior_max_abs": 0.005590240138131586,
+        "interior_rms": 0.002850034640690112,
+        "max_abs": 0.010216937845897167,
+        "rms": 0.004844391839909983,
+        "target_adjacent_max_abs": 0.010216937845897167,
+        "target_adjacent_rms": 0.006818085109967874,
+        "target_to_interior_max_abs_ratio": 1.8276384544210211
+      },
+      {
+        "field": "Ph",
+        "interior_max_abs": 0.0004882025328863393,
+        "interior_rms": 0.0002565745204506873,
+        "max_abs": 0.0009056766468825694,
+        "rms": 0.0004406253327754769,
+        "target_adjacent_max_abs": 0.0009056766468825694,
+        "target_adjacent_rms": 0.0006217965767773244,
+        "target_to_interior_max_abs_ratio": 1.8551248424051585
+      },
+      {
+        "field": "NVh",
+        "interior_max_abs": 0.0003573978591942372,
+        "interior_rms": 0.0002137537314345914,
+        "max_abs": 0.0005807995859449886,
+        "rms": 0.0003269854039099403,
+        "target_adjacent_max_abs": 0.0005807995859449886,
+        "target_adjacent_rms": 0.00044582804910867806,
+        "target_to_interior_max_abs_ratio": 1.625078525244713
+      }
+    ],
+    "target_y_indices": [
+      2,
+      3,
+      10,
+      11
+    ]
+  },
   "final_momentum_error": {
     "lineout": [
       -0.00027214642739251365,
@@ -418,7 +524,7 @@
       "mfh_adv_perp_ylow"
     ]
   },
-  "input_path": "<reference-root>/tests/integrated/neutral_mixed/data/BOUT.inp",
+  "input_path": "<repo-root>/tmp/neutral_mixed_hermes_diagnostics/data/BOUT.inp",
   "interpretation": {
     "balance_form": "backward_euler_rate_residual = (NVh_final - NVh_initial) / dt - native_rhs_terms(NVh_final)",
     "diagnostic_role": "The Herm\u00e8s final state is inserted into the native neutral momentum operator. A nonzero residual localizes the one-step mismatch to the terms that cannot balance the Herm\u00e8s update under the current native closure and boundary rules.",

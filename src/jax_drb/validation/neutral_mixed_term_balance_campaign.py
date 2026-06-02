@@ -227,6 +227,15 @@ def build_neutral_mixed_term_balance_campaign_report(
             "rms": _rms(final_error),
             "lineout": final_error[worst_x_active, :, line_z].tolist(),
         },
+        "final_field_error_register": _final_field_error_register(
+            native_final,
+            reference_final,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        ),
         "native_balance": _balance_payload(
             native_balance,
             active_x=active_x,
@@ -725,6 +734,66 @@ def _term_delta_payload(
     return payload
 
 
+def _final_field_error_register(
+    native_final: NeutralMixedState,
+    reference_final: NeutralMixedState,
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    target_offsets = _target_offsets(active_y, target_y_indices)
+    active_y_indices = np.arange(active_y.start, active_y.stop, dtype=np.int32)
+    target_y_values = active_y_indices[target_offsets] if target_offsets.size else active_y_indices
+    interior_offsets = np.asarray(
+        [index for index in range(active_y_indices.size) if index not in set(int(value) for value in target_offsets)],
+        dtype=np.int32,
+    )
+    fields = {
+        "Nh": (native_final.density, reference_final.density),
+        "Ph": (native_final.pressure, reference_final.pressure),
+        "NVh": (native_final.momentum, reference_final.momentum),
+    }
+    payload_fields: dict[str, object] = {}
+    ranked: list[dict[str, object]] = []
+    for name, (native_value, reference_value) in fields.items():
+        delta = np.asarray(native_value, dtype=np.float64) - np.asarray(reference_value, dtype=np.float64)
+        active = delta[active_x, active_y, :]
+        target = active[:, target_offsets, :] if target_offsets.size else active
+        interior = active[:, interior_offsets, :] if interior_offsets.size else np.asarray([], dtype=np.float64)
+        metrics = _array_metrics(active)
+        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
+        metrics["interior_max_abs"] = float(np.max(np.abs(interior))) if interior.size else 0.0
+        metrics["interior_rms"] = _rms(interior) if interior.size else 0.0
+        metrics["target_to_interior_max_abs_ratio"] = (
+            metrics["target_adjacent_max_abs"] / max(metrics["interior_max_abs"], 1.0e-30)
+            if interior.size
+            else None
+        )
+        payload_fields[name] = {
+            **metrics,
+            "lineout": delta[line_x, active_y, line_z].tolist(),
+        }
+        ranked.append({"field": name, **metrics})
+    return {
+        "fields": payload_fields,
+        "ranked_by_target_adjacent_max_abs": sorted(
+            ranked,
+            key=lambda item: float(item["target_adjacent_max_abs"]),
+            reverse=True,
+        ),
+        "target_y_indices": [int(value) for value in target_y_values],
+        "interpretation": (
+            "This register ranks final-state Nh, Ph, and NVh errors by target-adjacent and interior bands. "
+            "It distinguishes a remaining NVh source-formula mismatch from density/pressure state drift "
+            "that feeds the already-closed pressure-gradient and viscosity operators."
+        ),
+    }
+
+
 def _dominant_residual_cells(
     balance: dict[str, np.ndarray],
     *,
@@ -765,6 +834,13 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
         "active_y_indices": np.asarray(report["active_y_indices"], dtype=np.float64),
         "final_momentum_error_lineout": np.asarray(report["final_momentum_error"]["lineout"], dtype=np.float64),
     }
+    final_field_register = report.get("final_field_error_register")
+    if isinstance(final_field_register, dict):
+        fields = final_field_register.get("fields", {})
+        if isinstance(fields, dict):
+            for field_name, payload in fields.items():
+                if isinstance(payload, dict) and "lineout" in payload:
+                    arrays[f"final_field_error_{field_name}_lineout"] = np.asarray(payload["lineout"], dtype=np.float64)
     for group_name in ("native_balance", "reference_balance"):
         for term_name, lineout in report[group_name]["lineouts"].items():
             arrays[f"{group_name}_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)

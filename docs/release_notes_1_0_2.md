@@ -41,9 +41,9 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 
 The release candidate passed `pytest -q`, `scripts/run_closeout_coverage.py`,
 `scripts/run_promoted_solver_coverage.py`, and the local all-campaign research
-bundle with the live reference checkout. GitHub Actions remain blocked by the
-account-level CI failure that produces jobs with no executable steps, so the
-GitHub release should be published only after CI billing is available again.
+bundle with the live reference checkout. GitHub Actions are now green on the
+documentation, test, and coverage workflows, so release publication is gated by
+the remaining technical promotion checks rather than CI availability.
 
 ## Current Boundary
 
