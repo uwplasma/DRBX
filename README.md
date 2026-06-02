@@ -321,9 +321,9 @@ paths.
 For local MacBook-class CPU use, the strongest current scaling result is the
 heavy fixed-work ensemble on repeated neon-enabled direct tokamak recycling
 solves rather than extra threads on one warmed single solve. The committed
-local artifact reaches about `4.94x` steady-state speedup from `1 -> 8`
+local artifact reaches about `4.79x` steady-state speedup from `1 -> 8`
 workers on a `16`-solve heavy ensemble, with intermediate speedups of about
-`1.88x` and `3.67x` at `2` and `4` workers.
+`1.94x` and `3.32x` at `2` and `4` workers.
 
 For the new non-axisymmetric 3D lane, the current performance gate is the
 fixed-layout PyTree RHS campaign. It verifies JVP derivatives against finite
