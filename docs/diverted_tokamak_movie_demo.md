@@ -37,6 +37,13 @@ self-contained path, leave `REFERENCE_ROOT = None`, keep
 `USE_RELEASE_ARRAYS_IF_AVAILABLE = True`, and adjust `OUTPUT_ROOT`,
 `FIELD_NAME`, `FPS`, or `FRAMES_PER_INTERVAL` if desired.
 
+To analyze the same release-backed arrays with radial profiles, target
+lineouts, RMS traces, and a final diverted-domain field map, run:
+
+```bash
+PYTHONPATH=src python examples/diverted_tokamak_profile_analysis_demo.py
+```
+
 ## Optional Developer Reference Regeneration
 
 The public example path above is self-contained. Developers who are refreshing
@@ -52,12 +59,14 @@ benchmark artifact bundle; it is not required for users running JAXDRB examples.
 - snapshot panel: [diverted_tokamak_turbulence_snapshots.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_snapshots.png)
 - poster frame: [diverted_tokamak_turbulence_poster.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__images__diverted_tokamak_turbulence_poster.png)
 - GIF: [diverted_tokamak_turbulence.gif](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__diverted_tokamak_turbulence_artifacts__movies__diverted_tokamak_turbulence.gif)
+- profile analysis: `docs/data/diverted_tokamak_turbulence_artifacts/images/diverted_tokamak_turbulence_profiles.png`
 
 ## What The Script Does
 
 1. restores or reuses the release-backed `diverted_tokamak_turbulence_arrays.npz`
 2. reconstructs the diverted geometry and toroidally averaged field history
 3. renders a snapshot panel, poster frame, and animated GIF with LCFS, wall, and divertor overlays
+4. optionally runs the profile-analysis script to inspect radial profiles, target response, RMS traces, and the final geometry map
 
 ## Why This Is Useful
 

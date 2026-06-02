@@ -87,6 +87,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "geometry_plotting_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "linear_mode_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "nonlinear_turbulence_demo.py",
+    REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "turbulent_profile_analysis_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "stellarator-fci" / "validation_campaign_demo.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "landreman_paul_qa_import.py",
     REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py",
@@ -115,6 +116,7 @@ PUBLIC_RELEASE_FILES = (
     REPO_ROOT / "examples" / "engineering" / "temperature_feedback_campaign_demo.py",
     REPO_ROOT / "examples" / "engineering" / "detachment_controller_campaign_demo.py",
     REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
+    REPO_ROOT / "examples" / "diverted_tokamak_profile_analysis_demo.py",
     REPO_ROOT / "scripts" / "profile_curated_case.py",
     REPO_ROOT / "scripts" / "profile_recycling_batched_jvp_gate.py",
     REPO_ROOT / "scripts" / "profile_atomic_rate_throughput_gate.py",
@@ -306,6 +308,7 @@ SIMSOPT_STYLE_EXAMPLES = tuple(
 ) + (
     REPO_ROOT / "examples" / "autodiff_diffusion_uncertainty_demo.py",
     REPO_ROOT / "examples" / "diverted_tokamak_movie_demo.py",
+    REPO_ROOT / "examples" / "diverted_tokamak_profile_analysis_demo.py",
 )
 
 
