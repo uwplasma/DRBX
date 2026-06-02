@@ -81,11 +81,13 @@ from .neutral_mixed_boundary_campaign import (
 )
 from .neutral_mixed_term_balance_campaign import (
     NeutralMixedTermBalanceCampaignArtifacts,
+    build_neutral_mixed_substep_hybrid_report,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
     run_neutral_mixed_hermes_diagnostic_rerun,
     save_neutral_mixed_term_balance_campaign_plot,
     write_neutral_mixed_diagnostic_input,
+    write_neutral_mixed_substep_hybrid_json,
 )
 from .autodiff_diffusion import (
     DiffusionAutodiffSetup,

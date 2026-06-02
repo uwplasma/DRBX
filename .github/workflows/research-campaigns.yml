@@ -13,12 +13,18 @@ on:
         options:
           - scheduled-fast-research
           - all-ci
+          - all-local
+          - all-gpu
           - closeout-coverage
           - promoted-solver-coverage
+          - local-cpu-scaling
+          - atomic-rate-throughput-gate
           - live-reference
           - heavy-recycling-profile
           - dthe-jax-linearized-gate
-          - all-local
+          - dthe-batched-jvp-gate
+          - gpu-dthe-jax-linearized-gate
+          - gpu-dthe-batched-jvp-gate
       reference-root:
         description: "Reference checkout path for live-reference/heavy campaigns on a self-hosted runner"
         required: false

@@ -7,9 +7,11 @@ import numpy as np
 import pytest
 
 from jax_drb.validation import (
+    build_neutral_mixed_substep_hybrid_report,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
     save_neutral_mixed_term_balance_campaign_plot,
+    write_neutral_mixed_substep_hybrid_json,
     write_neutral_mixed_diagnostic_input,
 )
 
@@ -41,6 +43,25 @@ def _write_synthetic_native_history_with_target_drift(path: Path) -> Path:
         var__NVh=momentum,
     )
     return path
+
+
+def _synthetic_native_history_with_scaled_target_drift(scale: float) -> dict[str, object]:
+    with np.load(_REFERENCE_ARRAYS) as reference:
+        metadata = json.loads(str(reference["__metadata__"].item()))
+        time_points = np.asarray(metadata["time_points"], dtype=np.float64)
+        density = np.asarray(reference["var__Nh"], dtype=np.float64).copy()
+        pressure = np.asarray(reference["var__Ph"], dtype=np.float64).copy()
+        momentum = np.asarray(reference["var__NVh"], dtype=np.float64).copy()
+    final = -1
+    density[final, 5, 0, 5] += 2.0e-2 * float(scale)
+    pressure[final, 5, 0, 5] += 3.0e-3 * float(scale)
+    momentum[final, 5, -1, 5] += 1.0e-3 * float(scale)
+    return {
+        "time_points": time_points,
+        "Nh": density,
+        "Ph": pressure,
+        "NVh": momentum,
+    }
 
 
 def _write_neutral_mixed_input(path: Path) -> Path:
@@ -236,3 +257,37 @@ def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(tmp_path: P
     assert "[h]" in text
     assert "output_ddt = true" in text
     assert "diagnose = true" in text
+
+
+def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(tmp_path: Path) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    report = build_neutral_mixed_substep_hybrid_report(
+        reference_root=tmp_path / "missing_reference_root",
+        input_path=input_path,
+        reference_arrays_npz=_REFERENCE_ARRAYS,
+        native_arrays_by_substep={
+            1: _synthetic_native_history_with_scaled_target_drift(1.0),
+            4: _synthetic_native_history_with_scaled_target_drift(0.25),
+        },
+        substeps=(1, 4, 8),
+    )
+
+    assert report["diagnostic"] == "neutral_mixed_substep_hybrid_state"
+    assert report["requires_hermes"] is False
+    assert report["best"]["internal_substeps"] == 4
+    assert report["best"]["value"] < report["sweep_points"][0]["final_field_error_register"]["fields"]["NVh"]["max_abs"]
+    failed = [point for point in report["sweep_points"] if point["status"] == "failed"]
+    assert failed
+    assert failed[0]["internal_substeps"] == 8
+    assert failed[0]["error_type"] == "FileNotFoundError"
+
+    successful = [point for point in report["sweep_points"] if point["status"] == "ok"]
+    hybrid = successful[0]["hybrid_state_register"]
+    assert set(hybrid["swaps"]) == {"Nh", "Ph", "NVh"}
+    assert hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"] == "Ph"
+    assert hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0]["swapped_field"] == "NVh"
+    assert successful[0]["series_errors"]["ranked_by_final_target_adjacent_max_abs"][0]["field"] == "Nh"
+
+    path = write_neutral_mixed_substep_hybrid_json(report, tmp_path / "substeps.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["field"] == "NVh"

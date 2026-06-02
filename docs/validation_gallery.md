@@ -92,6 +92,9 @@ What this locks down:
 - named native `NVh` term decomposition for the neutral mixed momentum equation;
 - backward-Euler residual-rate reconstruction on both native and Hermès-3 final states;
 - a direct diagnostic separating native one-step residual closure from the remaining Hermès final-state mismatch;
+- a Hermès-free substep/hybrid-state diagnostic that ranks target-band `Nh`,
+  `Ph`, and `NVh` sequencing errors before changing production neutral
+  boundary or history updates;
 - optional ingestion of direct Hermès diagnostic NetCDF fields from a
   one-step `output_ddt=true`, `diagnose=true` rerun, including `ddt(NVh)` and
   neutral momentum-flow diagnostics;

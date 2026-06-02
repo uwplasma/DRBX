@@ -116,6 +116,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary to JSON.")
     run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
+    run_case_parser.add_argument("--override", action="append", default=[], help="Additional native-run overrides such as runtime:neutral_mixed_internal_substeps=4.")
     run_case_parser.set_defaults(command=_run_case_command)
 
     validate_reference_parser = subparsers.add_parser(
@@ -235,6 +236,23 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_neutral_mixed_parser.add_argument("--plot-out", type=Path, default=None)
     compare_neutral_mixed_parser.set_defaults(command=_compare_neutral_mixed_command)
 
+    neutral_substeps_parser = subparsers.add_parser(
+        "diagnose-neutral-mixed-substeps",
+        help="Sweep neutral-mixed internal substeps and rank hybrid-state NVh parity drivers.",
+    )
+    neutral_substeps_parser.add_argument(
+        "--reference-root",
+        type=Path,
+        default=_default_reference_root(),
+        help="Path to the external benchmark checkout used only when native histories must be generated.",
+    )
+    neutral_substeps_parser.add_argument("--case-name", default="neutral_mixed_one_step")
+    neutral_substeps_parser.add_argument("--input-path", type=Path, default=None)
+    neutral_substeps_parser.add_argument("--reference-arrays-npz", type=Path, default=None)
+    neutral_substeps_parser.add_argument("--substeps", default="1,2,3,4,6,8")
+    neutral_substeps_parser.add_argument("--json-out", type=Path, default=None)
+    neutral_substeps_parser.set_defaults(command=_diagnose_neutral_mixed_substeps_command)
+
     run_parser = subparsers.add_parser("run", help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.")
     run_parser.add_argument("input_file", type=Path)
     run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
@@ -280,6 +298,7 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         "compare-blob2d",
         "analyze-neutral-mixed",
         "compare-neutral-mixed",
+        "diagnose-neutral-mixed-substeps",
         "run",
     }
     head = argv[0]
@@ -850,7 +869,11 @@ def _run_case_command(args: argparse.Namespace) -> int:
         print("run-case: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
         return 1
 
-    result = run_curated_case(args.case_name, reference_root=args.reference_root)
+    result = run_curated_case(
+        args.case_name,
+        reference_root=args.reference_root,
+        extra_overrides=tuple(getattr(args, "override", ()) or ()),
+    )
     payload = result.payload
     print(f"case: {payload['case_name']}")
     print(f"parity_mode: {payload['parity_mode']}")
@@ -871,6 +894,51 @@ def _run_case_command(args: argparse.Namespace) -> int:
         path = write_portable_array_payload(array_payload, args.arrays_out)
         print(f"arrays_out: {path}")
     return 0
+
+
+def _parse_substep_csv(value: str) -> tuple[int, ...]:
+    substeps = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    if not substeps:
+        raise ValueError("At least one neutral-mixed substep count is required.")
+    if any(item <= 0 for item in substeps):
+        raise ValueError("Neutral-mixed substep counts must be positive integers.")
+    return substeps
+
+
+def _diagnose_neutral_mixed_substeps_command(args: argparse.Namespace) -> int:
+    from .validation import build_neutral_mixed_substep_hybrid_report, write_neutral_mixed_substep_hybrid_json
+
+    try:
+        substeps = _parse_substep_csv(args.substeps)
+    except ValueError as exc:
+        print(f"diagnose-neutral-mixed-substeps: {exc}")
+        return 1
+    report = build_neutral_mixed_substep_hybrid_report(
+        reference_root=args.reference_root,
+        case_name=args.case_name,
+        input_path=args.input_path,
+        reference_arrays_npz=args.reference_arrays_npz,
+        substeps=substeps,
+    )
+    print(f"diagnostic: {report['diagnostic']}")
+    print(f"case: {report['case_name']}")
+    print(f"field: {report['field']}")
+    for point in report["sweep_points"]:
+        status = str(point["status"])
+        text = f"  substeps={point['internal_substeps']}: {status}"
+        if status == "ok":
+            fields = point["final_field_error_register"]["fields"]
+            text += f", NVh_final_max_abs={fields['NVh']['max_abs']:.8e}"
+        else:
+            text += f", {point.get('error_type')}: {point.get('error_message')}"
+        print(text)
+    best = report.get("best")
+    if isinstance(best, dict):
+        print(f"best: substeps={best['internal_substeps']}, {best['metric']}={best['value']:.8e}")
+    if args.json_out is not None:
+        path = write_neutral_mixed_substep_hybrid_json(report, args.json_out)
+        print(f"json_out: {path}")
+    return 0 if any(point.get("status") == "ok" for point in report["sweep_points"]) else 1
 
 
 def _validate_reference_baselines_command(args: argparse.Namespace) -> int:

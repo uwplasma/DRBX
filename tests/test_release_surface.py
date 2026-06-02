@@ -303,6 +303,46 @@ PUBLIC_JSON_ARTIFACTS = (
     / "stellarator_drb_pytree_gpu_profile_summary.json",
 )
 
+COMMITTED_GPU_PROFILE_SUMMARIES = (
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_gpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_gpu_warm"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_gpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny200_dt1e4_gpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
+    / "atomic_rate_throughput_gate_gpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "stellarator_fci_validation_artifacts"
+    / "pytree_drb"
+    / "data"
+    / "stellarator_drb_pytree_gpu_profile_summary.json",
+)
+
 SIMSOPT_STYLE_EXAMPLES = tuple(
     path for path in PUBLIC_RELEASE_FILES if "examples/geometry-3D/" in path.as_posix()
 ) + (
@@ -404,3 +444,53 @@ def test_public_json_artifacts_use_sanitized_paths() -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         text = json.dumps(payload, sort_keys=True)
         assert "/Users/" not in text
+
+
+def test_committed_gpu_profile_summaries_report_gpu_execution() -> None:
+    for path in COMMITTED_GPU_PROFILE_SUMMARIES:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        backend = payload.get("backend", payload.get("default_backend"))
+        devices = payload.get("devices", payload.get("local_devices", ()))
+        device_text = json.dumps(devices, sort_keys=True).lower()
+
+        assert backend == "gpu", f"{path} is not a committed GPU summary"
+        assert devices, f"{path} does not record GPU devices"
+        assert any(token in device_text for token in ("cuda", "gpu", "nvidia")), path
+
+        if "recycling_dthe_jax_linearized_gate" in path.as_posix():
+            profile = payload["profile"]
+            assert profile["solver_mode"] == "jax_linearized"
+            assert profile["residual_inf_norm"] <= profile["residual_tolerance"]
+        if "atomic_rate_throughput_gate_gpu" in path.as_posix():
+            showcase = payload["differentiability_showcase"]
+            assert payload["case"] == "atomic_rate_throughput_gate"
+            assert showcase["sensitivity_relative_error"] <= 1e-8
+        if "stellarator_drb_pytree_gpu_profile_summary" in path.as_posix():
+            assert payload["campaign_passed"] is True
+            assert payload["local_device_count"] >= 1
+
+
+def test_jax_native_profile_audit_docs_match_committed_backend() -> None:
+    payload = json.loads(
+        (
+            REPO_ROOT
+            / "docs"
+            / "data"
+            / "jax_native_profile_audit_artifacts"
+            / "data"
+            / "jax_native_profile_audit.json"
+        ).read_text(encoding="utf-8")
+    )
+    audit_doc = (REPO_ROOT / "docs" / "jax_native_profile_audit.md").read_text(encoding="utf-8")
+    profiling_doc = (REPO_ROOT / "docs" / "profiling_runtime.md").read_text(encoding="utf-8")
+
+    assert f"`{payload['backend']}` backend" in audit_doc
+    if payload["backend"] == "cpu":
+        forbidden = (
+            "run on the `office` GPU host",
+            "GPU timings are",
+            "first GPU-native audit on `office`",
+        )
+        for text in (audit_doc, profiling_doc):
+            for needle in forbidden:
+                assert needle not in text

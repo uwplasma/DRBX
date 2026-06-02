@@ -59,6 +59,33 @@ target-adjacent state history and boundary reconstruction that feeds those
 closed operators, not a replacement of the pressure-gradient or viscosity
 formula.
 
+The companion substep/hybrid diagnostic makes that conclusion reproducible
+without a live Hermès rerun. It sweeps the native
+`runtime:neutral_mixed_internal_substeps` setting against the committed
+`neutral_mixed_one_step` arrays, records failed high-substep points instead of
+hiding them, and then swaps one reference final field at a time (`Nh`, `Ph`,
+or `NVh`) into the native final state before reevaluating the native momentum
+balance. The hybrid ranking asks a precise question: which state variable most
+reduces the target-adjacent pressure-gradient or viscosity term delta when it
+is made reference-exact? That keeps the remaining parity work focused on the
+target-band state/history sequencing rather than on already-closed formulas.
+
+Run the Hermès-free diagnostic with:
+
+```bash
+jax_drb diagnose-neutral-mixed-substeps \
+  --input-path /path/to/BOUT.inp \
+  --reference-arrays-npz references/baselines/reference_arrays/neutral_mixed_one_step.npz \
+  --substeps 1,2,3,4,6,8 \
+  --json-out neutral_mixed_substep_hybrid.json
+```
+
+When no native history is supplied, the command can also generate native
+histories from a local reference checkout by setting `--reference-root` or
+`JAX_DRB_REFERENCE_ROOT`. In CI and release-closeout use, the same report can
+be built from committed reference arrays and supplied native histories, so the
+diagnostic remains deterministic and does not require Hermès to be installed.
+
 The campaign can now also ingest a one-step Hermès diagnostic NetCDF generated
 with `output_ddt = true` and `diagnose = true` under the `neutral_mixed`
 component. The committed JSON/NPZ bundle includes the direct Hermès diagnostic

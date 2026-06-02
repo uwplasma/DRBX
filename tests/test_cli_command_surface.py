@@ -26,7 +26,9 @@ from jax_drb.cli import (
     _compare_recycling_command,
     _compare_summary_command,
     _default_command,
+    _diagnose_neutral_mixed_substeps_command,
     _inspect_command,
+    _parse_substep_csv,
     _normalize_cli_argv,
     _reference_cases_command,
     _run_case_command,
@@ -71,6 +73,12 @@ def test_default_command_and_argv_normalization_errors_are_explicit() -> None:
         _default_command(argparse.Namespace(subcommand=None))
     with pytest.raises(SystemExit):
         main([])
+
+    assert _normalize_cli_argv(["diagnose-neutral-mixed-substeps", "--substeps", "1,2"]) == [
+        "diagnose-neutral-mixed-substeps",
+        "--substeps",
+        "1,2",
+    ]
 
 
 def test_reference_cases_command_reports_missing_and_resolved_cases(
@@ -288,6 +296,7 @@ def test_run_case_and_validate_reference_commands_cover_success_and_errors(
     run_case_args = argparse.Namespace(
         reference_root=tmp_path,
         case_name="toy",
+        override=["runtime:neutral_mixed_internal_substeps=4"],
         json_out=tmp_path / "native_summary.json",
         arrays_out=tmp_path / "native_arrays.npz",
     )
@@ -316,6 +325,84 @@ def test_run_case_and_validate_reference_commands_cover_success_and_errors(
     assert "ok_case: ok" in output
     assert "bad_case: mismatch" in output
     assert "Nnorm mismatch" in output
+
+
+def test_run_case_forwards_extra_overrides(tmp_path: Path, monkeypatch, capsys) -> None:
+    captured: dict[str, object] = {}
+    payload = {
+        **_summary_payload(),
+        "producer": "jax-drb",
+        "capability_tier": "native_exact",
+    }
+
+    def fake_run_curated_case(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(payload=payload, variables={"Ne": np.array([[1.0, 2.0, 3.0]])})
+
+    monkeypatch.setattr(native_module, "run_curated_case", fake_run_curated_case)
+
+    assert _run_case_command(
+        argparse.Namespace(
+            reference_root=tmp_path,
+            case_name="toy",
+            override=["runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp"],
+            json_out=None,
+            arrays_out=None,
+        )
+    ) == 0
+
+    assert captured["kwargs"]["extra_overrides"] == (
+        "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
+    )
+    assert "case: toy" in capsys.readouterr().out
+
+
+def test_diagnose_neutral_mixed_substeps_command_writes_report(tmp_path: Path, monkeypatch, capsys) -> None:
+    report = {
+        "diagnostic": "neutral_mixed_substep_hybrid_state",
+        "case_name": "neutral_mixed_one_step",
+        "field": "NVh",
+        "sweep_points": (
+            {
+                "internal_substeps": 1,
+                "status": "ok",
+                "final_field_error_register": {"fields": {"NVh": {"max_abs": 1.0e-3}}},
+            },
+            {"internal_substeps": 8, "status": "failed", "error_type": "NoConvergence", "error_message": "stalled"},
+        ),
+        "best": {"internal_substeps": 1, "metric": "NVh_final_max_abs", "value": 1.0e-3},
+    }
+    monkeypatch.setattr(validation_module, "build_neutral_mixed_substep_hybrid_report", lambda **kwargs: report)
+    monkeypatch.setattr(validation_module, "write_neutral_mixed_substep_hybrid_json", lambda report, path: Path(path))
+
+    assert _parse_substep_csv("1, 2,4") == (1, 2, 4)
+    assert _diagnose_neutral_mixed_substeps_command(
+        argparse.Namespace(
+            reference_root=tmp_path,
+            case_name="neutral_mixed_one_step",
+            input_path=None,
+            reference_arrays_npz=None,
+            substeps="1,8",
+            json_out=tmp_path / "substeps.json",
+        )
+    ) == 0
+    output = capsys.readouterr().out
+    assert "substeps=1: ok" in output
+    assert "substeps=8: failed" in output
+    assert "json_out:" in output
+
+    assert _diagnose_neutral_mixed_substeps_command(
+        argparse.Namespace(
+            reference_root=tmp_path,
+            case_name="neutral_mixed_one_step",
+            input_path=None,
+            reference_arrays_npz=None,
+            substeps="0",
+            json_out=None,
+        )
+    ) == 1
+    assert "positive integers" in capsys.readouterr().out
 
 
 def test_compare_recycling_command_uses_formatted_report(monkeypatch, capsys) -> None:

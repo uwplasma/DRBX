@@ -9,6 +9,7 @@ import pytest
 
 
 _REPO = Path(__file__).resolve().parents[1]
+_WORKFLOW = _REPO / ".github" / "workflows" / "research-campaigns.yml"
 
 
 def _load_script_module(relative_path: str, module_name: str):
@@ -20,6 +21,30 @@ def _load_script_module(relative_path: str, module_name: str):
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _workflow_campaign_options() -> tuple[str, ...]:
+    lines = _WORKFLOW.read_text(encoding="utf-8").splitlines()
+    in_campaign = False
+    in_options = False
+    options: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if line.startswith("      campaign:"):
+            in_campaign = True
+            continue
+        if in_campaign and stripped == "options:":
+            in_options = True
+            continue
+        if not in_options:
+            continue
+        if stripped.startswith("- "):
+            options.append(stripped[2:])
+            continue
+        if options and stripped:
+            break
+    assert options, "research-campaigns workflow must expose campaign dispatch choices"
+    return tuple(options)
 
 
 def test_research_campaign_defaults_to_scheduled_fast_slice() -> None:
@@ -37,6 +62,25 @@ def test_research_campaign_defaults_to_scheduled_fast_slice() -> None:
     assert [command.name for command in commands] == ["scheduled-fast-research"]
     assert "run_fast_research_checks.py" in commands[0].command[1]
     assert commands[0].command[-1] == "123"
+
+
+def test_research_campaign_workflow_choices_match_supported_campaigns() -> None:
+    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_workflow")
+
+    supported_campaigns = set(
+        module._campaign_command_map(
+            python_executable="python",
+            repo_root=_REPO,
+            reference_root=Path("/reference"),
+            output_root=_REPO / "docs" / "data",
+            fast_timeout_seconds=300,
+        )
+    ) | {"all-ci", "all-gpu", "all-local"}
+    workflow_options = _workflow_campaign_options()
+
+    assert len(workflow_options) == len(set(workflow_options))
+    assert set(workflow_options) == supported_campaigns
+    assert workflow_options[0] == "scheduled-fast-research"
 
 
 def test_research_campaign_live_reference_requires_reference_root() -> None:

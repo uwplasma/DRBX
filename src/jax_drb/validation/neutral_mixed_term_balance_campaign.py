@@ -331,6 +331,141 @@ def build_neutral_mixed_term_balance_campaign_report(
     return report
 
 
+def build_neutral_mixed_substep_hybrid_report(
+    *,
+    reference_root: str | Path | None = None,
+    case_name: str = "neutral_mixed_one_step",
+    input_path: str | Path | None = None,
+    reference_arrays_npz: str | Path | None = None,
+    native_arrays_by_substep: dict[int, str | Path | dict[str, object]] | None = None,
+    substeps: tuple[int, ...] = (1, 2, 3, 4, 6, 8),
+) -> dict[str, object]:
+    """Build a Hermès-free substep and hybrid-state diagnostic for neutral-mixed ``NVh``.
+
+    The diagnostic reuses committed reference arrays and either supplied native
+    histories or native curated runs with ``runtime:neutral_mixed_internal_substeps``.
+    It is intended to rank the target-band state sequencing issue without
+    claiming a new live-reference comparison.
+    """
+
+    root = Path(reference_root).expanduser().resolve() if reference_root is not None else default_reference_root()
+    if input_path is None:
+        if root is None:
+            raise FileNotFoundError("reference_root or input_path is required for neutral mixed substep diagnostics.")
+        _, resolved_input_path = resolve_reference_case(case_name, reference_root=root)
+        input_path = resolved_input_path
+    input_path = Path(input_path).expanduser().resolve()
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    template_state = initialize_neutral_mixed_state(config, section="h", mesh=mesh)
+    reference_npz = (
+        Path(reference_arrays_npz)
+        if reference_arrays_npz is not None
+        else repo_root() / "references" / "baselines" / "reference_arrays" / f"{case_name}.npz"
+    )
+    reference_history = _load_neutral_mixed_history_npz(reference_npz)
+    time_points = np.asarray(reference_history["time_points"], dtype=np.float64)
+    if time_points.size < 2:
+        raise ValueError("Neutral mixed substep diagnostics require at least two stored time points.")
+    timestep = float(time_points[-1] - time_points[0])
+    reference_initial = _state_from_trimmed_history(reference_history, template_state, time_index=0, mesh=mesh)
+    reference_final = _state_from_trimmed_history(reference_history, template_state, time_index=-1, mesh=mesh)
+    reference_balance = _momentum_balance(
+        config,
+        reference_final,
+        reference_initial,
+        mesh=mesh,
+        metrics=metrics,
+        scalars=scalars,
+        timestep=timestep,
+    )
+
+    active_x = slice(mesh.xstart, mesh.xend + 1)
+    active_y = slice(mesh.ystart, mesh.yend + 1)
+    x_indices = np.arange(mesh.xstart, mesh.xend + 1, dtype=np.int32)
+    y_indices = np.arange(mesh.ystart, mesh.yend + 1, dtype=np.int32)
+    target_y_indices = _target_adjacent_y_indices(mesh)
+    native_inputs = native_arrays_by_substep or {}
+    points: list[dict[str, object]] = []
+    for substep_count in tuple(int(value) for value in substeps):
+        point = _build_neutral_mixed_substep_point(
+            substep_count,
+            native_inputs.get(substep_count),
+            case_name=case_name,
+            reference_root=root,
+            config=config,
+            template_state=template_state,
+            reference_initial=reference_initial,
+            reference_final=reference_final,
+            reference_balance=reference_balance,
+            mesh=mesh,
+            metrics=metrics,
+            scalars=scalars,
+            timestep=timestep,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+        )
+        points.append(point)
+
+    successful_points = [point for point in points if point.get("status") == "ok"]
+    best = None
+    if successful_points:
+        best_point = min(
+            successful_points,
+            key=lambda point: float(
+                point["final_field_error_register"]["fields"]["NVh"]["max_abs"]  # type: ignore[index]
+            ),
+        )
+        best = {
+            "metric": "NVh_final_max_abs",
+            "internal_substeps": int(best_point["internal_substeps"]),
+            "value": float(best_point["final_field_error_register"]["fields"]["NVh"]["max_abs"]),  # type: ignore[index]
+        }
+
+    return {
+        "diagnostic": "neutral_mixed_substep_hybrid_state",
+        "requires_hermes": False,
+        "case_name": case_name,
+        "parity_mode": "one_step",
+        "reference_code": "hermes-3",
+        "input_path": _sanitize_public_path(input_path),
+        "reference_arrays_npz": _sanitize_public_path(reference_npz),
+        "field": "NVh",
+        "substeps_requested": [int(value) for value in substeps],
+        "time_points": time_points.tolist(),
+        "timestep": timestep,
+        "active_x_indices": x_indices.tolist(),
+        "active_y_indices": y_indices.tolist(),
+        "target_y_indices": list(target_y_indices),
+        "reference_balance": _balance_payload(
+            reference_balance,
+            active_x=active_x,
+            active_y=active_y,
+            line_x=int(mesh.xstart),
+            line_z=0,
+        ),
+        "sweep_points": points,
+        "best": best,
+        "interpretation": (
+            "This committed-baseline diagnostic sweeps neutral-mixed internal substeps and swaps "
+            "individual reference fields into the native final state. It is Hermès-free in CI: it "
+            "uses stored reference arrays and supplied or native-generated histories. Its role is "
+            "to rank target-band state sequencing errors before changing the production solver."
+        ),
+    }
+
+
+def write_neutral_mixed_substep_hybrid_json(report: dict[str, object], path: str | Path) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
 def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], path: str | Path) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -563,6 +698,162 @@ def _native_history_from_curated_case(case_name: str, *, reference_root: Path | 
     }
 
 
+def _native_history_from_curated_case_with_substeps(
+    case_name: str,
+    *,
+    reference_root: Path | None,
+    internal_substeps: int,
+) -> dict[str, object]:
+    if reference_root is None:
+        raise FileNotFoundError("reference_root is required when native arrays are not supplied for a substep point.")
+    result = run_curated_case(
+        case_name,
+        reference_root=reference_root,
+        extra_overrides=(f"runtime:neutral_mixed_internal_substeps={int(internal_substeps)}",),
+    )
+    return {
+        "time_points": np.asarray(result.time_points, dtype=np.float64),
+        "Nh": np.asarray(result.variables["Nh"], dtype=np.float64),
+        "Ph": np.asarray(result.variables["Ph"], dtype=np.float64),
+        "NVh": np.asarray(result.variables["NVh"], dtype=np.float64),
+    }
+
+
+def _coerce_neutral_mixed_history(source: str | Path | dict[str, object]) -> dict[str, object]:
+    if isinstance(source, (str, Path)):
+        return _load_neutral_mixed_history_npz(source)
+    return {
+        "time_points": np.asarray(source["time_points"], dtype=np.float64),
+        "Nh": np.asarray(source["Nh"], dtype=np.float64),
+        "Ph": np.asarray(source["Ph"], dtype=np.float64),
+        "NVh": np.asarray(source["NVh"], dtype=np.float64),
+    }
+
+
+def _build_neutral_mixed_substep_point(
+    internal_substeps: int,
+    native_source: str | Path | dict[str, object] | None,
+    *,
+    case_name: str,
+    reference_root: Path | None,
+    config,
+    template_state: NeutralMixedState,
+    reference_initial: NeutralMixedState,
+    reference_final: NeutralMixedState,
+    reference_balance: dict[str, np.ndarray],
+    mesh,
+    metrics,
+    scalars: dict[str, float],
+    timestep: float,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+) -> dict[str, object]:
+    import time
+
+    start = time.perf_counter()
+    try:
+        native_history = (
+            _coerce_neutral_mixed_history(native_source)
+            if native_source is not None
+            else _native_history_from_curated_case_with_substeps(
+                case_name,
+                reference_root=reference_root,
+                internal_substeps=internal_substeps,
+            )
+        )
+        native_time_points = np.asarray(native_history["time_points"], dtype=np.float64)
+        if native_time_points.size < 2:
+            raise ValueError("Native substep history must contain at least two stored time points.")
+        native_final = _state_from_trimmed_history(native_history, template_state, time_index=-1, mesh=mesh)
+        native_balance = _momentum_balance(
+            config,
+            native_final,
+            reference_initial,
+            mesh=mesh,
+            metrics=metrics,
+            scalars=scalars,
+            timestep=timestep,
+        )
+        line_x, line_y, line_z = _worst_state_error_index(native_final, reference_final, "NVh", active_x=active_x, active_y=active_y)
+        return {
+            "internal_substeps": int(internal_substeps),
+            "status": "ok",
+            "elapsed_seconds": float(time.perf_counter() - start),
+            "sub_timestep": float(timestep / max(int(internal_substeps), 1)),
+            "native_time_points": native_time_points.tolist(),
+            "probe_index": {
+                "x": line_x,
+                "y": line_y,
+                "z": line_z,
+                "trimmed_y": int(line_y - active_y.start),
+            },
+            "series_errors": _neutral_mixed_series_errors(
+                native_history,
+                {
+                    "time_points": np.asarray([0.0, timestep], dtype=np.float64),
+                    "Nh": np.stack([reference_initial.density, reference_final.density]),
+                    "Ph": np.stack([reference_initial.pressure, reference_final.pressure]),
+                    "NVh": np.stack([reference_initial.momentum, reference_final.momentum]),
+                },
+                mesh=mesh,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+            ),
+            "final_field_error_register": _final_field_error_register(
+                native_final,
+                reference_final,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+                line_x=line_x,
+                line_z=line_z,
+            ),
+            "native_balance": _balance_payload(
+                native_balance,
+                active_x=active_x,
+                active_y=active_y,
+                line_x=line_x,
+                line_z=line_z,
+            ),
+            "term_delta": _term_delta_payload(
+                native_balance,
+                reference_balance,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+                line_x=line_x,
+                line_z=line_z,
+            ),
+            "hybrid_state_register": _hybrid_state_register(
+                config,
+                native_final,
+                reference_final,
+                reference_initial,
+                native_balance,
+                reference_balance,
+                mesh=mesh,
+                metrics=metrics,
+                scalars=scalars,
+                timestep=timestep,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+                line_x=line_x,
+                line_z=line_z,
+            ),
+        }
+    except Exception as exc:
+        return {
+            "internal_substeps": int(internal_substeps),
+            "status": "failed",
+            "elapsed_seconds": float(time.perf_counter() - start),
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+        }
+
+
 def _state_from_trimmed_history(
     history: dict[str, object],
     template: NeutralMixedState,
@@ -577,6 +868,192 @@ def _state_from_trimmed_history(
         NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
         mesh,
     )
+
+
+def _worst_state_error_index(
+    native_final: NeutralMixedState,
+    reference_final: NeutralMixedState,
+    field_name: str,
+    *,
+    active_x: slice,
+    active_y: slice,
+) -> tuple[int, int, int]:
+    field_map = {
+        "Nh": (native_final.density, reference_final.density),
+        "Ph": (native_final.pressure, reference_final.pressure),
+        "NVh": (native_final.momentum, reference_final.momentum),
+    }
+    native_value, reference_value = field_map[field_name]
+    delta = np.asarray(native_value, dtype=np.float64) - np.asarray(reference_value, dtype=np.float64)
+    active = delta[active_x, active_y, :]
+    x_offset, y_offset, z_index = np.unravel_index(int(np.argmax(np.abs(active))), active.shape)
+    return int(active_x.start + x_offset), int(active_y.start + y_offset), int(z_index)
+
+
+def _active_history_field(history: dict[str, object], field_name: str, *, mesh, active_y: slice) -> np.ndarray:
+    field = np.asarray(history[field_name], dtype=np.float64)
+    if field.ndim != 4:
+        raise ValueError(f"Expected {field_name} history to have shape (time, x, y, z), got {field.shape}.")
+    active_y_size = int(active_y.stop - active_y.start)
+    if field.shape[2] == active_y_size:
+        return field
+    if field.shape[2] == mesh.local_ny:
+        return field[:, :, active_y, :]
+    raise ValueError(
+        f"Unsupported {field_name} history y-size {field.shape[2]}; expected {active_y_size} active cells or {mesh.local_ny} full cells."
+    )
+
+
+def _neutral_mixed_series_errors(
+    native_history: dict[str, object],
+    reference_history: dict[str, object],
+    *,
+    mesh,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+) -> dict[str, object]:
+    target_offsets = _target_offsets(slice(0, active_y.stop - active_y.start), tuple(index - active_y.start for index in target_y_indices))
+    fields: dict[str, object] = {}
+    ranked: list[dict[str, object]] = []
+    for name in ("Nh", "Ph", "NVh"):
+        native = _active_history_field(native_history, name, mesh=mesh, active_y=active_y)
+        reference = _active_history_field(reference_history, name, mesh=mesh, active_y=active_y)
+        time_count = min(native.shape[0], reference.shape[0])
+        delta = native[:time_count, active_x, :, :] - reference[:time_count, active_x, :, :]
+        final_delta = delta[-1]
+        target = final_delta[:, target_offsets, :] if target_offsets.size else final_delta
+        metrics = _array_metrics(delta)
+        final_metrics = _array_metrics(final_delta)
+        final_metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        final_metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
+        fields[name] = {
+            "time_points_compared": int(time_count),
+            "series_max_abs": metrics["max_abs"],
+            "series_rms": metrics["rms"],
+            **{f"final_{key}": value for key, value in final_metrics.items()},
+        }
+        ranked.append({"field": name, **fields[name]})  # type: ignore[arg-type]
+    return {
+        "fields": fields,
+        "ranked_by_final_target_adjacent_max_abs": sorted(
+            ranked,
+            key=lambda item: float(item["final_target_adjacent_max_abs"]),
+            reverse=True,
+        ),
+    }
+
+
+def _state_with_reference_field(
+    native_final: NeutralMixedState,
+    reference_final: NeutralMixedState,
+    field_name: str,
+    *,
+    mesh,
+) -> NeutralMixedState:
+    return _sanitize_neutral_state(
+        NeutralMixedState(
+            density=np.asarray(reference_final.density if field_name == "Nh" else native_final.density, dtype=np.float64).copy(),
+            pressure=np.asarray(reference_final.pressure if field_name == "Ph" else native_final.pressure, dtype=np.float64).copy(),
+            momentum=np.asarray(reference_final.momentum if field_name == "NVh" else native_final.momentum, dtype=np.float64).copy(),
+        ),
+        mesh,
+    )
+
+
+def _hybrid_state_register(
+    config,
+    native_final: NeutralMixedState,
+    reference_final: NeutralMixedState,
+    reference_initial: NeutralMixedState,
+    native_balance: dict[str, np.ndarray],
+    reference_balance: dict[str, np.ndarray],
+    *,
+    mesh,
+    metrics,
+    scalars: dict[str, float],
+    timestep: float,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    swaps: dict[str, object] = {}
+    ranked: list[dict[str, object]] = []
+    for field_name in ("Nh", "Ph", "NVh"):
+        hybrid = _state_with_reference_field(native_final, reference_final, field_name, mesh=mesh)
+        hybrid_balance = _momentum_balance(
+            config,
+            hybrid,
+            reference_initial,
+            mesh=mesh,
+            metrics=metrics,
+            scalars=scalars,
+            timestep=timestep,
+        )
+        term_delta = _term_delta_payload(
+            hybrid_balance,
+            reference_balance,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        native_to_hybrid_term_delta = _term_delta_payload(
+            hybrid_balance,
+            native_balance,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        residual = np.asarray(hybrid_balance["residual_rate"], dtype=np.float64)[active_x, active_y, :]
+        residual_metrics = _array_metrics(residual)
+        term_metrics = term_delta.get("term_metrics", {}) if isinstance(term_delta, dict) else {}
+        pressure_delta = float(term_metrics.get("pressure_gradient", {}).get("target_adjacent_max_abs", 0.0))  # type: ignore[union-attr]
+        viscosity_delta = float(term_metrics.get("parallel_viscosity", {}).get("target_adjacent_max_abs", 0.0))  # type: ignore[union-attr]
+        swaps[field_name] = {
+            "swapped_field": field_name,
+            "final_field_error_register": _final_field_error_register(
+                hybrid,
+                reference_final,
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+                line_x=line_x,
+                line_z=line_z,
+            ),
+            "residual_rate_metrics": residual_metrics,
+            "term_delta": term_delta,
+            "native_to_hybrid_term_delta": native_to_hybrid_term_delta,
+        }
+        ranked.append(
+            {
+                "swapped_field": field_name,
+                "residual_rate_max_abs": residual_metrics["max_abs"],
+                "pressure_gradient_target_adjacent_max_abs": pressure_delta,
+                "parallel_viscosity_target_adjacent_max_abs": viscosity_delta,
+            }
+        )
+    return {
+        "swaps": swaps,
+        "ranked_by_pressure_gradient_target_adjacent_delta": sorted(
+            ranked,
+            key=lambda item: float(item["pressure_gradient_target_adjacent_max_abs"]),
+        ),
+        "ranked_by_parallel_viscosity_target_adjacent_delta": sorted(
+            ranked,
+            key=lambda item: float(item["parallel_viscosity_target_adjacent_max_abs"]),
+        ),
+        "interpretation": (
+            "Each hybrid point replaces one native final field by the reference final field before "
+            "reevaluating the native NVh balance. The ranking indicates which state variable most "
+            "reduces the target-adjacent pressure-gradient or viscosity discrepancy."
+        ),
+    }
 
 
 def _restore_trimmed_field(field: np.ndarray, template: np.ndarray, *, mesh) -> np.ndarray:
