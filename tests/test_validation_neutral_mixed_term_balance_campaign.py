@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from jax_drb.validation import (
     build_neutral_mixed_term_balance_campaign_report,
@@ -15,6 +16,31 @@ from jax_drb.validation import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _REFERENCE_ARRAYS = _REPO_ROOT / "references" / "baselines" / "reference_arrays" / "neutral_mixed_one_step.npz"
+
+
+def _write_synthetic_native_history_with_target_drift(path: Path) -> Path:
+    with np.load(_REFERENCE_ARRAYS) as reference:
+        metadata = str(reference["__metadata__"].item())
+        density = np.asarray(reference["var__Nh"], dtype=np.float64).copy()
+        pressure = np.asarray(reference["var__Ph"], dtype=np.float64).copy()
+        momentum = np.asarray(reference["var__NVh"], dtype=np.float64).copy()
+
+    final = -1
+    x_index = 5
+    z_index = 5
+    lower_target_y = 0
+    upper_target_y = density.shape[2] - 1
+    density[final, x_index, lower_target_y, z_index] += 2.0e-2
+    pressure[final, x_index, lower_target_y, z_index] += 3.0e-3
+    momentum[final, x_index, upper_target_y, z_index] += 1.0e-3
+    np.savez_compressed(
+        path,
+        __metadata__=metadata,
+        var__Nh=density,
+        var__Ph=pressure,
+        var__NVh=momentum,
+    )
+    return path
 
 
 def _write_neutral_mixed_input(path: Path) -> Path:
@@ -93,6 +119,34 @@ def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_pa
     assert pressure_driver["field"] == "Ph"
     assert pressure_driver["term"] == "pressure_gradient"
     assert len(pressure_driver["term_delta_lineout"]) == len(report["active_y_indices"])
+
+
+def test_neutral_mixed_term_balance_register_ranks_target_adjacent_state_drift(tmp_path: Path) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    native_arrays = _write_synthetic_native_history_with_target_drift(tmp_path / "native_target_drift.npz")
+
+    report = build_neutral_mixed_term_balance_campaign_report(
+        input_path=input_path,
+        reference_arrays_npz=_REFERENCE_ARRAYS,
+        native_arrays_npz=native_arrays,
+    )
+
+    field_register = report["final_field_error_register"]
+    ranked_fields = field_register["ranked_by_target_adjacent_max_abs"]
+    assert ranked_fields[0]["field"] == "Nh"
+    assert ranked_fields[0]["target_adjacent_max_abs"] == pytest.approx(2.0e-2, rel=1.0e-12, abs=1.0e-12)
+    assert field_register["fields"]["Nh"]["interior_max_abs"] == 0.0
+    assert field_register["fields"]["Ph"]["target_adjacent_max_abs"] == pytest.approx(3.0e-3, rel=1.0e-12, abs=1.0e-12)
+    assert field_register["fields"]["NVh"]["target_adjacent_max_abs"] == pytest.approx(1.0e-3, rel=1.0e-12, abs=1.0e-12)
+
+    state_register = report["state_driver_register"]
+    ranked_state_rates = state_register["ranked_state_rate_errors"]
+    assert ranked_state_rates[0]["field"] == "Nh"
+    assert ranked_state_rates[0]["target_adjacent_max_abs"] == pytest.approx(1.0e-3, rel=1.0e-12, abs=1.0e-12)
+    pressure_driver = state_register["momentum_driver_deltas"]["pressure_to_pressure_gradient"]
+    assert pressure_driver["target_adjacent_max_abs"] > 0.0
+    assert pressure_driver["interior_max_abs"] >= 0.0
+    assert state_register["target_y_indices"] == field_register["target_y_indices"]
 
 
 def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_path: Path) -> None:

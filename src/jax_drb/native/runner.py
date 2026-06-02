@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping as ABCMapping
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 from typing import Any, Mapping
@@ -148,10 +149,13 @@ def run_curated_case(
     *,
     reference_root: str | Path,
     manifest_path: str | Path | None = None,
+    extra_overrides: tuple[str, ...] = (),
 ) -> NativeRunResult:
     from ..parity.reference import resolve_reference_case
 
     case, input_path = resolve_reference_case(case_name, reference_root=reference_root, manifest_path=manifest_path)
+    if extra_overrides:
+        case = replace(case, extra_overrides=(*case.extra_overrides, *tuple(extra_overrides)))
     if case.name == "alfven_wave_rhs":
         return _run_alfven_wave_rhs_case(case, input_path=input_path, reference_root=reference_root)
     if case.name == "alfven_wave_one_step":

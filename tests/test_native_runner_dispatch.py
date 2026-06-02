@@ -139,6 +139,41 @@ def test_run_curated_case_falls_back_to_generic_config_runner(
     assert calls["reference_case"] is case
 
 
+def test_run_curated_case_appends_extra_overrides_before_generic_config_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = ReferenceCase(
+        name="evolve_density_rhs",
+        stage="unit",
+        reference_path="cases/evolve_density_rhs/BOUT.inp",
+        parity_mode="one_step",
+        rationale="Unit-test extra override merge.",
+        compare_variables=("Ne",),
+        extra_overrides=("nout=1",),
+    )
+    input_path = tmp_path / case.reference_path
+    reference_root = tmp_path / "reference-root"
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(reference_module, "resolve_reference_case", lambda *args, **kwargs: (case, input_path))
+    monkeypatch.setattr(native_runner, "_load_curated_case_config", lambda *args, **kwargs: object())
+    monkeypatch.setattr(native_runner, "run_config_case", lambda *args, **kwargs: captured.setdefault("kwargs", kwargs))
+
+    native_runner.run_curated_case(
+        case.name,
+        reference_root=reference_root,
+        extra_overrides=("runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp",),
+    )
+
+    reference_case = captured["kwargs"]["reference_case"]
+    assert reference_case is not case
+    assert reference_case.extra_overrides == (
+        "nout=1",
+        "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
+    )
+
+
 def test_runner_cache_path_wrappers_use_committed_snapshot_cache_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

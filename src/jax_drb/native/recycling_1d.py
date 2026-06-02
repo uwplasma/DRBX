@@ -176,9 +176,12 @@ from .recycling_layout import (
     unpack_recycling_active_state as _unpack_recycling_active_state,
 )
 from .recycling_fixed_residual import (
+    RecyclingFixedState as _RecyclingFixedState,
     build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
     build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
+    fixed_state_to_feedback_integrals as _fixed_state_to_feedback_integrals,
+    fixed_state_to_full_fields as _fixed_state_to_full_fields,
     pack_fixed_state as _pack_fixed_state,
     unpack_fixed_state as _unpack_fixed_state,
 )
@@ -1736,7 +1739,7 @@ def advance_recycling_1d_implicit_history(
             step_solver_mode=_adaptive_bdf_step_solver_mode(solver_mode),
         )
 
-    if solver_mode == "bdf":
+    if solver_mode in {"bdf", "bdf_fixed_full_field_jvp"}:
         return _advance_recycling_1d_bdf_history(
             config,
             fields,
@@ -1750,6 +1753,9 @@ def advance_recycling_1d_implicit_history(
             timestep=timestep,
             steps=steps,
             progress_callback=progress_callback,
+            jacobian_mode="jvp" if solver_mode == "bdf_fixed_full_field_jvp" else None,
+            rhs_backend="fixed_full_field_array" if solver_mode == "bdf_fixed_full_field_jvp" else "host_bridge",
+            solver_mode_label=solver_mode,
         )
 
     variable_history = {name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names}
@@ -2883,6 +2889,9 @@ def _advance_recycling_1d_bdf_history(
     timestep: float,
     steps: int,
     progress_callback: RecyclingProgressCallback | None = None,
+    jacobian_mode: str | None = None,
+    rhs_backend: str = "host_bridge",
+    solver_mode_label: str = "bdf",
 ) -> Recycling1DHistoryResult:
     try:
         from scipy.integrate import solve_ivp
@@ -2932,7 +2941,14 @@ def _advance_recycling_1d_bdf_history(
     rhs_evaluation_count = 0
     rhs_cache_hit_count = 0
     jacobian_callback_count = 0
-    bdf_jacobian_mode = _resolve_recycling_bdf_jacobian_mode()
+    if rhs_backend not in {"host_bridge", "fixed_full_field_array"}:
+        raise ValueError(f"Unsupported recycling BDF rhs_backend={rhs_backend!r}.")
+    resolved_jacobian_mode = (
+        _resolve_recycling_bdf_jacobian_mode()
+        if jacobian_mode is None
+        else str(jacobian_mode).strip().lower()
+    )
+    bdf_jacobian_mode = resolved_jacobian_mode if resolved_jacobian_mode in {"fd", "jvp"} else "fd"
     bdf_jvp_batch_size = _resolve_recycling_jvp_batch_size()
     jacobian_parallel_workers = _resolve_recycling_bdf_jacobian_parallel_workers()
 
@@ -2955,11 +2971,24 @@ def _advance_recycling_1d_bdf_history(
             layout=layout,
         )
 
-    fixed_rhs = _build_fixed_host_rhs_bridge(
-        packed_rhs,
-        layout=layout,
-        base_feedback_integrals=current_integrals,
-    )
+    if rhs_backend == "fixed_full_field_array":
+        fixed_rhs = _build_fixed_full_field_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=current_integrals,
+            feedback_previous_errors=None,
+            feedback_timestep=None if feedback_names else timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    else:
+        fixed_rhs = _build_fixed_host_rhs_bridge(
+            packed_rhs,
+            layout=layout,
+            base_feedback_integrals=current_integrals,
+        )
 
     def _evaluate_rhs_object(packed_state: object) -> object:
         fixed_state = _unpack_fixed_state(packed_state, layout=layout)
@@ -3058,7 +3087,7 @@ def _advance_recycling_1d_bdf_history(
             details, _ = _build_recycling_progress_details(
                 interval_index=column,
                 steps=steps,
-                solver_mode="bdf",
+                solver_mode=solver_mode_label,
                 accepted_dt=float(timestep),
                 stored_states=column + 1,
                 output_timestep=timestep,
@@ -3077,6 +3106,7 @@ def _advance_recycling_1d_bdf_history(
             "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
             "bdf_jacobian_callback_count": int(jacobian_callback_count),
             "bdf_jacobian_mode": bdf_jacobian_mode,
+            "bdf_rhs_backend": str(rhs_backend),
             "bdf_jvp_batch_size": None if bdf_jvp_batch_size is None else int(bdf_jvp_batch_size),
             "bdf_jacobian_parallel_workers": int(jacobian_parallel_workers),
         },
@@ -3210,6 +3240,78 @@ def _compute_recycling_1d_packed_rhs(
     ]
     pieces.extend(rhs_array(result.feedback_integral_rhs.get(name, 0.0), dtype=rhs_dtype).reshape(1) for name in feedback_names)
     return concatenate(pieces) if pieces else empty
+
+
+def _build_fixed_full_field_recycling_rhs(
+    config: BoutConfig,
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    layout: _RecyclingPackedStateLayout,
+    base_feedback_integrals: dict[str, object],
+    feedback_previous_errors: dict[str, float] | None,
+    feedback_timestep: float | None,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> Callable[[_RecyclingFixedState], _RecyclingFixedState]:
+    """Build a fixed-layout RHS that returns active arrays without repacking."""
+
+    def rhs(state: _RecyclingFixedState) -> _RecyclingFixedState:
+        full_fields = _fixed_state_to_full_fields(state, layout=layout)
+        state_integrals = _fixed_state_to_feedback_integrals(
+            state,
+            layout=layout,
+            base_feedback_integrals=base_feedback_integrals,
+        )
+        if use_jax_backend(*(full_fields[name] for name in full_fields)):
+            state_fields = {name: jnp.asarray(value, dtype=jnp.float64) for name, value in full_fields.items()}
+        else:
+            state_fields = {name: np.asarray(value, dtype=np.float64) for name, value in full_fields.items()}
+        species = _override_species_fields(runtime_model.species_templates, fields=state_fields, mesh=mesh)
+        result = _compute_recycling_1d_rhs_from_species(
+            config,
+            species=species,
+            controllers=runtime_model.controllers,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            feedback_integrals=state_integrals,
+            feedback_previous_errors=feedback_previous_errors,
+            feedback_timestep=feedback_timestep,
+            explicit_pressure_sources=runtime_model.explicit_pressure_sources,
+            density_source_overrides=runtime_model.density_source_overrides,
+            pressure_source_overrides=runtime_model.pressure_source_overrides,
+            momentum_source_overrides=runtime_model.momentum_source_overrides,
+            lower_target_geometry=runtime_model.lower_target_geometry,
+            upper_target_geometry=runtime_model.upper_target_geometry,
+            preserve_dump_target_state=runtime_model.preserve_dump_target_state,
+            preserve_dump_ion_target_state_only=runtime_model.preserve_dump_ion_target_state_only,
+            include_reaction_diagnostics=False,
+        )
+        field_rhs = tuple(result.variables[f"ddt({name})"][0][layout.active_slices] for name in layout.field_names)
+        feedback_rhs_values = tuple(result.feedback_integral_rhs.get(name, 0.0) for name in layout.feedback_names)
+        use_jax_result = use_jax_backend(*field_rhs, *feedback_rhs_values, state.feedback_values)
+        if use_jax_result:
+            feedback_rhs = (
+                jnp.asarray(feedback_rhs_values, dtype=jnp.float64)
+                if feedback_rhs_values
+                else jnp.asarray([], dtype=jnp.float64)
+            )
+            return _RecyclingFixedState(
+                field_values=tuple(jnp.asarray(value, dtype=jnp.float64) for value in field_rhs),
+                feedback_values=feedback_rhs,
+            )
+        feedback_rhs_np = (
+            np.asarray(feedback_rhs_values, dtype=np.float64)
+            if feedback_rhs_values
+            else np.asarray([], dtype=np.float64)
+        )
+        return _RecyclingFixedState(
+            field_values=tuple(np.asarray(value, dtype=np.float64) for value in field_rhs),
+            feedback_values=feedback_rhs_np,
+        )
+
+    return rhs
 
 
 def _predict_recycling_packed_state(

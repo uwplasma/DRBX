@@ -206,6 +206,26 @@ large host-device copies, the finite-difference BDF callback remains the
 validated compatibility path and the result should be treated as diagnostic
 evidence for the next residual-porting step.
 
+The next BDF migration gate keeps the same SciPy BDF output-window timestepper
+but switches both the RHS seam and Jacobian callback through a named runtime
+mode:
+
+```bash
+PYTHONPATH=src python scripts/profile_curated_case.py recycling_dthe_one_step \
+  --reference-root /path/to/reference/root \
+  --override runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp \
+  --output-dir tmp/profiles/recycling_dthe_one_step_fixed_full_field_jvp_bdf \
+  --warm-runs 0 \
+  --timed-runs 1 \
+  --rss-profile \
+  --jax-trace
+```
+
+The resulting history diagnostics should report
+`bdf_rhs_backend="fixed_full_field_array"` and `bdf_jacobian_mode="jvp"`.
+Compare its runtime, RSS, callback counts, and reference errors against the
+default `bdf` profile before promoting it.
+
 The related JAX Newton path is matrix-free: JAX GMRES receives the linearized
 Jacobian action as a callable rather than a materialized sparse matrix. This is
 the preferred algorithmic target for future differentiable recycling kernels,

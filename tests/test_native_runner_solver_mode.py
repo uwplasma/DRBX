@@ -60,6 +60,16 @@ def test_configured_recycling_transient_solver_mode_reads_runtime_override() -> 
     assert configured_recycling_transient_solver_mode(config) == "adaptive_be"
 
 
+def test_configured_recycling_transient_solver_mode_accepts_bdf_full_field_jvp_opt_in() -> None:
+    config = apply_bout_overrides(
+        parse_bout_input(_TWO_ION_INPUT),
+        ("runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp",),
+    )
+
+    assert configured_recycling_transient_solver_mode(config) == "bdf_fixed_full_field_jvp"
+    assert select_recycling_transient_solver_mode(config, parity_mode="one_step") == "bdf_fixed_full_field_jvp"
+
+
 def test_configured_recycling_transient_solver_mode_reads_legacy_jax_drb_section() -> None:
     config = apply_bout_overrides(parse_bout_input(_ONE_ION_INPUT), ("jax_drb:recycling_transient_solver_mode=adaptive_bdf",))
     assert configured_recycling_transient_solver_mode(config) == "adaptive_bdf"

@@ -106,6 +106,9 @@ For the remaining recycling solver work, the order is therefore fixed:
   fully validated output-window path;
 - use `JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE=jvp` only as an opt-in derivative
   experiment on transformable residual callbacks;
+- use `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` as
+  the named output-window BDF gate for the fixed-full-field RHS plus grouped
+  JVP Jacobian seam;
 - continue moving source, closure, boundary, and target-recycling kernels into
   fixed-layout JAX functions with parity and JVP gates;
 - promote matrix-free/JVP nonlinear solves only after the full heavy residual

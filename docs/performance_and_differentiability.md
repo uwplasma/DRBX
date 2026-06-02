@@ -324,6 +324,17 @@ window. The safe production policy is to expose the JVP callback for
 transformable residual experiments while continuing to keep the validated BDF
 path as the default.
 
+A narrower BDF-compatible opt-in now exercises the same migration seam without
+changing the output-window timestepper:
+`runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`. This route
+keeps SciPy BDF, routes the RHS through the fixed-layout full-field active-array
+adapter, and forces the sparse Jacobian callback through grouped JVPs. The
+history diagnostics record `bdf_rhs_backend="fixed_full_field_array"` and
+`bdf_jacobian_mode="jvp"` so profile artifacts identify the route explicitly.
+It remains a parity/runtime gate rather than the default until the full
+output-window campaigns show equal reference agreement with lower call count
+and memory use.
+
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable
 linear map, while `jax.vmap` batches the colored tangent pushes. The default
@@ -634,7 +645,10 @@ production backend. The environment variable
 the standard sparse solver, and `JAX_DRB_RECYCLING_JVP_BATCH_SIZE` bounds the
 color-group batch size. These modes should be used only on gates where the
 residual has been proven JAX-transformable; the heavy SciPy BDF callback
-remains a host compatibility path.
+remains a host compatibility path. For the long SciPy BDF callback itself,
+`runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` exercises
+the fixed-full-field RHS plus grouped-JVP Jacobian seam while preserving the
+same BDF timestepper.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or

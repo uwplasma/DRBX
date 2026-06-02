@@ -249,6 +249,14 @@ transformable. The next promotion criterion is therefore a full output-window
 run that passes the live-reference compare surface and shows lower residual
 call count or memory than the finite-difference BDF callback.
 
+The current named gate for that comparison is
+`runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`. It preserves
+the SciPy BDF timestepper but changes the callback seam to a fixed-full-field
+RHS and grouped-JVP sparse Jacobian, with diagnostics reporting
+`bdf_rhs_backend` and `bdf_jacobian_mode`. This is the route to profile before
+attempting a matrix-free or Lineax replacement for the full output-window
+solve.
+
 The sparse Newton interface now exposes that derivative algorithm directly as
 `jacobian_mode="jvp"`, and the implicit-solver profile audit compares it
 against the finite-difference sparse Newton path on a transformable residual.

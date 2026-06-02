@@ -100,6 +100,9 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands() -> None:
     assert "--batch-sizes" in batched.command
     assert "2,4,8,16,32,64,128" in batched.command
     assert "--skip-objective-grad-check" in batched.command
+    assert "--jax-trace" in batched.command
+    assert "--device-memory-profile" in batched.command
+    assert "--compilation-cache-dir" in batched.command
 
 
 def test_research_campaign_command_runner_reports_timeout(

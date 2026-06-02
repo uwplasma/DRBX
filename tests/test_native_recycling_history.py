@@ -58,6 +58,7 @@ def test_implicit_history_rejects_negative_steps() -> None:
         ("adaptive_be", "_advance_recycling_1d_adaptive_be_history"),
         ("adaptive_bdf", "_advance_recycling_1d_adaptive_bdf_history"),
         ("bdf", "_advance_recycling_1d_bdf_history"),
+        ("bdf_fixed_full_field_jvp", "_advance_recycling_1d_bdf_history"),
     ),
 )
 def test_implicit_history_dispatches_solver_modes(
@@ -93,7 +94,11 @@ def test_implicit_history_dispatches_solver_modes(
     assert calls["kwargs"]["runtime_model"] is model
     assert calls["kwargs"]["field_names"] == ("N",)
     assert calls["kwargs"]["feedback_names"] == ("ctrl",)
-    if solver_mode != "bdf":
+    if solver_mode == "bdf_fixed_full_field_jvp":
+        assert calls["kwargs"]["jacobian_mode"] == "jvp"
+        assert calls["kwargs"]["rhs_backend"] == "fixed_full_field_array"
+        assert calls["kwargs"]["solver_mode_label"] == "bdf_fixed_full_field_jvp"
+    if solver_mode not in {"bdf", "bdf_fixed_full_field_jvp"}:
         assert calls["kwargs"]["residual_tolerance"] == 1.0e-7
         assert calls["kwargs"]["max_nonlinear_iterations"] == 9
 
@@ -714,8 +719,87 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     assert result.diagnostics["bdf_rhs_cache_hit_count"] == 1
     assert result.diagnostics["bdf_jacobian_callback_count"] == 1
     assert result.diagnostics["bdf_jacobian_mode"] == "fd"
+    assert result.diagnostics["bdf_rhs_backend"] == "host_bridge"
     assert result.diagnostics["bdf_jvp_batch_size"] is None
     assert result.diagnostics["bdf_jacobian_parallel_workers"] == 2
+
+
+def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_solve_ivp(rhs, time_span, y0, **kwargs):
+        np.testing.assert_allclose(rhs(0.0, y0), np.zeros(2))
+        assert kwargs["jac"](0.0, y0) == "jvp-jacobian"
+        return SimpleNamespace(
+            success=True,
+            message="ok",
+            y=np.stack([np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)], axis=1),
+        )
+
+    def fake_unpack(packed_state, **kwargs):
+        return {"N": np.array([packed_state[0]])}, {"ctrl": float(packed_state[1])}
+
+    layout = SimpleNamespace(
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        active_slices=(slice(None),),
+        active_shape=(1,),
+        field_size=1,
+        field_templates=(np.array([1.0], dtype=np.float64),),
+    )
+
+    def fake_fixed_full_field_rhs(*args, **kwargs):
+        captured["builder_kwargs"] = kwargs
+
+        def rhs(state):
+            return recycling._RecyclingFixedState(
+                field_values=tuple(np.zeros_like(value) for value in state.field_values),
+                feedback_values=np.zeros_like(state.feedback_values),
+            )
+
+        return rhs
+
+    def fake_jvp_jacobian(residual, state, **kwargs):
+        captured["jvp_kwargs"] = kwargs
+        value = np.asarray(residual(state), dtype=np.float64)
+        assert value.shape == np.asarray(state, dtype=np.float64).shape
+        return "jvp-jacobian"
+
+    monkeypatch.setattr("scipy.integrate.solve_ivp", fake_solve_ivp)
+    monkeypatch.setattr(recycling, "_recycling_active_shape", lambda mesh: (1,))
+    monkeypatch.setattr(recycling, "_build_recycling_residual_sparsity", lambda **kwargs: _FakeSparsity())
+    monkeypatch.setattr(recycling, "_build_recycling_color_groups", lambda **kwargs: ())
+    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout)
+    monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
+    monkeypatch.setattr(recycling, "_unpack_recycling_active_state", fake_unpack)
+    monkeypatch.setattr(recycling, "_build_fixed_full_field_recycling_rhs", fake_fixed_full_field_rhs)
+    monkeypatch.setattr(recycling, "build_sparse_jvp_jacobian", fake_jvp_jacobian)
+    monkeypatch.setattr(recycling, "_sanitize_recycling_fields", lambda config, fields: fields)
+    monkeypatch.setattr(recycling, "_sanitize_feedback_integrals", lambda integrals, **kwargs: integrals)
+
+    result = recycling._advance_recycling_1d_bdf_history(
+        _FakeConfig(),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=0.5,
+        steps=1,
+        jacobian_mode="jvp",
+        rhs_backend="fixed_full_field_array",
+        solver_mode_label="bdf_fixed_full_field_jvp",
+    )
+
+    assert captured["builder_kwargs"]["layout"] is layout
+    assert captured["builder_kwargs"]["feedback_timestep"] is None
+    assert "difference_plan" in captured["jvp_kwargs"]
+    assert result.diagnostics["bdf_jacobian_mode"] == "jvp"
+    assert result.diagnostics["bdf_rhs_backend"] == "fixed_full_field_array"
+    assert result.variable_history["N"].shape == (2, 1)
 
 
 def test_bdf_jacobian_parallel_worker_env_resolution(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -51,6 +51,15 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--warm-runs", type=int, default=1, help="Number of untimed warm runs before profiling.")
     parser.add_argument("--timed-runs", type=int, default=2, help="Number of timed runs after warmup.")
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help=(
+            "Extra BOUT.inp override forwarded to run_curated_case(), for example "
+            "'runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp'. May be repeated."
+        ),
+    )
     parser.add_argument("--cprofile-top", type=int, default=40, help="Number of cProfile rows to write.")
     parser.add_argument(
         "--skip-cprofile",
@@ -139,6 +148,7 @@ def _time_case(
         def execute_case():
             run_result = run_curated_case(
                 args.case_name,
+                extra_overrides=tuple(args.override),
                 **run_kwargs,
             )
             _block_result(run_result)
@@ -268,6 +278,7 @@ def main() -> int:
     ]
     summary = {
         "case_name": args.case_name,
+        "extra_overrides": list(args.override),
         "reference_root": None if args.reference_root is None else _sanitize_public_path(args.reference_root),
         "devices": [str(device) for device in jax.devices()],
         "default_backend": jax.default_backend(),
