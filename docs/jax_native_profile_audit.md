@@ -10,18 +10,18 @@ It does three concrete things:
 
 After the latest reduced-kernel pass, the native selected-field comparisons now
 batch the reference/candidate pair through one compiled reduction call instead
-of dispatching the same reduced kernel twice. The refreshed committed audit was
-run on the `office` GPU host and records two CUDA-visible devices. The measured
-GPU timings are:
+of dispatching the same reduced kernel twice. The refreshed committed audit
+JSON records the `cpu` backend and one `TFRT_CPU_0` device. The measured CPU
+timings in the retained artifact are:
 
 - traced-field-line reduced kernel:
-  - compile time about `1.52e-3 s`
-  - first execution about `4.71e-4 s`
-  - warm execution about `1.06e-4 s`
+  - compile time about `6.38e-4 s`
+  - first execution about `7.04e-5 s`
+  - warm execution about `7.67e-6 s`
 - stellarator VMEC reduced kernel:
-  - compile time about `9.76e-4 s`
-  - first execution about `3.12e-4 s`
-  - warm execution about `1.12e-4 s`
+  - compile time about `5.03e-4 s`
+  - first execution about `6.25e-5 s`
+  - warm execution about `6.38e-6 s`
 
 The current artifact bundle is written to `docs/data/jax_native_profile_audit_artifacts/` and contains:
 
@@ -49,5 +49,6 @@ Interpretation:
 - the figure now uses a log-scale timing view so the warm-dispatch surface is
   not visually crushed by the compile bars.
 - these reduced geometry kernels are intentionally not used to claim full
-  recycling-solver GPU speedup; they are the reproducible GPU trace surface
-  while heavier residual pieces are migrated to JAX-transformable kernels.
+  recycling-solver GPU speedup; the retained artifact is a reproducible JAX
+  trace surface while heavier residual pieces are migrated to
+  JAX-transformable kernels.

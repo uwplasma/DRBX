@@ -418,9 +418,9 @@ The supporting JAX references are:
 - [persistent compilation cache](https://docs.jax.dev/en/latest/persistent_compilation_cache.html)
 - [JAX profiling documentation](https://docs.jax.dev/en/latest/profiling.html)
 
-## GPU Workflow On `office`
+## GPU Workflow On Self-Hosted Machines
 
-The currently reachable office machine has:
+The currently reachable `office` machine has:
 
 - two `NVIDIA RTX A4000` GPUs
 - a clean repo-local `jax_drb` environment with
@@ -432,22 +432,17 @@ The remote environment is now operational rather than speculative:
 - `jax.devices()` reports `CudaDevice(id=0)` and `CudaDevice(id=1)`
 - `jax.default_backend()` reports `gpu`
 
-The first GPU-native audit on `office` is the compact selected-field profile
-bundle, not the heavy host/SciPy recycling lane. Current measured results on
-that GPU environment are:
-
-- traced-field-line reduced lane
-  - compile `4.41e-2 s`
-  - first execute `1.23e-3 s`
-  - warm execute `3.30e-4 s`
-- stellarator VMEC reduced lane
-  - compile `7.36e-3 s`
-  - first execute `3.98e-4 s`
-  - warm execute `1.14e-4 s`
+Do not cite `docs/data/jax_native_profile_audit_artifacts/data/jax_native_profile_audit.json`
+as GPU-backed until that artifact is regenerated on a CUDA-visible backend.
+The committed native-profile audit currently records the `cpu` backend and one
+`TFRT_CPU_0` device. GPU-backed release evidence is limited to the committed
+profile summaries listed above, especially the fixed-layout D/T/He gate
+summaries and the dense atomic-rate throughput gate.
 
 That is the correct runtime split for the current codebase:
 
-- compact native JAX lanes are ready for CPU/GPU audit
+- compact native JAX lanes are ready for CPU/GPU audit when regenerated on the
+  intended backend
 - heavy recycling lanes are still primarily CPU/host-side optimization targets
 
 ## Current Interpretation Standard
