@@ -8,14 +8,24 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 
 - Neutral mixed one-step and short-window parity runs now use internal BDF
   substeps by default. The refreshed campaign reduces the `NVh` history error
-  from about `3.37e-3` to about `5.81e-4`.
+  from about `3.37e-3` to about `5.81e-4`; the latest connected-y boundary
+  reconstruction audit reduces the same default-substep active-domain metric
+  further to about `7.66e-5` before release-media regeneration.
 - Direct neutral `NVh` source diagnostics close the pressure-gradient,
   parallel-viscosity, and perpendicular-viscosity implementation question:
   the written reference diagnostics and JAXDRB reconstructions agree to
   roundoff after active-domain scaling.
+- A new Hermès-free neutral substep/hybrid diagnostic sweeps
+  `runtime:neutral_mixed_internal_substeps`, records failed high-substep
+  attempts explicitly, and swaps `Nh`, `Ph`, and `NVh` reference final fields
+  into the native final state to rank target-band state/history sequencing
+  drivers before changing production boundary logic.
 - The production SciPy BDF recycling compatibility path now records the
   resolved `bdf_jacobian_mode` and `bdf_jvp_batch_size` alongside RHS,
   cache-hit, and Jacobian callback counters.
+- The transient-mode comparison helper now includes the opt-in
+  `bdf_fixed_full_field_jvp` lane and prints a direct `bdf` versus
+  full-field-JVP delta table when both modes are run.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.
@@ -39,11 +49,19 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 
 ## Validation
 
-The release candidate passed `pytest -q`, `scripts/run_closeout_coverage.py`,
-`scripts/run_promoted_solver_coverage.py`, and the local all-campaign research
-bundle with the live reference checkout. GitHub Actions are now green on the
-documentation, test, and coverage workflows, so release publication is gated by
-the remaining technical promotion checks rather than CI availability.
+The current release candidate passed the bounded closeout gate at `97%`
+coverage and the promoted native-solver gate at `95%` coverage on the local
+developer machine. The promoted gate ran `451` tests with `7` deselected and
+`1` expected xfail. GitHub Actions are green on the documentation, test, and
+coverage workflows for the latest pushed commit, so release publication is
+gated by technical promotion decisions rather than CI availability.
+
+Live-reference and large `all-gpu` campaigns remain manual self-hosted runs:
+they require a valid reference checkout and CUDA-visible devices. Their
+commands are now exposed in the research-campaign workflow dispatch and tested
+against the bundle script, but the retained release evidence should still be
+read as committed-profile evidence rather than a blanket full-output-window
+GPU speedup claim.
 
 ## Current Boundary
 

@@ -103,16 +103,10 @@ jax_drb run path/to/input.toml --verbose
 ## Python API
 
 ```python
-from pathlib import Path
-
 from jax_drb.cli import main
-from jax_drb.native import run_curated_case, run_input_case
+from jax_drb.native import run_input_case
 
 main(["run", "examples/inputs/restartable_diffusion.toml", "--quiet"])
-
-result = run_curated_case("tokamak_isothermal_one_step", reference_root=Path("/path/to/reference-suite"))
-print(result.payload["capability_tier"])
-print(sorted(result.variables))
 
 driver_result = run_input_case(
     "examples/inputs/restartable_diffusion.toml",

@@ -27,16 +27,28 @@ Current artifact outputs:
 - compact arrays: [neutral_mixed_term_balance_campaign.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__data__neutral_mixed_term_balance_campaign.npz)
 - figure: [neutral_mixed_term_balance_campaign.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
-The current generated report uses the physical active `x-y` domain for all
+The published generated report uses the physical active `x-y` domain for all
 term metrics and direct-reference scaling, so guard-cell-only diagnostics do
-not contaminate the offender ranking. It shows a worst active-domain final
-`NVh` difference of about `5.81e-4`, down from the earlier boundary-local
-`3.37e-3` mismatch after the neutral-mixed mesh topology and one-step history
-substepping were tightened. Inserting the Hermès-3 final state into the native
-operator now gives a residual-rate max of about `1.66e-4`; inserting the
-native final state gives a residual-rate difference of about `9.01e-5` against
-the Hermès balance. The remaining final-state drift is therefore no longer a
-missing direct pressure-gradient or viscosity source formula.
+not contaminate the offender ranking. That report shows a worst active-domain
+final `NVh` difference of about `5.81e-4`, down from the earlier
+boundary-local `3.37e-3` mismatch after the neutral-mixed mesh topology and
+one-step history substepping were tightened. Inserting the Hermès-3 final state
+into the native operator gives a residual-rate max of about `1.66e-4`;
+inserting the native final state gives a residual-rate difference of about
+`9.01e-5` against the Hermès balance. The remaining final-state drift is
+therefore no longer a missing direct pressure-gradient or viscosity source
+formula.
+
+The current code-path audit adds connected-y guard reconstruction for
+non-target neutral-mixed meshes. Before regenerating the release media, that
+change reduces the default-substep active-domain final `NVh` metric from
+about `5.81e-4` to about `7.66e-5`, the target-adjacent `NVh` metric to about
+`5.18e-5`, and the target-band state-rate errors to about `Nh = 8.96e-5`,
+`Ph = 7.17e-6`, and `NVh = 2.59e-6`. The same audit shows the dominant
+state-induced momentum drivers falling to about `Ph -> pressure_gradient =
+5.06e-5` and `NVh -> parallel_viscosity = 5.31e-5`. This is a solver update,
+not a new public figure, so the remaining release-media task is to regenerate
+the JSON/NPZ/PNG bundle from the updated code path.
 
 The report now carries a target-adjacent offender register rather than only
 aggregate field errors. On the native-minus-Hermès final-state term deltas,

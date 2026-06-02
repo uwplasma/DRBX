@@ -27,3 +27,8 @@ used by the test suite:
 
 The project README remains the shortest installation and quick-start path:
 [README](https://github.com/uwplasma/jax_drb#readme).
+
+Large rendered media are release-backed so that the repository stays small.
+For the current private repository, unauthenticated readers may need repository
+access to render linked release media on ReadTheDocs; local users can restore
+the same artifacts with `python scripts/fetch_example_artifacts.py`.

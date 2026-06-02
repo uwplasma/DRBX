@@ -30,8 +30,8 @@ report the current coverage without failing the iteration loop:
 python scripts/run_promoted_solver_coverage.py --audit
 ```
 
-As of the April 30, 2026 local audit, this promoted slice passes its tests
-(`428 passed`, `7 deselected`, `1 xfailed`) and reports `95%` total coverage.
+As of the June 2, 2026 local audit, this promoted slice passes its tests
+(`451 passed`, `7 deselected`, `1 xfailed`) and reports `95%` total coverage.
 The remaining coverage deficits are concentrated in the hardest and most
 valuable surfaces: runner orchestration, full-sheath lower-target branches,
 legacy mixed residual helpers, target-recycling edge cases, and some CLI
@@ -56,6 +56,7 @@ This script runs a bounded critical-path slice over:
 - the public release-surface regression.
 
 It then enforces a `95%` total coverage threshold on that exact closeout slice.
+The latest local run reported `97%` total closeout coverage.
 
 The point of this split is pragmatic: repo-wide monolithic coverage is still too broad and slow to be a credible local release gate, while the closeout slice is fast enough to run repeatedly and is aligned with the modules that currently decide whether `jax_drb` is ready to ship.
 

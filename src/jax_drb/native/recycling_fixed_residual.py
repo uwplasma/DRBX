@@ -178,15 +178,15 @@ def build_fixed_array_rhs(
     def rhs(state: RecyclingFixedState) -> RecyclingFixedState:
         fields = fixed_state_to_field_dict(state, layout=layout)
         field_rhs = field_rhs_function(fields, state.feedback_values)
-        rhs_values = tuple(
-            jnp.asarray(field_rhs.get(name, jnp.zeros_like(value)), dtype=jnp.float64)
-            for name, value in zip(layout.field_names, state.field_values, strict=True)
-        )
+        rhs_values = []
+        for name, value in zip(layout.field_names, state.field_values, strict=True):
+            rhs_value = field_rhs[name] if name in field_rhs else jnp.zeros_like(value)
+            rhs_values.append(jnp.asarray(rhs_value, dtype=jnp.float64))
         if feedback_rhs_function is None:
             feedback_rhs = jnp.zeros_like(state.feedback_values, dtype=jnp.float64)
         else:
             feedback_rhs = jnp.asarray(feedback_rhs_function(fields, state.feedback_values), dtype=jnp.float64)
-        return RecyclingFixedState(field_values=rhs_values, feedback_values=feedback_rhs)
+        return RecyclingFixedState(field_values=tuple(rhs_values), feedback_values=feedback_rhs)
 
     return rhs
 

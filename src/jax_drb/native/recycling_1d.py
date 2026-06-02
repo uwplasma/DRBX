@@ -2941,6 +2941,9 @@ def _advance_recycling_1d_bdf_history(
     rhs_evaluation_count = 0
     rhs_cache_hit_count = 0
     jacobian_callback_count = 0
+    jacobian_callback_seconds = 0.0
+    jacobian_base_rhs_evaluation_count = 0
+    jvp_rhs_evaluation_count = 0
     if rhs_backend not in {"host_bridge", "fixed_full_field_array"}:
         raise ValueError(f"Unsupported recycling BDF rhs_backend={rhs_backend!r}.")
     resolved_jacobian_mode = (
@@ -3019,31 +3022,42 @@ def _advance_recycling_1d_bdf_history(
         return value
 
     def jacobian(_time: float, packed_state: np.ndarray):
-        nonlocal jacobian_callback_count
+        nonlocal jacobian_base_rhs_evaluation_count, jacobian_callback_count, jacobian_callback_seconds, jvp_rhs_evaluation_count
+        jacobian_started_at = time.perf_counter()
         jacobian_callback_count += 1
-        rhs_value = rhs(_time, packed_state)
-        if bdf_jacobian_mode == "jvp":
-            return build_sparse_jvp_jacobian(
-                lambda state: _evaluate_rhs_object(state),
+        try:
+            if bdf_jacobian_mode == "jvp":
+                def evaluate_jvp_rhs(state: object) -> object:
+                    nonlocal jvp_rhs_evaluation_count
+                    jvp_rhs_evaluation_count += 1
+                    return _evaluate_rhs_object(state)
+
+                return build_sparse_jvp_jacobian(
+                    evaluate_jvp_rhs,
+                    packed_state,
+                    sparsity=sparsity,
+                    color_groups=color_groups,
+                    sparsity_csc=sparsity_csc,
+                    difference_plan=difference_plan,
+                    batch_size=bdf_jvp_batch_size,
+                )
+            jacobian_base_rhs_evaluation_count += 1
+            rhs_value = rhs(_time, packed_state)
+            return build_sparse_difference_quotient_jacobian(
+                lambda state: _evaluate_rhs(_time, state),
                 packed_state,
+                base_residual=rhs_value,
                 sparsity=sparsity,
                 color_groups=color_groups,
                 sparsity_csc=sparsity_csc,
                 difference_plan=difference_plan,
-                batch_size=bdf_jvp_batch_size,
+                parallel_workers=jacobian_parallel_workers,
             )
-        return build_sparse_difference_quotient_jacobian(
-            lambda state: _evaluate_rhs(_time, state),
-            packed_state,
-            base_residual=rhs_value,
-            sparsity=sparsity,
-            color_groups=color_groups,
-            sparsity_csc=sparsity_csc,
-            difference_plan=difference_plan,
-            parallel_workers=jacobian_parallel_workers,
-        )
+        finally:
+            jacobian_callback_seconds += time.perf_counter() - jacobian_started_at
 
     run_started_at = time.perf_counter()
+    max_step = min(float(timestep), 25.0)
     solution = solve_ivp(
         rhs,
         (0.0, total_time),
@@ -3054,7 +3068,7 @@ def _advance_recycling_1d_bdf_history(
         rtol=relative_tolerance,
         atol=absolute_tolerance,
         jac_sparsity=sparsity,
-        max_step=min(float(timestep), 25.0),
+        max_step=max_step,
     )
     if not solution.success:
         raise RuntimeError(f"Adaptive recycling BDF step failed: {solution.message}")
@@ -3105,10 +3119,22 @@ def _advance_recycling_1d_bdf_history(
             "bdf_rhs_evaluation_count": int(rhs_evaluation_count),
             "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
             "bdf_jacobian_callback_count": int(jacobian_callback_count),
+            "bdf_jacobian_callback_seconds": float(jacobian_callback_seconds),
+            "bdf_jacobian_base_rhs_evaluation_count": int(jacobian_base_rhs_evaluation_count),
+            "bdf_jvp_rhs_evaluation_count": int(jvp_rhs_evaluation_count),
             "bdf_jacobian_mode": bdf_jacobian_mode,
             "bdf_rhs_backend": str(rhs_backend),
             "bdf_jvp_batch_size": None if bdf_jvp_batch_size is None else int(bdf_jvp_batch_size),
             "bdf_jacobian_parallel_workers": int(jacobian_parallel_workers),
+            "bdf_solve_seconds": float(max(solve_finished_at - run_started_at, 0.0)),
+            "bdf_active_size": int(y0.size),
+            "bdf_sparse_nnz": int(sparsity.nnz),
+            "bdf_color_group_count": int(len(color_groups)),
+            "bdf_max_step": float(max_step),
+            "bdf_scipy_status": int(getattr(solution, "status", 0)),
+            "bdf_scipy_nfev": int(getattr(solution, "nfev", rhs_evaluation_count)),
+            "bdf_scipy_njev": int(getattr(solution, "njev", jacobian_callback_count)),
+            "bdf_scipy_nlu": int(getattr(solution, "nlu", 0)),
         },
     )
 

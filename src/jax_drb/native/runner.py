@@ -110,7 +110,13 @@ from .runner_solver_mode import (
     select_integrated_2d_transient_solver_mode as _select_integrated_2d_transient_solver_mode,
     select_recycling_transient_solver_mode as _select_recycling_transient_solver_mode,
 )
-from .runner_state import NativeRestartState, NativeRunResult, build_restart_state
+from .runner_state import (
+    NativeExecutionResult,
+    NativeRestartState,
+    NativeRunResult,
+    build_restart_state,
+    coerce_native_execution_result,
+)
 from .transport import advance_anomalous_diffusion_history
 from .units import resolved_dataset_scalars
 from .vorticity import advance_vorticity_history, apply_vorticity_boundaries, build_vorticity_operator, compute_vorticity_rhs
@@ -1329,6 +1335,11 @@ def _run_integrated_2d_recycling_transient_case(
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
     )
+    history_diagnostics = getattr(history, "diagnostics", {})
+    diagnostics = {
+        "recycling_transient_solver_mode": solver_mode,
+        **dict(history_diagnostics),
+    }
     variables = {
         name: np.asarray(value, dtype=np.float64)
         for name, value in history.variable_history.items()
@@ -1374,6 +1385,7 @@ def _run_integrated_2d_recycling_transient_case(
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
+        diagnostics=diagnostics,
     )
 
 
@@ -1409,6 +1421,7 @@ def _run_open_field_recycling_one_step_case(
                 field_names=state_field_names,
                 scalar_names=("Nnorm", "Tnorm", "Bnorm", "Cs0", "Omega_ci", "rho_s0"),
             )
+    solver_mode = _select_recycling_transient_solver_mode(config, parity_mode=case.parity_mode)
     history = advance_recycling_1d_implicit_history(
         config,
         mesh=snapshot.mesh,
@@ -1422,10 +1435,15 @@ def _run_open_field_recycling_one_step_case(
             if name in state_field_names
         },
         field_template_overrides=None,
-        solver_mode=_select_recycling_transient_solver_mode(config, parity_mode=case.parity_mode),
+        solver_mode=solver_mode,
         residual_tolerance=float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8,
         max_nonlinear_iterations=30,
     )
+    history_diagnostics = getattr(history, "diagnostics", {})
+    diagnostics = {
+        "recycling_transient_solver_mode": solver_mode,
+        **dict(history_diagnostics),
+    }
     variables = {
         name: np.asarray(value, dtype=np.float64)
         for name, value in history.variable_history.items()
@@ -1458,6 +1476,7 @@ def _run_open_field_recycling_one_step_case(
         run_config=run_config,
         mesh=snapshot.mesh,
         metrics=snapshot.metrics,
+        diagnostics=diagnostics,
     )
 
 
@@ -1606,16 +1625,20 @@ def run_config_case(
         myg=mesh.myg,
         file=run_config.mesh.file or "<analytic mesh>",
     )
-    time_points, variables = _execute_supported_case(
-        config,
-        run_config,
-        mesh,
-        metrics,
-        parity_mode=parity_mode,
-        restart_state=restart_state,
-        output_steps=output_steps,
-        progress_callback=emit_progress,
+    execution = coerce_native_execution_result(
+        _execute_supported_case(
+            config,
+            run_config,
+            mesh,
+            metrics,
+            parity_mode=parity_mode,
+            restart_state=restart_state,
+            output_steps=output_steps,
+            progress_callback=emit_progress,
+        )
     )
+    time_points = execution.time_points
+    variables = execution.variables
     emit(
         "run",
         "Native solver completed",
@@ -1659,6 +1682,7 @@ def run_config_case(
         run_config=run_config,
         mesh=mesh,
         metrics=metrics,
+        diagnostics=execution.diagnostics,
     )
 
 
@@ -1672,7 +1696,7 @@ def _execute_supported_case(
     restart_state: NativeRestartState | None = None,
     output_steps: int | None = None,
     progress_callback: Callable[[ABCMapping[str, Any]], None] | None = None,
-) -> tuple[tuple[float, ...], dict[str, Any]]:
+) -> NativeExecutionResult | tuple[tuple[float, ...], dict[str, Any]]:
     implementations = tuple(component.implementation for component in run_config.components)
     if len(run_config.components) == 1 and implementations == ("evolve_density",):
         component = run_config.components[0]
@@ -1910,10 +1934,18 @@ def _execute_recycling_1d_case(
         progress_callback=progress_callback,
     )
     time_points = tuple(run_config.time.timestep * index for index in range(steps + 1))
-    return time_points, {
-        name: np.asarray(value, dtype=np.float64)
-        for name, value in history.variable_history.items()
-    }
+    history_diagnostics = getattr(history, "diagnostics", {})
+    return NativeExecutionResult(
+        time_points=time_points,
+        variables={
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in history.variable_history.items()
+        },
+        diagnostics={
+            "recycling_transient_solver_mode": solver_mode,
+            **dict(history_diagnostics),
+        },
+    )
 
 
 def _execute_periodic_fluid_mms_case(

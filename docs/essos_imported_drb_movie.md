@@ -44,7 +44,10 @@ closed-surface confinement for the coil field. The same page also includes the
 VMEC-coordinate control trace, which verifies that the rendered QA boundary is
 surface-preserving for the VMEC equilibrium field itself.
 
-Regenerate the default coil-traced campaign with:
+The published figures and movie are restored by
+`python scripts/fetch_example_artifacts.py --skip-baselines`. Regenerating the
+default coil-traced campaign from the external coil geometry is a developer
+workflow and requires the geometry source checkout:
 
 ```bash
 JAX_DRB_ESSOS_ROOT=/path/to/ESSOS \

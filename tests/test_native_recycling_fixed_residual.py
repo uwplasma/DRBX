@@ -16,6 +16,8 @@ from jax_drb.native.recycling_1d import (
     _compute_recycling_1d_packed_rhs,
 )
 from jax_drb.native.recycling_fixed_residual import (
+    RecyclingFixedState,
+    build_fixed_array_rhs,
     build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge,
     fixed_state_from_fields,
@@ -24,6 +26,7 @@ from jax_drb.native.recycling_fixed_residual import (
     pack_fixed_state,
     unpack_fixed_state,
 )
+import jax_drb.native.recycling_fixed_residual as fixed_residual_mod
 from jax_drb.native.recycling_layout import (
     build_recycling_packed_state_layout,
     pack_recycling_active_state,
@@ -102,6 +105,43 @@ def test_unpack_fixed_state_preserves_host_arrays_for_scipy_bridge() -> None:
 
     assert all(isinstance(value, np.ndarray) for value in fixed_state.field_values)
     assert isinstance(fixed_state.feedback_values, np.ndarray)
+
+
+def test_fixed_array_rhs_only_allocates_zero_defaults_for_missing_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    layout = type(
+        "Layout",
+        (),
+        {
+            "field_names": ("A", "B"),
+            "feedback_names": (),
+        },
+    )()
+    state = RecyclingFixedState(
+        field_values=(jnp.asarray([1.0], dtype=jnp.float64), jnp.asarray([2.0], dtype=jnp.float64)),
+        feedback_values=jnp.asarray([], dtype=jnp.float64),
+    )
+    original_zeros_like = fixed_residual_mod.jnp.zeros_like
+    zero_shapes: list[tuple[int, ...]] = []
+
+    def tracking_zeros_like(value, *args, **kwargs):
+        zero_shapes.append(tuple(value.shape))
+        return original_zeros_like(value, *args, **kwargs)
+
+    monkeypatch.setattr(fixed_residual_mod.jnp, "zeros_like", tracking_zeros_like)
+    rhs = build_fixed_array_rhs(
+        lambda fields, _feedback: {"A": fields["A"] + 1.0},
+        layout=layout,
+        feedback_rhs_function=lambda _fields, feedback: feedback,
+    )
+
+    result = rhs(state)
+
+    np.testing.assert_allclose(np.asarray(result.field_values[0]), np.asarray([2.0]))
+    np.testing.assert_allclose(np.asarray(result.field_values[1]), np.asarray([0.0]))
+    assert zero_shapes == [(1,)]
 
 
 def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:

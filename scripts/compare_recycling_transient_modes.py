@@ -101,6 +101,20 @@ def _format_mode_error_report(mode: str, *, elapsed: float, rows: list[tuple[str
     return lines
 
 
+def _format_mode_diagnostics_report(mode: str, diagnostics: dict[str, object]) -> list[str]:
+    if not diagnostics:
+        return []
+    lines = [f"diagnostics mode={mode}"]
+    for name in sorted(diagnostics):
+        value = diagnostics[name]
+        if isinstance(value, float):
+            formatted = f"{value:.8e}"
+        else:
+            formatted = str(value)
+        lines.append(f"  {name}={formatted}")
+    return lines
+
+
 def _format_bdf_pairwise_delta_report(
     mode_variables: dict[str, dict[str, np.ndarray]],
     *,
@@ -167,6 +181,8 @@ def main() -> int:
         mode_variables[mode] = actual
         rows = _summarize_mode_errors(actual, expected, fields=fields, mesh=mesh)
         for line in _format_mode_error_report(mode, elapsed=elapsed, rows=rows):
+            print(line)
+        for line in _format_mode_diagnostics_report(mode, dict(history.diagnostics)):
             print(line)
     for line in _format_bdf_pairwise_delta_report(mode_variables, fields=fields, mesh=mesh):
         print(line)

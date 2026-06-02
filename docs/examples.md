@@ -27,6 +27,28 @@ to download external plasma codes. Live reference-code reruns remain available
 as developer validation campaigns, but they are not part of the normal examples
 workflow.
 
+To exercise the main self-contained tutorial and movie surface from a fresh
+checkout, run:
+
+```bash
+python scripts/fetch_example_artifacts.py --skip-baselines
+PYTHONPATH=src python examples/restartable_diffusion_tutorial.py --quiet
+PYTHONPATH=src python examples/autodiff_diffusion_sensitivity_demo.py
+PYTHONPATH=src python examples/autodiff_diffusion_uncertainty_demo.py
+PYTHONPATH=src python examples/autodiff_diffusion_inverse_design_demo.py
+PYTHONPATH=src python examples/diverted_tokamak_movie_demo.py
+PYTHONPATH=src python examples/diverted_tokamak_profile_analysis_demo.py
+PYTHONPATH=src python examples/geometry-3D/stellarator-fci/geometry_plotting_demo.py
+PYTHONPATH=src python examples/geometry-3D/stellarator-fci/linear_mode_demo.py
+PYTHONPATH=src python examples/geometry-3D/stellarator-fci/nonlinear_turbulence_demo.py
+PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_analysis_demo.py
+```
+
+Imported external-geometry regeneration scripts are developer workflows. Their
+published arrays and movies are release-backed, but rerunning those adapters
+from coils or external field-line traces requires a local geometry checkout and
+is documented separately on the imported-geometry pages.
+
 | Example | What it teaches |
 | --- | --- |
 | [`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/jax_drb/blob/main/examples/inputs/restartable_diffusion.toml) | Small native TOML deck with restartable output. |
@@ -70,6 +92,11 @@ Representative output:
 The detailed guide is [Stellarator Examples](stellarator_examples.md).
 
 ## Imported 3D Geometry
+
+The entries in this section document developer regeneration of imported
+external-geometry artifacts. Users can inspect the published figures and movies
+after `fetch_example_artifacts.py`; rerunning the import adapters themselves
+requires the geometry source checkout named by the page.
 
 | Example | What it teaches |
 | --- | --- |

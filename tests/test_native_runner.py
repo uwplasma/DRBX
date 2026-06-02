@@ -8,6 +8,7 @@ import pytest
 from jax_drb.config.boutinp import parse_bout_input
 import jax_drb.native.runner as native_runner
 from jax_drb.native import run_config_case
+from jax_drb.native.runner_state import NativeExecutionResult
 from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.parity.arrays import (
     build_array_payload_from_summary_payload,
@@ -129,6 +130,34 @@ def test_run_input_case_resolves_curated_reference_case_by_name(
     assert result == "sentinel"
     assert captured["case_name"] == "neutral_mixed_short_window"
     assert captured["reference_case"] == reference_case
+
+
+def test_run_config_case_preserves_execution_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = parse_bout_input(_EVOLVE_DENSITY_INPUT)
+
+    def fake_execute_supported_case(_config, _run_config, mesh, _metrics, **_kwargs):
+        return NativeExecutionResult(
+            time_points=(0.0,),
+            variables={"Ne": np.zeros((1, mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)},
+            diagnostics={
+                "recycling_transient_solver_mode": "bdf_fixed_full_field_jvp",
+                "bdf_jacobian_mode": "jvp",
+            },
+        )
+
+    monkeypatch.setattr(native_runner, "_execute_supported_case", fake_execute_supported_case)
+
+    result = run_config_case(
+        config,
+        case_name="diagnostic_case",
+        parity_mode="one_rhs",
+        compare_variables=("Ne",),
+    )
+
+    assert result.diagnostics == {
+        "recycling_transient_solver_mode": "bdf_fixed_full_field_jvp",
+        "bdf_jacobian_mode": "jvp",
+    }
 
 _FLUID_1D_MMS_INPUT = """
 nout = 50

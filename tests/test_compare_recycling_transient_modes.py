@@ -79,6 +79,24 @@ def test_bdf_pairwise_delta_report_formats_worst_field_first() -> None:
     ]
 
 
+def test_mode_diagnostics_report_formats_sorted_values() -> None:
+    lines = compare_script._format_mode_diagnostics_report(
+        "bdf_fixed_full_field_jvp",
+        {
+            "bdf_rhs_backend": "fixed_full_field_array",
+            "bdf_jacobian_callback_seconds": 0.125,
+            "bdf_jacobian_base_rhs_evaluation_count": 0,
+        },
+    )
+
+    assert lines == [
+        "diagnostics mode=bdf_fixed_full_field_jvp",
+        "  bdf_jacobian_base_rhs_evaluation_count=0",
+        "  bdf_jacobian_callback_seconds=1.25000000e-01",
+        "  bdf_rhs_backend=fixed_full_field_array",
+    ]
+
+
 def test_bdf_pairwise_delta_report_crops_both_outputs_to_active_mesh() -> None:
     mesh = SimpleNamespace(xstart=1, xend=2, ystart=0, yend=1)
     bdf = np.zeros((1, 4, 3, 1))

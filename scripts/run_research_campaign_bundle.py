@@ -12,6 +12,14 @@ import time
 
 
 DEFAULT_TIMEOUT_SECONDS = 7200
+REFERENCE_INPUT_RELATIVE_PATHS = {
+    "hydrogen": Path("tests") / "integrated" / "1D-recycling" / "data" / "BOUT.inp",
+    "dthe": Path("tests") / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp",
+}
+REFERENCE_INPUT_LABELS = {
+    "hydrogen": "hydrogen recycling",
+    "dthe": "D/T/He recycling",
+}
 
 
 @dataclass(frozen=True)
@@ -20,6 +28,8 @@ class CampaignCommand:
     description: str
     command: tuple[str, ...]
     requires_reference: bool = False
+    required_reference_inputs: tuple[str, ...] = ()
+    requires_gpu: bool = False
 
 
 @dataclass(frozen=True)
@@ -42,6 +52,36 @@ def _default_reference_root() -> Path | None:
 
 def _reference_root_args(reference_root: Path | None) -> tuple[str, ...]:
     return () if reference_root is None else ("--reference-root", str(reference_root.expanduser()))
+
+
+def reference_input_relative_path(case: str) -> Path:
+    try:
+        return REFERENCE_INPUT_RELATIVE_PATHS[case]
+    except KeyError as exc:
+        known = ", ".join(sorted(REFERENCE_INPUT_RELATIVE_PATHS))
+        raise ValueError(f"unknown reference input case {case!r}; expected one of: {known}") from exc
+
+
+def validate_reference_root(reference_root: Path, required_inputs: tuple[str, ...] = ()) -> None:
+    root = reference_root.expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(
+            f"reference root {root} is not a directory; set --reference-root or "
+            "JAX_DRB_REFERENCE_ROOT to a Hermès reference root."
+        )
+    for case in required_inputs:
+        relative_path = reference_input_relative_path(case)
+        input_path = root / relative_path
+        if input_path.is_file():
+            continue
+        label = REFERENCE_INPUT_LABELS.get(case, case)
+        raise ValueError(
+            f"reference root {root} is missing required {label} input "
+            f"{relative_path.as_posix()}; set --reference-root or JAX_DRB_REFERENCE_ROOT "
+            "to a root containing that file. For nonstandard staged decks, run the "
+            "profile_recycling_jax_linearized_gate.py or profile_recycling_batched_jvp_gate.py "
+            "profiler directly with --input-path /path/to/BOUT.inp."
+        )
 
 
 def _campaign_command_map(
@@ -125,6 +165,7 @@ def _campaign_command_map(
                 "--rss-profile",
             ),
             requires_reference=True,
+            required_reference_inputs=("dthe",),
         ),
         "dthe-jax-linearized-gate": CampaignCommand(
             name="dthe-jax-linearized-gate",
@@ -141,6 +182,7 @@ def _campaign_command_map(
                 "--skip-cprofile",
             ),
             requires_reference=True,
+            required_reference_inputs=("dthe",),
         ),
         "dthe-batched-jvp-gate": CampaignCommand(
             name="dthe-batched-jvp-gate",
@@ -161,6 +203,7 @@ def _campaign_command_map(
                 "3",
             ),
             requires_reference=True,
+            required_reference_inputs=("dthe",),
         ),
         "gpu-dthe-jax-linearized-gate": CampaignCommand(
             name="gpu-dthe-jax-linearized-gate",
@@ -191,6 +234,8 @@ def _campaign_command_map(
                 str(repo_root / "tmp" / "jax_cache" / "recycling_dthe_jax_linearized_gate_gpu_large"),
             ),
             requires_reference=True,
+            required_reference_inputs=("dthe",),
+            requires_gpu=True,
         ),
         "gpu-dthe-batched-jvp-gate": CampaignCommand(
             name="gpu-dthe-batched-jvp-gate",
@@ -216,6 +261,8 @@ def _campaign_command_map(
                 str(repo_root / "tmp" / "jax_cache" / "recycling_dthe_batched_jvp_gate_gpu_pmap"),
             ),
             requires_reference=True,
+            required_reference_inputs=("dthe",),
+            requires_gpu=True,
         ),
     }
 
@@ -270,6 +317,8 @@ def build_campaign_commands(
             raise ValueError(f"unknown campaign {name!r}; expected one of: {known}") from exc
         if command.requires_reference and reference_root is None:
             raise ValueError(f"campaign {name!r} requires --reference-root or JAX_DRB_REFERENCE_ROOT")
+        if command.requires_reference and reference_root is not None:
+            validate_reference_root(reference_root, command.required_reference_inputs)
         commands.append(command)
     return tuple(commands)
 
@@ -285,6 +334,9 @@ def run_campaign_command(command: CampaignCommand, *, cwd: Path, timeout_seconds
     env["PYTHONPATH"] = src_path if not env.get("PYTHONPATH") else os.pathsep.join((src_path, env["PYTHONPATH"]))
     env["JAX_DRB_PRECISION"] = "float64"
     env["JAX_ENABLE_X64"] = "true"
+    if command.requires_gpu:
+        env.setdefault("JAX_PLATFORMS", "cuda")
+        env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
     try:
         completed = subprocess.run(command.command, cwd=cwd, env=env, check=False, timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
@@ -348,6 +400,20 @@ def main() -> int:
 
     for command in commands:
         print(f"[campaign] {command.name}: {command.description}")
+        if command.requires_reference and args.reference_root is not None:
+            if command.required_reference_inputs:
+                for case in command.required_reference_inputs:
+                    print(
+                        "[campaign] reference input: "
+                        f"{args.reference_root.expanduser() / reference_input_relative_path(case)}"
+                    )
+            else:
+                print(f"[campaign] reference root: {args.reference_root.expanduser()}")
+        if command.requires_gpu:
+            print(
+                "[campaign] GPU prerequisite: CUDA-visible JAX devices "
+                "(for NVIDIA hosts, set JAX_PLATFORMS=cuda and CUDA_VISIBLE_DEVICES as needed)"
+            )
         print(f"[campaign] command: {_format_command(command.command)}")
         if args.dry_run:
             continue

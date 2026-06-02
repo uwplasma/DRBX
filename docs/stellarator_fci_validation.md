@@ -447,21 +447,23 @@ the correct claim is that the geometry/operator/sheath/movie pipeline is now
 native and tested. The next physics claim requires a potential solve,
 source-driven steady state, neutral closures, and imported geometry validation.
 
-## Next Gates
+## Remaining Gates
 
-The next implementation work should promote this lane through:
+The promoted synthetic stellarator lane now covers metric MMS, traced
+parallel-diffusion conservation, target sheath/recycling closure, neutral
+reaction-diffusion closure, vorticity/potential residuals, fixed-layout
+PyTree/JVP transformability, and compact reduced dynamics. The remaining work
+needed before a long-time stellarator turbulence claim is narrower and more
+physical:
 
-1. metric-weighted manufactured-solution convergence for
-   \(J^{-1}\partial_i(J g^{ij}\partial_j f)\);
-2. conservative traced parallel diffusion with variable \(J\), variable
-   coefficient \(K\), and boundary-distance fallback;
-3. routing the current target/sheath/recycling, neutral, and vorticity source
-   arrays through the production fixed-layout residual with full transport and
-   boundary-condition terms;
-4. seeded-filament validation with center-of-mass, skewness, and
-   connection-length localization diagnostics;
-5. flux-driven reduced turbulence with spectra, radial flux, and mode-number
-   diagnostics;
-6. imported equilibrium-map ingestion and wall/target masks;
-7. autodiff/UQ/inverse-design examples over geometry, source, and transport
-   parameters.
+1. run longer nonlinear source-driven transients with grid and timestep
+   sensitivity rather than relying on the current compact visualization
+   window;
+2. replace synthetic endpoint masks with wall-resolved target geometry and
+   connection-length metrics on imported maps;
+3. route the same non-axisymmetric closure arrays through the full production
+   PyTree residual and implicit solve used by recycling transients;
+4. refine imported-map parity for coil, VMEC-coordinate, and hybrid maps
+   against independent field-line diagnostics;
+5. extend autodiff, UQ, and inverse-design examples from compact geometry
+   parameters to transport/source controls on the full 3D lane.

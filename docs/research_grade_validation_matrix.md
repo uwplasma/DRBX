@@ -102,6 +102,9 @@ used in verification, validation, and differentiable-science papers:
 - [neutral_mixed_term_balance_campaign](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
   for term-level `NVh` residual localization on the neutral-mixed one-step
   Hermès mismatch
+  and the companion committed-baseline substep/hybrid-state diagnostic, which
+  ranks whether target-band `Nh`, `Ph`, or `NVh` state drift is feeding the
+  otherwise closed pressure-gradient and viscosity terms
 - [autodiff_diffusion_uncertainty](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_uncertainty_artifacts__images__autodiff_diffusion_uncertainty.png)
   for uncertainty propagation on the differentiable lane
 - [autodiff_diffusion_sensitivity](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__autodiff_diffusion_sensitivity_artifacts__images__autodiff_diffusion_sensitivity.png)
@@ -252,21 +255,31 @@ The current live rerun evidence sharpens that priority:
 - full live 3D Hermès reruns are still missing, so 3D remains a distinct
   selected-field evidence track rather than part of the live rerun matrix
 
-## Required Campaigns
+## Completed Promoted Campaigns
 
-- operator-focused recycling / ion-viscosity campaign
-- neutral parallel-diffusion closure campaign on prepared multispecies recycling states
-- collision/conduction closure campaign on prepared multispecies recycling states
-- tokamak anomalous-diffusion campaign on evolved direct-recycling states
-- target-recycling and sheath-response campaign on prepared multispecies recycling states
-- direct tokamak convergence campaign
-- TORPEX seeded blob benchmark package
-- TCV-X21 diverted L-mode benchmark package
-- detachment-scaling package
-- performance and memory benchmark package on promoted native paths
-- differentiable sensitivity / inverse-design / scaling artifact package on promoted native paths
-- repository-slimming package that removes legacy and paper-only material from
-  the active release branch while preserving necessary benchmark artifacts
+The current release surface already includes promoted campaigns for
+manufactured-solution and open-field operators, neutral diffusion, collision
+closures, sheath and target recycling response, direct tokamak comparison
+families, diverted tokamak movie/profile analysis, TCV-X21 selected-field
+visualization, detachment/control demonstrations, repository footprint
+management, compact differentiability/UQ/inverse-design examples, and CPU/GPU
+profiling hooks on promoted native paths.
+
+## Remaining Blockers
+
+The remaining release blockers are more specific than the historical campaign
+wishlist:
+
+- close the neutral-mixed target-band state/history sequencing that still
+  drives the `NVh` parity offender after direct source formulas were matched;
+- promote the full recycling BDF residual from host/SciPy finite-difference
+  Jacobian assembly to a faster JAX-transformable active-array path before
+  making matrix-free/JVP solves default;
+- collect a larger real-kernel GPU scaling bundle on a valid reference root and
+  CUDA machine, rather than relying only on compact source-kernel evidence;
+- extend non-axisymmetric reduced dynamics from compact movie windows to
+  longer grid/timestep-sensitive turbulence campaigns with wall-resolved target
+  geometry.
 
 ## Publication Scope
 

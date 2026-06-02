@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import cProfile
+from collections.abc import Mapping
 import io
 import json
 import os
@@ -116,6 +117,26 @@ def _block_result(result: Any) -> None:
             blocker = getattr(value, "block_until_ready", None)
             if callable(blocker):
                 blocker()
+
+
+def _json_ready_diagnostics(result: Any) -> dict[str, Any]:
+    diagnostics = getattr(result, "diagnostics", None)
+    if not isinstance(diagnostics, Mapping):
+        return {}
+    converted: dict[str, Any] = {}
+    for name, value in diagnostics.items():
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            converted[str(name)] = value
+            continue
+        item = getattr(value, "item", None)
+        if callable(item):
+            try:
+                converted[str(name)] = item()
+                continue
+            except (TypeError, ValueError):
+                pass
+        converted[str(name)] = str(value)
+    return converted
 
 
 def _time_case(
@@ -305,6 +326,7 @@ def main() -> int:
             None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
         ),
         "compare_variable_count": None if profiled_result is None else len(getattr(profiled_result, "variables", {})),
+        "native_run_diagnostics": _json_ready_diagnostics(profiled_result),
     }
     summary_path = output_dir / "profile_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")

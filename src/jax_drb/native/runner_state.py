@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 import numpy as np
@@ -21,6 +21,28 @@ class NativeRunResult:
     run_config: RunConfiguration
     mesh: StructuredMesh
     metrics: StructuredMetrics
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class NativeExecutionResult:
+    time_points: tuple[float, ...]
+    variables: Mapping[str, Any]
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
+
+    def __iter__(self):
+        yield self.time_points
+        yield self.variables
+
+
+def coerce_native_execution_result(result: object) -> NativeExecutionResult:
+    if isinstance(result, NativeExecutionResult):
+        return result
+    time_points, variables = result  # type: ignore[misc]
+    return NativeExecutionResult(
+        time_points=tuple(time_points),
+        variables=variables,
+    )
 
 
 @dataclass(frozen=True)

@@ -21,9 +21,10 @@ from ..solver import (
 from .expression import ArrayExpressionEvaluator
 from .neutral_mixed_boundaries import (
     apply_density_boundaries as _apply_density_boundaries,
-    apply_density_y_boundaries as _apply_density_y_boundaries,
+    apply_dirichlet_x_boundaries as _apply_dirichlet_x_boundaries,
     apply_diffusion_boundaries as _apply_diffusion_boundaries,
     apply_momentum_boundaries as _apply_momentum_boundaries,
+    apply_neumann_x_boundaries as _apply_neumann_x_boundaries,
     apply_pressure_boundaries as _apply_pressure_boundaries,
     apply_temperature_boundaries as _apply_temperature_boundaries,
     apply_velocity_boundaries as _apply_velocity_boundaries,
@@ -62,9 +63,9 @@ def initialize_neutral_mixed_state(
     else:
         momentum = np.zeros_like(density, dtype=np.float64)
     return NeutralMixedState(
-        density=_apply_density_boundaries(density, mesh),
-        pressure=_apply_pressure_boundaries(pressure, mesh),
-        momentum=_apply_momentum_boundaries(momentum, mesh),
+        density=_apply_neutral_density_boundaries(density, mesh),
+        pressure=_apply_neutral_pressure_boundaries(pressure, mesh),
+        momentum=_apply_neutral_momentum_boundaries(momentum, mesh),
     )
 
 
@@ -665,7 +666,7 @@ def compute_neutral_mixed_diffusion(
     if diffusion_limit > 0.0:
         diffusion = diffusion * diffusion_limit / (diffusion + diffusion_limit)
 
-    return _apply_diffusion_boundaries(diffusion, mesh)
+    return _apply_neutral_diffusion_boundaries(diffusion, mesh)
 
 
 def build_neutral_mixed_transport_operators(
@@ -752,16 +753,16 @@ def _prepare_neutral_mixed_state(
     pressure_floor = density_floor * temperature_floor
     lax_flux = bool(config.parsed(section, "lax_flux")) if config.has_option(section, "lax_flux") else True
 
-    density = _apply_density_boundaries(np.maximum(np.asarray(state.density, dtype=np.float64), 0.0), mesh)
-    pressure = _apply_pressure_boundaries(np.maximum(np.asarray(state.pressure, dtype=np.float64), 0.0), mesh)
-    momentum = _apply_momentum_boundaries(np.asarray(state.momentum, dtype=np.float64), mesh)
+    density = _apply_neutral_density_boundaries(np.maximum(np.asarray(state.density, dtype=np.float64), 0.0), mesh)
+    pressure = _apply_neutral_pressure_boundaries(np.maximum(np.asarray(state.pressure, dtype=np.float64), 0.0), mesh)
+    momentum = _apply_neutral_momentum_boundaries(np.asarray(state.momentum, dtype=np.float64), mesh)
 
-    density_limited = _apply_density_boundaries(_soft_floor(density, density_floor), mesh)
-    temperature = _apply_temperature_boundaries(pressure / density_limited, mesh)
-    temperature_limited = _apply_temperature_boundaries(_soft_floor(temperature, temperature_floor), mesh)
-    pressure_limited = _apply_pressure_boundaries(_soft_floor(pressure, pressure_floor), mesh)
-    log_pressure = _apply_pressure_boundaries(np.log(pressure_limited), mesh)
-    velocity = _apply_velocity_boundaries(momentum / (atomic_mass * density_limited), mesh)
+    density_limited = _apply_neutral_density_boundaries(_soft_floor(density, density_floor), mesh)
+    temperature = _apply_neutral_temperature_boundaries(pressure / density_limited, mesh)
+    temperature_limited = _apply_neutral_temperature_boundaries(_soft_floor(temperature, temperature_floor), mesh)
+    pressure_limited = _apply_neutral_pressure_boundaries(_soft_floor(pressure, pressure_floor), mesh)
+    log_pressure = _apply_neutral_pressure_boundaries(np.log(pressure_limited), mesh)
+    velocity = _apply_neutral_velocity_boundaries(momentum / (atomic_mass * density_limited), mesh)
 
     diffusion = compute_neutral_mixed_diffusion(
         temperature_limited,
@@ -773,11 +774,11 @@ def _prepare_neutral_mixed_state(
         flux_limit=flux_limit,
         diffusion_limit=diffusion_limit,
     )
-    diffusion_density = _apply_diffusion_boundaries(diffusion * density_limited, mesh)
-    diffusion_pressure = _apply_diffusion_boundaries(diffusion * pressure_limited, mesh)
-    diffusion_momentum = _apply_diffusion_boundaries(diffusion * momentum, mesh)
-    conductivity = _apply_diffusion_boundaries((5.0 / 2.0) * diffusion_density, mesh)
-    viscosity = _apply_diffusion_boundaries(atomic_mass * (2.0 / 5.0) * conductivity, mesh)
+    diffusion_density = _apply_neutral_diffusion_boundaries(diffusion * density_limited, mesh)
+    diffusion_pressure = _apply_neutral_diffusion_boundaries(diffusion * pressure_limited, mesh)
+    diffusion_momentum = _apply_neutral_diffusion_boundaries(diffusion * momentum, mesh)
+    conductivity = _apply_neutral_diffusion_boundaries((5.0 / 2.0) * diffusion_density, mesh)
+    viscosity = _apply_neutral_diffusion_boundaries(atomic_mass * (2.0 / 5.0) * conductivity, mesh)
     sound_speed = np.sqrt(np.maximum(temperature, 0.0) * (5.0 / 3.0) / atomic_mass) if lax_flux else np.zeros_like(density)
 
     return _PreparedNeutralMixedState(
@@ -822,11 +823,63 @@ def _section_scalar(config: BoutConfig, section: str, name: str, *, default: flo
     return float(config.parsed(section, name))
 
 
+def _has_connected_y_ends(mesh: StructuredMesh) -> bool:
+    return not mesh.has_lower_y_target and not mesh.has_upper_y_target
+
+
+def _apply_connected_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    result = np.asarray(field, dtype=np.float64).copy()
+    if mesh.myg <= 0:
+        return result
+
+    interior = result[:, mesh.ystart : mesh.yend + 1, :]
+    for offset in range(mesh.myg):
+        result[:, mesh.ystart - 1 - offset, :] = interior[:, -(offset + 1), :]
+        result[:, mesh.yend + 1 + offset, :] = interior[:, offset, :]
+    return result
+
+
+def _apply_neutral_density_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    if _has_connected_y_ends(mesh):
+        return _apply_connected_y_boundaries(_apply_neumann_x_boundaries(field, mesh), mesh)
+    return _apply_density_boundaries(field, mesh)
+
+
+def _apply_neutral_pressure_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    if _has_connected_y_ends(mesh):
+        return _apply_connected_y_boundaries(_apply_neumann_x_boundaries(field, mesh), mesh)
+    return _apply_pressure_boundaries(field, mesh)
+
+
+def _apply_neutral_temperature_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    if _has_connected_y_ends(mesh):
+        return _apply_connected_y_boundaries(_apply_neumann_x_boundaries(field, mesh), mesh)
+    return _apply_temperature_boundaries(field, mesh)
+
+
+def _apply_neutral_diffusion_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    if _has_connected_y_ends(mesh):
+        return _apply_connected_y_boundaries(_apply_dirichlet_x_boundaries(field, mesh), mesh)
+    return _apply_diffusion_boundaries(field, mesh)
+
+
+def _apply_neutral_momentum_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    if _has_connected_y_ends(mesh):
+        return _apply_connected_y_boundaries(_apply_dirichlet_x_boundaries(field, mesh), mesh)
+    return _apply_momentum_boundaries(field, mesh)
+
+
+def _apply_neutral_velocity_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+    if _has_connected_y_ends(mesh):
+        return _apply_connected_y_boundaries(_apply_dirichlet_x_boundaries(field, mesh), mesh)
+    return _apply_velocity_boundaries(field, mesh)
+
+
 def _sanitize_neutral_state(state: NeutralMixedState, mesh: StructuredMesh) -> NeutralMixedState:
     return NeutralMixedState(
-        density=_apply_density_boundaries(np.maximum(state.density, 0.0), mesh),
-        pressure=_apply_pressure_boundaries(np.maximum(state.pressure, 0.0), mesh),
-        momentum=_apply_momentum_boundaries(state.momentum, mesh),
+        density=_apply_neutral_density_boundaries(np.maximum(state.density, 0.0), mesh),
+        pressure=_apply_neutral_pressure_boundaries(np.maximum(state.pressure, 0.0), mesh),
+        momentum=_apply_neutral_momentum_boundaries(state.momentum, mesh),
     )
 
 

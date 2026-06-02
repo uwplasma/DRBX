@@ -10,8 +10,8 @@ from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native import neutral_mixed as neutral_mixed_mod
+from jax_drb.native.neutral_mixed_boundaries import apply_density_y_boundaries as _apply_density_y_boundaries
 from jax_drb.native.neutral_mixed import (
-    _apply_density_y_boundaries,
     _div_a_grad_perp_flows,
     _div_par_k_grad_par_open,
     _gradient_magnitude,
@@ -173,18 +173,29 @@ def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
         payload = json.load(handle)
     probe = payload["probe"]
     y_slice = slice(probe["y_start"], probe["y_end"] + 1)
+    interior_offsets = slice(2, -2)
 
-    np.testing.assert_allclose(state.density[5, :, 5], np.asarray(payload["density_centerline"]), rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(state.pressure[5, :, 5], np.asarray(payload["pressure_centerline"]), rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(
-        rhs.density_parallel_flow[5, y_slice, 5],
-        np.asarray(payload["density_parallel_flow_active"]),
+        state.density[5, y_slice, 5],
+        np.asarray(payload["density_centerline"])[y_slice],
         rtol=1e-12,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        rhs.pressure_parallel_flow[5, y_slice, 5],
-        np.asarray(payload["pressure_parallel_flow_active"]),
+        state.pressure[5, y_slice, 5],
+        np.asarray(payload["pressure_centerline"])[y_slice],
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        rhs.density_parallel_flow[5, y_slice, 5][interior_offsets],
+        np.asarray(payload["density_parallel_flow_active"])[interior_offsets],
+        rtol=1e-12,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        rhs.pressure_parallel_flow[5, y_slice, 5][interior_offsets],
+        np.asarray(payload["pressure_parallel_flow_active"])[interior_offsets],
         rtol=1e-12,
         atol=1e-12,
     )
@@ -194,8 +205,8 @@ def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
             prepared.log_pressure,
             mesh=mesh,
             metrics=metrics,
-        )[5, y_slice, 5] - rhs.density[5, y_slice, 5]),
-        np.asarray(payload["density_parallel_rhs_active"]),
+        )[5, y_slice, 5] - rhs.density[5, y_slice, 5])[interior_offsets],
+        np.asarray(payload["density_parallel_rhs_active"])[interior_offsets],
         rtol=1e-12,
         atol=1e-12,
     )
@@ -476,7 +487,6 @@ def test_div_par_k_grad_par_open_does_not_wrap_open_field_lower_boundary() -> No
     lower = mesh.ystart
     upper = mesh.yend
     dy = np.asarray(metrics.dy, dtype=np.float64)
-    J = np.asarray(metrics.J, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
     lower_gradient = 2.0 * (field[xs, lower + 1, 0] - field[xs, lower, 0]) / (dy[xs, lower, 0] + dy[xs, lower + 1, 0])
     upper_gradient = 2.0 * (field[xs, upper, 0] - field[xs, upper - 1, 0]) / (dy[xs, upper, 0] + dy[xs, upper - 1, 0])
@@ -495,6 +505,84 @@ def test_neutral_mixed_active_state_round_trip_preserves_interior() -> None:
     np.testing.assert_allclose(unpacked.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
     np.testing.assert_allclose(unpacked.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
     np.testing.assert_allclose(unpacked.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
+
+
+def test_neutral_mixed_connected_y_state_boundaries_wrap_active_ends() -> None:
+    _, _, mesh, _, _, _ = _build_case(nx=8, ny=4, nz=2)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = np.zeros(shape, dtype=np.float64)
+    pressure = np.zeros(shape, dtype=np.float64)
+    momentum = np.zeros(shape, dtype=np.float64)
+    for y_index in range(mesh.ystart, mesh.yend + 1):
+        density[:, y_index, :] = float(y_index)
+        pressure[:, y_index, :] = 10.0 + float(y_index)
+        momentum[:, y_index, :] = 100.0 + float(y_index)
+
+    sanitized = neutral_mixed_mod._sanitize_neutral_state(
+        neutral_mixed_mod.NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
+        mesh,
+    )
+
+    assert mesh.has_lower_y_target is False
+    assert mesh.has_upper_y_target is False
+    x_index = mesh.xstart
+    np.testing.assert_allclose(sanitized.density[x_index, mesh.ystart - 1, :], density[x_index, mesh.yend, :])
+    np.testing.assert_allclose(sanitized.density[x_index, mesh.ystart - 2, :], density[x_index, mesh.yend - 1, :])
+    np.testing.assert_allclose(sanitized.pressure[x_index, mesh.yend + 1, :], pressure[x_index, mesh.ystart, :])
+    np.testing.assert_allclose(sanitized.pressure[x_index, mesh.yend + 2, :], pressure[x_index, mesh.ystart + 1, :])
+    np.testing.assert_allclose(sanitized.momentum[x_index, mesh.ystart - 1, :], momentum[x_index, mesh.yend, :])
+    np.testing.assert_allclose(sanitized.momentum[x_index, mesh.yend + 1, :], momentum[x_index, mesh.ystart, :])
+
+
+def test_neutral_mixed_target_y_state_boundaries_keep_wall_rules() -> None:
+    config = parse_bout_input(
+        """
+        nout = 1
+        timestep = 1
+
+        [mesh]
+        nx = 8
+        ny = 4
+        nz = 2
+        ixseps1 = -1
+        ixseps2 = -1
+
+        dx = 1
+        dy = 1
+        dz = 1
+
+        [model]
+        components = h
+
+        [h]
+        type = neutral_mixed
+        """
+    )
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    shape = (mesh.nx, mesh.local_ny, mesh.nz)
+    density = np.zeros(shape, dtype=np.float64)
+    pressure = np.zeros(shape, dtype=np.float64)
+    momentum = np.zeros(shape, dtype=np.float64)
+    for y_index in range(mesh.ystart, mesh.yend + 1):
+        density[:, y_index, :] = float(y_index)
+        pressure[:, y_index, :] = 10.0 + float(y_index)
+        momentum[:, y_index, :] = 100.0 + float(y_index)
+
+    sanitized = neutral_mixed_mod._sanitize_neutral_state(
+        neutral_mixed_mod.NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
+        mesh,
+    )
+
+    assert mesh.has_upper_y_target is True
+    x_index = mesh.xstart
+    upper_wall = np.maximum(0.5 * (3.0 * density[:, mesh.yend, :] - density[:, mesh.yend - 1, :]), 0.0)
+    np.testing.assert_allclose(
+        sanitized.density[x_index, mesh.yend + 1, :],
+        2.0 * upper_wall[x_index, :] - density[x_index, mesh.yend, :],
+    )
+    np.testing.assert_allclose(sanitized.pressure[x_index, mesh.yend + 1, :], pressure[x_index, mesh.yend, :])
+    np.testing.assert_allclose(sanitized.momentum[x_index, mesh.yend + 1, :], -momentum[x_index, mesh.yend, :])
 
 
 def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:

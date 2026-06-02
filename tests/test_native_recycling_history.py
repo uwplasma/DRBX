@@ -718,10 +718,17 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_rhs_cache_hit_count"] == 1
     assert result.diagnostics["bdf_jacobian_callback_count"] == 1
+    assert result.diagnostics["bdf_jacobian_callback_seconds"] >= 0.0
+    assert result.diagnostics["bdf_jacobian_base_rhs_evaluation_count"] == 1
+    assert result.diagnostics["bdf_jvp_rhs_evaluation_count"] == 0
     assert result.diagnostics["bdf_jacobian_mode"] == "fd"
     assert result.diagnostics["bdf_rhs_backend"] == "host_bridge"
     assert result.diagnostics["bdf_jvp_batch_size"] is None
     assert result.diagnostics["bdf_jacobian_parallel_workers"] == 2
+    assert result.diagnostics["bdf_solve_seconds"] >= 0.0
+    assert result.diagnostics["bdf_active_size"] == 2
+    assert result.diagnostics["bdf_sparse_nnz"] == 0
+    assert result.diagnostics["bdf_color_group_count"] == 0
 
 
 def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -797,6 +804,9 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert captured["builder_kwargs"]["layout"] is layout
     assert captured["builder_kwargs"]["feedback_timestep"] is None
     assert "difference_plan" in captured["jvp_kwargs"]
+    assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
+    assert result.diagnostics["bdf_jacobian_base_rhs_evaluation_count"] == 0
+    assert result.diagnostics["bdf_jvp_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_jacobian_mode"] == "jvp"
     assert result.diagnostics["bdf_rhs_backend"] == "fixed_full_field_array"
     assert result.variable_history["N"].shape == (2, 1)
