@@ -18,8 +18,9 @@ The refreshed live matrix identifies four distinct categories.
 ### 1. Real open-field neutral mismatch
 
 - case: `neutral_mixed_one_step`
-- current worst normalized RMS error: about `9.17e-1`
-- current runtime ratio: about `2.93x`
+- current worst normalized RMS error: about `1.44e-1`
+- current relative-L2 error on the dominant field: about `3.46e-1`
+- current runtime ratio: about `3.18x`
 - dominant field: `NVh`
 
 This is still the clearest current fidelity gap. The runtime was reduced
@@ -35,6 +36,11 @@ it inserts both the native and Hermès-3 final states into the native
 neutral-mixed momentum operator and decomposes the `NVh` residual-rate into
 parallel inertia, pressure gradient, perpendicular diffusion, parallel
 viscosity, and perpendicular viscosity.
+The latest term-level reconstruction shows that the native pressure-gradient
+and viscosity formulas close against the written source diagnostics to near
+roundoff; the remaining mismatch is now target-adjacent state and boundary
+evolution, with current maximum final-field errors about `1.02e-2` on `Nh`,
+`9.06e-4` on `Ph`, and `5.81e-4` on `NVh`.
 
 ### 2. Heavy 1D recycling runtime bottleneck
 

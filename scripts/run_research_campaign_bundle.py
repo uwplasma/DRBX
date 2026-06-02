@@ -162,6 +162,57 @@ def _campaign_command_map(
             ),
             requires_reference=True,
         ),
+        "gpu-dthe-jax-linearized-gate": CampaignCommand(
+            name="gpu-dthe-jax-linearized-gate",
+            description="Large D/T/He fixed-layout recycling residual gate for GPU trace/memory profiling.",
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_jax_linearized_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_jax_linearized_gate_gpu_large"),
+                "--override",
+                "mesh:ny=400",
+                "--timestep",
+                "1e-4",
+                "--max-nonlinear-iterations",
+                "2",
+                "--warmup-runs",
+                "1",
+                "--timed-runs",
+                "5",
+                "--rss-profile",
+                "--skip-cprofile",
+                "--jax-trace",
+                "--device-memory-profile",
+                "--compilation-cache-dir",
+                str(repo_root / "tmp" / "jax_cache" / "recycling_dthe_jax_linearized_gate_gpu_large"),
+            ),
+            requires_reference=True,
+        ),
+        "gpu-dthe-batched-jvp-gate": CampaignCommand(
+            name="gpu-dthe-batched-jvp-gate",
+            description="Multi-device D/T/He batched residual/JVP throughput gate with pmap parity metadata.",
+            command=(
+                python_executable,
+                str(scripts / "profile_recycling_batched_jvp_gate.py"),
+                *reference_args,
+                "--case",
+                "dthe",
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_batched_jvp_gate_gpu_pmap"),
+                "--override",
+                "mesh:ny=200",
+                "--batch-sizes",
+                "2,4,8,16,32,64,128",
+                "--timed-runs",
+                "7",
+                "--skip-objective-grad-check",
+            ),
+            requires_reference=True,
+        ),
     }
 
 
@@ -183,6 +234,8 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
             )
         elif name == "all-ci":
             expanded.extend(("scheduled-fast-research", "closeout-coverage", "promoted-solver-coverage"))
+        elif name == "all-gpu":
+            expanded.extend(("gpu-dthe-jax-linearized-gate", "gpu-dthe-batched-jvp-gate"))
         else:
             expanded.append(name)
     return tuple(dict.fromkeys(expanded))
@@ -209,7 +262,7 @@ def build_campaign_commands(
         try:
             command = mapping[name]
         except KeyError as exc:
-            known = ", ".join(sorted((*mapping, "all-ci", "all-local")))
+            known = ", ".join(sorted((*mapping, "all-ci", "all-gpu", "all-local")))
             raise ValueError(f"unknown campaign {name!r}; expected one of: {known}") from exc
         if command.requires_reference and reference_root is None:
             raise ValueError(f"campaign {name!r} requires --reference-root or JAX_DRB_REFERENCE_ROOT")
@@ -263,7 +316,9 @@ def main() -> int:
             "Campaign to run. Repeat for multiple campaigns. Supported names include "
             "scheduled-fast-research, closeout-coverage, promoted-solver-coverage, "
             "local-cpu-scaling, live-reference, heavy-recycling-profile, "
-            "dthe-jax-linearized-gate, all-ci, and all-local."
+            "dthe-jax-linearized-gate, dthe-batched-jvp-gate, "
+            "gpu-dthe-jax-linearized-gate, gpu-dthe-batched-jvp-gate, "
+            "all-ci, all-local, and all-gpu."
         ),
     )
     parser.add_argument("--reference-root", type=Path, default=_default_reference_root())

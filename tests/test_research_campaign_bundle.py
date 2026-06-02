@@ -77,6 +77,31 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss() -> None:
     assert "--skip-cprofile" in gate.command
 
 
+def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands() -> None:
+    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_gpu")
+
+    commands = module.build_campaign_commands(
+        campaign_names=("all-gpu",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=Path("/reference"),
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    linearized, batched = commands
+    assert linearized.name == "gpu-dthe-jax-linearized-gate"
+    assert "--timed-runs" in linearized.command
+    assert "--jax-trace" in linearized.command
+    assert "--device-memory-profile" in linearized.command
+    assert "--compilation-cache-dir" in linearized.command
+    assert "mesh:ny=400" in linearized.command
+    assert batched.name == "gpu-dthe-batched-jvp-gate"
+    assert "--batch-sizes" in batched.command
+    assert "2,4,8,16,32,64,128" in batched.command
+    assert "--skip-objective-grad-check" in batched.command
+
+
 def test_research_campaign_command_runner_reports_timeout(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

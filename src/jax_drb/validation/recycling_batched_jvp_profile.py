@@ -212,9 +212,12 @@ def profile_recycling_batched_jvp_problem(
         jvp_mismatch = float(jnp.max(jnp.abs(batched_jvp_values - serial_jvp_values)))
 
         pmap_jvp_seconds = None
+        pmap_jvp_samples = None
         pmap_jvp_speedup_vs_batched = None
         pmap_jvp_speedup_vs_serial = None
         pmap_device_count = 0
+        pmap_batch_size = 0
+        pmap_jvp_batched_max_abs_error = None
         if enable_pmap and len(devices) > 1 and batch_size >= len(devices):
             pmap_device_count = min(len(devices), batch_size)
             pmap_batch_size = (batch_size // pmap_device_count) * pmap_device_count
@@ -231,7 +234,10 @@ def profile_recycling_batched_jvp_problem(
                     devices=devices[:pmap_device_count],
                 )
                 pmap_jvp(sharded_states, sharded_directions).block_until_ready()
-                pmap_jvp_seconds, _ = _time_repeated(
+                pmap_jvp_values = pmap_jvp(sharded_states, sharded_directions).block_until_ready()
+                reference_jvp_values = batched_jvp_values[:pmap_batch_size].reshape(pmap_jvp_values.shape)
+                pmap_jvp_batched_max_abs_error = float(jnp.max(jnp.abs(pmap_jvp_values - reference_jvp_values)))
+                pmap_jvp_seconds, pmap_jvp_samples = _time_repeated(
                     lambda: pmap_jvp(sharded_states, sharded_directions),
                     timed_runs=timed_runs,
                 )
@@ -254,9 +260,12 @@ def profile_recycling_batched_jvp_problem(
                 "residual_batched_serial_max_abs_error": residual_mismatch,
                 "jvp_batched_serial_max_abs_error": jvp_mismatch,
                 "pmap_device_count": int(pmap_device_count),
+                "pmap_batch_size": int(pmap_batch_size),
                 "pmap_jvp_seconds_median": pmap_jvp_seconds,
+                "pmap_jvp_samples": None if pmap_jvp_samples is None else [float(value) for value in pmap_jvp_samples],
                 "pmap_jvp_speedup_vs_batched": pmap_jvp_speedup_vs_batched,
                 "pmap_jvp_speedup_vs_serial": pmap_jvp_speedup_vs_serial,
+                "pmap_jvp_batched_max_abs_error": pmap_jvp_batched_max_abs_error,
             }
         )
 

@@ -551,7 +551,8 @@ def compute_full_electron_sheath_boundary(
             2.0 / (1.0 - float(secondary_electron_coef)) + delta_phi / np.maximum(temperature, 1.0e-5),
             0.0,
         )
-        thermal_speed = np.sqrt(temperature / (2.0 * np.pi * float(electron_thermal_mass)))
+        safe_temperature = np.maximum(temperature, 0.0)
+        thermal_speed = np.sqrt(safe_temperature / (2.0 * np.pi * float(electron_thermal_mass)))
         exponential = np.exp(-delta_phi / np.maximum(temperature, 1.0e-12))
         sheath_velocity = np.where(
             temperature < 1.0e-10,
@@ -589,7 +590,8 @@ def compute_full_electron_sheath_boundary(
         2.0 / (1.0 - float(secondary_electron_coef)) + delta_phi / jnp.maximum(temperature, 1.0e-5),
         0.0,
     )
-    thermal_speed = jnp.sqrt(temperature / (2.0 * jnp.pi * float(electron_thermal_mass)))
+    safe_temperature = jnp.maximum(temperature, 0.0)
+    thermal_speed = jnp.sqrt(safe_temperature / (2.0 * jnp.pi * float(electron_thermal_mass)))
     exponential = jnp.exp(-delta_phi / jnp.maximum(temperature, 1.0e-12))
     sheath_velocity = jnp.where(
         temperature < 1.0e-10,

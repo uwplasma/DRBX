@@ -103,8 +103,9 @@ The refreshed same-machine live Hermès rerun matrix now sharpens those generic
 blockers into specific case priorities:
 
 - `neutral_mixed_one_step`
-  - worst normalized RMS mismatch about `9.17e-1`
-  - native/reference wall-time ratio now about `2.93x`
+  - worst normalized RMS mismatch about `1.44e-1`
+  - dominant-field relative-L2 mismatch about `3.46e-1`
+  - native/reference wall-time ratio now about `3.18x`
   - dominant field: `NVh`
 - `recycling_1d_one_step`
   - worst normalized RMS mismatch about `4.62e-3`

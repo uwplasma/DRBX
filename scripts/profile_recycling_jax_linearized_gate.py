@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import pstats
 import shutil
+import statistics
 from time import perf_counter
 from typing import Any
 
@@ -95,6 +96,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Run this many unprofiled solves before timing to amortize JAX compilation.",
+    )
+    parser.add_argument(
+        "--timed-runs",
+        type=int,
+        default=1,
+        help="Run this many timed solves after warmup. The first timed solve is optionally cProfile/JAX-traced.",
     )
     parser.add_argument(
         "--linear-solver-backend",
@@ -241,7 +248,13 @@ def _run_with_optional_profile(args: argparse.Namespace, input_path: Path, jax):
         report, elapsed = _profile_once(args, input_path)
     if profiler is not None:
         profiler.disable()
-    return report, elapsed, profiler, trace_dir, warmup_elapsed
+    timed_elapsed = [float(elapsed)]
+    timed_residuals = [float(report["residual_inf_norm"])]
+    for _ in range(max(int(args.timed_runs), 1) - 1):
+        extra_report, extra_elapsed = _profile_once(args, input_path)
+        timed_elapsed.append(float(extra_elapsed))
+        timed_residuals.append(float(extra_report["residual_inf_norm"]))
+    return report, elapsed, profiler, trace_dir, warmup_elapsed, timed_elapsed, timed_residuals
 
 
 class _NullContext:
@@ -263,7 +276,9 @@ def main() -> int:
 
     from jax_drb.runtime.memory import bytes_to_mebibytes, measure_peak_rss
 
-    profile_report, elapsed, profiler, trace_dir, warmup_elapsed = _run_with_optional_profile(args, input_path, jax)
+    profile_report, elapsed, profiler, trace_dir, warmup_elapsed, timed_elapsed, timed_residuals = _run_with_optional_profile(
+        args, input_path, jax
+    )
     rss_payload = None
     rss_elapsed = None
     if args.rss_profile:
@@ -297,6 +312,10 @@ def main() -> int:
         "backend": jax.default_backend(),
         "devices": [str(device) for device in jax.devices()],
         "profiled_run_seconds": float(elapsed),
+        "timed_runs": int(max(int(args.timed_runs), 1)),
+        "timed_run_seconds": timed_elapsed,
+        "timed_run_seconds_median": float(statistics.median(timed_elapsed)),
+        "timed_run_residual_inf_norms": timed_residuals,
         "warmup_run_seconds": warmup_elapsed,
         "rss_profile": rss_payload,
         "profile": profile_report,

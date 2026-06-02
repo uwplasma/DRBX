@@ -50,6 +50,16 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the GPU bundle on a self-hosted machine with CUDA-visible devices when
+collecting larger fixed-layout residual, trace, memory, and pmap evidence:
+
+```bash
+JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
+python scripts/run_research_campaign_bundle.py \
+  --campaign all-gpu \
+  --reference-root /path/to/reference/root
+```
+
 The `all-local` bundle runs the fast public slice, local CPU scaling, the
 D/T/He JAX-linearized residual gate, the full heavy recycling cProfile/RSS
 profile, and the live-reference matrix. It should only be used on machines

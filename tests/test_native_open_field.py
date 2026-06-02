@@ -765,6 +765,40 @@ def test_full_electron_sheath_boundary_lower_target_sign_and_potential_floor() -
     assert float(result.energy_source_delta[0, 0]) <= 0.0
 
 
+def test_full_electron_sheath_boundary_clips_negative_intermediate_temperature() -> None:
+    numpy_result = compute_full_electron_sheath_boundary(
+        sheath_density=np.asarray([[1.5]], dtype=np.float64),
+        sheath_temperature=np.asarray([[-1.0]], dtype=np.float64),
+        sheath_potential_raw=np.asarray([[0.25]], dtype=np.float64),
+        wall_potential=np.asarray([[0.0]], dtype=np.float64),
+        interior_velocity=np.asarray([[0.2]], dtype=np.float64),
+        interior_momentum=np.asarray([[0.1]], dtype=np.float64),
+        electron_mass=1.0 / 1836.0,
+        electron_thermal_mass=1.0 / 1836.0,
+        secondary_electron_coef=0.1,
+        electron_adiabatic=5.0 / 3.0,
+        direction=1.0,
+    )
+    jax_result = compute_full_electron_sheath_boundary(
+        sheath_density=jnp.asarray([[1.5]], dtype=jnp.float64),
+        sheath_temperature=jnp.asarray([[-1.0]], dtype=jnp.float64),
+        sheath_potential_raw=jnp.asarray([[0.25]], dtype=jnp.float64),
+        wall_potential=jnp.asarray([[0.0]], dtype=jnp.float64),
+        interior_velocity=jnp.asarray([[0.2]], dtype=jnp.float64),
+        interior_momentum=jnp.asarray([[0.1]], dtype=jnp.float64),
+        electron_mass=1.0 / 1836.0,
+        electron_thermal_mass=1.0 / 1836.0,
+        secondary_electron_coef=0.1,
+        electron_adiabatic=5.0 / 3.0,
+        direction=1.0,
+    )
+
+    assert np.isfinite(numpy_result.sheath_velocity).all()
+    assert np.isfinite(np.asarray(jax_result.sheath_velocity)).all()
+    np.testing.assert_allclose(numpy_result.sheath_velocity, 0.0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(np.asarray(jax_result.sheath_velocity), 0.0, rtol=0.0, atol=0.0)
+
+
 def test_full_ion_sheath_boundary_matches_numpy_and_is_jvp_transformable() -> None:
     sheath_density = np.asarray([[1.2, 1.4]], dtype=np.float64)
     sheath_temperature = np.asarray([[2.0, 2.5]], dtype=np.float64)
