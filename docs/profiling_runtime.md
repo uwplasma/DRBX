@@ -36,7 +36,7 @@ this machine:
 - `neutral_mixed_one_step`
   - timed local mean dropped from about `1.15 s` to about `0.63 s` after
     vectorizing `_gradient_magnitude`
-  - fresh live Hermès rerun ratio is about `2.93x`
+  - fresh live Hermès rerun ratio is about `3.18x`
   - the dominant mismatch remains the boundary-localized `NVh` field
 - `recycling_dthe_one_step`
   - timed local mean dropped from about `75.3 s` to about `54.1 s` after the
@@ -258,6 +258,7 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --case dthe \
   --override mesh:ny=100 \
   --batch-sizes 1,4,16,64 \
+  --timed-runs 7 \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu
 ```
 
@@ -268,6 +269,24 @@ mismatch at roundoff. The residual JVP agrees with centered finite difference
 to about `6e-9`. A remote GPU run on the same heavy residual was not retained
 as a release speedup because the JVP compile latency was still too high for a
 bounded validation gate.
+
+For larger GPU or multi-device evidence, use the research-campaign wrapper
+rather than hand-editing decks. These campaigns enable repeated timings,
+persistent compilation cache, optional JAX traces, device-memory profiles, and
+pmap parity metadata where applicable:
+
+```bash
+JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
+PYTHONPATH=src python scripts/run_research_campaign_bundle.py \
+  --campaign all-gpu \
+  --reference-root /path/to/reference/root
+```
+
+The `gpu-dthe-jax-linearized-gate` command is a large fixed-layout residual
+trace/memory run. The `gpu-dthe-batched-jvp-gate` command is the multi-device
+batched residual/JVP throughput run. Neither command promotes the full
+output-window BDF solve as GPU-accelerated; they are evidence-gathering gates
+for the residual and derivative kernels that must become production-safe first.
 
 The current GPU speedup evidence instead comes from the source-term throughput
 gate:

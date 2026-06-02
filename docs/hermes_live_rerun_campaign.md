@@ -48,8 +48,8 @@ Key current observations from the refreshed live rerun matrix:
 
 - the hardest remaining fidelity lane in the current selected set is still the
   neutral mixed case:
-  `neutral_mixed_one_step` has worst normalized RMS error about `9.17e-1`,
-  runtime ratio about `2.93x`, and the dominant mismatch field is `NVh`
+  `neutral_mixed_one_step` has worst normalized RMS error about `1.44e-1`,
+  runtime ratio about `3.18x`, and the dominant mismatch field is `NVh`
 - the heavy 1D recycling ladders remain the main runtime gap, but their
   fidelity is still tight:
   - `recycling_1d_one_step`
