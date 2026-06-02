@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -40,7 +41,9 @@ class DivertedTokamakMovieArtifacts:
     movie_gif_path: Path
 
 
-def assemble_tokamak_rank_history(workdir: str | Path, *, field_name: str) -> DivertedTokamakFieldHistory:
+def assemble_tokamak_rank_history(
+    workdir: str | Path, *, field_name: str
+) -> DivertedTokamakFieldHistory:
     root = Path(workdir)
     dump_paths = sorted(root.glob("BOUT.dmp.*.nc"))
     if not dump_paths:
@@ -85,7 +88,9 @@ def load_diverted_tokamak_geometry(
         zxy_full = np.asarray(dataset.variables["Zxy"][:], dtype=np.float64)
         psixy_full = np.asarray(dataset.variables["psixy"][:], dtype=np.float64)
     if active_nx > rxy_full.shape[0]:
-        raise ValueError(f"Active nx {active_nx} exceeds mesh x extent {rxy_full.shape[0]}")
+        raise ValueError(
+            f"Active nx {active_nx} exceeds mesh x extent {rxy_full.shape[0]}"
+        )
     mxg = (rxy_full.shape[0] - active_nx) // 2
     x_slice = slice(mxg, mxg + active_nx)
     rxy = rxy_full[x_slice, :]
@@ -130,10 +135,14 @@ def build_diverted_tokamak_analysis(
     }
 
 
-def write_diverted_tokamak_analysis_json(analysis: Mapping[str, Any], path: str | Path) -> Path:
+def write_diverted_tokamak_analysis_json(
+    analysis: Mapping[str, Any], path: str | Path
+) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(dict(analysis), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(dict(analysis), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return target
 
 
@@ -158,6 +167,31 @@ def write_diverted_tokamak_arrays_npz(
     return target
 
 
+def load_diverted_tokamak_arrays_npz(
+    path: str | Path,
+) -> tuple[DivertedTokamakGeometry, str, np.ndarray, np.ndarray]:
+    source = Path(path)
+    with np.load(source) as payload:
+        field_name = str(np.asarray(payload["field_name"]).item())
+        time_points = np.asarray(payload["time_points"], dtype=np.float64)
+        field_history_2d = np.asarray(payload["field_history_2d"], dtype=np.float64)
+        rxy = np.asarray(payload["rxy"], dtype=np.float64)
+        zxy = np.asarray(payload["zxy"], dtype=np.float64)
+        psixy = np.asarray(payload["psixy"], dtype=np.float64)
+    geometry = DivertedTokamakGeometry(
+        rxy=rxy,
+        zxy=zxy,
+        psixy=psixy,
+        wall_r=np.asarray(rxy[-1, :], dtype=np.float64),
+        wall_z=np.asarray(zxy[-1, :], dtype=np.float64),
+        lower_target_r=np.asarray(rxy[:, 0], dtype=np.float64),
+        lower_target_z=np.asarray(zxy[:, 0], dtype=np.float64),
+        upper_target_r=np.asarray(rxy[:, -1], dtype=np.float64),
+        upper_target_z=np.asarray(zxy[:, -1], dtype=np.float64),
+    )
+    return geometry, field_name, time_points, field_history_2d
+
+
 def create_diverted_tokamak_movie_package(
     *,
     workdir: str | Path,
@@ -177,9 +211,13 @@ def create_diverted_tokamak_movie_package(
     movies_dir.mkdir(parents=True, exist_ok=True)
 
     history = assemble_tokamak_rank_history(workdir, field_name=field_name)
-    geometry = load_diverted_tokamak_geometry(mesh_path, active_nx=history.history_4d.shape[1])
+    geometry = load_diverted_tokamak_geometry(
+        mesh_path, active_nx=history.history_4d.shape[1]
+    )
     field_history_2d = toroidal_mean_fluctuation(history)
-    analysis = build_diverted_tokamak_analysis(geometry, history, field_history_2d=field_history_2d)
+    analysis = build_diverted_tokamak_analysis(
+        geometry, history, field_history_2d=field_history_2d
+    )
 
     arrays_npz_path = write_diverted_tokamak_arrays_npz(
         geometry,
@@ -223,6 +261,82 @@ def create_diverted_tokamak_movie_package(
     )
 
 
+def create_diverted_tokamak_movie_package_from_arrays(
+    *,
+    arrays_npz_path: str | Path,
+    output_root: str | Path,
+    case_label: str = "diverted_tokamak_turbulence",
+    field_name: str | None = None,
+    fps: int = 10,
+    frames_per_interval: int = 8,
+) -> DivertedTokamakMovieArtifacts:
+    root = Path(output_root)
+    data_dir = root / "data"
+    images_dir = root / "images"
+    movies_dir = root / "movies"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    movies_dir.mkdir(parents=True, exist_ok=True)
+
+    source_npz = Path(arrays_npz_path)
+    (
+        geometry,
+        stored_field_name,
+        time_points,
+        field_history_2d,
+    ) = load_diverted_tokamak_arrays_npz(source_npz)
+    resolved_field_name = field_name or stored_field_name
+    arrays_target = data_dir / f"{case_label}_arrays.npz"
+    if source_npz.resolve() != arrays_target.resolve():
+        shutil.copyfile(source_npz, arrays_target)
+    else:
+        arrays_target = source_npz
+    history = DivertedTokamakFieldHistory(
+        field_name=resolved_field_name,
+        time_points=time_points,
+        history_4d=np.empty((time_points.size, 0, 0, 0), dtype=np.float64),
+    )
+    analysis = build_diverted_tokamak_analysis(
+        geometry,
+        history,
+        field_history_2d=field_history_2d,
+    )
+    analysis_json_path = write_diverted_tokamak_analysis_json(
+        analysis,
+        data_dir / f"{case_label}_analysis.json",
+    )
+    snapshots_png_path = save_diverted_tokamak_snapshot_panel(
+        geometry,
+        time_points=time_points,
+        field_history_2d=field_history_2d,
+        field_name=resolved_field_name,
+        path=images_dir / f"{case_label}_snapshots.png",
+    )
+    poster_png_path = save_diverted_tokamak_poster_frame(
+        geometry,
+        time_points=time_points,
+        field_history_2d=field_history_2d,
+        field_name=resolved_field_name,
+        path=images_dir / f"{case_label}_poster.png",
+    )
+    movie_gif_path = save_diverted_tokamak_gif(
+        geometry,
+        time_points=time_points,
+        field_history_2d=field_history_2d,
+        field_name=resolved_field_name,
+        path=movies_dir / f"{case_label}.gif",
+        fps=fps,
+        frames_per_interval=frames_per_interval,
+    )
+    return DivertedTokamakMovieArtifacts(
+        arrays_npz_path=arrays_target,
+        analysis_json_path=analysis_json_path,
+        snapshots_png_path=snapshots_png_path,
+        poster_png_path=poster_png_path,
+        movie_gif_path=movie_gif_path,
+    )
+
+
 def save_diverted_tokamak_snapshot_panel(
     geometry: DivertedTokamakGeometry,
     *,
@@ -234,12 +348,16 @@ def save_diverted_tokamak_snapshot_panel(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     frame_indices = _representative_frame_indices(field_history_2d.shape[0])
-    figure, axes = plt.subplots(1, len(frame_indices), figsize=(14.0, 5.2), constrained_layout=True)
+    figure, axes = plt.subplots(
+        1, len(frame_indices), figsize=(14.0, 5.2), constrained_layout=True
+    )
     if len(frame_indices) == 1:
         axes = [axes]
     vlim = _symmetric_color_limit(field_history_2d)
     image = None
-    for axis, frame_index, label in zip(axes, frame_indices, ("Initial", "Mid", "Final"), strict=True):
+    for axis, frame_index, label in zip(
+        axes, frame_indices, ("Initial", "Mid", "Final"), strict=True
+    ):
         image = _draw_diverted_tokamak_frame(
             axis,
             geometry=geometry,
@@ -249,7 +367,13 @@ def save_diverted_tokamak_snapshot_panel(
             color_limit=vlim,
             title_prefix=label,
         )
-    figure.colorbar(image, ax=axes, shrink=0.88, pad=0.02, label=f"{field_name} toroidal-mean fluctuation")
+    figure.colorbar(
+        image,
+        ax=axes,
+        shrink=0.88,
+        pad=0.02,
+        label=f"{field_name} toroidal-mean fluctuation",
+    )
     figure.savefig(target, dpi=180)
     plt.close(figure)
     return target
@@ -277,7 +401,13 @@ def save_diverted_tokamak_poster_frame(
         color_limit=vlim,
         title_prefix="Final",
     )
-    figure.colorbar(image, ax=axis, shrink=0.88, pad=0.02, label=f"{field_name} toroidal-mean fluctuation")
+    figure.colorbar(
+        image,
+        ax=axis,
+        shrink=0.88,
+        pad=0.02,
+        label=f"{field_name} toroidal-mean fluctuation",
+    )
     figure.savefig(target, dpi=180)
     plt.close(figure)
     return target
@@ -369,8 +499,20 @@ def _draw_diverted_tokamak_frame(
         linestyles="--",
     )
     axis.plot(geometry.wall_r, geometry.wall_z, color="black", linewidth=2.4, label="Wall")
-    axis.plot(geometry.lower_target_r, geometry.lower_target_z, color="#ff9f1c", linewidth=2.2, label="Lower divertor")
-    axis.plot(geometry.upper_target_r, geometry.upper_target_z, color="#2ec4b6", linewidth=2.2, label="Upper divertor")
+    axis.plot(
+        geometry.lower_target_r,
+        geometry.lower_target_z,
+        color="#ff9f1c",
+        linewidth=2.2,
+        label="Lower divertor",
+    )
+    axis.plot(
+        geometry.upper_target_r,
+        geometry.upper_target_z,
+        color="#2ec4b6",
+        linewidth=2.2,
+        label="Upper divertor",
+    )
     axis.set_aspect("equal")
     axis.set_xlabel("R [m]")
     axis.set_ylabel("Z [m]")

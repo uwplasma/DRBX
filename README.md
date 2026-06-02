@@ -47,6 +47,30 @@ pip install -e .
 
 The default installation already pulls in the runtime and analysis dependencies used by the main CLI, geometry tooling, and diagnostics, including `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`, and `netCDF4`.
 
+## Example Artifacts And Movies
+
+The git checkout is intentionally lightweight. Large generated arrays, figures,
+and GIFs used by the README, docs, tests, tokamak examples, and stellarator
+examples live in a GitHub release instead of git history.
+
+For this private repository, authenticate first and then restore the artifacts:
+
+```bash
+gh auth login --hostname github.com
+python scripts/fetch_example_artifacts.py
+```
+
+If you do not use the GitHub CLI, set `GH_TOKEN` or `GITHUB_TOKEN` to a token
+with access to `uwplasma/jax_drb`, then run the same fetch command. The command
+restores release-backed docs media under `docs/data/` and heavy validation
+baselines under `references/baselines/`.
+
+After that, users can run the example scripts and inspect the generated or
+restored PNG/GIF/NPZ outputs. Fresh reference-backed diverted-tokamak reruns
+also require an external benchmark checkout and binary; set
+`JAX_DRB_REFERENCE_ROOT` and `JAX_DRB_REFERENCE_BINARY` as documented in
+[docs/diverted_tokamak_movie_demo.md](docs/diverted_tokamak_movie_demo.md).
+
 ## Quick Start
 
 Run a TOML deck:

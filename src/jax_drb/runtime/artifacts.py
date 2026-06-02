@@ -12,7 +12,27 @@ from ..reference.paths import repo_root
 
 ARTIFACT_RELEASE_TAG = "validation-artifacts-2026-04-28"
 ARTIFACT_BASE_URL = f"https://github.com/uwplasma/jax_drb/releases/download/{ARTIFACT_RELEASE_TAG}"
+DOCS_MEDIA_ASSET = "jax_drb_docs_media.zip"
 REFERENCE_BASELINES_ASSET = "jax_drb_reference_baselines.zip"
+
+DOCS_MEDIA_SENTINELS = (
+    Path(
+        "docs/data/diverted_tokamak_turbulence_artifacts/movies/"
+        "diverted_tokamak_turbulence.gif"
+    ),
+    Path(
+        "docs/data/tokamak_tcv_x21_toroidal_movie_artifacts/movies/"
+        "tokamak_tcv_x21_toroidal.gif"
+    ),
+    Path(
+        "docs/data/stellarator_fci_validation_artifacts/showcase/movies/"
+        "stellarator_sol_showcase.gif"
+    ),
+    Path(
+        "docs/data/essos_imported_drb_movie_artifacts/movies/"
+        "essos_imported_drb_movie_campaign.gif"
+    ),
+)
 
 
 def ensure_reference_baselines(
@@ -35,11 +55,15 @@ def ensure_reference_baselines(
             "Heavy reference baselines are not present and JAX_DRB_OFFLINE_ARTIFACTS is enabled."
         )
 
-    cache_dir = Path(os.environ.get("JAX_DRB_ARTIFACT_CACHE", resolved_root / ".jax_drb_artifact_cache"))
+    cache_dir = Path(
+        os.environ.get("JAX_DRB_ARTIFACT_CACHE", resolved_root / ".jax_drb_artifact_cache")
+    )
     cache_dir.mkdir(parents=True, exist_ok=True)
     archive_path = cache_dir / REFERENCE_BASELINES_ASSET
     if force or not archive_path.exists():
-        resolved_base_url = (base_url or os.environ.get("JAX_DRB_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL).rstrip("/")
+        resolved_base_url = (
+            base_url or os.environ.get("JAX_DRB_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL
+        ).rstrip("/")
         _download_release_asset(
             f"{resolved_base_url}/{REFERENCE_BASELINES_ASSET}",
             archive_path,
@@ -48,8 +72,60 @@ def ensure_reference_baselines(
     with zipfile.ZipFile(archive_path) as archive:
         archive.extractall(resolved_root)
     if not sentinel.exists() or not snapshot_sentinel.exists():
-        raise FileNotFoundError(f"Reference artifact archive did not restore expected baselines under {resolved_root}")
+        raise FileNotFoundError(
+            f"Reference artifact archive did not restore expected baselines under {resolved_root}"
+        )
     return resolved_root / "references" / "baselines"
+
+
+def ensure_docs_media(
+    *,
+    root: str | Path | None = None,
+    base_url: str | None = None,
+    force: bool = False,
+) -> Path:
+    """Restore release-backed documentation figures, movies, and NPZ arrays."""
+
+    resolved_root = Path(root) if root is not None else repo_root()
+    missing = [
+        relative_path
+        for relative_path in DOCS_MEDIA_SENTINELS
+        if not (resolved_root / relative_path).exists()
+    ]
+    if not force and not missing:
+        return resolved_root / "docs" / "data"
+    if os.environ.get("JAX_DRB_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
+        raise FileNotFoundError(
+            "Docs media are not present and JAX_DRB_OFFLINE_ARTIFACTS is enabled."
+        )
+
+    cache_dir = Path(
+        os.environ.get("JAX_DRB_ARTIFACT_CACHE", resolved_root / ".jax_drb_artifact_cache")
+    )
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = cache_dir / DOCS_MEDIA_ASSET
+    if force or not archive_path.exists():
+        resolved_base_url = (
+            base_url or os.environ.get("JAX_DRB_ARTIFACT_BASE_URL") or ARTIFACT_BASE_URL
+        ).rstrip("/")
+        _download_release_asset(
+            f"{resolved_base_url}/{DOCS_MEDIA_ASSET}",
+            archive_path,
+            asset_name=DOCS_MEDIA_ASSET,
+        )
+    with zipfile.ZipFile(archive_path) as archive:
+        archive.extractall(resolved_root)
+    remaining = [
+        str(relative_path)
+        for relative_path in DOCS_MEDIA_SENTINELS
+        if not (resolved_root / relative_path).exists()
+    ]
+    if remaining:
+        raise FileNotFoundError(
+            "Docs media artifact archive did not restore expected files under "
+            f"{resolved_root}: {', '.join(remaining)}"
+        )
+    return resolved_root / "docs" / "data"
 
 
 def _download_release_asset(url: str, destination: Path, *, asset_name: str) -> None:
@@ -96,7 +172,9 @@ def _download_with_urllib(url: str, destination: Path) -> None:
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as output:
+        with urllib.request.urlopen(request, timeout=120) as response, temporary.open(
+            "wb"
+        ) as output:
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
