@@ -8,6 +8,7 @@ from jax_drb.geometry import build_synthetic_stellarator_geometry
 from jax_drb.validation import (
     build_stellarator_sol_showcase_report,
     save_stellarator_sol_3d_frame,
+    save_stellarator_sol_3d_movie,
     save_stellarator_sol_diagnostics_panel,
     save_stellarator_sol_snapshot_panel,
     simulate_reduced_stellarator_sol_dynamics,
@@ -50,6 +51,7 @@ arrays_path = OUTPUT_ROOT / f"{CASE_LABEL}.npz"
 snapshot_path = OUTPUT_ROOT / f"{CASE_LABEL}_snapshots.png"
 diagnostics_path = OUTPUT_ROOT / f"{CASE_LABEL}_diagnostics.png"
 poster_path = OUTPUT_ROOT / f"{CASE_LABEL}_poster.png"
+movie_path = OUTPUT_ROOT / f"{CASE_LABEL}.gif"
 np.savez_compressed(
     arrays_path,
     history=history.astype(np.float16),
@@ -60,6 +62,7 @@ np.savez_compressed(
 save_stellarator_sol_snapshot_panel(geometry, history, time, snapshot_path)
 save_stellarator_sol_diagnostics_panel(geometry, history, time, diagnostics_path)
 save_stellarator_sol_3d_frame(geometry, history[-1], float(time[-1]), poster_path)
+save_stellarator_sol_3d_movie(geometry, history, time, movie_path)
 
 print(f"passed: {report['passed']}")
 print(f"final RMS fluctuation: {report['final_rms_fluctuation']:.4e}")
@@ -69,3 +72,4 @@ print(f"wrote arrays:      {arrays_path}")
 print(f"wrote snapshots:   {snapshot_path}")
 print(f"wrote diagnostics: {diagnostics_path}")
 print(f"wrote poster:      {poster_path}")
+print(f"wrote movie:       {movie_path}")
