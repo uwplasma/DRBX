@@ -5,6 +5,26 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
+
+
+def _sanitize_public_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    resolved = Path(path).expanduser().resolve()
+    cwd = Path.cwd().resolve()
+    try:
+        return resolved.relative_to(cwd).as_posix()
+    except ValueError:
+        pass
+    home = os.environ.get("HOME")
+    if home:
+        home_path = Path(home).expanduser().resolve()
+        try:
+            return f"~/{resolved.relative_to(home_path).as_posix()}"
+        except ValueError:
+            pass
+    return resolved.as_posix()
 
 
 def _resolve_reference_root(args: argparse.Namespace) -> Path | None:
@@ -54,6 +74,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fd-epsilon", type=float, default=1.0e-6)
     parser.add_argument("--timed-runs", type=int, default=5)
     parser.add_argument("--disable-pmap", action="store_true")
+    parser.add_argument("--jax-trace", action="store_true")
+    parser.add_argument("--device-memory-profile", action="store_true")
+    parser.add_argument("--compilation-cache-dir", type=Path, default=None)
+    parser.add_argument("--xla-dump-dir", type=Path, default=None)
     parser.add_argument(
         "--skip-objective-grad-check",
         action="store_true",
@@ -62,21 +86,83 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _configure_environment(args: argparse.Namespace) -> None:
+    if args.compilation_cache_dir is not None:
+        cache_dir = args.compilation_cache_dir.expanduser().resolve()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("JAX_COMPILATION_CACHE_DIR", str(cache_dir))
+    if args.xla_dump_dir is not None:
+        dump_dir = args.xla_dump_dir.expanduser().resolve()
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        existing = os.environ.get("XLA_FLAGS", "").strip()
+        additions = f"--xla_dump_to={dump_dir} --xla_dump_hlo_as_text"
+        os.environ["XLA_FLAGS"] = f"{existing} {additions}".strip()
+
+
+class _NullContext:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
 def main() -> None:
     args = _parse_args()
+    args.output_dir = args.output_dir.expanduser().resolve()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    _configure_environment(args)
+    trace_dir = args.output_dir / "jax_trace" if args.jax_trace else None
+    if trace_dir is not None:
+        if trace_dir.exists():
+            shutil.rmtree(trace_dir)
+        trace_dir.mkdir(parents=True, exist_ok=True)
+
+    import jax
+
     from jax_drb.validation.recycling_batched_jvp_profile import create_recycling_batched_jvp_profile_package
 
-    report = create_recycling_batched_jvp_profile_package(
-        _resolve_input(args),
-        args.output_dir,
-        overrides=tuple(args.override),
-        batch_sizes=tuple(args.batch_sizes),
-        timestep=float(args.timestep),
-        perturbation_scale=float(args.perturbation_scale),
-        fd_epsilon=float(args.fd_epsilon),
-        timed_runs=int(args.timed_runs),
-        enable_pmap=not bool(args.disable_pmap),
-        check_objective_grad=not bool(args.skip_objective_grad_check),
+    trace_cm = (
+        jax.profiler.trace(
+            str(trace_dir),
+            create_perfetto_link=False,
+            create_perfetto_trace=True,
+        )
+        if trace_dir is not None
+        else _NullContext()
+    )
+
+    with trace_cm:
+        report = create_recycling_batched_jvp_profile_package(
+            _resolve_input(args),
+            args.output_dir,
+            overrides=tuple(args.override),
+            batch_sizes=tuple(args.batch_sizes),
+            timestep=float(args.timestep),
+            perturbation_scale=float(args.perturbation_scale),
+            fd_epsilon=float(args.fd_epsilon),
+            timed_runs=int(args.timed_runs),
+            enable_pmap=not bool(args.disable_pmap),
+            check_objective_grad=not bool(args.skip_objective_grad_check),
+        )
+
+    memory_profile_path = None
+    if args.device_memory_profile:
+        memory_profile_path = args.output_dir / "device_memory_profile.prof"
+        jax.profiler.save_device_memory_profile(str(memory_profile_path))
+
+    report = {
+        **report,
+        "jax_trace_dir": None if trace_dir is None else _sanitize_public_path(trace_dir),
+        "device_memory_profile_path": None if memory_profile_path is None else _sanitize_public_path(memory_profile_path),
+        "xla_dump_dir": None if args.xla_dump_dir is None else _sanitize_public_path(args.xla_dump_dir),
+        "compilation_cache_dir": (
+            None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
+        ),
+    }
+    (args.output_dir / "profile_summary.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
     print(json.dumps(report, indent=2, sort_keys=True))
 

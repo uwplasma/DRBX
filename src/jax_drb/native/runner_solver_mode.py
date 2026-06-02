@@ -11,6 +11,7 @@ def configured_recycling_transient_solver_mode(config: BoutConfig) -> str | None
         allowed = {
             "continuation",
             "bdf",
+            "bdf_fixed_full_field_jvp",
             "adaptive_be",
             "adaptive_bdf",
             "adaptive_bdf_sparse_jvp",
