@@ -943,7 +943,7 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     )
     assert time_points == (0.0, 20.0)
     assert variables["Nh"].shape == (3, mesh.nx, mesh.local_ny, mesh.nz)
-    assert captured[-1] == (1, 4, "matrix_free")
+    assert captured[-1] == (1, 8, "matrix_free")
 
     time_points, variables = _execute_neutral_mixed_case(
         config,

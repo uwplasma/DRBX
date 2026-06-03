@@ -40,15 +40,18 @@ therefore no longer a missing direct pressure-gradient or viscosity source
 formula.
 
 The current code-path audit adds connected-y guard reconstruction for
-non-target neutral-mixed meshes. Before regenerating the release media, that
-change reduces the default-substep active-domain final `NVh` metric from
-about `5.81e-4` to about `7.66e-5`, the target-adjacent `NVh` metric to about
-`5.18e-5`, and the target-band state-rate errors to about `Nh = 8.96e-5`,
-`Ph = 7.17e-6`, and `NVh = 2.59e-6`. The same audit shows the dominant
-state-induced momentum drivers falling to about `Ph -> pressure_gradient =
-5.06e-5` and `NVh -> parallel_viscosity = 5.31e-5`. This is a solver update,
-not a new public figure, so the remaining release-media task is to regenerate
-the JSON/NPZ/PNG bundle from the updated code path.
+non-target neutral-mixed meshes and promotes the one-step native default from
+four to eight internal BDF substeps. Before regenerating the release media,
+the combined change reduces the active-domain final `NVh` metric from about
+`5.81e-4` in the published report to about `4.47e-6`. The same one-step audit
+reduces the active-domain final `Nh` and `Ph` metrics to about `2.19e-4` and
+`2.11e-5`, respectively. The short-window path remains at four internal
+substeps because the prefix sweep shows that eight substeps improve center
+momentum but do not solve the larger total-density/pressure history drift.
+The tracked JSON report has been regenerated from this code path. The
+remaining release-media task is to publish the matching regenerated NPZ/PNG
+bundle to the validation-artifact release so the remote figure reflects the
+same numbers.
 
 The report now carries a target-adjacent offender register rather than only
 aggregate field errors. On the native-minus-Hermès final-state term deltas,

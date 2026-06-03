@@ -2114,7 +2114,11 @@ def _neutral_mixed_internal_substeps(config: BoutConfig, *, parity_mode: str) ->
             return max(1, int(config.parsed(section_name, "neutral_mixed_internal_substeps")))
         except Exception:
             return 1
-    return 4 if parity_mode in {"one_step", "short_window"} else 1
+    if parity_mode == "one_step":
+        return 8
+    if parity_mode == "short_window":
+        return 4
+    return 1
 
 
 def _is_supported_periodic_fluid_mms_case(
