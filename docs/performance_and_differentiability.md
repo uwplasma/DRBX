@@ -681,6 +681,11 @@ The matrix-free BE/BDF2 trial solvers also start from the same explicit
 predictor used by the sparse and JAX-linearized paths, rather than from the
 previous state. That keeps the native solver variants comparable and avoids an
 unnecessary convergence penalty in the matrix-free lane.
+The BE/BDF2 `jax_linearized` and `jax_linearized_lineax` modes now build their
+residuals through the fixed full-field array adapter instead of the host
+packing bridge; the sparse and default production modes intentionally remain on
+the validated host-compatibility adapter until each heavier RHS term has passed
+its transformability and parity gates.
 Implicit step diagnostics now also include a `converged` flag when the solver
 can determine whether its residual or step-tolerance criterion was satisfied;
 validation campaigns should require this flag before promoting an opt-in solver

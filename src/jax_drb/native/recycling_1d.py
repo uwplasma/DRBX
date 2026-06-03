@@ -2501,6 +2501,7 @@ def build_recycling_1d_backward_euler_residual_context(
     dataset_scalars: dict[str, float],
     timestep: float,
     evolve_feedback_integrals: bool = False,
+    rhs_backend: str = "host_bridge",
 ) -> Recycling1DBackwardEulerResidualContext:
     """Build the fixed-layout BE residual used by implicit recycling solves.
 
@@ -2549,31 +2550,47 @@ def build_recycling_1d_backward_euler_residual_context(
         layout=layout,
     )
 
-    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
-        return _compute_recycling_1d_packed_rhs(
+    feedback_timestep = None if packed_feedback_names else timestep
+    if rhs_backend == "fixed_full_field_array":
+        fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
-            state_fields,
-            sanitize_fields=False,
-            feedback_integrals=state_integrals,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
             feedback_previous_errors=previous_feedback_errors,
-            # When controller integrals are part of the implicit state, the
-            # source path should consume that state directly rather than
-            # applying a second trapezoid predictor to the same integral.
-            feedback_timestep=None if packed_feedback_names else timestep,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
+            feedback_timestep=feedback_timestep,
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
-            runtime_model=runtime_model,
-            layout=layout,
         )
+    elif rhs_backend == "host_bridge":
+        def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+            return _compute_recycling_1d_packed_rhs(
+                config,
+                state_fields,
+                sanitize_fields=False,
+                feedback_integrals=state_integrals,
+                feedback_previous_errors=previous_feedback_errors,
+                # When controller integrals are part of the implicit state, the
+                # source path should consume that state directly rather than
+                # applying a second trapezoid predictor to the same integral.
+                feedback_timestep=feedback_timestep,
+                field_names=field_names,
+                feedback_names=packed_feedback_names,
+                mesh=mesh,
+                metrics=metrics,
+                dataset_scalars=dataset_scalars,
+                runtime_model=runtime_model,
+                layout=layout,
+            )
 
-    fixed_rhs = _build_fixed_host_rhs_bridge(
-        packed_rhs,
-        layout=layout,
-        base_feedback_integrals=feedback_integrals,
-    )
+        fixed_rhs = _build_fixed_host_rhs_bridge(
+            packed_rhs,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
+        )
+    else:
+        raise ValueError(f"Unsupported recycling fixed residual rhs_backend={rhs_backend!r}.")
     fixed_residual = _build_fixed_backward_euler_residual(
         fixed_rhs,
         layout=layout,
@@ -2714,6 +2731,11 @@ def advance_recycling_1d_backward_euler_step(
         dataset_scalars=dataset_scalars,
         timestep=timestep,
         evolve_feedback_integrals=evolve_feedback_integrals,
+        rhs_backend=(
+            "fixed_full_field_array"
+            if solver_mode in {"jax_linearized", "jax_linearized_lineax"}
+            else "host_bridge"
+        ),
     )
     runtime_model = context.runtime_model
     field_names = context.field_names
@@ -2863,31 +2885,45 @@ def advance_recycling_1d_bdf2_step(
         layout=layout,
     )
 
-    def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
-        return _compute_recycling_1d_packed_rhs(
+    feedback_timestep = None if packed_feedback_names else timestep
+    if solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
+        fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
-            state_fields,
-            sanitize_fields=False,
-            feedback_integrals=state_integrals,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
             feedback_previous_errors=previous_feedback_errors,
-            # When controller integrals are part of the implicit state, the source
-            # path should consume that state directly rather than applying a second
-            # trapezoid predictor to the same integral.
-            feedback_timestep=None if packed_feedback_names else timestep,
-            field_names=field_names,
-            feedback_names=packed_feedback_names,
+            feedback_timestep=feedback_timestep,
             mesh=mesh,
             metrics=metrics,
             dataset_scalars=dataset_scalars,
-            runtime_model=runtime_model,
-            layout=layout,
         )
+    else:
+        def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
+            return _compute_recycling_1d_packed_rhs(
+                config,
+                state_fields,
+                sanitize_fields=False,
+                feedback_integrals=state_integrals,
+                feedback_previous_errors=previous_feedback_errors,
+                # When controller integrals are part of the implicit state, the source
+                # path should consume that state directly rather than applying a second
+                # trapezoid predictor to the same integral.
+                feedback_timestep=feedback_timestep,
+                field_names=field_names,
+                feedback_names=packed_feedback_names,
+                mesh=mesh,
+                metrics=metrics,
+                dataset_scalars=dataset_scalars,
+                runtime_model=runtime_model,
+                layout=layout,
+            )
 
-    fixed_rhs = _build_fixed_host_rhs_bridge(
-        packed_rhs,
-        layout=layout,
-        base_feedback_integrals=feedback_integrals,
-    )
+        fixed_rhs = _build_fixed_host_rhs_bridge(
+            packed_rhs,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
+        )
     fixed_residual = _build_fixed_bdf2_residual(
         fixed_rhs,
         layout=layout,

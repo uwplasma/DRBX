@@ -2167,6 +2167,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     integrals = {name: 0.0 for name in runtime_model.feedback_names}
     calls: list[tuple[str, str | None]] = []
     predicted_states: list[np.ndarray] = []
+    fixed_full_field_rhs_builds = 0
 
     def fake_predict(config, predict_fields, *, feedback_integrals, field_names, feedback_names, mesh, layout, **kwargs):
         predicted = recycling_1d_mod._pack_recycling_active_state(
@@ -2179,6 +2180,13 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         ) + 0.123
         predicted_states.append(np.asarray(predicted, dtype=np.float64))
         return predicted
+
+    original_fixed_full_field_rhs = recycling_1d_mod._build_fixed_full_field_recycling_rhs
+
+    def counting_fixed_full_field_rhs(*args, **kwargs):
+        nonlocal fixed_full_field_rhs_builds
+        fixed_full_field_rhs_builds += 1
+        return original_fixed_full_field_rhs(*args, **kwargs)
 
     def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
         calls.append(("matrix_free", None))
@@ -2203,6 +2211,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
     monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
+    monkeypatch.setattr(recycling_1d_mod, "_build_fixed_full_field_recycling_rhs", counting_fixed_full_field_rhs)
 
     next_fields, _, info = advance_recycling_1d_backward_euler_step(
         config,
@@ -2219,6 +2228,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     )
 
     assert calls == [(expected_solver, expected_backend)]
+    assert fixed_full_field_rhs_builds == (1 if expected_solver == "jax_linearized" else 0)
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert np.isfinite(next_fields["Nd+"]).all()
 
@@ -2332,6 +2342,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     integrals = {name: 0.0 for name in runtime_model.feedback_names}
     calls: list[tuple[str, str | None]] = []
     predicted_states: list[np.ndarray] = []
+    fixed_full_field_rhs_builds = 0
 
     def fake_predict(config, predict_fields, *, feedback_integrals, field_names, feedback_names, mesh, layout, **kwargs):
         predicted = recycling_1d_mod._pack_recycling_active_state(
@@ -2344,6 +2355,13 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
         ) + 0.123
         predicted_states.append(np.asarray(predicted, dtype=np.float64))
         return predicted
+
+    original_fixed_full_field_rhs = recycling_1d_mod._build_fixed_full_field_recycling_rhs
+
+    def counting_fixed_full_field_rhs(*args, **kwargs):
+        nonlocal fixed_full_field_rhs_builds
+        fixed_full_field_rhs_builds += 1
+        return original_fixed_full_field_rhs(*args, **kwargs)
 
     def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
         calls.append(("matrix_free", None))
@@ -2368,6 +2386,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
     monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
+    monkeypatch.setattr(recycling_1d_mod, "_build_fixed_full_field_recycling_rhs", counting_fixed_full_field_rhs)
 
     next_fields, _, info = advance_recycling_1d_bdf2_step(
         config,
@@ -2386,6 +2405,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     )
 
     assert calls == [(expected_solver, expected_backend)]
+    assert fixed_full_field_rhs_builds == (1 if expected_solver == "jax_linearized" else 0)
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert np.isfinite(next_fields["Nd+"]).all()
 
