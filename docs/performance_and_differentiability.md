@@ -690,6 +690,14 @@ Implicit step diagnostics now also include a `converged` flag when the solver
 can determine whether its residual or step-tolerance criterion was satisfied;
 validation campaigns should require this flag before promoting an opt-in solver
 mode to a paper or release claim.
+For adaptive BDF promotion attempts, the comparison script can now enforce the
+same policy explicitly:
+`compare_recycling_transient_modes.py --mode adaptive_bdf_jax_linearized
+--require-adaptive-bdf-no-fallback --require-adaptive-bdf-max-error-ratio
+0.95 --mode-timeout-seconds 120`. This gate is intentionally strict: a run
+that completes only through minimum-`dt` fallback, exceeds the timeout, or
+reports an embedded error ratio above the threshold is treated as evidence that
+the output-window JAX-linearized path is not ready for default use.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or
