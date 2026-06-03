@@ -35,15 +35,15 @@ The current locked target values at the final stored output are:
 - total `Ph`: `7.86184063e+01`
 - momentum RMS: `5.56121767e-08`
 
-This benchmark exists to keep the next neutral transient implementation honest. The public runner now executes both `neutral_mixed_one_step` and `neutral_mixed_short_window`, and the latest bounded one-step compare is materially tighter after fixing the neutral density wall-guard reconstruction to match the reference wall extrapolation:
+This benchmark exists to keep the next neutral transient implementation honest. The public runner now executes both `neutral_mixed_one_step` and `neutral_mixed_short_window`, and the latest bounded one-step compare is materially tighter after fixing connected-y guard reconstruction and promoting the one-step default to eight internal BDF substeps:
 
-- center `Nh` max-abs error: about `8.03e-3`
-- center `Ph` max-abs error: about `5.66e-4`
-- center `NVh` max-abs error: about `8.60e-4`
-- center temperature max-abs error: about `2.91e-4`
-- momentum RMS max-abs error: about `1.71e-3`
+- center `Nh` max-abs error: about `5.39e-5`
+- center `Ph` max-abs error: about `5.90e-6`
+- center `NVh` max-abs error: about `4.24e-6`
+- center temperature max-abs error: about `6.38e-7`
+- momentum RMS max-abs error: about `7.74e-10`
 
-That is good enough to lock an operational one-step gate. The same native runner path now also finishes a bounded full short-window metric gate on the matrix-free path inside the ten-minute validation policy, with roughly:
+That is good enough to promote the one-step gate from a loose operational probe to a much tighter bounded native check. The same native runner path still keeps the short-window default at four internal substeps and finishes a bounded full short-window metric gate on the matrix-free path inside the ten-minute validation policy, with roughly:
 
 - `center Nh ≈ 8.03e-3`
 - `center Ph ≈ 6.47e-4`

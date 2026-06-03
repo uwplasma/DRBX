@@ -116,7 +116,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary to JSON.")
     run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
-    run_case_parser.add_argument("--override", action="append", default=[], help="Additional native-run overrides such as runtime:neutral_mixed_internal_substeps=4.")
+    run_case_parser.add_argument("--override", action="append", default=[], help="Additional native-run overrides such as runtime:neutral_mixed_internal_substeps=8.")
     run_case_parser.set_defaults(command=_run_case_command)
 
     validate_reference_parser = subparsers.add_parser(
