@@ -27,8 +27,10 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   resolved `bdf_jacobian_mode` and `bdf_jvp_batch_size` alongside RHS,
   cache-hit, RHS phase-timing, and Jacobian callback counters.
 - The transient-mode comparison helper now includes the opt-in
-  `bdf_fixed_full_field_jvp` lane and prints a direct `bdf` versus
-  full-field-JVP delta table when both modes are run.
+  `bdf_fixed_full_field_jvp` lane, prints a direct `bdf` versus
+  full-field-JVP delta table when both modes are run, and can now fail as a
+  real promotion gate with `--require-fixed-jvp-diagnostics` plus
+  `--require-bdf-pairwise-max`.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.

@@ -109,6 +109,16 @@ For the remaining recycling solver work, the order is therefore fixed:
 - use `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` as
   the named output-window BDF gate for the fixed-full-field RHS plus grouped
   JVP Jacobian seam;
+- run the compact fixed-JVP parity gate before any heavy promotion attempt:
+  `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
+  recycling_1d_one_step --reference-root /path/to/reference/root --mode bdf
+  --mode bdf_fixed_full_field_jvp --field Pe
+  --require-fixed-jvp-diagnostics --require-bdf-pairwise-max 1e-5`;
+- report `bdf_jvp_jacobian_linearize_seconds`,
+  `bdf_jvp_jacobian_push_seconds`, and
+  `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, because the compact
+  gate shows linearization and tangent pushes, not sparse assembly, are the
+  current blockers;
 - continue moving source, closure, boundary, and target-recycling kernels into
   fixed-layout JAX functions with parity and JVP gates;
 - promote matrix-free/JVP nonlinear solves only after the full heavy residual

@@ -45,6 +45,23 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--field", action="append", dest="fields", help="Fields to report. May be repeated.")
+    parser.add_argument(
+        "--require-bdf-pairwise-max",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless the largest active-mesh bdf-vs-bdf_fixed_full_field_jvp "
+            "delta over reported fields is below this value."
+        ),
+    )
+    parser.add_argument(
+        "--require-fixed-jvp-diagnostics",
+        action="store_true",
+        help=(
+            "Fail unless bdf_fixed_full_field_jvp reports fixed_full_field_array "
+            "RHS, JVP Jacobian mode, and zero finite-difference base-RHS Jacobian calls."
+        ),
+    )
     return parser
 
 
@@ -140,6 +157,40 @@ def _format_bdf_pairwise_delta_report(
     return lines
 
 
+def _bdf_pairwise_worst_delta(
+    mode_variables: dict[str, dict[str, np.ndarray]],
+    *,
+    fields: tuple[str, ...],
+    mesh=None,
+) -> tuple[str | None, float | None]:
+    base_mode, candidate_mode = BDF_PAIRWISE_MODES
+    if base_mode not in mode_variables or candidate_mode not in mode_variables:
+        return None, None
+    rows = _summarize_mode_errors(
+        mode_variables[base_mode],
+        mode_variables[candidate_mode],
+        fields=fields,
+        mesh=mesh,
+        crop_expected=True,
+    )
+    if not rows:
+        return None, None
+    return rows[0]
+
+
+def _validate_fixed_full_field_jvp_diagnostics(diagnostics: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    if diagnostics.get("bdf_rhs_backend") != "fixed_full_field_array":
+        errors.append("bdf_fixed_full_field_jvp did not report bdf_rhs_backend=fixed_full_field_array")
+    if diagnostics.get("bdf_jacobian_mode") != "jvp":
+        errors.append("bdf_fixed_full_field_jvp did not report bdf_jacobian_mode=jvp")
+    if int(diagnostics.get("bdf_jacobian_base_rhs_evaluation_count", -1)) != 0:
+        errors.append("bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations")
+    if int(diagnostics.get("bdf_jvp_rhs_evaluation_count", 0)) <= 0:
+        errors.append("bdf_fixed_full_field_jvp did not report any JVP RHS evaluations")
+    return errors
+
+
 def main() -> int:
     args = _parse_args()
     case, input_path = resolve_reference_case(args.case, reference_root=args.reference_root)
@@ -160,6 +211,7 @@ def main() -> int:
     print(f"fields={fields}")
     print(f"modes={modes}")
     mode_variables: dict[str, dict[str, np.ndarray]] = {}
+    mode_diagnostics: dict[str, dict[str, object]] = {}
     for mode in modes:
         started = time.perf_counter()
         history = advance_recycling_1d_implicit_history(
@@ -179,13 +231,32 @@ def main() -> int:
             for name, value in history.variable_history.items()
         }
         mode_variables[mode] = actual
+        mode_diagnostics[mode] = dict(history.diagnostics)
         rows = _summarize_mode_errors(actual, expected, fields=fields, mesh=mesh)
         for line in _format_mode_error_report(mode, elapsed=elapsed, rows=rows):
             print(line)
-        for line in _format_mode_diagnostics_report(mode, dict(history.diagnostics)):
+        for line in _format_mode_diagnostics_report(mode, mode_diagnostics[mode]):
             print(line)
     for line in _format_bdf_pairwise_delta_report(mode_variables, fields=fields, mesh=mesh):
         print(line)
+    if args.require_fixed_jvp_diagnostics:
+        errors = _validate_fixed_full_field_jvp_diagnostics(
+            mode_diagnostics.get("bdf_fixed_full_field_jvp", {})
+        )
+        for error in errors:
+            print(f"gate_failure={error}")
+        if errors:
+            return 2
+    if args.require_bdf_pairwise_max is not None:
+        worst_field, worst_delta = _bdf_pairwise_worst_delta(mode_variables, fields=fields, mesh=mesh)
+        if worst_delta is None:
+            print("gate_failure=bdf pairwise delta is unavailable; run both bdf and bdf_fixed_full_field_jvp")
+            return 2
+        threshold = float(args.require_bdf_pairwise_max)
+        print(f"gate=bdf_pairwise_max field={worst_field} delta={worst_delta:.8e} threshold={threshold:.8e}")
+        if not np.isfinite(worst_delta) or worst_delta > threshold:
+            print("gate_failure=bdf pairwise delta exceeds threshold")
+            return 2
     return 0
 
 

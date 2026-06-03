@@ -2944,6 +2944,12 @@ def _advance_recycling_1d_bdf_history(
     jacobian_callback_seconds = 0.0
     jacobian_base_rhs_evaluation_count = 0
     jvp_rhs_evaluation_count = 0
+    jvp_jacobian_linearize_seconds = 0.0
+    jvp_jacobian_tangent_build_seconds = 0.0
+    jvp_jacobian_push_seconds = 0.0
+    jvp_jacobian_sparse_assembly_seconds = 0.0
+    jvp_jacobian_total_seconds = 0.0
+    jvp_jacobian_batch_count = 0
     rhs_callback_seconds = 0.0
     rhs_evaluation_seconds = 0.0
     rhs_object_evaluation_seconds = 0.0
@@ -3044,7 +3050,10 @@ def _advance_recycling_1d_bdf_history(
             rhs_callback_seconds += time.perf_counter() - rhs_callback_started_at
 
     def jacobian(_time: float, packed_state: np.ndarray):
-        nonlocal jacobian_base_rhs_evaluation_count, jacobian_callback_count, jacobian_callback_seconds, jvp_rhs_evaluation_count
+        nonlocal jacobian_base_rhs_evaluation_count, jacobian_callback_count, jacobian_callback_seconds
+        nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds
+        nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
+        nonlocal jvp_jacobian_total_seconds, jvp_rhs_evaluation_count
         jacobian_started_at = time.perf_counter()
         jacobian_callback_count += 1
         try:
@@ -3054,6 +3063,17 @@ def _advance_recycling_1d_bdf_history(
                     jvp_rhs_evaluation_count += 1
                     return _evaluate_rhs_object(state)
 
+                def record_jvp_timing(timing: dict[str, float | int]) -> None:
+                    nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds
+                    nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds
+                    nonlocal jvp_jacobian_tangent_build_seconds, jvp_jacobian_total_seconds
+                    jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
+                    jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
+                    jvp_jacobian_tangent_build_seconds += float(timing.get("tangent_build_seconds", 0.0))
+                    jvp_jacobian_push_seconds += float(timing.get("push_seconds", 0.0))
+                    jvp_jacobian_sparse_assembly_seconds += float(timing.get("sparse_assembly_seconds", 0.0))
+                    jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
+
                 return build_sparse_jvp_jacobian(
                     evaluate_jvp_rhs,
                     packed_state,
@@ -3062,6 +3082,7 @@ def _advance_recycling_1d_bdf_history(
                     sparsity_csc=sparsity_csc,
                     difference_plan=difference_plan,
                     batch_size=bdf_jvp_batch_size,
+                    timing_callback=record_jvp_timing,
                 )
             jacobian_base_rhs_evaluation_count += 1
             rhs_value = rhs(_time, packed_state)
@@ -3148,6 +3169,12 @@ def _advance_recycling_1d_bdf_history(
             "bdf_jacobian_callback_seconds": float(jacobian_callback_seconds),
             "bdf_jacobian_base_rhs_evaluation_count": int(jacobian_base_rhs_evaluation_count),
             "bdf_jvp_rhs_evaluation_count": int(jvp_rhs_evaluation_count),
+            "bdf_jvp_jacobian_batch_count": int(jvp_jacobian_batch_count),
+            "bdf_jvp_jacobian_linearize_seconds": float(jvp_jacobian_linearize_seconds),
+            "bdf_jvp_jacobian_push_seconds": float(jvp_jacobian_push_seconds),
+            "bdf_jvp_jacobian_sparse_assembly_seconds": float(jvp_jacobian_sparse_assembly_seconds),
+            "bdf_jvp_jacobian_tangent_build_seconds": float(jvp_jacobian_tangent_build_seconds),
+            "bdf_jvp_jacobian_total_seconds": float(jvp_jacobian_total_seconds),
             "bdf_jacobian_mode": bdf_jacobian_mode,
             "bdf_rhs_backend": str(rhs_backend),
             "bdf_jvp_batch_size": None if bdf_jvp_batch_size is None else int(bdf_jvp_batch_size),

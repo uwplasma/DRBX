@@ -283,11 +283,13 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         result1 = field1 * field1 - 0.2 * jnp.roll(field0, -1, axis=0)
         return jnp.concatenate([result0.ravel(), result1.ravel()])
 
+    timing_payloads: list[dict[str, float | int]] = []
     jvp_jacobian = build_sparse_jvp_jacobian(
         residual,
         state,
         sparsity=sparsity,
         color_groups=color_groups,
+        timing_callback=timing_payloads.append,
     )
     serial_jvp_jacobian = build_sparse_jvp_jacobian(
         residual,
@@ -310,6 +312,14 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
     np.testing.assert_allclose(jvp_jacobian.toarray(), expected * sparsity.toarray(), rtol=1.0e-12, atol=1.0e-12)
     np.testing.assert_allclose(serial_jvp_jacobian.toarray(), jvp_jacobian.toarray(), rtol=1.0e-12, atol=1.0e-12)
     assert active_cells > 0
+    assert len(timing_payloads) == 1
+    timing = timing_payloads[0]
+    assert timing["group_count"] == len(color_groups)
+    assert timing["batch_count"] == 1
+    assert timing["state_size"] == state.size
+    assert timing["nnz"] == sparsity.nnz
+    assert timing["total_seconds"] >= timing["linearize_seconds"] >= 0.0
+    assert timing["push_seconds"] >= 0.0
 
 
 def test_backward_euler_and_bdf2_residual_formulas() -> None:

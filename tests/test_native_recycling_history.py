@@ -774,6 +774,19 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
         captured["jvp_kwargs"] = kwargs
         value = np.asarray(residual(state), dtype=np.float64)
         assert value.shape == np.asarray(state, dtype=np.float64).shape
+        kwargs["timing_callback"](
+            {
+                "total_seconds": 0.125,
+                "linearize_seconds": 0.05,
+                "tangent_build_seconds": 0.01,
+                "push_seconds": 0.06,
+                "sparse_assembly_seconds": 0.005,
+                "batch_count": 2,
+                "group_count": 4,
+                "state_size": int(np.asarray(state, dtype=np.float64).size),
+                "nnz": 3,
+            }
+        )
         return "jvp-jacobian"
 
     monkeypatch.setattr("scipy.integrate.solve_ivp", fake_solve_ivp)
@@ -815,6 +828,12 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert result.diagnostics["bdf_rhs_numpy_conversion_seconds"] >= 0.0
     assert result.diagnostics["bdf_jacobian_base_rhs_evaluation_count"] == 0
     assert result.diagnostics["bdf_jvp_rhs_evaluation_count"] == 1
+    assert result.diagnostics["bdf_jvp_jacobian_batch_count"] == 2
+    assert result.diagnostics["bdf_jvp_jacobian_linearize_seconds"] == 0.05
+    assert result.diagnostics["bdf_jvp_jacobian_push_seconds"] == 0.06
+    assert result.diagnostics["bdf_jvp_jacobian_sparse_assembly_seconds"] == 0.005
+    assert result.diagnostics["bdf_jvp_jacobian_tangent_build_seconds"] == 0.01
+    assert result.diagnostics["bdf_jvp_jacobian_total_seconds"] == 0.125
     assert result.diagnostics["bdf_jacobian_mode"] == "jvp"
     assert result.diagnostics["bdf_rhs_backend"] == "fixed_full_field_array"
     assert result.variable_history["N"].shape == (2, 1)

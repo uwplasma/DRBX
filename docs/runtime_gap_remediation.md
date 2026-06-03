@@ -262,6 +262,21 @@ RHS and grouped-JVP sparse Jacobian, with diagnostics reporting
 to profile before attempting a matrix-free or Lineax replacement for the full
 output-window solve.
 
+The compact real gate now passes as a parity check but fails as a promotion
+candidate. On `recycling_1d_one_step`, the command
+`compare_recycling_transient_modes.py --mode bdf --mode
+bdf_fixed_full_field_jvp --field Pe --require-fixed-jvp-diagnostics
+--require-bdf-pairwise-max 1e-5` reports an active-mesh `Pe` pairwise delta of
+`6.28e-6`, so the fixed-layout callback is following the same physics to the
+requested tolerance. The runtime split is the blocker: the fixed-JVP path takes
+about `59.9 s` versus about `8.2 s` for default BDF, with about `57.1 s` spent
+inside JVP Jacobian callbacks. The subphase split is now measured: about
+`36.8 s` is repeated `jax.linearize`, about `20.0 s` is the batched tangent
+push, and sparse assembly plus tangent construction are below `0.02 s`. The
+next optimization is therefore to avoid repeated full JAX linearization/JVP
+materialization inside SciPy BDF, or to move the output-window solve to a native
+JAX-linearized/matrix-free nonlinear solver after parity is preserved.
+
 The sparse Newton interface now exposes that derivative algorithm directly as
 `jacobian_mode="jvp"`, and the implicit-solver profile audit compares it
 against the finite-difference sparse Newton path on a transformable residual.

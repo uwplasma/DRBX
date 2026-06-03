@@ -337,7 +337,18 @@ history diagnostics record `bdf_rhs_backend="fixed_full_field_array"` and
 `bdf_jacobian_mode="jvp"` so profile artifacts identify the route explicitly.
 It remains a parity/runtime gate rather than the default until the full
 output-window campaigns show equal reference agreement with lower call count
-and memory use.
+and memory use. The current hydrogen one-step gate is now explicit:
+`compare_recycling_transient_modes.py --case recycling_1d_one_step --mode bdf
+--mode bdf_fixed_full_field_jvp --field Pe --require-fixed-jvp-diagnostics
+--require-bdf-pairwise-max 1e-5` passes with a BDF-vs-fixed-JVP active-mesh
+`Pe` delta of `6.28e-6`, but the same run takes about `59.9 s` through the
+fixed-JVP route versus about `8.2 s` through the default BDF route. The new
+subphase diagnostics show why: out of `56.86 s` in JVP Jacobian construction,
+about `36.82 s` is repeated `jax.linearize` work and about `20.02 s` is the
+batched tangent push, while tangent construction and sparse assembly are
+negligible. This proves the fixed-layout/JVP seam is numerically aligned on the
+compact gate, while the remaining promotion blocker is repeated JAX
+linearization/JVP Jacobian construction inside the SciPy BDF callback.
 
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable

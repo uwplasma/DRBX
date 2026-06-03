@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import os
 from threading import Lock
 from time import perf_counter
+from typing import Callable
 
 import numpy as np
 
@@ -245,6 +246,7 @@ def build_sparse_jvp_jacobian(
     sparsity_csc=None,
     difference_plan: SparseDifferenceQuotientPlan | None = None,
     batch_size: int | None = None,
+    timing_callback: Callable[[dict[str, float | int]], None] | None = None,
 ):
     """Build a sparse Jacobian from grouped JAX JVPs.
 
@@ -263,6 +265,12 @@ def build_sparse_jvp_jacobian(
     except ImportError as exc:  # pragma: no cover - exercised only when optional deps are unavailable
         raise ImportError("Sparse JVP Jacobian construction requires jax and scipy.") from exc
 
+    total_started_at = perf_counter()
+    linearize_seconds = 0.0
+    tangent_build_seconds = 0.0
+    push_seconds = 0.0
+    sparse_assembly_seconds = 0.0
+
     state_array = jnp.asarray(state, dtype=jnp.float64)
     state_shape = tuple(state_array.shape)
     state_size = int(state_array.size)
@@ -272,7 +280,9 @@ def build_sparse_jvp_jacobian(
         if difference_plan is not None
         else prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups, sparsity_csc=sparsity_csc)
     )
+    linearize_started_at = perf_counter()
     _, linear_map = jax.linearize(residual, state_array)
+    linearize_seconds += perf_counter() - linearize_started_at
 
     nnz = int(plan.nnz)
     row_indices = np.empty(nnz, dtype=np.int32)
@@ -281,11 +291,28 @@ def build_sparse_jvp_jacobian(
     offset = 0
     group_count = len(plan.groups)
     if group_count == 0:
+        if timing_callback is not None:
+            timing_callback(
+                {
+                    "total_seconds": float(perf_counter() - total_started_at),
+                    "linearize_seconds": float(linearize_seconds),
+                    "tangent_build_seconds": 0.0,
+                    "push_seconds": 0.0,
+                    "sparse_assembly_seconds": 0.0,
+                    "group_count": 0,
+                    "batch_count": 0,
+                    "state_size": int(state_size),
+                    "nnz": int(plan.nnz),
+                }
+            )
         return coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
     resolved_batch_size = group_count if batch_size is None else max(1, int(batch_size))
     vmapped_linear_map = jax.vmap(linear_map)
+    batch_count = 0
     for batch_start in range(0, group_count, resolved_batch_size):
         batch_groups = plan.groups[batch_start : batch_start + resolved_batch_size]
+        batch_count += 1
+        tangent_started_at = perf_counter()
         directions_flat = np.zeros((len(batch_groups), state_size), dtype=np.float64)
         for batch_index, group in enumerate(batch_groups):
             directions_flat[batch_index, group.columns] = 1.0
@@ -293,10 +320,14 @@ def build_sparse_jvp_jacobian(
             directions_flat.reshape((len(batch_groups), *state_shape)),
             dtype=state_array.dtype,
         )
+        tangent_build_seconds += perf_counter() - tangent_started_at
+        push_started_at = perf_counter()
         pushed_batch = np.asarray(
             vmapped_linear_map(directions),
             dtype=np.float64,
         ).reshape(len(batch_groups), -1)
+        push_seconds += perf_counter() - push_started_at
+        assembly_started_at = perf_counter()
         for batch_index, group in enumerate(batch_groups):
             pushed = pushed_batch[batch_index]
             group_data = pushed[group.rows]
@@ -305,7 +336,22 @@ def build_sparse_jvp_jacobian(
             col_indices[offset : offset + count] = group.cols
             data[offset : offset + count] = group_data
             offset += count
+        sparse_assembly_seconds += perf_counter() - assembly_started_at
 
+    if timing_callback is not None:
+        timing_callback(
+            {
+                "total_seconds": float(perf_counter() - total_started_at),
+                "linearize_seconds": float(linearize_seconds),
+                "tangent_build_seconds": float(tangent_build_seconds),
+                "push_seconds": float(push_seconds),
+                "sparse_assembly_seconds": float(sparse_assembly_seconds),
+                "group_count": int(group_count),
+                "batch_count": int(batch_count),
+                "state_size": int(state_size),
+                "nnz": int(plan.nnz),
+            }
+        )
     return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
 
 

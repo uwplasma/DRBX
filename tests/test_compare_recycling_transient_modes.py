@@ -29,11 +29,16 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "/tmp/reference",
             "--mode",
             "bdf_fixed_full_field_jvp",
+            "--require-bdf-pairwise-max",
+            "1e-5",
+            "--require-fixed-jvp-diagnostics",
         ]
     )
 
     assert args.reference_root == Path("/tmp/reference")
     assert args.modes == ["bdf_fixed_full_field_jvp"]
+    assert args.require_bdf_pairwise_max == 1.0e-5
+    assert args.require_fixed_jvp_diagnostics is True
     help_text = compare_script._build_parser().format_help()
     normalized_help = " ".join(help_text.split()).replace("full- field", "full-field")
     assert "bdf_fixed_full_field_jvp" in help_text
@@ -127,3 +132,55 @@ def test_bdf_pairwise_delta_report_is_omitted_without_both_modes() -> None:
     )
 
     assert lines == []
+
+
+def test_bdf_pairwise_worst_delta_returns_active_mesh_worst_field() -> None:
+    mesh = SimpleNamespace(xstart=1, xend=2, ystart=0, yend=1)
+    bdf = np.zeros((1, 4, 3, 1))
+    fixed_jvp = np.zeros((1, 4, 3, 1))
+    fixed_jvp[:, 0, 0, :] = 99.0
+    fixed_jvp[:, 1, 1, :] = 0.25
+    fixed_jvp[:, 2, 1, :] = 0.75
+
+    field, delta = compare_script._bdf_pairwise_worst_delta(
+        {
+            "bdf": {"Nd+": bdf},
+            "bdf_fixed_full_field_jvp": {"Nd+": fixed_jvp},
+        },
+        fields=("Nd+",),
+        mesh=mesh,
+    )
+
+    assert field == "Nd+"
+    assert delta == 0.75
+
+
+def test_fixed_full_field_jvp_diagnostics_gate_accepts_expected_route() -> None:
+    errors = compare_script._validate_fixed_full_field_jvp_diagnostics(
+        {
+            "bdf_rhs_backend": "fixed_full_field_array",
+            "bdf_jacobian_mode": "jvp",
+            "bdf_jacobian_base_rhs_evaluation_count": 0,
+            "bdf_jvp_rhs_evaluation_count": 3,
+        }
+    )
+
+    assert errors == []
+
+
+def test_fixed_full_field_jvp_diagnostics_gate_reports_wrong_route() -> None:
+    errors = compare_script._validate_fixed_full_field_jvp_diagnostics(
+        {
+            "bdf_rhs_backend": "host_bridge",
+            "bdf_jacobian_mode": "fd",
+            "bdf_jacobian_base_rhs_evaluation_count": 2,
+            "bdf_jvp_rhs_evaluation_count": 0,
+        }
+    )
+
+    assert errors == [
+        "bdf_fixed_full_field_jvp did not report bdf_rhs_backend=fixed_full_field_array",
+        "bdf_fixed_full_field_jvp did not report bdf_jacobian_mode=jvp",
+        "bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations",
+        "bdf_fixed_full_field_jvp did not report any JVP RHS evaluations",
+    ]
