@@ -670,6 +670,22 @@ remains a host compatibility path. For the long SciPy BDF callback itself,
 the fixed-full-field RHS plus grouped-JVP Jacobian seam while preserving the
 same BDF timestepper.
 
+The adaptive BDF history result now reports solver-health diagnostics for these
+opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,
+startup versus BDF2 trials, accepted-`dt` bounds, the last and maximum embedded
+error ratios, and the step solver backend used by the controller. These fields
+are intentionally exposed in `Recycling1DHistoryResult.diagnostics` so the
+research campaigns can distinguish a genuinely stable output-window solve from
+a run that only completed by falling back to the minimum internal timestep.
+The matrix-free BE/BDF2 trial solvers also start from the same explicit
+predictor used by the sparse and JAX-linearized paths, rather than from the
+previous state. That keeps the native solver variants comparable and avoids an
+unnecessary convergence penalty in the matrix-free lane.
+Implicit step diagnostics now also include a `converged` flag when the solver
+can determine whether its residual or step-tolerance criterion was satisfied;
+validation campaigns should require this flag before promoting an opt-in solver
+mode to a paper or release claim.
+
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER=lineax` routes the JAX-linearized Newton

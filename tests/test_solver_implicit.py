@@ -395,6 +395,8 @@ def test_sparse_and_matrix_free_newton_solvers_recover_known_root() -> None:
     np.testing.assert_allclose(matrix_free_solution, target, rtol=1e-9, atol=1e-9)
     assert sparse_info.residual_inf_norm < 1.0e-10
     assert matrix_free_info.residual_inf_norm < 1.0e-10
+    assert sparse_info.converged is True
+    assert matrix_free_info.converged is True
     assert sparse_info.residual_evaluation_count >= 1
     assert sparse_info.jacobian_refresh_count >= 1
     assert sparse_info.jacobian_assembly_seconds >= 0.0
@@ -586,6 +588,7 @@ def test_sparse_newton_solver_uses_newton_krylov_fallback_after_rejected_line_se
     np.testing.assert_allclose(solution, np.array([0.25]))
     assert info.residual_inf_norm == pytest.approx(1.25)
     assert info.nonlinear_iterations == 2
+    assert info.converged is False
 
 
 def test_sparse_newton_solver_rejects_nonfinite_trial_then_uses_fallback(
@@ -614,6 +617,7 @@ def test_sparse_newton_solver_rejects_nonfinite_trial_then_uses_fallback(
     np.testing.assert_allclose(solution, np.array([0.5]))
     assert info.residual_inf_norm == pytest.approx(0.5)
     assert info.nonlinear_iterations == 1
+    assert info.converged is False
 
 
 def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual() -> None:
@@ -633,6 +637,7 @@ def test_jax_linearized_newton_solver_returns_immediately_for_satisfied_residual
     np.testing.assert_allclose(solution, initial)
     assert info.nonlinear_iterations == 0
     assert info.linear_iterations == 0
+    assert info.converged is True
 
 
 def test_jax_linearized_newton_solver_can_exit_on_step_tolerance() -> None:
@@ -652,6 +657,7 @@ def test_jax_linearized_newton_solver_can_exit_on_step_tolerance() -> None:
     np.testing.assert_allclose(solution, np.array([1.0]))
     assert info.nonlinear_iterations == 1
     assert info.residual_inf_norm <= 1.0e-12
+    assert info.converged is True
 
 
 def test_jax_linearized_newton_solver_recovers_known_root() -> None:
@@ -682,6 +688,24 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.jacobian_refresh_count >= 1
     assert info.jacobian_assembly_seconds >= 0.0
     assert info.linear_solve_seconds >= 0.0
+    assert info.converged is True
+
+
+def test_jax_linearized_newton_solver_reports_nonconvergence() -> None:
+    jnp = pytest.importorskip("jax.numpy")
+
+    solution, info = solve_jax_linearized_newton_system(
+        lambda state: jnp.asarray(state) + 1.0,
+        np.array([0.0], dtype=np.float64),
+        active_shape=(1,),
+        residual_tolerance=1.0e-12,
+        step_tolerance=1.0e-12,
+        max_nonlinear_iterations=0,
+    )
+
+    np.testing.assert_allclose(solution, np.array([0.0]))
+    assert info.residual_inf_norm == pytest.approx(1.0)
+    assert info.converged is False
 
 
 def test_jax_linearized_newton_solver_supports_lineax_gmres_backend() -> None:

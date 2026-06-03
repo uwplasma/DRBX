@@ -34,6 +34,7 @@ class ImplicitStepInfo:
     line_search_seconds: float = 0.0
     fallback_used: bool = False
     jacobian_mode: str = "fd"
+    converged: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -465,6 +466,7 @@ def solve_sparse_newton_system(
         *,
         residual_inf_norm: float,
         nonlinear_iterations: int,
+        converged: bool | None = None,
     ) -> ImplicitStepInfo:
         return ImplicitStepInfo(
             residual_inf_norm=residual_inf_norm,
@@ -479,6 +481,7 @@ def solve_sparse_newton_system(
             line_search_seconds=line_search_seconds,
             fallback_used=fallback_used,
             jacobian_mode=resolved_jacobian_mode,
+            converged=converged,
         )
 
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
@@ -509,6 +512,7 @@ def solve_sparse_newton_system(
             return state, build_info(
                 residual_inf_norm=residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration - 1,
+                converged=True,
             )
 
         if jacobian is None or nonlinear_iteration == 1 or ((nonlinear_iteration - 1) % refresh_frequency == 0):
@@ -596,11 +600,13 @@ def solve_sparse_newton_system(
             return state, build_info(
                 residual_inf_norm=candidate_residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration,
+                converged=True,
             )
         if candidate_residual_inf_norm < float(residual_tolerance):
             return state, build_info(
                 residual_inf_norm=candidate_residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration,
+                converged=True,
             )
 
     fallback_used = True
@@ -622,6 +628,7 @@ def solve_sparse_newton_system(
     return np.asarray(solved, dtype=np.float64), build_info(
         residual_inf_norm=residual_inf_norm,
         nonlinear_iterations=int(max_nonlinear_iterations),
+        converged=residual_inf_norm < float(residual_tolerance),
     )
 
 
@@ -669,6 +676,7 @@ def solve_matrix_free_newton_system(
         residual_evaluation_count=residual_evaluation_count,
         residual_evaluation_seconds=residual_evaluation_seconds,
         linear_solve_seconds=solve_seconds,
+        converged=float(np.max(np.abs(residual_value))) < float(residual_tolerance),
     )
 
 
@@ -709,6 +717,7 @@ def solve_jax_linearized_newton_system(
         *,
         residual_inf_norm: float,
         nonlinear_iterations: int,
+        converged: bool,
     ) -> ImplicitStepInfo:
         return ImplicitStepInfo(
             residual_inf_norm=float(residual_inf_norm),
@@ -722,6 +731,7 @@ def solve_jax_linearized_newton_system(
             linear_solve_seconds=linear_solve_seconds,
             line_search_seconds=line_search_seconds,
             jacobian_mode=jacobian_mode,
+            converged=bool(converged),
         )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
@@ -738,6 +748,7 @@ def solve_jax_linearized_newton_system(
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration - 1,
+                converged=True,
             )
 
         linear_solve_started_at = perf_counter()
@@ -784,11 +795,13 @@ def solve_jax_linearized_newton_system(
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=candidate_residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration,
+                converged=True,
             )
         if candidate_residual_inf_norm < float(residual_tolerance):
             return np.asarray(state, dtype=np.float64), _info(
                 residual_inf_norm=candidate_residual_inf_norm,
                 nonlinear_iterations=nonlinear_iteration,
+                converged=True,
             )
 
     residual_started_at = perf_counter()
@@ -799,6 +812,7 @@ def solve_jax_linearized_newton_system(
     return np.asarray(state, dtype=np.float64), _info(
         residual_inf_norm=float(jnp.max(jnp.abs(final_residual))),
         nonlinear_iterations=int(max_nonlinear_iterations),
+        converged=float(jnp.max(jnp.abs(final_residual))) < float(residual_tolerance),
     )
 
 

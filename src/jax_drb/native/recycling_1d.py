@@ -1953,6 +1953,8 @@ def _advance_recycling_1d_adaptive_bdf_history(
     variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
     suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+    interval_stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
+    interval_stats["adaptive_bdf_interval_count"] = 0
     run_started_at = time.perf_counter()
     interval_started_at = run_started_at
 
@@ -1964,6 +1966,7 @@ def _advance_recycling_1d_adaptive_bdf_history(
             previous_integrals,
             previous_dt,
             suggested_dt,
+            step_stats,
         ) = _advance_recycling_1d_adaptive_bdf_interval(
             config,
             current_fields,
@@ -1983,6 +1986,8 @@ def _advance_recycling_1d_adaptive_bdf_history(
             max_nonlinear_iterations=max_nonlinear_iterations,
             step_solver_mode=step_solver_mode,
         )
+        _accumulate_adaptive_bdf_interval_stats(interval_stats, step_stats)
+        interval_stats["adaptive_bdf_interval_count"] = int(interval_stats["adaptive_bdf_interval_count"]) + 1
         for name in field_names:
             variable_history[name].append(np.asarray(current_fields[name], dtype=np.float64))
         for name in feedback_names:
@@ -2003,7 +2008,81 @@ def _advance_recycling_1d_adaptive_bdf_history(
     return Recycling1DHistoryResult(
         variable_history={name: np.stack(history, axis=0) for name, history in variable_history.items()},
         feedback_integral_history={name: np.stack(history, axis=0) for name, history in feedback_history.items()},
+        diagnostics=interval_stats,
     )
+
+
+def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float | int | str | None]:
+    return {
+        "adaptive_bdf_accepted_steps": 0,
+        "adaptive_bdf_rejected_steps": 0,
+        "adaptive_bdf_minimum_dt_fallbacks": 0,
+        "adaptive_bdf_startup_trials": 0,
+        "adaptive_bdf_bdf2_trials": 0,
+        "adaptive_bdf_bdf2_accepted_steps": 0,
+        "adaptive_bdf_min_accepted_dt": None,
+        "adaptive_bdf_max_accepted_dt": None,
+        "adaptive_bdf_last_error_ratio": None,
+        "adaptive_bdf_max_error_ratio": None,
+        "adaptive_bdf_step_solver_mode": str(step_solver_mode),
+    }
+
+
+def _record_adaptive_bdf_error_ratio(
+    stats: dict[str, float | int | str | None],
+    error_ratio: float,
+) -> None:
+    finite_error_ratio = float(error_ratio) if np.isfinite(error_ratio) else None
+    stats["adaptive_bdf_last_error_ratio"] = finite_error_ratio
+    if finite_error_ratio is None:
+        return
+    previous_max = stats["adaptive_bdf_max_error_ratio"]
+    if previous_max is None:
+        stats["adaptive_bdf_max_error_ratio"] = finite_error_ratio
+    else:
+        stats["adaptive_bdf_max_error_ratio"] = max(float(previous_max), finite_error_ratio)
+
+
+def _record_adaptive_bdf_accepted_dt(
+    stats: dict[str, float | int | str | None],
+    dt: float,
+) -> None:
+    accepted_dt = float(dt)
+    min_dt = stats["adaptive_bdf_min_accepted_dt"]
+    max_dt = stats["adaptive_bdf_max_accepted_dt"]
+    stats["adaptive_bdf_min_accepted_dt"] = accepted_dt if min_dt is None else min(float(min_dt), accepted_dt)
+    stats["adaptive_bdf_max_accepted_dt"] = accepted_dt if max_dt is None else max(float(max_dt), accepted_dt)
+
+
+def _accumulate_adaptive_bdf_interval_stats(
+    total: dict[str, float | int | str | None],
+    step: dict[str, float | int | str | None],
+) -> None:
+    count_keys = (
+        "adaptive_bdf_accepted_steps",
+        "adaptive_bdf_rejected_steps",
+        "adaptive_bdf_minimum_dt_fallbacks",
+        "adaptive_bdf_startup_trials",
+        "adaptive_bdf_bdf2_trials",
+        "adaptive_bdf_bdf2_accepted_steps",
+    )
+    for key in count_keys:
+        total[key] = int(total[key]) + int(step.get(key, 0))
+
+    for key, reducer in (
+        ("adaptive_bdf_min_accepted_dt", min),
+        ("adaptive_bdf_max_accepted_dt", max),
+        ("adaptive_bdf_max_error_ratio", max),
+    ):
+        value = step.get(key)
+        if value is None:
+            continue
+        current = total.get(key)
+        total[key] = float(value) if current is None else reducer(float(current), float(value))
+
+    if step.get("adaptive_bdf_last_error_ratio") is not None:
+        total["adaptive_bdf_last_error_ratio"] = float(step["adaptive_bdf_last_error_ratio"])
+    total["adaptive_bdf_step_solver_mode"] = str(step.get("adaptive_bdf_step_solver_mode", total["adaptive_bdf_step_solver_mode"]))
 
 
 def _advance_recycling_1d_adaptive_bdf_interval(
@@ -2032,6 +2111,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     dict[str, float] | None,
     float | None,
     float,
+    dict[str, float | int | str | None],
 ]:
     relative_tolerance = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6
     absolute_tolerance = float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9
@@ -2043,6 +2123,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     prev_fields = None if previous_fields is None else {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in previous_fields.items()}
     prev_integrals = None if previous_integrals is None else {name: float(previous_integrals.get(name, 0.0)) for name in feedback_names}
     prev_dt = previous_dt
+    stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
 
     while remaining > 1.0e-12:
         dt = min(dt, remaining)
@@ -2053,6 +2134,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             and abs(float(prev_dt) - float(dt)) <= 1.0e-12
         )
         if not use_bdf2:
+            stats["adaptive_bdf_startup_trials"] = int(stats["adaptive_bdf_startup_trials"]) + 1
             candidate_fields, candidate_integrals, error_ratio = _advance_recycling_1d_startup_step(
                 config,
                 current_fields,
@@ -2071,6 +2153,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 step_solver_mode=step_solver_mode,
             )
         else:
+            stats["adaptive_bdf_bdf2_trials"] = int(stats["adaptive_bdf_bdf2_trials"]) + 1
             be_fields, be_integrals, _ = advance_recycling_1d_backward_euler_step(
                 config,
                 current_fields,
@@ -2118,8 +2201,13 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 candidate_fields = be_fields
                 candidate_integrals = be_integrals
         order = 2 if use_bdf2 else 1
+        _record_adaptive_bdf_error_ratio(stats, float(error_ratio))
 
         if np.isfinite(error_ratio) and error_ratio <= 1.0:
+            stats["adaptive_bdf_accepted_steps"] = int(stats["adaptive_bdf_accepted_steps"]) + 1
+            if use_bdf2:
+                stats["adaptive_bdf_bdf2_accepted_steps"] = int(stats["adaptive_bdf_bdf2_accepted_steps"]) + 1
+            _record_adaptive_bdf_accepted_dt(stats, dt)
             prev_fields = current_fields
             prev_integrals = current_integrals
             current_fields = candidate_fields
@@ -2141,6 +2229,9 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             continue
 
         if dt <= minimum_dt:
+            stats["adaptive_bdf_accepted_steps"] = int(stats["adaptive_bdf_accepted_steps"]) + 1
+            stats["adaptive_bdf_minimum_dt_fallbacks"] = int(stats["adaptive_bdf_minimum_dt_fallbacks"]) + 1
+            _record_adaptive_bdf_accepted_dt(stats, dt)
             prev_fields = current_fields
             prev_integrals = current_integrals
             prev_dt = dt
@@ -2149,12 +2240,21 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             remaining -= dt
             continue
 
+        stats["adaptive_bdf_rejected_steps"] = int(stats["adaptive_bdf_rejected_steps"]) + 1
         dt = max(0.5 * dt, minimum_dt)
         prev_fields = None
         prev_integrals = None
         prev_dt = None
 
-    return current_fields, current_integrals, prev_fields, prev_integrals, prev_dt, max(min(dt, float(output_timestep)), minimum_dt)
+    return (
+        current_fields,
+        current_integrals,
+        prev_fields,
+        prev_integrals,
+        prev_dt,
+        max(min(dt, float(output_timestep)), minimum_dt),
+        stats,
+    )
 
 
 def _choose_recycling_next_dt(
@@ -2653,7 +2753,7 @@ def advance_recycling_1d_backward_euler_step(
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
             residual,
-            packed_previous,
+            packed_initial_guess,
             active_shape=(packed_previous.size,),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -2828,7 +2928,7 @@ def advance_recycling_1d_bdf2_step(
     elif solver_mode == "matrix_free":
         solved, info = solve_matrix_free_newton_system(
             residual,
-            packed_previous,
+            packed_initial_guess,
             active_shape=(packed_previous.size,),
             residual_tolerance=residual_tolerance,
             max_nonlinear_iterations=max_nonlinear_iterations,
@@ -3693,6 +3793,7 @@ def _as_recycling_step_info(info: ImplicitStepInfo) -> Recycling1DImplicitStepIn
             "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
             "fallback_used": bool(getattr(info, "fallback_used", False)),
             "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
+            "converged": getattr(info, "converged", None),
         },
     )
     pressure_sources = explicit_pressure_sources or {}

@@ -2166,9 +2166,23 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     fields = _build_recycling_state_fields(runtime_model)
     integrals = {name: 0.0 for name in runtime_model.feedback_names}
     calls: list[tuple[str, str | None]] = []
+    predicted_states: list[np.ndarray] = []
+
+    def fake_predict(config, predict_fields, *, feedback_integrals, field_names, feedback_names, mesh, layout, **kwargs):
+        predicted = recycling_1d_mod._pack_recycling_active_state(
+            predict_fields,
+            feedback_integrals=feedback_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            layout=layout,
+        ) + 0.123
+        predicted_states.append(np.asarray(predicted, dtype=np.float64))
+        return predicted
 
     def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
         calls.append(("matrix_free", None))
+        np.testing.assert_allclose(initial_state, predicted_states[-1])
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
@@ -2188,6 +2202,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
 
     monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
+    monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
 
     next_fields, _, info = advance_recycling_1d_backward_euler_step(
         config,
@@ -2316,9 +2331,23 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     previous_fields = {name: np.asarray(value, dtype=np.float64) for name, value in fields.items()}
     integrals = {name: 0.0 for name in runtime_model.feedback_names}
     calls: list[tuple[str, str | None]] = []
+    predicted_states: list[np.ndarray] = []
+
+    def fake_predict(config, predict_fields, *, feedback_integrals, field_names, feedback_names, mesh, layout, **kwargs):
+        predicted = recycling_1d_mod._pack_recycling_active_state(
+            predict_fields,
+            feedback_integrals=feedback_integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            layout=layout,
+        ) + 0.123
+        predicted_states.append(np.asarray(predicted, dtype=np.float64))
+        return predicted
 
     def fake_matrix_free(residual, initial_state, *, active_shape, residual_tolerance, max_nonlinear_iterations):
         calls.append(("matrix_free", None))
+        np.testing.assert_allclose(initial_state, predicted_states[-1])
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
@@ -2338,6 +2367,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
 
     monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
+    monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
 
     next_fields, _, info = advance_recycling_1d_bdf2_step(
         config,
