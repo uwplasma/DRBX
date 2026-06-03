@@ -239,6 +239,17 @@ The resulting history diagnostics should report
 Compare its runtime, RSS, callback counts, and reference errors against the
 default `bdf` profile before promoting it.
 
+The compact parity gate has already been run on `recycling_1d_one_step`:
+`compare_recycling_transient_modes.py --mode bdf --mode
+bdf_fixed_full_field_jvp --field Pe --require-fixed-jvp-diagnostics
+--require-bdf-pairwise-max 1e-5` passes with `Pe` pairwise delta `6.28e-6`.
+It is not a speedup: the fixed-JVP route takes about `59.9 s` versus about
+`8.2 s` for the default BDF route. The JVP callback subphase counters show
+about `36.8 s` in repeated `jax.linearize`, about `20.0 s` in batched tangent
+pushes, and negligible time in tangent construction or sparse assembly. Heavy
+D/T/He fixed-JVP profiling should therefore be repeated only after the JVP
+materialization path is improved or replaced by a native matrix-free solve.
+
 The related JAX Newton path is matrix-free: JAX GMRES receives the linearized
 Jacobian action as a callable rather than a materialized sparse matrix. This is
 the preferred algorithmic target for future differentiable recycling kernels,
