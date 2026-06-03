@@ -212,6 +212,10 @@ The follow-up timing-only check reinforces that point: serial, two-thread, and
 four-thread BDF runs measured about `50.00 s`, `49.81 s`, and `54.57 s`,
 respectively, so one-solve threading is not the reviewer-grade scaling result
 for this host-backed residual.
+The latest phase-resolved RSS replay again measured about `48.82 s`, with
+`46.41 s` in fixed-layout RHS object evaluation, `33.60 s` in Jacobian
+callbacks, and only about `2e-3 s` in RHS NumPy conversion. This rules out
+host-array conversion as the primary target for the next pass.
 The stronger next step remains a JAX-transformable residual plus grouped
 JVP-based Jacobian products for the dominant recycling kernels.
 
@@ -253,9 +257,10 @@ The current named gate for that comparison is
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`. It preserves
 the SciPy BDF timestepper but changes the callback seam to a fixed-full-field
 RHS and grouped-JVP sparse Jacobian, with diagnostics reporting
-`bdf_rhs_backend` and `bdf_jacobian_mode`. This is the route to profile before
-attempting a matrix-free or Lineax replacement for the full output-window
-solve.
+`bdf_rhs_backend`, `bdf_rhs_object_evaluation_seconds`,
+`bdf_rhs_numpy_conversion_seconds`, and `bdf_jacobian_mode`. This is the route
+to profile before attempting a matrix-free or Lineax replacement for the full
+output-window solve.
 
 The sparse Newton interface now exposes that derivative algorithm directly as
 `jacobian_mode="jvp"`, and the implicit-solver profile audit compares it

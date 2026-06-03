@@ -96,8 +96,12 @@ not yet a full runtime solution. A post-change unprofiled
 `recycling_dthe_one_step` timing on this MacBook measured `61.38 s`, which is
 within local noise and not a defensible end-to-end speedup over the earlier
 `~53 s` unprofiled RSS run. Future heavy reports should therefore include the
-new BDF diagnostics counters, `bdf_jacobian_mode`, `bdf_jvp_batch_size`, and
-`bdf_jacobian_parallel_workers` in addition to wall time.
+new BDF diagnostics counters, `bdf_rhs_callback_seconds`,
+`bdf_rhs_evaluation_seconds`, `bdf_rhs_object_evaluation_seconds`,
+`bdf_rhs_numpy_conversion_seconds`, `bdf_jacobian_mode`,
+`bdf_jvp_batch_size`, and `bdf_jacobian_parallel_workers` in addition to wall
+time. The RHS counters are deliberately split so heavy profiles can distinguish
+fixed-layout residual work from host conversion and SciPy callback overhead.
 
 A direct timing-only check on the same local machine confirms that this is an
 opt-in capability rather than a universal default. With the latest source
@@ -120,23 +124,32 @@ about `3.7e-3` to `4.2e-3 s`, and a bounded current-code
 `recycling_dthe_one_step --skip-cprofile` timing completed in `44.60 s` on
 this MacBook. The env-enabled promoted parity gate completed in `44.66 s`.
 
-The fresh full cProfile/RSS bundle after the fixed-layout bridge was promoted
-into the production backward-Euler/BDF2 steppers and the legacy BDF RHS
-callback was routed through the same bridge was:
+The refreshed full cProfile/RSS bundle after adding RHS phase counters to the
+production BDF callback was:
 
-- command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 35 --rss-profile`
-- cProfile run: `79.92 s` wall, `2.33e8` Python function calls
-- separate unprofiled RSS run: `51.48 s`
-- peak sampled process-tree RSS: `227.6 MiB`
+- command: `profile_curated_case.py recycling_dthe_one_step --warm-runs 0 --timed-runs 1 --cprofile-top 50 --rss-profile`
+- cProfile run: `68.64 s` wall, `1.67e8` Python function calls
+- separate unprofiled RSS run: `48.82 s`
+- peak sampled process-tree RSS: `228.9 MiB`
 - BDF callback counts visible in the profile: `11838` packed RHS evaluations,
   `86` Jacobian callbacks, and `8428` finite-difference color-group
   perturbation residuals
+- unprofiled BDF phase counters: `48.77 s` solve time, `46.41 s` fixed-layout
+  RHS object evaluation time, `33.60 s` Jacobian callback time, and only about
+  `2e-3 s` in RHS NumPy conversion
 - top cumulative costs: sparse finite-difference Jacobian construction
-  `55.0 s`, packed RHS `75.3 s`, species RHS assembly `72.5 s`, collision
-  closure `12.1 s`, reaction sources `10.5 s`, fixed-layout D/T/He reaction
-  sources `9.2 s`, open-field state preparation `9.2 s`, and the backend
-  dispatch/type-detection helpers that still appear inside the repeated
-  host-side RHS loop
+  `47.0 s`, packed RHS `64.5 s`, species RHS assembly `62.2 s`, reaction
+  sources `10.3 s`, fixed-layout D/T/He reaction sources `9.1 s`, collision
+  closure `8.7 s`, open-field state preparation `7.2 s`, and the remaining
+  backend dispatch/type-detection helpers inside the repeated host-side RHS
+  loop
+
+The backend-selector cleanup reduced `use_jax_backend`/`is_jax_array` overhead
+from a visible cProfile hotspot to a smaller residual cost: `use_jax_backend`
+now appears at about `5.15 s` cumulative instead of the previous `13 s`-class
+cost. That confirms the selector was worth simplifying, but the remaining
+dominant terms are still finite-difference Jacobian construction and repeated
+host RHS assembly.
 
 The absolute cProfile wall time is intentionally not compared directly with the
 unprofiled timing because profiling overhead is large on this Python-heavy

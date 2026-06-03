@@ -30,6 +30,19 @@ def _sanitize_public_path(path: str | Path | None) -> str | None:
     return resolved.name
 
 
+def _sanitize_profile_text(text: str, *, reference_root: Path | None = None) -> str:
+    """Remove local absolute paths from cProfile text artifacts."""
+
+    replacements: list[tuple[Path, str]] = [(Path.cwd().resolve(), "<repo-root>")]
+    if reference_root is not None:
+        replacements.append((reference_root.expanduser().resolve(), "<reference-root>"))
+    replacements.append((Path.home().resolve(), "<home>"))
+    sanitized = text
+    for path, label in replacements:
+        sanitized = sanitized.replace(str(path), label)
+    return sanitized
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -283,7 +296,10 @@ def main() -> int:
         stream = io.StringIO()
         stats = pstats.Stats(profiler, stream=stream).sort_stats("cumtime")
         stats.print_stats(args.cprofile_top)
-        cprofile_path.write_text(stream.getvalue(), encoding="utf-8")
+        cprofile_path.write_text(
+            _sanitize_profile_text(stream.getvalue(), reference_root=args.reference_root),
+            encoding="utf-8",
+        )
     else:
         cprofile_binary_path = None
 

@@ -2944,6 +2944,10 @@ def _advance_recycling_1d_bdf_history(
     jacobian_callback_seconds = 0.0
     jacobian_base_rhs_evaluation_count = 0
     jvp_rhs_evaluation_count = 0
+    rhs_callback_seconds = 0.0
+    rhs_evaluation_seconds = 0.0
+    rhs_object_evaluation_seconds = 0.0
+    rhs_numpy_conversion_seconds = 0.0
     if rhs_backend not in {"host_bridge", "fixed_full_field_array"}:
         raise ValueError(f"Unsupported recycling BDF rhs_backend={rhs_backend!r}.")
     resolved_jacobian_mode = (
@@ -2994,32 +2998,50 @@ def _advance_recycling_1d_bdf_history(
         )
 
     def _evaluate_rhs_object(packed_state: object) -> object:
-        fixed_state = _unpack_fixed_state(packed_state, layout=layout)
-        return _pack_fixed_state(fixed_rhs(fixed_state))
+        nonlocal rhs_object_evaluation_seconds
+        rhs_object_started_at = time.perf_counter()
+        try:
+            fixed_state = _unpack_fixed_state(packed_state, layout=layout)
+            return _pack_fixed_state(fixed_rhs(fixed_state))
+        finally:
+            rhs_object_evaluation_seconds += time.perf_counter() - rhs_object_started_at
 
     def _evaluate_rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
-        nonlocal rhs_evaluation_count
+        nonlocal rhs_evaluation_count, rhs_evaluation_seconds, rhs_numpy_conversion_seconds
+        rhs_evaluation_started_at = time.perf_counter()
         rhs_evaluation_count += 1
-        return np.asarray(_evaluate_rhs_object(packed_state), dtype=np.float64)
+        try:
+            rhs_object = _evaluate_rhs_object(packed_state)
+            numpy_conversion_started_at = time.perf_counter()
+            try:
+                return np.asarray(rhs_object, dtype=np.float64)
+            finally:
+                rhs_numpy_conversion_seconds += time.perf_counter() - numpy_conversion_started_at
+        finally:
+            rhs_evaluation_seconds += time.perf_counter() - rhs_evaluation_started_at
 
     def rhs(_time: float, packed_state: np.ndarray) -> np.ndarray:
-        nonlocal rhs_cache_hit_count, rhs_cache_time, rhs_cache_state, rhs_cache_value
-        packed_array = np.asarray(packed_state, dtype=np.float64)
-        if (
-            rhs_cache_time is not None
-            and rhs_cache_value is not None
-            and rhs_cache_state is not None
-            and float(_time) == rhs_cache_time
-            and packed_array.shape == rhs_cache_state.shape
-            and np.array_equal(packed_array, rhs_cache_state)
-        ):
-            rhs_cache_hit_count += 1
-            return np.array(rhs_cache_value, dtype=np.float64, copy=True)
-        value = np.asarray(_evaluate_rhs(_time, packed_array), dtype=np.float64)
-        rhs_cache_time = float(_time)
-        rhs_cache_state = np.array(packed_array, dtype=np.float64, copy=True)
-        rhs_cache_value = np.array(value, dtype=np.float64, copy=True)
-        return value
+        nonlocal rhs_cache_hit_count, rhs_cache_time, rhs_cache_state, rhs_cache_value, rhs_callback_seconds
+        rhs_callback_started_at = time.perf_counter()
+        try:
+            packed_array = np.asarray(packed_state, dtype=np.float64)
+            if (
+                rhs_cache_time is not None
+                and rhs_cache_value is not None
+                and rhs_cache_state is not None
+                and float(_time) == rhs_cache_time
+                and packed_array.shape == rhs_cache_state.shape
+                and np.array_equal(packed_array, rhs_cache_state)
+            ):
+                rhs_cache_hit_count += 1
+                return np.array(rhs_cache_value, dtype=np.float64, copy=True)
+            value = _evaluate_rhs(_time, packed_array)
+            rhs_cache_time = float(_time)
+            rhs_cache_state = np.array(packed_array, dtype=np.float64, copy=True)
+            rhs_cache_value = np.array(value, dtype=np.float64, copy=True)
+            return value
+        finally:
+            rhs_callback_seconds += time.perf_counter() - rhs_callback_started_at
 
     def jacobian(_time: float, packed_state: np.ndarray):
         nonlocal jacobian_base_rhs_evaluation_count, jacobian_callback_count, jacobian_callback_seconds, jvp_rhs_evaluation_count
@@ -3118,6 +3140,10 @@ def _advance_recycling_1d_bdf_history(
         diagnostics={
             "bdf_rhs_evaluation_count": int(rhs_evaluation_count),
             "bdf_rhs_cache_hit_count": int(rhs_cache_hit_count),
+            "bdf_rhs_callback_seconds": float(rhs_callback_seconds),
+            "bdf_rhs_evaluation_seconds": float(rhs_evaluation_seconds),
+            "bdf_rhs_object_evaluation_seconds": float(rhs_object_evaluation_seconds),
+            "bdf_rhs_numpy_conversion_seconds": float(rhs_numpy_conversion_seconds),
             "bdf_jacobian_callback_count": int(jacobian_callback_count),
             "bdf_jacobian_callback_seconds": float(jacobian_callback_seconds),
             "bdf_jacobian_base_rhs_evaluation_count": int(jacobian_base_rhs_evaluation_count),

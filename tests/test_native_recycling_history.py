@@ -717,6 +717,10 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     assert captured_parallel_workers == [2]
     assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_rhs_cache_hit_count"] == 1
+    assert result.diagnostics["bdf_rhs_callback_seconds"] >= 0.0
+    assert result.diagnostics["bdf_rhs_evaluation_seconds"] >= 0.0
+    assert result.diagnostics["bdf_rhs_object_evaluation_seconds"] >= 0.0
+    assert result.diagnostics["bdf_rhs_numpy_conversion_seconds"] >= 0.0
     assert result.diagnostics["bdf_jacobian_callback_count"] == 1
     assert result.diagnostics["bdf_jacobian_callback_seconds"] >= 0.0
     assert result.diagnostics["bdf_jacobian_base_rhs_evaluation_count"] == 1
@@ -805,6 +809,10 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert captured["builder_kwargs"]["feedback_timestep"] is None
     assert "difference_plan" in captured["jvp_kwargs"]
     assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
+    assert result.diagnostics["bdf_rhs_callback_seconds"] >= 0.0
+    assert result.diagnostics["bdf_rhs_evaluation_seconds"] >= 0.0
+    assert result.diagnostics["bdf_rhs_object_evaluation_seconds"] >= 0.0
+    assert result.diagnostics["bdf_rhs_numpy_conversion_seconds"] >= 0.0
     assert result.diagnostics["bdf_jacobian_base_rhs_evaluation_count"] == 0
     assert result.diagnostics["bdf_jvp_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_jacobian_mode"] == "jvp"

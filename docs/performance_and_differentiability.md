@@ -142,9 +142,13 @@ callback also caches the most recent exact `(t, y)` RHS evaluation, so a
 `jac(t, y)` request immediately following `rhs(t, y)` reuses the base RHS
 instead of recomputing the full recycling source/closure assembly. The
 recycling history object records `bdf_rhs_evaluation_count`,
-`bdf_rhs_cache_hit_count`, `bdf_jacobian_callback_count`,
-`bdf_jacobian_mode`, and `bdf_jvp_batch_size` for future runtime audits. The
-packed recycling RHS now also disables reaction diagnostics during
+`bdf_rhs_cache_hit_count`, `bdf_rhs_callback_seconds`,
+`bdf_rhs_evaluation_seconds`, `bdf_rhs_object_evaluation_seconds`,
+`bdf_rhs_numpy_conversion_seconds`, `bdf_jacobian_callback_count`,
+`bdf_jacobian_mode`, and `bdf_jvp_batch_size` for future runtime audits. These
+phase counters separate SciPy callback overhead, fixed-layout RHS object
+construction, and host-array conversion before the next JAX-native residual
+promotion. The packed recycling RHS now also disables reaction diagnostics during
 implicit residual/Jacobian evaluations and routes the exact D/T/He Hermès
 reaction block through the fixed-layout array kernel, so the solver hot path no
 longer pays for dictionary diagnostics that are only needed for reporting.
@@ -562,17 +566,22 @@ preserving JAX transforms when a future fixed-layout residual supplies JAX
 state. On the D/T/He recycling lane, this restored warm packed-RHS calls to
 about `4e-3 s` and the current bounded one-step timing to `44.60 s`.
 
-A fresh full cProfile/RSS bundle after the fixed-layout residual-seam pass
-measured the production `recycling_dthe_one_step` path at `103.50 s` under
-cProfile and `169.62 s` on the separate RSS replay, with peak process-tree RSS
-about `15474 MiB`. The top split is still decisive: sparse finite-difference
-Jacobian construction consumed about `64.7 s` cumulative, the packed RHS was
-evaluated `8872` times, and the next repeated source-level costs were collision
-closure, fixed-layout D/T/He reaction sources, open-field state preparation,
-target recycling, AMJUEL fit evaluation, ion/neutral RHS assembly, and neutral
-parallel diffusion. This keeps the next optimization lane focused on replacing
-the production SciPy BDF finite-difference Jacobian with the fixed-layout
-JAX-linearized/JVP seam rather than per-solve CPU threading.
+A fresh full cProfile/RSS bundle after adding RHS phase counters to the
+production BDF callback measured the `recycling_dthe_one_step` path at
+`68.64 s` under cProfile and `48.82 s` on the separate unprofiled RSS replay,
+with peak process-tree RSS about `228.9 MiB`. The new solver diagnostics from
+the RSS replay show the physical BDF solve itself at `48.77 s`, with
+`46.41 s` in fixed-layout RHS object evaluation, `33.60 s` in Jacobian
+callbacks, and only about `2e-3 s` in RHS NumPy conversion. The top split is
+therefore still decisive: sparse finite-difference Jacobian construction and
+repeated host-side recycling RHS/source assembly dominate, while host
+conversion is not the current limiter. This keeps the next optimization lane
+focused on replacing the production SciPy BDF finite-difference Jacobian with
+the fixed-layout JAX-linearized/JVP seam rather than per-solve CPU threading.
+The same pass also validates a smaller hot-path cleanup: simplifying the JAX
+backend selector reduces selector/type-detection overhead from a large cProfile
+hotspot to about `5.15 s` cumulative, without changing the numerical solve or
+the residual/Jacobian call counts.
 
 The fixed-layout residual migration now has concrete boundary gates. The
 electron sheath path uses backend-preserving no-flow state preparation plus the

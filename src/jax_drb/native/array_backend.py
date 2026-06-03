@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from numbers import Number
 from typing import Any
 
 import jax.numpy as jnp
@@ -17,14 +18,21 @@ def is_jax_array(value: Any) -> bool:
 
     if value is None:
         return False
+    if isinstance(value, (np.ndarray, np.generic, Number, bool)):
+        return False
     module = type(value).__module__
+    if module == "numpy" or module.startswith("numpy."):
+        return False
     return hasattr(value, "aval") or module.startswith("jax") or module.startswith("jaxlib")
 
 
 def use_jax_backend(*values: Any) -> bool:
     """Select JAX when any argument is a JAX array/tracer."""
 
-    return any(is_jax_array(value) for value in values if value is not None)
+    for value in values:
+        if value is not None and is_jax_array(value):
+            return True
+    return False
 
 
 def asarray(value: Any, *, use_jax: bool):

@@ -25,7 +25,7 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   drivers before changing production boundary logic.
 - The production SciPy BDF recycling compatibility path now records the
   resolved `bdf_jacobian_mode` and `bdf_jvp_batch_size` alongside RHS,
-  cache-hit, and Jacobian callback counters.
+  cache-hit, RHS phase-timing, and Jacobian callback counters.
 - The transient-mode comparison helper now includes the opt-in
   `bdf_fixed_full_field_jvp` lane and prints a direct `bdf` versus
   full-field-JVP delta table when both modes are run.
