@@ -9,33 +9,60 @@
   "devices": [
     "TFRT_CPU_0"
   ],
+  "extra_overrides": [],
   "jax_trace_dir": null,
-  "profiled_run_seconds": 79.92446358304005,
+  "native_run_diagnostics": {
+    "bdf_active_size": 953,
+    "bdf_color_group_count": 98,
+    "bdf_jacobian_base_rhs_evaluation_count": 86,
+    "bdf_jacobian_callback_count": 86,
+    "bdf_jacobian_callback_seconds": 33.598758961539716,
+    "bdf_jacobian_mode": "fd",
+    "bdf_jacobian_parallel_workers": 1,
+    "bdf_jvp_batch_size": null,
+    "bdf_jvp_rhs_evaluation_count": 0,
+    "bdf_max_step": 25.0,
+    "bdf_rhs_backend": "host_bridge",
+    "bdf_rhs_cache_hit_count": 85,
+    "bdf_rhs_callback_seconds": 13.484794055577368,
+    "bdf_rhs_evaluation_count": 11838,
+    "bdf_rhs_evaluation_seconds": 46.41578891687095,
+    "bdf_rhs_numpy_conversion_seconds": 0.0019928296096622944,
+    "bdf_rhs_object_evaluation_seconds": 46.40507300989702,
+    "bdf_scipy_nfev": 3409,
+    "bdf_scipy_njev": 86,
+    "bdf_scipy_nlu": 426,
+    "bdf_scipy_status": 0,
+    "bdf_solve_seconds": 48.76636662473902,
+    "bdf_sparse_nnz": 93793,
+    "recycling_transient_solver_mode": "bdf"
+  },
+  "profiled_run_seconds": 68.63979691592976,
   "reference_root": "<reference-root>",
   "rss_profile_enabled": true,
   "rss_profile_run_seconds": [
-    51.47541483398527
+    48.8191796252504
   ],
   "timed_run_count": 1,
-  "timed_run_max_seconds": 79.92446358304005,
-  "timed_run_mean_seconds": 79.92446358304005,
-  "timed_run_min_seconds": 79.92446358304005,
+  "timed_run_max_seconds": 68.63979691592976,
+  "timed_run_mean_seconds": 68.63979691592976,
+  "timed_run_min_seconds": 68.63979691592976,
   "timed_run_peak_rss": [
     {
-      "end_rss_bytes": 235667456,
-      "peak_rss_bytes": 238665728,
-      "peak_rss_delta_bytes": 7143424,
-      "peak_rss_delta_mebibytes": 6.8125,
-      "peak_rss_mebibytes": 227.609375,
-      "sample_count": 389,
+      "end_rss_bytes": 233897984,
+      "peak_rss_bytes": 240041984,
+      "peak_rss_delta_bytes": 12091392,
+      "peak_rss_delta_mebibytes": 11.53125,
+      "peak_rss_mebibytes": 228.921875,
+      "sample_count": 380,
       "sampling_interval_seconds": 0.1,
-      "start_rss_bytes": 231522304,
+      "start_rss_bytes": 227950592,
       "status": "sampled_process_tree_rss"
     }
   ],
-  "timed_run_peak_rss_max_mebibytes": 227.609375,
+  "timed_run_peak_rss_max_mebibytes": 228.921875,
   "timed_run_seconds": [
-    79.92446358304005
+    68.63979691592976
   ],
   "warm_run_count": 0,
   "warm_run_seconds": [],
