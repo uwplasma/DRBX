@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -29,19 +30,30 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "/tmp/reference",
             "--mode",
             "bdf_fixed_full_field_jvp",
+            "--mode",
+            "adaptive_bdf_jax_linearized",
             "--require-bdf-pairwise-max",
             "1e-5",
             "--require-fixed-jvp-diagnostics",
+            "--require-adaptive-bdf-no-fallback",
+            "--require-adaptive-bdf-max-error-ratio",
+            "0.95",
+            "--mode-timeout-seconds",
+            "2.5",
         ]
     )
 
     assert args.reference_root == Path("/tmp/reference")
-    assert args.modes == ["bdf_fixed_full_field_jvp"]
+    assert args.modes == ["bdf_fixed_full_field_jvp", "adaptive_bdf_jax_linearized"]
     assert args.require_bdf_pairwise_max == 1.0e-5
     assert args.require_fixed_jvp_diagnostics is True
+    assert args.require_adaptive_bdf_no_fallback is True
+    assert args.require_adaptive_bdf_max_error_ratio == 0.95
+    assert args.mode_timeout_seconds == 2.5
     help_text = compare_script._build_parser().format_help()
     normalized_help = " ".join(help_text.split()).replace("full- field", "full-field")
     assert "bdf_fixed_full_field_jvp" in help_text
+    assert "adaptive_bdf_jax_linearized" in help_text
     assert "fixed full-field JVP BDF path" in normalized_help
 
 
@@ -184,3 +196,83 @@ def test_fixed_full_field_jvp_diagnostics_gate_reports_wrong_route() -> None:
         "bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations",
         "bdf_fixed_full_field_jvp did not report any JVP RHS evaluations",
     ]
+
+
+def test_adaptive_bdf_modes_to_validate_selects_only_adaptive_bdf_variants() -> None:
+    modes = compare_script._adaptive_bdf_modes_to_validate(
+        (
+            "bdf",
+            "adaptive_be",
+            "adaptive_bdf",
+            "adaptive_bdf_jax_linearized",
+            "bdf_fixed_full_field_jvp",
+        )
+    )
+
+    assert modes == ("adaptive_bdf", "adaptive_bdf_jax_linearized")
+
+
+def test_adaptive_bdf_diagnostics_gate_accepts_stable_jax_linearized_route() -> None:
+    errors = compare_script._validate_adaptive_bdf_diagnostics(
+        "adaptive_bdf_jax_linearized",
+        {
+            "adaptive_bdf_step_solver_mode": "jax_linearized",
+            "adaptive_bdf_interval_count": 1,
+            "adaptive_bdf_accepted_steps": 3,
+            "adaptive_bdf_minimum_dt_fallbacks": 0,
+            "adaptive_bdf_max_error_ratio": 0.75,
+        },
+        require_no_fallback=True,
+        max_error_ratio=0.95,
+    )
+
+    assert errors == []
+
+
+def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
+    errors = compare_script._validate_adaptive_bdf_diagnostics(
+        "adaptive_bdf_jax_linearized",
+        {
+            "adaptive_bdf_step_solver_mode": "sparse",
+            "adaptive_bdf_interval_count": 0,
+            "adaptive_bdf_accepted_steps": 0,
+            "adaptive_bdf_minimum_dt_fallbacks": 2,
+            "adaptive_bdf_max_error_ratio": 1.25,
+        },
+        require_no_fallback=True,
+        max_error_ratio=0.95,
+    )
+
+    assert errors == [
+        "adaptive_bdf_jax_linearized did not report adaptive_bdf_step_solver_mode=jax_linearized",
+        "adaptive_bdf_jax_linearized did not report any adaptive BDF output intervals",
+        "adaptive_bdf_jax_linearized did not report any accepted adaptive BDF substeps",
+        "adaptive_bdf_jax_linearized reported 2 minimum-dt fallback accepts",
+        "adaptive_bdf_jax_linearized adaptive_bdf_max_error_ratio=1.25000000e+00 exceeds 9.50000000e-01",
+    ]
+
+
+def test_mode_timeout_helper_returns_callback_value() -> None:
+    assert compare_script._run_with_mode_timeout(1.0, lambda: "ok") == "ok"
+
+
+def test_mode_timeout_helper_rejects_nonpositive_timeout() -> None:
+    try:
+        compare_script._run_with_mode_timeout(0.0, lambda: None)
+    except ValueError as exc:
+        assert "--mode-timeout-seconds must be positive" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
+
+
+def test_mode_timeout_helper_raises_timeout_when_supported() -> None:
+    if not hasattr(compare_script.signal, "SIGALRM") or not hasattr(compare_script.signal, "setitimer"):
+        return
+    started = time.perf_counter()
+    try:
+        compare_script._run_with_mode_timeout(0.01, lambda: time.sleep(1.0))
+    except compare_script._ModeTimeoutError as exc:
+        assert "exceeded" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected _ModeTimeoutError")
+    assert time.perf_counter() - started < 0.5

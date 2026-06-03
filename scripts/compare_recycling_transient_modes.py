@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+import signal
 import time
 
 import numpy as np
@@ -19,8 +20,29 @@ from jax_drb.runtime.run_config import RunConfiguration
 
 
 DEFAULT_FIELDS = ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
-SOLVER_MODES = ("continuation", "bdf", "bdf_fixed_full_field_jvp", "adaptive_be", "adaptive_bdf")
+SOLVER_MODES = (
+    "continuation",
+    "bdf",
+    "bdf_fixed_full_field_jvp",
+    "adaptive_be",
+    "adaptive_bdf",
+    "adaptive_bdf_sparse_jvp",
+    "adaptive_bdf_jax_linearized",
+    "adaptive_bdf_jax_linearized_lineax",
+)
 BDF_PAIRWISE_MODES = ("bdf", "bdf_fixed_full_field_jvp")
+ADAPTIVE_BDF_MODES = (
+    "adaptive_bdf",
+    "adaptive_bdf_sparse_jvp",
+    "adaptive_bdf_jax_linearized",
+    "adaptive_bdf_jax_linearized_lineax",
+)
+ADAPTIVE_BDF_STEP_SOLVER_MODES = {
+    "adaptive_bdf": "sparse",
+    "adaptive_bdf_sparse_jvp": "sparse_jvp",
+    "adaptive_bdf_jax_linearized": "jax_linearized",
+    "adaptive_bdf_jax_linearized_lineax": "jax_linearized_lineax",
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -46,6 +68,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--field", action="append", dest="fields", help="Fields to report. May be repeated.")
     parser.add_argument(
+        "--mode-timeout-seconds",
+        type=float,
+        default=None,
+        help="Fail if an individual solver mode exceeds this many wall-clock seconds.",
+    )
+    parser.add_argument(
         "--require-bdf-pairwise-max",
         type=float,
         default=None,
@@ -60,6 +88,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Fail unless bdf_fixed_full_field_jvp reports fixed_full_field_array "
             "RHS, JVP Jacobian mode, and zero finite-difference base-RHS Jacobian calls."
+        ),
+    )
+    parser.add_argument(
+        "--require-adaptive-bdf-no-fallback",
+        action="store_true",
+        help="Fail unless every requested adaptive-BDF mode reports zero minimum-dt fallback accepts.",
+    )
+    parser.add_argument(
+        "--require-adaptive-bdf-max-error-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested adaptive-BDF mode reports an embedded max error ratio "
+            "at or below this threshold."
         ),
     )
     return parser
@@ -191,6 +233,65 @@ def _validate_fixed_full_field_jvp_diagnostics(diagnostics: dict[str, object]) -
     return errors
 
 
+def _adaptive_bdf_modes_to_validate(modes: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(mode for mode in modes if mode in ADAPTIVE_BDF_MODES)
+
+
+def _validate_adaptive_bdf_diagnostics(
+    mode: str,
+    diagnostics: dict[str, object],
+    *,
+    require_no_fallback: bool,
+    max_error_ratio: float | None,
+) -> list[str]:
+    errors: list[str] = []
+    expected_step_solver = ADAPTIVE_BDF_STEP_SOLVER_MODES[mode]
+    if diagnostics.get("adaptive_bdf_step_solver_mode") != expected_step_solver:
+        errors.append(f"{mode} did not report adaptive_bdf_step_solver_mode={expected_step_solver}")
+    if int(diagnostics.get("adaptive_bdf_interval_count", 0)) <= 0:
+        errors.append(f"{mode} did not report any adaptive BDF output intervals")
+    if int(diagnostics.get("adaptive_bdf_accepted_steps", 0)) <= 0:
+        errors.append(f"{mode} did not report any accepted adaptive BDF substeps")
+    fallback_count = int(diagnostics.get("adaptive_bdf_minimum_dt_fallbacks", 0))
+    if require_no_fallback and fallback_count != 0:
+        errors.append(f"{mode} reported {fallback_count} minimum-dt fallback accepts")
+    if max_error_ratio is not None:
+        reported = diagnostics.get("adaptive_bdf_max_error_ratio")
+        if reported is None:
+            errors.append(f"{mode} did not report adaptive_bdf_max_error_ratio")
+        else:
+            reported_float = float(reported)
+            if not np.isfinite(reported_float) or reported_float > float(max_error_ratio):
+                errors.append(
+                    f"{mode} adaptive_bdf_max_error_ratio={reported_float:.8e} exceeds {float(max_error_ratio):.8e}"
+                )
+    return errors
+
+
+class _ModeTimeoutError(TimeoutError):
+    pass
+
+
+def _run_with_mode_timeout(timeout_seconds: float | None, callback):
+    if timeout_seconds is None:
+        return callback()
+    if timeout_seconds <= 0.0:
+        raise ValueError("--mode-timeout-seconds must be positive.")
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        return callback()
+
+    def _handle_timeout(_signum, _frame):
+        raise _ModeTimeoutError(f"solver mode exceeded {float(timeout_seconds):g} seconds")
+
+    previous_handler = signal.signal(signal.SIGALRM, _handle_timeout)
+    signal.setitimer(signal.ITIMER_REAL, float(timeout_seconds))
+    try:
+        return callback()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def main() -> int:
     args = _parse_args()
     case, input_path = resolve_reference_case(args.case, reference_root=args.reference_root)
@@ -206,25 +307,33 @@ def main() -> int:
     modes = tuple(args.modes) if args.modes else _default_modes(args.case)
     rtol = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8
 
-    print(f"case={args.case}")
-    print(f"timestep={run_config.time.timestep:g}")
-    print(f"fields={fields}")
-    print(f"modes={modes}")
+    print(f"case={args.case}", flush=True)
+    print(f"timestep={run_config.time.timestep:g}", flush=True)
+    print(f"fields={fields}", flush=True)
+    print(f"modes={modes}", flush=True)
     mode_variables: dict[str, dict[str, np.ndarray]] = {}
     mode_diagnostics: dict[str, dict[str, object]] = {}
     for mode in modes:
+        print(f"running_mode={mode}", flush=True)
         started = time.perf_counter()
-        history = advance_recycling_1d_implicit_history(
-            config,
-            mesh=mesh,
-            metrics=metrics,
-            dataset_scalars=dataset_scalars,
-            timestep=run_config.time.timestep,
-            steps=1,
-            solver_mode=mode,
-            residual_tolerance=rtol,
-            max_nonlinear_iterations=30,
-        )
+        try:
+            history = _run_with_mode_timeout(
+                args.mode_timeout_seconds,
+                lambda: advance_recycling_1d_implicit_history(
+                    config,
+                    mesh=mesh,
+                    metrics=metrics,
+                    dataset_scalars=dataset_scalars,
+                    timestep=run_config.time.timestep,
+                    steps=1,
+                    solver_mode=mode,
+                    residual_tolerance=rtol,
+                    max_nonlinear_iterations=30,
+                ),
+            )
+        except _ModeTimeoutError as exc:
+            print(f"gate_failure={mode} timed out: {exc}", flush=True)
+            return 2
         elapsed = time.perf_counter() - started
         actual = {
             name: np.asarray(value, dtype=np.float64)
@@ -243,6 +352,25 @@ def main() -> int:
         errors = _validate_fixed_full_field_jvp_diagnostics(
             mode_diagnostics.get("bdf_fixed_full_field_jvp", {})
         )
+        for error in errors:
+            print(f"gate_failure={error}")
+        if errors:
+            return 2
+    if args.require_adaptive_bdf_no_fallback or args.require_adaptive_bdf_max_error_ratio is not None:
+        adaptive_modes = _adaptive_bdf_modes_to_validate(modes)
+        if not adaptive_modes:
+            print("gate_failure=adaptive BDF diagnostics were requested but no adaptive-BDF mode was run")
+            return 2
+        errors = []
+        for mode in adaptive_modes:
+            errors.extend(
+                _validate_adaptive_bdf_diagnostics(
+                    mode,
+                    mode_diagnostics.get(mode, {}),
+                    require_no_fallback=bool(args.require_adaptive_bdf_no_fallback),
+                    max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
+                )
+            )
         for error in errors:
             print(f"gate_failure={error}")
         if errors:
