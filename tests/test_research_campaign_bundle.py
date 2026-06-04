@@ -145,7 +145,7 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(tmp_path: P
         fast_timeout_seconds=300,
     )
 
-    linearized, batched = commands
+    linearized, full_output, batched = commands
     assert linearized.name == "gpu-dthe-jax-linearized-gate"
     assert linearized.required_reference_inputs == ("dthe",)
     assert linearized.requires_gpu is True
@@ -154,6 +154,14 @@ def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(tmp_path: P
     assert "--device-memory-profile" in linearized.command
     assert "--compilation-cache-dir" in linearized.command
     assert "mesh:ny=400" in linearized.command
+    assert full_output.name == "gpu-dthe-full-output-jvp-profile"
+    assert full_output.required_reference_inputs == ("dthe",)
+    assert full_output.requires_gpu is True
+    assert "recycling_dthe_one_step" in full_output.command
+    assert "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp" in full_output.command
+    assert "--jax-trace" in full_output.command
+    assert "--device-memory-profile" in full_output.command
+    assert "--compilation-cache-dir" in full_output.command
     assert batched.name == "gpu-dthe-batched-jvp-gate"
     assert batched.required_reference_inputs == ("dthe",)
     assert batched.requires_gpu is True

@@ -24,6 +24,7 @@ on:
           - dthe-jax-linearized-gate
           - dthe-batched-jvp-gate
           - gpu-dthe-jax-linearized-gate
+          - gpu-dthe-full-output-jvp-profile
           - gpu-dthe-batched-jvp-gate
       reference-root:
         description: "Reference checkout path for live-reference/heavy campaigns on a self-hosted runner"

@@ -51,7 +51,8 @@ python scripts/run_research_campaign_bundle.py \
 ```
 
 Use the GPU bundle on a self-hosted machine with CUDA-visible devices when
-collecting larger fixed-layout residual, trace, memory, and pmap evidence:
+collecting larger fixed-layout residual, full output-window, trace, memory, and
+pmap evidence:
 
 ```bash
 JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
@@ -79,6 +80,14 @@ The local CPU scaling evidence is the heavy fixed-work ensemble in
 repeated direct tokamak recycling solves rather than a synthetic microkernel,
 and the committed artifact reaches about `4.79x` steady-state speedup from
 `1 -> 8` worker processes on the retained `16`-solve ensemble.
+
+The GPU bundle contains three distinct lanes. The fixed-layout JAX-linearized
+gate measures the residual/JVP seam without the full output-window driver. The
+`gpu-dthe-full-output-jvp-profile` lane runs `recycling_dthe_one_step` through
+`runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`, so it is the
+production-output profile to use before claiming heavy recycling GPU speedup or
+promoting that solver path. The batched-JVP lane measures ensemble and
+multi-device throughput on the same D/T/He residual family.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
@@ -152,6 +161,11 @@ For the remaining recycling solver work, the order is therefore fixed:
   prebuilds sparse tangent batches once per solve, so remaining regressions
   should be attributed to linearization and tangent pushes, not repeated
   tangent allocation;
+- run `gpu-dthe-full-output-jvp-profile` on a self-hosted GPU runner after any
+  output-window recycling solver change, because this is the first campaign in
+  the bundle that combines the production curated case, the fixed-full-field
+  RHS, grouped JVP Jacobian assembly, JAX trace, device-memory profile, and RSS
+  sampling;
 - continue moving source, closure, boundary, and target-recycling kernels into
   fixed-layout JAX functions with parity and JVP gates;
 - promote matrix-free/JVP nonlinear solves only after the full heavy residual

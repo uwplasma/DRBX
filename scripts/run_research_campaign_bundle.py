@@ -237,6 +237,33 @@ def _campaign_command_map(
             required_reference_inputs=("dthe",),
             requires_gpu=True,
         ),
+        "gpu-dthe-full-output-jvp-profile": CampaignCommand(
+            name="gpu-dthe-full-output-jvp-profile",
+            description="Full D/T/He output-window recycling profile through the fixed-full-field JVP BDF seam.",
+            command=(
+                python_executable,
+                str(scripts / "profile_curated_case.py"),
+                "recycling_dthe_one_step",
+                *reference_args,
+                "--output-dir",
+                str(output_root / "runtime_profile_artifacts" / "recycling_dthe_full_output_jvp_gpu"),
+                "--override",
+                "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
+                "--warm-runs",
+                "1",
+                "--timed-runs",
+                "3",
+                "--rss-profile",
+                "--skip-cprofile",
+                "--jax-trace",
+                "--device-memory-profile",
+                "--compilation-cache-dir",
+                str(repo_root / "tmp" / "jax_cache" / "recycling_dthe_full_output_jvp_gpu"),
+            ),
+            requires_reference=True,
+            required_reference_inputs=("dthe",),
+            requires_gpu=True,
+        ),
         "gpu-dthe-batched-jvp-gate": CampaignCommand(
             name="gpu-dthe-batched-jvp-gate",
             description="Multi-device D/T/He batched residual/JVP throughput gate with pmap parity metadata.",
@@ -286,7 +313,13 @@ def expand_campaign_names(requested: tuple[str, ...]) -> tuple[str, ...]:
         elif name == "all-ci":
             expanded.extend(("scheduled-fast-research", "closeout-coverage", "promoted-solver-coverage"))
         elif name == "all-gpu":
-            expanded.extend(("gpu-dthe-jax-linearized-gate", "gpu-dthe-batched-jvp-gate"))
+            expanded.extend(
+                (
+                    "gpu-dthe-jax-linearized-gate",
+                    "gpu-dthe-full-output-jvp-profile",
+                    "gpu-dthe-batched-jvp-gate",
+                )
+            )
         else:
             expanded.append(name)
     return tuple(dict.fromkeys(expanded))
