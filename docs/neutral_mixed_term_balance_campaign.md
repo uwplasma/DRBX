@@ -41,17 +41,15 @@ formula.
 
 The current code-path audit adds connected-y guard reconstruction for
 non-target neutral-mixed meshes and promotes the one-step native default from
-four to eight internal BDF substeps. Before regenerating the release media,
-the combined change reduces the active-domain final `NVh` metric from about
-`5.81e-4` in the published report to about `4.47e-6`. The same one-step audit
-reduces the active-domain final `Nh` and `Ph` metrics to about `2.19e-4` and
-`2.11e-5`, respectively. The short-window path remains at four internal
-substeps because the prefix sweep shows that eight substeps improve center
-momentum but do not solve the larger total-density/pressure history drift.
-The tracked JSON report has been regenerated from this code path. The
-remaining release-media task is to publish the matching regenerated NPZ/PNG
-bundle to the validation-artifact release so the remote figure reflects the
-same numbers.
+four to eight internal BDF substeps. The tracked JSON report and release-backed
+NPZ/PNG bundle have been regenerated from this code path with the direct
+Hermès diagnostic NetCDF present. The active-domain final `NVh` metric is now
+about `4.47e-6`, compared with `5.81e-4` in the older published report. The
+same one-step audit keeps the active-domain final `Nh` and `Ph` metrics near
+`2.19e-4` and `2.11e-5`, respectively. The short-window path remains at four
+internal substeps because the prefix sweep shows that eight substeps improve
+center momentum but do not solve the larger total-density/pressure history
+drift.
 
 The report now carries a target-adjacent offender register rather than only
 aggregate field errors. On the native-minus-Hermès final-state term deltas,

@@ -92,7 +92,7 @@ Deliverables:
 | `drift_wave_one_step` | `native-validated` | First drift-wave output interval is locked. |
 | `drift_wave_short_window` | `native-validated` | Drift-wave benchmark history is locked. |
 | `neutral_mixed_rhs` | `native-validated` | Neutral active-domain RHS is locked. |
-| `neutral_mixed_one_step` | `native-operational` | Baseline exists and the native implicit runner path now executes this lane. Connected-y guard reconstruction plus the eight-substep one-step default reduce the bounded centerline errors to about `Nh = 5.39e-5`, `Ph = 5.90e-6`, `NVh = 4.24e-6`, and momentum RMS at roundoff scale; the broader release-media figure still needs regeneration from this code path. |
+| `neutral_mixed_one_step` | `native-operational` | Baseline exists and the native implicit runner path now executes this lane. Connected-y guard reconstruction plus the eight-substep one-step default reduce the bounded centerline errors to about `Nh = 5.39e-5`, `Ph = 5.90e-6`, `NVh = 4.24e-6`, and momentum RMS at roundoff scale; the broader release-backed term-balance media now reflects this code path. |
 | `neutral_mixed_short_window` | `native operational target` | Baseline exists and the native implicit runner path now executes this lane. The matrix-free runner path clears a bounded full short-window metric gate inside the local ten-minute policy, including total-density and total-pressure histories, and the trimmed active-domain `Nh`/`Ph`/`NVh` surface now also clears a bounded full-array short-window field gate. |
 | `recycling_1d_rhs` | `native-validated` | Open-field recycling RHS is locked. |
 | `recycling_dthe_rhs` | `native-validated` | Multispecies recycling RHS is locked. |

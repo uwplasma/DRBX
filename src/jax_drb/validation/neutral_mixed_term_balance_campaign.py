@@ -1277,8 +1277,9 @@ def _final_field_error_register(
         "target_y_indices": [int(value) for value in target_y_values],
         "interpretation": (
             "This register ranks final-state Nh, Ph, and NVh errors by target-adjacent and interior bands. "
-            "It distinguishes a remaining NVh source-formula mismatch from density/pressure state drift "
-            "that feeds the already-closed pressure-gradient and viscosity operators."
+            "Direct pressure-gradient and viscosity source formulas are closed by written reference "
+            "diagnostics; the remaining entries track density, pressure, and momentum state drift "
+            "that feeds those closed operators."
         ),
     }
 
