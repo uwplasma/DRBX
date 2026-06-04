@@ -339,18 +339,21 @@ history diagnostics record `bdf_rhs_backend="fixed_full_field_array"` and
 `bdf_jacobian_mode="jvp"` so profile artifacts identify the route explicitly.
 It remains a parity/runtime gate rather than the default until the full
 output-window campaigns show equal reference agreement with lower call count
-and memory use. The current hydrogen one-step gate is now explicit:
-`compare_recycling_transient_modes.py --case recycling_1d_one_step --mode bdf
---mode bdf_fixed_full_field_jvp --field Pe --require-fixed-jvp-diagnostics
---require-bdf-pairwise-max 1e-5` passes with a BDF-vs-fixed-JVP active-mesh
-`Pe` delta of `6.28e-6`, but the same run takes about `59.9 s` through the
-fixed-JVP route versus about `8.2 s` through the default BDF route. The new
-subphase diagnostics show why: out of `56.86 s` in JVP Jacobian construction,
-about `36.82 s` is repeated `jax.linearize` work and about `20.02 s` is the
-batched tangent push, while tangent construction and sparse assembly are
-negligible. This proves the fixed-layout/JVP seam is numerically aligned on the
-compact gate, while the remaining promotion blocker is repeated JAX
-linearization/JVP Jacobian construction inside the SciPy BDF callback.
+and memory use. The current self-contained gate is:
+`PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`. It runs the
+hydrogen and D/T/He one-step decks from the committed lightweight fixture root
+unless `JAX_DRB_REFERENCE_ROOT` or `--reference-root` points to a live reference
+checkout. The hydrogen gate passes with worst active-mesh BDF-vs-fixed-JVP
+delta `7.59e-6` under the `1e-5` threshold; the D/T/He gate passes with worst
+delta `2.20e-7` under the `2e-5` threshold. Both gates also require
+`bdf_rhs_backend="fixed_full_field_array"`, `bdf_jacobian_mode="jvp"`, and zero
+finite-difference base-RHS Jacobian calls. The same measurements explain why
+the route remains opt-in: locally, hydrogen takes `8.0 s` with the default BDF
+route and `60.4 s` with fixed-JVP, while D/T/He takes `45.4 s` with BDF and
+`160.6 s` with fixed-JVP. The JVP path removes finite-difference sensitivity and
+preserves parity, but repeated `jax.linearize` and batched tangent pushes inside
+the SciPy BDF callback are still more expensive than the current finite
+difference sparse Jacobian for these decks.
 
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable
