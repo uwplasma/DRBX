@@ -276,6 +276,31 @@ def test_adaptive_bdf_diagnostics_gate_accepts_stable_jax_linearized_route() -> 
             "adaptive_bdf_accepted_steps": 3,
             "adaptive_bdf_minimum_dt_fallbacks": 0,
             "adaptive_bdf_unconverged_solver_steps": 0,
+            "adaptive_bdf_fixed_full_field_rhs_solver_steps": 3,
+            "adaptive_bdf_jax_linearized_action_solver_steps": 3,
+            "adaptive_bdf_max_error_ratio": 0.75,
+            "adaptive_bdf_max_accepted_error_ratio": 0.75,
+        },
+        require_no_fallback=True,
+        require_no_unconverged_substeps=True,
+        max_error_ratio=0.95,
+        max_accepted_error_ratio=0.95,
+    )
+
+    assert errors == []
+
+
+def test_adaptive_bdf_diagnostics_gate_accepts_sparse_jvp_route() -> None:
+    errors = compare_script._validate_adaptive_bdf_diagnostics(
+        "adaptive_bdf_sparse_jvp",
+        {
+            "adaptive_bdf_step_solver_mode": "sparse_jvp",
+            "adaptive_bdf_interval_count": 1,
+            "adaptive_bdf_accepted_steps": 3,
+            "adaptive_bdf_minimum_dt_fallbacks": 0,
+            "adaptive_bdf_unconverged_solver_steps": 0,
+            "adaptive_bdf_fixed_full_field_rhs_solver_steps": 3,
+            "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 3,
             "adaptive_bdf_max_error_ratio": 0.75,
             "adaptive_bdf_max_accepted_error_ratio": 0.75,
         },
@@ -310,6 +335,8 @@ def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
         "adaptive_bdf_jax_linearized did not report adaptive_bdf_step_solver_mode=jax_linearized",
         "adaptive_bdf_jax_linearized did not report any adaptive BDF output intervals",
         "adaptive_bdf_jax_linearized did not report any accepted adaptive BDF substeps",
+        "adaptive_bdf_jax_linearized did not report any fixed_full_field_array adaptive BDF solver steps",
+        "adaptive_bdf_jax_linearized did not report any JAX-linearized adaptive BDF solver steps",
         "adaptive_bdf_jax_linearized reported 2 minimum-dt fallback accepts",
         "adaptive_bdf_jax_linearized reported 3 unconverged adaptive BDF implicit substeps",
         "adaptive_bdf_jax_linearized adaptive_bdf_max_error_ratio=1.25000000e+00 exceeds 9.50000000e-01",

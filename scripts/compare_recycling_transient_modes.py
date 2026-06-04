@@ -316,6 +316,22 @@ def _validate_adaptive_bdf_diagnostics(
         errors.append(f"{mode} did not report any adaptive BDF output intervals")
     if int(diagnostics.get("adaptive_bdf_accepted_steps", 0)) <= 0:
         errors.append(f"{mode} did not report any accepted adaptive BDF substeps")
+    if mode != "adaptive_bdf":
+        fixed_rhs_steps = int(diagnostics.get("adaptive_bdf_fixed_full_field_rhs_solver_steps", 0))
+        if fixed_rhs_steps <= 0:
+            errors.append(f"{mode} did not report any fixed_full_field_array adaptive BDF solver steps")
+    if mode == "adaptive_bdf_sparse_jvp":
+        sparse_jvp_steps = int(diagnostics.get("adaptive_bdf_sparse_jvp_jacobian_solver_steps", 0))
+        if sparse_jvp_steps <= 0:
+            errors.append(f"{mode} did not report any sparse-JVP Jacobian adaptive BDF solver steps")
+    elif expected_step_solver.startswith("jax_linearized"):
+        action_steps = int(diagnostics.get("adaptive_bdf_jax_linearized_action_solver_steps", 0))
+        if action_steps <= 0:
+            errors.append(f"{mode} did not report any JAX-linearized adaptive BDF solver steps")
+        if expected_step_solver == "jax_linearized_lineax":
+            lineax_steps = int(diagnostics.get("adaptive_bdf_lineax_action_solver_steps", 0))
+            if lineax_steps <= 0:
+                errors.append(f"{mode} did not report any Lineax adaptive BDF solver steps")
     fallback_count = int(diagnostics.get("adaptive_bdf_minimum_dt_fallbacks", 0))
     if require_no_fallback and fallback_count != 0:
         errors.append(f"{mode} reported {fallback_count} minimum-dt fallback accepts")

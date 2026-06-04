@@ -269,13 +269,46 @@ def test_adaptive_bdf_minimum_dt_rejects_nonpositive_window() -> None:
 def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> None:
     stats = recycling._new_adaptive_bdf_interval_stats("jax_linearized")
 
-    recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace(diagnostics={"converged": True}))
-    recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace(diagnostics={"converged": False}))
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            diagnostics={
+                "converged": True,
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jax_linearized:jax_gmres",
+            }
+        ),
+    )
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            diagnostics={
+                "converged": False,
+                "rhs_backend": "fixed_full_field_array",
+                "jacobian_mode": "jvp",
+            }
+        ),
+    )
+    recycling._record_adaptive_bdf_step_solver_info(
+        stats,
+        SimpleNamespace(
+            diagnostics={
+                "converged": True,
+                "rhs_backend": "host_bridge",
+                "jacobian_mode": "fd",
+            }
+        ),
+    )
     recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace())
 
-    assert stats["adaptive_bdf_trial_solver_steps"] == 3
+    assert stats["adaptive_bdf_trial_solver_steps"] == 4
     assert stats["adaptive_bdf_unconverged_solver_steps"] == 1
     assert stats["adaptive_bdf_unknown_convergence_solver_steps"] == 1
+    assert stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] == 2
+    assert stats["adaptive_bdf_host_bridge_rhs_solver_steps"] == 1
+    assert stats["adaptive_bdf_jax_linearized_action_solver_steps"] == 1
+    assert stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] == 1
+    assert stats["adaptive_bdf_fd_jacobian_solver_steps"] == 1
 
 
 def test_adaptive_be_interval_retries_then_accepts_step(monkeypatch: pytest.MonkeyPatch) -> None:

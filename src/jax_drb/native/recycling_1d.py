@@ -2023,6 +2023,12 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_trial_solver_steps": 0,
         "adaptive_bdf_unconverged_solver_steps": 0,
         "adaptive_bdf_unknown_convergence_solver_steps": 0,
+        "adaptive_bdf_fixed_full_field_rhs_solver_steps": 0,
+        "adaptive_bdf_host_bridge_rhs_solver_steps": 0,
+        "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 0,
+        "adaptive_bdf_fd_jacobian_solver_steps": 0,
+        "adaptive_bdf_jax_linearized_action_solver_steps": 0,
+        "adaptive_bdf_lineax_action_solver_steps": 0,
         "adaptive_bdf_min_accepted_dt": None,
         "adaptive_bdf_max_accepted_dt": None,
         "adaptive_bdf_last_error_ratio": None,
@@ -2087,6 +2093,32 @@ def _record_adaptive_bdf_step_solver_info(
         stats["adaptive_bdf_unknown_convergence_solver_steps"] = int(
             stats["adaptive_bdf_unknown_convergence_solver_steps"]
         ) + 1
+    if not isinstance(diagnostics, dict):
+        return
+    rhs_backend = str(diagnostics.get("rhs_backend", ""))
+    if rhs_backend == "fixed_full_field_array":
+        stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] = int(
+            stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"]
+        ) + 1
+    elif rhs_backend == "host_bridge":
+        stats["adaptive_bdf_host_bridge_rhs_solver_steps"] = int(
+            stats["adaptive_bdf_host_bridge_rhs_solver_steps"]
+        ) + 1
+    jacobian_mode = str(diagnostics.get("jacobian_mode", ""))
+    if jacobian_mode == "jvp":
+        stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] = int(
+            stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"]
+        ) + 1
+    elif jacobian_mode == "fd":
+        stats["adaptive_bdf_fd_jacobian_solver_steps"] = int(stats["adaptive_bdf_fd_jacobian_solver_steps"]) + 1
+    elif jacobian_mode.startswith("jax_linearized:"):
+        stats["adaptive_bdf_jax_linearized_action_solver_steps"] = int(
+            stats["adaptive_bdf_jax_linearized_action_solver_steps"]
+        ) + 1
+        if "lineax" in jacobian_mode:
+            stats["adaptive_bdf_lineax_action_solver_steps"] = int(
+                stats["adaptive_bdf_lineax_action_solver_steps"]
+            ) + 1
 
 
 def _accumulate_adaptive_bdf_interval_stats(
@@ -2103,6 +2135,12 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_trial_solver_steps",
         "adaptive_bdf_unconverged_solver_steps",
         "adaptive_bdf_unknown_convergence_solver_steps",
+        "adaptive_bdf_fixed_full_field_rhs_solver_steps",
+        "adaptive_bdf_host_bridge_rhs_solver_steps",
+        "adaptive_bdf_sparse_jvp_jacobian_solver_steps",
+        "adaptive_bdf_fd_jacobian_solver_steps",
+        "adaptive_bdf_jax_linearized_action_solver_steps",
+        "adaptive_bdf_lineax_action_solver_steps",
     )
     for key in count_keys:
         total[key] = int(total[key]) + int(step.get(key, 0))
@@ -2789,6 +2827,11 @@ def advance_recycling_1d_backward_euler_step(
     max_nonlinear_iterations: int = 20,
     evolve_feedback_integrals: bool = False,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], Recycling1DImplicitStepInfo]:
+    rhs_backend = (
+        "fixed_full_field_array"
+        if _recycling_solver_uses_fixed_full_field_rhs(solver_mode)
+        else "host_bridge"
+    )
     context = build_recycling_1d_backward_euler_residual_context(
         config,
         fields,
@@ -2799,11 +2842,7 @@ def advance_recycling_1d_backward_euler_step(
         dataset_scalars=dataset_scalars,
         timestep=timestep,
         evolve_feedback_integrals=evolve_feedback_integrals,
-        rhs_backend=(
-            "fixed_full_field_array"
-            if _recycling_solver_uses_fixed_full_field_rhs(solver_mode)
-            else "host_bridge"
-        ),
+        rhs_backend=rhs_backend,
     )
     runtime_model = context.runtime_model
     field_names = context.field_names
@@ -2887,7 +2926,12 @@ def advance_recycling_1d_backward_euler_step(
             mesh=mesh,
             timestep=timestep,
         )
-    return sanitized_fields, sanitized_integrals, _as_recycling_step_info(info)
+    return sanitized_fields, sanitized_integrals, _as_recycling_step_info(
+        info,
+        solver_mode=solver_mode,
+        rhs_backend=rhs_backend,
+        step_method="backward_euler",
+    )
 
 
 def advance_recycling_1d_bdf2_step(
@@ -2955,7 +2999,12 @@ def advance_recycling_1d_bdf2_step(
     )
 
     feedback_timestep = None if packed_feedback_names else timestep
-    if _recycling_solver_uses_fixed_full_field_rhs(solver_mode):
+    rhs_backend = (
+        "fixed_full_field_array"
+        if _recycling_solver_uses_fixed_full_field_rhs(solver_mode)
+        else "host_bridge"
+    )
+    if rhs_backend == "fixed_full_field_array":
         fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -3078,7 +3127,12 @@ def advance_recycling_1d_bdf2_step(
             mesh=mesh,
             timestep=timestep,
         )
-    return sanitized_fields, sanitized_integrals, _as_recycling_step_info(info)
+    return sanitized_fields, sanitized_integrals, _as_recycling_step_info(
+        info,
+        solver_mode=solver_mode,
+        rhs_backend=rhs_backend,
+        step_method="bdf2",
+    )
 
 
 def _advance_recycling_1d_bdf_history(
@@ -3884,22 +3938,34 @@ def _build_recycling_color_groups(
     return field_groups + controller_groups
 
 
-def _as_recycling_step_info(info: ImplicitStepInfo) -> Recycling1DImplicitStepInfo:
+def _as_recycling_step_info(
+    info: ImplicitStepInfo,
+    *,
+    solver_mode: str | None = None,
+    rhs_backend: str | None = None,
+    step_method: str | None = None,
+) -> Recycling1DImplicitStepInfo:
+    diagnostics: dict[str, float | int | bool | str | None] = {
+        "residual_evaluation_count": int(getattr(info, "residual_evaluation_count", 0)),
+        "residual_evaluation_seconds": float(getattr(info, "residual_evaluation_seconds", 0.0)),
+        "jacobian_refresh_count": int(getattr(info, "jacobian_refresh_count", 0)),
+        "jacobian_assembly_seconds": float(getattr(info, "jacobian_assembly_seconds", 0.0)),
+        "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
+        "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
+        "fallback_used": bool(getattr(info, "fallback_used", False)),
+        "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
+        "converged": getattr(info, "converged", None),
+    }
+    if solver_mode is not None:
+        diagnostics["solver_mode"] = str(solver_mode)
+    if rhs_backend is not None:
+        diagnostics["rhs_backend"] = str(rhs_backend)
+    if step_method is not None:
+        diagnostics["step_method"] = str(step_method)
     return Recycling1DImplicitStepInfo(
         residual_inf_norm=info.residual_inf_norm,
         active_size=int(np.prod(info.active_shape)),
         nonlinear_iterations=info.nonlinear_iterations,
         linear_iterations=info.linear_iterations,
-        diagnostics={
-            "residual_evaluation_count": int(getattr(info, "residual_evaluation_count", 0)),
-            "residual_evaluation_seconds": float(getattr(info, "residual_evaluation_seconds", 0.0)),
-            "jacobian_refresh_count": int(getattr(info, "jacobian_refresh_count", 0)),
-            "jacobian_assembly_seconds": float(getattr(info, "jacobian_assembly_seconds", 0.0)),
-            "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
-            "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
-            "fallback_used": bool(getattr(info, "fallback_used", False)),
-            "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
-            "converged": getattr(info, "converged", None),
-        },
+        diagnostics=diagnostics,
     )
-    pressure_sources = explicit_pressure_sources or {}

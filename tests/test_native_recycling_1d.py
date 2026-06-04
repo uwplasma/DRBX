@@ -2249,6 +2249,13 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         1 if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode) else 0
     )
     assert info.residual_inf_norm == pytest.approx(0.0)
+    assert info.diagnostics["solver_mode"] == solver_mode
+    assert info.diagnostics["step_method"] == "backward_euler"
+    assert info.diagnostics["rhs_backend"] == (
+        "fixed_full_field_array"
+        if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode)
+        else "host_bridge"
+    )
     assert np.isfinite(next_fields["Nd+"]).all()
 
 
@@ -2442,6 +2449,13 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
         1 if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode) else 0
     )
     assert info.residual_inf_norm == pytest.approx(0.0)
+    assert info.diagnostics["solver_mode"] == solver_mode
+    assert info.diagnostics["step_method"] == "bdf2"
+    assert info.diagnostics["rhs_backend"] == (
+        "fixed_full_field_array"
+        if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode)
+        else "host_bridge"
+    )
     assert np.isfinite(next_fields["Nd+"]).all()
 
 

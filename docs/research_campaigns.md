@@ -130,7 +130,12 @@ For the remaining recycling solver work, the order is therefore fixed:
   controller used `21` accepted steps, `6` rejected trials, `61` implicit trial
   solves, `20` BDF2 trial solves, and `19` accepted BDF2 trial solves, so
   increase the timeout on laptops because the measured wall time was about
-  `162 s`;
+  `162 s`. The same gate now also requires route provenance:
+  `adaptive_bdf_fixed_full_field_rhs_solver_steps` must be positive for every
+  opt-in JAX/JVP adaptive mode, `adaptive_bdf_sparse_jvp_jacobian_solver_steps`
+  must be positive for `adaptive_bdf_sparse_jvp`, and
+  `adaptive_bdf_jax_linearized_action_solver_steps` must be positive for
+  `adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`;
 - keep the Lineax seam as an opt-in backend comparison. The current
   `timestep=1.0` adaptive-BDF gate has identical controller diagnostics for
   `adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`
