@@ -18,15 +18,13 @@ The refreshed live matrix identifies four distinct categories.
 ### 1. Real open-field neutral mismatch
 
 - case: `neutral_mixed_one_step`
-- current worst normalized RMS error: about `1.44e-1`
-- current relative-L2 error on the dominant field: about `3.46e-1`
-- current runtime ratio: about `3.18x`
+- current worst normalized RMS error: about `8.90e-4`
+- current relative-L2 error on the dominant field: about `2.14e-3`
+- current runtime ratio: about `4.14x`
 - dominant field: `NVh`
 
-This is still the clearest current fidelity gap. The runtime was reduced
-substantially by vectorizing the perpendicular diffusion kernel and the local
-profile mean dropped from about `1.15 s` to about `0.63 s`, but the main
-physics mismatch remains. The focused follow-up figure is now in
+This is now a small absolute-error regression surface rather than the clearest
+current fidelity gap. The focused follow-up figure is now in
 [neutral_mixed_boundary_campaign.md](neutral_mixed_boundary_campaign.md), which
 shows the worst-error `Nh`, `Ph`, and `NVh` lineouts plus the
 `max_{x,z} |Δ|(y)` profile on the same live rerun surface. The next diagnostic
@@ -39,14 +37,14 @@ viscosity, and perpendicular viscosity.
 The latest term-level reconstruction shows that the native pressure-gradient
 and viscosity formulas close against the written source diagnostics to near
 roundoff; the remaining mismatch is now target-adjacent state and boundary
-evolution, with current maximum final-field errors about `1.02e-2` on `Nh`,
-`9.06e-4` on `Ph`, and `5.81e-4` on `NVh`.
+evolution, with current maximum final-field errors about `2.19e-4` on `Nh`,
+`2.11e-5` on `Ph`, and `4.47e-6` on `NVh`.
 
 ### 2. Heavy 1D recycling runtime bottleneck
 
 - case: `recycling_1d_one_step`
 - current worst normalized RMS error: about `4.62e-3`
-- current runtime ratio: about `3.65x`
+- current runtime ratio: about `3.96x`
 - dominant normalized field: `Pd+`
 
 This lane is already tight in fidelity and still one of the main runtime
@@ -56,7 +54,7 @@ offenders.
 
 - case: `recycling_dthe_one_step`
 - current worst normalized RMS error: about `4.92e-3`
-- current runtime ratio: about `7.82x`
+- current runtime ratio: about `7.16x`
 - dominant field: `NVd`
 
 This is the current worst runtime ratio in the live matrix and the main
@@ -76,8 +74,8 @@ times and remains the dominant repeated host-side workload.
 - cases:
   - `integrated_2d_recycling_one_step`
   - `tokamak_recycling_one_step`
-- current normalized RMS errors: about `1.79e-1` and `1.62e-1`
-- current runtime ratios: about `0.85x` and `0.39x`
+- current normalized RMS errors: about `1.78e-1` and `1.62e-1`
+- current runtime ratios: about `0.66x` and `0.48x`
 - dominant field in both cases: `NVd`
 - current worst absolute max-errors:
   - integrated: about `7.48e-12`
@@ -96,13 +94,14 @@ The current optimization pass already changed the runtime picture materially.
 
 - earlier local timed mean: about `1.15 s`
 - current local timed mean: about `0.63 s`
-- current live runtime: about `1.32 s`
-- remaining issue: fidelity on `NVh`, not only runtime
+- current live runtime: about `1.49 s`
+- remaining issue: target-adjacent `Nh`/`Ph` state-history drift, with `NVh`
+  now small in absolute error after the term-level closure pass
 
 ### 1D recycling
 
-- current live runtime: about `20.11 s`
-- current runtime ratio to live Hermès: about `3.65x`
+- current live runtime: about `14.67 s`
+- current runtime ratio to live reference: about `3.96x`
 - remaining issue: sparse FD Jacobian plus repeated heavy RHS evaluation
 
 ## Current Root-Cause Hypotheses

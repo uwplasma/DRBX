@@ -7,10 +7,10 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 ## Highlights
 
 - Neutral mixed one-step and short-window parity runs now use internal BDF
-  substeps by default. The refreshed campaign reduces the `NVh` history error
-  from about `3.37e-3` to about `5.81e-4`; the latest connected-y boundary
-  reconstruction and one-step substep audit reduces the promoted one-step
-  active-domain metric further to about `4.47e-6` in the tracked JSON report.
+  substeps by default. The refreshed connected-y boundary reconstruction and
+  one-step substep audit reduce the promoted `NVh` one-step active-domain
+  metric from the older `3.37e-3` boundary-local mismatch through the
+  intermediate `5.81e-4` result to about `4.47e-6` in the tracked JSON report.
   The short-window path remains at four internal substeps because its remaining
   error is a total-history sequencing issue rather than the one-step
   target-band momentum closure.

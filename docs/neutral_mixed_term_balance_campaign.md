@@ -27,35 +27,28 @@ Current artifact outputs:
 - compact arrays: [neutral_mixed_term_balance_campaign.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__data__neutral_mixed_term_balance_campaign.npz)
 - figure: [neutral_mixed_term_balance_campaign.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
-The published generated report uses the physical active `x-y` domain for all
-term metrics and direct-reference scaling, so guard-cell-only diagnostics do
-not contaminate the offender ranking. That report shows a worst active-domain
-final `NVh` difference of about `5.81e-4`, down from the earlier
-boundary-local `3.37e-3` mismatch after the neutral-mixed mesh topology and
-one-step history substepping were tightened. Inserting the Hermès-3 final state
-into the native operator gives a residual-rate max of about `1.66e-4`;
-inserting the native final state gives a residual-rate difference of about
-`9.01e-5` against the Hermès balance. The remaining final-state drift is
+The generated report uses the physical active `x-y` domain for all term
+metrics and direct-reference scaling, so guard-cell-only diagnostics do not
+contaminate the offender ranking. The current code path adds connected-y guard
+reconstruction for non-target neutral-mixed meshes and promotes the one-step
+native default from four to eight internal BDF substeps. The tracked JSON report
+and release-backed NPZ/PNG bundle have been regenerated from this code path
+with the direct Hermès diagnostic NetCDF present. The active-domain final
+`NVh` metric is now about `4.47e-6`, compared with the older `5.81e-4` and
+`3.37e-3` reports. The same one-step audit keeps the active-domain final `Nh`
+and `Ph` metrics near `2.19e-4` and `2.11e-5`, respectively. The short-window
+path remains at four internal substeps because the prefix sweep shows that
+eight substeps improve center momentum but do not solve the larger
+total-density/pressure history drift. The remaining final-state drift is
 therefore no longer a missing direct pressure-gradient or viscosity source
 formula.
 
-The current code-path audit adds connected-y guard reconstruction for
-non-target neutral-mixed meshes and promotes the one-step native default from
-four to eight internal BDF substeps. The tracked JSON report and release-backed
-NPZ/PNG bundle have been regenerated from this code path with the direct
-Hermès diagnostic NetCDF present. The active-domain final `NVh` metric is now
-about `4.47e-6`, compared with `5.81e-4` in the older published report. The
-same one-step audit keeps the active-domain final `Nh` and `Ph` metrics near
-`2.19e-4` and `2.11e-5`, respectively. The short-window path remains at four
-internal substeps because the prefix sweep shows that eight substeps improve
-center momentum but do not solve the larger total-density/pressure history
-drift.
-
 The report now carries a target-adjacent offender register rather than only
 aggregate field errors. On the native-minus-Hermès final-state term deltas,
-pressure gradient (`6.60e-4`) and parallel viscosity (`6.42e-4`) remain the
-largest named differences because the native and Hermès final states are not
-identical. Direct source-level diagnostics close the implementation question:
+pressure gradient (`8.10e-6`) and parallel viscosity (`1.00e-5`) remain the
+largest target-adjacent named differences because the native and Hermès final
+states are not identical. Direct source-level diagnostics close the
+implementation question:
 after active-domain scaling, `SNVh_pressure_gradient`,
 `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` agree with the
 matched JAXDRB reconstructions with max absolute differences of about
@@ -65,9 +58,9 @@ The JSON report also carries `state_driver_register`, which turns that
 interpretation into a regression target. Dividing the final-state differences
 by the one-step interval ranks the target-adjacent state-rate errors as `Nh`
 (`5.11e-4`), then `Ph` (`4.53e-5`), then `NVh` (`2.90e-5`). The induced
-momentum-driver deltas are led by `Ph -> pressure_gradient` (`6.60e-4`) and
-`NVh -> parallel_viscosity` (`6.42e-4`), with target-to-interior ratios of
-about `3.22` and `4.65`. The next implementation target is therefore the
+momentum-driver deltas are led by `NVh -> parallel_viscosity` (`1.00e-5`) and
+`Ph -> pressure_gradient` (`8.10e-6`). The next implementation target is
+therefore the
 target-adjacent state history and boundary reconstruction that feeds those
 closed operators, not a replacement of the pressure-gradient or viscosity
 formula.

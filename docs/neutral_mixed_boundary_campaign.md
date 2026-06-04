@@ -31,11 +31,12 @@ The figure reports:
 
 The current package was regenerated after the neutral mixed history integrator
 started using internal BDF substeps for the one-step and short-window parity
-surfaces. The maximum `NVh` history error is now about `5.81e-4`, down from
-the earlier `3.37e-3` boundary-local mismatch. The worst scalar neutral-state
-error is still on `Nh`, about `1.02e-2`, so the campaign now separates the
-closed neutral-momentum source-formula question from the remaining
-density/pressure boundary-history fidelity work.
+surfaces. The maximum `NVh` history error is now about `4.47e-6`, down from
+the earlier `5.81e-4` and `3.37e-3` boundary-local mismatches. The worst
+scalar neutral-state error is now on `Nh`, about `2.19e-4`, with `Ph` at about
+`2.11e-5`. The campaign therefore separates the closed neutral-momentum
+source-formula question from the remaining density/pressure boundary-history
+fidelity work.
 
 Run the package locally with:
 
