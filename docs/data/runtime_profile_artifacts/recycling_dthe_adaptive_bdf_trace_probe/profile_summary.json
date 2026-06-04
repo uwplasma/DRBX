@@ -229,6 +229,49 @@
     ],
     "result": "The adaptive-BDF embedded-error gate is dominated by ion parallel-momentum fields, especially NVd+, NVt+, and NVhe+. Feedback-integral errors are negligible in this probe, so the next promotion lane should target momentum-field startup/norm scaling and sparse-JVP Jacobian reuse instead of controller feedback tolerances."
   },
+  "sparse_jvp_momentum_floor_probe": {
+    "mode": "adaptive_bdf_sparse_jvp",
+    "momentum_atol_floor": 0.01,
+    "mode_timeout_seconds": 30.0,
+    "trace_records": 40,
+    "completed_implicit_trials": 17,
+    "completed_error_estimates": 5,
+    "error_ratios": [
+      743411.6307553346,
+      27684.348368395036,
+      12843.811859557143,
+      3159.1056300107716,
+      1333.2736622722553
+    ],
+    "dominant_contributors": [
+      "Phe+",
+      "Pd",
+      "Pd",
+      "Pd",
+      "Nd"
+    ],
+    "last_top_fields": [
+      {
+        "name": "Nd",
+        "rms_ratio": 2623.7662803453386,
+        "rms_difference": 4.946290445348259e-7,
+        "mean_scale": 1.0270357605150968e-10
+      },
+      {
+        "name": "Pd+",
+        "rms_ratio": 2212.6920575028403,
+        "rms_difference": 0.00021828059583668685,
+        "mean_scale": 9.997098359276637e-8
+      },
+      {
+        "name": "Pd",
+        "rms_ratio": 2165.0947896739394,
+        "rms_difference": 2.4135470050314602e-8,
+        "mean_scale": 1.1076670503034225e-11
+      }
+    ],
+    "result": "A momentum-only absolute-tolerance floor reduces the D/T/He startup rejection pressure by roughly two orders of magnitude and shifts the offender from NV* momentum fields to low-density/pressure fields. This argues for a broader component-wise adaptive norm audit before default promotion."
+  },
   "dominant_cost": "The JAX-linearized GMRES route is dominated by Krylov linear solves and does not reach BDF2 before timeout. The sparse-JVP route removes most linear-solve cost and reaches BDF2, shifting the runtime blocker to repeated grouped-JVP Jacobian assembly.",
-  "next_action": "Use sparse-JVP as the near-term multi-ion adaptive-BDF optimization lane, reduce repeated JVP Jacobian assembly, and investigate the ion parallel-momentum embedded-error estimator before trying default promotion."
+  "next_action": "Use sparse-JVP as the near-term multi-ion adaptive-BDF optimization lane, reduce repeated JVP linearization/push work, and complete a component-wise adaptive-norm audit before trying default promotion."
 }
