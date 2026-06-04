@@ -364,6 +364,21 @@ On the local CPU run with `mesh:ny=100`, the retained batch sweep through 256
 states gives about `2.8x` residual throughput speedup and about `2.2x` JVP
 throughput speedup over serial same-kernel calls, while the
 JVP/finite-difference error is about `6e-9`.
+
+The adaptive-BDF recycling solver also has a bounded JAX-linearized promotion
+gate. It is intentionally opt-in rather than the production default: the stable
+full output-window path still uses the validated compatibility backend, while
+the JAX-linearized gate checks fixed-layout residuals, JVP/Jacobian-action
+solves, internal timestep control, and implicit substep convergence. The
+current local single-species gate passes at `timestep=1.0` with zero fallback,
+zero unconverged substeps, and max accepted embedded error ratio about `0.93`.
+A smaller backend comparison at `timestep=0.2` gives identical adaptive
+diagnostics for the in-tree JAX GMRES path and the optional Lineax GMRES seam,
+with Lineax modestly faster on this CPU run. The exact commands, caveats, and
+latest numbers are in
+[docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
+and [docs/research_campaigns.md](docs/research_campaigns.md).
+
 For accelerator evidence, the source-term throughput gate now shows a real
 GPU win on the office machine for batched atomic-rate kernels: at `4,194,304`
 temperature points the GPU is about `2.5x` faster for the rate surface and
