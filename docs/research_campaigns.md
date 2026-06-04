@@ -118,12 +118,16 @@ For the remaining recycling solver work, the order is therefore fixed:
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
   recycling_1d_one_step --reference-root /path/to/reference/root --mode
-  adaptive_bdf_jax_linearized --field Pe --diagnostics-only --timestep 0.05
+  adaptive_bdf_jax_linearized --field Pe --diagnostics-only --timestep 1.0
   --max-nonlinear-iterations 3
   --require-adaptive-bdf-no-fallback
   --require-adaptive-bdf-no-unconverged-substeps
   --require-adaptive-bdf-max-accepted-error-ratio 0.95
-  --mode-timeout-seconds 120`;
+  --mode-timeout-seconds 480`;
+  the current local result for this gate is a pass at `timestep=1.0` with zero
+  fallback, zero unconverged substeps, and
+  `adaptive_bdf_max_accepted_error_ratio=9.315e-1`; increase the timeout on
+  laptops because the measured wall time was about `259 s`;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and
   `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, because the compact

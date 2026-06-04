@@ -677,6 +677,11 @@ error ratios, and the step solver backend used by the controller. These fields
 are intentionally exposed in `Recycling1DHistoryResult.diagnostics` so the
 research campaigns can distinguish a genuinely stable output-window solve from
 a run that only completed by falling back to the minimum internal timestep.
+The adaptive BDF controller uses a conservative accepted-step threshold of
+`0.95` for the embedded error ratio and a timestep safety factor of `0.85`.
+Those values are deliberately aligned with the promotion gate rather than the
+looser mathematical `error <= 1` acceptance boundary, because the JAX-linearized
+path is still an opt-in research backend.
 The matrix-free BE/BDF2 trial solvers also start from the same explicit
 predictor used by the sparse and JAX-linearized paths, rather than from the
 previous state. That keeps the native solver variants comparable and avoids an
@@ -708,6 +713,14 @@ the output-window JAX-linearized path is not ready for default use. Rejected
 trial error ratios remain available as `adaptive_bdf_max_error_ratio` for
 controller diagnostics, while `adaptive_bdf_max_accepted_error_ratio` is the
 promotion gate.
+With these checks, the local single-species gate has now been extended to a
+`timestep=1.0` diagnostic output window on the reference recycling deck. The
+latest run completed in about `259 s`, took `38` accepted substeps and `31`
+rejected trials, reported `207` implicit trial solves, and had zero fallback,
+zero unconverged substeps, and
+`adaptive_bdf_max_accepted_error_ratio=9.315e-1`. This remains a bounded
+solver-health result rather than a full parity claim; the committed reference
+one-step deck still uses the full `timestep=5000` output interval.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or

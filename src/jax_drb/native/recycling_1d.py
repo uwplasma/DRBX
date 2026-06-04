@@ -2131,7 +2131,7 @@ def _adaptive_bdf_minimum_dt(output_timestep: float) -> float:
     if not np.isfinite(output_dt) or output_dt <= 0.0:
         raise ValueError("adaptive BDF output_timestep must be positive and finite.")
     full_window_floor = 0.25
-    interval_relative_floor = output_dt / 16.0
+    interval_relative_floor = output_dt / 64.0
     hard_relative_floor = output_dt / 8192.0
     return min(output_dt, max(hard_relative_floor, min(full_window_floor, interval_relative_floor)))
 
@@ -2248,7 +2248,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 absolute_tolerance=absolute_tolerance,
             )
             error_ratio /= 3.0
-            if np.isfinite(error_ratio) and error_ratio <= 1.0:
+            if np.isfinite(error_ratio) and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO:
                 candidate_fields = bdf_fields
                 candidate_integrals = bdf_integrals
             else:
@@ -2257,7 +2257,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
         order = 2 if use_bdf2 else 1
         _record_adaptive_bdf_error_ratio(stats, float(error_ratio))
 
-        if np.isfinite(error_ratio) and error_ratio <= 1.0:
+        if np.isfinite(error_ratio) and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO:
             stats["adaptive_bdf_accepted_steps"] = int(stats["adaptive_bdf_accepted_steps"]) + 1
             if use_bdf2:
                 stats["adaptive_bdf_bdf2_accepted_steps"] = int(stats["adaptive_bdf_bdf2_accepted_steps"]) + 1
@@ -2313,6 +2313,10 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     )
 
 
+_ADAPTIVE_RECYCLING_TIMESTEP_SAFETY = 0.85
+_ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO = 0.95
+
+
 def _choose_recycling_next_dt(
     current_dt: float,
     *,
@@ -2326,7 +2330,7 @@ def _choose_recycling_next_dt(
     if not np.isfinite(error_ratio) or error_ratio <= 0.0:
         factor = 2.0
     else:
-        factor = 0.9 * error_ratio ** (-1.0 / float(order + 1))
+        factor = _ADAPTIVE_RECYCLING_TIMESTEP_SAFETY * error_ratio ** (-1.0 / float(order + 1))
     factor = min(max(factor, 0.5), 2.0)
     return max(min(current_dt * factor, remaining), minimum_dt)
 

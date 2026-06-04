@@ -258,7 +258,7 @@ def test_adaptive_bdf_minimum_dt_preserves_full_window_policy() -> None:
 
 
 def test_adaptive_bdf_minimum_dt_scales_below_short_diagnostic_window() -> None:
-    assert recycling._adaptive_bdf_minimum_dt(0.05) == pytest.approx(0.05 / 16.0)
+    assert recycling._adaptive_bdf_minimum_dt(0.05) == pytest.approx(0.05 / 64.0)
 
 
 def test_adaptive_bdf_minimum_dt_rejects_nonpositive_window() -> None:
@@ -398,6 +398,66 @@ def test_adaptive_bdf_interval_uses_bdf2_when_previous_step_matches(
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.2)
     assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.2)
     assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.2)
+
+
+def test_adaptive_bdf_interval_rejects_bdf2_above_promotion_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    be_calls: list[float] = []
+    bdf_calls: list[float] = []
+    startup_calls: list[float] = []
+
+    def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
+        be_calls.append(float(timestep))
+        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
+
+    def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+        bdf_calls.append(float(timestep))
+        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, object()
+
+    def fake_startup_step(config, fields, *, timestep, feedback_integrals, **kwargs):
+        startup_calls.append(float(timestep))
+        return {"N": fields["N"] + timestep}, {"ctrl": feedback_integrals["ctrl"] + timestep}, 0.5
+
+    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
+    monkeypatch.setattr(recycling, "_advance_recycling_1d_startup_step", fake_startup_step)
+    bdf_error_ratios = iter((2.88, 0.3))
+    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: next(bdf_error_ratios))
+
+    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+        _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        previous_fields=_fields(0.5),
+        previous_integrals={"ctrl": -0.5},
+        previous_dt=0.5,
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        output_timestep=0.5,
+        suggested_dt=0.5,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=20,
+    )
+
+    assert be_calls == [0.5, 0.25]
+    assert bdf_calls == [0.5, 0.25]
+    assert startup_calls == [0.25]
+    np.testing.assert_allclose(fields["N"], np.array([2.25]))
+    assert integrals["ctrl"] == 1.25
+    assert previous_fields is not None
+    assert previous_integrals == {"ctrl": 0.25}
+    assert previous_dt == 0.25
+    assert next_dt == 0.25
+    assert stats["adaptive_bdf_rejected_steps"] == 1
+    assert stats["adaptive_bdf_accepted_steps"] == 2
+    assert stats["adaptive_bdf_bdf2_accepted_steps"] == 1
+    assert stats["adaptive_bdf_max_error_ratio"] == pytest.approx(0.96)
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.5)
 
 
 def test_adaptive_bdf_interval_uses_startup_when_previous_state_missing(
