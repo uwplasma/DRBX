@@ -77,6 +77,37 @@
     ],
     "result": "Lineax did not improve the multi-ion startup blocker in this cold local probe; most completed substeps reported iterative breakdown or non-finite linear-solver status."
   },
-  "dominant_cost": "Krylov linear solves dominate the completed implicit-trial wall time; the probe does not reach BDF2 before timeout because startup embedded-error ratios force repeated smaller startup solves.",
-  "next_action": "Reduce per-trial Krylov cost and startup rejection pressure before promoting the multi-ion adaptive-BDF path."
+  "sparse_jvp_backend_probe": {
+    "mode": "adaptive_bdf_sparse_jvp",
+    "mode_timeout_seconds": 180.0,
+    "trace_records": 237,
+    "completed_implicit_trials": 96,
+    "completed_error_estimates": 44,
+    "elapsed_seconds_completed_trials": 170.26507392060012,
+    "linear_solve_seconds_completed_trials": 1.7487775068730116,
+    "jacobian_assembly_seconds_completed_trials": 166.32160520460457,
+    "residual_evaluation_seconds_completed_trials": 2.740844258107245,
+    "line_search_seconds_completed_trials": 0.6448290473781526,
+    "average_completed_trial_elapsed_seconds": 1.7735945200062513,
+    "completed_trial_counts_by_kind": {
+      "startup_full_backward_euler": 7,
+      "startup_first_half_backward_euler": 7,
+      "startup_second_half_backward_euler": 7,
+      "bdf2_backward_euler_predictor": 38,
+      "bdf2_corrector": 37
+    },
+    "first_error_ratios": [
+      1568192.0350450992,
+      381808.5830385098,
+      328677.88742050447
+    ],
+    "last_error_ratios": [
+      415.5801119901264,
+      399.35477388851064,
+      383.7822104846247
+    ],
+    "result": "The sparse-JVP route is the best measured multi-ion adaptive-BDF route so far: it reaches BDF2 and cuts completed-trial cost to about 1.8 seconds, with linear solves near milliseconds. It still fails the promotion target because embedded-error ratios remain far above the 0.95 gate and wall time is dominated by repeated grouped-JVP Jacobian assembly."
+  },
+  "dominant_cost": "The JAX-linearized GMRES route is dominated by Krylov linear solves and does not reach BDF2 before timeout. The sparse-JVP route removes most linear-solve cost and reaches BDF2, shifting the blocker to repeated grouped-JVP Jacobian assembly and the adaptive-BDF embedded-error/startup policy.",
+  "next_action": "Use sparse-JVP as the near-term multi-ion adaptive-BDF optimization lane, then reduce repeated JVP Jacobian assembly and improve the startup/error-estimator policy before trying default promotion."
 }
