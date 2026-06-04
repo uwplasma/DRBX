@@ -127,7 +127,11 @@ matrix-free preconditioner, then rerun the gate with no fallbacks and no
 unconverged substeps. For controller experiments, set
 `runtime:recycling_adaptive_bdf_initial_dt=<dt>` to avoid spending expensive
 JAX-linearized trial solves on rejected startup timesteps; this is an opt-in
-runtime knob and does not alter the stable default BDF route.
+runtime knob and does not alter the stable default BDF route. A follow-up local
+probe with `runtime:recycling_adaptive_bdf_initial_dt=0.03125` still exceeded a
+360-second bound on the same D/T/He diagnostics-only gate, so the current
+blocker is per-step solve cost and/or accepted-step count rather than only
+startup rejection.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
