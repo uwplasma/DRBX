@@ -649,18 +649,19 @@ recycling path is not a production speedup. This is why the release keeps the
 full output-window BDF default on the stable finite-difference compatibility
 path while retaining JAX-linearized/JVP modes as explicit development gates.
 
-The production backward-Euler/BDF2 recycling steppers now build their nonlinear
-residuals through the same fixed-layout state bridge. The default sparse path
-still uses finite-difference Jacobians unless explicitly configured otherwise,
-because several production RHS branches remain host-backed. Two promoted
-JAX-native lanes are available for residuals that stay transformable:
-`solver_mode="sparse_jvp"` materializes a sparse Jacobian from grouped JVPs,
-and `solver_mode="jax_linearized"` sends JAX-linearized Jacobian actions
-directly to GMRES. The adaptive BDF controller can route its trial BE/BDF2
-steps through the same seam with
+The production backward-Euler/BDF2 recycling steppers now expose a
+fixed-layout state bridge for opt-in JAX-transformable nonlinear residuals. The
+default sparse path still uses the host-compatible finite-difference Jacobian
+route, because several production RHS branches remain host-backed. Three
+promoted JAX-native lanes are available for residuals that stay transformable:
+`solver_mode="sparse_jvp"` builds the BE/BDF2 residual through the fixed
+full-field adapter and materializes a sparse Jacobian from grouped JVPs, while
+`solver_mode="jax_linearized"` and `solver_mode="jax_linearized_lineax"` send
+JAX-linearized Jacobian actions directly to GMRES. The adaptive BDF controller
+can route its trial BE/BDF2 steps through the same seam with
+`solver_mode="adaptive_bdf_sparse_jvp"`,
 `solver_mode="adaptive_bdf_jax_linearized"` or
-`solver_mode="adaptive_bdf_jax_linearized_lineax"`, while
-`solver_mode="adaptive_bdf_sparse_jvp"` uses the sparse-JVP Jacobian path.
+`solver_mode="adaptive_bdf_jax_linearized_lineax"`.
 These variants are promoted as controlled solver gates, not yet as the default
 production backend. The environment variable
 `JAX_DRB_RECYCLING_JACOBIAN_MODE=jvp` can select the sparse-JVP Jacobian for

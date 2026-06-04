@@ -2344,6 +2344,10 @@ def _adaptive_bdf_step_solver_mode(history_solver_mode: str) -> str:
     raise ValueError(f"Unsupported adaptive BDF solver mode {history_solver_mode!r}.")
 
 
+def _recycling_solver_uses_fixed_full_field_rhs(solver_mode: str) -> bool:
+    return solver_mode in {"sparse_jvp", "jax_linearized", "jax_linearized_lineax"}
+
+
 def _advance_recycling_1d_startup_step(
     config: BoutConfig,
     fields: dict[str, np.ndarray],
@@ -2797,7 +2801,7 @@ def advance_recycling_1d_backward_euler_step(
         evolve_feedback_integrals=evolve_feedback_integrals,
         rhs_backend=(
             "fixed_full_field_array"
-            if solver_mode in {"jax_linearized", "jax_linearized_lineax"}
+            if _recycling_solver_uses_fixed_full_field_rhs(solver_mode)
             else "host_bridge"
         ),
     )
@@ -2951,7 +2955,7 @@ def advance_recycling_1d_bdf2_step(
     )
 
     feedback_timestep = None if packed_feedback_names else timestep
-    if solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
+    if _recycling_solver_uses_fixed_full_field_rhs(solver_mode):
         fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
             runtime_model=runtime_model,

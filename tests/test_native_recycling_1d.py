@@ -2119,6 +2119,10 @@ def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
     assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_sparse_jvp") == "sparse_jvp"
     assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized") == "jax_linearized"
     assert recycling_1d_mod._adaptive_bdf_step_solver_mode("adaptive_bdf_jax_linearized_lineax") == "jax_linearized_lineax"
+    assert not recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("sparse")
+    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("sparse_jvp")
+    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("jax_linearized")
+    assert recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs("jax_linearized_lineax")
     with pytest.raises(ValueError, match="Unsupported adaptive BDF solver mode"):
         recycling_1d_mod._adaptive_bdf_step_solver_mode("bad")
 
@@ -2147,6 +2151,7 @@ def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest
     ("solver_mode", "expected_solver", "expected_backend"),
     [
         ("matrix_free", "matrix_free", None),
+        ("sparse_jvp", "sparse", "jvp"),
         ("jax_linearized", "jax_linearized", "jax_gmres"),
         ("jax_linearized_lineax", "jax_linearized", "lineax_gmres"),
     ],
@@ -2198,6 +2203,17 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             linear_iterations=0,
         )
 
+    def fake_sparse(residual, initial_state, *, active_shape, jacobian_mode, **kwargs):
+        calls.append(("sparse", jacobian_mode))
+        np.testing.assert_allclose(initial_state, predicted_states[-1])
+        return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
+            residual_inf_norm=0.0,
+            active_shape=tuple(active_shape),
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            jacobian_mode=jacobian_mode,
+        )
+
     def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
         calls.append(("jax_linearized", linear_solver_backend))
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
@@ -2208,6 +2224,7 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
             jacobian_mode="jvp",
         )
 
+    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse)
     monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
     monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
@@ -2228,7 +2245,9 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     )
 
     assert calls == [(expected_solver, expected_backend)]
-    assert fixed_full_field_rhs_builds == (1 if expected_solver == "jax_linearized" else 0)
+    assert fixed_full_field_rhs_builds == (
+        1 if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode) else 0
+    )
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert np.isfinite(next_fields["Nd+"]).all()
 
@@ -2322,6 +2341,8 @@ def test_recycling_bdf_history_can_use_sparse_jvp_jacobian_callback(
     ("solver_mode", "expected_solver", "expected_backend"),
     [
         ("matrix_free", "matrix_free", None),
+        ("sparse_jvp", "sparse", "jvp"),
+        ("jax_linearized", "jax_linearized", "jax_gmres"),
         ("jax_linearized_lineax", "jax_linearized", "lineax_gmres"),
     ],
 )
@@ -2373,6 +2394,17 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
             linear_iterations=0,
         )
 
+    def fake_sparse(residual, initial_state, *, active_shape, jacobian_mode, **kwargs):
+        calls.append(("sparse", jacobian_mode))
+        np.testing.assert_allclose(initial_state, predicted_states[-1])
+        return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
+            residual_inf_norm=0.0,
+            active_shape=tuple(active_shape),
+            nonlinear_iterations=1,
+            linear_iterations=1,
+            jacobian_mode=jacobian_mode,
+        )
+
     def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
         calls.append(("jax_linearized", linear_solver_backend))
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
@@ -2383,6 +2415,7 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
             jacobian_mode="jvp",
         )
 
+    monkeypatch.setattr(recycling_1d_mod, "solve_sparse_newton_system", fake_sparse)
     monkeypatch.setattr(recycling_1d_mod, "solve_matrix_free_newton_system", fake_matrix_free)
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
     monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
@@ -2405,7 +2438,9 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     )
 
     assert calls == [(expected_solver, expected_backend)]
-    assert fixed_full_field_rhs_builds == (1 if expected_solver == "jax_linearized" else 0)
+    assert fixed_full_field_rhs_builds == (
+        1 if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode) else 0
+    )
     assert info.residual_inf_norm == pytest.approx(0.0)
     assert np.isfinite(next_fields["Nd+"]).all()
 
