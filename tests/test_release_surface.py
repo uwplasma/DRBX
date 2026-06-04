@@ -277,6 +277,12 @@ PUBLIC_JSON_ARTIFACTS = (
     / "docs"
     / "data"
     / "runtime_profile_artifacts"
+    / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_lineax_cpu"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
     / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_gpu"
     / "profile_summary.json",
     REPO_ROOT
@@ -468,6 +474,37 @@ def test_committed_gpu_profile_summaries_report_gpu_execution() -> None:
         if "stellarator_drb_pytree_gpu_profile_summary" in path.as_posix():
             assert payload["campaign_passed"] is True
             assert payload["local_device_count"] >= 1
+
+
+def test_committed_jax_linearized_cpu_profiles_report_solver_status() -> None:
+    profile_paths = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "runtime_profile_artifacts"
+        / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu"
+        / "profile_summary.json",
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "runtime_profile_artifacts"
+        / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_lineax_cpu"
+        / "profile_summary.json",
+    )
+
+    for path in profile_paths:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        profile = payload["profile"]
+        diagnostics = profile["diagnostics"]
+
+        assert payload["backend"] == "cpu"
+        assert profile["residual_inf_norm"] <= profile["residual_tolerance"]
+        assert profile["linear_solver_success"] is True
+        assert diagnostics["linear_solver_success"] is True
+        assert profile["linear_solver_backend"] == diagnostics["linear_solver_backend"]
+        assert profile["linear_solver_status"] == diagnostics["linear_solver_status"]
+        assert profile["linear_solver_reported_iterations"] == diagnostics["linear_solver_reported_iterations"]
+        assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 
 def test_jax_native_profile_audit_docs_match_committed_backend() -> None:

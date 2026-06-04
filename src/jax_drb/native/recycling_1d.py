@@ -4034,6 +4034,7 @@ def _as_recycling_step_info(
         "linear_solver_backend": getattr(info, "linear_solver_backend", None),
         "linear_solver_status": getattr(info, "linear_solver_status", None),
         "linear_solver_success": getattr(info, "linear_solver_success", None),
+        "linear_solver_reported_iterations": getattr(info, "linear_solver_reported_iterations", None),
     }
     if solver_mode is not None:
         diagnostics["solver_mode"] = str(solver_mode)

@@ -16,19 +16,19 @@
     "diagnostics": {
       "converged": true,
       "fallback_used": false,
-      "jacobian_assembly_seconds": 1.4852614579722285,
-      "jacobian_mode": "jax_linearized:jax_gmres",
+      "jacobian_assembly_seconds": 1.491395624820143,
+      "jacobian_mode": "jax_linearized:lineax_gmres",
       "jacobian_refresh_count": 1,
-      "line_search_seconds": 0.29443070897832513,
-      "linear_solve_seconds": 6.346410209313035,
-      "linear_solver_backend": "jax_gmres",
-      "linear_solver_reported_iterations": null,
-      "linear_solver_status": 0,
+      "line_search_seconds": 0.2884066249243915,
+      "linear_solve_seconds": 5.738979042042047,
+      "linear_solver_backend": "lineax_gmres",
+      "linear_solver_reported_iterations": 2,
+      "linear_solver_status": "lineax._solution.RESULTS<>",
       "linear_solver_success": true,
       "residual_evaluation_count": 2,
-      "residual_evaluation_seconds": 1.7760322079993784,
+      "residual_evaluation_seconds": 1.7753890417516232,
       "rhs_backend": "fixed_full_field_array",
-      "solver_mode": "jax_linearized",
+      "solver_mode": "jax_linearized_lineax",
       "step_method": "backward_euler"
     },
     "feedback_names": [
@@ -59,9 +59,9 @@
     ],
     "input_path": "<reference-root>/tests/integrated/1D-recycling-dthe/data/BOUT.inp",
     "linear_iterations": 400,
-    "linear_solver_backend": "jax_gmres",
-    "linear_solver_reported_iterations": null,
-    "linear_solver_status": 0,
+    "linear_solver_backend": "lineax_gmres",
+    "linear_solver_reported_iterations": 2,
+    "linear_solver_status": "lineax._solution.RESULTS<>",
     "linear_solver_success": true,
     "max_nonlinear_iterations": 2,
     "mesh_active_shape": [
@@ -75,7 +75,7 @@
     ],
     "residual_inf_norm": 1.7408881615820626e-12,
     "residual_tolerance": 1e-06,
-    "solver_mode": "jax_linearized",
+    "solver_mode": "jax_linearized_lineax",
     "state_size": 1979,
     "timestep": 0.0001,
     "variable_cell_count": {
@@ -101,13 +101,13 @@
     },
     "warmup_runs": 0
   },
-  "profiled_run_seconds": 8.149863165803254,
+  "profiled_run_seconds": 7.5447232918813825,
   "rss_profile": {
-    "peak_rss_delta_mebibytes": 844.390625,
-    "peak_rss_mebibytes": 2781.9375,
+    "peak_rss_delta_mebibytes": 947.78125,
+    "peak_rss_mebibytes": 2946.84375,
     "residual_inf_norm": 1.7408881615820626e-12,
-    "run_seconds": 10.987950791604817,
-    "sample_count": 47,
+    "run_seconds": 9.872212290763855,
+    "sample_count": 44,
     "sampling_interval_seconds": 0.1,
     "status": "sampled_process_tree_rss"
   },
@@ -115,9 +115,9 @@
     1.7408881615820626e-12
   ],
   "timed_run_seconds": [
-    8.149863165803254
+    7.5447232918813825
   ],
-  "timed_run_seconds_median": 8.149863165803254,
+  "timed_run_seconds_median": 7.5447232918813825,
   "timed_runs": 1,
   "warmup_run_seconds": [],
   "xla_dump_dir": null

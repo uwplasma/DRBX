@@ -223,6 +223,7 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
         "linear_iterations": int(info.linear_iterations),
         "linear_solver_status": info.diagnostics.get("linear_solver_status"),
         "linear_solver_success": info.diagnostics.get("linear_solver_success"),
+        "linear_solver_reported_iterations": info.diagnostics.get("linear_solver_reported_iterations"),
         "diagnostics": dict(info.diagnostics),
     }
     return report, elapsed

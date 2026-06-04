@@ -89,6 +89,14 @@ production-output profile to use before claiming heavy recycling GPU speedup or
 promoting that solver path. The batched-JVP lane measures ensemble and
 multi-device throughput on the same D/T/He residual family.
 
+The committed `ny=100`, `dt=1e-4` CPU comparison now records explicit Krylov
+status metadata for both JAX GMRES and Lineax GMRES. Both runs reach
+`residual_inf_norm=1.74e-12`; the JAX backend reports status `0` and a timed
+run of about `8.15 s`, while the Lineax backend reports `RESULTS<>`, success,
+`2` reported iterations, and a timed run of about `7.54 s`. These artifacts are
+small JSON summaries, not trace bundles, so they are suitable for git and give
+the heavier GPU/output-window campaigns a stable backend-health baseline.
+
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
 small `950`-active-variable gate, the CPU run completes in about `4.74 s` with

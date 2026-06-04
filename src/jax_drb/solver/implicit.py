@@ -38,6 +38,7 @@ class ImplicitStepInfo:
     linear_solver_backend: str | None = None
     linear_solver_status: int | float | str | None = None
     linear_solver_success: bool | None = None
+    linear_solver_reported_iterations: int | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class JaxLinearizedUpdateResult:
     backend: str
     status: object = None
     success: bool | None = None
+    reported_iterations: object = None
 
 
 def difference_quotient_step_size(value: float) -> float:
@@ -773,6 +775,7 @@ def solve_jax_linearized_newton_system(
     jacobian_mode = f"jax_linearized:{linear_backend}"
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
+    last_linear_solver_reported_iterations: int | None = None
 
     def _block(value):
         if value is None:
@@ -807,6 +810,7 @@ def solve_jax_linearized_newton_system(
             linear_solver_backend=linear_backend,
             linear_solver_status=last_linear_solver_status,
             linear_solver_success=last_linear_solver_success,
+            linear_solver_reported_iterations=last_linear_solver_reported_iterations,
         )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
@@ -844,6 +848,9 @@ def solve_jax_linearized_newton_system(
             backend=linear_backend,
             status=last_linear_solver_status,
             explicit_success=solve_result.success,
+        )
+        last_linear_solver_reported_iterations = _normalize_linear_solver_iterations(
+            solve_result.reported_iterations
         )
         linear_solve_seconds += perf_counter() - linear_solve_started_at
         total_linear_iterations += int(linear_restart) * int(linear_maxiter)
@@ -952,10 +959,15 @@ def _solve_jax_linearized_update(
             max_steps=max(1, int(linear_restart) * int(linear_maxiter)),
         )
         solution = lx.linear_solve(operator, rhs_array, solver, throw=False)
+        reported_iterations = None
+        stats = getattr(solution, "stats", None)
+        if isinstance(stats, dict):
+            reported_iterations = stats.get("num_steps")
         return JaxLinearizedUpdateResult(
             update=solution.value,
             backend=backend,
             status=getattr(solution, "result", None),
+            reported_iterations=reported_iterations,
         )
     raise ValueError(f"Unsupported JAX linear solver backend {backend!r}.")
 
@@ -998,8 +1010,27 @@ def _linear_solver_success(
         return None
     if "success" in normalized or "successful" in normalized:
         return True
+    if backend == "lineax_gmres" and "results<>" in normalized:
+        return True
     if any(token in normalized for token in ("fail", "error", "max", "singular", "breakdown")):
         return False
     if backend == "jax_gmres" and normalized.isdigit():
         return int(normalized) == 0
     return None
+
+
+def _normalize_linear_solver_iterations(value: object) -> int | None:
+    if value is None:
+        return None
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            value = item()
+        except (TypeError, ValueError):
+            pass
+    if isinstance(value, np.generic):
+        value = value.item()
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

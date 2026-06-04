@@ -230,6 +230,7 @@ def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_
     assert info.diagnostics["linear_solver_backend"] == "jax_gmres"
     assert info.diagnostics["linear_solver_status"] is None
     assert info.diagnostics["linear_solver_success"] is None
+    assert info.diagnostics["linear_solver_reported_iterations"] is None
 
 
 def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:

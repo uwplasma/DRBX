@@ -734,6 +734,7 @@ def test_jax_linearized_newton_solver_recovers_known_root() -> None:
     assert info.linear_solver_backend == "jax_gmres"
     assert info.linear_solver_status == 0
     assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations is None
 
 
 def test_jax_linearized_newton_solver_reports_nonconvergence() -> None:
@@ -774,7 +775,8 @@ def test_jax_linearized_newton_solver_supports_lineax_gmres_backend() -> None:
     assert info.residual_inf_norm < 1.0e-12
     assert info.jacobian_mode == "jax_linearized:lineax_gmres"
     assert info.linear_solver_backend == "lineax_gmres"
-    assert info.linear_solver_success is not False
+    assert info.linear_solver_success is True
+    assert info.linear_solver_reported_iterations is None or info.linear_solver_reported_iterations >= 0
 
 
 def test_sparse_newton_solver_supports_direct_linear_solve_mode() -> None:
