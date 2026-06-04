@@ -22,6 +22,19 @@ class _FakeConfig:
         return self._solver_options[key]
 
 
+class _FakeRuntimeConfig:
+    def __init__(self, **runtime_options: float) -> None:
+        self._runtime_options = runtime_options
+
+    def has_option(self, section: str, key: str) -> bool:
+        return section == "runtime" and key in self._runtime_options
+
+    def parsed(self, section: str, key: str) -> float:
+        if not self.has_option(section, key):
+            raise KeyError((section, key))
+        return self._runtime_options[key]
+
+
 def _runtime_model(field_names: tuple[str, ...] = ("N",), feedback_names: tuple[str, ...] = ("ctrl",)):
     return SimpleNamespace(field_names=field_names, feedback_names=feedback_names, controllers={})
 
@@ -874,6 +887,39 @@ def test_recycling_state_error_ratio_includes_fields_and_feedback(
     )
 
 
+def test_recycling_state_error_ratio_supports_field_absolute_tolerance_floors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+
+    unfloored = recycling._recycling_state_error_ratio(
+        {"NVd+": np.array([0.0, 0.0]), "Pe": np.array([1.0, 1.0])},
+        {},
+        {"NVd+": np.array([1.0e-3, 0.0]), "Pe": np.array([1.0, 1.0])},
+        {},
+        field_names=("NVd+", "Pe"),
+        feedback_names=(),
+        mesh=object(),
+        relative_tolerance=1.0e-6,
+        absolute_tolerance=1.0e-12,
+    )
+    floored = recycling._recycling_state_error_ratio(
+        {"NVd+": np.array([0.0, 0.0]), "Pe": np.array([1.0, 1.0])},
+        {},
+        {"NVd+": np.array([1.0e-3, 0.0]), "Pe": np.array([1.0, 1.0])},
+        {},
+        field_names=("NVd+", "Pe"),
+        feedback_names=(),
+        mesh=object(),
+        relative_tolerance=1.0e-6,
+        absolute_tolerance=1.0e-12,
+        field_absolute_tolerance_floors={"NVd+": 1.0e-2},
+    )
+
+    assert unfloored > 1.0e4
+    assert floored < unfloored / 100.0
+
+
 def test_recycling_state_error_contributors_rank_fields_and_feedback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -898,8 +944,37 @@ def test_recycling_state_error_contributors_rank_fields_and_feedback(
     assert contributors["dominant"]["name"] == "ctrl"
     assert [entry["name"] for entry in contributors["fields"]] == ["N", "Pe"]
     assert contributors["fields"][0]["rms_ratio"] == pytest.approx(np.sqrt((0.5**2 + 0.0**2) / 2.0))
+    assert contributors["fields"][0]["rms_difference"] == pytest.approx(np.sqrt((1.0**2 + 0.0**2) / 2.0))
+    assert contributors["fields"][0]["min_scale"] == pytest.approx(2.0)
+    assert contributors["fields"][0]["max_scale"] == pytest.approx(3.0)
     assert contributors["fields"][1]["max_abs_ratio"] == pytest.approx(0.2)
+    assert contributors["fields"][1]["max_abs_difference"] == pytest.approx(1.0)
+    assert contributors["fields"][1]["mean_scale"] == pytest.approx(4.5)
     assert contributors["feedback"][0]["rms_ratio"] == pytest.approx(0.75)
+    assert contributors["feedback"][0]["max_abs_difference"] == pytest.approx(3.0)
+    assert contributors["feedback"][0]["min_scale"] == pytest.approx(4.0)
+
+
+def test_recycling_state_error_contributors_apply_field_atol_floors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+
+    contributors = recycling._recycling_state_error_contributors(
+        {"NVd+": np.array([0.0, 0.0])},
+        {},
+        {"NVd+": np.array([1.0e-3, 0.0])},
+        {},
+        field_names=("NVd+",),
+        feedback_names=(),
+        mesh=object(),
+        relative_tolerance=1.0e-6,
+        absolute_tolerance=1.0e-12,
+        field_absolute_tolerance_floors={"NVd+": 1.0e-2},
+    )
+
+    assert contributors["fields"][0]["min_scale"] == pytest.approx(1.0e-2)
+    assert contributors["fields"][0]["rms_ratio"] == pytest.approx(np.sqrt((0.1**2 + 0.0**2) / 2.0))
 
 
 def test_scale_adaptive_bdf_error_contributors_matches_embedded_ratio(
@@ -923,8 +998,13 @@ def test_scale_adaptive_bdf_error_contributors_matches_embedded_ratio(
     assert scaled["overall_ratio"] == pytest.approx(contributors["overall_ratio"] / 3.0)
     assert scaled["dominant"]["name"] == "ctrl"
     assert scaled["fields"][0]["rms_ratio"] == pytest.approx(contributors["fields"][0]["rms_ratio"] / 3.0)
+    assert scaled["fields"][0]["rms_difference"] == pytest.approx(contributors["fields"][0]["rms_difference"] / 3.0)
+    assert scaled["fields"][0]["min_scale"] == pytest.approx(contributors["fields"][0]["min_scale"])
     assert scaled["feedback"][0]["squared_error_sum"] == pytest.approx(
         contributors["feedback"][0]["squared_error_sum"] / 9.0
+    )
+    assert scaled["feedback"][0]["max_abs_difference"] == pytest.approx(
+        contributors["feedback"][0]["max_abs_difference"] / 3.0
     )
 
 
@@ -954,6 +1034,28 @@ def test_adaptive_bdf_trace_records_error_contributors(
     record = json.loads(trace_path.read_text(encoding="utf-8"))
     assert record["error_contributors"]["overall_ratio"] == 0.5
     assert record["error_contributors"]["dominant"]["name"] == "Pe"
+
+
+def test_resolve_recycling_adaptive_bdf_momentum_atol_floor_prefers_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", "0.5")
+    config = _FakeRuntimeConfig(recycling_adaptive_bdf_momentum_atol_floor=0.25)
+
+    assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(config) == 0.25
+    assert recycling._resolve_recycling_adaptive_bdf_field_atol_floors(config, ("NVd+", "Pe", "NVt")) == {
+        "NVd+": 0.25,
+        "NVt": 0.25,
+    }
+
+
+def test_resolve_recycling_adaptive_bdf_momentum_atol_floor_env_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", "0.125")
+    assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(None) == 0.125
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", "bad")
+    assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(None) is None
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:

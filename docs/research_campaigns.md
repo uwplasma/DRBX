@@ -170,10 +170,16 @@ spent assembling grouped-JVP Jacobians. The trace can now also write
 field-level error contributors on `error_estimate` records. A 75-second
 contributor probe showed that the remaining adaptive-BDF error is dominated by
 ion parallel-momentum fields (`NVd+`, `NVt+`, and `NVhe+`), while feedback
-integral errors are below `1e-6` in the same norm. The next implementation
-target is therefore sparse-JVP Jacobian reuse/batching plus a momentum-field
-startup/error-estimator audit, not a lower JAX GMRES budget or looser feedback
-tolerances.
+integral errors are below `1e-6` in the same norm. The contributor trace now
+also includes raw field differences and tolerance scales. Those diagnostics
+showed that the momentum ratios were caused by small absolute momentum changes
+being divided by `~1e-12` to `1e-9` scales. An opt-in probe with
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR=1e-2` reduced the startup
+error ratios by about two orders of magnitude, but did not close the gate; the
+dominant offender shifted to low-density/pressure fields such as `Nd`, `Pd`,
+and `Phe+`. The next implementation target is therefore sparse-JVP
+linearize/push reduction plus a component-wise adaptive-norm audit, not a
+lower JAX GMRES budget or looser feedback tolerances.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

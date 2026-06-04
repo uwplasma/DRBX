@@ -591,6 +591,10 @@ def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
     assert contributor_probe["last_top_fields"][0]["name"] == "NVd+"
     assert contributor_probe["last_top_fields"][1]["name"] == "NVt+"
     assert contributor_probe["last_top_feedback"][0]["rms_ratio"] < 1.0e-6
+    momentum_floor_probe = payload["sparse_jvp_momentum_floor_probe"]
+    assert momentum_floor_probe["momentum_atol_floor"] == 0.01
+    assert momentum_floor_probe["error_ratios"][-1] < contributor_probe["last_error_ratios"][-1]
+    assert momentum_floor_probe["dominant_contributors"][-1] == "Nd"
     assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 

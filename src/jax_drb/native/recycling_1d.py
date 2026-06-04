@@ -2212,6 +2212,7 @@ def _adaptive_bdf_error_contributors_if_tracing(
     mesh: StructuredMesh,
     relative_tolerance: float,
     absolute_tolerance: float,
+    field_absolute_tolerance_floors: dict[str, float] | None = None,
 ) -> dict[str, object] | None:
     if _adaptive_bdf_trace_path() is None:
         return None
@@ -2225,6 +2226,7 @@ def _adaptive_bdf_error_contributors_if_tracing(
         mesh=mesh,
         relative_tolerance=relative_tolerance,
         absolute_tolerance=absolute_tolerance,
+        field_absolute_tolerance_floors=field_absolute_tolerance_floors,
     )
 
 
@@ -2238,6 +2240,11 @@ def _scale_adaptive_bdf_error_contributors(
     def _scaled_entry(entry: dict[str, object]) -> dict[str, object]:
         scaled = dict(entry)
         for key in ("rms_ratio", "max_abs_ratio", "mean_abs_ratio"):
+            value = float(scaled[key])
+            scaled[key] = value * float(scale) if np.isfinite(value) else value
+        for key in ("rms_difference", "max_abs_difference"):
+            if key not in scaled:
+                continue
             value = float(scaled[key])
             scaled[key] = value * float(scale) if np.isfinite(value) else value
         squared = float(scaled["squared_error_sum"])
@@ -2430,6 +2437,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     prev_dt = previous_dt
     stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
     interval_started_at = time.perf_counter()
+    field_absolute_tolerance_floors = _resolve_recycling_adaptive_bdf_field_atol_floors(config, field_names)
 
     while remaining > 1.0e-12:
         dt = min(dt, remaining)
@@ -2457,6 +2465,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 max_nonlinear_iterations=max_nonlinear_iterations,
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
+                field_absolute_tolerance_floors=field_absolute_tolerance_floors,
                 step_solver_mode=step_solver_mode,
                 stats=stats,
             )
@@ -2545,6 +2554,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 mesh=mesh,
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
+                field_absolute_tolerance_floors=field_absolute_tolerance_floors,
             )
             error_contributors = _adaptive_bdf_error_contributors_if_tracing(
                 be_fields,
@@ -2556,6 +2566,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 mesh=mesh,
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
+                field_absolute_tolerance_floors=field_absolute_tolerance_floors,
             )
             _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
             error_ratio /= 3.0
@@ -2685,6 +2696,7 @@ def _advance_recycling_1d_startup_step(
     max_nonlinear_iterations: int,
     relative_tolerance: float,
     absolute_tolerance: float,
+    field_absolute_tolerance_floors: dict[str, float] | None = None,
     step_solver_mode: str = "sparse",
     stats: dict[str, float | int | str | None] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
@@ -2807,6 +2819,7 @@ def _advance_recycling_1d_startup_step(
         mesh=mesh,
         relative_tolerance=relative_tolerance,
         absolute_tolerance=absolute_tolerance,
+        field_absolute_tolerance_floors=field_absolute_tolerance_floors,
     )
     error_contributors = _adaptive_bdf_error_contributors_if_tracing(
         full_fields,
@@ -2818,6 +2831,7 @@ def _advance_recycling_1d_startup_step(
         mesh=mesh,
         relative_tolerance=relative_tolerance,
         absolute_tolerance=absolute_tolerance,
+        field_absolute_tolerance_floors=field_absolute_tolerance_floors,
     )
     if stats is not None:
         _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
@@ -2937,13 +2951,16 @@ def _recycling_state_error_ratio(
     mesh: StructuredMesh,
     relative_tolerance: float,
     absolute_tolerance: float,
+    field_absolute_tolerance_floors: dict[str, float] | None = None,
 ) -> float:
     active_slices = _recycling_active_domain_slices(mesh)
     squared_terms: list[np.ndarray] = []
+    field_absolute_tolerance_floors = field_absolute_tolerance_floors or {}
     for name in field_names:
         full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
         half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
-        scale = float(absolute_tolerance) + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
+        field_absolute_tolerance = max(float(absolute_tolerance), float(field_absolute_tolerance_floors.get(name, 0.0)))
+        scale = field_absolute_tolerance + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
         squared_terms.append(((half - full) / scale).ravel())
     for name in feedback_names:
         full = float(full_integrals.get(name, 0.0))
@@ -2967,8 +2984,10 @@ def _recycling_state_error_contributors(
     mesh: StructuredMesh,
     relative_tolerance: float,
     absolute_tolerance: float,
+    field_absolute_tolerance_floors: dict[str, float] | None = None,
 ) -> dict[str, object]:
     active_slices = _recycling_active_domain_slices(mesh)
+    field_absolute_tolerance_floors = field_absolute_tolerance_floors or {}
     field_contributors: list[dict[str, object]] = []
     feedback_contributors: list[dict[str, object]] = []
     squared_sum = 0.0
@@ -2977,12 +2996,31 @@ def _recycling_state_error_contributors(
     for name in field_names:
         full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
         half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
-        scale = float(absolute_tolerance) + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
+        field_absolute_tolerance = max(float(absolute_tolerance), float(field_absolute_tolerance_floors.get(name, 0.0)))
+        scale = field_absolute_tolerance + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
         normalized = np.asarray((half - full) / scale, dtype=np.float64).ravel()
+        difference = np.asarray(half - full, dtype=np.float64).ravel()
+        scale_flat = np.asarray(scale, dtype=np.float64).ravel()
         finite_mask = np.isfinite(normalized)
         finite = normalized[finite_mask]
+        finite_difference = difference[np.isfinite(difference)]
+        finite_scale = scale_flat[np.isfinite(scale_flat)]
         count = int(normalized.size)
         nonfinite_count = int(count - finite.size)
+        if finite_difference.size:
+            rms_difference = float(np.sqrt(np.mean(finite_difference * finite_difference)))
+            max_abs_difference = float(np.max(np.abs(finite_difference)))
+        else:
+            rms_difference = 0.0
+            max_abs_difference = 0.0
+        if finite_scale.size:
+            min_scale = float(np.min(finite_scale))
+            mean_scale = float(np.mean(finite_scale))
+            max_scale = float(np.max(finite_scale))
+        else:
+            min_scale = math.inf
+            mean_scale = math.inf
+            max_scale = math.inf
         if count and nonfinite_count:
             rms = math.inf
             max_abs = math.inf
@@ -3012,6 +3050,11 @@ def _recycling_state_error_contributors(
                 "rms_ratio": rms,
                 "max_abs_ratio": max_abs,
                 "mean_abs_ratio": mean_abs,
+                "rms_difference": rms_difference,
+                "max_abs_difference": max_abs_difference,
+                "min_scale": min_scale,
+                "mean_scale": mean_scale,
+                "max_scale": max_scale,
                 "squared_error_sum": squared,
             }
         )
@@ -3020,6 +3063,7 @@ def _recycling_state_error_contributors(
         full = float(full_integrals.get(name, 0.0))
         half = float(half_integrals.get(name, 0.0))
         scale = float(absolute_tolerance) + float(relative_tolerance) * max(abs(full), abs(half), 1.0)
+        difference = half - full
         normalized = float((half - full) / scale)
         if np.isfinite(normalized):
             squared = normalized * normalized
@@ -3039,6 +3083,11 @@ def _recycling_state_error_contributors(
                 "rms_ratio": abs_value,
                 "max_abs_ratio": abs_value,
                 "mean_abs_ratio": abs_value,
+                "rms_difference": abs(difference) if np.isfinite(difference) else math.inf,
+                "max_abs_difference": abs(difference) if np.isfinite(difference) else math.inf,
+                "min_scale": scale if np.isfinite(scale) else math.inf,
+                "mean_scale": scale if np.isfinite(scale) else math.inf,
+                "max_scale": scale if np.isfinite(scale) else math.inf,
                 "squared_error_sum": float(squared),
             }
         )
@@ -4066,6 +4115,37 @@ def _resolve_recycling_jvp_batch_size() -> int | None:
         return max(1, int(env_value))
     except ValueError:
         return None
+
+
+def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | None = None) -> float | None:
+    option_name = "recycling_adaptive_bdf_momentum_atol_floor"
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            try:
+                configured = float(config.parsed(section_name, option_name))
+            except (TypeError, ValueError):
+                return None
+            return configured if np.isfinite(configured) and configured > 0.0 else None
+    env_value = os.environ.get("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR")
+    if env_value is None or not env_value.strip():
+        return None
+    try:
+        configured = float(env_value)
+    except ValueError:
+        return None
+    return configured if np.isfinite(configured) and configured > 0.0 else None
+
+
+def _resolve_recycling_adaptive_bdf_field_atol_floors(
+    config: BoutConfig | None,
+    field_names: tuple[str, ...],
+) -> dict[str, float]:
+    momentum_floor = _resolve_recycling_adaptive_bdf_momentum_atol_floor(config)
+    if momentum_floor is None:
+        return {}
+    return {name: float(momentum_floor) for name in field_names if name.startswith("NV")}
 
 
 def _resolve_recycling_jax_linear_solver_backend() -> str:

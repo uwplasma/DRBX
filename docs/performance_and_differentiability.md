@@ -733,8 +733,16 @@ feedback-integral contributors for embedded-error estimates when tracing is
 enabled. On the D/T/He sparse-JVP probe, those contributors show that the
 adaptive-BDF rejection is driven by ion parallel-momentum fields (`NVd+`,
 `NVt+`, and `NVhe+`), not by the recycling feedback integrals. That result
-narrows the next promotion work to momentum-field startup/norm scaling and
-Jacobian reuse/batching instead of generic controller loosening.
+initially narrowed the next promotion work to momentum-field startup/norm
+scaling and Jacobian reuse/batching instead of generic controller loosening.
+The follow-up raw-scale probe showed why the ratios were so large: the default
+single absolute tolerance leaves near-zero momentum cells with scales as small
+as `1e-12`. The opt-in
+`runtime:recycling_adaptive_bdf_momentum_atol_floor` setting, also available as
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR`, reduced the short
+D/T/He startup ratios by about two orders of magnitude but shifted the dominant
+error to low-density/pressure fields. The remaining default-promotion work is
+therefore a component-wise adaptive norm, not a one-field tolerance override.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with
