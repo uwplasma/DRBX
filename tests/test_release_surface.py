@@ -283,6 +283,12 @@ PUBLIC_JSON_ARTIFACTS = (
     / "docs"
     / "data"
     / "runtime_profile_artifacts"
+    / "recycling_dthe_adaptive_bdf_trace_probe"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
     / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu"
     / "profile_summary.json",
     REPO_ROOT
@@ -553,6 +559,29 @@ def test_committed_adaptive_bdf_jax_lineax_profile_reports_controller_health() -
         assert diagnostics["adaptive_bdf_minimum_dt_fallbacks"] == 0
         assert diagnostics["adaptive_bdf_unconverged_solver_steps"] == 0
         assert diagnostics["adaptive_bdf_max_accepted_error_ratio"] <= 0.95
+
+
+def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
+    payload = json.loads(
+        (
+            REPO_ROOT
+            / "docs"
+            / "data"
+            / "runtime_profile_artifacts"
+            / "recycling_dthe_adaptive_bdf_trace_probe"
+            / "profile_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert payload["case"] == "recycling_dthe_one_step"
+    assert payload["mode"] == "adaptive_bdf_jax_linearized"
+    assert "timed out" in payload["gate_failure"]
+    assert payload["completed_implicit_trials"] == 8
+    assert payload["started_implicit_trials"] == 9
+    assert payload["completed_error_estimates"] == 2
+    assert payload["linear_solve_seconds_completed_trials"] > payload["jacobian_assembly_seconds_completed_trials"]
+    assert payload["startup_error_ratios"][0] > 1.0e6
+    assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 
 def test_jax_native_profile_audit_docs_match_committed_backend() -> None:

@@ -136,7 +136,15 @@ startup rejection. For timeout-bound probes, set
 to get flushed JSONL records before and after each startup, backward-Euler
 predictor, BDF2 corrector, and embedded-error estimate; the trace carries
 residual-evaluation, Jacobian/linearization, Krylov-solve, line-search, route,
-and convergence metadata from each implicit substep.
+and convergence metadata from each implicit substep. The first committed trace
+summary for this lane is
+`docs/data/runtime_profile_artifacts/recycling_dthe_adaptive_bdf_trace_probe/profile_summary.json`:
+with a 180-second bound, eight completed startup implicit trials consumed
+`179.9 s`, of which `138.0 s` were Krylov solves and `37.3 s` were
+Jacobian/linearization work. The run did not reach BDF2 before timeout because
+the startup embedded-error ratios stayed very large (`2.0e6`, then `3.2e5`).
+The next solver patch should therefore attack per-trial Krylov cost and startup
+rejection pressure before trying another default-promotion gate.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

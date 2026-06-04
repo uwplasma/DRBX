@@ -1,0 +1,43 @@
+{
+  "case": "recycling_dthe_one_step",
+  "mode": "adaptive_bdf_jax_linearized",
+  "diagnostics_only": true,
+  "field": "Pe",
+  "configured_timestep": 2500.0,
+  "probe_timestep": 1.0,
+  "max_nonlinear_iterations": 3,
+  "mode_timeout_seconds": 180.0,
+  "gate_failure": "adaptive_bdf_jax_linearized timed out: solver mode exceeded 180 seconds",
+  "trace_records": 19,
+  "completed_implicit_trials": 8,
+  "started_implicit_trials": 9,
+  "completed_error_estimates": 2,
+  "elapsed_seconds_completed_trials": 179.91413616761565,
+  "linear_solve_seconds_completed_trials": 137.9598073340021,
+  "jacobian_assembly_seconds_completed_trials": 37.263042624574155,
+  "residual_evaluation_seconds_completed_trials": 41.81996962428093,
+  "line_search_seconds_completed_trials": 3.9941354570910335,
+  "max_completed_trial_elapsed_seconds": 25.355988416820765,
+  "average_completed_trial_elapsed_seconds": 22.489267020951957,
+  "completed_trial_counts_by_kind": {
+    "startup_full_backward_euler": 3,
+    "startup_first_half_backward_euler": 3,
+    "startup_second_half_backward_euler": 2
+  },
+  "completed_trial_elapsed_seconds_by_kind": {
+    "startup_full_backward_euler": 60.22309629293159,
+    "startup_first_half_backward_euler": 73.16044725105166,
+    "startup_second_half_backward_euler": 46.5305926236324
+  },
+  "completed_trial_converged_counts_by_kind": {
+    "startup_full_backward_euler": 1,
+    "startup_first_half_backward_euler": 1,
+    "startup_second_half_backward_euler": 2
+  },
+  "startup_error_ratios": [
+    2007723.8021208094,
+    323084.8438782536
+  ],
+  "dominant_cost": "Krylov linear solves dominate the completed implicit-trial wall time; the probe does not reach BDF2 before timeout because startup embedded-error ratios force repeated smaller startup solves.",
+  "next_action": "Reduce per-trial Krylov cost and startup rejection pressure before promoting the multi-ion adaptive-BDF path."
+}
