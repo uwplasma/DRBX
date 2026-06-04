@@ -30,8 +30,8 @@ report the current coverage without failing the iteration loop:
 python scripts/run_promoted_solver_coverage.py --audit
 ```
 
-As of the June 2, 2026 local audit, this promoted slice passes its tests
-(`451 passed`, `7 deselected`, `1 xfailed`) and reports `95%` total coverage.
+As of the June 4, 2026 local audit, this promoted slice passes its tests
+(`463 passed`, `7 deselected`, `1 xfailed`) and reports `95%` total coverage.
 The remaining coverage deficits are concentrated in the hardest and most
 valuable surfaces: runner orchestration, full-sheath lower-target branches,
 legacy mixed residual helpers, target-recycling edge cases, and some CLI
@@ -72,3 +72,6 @@ check over validation packages and public packaging behavior. The promoted
 solver gate is the research-grade criterion for the native physics and runtime
 surface. Both gates now enforce `95%`; neither replaces operator-level
 validation, reference parity, profiling, or publication-grade figure review.
+Both gates are required by the GitHub Actions coverage workflow on pushes and
+pull requests, so the documented `95%` claim is enforced by CI rather than left
+as a manual release step.

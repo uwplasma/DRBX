@@ -29,3 +29,6 @@ jobs:
       - name: Run bounded closeout coverage gate
         run: |
           python scripts/run_closeout_coverage.py
+      - name: Run promoted solver coverage gate
+        run: |
+          python scripts/run_promoted_solver_coverage.py

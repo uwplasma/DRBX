@@ -95,10 +95,11 @@ the same distribution to PyPI twice.
 
 Before publishing a version:
 
-1. run the bounded closeout coverage gate:
+1. run the bounded closeout and promoted solver coverage gates:
 
 ```bash
 python scripts/run_closeout_coverage.py
+python scripts/run_promoted_solver_coverage.py
 ```
 
 2. run the fast bounded validation slice:
