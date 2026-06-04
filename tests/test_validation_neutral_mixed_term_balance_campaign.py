@@ -323,3 +323,42 @@ def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(tmp_pa
     path = write_neutral_mixed_substep_hybrid_json(report, tmp_path / "substeps.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["field"] == "NVh"
+
+
+def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:
+    path = (
+        _REPO_ROOT
+        / "docs"
+        / "data"
+        / "neutral_mixed_substep_hybrid_artifacts"
+        / "data"
+        / "neutral_mixed_substep_hybrid.json"
+    )
+    report = json.loads(path.read_text(encoding="utf-8"))
+
+    assert report["diagnostic"] == "neutral_mixed_substep_hybrid_state"
+    assert report["requires_hermes"] is False
+    assert report["best"] == {
+        "metric": "NVh_final_max_abs",
+        "internal_substeps": 8,
+        "value": pytest.approx(4.46733131195939e-6),
+    }
+
+    points = {int(point["internal_substeps"]): point for point in report["sweep_points"]}
+    assert sorted(points) == [1, 2, 3, 4, 6, 8]
+    assert points[3]["status"] == "failed"
+    assert points[6]["status"] == "failed"
+
+    successful_errors = [
+        points[substeps]["final_field_error_register"]["fields"]["NVh"]["max_abs"]
+        for substeps in (1, 2, 4, 8)
+    ]
+    assert successful_errors == sorted(successful_errors, reverse=True)
+    assert successful_errors[0] == pytest.approx(8.840923081330086e-4)
+    assert successful_errors[-1] == pytest.approx(4.46733131195939e-6)
+
+    best_hybrid = points[8]["hybrid_state_register"]
+    assert best_hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"] == "Ph"
+    assert best_hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0]["swapped_field"] == "NVh"
+
+    assert "/Users/" not in json.dumps(report, sort_keys=True)

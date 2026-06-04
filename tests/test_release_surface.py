@@ -270,6 +270,12 @@ PUBLIC_JSON_ARTIFACTS = (
     REPO_ROOT
     / "docs"
     / "data"
+    / "neutral_mixed_substep_hybrid_artifacts"
+    / "data"
+    / "neutral_mixed_substep_hybrid.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
     / "runtime_profile_artifacts"
     / "recycling_1d_adaptive_bdf_jax_lineax_gate"
     / "profile_summary.json",

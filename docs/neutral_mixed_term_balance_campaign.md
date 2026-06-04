@@ -24,6 +24,7 @@ Hermès update under the current native closure.
 Current artifact outputs:
 
 - JSON summary: [neutral_mixed_term_balance_campaign.json](data/neutral_mixed_term_balance_campaign_artifacts/data/neutral_mixed_term_balance_campaign.json)
+- Hermès-free substep/hybrid JSON: [neutral_mixed_substep_hybrid.json](data/neutral_mixed_substep_hybrid_artifacts/data/neutral_mixed_substep_hybrid.json)
 - compact arrays: [neutral_mixed_term_balance_campaign.npz](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__data__neutral_mixed_term_balance_campaign.npz)
 - figure: [neutral_mixed_term_balance_campaign.png](https://github.com/uwplasma/jax_drb/releases/download/validation-artifacts-2026-04-28/docs__data__neutral_mixed_term_balance_campaign_artifacts__images__neutral_mixed_term_balance_campaign.png)
 
@@ -75,6 +76,14 @@ balance. The hybrid ranking asks a precise question: which state variable most
 reduces the target-adjacent pressure-gradient or viscosity term delta when it
 is made reference-exact? That keeps the remaining parity work focused on the
 target-band state/history sequencing rather than on already-closed formulas.
+The committed diagnostic now records successful substep counts `1`, `2`, `4`,
+and `8`, with `NVh` final max error decreasing from `8.84e-4` at one substep
+to `4.47e-6` at eight substeps; the `3` and `6` substep probes are retained as
+failed points so the report is explicit about the current controller limits.
+This is the concrete reason the one-step path remains on the eight-substep
+neutral mixed setting and why the next neutral parity work should target the
+state/history sequencer rather than the direct pressure-gradient or viscosity
+operators.
 
 Run the Hermès-free diagnostic with:
 
