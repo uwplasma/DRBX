@@ -1,0 +1,78 @@
+{
+  "adaptive_bdf_gate_errors": {
+    "adaptive_bdf_jax_linearized": [],
+    "adaptive_bdf_jax_linearized_lineax": []
+  },
+  "bdf_pairwise_worst": {
+    "delta": null,
+    "field": null
+  },
+  "case": "recycling_1d_one_step",
+  "configured_timestep": 5000.0,
+  "diagnostics_only": true,
+  "fields": [
+    "Pe"
+  ],
+  "max_nonlinear_iterations": 3,
+  "mode_diagnostics": {
+    "adaptive_bdf_jax_linearized": {
+      "adaptive_bdf_accepted_steps": 21,
+      "adaptive_bdf_bdf2_accepted_steps": 19,
+      "adaptive_bdf_bdf2_trials": 20,
+      "adaptive_bdf_fd_jacobian_solver_steps": 0,
+      "adaptive_bdf_fixed_full_field_rhs_solver_steps": 61,
+      "adaptive_bdf_host_bridge_rhs_solver_steps": 0,
+      "adaptive_bdf_interval_count": 1,
+      "adaptive_bdf_jax_linearized_action_solver_steps": 61,
+      "adaptive_bdf_last_accepted_error_ratio": 0.0,
+      "adaptive_bdf_last_error_ratio": 0.0,
+      "adaptive_bdf_lineax_action_solver_steps": 0,
+      "adaptive_bdf_max_accepted_dt": 0.08073349136894686,
+      "adaptive_bdf_max_accepted_error_ratio": 0.9315419311426189,
+      "adaptive_bdf_max_error_ratio": 116.13259121009844,
+      "adaptive_bdf_min_accepted_dt": 0.015000238929868473,
+      "adaptive_bdf_minimum_dt_fallbacks": 0,
+      "adaptive_bdf_rejected_steps": 6,
+      "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 0,
+      "adaptive_bdf_startup_trials": 7,
+      "adaptive_bdf_step_solver_mode": "jax_linearized",
+      "adaptive_bdf_trial_solver_steps": 61,
+      "adaptive_bdf_unconverged_solver_steps": 0,
+      "adaptive_bdf_unknown_convergence_solver_steps": 0
+    },
+    "adaptive_bdf_jax_linearized_lineax": {
+      "adaptive_bdf_accepted_steps": 21,
+      "adaptive_bdf_bdf2_accepted_steps": 19,
+      "adaptive_bdf_bdf2_trials": 20,
+      "adaptive_bdf_fd_jacobian_solver_steps": 0,
+      "adaptive_bdf_fixed_full_field_rhs_solver_steps": 61,
+      "adaptive_bdf_host_bridge_rhs_solver_steps": 0,
+      "adaptive_bdf_interval_count": 1,
+      "adaptive_bdf_jax_linearized_action_solver_steps": 61,
+      "adaptive_bdf_last_accepted_error_ratio": 0.0,
+      "adaptive_bdf_last_error_ratio": 0.0,
+      "adaptive_bdf_lineax_action_solver_steps": 61,
+      "adaptive_bdf_max_accepted_dt": 0.0807334913689111,
+      "adaptive_bdf_max_accepted_error_ratio": 0.9315419311426185,
+      "adaptive_bdf_max_error_ratio": 116.13257719324069,
+      "adaptive_bdf_min_accepted_dt": 0.015000238930287693,
+      "adaptive_bdf_minimum_dt_fallbacks": 0,
+      "adaptive_bdf_rejected_steps": 6,
+      "adaptive_bdf_sparse_jvp_jacobian_solver_steps": 0,
+      "adaptive_bdf_startup_trials": 7,
+      "adaptive_bdf_step_solver_mode": "jax_linearized_lineax",
+      "adaptive_bdf_trial_solver_steps": 61,
+      "adaptive_bdf_unconverged_solver_steps": 0,
+      "adaptive_bdf_unknown_convergence_solver_steps": 0
+    }
+  },
+  "mode_elapsed_seconds": {
+    "adaptive_bdf_jax_linearized": 174.2023129579611,
+    "adaptive_bdf_jax_linearized_lineax": 151.89694133307785
+  },
+  "modes": [
+    "adaptive_bdf_jax_linearized",
+    "adaptive_bdf_jax_linearized_lineax"
+  ],
+  "timestep": 1.0
+}
