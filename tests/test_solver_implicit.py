@@ -330,9 +330,35 @@ def test_backward_euler_and_bdf2_residual_formulas() -> None:
 
     be = backward_euler_residual(state, previous, rhs, timestep=0.5)
     bdf = bdf2_residual(state, previous, previous_previous, rhs, timestep=0.5)
+    variable_bdf = bdf2_residual(
+        state,
+        previous,
+        previous_previous,
+        rhs,
+        timestep=0.5,
+        previous_timestep=0.25,
+    )
 
     np.testing.assert_allclose(be, np.array([0.4, 0.55, 0.3]))
     np.testing.assert_allclose(bdf, np.array([0.35, 0.3666666666666667, 0.2]))
+    np.testing.assert_allclose(variable_bdf, np.array([0.24, 0.13, -0.02]))
+
+
+def test_bdf2_residual_rejects_nonpositive_previous_timestep() -> None:
+    state = np.array([1.0], dtype=np.float64)
+    previous = np.array([0.5], dtype=np.float64)
+    previous_previous = np.array([0.25], dtype=np.float64)
+    rhs = np.array([0.2], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="previous_timestep must be positive"):
+        bdf2_residual(
+            state,
+            previous,
+            previous_previous,
+            rhs,
+            timestep=0.5,
+            previous_timestep=0.0,
+        )
 
 
 def test_backward_euler_and_bdf2_residuals_preserve_jax_jvp() -> None:

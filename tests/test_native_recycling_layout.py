@@ -329,13 +329,47 @@ def test_fixed_host_bridge_and_bdf2_residual_use_static_layout_without_reference
         previous_packed_state=previous,
         previous_previous_packed_state=previous_previous,
         timestep=0.2,
+        previous_timestep=0.1,
     )
     candidate = previous + 0.03
     rhs_state = bridge(unpack_fixed_state(candidate, layout=layout))
     rhs_packed = np.asarray(pack_fixed_state(rhs_state), dtype=np.float64)
-    expected = candidate - (4.0 / 3.0) * previous + (1.0 / 3.0) * previous_previous - (2.0 / 3.0) * 0.2 * rhs_packed
+    step_ratio = 2.0
+    previous_coefficient = ((step_ratio + 1.0) ** 2) / (2.0 * step_ratio + 1.0)
+    previous_previous_coefficient = (step_ratio**2) / (2.0 * step_ratio + 1.0)
+    rhs_coefficient = 0.2 * (step_ratio + 1.0) / (2.0 * step_ratio + 1.0)
+    expected = (
+        candidate
+        - previous_coefficient * previous
+        + previous_previous_coefficient * previous_previous
+        - rhs_coefficient * rhs_packed
+    )
 
     np.testing.assert_allclose(np.asarray(residual(candidate)), expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_fixed_bdf2_residual_rejects_nonpositive_previous_timestep() -> None:
+    mesh = _sample_mesh()
+    layout = build_recycling_packed_state_layout(
+        fields={"N": np.ones((mesh.nx, mesh.local_ny, mesh.nz), dtype=np.float64)},
+        field_names=("N",),
+        feedback_names=(),
+        mesh=mesh,
+    )
+
+    def rhs_function(state: dict[str, object]) -> dict[str, object]:
+        return {"N": np.asarray(state["N"], dtype=np.float64) * 0.0}
+
+    active_size = int(np.prod(layout.active_shape))
+    with pytest.raises(ValueError, match="previous_timestep must be positive"):
+        build_fixed_bdf2_residual(
+            rhs_function,
+            layout=layout,
+            previous_packed_state=np.ones(active_size, dtype=np.float64),
+            previous_previous_packed_state=np.full(active_size, 0.9, dtype=np.float64),
+            timestep=0.1,
+            previous_timestep=0.0,
+        )
 
 
 def test_fixed_residual_linearize_and_jvp_actions_match_dense_jacobian() -> None:

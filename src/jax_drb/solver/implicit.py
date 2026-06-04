@@ -384,7 +384,15 @@ def bdf2_residual(
     rhs: np.ndarray,
     *,
     timestep: float,
+    previous_timestep: float | None = None,
 ) -> np.ndarray:
+    previous_dt = float(timestep) if previous_timestep is None else float(previous_timestep)
+    if previous_dt <= 0.0:
+        raise ValueError("previous_timestep must be positive for BDF2 residuals.")
+    step_ratio = float(timestep) / previous_dt
+    previous_coefficient = ((step_ratio + 1.0) ** 2) / (2.0 * step_ratio + 1.0)
+    previous_previous_coefficient = (step_ratio**2) / (2.0 * step_ratio + 1.0)
+    rhs_coefficient = float(timestep) * (step_ratio + 1.0) / (2.0 * step_ratio + 1.0)
     if _uses_jax_backend(packed_state, previous_packed_state, previous_previous_packed_state, rhs):
         import jax.numpy as jnp
 
@@ -394,9 +402,9 @@ def bdf2_residual(
         rhs_array = jnp.asarray(rhs, dtype=jnp.float64)
         return (
             packed_state_array
-            - (4.0 / 3.0) * previous_array
-            + (1.0 / 3.0) * previous_previous_array
-            - (2.0 / 3.0) * float(timestep) * rhs_array
+            - previous_coefficient * previous_array
+            + previous_previous_coefficient * previous_previous_array
+            - rhs_coefficient * rhs_array
         )
 
     packed_state_array = np.asarray(packed_state, dtype=np.float64)
@@ -405,9 +413,9 @@ def bdf2_residual(
     rhs_array = np.asarray(rhs, dtype=np.float64)
     return (
         packed_state_array
-        - (4.0 / 3.0) * previous_array
-        + (1.0 / 3.0) * previous_previous_array
-        - (2.0 / 3.0) * float(timestep) * rhs_array
+        - previous_coefficient * previous_array
+        + previous_previous_coefficient * previous_previous_array
+        - rhs_coefficient * rhs_array
     )
 
 

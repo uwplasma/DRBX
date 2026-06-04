@@ -2182,7 +2182,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             prev_fields is not None
             and prev_integrals is not None
             and prev_dt is not None
-            and abs(float(prev_dt) - float(dt)) <= 1.0e-12
+            and float(prev_dt) > 0.0
         )
         if not use_bdf2:
             stats["adaptive_bdf_startup_trials"] = int(stats["adaptive_bdf_startup_trials"]) + 1
@@ -2231,6 +2231,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 metrics=metrics,
                 dataset_scalars=dataset_scalars,
                 timestep=dt,
+                previous_timestep=float(prev_dt),
                 solver_mode=step_solver_mode,
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
@@ -2276,10 +2277,6 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 remaining=remaining,
                 minimum_dt=minimum_dt,
             )
-            if abs(next_dt - dt) > 1.0e-12:
-                prev_fields = None
-                prev_integrals = None
-                prev_dt = None
             dt = next_dt
             continue
 
@@ -2901,6 +2898,7 @@ def advance_recycling_1d_bdf2_step(
     metrics: StructuredMetrics,
     dataset_scalars: dict[str, float],
     timestep: float,
+    previous_timestep: float | None = None,
     solver_mode: str = "sparse",
     residual_tolerance: float = 1.0e-8,
     max_nonlinear_iterations: int = 20,
@@ -2997,6 +2995,7 @@ def advance_recycling_1d_bdf2_step(
         previous_packed_state=packed_previous,
         previous_previous_packed_state=packed_previous_previous,
         timestep=timestep,
+        previous_timestep=previous_timestep,
     )
 
     def residual(packed_state: object) -> object:

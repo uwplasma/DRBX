@@ -286,7 +286,8 @@ The strongest production path today is the sparse Newton backbone in
   state;
 - GMRES is used first, with direct sparse fallback where needed;
 - backward-Euler and BDF2-style history stepping are used on the promoted
-  recycling windows.
+  recycling windows, including variable-step BDF2 history when the adaptive
+  controller changes timestep after a rejected trial.
 
 That path is still the main host/SciPy-heavy backbone and the main remaining
 performance bottleneck. Recent optimization passes made it materially cheaper by

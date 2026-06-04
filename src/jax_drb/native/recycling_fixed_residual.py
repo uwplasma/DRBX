@@ -251,20 +251,28 @@ def build_fixed_bdf2_residual(
     previous_packed_state: object,
     previous_previous_packed_state: object,
     timestep: float,
+    previous_timestep: float | None = None,
 ) -> Callable[[object], jax.Array]:
     """Build a JAX-transformable BDF2 residual on the fixed layout."""
 
     previous = jnp.asarray(previous_packed_state, dtype=jnp.float64)
     previous_previous = jnp.asarray(previous_previous_packed_state, dtype=jnp.float64)
+    previous_dt = float(timestep) if previous_timestep is None else float(previous_timestep)
+    if previous_dt <= 0.0:
+        raise ValueError("previous_timestep must be positive for BDF2 residuals.")
+    step_ratio = float(timestep) / previous_dt
+    previous_coefficient = ((step_ratio + 1.0) ** 2) / (2.0 * step_ratio + 1.0)
+    previous_previous_coefficient = (step_ratio**2) / (2.0 * step_ratio + 1.0)
+    rhs_coefficient = float(timestep) * (step_ratio + 1.0) / (2.0 * step_ratio + 1.0)
 
     def residual(packed_state: object) -> jax.Array:
         state = unpack_fixed_state(packed_state, layout=layout)
         rhs_state = rhs_function(state)
         return (
             pack_fixed_state(state)
-            - (4.0 / 3.0) * previous
-            + (1.0 / 3.0) * previous_previous
-            - (2.0 / 3.0) * float(timestep) * pack_fixed_state(rhs_state)
+            - previous_coefficient * previous
+            + previous_previous_coefficient * previous_previous
+            - rhs_coefficient * pack_fixed_state(rhs_state)
         )
 
     return residual

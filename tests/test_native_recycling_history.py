@@ -562,7 +562,7 @@ def test_adaptive_bdf_interval_falls_back_to_be_at_minimum_dt(
     assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(2.0)
 
 
-def test_adaptive_bdf_interval_halves_rejected_nonminimum_step(
+def test_adaptive_bdf_interval_reuses_history_after_rejected_nonminimum_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     be_calls: list[float] = []
@@ -584,7 +584,8 @@ def test_adaptive_bdf_interval_halves_rejected_nonminimum_step(
     monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
     monkeypatch.setattr(recycling, "_advance_recycling_1d_startup_step", fake_startup_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 6.0)
+    bdf_error_ratios = iter((6.0, 0.3))
+    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: next(bdf_error_ratios))
     monkeypatch.setattr(recycling, "_choose_recycling_next_dt", lambda *args, **kwargs: 1.0)
 
     fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
@@ -606,34 +607,38 @@ def test_adaptive_bdf_interval_halves_rejected_nonminimum_step(
         max_nonlinear_iterations=20,
     )
 
-    assert be_calls == [0.5]
-    assert bdf_calls == [0.5]
-    assert startup_calls == [0.25, 0.25]
-    np.testing.assert_allclose(fields["N"], np.array([1.5]))
-    assert integrals["ctrl"] == 0.5
-    assert previous_fields is None
-    assert previous_integrals is None
-    assert previous_dt is None
+    assert be_calls == [0.5, 0.25]
+    assert bdf_calls == [0.5, 0.25]
+    assert startup_calls == [0.25]
+    np.testing.assert_allclose(fields["N"], np.array([11.25]))
+    assert integrals["ctrl"] == 10.25
+    assert previous_fields is not None
+    assert previous_integrals == {"ctrl": 0.25}
+    assert previous_dt == 0.25
     assert next_dt == 0.5
     assert stats["adaptive_bdf_accepted_steps"] == 2
     assert stats["adaptive_bdf_rejected_steps"] == 1
-    assert stats["adaptive_bdf_startup_trials"] == 2
-    assert stats["adaptive_bdf_bdf2_trials"] == 1
+    assert stats["adaptive_bdf_startup_trials"] == 1
+    assert stats["adaptive_bdf_bdf2_trials"] == 2
+    assert stats["adaptive_bdf_bdf2_accepted_steps"] == 1
     assert stats["adaptive_bdf_max_error_ratio"] == pytest.approx(2.0)
-    assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.1)
     assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.5)
-    assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.1)
     assert stats["adaptive_bdf_min_accepted_dt"] == 0.25
     assert stats["adaptive_bdf_max_accepted_dt"] == 0.25
 
 
-def test_adaptive_bdf_interval_resets_previous_state_when_next_dt_changes(
+def test_adaptive_bdf_interval_preserves_previous_state_when_next_dt_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    previous_timesteps: list[float | None] = []
+
     def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
 
     def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+        previous_timesteps.append(kwargs.get("previous_timestep"))
         return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, object()
 
     monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
@@ -662,15 +667,16 @@ def test_adaptive_bdf_interval_resets_previous_state_when_next_dt_changes(
 
     np.testing.assert_allclose(fields["N"], np.array([2.0]))
     assert integrals["ctrl"] == 1.0
-    assert previous_fields is None
-    assert previous_integrals is None
-    assert previous_dt is None
+    assert previous_fields is not None
+    assert previous_integrals == {"ctrl": 0.0}
+    assert previous_dt == 0.5
     assert next_dt == 0.25
     assert stats["adaptive_bdf_accepted_steps"] == 1
     assert stats["adaptive_bdf_rejected_steps"] == 0
     assert stats["adaptive_bdf_bdf2_trials"] == 1
     assert stats["adaptive_bdf_bdf2_accepted_steps"] == 1
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.1)
+    assert previous_timesteps == [0.5]
 
 
 def test_startup_step_uses_full_and_two_half_be_steps(monkeypatch: pytest.MonkeyPatch) -> None:
