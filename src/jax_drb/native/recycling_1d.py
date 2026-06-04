@@ -2024,6 +2024,8 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_max_accepted_dt": None,
         "adaptive_bdf_last_error_ratio": None,
         "adaptive_bdf_max_error_ratio": None,
+        "adaptive_bdf_last_accepted_error_ratio": None,
+        "adaptive_bdf_max_accepted_error_ratio": None,
         "adaptive_bdf_step_solver_mode": str(step_solver_mode),
     }
 
@@ -2054,6 +2056,21 @@ def _record_adaptive_bdf_accepted_dt(
     stats["adaptive_bdf_max_accepted_dt"] = accepted_dt if max_dt is None else max(float(max_dt), accepted_dt)
 
 
+def _record_adaptive_bdf_accepted_error_ratio(
+    stats: dict[str, float | int | str | None],
+    error_ratio: float,
+) -> None:
+    finite_error_ratio = float(error_ratio) if np.isfinite(error_ratio) else None
+    stats["adaptive_bdf_last_accepted_error_ratio"] = finite_error_ratio
+    if finite_error_ratio is None:
+        return
+    previous_max = stats["adaptive_bdf_max_accepted_error_ratio"]
+    if previous_max is None:
+        stats["adaptive_bdf_max_accepted_error_ratio"] = finite_error_ratio
+    else:
+        stats["adaptive_bdf_max_accepted_error_ratio"] = max(float(previous_max), finite_error_ratio)
+
+
 def _accumulate_adaptive_bdf_interval_stats(
     total: dict[str, float | int | str | None],
     step: dict[str, float | int | str | None],
@@ -2073,6 +2090,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         ("adaptive_bdf_min_accepted_dt", min),
         ("adaptive_bdf_max_accepted_dt", max),
         ("adaptive_bdf_max_error_ratio", max),
+        ("adaptive_bdf_max_accepted_error_ratio", max),
     ):
         value = step.get(key)
         if value is None:
@@ -2082,7 +2100,19 @@ def _accumulate_adaptive_bdf_interval_stats(
 
     if step.get("adaptive_bdf_last_error_ratio") is not None:
         total["adaptive_bdf_last_error_ratio"] = float(step["adaptive_bdf_last_error_ratio"])
+    if step.get("adaptive_bdf_last_accepted_error_ratio") is not None:
+        total["adaptive_bdf_last_accepted_error_ratio"] = float(step["adaptive_bdf_last_accepted_error_ratio"])
     total["adaptive_bdf_step_solver_mode"] = str(step.get("adaptive_bdf_step_solver_mode", total["adaptive_bdf_step_solver_mode"]))
+
+
+def _adaptive_bdf_minimum_dt(output_timestep: float) -> float:
+    output_dt = float(output_timestep)
+    if not np.isfinite(output_dt) or output_dt <= 0.0:
+        raise ValueError("adaptive BDF output_timestep must be positive and finite.")
+    full_window_floor = 0.25
+    interval_relative_floor = output_dt / 16.0
+    hard_relative_floor = output_dt / 8192.0
+    return min(output_dt, max(hard_relative_floor, min(full_window_floor, interval_relative_floor)))
 
 
 def _advance_recycling_1d_adaptive_bdf_interval(
@@ -2116,7 +2146,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     relative_tolerance = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-6
     absolute_tolerance = float(config.parsed("solver", "atol")) if config.has_option("solver", "atol") else 1.0e-9
     remaining = float(output_timestep)
-    minimum_dt = max(float(output_timestep) / 8192.0, 0.25)
+    minimum_dt = _adaptive_bdf_minimum_dt(output_timestep)
     dt = min(float(suggested_dt), remaining)
     current_fields = {name: np.asarray(value, dtype=np.float64, copy=True) for name, value in fields.items()}
     current_integrals = {name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names}
@@ -2208,6 +2238,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             if use_bdf2:
                 stats["adaptive_bdf_bdf2_accepted_steps"] = int(stats["adaptive_bdf_bdf2_accepted_steps"]) + 1
             _record_adaptive_bdf_accepted_dt(stats, dt)
+            _record_adaptive_bdf_accepted_error_ratio(stats, float(error_ratio))
             prev_fields = current_fields
             prev_integrals = current_integrals
             current_fields = candidate_fields
@@ -2232,6 +2263,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
             stats["adaptive_bdf_accepted_steps"] = int(stats["adaptive_bdf_accepted_steps"]) + 1
             stats["adaptive_bdf_minimum_dt_fallbacks"] = int(stats["adaptive_bdf_minimum_dt_fallbacks"]) + 1
             _record_adaptive_bdf_accepted_dt(stats, dt)
+            _record_adaptive_bdf_accepted_error_ratio(stats, float(error_ratio))
             prev_fields = current_fields
             prev_integrals = current_integrals
             prev_dt = dt

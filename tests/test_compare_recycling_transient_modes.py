@@ -38,8 +38,17 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "--require-adaptive-bdf-no-fallback",
             "--require-adaptive-bdf-max-error-ratio",
             "0.95",
+            "--require-adaptive-bdf-max-accepted-error-ratio",
+            "0.75",
             "--mode-timeout-seconds",
             "2.5",
+            "--override",
+            "solver:rtol=1e-9",
+            "--timestep",
+            "0.05",
+            "--max-nonlinear-iterations",
+            "3",
+            "--diagnostics-only",
         ]
     )
 
@@ -49,12 +58,56 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.require_fixed_jvp_diagnostics is True
     assert args.require_adaptive_bdf_no_fallback is True
     assert args.require_adaptive_bdf_max_error_ratio == 0.95
+    assert args.require_adaptive_bdf_max_accepted_error_ratio == 0.75
     assert args.mode_timeout_seconds == 2.5
+    assert args.overrides == ["solver:rtol=1e-9"]
+    assert args.timestep == 0.05
+    assert args.max_nonlinear_iterations == 3
+    assert args.diagnostics_only is True
     help_text = compare_script._build_parser().format_help()
     normalized_help = " ".join(help_text.split()).replace("full- field", "full-field")
     assert "bdf_fixed_full_field_jvp" in help_text
     assert "adaptive_bdf_jax_linearized" in help_text
     assert "fixed full-field JVP BDF path" in normalized_help
+
+
+def test_resolve_output_timestep_uses_configured_value_by_default() -> None:
+    args = SimpleNamespace(timestep=None)
+    run_config = SimpleNamespace(time=SimpleNamespace(timestep=2.5))
+
+    assert compare_script._resolve_output_timestep(args, run_config) == 2.5
+
+
+def test_resolve_output_timestep_accepts_positive_override() -> None:
+    args = SimpleNamespace(timestep=0.05)
+    run_config = SimpleNamespace(time=SimpleNamespace(timestep=5000.0))
+
+    assert compare_script._resolve_output_timestep(args, run_config) == 0.05
+
+
+def test_resolve_output_timestep_rejects_nonpositive_override() -> None:
+    args = SimpleNamespace(timestep=0.0)
+    run_config = SimpleNamespace(time=SimpleNamespace(timestep=5000.0))
+
+    try:
+        compare_script._resolve_output_timestep(args, run_config)
+    except ValueError as exc:
+        assert "--timestep must be a positive finite value" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
+
+
+def test_resolve_max_nonlinear_iterations_accepts_positive_value() -> None:
+    assert compare_script._resolve_max_nonlinear_iterations(SimpleNamespace(max_nonlinear_iterations=4)) == 4
+
+
+def test_resolve_max_nonlinear_iterations_rejects_nonpositive_value() -> None:
+    try:
+        compare_script._resolve_max_nonlinear_iterations(SimpleNamespace(max_nonlinear_iterations=0))
+    except ValueError as exc:
+        assert "--max-nonlinear-iterations must be positive" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
 
 
 def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
@@ -221,9 +274,11 @@ def test_adaptive_bdf_diagnostics_gate_accepts_stable_jax_linearized_route() -> 
             "adaptive_bdf_accepted_steps": 3,
             "adaptive_bdf_minimum_dt_fallbacks": 0,
             "adaptive_bdf_max_error_ratio": 0.75,
+            "adaptive_bdf_max_accepted_error_ratio": 0.75,
         },
         require_no_fallback=True,
         max_error_ratio=0.95,
+        max_accepted_error_ratio=0.95,
     )
 
     assert errors == []
@@ -238,9 +293,11 @@ def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
             "adaptive_bdf_accepted_steps": 0,
             "adaptive_bdf_minimum_dt_fallbacks": 2,
             "adaptive_bdf_max_error_ratio": 1.25,
+            "adaptive_bdf_max_accepted_error_ratio": 1.1,
         },
         require_no_fallback=True,
         max_error_ratio=0.95,
+        max_accepted_error_ratio=0.95,
     )
 
     assert errors == [
@@ -249,6 +306,7 @@ def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
         "adaptive_bdf_jax_linearized did not report any accepted adaptive BDF substeps",
         "adaptive_bdf_jax_linearized reported 2 minimum-dt fallback accepts",
         "adaptive_bdf_jax_linearized adaptive_bdf_max_error_ratio=1.25000000e+00 exceeds 9.50000000e-01",
+        "adaptive_bdf_jax_linearized adaptive_bdf_max_accepted_error_ratio=1.10000000e+00 exceeds 9.50000000e-01",
     ]
 
 

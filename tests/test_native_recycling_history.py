@@ -198,6 +198,8 @@ def test_adaptive_bdf_history_threads_previous_state_and_progress(
         stats["adaptive_bdf_max_accepted_dt"] = 0.5
         stats["adaptive_bdf_last_error_ratio"] = 0.1 if previous_fields is None else 0.2
         stats["adaptive_bdf_max_error_ratio"] = 0.8 if previous_fields is None else 0.6
+        stats["adaptive_bdf_last_accepted_error_ratio"] = 0.1 if previous_fields is None else 0.2
+        stats["adaptive_bdf_max_accepted_error_ratio"] = 0.7 if previous_fields is None else 0.6
         return next_fields, next_integrals, fields, feedback_integrals, 0.5, 0.5, stats
 
     monkeypatch.setattr(recycling, "_advance_recycling_1d_adaptive_bdf_interval", fake_interval)
@@ -239,6 +241,8 @@ def test_adaptive_bdf_history_threads_previous_state_and_progress(
     assert result.diagnostics["adaptive_bdf_max_accepted_dt"] == 0.5
     assert result.diagnostics["adaptive_bdf_last_error_ratio"] == 0.2
     assert result.diagnostics["adaptive_bdf_max_error_ratio"] == 0.8
+    assert result.diagnostics["adaptive_bdf_last_accepted_error_ratio"] == 0.2
+    assert result.diagnostics["adaptive_bdf_max_accepted_error_ratio"] == 0.7
     assert result.diagnostics["adaptive_bdf_step_solver_mode"] == "sparse"
 
 
@@ -247,6 +251,19 @@ def test_choose_recycling_next_dt_handles_finished_zero_and_scaled_errors() -> N
     assert recycling._choose_recycling_next_dt(0.5, error_ratio=0.0, order=1, remaining=2.0, minimum_dt=0.1) == 1.0
     assert recycling._choose_recycling_next_dt(0.5, error_ratio=float("nan"), order=1, remaining=2.0, minimum_dt=0.1) == 1.0
     assert recycling._choose_recycling_next_dt(0.5, error_ratio=8.0, order=1, remaining=2.0, minimum_dt=0.1) == 0.25
+
+
+def test_adaptive_bdf_minimum_dt_preserves_full_window_policy() -> None:
+    assert recycling._adaptive_bdf_minimum_dt(5000.0) == pytest.approx(5000.0 / 8192.0)
+
+
+def test_adaptive_bdf_minimum_dt_scales_below_short_diagnostic_window() -> None:
+    assert recycling._adaptive_bdf_minimum_dt(0.05) == pytest.approx(0.05 / 16.0)
+
+
+def test_adaptive_bdf_minimum_dt_rejects_nonpositive_window() -> None:
+    with pytest.raises(ValueError, match="output_timestep must be positive"):
+        recycling._adaptive_bdf_minimum_dt(0.0)
 
 
 def test_adaptive_be_interval_retries_then_accepts_step(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -367,6 +384,8 @@ def test_adaptive_bdf_interval_uses_bdf2_when_previous_step_matches(
     assert stats["adaptive_bdf_min_accepted_dt"] == 0.5
     assert stats["adaptive_bdf_max_accepted_dt"] == 0.5
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.2)
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.2)
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.2)
 
 
 def test_adaptive_bdf_interval_uses_startup_when_previous_state_missing(
@@ -411,6 +430,8 @@ def test_adaptive_bdf_interval_uses_startup_when_previous_state_missing(
     assert stats["adaptive_bdf_startup_trials"] == 1
     assert stats["adaptive_bdf_bdf2_trials"] == 0
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.5)
 
 
 def test_adaptive_bdf_interval_falls_back_to_be_at_minimum_dt(
@@ -430,6 +451,7 @@ def test_adaptive_bdf_interval_falls_back_to_be_at_minimum_dt(
     monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
     monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 6.0)
+    monkeypatch.setattr(recycling, "_adaptive_bdf_minimum_dt", lambda output_timestep: float(output_timestep))
 
     fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
@@ -464,6 +486,8 @@ def test_adaptive_bdf_interval_falls_back_to_be_at_minimum_dt(
     assert stats["adaptive_bdf_bdf2_trials"] == 1
     assert stats["adaptive_bdf_bdf2_accepted_steps"] == 0
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(2.0)
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(2.0)
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(2.0)
 
 
 def test_adaptive_bdf_interval_halves_rejected_nonminimum_step(
@@ -525,6 +549,8 @@ def test_adaptive_bdf_interval_halves_rejected_nonminimum_step(
     assert stats["adaptive_bdf_bdf2_trials"] == 1
     assert stats["adaptive_bdf_max_error_ratio"] == pytest.approx(2.0)
     assert stats["adaptive_bdf_last_error_ratio"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_max_accepted_error_ratio"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_last_accepted_error_ratio"] == pytest.approx(0.5)
     assert stats["adaptive_bdf_min_accepted_dt"] == 0.25
     assert stats["adaptive_bdf_max_accepted_dt"] == 0.25
 

@@ -9,6 +9,7 @@ import time
 
 import numpy as np
 
+from jax_drb.config.boutinp import apply_bout_overrides
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.recycling_1d import advance_recycling_1d_implicit_history
@@ -68,6 +69,39 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--field", action="append", dest="fields", help="Fields to report. May be repeated.")
     parser.add_argument(
+        "--override",
+        action="append",
+        dest="overrides",
+        default=None,
+        help=(
+            "Apply a BOUT.inp-style override before building the native run configuration, "
+            "for example --override solver:rtol=1e-9. May be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--timestep",
+        type=float,
+        default=None,
+        help=(
+            "Override the single output-window timestep used by this comparison. Use with "
+            "--diagnostics-only unless the committed baseline was generated at the same time."
+        ),
+    )
+    parser.add_argument(
+        "--max-nonlinear-iterations",
+        type=int,
+        default=30,
+        help="Maximum nonlinear iterations passed to each implicit recycling history solve.",
+    )
+    parser.add_argument(
+        "--diagnostics-only",
+        action="store_true",
+        help=(
+            "Run solver modes and diagnostics without comparing against the committed array "
+            "baseline. Pairwise mode deltas and requested diagnostics gates still run."
+        ),
+    )
+    parser.add_argument(
         "--mode-timeout-seconds",
         type=float,
         default=None,
@@ -104,12 +138,35 @@ def _build_parser() -> argparse.ArgumentParser:
             "at or below this threshold."
         ),
     )
+    parser.add_argument(
+        "--require-adaptive-bdf-max-accepted-error-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Fail unless every requested adaptive-BDF mode reports a maximum accepted-step "
+            "embedded error ratio at or below this threshold."
+        ),
+    )
     return parser
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = _build_parser()
     return parser.parse_args(argv)
+
+
+def _resolve_output_timestep(args: argparse.Namespace, run_config: RunConfiguration) -> float:
+    timestep = run_config.time.timestep if args.timestep is None else float(args.timestep)
+    if not np.isfinite(timestep) or timestep <= 0.0:
+        raise ValueError("--timestep must be a positive finite value.")
+    return float(timestep)
+
+
+def _resolve_max_nonlinear_iterations(args: argparse.Namespace) -> int:
+    iterations = int(args.max_nonlinear_iterations)
+    if iterations <= 0:
+        raise ValueError("--max-nonlinear-iterations must be positive.")
+    return iterations
 
 
 def _default_modes(case_name: str) -> tuple[str, ...]:
@@ -243,6 +300,7 @@ def _validate_adaptive_bdf_diagnostics(
     *,
     require_no_fallback: bool,
     max_error_ratio: float | None,
+    max_accepted_error_ratio: float | None,
 ) -> list[str]:
     errors: list[str] = []
     expected_step_solver = ADAPTIVE_BDF_STEP_SOLVER_MODES[mode]
@@ -264,6 +322,16 @@ def _validate_adaptive_bdf_diagnostics(
             if not np.isfinite(reported_float) or reported_float > float(max_error_ratio):
                 errors.append(
                     f"{mode} adaptive_bdf_max_error_ratio={reported_float:.8e} exceeds {float(max_error_ratio):.8e}"
+                )
+    if max_accepted_error_ratio is not None:
+        reported = diagnostics.get("adaptive_bdf_max_accepted_error_ratio")
+        if reported is None:
+            errors.append(f"{mode} did not report adaptive_bdf_max_accepted_error_ratio")
+        else:
+            reported_float = float(reported)
+            if not np.isfinite(reported_float) or reported_float > float(max_accepted_error_ratio):
+                errors.append(
+                    f"{mode} adaptive_bdf_max_accepted_error_ratio={reported_float:.8e} exceeds {float(max_accepted_error_ratio):.8e}"
                 )
     return errors
 
@@ -296,19 +364,38 @@ def main() -> int:
     args = _parse_args()
     case, input_path = resolve_reference_case(args.case, reference_root=args.reference_root)
     config = _load_curated_case_config(case, input_path)
+    if args.overrides:
+        config = apply_bout_overrides(config, args.overrides)
     run_config = RunConfiguration.from_config(config)
+    output_timestep = _resolve_output_timestep(args, run_config)
+    max_nonlinear_iterations = _resolve_max_nonlinear_iterations(args)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     dataset_scalars = resolved_dataset_scalars(run_config)
-    expected = load_portable_array_payload(
-        Path(__file__).resolve().parents[1] / "references" / "baselines" / "reference_arrays" / f"{args.case}.npz"
-    )["variables"]
+    expected = None
+    if not args.diagnostics_only:
+        expected = load_portable_array_payload(
+            Path(__file__).resolve().parents[1]
+            / "references"
+            / "baselines"
+            / "reference_arrays"
+            / f"{args.case}.npz"
+        )["variables"]
     fields = tuple(args.fields) if args.fields else DEFAULT_FIELDS
     modes = tuple(args.modes) if args.modes else _default_modes(args.case)
     rtol = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8
 
     print(f"case={args.case}", flush=True)
-    print(f"timestep={run_config.time.timestep:g}", flush=True)
+    print(f"configured_timestep={run_config.time.timestep:g}", flush=True)
+    print(f"timestep={output_timestep:g}", flush=True)
+    print(f"max_nonlinear_iterations={max_nonlinear_iterations}", flush=True)
+    if args.diagnostics_only:
+        print("baseline_comparison=disabled", flush=True)
+    elif args.timestep is not None and not np.isclose(output_timestep, run_config.time.timestep):
+        print(
+            "warning=timestep override is active while committed-baseline comparison remains enabled",
+            flush=True,
+        )
     print(f"fields={fields}", flush=True)
     print(f"modes={modes}", flush=True)
     mode_variables: dict[str, dict[str, np.ndarray]] = {}
@@ -324,11 +411,11 @@ def main() -> int:
                     mesh=mesh,
                     metrics=metrics,
                     dataset_scalars=dataset_scalars,
-                    timestep=run_config.time.timestep,
+                    timestep=output_timestep,
                     steps=1,
                     solver_mode=mode,
                     residual_tolerance=rtol,
-                    max_nonlinear_iterations=30,
+                    max_nonlinear_iterations=max_nonlinear_iterations,
                 ),
             )
         except _ModeTimeoutError as exc:
@@ -341,7 +428,9 @@ def main() -> int:
         }
         mode_variables[mode] = actual
         mode_diagnostics[mode] = dict(history.diagnostics)
-        rows = _summarize_mode_errors(actual, expected, fields=fields, mesh=mesh)
+        rows = []
+        if expected is not None:
+            rows = _summarize_mode_errors(actual, expected, fields=fields, mesh=mesh)
         for line in _format_mode_error_report(mode, elapsed=elapsed, rows=rows):
             print(line)
         for line in _format_mode_diagnostics_report(mode, mode_diagnostics[mode]):
@@ -356,7 +445,11 @@ def main() -> int:
             print(f"gate_failure={error}")
         if errors:
             return 2
-    if args.require_adaptive_bdf_no_fallback or args.require_adaptive_bdf_max_error_ratio is not None:
+    if (
+        args.require_adaptive_bdf_no_fallback
+        or args.require_adaptive_bdf_max_error_ratio is not None
+        or args.require_adaptive_bdf_max_accepted_error_ratio is not None
+    ):
         adaptive_modes = _adaptive_bdf_modes_to_validate(modes)
         if not adaptive_modes:
             print("gate_failure=adaptive BDF diagnostics were requested but no adaptive-BDF mode was run")
@@ -369,6 +462,7 @@ def main() -> int:
                     mode_diagnostics.get(mode, {}),
                     require_no_fallback=bool(args.require_adaptive_bdf_no_fallback),
                     max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
+                    max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
                 )
             )
         for error in errors:

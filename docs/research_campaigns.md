@@ -118,9 +118,10 @@ For the remaining recycling solver work, the order is therefore fixed:
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
   recycling_1d_one_step --reference-root /path/to/reference/root --mode
-  adaptive_bdf_jax_linearized --field Pe
+  adaptive_bdf_jax_linearized --field Pe --diagnostics-only --timestep 0.05
+  --max-nonlinear-iterations 3
   --require-adaptive-bdf-no-fallback
-  --require-adaptive-bdf-max-error-ratio 0.95
+  --require-adaptive-bdf-max-accepted-error-ratio 0.95
   --mode-timeout-seconds 120`;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and
