@@ -348,21 +348,29 @@ delta `7.59e-6` under the `1e-5` threshold; the D/T/He gate passes with worst
 delta `2.20e-7` under the `2e-5` threshold. Both gates also require
 `bdf_rhs_backend="fixed_full_field_array"`, `bdf_jacobian_mode="jvp"`, and zero
 finite-difference base-RHS Jacobian calls. The same measurements explain why
-the route remains opt-in: locally, hydrogen takes `8.0 s` with the default BDF
-route and `60.4 s` with fixed-JVP, while D/T/He takes `45.4 s` with BDF and
-`160.6 s` with fixed-JVP. The JVP path removes finite-difference sensitivity and
-preserves parity, but repeated `jax.linearize` and batched tangent pushes inside
-the SciPy BDF callback are still more expensive than the current finite
-difference sparse Jacobian for these decks.
+the route remains opt-in. A refreshed local run after prebuilding sparse-JVP
+direction batches removed tangent construction from the callback
+(`bdf_jvp_jacobian_tangent_build_seconds=0` and
+`bdf_jvp_direction_batch_count=1` for both fixture decks), but the fixed-JVP
+route was still slower because SciPy BDF requested many Jacobian callbacks:
+hydrogen took `10.1 s` with default BDF and `72.9 s` with fixed-JVP, while
+D/T/He took `54.2 s` with default BDF and `189.3 s` with fixed-JVP. The JVP
+path removes finite-difference sensitivity and preserves parity, but repeated
+`jax.linearize` and batched tangent pushes inside the SciPy BDF callback are
+still more expensive than the current finite-difference sparse Jacobian for
+these decks.
 
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable
 linear map, while `jax.vmap` batches the colored tangent pushes. The default
 path pushes all color groups in one vectorized batch; `batch_size=1` gives the
 memory-bounded serial form, and intermediate batch sizes provide a knob between
-temporary tangent memory and dispatch overhead. This removes finite-difference
-step-size sensitivity for JAX-transformable residuals and gives a direct
-operator-level check against the older sparse finite-difference builder.
+temporary tangent memory and dispatch overhead. The BDF bridge now prebuilds
+those colored tangent batches once per solve rather than on every SciPy
+Jacobian callback. This removes finite-difference step-size sensitivity for
+JAX-transformable residuals and gives a direct operator-level check against the
+older sparse finite-difference builder, but it does not remove the larger
+linearization and tangent-push cost.
 
 The existing `solve_jax_linearized_newton_system` path is already the stronger
 matrix-free option for residuals that can remain inside JAX: it passes the
