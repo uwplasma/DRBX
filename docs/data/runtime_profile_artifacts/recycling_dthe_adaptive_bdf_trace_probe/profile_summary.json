@@ -57,6 +57,26 @@
     ],
     "result": "Reducing the JAX GMRES restart/maxiter budget to 10 x 10 did not improve this cold local probe; completed startup trials were slower on average and retained the same startup rejection pattern."
   },
+  "lineax_backend_probe": {
+    "mode": "adaptive_bdf_jax_linearized_lineax",
+    "mode_timeout_seconds": 180.0,
+    "trace_records": 15,
+    "completed_implicit_trials": 6,
+    "completed_error_estimates": 2,
+    "elapsed_seconds_completed_trials": 153.25954491551965,
+    "linear_solve_seconds_completed_trials": 127.69531266530976,
+    "jacobian_assembly_seconds_completed_trials": 20.46815583249554,
+    "residual_evaluation_seconds_completed_trials": 25.399332500528544,
+    "line_search_seconds_completed_trials": 4.319060377776623,
+    "average_completed_trial_elapsed_seconds": 25.54325748591994,
+    "linear_solver_success_count": 1,
+    "linear_solver_failure_count": 5,
+    "startup_error_ratios": [
+      2007723.7808895505,
+      323084.8425195503
+    ],
+    "result": "Lineax did not improve the multi-ion startup blocker in this cold local probe; most completed substeps reported iterative breakdown or non-finite linear-solver status."
+  },
   "dominant_cost": "Krylov linear solves dominate the completed implicit-trial wall time; the probe does not reach BDF2 before timeout because startup embedded-error ratios force repeated smaller startup solves.",
   "next_action": "Reduce per-trial Krylov cost and startup rejection pressure before promoting the multi-ion adaptive-BDF path."
 }

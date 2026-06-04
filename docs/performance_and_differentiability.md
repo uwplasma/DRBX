@@ -701,7 +701,9 @@ JAX-linearized action steps. It also aggregates wall-clock buckets for startup
 trials, backward-Euler predictor solves, BDF2 corrector solves, embedded-error
 estimation, residual evaluation, Jacobian/linearization, Krylov solves, and
 line search, plus residual-evaluation, Jacobian-refresh, and linear-iteration
-counts. Set
+counts. `adaptive_bdf_linear_solver_failed_steps` is a promotion blocker for
+JAX-linearized backends because it means the nonlinear step may have continued
+after an inner Krylov solve reported breakdown or non-finite output. Set
 `JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL=/path/to/trace.jsonl` to emit a
 flushed start/end record around each expensive adaptive-BDF implicit trial;
 this is the preferred diagnostic for timeout runs where final
