@@ -117,6 +117,15 @@ backend took about `151.9 s`, compared with about `174.2 s` for the in-tree JAX
 GMRES backend. This remains promotion evidence for the opt-in adaptive-BDF
 route, not a default-solver change.
 
+The generic multi-ion one-step selector still defaults to the stable BDF route.
+A local `recycling_dthe_one_step`, `timestep=1.0`,
+`adaptive_bdf_jax_linearized` diagnostics-only probe exceeded the 720-second
+mode bound, so multispecies adaptive-BDF promotion remains a runtime blocker
+rather than a default-solver change. The next promotion attempt should first
+reduce the D/T/He adaptive controller cost or use a heavier fixed-layout
+matrix-free preconditioner, then rerun the gate with no fallbacks and no
+unconverged substeps.
+
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
 small `950`-active-variable gate, the CPU run completes in about `4.74 s` with
