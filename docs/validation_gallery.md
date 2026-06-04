@@ -640,21 +640,21 @@ What this documents:
 - the current neutral one-step lane is no longer the largest relative parity
   offender after the term-level source closure pass: `neutral_mixed_one_step`
   now has worst max-absolute error about `4.47e-6`, relative RMS about
-  `8.90e-4`, relative L2 about `2.14e-3`, and native/reference wall-time ratio
-  about `4.14`;
+  `8.90e-4`, relative L2 about `2.14e-3`, native/reference wall-time ratio
+  about `4.19`, and explicit `native_operational` capability tier;
 - heavy 1D recycling lanes that are closer in fidelity but still slower than
   the reference solver on this machine:
   `recycling_1d_one_step` and `recycling_dthe_one_step`, with worst normalized
-  RMS errors about `4.62e-3` and `4.92e-3`, and runtime ratios about `3.96`
-  and `7.16`;
+  RMS errors about `4.62e-3` and `4.92e-3`, and runtime ratios about `3.95`
+  and `7.17`;
 - integrated and direct tokamak recycling one-step lanes that are already close
   to wall-time parity or faster on this machine, but their current relative
   mismatch is dominated by near-zero `NVd` on the guarded compare surface; the
   corresponding worst absolute max-errors stay small at about `7.48e-12` and
   `3.09e-7`.
 - process-tree peak RSS is now sampled during each native and Hermès run; the
-  largest native peak is about `562 MiB` on the integrated 2D recycling lane,
-  while the largest native/reference peak-RSS ratio is about `0.96` on
+  largest native peak is about `784 MiB` on the integrated 2D recycling lane,
+  while the largest native/reference peak-RSS ratio is about `0.98` on
   `alfven_wave_one_step`.
 
 This is the current main live code-to-code validation figure for the docs. It
@@ -678,7 +678,7 @@ What this documents:
   sparse Jacobian, residual, pack/unpack, and target-recycling closure
   profiling;
 - memory is now ranked from measured process-tree peak RSS; the current top
-  ratio is `alfven_wave_one_step` at about `0.96`, so the next memory step
+ratio is `alfven_wave_one_step` at about `0.98`, so the next memory step
   is phase-resolved profiling rather than broad peak-RSS triage;
 - near-zero normalized `NVd`/`NVt` mismatches are explicitly flagged so
   absolute error is inspected before changing equations.

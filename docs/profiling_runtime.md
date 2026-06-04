@@ -36,7 +36,7 @@ this machine:
 - `neutral_mixed_one_step`
   - timed local mean dropped from about `1.15 s` to about `0.63 s` after
     vectorizing `_gradient_magnitude`
-  - fresh live Hermès rerun ratio is about `4.14x`
+  - fresh live Hermès rerun ratio is about `4.19x`
   - the visible `NVh` one-step mismatch is now small (`4.47e-6` max absolute
     error); the remaining neutral work is target-adjacent `Nh`/`Ph`
     state-history drift feeding otherwise closed momentum operators
@@ -47,7 +47,7 @@ this machine:
   - the latest post-metric-selector one-run cProfile pass on this machine
     measured `74.39 s`; the separate RSS run measured `49.25 s` with peak
     process-tree RSS about `231.2 MiB`
-  - fresh live Hermès rerun ratio is about `7.16x`
+  - fresh live Hermès rerun ratio is about `7.17x`
   - the fidelity band stayed essentially unchanged at about `4.9e-3` relative
     RMS on `NVd`
   - the isolated target-recycling operator now also shows a direct kernel-level

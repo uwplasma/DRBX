@@ -467,7 +467,7 @@ with a publication-ready summary figure at
 On the current promoted live matrix, the top normalized parity target is the
 normalization-sensitive `integrated_2d_recycling_one_step` near-zero `NVd`
 surface, the top runtime target is `recycling_dthe_one_step`, and the top
-measured peak-RSS ratio is `alfven_wave_one_step` at about `0.96`. The current
+measured peak-RSS ratio is `alfven_wave_one_step` at about `0.98`. The current
 peak-RSS result is useful because it rules out a broad native memory regression
 relative to Hermès on this matrix; the remaining memory task is phase-resolved
 profiling of Jacobian assembly, residual evaluation, packing, and artifact
