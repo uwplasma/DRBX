@@ -143,8 +143,7 @@ with a 180-second bound, eight completed startup implicit trials consumed
 `179.9 s`, of which `138.0 s` were Krylov solves and `37.3 s` were
 Jacobian/linearization work. The run did not reach BDF2 before timeout because
 the startup embedded-error ratios stayed very large (`2.0e6`, then `3.2e5`).
-The next solver patch should therefore attack per-trial Krylov cost and startup
-rejection pressure before trying another default-promotion gate. The first
+The first
 bounded sweeps should vary
 `runtime:recycling_jax_linear_restart=<n>` and
 `runtime:recycling_jax_linear_maxiter=<m>` (or
@@ -167,9 +166,14 @@ and embedded-error ratios. The strongest measured path is now
 about `1.8 s`, with sparse linear solves near milliseconds. That route still
 fails promotion because the embedded-error ratios remained hundreds by the end
 of the bounded trace, and `166.3 s` of the `170.3 s` completed-trial time was
-spent assembling grouped-JVP Jacobians. The next implementation target is
-therefore sparse-JVP Jacobian reuse/batching plus a better startup/error
-estimator, not a lower JAX GMRES budget.
+spent assembling grouped-JVP Jacobians. The trace can now also write
+field-level error contributors on `error_estimate` records. A 75-second
+contributor probe showed that the remaining adaptive-BDF error is dominated by
+ion parallel-momentum fields (`NVd+`, `NVt+`, and `NVhe+`), while feedback
+integral errors are below `1e-6` in the same norm. The next implementation
+target is therefore sparse-JVP Jacobian reuse/batching plus a momentum-field
+startup/error-estimator audit, not a lower JAX GMRES budget or looser feedback
+tolerances.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

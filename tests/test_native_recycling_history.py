@@ -874,6 +874,88 @@ def test_recycling_state_error_ratio_includes_fields_and_feedback(
     )
 
 
+def test_recycling_state_error_contributors_rank_fields_and_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+
+    contributors = recycling._recycling_state_error_contributors(
+        {"N": np.array([1.0, 3.0]), "Pe": np.array([4.0, 4.0])},
+        {"ctrl": 1.0},
+        {"N": np.array([2.0, 3.0]), "Pe": np.array([5.0, 4.0])},
+        {"ctrl": 4.0},
+        field_names=("N", "Pe"),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        relative_tolerance=1.0,
+        absolute_tolerance=0.0,
+    )
+
+    assert contributors["component_count"] == 5
+    assert contributors["overall_ratio"] == pytest.approx(
+        np.sqrt((0.5**2 + 0.0**2 + 0.2**2 + 0.0**2 + 0.75**2) / 5.0)
+    )
+    assert contributors["dominant"]["name"] == "ctrl"
+    assert [entry["name"] for entry in contributors["fields"]] == ["N", "Pe"]
+    assert contributors["fields"][0]["rms_ratio"] == pytest.approx(np.sqrt((0.5**2 + 0.0**2) / 2.0))
+    assert contributors["fields"][1]["max_abs_ratio"] == pytest.approx(0.2)
+    assert contributors["feedback"][0]["rms_ratio"] == pytest.approx(0.75)
+
+
+def test_scale_adaptive_bdf_error_contributors_matches_embedded_ratio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    contributors = recycling._recycling_state_error_contributors(
+        {"N": np.array([1.0, 3.0])},
+        {"ctrl": 1.0},
+        {"N": np.array([2.0, 3.0])},
+        {"ctrl": 2.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        relative_tolerance=1.0,
+        absolute_tolerance=0.0,
+    )
+
+    scaled = recycling._scale_adaptive_bdf_error_contributors(contributors, 1.0 / 3.0)
+
+    assert scaled["overall_ratio"] == pytest.approx(contributors["overall_ratio"] / 3.0)
+    assert scaled["dominant"]["name"] == "ctrl"
+    assert scaled["fields"][0]["rms_ratio"] == pytest.approx(contributors["fields"][0]["rms_ratio"] / 3.0)
+    assert scaled["feedback"][0]["squared_error_sum"] == pytest.approx(
+        contributors["feedback"][0]["squared_error_sum"] / 9.0
+    )
+
+
+def test_adaptive_bdf_trace_records_error_contributors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    trace_path = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(trace_path))
+
+    recycling._write_adaptive_bdf_trace_record(
+        event="error_estimate",
+        trial_kind="startup_embedded_difference",
+        dt=0.25,
+        use_bdf2=False,
+        step_solver_mode="sparse_jvp",
+        error_ratio=0.5,
+        error_contributors={
+            "overall_ratio": 0.5,
+            "component_count": 1,
+            "dominant": {"name": "Pe", "rms_ratio": 0.5},
+            "fields": [{"name": "Pe", "rms_ratio": 0.5}],
+            "feedback": [],
+        },
+    )
+
+    record = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert record["error_contributors"]["overall_ratio"] == 0.5
+    assert record["error_contributors"]["dominant"]["name"] == "Pe"
+
+
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:
     assert recycling._initial_recycling_continuation_dt(_runtime_model(field_names=("N",)), timestep=250.0) == 100.0
     assert recycling._initial_recycling_continuation_dt(_runtime_model(field_names=tuple(f"f{i}" for i in range(11))), timestep=250.0) == 25.0

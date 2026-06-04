@@ -108,6 +108,127 @@
     ],
     "result": "The sparse-JVP route is the best measured multi-ion adaptive-BDF route so far: it reaches BDF2 and cuts completed-trial cost to about 1.8 seconds, with linear solves near milliseconds. It still fails the promotion target because embedded-error ratios remain far above the 0.95 gate and wall time is dominated by repeated grouped-JVP Jacobian assembly."
   },
-  "dominant_cost": "The JAX-linearized GMRES route is dominated by Krylov linear solves and does not reach BDF2 before timeout. The sparse-JVP route removes most linear-solve cost and reaches BDF2, shifting the blocker to repeated grouped-JVP Jacobian assembly and the adaptive-BDF embedded-error/startup policy.",
-  "next_action": "Use sparse-JVP as the near-term multi-ion adaptive-BDF optimization lane, then reduce repeated JVP Jacobian assembly and improve the startup/error-estimator policy before trying default promotion."
+  "sparse_jvp_error_contributor_probe": {
+    "mode": "adaptive_bdf_sparse_jvp",
+    "mode_timeout_seconds": 75.0,
+    "trace_records": 100,
+    "completed_implicit_trials": 41,
+    "started_implicit_trials": 42,
+    "completed_error_estimates": 17,
+    "elapsed_seconds_completed_trials": 74.76454670727253,
+    "jacobian_assembly_seconds_completed_trials": 71.65582970995456,
+    "linear_solve_seconds_completed_trials": 1.6855799076147377,
+    "residual_evaluation_seconds_completed_trials": 2.283501705620438,
+    "line_search_seconds_completed_trials": 0.3934516259469092,
+    "completed_trial_counts_by_kind": {
+      "startup_full_backward_euler": 7,
+      "startup_first_half_backward_euler": 7,
+      "startup_second_half_backward_euler": 7,
+      "bdf2_backward_euler_predictor": 10,
+      "bdf2_corrector": 10
+    },
+    "first_error_ratios": [
+      1568192.0350450992,
+      381808.5830385098,
+      328677.88742050447
+    ],
+    "last_error_ratios": [
+      3082.9523630414296,
+      2730.231216933858,
+      2436.2309913059585
+    ],
+    "first_dominant_contributors": [
+      {
+        "trial_kind": "startup_embedded_difference",
+        "dt": 1.0,
+        "error_ratio": 1568192.0350450992,
+        "dominant": "NVhe+",
+        "dominant_rms_ratio": 3096346.981816669
+      },
+      {
+        "trial_kind": "startup_embedded_difference",
+        "dt": 0.5,
+        "error_ratio": 381808.5830385098,
+        "dominant": "NVd+",
+        "dominant_rms_ratio": 1116379.4064759123
+      },
+      {
+        "trial_kind": "startup_embedded_difference",
+        "dt": 0.25,
+        "error_ratio": 328677.88742050447,
+        "dominant": "NVd+",
+        "dominant_rms_ratio": 967310.0170318811
+      }
+    ],
+    "last_dominant_contributors": [
+      {
+        "trial_kind": "bdf2_embedded_difference",
+        "dt": 0.015625,
+        "error_ratio": 3082.9523630414296,
+        "dominant": "NVd+",
+        "dominant_rms_ratio": 9373.536959485651
+      },
+      {
+        "trial_kind": "bdf2_embedded_difference",
+        "dt": 0.015625,
+        "error_ratio": 2730.231216933858,
+        "dominant": "NVd+",
+        "dominant_rms_ratio": 8308.334997175629
+      },
+      {
+        "trial_kind": "bdf2_embedded_difference",
+        "dt": 0.015625,
+        "error_ratio": 2436.2309913059585,
+        "dominant": "NVd+",
+        "dominant_rms_ratio": 7419.324062805912
+      }
+    ],
+    "last_top_fields": [
+      {
+        "name": "NVd+",
+        "rms_ratio": 7419.324062805912,
+        "max_abs_ratio": 41785.56445684014
+      },
+      {
+        "name": "NVt+",
+        "rms_ratio": 7119.818970318131,
+        "max_abs_ratio": 38892.69212695204
+      },
+      {
+        "name": "NVhe+",
+        "rms_ratio": 2599.5130087228476,
+        "max_abs_ratio": 16525.453072108423
+      },
+      {
+        "name": "NVd",
+        "rms_ratio": 563.1327259140602,
+        "max_abs_ratio": 3980.653603859601
+      },
+      {
+        "name": "NVt",
+        "rms_ratio": 550.2450254316923,
+        "max_abs_ratio": 3889.4208510317226
+      }
+    ],
+    "last_top_feedback": [
+      {
+        "name": "t+",
+        "rms_ratio": 1.7413558357430273e-7,
+        "max_abs_ratio": 1.7413558357430273e-7
+      },
+      {
+        "name": "d+",
+        "rms_ratio": 9.980920830403585e-8,
+        "max_abs_ratio": 9.980920830403585e-8
+      },
+      {
+        "name": "he+",
+        "rms_ratio": 1.8503532041765525e-10,
+        "max_abs_ratio": 1.8503532041765525e-10
+      }
+    ],
+    "result": "The adaptive-BDF embedded-error gate is dominated by ion parallel-momentum fields, especially NVd+, NVt+, and NVhe+. Feedback-integral errors are negligible in this probe, so the next promotion lane should target momentum-field startup/norm scaling and sparse-JVP Jacobian reuse instead of controller feedback tolerances."
+  },
+  "dominant_cost": "The JAX-linearized GMRES route is dominated by Krylov linear solves and does not reach BDF2 before timeout. The sparse-JVP route removes most linear-solve cost and reaches BDF2, shifting the runtime blocker to repeated grouped-JVP Jacobian assembly.",
+  "next_action": "Use sparse-JVP as the near-term multi-ion adaptive-BDF optimization lane, reduce repeated JVP Jacobian assembly, and investigate the ion parallel-momentum embedded-error estimator before trying default promotion."
 }

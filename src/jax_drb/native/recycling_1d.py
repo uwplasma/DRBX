@@ -2100,6 +2100,7 @@ def _write_adaptive_bdf_trace_record(
     info: Recycling1DImplicitStepInfo | object | None = None,
     elapsed_seconds: float | None = None,
     error_ratio: float | None = None,
+    error_contributors: dict[str, object] | None = None,
 ) -> None:
     trace_path = _adaptive_bdf_trace_path()
     if trace_path is None:
@@ -2116,6 +2117,8 @@ def _write_adaptive_bdf_trace_record(
         record["elapsed_seconds"] = float(elapsed_seconds)
     if error_ratio is not None:
         record["error_ratio"] = float(error_ratio) if np.isfinite(error_ratio) else None
+    if error_contributors is not None:
+        record["error_contributors"] = error_contributors
     if info is not None:
         residual_inf_norm = float(getattr(info, "residual_inf_norm", np.nan))
         record["residual_inf_norm"] = residual_inf_norm if np.isfinite(residual_inf_norm) else None
@@ -2187,6 +2190,64 @@ def _record_adaptive_bdf_accepted_error_ratio(
         stats["adaptive_bdf_max_accepted_error_ratio"] = finite_error_ratio
     else:
         stats["adaptive_bdf_max_accepted_error_ratio"] = max(float(previous_max), finite_error_ratio)
+
+
+def _adaptive_bdf_error_contributors_if_tracing(
+    full_fields: dict[str, np.ndarray],
+    full_integrals: dict[str, float],
+    half_fields: dict[str, np.ndarray],
+    half_integrals: dict[str, float],
+    *,
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    relative_tolerance: float,
+    absolute_tolerance: float,
+) -> dict[str, object] | None:
+    if _adaptive_bdf_trace_path() is None:
+        return None
+    return _recycling_state_error_contributors(
+        full_fields,
+        full_integrals,
+        half_fields,
+        half_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+        relative_tolerance=relative_tolerance,
+        absolute_tolerance=absolute_tolerance,
+    )
+
+
+def _scale_adaptive_bdf_error_contributors(
+    contributors: dict[str, object] | None,
+    scale: float,
+) -> dict[str, object] | None:
+    if contributors is None:
+        return None
+
+    def _scaled_entry(entry: dict[str, object]) -> dict[str, object]:
+        scaled = dict(entry)
+        for key in ("rms_ratio", "max_abs_ratio", "mean_abs_ratio"):
+            value = float(scaled[key])
+            scaled[key] = value * float(scale) if np.isfinite(value) else value
+        squared = float(scaled["squared_error_sum"])
+        scaled["squared_error_sum"] = squared * float(scale) * float(scale) if np.isfinite(squared) else squared
+        return scaled
+
+    fields = [_scaled_entry(dict(item)) for item in contributors.get("fields", [])]  # type: ignore[union-attr]
+    feedback = [_scaled_entry(dict(item)) for item in contributors.get("feedback", [])]  # type: ignore[union-attr]
+    all_contributors = [*fields, *feedback]
+    dominant = max(all_contributors, key=lambda item: float(item["rms_ratio"]), default=None)
+    overall = float(contributors.get("overall_ratio", 0.0))  # type: ignore[union-attr]
+    scaled_overall = overall * float(scale) if np.isfinite(overall) else overall
+    return {
+        "overall_ratio": scaled_overall,
+        "component_count": int(contributors.get("component_count", 0)),  # type: ignore[union-attr]
+        "dominant": dominant,
+        "fields": fields,
+        "feedback": feedback,
+    }
 
 
 def _record_adaptive_bdf_step_solver_info(
@@ -2476,8 +2537,20 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
             )
+            error_contributors = _adaptive_bdf_error_contributors_if_tracing(
+                be_fields,
+                be_integrals,
+                bdf_fields,
+                bdf_integrals,
+                field_names=field_names,
+                feedback_names=feedback_names,
+                mesh=mesh,
+                relative_tolerance=relative_tolerance,
+                absolute_tolerance=absolute_tolerance,
+            )
             _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
             error_ratio /= 3.0
+            error_contributors = _scale_adaptive_bdf_error_contributors(error_contributors, 1.0 / 3.0)
             _write_adaptive_bdf_trace_record(
                 event="error_estimate",
                 trial_kind="bdf2_embedded_difference",
@@ -2485,6 +2558,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 use_bdf2=True,
                 step_solver_mode=step_solver_mode,
                 error_ratio=float(error_ratio),
+                error_contributors=error_contributors,
             )
             if np.isfinite(error_ratio) and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO:
                 candidate_fields = bdf_fields
@@ -2725,6 +2799,17 @@ def _advance_recycling_1d_startup_step(
         relative_tolerance=relative_tolerance,
         absolute_tolerance=absolute_tolerance,
     )
+    error_contributors = _adaptive_bdf_error_contributors_if_tracing(
+        full_fields,
+        full_integrals,
+        half_fields,
+        half_integrals,
+        field_names=field_names,
+        feedback_names=feedback_names,
+        mesh=mesh,
+        relative_tolerance=relative_tolerance,
+        absolute_tolerance=absolute_tolerance,
+    )
     if stats is not None:
         _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
     _write_adaptive_bdf_trace_record(
@@ -2734,6 +2819,7 @@ def _advance_recycling_1d_startup_step(
         use_bdf2=False,
         step_solver_mode=step_solver_mode,
         error_ratio=float(error_ratio),
+        error_contributors=error_contributors,
     )
     return half_fields, half_integrals, error_ratio
 
@@ -2859,6 +2945,105 @@ def _recycling_state_error_ratio(
         return 0.0
     combined = np.concatenate(squared_terms)
     return float(np.sqrt(np.mean(combined * combined)))
+
+
+def _recycling_state_error_contributors(
+    full_fields: dict[str, np.ndarray],
+    full_integrals: dict[str, float],
+    half_fields: dict[str, np.ndarray],
+    half_integrals: dict[str, float],
+    *,
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    relative_tolerance: float,
+    absolute_tolerance: float,
+) -> dict[str, object]:
+    active_slices = _recycling_active_domain_slices(mesh)
+    field_contributors: list[dict[str, object]] = []
+    feedback_contributors: list[dict[str, object]] = []
+    squared_sum = 0.0
+    component_count = 0
+
+    for name in field_names:
+        full = np.asarray(full_fields[name], dtype=np.float64)[active_slices]
+        half = np.asarray(half_fields[name], dtype=np.float64)[active_slices]
+        scale = float(absolute_tolerance) + float(relative_tolerance) * np.maximum(np.abs(full), np.abs(half))
+        normalized = np.asarray((half - full) / scale, dtype=np.float64).ravel()
+        finite_mask = np.isfinite(normalized)
+        finite = normalized[finite_mask]
+        count = int(normalized.size)
+        nonfinite_count = int(count - finite.size)
+        if count and nonfinite_count:
+            rms = math.inf
+            max_abs = math.inf
+            mean_abs = math.inf
+            squared = math.inf
+            squared_sum = math.inf
+            component_count += count
+        elif count:
+            abs_values = np.abs(finite)
+            rms = float(np.sqrt(np.mean(finite * finite)))
+            max_abs = float(np.max(abs_values))
+            mean_abs = float(np.mean(abs_values))
+            squared = float(np.sum(finite * finite))
+            squared_sum += squared
+            component_count += count
+        else:
+            rms = 0.0
+            max_abs = 0.0
+            mean_abs = 0.0
+            squared = 0.0
+            nonfinite_count = 0
+        field_contributors.append(
+            {
+                "name": name,
+                "component_count": count,
+                "nonfinite_count": nonfinite_count,
+                "rms_ratio": rms,
+                "max_abs_ratio": max_abs,
+                "mean_abs_ratio": mean_abs,
+                "squared_error_sum": squared,
+            }
+        )
+
+    for name in feedback_names:
+        full = float(full_integrals.get(name, 0.0))
+        half = float(half_integrals.get(name, 0.0))
+        scale = float(absolute_tolerance) + float(relative_tolerance) * max(abs(full), abs(half), 1.0)
+        normalized = float((half - full) / scale)
+        if np.isfinite(normalized):
+            squared = normalized * normalized
+            squared_sum += float(squared)
+            component_count += 1
+            abs_value = abs(normalized)
+        else:
+            squared = math.inf
+            squared_sum = math.inf
+            component_count += 1
+            abs_value = math.inf
+        feedback_contributors.append(
+            {
+                "name": name,
+                "component_count": 1,
+                "nonfinite_count": 0 if np.isfinite(normalized) else 1,
+                "rms_ratio": abs_value,
+                "max_abs_ratio": abs_value,
+                "mean_abs_ratio": abs_value,
+                "squared_error_sum": float(squared),
+            }
+        )
+
+    all_contributors = [*field_contributors, *feedback_contributors]
+    dominant = max(all_contributors, key=lambda item: float(item["rms_ratio"]), default=None)
+    overall = float(np.sqrt(squared_sum / component_count)) if component_count else 0.0
+    return {
+        "overall_ratio": overall,
+        "component_count": int(component_count),
+        "dominant": dominant,
+        "fields": field_contributors,
+        "feedback": feedback_contributors,
+    }
 
 
 def _initial_recycling_continuation_dt(

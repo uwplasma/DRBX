@@ -728,7 +728,13 @@ linear-solver breakdown on most completed substeps, and sparse-JVP reaches BDF2
 with millisecond sparse linear solves but spends almost all time assembling
 grouped-JVP Jacobians. This makes sparse-JVP the near-term optimization lane for
 multi-ion adaptive BDF, while full JAX-linearized matrix-free promotion remains
-blocked on preconditioning.
+blocked on preconditioning. The same JSONL trace now records per-field and
+feedback-integral contributors for embedded-error estimates when tracing is
+enabled. On the D/T/He sparse-JVP probe, those contributors show that the
+adaptive-BDF rejection is driven by ion parallel-momentum fields (`NVd+`,
+`NVt+`, and `NVhe+`), not by the recycling feedback integrals. That result
+narrows the next promotion work to momentum-field startup/norm scaling and
+Jacobian reuse/batching instead of generic controller loosening.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with
