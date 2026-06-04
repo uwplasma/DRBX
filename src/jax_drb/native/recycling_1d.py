@@ -2038,6 +2038,7 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_residual_evaluation_count": 0,
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
+        "adaptive_bdf_linear_solver_failed_steps": 0,
         "adaptive_bdf_interval_wall_seconds": 0.0,
         "adaptive_bdf_startup_trial_seconds": 0.0,
         "adaptive_bdf_backward_euler_trial_seconds": 0.0,
@@ -2211,6 +2212,10 @@ def _record_adaptive_bdf_step_solver_info(
     stats["adaptive_bdf_linear_iterations"] = int(stats["adaptive_bdf_linear_iterations"]) + int(
         getattr(info, "linear_iterations", 0) or 0
     )
+    if diagnostics.get("linear_solver_success") is False:
+        stats["adaptive_bdf_linear_solver_failed_steps"] = (
+            int(stats["adaptive_bdf_linear_solver_failed_steps"]) + 1
+        )
     for source_key, destination_key in (
         ("residual_evaluation_seconds", "adaptive_bdf_residual_evaluation_seconds"),
         ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
@@ -2267,6 +2272,7 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_residual_evaluation_count",
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
+        "adaptive_bdf_linear_solver_failed_steps",
     )
     for key in count_keys:
         total[key] = int(total[key]) + int(step.get(key, 0))

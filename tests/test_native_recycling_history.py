@@ -284,6 +284,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "jacobian_assembly_seconds": 0.25,
                 "linear_solve_seconds": 0.75,
                 "line_search_seconds": 0.125,
+                "linear_solver_success": False,
             }
         ),
     )
@@ -320,6 +321,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_residual_evaluation_count"] == 3
     assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
     assert stats["adaptive_bdf_linear_iterations"] == 7
+    assert stats["adaptive_bdf_linear_solver_failed_steps"] == 1
     assert stats["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(0.5)
     assert stats["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(0.25)
     assert stats["adaptive_bdf_linear_solve_seconds"] == pytest.approx(0.75)
@@ -341,6 +343,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_residual_evaluation_count"] = 8
     step["adaptive_bdf_jacobian_refresh_count"] = 9
     step["adaptive_bdf_linear_iterations"] = 10
+    step["adaptive_bdf_linear_solver_failed_steps"] = 11
 
     recycling._accumulate_adaptive_bdf_interval_stats(total, step)
 
@@ -356,6 +359,7 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_residual_evaluation_count"] == 8
     assert total["adaptive_bdf_jacobian_refresh_count"] == 9
     assert total["adaptive_bdf_linear_iterations"] == 10
+    assert total["adaptive_bdf_linear_solver_failed_steps"] == 11
 
 
 def test_adaptive_bdf_trace_flushes_start_record_before_failure(

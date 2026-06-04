@@ -346,6 +346,30 @@ def test_adaptive_bdf_diagnostics_gate_accepts_sparse_jvp_route() -> None:
     assert errors == []
 
 
+def test_adaptive_bdf_diagnostics_gate_reports_failed_linear_solves() -> None:
+    errors = compare_script._validate_adaptive_bdf_diagnostics(
+        "adaptive_bdf_jax_linearized_lineax",
+        {
+            "adaptive_bdf_step_solver_mode": "jax_linearized_lineax",
+            "adaptive_bdf_interval_count": 1,
+            "adaptive_bdf_accepted_steps": 3,
+            "adaptive_bdf_minimum_dt_fallbacks": 0,
+            "adaptive_bdf_unconverged_solver_steps": 0,
+            "adaptive_bdf_linear_solver_failed_steps": 2,
+            "adaptive_bdf_fixed_full_field_rhs_solver_steps": 3,
+            "adaptive_bdf_jax_linearized_action_solver_steps": 3,
+            "adaptive_bdf_lineax_action_solver_steps": 3,
+            "adaptive_bdf_max_accepted_error_ratio": 0.75,
+        },
+        require_no_fallback=True,
+        require_no_unconverged_substeps=True,
+        max_error_ratio=None,
+        max_accepted_error_ratio=0.95,
+    )
+
+    assert errors == ["adaptive_bdf_jax_linearized_lineax reported 2 failed adaptive BDF linear solves"]
+
+
 def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
     errors = compare_script._validate_adaptive_bdf_diagnostics(
         "adaptive_bdf_jax_linearized",

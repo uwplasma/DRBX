@@ -403,6 +403,9 @@ def _validate_adaptive_bdf_diagnostics(
     unconverged_count = int(diagnostics.get("adaptive_bdf_unconverged_solver_steps", 0))
     if require_no_unconverged_substeps and unconverged_count != 0:
         errors.append(f"{mode} reported {unconverged_count} unconverged adaptive BDF implicit substeps")
+    linear_solver_failed_count = int(diagnostics.get("adaptive_bdf_linear_solver_failed_steps", 0))
+    if require_no_unconverged_substeps and linear_solver_failed_count != 0:
+        errors.append(f"{mode} reported {linear_solver_failed_count} failed adaptive BDF linear solves")
     if max_error_ratio is not None:
         reported = diagnostics.get("adaptive_bdf_max_error_ratio")
         if reported is None:

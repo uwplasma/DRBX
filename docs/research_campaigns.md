@@ -156,6 +156,12 @@ ratio against the fixed default `20 x 20` Krylov budget. A first cold local
 used `150.6 s` total, with `127.5 s` in linear solves and the same startup
 rejection pattern. That negative result argues for preconditioning or a
 different startup estimator rather than simply lowering the JAX GMRES budget.
+A matching cold Lineax probe also failed to improve the multi-ion lane: six
+completed startup trials used `153.3 s`, only one completed substep reported
+linear-solver success, and the remaining Lineax statuses reported iterative
+breakdown or non-finite output. Future promotion gates must therefore check
+`adaptive_bdf_linear_solver_failed_steps == 0`, not only nonlinear convergence
+and embedded-error ratios.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
