@@ -2133,6 +2133,92 @@ def test_adaptive_bdf_step_solver_mode_maps_supported_backends() -> None:
         recycling_1d_mod._adaptive_bdf_step_solver_mode("bad")
 
 
+def test_initial_recycling_adaptive_bdf_dt_honors_runtime_override() -> None:
+    runtime_model = SimpleNamespace(field_names=("Nd+",) * 12)
+    config = apply_bout_overrides(
+        parse_bout_input("[runtime]\n"),
+        ("runtime:recycling_adaptive_bdf_initial_dt=0.03125",),
+    )
+
+    assert recycling_1d_mod._initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=1.0,
+    ) == pytest.approx(0.03125)
+
+
+def test_initial_recycling_adaptive_bdf_dt_ignores_invalid_override() -> None:
+    runtime_model = SimpleNamespace(field_names=("Nd+",) * 12)
+    config = apply_bout_overrides(
+        parse_bout_input("[runtime]\n"),
+        ("runtime:recycling_adaptive_bdf_initial_dt=bad",),
+    )
+
+    assert recycling_1d_mod._initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=1.0,
+    ) == pytest.approx(1.0)
+
+
+def test_initial_recycling_adaptive_bdf_dt_accepts_legacy_section_and_caps_to_timestep() -> None:
+    runtime_model = SimpleNamespace(field_names=("Nd+",))
+    config = apply_bout_overrides(
+        parse_bout_input("[jax_drb]\n"),
+        ("jax_drb:recycling_adaptive_bdf_initial_dt=10.0",),
+    )
+
+    assert recycling_1d_mod._initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=0.5,
+    ) == pytest.approx(0.5)
+
+
+def test_adaptive_bdf_history_uses_configured_initial_dt(monkeypatch: pytest.MonkeyPatch) -> None:
+    config = apply_bout_overrides(
+        parse_bout_input("[runtime]\nrecycling_adaptive_bdf_initial_dt = 0.03125\n"),
+        (),
+    )
+    fields = {"Nd+": np.ones((1, 4, 1), dtype=np.float64)}
+    runtime_model = SimpleNamespace(feedback_names=(), field_names=("Nd+",))
+    observed: list[float] = []
+
+    def fake_interval(config, interval_fields, **kwargs):
+        observed.append(float(kwargs["suggested_dt"]))
+        return (
+            {name: np.asarray(value, dtype=np.float64) for name, value in interval_fields.items()},
+            {},
+            None,
+            None,
+            None,
+            0.25,
+            recycling_1d_mod._new_adaptive_bdf_interval_stats(kwargs["step_solver_mode"]),
+        )
+
+    monkeypatch.setattr(recycling_1d_mod, "_advance_recycling_1d_adaptive_bdf_interval", fake_interval)
+
+    history = recycling_1d_mod._advance_recycling_1d_adaptive_bdf_history(
+        config,
+        fields,
+        runtime_model=runtime_model,
+        feedback_integrals={},
+        field_names=("Nd+",),
+        feedback_names=(),
+        mesh=SimpleNamespace(),
+        metrics=SimpleNamespace(),
+        dataset_scalars={},
+        timestep=1.0,
+        steps=1,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=1,
+        step_solver_mode="jax_linearized",
+    )
+
+    assert observed == [pytest.approx(0.03125)]
+    assert history.variable_history["Nd+"].shape[0] == 2
+
+
 def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", raising=False)
     assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None

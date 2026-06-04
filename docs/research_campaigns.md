@@ -124,7 +124,10 @@ mode bound, so multispecies adaptive-BDF promotion remains a runtime blocker
 rather than a default-solver change. The next promotion attempt should first
 reduce the D/T/He adaptive controller cost or use a heavier fixed-layout
 matrix-free preconditioner, then rerun the gate with no fallbacks and no
-unconverged substeps.
+unconverged substeps. For controller experiments, set
+`runtime:recycling_adaptive_bdf_initial_dt=<dt>` to avoid spending expensive
+JAX-linearized trial solves on rejected startup timesteps; this is an opt-in
+runtime knob and does not alter the stable default BDF route.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

@@ -1953,7 +1953,11 @@ def _advance_recycling_1d_adaptive_bdf_history(
     previous_dt: float | None = None
     variable_history = {name: [np.asarray(current_fields[name], dtype=np.float64)] for name in field_names}
     feedback_history = {name: [np.asarray(current_integrals[name], dtype=np.float64)] for name in feedback_names}
-    suggested_dt = _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
+    suggested_dt = _initial_recycling_adaptive_bdf_dt(
+        config,
+        runtime_model,
+        timestep=timestep,
+    )
     interval_stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
     interval_stats["adaptive_bdf_interval_count"] = 0
     run_started_at = time.perf_counter()
@@ -2595,6 +2599,24 @@ def _initial_recycling_continuation_dt(
 ) -> float:
     base_dt = 25.0 if len(runtime_model.field_names) > 10 else 100.0
     return min(float(timestep), base_dt)
+
+
+def _initial_recycling_adaptive_bdf_dt(
+    config: BoutConfig,
+    runtime_model: _RecyclingRuntimeModel,
+    *,
+    timestep: float,
+) -> float:
+    for section_name in ("runtime", "jax_drb"):
+        if not config.has_option(section_name, "recycling_adaptive_bdf_initial_dt"):
+            continue
+        try:
+            configured = float(config.parsed(section_name, "recycling_adaptive_bdf_initial_dt"))
+        except Exception:
+            continue
+        if np.isfinite(configured) and configured > 0.0:
+            return min(float(timestep), configured)
+    return _initial_recycling_continuation_dt(runtime_model, timestep=timestep)
 
 
 def build_recycling_1d_backward_euler_residual_context(
