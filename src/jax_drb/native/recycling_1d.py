@@ -2020,6 +2020,9 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_startup_trials": 0,
         "adaptive_bdf_bdf2_trials": 0,
         "adaptive_bdf_bdf2_accepted_steps": 0,
+        "adaptive_bdf_trial_solver_steps": 0,
+        "adaptive_bdf_unconverged_solver_steps": 0,
+        "adaptive_bdf_unknown_convergence_solver_steps": 0,
         "adaptive_bdf_min_accepted_dt": None,
         "adaptive_bdf_max_accepted_dt": None,
         "adaptive_bdf_last_error_ratio": None,
@@ -2071,6 +2074,21 @@ def _record_adaptive_bdf_accepted_error_ratio(
         stats["adaptive_bdf_max_accepted_error_ratio"] = max(float(previous_max), finite_error_ratio)
 
 
+def _record_adaptive_bdf_step_solver_info(
+    stats: dict[str, float | int | str | None],
+    info: Recycling1DImplicitStepInfo | object,
+) -> None:
+    stats["adaptive_bdf_trial_solver_steps"] = int(stats["adaptive_bdf_trial_solver_steps"]) + 1
+    diagnostics = getattr(info, "diagnostics", None)
+    converged = diagnostics.get("converged") if isinstance(diagnostics, dict) else getattr(info, "converged", None)
+    if converged is False:
+        stats["adaptive_bdf_unconverged_solver_steps"] = int(stats["adaptive_bdf_unconverged_solver_steps"]) + 1
+    elif converged is None:
+        stats["adaptive_bdf_unknown_convergence_solver_steps"] = int(
+            stats["adaptive_bdf_unknown_convergence_solver_steps"]
+        ) + 1
+
+
 def _accumulate_adaptive_bdf_interval_stats(
     total: dict[str, float | int | str | None],
     step: dict[str, float | int | str | None],
@@ -2082,6 +2100,9 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_startup_trials",
         "adaptive_bdf_bdf2_trials",
         "adaptive_bdf_bdf2_accepted_steps",
+        "adaptive_bdf_trial_solver_steps",
+        "adaptive_bdf_unconverged_solver_steps",
+        "adaptive_bdf_unknown_convergence_solver_steps",
     )
     for key in count_keys:
         total[key] = int(total[key]) + int(step.get(key, 0))
@@ -2181,10 +2202,11 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
                 step_solver_mode=step_solver_mode,
+                stats=stats,
             )
         else:
             stats["adaptive_bdf_bdf2_trials"] = int(stats["adaptive_bdf_bdf2_trials"]) + 1
-            be_fields, be_integrals, _ = advance_recycling_1d_backward_euler_step(
+            be_fields, be_integrals, be_info = advance_recycling_1d_backward_euler_step(
                 config,
                 current_fields,
                 runtime_model=runtime_model,
@@ -2197,7 +2219,8 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
             )
-            bdf_fields, bdf_integrals, _ = advance_recycling_1d_bdf2_step(
+            _record_adaptive_bdf_step_solver_info(stats, be_info)
+            bdf_fields, bdf_integrals, bdf_info = advance_recycling_1d_bdf2_step(
                 config,
                 current_fields,
                 prev_fields,
@@ -2212,6 +2235,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
             )
+            _record_adaptive_bdf_step_solver_info(stats, bdf_info)
             error_ratio = _recycling_state_error_ratio(
                 be_fields,
                 be_integrals,
@@ -2336,8 +2360,9 @@ def _advance_recycling_1d_startup_step(
     relative_tolerance: float,
     absolute_tolerance: float,
     step_solver_mode: str = "sparse",
+    stats: dict[str, float | int | str | None] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
-    full_fields, full_integrals, _ = advance_recycling_1d_backward_euler_step(
+    full_fields, full_integrals, full_info = advance_recycling_1d_backward_euler_step(
         config,
         fields,
         runtime_model=runtime_model,
@@ -2350,7 +2375,9 @@ def _advance_recycling_1d_startup_step(
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
-    half_fields, half_integrals, _ = advance_recycling_1d_backward_euler_step(
+    if stats is not None:
+        _record_adaptive_bdf_step_solver_info(stats, full_info)
+    half_fields, half_integrals, first_half_info = advance_recycling_1d_backward_euler_step(
         config,
         fields,
         runtime_model=runtime_model,
@@ -2363,7 +2390,9 @@ def _advance_recycling_1d_startup_step(
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
-    half_fields, half_integrals, _ = advance_recycling_1d_backward_euler_step(
+    if stats is not None:
+        _record_adaptive_bdf_step_solver_info(stats, first_half_info)
+    half_fields, half_integrals, second_half_info = advance_recycling_1d_backward_euler_step(
         config,
         half_fields,
         runtime_model=runtime_model,
@@ -2376,6 +2405,8 @@ def _advance_recycling_1d_startup_step(
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
+    if stats is not None:
+        _record_adaptive_bdf_step_solver_info(stats, second_half_info)
     error_ratio = _recycling_state_error_ratio(
         full_fields,
         full_integrals,

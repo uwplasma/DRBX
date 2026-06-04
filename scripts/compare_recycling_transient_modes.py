@@ -130,6 +130,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Fail unless every requested adaptive-BDF mode reports zero minimum-dt fallback accepts.",
     )
     parser.add_argument(
+        "--require-adaptive-bdf-no-unconverged-substeps",
+        action="store_true",
+        help="Fail unless every requested adaptive-BDF mode reports zero unconverged implicit substeps.",
+    )
+    parser.add_argument(
         "--require-adaptive-bdf-max-error-ratio",
         type=float,
         default=None,
@@ -299,6 +304,7 @@ def _validate_adaptive_bdf_diagnostics(
     diagnostics: dict[str, object],
     *,
     require_no_fallback: bool,
+    require_no_unconverged_substeps: bool,
     max_error_ratio: float | None,
     max_accepted_error_ratio: float | None,
 ) -> list[str]:
@@ -313,6 +319,9 @@ def _validate_adaptive_bdf_diagnostics(
     fallback_count = int(diagnostics.get("adaptive_bdf_minimum_dt_fallbacks", 0))
     if require_no_fallback and fallback_count != 0:
         errors.append(f"{mode} reported {fallback_count} minimum-dt fallback accepts")
+    unconverged_count = int(diagnostics.get("adaptive_bdf_unconverged_solver_steps", 0))
+    if require_no_unconverged_substeps and unconverged_count != 0:
+        errors.append(f"{mode} reported {unconverged_count} unconverged adaptive BDF implicit substeps")
     if max_error_ratio is not None:
         reported = diagnostics.get("adaptive_bdf_max_error_ratio")
         if reported is None:
@@ -447,6 +456,7 @@ def main() -> int:
             return 2
     if (
         args.require_adaptive_bdf_no_fallback
+        or args.require_adaptive_bdf_no_unconverged_substeps
         or args.require_adaptive_bdf_max_error_ratio is not None
         or args.require_adaptive_bdf_max_accepted_error_ratio is not None
     ):
@@ -461,6 +471,7 @@ def main() -> int:
                     mode,
                     mode_diagnostics.get(mode, {}),
                     require_no_fallback=bool(args.require_adaptive_bdf_no_fallback),
+                    require_no_unconverged_substeps=bool(args.require_adaptive_bdf_no_unconverged_substeps),
                     max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
                     max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
                 )

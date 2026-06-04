@@ -121,6 +121,7 @@ For the remaining recycling solver work, the order is therefore fixed:
   adaptive_bdf_jax_linearized --field Pe --diagnostics-only --timestep 0.05
   --max-nonlinear-iterations 3
   --require-adaptive-bdf-no-fallback
+  --require-adaptive-bdf-no-unconverged-substeps
   --require-adaptive-bdf-max-accepted-error-ratio 0.95
   --mode-timeout-seconds 120`;
 - report `bdf_jvp_jacobian_linearize_seconds`,

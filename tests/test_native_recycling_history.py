@@ -266,6 +266,18 @@ def test_adaptive_bdf_minimum_dt_rejects_nonpositive_window() -> None:
         recycling._adaptive_bdf_minimum_dt(0.0)
 
 
+def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> None:
+    stats = recycling._new_adaptive_bdf_interval_stats("jax_linearized")
+
+    recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace(diagnostics={"converged": True}))
+    recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace(diagnostics={"converged": False}))
+    recycling._record_adaptive_bdf_step_solver_info(stats, SimpleNamespace())
+
+    assert stats["adaptive_bdf_trial_solver_steps"] == 3
+    assert stats["adaptive_bdf_unconverged_solver_steps"] == 1
+    assert stats["adaptive_bdf_unknown_convergence_solver_steps"] == 1
+
+
 def test_adaptive_be_interval_retries_then_accepts_step(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[float] = []
     error_ratios = iter((2.0, 0.05, 1.0))
