@@ -38,6 +38,25 @@
     2007723.8021208094,
     323084.8438782536
   ],
+  "krylov_control_probe_10x10": {
+    "mode_timeout_seconds": 90.0,
+    "linear_restart": 10,
+    "linear_maxiter": 10,
+    "trace_records": 15,
+    "completed_implicit_trials": 6,
+    "completed_error_estimates": 2,
+    "elapsed_seconds_completed_trials": 150.61885233270004,
+    "linear_solve_seconds_completed_trials": 127.49021466681734,
+    "jacobian_assembly_seconds_completed_trials": 19.510618794243783,
+    "residual_evaluation_seconds_completed_trials": 23.025568878278136,
+    "line_search_seconds_completed_trials": 3.0950657497160137,
+    "average_completed_trial_elapsed_seconds": 25.103142055450007,
+    "startup_error_ratios": [
+      2006839.8184754474,
+      323089.886114971
+    ],
+    "result": "Reducing the JAX GMRES restart/maxiter budget to 10 x 10 did not improve this cold local probe; completed startup trials were slower on average and retained the same startup rejection pattern."
+  },
   "dominant_cost": "Krylov linear solves dominate the completed implicit-trial wall time; the probe does not reach BDF2 before timeout because startup embedded-error ratios force repeated smaller startup solves.",
   "next_action": "Reduce per-trial Krylov cost and startup rejection pressure before promoting the multi-ion adaptive-BDF path."
 }

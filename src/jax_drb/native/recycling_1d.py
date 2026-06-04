@@ -3310,6 +3310,7 @@ def advance_recycling_1d_backward_euler_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
     elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
+        linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(config)
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -3317,8 +3318,8 @@ def advance_recycling_1d_backward_euler_step(
             residual_tolerance=residual_tolerance,
             step_tolerance=1.0e-11,
             max_nonlinear_iterations=max_nonlinear_iterations,
-            linear_restart=20,
-            linear_maxiter=20,
+            linear_restart=linear_restart,
+            linear_maxiter=linear_maxiter,
             linear_solver_backend=(
                 "lineax_gmres"
                 if solver_mode == "jax_linearized_lineax"
@@ -3438,6 +3439,7 @@ def advance_recycling_1d_bdf2_step(
             max_nonlinear_iterations=max_nonlinear_iterations,
         )
     elif solver_mode in {"jax_linearized", "jax_linearized_lineax"}:
+        linear_restart, linear_maxiter = _resolve_recycling_jax_linear_solver_controls(config)
         solved, info = solve_jax_linearized_newton_system(
             residual,
             packed_initial_guess,
@@ -3445,8 +3447,8 @@ def advance_recycling_1d_bdf2_step(
             residual_tolerance=residual_tolerance,
             step_tolerance=1.0e-11,
             max_nonlinear_iterations=max_nonlinear_iterations,
-            linear_restart=20,
-            linear_maxiter=20,
+            linear_restart=linear_restart,
+            linear_maxiter=linear_maxiter,
             linear_solver_backend=(
                 "lineax_gmres"
                 if solver_mode == "jax_linearized_lineax"
@@ -3877,6 +3879,48 @@ def _resolve_recycling_jax_linear_solver_backend() -> str:
         "lineax_gmres": "lineax_gmres",
     }
     return aliases.get(env_value, "jax_gmres")
+
+
+def _resolve_positive_int_runtime_option(
+    config: BoutConfig | None,
+    *,
+    option_name: str,
+    env_name: str,
+    default: int,
+) -> int:
+    if config is not None:
+        for section_name in ("runtime", "jax_drb"):
+            if not config.has_option(section_name, option_name):
+                continue
+            try:
+                value = int(config.parsed(section_name, option_name))
+            except (TypeError, ValueError):
+                continue
+            return max(1, value)
+    env_value = os.environ.get(env_name)
+    if env_value is not None and env_value.strip():
+        try:
+            return max(1, int(env_value))
+        except ValueError:
+            return int(default)
+    return int(default)
+
+
+def _resolve_recycling_jax_linear_solver_controls(config: BoutConfig | None = None) -> tuple[int, int]:
+    return (
+        _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_restart",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_RESTART",
+            default=20,
+        ),
+        _resolve_positive_int_runtime_option(
+            config,
+            option_name="recycling_jax_linear_maxiter",
+            env_name="JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER",
+            default=20,
+        ),
+    )
 
 
 def _compute_recycling_1d_packed_rhs(

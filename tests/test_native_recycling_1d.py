@@ -2222,6 +2222,9 @@ def test_adaptive_bdf_history_uses_configured_initial_dt(monkeypatch: pytest.Mon
 def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JAX_DRB_RECYCLING_JVP_BATCH_SIZE", raising=False)
     assert recycling_1d_mod._resolve_recycling_jvp_batch_size() is None
+    monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", raising=False)
+    monkeypatch.delenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", raising=False)
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (20, 20)
     monkeypatch.delenv("JAX_DRB_RECYCLING_BDF_JACOBIAN_MODE", raising=False)
     monkeypatch.delenv("JAX_DRB_RECYCLING_JACOBIAN_MODE", raising=False)
     assert recycling_1d_mod._resolve_recycling_bdf_jacobian_mode() == "fd"
@@ -2237,6 +2240,26 @@ def test_recycling_backend_environment_resolvers_are_bounded(monkeypatch: pytest
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "lineax_gmres"
     monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_SOLVER", "unknown")
     assert recycling_1d_mod._resolve_recycling_jax_linear_solver_backend() == "jax_gmres"
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "7")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "11")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (7, 11)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "0")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "bad")
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls() == (1, 20)
+
+
+def test_recycling_jax_linear_solver_controls_prefer_runtime_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "3")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "4")
+    config = parse_bout_input(
+        """
+        [runtime]
+        recycling_jax_linear_restart = 5
+        recycling_jax_linear_maxiter = 6
+        """
+    )
+
+    assert recycling_1d_mod._resolve_recycling_jax_linear_solver_controls(config) == (5, 6)
 
 
 @pytest.mark.parametrize(
@@ -2308,6 +2331,8 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
 
     def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
         calls.append(("jax_linearized", linear_solver_backend))
+        assert kwargs["linear_restart"] == 5
+        assert kwargs["linear_maxiter"] == 6
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
@@ -2321,6 +2346,8 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
     monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
     monkeypatch.setattr(recycling_1d_mod, "_build_fixed_full_field_recycling_rhs", counting_fixed_full_field_rhs)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "5")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "6")
 
     next_fields, _, info = advance_recycling_1d_backward_euler_step(
         config,
@@ -2506,6 +2533,8 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
 
     def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
         calls.append(("jax_linearized", linear_solver_backend))
+        assert kwargs["linear_restart"] == 5
+        assert kwargs["linear_maxiter"] == 6
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
@@ -2519,6 +2548,8 @@ def test_recycling_bdf2_routes_jax_native_solver_backends(
     monkeypatch.setattr(recycling_1d_mod, "solve_jax_linearized_newton_system", fake_jax_linearized)
     monkeypatch.setattr(recycling_1d_mod, "_predict_recycling_packed_state", fake_predict)
     monkeypatch.setattr(recycling_1d_mod, "_build_fixed_full_field_recycling_rhs", counting_fixed_full_field_rhs)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_RESTART", "5")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER", "6")
 
     next_fields, _, info = advance_recycling_1d_bdf2_step(
         config,

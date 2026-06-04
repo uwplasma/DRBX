@@ -144,7 +144,18 @@ with a 180-second bound, eight completed startup implicit trials consumed
 Jacobian/linearization work. The run did not reach BDF2 before timeout because
 the startup embedded-error ratios stayed very large (`2.0e6`, then `3.2e5`).
 The next solver patch should therefore attack per-trial Krylov cost and startup
-rejection pressure before trying another default-promotion gate.
+rejection pressure before trying another default-promotion gate. The first
+bounded sweeps should vary
+`runtime:recycling_jax_linear_restart=<n>` and
+`runtime:recycling_jax_linear_maxiter=<m>` (or
+`JAX_DRB_RECYCLING_JAX_LINEAR_RESTART` and
+`JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER`) while keeping the JSONL trace enabled,
+then compare elapsed time, `converged`, residual norm, and embedded-error
+ratio against the fixed default `20 x 20` Krylov budget. A first cold local
+`10 x 10` probe did not improve the blocker: six completed startup trials still
+used `150.6 s` total, with `127.5 s` in linear solves and the same startup
+rejection pattern. That negative result argues for preconditioning or a
+different startup estimator rather than simply lowering the JAX GMRES budget.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
