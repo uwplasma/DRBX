@@ -371,11 +371,11 @@ full output-window path still uses the validated compatibility backend, while
 the JAX-linearized gate checks fixed-layout residuals, JVP/Jacobian-action
 solves, internal timestep control, and implicit substep convergence. The
 current local single-species gate passes at `timestep=1.0` with zero fallback,
-zero unconverged substeps, and max accepted embedded error ratio about `0.93`.
-A smaller backend comparison at `timestep=0.2` gives identical adaptive
-diagnostics for the in-tree JAX GMRES path and the optional Lineax GMRES seam,
-with Lineax modestly faster on this CPU run. The exact commands, caveats, and
-latest numbers are in
+zero unconverged substeps, max accepted embedded error ratio about `0.93`, and
+variable-step BDF2 history reuse after rejected-step timestep changes. On this
+gate, the in-tree JAX GMRES path used `61` implicit trial solves in about
+`162 s`, and the optional Lineax GMRES seam used the same controller history in
+about `132 s`. The exact commands, caveats, and latest numbers are in
 [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
 and [docs/research_campaigns.md](docs/research_campaigns.md).
 

@@ -686,6 +686,13 @@ The matrix-free BE/BDF2 trial solvers also start from the same explicit
 predictor used by the sparse and JAX-linearized paths, rather than from the
 previous state. That keeps the native solver variants comparable and avoids an
 unnecessary convergence penalty in the matrix-free lane.
+The adaptive controller now keeps BDF2 history across timestep changes using
+the variable-step BDF2 residual
+`U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with
+`a_1=(r+1)^2/(2r+1)`, `a_0=r^2/(2r+1)`, `b=(r+1)/(2r+1)`, and
+`r=Δt_n/Δt_{n-1}`. This reduces unnecessary backward-Euler restarts after
+rejected trial steps while preserving the constant-step BDF2 formula at
+`r=1`.
 The BE/BDF2 `jax_linearized` and `jax_linearized_lineax` modes now build their
 residuals through the fixed full-field array adapter instead of the host
 packing bridge; the sparse and default production modes intentionally remain on
@@ -715,22 +722,21 @@ controller diagnostics, while `adaptive_bdf_max_accepted_error_ratio` is the
 promotion gate.
 With these checks, the local single-species gate has now been extended to a
 `timestep=1.0` diagnostic output window on the reference recycling deck. The
-latest run completed in about `259 s`, took `38` accepted substeps and `31`
-rejected trials, reported `207` implicit trial solves, and had zero fallback,
-zero unconverged substeps, and
-`adaptive_bdf_max_accepted_error_ratio=9.315e-1`. This remains a bounded
-solver-health result rather than a full parity claim; the committed reference
-one-step deck still uses the full `timestep=5000` output interval.
-On the same current controller policy, a smaller `timestep=0.2` backend
-comparison gives identical adaptive-controller diagnostics for
-`adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`: both
-take `9` accepted substeps, `5` rejected trials, `41` implicit trial solves,
-zero fallback, zero unconverged substeps, and
-`adaptive_bdf_max_accepted_error_ratio=6.653e-1`. The Lineax GMRES seam ran in
-about `70.9 s` on this local CPU versus about `77.8 s` for the in-tree JAX
-GMRES path. This is useful backend evidence, but not yet enough to change the
-default production solver because the full output-window recycling path still
-needs the same parity and runtime gates.
+current variable-step BDF2 controller completed the in-tree JAX GMRES run in
+about `162 s`, took `21` accepted substeps and `6` rejected trials, reported
+`61` implicit trial solves, reused BDF2 history on `20` trial solves, accepted
+`19` of those BDF2 trials, and had zero fallback, zero unconverged substeps,
+and `adaptive_bdf_max_accepted_error_ratio=9.315e-1`. The previous
+constant-step-history-reset controller needed `207` trial solves and about
+`259 s` on the same gate, so the new history policy removes most restart
+overhead without loosening the embedded-error acceptance policy. On the same
+`timestep=1.0` gate, `adaptive_bdf_jax_linearized_lineax` produced the same
+controller diagnostics and ran in about `132 s` on this local CPU. This is
+useful backend evidence, but not yet enough to change the default production
+solver because the full output-window recycling path still needs the same
+parity and runtime gates. This remains a bounded solver-health result rather
+than a full parity claim; the committed reference one-step deck still uses the
+full `timestep=5000` output interval.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or
