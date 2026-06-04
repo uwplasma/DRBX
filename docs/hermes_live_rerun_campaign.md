@@ -49,24 +49,24 @@ Key current observations from the refreshed live rerun matrix:
 - the neutral mixed one-step lane is no longer the dominant absolute-error
   fidelity outlier after connected-y guard reconstruction and the eight-substep
   one-step default:
-  `neutral_mixed_one_step` now has `NVh max |Δ| ≈ 4.47e-6`, normalized RMS
-  error about `8.90e-4`, relative L2 error about `2.14e-3`, and runtime ratio
-  about `4.14x`
+  `neutral_mixed_one_step` is now labeled `native_operational` and has
+  `NVh max |Δ| ≈ 4.47e-6`, normalized RMS error about `8.90e-4`, relative L2
+  error about `2.14e-3`, and runtime ratio about `4.19x`
 - the heavy 1D recycling ladders remain the main runtime gap, but their
   fidelity is still tight:
   - `recycling_1d_one_step`
     - worst normalized RMS error about `4.62e-3`
-    - runtime ratio about `3.96x`
+    - runtime ratio about `3.95x`
     - dominant max-absolute field `NVd`
   - `recycling_dthe_one_step`
     - worst normalized RMS error about `4.92e-3`
-    - runtime ratio about `7.16x`
+    - runtime ratio about `7.17x`
     - dominant field `NVd`
 - the integrated and direct tokamak recycling one-step lanes are no longer the
   main runtime concern:
-  - `integrated_2d_recycling_one_step` runs at about `0.66x` the Hermès wall
+  - `integrated_2d_recycling_one_step` runs at about `1.46x` the Hermès wall
     time on the same machine
-  - `tokamak_recycling_one_step` runs at about `0.48x` the Hermès wall time
+  - `tokamak_recycling_one_step` runs at about `0.47x` the Hermès wall time
   - both still show bounded relative mismatch on the guarded compare surface,
     but the updated report now flags them as normalization-sensitive because
     the dominant field is near-zero `NVd`
@@ -81,9 +81,9 @@ Key current observations from the refreshed live rerun matrix:
 - the refreshed report now samples process-tree peak RSS during each native
   and Hermès run:
   - the largest native peak is currently the integrated 2D recycling lane at
-    about `562 MiB`
+    about `784 MiB`
   - the largest native/Hermès peak-RSS ratio is currently
-    `alfven_wave_one_step` at about `0.96`
+    `alfven_wave_one_step` at about `0.98`
   - no lane in this matrix currently has a native peak RSS larger than the
     matching Hermès peak RSS, so the next memory work should be phase-resolved
     profiling rather than broad memory triage
