@@ -109,11 +109,11 @@ For the remaining recycling solver work, the order is therefore fixed:
 - use `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` as
   the named output-window BDF gate for the fixed-full-field RHS plus grouped
   JVP Jacobian seam;
-- run the compact fixed-JVP parity gate before any heavy promotion attempt:
-  `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
-  recycling_1d_one_step --reference-root /path/to/reference/root --mode bdf
-  --mode bdf_fixed_full_field_jvp --field Pe
-  --require-fixed-jvp-diagnostics --require-bdf-pairwise-max 1e-5`;
+- run the self-contained fixed-JVP parity gate before any heavy promotion
+  attempt: `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`;
+  this uses the committed lightweight fixture decks by default and accepts
+  `--reference-root /path/to/reference/root` when a live reference checkout is
+  available;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case

@@ -31,6 +31,14 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   full-field-JVP delta table when both modes are run, and can now fail as a
   real promotion gate with `--require-fixed-jvp-diagnostics` plus
   `--require-bdf-pairwise-max`.
+- A new self-contained wrapper,
+  `scripts/run_recycling_jvp_promotion_gate.py`, runs that gate on the
+  committed hydrogen and D/T/He lightweight fixture decks. The current local
+  results pass with worst BDF-vs-fixed-JVP active-mesh deltas of `7.59e-6`
+  and `2.20e-7`, respectively. The fixed-JVP route is still opt-in because
+  the same runs are slower than default BDF (`60.4 s` versus `8.0 s` for
+  hydrogen, `160.6 s` versus `45.4 s` for D/T/He) while repeated
+  `jax.linearize` and tangent pushes remain inside the SciPy BDF callback.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.

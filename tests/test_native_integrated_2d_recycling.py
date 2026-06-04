@@ -36,14 +36,31 @@ from jax_drb.native.units import resolved_dataset_scalars
 from jax_drb.reference.cases import ReferenceCase, load_reference_cases
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
-_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_EXTERNAL_REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
+_FIXTURE_REFERENCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "reference-root"
+
+
+def _resolved_reference_root() -> Path:
+    if os.environ.get("JAX_DRB_USE_FIXTURE_REFERENCE_ROOT") == "1":
+        return _FIXTURE_REFERENCE_ROOT
+    if _EXTERNAL_REFERENCE_ROOT.exists():
+        return _EXTERNAL_REFERENCE_ROOT
+    if _FIXTURE_REFERENCE_ROOT.exists():
+        return _FIXTURE_REFERENCE_ROOT
+    return _EXTERNAL_REFERENCE_ROOT
+
+
+_REFERENCE_ROOT = _resolved_reference_root()
+_REFERENCE_INPUT = _REFERENCE_ROOT / "tests/integrated/2D-recycling/data/BOUT.inp"
+_PRODUCTION_INPUT = _REFERENCE_ROOT / "tests/integrated/2D-production/data/BOUT.inp"
 _BASELINE_ARRAY_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
 
 
 def _require_reference_input(input_path: Path, case_name: str) -> None:
     if os.environ.get("JAX_DRB_SKIP_EXTERNAL_REFERENCE_TESTS") == "1" or not input_path.exists():
         pytest.skip(f"{case_name} reference input is unavailable")
+    if _REFERENCE_ROOT == _FIXTURE_REFERENCE_ROOT:
+        pytest.skip(f"{case_name} operational-band comparison requires a live reference binary")
 
 
 def test_run_curated_case_dispatches_tokamak_recycling_rhs_to_dedicated_helper(
@@ -258,7 +275,7 @@ def test_integrated_2d_recycling_rhs_uses_local_reference_dump(monkeypatch: pyte
     result = native_runner._run_integrated_2d_recycling_rhs_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert result.payload["dimensions"] == {"t": 1, "x": 4, "y": 5, "z": 1}
@@ -366,7 +383,7 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
     native_runner._run_integrated_2d_recycling_rhs_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["field_names"] == ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
@@ -403,7 +420,7 @@ def test_integrated_2d_recycling_rhs_requests_auxiliary_dump_fields(monkeypatch:
 def test_integrated_2d_production_rhs_preserves_only_ion_target_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    production_input = _PRODUCTION_INPUT
     if not production_input.exists():
         pytest.skip("integrated 2D production reference input is unavailable")
 
@@ -533,7 +550,7 @@ def test_integrated_2d_production_rhs_preserves_only_ion_target_state(
     native_runner._run_integrated_2d_recycling_rhs_case(
         case,
         input_path=production_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["preserve_dump_ion_target_state_only"] is True
@@ -548,7 +565,7 @@ def test_integrated_2d_production_rhs_preserves_only_ion_target_state(
 def test_integrated_2d_production_rhs_requests_anomalous_coefficients(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    production_input = _PRODUCTION_INPUT
     if not production_input.exists():
         pytest.skip("integrated 2D production reference input is unavailable")
 
@@ -660,7 +677,7 @@ def test_integrated_2d_production_rhs_requests_anomalous_coefficients(
     native_runner._run_integrated_2d_recycling_rhs_case(
         case,
         input_path=production_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["field_names"] == ("Nd+", "Pd+", "NVd+", "Nd", "Pd", "NVd", "Pe")
@@ -770,7 +787,7 @@ def test_integrated_2d_recycling_rhs_preserves_dump_sheath_state(monkeypatch: py
     native_runner._run_integrated_2d_recycling_rhs_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["apply_sheath_boundaries"] is True
@@ -1288,7 +1305,7 @@ def test_integrated_2d_recycling_one_step_uses_rhs_snapshot_start(monkeypatch: p
     result = native_runner._run_integrated_2d_recycling_one_step_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert tuple(captured["initial_fields"]) == tuple(initial_fields)
@@ -1436,7 +1453,7 @@ def test_integrated_2d_recycling_short_window_reuses_staged_transient_path(
     result = native_runner._run_integrated_2d_recycling_short_window_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["steps"] == 5
@@ -1454,7 +1471,7 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    production_input = _PRODUCTION_INPUT
     if not production_input.exists():
         pytest.skip("integrated 2D production reference input is unavailable")
 
@@ -1580,7 +1597,7 @@ def test_integrated_2d_production_one_step_preserves_only_ion_target_state(
     native_runner._run_integrated_2d_recycling_one_step_case(
         case,
         input_path=production_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["preserve_dump_target_state"] is True
@@ -1605,7 +1622,7 @@ def test_integrated_2d_production_one_step_uses_committed_snapshot_caches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    production_input = _PRODUCTION_INPUT
     if not production_input.exists():
         pytest.skip("integrated 2D production reference input is unavailable")
 
@@ -1748,7 +1765,7 @@ def test_integrated_2d_production_one_step_uses_committed_snapshot_caches(
     result = native_runner._run_integrated_2d_recycling_one_step_case(
         case,
         input_path=production_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     expected_initial_fields = native_runner._apply_species_velocity_overrides(
@@ -1771,7 +1788,7 @@ def test_tokamak_recycling_rhs_uses_committed_snapshot_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
+    tokamak_input = _REFERENCE_ROOT / "examples/tokamak-2D/recycling/BOUT.inp"
     if not tokamak_input.exists():
         pytest.skip("tokamak recycling reference input is unavailable")
 
@@ -1855,7 +1872,7 @@ def test_tokamak_recycling_dthe_rhs_uses_committed_snapshot_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthe/BOUT.inp")
+    tokamak_input = _REFERENCE_ROOT / "examples/tokamak-2D/recycling-dthe/BOUT.inp"
     if not tokamak_input.exists():
         pytest.skip("tokamak recycling dthe reference input is unavailable")
 
@@ -1970,7 +1987,7 @@ def test_tokamak_recycling_dthene_rhs_uses_committed_snapshot_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthene/BOUT.inp")
+    tokamak_input = _REFERENCE_ROOT / "examples/tokamak-2D/recycling-dthene/BOUT.inp"
     if not tokamak_input.exists():
         pytest.skip("tokamak recycling dthene reference input is unavailable")
 
@@ -2098,7 +2115,7 @@ def test_tokamak_recycling_dthene_one_step_uses_committed_optional_history_cache
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling-dthene/BOUT.inp")
+    tokamak_input = _REFERENCE_ROOT / "examples/tokamak-2D/recycling-dthene/BOUT.inp"
     if not tokamak_input.exists():
         pytest.skip("tokamak recycling dthene reference input is unavailable")
 
@@ -2334,7 +2351,7 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    tokamak_input = Path("/Users/rogerio/local/hermes-3/examples/tokamak-2D/recycling/BOUT.inp")
+    tokamak_input = _REFERENCE_ROOT / "examples/tokamak-2D/recycling/BOUT.inp"
     if not tokamak_input.exists():
         pytest.skip("tokamak recycling reference input is unavailable")
 
@@ -2492,7 +2509,7 @@ def test_tokamak_recycling_one_step_uses_committed_optional_history_cache(
     result = native_runner._run_integrated_2d_recycling_one_step_case(
         case,
         input_path=tokamak_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     expected_initial_fields = native_runner._apply_species_velocity_overrides(
@@ -2526,7 +2543,7 @@ def test_integrated_2d_production_short_window_uses_committed_history_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    production_input = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    production_input = _PRODUCTION_INPUT
     if not production_input.exists():
         pytest.skip("integrated 2D production reference input is unavailable")
 
@@ -2670,7 +2687,7 @@ def test_integrated_2d_production_short_window_uses_committed_history_cache(
     result = native_runner._run_integrated_2d_recycling_short_window_case(
         case,
         input_path=production_input,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     expected_initial_fields = native_runner._apply_species_velocity_overrides(
@@ -2798,7 +2815,7 @@ def test_integrated_2d_recycling_medium_window_honors_manifest_nout_override(mon
     result = native_runner._run_integrated_2d_recycling_medium_window_case(
         case,
         input_path=_REFERENCE_INPUT,
-        reference_root=Path("/Users/rogerio/local/hermes-3"),
+        reference_root=_REFERENCE_ROOT,
     )
 
     assert captured["steps"] == 20
