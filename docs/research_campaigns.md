@@ -50,6 +50,15 @@ python scripts/run_research_campaign_bundle.py \
   --reference-root /path/to/reference/root
 ```
 
+Use the adaptive-BDF JAX-versus-Lineax controller-health gate after changing the
+adaptive residual route or linear-action solver:
+
+```bash
+python scripts/run_research_campaign_bundle.py \
+  --campaign adaptive-bdf-jax-lineax-gate \
+  --reference-root /path/to/reference/root
+```
+
 Use the GPU bundle on a self-hosted machine with CUDA-visible devices when
 collecting larger fixed-layout residual, full output-window, trace, memory, and
 pmap evidence:
@@ -96,6 +105,17 @@ run of about `8.15 s`, while the Lineax backend reports `RESULTS<>`, success,
 `2` reported iterations, and a timed run of about `7.54 s`. These artifacts are
 small JSON summaries, not trace bundles, so they are suitable for git and give
 the heavier GPU/output-window campaigns a stable backend-health baseline.
+
+The adaptive-BDF promotion lane now also writes a lightweight JSON artifact at
+`docs/data/runtime_profile_artifacts/recycling_1d_adaptive_bdf_jax_lineax_gate/profile_summary.json`.
+For the `recycling_1d_one_step`, `timestep=1.0` diagnostics-only gate, both
+JAX GMRES and Lineax GMRES follow the same controller trajectory: `21`
+accepted substeps, `6` rejected trials, `61` fixed-full-field JAX-linearized
+implicit solves, zero minimum-dt fallbacks, zero unconverged substeps, and
+`adaptive_bdf_max_accepted_error_ratio=0.9315`. On this local run the Lineax
+backend took about `151.9 s`, compared with about `174.2 s` for the in-tree JAX
+GMRES backend. This remains promotion evidence for the opt-in adaptive-BDF
+route, not a default-solver change.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

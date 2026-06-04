@@ -30,6 +30,9 @@ def _make_dthe_reference_root(tmp_path: Path) -> Path:
     input_path = reference_root / _DTHE_REFERENCE_INPUT
     input_path.parent.mkdir(parents=True)
     input_path.write_text("# minimal test deck\n", encoding="utf-8")
+    hydrogen_input = reference_root / "tests" / "integrated" / "1D-recycling" / "data" / "BOUT.inp"
+    hydrogen_input.parent.mkdir(parents=True)
+    hydrogen_input.write_text("# minimal hydrogen test deck\n", encoding="utf-8")
     return reference_root
 
 
@@ -130,6 +133,31 @@ def test_research_campaign_heavy_profile_uses_reference_and_rss(tmp_path: Path) 
     assert "--case" in gate.command
     assert "dthe" in gate.command
     assert "--skip-cprofile" in gate.command
+
+
+def test_research_campaign_adaptive_bdf_gate_writes_json_report(tmp_path: Path) -> None:
+    module = _load_script_module("scripts/run_research_campaign_bundle.py", "research_campaign_adaptive_bdf")
+    reference_root = _make_dthe_reference_root(tmp_path)
+
+    (command,) = module.build_campaign_commands(
+        campaign_names=("adaptive-bdf-jax-lineax-gate",),
+        python_executable="python",
+        repo_root=_REPO,
+        reference_root=reference_root,
+        output_root=Path("/output"),
+        fast_timeout_seconds=300,
+    )
+
+    assert command.name == "adaptive-bdf-jax-lineax-gate"
+    assert command.required_reference_inputs == ("hydrogen",)
+    assert "compare_recycling_transient_modes.py" in command.command[1]
+    assert "--mode" in command.command
+    assert "adaptive_bdf_jax_linearized" in command.command
+    assert "adaptive_bdf_jax_linearized_lineax" in command.command
+    assert "--require-adaptive-bdf-no-fallback" in command.command
+    assert "--require-adaptive-bdf-no-unconverged-substeps" in command.command
+    assert "--output-json" in command.command
+    assert any("recycling_1d_adaptive_bdf_jax_lineax_gate" in part for part in command.command)
 
 
 def test_research_campaign_gpu_bundle_adds_repeatable_trace_commands(tmp_path: Path) -> None:

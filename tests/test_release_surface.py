@@ -271,6 +271,12 @@ PUBLIC_JSON_ARTIFACTS = (
     / "docs"
     / "data"
     / "runtime_profile_artifacts"
+    / "recycling_1d_adaptive_bdf_jax_lineax_gate"
+    / "profile_summary.json",
+    REPO_ROOT
+    / "docs"
+    / "data"
+    / "runtime_profile_artifacts"
     / "recycling_dthe_jax_linearized_gate_ny100_dt1e4_cpu"
     / "profile_summary.json",
     REPO_ROOT
@@ -505,6 +511,42 @@ def test_committed_jax_linearized_cpu_profiles_report_solver_status() -> None:
         assert profile["linear_solver_status"] == diagnostics["linear_solver_status"]
         assert profile["linear_solver_reported_iterations"] == diagnostics["linear_solver_reported_iterations"]
         assert "/Users/" not in json.dumps(payload, sort_keys=True)
+
+
+def test_committed_adaptive_bdf_jax_lineax_profile_reports_controller_health() -> None:
+    payload = json.loads(
+        (
+            REPO_ROOT
+            / "docs"
+            / "data"
+            / "runtime_profile_artifacts"
+            / "recycling_1d_adaptive_bdf_jax_lineax_gate"
+            / "profile_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert payload["case"] == "recycling_1d_one_step"
+    assert payload["diagnostics_only"] is True
+    assert payload["adaptive_bdf_gate_errors"] == {
+        "adaptive_bdf_jax_linearized": [],
+        "adaptive_bdf_jax_linearized_lineax": [],
+    }
+    assert payload["mode_elapsed_seconds"]["adaptive_bdf_jax_linearized_lineax"] < payload["mode_elapsed_seconds"]["adaptive_bdf_jax_linearized"]
+
+    expected_step_modes = {
+        "adaptive_bdf_jax_linearized": "jax_linearized",
+        "adaptive_bdf_jax_linearized_lineax": "jax_linearized_lineax",
+    }
+    for mode, step_mode in expected_step_modes.items():
+        diagnostics = payload["mode_diagnostics"][mode]
+        assert diagnostics["adaptive_bdf_step_solver_mode"] == step_mode
+        assert diagnostics["adaptive_bdf_accepted_steps"] == 21
+        assert diagnostics["adaptive_bdf_rejected_steps"] == 6
+        assert diagnostics["adaptive_bdf_trial_solver_steps"] == 61
+        assert diagnostics["adaptive_bdf_fixed_full_field_rhs_solver_steps"] == 61
+        assert diagnostics["adaptive_bdf_minimum_dt_fallbacks"] == 0
+        assert diagnostics["adaptive_bdf_unconverged_solver_steps"] == 0
+        assert diagnostics["adaptive_bdf_max_accepted_error_ratio"] <= 0.95
 
 
 def test_jax_native_profile_audit_docs_match_committed_backend() -> None:

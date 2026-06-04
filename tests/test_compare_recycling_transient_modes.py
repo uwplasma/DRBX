@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import time
@@ -49,6 +50,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "0.05",
             "--max-nonlinear-iterations",
             "3",
+            "--output-json",
+            "/tmp/report.json",
             "--diagnostics-only",
         ]
     )
@@ -65,6 +68,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.overrides == ["solver:rtol=1e-9"]
     assert args.timestep == 0.05
     assert args.max_nonlinear_iterations == 3
+    assert args.output_json == Path("/tmp/report.json")
     assert args.diagnostics_only is True
     help_text = compare_script._build_parser().format_help()
     normalized_help = " ".join(help_text.split()).replace("full- field", "full-field")
@@ -220,6 +224,35 @@ def test_bdf_pairwise_worst_delta_returns_active_mesh_worst_field() -> None:
 
     assert field == "Nd+"
     assert delta == 0.75
+
+
+def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(tmp_path: Path) -> None:
+    report = compare_script._build_json_report(
+        case_name="recycling_1d_one_step",
+        configured_timestep=1.0,
+        timestep=0.5,
+        max_nonlinear_iterations=3,
+        fields=("Pe",),
+        modes=("adaptive_bdf_jax_linearized",),
+        diagnostics_only=True,
+        mode_elapsed_seconds={"adaptive_bdf_jax_linearized": 1.25},
+        mode_diagnostics={
+            "adaptive_bdf_jax_linearized": {
+                "adaptive_bdf_accepted_steps": np.int64(2),
+                "linear_solver_status": Path("/tmp/private/status"),
+            }
+        },
+        bdf_pairwise_worst=("Pe", np.float64(0.0)),
+        adaptive_bdf_gate_errors={"adaptive_bdf_jax_linearized": []},
+    )
+    path = tmp_path / "nested" / "report.json"
+    compare_script._write_json_report(path, report)
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["case"] == "recycling_1d_one_step"
+    assert payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"]["adaptive_bdf_accepted_steps"] == 2
+    assert payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"]["linear_solver_status"] == "status"
+    assert payload["bdf_pairwise_worst"] == {"field": "Pe", "delta": 0.0}
 
 
 def test_fixed_full_field_jvp_diagnostics_gate_accepts_expected_route() -> None:

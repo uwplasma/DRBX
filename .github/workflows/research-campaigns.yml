@@ -23,6 +23,7 @@ on:
           - heavy-recycling-profile
           - dthe-jax-linearized-gate
           - dthe-batched-jvp-gate
+          - adaptive-bdf-jax-lineax-gate
           - gpu-dthe-jax-linearized-gate
           - gpu-dthe-full-output-jvp-profile
           - gpu-dthe-batched-jvp-gate

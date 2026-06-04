@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+import json
 from pathlib import Path
 import signal
 import time
@@ -152,6 +153,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "embedded error ratio at or below this threshold."
         ),
     )
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        default=None,
+        help="Optional lightweight JSON report path for mode timings, diagnostics, gates, and pairwise deltas.",
+    )
     return parser
 
 
@@ -280,6 +287,64 @@ def _bdf_pairwise_worst_delta(
     if not rows:
         return None, None
     return rows[0]
+
+
+def _json_ready(value):
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except (TypeError, ValueError):
+            pass
+    if isinstance(value, Path):
+        return value.name
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _build_json_report(
+    *,
+    case_name: str,
+    configured_timestep: float,
+    timestep: float,
+    max_nonlinear_iterations: int,
+    fields: tuple[str, ...],
+    modes: tuple[str, ...],
+    diagnostics_only: bool,
+    mode_elapsed_seconds: dict[str, float],
+    mode_diagnostics: dict[str, dict[str, object]],
+    bdf_pairwise_worst: tuple[str | None, float | None],
+    adaptive_bdf_gate_errors: dict[str, list[str]],
+) -> dict[str, object]:
+    worst_field, worst_delta = bdf_pairwise_worst
+    return {
+        "case": str(case_name),
+        "configured_timestep": float(configured_timestep),
+        "timestep": float(timestep),
+        "max_nonlinear_iterations": int(max_nonlinear_iterations),
+        "fields": list(fields),
+        "modes": list(modes),
+        "diagnostics_only": bool(diagnostics_only),
+        "mode_elapsed_seconds": _json_ready(mode_elapsed_seconds),
+        "mode_diagnostics": _json_ready(mode_diagnostics),
+        "bdf_pairwise_worst": {
+            "field": worst_field,
+            "delta": worst_delta,
+        },
+        "adaptive_bdf_gate_errors": _json_ready(adaptive_bdf_gate_errors),
+    }
+
+
+def _write_json_report(path: Path, report: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _validate_fixed_full_field_jvp_diagnostics(diagnostics: dict[str, object]) -> list[str]:
@@ -425,6 +490,7 @@ def main() -> int:
     print(f"modes={modes}", flush=True)
     mode_variables: dict[str, dict[str, np.ndarray]] = {}
     mode_diagnostics: dict[str, dict[str, object]] = {}
+    mode_elapsed_seconds: dict[str, float] = {}
     for mode in modes:
         print(f"running_mode={mode}", flush=True)
         started = time.perf_counter()
@@ -447,6 +513,7 @@ def main() -> int:
             print(f"gate_failure={mode} timed out: {exc}", flush=True)
             return 2
         elapsed = time.perf_counter() - started
+        mode_elapsed_seconds[mode] = float(elapsed)
         actual = {
             name: np.asarray(value, dtype=np.float64)
             for name, value in history.variable_history.items()
@@ -462,6 +529,7 @@ def main() -> int:
             print(line)
     for line in _format_bdf_pairwise_delta_report(mode_variables, fields=fields, mesh=mesh):
         print(line)
+    adaptive_gate_errors: dict[str, list[str]] = {}
     if args.require_fixed_jvp_diagnostics:
         errors = _validate_fixed_full_field_jvp_diagnostics(
             mode_diagnostics.get("bdf_fixed_full_field_jvp", {})
@@ -482,22 +550,39 @@ def main() -> int:
             return 2
         errors = []
         for mode in adaptive_modes:
-            errors.extend(
-                _validate_adaptive_bdf_diagnostics(
-                    mode,
-                    mode_diagnostics.get(mode, {}),
-                    require_no_fallback=bool(args.require_adaptive_bdf_no_fallback),
-                    require_no_unconverged_substeps=bool(args.require_adaptive_bdf_no_unconverged_substeps),
-                    max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
-                    max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
-                )
+            mode_errors = _validate_adaptive_bdf_diagnostics(
+                mode,
+                mode_diagnostics.get(mode, {}),
+                require_no_fallback=bool(args.require_adaptive_bdf_no_fallback),
+                require_no_unconverged_substeps=bool(args.require_adaptive_bdf_no_unconverged_substeps),
+                max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
+                max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
             )
+            adaptive_gate_errors[mode] = mode_errors
+            errors.extend(mode_errors)
         for error in errors:
             print(f"gate_failure={error}")
         if errors:
             return 2
+    bdf_pairwise_worst = _bdf_pairwise_worst_delta(mode_variables, fields=fields, mesh=mesh)
+    if args.output_json is not None:
+        report = _build_json_report(
+            case_name=args.case,
+            configured_timestep=run_config.time.timestep,
+            timestep=output_timestep,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            fields=fields,
+            modes=modes,
+            diagnostics_only=bool(args.diagnostics_only),
+            mode_elapsed_seconds=mode_elapsed_seconds,
+            mode_diagnostics=mode_diagnostics,
+            bdf_pairwise_worst=bdf_pairwise_worst,
+            adaptive_bdf_gate_errors=adaptive_gate_errors,
+        )
+        _write_json_report(args.output_json, report)
+        print(f"output_json={args.output_json}")
     if args.require_bdf_pairwise_max is not None:
-        worst_field, worst_delta = _bdf_pairwise_worst_delta(mode_variables, fields=fields, mesh=mesh)
+        worst_field, worst_delta = bdf_pairwise_worst
         if worst_delta is None:
             print("gate_failure=bdf pairwise delta is unavailable; run both bdf and bdf_fixed_full_field_jvp")
             return 2
