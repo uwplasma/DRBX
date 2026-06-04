@@ -52,12 +52,12 @@ implementation question:
 after active-domain scaling, `SNVh_pressure_gradient`,
 `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` agree with the
 matched JAXDRB reconstructions with max absolute differences of about
-`1.3e-11`, `1.2e-11`, and machine precision, respectively.
+`2.17e-19`, `1.30e-18`, and `9.93e-23`, respectively.
 
 The JSON report also carries `state_driver_register`, which turns that
 interpretation into a regression target. Dividing the final-state differences
 by the one-step interval ranks the target-adjacent state-rate errors as `Nh`
-(`5.11e-4`), then `Ph` (`4.53e-5`), then `NVh` (`2.90e-5`). The induced
+(`7.61e-6`), then `Ph` (`7.52e-7`), then `NVh` (`2.02e-7`). The induced
 momentum-driver deltas are led by `NVh -> parallel_viscosity` (`1.00e-5`) and
 `Ph -> pressure_gradient` (`8.10e-6`). The next implementation target is
 therefore the

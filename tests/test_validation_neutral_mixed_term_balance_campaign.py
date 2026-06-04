@@ -18,6 +18,14 @@ from jax_drb.validation import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _REFERENCE_ARRAYS = _REPO_ROOT / "references" / "baselines" / "reference_arrays" / "neutral_mixed_one_step.npz"
+_COMMITTED_REPORT_JSON = (
+    _REPO_ROOT
+    / "docs"
+    / "data"
+    / "neutral_mixed_term_balance_campaign_artifacts"
+    / "data"
+    / "neutral_mixed_term_balance_campaign.json"
+)
 
 
 def _write_synthetic_native_history_with_target_drift(path: Path) -> Path:
@@ -140,6 +148,30 @@ def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_pa
     assert pressure_driver["field"] == "Ph"
     assert pressure_driver["term"] == "pressure_gradient"
     assert len(pressure_driver["term_delta_lineout"]) == len(report["active_y_indices"])
+
+
+def test_committed_neutral_mixed_term_balance_report_closes_direct_nvh_sources() -> None:
+    report = json.loads(_COMMITTED_REPORT_JSON.read_text(encoding="utf-8"))
+
+    diagnostics = report["hermes_diagnostic_outputs"]["direct_comparisons"]
+    assert diagnostics["SNVh_pressure_gradient"]["scaled_difference_metrics"]["max_abs"] < 3.0e-19
+    assert diagnostics["SNVh_parallel_viscosity"]["scaled_difference_metrics"]["max_abs"] < 2.0e-18
+    assert diagnostics["SNVh_perpendicular_viscosity"]["scaled_difference_metrics"]["max_abs"] < 2.0e-22
+
+    state_register = report["state_driver_register"]
+    ranked_state_rates = state_register["ranked_state_rate_errors"]
+    assert [entry["field"] for entry in ranked_state_rates] == ["Nh", "Ph", "NVh"]
+    assert ranked_state_rates[0]["target_adjacent_max_abs"] == pytest.approx(7.605456118353615e-06)
+    assert ranked_state_rates[1]["target_adjacent_max_abs"] == pytest.approx(7.524079128004568e-07)
+    assert ranked_state_rates[2]["target_adjacent_max_abs"] == pytest.approx(2.023199034449706e-07)
+
+    ranked_drivers = state_register["ranked_momentum_driver_deltas"]
+    assert [entry["driver"] for entry in ranked_drivers[:2]] == [
+        "momentum_to_parallel_viscosity",
+        "pressure_to_pressure_gradient",
+    ]
+    assert ranked_drivers[0]["target_adjacent_max_abs"] == pytest.approx(1.0011406404022939e-05)
+    assert ranked_drivers[1]["target_adjacent_max_abs"] == pytest.approx(8.096712974357042e-06)
 
 
 def test_neutral_mixed_term_balance_register_ranks_target_adjacent_state_drift(tmp_path: Path) -> None:

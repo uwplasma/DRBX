@@ -1011,6 +1011,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert captured["builder_kwargs"]["layout"] is layout
     assert captured["builder_kwargs"]["feedback_timestep"] is None
     assert "difference_plan" in captured["jvp_kwargs"]
+    assert captured["jvp_kwargs"]["direction_batches"] == ()
     assert result.diagnostics["bdf_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_rhs_callback_seconds"] >= 0.0
     assert result.diagnostics["bdf_rhs_evaluation_seconds"] >= 0.0
@@ -1026,6 +1027,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert result.diagnostics["bdf_jvp_jacobian_total_seconds"] == 0.125
     assert result.diagnostics["bdf_jacobian_mode"] == "jvp"
     assert result.diagnostics["bdf_rhs_backend"] == "fixed_full_field_array"
+    assert result.diagnostics["bdf_jvp_direction_batch_count"] == 0
     assert result.variable_history["N"].shape == (2, 1)
 
 

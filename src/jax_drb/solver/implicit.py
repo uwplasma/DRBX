@@ -53,6 +53,12 @@ class SparseDifferenceQuotientPlan:
     nnz: int
 
 
+@dataclass(frozen=True)
+class SparseJvpDirectionBatch:
+    groups: tuple[SparseDifferenceQuotientGroup, ...]
+    directions: object
+
+
 def difference_quotient_step_size(value: float) -> float:
     scale = max(1.0, abs(float(value)))
     return np.sqrt(np.finfo(np.float64).eps) * scale
@@ -173,6 +179,40 @@ def prepare_sparse_difference_quotient_plan(
     )
 
 
+def prepare_sparse_jvp_direction_batches(
+    *,
+    difference_plan: SparseDifferenceQuotientPlan,
+    state_shape: tuple[int, ...],
+    dtype=np.float64,
+    batch_size: int | None = None,
+) -> tuple[SparseJvpDirectionBatch, ...]:
+    """Prebuild grouped tangent directions for repeated sparse JVP Jacobians."""
+
+    try:
+        import jax.numpy as jnp
+    except ImportError as exc:  # pragma: no cover - exercised only when jax is unavailable
+        raise ImportError("Sparse JVP direction construction requires jax.") from exc
+
+    groups = difference_plan.groups
+    group_count = len(groups)
+    if group_count == 0:
+        return ()
+    state_size = int(np.prod(state_shape, dtype=np.int64))
+    resolved_batch_size = group_count if batch_size is None else max(1, int(batch_size))
+    batches: list[SparseJvpDirectionBatch] = []
+    for batch_start in range(0, group_count, resolved_batch_size):
+        batch_groups = groups[batch_start : batch_start + resolved_batch_size]
+        directions_flat = np.zeros((len(batch_groups), state_size), dtype=np.float64)
+        for batch_index, group in enumerate(batch_groups):
+            directions_flat[batch_index, group.columns] = 1.0
+        directions = jnp.asarray(
+            directions_flat.reshape((len(batch_groups), *state_shape)),
+            dtype=dtype,
+        )
+        batches.append(SparseJvpDirectionBatch(groups=tuple(batch_groups), directions=directions))
+    return tuple(batches)
+
+
 def build_sparse_difference_quotient_jacobian(
     residual,
     state: np.ndarray,
@@ -247,6 +287,7 @@ def build_sparse_jvp_jacobian(
     sparsity_csc=None,
     difference_plan: SparseDifferenceQuotientPlan | None = None,
     batch_size: int | None = None,
+    direction_batches: tuple[SparseJvpDirectionBatch, ...] | None = None,
     timing_callback: Callable[[dict[str, float | int]], None] | None = None,
 ):
     """Build a sparse Jacobian from grouped JAX JVPs.
@@ -307,21 +348,22 @@ def build_sparse_jvp_jacobian(
                 }
             )
         return coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
-    resolved_batch_size = group_count if batch_size is None else max(1, int(batch_size))
     vmapped_linear_map = jax.vmap(linear_map)
-    batch_count = 0
-    for batch_start in range(0, group_count, resolved_batch_size):
-        batch_groups = plan.groups[batch_start : batch_start + resolved_batch_size]
-        batch_count += 1
+    prebuilt_directions = direction_batches is not None
+    if direction_batches is None:
         tangent_started_at = perf_counter()
-        directions_flat = np.zeros((len(batch_groups), state_size), dtype=np.float64)
-        for batch_index, group in enumerate(batch_groups):
-            directions_flat[batch_index, group.columns] = 1.0
-        directions = jnp.asarray(
-            directions_flat.reshape((len(batch_groups), *state_shape)),
+        direction_batches = prepare_sparse_jvp_direction_batches(
+            difference_plan=plan,
+            state_shape=state_shape,
             dtype=state_array.dtype,
+            batch_size=batch_size,
         )
         tangent_build_seconds += perf_counter() - tangent_started_at
+    batch_count = 0
+    for direction_batch in direction_batches:
+        batch_groups = direction_batch.groups
+        batch_count += 1
+        directions = jnp.asarray(direction_batch.directions, dtype=state_array.dtype)
         push_started_at = perf_counter()
         pushed_batch = np.asarray(
             vmapped_linear_map(directions),
@@ -351,6 +393,7 @@ def build_sparse_jvp_jacobian(
                 "batch_count": int(batch_count),
                 "state_size": int(state_size),
                 "nnz": int(plan.nnz),
+                "prebuilt_direction_batches": int(prebuilt_directions),
             }
         )
     return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()

@@ -146,9 +146,12 @@ For the remaining recycling solver work, the order is therefore fixed:
   path, which is useful evidence but not a default-solver promotion;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and
-  `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, because the compact
-  gate shows linearization and tangent pushes, not sparse assembly, are the
-  current blockers;
+  `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, and also check
+  `bdf_jvp_direction_batch_count` plus
+  `bdf_jvp_jacobian_tangent_build_seconds`; the current fixed-JVP bridge
+  prebuilds sparse tangent batches once per solve, so remaining regressions
+  should be attributed to linearization and tangent pushes, not repeated
+  tangent allocation;
 - continue moving source, closure, boundary, and target-recycling kernels into
   fixed-layout JAX functions with parity and JVP gates;
 - promote matrix-free/JVP nonlinear solves only after the full heavy residual

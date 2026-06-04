@@ -14,6 +14,7 @@ from jax_drb.solver import (
     difference_quotient_step_size,
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
+    prepare_sparse_jvp_direction_batches,
     solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
@@ -291,6 +292,19 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         color_groups=color_groups,
         timing_callback=timing_payloads.append,
     )
+    plan = prepare_sparse_difference_quotient_plan(sparsity=sparsity, color_groups=color_groups)
+    prebuilt_direction_batches = prepare_sparse_jvp_direction_batches(
+        difference_plan=plan,
+        state_shape=tuple(state.shape),
+    )
+    prebuilt_jvp_jacobian = build_sparse_jvp_jacobian(
+        residual,
+        state,
+        sparsity=sparsity,
+        color_groups=color_groups,
+        difference_plan=plan,
+        direction_batches=prebuilt_direction_batches,
+    )
     serial_jvp_jacobian = build_sparse_jvp_jacobian(
         residual,
         state,
@@ -310,8 +324,10 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
         )
 
     np.testing.assert_allclose(jvp_jacobian.toarray(), expected * sparsity.toarray(), rtol=1.0e-12, atol=1.0e-12)
+    np.testing.assert_allclose(prebuilt_jvp_jacobian.toarray(), jvp_jacobian.toarray(), rtol=1.0e-12, atol=1.0e-12)
     np.testing.assert_allclose(serial_jvp_jacobian.toarray(), jvp_jacobian.toarray(), rtol=1.0e-12, atol=1.0e-12)
     assert active_cells > 0
+    assert sum(len(batch.groups) for batch in prebuilt_direction_batches) == len(color_groups)
     assert len(timing_payloads) == 1
     timing = timing_payloads[0]
     assert timing["group_count"] == len(color_groups)

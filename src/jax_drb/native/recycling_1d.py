@@ -22,6 +22,7 @@ from ..solver import (
     build_sparse_jvp_jacobian,
     pack_active_fields,
     prepare_sparse_difference_quotient_plan,
+    prepare_sparse_jvp_direction_batches,
     solve_jax_linearized_newton_system,
     solve_matrix_free_newton_system,
     solve_sparse_newton_system,
@@ -3287,6 +3288,16 @@ def _advance_recycling_1d_bdf_history(
     bdf_jacobian_mode = resolved_jacobian_mode if resolved_jacobian_mode in {"fd", "jvp"} else "fd"
     bdf_jvp_batch_size = _resolve_recycling_jvp_batch_size()
     jacobian_parallel_workers = _resolve_recycling_bdf_jacobian_parallel_workers()
+    jvp_direction_batches = (
+        prepare_sparse_jvp_direction_batches(
+            difference_plan=difference_plan,
+            state_shape=tuple(y0.shape),
+            dtype=np.float64,
+            batch_size=bdf_jvp_batch_size,
+        )
+        if bdf_jacobian_mode == "jvp"
+        else None
+    )
 
     def packed_rhs(state_fields: dict[str, object], state_integrals: dict[str, object]) -> object:
         use_jax_state = use_jax_backend(
@@ -3405,6 +3416,7 @@ def _advance_recycling_1d_bdf_history(
                     sparsity_csc=sparsity_csc,
                     difference_plan=difference_plan,
                     batch_size=bdf_jvp_batch_size,
+                    direction_batches=jvp_direction_batches,
                     timing_callback=record_jvp_timing,
                 )
             jacobian_base_rhs_evaluation_count += 1
@@ -3501,6 +3513,7 @@ def _advance_recycling_1d_bdf_history(
             "bdf_jacobian_mode": bdf_jacobian_mode,
             "bdf_rhs_backend": str(rhs_backend),
             "bdf_jvp_batch_size": None if bdf_jvp_batch_size is None else int(bdf_jvp_batch_size),
+            "bdf_jvp_direction_batch_count": 0 if jvp_direction_batches is None else int(len(jvp_direction_batches)),
             "bdf_jacobian_parallel_workers": int(jacobian_parallel_workers),
             "bdf_solve_seconds": float(max(solve_finished_at - run_started_at, 0.0)),
             "bdf_active_size": int(y0.size),
