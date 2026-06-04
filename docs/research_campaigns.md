@@ -180,6 +180,18 @@ dominant offender shifted to low-density/pressure fields such as `Nd`, `Pd`,
 and `Phe+`. The next implementation target is therefore sparse-JVP
 linearize/push reduction plus a component-wise adaptive-norm audit, not a
 lower JAX GMRES budget or looser feedback tolerances.
+A follow-up opt-in component-wise norm gate combined
+`runtime:recycling_adaptive_bdf_initial_dt=0.0625` with
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_DENSITY_ATOL_FLOOR=1e-6`,
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR=1e-3`, and
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR=1e-2`. On the local
+D/T/He diagnostics-only `timestep=1.0` gate, this route completed in `28.6 s`,
+accepted eight adaptive steps, accepted seven BDF2 steps, reported no
+minimum-dt fallback, no unconverged substeps, and kept the maximum accepted
+embedded-error ratio at `0.715`. This is the first passing D/T/He sparse-JVP
+adaptive-BDF promotion-style gate, but it remains opt-in until longer
+output-window reference-parity and GPU/CPU scaling campaigns pass with the
+same component-wise norm.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

@@ -595,6 +595,14 @@ def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
     assert momentum_floor_probe["momentum_atol_floor"] == 0.01
     assert momentum_floor_probe["error_ratios"][-1] < contributor_probe["last_error_ratios"][-1]
     assert momentum_floor_probe["dominant_contributors"][-1] == "Nd"
+    component_floor_gate = payload["sparse_jvp_component_floor_gate"]
+    assert component_floor_gate["adaptive_bdf_gate_errors"] == []
+    assert component_floor_gate["accepted_steps"] == 8
+    assert component_floor_gate["bdf2_accepted_steps"] == 7
+    assert component_floor_gate["rejected_steps"] == 0
+    assert component_floor_gate["unconverged_solver_steps"] == 0
+    assert component_floor_gate["minimum_dt_fallbacks"] == 0
+    assert component_floor_gate["max_accepted_error_ratio"] <= 0.95
     assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 

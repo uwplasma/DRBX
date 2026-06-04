@@ -272,6 +272,64 @@
     ],
     "result": "A momentum-only absolute-tolerance floor reduces the D/T/He startup rejection pressure by roughly two orders of magnitude and shifts the offender from NV* momentum fields to low-density/pressure fields. This argues for a broader component-wise adaptive norm audit before default promotion."
   },
+  "sparse_jvp_component_floor_gate": {
+    "mode": "adaptive_bdf_sparse_jvp",
+    "density_atol_floor": 1e-6,
+    "pressure_atol_floor": 0.001,
+    "momentum_atol_floor": 0.01,
+    "initial_dt": 0.0625,
+    "mode_timeout_seconds": 80.0,
+    "elapsed_seconds": 28.5571260410361,
+    "adaptive_bdf_gate_errors": [],
+    "accepted_steps": 8,
+    "rejected_steps": 0,
+    "startup_trials": 1,
+    "bdf2_trials": 7,
+    "bdf2_accepted_steps": 7,
+    "trial_solver_steps": 17,
+    "unconverged_solver_steps": 0,
+    "minimum_dt_fallbacks": 0,
+    "sparse_jvp_jacobian_solver_steps": 17,
+    "fixed_full_field_rhs_solver_steps": 17,
+    "max_accepted_error_ratio": 0.7152022769840402,
+    "last_accepted_error_ratio": 0.18253698778969515,
+    "min_accepted_dt": 0.0625,
+    "max_accepted_dt": 0.16324050324612036,
+    "jacobian_assembly_seconds": 27.585283000953496,
+    "linear_solve_seconds": 0.2286716247908771,
+    "residual_evaluation_seconds": 0.4841495808213949,
+    "trace_records": 42,
+    "completed_error_estimates": 8,
+    "first_error_estimates": [
+      {
+        "trial_kind": "startup_embedded_difference",
+        "dt": 0.0625,
+        "error_ratio": 0.2774657490639393,
+        "dominant": "Nd+"
+      },
+      {
+        "trial_kind": "bdf2_embedded_difference",
+        "dt": 0.10085426129996741,
+        "error_ratio": 0.28867687330201486,
+        "dominant": "Nt+"
+      }
+    ],
+    "last_error_estimates": [
+      {
+        "trial_kind": "bdf2_embedded_difference",
+        "dt": 0.15316280498204174,
+        "error_ratio": 0.5215574468296104,
+        "dominant": "Nd+"
+      },
+      {
+        "trial_kind": "bdf2_embedded_difference",
+        "dt": 0.09367419245497052,
+        "error_ratio": 0.18253698778969515,
+        "dominant": "Nd+"
+      }
+    ],
+    "result": "With component-wise absolute-tolerance floors and a smaller initial adaptive-BDF timestep, the D/T/He sparse-JVP adaptive-BDF diagnostics-only gate completes locally with no fallback, no unconverged substeps, BDF2 active, and max accepted embedded error below the 0.95 promotion threshold. This is opt-in evidence; the stable default remains unchanged until longer output-window and reference-parity campaigns pass."
+  },
   "dominant_cost": "The JAX-linearized GMRES route is dominated by Krylov linear solves and does not reach BDF2 before timeout. The sparse-JVP route removes most linear-solve cost and reaches BDF2, shifting the runtime blocker to repeated grouped-JVP Jacobian assembly.",
   "next_action": "Use sparse-JVP as the near-term multi-ion adaptive-BDF optimization lane, reduce repeated JVP linearization/push work, and complete a component-wise adaptive-norm audit before trying default promotion."
 }

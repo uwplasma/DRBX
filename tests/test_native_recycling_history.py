@@ -1040,22 +1040,42 @@ def test_resolve_recycling_adaptive_bdf_momentum_atol_floor_prefers_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", "0.5")
-    config = _FakeRuntimeConfig(recycling_adaptive_bdf_momentum_atol_floor=0.25)
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_DENSITY_ATOL_FLOOR", "0.05")
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR", "0.005")
+    config = _FakeRuntimeConfig(
+        recycling_adaptive_bdf_momentum_atol_floor=0.25,
+        recycling_adaptive_bdf_density_atol_floor=0.025,
+        recycling_adaptive_bdf_pressure_atol_floor=0.0025,
+    )
 
     assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(config) == 0.25
-    assert recycling._resolve_recycling_adaptive_bdf_field_atol_floors(config, ("NVd+", "Pe", "NVt")) == {
+    assert recycling._resolve_recycling_adaptive_bdf_density_atol_floor(config) == 0.025
+    assert recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor(config) == 0.0025
+    assert recycling._resolve_recycling_adaptive_bdf_field_atol_floors(config, ("NVd+", "Pe", "NVt", "Nd")) == {
         "NVd+": 0.25,
         "NVt": 0.25,
+        "Pe": 0.0025,
+        "Nd": 0.025,
     }
 
 
-def test_resolve_recycling_adaptive_bdf_momentum_atol_floor_env_fallback(
+@pytest.mark.parametrize(
+    ("env_name", "resolver"),
+    [
+        ("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor),
+        ("JAX_DRB_RECYCLING_ADAPTIVE_BDF_DENSITY_ATOL_FLOOR", recycling._resolve_recycling_adaptive_bdf_density_atol_floor),
+        ("JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR", recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor),
+    ],
+)
+def test_resolve_recycling_adaptive_bdf_component_atol_floor_env_fallback(
+    env_name: str,
+    resolver,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", "0.125")
-    assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(None) == 0.125
-    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", "bad")
-    assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(None) is None
+    monkeypatch.setenv(env_name, "0.125")
+    assert resolver(None) == 0.125
+    monkeypatch.setenv(env_name, "bad")
+    assert resolver(None) is None
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:

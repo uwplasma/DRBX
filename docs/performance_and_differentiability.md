@@ -743,6 +743,15 @@ as `1e-12`. The opt-in
 D/T/He startup ratios by about two orders of magnitude but shifted the dominant
 error to low-density/pressure fields. The remaining default-promotion work is
 therefore a component-wise adaptive norm, not a one-field tolerance override.
+The first local component-wise opt-in gate used density, pressure, and momentum
+floors of `1e-6`, `1e-3`, and `1e-2`, respectively, together with
+`runtime:recycling_adaptive_bdf_initial_dt=0.0625`. It completed the D/T/He
+`timestep=1.0` diagnostics-only sparse-JVP adaptive-BDF gate in `28.6 s` with
+no rejected accepted-window steps, no minimum-dt fallback, no unconverged
+substeps, and a maximum accepted embedded-error ratio of `0.715`. That is
+promotion evidence for the opt-in route only; the stable default remains
+unchanged until full output-window parity, reference campaigns, and larger
+CPU/GPU profiling reproduce the same behavior.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with

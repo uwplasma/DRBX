@@ -4117,8 +4117,12 @@ def _resolve_recycling_jvp_batch_size() -> int | None:
         return None
 
 
-def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | None = None) -> float | None:
-    option_name = "recycling_adaptive_bdf_momentum_atol_floor"
+def _resolve_recycling_adaptive_bdf_component_atol_floor(
+    config: BoutConfig | None,
+    *,
+    option_name: str,
+    env_name: str,
+) -> float | None:
     if config is not None:
         for section_name in ("runtime", "jax_drb"):
             if not config.has_option(section_name, option_name):
@@ -4128,7 +4132,7 @@ def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | Non
             except (TypeError, ValueError):
                 return None
             return configured if np.isfinite(configured) and configured > 0.0 else None
-    env_value = os.environ.get("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR")
+    env_value = os.environ.get(env_name)
     if env_value is None or not env_value.strip():
         return None
     try:
@@ -4138,14 +4142,46 @@ def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | Non
     return configured if np.isfinite(configured) and configured > 0.0 else None
 
 
+def _resolve_recycling_adaptive_bdf_momentum_atol_floor(config: BoutConfig | None = None) -> float | None:
+    return _resolve_recycling_adaptive_bdf_component_atol_floor(
+        config,
+        option_name="recycling_adaptive_bdf_momentum_atol_floor",
+        env_name="JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR",
+    )
+
+
+def _resolve_recycling_adaptive_bdf_density_atol_floor(config: BoutConfig | None = None) -> float | None:
+    return _resolve_recycling_adaptive_bdf_component_atol_floor(
+        config,
+        option_name="recycling_adaptive_bdf_density_atol_floor",
+        env_name="JAX_DRB_RECYCLING_ADAPTIVE_BDF_DENSITY_ATOL_FLOOR",
+    )
+
+
+def _resolve_recycling_adaptive_bdf_pressure_atol_floor(config: BoutConfig | None = None) -> float | None:
+    return _resolve_recycling_adaptive_bdf_component_atol_floor(
+        config,
+        option_name="recycling_adaptive_bdf_pressure_atol_floor",
+        env_name="JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR",
+    )
+
+
 def _resolve_recycling_adaptive_bdf_field_atol_floors(
     config: BoutConfig | None,
     field_names: tuple[str, ...],
 ) -> dict[str, float]:
     momentum_floor = _resolve_recycling_adaptive_bdf_momentum_atol_floor(config)
-    if momentum_floor is None:
-        return {}
-    return {name: float(momentum_floor) for name in field_names if name.startswith("NV")}
+    density_floor = _resolve_recycling_adaptive_bdf_density_atol_floor(config)
+    pressure_floor = _resolve_recycling_adaptive_bdf_pressure_atol_floor(config)
+    floors: dict[str, float] = {}
+    for name in field_names:
+        if momentum_floor is not None and name.startswith("NV"):
+            floors[name] = float(momentum_floor)
+        elif pressure_floor is not None and name.startswith("P"):
+            floors[name] = float(pressure_floor)
+        elif density_floor is not None and name.startswith("N"):
+            floors[name] = float(density_floor)
+    return floors
 
 
 def _resolve_recycling_jax_linear_solver_backend() -> str:
