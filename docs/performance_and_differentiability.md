@@ -677,7 +677,14 @@ These variants are promoted as controlled solver gates, not yet as the default
 production backend. The environment variable
 `JAX_DRB_RECYCLING_JACOBIAN_MODE=jvp` can select the sparse-JVP Jacobian for
 the standard sparse solver, and `JAX_DRB_RECYCLING_JVP_BATCH_SIZE` bounds the
-color-group batch size. These modes should be used only on gates where the
+color-group batch size. The JAX-linearized BE/BDF2 and adaptive-BDF trial
+solves also expose opt-in Krylov controls through
+`runtime:recycling_jax_linear_restart`,
+`runtime:recycling_jax_linear_maxiter`, or the matching environment variables
+`JAX_DRB_RECYCLING_JAX_LINEAR_RESTART` and
+`JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER`; these keep the default `20 x 20`
+GMRES-equivalent budget unchanged but allow bounded speed/accuracy sweeps on
+heavy multi-ion gates. These modes should be used only on gates where the
 residual has been proven JAX-transformable; the heavy SciPy BDF callback
 remains a host compatibility path. For the long SciPy BDF callback itself,
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` exercises
