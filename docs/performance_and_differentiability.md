@@ -698,11 +698,11 @@ mode to a paper or release claim.
 For adaptive BDF promotion attempts, the comparison script can now enforce the
 same policy explicitly:
 `compare_recycling_transient_modes.py --mode adaptive_bdf_jax_linearized
---diagnostics-only --timestep 0.05 --max-nonlinear-iterations 3
+--diagnostics-only --timestep 1.0 --max-nonlinear-iterations 3
 --require-adaptive-bdf-no-fallback
 --require-adaptive-bdf-no-unconverged-substeps
 --require-adaptive-bdf-max-accepted-error-ratio 0.95 --mode-timeout-seconds
-120`. The diagnostics-only flag is important for this bounded promotion check
+480`. The diagnostics-only flag is important for this bounded promotion check
 because the committed one-step array baselines are generated at the full
 reference output time. A shortened timestep is useful for solver-health
 testing, but it is not a replacement for a full parity run. This gate is
@@ -721,6 +721,16 @@ zero unconverged substeps, and
 `adaptive_bdf_max_accepted_error_ratio=9.315e-1`. This remains a bounded
 solver-health result rather than a full parity claim; the committed reference
 one-step deck still uses the full `timestep=5000` output interval.
+On the same current controller policy, a smaller `timestep=0.2` backend
+comparison gives identical adaptive-controller diagnostics for
+`adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`: both
+take `9` accepted substeps, `5` rejected trials, `41` implicit trial solves,
+zero fallback, zero unconverged substeps, and
+`adaptive_bdf_max_accepted_error_ratio=6.653e-1`. The Lineax GMRES seam ran in
+about `70.9 s` on this local CPU versus about `77.8 s` for the in-tree JAX
+GMRES path. This is useful backend evidence, but not yet enough to change the
+default production solver because the full output-window recycling path still
+needs the same parity and runtime gates.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or

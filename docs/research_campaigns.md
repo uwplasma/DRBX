@@ -128,6 +128,14 @@ For the remaining recycling solver work, the order is therefore fixed:
   fallback, zero unconverged substeps, and
   `adaptive_bdf_max_accepted_error_ratio=9.315e-1`; increase the timeout on
   laptops because the measured wall time was about `259 s`;
+- keep the Lineax seam as an opt-in backend comparison. The current
+  `timestep=0.2` adaptive-BDF gate has identical controller diagnostics for
+  `adaptive_bdf_jax_linearized` and `adaptive_bdf_jax_linearized_lineax`
+  (`9` accepted substeps, `5` rejected trials, `41` implicit trial solves, zero
+  fallback, zero unconverged substeps,
+  `adaptive_bdf_max_accepted_error_ratio=6.653e-1`). On the local CPU, Lineax
+  GMRES ran in about `70.9 s` versus about `77.8 s` for the in-tree JAX GMRES
+  path, which is useful evidence but not a default-solver promotion;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and
   `bdf_jvp_jacobian_total_seconds` for any fixed-JVP run, because the compact
