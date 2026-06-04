@@ -637,23 +637,25 @@ What this documents:
 - four exact-match lanes on the current compare surface:
   `tokamak_isothermal_one_step`, `tokamak_turbulence_one_step`,
   `tokamak_diffusion_transport_short_window`, and `annulus_he_emag_one_step`;
-- the current most difficult live one-step lane in the selected matrix:
-  `neutral_mixed_one_step`, with worst RMS error normalized by reference
-  amplitude about `9.17e-1` and native/reference wall-time ratio about `2.93`;
+- the current neutral one-step lane is no longer the largest relative parity
+  offender after the term-level source closure pass: `neutral_mixed_one_step`
+  now has worst max-absolute error about `4.47e-6`, relative RMS about
+  `8.90e-4`, relative L2 about `2.14e-3`, and native/reference wall-time ratio
+  about `4.14`;
 - heavy 1D recycling lanes that are closer in fidelity but still slower than
-  Hermès-3 on this machine:
+  the reference solver on this machine:
   `recycling_1d_one_step` and `recycling_dthe_one_step`, with worst normalized
-  RMS errors about `4.62e-3` and `4.92e-3`, and runtime ratios about `3.65`
-  and `7.82`;
+  RMS errors about `4.62e-3` and `4.92e-3`, and runtime ratios about `3.96`
+  and `7.16`;
 - integrated and direct tokamak recycling one-step lanes that are already close
   to wall-time parity or faster on this machine, but their current relative
   mismatch is dominated by near-zero `NVd` on the guarded compare surface; the
   corresponding worst absolute max-errors stay small at about `7.48e-12` and
   `3.09e-7`.
 - process-tree peak RSS is now sampled during each native and Hermès run; the
-  largest native peak is about `722 MiB` on the integrated 2D recycling lane,
-  while the largest native/Hermès peak-RSS ratio is about `0.95` on
-  `recycling_dthe_one_step`.
+  largest native peak is about `562 MiB` on the integrated 2D recycling lane,
+  while the largest native/reference peak-RSS ratio is about `0.96` on
+  `alfven_wave_one_step`.
 
 This is the current main live code-to-code validation figure for the docs. It
 also shows the honest remaining gap: full live 3D Hermès reruns are still not
@@ -668,13 +670,15 @@ What this documents:
 
 - a ranked triage artifact that turns the live rerun matrix into concrete next
   debugging targets;
-- the current top parity offender: `neutral_mixed_one_step` on `NVh`, pointing
-  to neutral mixed boundary and parallel momentum closure;
+- the current top normalized parity offender:
+  `integrated_2d_recycling_one_step` on near-zero `NVd`, which is explicitly
+  flagged as normalization-sensitive because the absolute error is about
+  `7.47e-12`;
 - the current top runtime offender: `recycling_dthe_one_step`, pointing to
   sparse Jacobian, residual, pack/unpack, and target-recycling closure
   profiling;
 - memory is now ranked from measured process-tree peak RSS; the current top
-  ratio is `recycling_dthe_one_step` at about `0.95`, so the next memory step
+  ratio is `alfven_wave_one_step` at about `0.96`, so the next memory step
   is phase-resolved profiling rather than broad peak-RSS triage;
 - near-zero normalized `NVd`/`NVt` mismatches are explicitly flagged so
   absolute error is inspected before changing equations.
@@ -692,8 +696,8 @@ What this documents:
 - a `max_{x,z} |Δ|(y)` panel that makes the parallel localization of the
   remaining mismatch visible across the whole compare surface;
 - the current one-step worst-field numbers on this focused surface:
-  `Nh max |Δ| ≈ 1.07e-2`, `Ph max |Δ| ≈ 8.65e-4`, and
-  `NVh max |Δ| ≈ 3.37e-3`, with a native/reference runtime ratio about `3.12x`.
+  `Nh max |Δ| ≈ 2.19e-4`, `Ph max |Δ| ≈ 2.11e-5`, and
+  `NVh max |Δ| ≈ 4.47e-6`, with a native/reference runtime ratio about `5.13x`.
 
 This is the right follow-up figure for the current neutral lane because it
 turns the remaining live rerun mismatch into a physical profile question that

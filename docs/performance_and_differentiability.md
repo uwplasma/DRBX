@@ -108,14 +108,14 @@ sharpen those generic blockers into specific case priorities:
     and viscosity source formulas against written reference diagnostics
   - the remaining issue is target-adjacent state/history reconstruction and
     release-media refresh, not a missing `NVh` operator formula
-  - native/reference wall-time ratio now about `3.18x`
+  - native/reference wall-time ratio now about `4.14x`
 - `recycling_1d_one_step`
   - worst normalized RMS mismatch about `4.62e-3`
-  - native/reference wall-time ratio about `3.65x`
+  - native/reference wall-time ratio about `3.96x`
   - dominant normalized field: `Pd+`
 - `recycling_dthe_one_step`
   - worst normalized RMS mismatch about `4.92e-3`
-  - native/reference wall-time ratio now about `7.82x`
+  - native/reference wall-time ratio now about `7.16x`
   - dominant field: `NVd`
 
 The current integrated and direct tokamak recycling one-step ladders still show
