@@ -20,6 +20,7 @@ from jax_drb.parity.reference import (
     _run_reference_binary,
     _stage_case_artifacts,
     _stage_mesh_file,
+    _summarize_run,
     _summarize_variable,
     build_case_baseline_payload,
     discover_reference_binary,
@@ -312,6 +313,77 @@ def test_summarize_dataset_extracts_scalars_and_deltas(tmp_path: Path) -> None:
     assert scalars["Nnorm"] == 1.0e18
     assert variables["Ne"].shape == (2, 3)
     assert variables["Ne"].max_abs_delta_last_first == 0.5
+
+
+def test_summarize_run_builds_trimmed_summary_from_required_artifacts(tmp_path: Path) -> None:
+    input_path = tmp_path / "BOUT.inp"
+    input_path.write_text(
+        """
+        nout = 2
+        timestep = 0.5
+        MXG = 1
+        MYG = 1
+
+        [mesh]
+        nx = 5
+        ny = 5
+        nz = 1
+        J = 1
+
+        [model]
+        components = e
+
+        [e]
+        type = evolve_density
+        charge = -1
+        AA = 1/1836
+        """,
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "run"
+    workdir.mkdir()
+    for artifact_name in ("BOUT.settings", "BOUT.log.0", "BOUT.restart.0.nc"):
+        (workdir / artifact_name).write_text("present\n", encoding="utf-8")
+    with Dataset(workdir / "BOUT.dmp.0.nc", "w") as dataset:
+        dataset.createDimension("t", 2)
+        dataset.createDimension("x", 5)
+        dataset.createDimension("y", 5)
+        dataset.createDimension("z", 1)
+        t = dataset.createVariable("t_array", "f8", ("t",))
+        t[:] = np.array([0.0, 0.5])
+        for name, value in {
+            "Nnorm": 1.0e18,
+            "Tnorm": 5.0,
+            "Bnorm": 2.0,
+            "Cs0": 3.0,
+            "Omega_ci": 4.0,
+            "rho_s0": 5.0,
+        }.items():
+            scalar = dataset.createVariable(name, "f8")
+            scalar.assignValue(value)
+        ne = dataset.createVariable("Ne", "f8", ("t", "x", "y", "z"))
+        ne[:] = np.arange(50, dtype=np.float64).reshape(2, 5, 5, 1)
+
+    summary = _summarize_run(
+        case=_toy_case(trim_x_guards=True, trim_y_guards=True),
+        input_path=input_path,
+        binary=tmp_path / "reference-binary",
+        workdir=workdir,
+        overrides=("nout=2",),
+    )
+
+    assert summary.case_name == "toy_rhs"
+    assert summary.overrides == ("nout=2",)
+    assert summary.artifacts["BOUT.dmp.0.nc"] == os.fspath(workdir / "BOUT.dmp.0.nc")
+    assert summary.dimensions == {"t": 2, "x": 5, "y": 5, "z": 1}
+    assert summary.time_points == (0.0, 0.5)
+    assert summary.dataset_scalars["rho_s0"] == 5.0
+    assert summary.component_labels == ("e:evolve_density",)
+    assert summary.nout == 2
+    assert summary.timestep == 0.5
+    ne_summary = summary.variable_summaries["Ne"]
+    assert ne_summary.shape == (2, 3, 3, 1)
+    assert ne_summary.max_abs_delta_last_first == pytest.approx(25.0)
 
 
 def test_summarize_variable_trims_guards_and_omits_delta_without_time_dimension(tmp_path: Path) -> None:

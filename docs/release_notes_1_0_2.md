@@ -56,10 +56,13 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
 
 The current release candidate passed the bounded closeout gate at `97%`
 coverage and the promoted native-solver gate at `95%` coverage on the local
-developer machine. The promoted gate ran `451` tests with `7` deselected and
-`1` expected xfail. GitHub Actions are green on the documentation, test, and
-coverage workflows for the latest pushed commit, so release publication is
-gated by technical promotion decisions rather than CI availability.
+developer machine. On a developer machine with the external reference checkout
+available, the promoted gate runs the live operational-band comparisons. In a
+no-reference CI environment the same gate skips those external-reference-only
+checks and still passes the promoted surface at `95%` coverage (`451` passed,
+`13` skipped, `7` deselected, and `1` expected xfail in the local CI-like
+simulation). Release publication is therefore gated by technical promotion
+decisions rather than CI availability.
 
 Live-reference and large `all-gpu` campaigns remain manual self-hosted runs:
 they require a valid reference checkout and CUDA-visible devices. Their

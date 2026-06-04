@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,6 +39,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _REFERENCE_INPUT = Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-recycling/data/BOUT.inp")
 _REFERENCE_ROOT = Path("/Users/rogerio/local/hermes-3")
 _BASELINE_ARRAY_DIR = _REPO_ROOT / "references/baselines/reference_arrays"
+
+
+def _require_reference_input(input_path: Path, case_name: str) -> None:
+    if os.environ.get("JAX_DRB_SKIP_EXTERNAL_REFERENCE_TESTS") == "1" or not input_path.exists():
+        pytest.skip(f"{case_name} reference input is unavailable")
 
 
 def test_run_curated_case_dispatches_tokamak_recycling_rhs_to_dedicated_helper(
@@ -95,6 +101,7 @@ def _reference_case_by_name(name: str) -> ReferenceCase:
 def _run_integrated_2d_case_against_committed_baseline(case_name: str):
     case = _reference_case_by_name(case_name)
     input_path = _REFERENCE_ROOT / case.reference_path
+    _require_reference_input(input_path, case_name)
     if case_name.endswith("_rhs"):
         result = native_runner._run_integrated_2d_recycling_rhs_case(
             case,
@@ -137,6 +144,7 @@ def _run_integrated_2d_case_against_committed_baseline(case_name: str):
 def _run_direct_tokamak_case_against_committed_baseline(case_name: str):
     case = _reference_case_by_name(case_name)
     input_path = _REFERENCE_ROOT / case.reference_path
+    _require_reference_input(input_path, case_name)
     result = native_runner.run_curated_case(case_name, reference_root=_REFERENCE_ROOT)
     expected = load_portable_array_payload(_BASELINE_ARRAY_DIR / f"{case_name}.npz")
     actual = build_array_payload_from_summary_payload(result.payload, result.variables)
