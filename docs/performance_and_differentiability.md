@@ -722,6 +722,13 @@ The matrix-free BE/BDF2 trial solvers also start from the same explicit
 predictor used by the sparse and JAX-linearized paths, rather than from the
 previous state. That keeps the native solver variants comparable and avoids an
 unnecessary convergence penalty in the matrix-free lane.
+The current multi-ion traces show a clear split between solver routes:
+JAX-linearized GMRES is dominated by Krylov linear solves, Lineax reports inner
+linear-solver breakdown on most completed substeps, and sparse-JVP reaches BDF2
+with millisecond sparse linear solves but spends almost all time assembling
+grouped-JVP Jacobians. This makes sparse-JVP the near-term optimization lane for
+multi-ion adaptive BDF, while full JAX-linearized matrix-free promotion remains
+blocked on preconditioning.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with

@@ -161,7 +161,15 @@ completed startup trials used `153.3 s`, only one completed substep reported
 linear-solver success, and the remaining Lineax statuses reported iterative
 breakdown or non-finite output. Future promotion gates must therefore check
 `adaptive_bdf_linear_solver_failed_steps == 0`, not only nonlinear convergence
-and embedded-error ratios.
+and embedded-error ratios. The strongest measured path is now
+`adaptive_bdf_sparse_jvp`: in the same 180-second trace window it completed
+`96` implicit trials, reached BDF2, and reduced average completed-trial cost to
+about `1.8 s`, with sparse linear solves near milliseconds. That route still
+fails promotion because the embedded-error ratios remained hundreds by the end
+of the bounded trace, and `166.3 s` of the `170.3 s` completed-trial time was
+spent assembling grouped-JVP Jacobians. The next implementation target is
+therefore sparse-JVP Jacobian reuse/batching plus a better startup/error
+estimator, not a lower JAX GMRES budget.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

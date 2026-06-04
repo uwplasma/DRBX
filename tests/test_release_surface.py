@@ -583,6 +583,8 @@ def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
     assert payload["startup_error_ratios"][0] > 1.0e6
     assert payload["krylov_control_probe_10x10"]["average_completed_trial_elapsed_seconds"] > 20.0
     assert payload["lineax_backend_probe"]["linear_solver_failure_count"] == 5
+    assert payload["sparse_jvp_backend_probe"]["completed_trial_counts_by_kind"]["bdf2_corrector"] == 37
+    assert payload["sparse_jvp_backend_probe"]["jacobian_assembly_seconds_completed_trials"] > 150.0
     assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 
