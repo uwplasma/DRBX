@@ -348,6 +348,12 @@ def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() 
     assert sorted(points) == [1, 2, 3, 4, 6, 8]
     assert points[3]["status"] == "failed"
     assert points[6]["status"] == "failed"
+    assert points[3]["failure_vector"]["size"] == 1800
+    assert points[3]["failure_vector"]["finite_fraction"] == pytest.approx(1.0)
+    assert points[3]["failure_vector"]["max_abs"] == pytest.approx(8.526386727731725e-1)
+    assert points[6]["failure_vector"]["size"] == 1800
+    assert points[6]["failure_vector"]["finite_fraction"] == pytest.approx(1.0)
+    assert points[6]["failure_vector"]["max_abs"] == pytest.approx(8.753496191572953e-1)
 
     successful_errors = [
         points[substeps]["final_field_error_register"]["fields"]["NVh"]["max_abs"]

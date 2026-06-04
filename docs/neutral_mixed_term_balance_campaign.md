@@ -80,6 +80,10 @@ The committed diagnostic now records successful substep counts `1`, `2`, `4`,
 and `8`, with `NVh` final max error decreasing from `8.84e-4` at one substep
 to `4.47e-6` at eight substeps; the `3` and `6` substep probes are retained as
 failed points so the report is explicit about the current controller limits.
+Those failed points now include the nonlinear residual-vector size, finite
+fraction, RMS, and maximum absolute value; in the committed report both
+failures have 1800 finite residual entries with maximum absolute residuals of
+about `0.85` and `0.88`.
 This is the concrete reason the one-step path remains on the eight-substep
 neutral mixed setting and why the next neutral parity work should target the
 state/history sequencer rather than the direct pressure-gradient or viscosity

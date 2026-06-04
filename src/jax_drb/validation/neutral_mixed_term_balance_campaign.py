@@ -845,13 +845,44 @@ def _build_neutral_mixed_substep_point(
             ),
         }
     except Exception as exc:
-        return {
+        payload = {
             "internal_substeps": int(internal_substeps),
             "status": "failed",
             "elapsed_seconds": float(time.perf_counter() - start),
             "error_type": type(exc).__name__,
             "error_message": str(exc),
         }
+        failure_vector = _exception_array_payload(exc)
+        if failure_vector:
+            payload["failure_vector"] = failure_vector
+        return payload
+
+
+def _exception_array_payload(exc: Exception) -> dict[str, object]:
+    for arg in getattr(exc, "args", ()):
+        try:
+            values = np.asarray(arg, dtype=np.float64)
+        except (TypeError, ValueError):
+            continue
+        if values.ndim == 0 or values.size == 0:
+            continue
+        finite = np.isfinite(values)
+        finite_values = values[finite]
+        if finite_values.size == 0:
+            max_abs = float("nan")
+            rms = float("nan")
+        else:
+            max_abs = float(np.max(np.abs(finite_values)))
+            rms = float(np.sqrt(np.mean(np.square(finite_values))))
+        return {
+            "size": int(values.size),
+            "finite_fraction": float(np.mean(finite)),
+            "max_abs": max_abs,
+            "rms": rms,
+            "first_values": values.reshape(-1)[:8].tolist(),
+            "last_values": values.reshape(-1)[-8:].tolist(),
+        }
+    return {}
 
 
 def _state_from_trimmed_history(
