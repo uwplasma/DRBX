@@ -30,5 +30,7 @@ jobs:
         run: |
           python scripts/run_closeout_coverage.py
       - name: Run promoted solver coverage gate
+        env:
+          JAX_DRB_USE_FIXTURE_REFERENCE_ROOT: "1"
         run: |
           python scripts/run_promoted_solver_coverage.py

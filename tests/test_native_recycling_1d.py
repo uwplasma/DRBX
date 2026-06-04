@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -79,6 +80,7 @@ from jax_drb.solver.implicit import ImplicitStepInfo
 
 _REPO_ROOT = repo_root()
 _REFERENCE_ROOT = default_reference_root()
+_FIXTURE_REFERENCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "reference-root"
 _BASELINE_DIR = _REPO_ROOT / "references" / "baselines" / "reference"
 _ARRAY_BASELINE_DIR = _REPO_ROOT / "references" / "baselines" / "reference_arrays"
 _SNAPSHOT_DIR = _REPO_ROOT / "references" / "baselines" / "reference_snapshots"
@@ -90,9 +92,13 @@ _INTEGRATED_2D_RECYCLING_DUMP = "tests/integrated/2D-recycling/data/BOUT.dmp.0.n
 
 
 def _reference_root() -> Path:
-    if _REFERENCE_ROOT is None or not _REFERENCE_ROOT.exists():
-        pytest.skip("external reference decks are not available")
-    return _REFERENCE_ROOT
+    if os.environ.get("JAX_DRB_USE_FIXTURE_REFERENCE_ROOT") == "1":
+        return _FIXTURE_REFERENCE_ROOT
+    if _REFERENCE_ROOT is not None and _REFERENCE_ROOT.exists():
+        return _REFERENCE_ROOT
+    if _FIXTURE_REFERENCE_ROOT.exists():
+        return _FIXTURE_REFERENCE_ROOT
+    pytest.skip("external reference decks are not available")
 
 
 def _reference_input(relative_path: str) -> Path:

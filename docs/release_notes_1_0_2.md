@@ -58,11 +58,12 @@ The current release candidate passed the bounded closeout gate at `97%`
 coverage and the promoted native-solver gate at `95%` coverage on the local
 developer machine. On a developer machine with the external reference checkout
 available, the promoted gate runs the live operational-band comparisons. In a
-no-reference CI environment the same gate skips those external-reference-only
-checks and still passes the promoted surface at `95%` coverage (`451` passed,
-`13` skipped, `7` deselected, and `1` expected xfail in the local CI-like
-simulation). Release publication is therefore gated by technical promotion
-decisions rather than CI availability.
+no-reference CI environment the same gate uses committed lightweight BOUT input
+fixtures for the recycling solver-unit coverage, skips only the
+external-reference-only operational-band checks, and still passes the promoted
+surface at `95%` coverage (`450` passed, `14` skipped, `7` deselected, and `1`
+expected xfail in the local CI-like simulation). Release publication is
+therefore gated by technical promotion decisions rather than CI availability.
 
 Live-reference and large `all-gpu` campaigns remain manual self-hosted runs:
 they require a valid reference checkout and CUDA-visible devices. Their
