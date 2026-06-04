@@ -99,14 +99,16 @@ These are the highest-value refactor targets for the next release cycle because 
 - automatic differentiation
 - maintainability of the promoted recycling/tokamak transient lane
 
-The refreshed same-machine live Hermès rerun matrix now sharpens those generic
-blockers into specific case priorities:
+The same-machine live reference matrix and follow-on term-balance reports now
+sharpen those generic blockers into specific case priorities:
 
 - `neutral_mixed_one_step`
-  - worst normalized RMS mismatch about `1.44e-1`
-  - dominant-field relative-L2 mismatch about `3.46e-1`
+  - the older live matrix exposed `NVh` as the visible offender, but the
+    current term-balance campaign has since closed the direct pressure-gradient
+    and viscosity source formulas against written reference diagnostics
+  - the remaining issue is target-adjacent state/history reconstruction and
+    release-media refresh, not a missing `NVh` operator formula
   - native/reference wall-time ratio now about `3.18x`
-  - dominant field: `NVh`
 - `recycling_1d_one_step`
   - worst normalized RMS mismatch about `4.62e-3`
   - native/reference wall-time ratio about `3.65x`
@@ -750,14 +752,16 @@ The same pass also changed the live runtime picture in a way that matters for
 the paper and for users:
 
 - `neutral_mixed_one_step` dropped from roughly `6.44 s` live runtime to about
-  `1.43 s`, while keeping the same dominant fidelity gap on `NVh`
+  `1.43 s`, and the later term-balance audit localizes the remaining
+  state-history drift while preserving direct operator-source parity
 - `recycling_1d_one_step` now runs at about `15.98 s` live runtime with
   fidelity preserved, which is materially better than the earlier recycling
   baseline but still slower than Hermès on the same machine
 
 That means the next work should be divided clearly:
 
-- fix the neutral mixed `NVh` mismatch as a fidelity problem
+- keep the neutral mixed lane on state-history/media refresh rather than
+  formula replacement
 - reduce `recycling_dthe_one_step` and `recycling_1d_one_step` as runtime
   problems without widening their already-tight fidelity band
 
