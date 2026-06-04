@@ -1,6 +1,6 @@
 # Neutral Mixed Benchmark
 
-This page tracks the compact short-window benchmark for the staged neutral branch. The current artifact is a reference-side target, not yet a native transient parity claim.
+This page tracks the compact short-window benchmark for the staged neutral branch. The original short-window artifact remains a reference-side target, while the current one-step and substep/hybrid diagnostics provide bounded native parity evidence for the term-level implementation.
 
 The benchmark is extracted from the committed short-window neutral array baseline at probe index `(x=5, y=3, z=5)`. It records:
 
@@ -35,7 +35,7 @@ The current locked target values at the final stored output are:
 - total `Ph`: `7.86184063e+01`
 - momentum RMS: `5.56121767e-08`
 
-This benchmark exists to keep the next neutral transient implementation honest. The public runner now executes both `neutral_mixed_one_step` and `neutral_mixed_short_window`, and the latest bounded one-step compare is materially tighter after fixing connected-y guard reconstruction and promoting the one-step default to eight internal BDF substeps:
+This benchmark keeps the neutral transient implementation honest across two levels: the short-window reference history protects the expected observable scale, and the one-step/substep diagnostics localize native parity to the pressure-gradient, viscosity, boundary, and state-history pieces that feed `NVh`. The public runner now executes both `neutral_mixed_one_step` and `neutral_mixed_short_window`, and the latest bounded one-step compare is materially tighter after fixing connected-y guard reconstruction and promoting the one-step default to eight internal BDF substeps:
 
 - center `Nh` max-abs error: about `5.39e-5`
 - center `Ph` max-abs error: about `5.90e-6`

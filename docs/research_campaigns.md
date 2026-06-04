@@ -131,7 +131,12 @@ runtime knob and does not alter the stable default BDF route. A follow-up local
 probe with `runtime:recycling_adaptive_bdf_initial_dt=0.03125` still exceeded a
 360-second bound on the same D/T/He diagnostics-only gate, so the current
 blocker is per-step solve cost and/or accepted-step count rather than only
-startup rejection.
+startup rejection. For timeout-bound probes, set
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL=/tmp/dthe_adaptive_bdf_trace.jsonl`
+to get flushed JSONL records before and after each startup, backward-Euler
+predictor, BDF2 corrector, and embedded-error estimate; the trace carries
+residual-evaluation, Jacobian/linearization, Krylov-solve, line-search, route,
+and convergence metadata from each implicit substep.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current
@@ -183,7 +188,7 @@ For the remaining recycling solver work, the order is therefore fixed:
   controller used `21` accepted steps, `6` rejected trials, `61` implicit trial
   solves, `20` BDF2 trial solves, and `19` accepted BDF2 trial solves, so
   increase the timeout on laptops because the measured wall time was about
-  `162 s`. The same gate now also requires route provenance:
+  `174 s`. The same gate now also requires route provenance:
   `adaptive_bdf_fixed_full_field_rhs_solver_steps` must be positive for every
   opt-in JAX/JVP adaptive mode, `adaptive_bdf_sparse_jvp_jacobian_solver_steps`
   must be positive for `adaptive_bdf_sparse_jvp`, and
@@ -195,7 +200,7 @@ For the remaining recycling solver work, the order is therefore fixed:
   (`21` accepted substeps, `6` rejected trials, `61` implicit trial solves,
   zero fallback, zero unconverged substeps,
   `adaptive_bdf_max_accepted_error_ratio=9.315e-1`). On the local CPU, Lineax
-  GMRES ran in about `132 s` versus about `162 s` for the in-tree JAX GMRES
+  GMRES ran in about `152 s` versus about `174 s` for the in-tree JAX GMRES
   path, which is useful evidence but not a default-solver promotion;
 - report `bdf_jvp_jacobian_linearize_seconds`,
   `bdf_jvp_jacobian_push_seconds`, and

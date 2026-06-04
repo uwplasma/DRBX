@@ -25,7 +25,7 @@ JAX-based solver papers.
 | `Blob2d Meeting Movie` | `saved-payload visualization` | Fast one-step Blob2D visualization from a committed `.npz` payload. |
 | `Diverted Tokamak Geometry Movie` | `benchmark-backed visualization` | Full-domain stitched tokamak turbulence movie with LCFS, wall, and divertor overlays. |
 | `TCV-X21 Tokamak Scaffold` | `scaffolded_reference_backed` | First 3D tokamak kickoff package with a manifest-resolved preview path. |
-| `Neutral Mixed Short-Window Benchmark Target` | `reference-only target` | Review artifact is staged; native transient is not yet promoted. |
+| `Neutral Mixed Short-Window Benchmark Target` | `reference-backed plus one-step native gate` | Short-window artifact remains a reference target; one-step and substep/hybrid diagnostics now localize native `NVh` parity. |
 | `Alfven-Wave Short-Window Benchmark` | `native-scaffolded target` | Electromagnetic transient benchmark is staged and benchmark-validated on the current scaffold. |
 | `Hermes Live Rerun Matrix` | `live native vs live reference` | Same-machine native/Hermès rerun matrix across representative 1D and 2D lanes. |
 | `Hermes Offender Register` | `triage artifact` | Ranked parity/runtime/memory offender register from the live rerun matrix and reduced geometry summary. |

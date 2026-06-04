@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -272,10 +273,17 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     recycling._record_adaptive_bdf_step_solver_info(
         stats,
         SimpleNamespace(
+            linear_iterations=7,
             diagnostics={
                 "converged": True,
                 "rhs_backend": "fixed_full_field_array",
                 "jacobian_mode": "jax_linearized:jax_gmres",
+                "residual_evaluation_count": 3,
+                "residual_evaluation_seconds": 0.5,
+                "jacobian_refresh_count": 2,
+                "jacobian_assembly_seconds": 0.25,
+                "linear_solve_seconds": 0.75,
+                "line_search_seconds": 0.125,
             }
         ),
     )
@@ -309,6 +317,89 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_jax_linearized_action_solver_steps"] == 1
     assert stats["adaptive_bdf_sparse_jvp_jacobian_solver_steps"] == 1
     assert stats["adaptive_bdf_fd_jacobian_solver_steps"] == 1
+    assert stats["adaptive_bdf_residual_evaluation_count"] == 3
+    assert stats["adaptive_bdf_jacobian_refresh_count"] == 2
+    assert stats["adaptive_bdf_linear_iterations"] == 7
+    assert stats["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(0.5)
+    assert stats["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(0.25)
+    assert stats["adaptive_bdf_linear_solve_seconds"] == pytest.approx(0.75)
+    assert stats["adaptive_bdf_line_search_seconds"] == pytest.approx(0.125)
+
+
+def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
+    total = recycling._new_adaptive_bdf_interval_stats("jax_linearized")
+    step = recycling._new_adaptive_bdf_interval_stats("jax_linearized")
+    step["adaptive_bdf_interval_wall_seconds"] = 10.0
+    step["adaptive_bdf_startup_trial_seconds"] = 1.0
+    step["adaptive_bdf_backward_euler_trial_seconds"] = 2.0
+    step["adaptive_bdf_bdf2_trial_seconds"] = 3.0
+    step["adaptive_bdf_error_estimator_seconds"] = 0.1
+    step["adaptive_bdf_residual_evaluation_seconds"] = 4.0
+    step["adaptive_bdf_jacobian_assembly_seconds"] = 5.0
+    step["adaptive_bdf_linear_solve_seconds"] = 6.0
+    step["adaptive_bdf_line_search_seconds"] = 7.0
+    step["adaptive_bdf_residual_evaluation_count"] = 8
+    step["adaptive_bdf_jacobian_refresh_count"] = 9
+    step["adaptive_bdf_linear_iterations"] = 10
+
+    recycling._accumulate_adaptive_bdf_interval_stats(total, step)
+
+    assert total["adaptive_bdf_interval_wall_seconds"] == pytest.approx(10.0)
+    assert total["adaptive_bdf_startup_trial_seconds"] == pytest.approx(1.0)
+    assert total["adaptive_bdf_backward_euler_trial_seconds"] == pytest.approx(2.0)
+    assert total["adaptive_bdf_bdf2_trial_seconds"] == pytest.approx(3.0)
+    assert total["adaptive_bdf_error_estimator_seconds"] == pytest.approx(0.1)
+    assert total["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(4.0)
+    assert total["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(5.0)
+    assert total["adaptive_bdf_linear_solve_seconds"] == pytest.approx(6.0)
+    assert total["adaptive_bdf_line_search_seconds"] == pytest.approx(7.0)
+    assert total["adaptive_bdf_residual_evaluation_count"] == 8
+    assert total["adaptive_bdf_jacobian_refresh_count"] == 9
+    assert total["adaptive_bdf_linear_iterations"] == 10
+
+
+def test_adaptive_bdf_trace_flushes_start_record_before_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    trace_path = tmp_path / "adaptive_bdf_trace.jsonl"
+
+    def fake_step(*args, **kwargs):
+        raise RuntimeError("synthetic implicit failure")
+
+    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(trace_path))
+    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_step)
+
+    with pytest.raises(RuntimeError, match="synthetic implicit failure"):
+        recycling._advance_recycling_1d_startup_step(
+            _FakeConfig(),
+            _fields(),
+            runtime_model=_runtime_model(),
+            feedback_integrals={"ctrl": 0.0},
+            field_names=("N",),
+            feedback_names=("ctrl",),
+            mesh=object(),
+            metrics=object(),
+            dataset_scalars={},
+            timestep=1.0,
+            residual_tolerance=1.0e-8,
+            max_nonlinear_iterations=20,
+            relative_tolerance=1.0e-6,
+            absolute_tolerance=1.0e-9,
+            step_solver_mode="jax_linearized",
+        )
+
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    assert records == [
+        {
+            "dt": 1.0,
+            "event": "start",
+            "step_solver_mode": "jax_linearized",
+            "time": records[0]["time"],
+            "trial_kind": "startup_full_backward_euler",
+            "use_bdf2": False,
+        }
+    ]
 
 
 def test_adaptive_be_interval_retries_then_accepts_step(monkeypatch: pytest.MonkeyPatch) -> None:

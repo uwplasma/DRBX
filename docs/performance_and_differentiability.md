@@ -690,7 +690,16 @@ startup versus BDF2 trials, accepted-`dt` bounds, the last and maximum embedded
 error ratios, the step solver backend used by the controller, and route
 provenance counters for `fixed_full_field_array` versus `host_bridge`
 residuals, sparse-JVP Jacobian steps, finite-difference Jacobian steps, and
-JAX-linearized action steps. These fields are intentionally exposed in
+JAX-linearized action steps. It also aggregates wall-clock buckets for startup
+trials, backward-Euler predictor solves, BDF2 corrector solves, embedded-error
+estimation, residual evaluation, Jacobian/linearization, Krylov solves, and
+line search, plus residual-evaluation, Jacobian-refresh, and linear-iteration
+counts. Set
+`JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL=/path/to/trace.jsonl` to emit a
+flushed start/end record around each expensive adaptive-BDF implicit trial;
+this is the preferred diagnostic for timeout runs where final
+`Recycling1DHistoryResult.diagnostics` would otherwise be lost. These fields
+are intentionally exposed in
 `Recycling1DHistoryResult.diagnostics` so the research campaigns can
 distinguish a genuinely stable output-window solve from a run that only
 completed by falling back to the minimum internal timestep or silently taking
@@ -741,7 +750,7 @@ promotion gate.
 With these checks, the local single-species gate has now been extended to a
 `timestep=1.0` diagnostic output window on the reference recycling deck. The
 current variable-step BDF2 controller completed the in-tree JAX GMRES run in
-about `162 s`, took `21` accepted substeps and `6` rejected trials, reported
+about `174 s`, took `21` accepted substeps and `6` rejected trials, reported
 `61` implicit trial solves, reused BDF2 history on `20` trial solves, accepted
 `19` of those BDF2 trials, and had zero fallback, zero unconverged substeps,
 and `adaptive_bdf_max_accepted_error_ratio=9.315e-1`. The previous
@@ -749,7 +758,7 @@ constant-step-history-reset controller needed `207` trial solves and about
 `259 s` on the same gate, so the new history policy removes most restart
 overhead without loosening the embedded-error acceptance policy. On the same
 `timestep=1.0` gate, `adaptive_bdf_jax_linearized_lineax` produced the same
-controller diagnostics and ran in about `132 s` on this local CPU. This is
+controller diagnostics and ran in about `152 s` on this local CPU. This is
 useful backend evidence, but not yet enough to change the default production
 solver because the full output-window recycling path still needs the same
 parity and runtime gates. This remains a bounded solver-health result rather

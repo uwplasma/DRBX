@@ -374,8 +374,8 @@ current local single-species gate passes at `timestep=1.0` with zero fallback,
 zero unconverged substeps, max accepted embedded error ratio about `0.93`, and
 variable-step BDF2 history reuse after rejected-step timestep changes. On this
 gate, the in-tree JAX GMRES path used `61` implicit trial solves in about
-`162 s`, and the optional Lineax GMRES seam used the same controller history in
-about `132 s`. The exact commands, caveats, and latest numbers are in
+`174 s`, and the optional Lineax GMRES seam used the same controller history in
+about `152 s`. The exact commands, caveats, and latest numbers are in
 [docs/performance_and_differentiability.md](docs/performance_and_differentiability.md)
 and [docs/research_campaigns.md](docs/research_campaigns.md).
 

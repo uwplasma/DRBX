@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import json
 import math
 import os
 import re
@@ -2034,6 +2035,18 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_fd_jacobian_solver_steps": 0,
         "adaptive_bdf_jax_linearized_action_solver_steps": 0,
         "adaptive_bdf_lineax_action_solver_steps": 0,
+        "adaptive_bdf_residual_evaluation_count": 0,
+        "adaptive_bdf_jacobian_refresh_count": 0,
+        "adaptive_bdf_linear_iterations": 0,
+        "adaptive_bdf_interval_wall_seconds": 0.0,
+        "adaptive_bdf_startup_trial_seconds": 0.0,
+        "adaptive_bdf_backward_euler_trial_seconds": 0.0,
+        "adaptive_bdf_bdf2_trial_seconds": 0.0,
+        "adaptive_bdf_error_estimator_seconds": 0.0,
+        "adaptive_bdf_residual_evaluation_seconds": 0.0,
+        "adaptive_bdf_jacobian_assembly_seconds": 0.0,
+        "adaptive_bdf_linear_solve_seconds": 0.0,
+        "adaptive_bdf_line_search_seconds": 0.0,
         "adaptive_bdf_min_accepted_dt": None,
         "adaptive_bdf_max_accepted_dt": None,
         "adaptive_bdf_last_error_ratio": None,
@@ -2042,6 +2055,96 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_max_accepted_error_ratio": None,
         "adaptive_bdf_step_solver_mode": str(step_solver_mode),
     }
+
+
+def _add_adaptive_bdf_elapsed(
+    stats: dict[str, float | int | str | None],
+    key: str,
+    started_at: float,
+) -> None:
+    elapsed = max(0.0, float(time.perf_counter()) - float(started_at))
+    stats[key] = float(stats.get(key, 0.0) or 0.0) + elapsed
+
+
+def _adaptive_bdf_trace_path() -> str | None:
+    value = os.environ.get("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL")
+    if value is None or not value.strip():
+        return None
+    return os.path.expanduser(value)
+
+
+def _json_ready_adaptive_bdf_trace_value(value: object) -> object:
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_ready_adaptive_bdf_trace_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready_adaptive_bdf_trace_value(item) for item in value]
+    return str(value)
+
+
+def _write_adaptive_bdf_trace_record(
+    *,
+    event: str,
+    trial_kind: str,
+    dt: float,
+    use_bdf2: bool,
+    step_solver_mode: str,
+    info: Recycling1DImplicitStepInfo | object | None = None,
+    elapsed_seconds: float | None = None,
+    error_ratio: float | None = None,
+) -> None:
+    trace_path = _adaptive_bdf_trace_path()
+    if trace_path is None:
+        return
+    record: dict[str, object] = {
+        "event": str(event),
+        "trial_kind": str(trial_kind),
+        "dt": float(dt),
+        "use_bdf2": bool(use_bdf2),
+        "step_solver_mode": str(step_solver_mode),
+        "time": time.time(),
+    }
+    if elapsed_seconds is not None:
+        record["elapsed_seconds"] = float(elapsed_seconds)
+    if error_ratio is not None:
+        record["error_ratio"] = float(error_ratio) if np.isfinite(error_ratio) else None
+    if info is not None:
+        residual_inf_norm = float(getattr(info, "residual_inf_norm", np.nan))
+        record["residual_inf_norm"] = residual_inf_norm if np.isfinite(residual_inf_norm) else None
+        record["nonlinear_iterations"] = int(getattr(info, "nonlinear_iterations", 0))
+        record["linear_iterations"] = int(getattr(info, "linear_iterations", 0))
+        diagnostics = getattr(info, "diagnostics", None)
+        if isinstance(diagnostics, dict):
+            for key in (
+                "rhs_backend",
+                "jacobian_mode",
+                "converged",
+                "residual_evaluation_count",
+                "residual_evaluation_seconds",
+                "jacobian_refresh_count",
+                "jacobian_assembly_seconds",
+                "linear_solve_seconds",
+                "line_search_seconds",
+                "linear_solver_backend",
+                "linear_solver_status",
+                "linear_solver_success",
+                "linear_solver_reported_iterations",
+            ):
+                if key in diagnostics:
+                    record[key] = diagnostics[key]
+    parent = os.path.dirname(trace_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(trace_path, "a", encoding="utf-8") as trace_file:
+        trace_file.write(json.dumps(_json_ready_adaptive_bdf_trace_value(record), sort_keys=True) + "\n")
+        trace_file.flush()
 
 
 def _record_adaptive_bdf_error_ratio(
@@ -2100,6 +2203,21 @@ def _record_adaptive_bdf_step_solver_info(
         ) + 1
     if not isinstance(diagnostics, dict):
         return
+    for source_key, destination_key in (
+        ("residual_evaluation_count", "adaptive_bdf_residual_evaluation_count"),
+        ("jacobian_refresh_count", "adaptive_bdf_jacobian_refresh_count"),
+    ):
+        stats[destination_key] = int(stats[destination_key]) + int(diagnostics.get(source_key, 0) or 0)
+    stats["adaptive_bdf_linear_iterations"] = int(stats["adaptive_bdf_linear_iterations"]) + int(
+        getattr(info, "linear_iterations", 0) or 0
+    )
+    for source_key, destination_key in (
+        ("residual_evaluation_seconds", "adaptive_bdf_residual_evaluation_seconds"),
+        ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
+        ("linear_solve_seconds", "adaptive_bdf_linear_solve_seconds"),
+        ("line_search_seconds", "adaptive_bdf_line_search_seconds"),
+    ):
+        stats[destination_key] = float(stats[destination_key]) + float(diagnostics.get(source_key, 0.0) or 0.0)
     rhs_backend = str(diagnostics.get("rhs_backend", ""))
     if rhs_backend == "fixed_full_field_array":
         stats["adaptive_bdf_fixed_full_field_rhs_solver_steps"] = int(
@@ -2146,9 +2264,26 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_fd_jacobian_solver_steps",
         "adaptive_bdf_jax_linearized_action_solver_steps",
         "adaptive_bdf_lineax_action_solver_steps",
+        "adaptive_bdf_residual_evaluation_count",
+        "adaptive_bdf_jacobian_refresh_count",
+        "adaptive_bdf_linear_iterations",
     )
     for key in count_keys:
         total[key] = int(total[key]) + int(step.get(key, 0))
+
+    elapsed_keys = (
+        "adaptive_bdf_interval_wall_seconds",
+        "adaptive_bdf_startup_trial_seconds",
+        "adaptive_bdf_backward_euler_trial_seconds",
+        "adaptive_bdf_bdf2_trial_seconds",
+        "adaptive_bdf_error_estimator_seconds",
+        "adaptive_bdf_residual_evaluation_seconds",
+        "adaptive_bdf_jacobian_assembly_seconds",
+        "adaptive_bdf_linear_solve_seconds",
+        "adaptive_bdf_line_search_seconds",
+    )
+    for key in elapsed_keys:
+        total[key] = float(total.get(key, 0.0) or 0.0) + float(step.get(key, 0.0) or 0.0)
 
     for key, reducer in (
         ("adaptive_bdf_min_accepted_dt", min),
@@ -2218,6 +2353,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
     prev_integrals = None if previous_integrals is None else {name: float(previous_integrals.get(name, 0.0)) for name in feedback_names}
     prev_dt = previous_dt
     stats = _new_adaptive_bdf_interval_stats(step_solver_mode)
+    interval_started_at = time.perf_counter()
 
     while remaining > 1.0e-12:
         dt = min(dt, remaining)
@@ -2229,6 +2365,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
         )
         if not use_bdf2:
             stats["adaptive_bdf_startup_trials"] = int(stats["adaptive_bdf_startup_trials"]) + 1
+            startup_started_at = time.perf_counter()
             candidate_fields, candidate_integrals, error_ratio = _advance_recycling_1d_startup_step(
                 config,
                 current_fields,
@@ -2247,8 +2384,17 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 step_solver_mode=step_solver_mode,
                 stats=stats,
             )
+            _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_startup_trial_seconds", startup_started_at)
         else:
             stats["adaptive_bdf_bdf2_trials"] = int(stats["adaptive_bdf_bdf2_trials"]) + 1
+            be_started_at = time.perf_counter()
+            _write_adaptive_bdf_trace_record(
+                event="start",
+                trial_kind="bdf2_backward_euler_predictor",
+                dt=dt,
+                use_bdf2=True,
+                step_solver_mode=step_solver_mode,
+            )
             be_fields, be_integrals, be_info = advance_recycling_1d_backward_euler_step(
                 config,
                 current_fields,
@@ -2262,7 +2408,28 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
             )
+            be_elapsed = max(0.0, float(time.perf_counter()) - float(be_started_at))
+            stats["adaptive_bdf_backward_euler_trial_seconds"] = (
+                float(stats["adaptive_bdf_backward_euler_trial_seconds"]) + be_elapsed
+            )
             _record_adaptive_bdf_step_solver_info(stats, be_info)
+            _write_adaptive_bdf_trace_record(
+                event="end",
+                trial_kind="bdf2_backward_euler_predictor",
+                dt=dt,
+                use_bdf2=True,
+                step_solver_mode=step_solver_mode,
+                info=be_info,
+                elapsed_seconds=be_elapsed,
+            )
+            bdf2_started_at = time.perf_counter()
+            _write_adaptive_bdf_trace_record(
+                event="start",
+                trial_kind="bdf2_corrector",
+                dt=dt,
+                use_bdf2=True,
+                step_solver_mode=step_solver_mode,
+            )
             bdf_fields, bdf_integrals, bdf_info = advance_recycling_1d_bdf2_step(
                 config,
                 current_fields,
@@ -2279,7 +2446,19 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 residual_tolerance=residual_tolerance,
                 max_nonlinear_iterations=max_nonlinear_iterations,
             )
+            bdf2_elapsed = max(0.0, float(time.perf_counter()) - float(bdf2_started_at))
+            stats["adaptive_bdf_bdf2_trial_seconds"] = float(stats["adaptive_bdf_bdf2_trial_seconds"]) + bdf2_elapsed
             _record_adaptive_bdf_step_solver_info(stats, bdf_info)
+            _write_adaptive_bdf_trace_record(
+                event="end",
+                trial_kind="bdf2_corrector",
+                dt=dt,
+                use_bdf2=True,
+                step_solver_mode=step_solver_mode,
+                info=bdf_info,
+                elapsed_seconds=bdf2_elapsed,
+            )
+            error_started_at = time.perf_counter()
             error_ratio = _recycling_state_error_ratio(
                 be_fields,
                 be_integrals,
@@ -2291,7 +2470,16 @@ def _advance_recycling_1d_adaptive_bdf_interval(
                 relative_tolerance=relative_tolerance,
                 absolute_tolerance=absolute_tolerance,
             )
+            _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
             error_ratio /= 3.0
+            _write_adaptive_bdf_trace_record(
+                event="error_estimate",
+                trial_kind="bdf2_embedded_difference",
+                dt=dt,
+                use_bdf2=True,
+                step_solver_mode=step_solver_mode,
+                error_ratio=float(error_ratio),
+            )
             if np.isfinite(error_ratio) and error_ratio <= _ADAPTIVE_BDF_ACCEPTANCE_ERROR_RATIO:
                 candidate_fields = bdf_fields
                 candidate_integrals = bdf_integrals
@@ -2342,6 +2530,7 @@ def _advance_recycling_1d_adaptive_bdf_interval(
         prev_integrals = None
         prev_dt = None
 
+    _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_interval_wall_seconds", interval_started_at)
     return (
         current_fields,
         current_integrals,
@@ -2410,6 +2599,14 @@ def _advance_recycling_1d_startup_step(
     step_solver_mode: str = "sparse",
     stats: dict[str, float | int | str | None] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, float], float]:
+    full_started_at = time.perf_counter()
+    _write_adaptive_bdf_trace_record(
+        event="start",
+        trial_kind="startup_full_backward_euler",
+        dt=timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+    )
     full_fields, full_integrals, full_info = advance_recycling_1d_backward_euler_step(
         config,
         fields,
@@ -2423,8 +2620,29 @@ def _advance_recycling_1d_startup_step(
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
+    full_elapsed = max(0.0, float(time.perf_counter()) - float(full_started_at))
     if stats is not None:
+        stats["adaptive_bdf_backward_euler_trial_seconds"] = (
+            float(stats["adaptive_bdf_backward_euler_trial_seconds"]) + full_elapsed
+        )
         _record_adaptive_bdf_step_solver_info(stats, full_info)
+    _write_adaptive_bdf_trace_record(
+        event="end",
+        trial_kind="startup_full_backward_euler",
+        dt=timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+        info=full_info,
+        elapsed_seconds=full_elapsed,
+    )
+    first_half_started_at = time.perf_counter()
+    _write_adaptive_bdf_trace_record(
+        event="start",
+        trial_kind="startup_first_half_backward_euler",
+        dt=0.5 * timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+    )
     half_fields, half_integrals, first_half_info = advance_recycling_1d_backward_euler_step(
         config,
         fields,
@@ -2438,8 +2656,29 @@ def _advance_recycling_1d_startup_step(
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
+    first_half_elapsed = max(0.0, float(time.perf_counter()) - float(first_half_started_at))
     if stats is not None:
+        stats["adaptive_bdf_backward_euler_trial_seconds"] = (
+            float(stats["adaptive_bdf_backward_euler_trial_seconds"]) + first_half_elapsed
+        )
         _record_adaptive_bdf_step_solver_info(stats, first_half_info)
+    _write_adaptive_bdf_trace_record(
+        event="end",
+        trial_kind="startup_first_half_backward_euler",
+        dt=0.5 * timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+        info=first_half_info,
+        elapsed_seconds=first_half_elapsed,
+    )
+    second_half_started_at = time.perf_counter()
+    _write_adaptive_bdf_trace_record(
+        event="start",
+        trial_kind="startup_second_half_backward_euler",
+        dt=0.5 * timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+    )
     half_fields, half_integrals, second_half_info = advance_recycling_1d_backward_euler_step(
         config,
         half_fields,
@@ -2453,8 +2692,22 @@ def _advance_recycling_1d_startup_step(
         residual_tolerance=residual_tolerance,
         max_nonlinear_iterations=max_nonlinear_iterations,
     )
+    second_half_elapsed = max(0.0, float(time.perf_counter()) - float(second_half_started_at))
     if stats is not None:
+        stats["adaptive_bdf_backward_euler_trial_seconds"] = (
+            float(stats["adaptive_bdf_backward_euler_trial_seconds"]) + second_half_elapsed
+        )
         _record_adaptive_bdf_step_solver_info(stats, second_half_info)
+    _write_adaptive_bdf_trace_record(
+        event="end",
+        trial_kind="startup_second_half_backward_euler",
+        dt=0.5 * timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+        info=second_half_info,
+        elapsed_seconds=second_half_elapsed,
+    )
+    error_started_at = time.perf_counter()
     error_ratio = _recycling_state_error_ratio(
         full_fields,
         full_integrals,
@@ -2465,6 +2718,16 @@ def _advance_recycling_1d_startup_step(
         mesh=mesh,
         relative_tolerance=relative_tolerance,
         absolute_tolerance=absolute_tolerance,
+    )
+    if stats is not None:
+        _add_adaptive_bdf_elapsed(stats, "adaptive_bdf_error_estimator_seconds", error_started_at)
+    _write_adaptive_bdf_trace_record(
+        event="error_estimate",
+        trial_kind="startup_embedded_difference",
+        dt=timestep,
+        use_bdf2=False,
+        step_solver_mode=step_solver_mode,
+        error_ratio=float(error_ratio),
     )
     return half_fields, half_integrals, error_ratio
 

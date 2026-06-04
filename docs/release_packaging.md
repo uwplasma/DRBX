@@ -117,10 +117,23 @@ python -m build
 4. verify the public docs and artifact surface:
 
 ```bash
+mkdocs build --strict
 pytest -q tests/test_release_surface.py
 ```
 
-5. optionally run the Python version matrix locally or through CI.
+5. verify the release artifact bundle and docs-media restore path when release
+   assets have changed:
+
+```bash
+python scripts/fetch_example_artifacts.py --skip-baselines
+pytest -q tests/test_runtime_artifacts.py
+```
+
+6. dispatch the bounded research campaign workflows that are expected for the
+   release candidate, then wait for GitHub `test`, `docs`, and `coverage` to
+   complete successfully on the target commit.
+
+7. optionally run the Python version matrix locally or through CI.
 
 ## Current Release Boundary
 
