@@ -676,10 +676,14 @@ same BDF timestepper.
 The adaptive BDF history result now reports solver-health diagnostics for these
 opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,
 startup versus BDF2 trials, accepted-`dt` bounds, the last and maximum embedded
-error ratios, and the step solver backend used by the controller. These fields
-are intentionally exposed in `Recycling1DHistoryResult.diagnostics` so the
-research campaigns can distinguish a genuinely stable output-window solve from
-a run that only completed by falling back to the minimum internal timestep.
+error ratios, the step solver backend used by the controller, and route
+provenance counters for `fixed_full_field_array` versus `host_bridge`
+residuals, sparse-JVP Jacobian steps, finite-difference Jacobian steps, and
+JAX-linearized action steps. These fields are intentionally exposed in
+`Recycling1DHistoryResult.diagnostics` so the research campaigns can
+distinguish a genuinely stable output-window solve from a run that only
+completed by falling back to the minimum internal timestep or silently taking
+the wrong residual/Jacobian route.
 The adaptive BDF controller uses a conservative accepted-step threshold of
 `0.95` for the embedded error ratio and a timestep safety factor of `0.85`.
 Those values are deliberately aligned with the promotion gate rather than the
@@ -696,11 +700,11 @@ the variable-step BDF2 residual
 `r=Δt_n/Δt_{n-1}`. This reduces unnecessary backward-Euler restarts after
 rejected trial steps while preserving the constant-step BDF2 formula at
 `r=1`.
-The BE/BDF2 `jax_linearized` and `jax_linearized_lineax` modes now build their
-residuals through the fixed full-field array adapter instead of the host
-packing bridge; the sparse and default production modes intentionally remain on
-the validated host-compatibility adapter until each heavier RHS term has passed
-its transformability and parity gates.
+The BE/BDF2 `sparse_jvp`, `jax_linearized`, and `jax_linearized_lineax` modes
+now build their residuals through the fixed full-field array adapter instead
+of the host packing bridge; the default `sparse` production mode intentionally
+remains on the validated host-compatibility adapter until each heavier RHS term
+has passed its transformability and parity gates.
 Implicit step diagnostics now also include a `converged` flag when the solver
 can determine whether its residual or step-tolerance criterion was satisfied;
 validation campaigns should require this flag before promoting an opt-in solver
