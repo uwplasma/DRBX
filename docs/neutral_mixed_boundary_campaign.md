@@ -36,7 +36,9 @@ the earlier `5.81e-4` and `3.37e-3` boundary-local mismatches. The worst
 scalar neutral-state error is now on `Nh`, about `2.19e-4`, with `Ph` at about
 `2.11e-5`. The campaign therefore separates the closed neutral-momentum
 source-formula question from the remaining density/pressure boundary-history
-fidelity work.
+fidelity work. The committed JSON is also used as a non-env-gated regression
+surface, so future solver or boundary changes must either preserve these ranked
+maxima or intentionally refresh the artifact with stronger parity evidence.
 
 Run the package locally with:
 
