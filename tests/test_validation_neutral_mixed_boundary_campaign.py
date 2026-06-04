@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from jax_drb.validation import (
     build_neutral_mixed_boundary_campaign_report,
@@ -11,6 +12,16 @@ from jax_drb.validation import (
     save_neutral_mixed_boundary_campaign_plot,
 )
 import jax_drb.validation.neutral_mixed_boundary_campaign as campaign_mod
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_COMMITTED_REPORT_JSON = (
+    _REPO_ROOT
+    / "docs"
+    / "data"
+    / "neutral_mixed_boundary_campaign_artifacts"
+    / "data"
+    / "neutral_mixed_boundary_campaign.json"
+)
 
 
 def _sample_report() -> dict[str, object]:
@@ -186,3 +197,26 @@ def test_build_neutral_mixed_boundary_campaign_report_has_expected_schema(monkey
     assert report["case_name"] == "neutral_mixed_one_step"
     assert report["worst_field"] in {"Nh", "Ph", "NVh"}
     assert set(report["profiles"]) == {"Nh", "Ph", "NVh"}
+
+
+def test_committed_neutral_mixed_boundary_campaign_report_tracks_state_history_drift() -> None:
+    report = json.loads(_COMMITTED_REPORT_JSON.read_text(encoding="utf-8"))
+
+    assert report["case_name"] == "neutral_mixed_one_step"
+    assert report["worst_field"] == "Nh"
+    assert report["worst_max_abs_error"] == pytest.approx(2.1939053106800888e-4)
+
+    metrics = report["field_metrics"]
+    assert set(metrics) == {"Nh", "Ph", "NVh"}
+    assert metrics["Nh"]["max_abs_error"] == pytest.approx(2.1939053106800888e-4)
+    assert metrics["Nh"]["lower_boundary_max_abs_error"] == pytest.approx(1.521091223670723e-4)
+    assert metrics["Nh"]["upper_boundary_max_abs_error"] == pytest.approx(1.521090748224374e-4)
+    assert metrics["Ph"]["max_abs_error"] == pytest.approx(2.1145845255476914e-5)
+    assert metrics["Ph"]["lower_boundary_max_abs_error"] == pytest.approx(1.5048158256009136e-5)
+    assert metrics["Ph"]["upper_boundary_max_abs_error"] == pytest.approx(1.5048136311451854e-5)
+    assert metrics["NVh"]["max_abs_error"] == pytest.approx(4.46733131195939e-6)
+    assert metrics["NVh"]["lower_boundary_max_abs_error"] == pytest.approx(4.046397291406758e-6)
+    assert metrics["NVh"]["upper_boundary_max_abs_error"] == pytest.approx(4.046398068899412e-6)
+
+    assert metrics["NVh"]["max_abs_error"] < 5.0e-6
+    assert metrics["Nh"]["max_abs_error"] > metrics["Ph"]["max_abs_error"] > metrics["NVh"]["max_abs_error"]
