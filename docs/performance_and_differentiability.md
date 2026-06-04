@@ -693,11 +693,18 @@ mode to a paper or release claim.
 For adaptive BDF promotion attempts, the comparison script can now enforce the
 same policy explicitly:
 `compare_recycling_transient_modes.py --mode adaptive_bdf_jax_linearized
---require-adaptive-bdf-no-fallback --require-adaptive-bdf-max-error-ratio
-0.95 --mode-timeout-seconds 120`. This gate is intentionally strict: a run
-that completes only through minimum-`dt` fallback, exceeds the timeout, or
-reports an embedded error ratio above the threshold is treated as evidence that
-the output-window JAX-linearized path is not ready for default use.
+--diagnostics-only --timestep 0.05 --max-nonlinear-iterations 3
+--require-adaptive-bdf-no-fallback --require-adaptive-bdf-max-accepted-error-ratio
+0.95 --mode-timeout-seconds 120`. The diagnostics-only flag is important for
+this bounded promotion check because the committed one-step array baselines are
+generated at the full reference output time. A shortened timestep is useful for
+solver-health testing, but it is not a replacement for a full parity run. This
+gate is intentionally strict: a run that completes only through minimum-`dt`
+fallback, exceeds the timeout, or accepts an embedded error ratio above the
+threshold is treated as evidence that the output-window JAX-linearized path is
+not ready for default use. Rejected trial error ratios remain available as
+`adaptive_bdf_max_error_ratio` for controller diagnostics, while
+`adaptive_bdf_max_accepted_error_ratio` is the promotion gate.
 
 There is also an optional Lineax evaluation seam for transformable gates:
 `solver_mode="jax_linearized_lineax"` or
