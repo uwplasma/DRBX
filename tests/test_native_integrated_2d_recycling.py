@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jax_drb.config.boutinp import load_bout_input
+from jax_drb.config.boutinp import load_bout_input, parse_bout_input
 from jax_drb.native import runner as native_runner
 from jax_drb.parity.arrays import build_array_payload_from_summary_payload, load_portable_array_payload
 from jax_drb.parity.diff import build_scaled_array_diff_entries
@@ -149,7 +149,25 @@ def _run_direct_tokamak_case_against_committed_baseline(case_name: str):
 
 
 def test_integrated_2d_production_one_step_prefers_bdf_solver() -> None:
-    config = load_bout_input(Path("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp"))
+    config = parse_bout_input(
+        """
+        [mesh]
+        nx = 4
+        ny = 4
+        nz = 1
+
+        [model]
+        components = e, d+
+
+        [e]
+        type = quasineutral
+        charge = -1
+
+        [d+]
+        type = evolve_density, evolve_pressure, evolve_momentum
+        charge = 1
+        """
+    )
     assert native_runner._select_integrated_2d_transient_solver_mode(
         "integrated_2d_production_one_step",
         config=config,

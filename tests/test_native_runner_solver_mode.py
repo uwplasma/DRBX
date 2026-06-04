@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input, parse_bout_input
+from jax_drb.config.boutinp import apply_bout_overrides, parse_bout_input
 from jax_drb.native.runner_solver_mode import (
     configured_recycling_transient_solver_mode,
     select_integrated_2d_transient_solver_mode,
@@ -106,7 +106,7 @@ def test_select_recycling_transient_solver_mode_ignores_unresolvable_charge_entr
 
 
 def test_select_integrated_2d_transient_solver_mode_prefers_bdf_for_promoted_cases() -> None:
-    config = load_bout_input("/Users/rogerio/local/hermes-3/tests/integrated/2D-production/data/BOUT.inp")
+    config = parse_bout_input(_TWO_ION_INPUT)
     assert select_integrated_2d_transient_solver_mode(
         "integrated_2d_production_one_step",
         config=config,
