@@ -477,6 +477,12 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     np.testing.assert_allclose(solution, np.asarray(target), rtol=1e-9, atol=1e-9)
     assert info.residual_inf_norm < 1.0e-10
     assert info.jacobian_mode == "jvp"
+    assert info.jvp_direction_batch_count > 0
+    assert info.jvp_direction_build_seconds >= 0.0
+    assert info.jvp_jacobian_batch_count >= info.jvp_direction_batch_count
+    assert info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
+    assert info.jvp_jacobian_tangent_build_seconds == pytest.approx(0.0)
+    assert info.jvp_jacobian_total_seconds >= info.jvp_jacobian_linearize_seconds
 
 
 def test_sparse_newton_solver_returns_immediately_when_initial_state_satisfies_residual() -> None:

@@ -2140,6 +2140,15 @@ def _write_adaptive_bdf_trace_record(
                 "linear_solver_status",
                 "linear_solver_success",
                 "linear_solver_reported_iterations",
+                "jvp_direction_batch_count",
+                "jvp_direction_build_seconds",
+                "jvp_jacobian_total_seconds",
+                "jvp_jacobian_linearize_seconds",
+                "jvp_jacobian_tangent_build_seconds",
+                "jvp_jacobian_push_seconds",
+                "jvp_jacobian_sparse_assembly_seconds",
+                "jvp_jacobian_batch_count",
+                "jvp_jacobian_prebuilt_direction_batch_uses",
             ):
                 if key in diagnostics:
                     record[key] = diagnostics[key]
@@ -4555,6 +4564,17 @@ def _as_recycling_step_info(
         "linear_solver_status": getattr(info, "linear_solver_status", None),
         "linear_solver_success": getattr(info, "linear_solver_success", None),
         "linear_solver_reported_iterations": getattr(info, "linear_solver_reported_iterations", None),
+        "jvp_direction_batch_count": int(getattr(info, "jvp_direction_batch_count", 0)),
+        "jvp_direction_build_seconds": float(getattr(info, "jvp_direction_build_seconds", 0.0)),
+        "jvp_jacobian_total_seconds": float(getattr(info, "jvp_jacobian_total_seconds", 0.0)),
+        "jvp_jacobian_linearize_seconds": float(getattr(info, "jvp_jacobian_linearize_seconds", 0.0)),
+        "jvp_jacobian_tangent_build_seconds": float(getattr(info, "jvp_jacobian_tangent_build_seconds", 0.0)),
+        "jvp_jacobian_push_seconds": float(getattr(info, "jvp_jacobian_push_seconds", 0.0)),
+        "jvp_jacobian_sparse_assembly_seconds": float(getattr(info, "jvp_jacobian_sparse_assembly_seconds", 0.0)),
+        "jvp_jacobian_batch_count": int(getattr(info, "jvp_jacobian_batch_count", 0)),
+        "jvp_jacobian_prebuilt_direction_batch_uses": int(
+            getattr(info, "jvp_jacobian_prebuilt_direction_batch_uses", 0)
+        ),
     }
     if solver_mode is not None:
         diagnostics["solver_mode"] = str(solver_mode)

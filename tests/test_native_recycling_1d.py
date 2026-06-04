@@ -2321,12 +2321,22 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
     def fake_sparse(residual, initial_state, *, active_shape, jacobian_mode, **kwargs):
         calls.append(("sparse", jacobian_mode))
         np.testing.assert_allclose(initial_state, predicted_states[-1])
+        jvp_direction_batch_count = 2 if jacobian_mode == "jvp" else 0
         return np.asarray(initial_state, dtype=np.float64), ImplicitStepInfo(
             residual_inf_norm=0.0,
             active_shape=tuple(active_shape),
             nonlinear_iterations=1,
             linear_iterations=1,
             jacobian_mode=jacobian_mode,
+            jvp_direction_batch_count=jvp_direction_batch_count,
+            jvp_direction_build_seconds=0.01 if jacobian_mode == "jvp" else 0.0,
+            jvp_jacobian_total_seconds=0.02 if jacobian_mode == "jvp" else 0.0,
+            jvp_jacobian_linearize_seconds=0.003 if jacobian_mode == "jvp" else 0.0,
+            jvp_jacobian_tangent_build_seconds=0.0,
+            jvp_jacobian_push_seconds=0.012 if jacobian_mode == "jvp" else 0.0,
+            jvp_jacobian_sparse_assembly_seconds=0.004 if jacobian_mode == "jvp" else 0.0,
+            jvp_jacobian_batch_count=jvp_direction_batch_count,
+            jvp_jacobian_prebuilt_direction_batch_uses=1 if jacobian_mode == "jvp" else 0,
         )
 
     def fake_jax_linearized(residual, initial_state, *, active_shape, linear_solver_backend, **kwargs):
@@ -2375,6 +2385,10 @@ def test_recycling_backward_euler_routes_jax_native_solver_backends(
         if recycling_1d_mod._recycling_solver_uses_fixed_full_field_rhs(solver_mode)
         else "host_bridge"
     )
+    if solver_mode == "sparse_jvp":
+        assert info.diagnostics["jvp_direction_batch_count"] == 2
+        assert info.diagnostics["jvp_jacobian_prebuilt_direction_batch_uses"] == 1
+        assert info.diagnostics["jvp_jacobian_tangent_build_seconds"] == pytest.approx(0.0)
     assert np.isfinite(next_fields["Nd+"]).all()
 
 

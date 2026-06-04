@@ -39,6 +39,15 @@ class ImplicitStepInfo:
     linear_solver_status: int | float | str | None = None
     linear_solver_success: bool | None = None
     linear_solver_reported_iterations: int | None = None
+    jvp_direction_batch_count: int = 0
+    jvp_direction_build_seconds: float = 0.0
+    jvp_jacobian_total_seconds: float = 0.0
+    jvp_jacobian_linearize_seconds: float = 0.0
+    jvp_jacobian_tangent_build_seconds: float = 0.0
+    jvp_jacobian_push_seconds: float = 0.0
+    jvp_jacobian_sparse_assembly_seconds: float = 0.0
+    jvp_jacobian_batch_count: int = 0
+    jvp_jacobian_prebuilt_direction_batch_uses: int = 0
 
 
 @dataclass(frozen=True)
@@ -515,6 +524,15 @@ def solve_sparse_newton_system(
     resolved_jacobian_mode = str(jacobian_mode).strip().lower()
     if resolved_jacobian_mode not in {"fd", "jvp"}:
         raise ValueError(f"Unsupported sparse Newton jacobian_mode={jacobian_mode!r}.")
+    jvp_direction_batch_count = 0
+    jvp_direction_build_seconds = 0.0
+    jvp_jacobian_total_seconds = 0.0
+    jvp_jacobian_linearize_seconds = 0.0
+    jvp_jacobian_tangent_build_seconds = 0.0
+    jvp_jacobian_push_seconds = 0.0
+    jvp_jacobian_sparse_assembly_seconds = 0.0
+    jvp_jacobian_batch_count = 0
+    jvp_jacobian_prebuilt_direction_batch_uses = 0
 
     def evaluate_residual(candidate_state: np.ndarray) -> np.ndarray:
         nonlocal residual_evaluation_count, residual_evaluation_seconds
@@ -546,6 +564,15 @@ def solve_sparse_newton_system(
             fallback_used=fallback_used,
             jacobian_mode=resolved_jacobian_mode,
             converged=converged,
+            jvp_direction_batch_count=jvp_direction_batch_count,
+            jvp_direction_build_seconds=jvp_direction_build_seconds,
+            jvp_jacobian_total_seconds=jvp_jacobian_total_seconds,
+            jvp_jacobian_linearize_seconds=jvp_jacobian_linearize_seconds,
+            jvp_jacobian_tangent_build_seconds=jvp_jacobian_tangent_build_seconds,
+            jvp_jacobian_push_seconds=jvp_jacobian_push_seconds,
+            jvp_jacobian_sparse_assembly_seconds=jvp_jacobian_sparse_assembly_seconds,
+            jvp_jacobian_batch_count=jvp_jacobian_batch_count,
+            jvp_jacobian_prebuilt_direction_batch_uses=jvp_jacobian_prebuilt_direction_batch_uses,
         )
 
     refresh_frequency = max(1, int(jacobian_refresh_frequency))
@@ -565,6 +592,29 @@ def solve_sparse_newton_system(
         color_groups=color_groups,
         sparsity_csc=sparsity_csc,
     )
+    jvp_direction_batches = None
+    if resolved_jacobian_mode == "jvp":
+        direction_started_at = perf_counter()
+        jvp_direction_batches = prepare_sparse_jvp_direction_batches(
+            difference_plan=difference_plan,
+            state_shape=tuple(state.shape),
+            dtype=np.float64,
+            batch_size=jvp_batch_size,
+        )
+        jvp_direction_build_seconds += perf_counter() - direction_started_at
+        jvp_direction_batch_count = len(jvp_direction_batches)
+
+    def record_jvp_timing(timing: dict[str, float | int]) -> None:
+        nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds, jvp_jacobian_prebuilt_direction_batch_uses
+        nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
+        nonlocal jvp_jacobian_total_seconds
+        jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
+        jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
+        jvp_jacobian_tangent_build_seconds += float(timing.get("tangent_build_seconds", 0.0))
+        jvp_jacobian_push_seconds += float(timing.get("push_seconds", 0.0))
+        jvp_jacobian_sparse_assembly_seconds += float(timing.get("sparse_assembly_seconds", 0.0))
+        jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
+        jvp_jacobian_prebuilt_direction_batch_uses += int(timing.get("prebuilt_direction_batches", 0))
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         residual_value = evaluate_residual(state)
@@ -590,6 +640,8 @@ def solve_sparse_newton_system(
                     sparsity_csc=sparsity_csc,
                     difference_plan=difference_plan,
                     batch_size=jvp_batch_size,
+                    direction_batches=jvp_direction_batches,
+                    timing_callback=record_jvp_timing,
                 )
             else:
                 jacobian = build_sparse_difference_quotient_jacobian(
