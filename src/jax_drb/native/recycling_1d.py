@@ -4031,6 +4031,9 @@ def _as_recycling_step_info(
         "fallback_used": bool(getattr(info, "fallback_used", False)),
         "jacobian_mode": str(getattr(info, "jacobian_mode", "")),
         "converged": getattr(info, "converged", None),
+        "linear_solver_backend": getattr(info, "linear_solver_backend", None),
+        "linear_solver_status": getattr(info, "linear_solver_status", None),
+        "linear_solver_success": getattr(info, "linear_solver_success", None),
     }
     if solver_mode is not None:
         diagnostics["solver_mode"] = str(solver_mode)

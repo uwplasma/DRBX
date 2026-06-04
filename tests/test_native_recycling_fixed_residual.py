@@ -227,6 +227,9 @@ def test_jax_linearized_recycling_step_reaches_full_fixed_residual_without_host_
     assert info.diagnostics["jacobian_refresh_count"] == 1
     assert info.diagnostics["jacobian_assembly_seconds"] >= 0.0
     assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"
+    assert info.diagnostics["linear_solver_backend"] == "jax_gmres"
+    assert info.diagnostics["linear_solver_status"] is None
+    assert info.diagnostics["linear_solver_success"] is None
 
 
 def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:
@@ -250,6 +253,7 @@ def test_jax_linearized_recycling_step_supports_dthe_fixed_residual() -> None:
     assert info.residual_inf_norm < 1.0e-8
     assert info.diagnostics["jacobian_refresh_count"] == 1
     assert info.diagnostics["jacobian_mode"] == "jax_linearized:jax_gmres"
+    assert info.diagnostics["linear_solver_backend"] == "jax_gmres"
 
 
 def test_backward_euler_residual_context_exposes_jvp_gate_on_dthe_deck() -> None:

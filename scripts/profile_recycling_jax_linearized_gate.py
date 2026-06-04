@@ -145,6 +145,10 @@ def _resolve_input(args: argparse.Namespace) -> Path:
     return (root.expanduser().resolve() / "tests" / "integrated" / case_dir / "data" / "BOUT.inp").resolve()
 
 
+def _solver_mode_for_backend(linear_solver_backend: str) -> str:
+    return "jax_linearized_lineax" if str(linear_solver_backend) == "lineax_gmres" else "jax_linearized"
+
+
 def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str, Any], float]:
     from jax_drb.config.boutinp import apply_bout_overrides, load_bout_input
     from jax_drb.native.mesh import build_structured_mesh
@@ -172,6 +176,7 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
     )
     fields = _build_recycling_state_fields(runtime_model)
     feedback_integrals = {name: 0.0 for name in runtime_model.feedback_names}
+    solver_mode = _solver_mode_for_backend(args.linear_solver_backend)
 
     started = perf_counter()
     next_fields, _next_integrals, info = advance_recycling_1d_backward_euler_step(
@@ -183,7 +188,7 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
         metrics=metrics,
         dataset_scalars=scalars,
         timestep=float(args.timestep),
-        solver_mode="jax_linearized_lineax" if args.linear_solver_backend == "lineax_gmres" else "jax_linearized",
+        solver_mode=solver_mode,
         residual_tolerance=float(args.residual_tolerance),
         max_nonlinear_iterations=int(args.max_nonlinear_iterations),
     )
@@ -196,7 +201,7 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
     report = {
         "input_path": _public_input_path(args, input_path),
         "case": str(args.case),
-        "solver_mode": "jax_linearized",
+        "solver_mode": solver_mode,
         "linear_solver_backend": str(args.linear_solver_backend),
         "overrides": list(args.override),
         "warmup_runs": int(max(args.warmup_runs, 0)),
@@ -216,6 +221,8 @@ def _profile_once(args: argparse.Namespace, input_path: Path) -> tuple[dict[str,
         "residual_inf_norm": float(info.residual_inf_norm),
         "nonlinear_iterations": int(info.nonlinear_iterations),
         "linear_iterations": int(info.linear_iterations),
+        "linear_solver_status": info.diagnostics.get("linear_solver_status"),
+        "linear_solver_success": info.diagnostics.get("linear_solver_success"),
         "diagnostics": dict(info.diagnostics),
     }
     return report, elapsed

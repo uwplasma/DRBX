@@ -258,3 +258,10 @@ def test_batched_jvp_profiler_accepts_explicit_staged_input(tmp_path: Path) -> N
     args = SimpleNamespace(reference_root=None, input_path=input_path, case="dthe")
 
     assert module._resolve_input(args) == input_path.resolve()
+
+
+def test_jax_linearized_profiler_reports_lineax_solver_mode() -> None:
+    module = _load_script_module("scripts/profile_recycling_jax_linearized_gate.py", "jax_linearized_mode_mapping")
+
+    assert module._solver_mode_for_backend("jax_gmres") == "jax_linearized"
+    assert module._solver_mode_for_backend("lineax_gmres") == "jax_linearized_lineax"

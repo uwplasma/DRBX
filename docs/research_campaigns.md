@@ -161,6 +161,10 @@ For the remaining recycling solver work, the order is therefore fixed:
   prebuilds sparse tangent batches once per solve, so remaining regressions
   should be attributed to linearization and tangent pushes, not repeated
   tangent allocation;
+- require JAX-linearized profiles to include `linear_solver_backend`,
+  `linear_solver_status`, and `linear_solver_success` in their diagnostics, so
+  backend comparisons separate residual linearization time from failed or
+  marginal Krylov solves;
 - run `gpu-dthe-full-output-jvp-profile` on a self-hosted GPU runner after any
   output-window recycling solver change, because this is the first campaign in
   the bundle that combines the production curated case, the fixed-full-field

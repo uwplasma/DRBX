@@ -35,6 +35,9 @@ class ImplicitStepInfo:
     fallback_used: bool = False
     jacobian_mode: str = "fd"
     converged: bool | None = None
+    linear_solver_backend: str | None = None
+    linear_solver_status: int | float | str | None = None
+    linear_solver_success: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,14 @@ class SparseDifferenceQuotientPlan:
 class SparseJvpDirectionBatch:
     groups: tuple[SparseDifferenceQuotientGroup, ...]
     directions: object
+
+
+@dataclass(frozen=True)
+class JaxLinearizedUpdateResult:
+    update: object
+    backend: str
+    status: object = None
+    success: bool | None = None
 
 
 def difference_quotient_step_size(value: float) -> float:
@@ -760,9 +771,19 @@ def solve_jax_linearized_newton_system(
     line_search_seconds = 0.0
     linear_backend = _resolve_jax_linear_solver_backend(linear_solver_backend)
     jacobian_mode = f"jax_linearized:{linear_backend}"
+    last_linear_solver_status: int | float | str | None = None
+    last_linear_solver_success: bool | None = None
 
     def _block(value):
-        return jax.block_until_ready(value)
+        if value is None:
+            return None
+        blocker = getattr(value, "block_until_ready", None)
+        if callable(blocker):
+            return blocker()
+        try:
+            return jax.block_until_ready(value)
+        except (TypeError, ValueError):
+            return value
 
     def _info(
         *,
@@ -783,6 +804,9 @@ def solve_jax_linearized_newton_system(
             line_search_seconds=line_search_seconds,
             jacobian_mode=jacobian_mode,
             converged=bool(converged),
+            linear_solver_backend=linear_backend,
+            linear_solver_status=last_linear_solver_status,
+            linear_solver_success=last_linear_solver_success,
         )
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
@@ -803,7 +827,7 @@ def solve_jax_linearized_newton_system(
             )
 
         linear_solve_started_at = perf_counter()
-        update = _solve_jax_linearized_update(
+        solve_result = _solve_jax_linearized_update(
             linear_map,
             -residual_value,
             backend=linear_backend,
@@ -812,7 +836,15 @@ def solve_jax_linearized_newton_system(
             linear_maxiter=int(linear_maxiter),
             jax_gmres=gmres,
         )
+        update = solve_result.update
         update = _block(update)
+        status = _block(solve_result.status) if solve_result.status is not None else None
+        last_linear_solver_status = _normalize_linear_solver_status(status)
+        last_linear_solver_success = _linear_solver_success(
+            backend=linear_backend,
+            status=last_linear_solver_status,
+            explicit_success=solve_result.success,
+        )
         linear_solve_seconds += perf_counter() - linear_solve_started_at
         total_linear_iterations += int(linear_restart) * int(linear_maxiter)
         update = jnp.asarray(update, dtype=jnp.float64)
@@ -894,7 +926,7 @@ def _solve_jax_linearized_update(
     jax_gmres,
 ):
     if backend == "jax_gmres":
-        update, _ = jax_gmres(
+        update, status = jax_gmres(
             linear_map,
             rhs,
             tol=float(residual_tolerance),
@@ -902,7 +934,7 @@ def _solve_jax_linearized_update(
             restart=int(linear_restart),
             maxiter=int(linear_maxiter),
         )
-        return update
+        return JaxLinearizedUpdateResult(update=update, backend=backend, status=status)
     if backend == "lineax_gmres":
         try:
             import jax
@@ -920,5 +952,54 @@ def _solve_jax_linearized_update(
             max_steps=max(1, int(linear_restart) * int(linear_maxiter)),
         )
         solution = lx.linear_solve(operator, rhs_array, solver, throw=False)
-        return solution.value
+        return JaxLinearizedUpdateResult(
+            update=solution.value,
+            backend=backend,
+            status=getattr(solution, "result", None),
+        )
     raise ValueError(f"Unsupported JAX linear solver backend {backend!r}.")
+
+
+def _normalize_linear_solver_status(status: object) -> int | float | str | None:
+    if status is None:
+        return None
+    item = getattr(status, "item", None)
+    if callable(item):
+        try:
+            status = item()
+        except (TypeError, ValueError):
+            pass
+    if isinstance(status, np.generic):
+        status = status.item()
+    if isinstance(status, (bool, int, float, str)):
+        return status
+    name = getattr(status, "name", None)
+    if isinstance(name, str):
+        return name
+    return str(status)
+
+
+def _linear_solver_success(
+    *,
+    backend: str,
+    status: int | float | str | None,
+    explicit_success: bool | None = None,
+) -> bool | None:
+    if explicit_success is not None:
+        return bool(explicit_success)
+    if status is None:
+        return None
+    if isinstance(status, bool):
+        return bool(status)
+    if isinstance(status, (int, float)):
+        return int(status) == 0
+    normalized = str(status).strip().lower()
+    if not normalized:
+        return None
+    if "success" in normalized or "successful" in normalized:
+        return True
+    if any(token in normalized for token in ("fail", "error", "max", "singular", "breakdown")):
+        return False
+    if backend == "jax_gmres" and normalized.isdigit():
+        return int(normalized) == 0
+    return None
