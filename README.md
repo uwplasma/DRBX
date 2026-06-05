@@ -361,6 +361,8 @@ active target for JAX-native residual and Jacobian-action promotion.
 
 The new batched recycling residual/JVP gate verifies the D/T/He fixed-layout
 residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
+It uses the fixed full-field active-array RHS by default and keeps the older
+host bridge only as an explicit diagnostic comparison backend.
 On the local CPU run with `mesh:ny=100`, the retained batch sweep through 256
 states gives about `2.8x` residual throughput speedup and about `2.2x` JVP
 throughput speedup over serial same-kernel calls, while the

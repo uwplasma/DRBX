@@ -301,6 +301,7 @@ and parallel-throughput test:
 ```bash
 PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --case dthe \
+  --rhs-backend fixed_full_field_array \
   --override mesh:ny=100 \
   --batch-sizes 1,4,16,64 \
   --timed-runs 7 \
@@ -311,7 +312,9 @@ When neither `--reference-root` nor `--input-path` is supplied, this direct
 profiler uses the lightweight fixture decks committed under
 `tests/fixtures/reference-root`. Pass `--reference-root /path/to/reference/root`
 for full reference-suite decks, or `--input-path /path/to/BOUT.inp` for a
-single staged deck.
+single staged deck. The default `fixed_full_field_array` backend is the
+release-facing JAX-native evidence path; `--rhs-backend host_bridge` is
+retained only for comparisons against the older host bridge.
 
 The retained local CPU artifact now sweeps batches through 256 states and
 shows about `2.8x` residual throughput speedup and `2.2x` JVP throughput

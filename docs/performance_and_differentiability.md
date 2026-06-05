@@ -41,8 +41,9 @@ The current artifact bundle is documented in [autodiff_and_scaling_examples.md](
 The recycling lane now has a separate fixed-layout residual differentiability
 gate. The new `scripts/profile_recycling_batched_jvp_gate.py` command builds
 the real D/T/He recycling backward-Euler residual, keeps the active state in a
-static packed layout, and checks the same residual under `jit`, `vmap`, `jvp`,
-and a scalar-objective `grad`. This is the strongest current heavy-residual
+static packed layout, routes the RHS through `fixed_full_field_array` by
+default, and checks the same residual under `jit`, `vmap`, `jvp`, and a
+scalar-objective `grad`. This is the strongest current heavy-residual
 differentiability evidence because it exercises the multispecies recycling
 state rather than a synthetic diffusion objective. On the committed local CPU
 run with `mesh:ny=100`, the residual JVP agrees with a centered finite

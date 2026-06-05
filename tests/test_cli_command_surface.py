@@ -23,6 +23,7 @@ from jax_drb.cli import (
     _compare_blob2d_command,
     _compare_drift_wave_command,
     _compare_neutral_mixed_command,
+    _compare_neutral_mixed_accepted_traces_command,
     _compare_recycling_command,
     _compare_summary_command,
     _default_command,
@@ -98,6 +99,13 @@ def test_default_command_and_argv_normalization_errors_are_explicit() -> None:
         "trace-neutral-mixed-accepted-steps",
         "--json-out",
         "trace.json",
+    ]
+    assert _normalize_cli_argv(
+        ["compare-neutral-mixed-accepted-traces", "native.json", "reference.jsonl"]
+    ) == [
+        "compare-neutral-mixed-accepted-traces",
+        "native.json",
+        "reference.jsonl",
     ]
 
 
@@ -583,6 +591,71 @@ def test_trace_neutral_mixed_accepted_steps_command_writes_report(
         == 1
     )
     assert "--internal-substeps must be positive" in capsys.readouterr().out
+
+
+def test_compare_neutral_mixed_accepted_traces_command_writes_report(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    report = {
+        "diagnostic": "neutral_mixed_accepted_step_trace_parity",
+        "matched_trace_point_count": 2,
+        "ranked_fields": [
+            {
+                "field": "NVh",
+                "max_target_adjacent_delta": 4.0,
+                "max_guard_delta": 1.0,
+            }
+        ],
+    }
+    captured: dict[str, object] = {}
+
+    def fake_build(**kwargs):
+        captured.update(kwargs)
+        return report
+
+    monkeypatch.setattr(
+        validation_module,
+        "build_neutral_mixed_accepted_step_trace_parity_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_neutral_mixed_accepted_step_trace_parity_json",
+        lambda report, path: Path(path),
+    )
+
+    assert (
+        _compare_neutral_mixed_accepted_traces_command(
+            argparse.Namespace(
+                native_trace_json=tmp_path / "native.json",
+                reference_trace_json=tmp_path / "reference.jsonl",
+                reference_stage="post_accepted",
+                time_tolerance=1.0e-8,
+                json_out=tmp_path / "trace_parity.json",
+            )
+        )
+        == 0
+    )
+    assert captured["reference_stage"] == "post_accepted"
+    assert captured["time_tolerance"] == 1.0e-8
+    output = capsys.readouterr().out
+    assert "neutral_mixed_accepted_step_trace_parity" in output
+    assert "matched_trace_point_count: 2" in output
+    assert "worst_field: NVh" in output
+
+    assert (
+        _compare_neutral_mixed_accepted_traces_command(
+            argparse.Namespace(
+                native_trace_json=tmp_path / "native.json",
+                reference_trace_json=tmp_path / "reference.jsonl",
+                reference_stage="post_accepted",
+                time_tolerance=0.0,
+                json_out=tmp_path / "trace_parity.json",
+            )
+        )
+        == 1
+    )
+    assert "--time-tolerance must be positive" in capsys.readouterr().out
 
 
 def test_compare_recycling_command_uses_formatted_report(monkeypatch, capsys) -> None:
