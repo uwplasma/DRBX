@@ -317,11 +317,12 @@ release-facing JAX-native evidence path; `--rhs-backend host_bridge` is
 retained only for comparisons against the older host bridge.
 
 The retained local CPU artifact now sweeps batches through 256 states and
-shows about `2.8x` residual throughput speedup and `2.2x` JVP throughput
+shows about `5.63x` residual throughput speedup and `3.42x` JVP throughput
 speedup over serial same-kernel calls, with batched/serial residual and JVP
 mismatch at roundoff. The residual JVP agrees with centered finite difference
-to about `6e-9`. A remote GPU run on the same heavy residual was not retained
-as a release speedup because the JVP compile latency was still too high for a
+to about `2.19e-9`, and the objective directional derivative agrees to about
+`4.35e-8`. A remote GPU run on the same heavy residual was not retained as a
+release speedup because the JVP compile latency was still too high for a
 bounded validation gate.
 
 For larger GPU or multi-device evidence, use the research-campaign wrapper
