@@ -2036,7 +2036,12 @@ def advance_recycling_1d_implicit_history(
             step_solver_mode=_adaptive_bdf_step_solver_mode(solver_mode),
         )
 
-    if solver_mode in {"bdf", "bdf_fixed_full_field_jvp"}:
+    if solver_mode in {"bdf", "bdf_fixed_full_field_jvp", "bdf_active_array_jvp"}:
+        rhs_backend = {
+            "bdf": "host_bridge",
+            "bdf_fixed_full_field_jvp": "fixed_full_field_array",
+            "bdf_active_array_jvp": "active_array",
+        }[solver_mode]
         return _advance_recycling_1d_bdf_history(
             config,
             fields,
@@ -2050,10 +2055,8 @@ def advance_recycling_1d_implicit_history(
             timestep=timestep,
             steps=steps,
             progress_callback=progress_callback,
-            jacobian_mode="jvp" if solver_mode == "bdf_fixed_full_field_jvp" else None,
-            rhs_backend="fixed_full_field_array"
-            if solver_mode == "bdf_fixed_full_field_jvp"
-            else "host_bridge",
+            jacobian_mode="jvp" if solver_mode != "bdf" else None,
+            rhs_backend=rhs_backend,
             solver_mode_label=solver_mode,
         )
 
@@ -4773,6 +4776,7 @@ def _advance_recycling_1d_bdf_history(
     jvp_jacobian_sparse_assembly_seconds = 0.0
     jvp_jacobian_total_seconds = 0.0
     jvp_jacobian_batch_count = 0
+    jvp_jacobian_prebuilt_direction_batch_uses = 0
     rhs_callback_seconds = 0.0
     rhs_evaluation_seconds = 0.0
     rhs_object_evaluation_seconds = 0.0
@@ -4921,7 +4925,10 @@ def _advance_recycling_1d_bdf_history(
         nonlocal \
             jvp_jacobian_sparse_assembly_seconds, \
             jvp_jacobian_tangent_build_seconds
-        nonlocal jvp_jacobian_total_seconds, jvp_rhs_evaluation_count
+        nonlocal \
+            jvp_jacobian_prebuilt_direction_batch_uses, \
+            jvp_jacobian_total_seconds, \
+            jvp_rhs_evaluation_count
         jacobian_started_at = time.perf_counter()
         jacobian_callback_count += 1
         try:
@@ -4943,6 +4950,7 @@ def _advance_recycling_1d_bdf_history(
                     nonlocal \
                         jvp_jacobian_tangent_build_seconds, \
                         jvp_jacobian_total_seconds
+                    nonlocal jvp_jacobian_prebuilt_direction_batch_uses
                     jvp_jacobian_total_seconds += float(
                         timing.get("total_seconds", 0.0)
                     )
@@ -4963,6 +4971,9 @@ def _advance_recycling_1d_bdf_history(
                         timing.get("sparse_assembly_seconds", 0.0)
                     )
                     jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
+                    jvp_jacobian_prebuilt_direction_batch_uses += int(
+                        timing.get("prebuilt_direction_batches", 0)
+                    )
 
                 return build_sparse_jvp_jacobian(
                     evaluate_jvp_rhs,
@@ -5075,6 +5086,9 @@ def _advance_recycling_1d_bdf_history(
             ),
             "bdf_jvp_rhs_evaluation_count": int(jvp_rhs_evaluation_count),
             "bdf_jvp_jacobian_batch_count": int(jvp_jacobian_batch_count),
+            "bdf_jvp_jacobian_prebuilt_direction_batch_uses": int(
+                jvp_jacobian_prebuilt_direction_batch_uses
+            ),
             "bdf_jvp_jacobian_linearize_seconds": float(jvp_jacobian_linearize_seconds),
             "bdf_jvp_jacobian_push_seconds": float(jvp_jacobian_push_seconds),
             "bdf_jvp_jacobian_device_execute_seconds": float(

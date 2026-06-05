@@ -38,6 +38,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "--mode",
             "bdf_fixed_full_field_jvp",
             "--mode",
+            "bdf_active_array_jvp",
+            "--mode",
             "adaptive_bdf_jax_linearized",
             "--mode",
             "fixed_bdf2_jax_linearized",
@@ -59,6 +61,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "0.05",
             "--max-nonlinear-iterations",
             "3",
+            "--steps",
+            "2",
             "--output-json",
             "/tmp/report.json",
             "--diagnostics-only",
@@ -68,6 +72,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.reference_root == Path("/tmp/reference")
     assert args.modes == [
         "bdf_fixed_full_field_jvp",
+        "bdf_active_array_jvp",
         "adaptive_bdf_jax_linearized",
         "fixed_bdf2_jax_linearized",
     ]
@@ -82,15 +87,17 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     assert args.overrides == ["solver:rtol=1e-9"]
     assert args.timestep == 0.05
     assert args.max_nonlinear_iterations == 3
+    assert args.steps == 2
     assert args.output_json == Path("/tmp/report.json")
     assert args.diagnostics_only is True
     help_text = compare_script._build_parser().format_help()
     normalized_help = " ".join(help_text.split()).replace("full- field", "full-field")
     assert "bdf_fixed_full_field_jvp" in help_text
+    assert "bdf_active_array_jvp" in help_text
     assert "adaptive_bdf_jax_linearized" in help_text
     assert "fixed_bdf2_jax_linearized" in help_text
     assert "--require-fixed-bdf2-diagnostics" in help_text
-    assert "fixed full-field JVP BDF path" in normalized_help
+    assert "fixed-layout JVP BDF paths" in normalized_help
 
 
 def test_resolve_output_timestep_uses_configured_value_by_default() -> None:
@@ -139,6 +146,19 @@ def test_resolve_max_nonlinear_iterations_rejects_nonpositive_value() -> None:
         raise AssertionError("expected ValueError")
 
 
+def test_resolve_steps_accepts_positive_value() -> None:
+    assert compare_script._resolve_steps(SimpleNamespace(steps=2)) == 2
+
+
+def test_resolve_steps_rejects_nonpositive_value() -> None:
+    try:
+        compare_script._resolve_steps(SimpleNamespace(steps=0))
+    except ValueError as exc:
+        assert "--steps must be positive" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected ValueError")
+
+
 def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
     one_step_modes = compare_script._default_modes("recycling_1d_one_step")
     dthe_modes = compare_script._default_modes("recycling_dthe_one_step")
@@ -147,6 +167,7 @@ def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
         "continuation",
         "bdf",
         "bdf_fixed_full_field_jvp",
+        "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
@@ -154,6 +175,7 @@ def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
     assert dthe_modes == (
         "bdf",
         "bdf_fixed_full_field_jvp",
+        "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
@@ -170,6 +192,10 @@ def test_bdf_pairwise_delta_report_formats_worst_field_first() -> None:
             "Nd+": np.asarray([1.25, 2.5]),
             "Pd+": np.asarray([13.0, 15.0]),
         },
+        "bdf_active_array_jvp": {
+            "Nd+": np.asarray([1.0, 2.125]),
+            "Pd+": np.asarray([10.5, 14.75]),
+        },
     }
 
     lines = compare_script._format_bdf_pairwise_delta_report(
@@ -182,6 +208,10 @@ def test_bdf_pairwise_delta_report_formats_worst_field_first() -> None:
         "  Pd+: max_abs_delta=3.00000000e+00",
         "  Nd+: max_abs_delta=5.00000000e-01",
         "  worst=Pd+ delta=3.00000000e+00",
+        "pairwise_delta=bdf_vs_bdf_active_array_jvp",
+        "  Pd+: max_abs_delta=5.00000000e-01",
+        "  Nd+: max_abs_delta=1.25000000e-01",
+        "  worst=Pd+ delta=5.00000000e-01",
     ]
 
 
@@ -214,6 +244,7 @@ def test_bdf_pairwise_delta_report_crops_both_outputs_to_active_mesh() -> None:
         {
             "bdf": {"Nd+": bdf},
             "bdf_fixed_full_field_jvp": {"Nd+": fixed_jvp},
+            "bdf_active_array_jvp": {"Nd+": fixed_jvp * 0.5},
         },
         fields=("Nd+",),
         mesh=mesh,
@@ -223,6 +254,9 @@ def test_bdf_pairwise_delta_report_crops_both_outputs_to_active_mesh() -> None:
         "pairwise_delta=bdf_vs_bdf_fixed_full_field_jvp",
         "  Nd+: max_abs_delta=7.50000000e-01",
         "  worst=Nd+ delta=7.50000000e-01",
+        "pairwise_delta=bdf_vs_bdf_active_array_jvp",
+        "  Nd+: max_abs_delta=3.75000000e-01",
+        "  worst=Nd+ delta=3.75000000e-01",
     ]
 
 
@@ -247,13 +281,14 @@ def test_bdf_pairwise_worst_delta_returns_active_mesh_worst_field() -> None:
         {
             "bdf": {"Nd+": bdf},
             "bdf_fixed_full_field_jvp": {"Nd+": fixed_jvp},
+            "bdf_active_array_jvp": {"Nd+": fixed_jvp * 2.0},
         },
         fields=("Nd+",),
         mesh=mesh,
     )
 
     assert field == "Nd+"
-    assert delta == 0.75
+    assert delta == 1.5
 
 
 def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
@@ -264,6 +299,7 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
         configured_timestep=1.0,
         timestep=0.5,
         max_nonlinear_iterations=3,
+        steps=2,
         fields=("Pe",),
         modes=("adaptive_bdf_jax_linearized",),
         diagnostics_only=True,
@@ -282,6 +318,7 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["case"] == "recycling_1d_one_step"
+    assert payload["steps"] == 2
     assert (
         payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"][
             "adaptive_bdf_accepted_steps"
@@ -304,7 +341,23 @@ def test_fixed_full_field_jvp_diagnostics_gate_accepts_expected_route() -> None:
             "bdf_jacobian_mode": "jvp",
             "bdf_jacobian_base_rhs_evaluation_count": 0,
             "bdf_jvp_rhs_evaluation_count": 3,
+            "bdf_jvp_jacobian_prebuilt_direction_batch_uses": 1,
         }
+    )
+
+    assert errors == []
+
+
+def test_active_array_jvp_diagnostics_gate_accepts_expected_route() -> None:
+    errors = compare_script._validate_bdf_jvp_diagnostics(
+        "bdf_active_array_jvp",
+        {
+            "bdf_rhs_backend": "active_array",
+            "bdf_jacobian_mode": "jvp",
+            "bdf_jacobian_base_rhs_evaluation_count": 0,
+            "bdf_jvp_rhs_evaluation_count": 3,
+            "bdf_jvp_jacobian_prebuilt_direction_batch_uses": 1,
+        },
     )
 
     assert errors == []
@@ -317,6 +370,7 @@ def test_fixed_full_field_jvp_diagnostics_gate_reports_wrong_route() -> None:
             "bdf_jacobian_mode": "fd",
             "bdf_jacobian_base_rhs_evaluation_count": 2,
             "bdf_jvp_rhs_evaluation_count": 0,
+            "bdf_jvp_jacobian_prebuilt_direction_batch_uses": 0,
         }
     )
 
@@ -325,6 +379,28 @@ def test_fixed_full_field_jvp_diagnostics_gate_reports_wrong_route() -> None:
         "bdf_fixed_full_field_jvp did not report bdf_jacobian_mode=jvp",
         "bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations",
         "bdf_fixed_full_field_jvp did not report any JVP RHS evaluations",
+        "bdf_fixed_full_field_jvp did not report prebuilt JVP direction-batch reuse",
+    ]
+
+
+def test_active_array_jvp_diagnostics_gate_reports_wrong_route() -> None:
+    errors = compare_script._validate_bdf_jvp_diagnostics(
+        "bdf_active_array_jvp",
+        {
+            "bdf_rhs_backend": "fixed_full_field_array",
+            "bdf_jacobian_mode": "fd",
+            "bdf_jacobian_base_rhs_evaluation_count": 2,
+            "bdf_jvp_rhs_evaluation_count": 0,
+            "bdf_jvp_jacobian_prebuilt_direction_batch_uses": 0,
+        },
+    )
+
+    assert errors == [
+        "bdf_active_array_jvp did not report bdf_rhs_backend=active_array",
+        "bdf_active_array_jvp did not report bdf_jacobian_mode=jvp",
+        "bdf_active_array_jvp reported finite-difference base RHS Jacobian evaluations",
+        "bdf_active_array_jvp did not report any JVP RHS evaluations",
+        "bdf_active_array_jvp did not report prebuilt JVP direction-batch reuse",
     ]
 
 
@@ -405,6 +481,7 @@ def test_fixed_bdf2_diagnostics_gate_reports_fallback_route() -> None:
         "fixed_bdf2_jax_linearized_lineax did not report any Lineax solver steps",
         "fixed_bdf2_jax_linearized_lineax did not evolve packed feedback integrals",
         "fixed_bdf2_jax_linearized_lineax did not report any accepted fixed BDF2 intervals",
+        "fixed_bdf2_jax_linearized_lineax did not report any actual fixed BDF2 corrector steps",
         "fixed_bdf2_jax_linearized_lineax did not report a finite fixed BDF2 residual norm",
     ]
 
@@ -417,6 +494,7 @@ def test_adaptive_bdf_modes_to_validate_selects_only_adaptive_bdf_variants() -> 
             "adaptive_bdf",
             "adaptive_bdf_jax_linearized",
             "bdf_fixed_full_field_jvp",
+            "bdf_active_array_jvp",
         )
     )
 

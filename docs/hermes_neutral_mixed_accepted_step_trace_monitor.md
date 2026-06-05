@@ -119,15 +119,16 @@ source fields.
 Native accepted-step traces now emit the same 10 required fields as the
 reference trace and can replay the reference accepted time grid. A local
 matched-grid comparison now matches `148/148` accepted points. With the
-timestamp mismatch removed, the highest input drift is `eta_h` at about
-`3.23e-3` in the target/guard comparison. The next active/target source-path
-offender is `SNVh_parallel_viscosity` at about `5.35e-5`. RHS/source guard
+timestamp mismatch removed, the highest input drift is `Dnnh` at about
+`4.46e-3` in the target/guard comparison, followed by `eta_h` at about
+`3.23e-3`. The next active/target source-path offender is
+`SNVh_parallel_viscosity` at about `5.35e-5`. RHS/source guard
 metrics are still large and should be treated as diagnostic-boundary semantics
 until a guard-specific reference definition is chosen. The next implementation
-step is therefore to fix or further localize neutral-viscosity closure
-preparation or target-boundary sequencing under the matched-time accepted-step
-diagnostic before changing broader BDF sequencing or the parallel-viscosity
-stencil.
+step is therefore to fix or further localize `Dnn` diffusion-coefficient
+preparation, neutral-viscosity closure preparation, or target-boundary
+sequencing under the matched-time accepted-step diagnostic before changing
+broader BDF sequencing or the parallel-viscosity stencil.
 Native traces now also emit optional `Dnnh`, `Vh`, and `eta_h` diagnostic-input fields.
 The reference monitor patch now writes the same payloads when those diagnostics
 are exposed by `outputVars()`, so the remaining parallel-viscosity difference

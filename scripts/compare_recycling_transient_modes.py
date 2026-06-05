@@ -26,6 +26,7 @@ SOLVER_MODES = (
     "continuation",
     "bdf",
     "bdf_fixed_full_field_jvp",
+    "bdf_active_array_jvp",
     "fixed_bdf2_jax_linearized",
     "fixed_bdf2_jax_linearized_lineax",
     "adaptive_be",
@@ -34,7 +35,12 @@ SOLVER_MODES = (
     "adaptive_bdf_jax_linearized",
     "adaptive_bdf_jax_linearized_lineax",
 )
-BDF_PAIRWISE_MODES = ("bdf", "bdf_fixed_full_field_jvp")
+BDF_BASE_MODE = "bdf"
+BDF_JVP_BACKENDS = {
+    "bdf_fixed_full_field_jvp": "fixed_full_field_array",
+    "bdf_active_array_jvp": "active_array",
+}
+BDF_PAIRWISE_CANDIDATE_MODES = tuple(BDF_JVP_BACKENDS)
 FIXED_BDF2_MODES = (
     "fixed_bdf2_jax_linearized",
     "fixed_bdf2_jax_linearized_lineax",
@@ -74,7 +80,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=SOLVER_MODES,
         help=(
             "Solver modes to compare. May be repeated. Use bdf_fixed_full_field_jvp "
-            "to exercise the fixed full-field JVP BDF path; defaults include the main "
+            "or bdf_active_array_jvp to exercise the fixed-layout JVP BDF paths; defaults include the main "
             "supported set for the case."
         ),
     )
@@ -128,7 +134,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help=(
-            "Fail unless the largest active-mesh bdf-vs-bdf_fixed_full_field_jvp "
+            "Fail unless the largest active-mesh bdf-vs-BDF-JVP-candidate "
             "delta over reported fields is below this value."
         ),
     )
@@ -136,8 +142,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--require-fixed-jvp-diagnostics",
         action="store_true",
         help=(
-            "Fail unless bdf_fixed_full_field_jvp reports fixed_full_field_array "
-            "RHS, JVP Jacobian mode, and zero finite-difference base-RHS Jacobian calls."
+            "Fail unless every requested BDF JVP mode reports the expected RHS "
+            "backend, JVP Jacobian mode, zero finite-difference base-RHS Jacobian "
+            "calls, and prebuilt direction-batch reuse."
         ),
     )
     parser.add_argument(
@@ -178,6 +185,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--steps",
+        type=int,
+        default=1,
+        help=(
+            "Number of output windows to run per mode. Use at least 2 when "
+            "requiring fixed-BDF2 diagnostics so the BDF2 corrector is actually exercised."
+        ),
+    )
+    parser.add_argument(
         "--output-json",
         type=Path,
         default=None,
@@ -209,12 +225,20 @@ def _resolve_max_nonlinear_iterations(args: argparse.Namespace) -> int:
     return iterations
 
 
+def _resolve_steps(args: argparse.Namespace) -> int:
+    steps = int(args.steps)
+    if steps <= 0:
+        raise ValueError("--steps must be positive.")
+    return steps
+
+
 def _default_modes(case_name: str) -> tuple[str, ...]:
     if case_name == "recycling_1d_one_step":
         return (
             "continuation",
             "bdf",
             "bdf_fixed_full_field_jvp",
+            "bdf_active_array_jvp",
             "fixed_bdf2_jax_linearized",
             "adaptive_be",
             "adaptive_bdf",
@@ -222,6 +246,7 @@ def _default_modes(case_name: str) -> tuple[str, ...]:
     return (
         "bdf",
         "bdf_fixed_full_field_jvp",
+        "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
@@ -294,22 +319,26 @@ def _format_bdf_pairwise_delta_report(
     fields: tuple[str, ...],
     mesh=None,
 ) -> list[str]:
-    base_mode, candidate_mode = BDF_PAIRWISE_MODES
-    if base_mode not in mode_variables or candidate_mode not in mode_variables:
+    base_mode = BDF_BASE_MODE
+    if base_mode not in mode_variables:
         return []
 
-    rows = _summarize_mode_errors(
-        mode_variables[base_mode],
-        mode_variables[candidate_mode],
-        fields=fields,
-        mesh=mesh,
-        crop_expected=True,
-    )
-    lines = [f"pairwise_delta={base_mode}_vs_{candidate_mode}"]
-    for field, max_abs in rows:
-        lines.append(f"  {field}: max_abs_delta={max_abs:.8e}")
-    if rows:
-        lines.append(f"  worst={rows[0][0]} delta={rows[0][1]:.8e}")
+    lines: list[str] = []
+    for candidate_mode in BDF_PAIRWISE_CANDIDATE_MODES:
+        if candidate_mode not in mode_variables:
+            continue
+        rows = _summarize_mode_errors(
+            mode_variables[base_mode],
+            mode_variables[candidate_mode],
+            fields=fields,
+            mesh=mesh,
+            crop_expected=True,
+        )
+        lines.append(f"pairwise_delta={base_mode}_vs_{candidate_mode}")
+        for field, max_abs in rows:
+            lines.append(f"  {field}: max_abs_delta={max_abs:.8e}")
+        if rows:
+            lines.append(f"  worst={rows[0][0]} delta={rows[0][1]:.8e}")
     return lines
 
 
@@ -319,19 +348,28 @@ def _bdf_pairwise_worst_delta(
     fields: tuple[str, ...],
     mesh=None,
 ) -> tuple[str | None, float | None]:
-    base_mode, candidate_mode = BDF_PAIRWISE_MODES
-    if base_mode not in mode_variables or candidate_mode not in mode_variables:
+    base_mode = BDF_BASE_MODE
+    if base_mode not in mode_variables:
         return None, None
-    rows = _summarize_mode_errors(
-        mode_variables[base_mode],
-        mode_variables[candidate_mode],
-        fields=fields,
-        mesh=mesh,
-        crop_expected=True,
-    )
-    if not rows:
+    worst: tuple[str, float] | None = None
+    for candidate_mode in BDF_PAIRWISE_CANDIDATE_MODES:
+        if candidate_mode not in mode_variables:
+            continue
+        rows = _summarize_mode_errors(
+            mode_variables[base_mode],
+            mode_variables[candidate_mode],
+            fields=fields,
+            mesh=mesh,
+            crop_expected=True,
+        )
+        if not rows:
+            continue
+        candidate_worst = rows[0]
+        if worst is None or candidate_worst[1] > worst[1]:
+            worst = candidate_worst
+    if worst is None:
         return None, None
-    return rows[0]
+    return worst
 
 
 def _json_ready(value):
@@ -360,6 +398,7 @@ def _build_json_report(
     configured_timestep: float,
     timestep: float,
     max_nonlinear_iterations: int,
+    steps: int,
     fields: tuple[str, ...],
     modes: tuple[str, ...],
     diagnostics_only: bool,
@@ -374,6 +413,7 @@ def _build_json_report(
         "configured_timestep": float(configured_timestep),
         "timestep": float(timestep),
         "max_nonlinear_iterations": int(max_nonlinear_iterations),
+        "steps": int(steps),
         "fields": list(fields),
         "modes": list(modes),
         "diagnostics_only": bool(diagnostics_only),
@@ -392,23 +432,33 @@ def _write_json_report(path: Path, report: dict[str, object]) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _validate_fixed_full_field_jvp_diagnostics(
+def _validate_bdf_jvp_diagnostics(
+    mode: str,
     diagnostics: dict[str, object],
 ) -> list[str]:
     errors: list[str] = []
-    if diagnostics.get("bdf_rhs_backend") != "fixed_full_field_array":
+    expected_backend = BDF_JVP_BACKENDS[mode]
+    if diagnostics.get("bdf_rhs_backend") != expected_backend:
         errors.append(
-            "bdf_fixed_full_field_jvp did not report bdf_rhs_backend=fixed_full_field_array"
+            f"{mode} did not report bdf_rhs_backend={expected_backend}"
         )
     if diagnostics.get("bdf_jacobian_mode") != "jvp":
-        errors.append("bdf_fixed_full_field_jvp did not report bdf_jacobian_mode=jvp")
+        errors.append(f"{mode} did not report bdf_jacobian_mode=jvp")
     if int(diagnostics.get("bdf_jacobian_base_rhs_evaluation_count", -1)) != 0:
         errors.append(
-            "bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations"
+            f"{mode} reported finite-difference base RHS Jacobian evaluations"
         )
     if int(diagnostics.get("bdf_jvp_rhs_evaluation_count", 0)) <= 0:
-        errors.append("bdf_fixed_full_field_jvp did not report any JVP RHS evaluations")
+        errors.append(f"{mode} did not report any JVP RHS evaluations")
+    if int(diagnostics.get("bdf_jvp_jacobian_prebuilt_direction_batch_uses", 0)) <= 0:
+        errors.append(f"{mode} did not report prebuilt JVP direction-batch reuse")
     return errors
+
+
+def _validate_fixed_full_field_jvp_diagnostics(
+    diagnostics: dict[str, object],
+) -> list[str]:
+    return _validate_bdf_jvp_diagnostics("bdf_fixed_full_field_jvp", diagnostics)
 
 
 def _fixed_bdf2_modes_to_validate(modes: tuple[str, ...]) -> tuple[str, ...]:
@@ -442,6 +492,8 @@ def _validate_fixed_bdf2_diagnostics(
     )
     if accepted_steps <= 0:
         errors.append(f"{mode} did not report any accepted fixed BDF2 intervals")
+    if int(diagnostics.get("fixed_bdf2_bdf2_steps", 0)) <= 0:
+        errors.append(f"{mode} did not report any actual fixed BDF2 corrector steps")
     max_residual = diagnostics.get("fixed_bdf2_max_residual_inf_norm")
     try:
         finite_residual = max_residual is not None and np.isfinite(float(max_residual))
@@ -588,6 +640,7 @@ def main() -> int:
     run_config = RunConfiguration.from_config(config)
     output_timestep = _resolve_output_timestep(args, run_config)
     max_nonlinear_iterations = _resolve_max_nonlinear_iterations(args)
+    steps = _resolve_steps(args)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     dataset_scalars = resolved_dataset_scalars(run_config)
@@ -611,6 +664,7 @@ def main() -> int:
     print(f"case={args.case}", flush=True)
     print(f"configured_timestep={run_config.time.timestep:g}", flush=True)
     print(f"timestep={output_timestep:g}", flush=True)
+    print(f"steps={steps}", flush=True)
     print(f"max_nonlinear_iterations={max_nonlinear_iterations}", flush=True)
     if args.diagnostics_only:
         print("baseline_comparison=disabled", flush=True)
@@ -638,7 +692,7 @@ def main() -> int:
                     metrics=metrics,
                     dataset_scalars=dataset_scalars,
                     timestep=output_timestep,
-                    steps=1,
+                    steps=steps,
                     solver_mode=mode,
                     residual_tolerance=rtol,
                     max_nonlinear_iterations=max_nonlinear_iterations,
@@ -668,9 +722,19 @@ def main() -> int:
         print(line)
     adaptive_gate_errors: dict[str, list[str]] = {}
     if args.require_fixed_jvp_diagnostics:
-        errors = _validate_fixed_full_field_jvp_diagnostics(
-            mode_diagnostics.get("bdf_fixed_full_field_jvp", {})
-        )
+        errors = []
+        bdf_jvp_modes = tuple(mode for mode in BDF_PAIRWISE_CANDIDATE_MODES if mode in modes)
+        if not bdf_jvp_modes:
+            errors.append(
+                "fixed BDF JVP diagnostics were requested but no BDF JVP mode was run"
+            )
+        for mode in bdf_jvp_modes:
+            errors.extend(
+                _validate_bdf_jvp_diagnostics(
+                    mode,
+                    mode_diagnostics.get(mode, {}),
+                )
+            )
         for error in errors:
             print(f"gate_failure={error}")
         if errors:
@@ -733,6 +797,7 @@ def main() -> int:
             configured_timestep=run_config.time.timestep,
             timestep=output_timestep,
             max_nonlinear_iterations=max_nonlinear_iterations,
+            steps=steps,
             fields=fields,
             modes=modes,
             diagnostics_only=bool(args.diagnostics_only),
@@ -747,7 +812,7 @@ def main() -> int:
         worst_field, worst_delta = bdf_pairwise_worst
         if worst_delta is None:
             print(
-                "gate_failure=bdf pairwise delta is unavailable; run both bdf and bdf_fixed_full_field_jvp"
+                "gate_failure=bdf pairwise delta is unavailable; run bdf and at least one BDF JVP candidate"
             )
             return 2
         threshold = float(args.require_bdf_pairwise_max)

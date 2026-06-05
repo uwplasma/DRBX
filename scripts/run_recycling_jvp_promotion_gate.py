@@ -19,6 +19,7 @@ GATE_SOLVER_MODES = (
     "bdf_fixed_full_field_jvp",
     "fixed_bdf2_jax_linearized",
 )
+EXPERIMENTAL_GATE_SOLVER_MODES = ("bdf_active_array_jvp",)
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class RecyclingJvpGateCase:
     fields: tuple[str, ...]
     pairwise_threshold: float
     mode_timeout_seconds: float
+    steps: int
 
 
 GATE_CASES = {
@@ -34,13 +36,15 @@ GATE_CASES = {
         case="recycling_1d_one_step",
         fields=("Pe", "Nd+", "Pd+"),
         pairwise_threshold=1.0e-5,
-        mode_timeout_seconds=150.0,
+        mode_timeout_seconds=300.0,
+        steps=2,
     ),
     "recycling_dthe_one_step": RecyclingJvpGateCase(
         case="recycling_dthe_one_step",
         fields=("Pe", "Nd+", "Nt+", "Phe+"),
         pairwise_threshold=2.0e-5,
-        mode_timeout_seconds=300.0,
+        mode_timeout_seconds=600.0,
+        steps=2,
     ),
 }
 
@@ -58,6 +62,7 @@ def _build_case_command(
     reference_root: Path,
     python_executable: str,
     output_json: Path | None = None,
+    include_active_array_jvp: bool = False,
 ) -> list[str]:
     command = [
         python_executable,
@@ -73,8 +78,13 @@ def _build_case_command(
         f"{gate_case.pairwise_threshold:.8e}",
         "--mode-timeout-seconds",
         f"{gate_case.mode_timeout_seconds:g}",
+        "--steps",
+        str(gate_case.steps),
     ]
-    for mode in GATE_SOLVER_MODES:
+    solver_modes = GATE_SOLVER_MODES + (
+        EXPERIMENTAL_GATE_SOLVER_MODES if include_active_array_jvp else ()
+    )
+    for mode in solver_modes:
         command.extend(("--mode", mode))
     for field in gate_case.fields:
         command.extend(("--field", field))
@@ -157,6 +167,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Print the commands without executing them.",
     )
     parser.add_argument(
+        "--include-active-array-jvp",
+        action="store_true",
+        help=(
+            "Also run the experimental bdf_active_array_jvp bridge. This is not "
+            "part of the default promotion gate because current local evidence "
+            "shows it can timeout before completing the fixture case."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
@@ -188,6 +207,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             reference_root=reference_root,
             python_executable=sys.executable,
             output_json=case_output_json,
+            include_active_array_jvp=bool(args.include_active_array_jvp),
         )
         print(f"gate_case={gate_case.case}")
         print("command=" + " ".join(command))
@@ -196,6 +216,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "fields": list(gate_case.fields),
             "pairwise_threshold": gate_case.pairwise_threshold,
             "mode_timeout_seconds": gate_case.mode_timeout_seconds,
+            "steps": gate_case.steps,
+            "include_active_array_jvp": bool(args.include_active_array_jvp),
             "command": command,
             "output_json": case_output_json,
             "returncode": 0,

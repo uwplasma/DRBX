@@ -77,6 +77,7 @@ def test_implicit_history_rejects_negative_steps() -> None:
         ("adaptive_bdf", "_advance_recycling_1d_adaptive_bdf_history"),
         ("bdf", "_advance_recycling_1d_bdf_history"),
         ("bdf_fixed_full_field_jvp", "_advance_recycling_1d_bdf_history"),
+        ("bdf_active_array_jvp", "_advance_recycling_1d_bdf_history"),
         ("fixed_bdf2_jax_linearized", "_advance_recycling_1d_fixed_bdf2_history"),
         (
             "fixed_bdf2_jax_linearized_lineax",
@@ -125,6 +126,10 @@ def test_implicit_history_dispatches_solver_modes(
         assert calls["kwargs"]["jacobian_mode"] == "jvp"
         assert calls["kwargs"]["rhs_backend"] == "fixed_full_field_array"
         assert calls["kwargs"]["solver_mode_label"] == "bdf_fixed_full_field_jvp"
+    if solver_mode == "bdf_active_array_jvp":
+        assert calls["kwargs"]["jacobian_mode"] == "jvp"
+        assert calls["kwargs"]["rhs_backend"] == "active_array"
+        assert calls["kwargs"]["solver_mode_label"] == "bdf_active_array_jvp"
     if solver_mode.startswith("fixed_bdf2_jax_linearized"):
         expected_step_solver = (
             "jax_linearized_lineax"
@@ -133,7 +138,7 @@ def test_implicit_history_dispatches_solver_modes(
         )
         assert calls["kwargs"]["step_solver_mode"] == expected_step_solver
         assert calls["kwargs"]["solver_mode_label"] == solver_mode
-    if solver_mode not in {"bdf", "bdf_fixed_full_field_jvp"}:
+    if solver_mode not in {"bdf", "bdf_fixed_full_field_jvp", "bdf_active_array_jvp"}:
         assert calls["kwargs"]["residual_tolerance"] == 1.0e-7
         assert calls["kwargs"]["max_nonlinear_iterations"] == 9
 
@@ -2104,7 +2109,21 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(
     assert result.diagnostics["bdf_color_group_count"] == 0
 
 
-def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
+@pytest.mark.parametrize(
+    ("rhs_backend", "builder_attr", "solver_mode_label"),
+    (
+        (
+            "fixed_full_field_array",
+            "_build_fixed_full_field_recycling_rhs",
+            "bdf_fixed_full_field_jvp",
+        ),
+        ("active_array", "_build_active_array_recycling_rhs", "bdf_active_array_jvp"),
+    ),
+)
+def test_bdf_history_opt_in_uses_selected_fixed_layout_rhs_and_jvp(
+    rhs_backend: str,
+    builder_attr: str,
+    solver_mode_label: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -2133,7 +2152,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
         field_templates=(np.array([1.0], dtype=np.float64),),
     )
 
-    def fake_fixed_full_field_rhs(*args, **kwargs):
+    def fake_fixed_layout_rhs(*args, **kwargs):
         captured["builder_kwargs"] = kwargs
 
         def rhs(state):
@@ -2160,6 +2179,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
                 "host_transfer_seconds": 0.04,
                 "sparse_assembly_seconds": 0.005,
                 "batch_count": 2,
+                "prebuilt_direction_batches": 1,
                 "group_count": 4,
                 "state_size": int(np.asarray(state, dtype=np.float64).size),
                 "nnz": 3,
@@ -2185,7 +2205,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
     )
     monkeypatch.setattr(recycling, "_unpack_recycling_active_state", fake_unpack)
     monkeypatch.setattr(
-        recycling, "_build_fixed_full_field_recycling_rhs", fake_fixed_full_field_rhs
+        recycling, builder_attr, fake_fixed_layout_rhs
     )
     monkeypatch.setattr(recycling, "build_sparse_jvp_jacobian", fake_jvp_jacobian)
     monkeypatch.setattr(
@@ -2208,8 +2228,8 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
         timestep=0.5,
         steps=1,
         jacobian_mode="jvp",
-        rhs_backend="fixed_full_field_array",
-        solver_mode_label="bdf_fixed_full_field_jvp",
+        rhs_backend=rhs_backend,
+        solver_mode_label=solver_mode_label,
     )
 
     assert captured["builder_kwargs"]["layout"] is layout
@@ -2224,6 +2244,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
     assert result.diagnostics["bdf_jacobian_base_rhs_evaluation_count"] == 0
     assert result.diagnostics["bdf_jvp_rhs_evaluation_count"] == 1
     assert result.diagnostics["bdf_jvp_jacobian_batch_count"] == 2
+    assert result.diagnostics["bdf_jvp_jacobian_prebuilt_direction_batch_uses"] == 1
     assert result.diagnostics["bdf_jvp_jacobian_linearize_seconds"] == 0.05
     assert result.diagnostics["bdf_jvp_jacobian_push_seconds"] == 0.06
     assert result.diagnostics["bdf_jvp_jacobian_device_execute_seconds"] == 0.02
@@ -2232,7 +2253,7 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
     assert result.diagnostics["bdf_jvp_jacobian_tangent_build_seconds"] == 0.01
     assert result.diagnostics["bdf_jvp_jacobian_total_seconds"] == 0.125
     assert result.diagnostics["bdf_jacobian_mode"] == "jvp"
-    assert result.diagnostics["bdf_rhs_backend"] == "fixed_full_field_array"
+    assert result.diagnostics["bdf_rhs_backend"] == rhs_backend
     assert result.diagnostics["bdf_jvp_direction_batch_count"] == 0
     assert result.variable_history["N"].shape == (2, 1)
 

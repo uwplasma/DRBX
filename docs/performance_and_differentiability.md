@@ -345,40 +345,58 @@ A narrower BDF-compatible opt-in now exercises the same migration seam without
 changing the output-window timestepper:
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp`. This route
 keeps SciPy BDF, routes the RHS through the fixed-layout full-field active-array
-adapter, and forces the sparse Jacobian callback through grouped JVPs. The
-history diagnostics record `bdf_rhs_backend="fixed_full_field_array"` and
-`bdf_jacobian_mode="jvp"` so profile artifacts identify the route explicitly.
-It remains a parity/runtime gate rather than the default until the full
-output-window campaigns show equal reference agreement with lower call count
-and memory use. The current self-contained gate is:
+adapter, and forces the sparse Jacobian callback through grouped JVPs. A second
+diagnostic bridge,
+`runtime:recycling_transient_solver_mode=bdf_active_array_jvp`, routes the same
+SciPy-BDF/JVP callback through the newer `build_fixed_array_rhs` active-array
+surface. The history diagnostics record
+`bdf_rhs_backend="fixed_full_field_array"` or `bdf_rhs_backend="active_array"`
+and `bdf_jacobian_mode="jvp"` so profile artifacts identify the route
+explicitly. The active-array bridge is intentionally opt-in through
+`scripts/run_recycling_jvp_promotion_gate.py --include-active-array-jvp`: the
+current local fixture run timed out before completing that mode at the default
+150 s per-mode budget. Both routes therefore remain parity/runtime experiments
+rather than defaults until full output-window campaigns show equal reference
+agreement with lower call count and memory use. The current self-contained gate is:
 `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`. It runs the
 hydrogen and D/T/He one-step decks from the committed lightweight fixture root
 unless `JAX_DRB_REFERENCE_ROOT` or `--reference-root` points to a live reference
 checkout. Add `--output-dir docs/data/runtime_profile_artifacts/<new-run>` for
 release or paper audits; the wrapper writes one JSON report per case plus an
 aggregate `summary.json` with commands, thresholds, return codes, timings,
-diagnostics, and pairwise deltas. The hydrogen gate passes with worst
-active-mesh BDF-vs-fixed-JVP delta `7.59e-6` under the `1e-5` threshold; the
-D/T/He gate passes with worst delta `2.20e-7` under the `2e-5` threshold. Both
-gates also require `bdf_rhs_backend="fixed_full_field_array"`,
-`bdf_jacobian_mode="jvp"`, and zero finite-difference base-RHS Jacobian calls.
+diagnostics, and pairwise deltas. The latest two-output-window hydrogen gate
+passes with worst active-mesh BDF-vs-fixed-JVP delta `7.20e-6` under the
+`1e-5` threshold; the prior D/T/He gate passed with worst delta `2.20e-7` under
+the `2e-5` threshold and still needs the same two-output-window rerun. The
+default wrapper still runs the stable BDF/JVP compatibility bridge and requires
+it to report the expected RHS backend, `bdf_jacobian_mode="jvp"`, zero
+finite-difference base-RHS Jacobian calls, positive JVP RHS calls, and prebuilt
+direction-batch reuse. It also runs two output windows, so the fixed-BDF2 lane
+must report at least one actual `fixed_bdf2_bdf2_steps` corrector rather than
+only the startup backward-Euler step. The experimental `--include-active-array-jvp`
+flag adds the active-array bridge to the same diagnostics, but current timeout
+evidence keeps it out of the default gate.
 The wrapper now also runs the non-SciPy `fixed_bdf2_jax_linearized`
 output-window lane and requires `fixed_bdf2_fixed_full_field_rhs_steps > 0`,
 `fixed_bdf2_jax_linearized_action_steps > 0`,
-`fixed_bdf2_evolve_feedback_integrals=true`, and a finite residual norm. This
-keeps the full-output JAX-linearized path under the same reproducible gate as
-the SciPy-BDF JVP bridge. The same measurements explain why
-the route remains opt-in. A refreshed local run after prebuilding sparse-JVP
-direction batches removed tangent construction from the callback
-(`bdf_jvp_jacobian_tangent_build_seconds=0` and
-`bdf_jvp_direction_batch_count=1` for both fixture decks), but the fixed-JVP
-route was still slower because SciPy BDF requested many Jacobian callbacks:
-hydrogen took `10.1 s` with default BDF and `72.9 s` with fixed-JVP, while
-D/T/He took `54.2 s` with default BDF and `189.3 s` with fixed-JVP. The JVP
-path removes finite-difference sensitivity and preserves parity, but repeated
-`jax.linearize` and batched tangent pushes inside the SciPy BDF callback are
-still more expensive than the current finite-difference sparse Jacobian for
-these decks.
+`fixed_bdf2_evolve_feedback_integrals=true`, `fixed_bdf2_bdf2_steps > 0`, and a
+finite residual norm. This keeps the full-output JAX-linearized path under the
+same reproducible gate as the SciPy-BDF JVP bridge.
+
+The June 5, 2026 two-output-window `recycling_1d_one_step` local gate passed
+with worst active-mesh `bdf` versus `bdf_fixed_full_field_jvp` delta
+`7.20e-6`, below the `1e-5` threshold. The JVP bridge reported one prebuilt
+direction batch and reused it on all `106` Jacobian callbacks; tangent
+construction time was zero, while JAX linearization and device execution still
+accounted for most of the `64.5 s` fixed-JVP runtime versus `9.87 s` for the
+default BDF route. The same run also proved that `fixed_bdf2_jax_linearized`
+executes a real BDF2 corrector (`fixed_bdf2_bdf2_steps=1`), but its maximum
+residual norm was about `1.93e29`. That lane is therefore useful for routing,
+packing, and action-count diagnostics, but not yet for production promotion.
+The JVP path removes finite-difference sensitivity and preserves parity, but
+repeated `jax.linearize` and batched tangent pushes inside the SciPy BDF
+callback are still more expensive than the current finite-difference sparse
+Jacobian for these decks.
 
 That bridge now follows the documented JAX autodiff pattern more closely:
 `jax.linearize` evaluates the primal residual once and returns a reusable
@@ -726,7 +744,10 @@ residual has been proven JAX-transformable; the heavy SciPy BDF callback
 remains a host compatibility path. For the long SciPy BDF callback itself,
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` exercises
 the fixed-full-field RHS plus grouped-JVP Jacobian seam while preserving the
-same BDF timestepper.
+same BDF timestepper. Use
+`runtime:recycling_transient_solver_mode=bdf_active_array_jvp` for the matching
+active-array migration seam; it is diagnostic evidence for the future PyTree RHS
+default, not a faster production mode yet.
 The next non-SciPy output-window promotion lane is
 `runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or
 `fixed_bdf2_jax_linearized_lineax`. These modes take a fixed-layout

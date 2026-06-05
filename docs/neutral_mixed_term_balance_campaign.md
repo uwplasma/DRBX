@@ -174,9 +174,10 @@ The native accepted-step trace now writes the same state, RHS, and source field
 set and can now replay the reference accepted-step time grid. A local
 reference-grid comparison of `neutral_mixed_one_step` matches `148/148`
 accepted points. With the timestamp mismatch removed and the reference trace
-now writing `Vh` and `eta_h`, the highest matched-time input drift is `eta_h`
-at about `3.23e-3` in the target/guard comparison. The next active/target
-source offender is `SNVh_parallel_viscosity` at about `5.35e-5`. Large
+now writing `Dnnh`, `Vh`, and `eta_h`, the highest matched-time input drift is
+`Dnnh` at about `4.46e-3` in the target/guard comparison, followed by `eta_h`
+at about `3.23e-3`. The next active/target source offender is
+`SNVh_parallel_viscosity` at about `5.35e-5`. Large
 RHS/source guard deltas remain reported but are not used to rank `ddt(*)` or
 `SNVh_*`, because those guard values are diagnostic-boundary semantics rather
 than active-domain source formulas. The next native parity patch should
@@ -190,12 +191,13 @@ offender this register reports the matched `V*` and `eta_*` input-field
 errors, ranks the matched `Dnn*`, `N*`, `P*`, and `NV*` closure/state-input
 errors, lists missing input fields, and labels the diagnostic as either
 `input_drift_check_available` or `reference_input_trace_missing`. When the
-patched reference JSONL includes `Vh` and `eta_h`, a small input delta with a
-large `SNVh_parallel_viscosity` delta points at the
+patched reference JSONL includes `Dnnh`, `Vh`, and `eta_h`, a small input delta
+with a large `SNVh_parallel_viscosity` delta points at the
 `Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil or boundary semantics. The
-current rerun instead reports a larger `eta_h` input delta, so the immediate
-owner is accepted-step state/history sequencing, neutral closure preparation,
-or target-boundary reconstruction before the viscosity stencil is changed.
+current rerun instead reports a larger `Dnnh` input delta, so the immediate
+owner is accepted-step neutral diffusion-coefficient preparation,
+state/history sequencing, or target-boundary reconstruction before the
+viscosity stencil is changed.
 On the current `148/148` matched accepted-step trace, `Nh` is the dominant
 state-input drift, but the `eta_h` target-adjacent drift is about `99` times
 larger than the largest state-input drift. The same rerun now includes `Dnnh`
@@ -215,9 +217,10 @@ by `write_neutral_mixed_reference_input_closure_json`. On the current
 reference final state this gate closes the neutral diffusion, velocity, and
 viscosity input formulas to roundoff in active, target-adjacent, and guard
 cells. That result is deliberately narrower than the accepted-step comparator:
-it shows that the `eta_h` offender should be pursued in accepted-step
-state/history or target-boundary sequencing, not by changing the already
-matched `eta_h = A_h D_{nn,h} N_h` closure formula.
+it shows that the accepted-step `Dnnh`/`eta_h` offender should be pursued in
+accepted-step state/history, diffusion-coefficient preparation, or
+target-boundary sequencing, not by changing the already matched
+`eta_h = A_h D_{nn,h} N_h` final-state closure formula.
 The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
 schema before returning successfully: each accepted-step record must contain
 `Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain
