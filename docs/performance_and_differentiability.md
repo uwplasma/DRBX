@@ -765,6 +765,14 @@ substeps, and a maximum accepted embedded-error ratio of `0.715`. That is
 promotion evidence for the opt-in route only; the stable default remains
 unchanged until full output-window parity, reference campaigns, and larger
 CPU/GPU profiling reproduce the same behavior.
+The subsequent sparse-JVP workspace pass moves static sparse metadata and
+direction-batch construction out of the adaptive BE/BDF2 trial loop. The same
+bounded D/T/He gate reports `adaptive_bdf_sparse_jvp_workspace_reuses=17`,
+matching its 17 sparse-JVP trial solves, while preserving the accepted-step and
+embedded-error behavior. Its local wall time remains about `29.5 s`, so the
+next performance target is not sparse-plan allocation but JAX linearization,
+batched push timing, and device/host transfer attribution inside grouped-JVP
+Jacobian assembly.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with
