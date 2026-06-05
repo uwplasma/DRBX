@@ -97,6 +97,18 @@ neutral mixed setting and why the next neutral parity work should target the
 state/history sequencer rather than the direct pressure-gradient or viscosity
 operators.
 
+The next fidelity diagnostic should be an accepted-step trace from the
+reference implementation before another native boundary patch is attempted.
+For every accepted internal solver step from `t = 0` to the one-step output
+time, the trace should write `time`, `dt`, solver order, and both
+post-boundary/pre-RHS and post-accepted `Nh`, `Ph`, and `NVh` values at the
+active target-adjacent cells and adjacent guard cells. The same sample should
+include `ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, and the existing direct
+`SNVh_*` source diagnostics. That is the missing information needed to
+distinguish time-integrator history drift from guard/boundary sequencing
+differences; the current JAXDRB-side artifacts alone do not isolate a unique
+safe native patch.
+
 Run the Hermès-free diagnostic with:
 
 ```bash

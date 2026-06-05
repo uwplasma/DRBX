@@ -276,6 +276,16 @@ next optimization is therefore to avoid repeated full JAX linearization/JVP
 materialization inside SciPy BDF, or to move the output-window solve to a native
 JAX-linearized/matrix-free nonlinear solver after parity is preserved.
 
+The June 2026 self-contained promotion gate confirms the same conclusion on
+both the hydrogen and D/T/He fixture decks. The hydrogen gate matched default
+`bdf` within `7.6e-6` but took about `60.7 s` versus `8.2 s`; the D/T/He gate
+matched within `2.3e-7` but took about `157.0 s` versus `46.5 s`. In the D/T/He
+fixed-JVP run, repeated JAX linearization consumed about `91.0 s` and tangent
+pushes about `51.0 s`, while sparse assembly and host transfer were
+negligible. This is strong parity evidence for the fixed-layout callback seam,
+but it is negative performance evidence for making `bdf_fixed_full_field_jvp`
+the default output-window solver.
+
 The sparse Newton interface now exposes that derivative algorithm directly as
 `jacobian_mode="jvp"`, and the implicit-solver profile audit compares it
 against the finite-difference sparse Newton path on a transformable residual.
