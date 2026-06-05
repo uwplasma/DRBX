@@ -364,7 +364,7 @@ residual under `jit`, `vmap`, `jvp`, and `grad` on the real recycling state.
 It uses the fixed full-field active-array RHS by default and keeps the older
 host bridge only as an explicit diagnostic comparison backend.
 On the local CPU run, the retained batch sweep through 256 states gives about
-`5.63x` residual throughput speedup and about `3.42x` JVP
+`4.94x` residual throughput speedup and about `3.11x` JVP
 throughput speedup over serial same-kernel calls, while the
 JVP/finite-difference error is about `2.19e-9`.
 

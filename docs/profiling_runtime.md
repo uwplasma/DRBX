@@ -317,7 +317,7 @@ release-facing JAX-native evidence path; `--rhs-backend host_bridge` is
 retained only for comparisons against the older host bridge.
 
 The retained local CPU artifact now sweeps batches through 256 states and
-shows about `5.63x` residual throughput speedup and `3.42x` JVP throughput
+shows about `4.94x` residual throughput speedup and `3.11x` JVP throughput
 speedup over serial same-kernel calls, with batched/serial residual and JVP
 mismatch at roundoff. The residual JVP agrees with centered finite difference
 to about `2.19e-9`, and the objective directional derivative agrees to about
