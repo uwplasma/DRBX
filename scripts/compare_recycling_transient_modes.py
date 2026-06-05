@@ -26,6 +26,8 @@ SOLVER_MODES = (
     "continuation",
     "bdf",
     "bdf_fixed_full_field_jvp",
+    "fixed_bdf2_jax_linearized",
+    "fixed_bdf2_jax_linearized_lineax",
     "adaptive_be",
     "adaptive_bdf",
     "adaptive_bdf_sparse_jvp",
@@ -68,7 +70,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "supported set for the case."
         ),
     )
-    parser.add_argument("--field", action="append", dest="fields", help="Fields to report. May be repeated.")
+    parser.add_argument(
+        "--field",
+        action="append",
+        dest="fields",
+        help="Fields to report. May be repeated.",
+    )
     parser.add_argument(
         "--override",
         action="append",
@@ -167,8 +174,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _resolve_output_timestep(args: argparse.Namespace, run_config: RunConfiguration) -> float:
-    timestep = run_config.time.timestep if args.timestep is None else float(args.timestep)
+def _resolve_output_timestep(
+    args: argparse.Namespace, run_config: RunConfiguration
+) -> float:
+    timestep = (
+        run_config.time.timestep if args.timestep is None else float(args.timestep)
+    )
     if not np.isfinite(timestep) or timestep <= 0.0:
         raise ValueError("--timestep must be a positive finite value.")
     return float(timestep)
@@ -183,8 +194,21 @@ def _resolve_max_nonlinear_iterations(args: argparse.Namespace) -> int:
 
 def _default_modes(case_name: str) -> tuple[str, ...]:
     if case_name == "recycling_1d_one_step":
-        return ("continuation", "bdf", "bdf_fixed_full_field_jvp", "adaptive_be", "adaptive_bdf")
-    return ("bdf", "bdf_fixed_full_field_jvp", "adaptive_be", "adaptive_bdf")
+        return (
+            "continuation",
+            "bdf",
+            "bdf_fixed_full_field_jvp",
+            "fixed_bdf2_jax_linearized",
+            "adaptive_be",
+            "adaptive_bdf",
+        )
+    return (
+        "bdf",
+        "bdf_fixed_full_field_jvp",
+        "fixed_bdf2_jax_linearized",
+        "adaptive_be",
+        "adaptive_bdf",
+    )
 
 
 def _summarize_mode_errors(
@@ -220,7 +244,9 @@ def _active_mesh_view(values: np.ndarray, mesh) -> np.ndarray:
     return values
 
 
-def _format_mode_error_report(mode: str, *, elapsed: float, rows: list[tuple[str, float]]) -> list[str]:
+def _format_mode_error_report(
+    mode: str, *, elapsed: float, rows: list[tuple[str, float]]
+) -> list[str]:
     lines = [f"mode={mode} elapsed={elapsed:.3f}s"]
     for field, max_abs in rows:
         lines.append(f"  {field}: max_abs_diff={max_abs:.8e}")
@@ -229,7 +255,9 @@ def _format_mode_error_report(mode: str, *, elapsed: float, rows: list[tuple[str
     return lines
 
 
-def _format_mode_diagnostics_report(mode: str, diagnostics: dict[str, object]) -> list[str]:
+def _format_mode_diagnostics_report(
+    mode: str, diagnostics: dict[str, object]
+) -> list[str]:
     if not diagnostics:
         return []
     lines = [f"diagnostics mode={mode}"]
@@ -347,14 +375,20 @@ def _write_json_report(path: Path, report: dict[str, object]) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _validate_fixed_full_field_jvp_diagnostics(diagnostics: dict[str, object]) -> list[str]:
+def _validate_fixed_full_field_jvp_diagnostics(
+    diagnostics: dict[str, object],
+) -> list[str]:
     errors: list[str] = []
     if diagnostics.get("bdf_rhs_backend") != "fixed_full_field_array":
-        errors.append("bdf_fixed_full_field_jvp did not report bdf_rhs_backend=fixed_full_field_array")
+        errors.append(
+            "bdf_fixed_full_field_jvp did not report bdf_rhs_backend=fixed_full_field_array"
+        )
     if diagnostics.get("bdf_jacobian_mode") != "jvp":
         errors.append("bdf_fixed_full_field_jvp did not report bdf_jacobian_mode=jvp")
     if int(diagnostics.get("bdf_jacobian_base_rhs_evaluation_count", -1)) != 0:
-        errors.append("bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations")
+        errors.append(
+            "bdf_fixed_full_field_jvp reported finite-difference base RHS Jacobian evaluations"
+        )
     if int(diagnostics.get("bdf_jvp_rhs_evaluation_count", 0)) <= 0:
         errors.append("bdf_fixed_full_field_jvp did not report any JVP RHS evaluations")
     return errors
@@ -376,53 +410,83 @@ def _validate_adaptive_bdf_diagnostics(
     errors: list[str] = []
     expected_step_solver = ADAPTIVE_BDF_STEP_SOLVER_MODES[mode]
     if diagnostics.get("adaptive_bdf_step_solver_mode") != expected_step_solver:
-        errors.append(f"{mode} did not report adaptive_bdf_step_solver_mode={expected_step_solver}")
+        errors.append(
+            f"{mode} did not report adaptive_bdf_step_solver_mode={expected_step_solver}"
+        )
     if int(diagnostics.get("adaptive_bdf_interval_count", 0)) <= 0:
         errors.append(f"{mode} did not report any adaptive BDF output intervals")
     if int(diagnostics.get("adaptive_bdf_accepted_steps", 0)) <= 0:
         errors.append(f"{mode} did not report any accepted adaptive BDF substeps")
     if mode != "adaptive_bdf":
-        fixed_rhs_steps = int(diagnostics.get("adaptive_bdf_fixed_full_field_rhs_solver_steps", 0))
+        fixed_rhs_steps = int(
+            diagnostics.get("adaptive_bdf_fixed_full_field_rhs_solver_steps", 0)
+        )
         if fixed_rhs_steps <= 0:
-            errors.append(f"{mode} did not report any fixed_full_field_array adaptive BDF solver steps")
+            errors.append(
+                f"{mode} did not report any fixed_full_field_array adaptive BDF solver steps"
+            )
     if mode == "adaptive_bdf_sparse_jvp":
-        sparse_jvp_steps = int(diagnostics.get("adaptive_bdf_sparse_jvp_jacobian_solver_steps", 0))
+        sparse_jvp_steps = int(
+            diagnostics.get("adaptive_bdf_sparse_jvp_jacobian_solver_steps", 0)
+        )
         if sparse_jvp_steps <= 0:
-            errors.append(f"{mode} did not report any sparse-JVP Jacobian adaptive BDF solver steps")
+            errors.append(
+                f"{mode} did not report any sparse-JVP Jacobian adaptive BDF solver steps"
+            )
     elif expected_step_solver.startswith("jax_linearized"):
-        action_steps = int(diagnostics.get("adaptive_bdf_jax_linearized_action_solver_steps", 0))
+        action_steps = int(
+            diagnostics.get("adaptive_bdf_jax_linearized_action_solver_steps", 0)
+        )
         if action_steps <= 0:
-            errors.append(f"{mode} did not report any JAX-linearized adaptive BDF solver steps")
+            errors.append(
+                f"{mode} did not report any JAX-linearized adaptive BDF solver steps"
+            )
         if expected_step_solver == "jax_linearized_lineax":
-            lineax_steps = int(diagnostics.get("adaptive_bdf_lineax_action_solver_steps", 0))
+            lineax_steps = int(
+                diagnostics.get("adaptive_bdf_lineax_action_solver_steps", 0)
+            )
             if lineax_steps <= 0:
-                errors.append(f"{mode} did not report any Lineax adaptive BDF solver steps")
+                errors.append(
+                    f"{mode} did not report any Lineax adaptive BDF solver steps"
+                )
     fallback_count = int(diagnostics.get("adaptive_bdf_minimum_dt_fallbacks", 0))
     if require_no_fallback and fallback_count != 0:
         errors.append(f"{mode} reported {fallback_count} minimum-dt fallback accepts")
     unconverged_count = int(diagnostics.get("adaptive_bdf_unconverged_solver_steps", 0))
     if require_no_unconverged_substeps and unconverged_count != 0:
-        errors.append(f"{mode} reported {unconverged_count} unconverged adaptive BDF implicit substeps")
-    linear_solver_failed_count = int(diagnostics.get("adaptive_bdf_linear_solver_failed_steps", 0))
+        errors.append(
+            f"{mode} reported {unconverged_count} unconverged adaptive BDF implicit substeps"
+        )
+    linear_solver_failed_count = int(
+        diagnostics.get("adaptive_bdf_linear_solver_failed_steps", 0)
+    )
     if require_no_unconverged_substeps and linear_solver_failed_count != 0:
-        errors.append(f"{mode} reported {linear_solver_failed_count} failed adaptive BDF linear solves")
+        errors.append(
+            f"{mode} reported {linear_solver_failed_count} failed adaptive BDF linear solves"
+        )
     if max_error_ratio is not None:
         reported = diagnostics.get("adaptive_bdf_max_error_ratio")
         if reported is None:
             errors.append(f"{mode} did not report adaptive_bdf_max_error_ratio")
         else:
             reported_float = float(reported)
-            if not np.isfinite(reported_float) or reported_float > float(max_error_ratio):
+            if not np.isfinite(reported_float) or reported_float > float(
+                max_error_ratio
+            ):
                 errors.append(
                     f"{mode} adaptive_bdf_max_error_ratio={reported_float:.8e} exceeds {float(max_error_ratio):.8e}"
                 )
     if max_accepted_error_ratio is not None:
         reported = diagnostics.get("adaptive_bdf_max_accepted_error_ratio")
         if reported is None:
-            errors.append(f"{mode} did not report adaptive_bdf_max_accepted_error_ratio")
+            errors.append(
+                f"{mode} did not report adaptive_bdf_max_accepted_error_ratio"
+            )
         else:
             reported_float = float(reported)
-            if not np.isfinite(reported_float) or reported_float > float(max_accepted_error_ratio):
+            if not np.isfinite(reported_float) or reported_float > float(
+                max_accepted_error_ratio
+            ):
                 errors.append(
                     f"{mode} adaptive_bdf_max_accepted_error_ratio={reported_float:.8e} exceeds {float(max_accepted_error_ratio):.8e}"
                 )
@@ -442,7 +506,9 @@ def _run_with_mode_timeout(timeout_seconds: float | None, callback):
         return callback()
 
     def _handle_timeout(_signum, _frame):
-        raise _ModeTimeoutError(f"solver mode exceeded {float(timeout_seconds):g} seconds")
+        raise _ModeTimeoutError(
+            f"solver mode exceeded {float(timeout_seconds):g} seconds"
+        )
 
     previous_handler = signal.signal(signal.SIGALRM, _handle_timeout)
     signal.setitimer(signal.ITIMER_REAL, float(timeout_seconds))
@@ -455,7 +521,9 @@ def _run_with_mode_timeout(timeout_seconds: float | None, callback):
 
 def main() -> int:
     args = _parse_args()
-    case, input_path = resolve_reference_case(args.case, reference_root=args.reference_root)
+    case, input_path = resolve_reference_case(
+        args.case, reference_root=args.reference_root
+    )
     config = _load_curated_case_config(case, input_path)
     if args.overrides:
         config = apply_bout_overrides(config, args.overrides)
@@ -476,7 +544,11 @@ def main() -> int:
         )["variables"]
     fields = tuple(args.fields) if args.fields else DEFAULT_FIELDS
     modes = tuple(args.modes) if args.modes else _default_modes(args.case)
-    rtol = float(config.parsed("solver", "rtol")) if config.has_option("solver", "rtol") else 1.0e-8
+    rtol = (
+        float(config.parsed("solver", "rtol"))
+        if config.has_option("solver", "rtol")
+        else 1.0e-8
+    )
 
     print(f"case={args.case}", flush=True)
     print(f"configured_timestep={run_config.time.timestep:g}", flush=True)
@@ -484,7 +556,9 @@ def main() -> int:
     print(f"max_nonlinear_iterations={max_nonlinear_iterations}", flush=True)
     if args.diagnostics_only:
         print("baseline_comparison=disabled", flush=True)
-    elif args.timestep is not None and not np.isclose(output_timestep, run_config.time.timestep):
+    elif args.timestep is not None and not np.isclose(
+        output_timestep, run_config.time.timestep
+    ):
         print(
             "warning=timestep override is active while committed-baseline comparison remains enabled",
             flush=True,
@@ -530,7 +604,9 @@ def main() -> int:
             print(line)
         for line in _format_mode_diagnostics_report(mode, mode_diagnostics[mode]):
             print(line)
-    for line in _format_bdf_pairwise_delta_report(mode_variables, fields=fields, mesh=mesh):
+    for line in _format_bdf_pairwise_delta_report(
+        mode_variables, fields=fields, mesh=mesh
+    ):
         print(line)
     adaptive_gate_errors: dict[str, list[str]] = {}
     if args.require_fixed_jvp_diagnostics:
@@ -549,7 +625,9 @@ def main() -> int:
     ):
         adaptive_modes = _adaptive_bdf_modes_to_validate(modes)
         if not adaptive_modes:
-            print("gate_failure=adaptive BDF diagnostics were requested but no adaptive-BDF mode was run")
+            print(
+                "gate_failure=adaptive BDF diagnostics were requested but no adaptive-BDF mode was run"
+            )
             return 2
         errors = []
         for mode in adaptive_modes:
@@ -557,7 +635,9 @@ def main() -> int:
                 mode,
                 mode_diagnostics.get(mode, {}),
                 require_no_fallback=bool(args.require_adaptive_bdf_no_fallback),
-                require_no_unconverged_substeps=bool(args.require_adaptive_bdf_no_unconverged_substeps),
+                require_no_unconverged_substeps=bool(
+                    args.require_adaptive_bdf_no_unconverged_substeps
+                ),
                 max_error_ratio=args.require_adaptive_bdf_max_error_ratio,
                 max_accepted_error_ratio=args.require_adaptive_bdf_max_accepted_error_ratio,
             )
@@ -567,7 +647,9 @@ def main() -> int:
             print(f"gate_failure={error}")
         if errors:
             return 2
-    bdf_pairwise_worst = _bdf_pairwise_worst_delta(mode_variables, fields=fields, mesh=mesh)
+    bdf_pairwise_worst = _bdf_pairwise_worst_delta(
+        mode_variables, fields=fields, mesh=mesh
+    )
     if args.output_json is not None:
         report = _build_json_report(
             case_name=args.case,
@@ -587,10 +669,14 @@ def main() -> int:
     if args.require_bdf_pairwise_max is not None:
         worst_field, worst_delta = bdf_pairwise_worst
         if worst_delta is None:
-            print("gate_failure=bdf pairwise delta is unavailable; run both bdf and bdf_fixed_full_field_jvp")
+            print(
+                "gate_failure=bdf pairwise delta is unavailable; run both bdf and bdf_fixed_full_field_jvp"
+            )
             return 2
         threshold = float(args.require_bdf_pairwise_max)
-        print(f"gate=bdf_pairwise_max field={worst_field} delta={worst_delta:.8e} threshold={threshold:.8e}")
+        print(
+            f"gate=bdf_pairwise_max field={worst_field} delta={worst_delta:.8e} threshold={threshold:.8e}"
+        )
         if not np.isfinite(worst_delta) or worst_delta > threshold:
             print("gate_failure=bdf pairwise delta exceeds threshold")
             return 2

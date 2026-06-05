@@ -35,8 +35,12 @@ class _FakeRuntimeConfig:
         return self._runtime_options[key]
 
 
-def _runtime_model(field_names: tuple[str, ...] = ("N",), feedback_names: tuple[str, ...] = ("ctrl",)):
-    return SimpleNamespace(field_names=field_names, feedback_names=feedback_names, controllers={})
+def _runtime_model(
+    field_names: tuple[str, ...] = ("N",), feedback_names: tuple[str, ...] = ("ctrl",)
+):
+    return SimpleNamespace(
+        field_names=field_names, feedback_names=feedback_names, controllers={}
+    )
 
 
 def _fields(value: float = 1.0) -> dict[str, np.ndarray]:
@@ -73,6 +77,11 @@ def test_implicit_history_rejects_negative_steps() -> None:
         ("adaptive_bdf", "_advance_recycling_1d_adaptive_bdf_history"),
         ("bdf", "_advance_recycling_1d_bdf_history"),
         ("bdf_fixed_full_field_jvp", "_advance_recycling_1d_bdf_history"),
+        ("fixed_bdf2_jax_linearized", "_advance_recycling_1d_fixed_bdf2_history"),
+        (
+            "fixed_bdf2_jax_linearized_lineax",
+            "_advance_recycling_1d_fixed_bdf2_history",
+        ),
     ),
 )
 def test_implicit_history_dispatches_solver_modes(
@@ -83,8 +92,12 @@ def test_implicit_history_dispatches_solver_modes(
     model = _runtime_model()
     sentinel = object()
     calls: dict[str, object] = {}
-    monkeypatch.setattr(recycling, "_build_recycling_runtime_model", lambda *args, **kwargs: model)
-    monkeypatch.setattr(recycling, "_build_recycling_state_fields", lambda *args, **kwargs: _fields())
+    monkeypatch.setattr(
+        recycling, "_build_recycling_runtime_model", lambda *args, **kwargs: model
+    )
+    monkeypatch.setattr(
+        recycling, "_build_recycling_state_fields", lambda *args, **kwargs: _fields()
+    )
 
     def fake_history(*args: object, **kwargs: object) -> object:
         calls["kwargs"] = kwargs
@@ -112,6 +125,14 @@ def test_implicit_history_dispatches_solver_modes(
         assert calls["kwargs"]["jacobian_mode"] == "jvp"
         assert calls["kwargs"]["rhs_backend"] == "fixed_full_field_array"
         assert calls["kwargs"]["solver_mode_label"] == "bdf_fixed_full_field_jvp"
+    if solver_mode.startswith("fixed_bdf2_jax_linearized"):
+        expected_step_solver = (
+            "jax_linearized_lineax"
+            if solver_mode.endswith("_lineax")
+            else "jax_linearized"
+        )
+        assert calls["kwargs"]["step_solver_mode"] == expected_step_solver
+        assert calls["kwargs"]["solver_mode_label"] == solver_mode
     if solver_mode not in {"bdf", "bdf_fixed_full_field_jvp"}:
         assert calls["kwargs"]["residual_tolerance"] == 1.0e-7
         assert calls["kwargs"]["max_nonlinear_iterations"] == 9
@@ -122,19 +143,28 @@ def test_generic_implicit_history_accumulates_fields_integrals_and_progress(
 ) -> None:
     model = _runtime_model()
     events: list[dict[str, object]] = []
-    monkeypatch.setattr(recycling, "_build_recycling_runtime_model", lambda *args, **kwargs: model)
-    monkeypatch.setattr(recycling, "_build_recycling_state_fields", lambda *args, **kwargs: _fields())
+    monkeypatch.setattr(
+        recycling, "_build_recycling_runtime_model", lambda *args, **kwargs: model
+    )
+    monkeypatch.setattr(
+        recycling, "_build_recycling_state_fields", lambda *args, **kwargs: _fields()
+    )
 
     def fake_step(config, fields, *, feedback_integrals, timestep, **kwargs):
         next_fields = {"N": fields["N"] + timestep}
         next_integrals = {"ctrl": feedback_integrals["ctrl"] + timestep}
         return next_fields, next_integrals, object()
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_step
+    )
     monkeypatch.setattr(
         recycling,
         "_build_recycling_progress_details",
-        lambda **kwargs: ({"stage": "progress", **kwargs}, kwargs["interval_started_at"]),
+        lambda **kwargs: (
+            {"stage": "progress", **kwargs},
+            kwargs["interval_started_at"],
+        ),
     )
 
     result = recycling.advance_recycling_1d_implicit_history(
@@ -148,10 +178,139 @@ def test_generic_implicit_history_accumulates_fields_integrals_and_progress(
         progress_callback=events.append,
     )
 
-    np.testing.assert_allclose(result.variable_history["N"][:, 0], np.array([1.0, 1.5, 2.0]))
-    np.testing.assert_allclose(result.feedback_integral_history["ctrl"], np.array([0.0, 0.5, 1.0]))
+    np.testing.assert_allclose(
+        result.variable_history["N"][:, 0], np.array([1.0, 1.5, 2.0])
+    )
+    np.testing.assert_allclose(
+        result.feedback_integral_history["ctrl"], np.array([0.0, 0.5, 1.0])
+    )
     assert [event["interval_index"] for event in events] == [1, 2]
     assert all(event["solver_mode"] == "sparse" for event in events)
+
+
+def test_fixed_bdf2_jax_linearized_history_uses_startup_bdf2_and_packed_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, bool]] = []
+    events: list[dict[str, object]] = []
+
+    def make_info(method: str) -> recycling.Recycling1DImplicitStepInfo:
+        return recycling.Recycling1DImplicitStepInfo(
+            residual_inf_norm=0.25 if method == "backward_euler" else 0.125,
+            active_size=1,
+            nonlinear_iterations=2,
+            linear_iterations=3,
+            diagnostics={
+                "solver_mode": "jax_linearized_lineax",
+                "rhs_backend": "fixed_full_field_array",
+                "residual_evaluation_count": 4,
+                "jacobian_refresh_count": 1,
+                "linear_solve_seconds": 0.5,
+                "residual_evaluation_seconds": 0.25,
+                "residual_jitted": True,
+            },
+        )
+
+    def fake_backward_euler_step(
+        config,
+        fields,
+        *,
+        feedback_integrals,
+        solver_mode,
+        evolve_feedback_integrals,
+        **kwargs,
+    ):
+        calls.append(("be", solver_mode, evolve_feedback_integrals))
+        assert feedback_integrals == {"ctrl": 0.0}
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            make_info("backward_euler"),
+        )
+
+    def fake_bdf2_step(
+        config,
+        fields,
+        previous_fields,
+        *,
+        feedback_integrals,
+        previous_feedback_integrals,
+        solver_mode,
+        evolve_feedback_integrals,
+        previous_timestep,
+        **kwargs,
+    ):
+        calls.append(("bdf2", solver_mode, evolve_feedback_integrals))
+        assert previous_timestep == 0.5
+        assert previous_feedback_integrals["ctrl"] < feedback_integrals["ctrl"]
+        assert np.asarray(previous_fields["N"]).shape == np.asarray(fields["N"]).shape
+        return (
+            {"N": fields["N"] + 10.0},
+            {"ctrl": feedback_integrals["ctrl"] + 10.0},
+            make_info("bdf2"),
+        )
+
+    monkeypatch.setattr(
+        recycling,
+        "advance_recycling_1d_backward_euler_step",
+        fake_backward_euler_step,
+    )
+    monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf2_step)
+    monkeypatch.setattr(
+        recycling,
+        "_build_recycling_progress_details",
+        lambda **kwargs: (
+            {
+                "interval_index": kwargs["interval_index"],
+                "solver_mode": kwargs["solver_mode"],
+            },
+            kwargs["interval_started_at"],
+        ),
+    )
+
+    result = recycling._advance_recycling_1d_fixed_bdf2_history(
+        _FakeConfig(),
+        _fields(),
+        runtime_model=_runtime_model(),
+        feedback_integrals={"ctrl": 0.0},
+        field_names=("N",),
+        feedback_names=("ctrl",),
+        mesh=object(),
+        metrics=object(),
+        dataset_scalars={},
+        timestep=0.5,
+        steps=3,
+        residual_tolerance=1.0e-8,
+        max_nonlinear_iterations=4,
+        progress_callback=events.append,
+        step_solver_mode="jax_linearized_lineax",
+        solver_mode_label="fixed_bdf2_jax_linearized_lineax",
+    )
+
+    assert calls == [
+        ("be", "jax_linearized_lineax", True),
+        ("bdf2", "jax_linearized_lineax", True),
+        ("bdf2", "jax_linearized_lineax", True),
+    ]
+    np.testing.assert_allclose(
+        result.variable_history["N"][:, 0], [1.0, 2.0, 12.0, 22.0]
+    )
+    np.testing.assert_allclose(
+        result.feedback_integral_history["ctrl"], [0.0, 1.0, 11.0, 21.0]
+    )
+    assert events == [
+        {"interval_index": 1, "solver_mode": "fixed_bdf2_jax_linearized_lineax"},
+        {"interval_index": 2, "solver_mode": "fixed_bdf2_jax_linearized_lineax"},
+        {"interval_index": 3, "solver_mode": "fixed_bdf2_jax_linearized_lineax"},
+    ]
+    diagnostics = result.diagnostics
+    assert diagnostics["fixed_bdf2_startup_steps"] == 1
+    assert diagnostics["fixed_bdf2_bdf2_steps"] == 2
+    assert diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"] == 3
+    assert diagnostics["fixed_bdf2_jax_linearized_action_steps"] == 3
+    assert diagnostics["fixed_bdf2_lineax_action_steps"] == 3
+    assert diagnostics["fixed_bdf2_residual_jitted_steps"] == 3
+    assert diagnostics["fixed_bdf2_evolve_feedback_integrals"] is True
 
 
 def test_adaptive_be_history_accumulates_interval_results_and_progress(
@@ -160,13 +319,22 @@ def test_adaptive_be_history_accumulates_interval_results_and_progress(
     events: list[dict[str, object]] = []
 
     def fake_interval(config, fields, *, feedback_integrals, suggested_dt, **kwargs):
-        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 2.0}, suggested_dt + 0.25
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 2.0},
+            suggested_dt + 0.25,
+        )
 
-    monkeypatch.setattr(recycling, "_advance_recycling_1d_adaptive_be_interval", fake_interval)
+    monkeypatch.setattr(
+        recycling, "_advance_recycling_1d_adaptive_be_interval", fake_interval
+    )
     monkeypatch.setattr(
         recycling,
         "_build_recycling_progress_details",
-        lambda **kwargs: ({"stage": "progress", **kwargs}, kwargs["interval_started_at"]),
+        lambda **kwargs: (
+            {"stage": "progress", **kwargs},
+            kwargs["interval_started_at"],
+        ),
     )
 
     result = recycling._advance_recycling_1d_adaptive_be_history(
@@ -186,8 +354,12 @@ def test_adaptive_be_history_accumulates_interval_results_and_progress(
         progress_callback=events.append,
     )
 
-    np.testing.assert_allclose(result.variable_history["N"][:, 0], np.array([1.0, 2.0, 3.0]))
-    np.testing.assert_allclose(result.feedback_integral_history["ctrl"], np.array([0.0, 2.0, 4.0]))
+    np.testing.assert_allclose(
+        result.variable_history["N"][:, 0], np.array([1.0, 2.0, 3.0])
+    )
+    np.testing.assert_allclose(
+        result.feedback_integral_history["ctrl"], np.array([0.0, 2.0, 4.0])
+    )
     assert [event["solver_mode"] for event in events] == ["adaptive_be", "adaptive_be"]
 
 
@@ -196,9 +368,20 @@ def test_adaptive_bdf_history_threads_previous_state_and_progress(
 ) -> None:
     events: list[dict[str, object]] = []
     previous_seen: list[object] = []
-    monkeypatch.setattr(recycling, "_initial_recycling_continuation_dt", lambda *args, **kwargs: 0.5)
+    monkeypatch.setattr(
+        recycling, "_initial_recycling_continuation_dt", lambda *args, **kwargs: 0.5
+    )
 
-    def fake_interval(config, fields, *, feedback_integrals, previous_fields, previous_integrals, previous_dt, **kwargs):
+    def fake_interval(
+        config,
+        fields,
+        *,
+        feedback_integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        **kwargs,
+    ):
         previous_seen.append(previous_fields)
         next_fields = {"N": fields["N"] + 1.0}
         next_integrals = {"ctrl": feedback_integrals["ctrl"] + 3.0}
@@ -212,15 +395,24 @@ def test_adaptive_bdf_history_threads_previous_state_and_progress(
         stats["adaptive_bdf_max_accepted_dt"] = 0.5
         stats["adaptive_bdf_last_error_ratio"] = 0.1 if previous_fields is None else 0.2
         stats["adaptive_bdf_max_error_ratio"] = 0.8 if previous_fields is None else 0.6
-        stats["adaptive_bdf_last_accepted_error_ratio"] = 0.1 if previous_fields is None else 0.2
-        stats["adaptive_bdf_max_accepted_error_ratio"] = 0.7 if previous_fields is None else 0.6
+        stats["adaptive_bdf_last_accepted_error_ratio"] = (
+            0.1 if previous_fields is None else 0.2
+        )
+        stats["adaptive_bdf_max_accepted_error_ratio"] = (
+            0.7 if previous_fields is None else 0.6
+        )
         return next_fields, next_integrals, fields, feedback_integrals, 0.5, 0.5, stats
 
-    monkeypatch.setattr(recycling, "_advance_recycling_1d_adaptive_bdf_interval", fake_interval)
+    monkeypatch.setattr(
+        recycling, "_advance_recycling_1d_adaptive_bdf_interval", fake_interval
+    )
     monkeypatch.setattr(
         recycling,
         "_build_recycling_progress_details",
-        lambda **kwargs: ({"stage": "progress", **kwargs}, kwargs["interval_started_at"]),
+        lambda **kwargs: (
+            {"stage": "progress", **kwargs},
+            kwargs["interval_started_at"],
+        ),
     )
 
     result = recycling._advance_recycling_1d_adaptive_bdf_history(
@@ -242,9 +434,16 @@ def test_adaptive_bdf_history_threads_previous_state_and_progress(
 
     assert previous_seen[0] is None
     assert previous_seen[1] is not None
-    np.testing.assert_allclose(result.variable_history["N"][:, 0], np.array([1.0, 2.0, 3.0]))
-    np.testing.assert_allclose(result.feedback_integral_history["ctrl"], np.array([0.0, 3.0, 6.0]))
-    assert [event["solver_mode"] for event in events] == ["adaptive_bdf", "adaptive_bdf"]
+    np.testing.assert_allclose(
+        result.variable_history["N"][:, 0], np.array([1.0, 2.0, 3.0])
+    )
+    np.testing.assert_allclose(
+        result.feedback_integral_history["ctrl"], np.array([0.0, 3.0, 6.0])
+    )
+    assert [event["solver_mode"] for event in events] == [
+        "adaptive_bdf",
+        "adaptive_bdf",
+    ]
     assert result.diagnostics["adaptive_bdf_interval_count"] == 2
     assert result.diagnostics["adaptive_bdf_accepted_steps"] == 4
     assert result.diagnostics["adaptive_bdf_rejected_steps"] == 1
@@ -261,10 +460,30 @@ def test_adaptive_bdf_history_threads_previous_state_and_progress(
 
 
 def test_choose_recycling_next_dt_handles_finished_zero_and_scaled_errors() -> None:
-    assert recycling._choose_recycling_next_dt(0.5, error_ratio=1.0, order=1, remaining=0.0, minimum_dt=0.1) == 0.5
-    assert recycling._choose_recycling_next_dt(0.5, error_ratio=0.0, order=1, remaining=2.0, minimum_dt=0.1) == 1.0
-    assert recycling._choose_recycling_next_dt(0.5, error_ratio=float("nan"), order=1, remaining=2.0, minimum_dt=0.1) == 1.0
-    assert recycling._choose_recycling_next_dt(0.5, error_ratio=8.0, order=1, remaining=2.0, minimum_dt=0.1) == 0.25
+    assert (
+        recycling._choose_recycling_next_dt(
+            0.5, error_ratio=1.0, order=1, remaining=0.0, minimum_dt=0.1
+        )
+        == 0.5
+    )
+    assert (
+        recycling._choose_recycling_next_dt(
+            0.5, error_ratio=0.0, order=1, remaining=2.0, minimum_dt=0.1
+        )
+        == 1.0
+    )
+    assert (
+        recycling._choose_recycling_next_dt(
+            0.5, error_ratio=float("nan"), order=1, remaining=2.0, minimum_dt=0.1
+        )
+        == 1.0
+    )
+    assert (
+        recycling._choose_recycling_next_dt(
+            0.5, error_ratio=8.0, order=1, remaining=2.0, minimum_dt=0.1
+        )
+        == 0.25
+    )
 
 
 def test_adaptive_bdf_minimum_dt_preserves_full_window_policy() -> None:
@@ -308,7 +527,7 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "jvp_jacobian_device_execute_seconds": 0.02,
                 "jvp_jacobian_host_transfer_seconds": 0.03,
                 "jvp_jacobian_sparse_assembly_seconds": 0.06,
-            }
+            },
         ),
     )
     recycling._record_adaptive_bdf_step_solver_info(
@@ -354,11 +573,19 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_line_search_seconds"] == pytest.approx(0.125)
     assert stats["adaptive_bdf_jvp_jacobian_total_seconds"] == pytest.approx(0.2)
     assert stats["adaptive_bdf_jvp_jacobian_linearize_seconds"] == pytest.approx(0.03)
-    assert stats["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(0.04)
+    assert stats["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(
+        0.04
+    )
     assert stats["adaptive_bdf_jvp_jacobian_push_seconds"] == pytest.approx(0.05)
-    assert stats["adaptive_bdf_jvp_jacobian_device_execute_seconds"] == pytest.approx(0.02)
-    assert stats["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] == pytest.approx(0.03)
-    assert stats["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(0.06)
+    assert stats["adaptive_bdf_jvp_jacobian_device_execute_seconds"] == pytest.approx(
+        0.02
+    )
+    assert stats["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] == pytest.approx(
+        0.03
+    )
+    assert stats["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(
+        0.06
+    )
 
 
 def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
@@ -400,11 +627,19 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_line_search_seconds"] == pytest.approx(7.0)
     assert total["adaptive_bdf_jvp_jacobian_total_seconds"] == pytest.approx(8.0)
     assert total["adaptive_bdf_jvp_jacobian_linearize_seconds"] == pytest.approx(9.0)
-    assert total["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(10.0)
+    assert total["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(
+        10.0
+    )
     assert total["adaptive_bdf_jvp_jacobian_push_seconds"] == pytest.approx(11.0)
-    assert total["adaptive_bdf_jvp_jacobian_device_execute_seconds"] == pytest.approx(12.0)
-    assert total["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] == pytest.approx(13.0)
-    assert total["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(14.0)
+    assert total["adaptive_bdf_jvp_jacobian_device_execute_seconds"] == pytest.approx(
+        12.0
+    )
+    assert total["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] == pytest.approx(
+        13.0
+    )
+    assert total["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(
+        14.0
+    )
     assert total["adaptive_bdf_residual_evaluation_count"] == 8
     assert total["adaptive_bdf_jacobian_refresh_count"] == 9
     assert total["adaptive_bdf_linear_iterations"] == 10
@@ -423,7 +658,9 @@ def test_adaptive_bdf_trace_flushes_start_record_before_failure(
         raise RuntimeError("synthetic implicit failure")
 
     monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(trace_path))
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_step
+    )
 
     with pytest.raises(RuntimeError, match="synthetic implicit failure"):
         recycling._advance_recycling_1d_startup_step(
@@ -444,7 +681,9 @@ def test_adaptive_bdf_trace_flushes_start_record_before_failure(
             step_solver_mode="jax_linearized",
         )
 
-    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    records = [
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert records == [
         {
             "dt": 1.0,
@@ -457,16 +696,28 @@ def test_adaptive_bdf_trace_flushes_start_record_before_failure(
     ]
 
 
-def test_adaptive_be_interval_retries_then_accepts_step(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_adaptive_be_interval_retries_then_accepts_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[float] = []
     error_ratios = iter((2.0, 0.05, 1.0))
 
     def fake_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         calls.append(float(timestep))
-        return {"N": fields["N"] + timestep}, {"ctrl": feedback_integrals["ctrl"] + timestep}, object()
+        return (
+            {"N": fields["N"] + timestep},
+            {"ctrl": feedback_integrals["ctrl"] + timestep},
+            object(),
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: next(error_ratios))
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_step
+    )
+    monkeypatch.setattr(
+        recycling,
+        "_recycling_state_error_ratio",
+        lambda *args, **kwargs: next(error_ratios),
+    )
 
     fields, integrals, next_dt = recycling._advance_recycling_1d_adaptive_be_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
@@ -490,15 +741,25 @@ def test_adaptive_be_interval_retries_then_accepts_step(monkeypatch: pytest.Monk
     assert next_dt >= 0.25
 
 
-def test_adaptive_be_interval_accepts_minimum_dt_after_rejection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_adaptive_be_interval_accepts_minimum_dt_after_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[float] = []
 
     def fake_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         calls.append(float(timestep))
-        return {"N": fields["N"] + timestep}, {"ctrl": feedback_integrals["ctrl"] + timestep}, object()
+        return (
+            {"N": fields["N"] + timestep},
+            {"ctrl": feedback_integrals["ctrl"] + timestep},
+            object(),
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 5.0)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_step
+    )
+    monkeypatch.setattr(
+        recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 5.0
+    )
 
     fields, integrals, next_dt = recycling._advance_recycling_1d_adaptive_be_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
@@ -530,17 +791,39 @@ def test_adaptive_bdf_interval_uses_bdf2_when_previous_step_matches(
 
     def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         be_calls.append(float(timestep))
-        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
+        return (
+            {"N": fields["N"] + 0.5},
+            {"ctrl": feedback_integrals["ctrl"] + 0.5},
+            object(),
+        )
 
-    def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+    def fake_bdf_step(
+        config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs
+    ):
         bdf_calls.append(float(timestep))
-        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, object()
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            object(),
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_be_step
+    )
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.6)
+    monkeypatch.setattr(
+        recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.6
+    )
 
-    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+    (
+        fields,
+        integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        next_dt,
+        stats,
+    ) = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
         _fields(),
         runtime_model=_runtime_model(),
@@ -585,18 +868,32 @@ def test_adaptive_bdf_interval_reuses_sparse_jvp_workspace_across_trials(
     workspace = object()
     received_workspaces: list[object | None] = []
 
-    monkeypatch.setattr(recycling, "_build_recycling_sparse_jvp_workspace", lambda **kwargs: workspace)
+    monkeypatch.setattr(
+        recycling, "_build_recycling_sparse_jvp_workspace", lambda **kwargs: workspace
+    )
 
-    def fake_be_step(config, fields, *, timestep, feedback_integrals, sparse_jvp_workspace=None, **kwargs):
+    def fake_be_step(
+        config,
+        fields,
+        *,
+        timestep,
+        feedback_integrals,
+        sparse_jvp_workspace=None,
+        **kwargs,
+    ):
         received_workspaces.append(sparse_jvp_workspace)
-        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, SimpleNamespace(
-            diagnostics={
-                "converged": True,
-                "rhs_backend": "fixed_full_field_array",
-                "jacobian_mode": "jvp",
-                "jvp_direction_workspace_reuses": 1,
-            },
-            linear_iterations=0,
+        return (
+            {"N": fields["N"] + 0.5},
+            {"ctrl": feedback_integrals["ctrl"] + 0.5},
+            SimpleNamespace(
+                diagnostics={
+                    "converged": True,
+                    "rhs_backend": "fixed_full_field_array",
+                    "jacobian_mode": "jvp",
+                    "jvp_direction_workspace_reuses": 1,
+                },
+                linear_iterations=0,
+            ),
         )
 
     def fake_bdf_step(
@@ -610,19 +907,27 @@ def test_adaptive_bdf_interval_reuses_sparse_jvp_workspace_across_trials(
         **kwargs,
     ):
         received_workspaces.append(sparse_jvp_workspace)
-        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, SimpleNamespace(
-            diagnostics={
-                "converged": True,
-                "rhs_backend": "fixed_full_field_array",
-                "jacobian_mode": "jvp",
-                "jvp_direction_workspace_reuses": 1,
-            },
-            linear_iterations=0,
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            SimpleNamespace(
+                diagnostics={
+                    "converged": True,
+                    "rhs_backend": "fixed_full_field_array",
+                    "jacobian_mode": "jvp",
+                    "jvp_direction_workspace_reuses": 1,
+                },
+                linear_iterations=0,
+            ),
         )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_be_step
+    )
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.6)
+    monkeypatch.setattr(
+        recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.6
+    )
 
     _, _, _, _, _, _, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
@@ -657,23 +962,53 @@ def test_adaptive_bdf_interval_rejects_bdf2_above_promotion_threshold(
 
     def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         be_calls.append(float(timestep))
-        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
+        return (
+            {"N": fields["N"] + 0.5},
+            {"ctrl": feedback_integrals["ctrl"] + 0.5},
+            object(),
+        )
 
-    def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+    def fake_bdf_step(
+        config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs
+    ):
         bdf_calls.append(float(timestep))
-        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, object()
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            object(),
+        )
 
     def fake_startup_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         startup_calls.append(float(timestep))
-        return {"N": fields["N"] + timestep}, {"ctrl": feedback_integrals["ctrl"] + timestep}, 0.5
+        return (
+            {"N": fields["N"] + timestep},
+            {"ctrl": feedback_integrals["ctrl"] + timestep},
+            0.5,
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_be_step
+    )
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
-    monkeypatch.setattr(recycling, "_advance_recycling_1d_startup_step", fake_startup_step)
+    monkeypatch.setattr(
+        recycling, "_advance_recycling_1d_startup_step", fake_startup_step
+    )
     bdf_error_ratios = iter((2.88, 0.3))
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: next(bdf_error_ratios))
+    monkeypatch.setattr(
+        recycling,
+        "_recycling_state_error_ratio",
+        lambda *args, **kwargs: next(bdf_error_ratios),
+    )
 
-    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+    (
+        fields,
+        integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        next_dt,
+        stats,
+    ) = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
         _fields(),
         runtime_model=_runtime_model(),
@@ -717,9 +1052,19 @@ def test_adaptive_bdf_interval_uses_startup_when_previous_state_missing(
         startup_calls.append(float(timestep))
         return {"N": fields["N"] + 2.0}, {"ctrl": feedback_integrals["ctrl"] + 2.0}, 0.5
 
-    monkeypatch.setattr(recycling, "_advance_recycling_1d_startup_step", fake_startup_step)
+    monkeypatch.setattr(
+        recycling, "_advance_recycling_1d_startup_step", fake_startup_step
+    )
 
-    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+    (
+        fields,
+        integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        next_dt,
+        stats,
+    ) = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
         _fields(),
         runtime_model=_runtime_model(),
@@ -762,18 +1107,44 @@ def test_adaptive_bdf_interval_falls_back_to_be_at_minimum_dt(
 
     def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         be_calls.append(float(timestep))
-        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
+        return (
+            {"N": fields["N"] + 0.5},
+            {"ctrl": feedback_integrals["ctrl"] + 0.5},
+            object(),
+        )
 
-    def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+    def fake_bdf_step(
+        config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs
+    ):
         bdf_calls.append(float(timestep))
-        return {"N": fields["N"] + 10.0}, {"ctrl": feedback_integrals["ctrl"] + 10.0}, object()
+        return (
+            {"N": fields["N"] + 10.0},
+            {"ctrl": feedback_integrals["ctrl"] + 10.0},
+            object(),
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_be_step
+    )
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 6.0)
-    monkeypatch.setattr(recycling, "_adaptive_bdf_minimum_dt", lambda output_timestep: float(output_timestep))
+    monkeypatch.setattr(
+        recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 6.0
+    )
+    monkeypatch.setattr(
+        recycling,
+        "_adaptive_bdf_minimum_dt",
+        lambda output_timestep: float(output_timestep),
+    )
 
-    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+    (
+        fields,
+        integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        next_dt,
+        stats,
+    ) = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
         _fields(),
         runtime_model=_runtime_model(),
@@ -819,24 +1190,56 @@ def test_adaptive_bdf_interval_reuses_history_after_rejected_nonminimum_step(
 
     def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         be_calls.append(float(timestep))
-        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
+        return (
+            {"N": fields["N"] + 0.5},
+            {"ctrl": feedback_integrals["ctrl"] + 0.5},
+            object(),
+        )
 
-    def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+    def fake_bdf_step(
+        config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs
+    ):
         bdf_calls.append(float(timestep))
-        return {"N": fields["N"] + 10.0}, {"ctrl": feedback_integrals["ctrl"] + 10.0}, object()
+        return (
+            {"N": fields["N"] + 10.0},
+            {"ctrl": feedback_integrals["ctrl"] + 10.0},
+            object(),
+        )
 
     def fake_startup_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         startup_calls.append(float(timestep))
-        return {"N": fields["N"] + timestep}, {"ctrl": feedback_integrals["ctrl"] + timestep}, 0.5
+        return (
+            {"N": fields["N"] + timestep},
+            {"ctrl": feedback_integrals["ctrl"] + timestep},
+            0.5,
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_be_step
+    )
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
-    monkeypatch.setattr(recycling, "_advance_recycling_1d_startup_step", fake_startup_step)
+    monkeypatch.setattr(
+        recycling, "_advance_recycling_1d_startup_step", fake_startup_step
+    )
     bdf_error_ratios = iter((6.0, 0.3))
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: next(bdf_error_ratios))
-    monkeypatch.setattr(recycling, "_choose_recycling_next_dt", lambda *args, **kwargs: 1.0)
+    monkeypatch.setattr(
+        recycling,
+        "_recycling_state_error_ratio",
+        lambda *args, **kwargs: next(bdf_error_ratios),
+    )
+    monkeypatch.setattr(
+        recycling, "_choose_recycling_next_dt", lambda *args, **kwargs: 1.0
+    )
 
-    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+    (
+        fields,
+        integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        next_dt,
+        stats,
+    ) = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
         _fields(),
         runtime_model=_runtime_model(),
@@ -883,18 +1286,42 @@ def test_adaptive_bdf_interval_preserves_previous_state_when_next_dt_changes(
     previous_timesteps: list[float | None] = []
 
     def fake_be_step(config, fields, *, timestep, feedback_integrals, **kwargs):
-        return {"N": fields["N"] + 0.5}, {"ctrl": feedback_integrals["ctrl"] + 0.5}, object()
+        return (
+            {"N": fields["N"] + 0.5},
+            {"ctrl": feedback_integrals["ctrl"] + 0.5},
+            object(),
+        )
 
-    def fake_bdf_step(config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs):
+    def fake_bdf_step(
+        config, fields, previous_fields, *, timestep, feedback_integrals, **kwargs
+    ):
         previous_timesteps.append(kwargs.get("previous_timestep"))
-        return {"N": fields["N"] + 1.0}, {"ctrl": feedback_integrals["ctrl"] + 1.0}, object()
+        return (
+            {"N": fields["N"] + 1.0},
+            {"ctrl": feedback_integrals["ctrl"] + 1.0},
+            object(),
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_be_step)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_be_step
+    )
     monkeypatch.setattr(recycling, "advance_recycling_1d_bdf2_step", fake_bdf_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.3)
-    monkeypatch.setattr(recycling, "_choose_recycling_next_dt", lambda *args, **kwargs: 0.25)
+    monkeypatch.setattr(
+        recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.3
+    )
+    monkeypatch.setattr(
+        recycling, "_choose_recycling_next_dt", lambda *args, **kwargs: 0.25
+    )
 
-    fields, integrals, previous_fields, previous_integrals, previous_dt, next_dt, stats = recycling._advance_recycling_1d_adaptive_bdf_interval(
+    (
+        fields,
+        integrals,
+        previous_fields,
+        previous_integrals,
+        previous_dt,
+        next_dt,
+        stats,
+    ) = recycling._advance_recycling_1d_adaptive_bdf_interval(
         _FakeConfig(rtol=1.0e-5, atol=1.0e-8),
         _fields(),
         runtime_model=_runtime_model(),
@@ -927,15 +1354,25 @@ def test_adaptive_bdf_interval_preserves_previous_state_when_next_dt_changes(
     assert previous_timesteps == [0.5]
 
 
-def test_startup_step_uses_full_and_two_half_be_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_startup_step_uses_full_and_two_half_be_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[float] = []
 
     def fake_step(config, fields, *, timestep, feedback_integrals, **kwargs):
         calls.append(float(timestep))
-        return {"N": fields["N"] + timestep}, {"ctrl": feedback_integrals["ctrl"] + timestep}, object()
+        return (
+            {"N": fields["N"] + timestep},
+            {"ctrl": feedback_integrals["ctrl"] + timestep},
+            object(),
+        )
 
-    monkeypatch.setattr(recycling, "advance_recycling_1d_backward_euler_step", fake_step)
-    monkeypatch.setattr(recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.125)
+    monkeypatch.setattr(
+        recycling, "advance_recycling_1d_backward_euler_step", fake_step
+    )
+    monkeypatch.setattr(
+        recycling, "_recycling_state_error_ratio", lambda *args, **kwargs: 0.125
+    )
 
     fields, integrals, error_ratio = recycling._advance_recycling_1d_startup_step(
         _FakeConfig(),
@@ -963,7 +1400,9 @@ def test_startup_step_uses_full_and_two_half_be_steps(monkeypatch: pytest.Monkey
 def test_recycling_state_error_ratio_includes_fields_and_feedback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
 
     ratio = recycling._recycling_state_error_ratio(
         {"N": np.array([1.0, 3.0])},
@@ -997,7 +1436,9 @@ def test_recycling_state_error_ratio_includes_fields_and_feedback(
 def test_recycling_state_error_ratio_supports_field_absolute_tolerance_floors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
 
     unfloored = recycling._recycling_state_error_ratio(
         {"NVd+": np.array([0.0, 0.0]), "Pe": np.array([1.0, 1.0])},
@@ -1030,7 +1471,9 @@ def test_recycling_state_error_ratio_supports_field_absolute_tolerance_floors(
 def test_recycling_state_error_contributors_rank_fields_and_feedback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
 
     contributors = recycling._recycling_state_error_contributors(
         {"N": np.array([1.0, 3.0]), "Pe": np.array([4.0, 4.0])},
@@ -1050,8 +1493,12 @@ def test_recycling_state_error_contributors_rank_fields_and_feedback(
     )
     assert contributors["dominant"]["name"] == "ctrl"
     assert [entry["name"] for entry in contributors["fields"]] == ["N", "Pe"]
-    assert contributors["fields"][0]["rms_ratio"] == pytest.approx(np.sqrt((0.5**2 + 0.0**2) / 2.0))
-    assert contributors["fields"][0]["rms_difference"] == pytest.approx(np.sqrt((1.0**2 + 0.0**2) / 2.0))
+    assert contributors["fields"][0]["rms_ratio"] == pytest.approx(
+        np.sqrt((0.5**2 + 0.0**2) / 2.0)
+    )
+    assert contributors["fields"][0]["rms_difference"] == pytest.approx(
+        np.sqrt((1.0**2 + 0.0**2) / 2.0)
+    )
     assert contributors["fields"][0]["min_scale"] == pytest.approx(2.0)
     assert contributors["fields"][0]["max_scale"] == pytest.approx(3.0)
     assert contributors["fields"][1]["max_abs_ratio"] == pytest.approx(0.2)
@@ -1065,7 +1512,9 @@ def test_recycling_state_error_contributors_rank_fields_and_feedback(
 def test_recycling_state_error_contributors_apply_field_atol_floors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
 
     contributors = recycling._recycling_state_error_contributors(
         {"NVd+": np.array([0.0, 0.0])},
@@ -1081,13 +1530,17 @@ def test_recycling_state_error_contributors_apply_field_atol_floors(
     )
 
     assert contributors["fields"][0]["min_scale"] == pytest.approx(1.0e-2)
-    assert contributors["fields"][0]["rms_ratio"] == pytest.approx(np.sqrt((0.1**2 + 0.0**2) / 2.0))
+    assert contributors["fields"][0]["rms_ratio"] == pytest.approx(
+        np.sqrt((0.1**2 + 0.0**2) / 2.0)
+    )
 
 
 def test_scale_adaptive_bdf_error_contributors_matches_embedded_ratio(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
     contributors = recycling._recycling_state_error_contributors(
         {"N": np.array([1.0, 3.0])},
         {"ctrl": 1.0},
@@ -1104,9 +1557,15 @@ def test_scale_adaptive_bdf_error_contributors_matches_embedded_ratio(
 
     assert scaled["overall_ratio"] == pytest.approx(contributors["overall_ratio"] / 3.0)
     assert scaled["dominant"]["name"] == "ctrl"
-    assert scaled["fields"][0]["rms_ratio"] == pytest.approx(contributors["fields"][0]["rms_ratio"] / 3.0)
-    assert scaled["fields"][0]["rms_difference"] == pytest.approx(contributors["fields"][0]["rms_difference"] / 3.0)
-    assert scaled["fields"][0]["min_scale"] == pytest.approx(contributors["fields"][0]["min_scale"])
+    assert scaled["fields"][0]["rms_ratio"] == pytest.approx(
+        contributors["fields"][0]["rms_ratio"] / 3.0
+    )
+    assert scaled["fields"][0]["rms_difference"] == pytest.approx(
+        contributors["fields"][0]["rms_difference"] / 3.0
+    )
+    assert scaled["fields"][0]["min_scale"] == pytest.approx(
+        contributors["fields"][0]["min_scale"]
+    )
     assert scaled["feedback"][0]["squared_error_sum"] == pytest.approx(
         contributors["feedback"][0]["squared_error_sum"] / 9.0
     )
@@ -1228,7 +1687,9 @@ def test_adaptive_bdf_error_contributors_if_tracing_respects_trace_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
 
     without_trace = recycling._adaptive_bdf_error_contributors_if_tracing(
         {"N": np.array([0.0])},
@@ -1243,11 +1704,17 @@ def test_adaptive_bdf_error_contributors_if_tracing_respects_trace_gate(
     )
     assert without_trace is None
 
-    monkeypatch.setenv("JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(tmp_path / "trace.jsonl"))
+    monkeypatch.setenv(
+        "JAX_DRB_RECYCLING_ADAPTIVE_BDF_TRACE_JSONL", str(tmp_path / "trace.jsonl")
+    )
     contributors = recycling._adaptive_bdf_error_contributors_if_tracing(
         {"NVd+": np.array([0.0]), "Pe": np.array([0.0]), "Nd": np.array([0.0])},
         {},
-        {"NVd+": np.array([1.0e-3]), "Pe": np.array([1.0e-4]), "Nd": np.array([1.0e-7])},
+        {
+            "NVd+": np.array([1.0e-3]),
+            "Pe": np.array([1.0e-4]),
+            "Nd": np.array([1.0e-7]),
+        },
         {},
         field_names=("NVd+", "Pe", "Nd"),
         feedback_names=(),
@@ -1265,7 +1732,9 @@ def test_adaptive_bdf_error_contributors_if_tracing_respects_trace_gate(
     assert contributors["overall_ratio"] == pytest.approx(0.1)
 
 
-def test_scale_adaptive_bdf_error_contributors_handles_none_nonfinite_and_missing_differences() -> None:
+def test_scale_adaptive_bdf_error_contributors_handles_none_nonfinite_and_missing_differences() -> (
+    None
+):
     assert recycling._scale_adaptive_bdf_error_contributors(None, 0.5) is None
 
     contributors = {
@@ -1294,7 +1763,9 @@ def test_scale_adaptive_bdf_error_contributors_handles_none_nonfinite_and_missin
 def test_recycling_state_error_contributors_reports_nonfinite_and_empty_components(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(recycling, "_recycling_active_domain_slices", lambda mesh: slice(None))
+    monkeypatch.setattr(
+        recycling, "_recycling_active_domain_slices", lambda mesh: slice(None)
+    )
 
     with pytest.warns(RuntimeWarning, match="invalid value encountered"):
         contributors = recycling._recycling_state_error_contributors(
@@ -1361,8 +1832,12 @@ def test_resolve_recycling_adaptive_bdf_momentum_atol_floor_prefers_config(
 
     assert recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor(config) == 0.25
     assert recycling._resolve_recycling_adaptive_bdf_density_atol_floor(config) == 0.025
-    assert recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor(config) == 0.0025
-    assert recycling._resolve_recycling_adaptive_bdf_field_atol_floors(config, ("NVd+", "Pe", "NVt", "Nd")) == {
+    assert (
+        recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor(config) == 0.0025
+    )
+    assert recycling._resolve_recycling_adaptive_bdf_field_atol_floors(
+        config, ("NVd+", "Pe", "NVt", "Nd")
+    ) == {
         "NVd+": 0.25,
         "NVt": 0.25,
         "Pe": 0.0025,
@@ -1373,9 +1848,18 @@ def test_resolve_recycling_adaptive_bdf_momentum_atol_floor_prefers_config(
 @pytest.mark.parametrize(
     ("env_name", "resolver"),
     [
-        ("JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR", recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor),
-        ("JAX_DRB_RECYCLING_ADAPTIVE_BDF_DENSITY_ATOL_FLOOR", recycling._resolve_recycling_adaptive_bdf_density_atol_floor),
-        ("JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR", recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor),
+        (
+            "JAX_DRB_RECYCLING_ADAPTIVE_BDF_MOMENTUM_ATOL_FLOOR",
+            recycling._resolve_recycling_adaptive_bdf_momentum_atol_floor,
+        ),
+        (
+            "JAX_DRB_RECYCLING_ADAPTIVE_BDF_DENSITY_ATOL_FLOOR",
+            recycling._resolve_recycling_adaptive_bdf_density_atol_floor,
+        ),
+        (
+            "JAX_DRB_RECYCLING_ADAPTIVE_BDF_PRESSURE_ATOL_FLOOR",
+            recycling._resolve_recycling_adaptive_bdf_pressure_atol_floor,
+        ),
     ],
 )
 def test_resolve_recycling_adaptive_bdf_component_atol_floor_env_fallback(
@@ -1404,7 +1888,9 @@ def test_resolve_recycling_adaptive_bdf_component_atol_floor_config_validation(
     expected: float | None,
 ) -> None:
     config = _FakeRuntimeConfig(recycling_adaptive_bdf_density_atol_floor=configured)
-    assert recycling._resolve_recycling_adaptive_bdf_density_atol_floor(config) == expected
+    assert (
+        recycling._resolve_recycling_adaptive_bdf_density_atol_floor(config) == expected
+    )
 
 
 @pytest.mark.parametrize("env_value", ["", "   ", "0.0", "-1.0", "nan"])
@@ -1417,18 +1903,40 @@ def test_resolve_recycling_adaptive_bdf_component_atol_floor_rejects_blank_or_no
 
 
 def test_initial_recycling_continuation_dt_uses_field_count_cutover() -> None:
-    assert recycling._initial_recycling_continuation_dt(_runtime_model(field_names=("N",)), timestep=250.0) == 100.0
-    assert recycling._initial_recycling_continuation_dt(_runtime_model(field_names=tuple(f"f{i}" for i in range(11))), timestep=250.0) == 25.0
-    assert recycling._initial_recycling_continuation_dt(_runtime_model(field_names=tuple(f"f{i}" for i in range(11))), timestep=10.0) == 10.0
+    assert (
+        recycling._initial_recycling_continuation_dt(
+            _runtime_model(field_names=("N",)), timestep=250.0
+        )
+        == 100.0
+    )
+    assert (
+        recycling._initial_recycling_continuation_dt(
+            _runtime_model(field_names=tuple(f"f{i}" for i in range(11))),
+            timestep=250.0,
+        )
+        == 25.0
+    )
+    assert (
+        recycling._initial_recycling_continuation_dt(
+            _runtime_model(field_names=tuple(f"f{i}" for i in range(11))), timestep=10.0
+        )
+        == 10.0
+    )
 
 
 def test_bdf_history_raises_on_failed_solve(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_solve_ivp(*args, **kwargs):
-        return SimpleNamespace(success=False, message="linear solve failed", y=np.zeros((2, 1)))
+        return SimpleNamespace(
+            success=False, message="linear solve failed", y=np.zeros((2, 1))
+        )
 
     monkeypatch.setattr("scipy.integrate.solve_ivp", fake_solve_ivp)
     monkeypatch.setattr(recycling, "_recycling_active_shape", lambda mesh: (1,))
-    monkeypatch.setattr(recycling, "_build_recycling_residual_sparsity", lambda **kwargs: _FakeSparsity())
+    monkeypatch.setattr(
+        recycling,
+        "_build_recycling_residual_sparsity",
+        lambda **kwargs: _FakeSparsity(),
+    )
     monkeypatch.setattr(recycling, "_build_recycling_color_groups", lambda **kwargs: ())
     layout = SimpleNamespace(
         field_names=("N",),
@@ -1438,8 +1946,14 @@ def test_bdf_history_raises_on_failed_solve(monkeypatch: pytest.MonkeyPatch) -> 
         field_size=1,
         field_templates=(np.array([1.0], dtype=np.float64),),
     )
-    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout)
-    monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
+    monkeypatch.setattr(
+        recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout
+    )
+    monkeypatch.setattr(
+        recycling,
+        "_pack_recycling_active_state",
+        lambda *args, **kwargs: np.array([1.0, 0.0]),
+    )
 
     with pytest.raises(RuntimeError, match="linear solve failed"):
         recycling._advance_recycling_1d_bdf_history(
@@ -1457,7 +1971,9 @@ def test_bdf_history_raises_on_failed_solve(monkeypatch: pytest.MonkeyPatch) -> 
         )
 
 
-def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bdf_history_unpacks_sanitizes_and_reports_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     events: list[dict[str, object]] = []
     rhs_call_count = 0
     captured_parallel_workers: list[int] = []
@@ -1484,7 +2000,11 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
 
     monkeypatch.setattr("scipy.integrate.solve_ivp", fake_solve_ivp)
     monkeypatch.setattr(recycling, "_recycling_active_shape", lambda mesh: (1,))
-    monkeypatch.setattr(recycling, "_build_recycling_residual_sparsity", lambda **kwargs: _FakeSparsity())
+    monkeypatch.setattr(
+        recycling,
+        "_build_recycling_residual_sparsity",
+        lambda **kwargs: _FakeSparsity(),
+    )
     monkeypatch.setattr(recycling, "_build_recycling_color_groups", lambda **kwargs: ())
     layout = SimpleNamespace(
         field_names=("N",),
@@ -1494,8 +2014,14 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
         field_size=1,
         field_templates=(np.array([1.0], dtype=np.float64),),
     )
-    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout)
-    monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
+    monkeypatch.setattr(
+        recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout
+    )
+    monkeypatch.setattr(
+        recycling,
+        "_pack_recycling_active_state",
+        lambda *args, **kwargs: np.array([1.0, 0.0]),
+    )
     monkeypatch.setattr(recycling, "_unpack_recycling_active_state", fake_unpack)
     monkeypatch.setenv("JAX_DRB_FD_JACOBIAN_THREADS", "2")
 
@@ -1510,13 +2036,25 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
         captured_parallel_workers.append(parallel_workers)
         return "jacobian"
 
-    monkeypatch.setattr(recycling, "build_sparse_difference_quotient_jacobian", fake_build_jacobian)
-    monkeypatch.setattr(recycling, "_sanitize_recycling_fields", lambda config, fields: fields)
-    monkeypatch.setattr(recycling, "_sanitize_feedback_integrals", lambda integrals, **kwargs: integrals)
+    monkeypatch.setattr(
+        recycling, "build_sparse_difference_quotient_jacobian", fake_build_jacobian
+    )
+    monkeypatch.setattr(
+        recycling, "_sanitize_recycling_fields", lambda config, fields: fields
+    )
+    monkeypatch.setattr(
+        recycling, "_sanitize_feedback_integrals", lambda integrals, **kwargs: integrals
+    )
     monkeypatch.setattr(
         recycling,
         "_build_recycling_progress_details",
-        lambda **kwargs: ({"interval_index": kwargs["interval_index"], "solver_mode": kwargs["solver_mode"]}, 0.0),
+        lambda **kwargs: (
+            {
+                "interval_index": kwargs["interval_index"],
+                "solver_mode": kwargs["solver_mode"],
+            },
+            0.0,
+        ),
     )
 
     result = recycling._advance_recycling_1d_bdf_history(
@@ -1534,8 +2072,12 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
         progress_callback=events.append,
     )
 
-    np.testing.assert_allclose(result.variable_history["N"][:, 0], np.array([1.0, 2.0, 3.0]))
-    np.testing.assert_allclose(result.feedback_integral_history["ctrl"], np.array([0.0, 0.5, 1.0]))
+    np.testing.assert_allclose(
+        result.variable_history["N"][:, 0], np.array([1.0, 2.0, 3.0])
+    )
+    np.testing.assert_allclose(
+        result.feedback_integral_history["ctrl"], np.array([0.0, 0.5, 1.0])
+    )
     assert events == [
         {"interval_index": 1, "solver_mode": "bdf"},
         {"interval_index": 2, "solver_mode": "bdf"},
@@ -1562,7 +2104,9 @@ def test_bdf_history_unpacks_sanitizes_and_reports_progress(monkeypatch: pytest.
     assert result.diagnostics["bdf_color_group_count"] == 0
 
 
-def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def fake_solve_ivp(rhs, time_span, y0, **kwargs):
@@ -1571,7 +2115,10 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
         return SimpleNamespace(
             success=True,
             message="ok",
-            y=np.stack([np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)], axis=1),
+            y=np.stack(
+                [np.asarray(y0, dtype=np.float64), np.asarray(y0, dtype=np.float64)],
+                axis=1,
+            ),
         )
 
     def fake_unpack(packed_state, **kwargs):
@@ -1591,7 +2138,9 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
 
         def rhs(state):
             return recycling._RecyclingFixedState(
-                field_values=tuple(np.zeros_like(value) for value in state.field_values),
+                field_values=tuple(
+                    np.zeros_like(value) for value in state.field_values
+                ),
                 feedback_values=np.zeros_like(state.feedback_values),
             )
 
@@ -1620,15 +2169,31 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
 
     monkeypatch.setattr("scipy.integrate.solve_ivp", fake_solve_ivp)
     monkeypatch.setattr(recycling, "_recycling_active_shape", lambda mesh: (1,))
-    monkeypatch.setattr(recycling, "_build_recycling_residual_sparsity", lambda **kwargs: _FakeSparsity())
+    monkeypatch.setattr(
+        recycling,
+        "_build_recycling_residual_sparsity",
+        lambda **kwargs: _FakeSparsity(),
+    )
     monkeypatch.setattr(recycling, "_build_recycling_color_groups", lambda **kwargs: ())
-    monkeypatch.setattr(recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout)
-    monkeypatch.setattr(recycling, "_pack_recycling_active_state", lambda *args, **kwargs: np.array([1.0, 0.0]))
+    monkeypatch.setattr(
+        recycling, "_build_recycling_packed_state_layout", lambda **kwargs: layout
+    )
+    monkeypatch.setattr(
+        recycling,
+        "_pack_recycling_active_state",
+        lambda *args, **kwargs: np.array([1.0, 0.0]),
+    )
     monkeypatch.setattr(recycling, "_unpack_recycling_active_state", fake_unpack)
-    monkeypatch.setattr(recycling, "_build_fixed_full_field_recycling_rhs", fake_fixed_full_field_rhs)
+    monkeypatch.setattr(
+        recycling, "_build_fixed_full_field_recycling_rhs", fake_fixed_full_field_rhs
+    )
     monkeypatch.setattr(recycling, "build_sparse_jvp_jacobian", fake_jvp_jacobian)
-    monkeypatch.setattr(recycling, "_sanitize_recycling_fields", lambda config, fields: fields)
-    monkeypatch.setattr(recycling, "_sanitize_feedback_integrals", lambda integrals, **kwargs: integrals)
+    monkeypatch.setattr(
+        recycling, "_sanitize_recycling_fields", lambda config, fields: fields
+    )
+    monkeypatch.setattr(
+        recycling, "_sanitize_feedback_integrals", lambda integrals, **kwargs: integrals
+    )
 
     result = recycling._advance_recycling_1d_bdf_history(
         _FakeConfig(),
@@ -1672,7 +2237,9 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert result.variable_history["N"].shape == (2, 1)
 
 
-def test_bdf_jacobian_parallel_worker_env_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bdf_jacobian_parallel_worker_env_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("JAX_DRB_FD_JACOBIAN_THREADS", raising=False)
     assert recycling._resolve_recycling_bdf_jacobian_parallel_workers() == 1
 

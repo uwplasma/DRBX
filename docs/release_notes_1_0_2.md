@@ -43,6 +43,12 @@ CPU/GPU evidence for the current JAX-linearized recycling lane.
   (`72.9 s` versus `10.1 s` for hydrogen, `189.3 s` versus `54.2 s` for
   D/T/He) while repeated `jax.linearize` and tangent pushes remain inside the
   SciPy BDF callback.
+- A second opt-in output-window lane,
+  `fixed_bdf2_jax_linearized` / `fixed_bdf2_jax_linearized_lineax`, now avoids
+  the SciPy BDF callback entirely by taking a fixed-layout backward-Euler
+  startup step and fixed-layout BDF2 steps with controller integrals packed
+  into the residual state. It is exposed for promotion and profiling gates,
+  not as the production default.
 - The D/T/He JAX-linearized GMRES profiling script now supports repeated
   BOUT.inp overrides and warmup runs, so heavier real-kernel CPU/GPU gates can
   be reproduced without committing large input decks.

@@ -307,6 +307,13 @@ The recycling BE/BDF2 wrappers expose the same seam through
 `runtime:recycling_jax_linear_jit_residual=true` or
 `JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1`, so profiling decks can pin the
 pre-JIT behavior without changing the finite-difference BDF default.
+The next opt-in full-output lane is
+`runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or the
+`fixed_bdf2_jax_linearized_lineax` variant. It bypasses the SciPy `solve_ivp`
+callback by taking a fixed-layout backward-Euler startup step followed by
+fixed-layout BDF2 output steps, with controller integrals evolved inside the
+packed residual state. It is a promotion gate, not a default solver, until
+output-window parity and runtime evidence are refreshed.
 The audit is deliberately small: it proves the solver backend boundary, not the
 full recycling migration. The full migration still depends on moving the
 remaining recycling residual kernels out of dictionary/NumPy assembly.

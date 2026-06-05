@@ -11,8 +11,14 @@ import numpy as np
 
 
 def _load_compare_script():
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "compare_recycling_transient_modes.py"
-    spec = importlib.util.spec_from_file_location("compare_recycling_transient_modes", script_path)
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "compare_recycling_transient_modes.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "compare_recycling_transient_modes", script_path
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -33,6 +39,8 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
             "bdf_fixed_full_field_jvp",
             "--mode",
             "adaptive_bdf_jax_linearized",
+            "--mode",
+            "fixed_bdf2_jax_linearized",
             "--require-bdf-pairwise-max",
             "1e-5",
             "--require-fixed-jvp-diagnostics",
@@ -57,7 +65,11 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     )
 
     assert args.reference_root == Path("/tmp/reference")
-    assert args.modes == ["bdf_fixed_full_field_jvp", "adaptive_bdf_jax_linearized"]
+    assert args.modes == [
+        "bdf_fixed_full_field_jvp",
+        "adaptive_bdf_jax_linearized",
+        "fixed_bdf2_jax_linearized",
+    ]
     assert args.require_bdf_pairwise_max == 1.0e-5
     assert args.require_fixed_jvp_diagnostics is True
     assert args.require_adaptive_bdf_no_fallback is True
@@ -74,6 +86,7 @@ def test_parser_accepts_and_documents_fixed_full_field_jvp_mode() -> None:
     normalized_help = " ".join(help_text.split()).replace("full- field", "full-field")
     assert "bdf_fixed_full_field_jvp" in help_text
     assert "adaptive_bdf_jax_linearized" in help_text
+    assert "fixed_bdf2_jax_linearized" in help_text
     assert "fixed full-field JVP BDF path" in normalized_help
 
 
@@ -104,12 +117,19 @@ def test_resolve_output_timestep_rejects_nonpositive_override() -> None:
 
 
 def test_resolve_max_nonlinear_iterations_accepts_positive_value() -> None:
-    assert compare_script._resolve_max_nonlinear_iterations(SimpleNamespace(max_nonlinear_iterations=4)) == 4
+    assert (
+        compare_script._resolve_max_nonlinear_iterations(
+            SimpleNamespace(max_nonlinear_iterations=4)
+        )
+        == 4
+    )
 
 
 def test_resolve_max_nonlinear_iterations_rejects_nonpositive_value() -> None:
     try:
-        compare_script._resolve_max_nonlinear_iterations(SimpleNamespace(max_nonlinear_iterations=0))
+        compare_script._resolve_max_nonlinear_iterations(
+            SimpleNamespace(max_nonlinear_iterations=0)
+        )
     except ValueError as exc:
         assert "--max-nonlinear-iterations must be positive" in str(exc)
     else:  # pragma: no cover
@@ -124,10 +144,17 @@ def test_default_modes_include_fixed_full_field_jvp_after_bdf() -> None:
         "continuation",
         "bdf",
         "bdf_fixed_full_field_jvp",
+        "fixed_bdf2_jax_linearized",
         "adaptive_be",
         "adaptive_bdf",
     )
-    assert dthe_modes == ("bdf", "bdf_fixed_full_field_jvp", "adaptive_be", "adaptive_bdf")
+    assert dthe_modes == (
+        "bdf",
+        "bdf_fixed_full_field_jvp",
+        "fixed_bdf2_jax_linearized",
+        "adaptive_be",
+        "adaptive_bdf",
+    )
 
 
 def test_bdf_pairwise_delta_report_formats_worst_field_first() -> None:
@@ -226,7 +253,9 @@ def test_bdf_pairwise_worst_delta_returns_active_mesh_worst_field() -> None:
     assert delta == 0.75
 
 
-def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(tmp_path: Path) -> None:
+def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(
+    tmp_path: Path,
+) -> None:
     report = compare_script._build_json_report(
         case_name="recycling_1d_one_step",
         configured_timestep=1.0,
@@ -250,8 +279,18 @@ def test_json_report_writer_preserves_diagnostics_and_sanitizes_paths(tmp_path: 
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["case"] == "recycling_1d_one_step"
-    assert payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"]["adaptive_bdf_accepted_steps"] == 2
-    assert payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"]["linear_solver_status"] == "status"
+    assert (
+        payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"][
+            "adaptive_bdf_accepted_steps"
+        ]
+        == 2
+    )
+    assert (
+        payload["mode_diagnostics"]["adaptive_bdf_jax_linearized"][
+            "linear_solver_status"
+        ]
+        == "status"
+    )
     assert payload["bdf_pairwise_worst"] == {"field": "Pe", "delta": 0.0}
 
 
@@ -367,7 +406,9 @@ def test_adaptive_bdf_diagnostics_gate_reports_failed_linear_solves() -> None:
         max_accepted_error_ratio=0.95,
     )
 
-    assert errors == ["adaptive_bdf_jax_linearized_lineax reported 2 failed adaptive BDF linear solves"]
+    assert errors == [
+        "adaptive_bdf_jax_linearized_lineax reported 2 failed adaptive BDF linear solves"
+    ]
 
 
 def test_adaptive_bdf_diagnostics_gate_reports_unstable_route() -> None:
@@ -415,7 +456,9 @@ def test_mode_timeout_helper_rejects_nonpositive_timeout() -> None:
 
 
 def test_mode_timeout_helper_raises_timeout_when_supported() -> None:
-    if not hasattr(compare_script.signal, "SIGALRM") or not hasattr(compare_script.signal, "setitimer"):
+    if not hasattr(compare_script.signal, "SIGALRM") or not hasattr(
+        compare_script.signal, "setitimer"
+    ):
         return
     started = time.perf_counter()
     try:

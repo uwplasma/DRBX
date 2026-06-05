@@ -2056,6 +2056,30 @@ def advance_recycling_1d_implicit_history(
             solver_mode_label=solver_mode,
         )
 
+    if solver_mode in {"fixed_bdf2_jax_linearized", "fixed_bdf2_jax_linearized_lineax"}:
+        return _advance_recycling_1d_fixed_bdf2_history(
+            config,
+            fields,
+            runtime_model=runtime_model,
+            feedback_integrals=integrals,
+            field_names=field_names,
+            feedback_names=feedback_names,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+            timestep=timestep,
+            steps=steps,
+            residual_tolerance=residual_tolerance,
+            max_nonlinear_iterations=max_nonlinear_iterations,
+            progress_callback=progress_callback,
+            step_solver_mode=(
+                "jax_linearized_lineax"
+                if solver_mode == "fixed_bdf2_jax_linearized_lineax"
+                else "jax_linearized"
+            ),
+            solver_mode_label=solver_mode,
+        )
+
     variable_history = {
         name: [np.asarray(fields[name], dtype=np.float64)] for name in field_names
     }
@@ -2191,6 +2215,194 @@ def _advance_recycling_1d_continuation_history(
             name: np.stack(history, axis=0)
             for name, history in feedback_history.items()
         },
+    )
+
+
+def _advance_recycling_1d_fixed_bdf2_history(
+    config: BoutConfig,
+    fields: dict[str, np.ndarray],
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    feedback_integrals: dict[str, float],
+    field_names: tuple[str, ...],
+    feedback_names: tuple[str, ...],
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+    timestep: float,
+    steps: int,
+    residual_tolerance: float,
+    max_nonlinear_iterations: int,
+    progress_callback: RecyclingProgressCallback | None = None,
+    step_solver_mode: str = "jax_linearized",
+    solver_mode_label: str = "fixed_bdf2_jax_linearized",
+) -> Recycling1DHistoryResult:
+    """Advance output windows with fixed-layout BE startup and BDF2 steps.
+
+    This is an opt-in promotion lane for the JAX-transformable recycling
+    residual. It deliberately avoids the SciPy ``solve_ivp`` full-output seam:
+    each output interval is solved by the same fixed-layout implicit stepper
+    used by the one-step JAX-linearized gates, with controller integrals packed
+    into the residual state.
+    """
+
+    current_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True)
+        for name, value in fields.items()
+    }
+    current_integrals = {
+        name: float(feedback_integrals.get(name, 0.0)) for name in feedback_names
+    }
+    previous_fields: dict[str, np.ndarray] | None = None
+    previous_integrals: dict[str, float] | None = None
+    variable_history = {
+        name: [np.asarray(current_fields[name], dtype=np.float64)]
+        for name in field_names
+    }
+    feedback_history = {
+        name: [np.asarray(current_integrals[name], dtype=np.float64)]
+        for name in feedback_names
+    }
+    diagnostics: dict[str, float | int | bool | str | None] = {
+        "fixed_bdf2_solver_mode": str(solver_mode_label),
+        "fixed_bdf2_step_solver_mode": str(step_solver_mode),
+        "fixed_bdf2_startup_steps": 0,
+        "fixed_bdf2_bdf2_steps": 0,
+        "fixed_bdf2_fixed_full_field_rhs_steps": 0,
+        "fixed_bdf2_jax_linearized_action_steps": 0,
+        "fixed_bdf2_lineax_action_steps": 0,
+        "fixed_bdf2_max_residual_inf_norm": 0.0,
+        "fixed_bdf2_total_nonlinear_iterations": 0,
+        "fixed_bdf2_total_linear_iterations": 0,
+        "fixed_bdf2_total_residual_evaluation_count": 0,
+        "fixed_bdf2_total_jacobian_refresh_count": 0,
+        "fixed_bdf2_total_linear_solve_seconds": 0.0,
+        "fixed_bdf2_total_residual_evaluation_seconds": 0.0,
+        "fixed_bdf2_residual_jitted_steps": 0,
+        "fixed_bdf2_evolve_feedback_integrals": True,
+    }
+    run_started_at = time.perf_counter()
+    interval_started_at = run_started_at
+
+    def record_step(info: Recycling1DImplicitStepInfo, *, method: str) -> None:
+        diagnostics["fixed_bdf2_max_residual_inf_norm"] = max(
+            float(diagnostics["fixed_bdf2_max_residual_inf_norm"]),
+            float(info.residual_inf_norm),
+        )
+        diagnostics["fixed_bdf2_total_nonlinear_iterations"] = int(
+            diagnostics["fixed_bdf2_total_nonlinear_iterations"]
+        ) + int(info.nonlinear_iterations)
+        diagnostics["fixed_bdf2_total_linear_iterations"] = int(
+            diagnostics["fixed_bdf2_total_linear_iterations"]
+        ) + int(info.linear_iterations)
+        diagnostics["fixed_bdf2_total_residual_evaluation_count"] = int(
+            diagnostics["fixed_bdf2_total_residual_evaluation_count"]
+        ) + int(info.diagnostics.get("residual_evaluation_count", 0))
+        diagnostics["fixed_bdf2_total_jacobian_refresh_count"] = int(
+            diagnostics["fixed_bdf2_total_jacobian_refresh_count"]
+        ) + int(info.diagnostics.get("jacobian_refresh_count", 0))
+        diagnostics["fixed_bdf2_total_linear_solve_seconds"] = float(
+            diagnostics["fixed_bdf2_total_linear_solve_seconds"]
+        ) + float(info.diagnostics.get("linear_solve_seconds", 0.0))
+        diagnostics["fixed_bdf2_total_residual_evaluation_seconds"] = float(
+            diagnostics["fixed_bdf2_total_residual_evaluation_seconds"]
+        ) + float(info.diagnostics.get("residual_evaluation_seconds", 0.0))
+        if info.diagnostics.get("rhs_backend") == "fixed_full_field_array":
+            diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"] = (
+                int(diagnostics["fixed_bdf2_fixed_full_field_rhs_steps"]) + 1
+            )
+        if str(info.diagnostics.get("solver_mode", "")).startswith("jax_linearized"):
+            diagnostics["fixed_bdf2_jax_linearized_action_steps"] = (
+                int(diagnostics["fixed_bdf2_jax_linearized_action_steps"]) + 1
+            )
+        if "lineax" in str(info.diagnostics.get("solver_mode", "")):
+            diagnostics["fixed_bdf2_lineax_action_steps"] = (
+                int(diagnostics["fixed_bdf2_lineax_action_steps"]) + 1
+            )
+        if bool(info.diagnostics.get("residual_jitted", False)):
+            diagnostics["fixed_bdf2_residual_jitted_steps"] = (
+                int(diagnostics["fixed_bdf2_residual_jitted_steps"]) + 1
+            )
+        key = (
+            "fixed_bdf2_startup_steps"
+            if method == "backward_euler"
+            else "fixed_bdf2_bdf2_steps"
+        )
+        diagnostics[key] = int(diagnostics[key]) + 1
+
+    for interval_index in range(steps):
+        if interval_index == 0 or previous_fields is None or previous_integrals is None:
+            next_fields, next_integrals, info = (
+                advance_recycling_1d_backward_euler_step(
+                    config,
+                    current_fields,
+                    runtime_model=runtime_model,
+                    feedback_integrals=current_integrals,
+                    mesh=mesh,
+                    metrics=metrics,
+                    dataset_scalars=dataset_scalars,
+                    timestep=timestep,
+                    solver_mode=step_solver_mode,
+                    residual_tolerance=residual_tolerance,
+                    max_nonlinear_iterations=max_nonlinear_iterations,
+                    evolve_feedback_integrals=True,
+                )
+            )
+            record_step(info, method="backward_euler")
+        else:
+            next_fields, next_integrals, info = advance_recycling_1d_bdf2_step(
+                config,
+                current_fields,
+                previous_fields,
+                runtime_model=runtime_model,
+                feedback_integrals=current_integrals,
+                previous_feedback_integrals=previous_integrals,
+                mesh=mesh,
+                metrics=metrics,
+                dataset_scalars=dataset_scalars,
+                timestep=timestep,
+                previous_timestep=timestep,
+                solver_mode=step_solver_mode,
+                residual_tolerance=residual_tolerance,
+                max_nonlinear_iterations=max_nonlinear_iterations,
+                evolve_feedback_integrals=True,
+            )
+            record_step(info, method="bdf2")
+        previous_fields = current_fields
+        previous_integrals = current_integrals
+        current_fields = next_fields
+        current_integrals = next_integrals
+        for name in field_names:
+            variable_history[name].append(
+                np.asarray(current_fields[name], dtype=np.float64)
+            )
+        for name in feedback_names:
+            feedback_history[name].append(
+                np.asarray(current_integrals[name], dtype=np.float64)
+            )
+        if progress_callback is not None:
+            details, interval_started_at = _build_recycling_progress_details(
+                interval_index=interval_index + 1,
+                steps=steps,
+                solver_mode=solver_mode_label,
+                accepted_dt=float(timestep),
+                stored_states=len(next(iter(variable_history.values()))),
+                output_timestep=timestep,
+                run_started_at=run_started_at,
+                interval_started_at=interval_started_at,
+            )
+            progress_callback(details)
+
+    return Recycling1DHistoryResult(
+        variable_history={
+            name: np.stack(history, axis=0)
+            for name, history in variable_history.items()
+        },
+        feedback_integral_history={
+            name: np.stack(history, axis=0)
+            for name, history in feedback_history.items()
+        },
+        diagnostics=diagnostics,
     )
 
 

@@ -714,6 +714,13 @@ remains a host compatibility path. For the long SciPy BDF callback itself,
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` exercises
 the fixed-full-field RHS plus grouped-JVP Jacobian seam while preserving the
 same BDF timestepper.
+The next non-SciPy output-window promotion lane is
+`runtime:recycling_transient_solver_mode=fixed_bdf2_jax_linearized` or
+`fixed_bdf2_jax_linearized_lineax`. These modes take a fixed-layout
+backward-Euler startup step, then fixed-layout BDF2 output steps, and evolve
+controller integrals inside the packed residual state. They are still opt-in
+research gates; they exist to measure JAX-linearized full-output behavior
+without the `solve_ivp` callback barrier before any default solver change.
 
 The adaptive BDF history result now reports solver-health diagnostics for these
 opt-in paths: accepted and rejected internal steps, minimum-`dt` fallbacks,
