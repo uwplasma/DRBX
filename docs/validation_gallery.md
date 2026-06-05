@@ -33,6 +33,7 @@ JAX-based solver papers.
 | `Open-Field Operator Campaign` | `operator-verified` | Parallel-gradient, force-balance, target-recycling, and autodiff checks are locked on a publication artifact. |
 | `Neutral Mixed Term-Balance Campaign` | `operator-localization audit` | Native `NVh` term decomposition localizes the one-step Hermès mismatch. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, conservative-operator, sheath/recycling, neutral, vorticity, and reduced 3D SOL dynamics campaign. |
+| `VMEC-Extender Edge Field Import` | `self-contained synthetic imported-field gate` | Physical-phi field-grid import, FCI map construction, and compact scalar SOL smoke coupling are locked on synthetic NetCDF fixtures. |
 | `ESSOS Field-Line Import` | `external geometry import gate` | ESSOS-owned field evaluation, adaptive field-line tracing, Poincare extraction, and portable trajectory/field-sample artifacts for later FCI use. |
 | `ESSOS Imported QA DRB Movie` | `movie-grade reduced transient` | Imported Landreman-Paul QA coil, VMEC-coordinate, and hybrid FCI maps feeding a fixed-layout DRB transient with sheath/recycling/neutrals where open endpoints are present. |
 | `Tokamak Recycling Observable Campaign` | `profile-observable validation` | Target-index profiles, neutral buildup, and observable errors on the direct tokamak D/T/He recycling lane. |
@@ -381,6 +382,27 @@ What this documents:
 - a reduced 3D SOL dynamics benchmark with R-Z panel snapshots at four toroidal angles;
 - RMS, skewness, radial-flux proxy, time-trace, and toroidal-poloidal spectrum diagnostics;
 - a README-ready opened traced-surface movie with radial cuts, field-line overlays, colorbar, and time annotation.
+
+## VMEC-Extender Edge Field Import
+
+This gate keeps the imported-field interface runnable without an external
+equilibrium checkout. The example builds small synthetic NetCDF fixtures with
+the same `(R, phi, Z)` field-grid contract expected from VMEC-extender output,
+then exercises physical-toroidal interpolation, field-period wrapping,
+field-line RHS evaluation, FCI map construction, and a compact scalar SOL smoke
+case with field-aligned diffusion and open R-Z losses.
+
+To regenerate the synthetic validation plots locally:
+
+```bash
+PYTHONPATH=src MPLBACKEND=Agg \
+  python examples/geometry-3D/vmec-extender/imported_field_demo.py
+```
+
+The detailed interface contract, diagnostics, and plot paths are documented in
+[VMEC-Extender Edge Fields](vmec_extender_edge_fields.md). Release-hosted images
+will be added to this gallery once the next validation-artifact bundle is
+published.
 
 ## Stellarator VMEC Scaffold
 

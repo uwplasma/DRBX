@@ -262,22 +262,37 @@ index 0d07e095..dd3d40b5 100644
 +  return 0;
 +}
 +
-@@ -182,0 +438,4 @@ int Hermes::init(bool restarting) {
+@@ -179,6 +435,10 @@ int Hermes::init(bool restarting) {
+   output.write("Slope limiter: {}\n", hermes::limiter_typename);
+   options["slope_limiter"] = hermes::limiter_typename;
+   options["slope_limiter"].setConditionallyUsed();
++
 +  options["neutral_mixed_accepted_step_trace"].setConditionallyUsed();
 +  options["neutral_mixed_accepted_step_trace_file"].setConditionallyUsed();
 +  options["neutral_mixed_accepted_step_trace_species"].setConditionallyUsed();
-+
+ 
+   // Choose normalisations
+   Tnorm = options["Tnorm"].doc("Reference temperature [eV]").withDefault(100.);
 diff --git a/hermes-3.hxx b/hermes-3.hxx
 index 2521fb89..500c483c 100644
 --- a/hermes-3.hxx
 +++ b/hermes-3.hxx
-@@ -37,0 +38 @@ protected:
+@@ -34,6 +34,7 @@ public:
+ protected:
+   int init(bool restarting) override;
+   int rhs(BoutReal t, bool linear) override;
 +  int timestepMonitor(BoutReal simtime, BoutReal dt) override;
+   int precon(BoutReal t, BoutReal gamma, BoutReal delta);
+ 
+   /// Add variables to be written to the output file
 diff --git a/src/neutral_mixed.cxx b/src/neutral_mixed.cxx
 index 6f632c8f..3014a724 100644
 --- a/src/neutral_mixed.cxx
 +++ b/src/neutral_mixed.cxx
-@@ -720,0 +721,9 @@ void NeutralMixed::outputVars(Options& state) {
+@@ -714,6 +714,15 @@ void NeutralMixed::outputVars(Options& state) {
+                   {"long_name", name + " parallel velocity"},
+                   {"source", "neutral_mixed"}});
+ 
 +  set_with_attrs(state[std::string("eta_") + name], eta_n,
 +                 {{"time_dimension", "t"},
 +                  {"units", "normalised"},
@@ -287,12 +302,21 @@ index 6f632c8f..3014a724 100644
 +                  {"species", name},
 +                  {"source", "neutral_mixed"}});
 +
+   if (output_ddt) {
+     set_with_attrs(
+         state[std::string("ddt(N") + name + std::string(")")], ddt(Nn),
 diff --git a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
-index 4f72e6593..f944dbe0f 100644
+index 4f72e6593..15aee2c9a 100644
 --- a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
 +++ b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
-@@ -591,0 +592,4 @@ BoutReal CvodeSolver::run(BoutReal tout) {
+@@ -589,6 +589,10 @@
+                             internal_time, flag);
+       }
+ 
 +      // Make accepted-step monitors see the state and RHS at the accepted
 +      // CVODE internal time, not the previous output-time state.
 +      load_vars(N_VGetArrayPointer(uvec));
 +      run_rhs(internal_time);
+       // Call timestep monitor
+       call_timestep_monitors(internal_time, internal_time - last_time);
+     }

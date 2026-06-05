@@ -150,6 +150,11 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --trace-out /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl
 ```
 
+If `--hermes-binary` is not supplied, this command now builds a cached clean
+patched reference worktree automatically before launching the trace run. That
+keeps the authoritative `Vh`/`eta_h` diagnostic rerun independent of any dirty
+developer checkout.
+
 Then compare both traces with:
 
 ```bash
@@ -168,15 +173,17 @@ has been built and run on a clean disposable checkout and writes valid JSONL.
 The native accepted-step trace now writes the same state, RHS, and source field
 set and can now replay the reference accepted-step time grid. A local
 reference-grid comparison of `neutral_mixed_one_step` matches `148/148`
-accepted points. With the timestamp mismatch removed, the current ranked
-active/target offender is `SNVh_parallel_viscosity` at about `5.35e-5`;
-`ddt(Nh)`, state-level `Nh`, and state-level `NVh` follow at smaller
-target-adjacent scales. Large RHS/source guard deltas remain reported but are
-not used to rank `ddt(*)` or `SNVh_*`, because those guard values are
-diagnostic-boundary semantics rather than active-domain source formulas. The
-next native parity patch should therefore target the neutral-mixed
-parallel-viscosity/boundary sequencing path under this matched-time diagnostic
-instead of changing the already-closed pressure-gradient formula.
+accepted points. With the timestamp mismatch removed and the reference trace
+now writing `Vh` and `eta_h`, the highest matched-time input drift is `eta_h`
+at about `3.23e-3` in the target/guard comparison. The next active/target
+source offender is `SNVh_parallel_viscosity` at about `5.35e-5`. Large
+RHS/source guard deltas remain reported but are not used to rank `ddt(*)` or
+`SNVh_*`, because those guard values are diagnostic-boundary semantics rather
+than active-domain source formulas. The next native parity patch should
+therefore target neutral-viscosity closure preparation or boundary sequencing
+under this matched-time diagnostic instead of changing the already-closed
+pressure-gradient formula or the parallel-viscosity stencil before its inputs
+agree.
 The accepted-step comparator now also writes
 `parallel_viscosity_input_register`. For each `SNV*_parallel_viscosity`
 offender this register reports the matched `V*` and `eta_*` input-field
@@ -184,9 +191,10 @@ errors, lists missing input fields, and labels the diagnostic as either
 `input_drift_check_available` or `reference_input_trace_missing`. When the
 patched reference JSONL includes `Vh` and `eta_h`, a small input delta with a
 large `SNVh_parallel_viscosity` delta points at the
-`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil or boundary semantics. A
-large `Vh` or `eta_h` delta instead points first at accepted-step state/history
-sequencing or neutral closure preparation.
+`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil or boundary semantics. The
+current rerun instead reports a larger `eta_h` input delta, so the immediate
+owner is accepted-step state/history sequencing, neutral closure preparation,
+or target-boundary reconstruction before the viscosity stencil is changed.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

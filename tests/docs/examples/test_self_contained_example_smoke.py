@@ -191,6 +191,29 @@ def test_stellarator_fci_docs_analysis_commands_are_subprocess_self_contained(
     assert (nonlinear_root / "stellarator_nonlinear_turbulence_demo_profiles.png").stat().st_size > 0
 
 
+def test_vmec_extender_imported_field_demo_is_subprocess_self_contained(
+    tmp_path: Path,
+) -> None:
+    completed = _run_example(
+        [
+            sys.executable,
+            str(EXAMPLES_ROOT / "geometry-3D" / "vmec-extender" / "imported_field_demo.py"),
+        ],
+        cwd=tmp_path,
+        timeout=90,
+    )
+
+    artifact_root = tmp_path / "docs" / "data" / "vmec_extender_edge_field_artifacts"
+    assert "edge summary:" in completed.stdout
+    assert "sol summary:" in completed.stdout
+    assert (artifact_root / "data" / "vmec_extender_edge_field_campaign.json").exists()
+    assert (artifact_root / "data" / "vmec_extender_edge_field_campaign.npz").exists()
+    assert (artifact_root / "images" / "vmec_extender_edge_field_campaign.png").stat().st_size > 0
+    assert (artifact_root / "data" / "vmec_extender_sol_smoke.json").exists()
+    assert (artifact_root / "data" / "vmec_extender_sol_smoke.npz").exists()
+    assert (artifact_root / "images" / "vmec_extender_sol_smoke.png").stat().st_size > 0
+
+
 def _copy_example_script(relative_script: str, *, destination_root: Path) -> Path:
     source = EXAMPLES_ROOT / relative_script
     destination = destination_root / "examples" / relative_script

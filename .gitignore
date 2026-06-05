@@ -29,6 +29,8 @@ docs/data/**/*.png
 docs/data/**/*.gif
 docs/data/**/*.gz
 docs/data/**/*.pb
+docs/data/**/*.nc
+docs/data/vmec_extender_edge_field_artifacts/**/*.json
 docs/images/**/*.png
 docs/images/**/*.gif
 docs/movies/**/*.mp4

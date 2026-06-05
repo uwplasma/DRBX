@@ -63,7 +63,7 @@ requires the local geometry source named by each page.
 
 | Example | Status | Main output | Documentation |
 | --- | --- | --- | --- |
-| [`examples/geometry-3D/vmec-extender/imported_field_demo.py`](../examples/geometry-3D/vmec-extender/imported_field_demo.py) | developer regeneration | imported edge-field arrays and SOL smoke diagnostics | [VMEC Extender Edge Fields](vmec_extender_edge_fields.md) |
+| [`examples/geometry-3D/vmec-extender/imported_field_demo.py`](../examples/geometry-3D/vmec-extender/imported_field_demo.py) | self-contained synthetic validation | imported edge-field arrays and SOL smoke diagnostics | [VMEC Extender Edge Fields](vmec_extender_edge_fields.md) |
 | [`examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | developer regeneration | field-line import JSON/PNG | [ESSOS Field-Line Import](essos_fieldline_import.md) |
 | [`examples/geometry-3D/essos-field-lines/imported_fci_campaign.py`](../examples/geometry-3D/essos-field-lines/imported_fci_campaign.py) | developer regeneration | imported FCI validation package | [ESSOS Imported FCI Validation](essos_imported_fci_validation.md) |
 | [`examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py`](../examples/geometry-3D/essos-field-lines/imported_pytree_campaign.py) | developer regeneration | imported fixed-layout PyTree/JVP gate | [ESSOS Imported PyTree Validation](essos_imported_pytree_validation.md) |

@@ -278,6 +278,7 @@ Detailed guides:
 - [docs/traced_field_line_selected_field_demo.md](docs/traced_field_line_selected_field_demo.md)
 - [docs/traced_field_line_native_selected_field_demo.md](docs/traced_field_line_native_selected_field_demo.md)
 - [docs/stellarator_fci_validation.md](docs/stellarator_fci_validation.md)
+- [docs/vmec_extender_edge_fields.md](docs/vmec_extender_edge_fields.md)
 - [docs/essos_vmec_fieldline_surface.md](docs/essos_vmec_fieldline_surface.md)
 - [docs/non_axisymmetric_stellarator_sol_plan.md](docs/non_axisymmetric_stellarator_sol_plan.md)
 - [docs/dynamics_gallery.md](docs/dynamics_gallery.md)

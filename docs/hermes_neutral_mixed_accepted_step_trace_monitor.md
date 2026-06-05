@@ -112,17 +112,21 @@ diagnostic output state after `output_ddt=true` and `diagnose=true`.
 On June 5, 2026, the two reference patches were applied to a clean disposable
 reference checkout at commit `f7bab630`, built successfully with the local
 `hermes-3` target, and produced a valid `neutral_mixed_one_step` JSONL trace
-with `148` accepted CVODE records. Native accepted-step traces now emit the
-same 10 fields as the reference trace and can replay the reference accepted
-time grid. A local matched-grid comparison now matches `148/148` accepted
-points. With the timestamp mismatch removed, the leading active/target
-offender is `SNVh_parallel_viscosity` at about `5.35e-5`; `ddt(Nh)`,
-state-level `Nh`, and state-level `NVh` follow at smaller target-adjacent
-scales. RHS/source guard metrics are still large and should be treated as
-diagnostic-boundary semantics until a guard-specific reference definition is
-chosen. The next implementation step is therefore to fix or further localize
-the neutral-mixed parallel-viscosity/boundary sequencing path under the
-matched-time accepted-step diagnostic before changing broader BDF sequencing.
+with `148` accepted CVODE records. The same clean auto-build path was rerun
+with the optional diagnostic-input fields enabled; the produced JSONL includes
+`Vh` and `eta_h` alongside the required state, RHS, and `SNVh_*` source fields.
+Native accepted-step traces now emit the same 10 required fields as the
+reference trace and can replay the reference accepted time grid. A local
+matched-grid comparison now matches `148/148` accepted points. With the
+timestamp mismatch removed, the highest input drift is `eta_h` at about
+`3.23e-3` in the target/guard comparison. The next active/target source-path
+offender is `SNVh_parallel_viscosity` at about `5.35e-5`. RHS/source guard
+metrics are still large and should be treated as diagnostic-boundary semantics
+until a guard-specific reference definition is chosen. The next implementation
+step is therefore to fix or further localize neutral-viscosity closure
+preparation or target-boundary sequencing under the matched-time accepted-step
+diagnostic before changing broader BDF sequencing or the parallel-viscosity
+stencil.
 Native traces now also emit optional `Vh` and `eta_h` diagnostic-input fields.
 The reference monitor patch now writes the same payloads when those diagnostics
 are exposed by `outputVars()`, so the remaining parallel-viscosity difference
@@ -132,7 +136,8 @@ summarizes this split in `parallel_viscosity_input_register`: missing `Vh` or
 `eta_h` marks the trace as insufficient for source-input diagnosis, while
 present input fields quantify whether the leading `SNVh_parallel_viscosity`
 offender is driven by `Vh`/`eta_h` drift or by the parallel-diffusion stencil
-and boundary treatment.
+and boundary treatment. In the current rerun, the register is available and
+points first at `eta_h` drift.
 
 ## Validation Sequence
 
@@ -147,7 +152,6 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
 
 PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
   --reference-root /path/to/reference-root \
-  --hermes-binary /path/to/hermes-3 \
   --workdir /tmp/ref_trace \
   --trace-out /tmp/ref_trace/accepted_steps.jsonl \
   --timeout-seconds 180 \
@@ -162,3 +166,7 @@ PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
 
 This diagnostic is the next required evidence before changing neutral-mixed
 boundary sequencing or the `NVh` pressure-gradient/viscosity implementation.
+When `--hermes-binary` is omitted, JAXDRB prepares a cached clean reference
+worktree under the system temporary directory, applies both reference patches,
+builds `hermes-3`, and runs that patched binary. Passing `--hermes-binary`
+keeps the old explicit-binary behavior for already patched developer builds.

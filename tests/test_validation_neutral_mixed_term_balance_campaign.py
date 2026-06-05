@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import jax_drb.validation.neutral_mixed_term_balance_campaign as term_module
 from jax_drb.validation import (
     build_neutral_mixed_accepted_step_trace_parity_report,
     build_neutral_mixed_native_accepted_step_trace_report,
@@ -576,6 +577,227 @@ def test_run_neutral_mixed_hermes_accepted_step_trace_requires_schema(
             hermes_binary=binary,
             trace_jsonl_path=trace_path,
         )
+
+
+def test_run_neutral_mixed_accepted_step_trace_auto_uses_patched_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_root = tmp_path / "reference"
+    source_dir = reference_root / "tests" / "integrated" / "neutral_mixed" / "data"
+    source_dir.mkdir(parents=True)
+    _write_neutral_mixed_input(source_dir / "BOUT.inp")
+    binary = tmp_path / "patched" / "hermes-3"
+    binary.parent.mkdir()
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+    built: dict[str, Path] = {}
+
+    def fake_build(root: Path):
+        built["root"] = root
+        return binary, tmp_path / "patched"
+
+    def fake_run(command, **kwargs):
+        assert command == [str(binary), "-d", "data"]
+        trace_path.write_text(
+            json.dumps(
+                {
+                    "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+                    "time": 0.0,
+                    "stages": {
+                        "post_accepted": {
+                            name: {
+                                "active_metrics": {"max_abs": 0.0, "rms": 0.0},
+                                "target_adjacent_metrics": {
+                                    "max_abs": 0.0,
+                                    "rms": 0.0,
+                                },
+                                "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+                                "sample_lineout_y_indices": [0],
+                                "sample_lineout": [0.0],
+                            }
+                            for name in (
+                                "Nh",
+                                "Ph",
+                                "NVh",
+                                "ddt(Nh)",
+                                "ddt(Ph)",
+                                "ddt(NVh)",
+                                "SNVh",
+                                "SNVh_pressure_gradient",
+                                "SNVh_parallel_viscosity",
+                                "SNVh_perpendicular_viscosity",
+                            )
+                        }
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="ok")
+
+    monkeypatch.setattr(
+        term_module,
+        "_build_patched_neutral_mixed_accepted_step_reference_binary",
+        fake_build,
+    )
+    monkeypatch.setattr(term_module.subprocess, "run", fake_run)
+
+    result = run_neutral_mixed_hermes_accepted_step_trace(
+        reference_root=reference_root,
+        workdir=tmp_path / "work",
+        trace_jsonl_path=trace_path,
+    )
+
+    assert built["root"] == reference_root.resolve()
+    assert result == trace_path.resolve()
+
+
+def test_build_patched_neutral_mixed_reference_binary_uses_existing_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patch_digest = term_module.hashlib.sha256(
+        b"".join(
+            (_REPO_ROOT / "docs" / name).read_bytes()
+            for name in (
+                "hermes_neutral_mixed_pressure_gradient_diagnostic.patch",
+                "hermes_neutral_mixed_accepted_step_trace_monitor.patch",
+            )
+        )
+    ).hexdigest()[:12]
+    cache_root = (
+        tmp_path
+        / "jax_drb_neutral_mixed_accepted_step_reference"
+        / f"deadbeef-{patch_digest}"
+    )
+    binary_path = cache_root / "build" / "hermes-3"
+    binary_path.parent.mkdir(parents=True)
+    binary_path.write_text("binary", encoding="utf-8")
+    reference_root = tmp_path / "reference"
+    reference_root.mkdir()
+
+    monkeypatch.setattr(term_module, "_git_stdout", lambda root, *args: "deadbeef")
+    monkeypatch.setattr(term_module.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    returned_binary, returned_cache = (
+        term_module._build_patched_neutral_mixed_accepted_step_reference_binary(
+            reference_root
+        )
+    )
+
+    assert returned_binary == binary_path
+    assert returned_cache == cache_root
+
+
+def test_build_patched_neutral_mixed_reference_binary_builds_clean_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_root = tmp_path / "reference"
+    reference_root.mkdir()
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(term_module, "_git_stdout", lambda root, *args: "deadbeef")
+    monkeypatch.setattr(term_module.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args))
+        if args[:6] == ["git", "-C", str(reference_root), "worktree", "add", "--detach"]:
+            Path(args[-2]).mkdir(parents=True, exist_ok=True)
+        elif args[:2] == ["cmake", "--build"]:
+            build_root = Path(args[2])
+            build_root.mkdir(parents=True, exist_ok=True)
+            (build_root / "hermes-3").write_text("binary", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(term_module.subprocess, "run", fake_run)
+
+    binary, cache_root = (
+        term_module._build_patched_neutral_mixed_accepted_step_reference_binary(
+            reference_root
+        )
+    )
+
+    assert binary == cache_root / "build" / "hermes-3"
+    assert any(
+        call[:6] == ["git", "-C", str(reference_root), "worktree", "add", "--detach"]
+        for call in calls
+    )
+    assert any(
+        call[:4] == ["git", "-C", str(cache_root / "src"), "submodule"]
+        for call in calls
+    )
+    apply_calls = [
+        call
+        for call in calls
+        if call[:4] == ["git", "-C", str(cache_root / "src"), "apply"]
+    ]
+    assert any(
+        "--check" in call
+        and "hermes_neutral_mixed_pressure_gradient_diagnostic.patch" in call[-1]
+        for call in apply_calls
+    )
+    assert any(
+        "--check" not in call
+        and "hermes_neutral_mixed_pressure_gradient_diagnostic.patch" in call[-1]
+        for call in apply_calls
+    )
+    split_root_apply_calls = [
+        call
+        for call in calls
+        if call[:3] == ["git", "-C", str(cache_root / "src")]
+        and call[3] == "apply"
+        and "hermes_neutral_mixed_accepted_step_trace_monitor.patch" not in call[-1]
+    ]
+    split_solver_apply_calls = [
+        call
+        for call in calls
+        if call[:3]
+        == ["git", "-C", str(cache_root / "src" / "external" / "BOUT-dev")]
+        and call[3] == "apply"
+    ]
+    assert any("--check" not in call for call in split_root_apply_calls)
+    assert any("--check" not in call for call in split_solver_apply_calls)
+    assert any(
+        "--check" in call and "--reverse" not in call
+        for call in split_solver_apply_calls
+    )
+    assert any(call[:2] == ["cmake", "-S"] for call in calls)
+    assert any(call[:2] == ["cmake", "--build"] for call in calls)
+
+
+def test_apply_reference_patch_skips_already_applied_patch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    patch_path = tmp_path / "patch.diff"
+    patch_path.write_text("patch", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args))
+        if "--reverse" in args and "--check" in args:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if "--check" in args:
+            return SimpleNamespace(returncode=1, stdout="", stderr="already applied")
+        raise AssertionError("already-applied patch should not be applied again")
+
+    monkeypatch.setattr(term_module.subprocess, "run", fake_run)
+
+    term_module._apply_reference_patch_if_needed(source_root, patch_path)
+
+    assert calls == [
+        ["git", "-C", str(source_root), "apply", "--check", str(patch_path)],
+        [
+            "git",
+            "-C",
+            str(source_root),
+            "apply",
+            "--reverse",
+            "--check",
+            str(patch_path),
+        ],
+    ]
 
 
 def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(

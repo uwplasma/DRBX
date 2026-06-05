@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -116,7 +118,7 @@ def run_neutral_mixed_hermes_diagnostic_rerun(
     binary = (
         Path(hermes_binary).expanduser().resolve()
         if hermes_binary is not None
-        else _default_hermes_binary(root)
+        else _build_patched_neutral_mixed_accepted_step_reference_binary(root)[0]
     )
     completed = subprocess.run(
         [str(binary), "-d", "data"],
@@ -175,7 +177,7 @@ def run_neutral_mixed_hermes_accepted_step_trace(
     binary = (
         Path(hermes_binary).expanduser().resolve()
         if hermes_binary is not None
-        else _default_hermes_binary(root)
+        else _build_patched_neutral_mixed_accepted_step_reference_binary(root)[0]
     )
     completed = subprocess.run(
         [str(binary), "-d", "data"],
@@ -3152,6 +3154,213 @@ def _default_hermes_binary(reference_root: Path) -> Path:
     raise FileNotFoundError(
         "Hermès executable not found. Pass hermes_binary explicitly or build Hermès under reference_root/build/hermes-3."
     )
+
+
+def _build_patched_neutral_mixed_accepted_step_reference_binary(
+    reference_root: Path,
+) -> tuple[Path, Path]:
+    """Build a cached clean reference binary with accepted-step trace patches."""
+
+    commit = _git_stdout(reference_root, "rev-parse", "HEAD")
+    patch_paths = (
+        repo_root() / "docs" / "hermes_neutral_mixed_pressure_gradient_diagnostic.patch",
+        repo_root() / "docs" / "hermes_neutral_mixed_accepted_step_trace_monitor.patch",
+    )
+    patch_digest = hashlib.sha256(
+        b"".join(path.read_bytes() for path in patch_paths)
+    ).hexdigest()[:12]
+    cache_root = (
+        Path(tempfile.gettempdir())
+        / "jax_drb_neutral_mixed_accepted_step_reference"
+        / f"{commit}-{patch_digest}"
+    )
+    source_root = cache_root / "src"
+    build_root = cache_root / "build"
+    binary_path = build_root / "hermes-3"
+    if binary_path.exists():
+        return binary_path, cache_root
+
+    cache_root.mkdir(parents=True, exist_ok=True)
+    if not source_root.exists():
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(reference_root),
+                "worktree",
+                "add",
+                "--detach",
+                str(source_root),
+                commit,
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(source_root),
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+            ],
+            check=True,
+            text=True,
+        )
+        for patch_path in patch_paths:
+            _apply_reference_patch_if_needed(source_root, patch_path)
+
+    if not (build_root / "CMakeCache.txt").exists():
+        subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(source_root),
+                "-B",
+                str(build_root),
+                "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+                "-DHERMES_BUILD_BOUT=ON",
+                "-DBOUT_BUILD_EXAMPLES=ON",
+                "-DBOUT_DOWNLOAD_SUNDIALS=ON",
+                "-DBOUT_ENABLE_MPI=ON",
+                "-DBOUT_USE_PETSC=OFF",
+                "-DBOUT_USE_PVODE=ON",
+                "-DBOUT_USE_NETCDF=ON",
+                "-DBOUT_USE_FFTW=ON",
+            ],
+            check=True,
+            text=True,
+        )
+    subprocess.run(
+        ["cmake", "--build", str(build_root), "--target", "hermes-3", "-j8"],
+        check=True,
+        text=True,
+    )
+    if not binary_path.exists():
+        raise FileNotFoundError(
+            "Patched neutral-mixed accepted-step reference build did not "
+            f"produce {binary_path}"
+        )
+    return binary_path, cache_root
+
+
+def _apply_reference_patch_if_needed(source_root: Path, patch_path: Path) -> None:
+    patch_segments = _split_reference_patch_by_root(patch_path)
+    if len(patch_segments) <= 1 and patch_segments[0][0] == Path("."):
+        _apply_git_patch_if_needed(source_root, patch_path)
+        return
+
+    for relative_root, patch_text in patch_segments:
+        target_root = source_root / relative_root
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            suffix=".patch",
+            delete=False,
+        ) as handle:
+            handle.write(patch_text)
+            segment_path = Path(handle.name)
+        try:
+            _apply_git_patch_if_needed(target_root, segment_path)
+        finally:
+            segment_path.unlink(missing_ok=True)
+
+
+def _apply_git_patch_if_needed(source_root: Path, patch_path: Path) -> None:
+    check_command = ["git", "-C", str(source_root), "apply", "--check", str(patch_path)]
+    apply_command = ["git", "-C", str(source_root), "apply", str(patch_path)]
+    reverse_check_command = [
+        "git",
+        "-C",
+        str(source_root),
+        "apply",
+        "--reverse",
+        "--check",
+        str(patch_path),
+    ]
+    check = subprocess.run(
+        check_command,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if check.returncode == 0:
+        subprocess.run(apply_command, check=True, text=True, capture_output=True)
+        return
+    reverse_check = subprocess.run(
+        reverse_check_command,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if reverse_check.returncode == 0:
+        return
+    raise subprocess.CalledProcessError(
+        check.returncode,
+        check_command,
+        output=check.stdout,
+        stderr=check.stderr,
+    )
+
+
+def _split_reference_patch_by_root(patch_path: Path) -> list[tuple[Path, str]]:
+    text = patch_path.read_text(encoding="utf-8")
+    if "diff --git " not in text:
+        return [(Path("."), text)]
+
+    segments: dict[Path, list[str]] = {}
+    for patch_part in re.split(r"(?=^diff --git )", text, flags=re.MULTILINE):
+        if not patch_part.strip():
+            continue
+        match = re.match(
+            r"diff --git a/(?P<a_path>\S+) b/(?P<b_path>\S+)",
+            patch_part,
+        )
+        if match is None:
+            segments.setdefault(Path("."), []).append(patch_part)
+            continue
+        a_path = match.group("a_path")
+        b_path = match.group("b_path")
+        submodule_prefix = "external/BOUT-dev/"
+        if a_path.startswith(submodule_prefix) and b_path.startswith(
+            submodule_prefix
+        ):
+            segments.setdefault(Path("external/BOUT-dev"), []).append(
+                _strip_git_patch_prefix(patch_part, submodule_prefix)
+            )
+            continue
+        segments.setdefault(Path("."), []).append(patch_part)
+    return [
+        (relative_root, "".join(parts))
+        for relative_root, parts in segments.items()
+        if "".join(parts).strip()
+    ]
+
+
+def _strip_git_patch_prefix(patch_text: str, prefix: str) -> str:
+    replacements = (
+        (rf"(?m)^(diff --git a/){re.escape(prefix)}", r"\1"),
+        (rf"(?m)^(diff --git a/\S+ b/){re.escape(prefix)}", r"\1"),
+        (rf"(?m)^(--- a/){re.escape(prefix)}", r"\1"),
+        (rf"(?m)^(\+\+\+ b/){re.escape(prefix)}", r"\1"),
+    )
+    stripped = patch_text
+    for pattern, replacement in replacements:
+        stripped = re.sub(pattern, replacement, stripped)
+    return stripped
+
+
+def _git_stdout(reference_root: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(reference_root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def _set_root_option(text: str, key: str, value: str) -> str:

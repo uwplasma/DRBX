@@ -95,6 +95,65 @@ bndry_all = neumann
 """
 
 
+def _run_native_diffusion_input(text: str):
+    config = parse_bout_input(text.replace("nout = 5", "nout = 1"))
+    return run_config_case(
+        config,
+        case_name="diffusion_guard",
+        parity_mode="one_step",
+        compare_variables=("Nh", "Ph"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("input_text", "message"),
+    [
+        (
+            _DIFFUSION_INPUT.replace("function = Nh:function", "function = 2 + 0*x + 0*y"),
+            "identical density and pressure",
+        ),
+        (
+            _DIFFUSION_INPUT.replace("thermal_conduction = false", "thermal_conduction = true"),
+            "thermal_conduction = false",
+        ),
+        (
+            _DIFFUSION_INPUT.replace("anomalous_D = 2", "anomalous_D = 2\nanomalous_chi = 0.1"),
+            "does not yet support anomalous_chi",
+        ),
+        (
+            _DIFFUSION_INPUT.replace("anomalous_D = 2", "anomalous_D = 2\nanomalous_nu = 0.1"),
+            "does not yet support anomalous_nu",
+        ),
+    ],
+)
+def test_native_diffusion_rejects_unsupported_physics_options(
+    input_text: str,
+    message: str,
+) -> None:
+    with pytest.raises(NotImplementedError, match=message):
+        _run_native_diffusion_input(input_text)
+
+
+def test_native_diffusion_requires_initial_condition_section() -> None:
+    input_text = _DIFFUSION_INPUT.replace(
+        "\n[Nh]\nfunction = 1 + H(x - 0.25) * H(0.75-x) * exp(-(y-π)^2)\nbndry_all = neumann\n",
+        "\n",
+    )
+
+    with pytest.raises(KeyError, match="Missing initial condition section for Nh"):
+        _run_native_diffusion_input(input_text)
+
+
+def test_native_diffusion_requires_initial_condition_expression() -> None:
+    input_text = _DIFFUSION_INPUT.replace(
+        "function = 1 + H(x - 0.25) * H(0.75-x) * exp(-(y-π)^2)",
+        "bndry_all = neumann",
+    )
+
+    with pytest.raises(KeyError, match="Missing initial condition function or solution for Nh"):
+        _run_native_diffusion_input(input_text)
+
+
 def test_run_input_case_resolves_curated_reference_case_by_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
