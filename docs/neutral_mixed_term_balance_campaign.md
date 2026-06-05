@@ -198,12 +198,12 @@ owner is accepted-step state/history sequencing, neutral closure preparation,
 or target-boundary reconstruction before the viscosity stencil is changed.
 On the current `148/148` matched accepted-step trace, `Nh` is the dominant
 state-input drift, but the `eta_h` target-adjacent drift is about `99` times
-larger than the largest state-input drift. That amplification points at
-accepted-step closure or target-boundary sequencing rather than a directly
-state-sized density, pressure, or momentum mismatch.
-The next reference rerun should include the optional `Dnnh` trace field added
-to the monitor patch so that diffusion-coefficient drift and `Dnn_h N_h`
-product-boundary drift can be separated.
+larger than the largest state-input drift. The same rerun now includes `Dnnh`
+and shows that the diffusion-coefficient target-adjacent drift is about
+`4.46e-3`, larger than the `eta_h` drift of about `3.23e-3`. That separates the
+offender from a directly state-sized density, pressure, or momentum mismatch
+and points first at accepted-step `Dnn` preparation or target-boundary
+sequencing before viscosity is formed.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

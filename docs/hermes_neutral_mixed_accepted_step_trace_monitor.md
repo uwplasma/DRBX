@@ -140,17 +140,18 @@ Present input fields quantify whether the leading `SNVh_parallel_viscosity`
 offender is driven by `Dnnh`/`Vh`/`eta_h` drift or by the parallel-diffusion
 stencil and boundary treatment. The same register now ranks `Nh`, `Ph`, and
 `NVh` state-input errors and reports `eta_h`/state amplification ratios. In the
-current rerun, the register is available, points first at `eta_h` drift, and
-shows that `eta_h` target-adjacent drift is about `99` times larger than the
-largest state-input drift.
+current rerun, the register is available and points first at `Dnnh` drift:
+`Dnnh` has a target-adjacent maximum drift of about `4.46e-3`, larger than the
+`eta_h` drift of about `3.23e-3`, while `eta_h` remains about `99` times larger
+than the largest state-input drift.
 
 A final-state input-closure cross-check now reconstructs `Dnn`, `Vh`, and
 `eta_h` from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares
 those arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the
 neutral diffusion, velocity, and viscosity input formulas to roundoff on the
 current reference final state, including target-adjacent and guard cells. The
-remaining accepted-step `eta_h` offender should therefore be treated as a
-state/history or boundary-sequencing issue until a matched accepted-step dump
+remaining accepted-step offender should therefore be treated as a `Dnn`
+preparation or boundary-sequencing issue until a matched accepted-step dump
 shows otherwise.
 
 ## Validation Sequence
