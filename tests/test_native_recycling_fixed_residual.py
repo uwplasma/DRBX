@@ -39,15 +39,23 @@ from jax_drb.runtime.run_config import RunConfiguration
 _DTHE_INPUT = Path(
     "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling-dthe/data/BOUT.inp"
 )
+_DTHE_FIXTURE_INPUT = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "reference-root"
+    / "tests"
+    / "integrated"
+    / "1D-recycling-dthe"
+    / "data"
+    / "BOUT.inp"
+)
 _HYDROGEN_INPUT = Path(
     "/Users/rogerio/local/hermes-3/tests/integrated/1D-recycling/data/BOUT.inp"
 )
 
 
-def _dthe_context():
-    if not _DTHE_INPUT.exists():
-        pytest.skip("Hermès DTHE recycling reference deck is not available.")
-    config = load_bout_input(_DTHE_INPUT)
+def _build_dthe_context(input_path: Path):
+    config = load_bout_input(input_path)
     run_config = RunConfiguration.from_config(config)
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
@@ -76,6 +84,18 @@ def _dthe_context():
         feedback_integrals,
         layout,
     )
+
+
+def _dthe_context():
+    if not _DTHE_INPUT.exists():
+        pytest.skip("Hermès DTHE recycling reference deck is not available.")
+    return _build_dthe_context(_DTHE_INPUT)
+
+
+def _dthe_fixture_context():
+    if not _DTHE_FIXTURE_INPUT.exists():
+        raise AssertionError("committed D/T/He recycling fixture deck is missing")
+    return _build_dthe_context(_DTHE_FIXTURE_INPUT)
 
 
 def test_fixed_state_round_trips_actual_dthe_recycling_deck() -> None:
@@ -221,6 +241,174 @@ def test_fixed_host_rhs_bridge_matches_dthe_packed_rhs_oracle() -> None:
     np.testing.assert_allclose(
         np.asarray(residual(previous), dtype=np.float64),
         -timestep * np.asarray(direct_rhs, dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_active_array_backward_euler_residual_matches_full_field_oracle_on_dthe_deck() -> (
+    None
+):
+    pytest.importorskip("jax")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        feedback_integrals,
+        _,
+    ) = _dthe_context()
+    kwargs = {
+        "runtime_model": runtime_model,
+        "feedback_integrals": feedback_integrals,
+        "mesh": mesh,
+        "metrics": metrics,
+        "dataset_scalars": scalars,
+        "timestep": 1.0e-6,
+    }
+    oracle = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        rhs_backend="fixed_full_field_array",
+        **kwargs,
+    )
+    active = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        rhs_backend="active_array",
+        **kwargs,
+    )
+    state = np.asarray(oracle.packed_initial_guess, dtype=np.float64)
+
+    assert tuple(active.field_names) == tuple(oracle.field_names)
+    np.testing.assert_allclose(
+        np.asarray(active.residual(state), dtype=np.float64),
+        np.asarray(oracle.residual(state), dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_active_array_bdf2_residual_matches_full_field_oracle_on_dthe_deck() -> None:
+    pytest.importorskip("jax")
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        feedback_integrals,
+        _,
+    ) = _dthe_context()
+    previous_fields = {
+        name: np.asarray(value, dtype=np.float64, copy=True) * (1.0 - 1.0e-6)
+        for name, value in fields.items()
+    }
+    previous_feedback_integrals = {
+        name: value - 1.0e-8 for name, value in feedback_integrals.items()
+    }
+    kwargs = {
+        "runtime_model": runtime_model,
+        "feedback_integrals": feedback_integrals,
+        "previous_feedback_integrals": previous_feedback_integrals,
+        "mesh": mesh,
+        "metrics": metrics,
+        "dataset_scalars": scalars,
+        "timestep": 1.0e-6,
+        "previous_timestep": 1.25e-6,
+    }
+    oracle = build_recycling_1d_bdf2_residual_context(
+        config,
+        fields,
+        previous_fields,
+        rhs_backend="fixed_full_field_array",
+        **kwargs,
+    )
+    active = build_recycling_1d_bdf2_residual_context(
+        config,
+        fields,
+        previous_fields,
+        rhs_backend="active_array",
+        **kwargs,
+    )
+    state = np.asarray(oracle.packed_initial_guess, dtype=np.float64)
+
+    assert tuple(active.field_names) == tuple(oracle.field_names)
+    np.testing.assert_allclose(
+        np.asarray(active.residual(state), dtype=np.float64),
+        np.asarray(oracle.residual(state), dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+
+def test_active_array_fixture_residual_supports_jit_jvp_and_vmap() -> None:
+    jax = pytest.importorskip("jax")
+    import jax.numpy as jnp
+
+    jax.config.update("jax_enable_x64", True)
+    (
+        config,
+        mesh,
+        metrics,
+        scalars,
+        runtime_model,
+        fields,
+        feedback_integrals,
+        _,
+    ) = _dthe_fixture_context()
+    kwargs = {
+        "runtime_model": runtime_model,
+        "feedback_integrals": feedback_integrals,
+        "mesh": mesh,
+        "metrics": metrics,
+        "dataset_scalars": scalars,
+        "timestep": 1.0e-6,
+    }
+    oracle = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        rhs_backend="fixed_full_field_array",
+        **kwargs,
+    )
+    active = build_recycling_1d_backward_euler_residual_context(
+        config,
+        fields,
+        rhs_backend="active_array",
+        **kwargs,
+    )
+    state = jnp.asarray(oracle.packed_initial_guess, dtype=jnp.float64)
+    direction = jnp.sin(jnp.arange(state.size, dtype=jnp.float64) * 0.017)
+    direction = direction / jnp.maximum(jnp.linalg.norm(direction), 1.0e-30)
+
+    active_residual = jax.jit(active.residual)
+    oracle_residual = jax.jit(oracle.residual)
+    np.testing.assert_allclose(
+        np.asarray(active_residual(state), dtype=np.float64),
+        np.asarray(oracle_residual(state), dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+
+    _, jvp_value = jax.jvp(active_residual, (state,), (direction,))
+    epsilon = 1.0e-6
+    finite_difference = (
+        active_residual(state + epsilon * direction)
+        - active_residual(state - epsilon * direction)
+    ) / (2.0 * epsilon)
+    relative_error = jnp.linalg.norm(jvp_value - finite_difference) / jnp.maximum(
+        jnp.linalg.norm(finite_difference),
+        1.0e-30,
+    )
+    assert float(relative_error) < 1.0e-6
+
+    batch = jnp.stack((state, state + 1.0e-9 * direction))
+    np.testing.assert_allclose(
+        np.asarray(jax.vmap(active_residual)(batch), dtype=np.float64),
+        np.asarray(jax.vmap(oracle_residual)(batch), dtype=np.float64),
         rtol=1.0e-12,
         atol=1.0e-12,
     )

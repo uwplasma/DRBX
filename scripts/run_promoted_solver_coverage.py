@@ -20,6 +20,7 @@ PROMOTED_SOLVER_TESTS = (
     "tests/test_validation_open_field_operator_campaign.py",
     "tests/test_solver_implicit.py",
     "tests/test_native_recycling_1d.py",
+    "tests/test_native_recycling_fixed_residual.py",
     "tests/test_native_recycling_history.py",
     "tests/test_native_recycling_layout.py",
     "tests/test_recycling_diagnostics.py",

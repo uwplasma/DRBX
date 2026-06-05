@@ -319,8 +319,11 @@ profiler uses the lightweight fixture decks committed under
 `tests/fixtures/reference-root`. Pass `--reference-root /path/to/reference/root`
 for full reference-suite decks, or `--input-path /path/to/BOUT.inp` for a
 single staged deck. The default `fixed_full_field_array` backend is the
-release-facing JAX-native evidence path; `--rhs-backend host_bridge` is
-retained only for comparisons against the older host bridge.
+release-facing JAX-native evidence path; `--rhs-backend active_array` is the
+opt-in migration seam that routes the same D/T/He residual through
+`build_fixed_array_rhs` before term-specific kernels are promoted, and
+`--rhs-backend host_bridge` is retained only for comparisons against the older
+host bridge.
 
 The retained local CPU artifact now sweeps batches through 256 states and
 shows about `4.94x` residual throughput speedup and `3.11x` JVP throughput

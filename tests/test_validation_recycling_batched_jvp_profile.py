@@ -117,3 +117,65 @@ def test_recycling_batched_jvp_problem_uses_fixed_full_field_backend_by_default(
     assert captured["rhs_backend"] == "fixed_full_field_array"
     assert problem.rhs_backend == "fixed_full_field_array"
     assert problem.state_size == 2
+
+
+def test_recycling_batched_jvp_problem_accepts_active_array_backend(
+    tmp_path, monkeypatch
+) -> None:
+    pytest.importorskip("jax")
+    captured: dict[str, object] = {}
+    input_path = tmp_path / "BOUT.inp"
+    input_path.write_text("nout = 1\n", encoding="utf-8")
+
+    mesh = SimpleNamespace(xstart=0, xend=1, ystart=0, yend=1, nz=1)
+    runtime_model = SimpleNamespace(feedback_names=("flux",))
+    context = SimpleNamespace(
+        residual=lambda state: state,
+        packed_previous_state=np.array([1.0, 2.0], dtype=np.float64),
+        field_names=("Ne",),
+        feedback_names=("flux",),
+    )
+
+    monkeypatch.setattr(profile_module, "load_bout_input", lambda path: {"path": path})
+    monkeypatch.setattr(
+        profile_module.RunConfiguration,
+        "from_config",
+        staticmethod(lambda config: SimpleNamespace()),
+    )
+    monkeypatch.setattr(profile_module, "build_structured_mesh", lambda *args: mesh)
+    monkeypatch.setattr(
+        profile_module, "build_structured_metrics", lambda *args: object()
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "resolved_dataset_scalars",
+        lambda run_config: {"rho_s0": 1.0, "Tnorm": 1.0},
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "_build_recycling_runtime_model",
+        lambda *args, **kwargs: runtime_model,
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "_build_recycling_state_fields",
+        lambda runtime_model: {"Ne": np.ones((2, 2, 1), dtype=np.float64)},
+    )
+
+    def fake_residual_context(*args, **kwargs):
+        captured.update(kwargs)
+        return context
+
+    monkeypatch.setattr(
+        profile_module,
+        "build_recycling_1d_backward_euler_residual_context",
+        fake_residual_context,
+    )
+
+    problem = build_recycling_batched_jvp_problem(
+        input_path, rhs_backend="active_array"
+    )
+
+    assert captured["rhs_backend"] == "active_array"
+    assert problem.rhs_backend == "active_array"
+    assert problem.state_size == 2

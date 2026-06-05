@@ -95,8 +95,10 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
 Pass `--reference-root` for a full local reference suite or `--input-path` for
 a single staged deck. The default fixture path is intended for reproducibility
 and regression testing; full reference campaigns remain developer validation.
-The fixed full-field active-array RHS is the default release-facing backend;
-`--rhs-backend host_bridge` remains available only for bridge-comparison tasks.
+`fixed_full_field_array` is the default release-facing backend;
+`--rhs-backend active_array` is an opt-in migration seam for active-field RHS
+kernels, and `--rhs-backend host_bridge` remains available only for
+bridge-comparison tasks.
 
 ## Maintenance Gates
 

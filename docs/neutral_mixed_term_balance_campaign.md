@@ -177,9 +177,16 @@ diagnostic-boundary semantics rather than active-domain source formulas. The
 next native parity patch should therefore target the neutral-mixed
 parallel-viscosity/boundary sequencing path under this matched-time diagnostic
 instead of changing the already-closed pressure-gradient formula.
-The next reference-monitor extension should add `Vh` and `eta_h` to the JSONL
-so the source difference can be separated into operator-input drift and pure
-stencil/boundary-form error at each accepted time.
+The accepted-step comparator now also writes
+`parallel_viscosity_input_register`. For each `SNV*_parallel_viscosity`
+offender this register reports the matched `V*` and `eta_*` input-field
+errors, lists missing input fields, and labels the diagnostic as either
+`input_drift_check_available` or `reference_input_trace_missing`. When the
+patched reference JSONL includes `Vh` and `eta_h`, a small input delta with a
+large `SNVh_parallel_viscosity` delta points at the
+`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil or boundary semantics. A
+large `Vh` or `eta_h` delta instead points first at accepted-step state/history
+sequencing or neutral closure preparation.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

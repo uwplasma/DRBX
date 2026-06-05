@@ -430,6 +430,10 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert 'json_field_payload(get<Field3D>(species_state["pressure"]))' in text
     assert 'json_field_payload(get<Field3D>(species_state["momentum"]))' in text
     assert "json_field_payload(getNonFinal<Field3D>" in text
+    assert "std::string json_optional_trace_field(" in text
+    assert '"V" + species,' in text
+    assert '"eta_" + species,' in text
+    assert 'state[std::string("eta_") + name]' in text
     assert '      "N" + species,' not in text
     assert '      "P" + species,' not in text
     assert '      "NV" + species,' not in text
@@ -931,6 +935,7 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
     assert report["fields"]["NVh"]["max_guard_delta"] == pytest.approx(1.0)
     assert report["fields"]["NVh"]["max_sample_lineout_delta"] == pytest.approx(3.0)
     assert report["ranked_fields"][0]["field"] == "NVh"
+    assert report["parallel_viscosity_input_register"]["entries"] == []
 
     path = write_neutral_mixed_accepted_step_trace_parity_json(
         report, tmp_path / "trace_parity.json"
@@ -1033,6 +1038,128 @@ def test_neutral_mixed_accepted_step_trace_parity_ranks_rhs_by_active_target(
         0.2
     )
     assert report["fields"]["ddt(NVh)"]["worst_time"] == pytest.approx(1.0)
+
+
+def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
+    tmp_path: Path,
+) -> None:
+    def field(active: float, target: float, guard: float = 0.0) -> dict[str, object]:
+        return {
+            "active_metrics": {"max_abs": active, "rms": active},
+            "target_adjacent_metrics": {"max_abs": target, "rms": target},
+            "guard_metrics": {"max_abs": guard, "rms": guard},
+            "sample_lineout_y_indices": [0],
+            "sample_lineout": [target],
+        }
+
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "solver_order": 0,
+                "stage": "post_accepted",
+                "fields": {
+                    "SNVh_parallel_viscosity": field(0.0, 0.0),
+                    "Vh": field(0.0, 0.0),
+                    "eta_h": field(0.0, 0.0),
+                },
+            }
+        ],
+    }
+    reference_records = [
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 0,
+            "time": 0.0,
+            "dt": 0.0,
+            "stages": {
+                "post_accepted": {
+                    "SNVh_parallel_viscosity": field(2.0, 5.0),
+                    "Vh": field(0.25, 0.5),
+                    "eta_h": field(0.1, 0.2),
+                }
+            },
+        }
+    ]
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(
+        "\n".join(json.dumps(record) for record in reference_records) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-12,
+    )
+
+    register = report["parallel_viscosity_input_register"]
+    assert register["missing_reference_input_fields"] == []
+    entry = register["entries"][0]
+    assert entry["source_field"] == "SNVh_parallel_viscosity"
+    assert entry["input_fields_present"] is True
+    assert entry["diagnosis"] == "input_drift_check_available"
+    assert entry["velocity_field"] == "Vh"
+    assert entry["viscosity_field"] == "eta_h"
+    assert entry["source_max_target_adjacent_delta"] == pytest.approx(5.0)
+    assert entry["max_input_target_adjacent_delta"] == pytest.approx(0.5)
+    assert entry["max_input_active_delta"] == pytest.approx(0.25)
+
+
+def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(
+    tmp_path: Path,
+) -> None:
+    def field(value: float) -> dict[str, object]:
+        return {
+            "active_metrics": {"max_abs": value, "rms": value},
+            "target_adjacent_metrics": {"max_abs": value, "rms": value},
+            "guard_metrics": {"max_abs": value, "rms": value},
+            "sample_lineout_y_indices": [0],
+            "sample_lineout": [value],
+        }
+
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "solver_order": 0,
+                "stage": "post_accepted",
+                "fields": {"SNVh_parallel_viscosity": field(0.0)},
+            }
+        ],
+    }
+    reference_record = {
+        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+        "step_index": 0,
+        "time": 0.0,
+        "dt": 0.0,
+        "stages": {"post_accepted": {"SNVh_parallel_viscosity": field(1.0)}},
+    }
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(json.dumps(reference_record) + "\n", encoding="utf-8")
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-12,
+    )
+
+    register = report["parallel_viscosity_input_register"]
+    assert register["missing_reference_input_fields"] == ["Vh", "eta_h"]
+    entry = register["entries"][0]
+    assert entry["input_fields_present"] is False
+    assert entry["missing_input_fields"] == ["Vh", "eta_h"]
+    assert entry["diagnosis"] == "reference_input_trace_missing"
 
 
 def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:

@@ -30,13 +30,14 @@ report the current coverage without failing the iteration loop:
 python scripts/run_promoted_solver_coverage.py --audit
 ```
 
-As of the June 4, 2026 local audit, this promoted slice passes its tests
-(`463 passed`, `7 deselected`, `1 xfailed`) and reports `95%` total coverage.
-The remaining coverage deficits are concentrated in the hardest and most
-valuable surfaces: runner orchestration, full-sheath lower-target branches,
-legacy mixed residual helpers, target-recycling edge cases, and some CLI
-subcommand branches. Future coverage work should still close those through
-smaller extracted modules and operator tests, not through broad smoke coverage.
+As of the June 5, 2026 local audit, this promoted slice includes the fixed
+residual active-array transformability gates, passes its tests (`518 passed`,
+`7 deselected`, `1 xfailed`), and reports `95%` total coverage. The remaining
+coverage deficits are concentrated in the hardest and most valuable surfaces:
+runner orchestration, full-sheath lower-target branches, legacy mixed residual
+helpers, target-recycling edge cases, and some CLI subcommand branches. Future
+coverage work should still close those through smaller extracted modules and
+operator tests, not through broad smoke coverage.
 
 The release-closeout threshold is now explicit and reproducible:
 
@@ -72,6 +73,8 @@ check over validation packages and public packaging behavior. The promoted
 solver gate is the research-grade criterion for the native physics and runtime
 surface. Both gates now enforce `95%`; neither replaces operator-level
 validation, reference parity, profiling, or publication-grade figure review.
-Both gates are required by the GitHub Actions coverage workflow on pushes and
-pull requests, so the documented `95%` claim is enforced by CI rather than left
-as a manual release step.
+Both gates are wired into the GitHub Actions coverage workflow on pushes and
+pull requests. While hosted runners are unavailable because of account
+billing/spending-limit status, the local commands above are the release
+substitute; once hosted Actions start again, the same `95%` gates enforce the
+documented claim in CI.

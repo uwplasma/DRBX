@@ -181,6 +181,7 @@ from .recycling_layout import (
 )
 from .recycling_fixed_residual import (
     RecyclingFixedState as _RecyclingFixedState,
+    build_fixed_array_rhs as _build_fixed_array_rhs,
     build_fixed_bdf2_residual as _build_fixed_bdf2_residual,
     build_fixed_backward_euler_residual as _build_fixed_backward_euler_residual,
     build_fixed_host_rhs_bridge as _build_fixed_host_rhs_bridge,
@@ -4042,7 +4043,19 @@ def build_recycling_1d_backward_euler_residual_context(
     )
 
     feedback_timestep = None if packed_feedback_names else timestep
-    if rhs_backend == "fixed_full_field_array":
+    if rhs_backend == "active_array":
+        fixed_rhs = _build_active_array_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            feedback_timestep=feedback_timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    elif rhs_backend == "fixed_full_field_array":
         fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -4184,7 +4197,19 @@ def build_recycling_1d_bdf2_residual_context(
     )
 
     feedback_timestep = None if packed_feedback_names else timestep
-    if rhs_backend == "fixed_full_field_array":
+    if rhs_backend == "active_array":
+        fixed_rhs = _build_active_array_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=feedback_integrals,
+            feedback_previous_errors=previous_feedback_errors,
+            feedback_timestep=feedback_timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    elif rhs_backend == "fixed_full_field_array":
         fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -4752,7 +4777,7 @@ def _advance_recycling_1d_bdf_history(
     rhs_evaluation_seconds = 0.0
     rhs_object_evaluation_seconds = 0.0
     rhs_numpy_conversion_seconds = 0.0
-    if rhs_backend not in {"host_bridge", "fixed_full_field_array"}:
+    if rhs_backend not in {"host_bridge", "fixed_full_field_array", "active_array"}:
         raise ValueError(f"Unsupported recycling BDF rhs_backend={rhs_backend!r}.")
     resolved_jacobian_mode = (
         _resolve_recycling_bdf_jacobian_mode()
@@ -4796,7 +4821,19 @@ def _advance_recycling_1d_bdf_history(
             layout=layout,
         )
 
-    if rhs_backend == "fixed_full_field_array":
+    if rhs_backend == "active_array":
+        fixed_rhs = _build_active_array_recycling_rhs(
+            config,
+            runtime_model=runtime_model,
+            layout=layout,
+            base_feedback_integrals=current_integrals,
+            feedback_previous_errors=None,
+            feedback_timestep=None if feedback_names else timestep,
+            mesh=mesh,
+            metrics=metrics,
+            dataset_scalars=dataset_scalars,
+        )
+    elif rhs_backend == "fixed_full_field_array":
         fixed_rhs = _build_fixed_full_field_recycling_rhs(
             config,
             runtime_model=runtime_model,
@@ -5482,6 +5519,69 @@ def _build_fixed_full_field_recycling_rhs(
         )
 
     return rhs
+
+
+def _build_active_array_recycling_rhs(
+    config: BoutConfig,
+    *,
+    runtime_model: _RecyclingRuntimeModel,
+    layout: _RecyclingPackedStateLayout,
+    base_feedback_integrals: dict[str, object],
+    feedback_previous_errors: dict[str, float] | None,
+    feedback_timestep: float | None,
+    mesh: StructuredMesh,
+    metrics: StructuredMetrics,
+    dataset_scalars: dict[str, float],
+) -> Callable[[_RecyclingFixedState], _RecyclingFixedState]:
+    """Build the opt-in active-array RHS migration seam.
+
+    This backend keeps the validated full-field kernel as the oracle while
+    routing through ``build_fixed_array_rhs``. It gives promoted solver tests a
+    stable active-array surface before individual sheath, neutral, collision,
+    and recycling source terms are moved off guard-cell reconstruction.
+    """
+
+    full_field_rhs = _build_fixed_full_field_recycling_rhs(
+        config,
+        runtime_model=runtime_model,
+        layout=layout,
+        base_feedback_integrals=base_feedback_integrals,
+        feedback_previous_errors=feedback_previous_errors,
+        feedback_timestep=feedback_timestep,
+        mesh=mesh,
+        metrics=metrics,
+        dataset_scalars=dataset_scalars,
+    )
+
+    def field_rhs(
+        active_fields: dict[str, object], feedback_values: object
+    ) -> dict[str, object]:
+        state = _RecyclingFixedState(
+            field_values=tuple(active_fields[name] for name in layout.field_names),
+            feedback_values=jnp.asarray(feedback_values, dtype=jnp.float64),
+        )
+        rhs_state = full_field_rhs(state)
+        return {
+            name: value
+            for name, value in zip(
+                layout.field_names, rhs_state.field_values, strict=True
+            )
+        }
+
+    def feedback_rhs(
+        active_fields: dict[str, object], feedback_values: object
+    ) -> object:
+        state = _RecyclingFixedState(
+            field_values=tuple(active_fields[name] for name in layout.field_names),
+            feedback_values=jnp.asarray(feedback_values, dtype=jnp.float64),
+        )
+        return full_field_rhs(state).feedback_values
+
+    return _build_fixed_array_rhs(
+        field_rhs,
+        layout=layout,
+        feedback_rhs_function=feedback_rhs if layout.feedback_names else None,
+    )
 
 
 def _predict_recycling_packed_state(

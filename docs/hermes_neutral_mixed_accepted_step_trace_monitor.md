@@ -127,7 +127,12 @@ Native traces now also emit optional `Vh` and `eta_h` diagnostic-input fields.
 The reference monitor patch now writes the same payloads when those diagnostics
 are exposed by `outputVars()`, so the remaining parallel-viscosity difference
 can be split into velocity/viscosity input drift and the
-`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself.
+`Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself. The comparator
+summarizes this split in `parallel_viscosity_input_register`: missing `Vh` or
+`eta_h` marks the trace as insufficient for source-input diagnosis, while
+present input fields quantify whether the leading `SNVh_parallel_viscosity`
+offender is driven by `Vh`/`eta_h` drift or by the parallel-diffusion stencil
+and boundary treatment.
 
 ## Validation Sequence
 

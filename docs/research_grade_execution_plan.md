@@ -44,10 +44,12 @@ implicit-solver bottlenecks, the largest files remain too broad, and the 3D
 stellarator/imported-field lane still needs longer, grid-sensitive validation
 before it can support broad non-axisymmetric turbulence claims.
 
-The current release head has local docs/test coverage evidence and GitHub
-Actions docs/test success on the latest pushed commits. The coverage workflow is
-still the long-running release gate and should be checked before any tag. The
-local release gates that must be kept green are:
+The current release head has local docs/test coverage evidence. The latest
+GitHub Actions docs/test/coverage jobs did not start because the hosted-runner
+account is billing/spending-limit blocked; the annotations are workflow-startup
+failures, not repository test failures. Until billing is restored, the local
+release gates below are the active CI substitute and must be kept green before
+any tag:
 
 ```bash
 PYTHONPATH=src python scripts/run_closeout_coverage.py
@@ -68,10 +70,10 @@ documentation matching the claim.
 
 | Lane | Status | Completion | Next blocking evidence |
 | --- | --- | ---: | --- |
-| CI/CD and docs release surface | Local release-surface and targeted shipping slices pass after public-path sanitization; latest pushed CI must still be watched to completion. | 85% | Green docs, test, and coverage on the latest `main` head. |
-| Meaningful promoted coverage | Local closeout and promoted-solver coverage gates meet the `95%` target on promoted surfaces. | 90% | Keep the gates green after every solver/geometry promotion; avoid adding coverage-only smoke tests. |
-| Reference-backed parity | Many RHS, one-step, and campaign gates exist; neutral-mixed direct `SNVh_*` source formulas are now closed. The accepted-step reference-monitor patch now applies, builds, writes JSONL from a clean patched checkout, and passes the schema gate. Native traces now emit the same 10 state/RHS/source fields as the reference trace and can replay the reference adaptive accepted-step time grid; the latest local comparison matches `148/148` accepted points. With timestamp mismatch removed, `SNVh_parallel_viscosity` is the leading active/target offender, while large RHS/source guard deltas remain a diagnostic-boundary semantics issue. Native traces now also emit `Vh` and `eta_h`, so the next reference-monitor patch can split operator-input drift from pure stencil/boundary error. Target-adjacent accepted-step state/history drift and longer recycling windows remain the main scientific offenders. | 81% | Add matching reference `Vh`/`eta_h` accepted-step payloads, then fix or further localize the neutral-mixed parallel-viscosity/boundary sequencing path under the matched-time accepted-step diagnostic before continuing the longer recycling-window ladder. |
-| JAX-native recycling solver | Fixed-layout residual, JVP checks, and fixed-BDF2 diagnostics are present and gated on lightweight fixtures; full output-window default promotion is not yet complete. | 55% | Full open-field recycling transient through the fixed-layout JAX residual, with parity, cProfile/RSS, and JAX trace evidence. |
+| CI/CD and docs release surface | Local release-surface and targeted shipping slices pass after public-path sanitization; hosted Actions are currently blocked before job startup by account billing/spending-limit status. | 80% | Billing restored, then green docs, test, and coverage on the latest `main` head. |
+| Meaningful promoted coverage | Local closeout and promoted-solver coverage gates meet the `95%` target on promoted surfaces. The June 5, 2026 promoted slice now includes fixed residual active-array `jit`/`jvp`/`vmap` gates and passes with `518` tests, while the bounded closeout slice remains at `97%`. | 92% | Keep the gates green after every solver/geometry promotion; avoid adding coverage-only smoke tests. |
+| Reference-backed parity | Many RHS, one-step, and campaign gates exist; neutral-mixed direct `SNVh_*` source formulas are now closed. The accepted-step reference-monitor patch now applies, builds, writes JSONL from a clean patched checkout, and passes the schema gate. Native traces now emit the same 10 state/RHS/source fields as the reference trace and can replay the reference adaptive accepted-step time grid; the latest local comparison matches `148/148` accepted points. With timestamp mismatch removed, `SNVh_parallel_viscosity` is the leading active/target offender, while large RHS/source guard deltas remain a diagnostic-boundary semantics issue. Native and reference trace docs now cover optional `Vh` and `eta_h`, and the comparator emits `parallel_viscosity_input_register` to split source-input drift from pure stencil/boundary error when those fields are present. Target-adjacent accepted-step state/history drift and longer recycling windows remain the main scientific offenders. | 82% | Rerun the patched reference monitor with `Vh`/`eta_h`, then fix or further localize the neutral-mixed parallel-viscosity/boundary sequencing path under the matched-time accepted-step diagnostic before continuing the longer recycling-window ladder. |
+| JAX-native recycling solver | Fixed-layout residual, JVP checks, and fixed-BDF2 diagnostics are present and gated on lightweight fixtures. The new opt-in `rhs_backend="active_array"` path routes BE, BDF2, and legacy BDF residual contexts through `build_fixed_array_rhs` and is parity-tested against the validated full-field RHS oracle on the D/T/He deck. Full output-window default promotion is not yet complete. | 58% | Full open-field recycling transient through the fixed-layout JAX residual, with parity, cProfile/RSS, and JAX trace evidence. |
 | Performance and scaling | Local CPU ensemble scaling and real fixed-layout JVP profiling exist; heavy default solver and GPU scaling remain incomplete. | 50% | Same-machine heavy recycling profiles after each solver switch and one GPU bundle on promoted kernels. |
 | 3D imported-field and VMEC-extender SOL | Import, selected-field, reduced FCI, and smoke campaign gates exist; full non-axisymmetric turbulence claims still require refinement and field-line/connection-length agreement. | 50% | VMEC/imported-field examples that run from a clean clone plus release-hosted data, with Poincare/connection-length/refinement gates and smooth non-axisymmetric movies. |
 | Code architecture split | Several recycling/runner helper modules have been extracted and tested, but `recycling_1d.py`, `neutral_mixed.py`, and `runner.py` remain too broad. | 60% | Behavior-preserving extraction into narrow recycling, neutral, and runner subpackages with direct tests. |
@@ -968,7 +970,9 @@ Deliverables:
 - keep the native accepted-step trace schema aligned with the reference JSONL:
   `Nh`, `Ph`, `NVh`, `ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, `SNVh`,
   `SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
-  `SNVh_perpendicular_viscosity`
+  `SNVh_perpendicular_viscosity`; use optional `Vh` and `eta_h` payloads plus
+  `parallel_viscosity_input_register` when diagnosing the remaining
+  parallel-viscosity source offender
 - maintain a single offender register sorted by case, field, component,
   absolute error, scaled error, native runtime, reference runtime, and memory
   proxy
@@ -1114,10 +1118,10 @@ Deliverables:
 
 - turn the fast research gate into a CI job when billing is available
 - keep `scripts/run_promoted_solver_coverage.py` as the promoted
-  solver/public-surface gate now that the April 30, 2026 local audit reaches
+  solver/public-surface gate now that the June 5, 2026 local audit reaches
   the required `95%` threshold
 - keep `scripts/run_closeout_coverage.py` as the bounded release-closeout gate;
-  the April 30, 2026 local audit reaches `96%`
+  the June 4, 2026 local audit reaches `97%`
 - add nightly/manual heavy reference reruns
 - add release smoke install from wheel
 - validate PyPI workflow on a test release before versioned public release

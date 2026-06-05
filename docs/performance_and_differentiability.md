@@ -52,6 +52,13 @@ and the retained batch sweep through 256 states reaches about `4.94x`
 residual throughput speedup and `3.11x` JVP throughput speedup over
 serial same-kernel calls.
 
+The same profile gate now accepts `--rhs-backend active_array`. That backend is
+not a new physics model; it is the opt-in migration seam that passes the
+validated full-field recycling RHS through `build_fixed_array_rhs`, preserving
+D/T/He backward-Euler and BDF2 residual parity while giving the next
+term-by-term sheath, collision, neutral-diffusion, and target-recycling ports a
+stable active-field surface.
+
 The source-term lane now also has a dedicated accelerator-throughput gate:
 `scripts/profile_atomic_rate_throughput_gate.py`. That gate evaluates a
 batched AMJUEL/CX reaction-source surface, its reverse-mode derivative, and a

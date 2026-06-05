@@ -753,6 +753,9 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         key=_accepted_trace_field_ranking_key,
         reverse=True,
     )
+    parallel_viscosity_input_register = (
+        _build_parallel_viscosity_input_register(field_errors)
+    )
     return {
         "diagnostic": "neutral_mixed_accepted_step_trace_parity",
         "requires_hermes": True,
@@ -766,6 +769,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
         "time_tolerance": float(time_tolerance),
         "fields": field_errors,
         "ranked_fields": ranked,
+        "parallel_viscosity_input_register": parallel_viscosity_input_register,
         "matched_points": matched_points,
         "interpretation": (
             "This accepted-internal-step parity report compares native and reference "
@@ -776,6 +780,99 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
             "guard metrics because their guard reconstruction is part of the boundary "
             "parity question; derivative and source fields are ranked by active and "
             "target-adjacent cells while still reporting guard deltas separately."
+        ),
+    }
+
+
+def _build_parallel_viscosity_input_register(
+    field_errors: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    """Rank neutral-viscosity source offenders against their operator inputs."""
+
+    entries: list[dict[str, object]] = []
+    for source_field in sorted(field_errors):
+        if not (
+            source_field.startswith("SNV")
+            and source_field.endswith("_parallel_viscosity")
+        ):
+            continue
+        section = source_field[len("SNV") : -len("_parallel_viscosity")]
+        velocity_field = f"V{section}"
+        viscosity_field = f"eta_{section}"
+        source_error = field_errors[source_field]
+        velocity_error = field_errors.get(velocity_field)
+        viscosity_error = field_errors.get(viscosity_field)
+        input_errors = [
+            error
+            for error in (velocity_error, viscosity_error)
+            if isinstance(error, dict)
+        ]
+        max_input_active_delta = max(
+            (float(error.get("max_active_delta", 0.0)) for error in input_errors),
+            default=0.0,
+        )
+        max_input_target_delta = max(
+            (
+                float(error.get("max_target_adjacent_delta", 0.0))
+                for error in input_errors
+            ),
+            default=0.0,
+        )
+        missing_inputs = [
+            name
+            for name, error in (
+                (velocity_field, velocity_error),
+                (viscosity_field, viscosity_error),
+            )
+            if error is None
+        ]
+        entries.append(
+            {
+                "source_field": source_field,
+                "section": section,
+                "source_max_active_delta": float(
+                    source_error.get("max_active_delta", 0.0)
+                ),
+                "source_max_target_adjacent_delta": float(
+                    source_error.get("max_target_adjacent_delta", 0.0)
+                ),
+                "velocity_field": velocity_field,
+                "velocity_error": velocity_error,
+                "viscosity_field": viscosity_field,
+                "viscosity_error": viscosity_error,
+                "missing_input_fields": missing_inputs,
+                "input_fields_present": not missing_inputs,
+                "max_input_active_delta": max_input_active_delta,
+                "max_input_target_adjacent_delta": max_input_target_delta,
+                "diagnosis": (
+                    "input_drift_check_available"
+                    if not missing_inputs
+                    else "reference_input_trace_missing"
+                ),
+            }
+        )
+    entries.sort(
+        key=lambda entry: (
+            float(entry["source_max_target_adjacent_delta"]),
+            float(entry["source_max_active_delta"]),
+        ),
+        reverse=True,
+    )
+    return {
+        "description": (
+            "Compares each accepted-step parallel-viscosity source offender "
+            "against the matched operator inputs V and eta. When both input "
+            "fields are present, a small input delta and large source delta "
+            "points at the stencil/boundary operator; a large input delta "
+            "points first at state/history or closure drift."
+        ),
+        "entries": entries,
+        "missing_reference_input_fields": sorted(
+            {
+                missing
+                for entry in entries
+                for missing in entry["missing_input_fields"]
+            }
         ),
     }
 

@@ -538,6 +538,7 @@ def test_recycling_batched_jvp_summary_records_pmap_sanity_metadata() -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
 
     assert payload["case"] == "recycling_batched_jvp_profile"
+    assert payload["rhs_backend"] == "fixed_full_field_array"
     assert payload["pmap_requested"] is False
     assert payload["pmap_enabled"] is False
     assert payload["pmap_sanity_passed"] is None
