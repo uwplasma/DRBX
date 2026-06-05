@@ -704,7 +704,11 @@ solves also expose opt-in Krylov controls through
 `JAX_DRB_RECYCLING_JAX_LINEAR_RESTART` and
 `JAX_DRB_RECYCLING_JAX_LINEAR_MAXITER`; these keep the default `20 x 20`
 GMRES-equivalent budget unchanged but allow bounded speed/accuracy sweeps on
-heavy multi-ion gates. These modes should be used only on gates where the
+heavy multi-ion gates. Profiling decks can also set
+`runtime:recycling_jax_linear_jit_residual=true` or
+`JAX_DRB_RECYCLING_JAX_LINEAR_JIT_RESIDUAL=1` to JIT-wrap the fixed-layout
+residual before the initial nonlinear check and `jax.linearize` call. These
+modes should be used only on gates where the
 residual has been proven JAX-transformable; the heavy SciPy BDF callback
 remains a host compatibility path. For the long SciPy BDF callback itself,
 `runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp` exercises
