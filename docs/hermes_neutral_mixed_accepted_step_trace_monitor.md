@@ -1,0 +1,116 @@
+# Neutral-Mixed Accepted-Step Reference Trace
+
+This note records the reference-side diagnostic needed to close the remaining
+neutral-mixed `NVh` accepted-step parity lane. It is not a JAXDRB production
+dependency; it is a reproducible audit hook for generating the JSONL consumed
+by:
+
+```bash
+PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
+  --reference-root /path/to/reference-root \
+  --hermes-binary /path/to/hermes-3 \
+  --workdir /tmp/ref_trace \
+  --trace-out /tmp/ref_trace/accepted_steps.jsonl \
+  --species h
+```
+
+The direct source-term patch in
+[hermes_neutral_mixed_pressure_gradient_diagnostic.patch](hermes_neutral_mixed_pressure_gradient_diagnostic.patch)
+must be present first, so the reference output can write
+`SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
+`SNVh_perpendicular_viscosity` in addition to `ddt(NVh)`.
+
+## Required Reference Changes
+
+1. In the CVODE accepted-step loop, refresh the state and RHS before timestep
+   monitors run. The target location is the `CV_ONE_STEP` branch in
+   `external/BOUT-dev/src/solver/impls/cvode/cvode.cxx`, near the existing
+   `call_timestep_monitors(internal_time, internal_time - last_time)` call.
+   The monitor should see the accepted state and the corresponding RHS, not the
+   previous output state.
+
+```cpp
+load_vars(N_VGetArrayPointer(uvec));
+run_rhs(internal_time);
+call_timestep_monitors(internal_time, internal_time - last_time);
+```
+
+2. Add a gated `timestepMonitor(BoutReal simtime, BoutReal dt)` implementation
+   in the reference application. The monitor should be enabled only when the
+   deck contains:
+
+```ini
+[solver]
+monitor_timestep = true
+
+[hermes]
+neutral_mixed_accepted_step_trace = true
+neutral_mixed_accepted_step_trace_file = /tmp/ref_trace/accepted_steps.jsonl
+neutral_mixed_accepted_step_trace_species = h
+```
+
+3. On rank zero, append one JSON object per accepted internal step. Each record
+   must contain `time`, `dt`, a monotone `step_index`, and a `stages`
+   dictionary with a `post_accepted` payload. The JAXDRB runner validates the
+   following field set before returning successfully:
+
+```text
+Nh
+Ph
+NVh
+ddt(Nh)
+ddt(Ph)
+ddt(NVh)
+SNVh
+SNVh_pressure_gradient
+SNVh_parallel_viscosity
+SNVh_perpendicular_viscosity
+```
+
+Each field payload should follow the same compact shape used by JAXDRB native
+accepted-step traces:
+
+```json
+{
+  "active_metrics": {"max_abs": 0.0, "rms": 0.0},
+  "target_adjacent_metrics": {"max_abs": 0.0, "rms": 0.0},
+  "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+  "sample_lineout_y_indices": [0, 1],
+  "sample_lineout": [0.0, 0.0]
+}
+```
+
+Use the same index convention as the JAXDRB comparator: active cells are
+`xstart:xend` and `ystart:yend`; target-adjacent y cells are `ystart`,
+`ystart + 1`, `yend - 1`, and `yend`; guard y cells are `ystart - 2`,
+`ystart - 1`, `yend + 1`, and `yend + 2`; the lineout uses the mid active x
+index and the mid local z index.
+
+## Validation Sequence
+
+After rebuilding the reference executable, generate and compare traces:
+
+```bash
+PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
+  --reference-root /path/to/reference-root \
+  --case-name neutral_mixed_one_step \
+  --internal-substeps 8 \
+  --json-out /tmp/native_trace.json
+
+PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
+  --reference-root /path/to/reference-root \
+  --hermes-binary /path/to/hermes-3 \
+  --workdir /tmp/ref_trace \
+  --trace-out /tmp/ref_trace/accepted_steps.jsonl \
+  --timeout-seconds 180 \
+  --species h
+
+PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
+  /tmp/native_trace.json \
+  /tmp/ref_trace/accepted_steps.jsonl \
+  --json-out /tmp/neutral_trace_parity.json \
+  --time-tolerance 1e-7
+```
+
+This diagnostic is the next required evidence before changing neutral-mixed
+boundary sequencing or the `NVh` pressure-gradient/viscosity implementation.

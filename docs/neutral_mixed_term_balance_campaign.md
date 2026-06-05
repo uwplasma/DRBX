@@ -150,6 +150,8 @@ schema before returning successfully: each accepted-step record must contain
 stage payloads. A reference binary that only writes aggregate final-state
 arrays therefore fails fast with a list of missing fields instead of producing
 an ambiguous accepted-step parity report.
+The exact reference-side monitor requirements are recorded in
+[hermes_neutral_mixed_accepted_step_trace_monitor.md](hermes_neutral_mixed_accepted_step_trace_monitor.md).
 
 Run the Hermès-free diagnostic with:
 
