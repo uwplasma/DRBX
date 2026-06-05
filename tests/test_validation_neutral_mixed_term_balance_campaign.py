@@ -539,6 +539,7 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert 'json_field_payload(get<Field3D>(species_state["momentum"]))' in text
     assert "json_field_payload(getNonFinal<Field3D>" in text
     assert "std::string json_optional_trace_field(" in text
+    assert '"Dnn" + species,' in text
     assert '"V" + species,' in text
     assert '"eta_" + species,' in text
     assert 'state[std::string("eta_") + name]' in text
@@ -1025,6 +1026,7 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         "Nh",
         "Ph",
         "NVh",
+        "Dnnh",
         "Vh",
         "eta_h",
         "ddt(Nh)",
@@ -1395,6 +1397,7 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
                     "Nh": field(0.0, 0.0),
                     "Ph": field(0.0, 0.0),
                     "NVh": field(0.0, 0.0),
+                    "Dnnh": field(0.0, 0.0),
                     "Vh": field(0.0, 0.0),
                     "eta_h": field(0.0, 0.0),
                 },
@@ -1413,6 +1416,7 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
                     "Nh": field(0.1, 0.4),
                     "Ph": field(0.2, 0.1),
                     "NVh": field(0.3, 0.3),
+                    "Dnnh": field(0.05, 0.15),
                     "Vh": field(0.25, 0.5),
                     "eta_h": field(0.1, 0.2),
                 }
@@ -1439,6 +1443,12 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert entry["source_field"] == "SNVh_parallel_viscosity"
     assert entry["input_fields_present"] is True
     assert entry["diagnosis"] == "input_drift_check_available"
+    assert entry["diffusion_field"] == "Dnnh"
+    assert entry["diffusion_error"]["max_target_adjacent_delta"] == pytest.approx(
+        0.15
+    )
+    assert entry["missing_closure_input_fields"] == []
+    assert entry["closure_input_fields_present"] is True
     assert entry["velocity_field"] == "Vh"
     assert entry["viscosity_field"] == "eta_h"
     assert entry["source_max_target_adjacent_delta"] == pytest.approx(5.0)
@@ -1453,6 +1463,7 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_viscosity_inputs(
     assert entry["viscosity_to_state_target_ratio"] == pytest.approx(0.5)
     assert entry["viscosity_to_state_active_ratio"] == pytest.approx(1.0 / 3.0)
     assert register["missing_reference_state_input_fields"] == []
+    assert register["missing_reference_closure_input_fields"] == []
 
 
 def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inputs(
@@ -1503,6 +1514,8 @@ def test_neutral_mixed_accepted_step_trace_parity_reports_missing_viscosity_inpu
     entry = register["entries"][0]
     assert entry["input_fields_present"] is False
     assert entry["missing_input_fields"] == ["Vh", "eta_h"]
+    assert entry["missing_closure_input_fields"] == ["Dnnh", "eta_h"]
+    assert entry["closure_input_fields_present"] is False
     assert entry["state_input_fields_present"] is False
     assert entry["missing_state_input_fields"] == ["Nh", "Ph", "NVh"]
     assert entry["dominant_state_input_field"] is None

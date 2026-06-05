@@ -900,10 +900,12 @@ def _build_parallel_viscosity_input_register(
         ):
             continue
         section = source_field[len("SNV") : -len("_parallel_viscosity")]
+        diffusion_field = f"Dnn{section}"
         velocity_field = f"V{section}"
         viscosity_field = f"eta_{section}"
         state_fields = (f"N{section}", f"P{section}", f"NV{section}")
         source_error = field_errors[source_field]
+        diffusion_error = field_errors.get(diffusion_field)
         velocity_error = field_errors.get(velocity_field)
         viscosity_error = field_errors.get(viscosity_field)
         state_errors = {
@@ -950,6 +952,14 @@ def _build_parallel_viscosity_input_register(
             )
             if error is None
         ]
+        missing_closure_inputs = [
+            name
+            for name, error in (
+                (diffusion_field, diffusion_error),
+                (viscosity_field, viscosity_error),
+            )
+            if error is None
+        ]
         missing_state_inputs = [
             name for name in state_fields if name not in state_errors
         ]
@@ -973,12 +983,16 @@ def _build_parallel_viscosity_input_register(
                 "source_max_target_adjacent_delta": float(
                     source_error.get("max_target_adjacent_delta", 0.0)
                 ),
+                "diffusion_field": diffusion_field,
+                "diffusion_error": diffusion_error,
                 "velocity_field": velocity_field,
                 "velocity_error": velocity_error,
                 "viscosity_field": viscosity_field,
                 "viscosity_error": viscosity_error,
                 "missing_input_fields": missing_inputs,
                 "input_fields_present": not missing_inputs,
+                "missing_closure_input_fields": missing_closure_inputs,
+                "closure_input_fields_present": not missing_closure_inputs,
                 "max_input_active_delta": max_input_active_delta,
                 "max_input_target_adjacent_delta": max_input_target_delta,
                 "state_input_fields": list(state_fields),
@@ -1026,6 +1040,13 @@ def _build_parallel_viscosity_input_register(
                 missing
                 for entry in entries
                 for missing in entry["missing_input_fields"]
+            }
+        ),
+        "missing_reference_closure_input_fields": sorted(
+            {
+                missing
+                for entry in entries
+                for missing in entry["missing_closure_input_fields"]
             }
         ),
         "missing_reference_state_input_fields": sorted(
@@ -1963,6 +1984,7 @@ def _native_accepted_step_rhs_field_payloads(
     )
     zeros = np.zeros_like(rhs.momentum, dtype=np.float64)
     fields = {
+        f"Dnn{section}": prepared.diffusion,
         f"V{section}": prepared.velocity,
         f"eta_{section}": prepared.viscosity,
         f"ddt(N{section})": rhs.density,

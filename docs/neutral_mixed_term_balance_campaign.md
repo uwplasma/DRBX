@@ -187,8 +187,8 @@ agree.
 The accepted-step comparator now also writes
 `parallel_viscosity_input_register`. For each `SNV*_parallel_viscosity`
 offender this register reports the matched `V*` and `eta_*` input-field
-errors, ranks the matched `N*`, `P*`, and `NV*` state-input errors, lists
-missing input fields, and labels the diagnostic as either
+errors, ranks the matched `Dnn*`, `N*`, `P*`, and `NV*` closure/state-input
+errors, lists missing input fields, and labels the diagnostic as either
 `input_drift_check_available` or `reference_input_trace_missing`. When the
 patched reference JSONL includes `Vh` and `eta_h`, a small input delta with a
 large `SNVh_parallel_viscosity` delta points at the
@@ -201,6 +201,9 @@ state-input drift, but the `eta_h` target-adjacent drift is about `99` times
 larger than the largest state-input drift. That amplification points at
 accepted-step closure or target-boundary sequencing rather than a directly
 state-sized density, pressure, or momentum mismatch.
+The next reference rerun should include the optional `Dnnh` trace field added
+to the monitor patch so that diffusion-coefficient drift and `Dnn_h N_h`
+product-boundary drift can be separated.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

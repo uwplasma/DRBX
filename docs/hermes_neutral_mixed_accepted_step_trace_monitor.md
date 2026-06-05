@@ -79,10 +79,10 @@ SNVh_perpendicular_viscosity
 ```
 
 When the reference `outputVars()` exposes them, the monitor also writes optional
-`Vh` and `eta_h` diagnostic-input fields. These extra fields are not part of
+`Dnnh`, `Vh`, and `eta_h` diagnostic-input fields. These extra fields are not part of
 the required reference schema, but they match the native accepted-step trace
 payloads added to split parallel-viscosity drift into input and stencil pieces.
-The patch reads `Vh` from the existing velocity diagnostic and exposes `eta_h`
+The patch reads `Dnnh` and `Vh` from existing diagnostics and exposes `eta_h`
 from the neutral viscosity field before the monitor checks for optional fields.
 
 Each field payload should follow the same compact shape used by JAXDRB native
@@ -114,7 +114,8 @@ reference checkout at commit `f7bab630`, built successfully with the local
 `hermes-3` target, and produced a valid `neutral_mixed_one_step` JSONL trace
 with `148` accepted CVODE records. The same clean auto-build path was rerun
 with the optional diagnostic-input fields enabled; the produced JSONL includes
-`Vh` and `eta_h` alongside the required state, RHS, and `SNVh_*` source fields.
+`Dnnh`, `Vh`, and `eta_h` alongside the required state, RHS, and `SNVh_*`
+source fields.
 Native accepted-step traces now emit the same 10 required fields as the
 reference trace and can replay the reference accepted time grid. A local
 matched-grid comparison now matches `148/148` accepted points. With the
@@ -127,17 +128,18 @@ step is therefore to fix or further localize neutral-viscosity closure
 preparation or target-boundary sequencing under the matched-time accepted-step
 diagnostic before changing broader BDF sequencing or the parallel-viscosity
 stencil.
-Native traces now also emit optional `Vh` and `eta_h` diagnostic-input fields.
+Native traces now also emit optional `Dnnh`, `Vh`, and `eta_h` diagnostic-input fields.
 The reference monitor patch now writes the same payloads when those diagnostics
 are exposed by `outputVars()`, so the remaining parallel-viscosity difference
-can be split into velocity/viscosity input drift and the
+can be split into diffusion, velocity, viscosity input drift and the
 `Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself. The comparator
 summarizes this split in `parallel_viscosity_input_register`: missing `Vh` or
-`eta_h` marks the trace as insufficient for source-input diagnosis, while
-present input fields quantify whether the leading `SNVh_parallel_viscosity`
-offender is driven by `Vh`/`eta_h` drift or by the parallel-diffusion stencil
-and boundary treatment. The same register now ranks `Nh`, `Ph`, and `NVh`
-state-input errors and reports `eta_h`/state amplification ratios. In the
+`eta_h` marks the trace as insufficient for direct source-input diagnosis, while
+missing `Dnnh` marks the trace as insufficient for closure-input diagnosis.
+Present input fields quantify whether the leading `SNVh_parallel_viscosity`
+offender is driven by `Dnnh`/`Vh`/`eta_h` drift or by the parallel-diffusion
+stencil and boundary treatment. The same register now ranks `Nh`, `Ph`, and
+`NVh` state-input errors and reports `eta_h`/state amplification ratios. In the
 current rerun, the register is available, points first at `eta_h` drift, and
 shows that `eta_h` target-adjacent drift is about `99` times larger than the
 largest state-input drift.

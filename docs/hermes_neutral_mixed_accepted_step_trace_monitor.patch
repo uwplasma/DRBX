@@ -16,7 +16,7 @@ index 0d07e095..dd3d40b5 100644
 +#include <string>
 +#include <vector>
 +
-@@ -170,0 +181,245 @@ private:
+@@ -170,0 +181,246 @@ private:
 +namespace {
 +using bout::globals::mesh;
 +
@@ -240,6 +240,7 @@ index 0d07e095..dd3d40b5 100644
 +      "SNV" + species + "_perpendicular_viscosity",
 +  };
 +  const std::vector<std::string> optional_input_fields = {
++      "Dnn" + species,
 +      "V" + species,
 +      "eta_" + species,
 +  };
