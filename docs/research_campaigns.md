@@ -196,6 +196,13 @@ embedded-error ratio at `0.715`. This is the first passing D/T/He sparse-JVP
 adaptive-BDF promotion-style gate, but it remains opt-in until longer
 output-window reference-parity and GPU/CPU scaling campaigns pass with the
 same component-wise norm.
+After sparse-JVP workspace threading, the same bounded gate still accepts the
+same eight steps and reports `adaptive_bdf_sparse_jvp_workspace_reuses=17`,
+one reuse for each trial solve. The local wall time is `29.5 s`, essentially
+unchanged from the previous `28.6 s` probe, which is the desired diagnostic
+separation: static sparse plan/direction allocation has been removed from the
+adaptive loop, but the runtime blocker remains grouped-JVP linearization and
+push during Jacobian assembly.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

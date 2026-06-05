@@ -603,6 +603,12 @@ def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
     assert component_floor_gate["unconverged_solver_steps"] == 0
     assert component_floor_gate["minimum_dt_fallbacks"] == 0
     assert component_floor_gate["max_accepted_error_ratio"] <= 0.95
+    workspace_gate = payload["sparse_jvp_workspace_reuse_gate"]
+    assert workspace_gate["adaptive_bdf_gate_errors"] == []
+    assert workspace_gate["accepted_steps"] == component_floor_gate["accepted_steps"]
+    assert workspace_gate["bdf2_accepted_steps"] == component_floor_gate["bdf2_accepted_steps"]
+    assert workspace_gate["sparse_jvp_workspace_reuses"] == workspace_gate["trial_solver_steps"]
+    assert workspace_gate["max_accepted_error_ratio"] <= 0.95
     assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
 
