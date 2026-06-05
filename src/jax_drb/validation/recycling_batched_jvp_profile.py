@@ -46,6 +46,24 @@ def _norm(value) -> float:
     return float(jnp.linalg.norm(jnp.ravel(value)))
 
 
+def _check_pmap_identity(jax, jnp, devices) -> tuple[bool, float | None, str | None]:
+    """Verify that the visible multi-device runtime preserves identity data."""
+
+    device_count = len(devices)
+    if device_count <= 1:
+        return False, None, "fewer than two visible JAX devices"
+    probe = jnp.arange(device_count * 8, dtype=jnp.float64).reshape((device_count, 8))
+    try:
+        identity = jax.pmap(lambda block: block, devices=devices)
+        mapped = identity(probe).block_until_ready()
+        max_abs_error = float(jnp.max(jnp.abs(mapped - probe)))
+    except Exception as exc:  # pragma: no cover - depends on optional multi-device runtimes
+        return False, None, f"pmap identity check raised {type(exc).__name__}: {exc}"
+    if max_abs_error > 1.0e-12:
+        return False, max_abs_error, f"pmap identity check failed with max_abs_error={max_abs_error:.3e}"
+    return True, max_abs_error, None
+
+
 def _deterministic_directions(batch_size: int, state_size: int, *, phase: float = 0.2):
     import jax.numpy as jnp
 
@@ -177,6 +195,12 @@ def profile_recycling_batched_jvp_problem(
 
     batch_results: list[dict[str, object]] = []
     devices = tuple(jax.local_devices())
+    pmap_sanity_passed = None
+    pmap_sanity_max_abs_error = None
+    pmap_skip_reason = None
+    if enable_pmap:
+        pmap_sanity_passed, pmap_sanity_max_abs_error, pmap_skip_reason = _check_pmap_identity(jax, jnp, devices)
+    pmap_enabled = bool(enable_pmap and pmap_sanity_passed)
     for batch_size in tuple(int(size) for size in batch_sizes):
         directions = _deterministic_directions(batch_size, problem.state_size)
         states = base_state[None, :] + float(perturbation_scale) * directions
@@ -218,7 +242,7 @@ def profile_recycling_batched_jvp_problem(
         pmap_device_count = 0
         pmap_batch_size = 0
         pmap_jvp_batched_max_abs_error = None
-        if enable_pmap and len(devices) > 1 and batch_size >= len(devices):
+        if pmap_enabled and len(devices) > 1 and batch_size >= len(devices):
             pmap_device_count = min(len(devices), batch_size)
             pmap_batch_size = (batch_size // pmap_device_count) * pmap_device_count
             if pmap_batch_size >= pmap_device_count:
@@ -276,6 +300,11 @@ def profile_recycling_batched_jvp_problem(
             {"id": int(device.id), "platform": str(device.platform), "kind": str(device.device_kind)}
             for device in devices
         ],
+        "pmap_requested": bool(enable_pmap),
+        "pmap_enabled": bool(pmap_enabled),
+        "pmap_sanity_passed": pmap_sanity_passed,
+        "pmap_sanity_max_abs_error": pmap_sanity_max_abs_error,
+        "pmap_skip_reason": pmap_skip_reason,
         "mesh_active_shape": list(problem.mesh_active_shape),
         "state_size": int(problem.state_size),
         "field_names": list(problem.field_names),
@@ -293,8 +322,9 @@ def profile_recycling_batched_jvp_problem(
         "batch_results": batch_results,
         "interpretation": (
             "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, "
-            "and optional pmap. It is the current differentiable residual-throughput lane; it does not promote "
-            "the full production BDF output-window solve as the default implicit backend."
+            "and optional pmap after a multi-device identity sanity check. It is the current differentiable "
+            "residual-throughput lane; it does not promote the full production BDF output-window solve as the "
+            "default implicit backend."
         ),
     }
 

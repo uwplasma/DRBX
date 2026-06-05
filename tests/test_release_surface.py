@@ -526,6 +526,30 @@ def test_atomic_rate_throughput_summaries_record_pmap_sanity_metadata() -> None:
             assert result["pmap_parity_passed"] is None
 
 
+def test_recycling_batched_jvp_summary_records_pmap_sanity_metadata() -> None:
+    path = (
+        REPO_ROOT
+        / "docs"
+        / "data"
+        / "runtime_profile_artifacts"
+        / "recycling_dthe_batched_jvp_gate_cpu"
+        / "profile_summary.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["case"] == "recycling_batched_jvp_profile"
+    assert payload["pmap_requested"] is False
+    assert payload["pmap_enabled"] is False
+    assert payload["pmap_sanity_passed"] is None
+    assert "pmap_skip_reason" in payload
+    assert payload["differentiability"]["jvp_fd_relative_error"] < 1.0e-8
+    for result in payload["batch_results"]:
+        assert result["residual_batched_serial_max_abs_error"] <= 1.0e-18
+        assert result["jvp_batched_serial_max_abs_error"] <= 1.0e-18
+        assert result["pmap_device_count"] == 0
+        assert result["pmap_jvp_seconds_median"] is None
+
+
 def test_committed_jax_linearized_cpu_profiles_report_solver_status() -> None:
     profile_paths = (
         REPO_ROOT

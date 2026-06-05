@@ -347,7 +347,7 @@
     "Pe"
   ],
   "input_path": "<input-path>/BOUT.inp",
-  "interpretation": "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, and optional pmap. It is the current differentiable residual-throughput lane; it does not promote the full production BDF output-window solve as the default implicit backend.",
+  "interpretation": "This gate measures the real fixed-layout D/T/He recycling residual under jit, vmap, jvp, grad, and optional pmap after a multi-device identity sanity check. It is the current differentiable residual-throughput lane; it does not promote the full production BDF output-window solve as the default implicit backend.",
   "mesh_active_shape": [
     1,
     100,
@@ -357,6 +357,11 @@
     "mesh:ny=100"
   ],
   "perturbation_scale": 1e-06,
+  "pmap_enabled": false,
+  "pmap_requested": false,
+  "pmap_sanity_max_abs_error": null,
+  "pmap_sanity_passed": null,
+  "pmap_skip_reason": null,
   "state_size": 1900,
   "timed_runs": 7,
   "timestep": 0.0001
