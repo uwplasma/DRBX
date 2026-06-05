@@ -23,11 +23,13 @@ the README/docs movies, figures, and user-facing self-contained example
 payloads. The expected release URLs are tracked in
 `docs/release_artifacts_manifest.json`.
 
-After this step, the user-facing examples and movies are self-contained: they
+After this step, the user-facing commands listed below are self-contained: they
 use JAXDRB source code plus release-backed arrays/media and do not require users
-to download external plasma codes. Live reference-code reruns remain available
-as developer validation campaigns, but they are not part of the normal examples
-workflow.
+to download external plasma codes. Some scripts under `examples/engineering/`
+and selected-field regeneration directories are developer/live-reference
+workflows; those scripts say so in their command-line help and require an
+explicit `--reference-root` or local geometry checkout when they are rerun from
+first principles.
 
 To exercise the main self-contained tutorial and movie surface from a fresh
 checkout, run:
@@ -49,7 +51,9 @@ PYTHONPATH=src python examples/geometry-3D/stellarator-fci/turbulent_profile_ana
 Imported external-geometry regeneration scripts are developer workflows. Their
 published arrays and movies are release-backed, but rerunning those adapters
 from coils or external field-line traces requires a local geometry checkout and
-is documented separately on the imported-geometry pages.
+is documented separately on the imported-geometry pages. Users who only want to
+run the README/docs stellarator examples should use the `stellarator-fci`
+commands above after `fetch_example_artifacts.py --skip-baselines`.
 
 | Example | What it teaches |
 | --- | --- |
@@ -98,7 +102,8 @@ The detailed guide is [Stellarator Examples](stellarator_examples.md).
 The entries in this section document developer regeneration of imported
 external-geometry artifacts. Users can inspect the published figures and movies
 after `fetch_example_artifacts.py`; rerunning the import adapters themselves
-requires the geometry source checkout named by the page.
+requires the geometry source checkout named by the page. These are not required
+for the self-contained quick-start examples.
 
 | Example | What it teaches |
 | --- | --- |
@@ -142,3 +147,10 @@ regenerate publication-grade validation packages:
 | Control and detachment | [Controller Feedback](controller_feedback_campaign.md), [Temperature Feedback](temperature_feedback_campaign.md), [Detachment Controller](detachment_controller_campaign.md) |
 
 All validation figures are collected in [Validation Gallery](validation_gallery.md).
+
+Reference-comparison and live-rerun commands are intentionally separated from
+the user examples. They are used to refresh baselines, parity reports, and
+publication-grade validation figures, and they can require heavier local
+reference data or a local reference checkout. The release-backed baseline
+bundles let users and CI run cached validation checks without those live
+dependencies.

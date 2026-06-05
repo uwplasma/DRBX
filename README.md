@@ -65,11 +65,11 @@ with access to `uwplasma/jax_drb`, then run the same fetch command. The command
 restores release-backed docs media under `docs/data/` and heavy validation
 baselines under `references/baselines/`.
 
-After that, users can run the example scripts and inspect the generated or
-restored PNG/GIF/NPZ outputs. Users do not need to install or download any
-external plasma code to run the examples and movies in this repository. Live
-reference-code reruns are developer validation tasks only; the user-facing
-examples use JAXDRB code plus release-backed artifacts.
+After that, users can run the documented user-facing examples and inspect the
+generated or restored PNG/GIF/NPZ outputs. Users do not need to install or
+download any external plasma code to run those examples or the README/docs
+movies. Live reference-code reruns are developer validation tasks only; the
+user-facing examples use JAXDRB code plus release-backed artifacts.
 
 ## Quick Start
 

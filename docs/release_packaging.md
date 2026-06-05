@@ -100,10 +100,12 @@ The PyPI publish workflow:
 3. publishes them to PyPI through OIDC with `id-token: write`,
 4. uses the `pypi` GitHub environment for the publish job.
 
-Publishing is triggered by a published GitHub release or by manual
-`workflow_dispatch`. It is intentionally not triggered directly by tag pushes,
-so creating a version tag and then publishing its GitHub release cannot submit
-the same distribution to PyPI twice.
+Publishing is triggered by manual `workflow_dispatch` or by publishing a
+GitHub release whose tag starts with `v`. It is intentionally not triggered
+directly by tag pushes, so creating a version tag and then publishing its
+GitHub release cannot submit the same distribution to PyPI twice. Artifact-only
+releases, such as validation media refreshes, should use non-version tags and
+are ignored by the PyPI jobs.
 
 ## Coverage And Validation Lanes
 
@@ -162,6 +164,10 @@ pytest -q tests/test_release_surface.py
 python scripts/fetch_example_artifacts.py --skip-baselines
 pytest -q tests/test_runtime_artifacts.py
 ```
+
+Use a version tag such as `v1.0.3` only for package releases. Use an artifact
+tag such as `validation-artifacts-YYYY-MM-DD` for docs-media or baseline
+refreshes so the publish workflow remains skipped.
 
 6. dispatch the bounded research campaign workflows that are expected for the
    release candidate, then wait for GitHub `test`, `docs`, and `coverage` to
