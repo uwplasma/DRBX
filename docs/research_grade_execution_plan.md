@@ -59,6 +59,25 @@ PYTHONPATH=src mkdocs build --strict --clean
 The active plan is this file. `plan_jax_drb.md` is an older VMEC-extender
 handoff retained for traceability and should not be treated as the release plan.
 
+## Current Completion Snapshot
+
+This snapshot is an execution aid, not a substitute for the exit criteria
+below. Percentages are approximate and evidence-based: a lane moves only when
+there is code, a reproducible command, a test or campaign artifact, and
+documentation matching the claim.
+
+| Lane | Status | Completion | Next blocking evidence |
+| --- | --- | ---: | --- |
+| CI/CD and docs release surface | Local release-surface and targeted shipping slices pass after public-path sanitization; latest pushed CI must still be watched to completion. | 85% | Green docs, test, and coverage on the latest `main` head. |
+| Meaningful promoted coverage | Local closeout and promoted-solver coverage gates meet the `95%` target on promoted surfaces. | 90% | Keep the gates green after every solver/geometry promotion; avoid adding coverage-only smoke tests. |
+| Reference-backed parity | Many RHS, one-step, and campaign gates exist, but neutral-mixed `NVh` and longer recycling windows remain the main scientific offenders. | 65% | Direct pressure-gradient/parallel-viscosity/perpendicular-viscosity term outputs from a clean reference rerun and a native/reference term-lineout gate. |
+| JAX-native recycling solver | Fixed-layout residual, JVP checks, and fixed-BDF2 diagnostics are present and gated on lightweight fixtures; full output-window default promotion is not yet complete. | 55% | Full open-field recycling transient through the fixed-layout JAX residual, with parity, cProfile/RSS, and JAX trace evidence. |
+| Performance and scaling | Local CPU ensemble scaling and real fixed-layout JVP profiling exist; heavy default solver and GPU scaling remain incomplete. | 50% | Same-machine heavy recycling profiles after each solver switch and one GPU bundle on promoted kernels. |
+| 3D imported-field and VMEC-extender SOL | Import, selected-field, reduced FCI, and smoke campaign gates exist; full non-axisymmetric turbulence claims still require refinement and field-line/connection-length agreement. | 50% | VMEC/imported-field examples that run from a clean clone plus release-hosted data, with Poincare/connection-length/refinement gates and smooth non-axisymmetric movies. |
+| Code architecture split | Several recycling/runner helper modules have been extracted and tested, but `recycling_1d.py`, `neutral_mixed.py`, and `runner.py` remain too broad. | 60% | Behavior-preserving extraction into narrow recycling, neutral, and runner subpackages with direct tests. |
+| Documentation and examples | ReadTheDocs and equation/code/validation docs exist; examples need to stay synchronized with every promoted artifact and geometry lane. | 75% | One clean-clone tokamak and one clean-clone stellarator tutorial that regenerate the advertised plots/movies without private reference checkouts. |
+| Repository footprint | Large history/media were pruned earlier and release-hosted media are used for docs; footprint must be re-audited before tagging. | 80% | Final `.git` pack-size and tracked-large-file audit before release. |
+
 ## External Literature And Code Baseline
 
 The validation and engineering standard should be set by the major edge/SOL
