@@ -918,6 +918,15 @@ def _build_parallel_viscosity_input_register(
             for error in (velocity_error, viscosity_error)
             if isinstance(error, dict)
         ]
+        closure_input_errors = {
+            name: error
+            for name, error in (
+                (diffusion_field, diffusion_error),
+                (velocity_field, velocity_error),
+                (viscosity_field, viscosity_error),
+            )
+            if isinstance(error, dict)
+        }
         state_input_errors = list(state_errors.values())
         max_input_active_delta = max(
             (float(error.get("max_active_delta", 0.0)) for error in input_errors),
@@ -927,6 +936,20 @@ def _build_parallel_viscosity_input_register(
             (
                 float(error.get("max_target_adjacent_delta", 0.0))
                 for error in input_errors
+            ),
+            default=0.0,
+        )
+        max_closure_input_active_delta = max(
+            (
+                float(error.get("max_active_delta", 0.0))
+                for error in closure_input_errors.values()
+            ),
+            default=0.0,
+        )
+        max_closure_input_target_delta = max(
+            (
+                float(error.get("max_target_adjacent_delta", 0.0))
+                for error in closure_input_errors.values()
             ),
             default=0.0,
         )
@@ -973,6 +996,16 @@ def _build_parallel_viscosity_input_register(
             if isinstance(viscosity_error, dict)
             else 0.0
         )
+        diffusion_target_delta = (
+            float(diffusion_error.get("max_target_adjacent_delta", 0.0))
+            if isinstance(diffusion_error, dict)
+            else 0.0
+        )
+        diffusion_active_delta = (
+            float(diffusion_error.get("max_active_delta", 0.0))
+            if isinstance(diffusion_error, dict)
+            else 0.0
+        )
         entries.append(
             {
                 "source_field": source_field,
@@ -995,6 +1028,12 @@ def _build_parallel_viscosity_input_register(
                 "closure_input_fields_present": not missing_closure_inputs,
                 "max_input_active_delta": max_input_active_delta,
                 "max_input_target_adjacent_delta": max_input_target_delta,
+                "closure_input_errors": closure_input_errors,
+                "dominant_closure_input_field": _dominant_trace_error_field(
+                    closure_input_errors
+                ),
+                "max_closure_input_active_delta": max_closure_input_active_delta,
+                "max_closure_input_target_adjacent_delta": max_closure_input_target_delta,
                 "state_input_fields": list(state_fields),
                 "state_input_errors": state_errors,
                 "missing_state_input_fields": missing_state_inputs,
@@ -1009,6 +1048,12 @@ def _build_parallel_viscosity_input_register(
                 ),
                 "viscosity_to_state_active_ratio": _safe_ratio(
                     viscosity_active_delta, max_state_input_active_delta
+                ),
+                "diffusion_to_state_target_ratio": _safe_ratio(
+                    diffusion_target_delta, max_state_input_target_delta
+                ),
+                "diffusion_to_state_active_ratio": _safe_ratio(
+                    diffusion_active_delta, max_state_input_active_delta
                 ),
                 "diagnosis": (
                     "input_drift_check_available"
@@ -1027,12 +1072,13 @@ def _build_parallel_viscosity_input_register(
     return {
         "description": (
             "Compares each accepted-step parallel-viscosity source offender "
-            "against the matched operator inputs V and eta. When both input "
-            "fields are present, a small input delta and large source delta "
-            "points at the stencil/boundary operator; a large input delta "
-            "points first at state/history or closure drift. State-field "
-            "ratios quantify whether eta drift is directly state-sized or "
-            "amplified by accepted-step closure or boundary sequencing."
+            "against the matched operator inputs V and eta plus the closure "
+            "inputs Dnn, V, and eta. When direct inputs are present, a small "
+            "input delta and large source delta points at the stencil/boundary "
+            "operator; a large closure-input delta points first at state/history "
+            "or closure drift. State-field ratios quantify whether Dnn or eta "
+            "drift is directly state-sized or amplified by accepted-step closure "
+            "or boundary sequencing."
         ),
         "entries": entries,
         "missing_reference_input_fields": sorted(

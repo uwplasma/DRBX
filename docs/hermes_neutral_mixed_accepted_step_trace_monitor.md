@@ -140,7 +140,8 @@ missing `Dnnh` marks the trace as insufficient for closure-input diagnosis.
 Present input fields quantify whether the leading `SNVh_parallel_viscosity`
 offender is driven by `Dnnh`/`Vh`/`eta_h` drift or by the parallel-diffusion
 stencil and boundary treatment. The same register now ranks `Nh`, `Ph`, and
-`NVh` state-input errors and reports `eta_h`/state amplification ratios. In the
+`NVh` state-input errors, ranks the `Dnnh`/`Vh`/`eta_h` closure-input fields,
+and reports both `Dnnh`/state and `eta_h`/state amplification ratios. In the
 current rerun, the register is available and points first at `Dnnh` drift:
 `Dnnh` has a target-adjacent maximum drift of about `4.46e-3`, larger than the
 `eta_h` drift of about `3.23e-3`, while `eta_h` remains about `99` times larger

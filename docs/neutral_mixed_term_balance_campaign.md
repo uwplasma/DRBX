@@ -188,13 +188,16 @@ agree.
 The accepted-step comparator now also writes
 `parallel_viscosity_input_register`. For each `SNV*_parallel_viscosity`
 offender this register reports the matched `V*` and `eta_*` input-field
-errors, ranks the matched `Dnn*`, `N*`, `P*`, and `NV*` closure/state-input
-errors, lists missing input fields, and labels the diagnostic as either
-`input_drift_check_available` or `reference_input_trace_missing`. When the
-patched reference JSONL includes `Dnnh`, `Vh`, and `eta_h`, a small input delta
-with a large `SNVh_parallel_viscosity` delta points at the
+errors, ranks the matched `Dnn*`, `V*`, and `eta_*` closure inputs separately
+from the `N*`, `P*`, and `NV*` state inputs, lists missing input fields, and
+labels the diagnostic as either `input_drift_check_available` or
+`reference_input_trace_missing`. When the patched reference JSONL includes
+`Dnnh`, `Vh`, and `eta_h`, a small input delta with a large
+`SNVh_parallel_viscosity` delta points at the
 `Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil or boundary semantics. The
-current rerun instead reports a larger `Dnnh` input delta, so the immediate
+current rerun instead reports a larger `Dnnh` closure-input delta. The JSON
+now makes that explicit through `dominant_closure_input_field`,
+`max_closure_input_*_delta`, and `diffusion_to_state_*_ratio`, so the immediate
 owner is accepted-step neutral diffusion-coefficient preparation,
 state/history sequencing, or target-boundary reconstruction before the
 viscosity stencil is changed.
