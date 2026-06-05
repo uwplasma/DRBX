@@ -1,34 +1,46 @@
 diff --git a/include/neutral_mixed.hxx b/include/neutral_mixed.hxx
+index ca4f8b7c..098eac29 100644
 --- a/include/neutral_mixed.hxx
 +++ b/include/neutral_mixed.hxx
-@@
+@@ -76,6 +76,9 @@ private:
    Field3D density_source, pressure_source, momentum_source; ///< External input source
    Field3D Sn, Sp, Snv; ///< Particle, pressure and momentum source
    Field3D sound_speed; ///< Sound speed for use with Lax flux
 +  Field3D momentum_pressure_gradient_source; ///< -Grad_par(Pn) momentum source diagnostic
 +  Field3D momentum_parallel_viscosity_source; ///< Parallel viscosity momentum source diagnostic
 +  Field3D momentum_perpendicular_viscosity_source; ///< Perpendicular viscosity momentum source diagnostic
+ 
    bool output_ddt; ///< Save time derivatives?
+   bool diagnose;   ///< Save additional diagnostics?
 diff --git a/src/neutral_mixed.cxx b/src/neutral_mixed.cxx
+index 6f632c8f..55397c8f 100644
 --- a/src/neutral_mixed.cxx
 +++ b/src/neutral_mixed.cxx
-@@
+@@ -564,11 +564,12 @@ void NeutralMixed::finally(const Options& state) {
      // Neutral momentum
      TRACE("Neutral momentum");
+ 
 +    momentum_pressure_gradient_source = -Grad_par(Pn);
      ddt(NVn) = -AA
                     * FV::Div_par_fvv<ParLimiter>( // Momentum flow
                         Nnlim, Vn, sound_speed)
+ 
 -               - Grad_par(Pn); // Pressure gradient
 +               + momentum_pressure_gradient_source; // Pressure gradient
-@@
+ 
+     // Perpendicular advection of momentum
+     if (nonorthogonal_operators) {
+@@ -588,19 +589,21 @@ void NeutralMixed::finally(const Options& state) {
+       // Transport Processes in Gases", 1972
+       // eta_n = (2. / 5) * kappa_n;
+ 
 -      Field3D viscosity_source = Div_par_K_Grad_par_mod( // Parallel viscosity
 +      momentum_parallel_viscosity_source = Div_par_K_Grad_par_mod( // Parallel viscosity
            eta_n, Vn, mf_visc_par_ylow,
            false) // No viscosity through target boundary
            ;
 +      Field3D viscosity_source = momentum_parallel_viscosity_source;
-
+ 
        // Perpendicular viscosity
        if (nonorthogonal_operators) {
 -        viscosity_source +=
@@ -40,14 +52,10 @@ diff --git a/src/neutral_mixed.cxx b/src/neutral_mixed.cxx
              Div_a_Grad_perp_flows(eta_n, Vn, mf_visc_perp_xlow, mf_visc_perp_ylow);
        }
 +      viscosity_source += momentum_perpendicular_viscosity_source;
-
+ 
        ddt(NVn) += viscosity_source;
        ddt(Pn) += -(2. / 3) * Vn * viscosity_source;
-@@
-     set_with_attrs(state[std::string("SNV") + name], Snv,
-                    {{"time_dimension", "t"},
-                     {"units", "kg m^-2 s^-2"},
-                     {"conversion", SI::Mp * Nnorm * Cs0 * Omega_ci},
+@@ -771,6 +774,42 @@ void NeutralMixed::outputVars(Options& state) {
                      {"standard_name", "momentum source"},
                      {"long_name", name + " momentum source"},
                      {"source", "neutral_mixed"}});
