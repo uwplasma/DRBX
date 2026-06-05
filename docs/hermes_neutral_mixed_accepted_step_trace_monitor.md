@@ -25,7 +25,9 @@ The accepted-step monitor itself is captured as a reproducible patch artifact:
 Apply it to a clean, disposable reference-code checkout rather than to a
 working tree with unrelated local edits. The patch has two responsibilities:
 refreshing the CVODE accepted-step state and RHS before timestep monitors run,
-and adding a gated JSONL monitor in the reference application.
+and adding a gated JSONL monitor in the reference application. The monitor
+registers its three input options during initialization so BOUT++ input
+validation does not reject trace-enabled decks before the first accepted step.
 Both reference patches are line-numbered `git apply` patches. Apply the direct
 source-term diagnostic patch first, then the accepted-step monitor patch.
 
@@ -93,7 +95,27 @@ Use the same index convention as the JAXDRB comparator: active cells are
 `xstart:xend` and `ystart:yend`; target-adjacent y cells are `ystart`,
 `ystart + 1`, `yend - 1`, and `yend`; guard y cells are `ystart - 2`,
 `ystart - 1`, `yend + 1`, and `yend + 2`; the lineout uses the mid active x
-index and the mid local z index.
+index, the mid local z index, and the sorted union of target-adjacent and guard
+y indices. `Nh`, `Ph`, and `NVh` should be read from the live species state at
+the accepted internal step; `ddt(*)` and `SNVh_*` should be read from the
+diagnostic output state after `output_ddt=true` and `diagnose=true`.
+
+## Current Evidence
+
+On June 5, 2026, the two reference patches were applied to a clean disposable
+reference checkout at commit `f7bab630`, built successfully with the local
+`hermes-3` target, and produced a valid `neutral_mixed_one_step` JSONL trace
+with `148` accepted CVODE records. Native accepted-step traces now emit the
+same 10 fields as the reference trace. Comparing against the current native
+fixed-substep trace matches only the near-zero accepted step because the native
+diagnostic grid is not yet the reference CVODE accepted-step grid. At that
+matched point, state target/guard deltas are `3.97e-7` for `Nh`, `3.97e-8` for
+`Ph`, and `1.15e-13` for `NVh`; active-domain RHS/source deltas are
+`1.15e-7` for `ddt(Nh)`, `1.91e-8` for `ddt(Ph)`, and `1.08e-9` for
+`ddt(NVh)` and `SNVh_pressure_gradient`. RHS/source guard metrics are still
+large, so the next implementation step is to compare on the reference
+accepted-step time grid and align the guard-cell semantics of RHS/source
+diagnostics before changing boundary or BDF sequencing.
 
 ## Validation Sequence
 

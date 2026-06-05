@@ -414,12 +414,26 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
     assert "int timestepMonitor(BoutReal simtime, BoutReal dt) override;" in text
     assert "Hermes::timestepMonitor(BoutReal simtime, BoutReal dt)" in text
     assert "neutral_mixed_accepted_step_trace" in text
+    assert 'options["neutral_mixed_accepted_step_trace"].setConditionallyUsed();' in text
+    assert (
+        'options["neutral_mixed_accepted_step_trace_file"].setConditionallyUsed();'
+        in text
+    )
+    assert (
+        'options["neutral_mixed_accepted_step_trace_species"].setConditionallyUsed();'
+        in text
+    )
+    assert 'auto& species_state = state["species"][species];' in text
+    assert "std::vector<int> sample_y_indices()" in text
     assert '\\"stages\\":{\\"post_accepted\\"' in text
+    assert 'json_field_payload(get<Field3D>(species_state["density"]))' in text
+    assert 'json_field_payload(get<Field3D>(species_state["pressure"]))' in text
+    assert 'json_field_payload(get<Field3D>(species_state["momentum"]))' in text
     assert "json_field_payload(getNonFinal<Field3D>" in text
+    assert '      "N" + species,' not in text
+    assert '      "P" + species,' not in text
+    assert '      "NV" + species,' not in text
     for field_name in (
-        "N\" + species",
-        "P\" + species",
-        "NV\" + species",
         "ddt(N\" + species + \")",
         "ddt(P\" + species + \")",
         "ddt(NV\" + species + \")",
@@ -670,6 +684,18 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
     assert report["trace_points"][2]["fields"]["Nh"]["sample_lineout"] == pytest.approx(
         [1.0] * 8
     )
+    assert set(report["trace_points"][0]["fields"]) == {
+        "Nh",
+        "Ph",
+        "NVh",
+        "ddt(Nh)",
+        "ddt(Ph)",
+        "ddt(NVh)",
+        "SNVh",
+        "SNVh_pressure_gradient",
+        "SNVh_parallel_viscosity",
+        "SNVh_perpendicular_viscosity",
+    }
 
     path = write_neutral_mixed_native_accepted_step_trace_json(
         report, tmp_path / "native_trace.json"

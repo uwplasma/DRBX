@@ -669,6 +669,7 @@ def build_neutral_mixed_native_accepted_step_trace_report(
     )
     return _native_accepted_step_trace_report_from_history(
         history,
+        config=config,
         input_path=input_path,
         case_name=case_name,
         section=section,
@@ -676,6 +677,9 @@ def build_neutral_mixed_native_accepted_step_trace_report(
         internal_substeps=int(internal_substeps),
         steps=int(steps),
         mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
     )
 
 
@@ -1420,6 +1424,7 @@ def _active_edge_history_trace(
 def _native_accepted_step_trace_report_from_history(
     history,
     *,
+    config,
     input_path: Path,
     case_name: str,
     section: str,
@@ -1427,6 +1432,9 @@ def _native_accepted_step_trace_report_from_history(
     internal_substeps: int,
     steps: int,
     mesh,
+    metrics,
+    meters_scale: float,
+    tnorm: float,
 ) -> dict[str, object]:
     time_points = history.accepted_step_time_points
     accepted_dt = history.accepted_step_dt
@@ -1471,6 +1479,41 @@ def _native_accepted_step_trace_report_from_history(
     line_z = int(mesh.nz // 2)
     trace_points: list[dict[str, object]] = []
     for index, time_value in enumerate(time_points):
+        accepted_state = NeutralMixedState(
+            density=np.asarray(density[index], dtype=np.float64),
+            pressure=np.asarray(pressure[index], dtype=np.float64),
+            momentum=np.asarray(momentum[index], dtype=np.float64),
+        )
+        rhs_payloads = _native_accepted_step_rhs_field_payloads(
+            config,
+            accepted_state,
+            section=section,
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=meters_scale,
+            tnorm=tnorm,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            guard_y_indices=guard_y_indices,
+            sample_y_indices=sample_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        state_payloads = {
+            name: _native_accepted_step_field_payload(
+                values[index],
+                active_x=active_x,
+                active_y=active_y,
+                target_y_indices=target_y_indices,
+                guard_y_indices=guard_y_indices,
+                sample_y_indices=sample_y_indices,
+                line_x=line_x,
+                line_z=line_z,
+            )
+            for name, values in field_histories.items()
+        }
+        state_payloads.update(rhs_payloads)
         trace_points.append(
             {
                 "index": int(index),
@@ -1480,19 +1523,7 @@ def _native_accepted_step_trace_report_from_history(
                 "stage": "post_accepted",
                 "residual_inf_norm": float(residual_norm[index]),
                 "nonlinear_iterations": int(nonlinear_iterations[index]),
-                "fields": {
-                    name: _native_accepted_step_field_payload(
-                        values[index],
-                        active_x=active_x,
-                        active_y=active_y,
-                        target_y_indices=target_y_indices,
-                        guard_y_indices=guard_y_indices,
-                        sample_y_indices=sample_y_indices,
-                        line_x=line_x,
-                        line_z=line_z,
-                    )
-                    for name, values in field_histories.items()
-                },
+                "fields": state_payloads,
             }
         )
     return {
@@ -1568,6 +1599,63 @@ def _native_accepted_step_field_payload(
         "sample_lineout": array[line_x, sample_y_indices, line_z].tolist()
         if sample_y_indices
         else [],
+    }
+
+
+def _native_accepted_step_rhs_field_payloads(
+    config,
+    state: NeutralMixedState,
+    *,
+    section: str,
+    mesh,
+    metrics,
+    meters_scale: float,
+    tnorm: float,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    guard_y_indices: tuple[int, ...],
+    sample_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    rhs = compute_neutral_mixed_rhs(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=meters_scale,
+        tnorm=tnorm,
+    )
+    zeros = np.zeros_like(rhs.momentum, dtype=np.float64)
+    fields = {
+        f"ddt(N{section})": rhs.density,
+        f"ddt(P{section})": rhs.pressure,
+        f"ddt(NV{section})": rhs.momentum,
+        f"SNV{section}": rhs.momentum_terms.get("momentum_source", zeros),
+        f"SNV{section}_pressure_gradient": rhs.momentum_terms.get(
+            "pressure_gradient", zeros
+        ),
+        f"SNV{section}_parallel_viscosity": rhs.momentum_terms.get(
+            "parallel_viscosity", zeros
+        ),
+        f"SNV{section}_perpendicular_viscosity": rhs.momentum_terms.get(
+            "perpendicular_viscosity", zeros
+        ),
+    }
+    return {
+        name: _native_accepted_step_field_payload(
+            values,
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            guard_y_indices=guard_y_indices,
+            sample_y_indices=sample_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        for name, values in fields.items()
     }
 
 

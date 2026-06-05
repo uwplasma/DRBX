@@ -139,9 +139,18 @@ PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces \
 
 The reference JSONL should include post-boundary/pre-RHS samples, `ddt(Nh)`,
 `ddt(Ph)`, `ddt(NVh)`, and the existing direct `SNVh_*` source diagnostics.
-That is the missing information needed to distinguish time-integrator history
-drift from guard/boundary sequencing differences; the current JAXDRB-side
-artifacts alone do not isolate a unique safe native patch.
+That information distinguishes time-integrator history drift from
+guard/boundary sequencing differences; JAXDRB-side final-state artifacts alone
+do not isolate a unique safe native patch. The current reference-side monitor
+has been built and run on a clean disposable checkout and writes valid JSONL.
+The native accepted-step trace now writes the same state, RHS, and source field
+set. The remaining accepted-step gap is no longer missing fields; it is to
+compare on the reference CVODE accepted-step time grid and align the guard-cell
+semantics of RHS/source diagnostics before changing target-boundary or BDF
+sequencing. The latest matched near-zero accepted step has small active-domain
+term deltas but large RHS/source guard deltas, which points to diagnostic
+guard handling rather than active-domain pressure-gradient or viscosity
+formulas.
 The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
 schema before returning successfully: each accepted-step record must contain
 `Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain
