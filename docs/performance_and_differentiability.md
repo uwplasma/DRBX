@@ -350,11 +350,17 @@ unless `JAX_DRB_REFERENCE_ROOT` or `--reference-root` points to a live reference
 checkout. Add `--output-dir docs/data/runtime_profile_artifacts/<new-run>` for
 release or paper audits; the wrapper writes one JSON report per case plus an
 aggregate `summary.json` with commands, thresholds, return codes, timings,
-diagnostics, and pairwise deltas. The hydrogen gate passes with worst active-mesh BDF-vs-fixed-JVP
-delta `7.59e-6` under the `1e-5` threshold; the D/T/He gate passes with worst
-delta `2.20e-7` under the `2e-5` threshold. Both gates also require
-`bdf_rhs_backend="fixed_full_field_array"`, `bdf_jacobian_mode="jvp"`, and zero
-finite-difference base-RHS Jacobian calls. The same measurements explain why
+diagnostics, and pairwise deltas. The hydrogen gate passes with worst
+active-mesh BDF-vs-fixed-JVP delta `7.59e-6` under the `1e-5` threshold; the
+D/T/He gate passes with worst delta `2.20e-7` under the `2e-5` threshold. Both
+gates also require `bdf_rhs_backend="fixed_full_field_array"`,
+`bdf_jacobian_mode="jvp"`, and zero finite-difference base-RHS Jacobian calls.
+The wrapper now also runs the non-SciPy `fixed_bdf2_jax_linearized`
+output-window lane and requires `fixed_bdf2_fixed_full_field_rhs_steps > 0`,
+`fixed_bdf2_jax_linearized_action_steps > 0`,
+`fixed_bdf2_evolve_feedback_integrals=true`, and a finite residual norm. This
+keeps the full-output JAX-linearized path under the same reproducible gate as
+the SciPy-BDF JVP bridge. The same measurements explain why
 the route remains opt-in. A refreshed local run after prebuilding sparse-JVP
 direction batches removed tangent construction from the callback
 (`bdf_jvp_jacobian_tangent_build_seconds=0` and
