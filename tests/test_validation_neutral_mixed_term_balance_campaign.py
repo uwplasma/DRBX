@@ -940,13 +940,16 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
 def test_neutral_mixed_accepted_step_trace_parity_ranks_rhs_by_active_target(
     tmp_path: Path,
 ) -> None:
-    def field(active: float, target: float, guard: float) -> dict[str, object]:
+    def field(
+        active: float, target: float, guard: float, sample: float | None = None
+    ) -> dict[str, object]:
+        sample_value = target if sample is None else sample
         return {
             "active_metrics": {"max_abs": active, "rms": active},
             "target_adjacent_metrics": {"max_abs": target, "rms": target},
             "guard_metrics": {"max_abs": guard, "rms": guard},
             "sample_lineout_y_indices": [0],
-            "sample_lineout": [target],
+            "sample_lineout": [sample_value],
         }
 
     native_trace = {
@@ -960,27 +963,55 @@ def test_neutral_mixed_accepted_step_trace_parity_ranks_rhs_by_active_target(
                 "stage": "post_accepted",
                 "fields": {
                     "NVh": field(0.0, 0.0, 0.0),
-                    "ddt(NVh)": field(0.0, 0.0, 1000.0),
+                    "ddt(NVh)": field(0.0, 0.0, 1000.0, sample=1000.0),
+                },
+            },
+            {
+                "index": 1,
+                "time": 1.0,
+                "dt": 1.0,
+                "solver_order": 1,
+                "stage": "post_accepted",
+                "fields": {
+                    "NVh": field(0.0, 0.0, 0.0),
+                    "ddt(NVh)": field(0.0, 0.0, 0.0),
                 },
             }
         ],
     }
-    reference_record = {
-        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
-        "step_index": 0,
-        "time": 0.0,
-        "dt": 0.0,
-        "stages": {
-            "post_accepted": {
-                "NVh": field(0.5, 0.5, 0.5),
-                "ddt(NVh)": field(0.1, 0.1, 0.0),
-            }
+    reference_records = [
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 0,
+            "time": 0.0,
+            "dt": 0.0,
+            "stages": {
+                "post_accepted": {
+                    "NVh": field(0.5, 0.5, 0.5),
+                    "ddt(NVh)": field(0.1, 0.1, 0.0, sample=0.0),
+                }
+            },
         },
-    }
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 1,
+            "time": 1.0,
+            "dt": 1.0,
+            "stages": {
+                "post_accepted": {
+                    "NVh": field(0.5, 0.5, 0.5),
+                    "ddt(NVh)": field(0.2, 0.2, 0.0),
+                }
+            },
+        },
+    ]
     native_path = tmp_path / "native_trace.json"
     reference_path = tmp_path / "reference_trace.jsonl"
     native_path.write_text(json.dumps(native_trace), encoding="utf-8")
-    reference_path.write_text(json.dumps(reference_record) + "\n", encoding="utf-8")
+    reference_path.write_text(
+        "\n".join(json.dumps(record) for record in reference_records) + "\n",
+        encoding="utf-8",
+    )
 
     report = build_neutral_mixed_accepted_step_trace_parity_report(
         native_trace_json=native_path,
@@ -993,6 +1024,13 @@ def test_neutral_mixed_accepted_step_trace_parity_ranks_rhs_by_active_target(
         "active_target_rhs_source"
     )
     assert report["fields"]["ddt(NVh)"]["max_guard_delta"] == pytest.approx(1000.0)
+    assert report["fields"]["ddt(NVh)"]["max_sample_lineout_delta"] == pytest.approx(
+        1000.0
+    )
+    assert report["fields"]["ddt(NVh)"]["max_target_adjacent_delta"] == pytest.approx(
+        0.2
+    )
+    assert report["fields"]["ddt(NVh)"]["worst_time"] == pytest.approx(1.0)
 
 
 def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:

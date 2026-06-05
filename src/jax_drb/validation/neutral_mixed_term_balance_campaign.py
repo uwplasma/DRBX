@@ -2031,6 +2031,7 @@ def _compare_accepted_step_trace_points(
                     "max_target_adjacent_delta": 0.0,
                     "max_guard_delta": 0.0,
                     "max_sample_lineout_delta": 0.0,
+                    "worst_ranking_key": [0.0, 0.0, 0.0, 0.0],
                     "worst_time": native_time,
                 },
             )
@@ -2133,7 +2134,13 @@ def _update_trace_error_aggregate(
     for key, value in updates.items():
         if float(value) > float(aggregate[key]):
             aggregate[key] = float(value)
-            aggregate["worst_time"] = float(time_value)
+    ranking_key = _accepted_trace_point_ranking_key(
+        str(aggregate["comparison_scope"]),
+        point_error,
+    )
+    if ranking_key > tuple(float(value) for value in aggregate["worst_ranking_key"]):
+        aggregate["worst_ranking_key"] = [float(value) for value in ranking_key]
+        aggregate["worst_time"] = float(time_value)
 
 
 def _accepted_trace_field_scope(field_name: str) -> str:
@@ -2155,6 +2162,24 @@ def _accepted_trace_field_ranking_key(item: dict[str, object]) -> tuple[float, .
         float(item["max_guard_delta"]),
         float(item["max_active_delta"]),
         float(item["max_sample_lineout_delta"]),
+    )
+
+
+def _accepted_trace_point_ranking_key(
+    comparison_scope: str, point_error: dict[str, float]
+) -> tuple[float, ...]:
+    if comparison_scope == "active_target_rhs_source":
+        return (
+            float(point_error["target_adjacent_max_abs_delta"]),
+            float(point_error["active_max_abs_delta"]),
+            float(point_error["sample_lineout_max_abs_delta"]),
+            float(point_error["guard_max_abs_delta"]),
+        )
+    return (
+        float(point_error["target_adjacent_max_abs_delta"]),
+        float(point_error["guard_max_abs_delta"]),
+        float(point_error["active_max_abs_delta"]),
+        float(point_error["sample_lineout_max_abs_delta"]),
     )
 
 
