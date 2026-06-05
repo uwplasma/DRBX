@@ -70,7 +70,7 @@ documentation matching the claim.
 | --- | --- | ---: | --- |
 | CI/CD and docs release surface | Local release-surface and targeted shipping slices pass after public-path sanitization; latest pushed CI must still be watched to completion. | 85% | Green docs, test, and coverage on the latest `main` head. |
 | Meaningful promoted coverage | Local closeout and promoted-solver coverage gates meet the `95%` target on promoted surfaces. | 90% | Keep the gates green after every solver/geometry promotion; avoid adding coverage-only smoke tests. |
-| Reference-backed parity | Many RHS, one-step, and campaign gates exist, but neutral-mixed `NVh` and longer recycling windows remain the main scientific offenders. | 65% | Direct pressure-gradient/parallel-viscosity/perpendicular-viscosity term outputs from a clean reference rerun and a native/reference term-lineout gate. |
+| Reference-backed parity | Many RHS, one-step, and campaign gates exist; neutral-mixed direct `SNVh_*` source formulas are now closed, but target-adjacent accepted-step state/history drift and longer recycling windows remain the main scientific offenders. | 70% | Native/reference accepted-step trace parity for `Nh`, `Ph`, `NVh`, `ddt(*)`, and `SNVh_*`, followed by the longer recycling-window ladder. |
 | JAX-native recycling solver | Fixed-layout residual, JVP checks, and fixed-BDF2 diagnostics are present and gated on lightweight fixtures; full output-window default promotion is not yet complete. | 55% | Full open-field recycling transient through the fixed-layout JAX residual, with parity, cProfile/RSS, and JAX trace evidence. |
 | Performance and scaling | Local CPU ensemble scaling and real fixed-layout JVP profiling exist; heavy default solver and GPU scaling remain incomplete. | 50% | Same-machine heavy recycling profiles after each solver switch and one GPU bundle on promoted kernels. |
 | 3D imported-field and VMEC-extender SOL | Import, selected-field, reduced FCI, and smoke campaign gates exist; full non-axisymmetric turbulence claims still require refinement and field-line/connection-length agreement. | 50% | VMEC/imported-field examples that run from a clean clone plus release-hosted data, with Poincare/connection-length/refinement gates and smooth non-axisymmetric movies. |
@@ -563,8 +563,10 @@ The current priority parity offenders are:
 
 - heavy 1D open-field recycling transients, especially neutral and recycling
   closure drift over longer windows
-- neutral mixed transport, especially the boundary-local `NVh` mismatch that
-  already has a dedicated boundary-audit figure
+- neutral mixed transport, where direct `NVh` pressure-gradient and viscosity
+  source formulas now close against written reference diagnostics, but
+  target-adjacent accepted-step state/history drift still needs a reference
+  trace
 - integrated 2D production/recycling target-band residuals, historically led
   by `Pe`, `Pd+`, `NVd+`, and neutral-side transient terms depending on the
   rung
@@ -953,12 +955,12 @@ Exit criteria:
 
 Deliverables:
 
-- rerun clean local reference cases with direct `neutral_mixed` outputs for
-  `SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
-  `SNVh_perpendicular_viscosity`
-- add a matched reference/native term-lineout figure for target-band `NVh`
-  pressure-gradient, parallel viscosity, perpendicular viscosity, momentum
-  advection, neutral pressure work, boundary preparation, and source terms
+- keep the direct `neutral_mixed` outputs for `SNVh_pressure_gradient`,
+  `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` locked in the
+  term-balance artifact
+- add a native/reference accepted-step trace figure for target-band `Nh`,
+  `Ph`, `NVh`, `ddt(*)`, `SNVh`, pressure-gradient, parallel-viscosity, and
+  perpendicular-viscosity diagnostics
 - maintain a single offender register sorted by case, field, component,
   absolute error, scaled error, native runtime, reference runtime, and memory
   proxy
@@ -967,8 +969,8 @@ Deliverables:
 
 Exit criteria:
 
-- neutral `NVh` mismatch is fixed or localized to a documented equation-level
-  boundary/source difference
+- neutral `NVh` mismatch is fixed or localized to a documented accepted-step
+  state/history or boundary-sequencing difference
 - every remaining reference-backed mismatch has a component-level owner instead
   of only an aggregate field error
 - reference-derived artifacts are generated only from a clean reference
