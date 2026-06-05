@@ -300,13 +300,18 @@ and parallel-throughput test:
 
 ```bash
 PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
-  --reference-root /path/to/reference/root \
   --case dthe \
   --override mesh:ny=100 \
   --batch-sizes 1,4,16,64 \
   --timed-runs 7 \
   --output-dir docs/data/runtime_profile_artifacts/recycling_dthe_batched_jvp_gate_cpu
 ```
+
+When neither `--reference-root` nor `--input-path` is supplied, this direct
+profiler uses the lightweight fixture decks committed under
+`tests/fixtures/reference-root`. Pass `--reference-root /path/to/reference/root`
+for full reference-suite decks, or `--input-path /path/to/BOUT.inp` for a
+single staged deck.
 
 The retained local CPU artifact now sweeps batches through 256 states and
 shows about `2.8x` residual throughput speedup and `2.2x` JVP throughput
@@ -341,16 +346,13 @@ The wrapper intentionally rejects reference roots that do not contain
 `tests/integrated/1D-recycling-dthe/data/BOUT.inp`; that failure means the
 reference prerequisite is missing, not that the GPU gate has failed.
 
-If a self-hosted machine has only a staged D/T/He `BOUT.inp` outside that
-reference-root layout, use the direct profiler until a full reference root is
-installed. This is the safest reduced multi-GPU readiness command:
+For a reduced self-contained GPU readiness probe, use the direct profiler. It
+defaults to the in-tree fixture decks when no input is supplied; pass a single
+staged `BOUT.inp` with `--input-path` only when testing a nonstandard deck:
 
 ```bash
-INPUT_PATH=/path/to/1D-recycling-dthe/data/BOUT.inp
-
 JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0,1 \
 PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
-  --input-path "$INPUT_PATH" \
   --case dthe \
   --override mesh:ny=100 \
   --batch-sizes 2,4,8,16 \
@@ -360,6 +362,12 @@ PYTHONPATH=src python scripts/profile_recycling_batched_jvp_gate.py \
   --device-memory-profile \
   --compilation-cache-dir tmp/jax_cache/recycling_dthe_batched_jvp_gate_gpu_readiness \
   --output-dir tmp/profiles/recycling_dthe_batched_jvp_gate_gpu_readiness
+```
+
+For a nonstandard staged deck, add:
+
+```bash
+--input-path /path/to/1D-recycling-dthe/data/BOUT.inp
 ```
 
 The current GPU speedup evidence instead comes from the source-term throughput
@@ -373,7 +381,7 @@ PYTHONPATH=src python scripts/profile_atomic_rate_throughput_gate.py \
 The matched office-GPU artifact lives in
 `docs/data/runtime_profile_artifacts/atomic_rate_throughput_gate_gpu/profile_summary.json`.
 At `4,194,304` temperature points the GPU is about `2.5x` faster than the
-local CPU for the batched rate surface and about `2.1x` faster for the
+local CPU for the batched rate surface and about `2.0x` faster for the
 autodiff derivative. The same report checks a scalar mean-rate sensitivity to
 a log-temperature shift; autodiff and centered finite difference agree at
 about `1e-10` relative error on CPU and GPU. This is the correct release
@@ -383,11 +391,13 @@ structure.
 
 The source-throughput profiler also has an opt-in `--enable-pmap` flag. It is
 not enabled in the committed office-GPU artifact, so that artifact remains a
-single-device GPU result. A 2026-06-02 self-hosted smoke check did pass a basic
-two-device `pmap` operation, but no real source-kernel or recycling-kernel
-multi-device artifact has been regenerated. Multi-device source speedup should
-therefore not be claimed until the device-level real-kernel parity gate passes
-and the matching summary is committed.
+single-device GPU result. When enabled, the profiler now runs a device-level
+identity-map sanity check before constructing the real source-kernel pmap
+timings. If that runtime sanity check or the subsequent real-kernel parity
+check fails, the JSON records the failure and leaves pmap speedups unset.
+Multi-device source speedup should therefore not be claimed until the
+device-level sanity gate, the real-kernel parity gate, and the matching
+committed summary all pass.
 
 ## Basic Usage
 

@@ -8,6 +8,9 @@ from pathlib import Path
 import shutil
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_REFERENCE_ROOT = REPO_ROOT / "tests" / "fixtures" / "reference-root"
+
 REFERENCE_INPUT_RELATIVE_PATHS = {
     "hydrogen": Path("tests") / "integrated" / "1D-recycling" / "data" / "BOUT.inp",
     "dthe": Path("tests") / "integrated" / "1D-recycling-dthe" / "data" / "BOUT.inp",
@@ -37,7 +40,9 @@ def _resolve_reference_root(args: argparse.Namespace) -> Path | None:
     if args.reference_root is not None:
         return args.reference_root.expanduser().resolve()
     value = os.environ.get("JAX_DRB_REFERENCE_ROOT")
-    return None if not value else Path(value).expanduser().resolve()
+    if value:
+        return Path(value).expanduser().resolve()
+    return FIXTURE_REFERENCE_ROOT if FIXTURE_REFERENCE_ROOT.exists() else None
 
 
 def _reference_input_relative_path(case: str) -> Path:
@@ -56,7 +61,8 @@ def _resolve_input(args: argparse.Namespace) -> Path:
         raise SystemExit(
             "--reference-root, --input-path, or JAX_DRB_REFERENCE_ROOT is required. "
             f"Expected reference-root input: {relative_path.as_posix()}. "
-            "For nonstandard staged decks, pass --input-path /path/to/BOUT.inp."
+            "The source checkout normally provides lightweight fixture decks under "
+            "tests/fixtures/reference-root; for nonstandard staged decks, pass --input-path /path/to/BOUT.inp."
         )
     relative_path = _reference_input_relative_path(args.case)
     input_path = (root / relative_path).resolve()
