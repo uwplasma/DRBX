@@ -136,8 +136,12 @@ accepted reference time in the native trace report.
 For every accepted internal solver step from `t = 0` to the one-step output
 time, the native trace writes `time`, `dt`, solver order, and post-accepted
 `Nh`, `Ph`, and `NVh` values at the active target-adjacent cells and adjacent
-guard cells. When a reference executable with the accepted-step monitor patch
-is available, write the matching reference JSONL with:
+guard cells. It also writes native diagnostic inputs `Vh` and `eta_h`, which
+are the velocity and neutral viscosity entering the parallel-viscosity source.
+The comparator ignores those fields until the reference JSONL contains the
+same payloads, so the addition is backward-compatible with older reference
+traces. When a reference executable with the accepted-step monitor patch is
+available, write the matching reference JSONL with:
 
 ```bash
 PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps \
@@ -173,6 +177,9 @@ diagnostic-boundary semantics rather than active-domain source formulas. The
 next native parity patch should therefore target the neutral-mixed
 parallel-viscosity/boundary sequencing path under this matched-time diagnostic
 instead of changing the already-closed pressure-gradient formula.
+The next reference-monitor extension should add `Vh` and `eta_h` to the JSONL
+so the source difference can be separated into operator-input drift and pure
+stencil/boundary-form error at each accepted time.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.

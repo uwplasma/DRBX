@@ -15,6 +15,7 @@ from ..native import run_curated_case
 from ..native.mesh import build_structured_mesh
 from ..native.metrics import build_structured_metrics
 from ..native.neutral_mixed import (
+    _prepare_neutral_mixed_state,
     _sanitize_neutral_state,
     advance_neutral_mixed_implicit_history,
     compute_neutral_mixed_rhs,
@@ -1672,8 +1673,19 @@ def _native_accepted_step_rhs_field_payloads(
         meters_scale=meters_scale,
         tnorm=tnorm,
     )
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        state,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=meters_scale,
+        tnorm=tnorm,
+    )
     zeros = np.zeros_like(rhs.momentum, dtype=np.float64)
     fields = {
+        f"V{section}": prepared.velocity,
+        f"eta_{section}": prepared.viscosity,
         f"ddt(N{section})": rhs.density,
         f"ddt(P{section})": rhs.pressure,
         f"ddt(NV{section})": rhs.momentum,

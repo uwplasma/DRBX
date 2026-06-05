@@ -116,6 +116,10 @@ diagnostic-boundary semantics until a guard-specific reference definition is
 chosen. The next implementation step is therefore to fix or further localize
 the neutral-mixed parallel-viscosity/boundary sequencing path under the
 matched-time accepted-step diagnostic before changing broader BDF sequencing.
+Native traces now also emit optional `Vh` and `eta_h` diagnostic-input fields.
+The next reference patch should write the same payloads so the remaining
+parallel-viscosity difference can be split into velocity/viscosity input drift
+and the `Div_par_K_Grad_par_mod(eta_h, Vh, false)` stencil itself.
 
 ## Validation Sequence
 

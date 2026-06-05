@@ -692,6 +692,8 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         "Nh",
         "Ph",
         "NVh",
+        "Vh",
+        "eta_h",
         "ddt(Nh)",
         "ddt(Ph)",
         "ddt(NVh)",
