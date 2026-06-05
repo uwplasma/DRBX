@@ -643,6 +643,7 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
         base = np.ones(shape, dtype=np.float64)
         assert kwargs["store_internal_substeps"] is True
         assert kwargs["internal_substeps"] == 2
+        assert kwargs["accepted_step_time_points"] is None
         return SimpleNamespace(
             density_history=base[[0, -1]],
             pressure_history=2.0 * base[[0, -1]],
@@ -672,6 +673,9 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
 
     assert report["diagnostic"] == "neutral_mixed_native_accepted_step_trace"
     assert report["requires_hermes"] is False
+    assert report["time_grid_source"] == "uniform_internal_substeps"
+    assert report["reference_trace_json"] is None
+    assert report["reference_trace_point_count"] == 0
     assert report["trace_point_count"] == 3
     assert report["target_y_indices"] == [2, 3, 10, 11]
     assert report["guard_y_indices"] == [0, 1, 12, 13]
@@ -702,6 +706,128 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["diagnostic"] == "neutral_mixed_native_accepted_step_trace"
+
+
+def test_neutral_mixed_native_accepted_step_trace_replays_reference_time_grid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    reference_trace = tmp_path / "reference_trace.jsonl"
+    reference_trace.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "time": time_value,
+                    "dt": dt_value,
+                    "solver": {"order": order},
+                    "stages": {
+                        "post_accepted": {
+                            "Nh": {
+                                "active_metrics": {"max_abs": 1.0, "rms": 1.0},
+                                "target_adjacent_metrics": {
+                                    "max_abs": 1.0,
+                                    "rms": 1.0,
+                                },
+                                "guard_metrics": {"max_abs": 1.0, "rms": 1.0},
+                                "sample_lineout_y_indices": [],
+                                "sample_lineout": [],
+                            }
+                        }
+                    },
+                }
+            )
+            for time_value, dt_value, order in (
+                (5.0, 5.0, 1),
+                (20.0, 15.0, 2),
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_implicit_history(_config, **kwargs):
+        mesh = kwargs["mesh"]
+        np.testing.assert_allclose(
+            kwargs["accepted_step_time_points"],
+            np.asarray([5.0, 20.0], dtype=np.float64),
+        )
+        shape = (3, mesh.nx, mesh.local_ny, mesh.nz)
+        base = np.ones(shape, dtype=np.float64)
+        return SimpleNamespace(
+            density_history=base[[0, -1]],
+            pressure_history=2.0 * base[[0, -1]],
+            momentum_history=3.0 * base[[0, -1]],
+            accepted_step_time_points=np.asarray([0.0, 5.0, 20.0], dtype=np.float64),
+            accepted_step_dt=np.asarray([0.0, 5.0, 15.0], dtype=np.float64),
+            accepted_step_order=np.asarray([0, 1, 2], dtype=np.int32),
+            accepted_step_density_history=base,
+            accepted_step_pressure_history=2.0 * base,
+            accepted_step_momentum_history=3.0 * base,
+            accepted_step_residual_inf_norm=np.asarray(
+                [0.0, 1.0e-10, 2.0e-10], dtype=np.float64
+            ),
+            accepted_step_nonlinear_iterations=np.asarray([0, 2, 3], dtype=np.int32),
+        )
+
+    monkeypatch.setattr(
+        "jax_drb.validation.neutral_mixed_term_balance_campaign.advance_neutral_mixed_implicit_history",
+        fake_implicit_history,
+    )
+
+    report = build_neutral_mixed_native_accepted_step_trace_report(
+        input_path=input_path,
+        internal_substeps=2,
+        steps=1,
+        reference_trace_json=reference_trace,
+        time_tolerance=1.0e-9,
+    )
+
+    assert report["time_grid_source"] == "reference_accepted_steps"
+    assert report["reference_trace_point_count"] == 2
+    assert str(report["reference_trace_json"]).endswith("reference_trace.jsonl")
+    assert report["time_points"] == pytest.approx([0.0, 5.0, 20.0])
+
+
+def test_neutral_mixed_native_accepted_step_trace_rejects_reference_final_time_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    reference_trace = tmp_path / "reference_trace.jsonl"
+    reference_trace.write_text(
+        json.dumps(
+            {
+                "time": 19.0,
+                "dt": 19.0,
+                "stages": {
+                    "post_accepted": {
+                        "Nh": {
+                            "active_metrics": {"max_abs": 1.0, "rms": 1.0},
+                            "target_adjacent_metrics": {"max_abs": 1.0, "rms": 1.0},
+                            "guard_metrics": {"max_abs": 1.0, "rms": 1.0},
+                            "sample_lineout_y_indices": [],
+                            "sample_lineout": [],
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("native solver should not run for invalid reference grid")
+
+    monkeypatch.setattr(
+        "jax_drb.validation.neutral_mixed_term_balance_campaign.advance_neutral_mixed_implicit_history",
+        fail_if_called,
+    )
+
+    with pytest.raises(ValueError, match="final time does not reach"):
+        build_neutral_mixed_native_accepted_step_trace_report(
+            input_path=input_path,
+            steps=1,
+            reference_trace_json=reference_trace,
+            time_tolerance=1.0e-9,
+        )
 
 
 def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(

@@ -90,25 +90,24 @@ Before any case family is promoted to `native_exact`, it must have:
 
 The next gates are ordered by blocker value:
 
-- `neutral_mixed_nvh_reference_terms`: clean reference rerun that writes
-  pressure-gradient, parallel-viscosity, and perpendicular-viscosity
-  `NVh` terms; matched native/reference lineout figure; unit/operator tests for
-  the boundary and metric form used by the offending cells.
-- `recycling_fixed_bdf2_jax_promotion`: lightweight and live-reference gates
-  for `fixed_bdf2_jax_linearized`, including fixed-layout RHS diagnostics,
-  JAX-linearized action counts, packed feedback-integral evolution, parity,
-  runtime, and memory proxy.
-- `tokamak_target_profile_balance`: target density, electron/ion/neutral
-  temperatures, heat-flux channels, total target power, core/SOL source and
-  radiation integrals, and restart/provenance checks derived from the native
-  analysis utilities.
-- `vmec_extender_fci_geometry_promotion`: imported-field metadata validation,
-  field-line/Poincare agreement, connection-length maps, endpoint masks,
-  conservative operator MMS, linear-mode check, nonlinear reduced-turbulence
-  grid/timestep sensitivity, and polished movie artifacts.
-- `real_kernel_scaling`: CPU `vmap`/ensemble and GPU `jit`/`vmap`/`shard_map`
-  evidence on fixed-layout recycling and 3D PyTree RHS kernels, with compile
-  and execute timing separated.
+The latest accepted-step work moves the neutral-mixed lane from timestamp
+alignment to term-level offender reduction: native and reference accepted-step
+traces now share the 10 required fields (`Nh`, `Ph`, `NVh`, `ddt(Nh)`,
+`ddt(Ph)`, `ddt(NVh)`, `SNVh`, `SNVh_pressure_gradient`,
+`SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity`), and the native
+trace can replay the reference adaptive accepted-step time grid. A local
+reference-grid comparison of `neutral_mixed_one_step` currently matches
+`148/148` accepted points. With timestamps aligned, the leading
+active/target-adjacent offender is the parallel-viscosity source path rather
+than a missing pressure-gradient source formula.
+
+| Open lane | Current evidence | Command surface | Publication-ready output |
+| --- | --- | --- | --- |
+| `neutral_mixed_parallel_viscosity_boundary` | Clean patched reference checkout writes valid JSONL; native/reference traces share the 10 state, RHS, and source fields; native replay on the reference accepted-step grid matches `148/148` points and ranks `SNVh_parallel_viscosity` as the current active/target offender. | `PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps --reference-trace-jsonl ...`; `PYTHONPATH=src jax-drb trace-neutral-mixed-reference-accepted-steps ...`; `PYTHONPATH=src jax-drb compare-neutral-mixed-accepted-traces ...`. | Target-band accepted-step figure and JSON report comparing `Nh`, `Ph`, `NVh`, `ddt(*)`, `SNVh`, and `SNVh_*` on the reference time grid with active/guard metrics separated. |
+| `recycling_fixed_bdf2_jax_promotion` | Fixed-layout RHS diagnostics, JAX-linearized action counts, packed feedback-integral evolution, and lightweight promotion gates exist; full output-window promotion and live-reference profiling remain open. | `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`; `PYTHONPATH=src python scripts/profile_recycling_jax_linearized_gate.py --case dthe`. | Promotion summary JSON, mode-compare JSON, cProfile/RSS/JAX-trace bundle, and a reviewer-facing parity/runtime figure for the fixed-layout recycling lane. |
+| `tokamak_target_profile_balance` | Direct-tokamak recycling observable campaign reports target density, target momentum-flux proxies, neutral buildup, and target electron-temperature proxy differences; upper-target near-zero momentum proxies remain in the offender register. | `PYTHONPATH=src python examples/engineering/tokamak_recycling_observable_campaign_demo.py`. | Target/neutral profile figure, JSON/NPZ artifact bundle, total target-power and source/radiation balance tables, and restart/provenance checks from native analysis utilities. |
+| `vmec_extender_fci_geometry_promotion` | Native imported-field, selected-field, reduced FCI, metric-MMS, sheath/recycling, vorticity, and PyTree RHS gates exist, but full non-axisymmetric turbulence claims still need grid/time sensitivity and clean-clone examples. | `PYTHONPATH=src python examples/geometry-3D/stellarator-fci/validation_campaign_demo.py`; `.venv/bin/pytest -q tests/test_geometry_fci_maps.py tests/test_validation_stellarator_fci_campaigns.py`. | Poincare/connection-length/refinement reports, conservative-operator MMS figure, reduced-turbulence diagnostics, and polished non-axisymmetric movie artifacts. |
+| `real_kernel_scaling` | Local CPU ensemble scaling and fixed-layout JVP profiling exist; GPU and phase-resolved heavy recycling bundles remain incomplete. | `PYTHONPATH=src python scripts/run_research_campaign_bundle.py --campaign local-cpu-scaling`; `PYTHONPATH=src python scripts/run_research_campaign_bundle.py --campaign dthe-jax-linearized-gate`; `PYTHONPATH=src python scripts/run_research_campaign_bundle.py --campaign gpu-dthe-jax-linearized-gate`. | Same-machine CPU/GPU scaling report with compile and execute timing separated, device/RSS memory proxies, and matched parity metrics on fixed-layout recycling and 3D PyTree kernels. |
 
 ## Current Figure Standard
 

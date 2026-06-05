@@ -106,16 +106,16 @@ On June 5, 2026, the two reference patches were applied to a clean disposable
 reference checkout at commit `f7bab630`, built successfully with the local
 `hermes-3` target, and produced a valid `neutral_mixed_one_step` JSONL trace
 with `148` accepted CVODE records. Native accepted-step traces now emit the
-same 10 fields as the reference trace. Comparing against the current native
-fixed-substep trace matches only the near-zero accepted step because the native
-diagnostic grid is not yet the reference CVODE accepted-step grid. At that
-matched point, state target/guard deltas are `3.97e-7` for `Nh`, `3.97e-8` for
-`Ph`, and `1.15e-13` for `NVh`; active-domain RHS/source deltas are
-`1.15e-7` for `ddt(Nh)`, `1.91e-8` for `ddt(Ph)`, and `1.08e-9` for
-`ddt(NVh)` and `SNVh_pressure_gradient`. RHS/source guard metrics are still
-large, so the next implementation step is to compare on the reference
-accepted-step time grid and align the guard-cell semantics of RHS/source
-diagnostics before changing boundary or BDF sequencing.
+same 10 fields as the reference trace and can replay the reference accepted
+time grid. A local matched-grid comparison now matches `148/148` accepted
+points. With the timestamp mismatch removed, the leading active/target
+offender is `SNVh_parallel_viscosity` at about `5.35e-5`; `ddt(Nh)`,
+state-level `Nh`, and state-level `NVh` follow at smaller target-adjacent
+scales. RHS/source guard metrics are still large and should be treated as
+diagnostic-boundary semantics until a guard-specific reference definition is
+chosen. The next implementation step is therefore to fix or further localize
+the neutral-mixed parallel-viscosity/boundary sequencing path under the
+matched-time accepted-step diagnostic before changing broader BDF sequencing.
 
 ## Validation Sequence
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from functools import lru_cache
 
 import numpy as np
@@ -134,11 +135,33 @@ def advance_neutral_mixed_implicit_history(
     linear_maxiter: int = 200,
     linear_rtol: float = 1.0e-8,
     store_internal_substeps: bool = False,
+    accepted_step_time_points: Sequence[float] | np.ndarray | None = None,
 ) -> NeutralMixedHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
     if internal_substeps <= 0:
         raise ValueError("internal_substeps must be positive")
+    explicit_schedule: tuple[tuple[float, float], ...] | None = None
+    if accepted_step_time_points is not None:
+        supplied_times = np.asarray(accepted_step_time_points, dtype=np.float64)
+        if supplied_times.ndim != 1:
+            raise ValueError("accepted_step_time_points must be one-dimensional")
+        if not np.all(np.isfinite(supplied_times)):
+            raise ValueError("accepted_step_time_points must be finite")
+        if supplied_times.size > 0 and supplied_times[0] == 0.0:
+            supplied_times = supplied_times[1:]
+        if supplied_times.size == 0:
+            raise ValueError("accepted_step_time_points must include at least one positive time")
+        if supplied_times[0] <= 0.0:
+            raise ValueError("accepted_step_time_points must be positive after the initial state")
+        dt_values = np.diff(np.concatenate((np.asarray([0.0]), supplied_times)))
+        if np.any(dt_values <= 0.0):
+            raise ValueError("accepted_step_time_points must be strictly increasing")
+        explicit_schedule = tuple(
+            (float(dt_value), float(time_value))
+            for dt_value, time_value in zip(dt_values, supplied_times, strict=True)
+        )
+        store_internal_substeps = True
 
     state = initialize_neutral_mixed_state(config, section=section, mesh=mesh)
     density_history = [np.asarray(state.density, dtype=np.float64)]
@@ -165,7 +188,7 @@ def advance_neutral_mixed_implicit_history(
     accepted_residual_inf_norm = [0.0] if store_internal_substeps else None
     accepted_nonlinear_iterations = [0] if store_internal_substeps else None
 
-    if steps == 0:
+    if steps == 0 and explicit_schedule is None:
         return NeutralMixedHistoryResult(
             density_history=np.stack(density_history, axis=0),
             pressure_history=np.stack(pressure_history, axis=0),
@@ -201,11 +224,19 @@ def advance_neutral_mixed_implicit_history(
         )
 
     previous_state: NeutralMixedState | None = None
+    previous_timestep: float | None = None
     current_state = state
     sub_timestep = float(timestep) / float(internal_substeps)
     current_time = 0.0
-    for _ in range(steps):
-        for _ in range(internal_substeps):
+    if explicit_schedule is None:
+        output_step_schedules = (
+            tuple((sub_timestep, None) for _ in range(internal_substeps))
+            for _ in range(steps)
+        )
+    else:
+        output_step_schedules = (explicit_schedule,)
+    for step_schedule in output_step_schedules:
+        for step_dt, target_time in step_schedule:
             if previous_state is None:
                 next_state, step_info = advance_neutral_mixed_backward_euler_step(
                     config,
@@ -215,7 +246,7 @@ def advance_neutral_mixed_implicit_history(
                     metrics=metrics,
                     meters_scale=meters_scale,
                     tnorm=tnorm,
-                    timestep=sub_timestep,
+                    timestep=step_dt,
                     solver_mode=solver_mode,
                     residual_tolerance=residual_tolerance,
                     step_tolerance=step_tolerance,
@@ -235,7 +266,8 @@ def advance_neutral_mixed_implicit_history(
                     metrics=metrics,
                     meters_scale=meters_scale,
                     tnorm=tnorm,
-                    timestep=sub_timestep,
+                    timestep=step_dt,
+                    previous_timestep=previous_timestep,
                     solver_mode=solver_mode,
                     residual_tolerance=residual_tolerance,
                     step_tolerance=step_tolerance,
@@ -246,7 +278,12 @@ def advance_neutral_mixed_implicit_history(
                 )
                 solver_order = 2
             previous_state, current_state = current_state, next_state
-            current_time += sub_timestep
+            current_time = (
+                float(target_time)
+                if target_time is not None
+                else current_time + step_dt
+            )
+            previous_timestep = float(step_dt)
             if store_internal_substeps:
                 assert accepted_time_points is not None
                 assert accepted_dt is not None
@@ -257,7 +294,7 @@ def advance_neutral_mixed_implicit_history(
                 assert accepted_residual_inf_norm is not None
                 assert accepted_nonlinear_iterations is not None
                 accepted_time_points.append(float(current_time))
-                accepted_dt.append(float(sub_timestep))
+                accepted_dt.append(float(step_dt))
                 accepted_order.append(int(solver_order))
                 accepted_density_history.append(
                     np.asarray(current_state.density, dtype=np.float64)
@@ -452,6 +489,7 @@ def compute_neutral_mixed_bdf2_residual(
     meters_scale: float,
     tnorm: float,
     timestep: float,
+    previous_timestep: float | None = None,
 ) -> np.ndarray:
     state = unpack_neutral_mixed_active_state(
         packed_state,
@@ -473,6 +511,7 @@ def compute_neutral_mixed_bdf2_residual(
         previous_previous_packed_state,
         rhs,
         timestep=timestep,
+        previous_timestep=previous_timestep,
     )
 
 
@@ -553,6 +592,7 @@ def advance_neutral_mixed_bdf2_step(
     meters_scale: float,
     tnorm: float,
     timestep: float,
+    previous_timestep: float | None = None,
     solver_mode: str = "matrix_free",
     residual_tolerance: float = 1.0e-9,
     step_tolerance: float = 1.0e-11,
@@ -579,6 +619,7 @@ def advance_neutral_mixed_bdf2_step(
             meters_scale=meters_scale,
             tnorm=tnorm,
             timestep=timestep,
+            previous_timestep=previous_timestep,
         )
 
     if solver_mode == "sparse":

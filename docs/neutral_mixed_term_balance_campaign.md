@@ -115,6 +115,24 @@ PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
   --json-out neutral_mixed_native_accepted_step_trace.json
 ```
 
+If a reference accepted-step JSONL is available, replay its adaptive accepted
+time grid directly in the native trace:
+
+```bash
+PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
+  --input-path /path/to/neutral_mixed_one_step/BOUT.inp \
+  --reference-trace-jsonl /tmp/neutral_mixed_reference_trace/accepted_steps.jsonl \
+  --time-tolerance 1e-7 \
+  --json-out neutral_mixed_native_reference_grid_trace.json
+```
+
+This diagnostic mode keeps the production fixed-substep path unchanged. It
+uses backward Euler for the first positive accepted step and variable-step
+BDF2 after startup, passing the previous accepted `dt` through the BDF2
+residual. Adaptive reference monitors can finish slightly beyond the requested
+output time; JAXDRB records both the requested target time and the final
+accepted reference time in the native trace report.
+
 For every accepted internal solver step from `t = 0` to the one-step output
 time, the native trace writes `time`, `dt`, solver order, and post-accepted
 `Nh`, `Ph`, and `NVh` values at the active target-adjacent cells and adjacent
@@ -144,15 +162,20 @@ guard/boundary sequencing differences; JAXDRB-side final-state artifacts alone
 do not isolate a unique safe native patch. The current reference-side monitor
 has been built and run on a clean disposable checkout and writes valid JSONL.
 The native accepted-step trace now writes the same state, RHS, and source field
-set. The remaining accepted-step gap is no longer missing fields; it is to
-compare on the reference CVODE accepted-step time grid and align the guard-cell
-semantics of RHS/source diagnostics before changing target-boundary or BDF
-sequencing. The latest matched near-zero accepted step has small active-domain
-term deltas but large RHS/source guard deltas, which points to diagnostic
-guard handling rather than active-domain pressure-gradient or viscosity
-formulas. The comparator therefore ranks state fields with guard metrics, but
-ranks `ddt(*)` and `SNVh_*` fields by active and target-adjacent cells while
-still reporting guard deltas separately.
+set and can now replay the reference accepted-step time grid. A local
+reference-grid comparison of `neutral_mixed_one_step` matches `148/148`
+accepted points. With the timestamp mismatch removed, the current ranked
+active/target offender is `SNVh_parallel_viscosity` at about `5.35e-5`;
+`ddt(Nh)`, state-level `Nh`, and state-level `NVh` follow at smaller
+target-adjacent scales. Large RHS/source guard deltas remain reported but are
+not used to rank `ddt(*)` or `SNVh_*`, because those guard values are
+diagnostic-boundary semantics rather than active-domain source formulas. The
+next native parity patch should therefore target the neutral-mixed
+parallel-viscosity/boundary sequencing path under this matched-time diagnostic
+instead of changing the already-closed pressure-gradient formula.
+The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
+`SNVh_*` fields by active and target-adjacent cells while still reporting guard
+deltas separately.
 The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
 schema before returning successfully: each accepted-step record must contain
 `Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain

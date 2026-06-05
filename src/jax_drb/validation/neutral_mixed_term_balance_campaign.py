@@ -622,6 +622,9 @@ def build_neutral_mixed_native_accepted_step_trace_report(
     input_path: str | Path | None = None,
     internal_substeps: int = 8,
     steps: int = 1,
+    reference_trace_json: str | Path | None = None,
+    reference_stage: str = _ACCEPTED_TRACE_STAGE,
+    time_tolerance: float = 1.0e-8,
 ) -> dict[str, object]:
     """Run JAXDRB neutral-mixed implicit history with accepted-step tracing enabled."""
 
@@ -648,6 +651,24 @@ def build_neutral_mixed_native_accepted_step_trace_report(
     mesh = build_structured_mesh(config, run_config)
     metrics = build_structured_metrics(config, run_config, mesh)
     scalars = resolved_dataset_scalars(run_config)
+    reference_time_grid: np.ndarray | None = None
+    reference_trace_point_count = 0
+    time_grid_source = "uniform_internal_substeps"
+    if reference_trace_json is not None:
+        time_grid = _accepted_step_time_grid_from_reference_trace(
+            reference_trace_json,
+            preferred_stage=reference_stage,
+            target_final_time=float(run_config.time.timestep) * float(steps),
+            time_tolerance=float(time_tolerance),
+        )
+        reference_time_grid = time_grid["time_points"]
+        reference_trace_point_count = int(time_grid["trace_point_count"])
+        time_grid_source = "reference_accepted_steps"
+        time_grid_final_time = float(time_grid["final_time"])
+        target_final_time = float(time_grid["target_final_time"])
+    else:
+        time_grid_final_time = float(run_config.time.timestep) * float(steps)
+        target_final_time = time_grid_final_time
     history = advance_neutral_mixed_implicit_history(
         config,
         section=section,
@@ -666,6 +687,7 @@ def build_neutral_mixed_native_accepted_step_trace_report(
         linear_maxiter=200,
         linear_rtol=1.0e-8,
         store_internal_substeps=True,
+        accepted_step_time_points=reference_time_grid,
     )
     return _native_accepted_step_trace_report_from_history(
         history,
@@ -680,6 +702,12 @@ def build_neutral_mixed_native_accepted_step_trace_report(
         metrics=metrics,
         meters_scale=float(scalars["rho_s0"]),
         tnorm=float(scalars["Tnorm"]),
+        time_grid_source=time_grid_source,
+        reference_trace_json=reference_trace_json,
+        reference_stage=reference_stage,
+        reference_trace_point_count=reference_trace_point_count,
+        time_grid_final_time=time_grid_final_time,
+        target_final_time=target_final_time,
     )
 
 
@@ -1433,6 +1461,12 @@ def _native_accepted_step_trace_report_from_history(
     metrics,
     meters_scale: float,
     tnorm: float,
+    time_grid_source: str = "uniform_internal_substeps",
+    reference_trace_json: str | Path | None = None,
+    reference_stage: str | None = None,
+    reference_trace_point_count: int = 0,
+    time_grid_final_time: float | None = None,
+    target_final_time: float | None = None,
 ) -> dict[str, object]:
     time_points = history.accepted_step_time_points
     accepted_dt = history.accepted_step_dt
@@ -1534,6 +1568,18 @@ def _native_accepted_step_trace_report_from_history(
         "configured_timestep": float(timestep),
         "steps": int(steps),
         "internal_substeps": int(internal_substeps),
+        "time_grid_source": str(time_grid_source),
+        "reference_trace_json": _sanitize_public_path(Path(reference_trace_json))
+        if reference_trace_json is not None
+        else None,
+        "reference_stage": reference_stage,
+        "reference_trace_point_count": int(reference_trace_point_count),
+        "time_grid_final_time": float(time_grid_final_time)
+        if time_grid_final_time is not None
+        else None,
+        "target_final_time": float(target_final_time)
+        if target_final_time is not None
+        else None,
         "trace_point_count": int(time_points.size),
         "active_x_indices": list(range(int(mesh.xstart), int(mesh.xend) + 1)),
         "active_y_indices": list(range(int(mesh.ystart), int(mesh.yend) + 1)),
@@ -1654,6 +1700,54 @@ def _native_accepted_step_rhs_field_payloads(
             line_z=line_z,
         )
         for name, values in fields.items()
+    }
+
+
+def _accepted_step_time_grid_from_reference_trace(
+    path: str | Path,
+    *,
+    preferred_stage: str,
+    target_final_time: float,
+    time_tolerance: float,
+) -> dict[str, object]:
+    if time_tolerance <= 0.0:
+        raise ValueError("time_tolerance must be positive")
+    if target_final_time <= 0.0:
+        raise ValueError("target_final_time must be positive")
+    report = _load_accepted_step_trace_records(path, preferred_stage=preferred_stage)
+    trace_points = report["trace_points"]
+    accepted_times: list[float] = []
+    for index, point in enumerate(trace_points):
+        time_value = float(point["time"])
+        if not np.isfinite(time_value):
+            raise ValueError(
+                f"Accepted-step reference trace contains a non-finite time at index {index}."
+            )
+        if abs(time_value) <= time_tolerance:
+            continue
+        if time_value <= 0.0:
+            raise ValueError(
+                f"Accepted-step reference trace time must be positive, got {time_value:g}."
+            )
+        if accepted_times and time_value <= accepted_times[-1]:
+            raise ValueError(
+                "Accepted-step reference trace times must be strictly increasing."
+            )
+        accepted_times.append(time_value)
+    if not accepted_times:
+        raise ValueError("Accepted-step reference trace contains no positive times.")
+    final_time = accepted_times[-1]
+    if final_time + time_tolerance < target_final_time:
+        raise ValueError(
+            "Accepted-step reference trace final time does not reach the requested "
+            f"native trace window: final_time={final_time:g}, "
+            f"target_final_time={target_final_time:g}, tolerance={time_tolerance:g}."
+        )
+    return {
+        "time_points": np.asarray(accepted_times, dtype=np.float64),
+        "trace_point_count": len(trace_points),
+        "final_time": float(final_time),
+        "target_final_time": float(target_final_time),
     }
 
 

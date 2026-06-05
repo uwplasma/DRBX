@@ -1055,6 +1055,93 @@ def test_neutral_mixed_internal_substeps_use_be_startup_then_bdf2(
     )
 
 
+def test_neutral_mixed_explicit_accepted_time_grid_uses_variable_step_bdf2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+    scalars = resolved_dataset_scalars(run_config)
+    calls: list[tuple[str, float, float | None]] = []
+
+    def fake_be(_config, state, **kwargs):
+        calls.append(("be", float(kwargs["timestep"]), None))
+        return state.__class__(
+            density=state.density + 1.0,
+            pressure=state.pressure + 2.0,
+            momentum=state.momentum + 3.0,
+        ), SimpleNamespace(residual_inf_norm=1.0e-11, nonlinear_iterations=2)
+
+    def fake_bdf2(_config, state, previous_state, **kwargs):
+        calls.append(
+            (
+                "bdf2",
+                float(kwargs["timestep"]),
+                float(kwargs["previous_timestep"]),
+            )
+        )
+        return state.__class__(
+            density=state.density + 1.0,
+            pressure=state.pressure + 2.0,
+            momentum=state.momentum + 3.0,
+        ), SimpleNamespace(residual_inf_norm=2.0e-11, nonlinear_iterations=3)
+
+    monkeypatch.setattr(
+        neutral_mixed_mod, "advance_neutral_mixed_backward_euler_step", fake_be
+    )
+    monkeypatch.setattr(neutral_mixed_mod, "advance_neutral_mixed_bdf2_step", fake_bdf2)
+
+    history = advance_neutral_mixed_implicit_history(
+        config,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=6.0,
+        steps=99,
+        internal_substeps=99,
+        solver_mode="matrix_free",
+        accepted_step_time_points=np.asarray([0.25, 1.0, 2.0], dtype=np.float64),
+    )
+
+    assert calls == [
+        ("be", 0.25, None),
+        ("bdf2", 0.75, 0.25),
+        ("bdf2", 1.0, 0.75),
+    ]
+    np.testing.assert_allclose(
+        history.accepted_step_time_points, np.asarray([0.0, 0.25, 1.0, 2.0])
+    )
+    np.testing.assert_allclose(
+        history.accepted_step_dt, np.asarray([0.0, 0.25, 0.75, 1.0])
+    )
+    np.testing.assert_array_equal(
+        history.accepted_step_order, np.asarray([0, 1, 2, 2], dtype=np.int32)
+    )
+    assert history.density_history.shape[0] == 2
+    np.testing.assert_allclose(
+        history.density_history[-1], history.density_history[0] + 3.0
+    )
+
+
+def test_neutral_mixed_explicit_accepted_time_grid_rejects_nonmonotone_times() -> None:
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+    scalars = resolved_dataset_scalars(run_config)
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        advance_neutral_mixed_implicit_history(
+            config,
+            section="h",
+            mesh=mesh,
+            metrics=metrics,
+            meters_scale=float(scalars["rho_s0"]),
+            tnorm=float(scalars["Tnorm"]),
+            timestep=6.0,
+            steps=1,
+            solver_mode="matrix_free",
+            accepted_step_time_points=np.asarray([0.25, 0.25], dtype=np.float64),
+        )
+
+
 def test_neutral_mixed_internal_substep_trace_records_accepted_states(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

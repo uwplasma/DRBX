@@ -581,6 +581,9 @@ def test_trace_neutral_mixed_accepted_steps_command_writes_report(
                 input_path=None,
                 internal_substeps=8,
                 steps=1,
+                reference_trace_json=tmp_path / "reference_trace.jsonl",
+                reference_stage="post_accepted",
+                time_tolerance=1.0e-9,
                 json_out=tmp_path / "native_trace.json",
             )
         )
@@ -588,6 +591,9 @@ def test_trace_neutral_mixed_accepted_steps_command_writes_report(
     )
     assert captured["internal_substeps"] == 8
     assert captured["steps"] == 1
+    assert captured["reference_trace_json"] == tmp_path / "reference_trace.jsonl"
+    assert captured["reference_stage"] == "post_accepted"
+    assert captured["time_tolerance"] == pytest.approx(1.0e-9)
     output = capsys.readouterr().out
     assert "neutral_mixed_native_accepted_step_trace" in output
     assert "trace_point_count: 9" in output
