@@ -776,6 +776,11 @@ transfer is only `1.6e-4 s` and sparse assembly is only `5.0e-3 s`. The next
 performance target is therefore residual linearization and batched push
 execution inside grouped-JVP Jacobian assembly, not sparse-plan allocation or
 host/device transfer.
+The sparse assembly loop now also writes gathered JVP rows directly into the
+final COO data buffer rather than allocating a temporary per color group. This
+keeps the opt-in sparse-JVP path memory-stable during larger color sweeps, but
+it is intentionally not claimed as a solver-promotion result because the
+measured blocker remains `jax.linearize` plus grouped tangent pushes.
 The adaptive controller now keeps BDF2 history across timestep changes using
 the variable-step BDF2 residual
 `U^{n+1} - a_1 U^n + a_0 U^{n-1} - b Δt R(U^{n+1})`, with

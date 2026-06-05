@@ -493,11 +493,10 @@ def build_sparse_jvp_jacobian(
         assembly_started_at = perf_counter()
         for batch_index, group in enumerate(batch_groups):
             pushed = pushed_batch[batch_index]
-            group_data = pushed[group.rows]
             count = len(group.rows)
             row_indices[offset : offset + count] = group.rows
             col_indices[offset : offset + count] = group.cols
-            data[offset : offset + count] = group_data
+            np.take(pushed, group.rows, out=data[offset : offset + count])
             offset += count
         sparse_assembly_seconds += perf_counter() - assembly_started_at
 
