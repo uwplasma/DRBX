@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -41,6 +42,23 @@ def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
     assert "Pd+" in command
 
 
+def test_recycling_jvp_promotion_gate_builds_command_with_json_report() -> None:
+    module = _load_module()
+    gate_case = module.GATE_CASES["recycling_dthe_one_step"]
+    output_json = Path("/tmp/recycling_dthe_one_step.json")
+
+    command = module._build_case_command(
+        gate_case,
+        reference_root=Path("/tmp/reference-root"),
+        python_executable="python",
+        output_json=output_json,
+    )
+
+    assert command[command.index("--output-json") + 1] == str(output_json)
+    assert command[command.index("--require-bdf-pairwise-max") + 1] == "2.00000000e-05"
+    assert command[command.index("--mode-timeout-seconds") + 1] == "300"
+
+
 def test_recycling_jvp_promotion_gate_defaults_to_all_cases() -> None:
     module = _load_module()
 
@@ -51,3 +69,35 @@ def test_recycling_jvp_promotion_gate_defaults_to_all_cases() -> None:
     assert tuple(gate.case for gate in module._selected_cases(("recycling_dthe_one_step",))) == (
         "recycling_dthe_one_step",
     )
+
+
+def test_recycling_jvp_promotion_gate_writes_dry_run_summary(tmp_path: Path) -> None:
+    module = _load_module()
+    reference_root = module.FIXTURE_REFERENCE_ROOT
+    output_dir = tmp_path / "promotion_gate"
+
+    exit_code = module.main(
+        [
+            "--reference-root",
+            str(reference_root),
+            "--case",
+            "recycling_1d_one_step",
+            "--dry-run",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    summary_path = output_dir / "summary.json"
+    assert summary_path.exists()
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["dry_run"] is True
+    assert summary["all_cases_passed"] is True
+    assert summary["reference_root"] == str(reference_root.resolve())
+    assert len(summary["case_reports"]) == 1
+    case_report = summary["case_reports"][0]
+    assert case_report["case"] == "recycling_1d_one_step"
+    assert case_report["returncode"] == 0
+    assert case_report["output_json"].endswith("recycling_1d_one_step.json")
+    assert "--output-json" in case_report["command"]

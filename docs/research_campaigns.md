@@ -239,7 +239,9 @@ For the remaining recycling solver work, the order is therefore fixed:
   attempt: `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`;
   this uses the committed lightweight fixture decks by default and accepts
   `--reference-root /path/to/reference/root` when a live reference checkout is
-  available;
+  available; use `--output-dir docs/data/runtime_profile_artifacts/<new-run>`
+  when the run should leave per-case JSON reports and an aggregate
+  `summary.json` for release review;
 - run the adaptive-BDF JAX-linearized promotion gate only as an explicit
   rejection test until it clears without fallback:
   `PYTHONPATH=src python scripts/compare_recycling_transient_modes.py --case
