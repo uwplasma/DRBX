@@ -85,6 +85,25 @@ The current on-disk tree is still mostly flat, but the refactor should make the
 distinction explicit in filenames, markers, and CI slices before or during any
 directory migration.
 
+For `jax_drb`, the high-value test taxonomy is now:
+
+- operator identity tests for each term in the density, pressure, momentum,
+  vorticity, sheath, recycling, neutral, reaction, and collision equations;
+- manufactured-solution convergence for metric-weighted open-field and FCI
+  operators, including nonorthogonal metric cross terms;
+- reference-backed component parity for target/sheath, recycling,
+  neutral-mixed pressure-gradient and viscosity, neutral diffusion, reactions,
+  and Braginskii closures;
+- transient parity ladders for RHS, one-step, short-window, restart, and
+  selected longer diagnostic windows;
+- physics gates for conservation, source balance, target power, core/SOL
+  volume integrals, connection length, endpoint masks, radial flux, spectra,
+  skewness, and profile lineouts;
+- differentiability gates for `jit`, `vmap`, `jvp`, `grad`, finite-difference
+  agreement, and matrix-free/JVP solver actions;
+- performance gates that separate compile time, execute time, memory proxy,
+  CPU scaling, GPU scaling, and artifact provenance.
+
 ## Coverage Policy
 
 The `95%` target should mean:
@@ -98,6 +117,8 @@ It should not mean:
 - relying on smoke tests to color large files green
 - excluding the hard solver modules from the measurement
 - claiming broad coverage when only compact differentiable examples are tested
+- counting tutorial execution as a substitute for operator, parity, physics,
+  and convergence assertions
 
 The release standard from the refactoring roadmap is:
 
