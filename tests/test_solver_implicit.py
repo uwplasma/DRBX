@@ -337,6 +337,12 @@ def test_sparse_jvp_jacobian_matches_grouped_jax_derivative() -> None:
     assert timing["nnz"] == sparsity.nnz
     assert timing["total_seconds"] >= timing["linearize_seconds"] >= 0.0
     assert timing["push_seconds"] >= 0.0
+    assert timing["device_execute_seconds"] >= 0.0
+    assert timing["host_transfer_seconds"] >= 0.0
+    assert timing["push_seconds"] == pytest.approx(
+        timing["device_execute_seconds"] + timing["host_transfer_seconds"]
+    )
+    assert timing["sync_timing"] in {0, 1}
 
 
 def test_backward_euler_and_bdf2_residual_formulas() -> None:
@@ -484,6 +490,9 @@ def test_sparse_newton_solver_supports_sparse_jvp_jacobian_mode() -> None:
     assert info.jvp_jacobian_prebuilt_direction_batch_uses == info.jacobian_refresh_count
     assert info.jvp_jacobian_tangent_build_seconds == pytest.approx(0.0)
     assert info.jvp_jacobian_total_seconds >= info.jvp_jacobian_linearize_seconds
+    assert info.jvp_jacobian_push_seconds == pytest.approx(
+        info.jvp_jacobian_device_execute_seconds + info.jvp_jacobian_host_transfer_seconds
+    )
 
 
 def test_sparse_newton_solver_reuses_sparse_jvp_workspace() -> None:

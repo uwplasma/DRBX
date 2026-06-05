@@ -2042,6 +2042,8 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_jacobian_refresh_count": 0,
         "adaptive_bdf_linear_iterations": 0,
         "adaptive_bdf_linear_solver_failed_steps": 0,
+        "adaptive_bdf_jvp_jacobian_batch_count": 0,
+        "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses": 0,
         "adaptive_bdf_interval_wall_seconds": 0.0,
         "adaptive_bdf_startup_trial_seconds": 0.0,
         "adaptive_bdf_backward_euler_trial_seconds": 0.0,
@@ -2051,6 +2053,13 @@ def _new_adaptive_bdf_interval_stats(step_solver_mode: str) -> dict[str, float |
         "adaptive_bdf_jacobian_assembly_seconds": 0.0,
         "adaptive_bdf_linear_solve_seconds": 0.0,
         "adaptive_bdf_line_search_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_total_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_linearize_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_tangent_build_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_push_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_device_execute_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_host_transfer_seconds": 0.0,
+        "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds": 0.0,
         "adaptive_bdf_min_accepted_dt": None,
         "adaptive_bdf_max_accepted_dt": None,
         "adaptive_bdf_last_error_ratio": None,
@@ -2149,6 +2158,8 @@ def _write_adaptive_bdf_trace_record(
                 "jvp_jacobian_linearize_seconds",
                 "jvp_jacobian_tangent_build_seconds",
                 "jvp_jacobian_push_seconds",
+                "jvp_jacobian_device_execute_seconds",
+                "jvp_jacobian_host_transfer_seconds",
                 "jvp_jacobian_sparse_assembly_seconds",
                 "jvp_jacobian_batch_count",
                 "jvp_jacobian_prebuilt_direction_batch_uses",
@@ -2289,6 +2300,11 @@ def _record_adaptive_bdf_step_solver_info(
         ("residual_evaluation_count", "adaptive_bdf_residual_evaluation_count"),
         ("jacobian_refresh_count", "adaptive_bdf_jacobian_refresh_count"),
         ("jvp_direction_workspace_reuses", "adaptive_bdf_sparse_jvp_workspace_reuses"),
+        ("jvp_jacobian_batch_count", "adaptive_bdf_jvp_jacobian_batch_count"),
+        (
+            "jvp_jacobian_prebuilt_direction_batch_uses",
+            "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses",
+        ),
     ):
         stats[destination_key] = int(stats[destination_key]) + int(diagnostics.get(source_key, 0) or 0)
     stats["adaptive_bdf_linear_iterations"] = int(stats["adaptive_bdf_linear_iterations"]) + int(
@@ -2303,6 +2319,13 @@ def _record_adaptive_bdf_step_solver_info(
         ("jacobian_assembly_seconds", "adaptive_bdf_jacobian_assembly_seconds"),
         ("linear_solve_seconds", "adaptive_bdf_linear_solve_seconds"),
         ("line_search_seconds", "adaptive_bdf_line_search_seconds"),
+        ("jvp_jacobian_total_seconds", "adaptive_bdf_jvp_jacobian_total_seconds"),
+        ("jvp_jacobian_linearize_seconds", "adaptive_bdf_jvp_jacobian_linearize_seconds"),
+        ("jvp_jacobian_tangent_build_seconds", "adaptive_bdf_jvp_jacobian_tangent_build_seconds"),
+        ("jvp_jacobian_push_seconds", "adaptive_bdf_jvp_jacobian_push_seconds"),
+        ("jvp_jacobian_device_execute_seconds", "adaptive_bdf_jvp_jacobian_device_execute_seconds"),
+        ("jvp_jacobian_host_transfer_seconds", "adaptive_bdf_jvp_jacobian_host_transfer_seconds"),
+        ("jvp_jacobian_sparse_assembly_seconds", "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"),
     ):
         stats[destination_key] = float(stats[destination_key]) + float(diagnostics.get(source_key, 0.0) or 0.0)
     rhs_backend = str(diagnostics.get("rhs_backend", ""))
@@ -2356,6 +2379,8 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_refresh_count",
         "adaptive_bdf_linear_iterations",
         "adaptive_bdf_linear_solver_failed_steps",
+        "adaptive_bdf_jvp_jacobian_batch_count",
+        "adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses",
     )
     for key in count_keys:
         total[key] = int(total[key]) + int(step.get(key, 0))
@@ -2370,6 +2395,13 @@ def _accumulate_adaptive_bdf_interval_stats(
         "adaptive_bdf_jacobian_assembly_seconds",
         "adaptive_bdf_linear_solve_seconds",
         "adaptive_bdf_line_search_seconds",
+        "adaptive_bdf_jvp_jacobian_total_seconds",
+        "adaptive_bdf_jvp_jacobian_linearize_seconds",
+        "adaptive_bdf_jvp_jacobian_tangent_build_seconds",
+        "adaptive_bdf_jvp_jacobian_push_seconds",
+        "adaptive_bdf_jvp_jacobian_device_execute_seconds",
+        "adaptive_bdf_jvp_jacobian_host_transfer_seconds",
+        "adaptive_bdf_jvp_jacobian_sparse_assembly_seconds",
     )
     for key in elapsed_keys:
         total[key] = float(total.get(key, 0.0) or 0.0) + float(step.get(key, 0.0) or 0.0)
@@ -3883,6 +3915,8 @@ def _advance_recycling_1d_bdf_history(
     jvp_jacobian_linearize_seconds = 0.0
     jvp_jacobian_tangent_build_seconds = 0.0
     jvp_jacobian_push_seconds = 0.0
+    jvp_jacobian_device_execute_seconds = 0.0
+    jvp_jacobian_host_transfer_seconds = 0.0
     jvp_jacobian_sparse_assembly_seconds = 0.0
     jvp_jacobian_total_seconds = 0.0
     jvp_jacobian_batch_count = 0
@@ -3998,7 +4032,8 @@ def _advance_recycling_1d_bdf_history(
     def jacobian(_time: float, packed_state: np.ndarray):
         nonlocal jacobian_base_rhs_evaluation_count, jacobian_callback_count, jacobian_callback_seconds
         nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds
-        nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
+        nonlocal jvp_jacobian_device_execute_seconds, jvp_jacobian_host_transfer_seconds, jvp_jacobian_push_seconds
+        nonlocal jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
         nonlocal jvp_jacobian_total_seconds, jvp_rhs_evaluation_count
         jacobian_started_at = time.perf_counter()
         jacobian_callback_count += 1
@@ -4011,12 +4046,15 @@ def _advance_recycling_1d_bdf_history(
 
                 def record_jvp_timing(timing: dict[str, float | int]) -> None:
                     nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds
+                    nonlocal jvp_jacobian_device_execute_seconds, jvp_jacobian_host_transfer_seconds
                     nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds
                     nonlocal jvp_jacobian_tangent_build_seconds, jvp_jacobian_total_seconds
                     jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
                     jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
                     jvp_jacobian_tangent_build_seconds += float(timing.get("tangent_build_seconds", 0.0))
                     jvp_jacobian_push_seconds += float(timing.get("push_seconds", 0.0))
+                    jvp_jacobian_device_execute_seconds += float(timing.get("device_execute_seconds", 0.0))
+                    jvp_jacobian_host_transfer_seconds += float(timing.get("host_transfer_seconds", 0.0))
                     jvp_jacobian_sparse_assembly_seconds += float(timing.get("sparse_assembly_seconds", 0.0))
                     jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
 
@@ -4119,6 +4157,8 @@ def _advance_recycling_1d_bdf_history(
             "bdf_jvp_jacobian_batch_count": int(jvp_jacobian_batch_count),
             "bdf_jvp_jacobian_linearize_seconds": float(jvp_jacobian_linearize_seconds),
             "bdf_jvp_jacobian_push_seconds": float(jvp_jacobian_push_seconds),
+            "bdf_jvp_jacobian_device_execute_seconds": float(jvp_jacobian_device_execute_seconds),
+            "bdf_jvp_jacobian_host_transfer_seconds": float(jvp_jacobian_host_transfer_seconds),
             "bdf_jvp_jacobian_sparse_assembly_seconds": float(jvp_jacobian_sparse_assembly_seconds),
             "bdf_jvp_jacobian_tangent_build_seconds": float(jvp_jacobian_tangent_build_seconds),
             "bdf_jvp_jacobian_total_seconds": float(jvp_jacobian_total_seconds),
@@ -4762,6 +4802,8 @@ def _as_recycling_step_info(
         "jvp_jacobian_linearize_seconds": float(getattr(info, "jvp_jacobian_linearize_seconds", 0.0)),
         "jvp_jacobian_tangent_build_seconds": float(getattr(info, "jvp_jacobian_tangent_build_seconds", 0.0)),
         "jvp_jacobian_push_seconds": float(getattr(info, "jvp_jacobian_push_seconds", 0.0)),
+        "jvp_jacobian_device_execute_seconds": float(getattr(info, "jvp_jacobian_device_execute_seconds", 0.0)),
+        "jvp_jacobian_host_transfer_seconds": float(getattr(info, "jvp_jacobian_host_transfer_seconds", 0.0)),
         "jvp_jacobian_sparse_assembly_seconds": float(getattr(info, "jvp_jacobian_sparse_assembly_seconds", 0.0)),
         "jvp_jacobian_batch_count": int(getattr(info, "jvp_jacobian_batch_count", 0)),
         "jvp_jacobian_prebuilt_direction_batch_uses": int(

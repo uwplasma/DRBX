@@ -198,11 +198,13 @@ output-window reference-parity and GPU/CPU scaling campaigns pass with the
 same component-wise norm.
 After sparse-JVP workspace threading, the same bounded gate still accepts the
 same eight steps and reports `adaptive_bdf_sparse_jvp_workspace_reuses=17`,
-one reuse for each trial solve. The local wall time is `29.5 s`, essentially
-unchanged from the previous `28.6 s` probe, which is the desired diagnostic
-separation: static sparse plan/direction allocation has been removed from the
-adaptive loop, but the runtime blocker remains grouped-JVP linearization and
-push during Jacobian assembly.
+one reuse for each trial solve. With synchronized sparse-JVP timing enabled,
+the local wall time is `29.1 s`; of `27.9 s` spent in JVP Jacobian construction,
+`17.8 s` is JAX linearization, `10.1 s` is grouped-push device execution,
+`1.6e-4 s` is host transfer, and `5.0e-3 s` is sparse assembly. Static sparse
+plan/direction allocation has therefore been removed from the adaptive loop,
+but the runtime blocker remains residual linearization and grouped-JVP push
+execution.
 
 The D/T/He fixed-layout JAX-linearized residual gate now has both CPU and GPU
 profile summaries under `docs/data/runtime_profile_artifacts/`. On the current

@@ -45,6 +45,8 @@ class ImplicitStepInfo:
     jvp_jacobian_linearize_seconds: float = 0.0
     jvp_jacobian_tangent_build_seconds: float = 0.0
     jvp_jacobian_push_seconds: float = 0.0
+    jvp_jacobian_device_execute_seconds: float = 0.0
+    jvp_jacobian_host_transfer_seconds: float = 0.0
     jvp_jacobian_sparse_assembly_seconds: float = 0.0
     jvp_jacobian_batch_count: int = 0
     jvp_jacobian_prebuilt_direction_batch_uses: int = 0
@@ -413,7 +415,15 @@ def build_sparse_jvp_jacobian(
     linearize_seconds = 0.0
     tangent_build_seconds = 0.0
     push_seconds = 0.0
+    device_execute_seconds = 0.0
+    host_transfer_seconds = 0.0
     sparse_assembly_seconds = 0.0
+    sync_timing = os.environ.get("JAX_DRB_SPARSE_JVP_SYNC_TIMING", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     state_array = jnp.asarray(state, dtype=jnp.float64)
     state_shape = tuple(state_array.shape)
@@ -442,11 +452,14 @@ def build_sparse_jvp_jacobian(
                     "linearize_seconds": float(linearize_seconds),
                     "tangent_build_seconds": 0.0,
                     "push_seconds": 0.0,
+                    "device_execute_seconds": 0.0,
+                    "host_transfer_seconds": 0.0,
                     "sparse_assembly_seconds": 0.0,
                     "group_count": 0,
                     "batch_count": 0,
                     "state_size": int(state_size),
                     "nnz": int(plan.nnz),
+                    "sync_timing": int(sync_timing),
                 }
             )
         return coo_matrix((data, (row_indices, col_indices)), shape=plan.shape).tocsr()
@@ -466,12 +479,17 @@ def build_sparse_jvp_jacobian(
         batch_groups = direction_batch.groups
         batch_count += 1
         directions = jnp.asarray(direction_batch.directions, dtype=state_array.dtype)
-        push_started_at = perf_counter()
-        pushed_batch = np.asarray(
-            vmapped_linear_map(directions),
-            dtype=np.float64,
-        ).reshape(len(batch_groups), -1)
-        push_seconds += perf_counter() - push_started_at
+        execute_started_at = perf_counter()
+        pushed_device = vmapped_linear_map(directions)
+        if sync_timing:
+            pushed_device = jax.block_until_ready(pushed_device)
+        device_elapsed = perf_counter() - execute_started_at
+        transfer_started_at = perf_counter()
+        pushed_batch = np.asarray(pushed_device, dtype=np.float64).reshape(len(batch_groups), -1)
+        transfer_elapsed = perf_counter() - transfer_started_at
+        device_execute_seconds += device_elapsed
+        host_transfer_seconds += transfer_elapsed
+        push_seconds += device_elapsed + transfer_elapsed
         assembly_started_at = perf_counter()
         for batch_index, group in enumerate(batch_groups):
             pushed = pushed_batch[batch_index]
@@ -490,12 +508,15 @@ def build_sparse_jvp_jacobian(
                 "linearize_seconds": float(linearize_seconds),
                 "tangent_build_seconds": float(tangent_build_seconds),
                 "push_seconds": float(push_seconds),
+                "device_execute_seconds": float(device_execute_seconds),
+                "host_transfer_seconds": float(host_transfer_seconds),
                 "sparse_assembly_seconds": float(sparse_assembly_seconds),
                 "group_count": int(group_count),
                 "batch_count": int(batch_count),
                 "state_size": int(state_size),
                 "nnz": int(plan.nnz),
                 "prebuilt_direction_batches": int(prebuilt_directions),
+                "sync_timing": int(sync_timing),
             }
         )
     return coo_matrix((data[:offset], (row_indices[:offset], col_indices[:offset])), shape=plan.shape).tocsr()
@@ -611,6 +632,8 @@ def solve_sparse_newton_system(
     jvp_jacobian_linearize_seconds = 0.0
     jvp_jacobian_tangent_build_seconds = 0.0
     jvp_jacobian_push_seconds = 0.0
+    jvp_jacobian_device_execute_seconds = 0.0
+    jvp_jacobian_host_transfer_seconds = 0.0
     jvp_jacobian_sparse_assembly_seconds = 0.0
     jvp_jacobian_batch_count = 0
     jvp_jacobian_prebuilt_direction_batch_uses = 0
@@ -652,6 +675,8 @@ def solve_sparse_newton_system(
             jvp_jacobian_linearize_seconds=jvp_jacobian_linearize_seconds,
             jvp_jacobian_tangent_build_seconds=jvp_jacobian_tangent_build_seconds,
             jvp_jacobian_push_seconds=jvp_jacobian_push_seconds,
+            jvp_jacobian_device_execute_seconds=jvp_jacobian_device_execute_seconds,
+            jvp_jacobian_host_transfer_seconds=jvp_jacobian_host_transfer_seconds,
             jvp_jacobian_sparse_assembly_seconds=jvp_jacobian_sparse_assembly_seconds,
             jvp_jacobian_batch_count=jvp_jacobian_batch_count,
             jvp_jacobian_prebuilt_direction_batch_uses=jvp_jacobian_prebuilt_direction_batch_uses,
@@ -704,12 +729,15 @@ def solve_sparse_newton_system(
 
     def record_jvp_timing(timing: dict[str, float | int]) -> None:
         nonlocal jvp_jacobian_batch_count, jvp_jacobian_linearize_seconds, jvp_jacobian_prebuilt_direction_batch_uses
-        nonlocal jvp_jacobian_push_seconds, jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
+        nonlocal jvp_jacobian_device_execute_seconds, jvp_jacobian_host_transfer_seconds, jvp_jacobian_push_seconds
+        nonlocal jvp_jacobian_sparse_assembly_seconds, jvp_jacobian_tangent_build_seconds
         nonlocal jvp_jacobian_total_seconds
         jvp_jacobian_total_seconds += float(timing.get("total_seconds", 0.0))
         jvp_jacobian_linearize_seconds += float(timing.get("linearize_seconds", 0.0))
         jvp_jacobian_tangent_build_seconds += float(timing.get("tangent_build_seconds", 0.0))
         jvp_jacobian_push_seconds += float(timing.get("push_seconds", 0.0))
+        jvp_jacobian_device_execute_seconds += float(timing.get("device_execute_seconds", 0.0))
+        jvp_jacobian_host_transfer_seconds += float(timing.get("host_transfer_seconds", 0.0))
         jvp_jacobian_sparse_assembly_seconds += float(timing.get("sparse_assembly_seconds", 0.0))
         jvp_jacobian_batch_count += int(timing.get("batch_count", 0))
         jvp_jacobian_prebuilt_direction_batch_uses += int(timing.get("prebuilt_direction_batches", 0))

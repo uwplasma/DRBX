@@ -299,6 +299,15 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
                 "line_search_seconds": 0.125,
                 "linear_solver_success": False,
                 "jvp_direction_workspace_reuses": 1,
+                "jvp_jacobian_batch_count": 2,
+                "jvp_jacobian_prebuilt_direction_batch_uses": 1,
+                "jvp_jacobian_total_seconds": 0.2,
+                "jvp_jacobian_linearize_seconds": 0.03,
+                "jvp_jacobian_tangent_build_seconds": 0.04,
+                "jvp_jacobian_push_seconds": 0.05,
+                "jvp_jacobian_device_execute_seconds": 0.02,
+                "jvp_jacobian_host_transfer_seconds": 0.03,
+                "jvp_jacobian_sparse_assembly_seconds": 0.06,
             }
         ),
     )
@@ -337,10 +346,19 @@ def test_record_adaptive_bdf_step_solver_info_counts_convergence_states() -> Non
     assert stats["adaptive_bdf_linear_iterations"] == 7
     assert stats["adaptive_bdf_linear_solver_failed_steps"] == 1
     assert stats["adaptive_bdf_sparse_jvp_workspace_reuses"] == 1
+    assert stats["adaptive_bdf_jvp_jacobian_batch_count"] == 2
+    assert stats["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] == 1
     assert stats["adaptive_bdf_residual_evaluation_seconds"] == pytest.approx(0.5)
     assert stats["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(0.25)
     assert stats["adaptive_bdf_linear_solve_seconds"] == pytest.approx(0.75)
     assert stats["adaptive_bdf_line_search_seconds"] == pytest.approx(0.125)
+    assert stats["adaptive_bdf_jvp_jacobian_total_seconds"] == pytest.approx(0.2)
+    assert stats["adaptive_bdf_jvp_jacobian_linearize_seconds"] == pytest.approx(0.03)
+    assert stats["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(0.04)
+    assert stats["adaptive_bdf_jvp_jacobian_push_seconds"] == pytest.approx(0.05)
+    assert stats["adaptive_bdf_jvp_jacobian_device_execute_seconds"] == pytest.approx(0.02)
+    assert stats["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] == pytest.approx(0.03)
+    assert stats["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(0.06)
 
 
 def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
@@ -355,10 +373,19 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     step["adaptive_bdf_jacobian_assembly_seconds"] = 5.0
     step["adaptive_bdf_linear_solve_seconds"] = 6.0
     step["adaptive_bdf_line_search_seconds"] = 7.0
+    step["adaptive_bdf_jvp_jacobian_total_seconds"] = 8.0
+    step["adaptive_bdf_jvp_jacobian_linearize_seconds"] = 9.0
+    step["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] = 10.0
+    step["adaptive_bdf_jvp_jacobian_push_seconds"] = 11.0
+    step["adaptive_bdf_jvp_jacobian_device_execute_seconds"] = 12.0
+    step["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] = 13.0
+    step["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] = 14.0
     step["adaptive_bdf_residual_evaluation_count"] = 8
     step["adaptive_bdf_jacobian_refresh_count"] = 9
     step["adaptive_bdf_linear_iterations"] = 10
     step["adaptive_bdf_linear_solver_failed_steps"] = 11
+    step["adaptive_bdf_jvp_jacobian_batch_count"] = 12
+    step["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] = 13
 
     recycling._accumulate_adaptive_bdf_interval_stats(total, step)
 
@@ -371,10 +398,19 @@ def test_adaptive_bdf_interval_stats_accumulates_timing_fields() -> None:
     assert total["adaptive_bdf_jacobian_assembly_seconds"] == pytest.approx(5.0)
     assert total["adaptive_bdf_linear_solve_seconds"] == pytest.approx(6.0)
     assert total["adaptive_bdf_line_search_seconds"] == pytest.approx(7.0)
+    assert total["adaptive_bdf_jvp_jacobian_total_seconds"] == pytest.approx(8.0)
+    assert total["adaptive_bdf_jvp_jacobian_linearize_seconds"] == pytest.approx(9.0)
+    assert total["adaptive_bdf_jvp_jacobian_tangent_build_seconds"] == pytest.approx(10.0)
+    assert total["adaptive_bdf_jvp_jacobian_push_seconds"] == pytest.approx(11.0)
+    assert total["adaptive_bdf_jvp_jacobian_device_execute_seconds"] == pytest.approx(12.0)
+    assert total["adaptive_bdf_jvp_jacobian_host_transfer_seconds"] == pytest.approx(13.0)
+    assert total["adaptive_bdf_jvp_jacobian_sparse_assembly_seconds"] == pytest.approx(14.0)
     assert total["adaptive_bdf_residual_evaluation_count"] == 8
     assert total["adaptive_bdf_jacobian_refresh_count"] == 9
     assert total["adaptive_bdf_linear_iterations"] == 10
     assert total["adaptive_bdf_linear_solver_failed_steps"] == 11
+    assert total["adaptive_bdf_jvp_jacobian_batch_count"] == 12
+    assert total["adaptive_bdf_jvp_jacobian_prebuilt_direction_batch_uses"] == 13
 
 
 def test_adaptive_bdf_trace_flushes_start_record_before_failure(
@@ -1142,6 +1178,8 @@ def test_write_adaptive_bdf_trace_record_records_solver_diagnostics(
                 "jvp_jacobian_linearize_seconds": 0.03,
                 "jvp_jacobian_tangent_build_seconds": 0.04,
                 "jvp_jacobian_push_seconds": 0.05,
+                "jvp_jacobian_device_execute_seconds": 0.02,
+                "jvp_jacobian_host_transfer_seconds": 0.03,
                 "jvp_jacobian_sparse_assembly_seconds": 0.06,
                 "jvp_jacobian_batch_count": 5,
                 "jvp_jacobian_prebuilt_direction_batch_uses": 1,
@@ -1158,6 +1196,8 @@ def test_write_adaptive_bdf_trace_record_records_solver_diagnostics(
     assert record["rhs_backend"] == "fixed_full_field_array"
     assert record["jacobian_mode"] == "jvp"
     assert record["linear_solver_success"] is False
+    assert record["jvp_jacobian_device_execute_seconds"] == 0.02
+    assert record["jvp_jacobian_host_transfer_seconds"] == 0.03
     assert record["jvp_jacobian_prebuilt_direction_batch_uses"] == 1
     assert record["jvp_direction_workspace_reuses"] == 1
 
@@ -1567,6 +1607,8 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
                 "linearize_seconds": 0.05,
                 "tangent_build_seconds": 0.01,
                 "push_seconds": 0.06,
+                "device_execute_seconds": 0.02,
+                "host_transfer_seconds": 0.04,
                 "sparse_assembly_seconds": 0.005,
                 "batch_count": 2,
                 "group_count": 4,
@@ -1619,6 +1661,8 @@ def test_bdf_history_opt_in_uses_fixed_full_field_rhs_and_jvp(monkeypatch: pytes
     assert result.diagnostics["bdf_jvp_jacobian_batch_count"] == 2
     assert result.diagnostics["bdf_jvp_jacobian_linearize_seconds"] == 0.05
     assert result.diagnostics["bdf_jvp_jacobian_push_seconds"] == 0.06
+    assert result.diagnostics["bdf_jvp_jacobian_device_execute_seconds"] == 0.02
+    assert result.diagnostics["bdf_jvp_jacobian_host_transfer_seconds"] == 0.04
     assert result.diagnostics["bdf_jvp_jacobian_sparse_assembly_seconds"] == 0.005
     assert result.diagnostics["bdf_jvp_jacobian_tangent_build_seconds"] == 0.01
     assert result.diagnostics["bdf_jvp_jacobian_total_seconds"] == 0.125

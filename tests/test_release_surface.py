@@ -608,6 +608,11 @@ def test_committed_dthe_adaptive_bdf_trace_probe_reports_blocker() -> None:
     assert workspace_gate["accepted_steps"] == component_floor_gate["accepted_steps"]
     assert workspace_gate["bdf2_accepted_steps"] == component_floor_gate["bdf2_accepted_steps"]
     assert workspace_gate["sparse_jvp_workspace_reuses"] == workspace_gate["trial_solver_steps"]
+    assert workspace_gate["jvp_jacobian_prebuilt_direction_batch_uses"] == workspace_gate["trial_solver_steps"]
+    assert workspace_gate["jvp_jacobian_tangent_build_seconds"] == 0.0
+    assert workspace_gate["jvp_jacobian_linearize_seconds"] > workspace_gate["jvp_jacobian_device_execute_seconds"]
+    assert workspace_gate["jvp_jacobian_device_execute_seconds"] > workspace_gate["jvp_jacobian_sparse_assembly_seconds"]
+    assert workspace_gate["jvp_jacobian_host_transfer_seconds"] < 1.0e-2
     assert workspace_gate["max_accepted_error_ratio"] <= 0.95
     assert "/Users/" not in json.dumps(payload, sort_keys=True)
 
