@@ -35,6 +35,9 @@ class NeutralMixedTermBalanceCampaignArtifacts:
     report_plot_png_path: Path
 
 
+_ACCEPTED_TRACE_STAGE = "post_accepted"
+
+
 def write_neutral_mixed_diagnostic_input(
     source_input: str | Path,
     target_input: str | Path,
@@ -195,6 +198,9 @@ def run_neutral_mixed_hermes_accepted_step_trace(
             "This diagnostic requires a reference binary with the gated accepted-step "
             f"trace monitor enabled. Expected: {trace_path}"
         )
+    _validate_neutral_mixed_reference_accepted_step_trace_schema(
+        trace_path, species=species
+    )
     return trace_path
 
 
@@ -1611,6 +1617,112 @@ def _load_accepted_step_trace_records(
             for record in records
         ],
     }
+
+
+def _validate_neutral_mixed_reference_accepted_step_trace_schema(
+    path: str | Path,
+    *,
+    species: str = "h",
+) -> None:
+    """Validate the reference trace contains the term-level diagnostics we need."""
+
+    source = Path(path).expanduser().resolve()
+    records = _load_accepted_step_trace_raw_records(source)
+    if not records:
+        raise ValueError(f"Accepted-step trace file contains no records: {source}")
+    suffix = str(species)
+    state_fields = (f"N{suffix}", f"P{suffix}", f"NV{suffix}")
+    rhs_fields = (f"ddt(N{suffix})", f"ddt(P{suffix})", f"ddt(NV{suffix})")
+    source_fields = (
+        f"SNV{suffix}",
+        f"SNV{suffix}_pressure_gradient",
+        f"SNV{suffix}_parallel_viscosity",
+        f"SNV{suffix}_perpendicular_viscosity",
+    )
+
+    missing_state_records: list[int] = []
+    all_fields: set[str] = set()
+    available_stages: set[str] = set()
+    for record_index, record in enumerate(records):
+        stage_fields = _accepted_trace_fields_by_stage(record)
+        available_stages.update(stage_fields)
+        for fields in stage_fields.values():
+            all_fields.update(fields)
+        post_accepted_fields = stage_fields.get(_ACCEPTED_TRACE_STAGE, set())
+        if any(name not in post_accepted_fields for name in state_fields):
+            missing_state_records.append(record_index)
+
+    missing_rhs = [name for name in rhs_fields if name not in all_fields]
+    missing_sources = [name for name in source_fields if name not in all_fields]
+    available_field_list = ", ".join(sorted(all_fields)) or "<none>"
+    available_stage_list = ", ".join(sorted(available_stages)) or "<none>"
+    errors: list[str] = []
+    if missing_state_records:
+        errors.append(
+            f"{_ACCEPTED_TRACE_STAGE!r} is missing {state_fields} on record indices "
+            f"{missing_state_records[:8]}"
+        )
+    if missing_rhs:
+        errors.append(f"missing RHS fields: {missing_rhs}")
+    if missing_sources:
+        errors.append(f"missing source diagnostics: {missing_sources}")
+    if errors:
+        raise ValueError(
+            "Hermès neutral-mixed accepted-step trace is missing required diagnostics. "
+            + "; ".join(errors)
+            + f". Available stages: {available_stage_list}. Available fields: {available_field_list}."
+        )
+
+
+def _load_accepted_step_trace_raw_records(path: str | Path) -> list[dict[str, object]]:
+    source = Path(path).expanduser().resolve()
+    text = source.read_text(encoding="utf-8").strip()
+    if not text:
+        return []
+    if text[0] == "{":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return [
+                json.loads(line)
+                for line in text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+        if isinstance(payload, dict) and isinstance(payload.get("trace_points"), list):
+            return [
+                point for point in payload["trace_points"] if isinstance(point, dict)
+            ]
+        return [payload] if isinstance(payload, dict) else []
+    return [
+        json.loads(line)
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _accepted_trace_fields_by_stage(record: dict[str, object]) -> dict[str, set[str]]:
+    stages = record.get("stages")
+    if isinstance(stages, dict):
+        return {
+            str(stage_name): {
+                str(field_name)
+                for field_name, payload in stage_payload.items()
+                if isinstance(payload, dict)
+            }
+            for stage_name, stage_payload in stages.items()
+            if isinstance(stage_payload, dict)
+        }
+    fields = record.get("fields")
+    if isinstance(fields, dict):
+        stage_name = str(record.get("stage", _ACCEPTED_TRACE_STAGE))
+        return {
+            stage_name: {
+                str(field_name)
+                for field_name, payload in fields.items()
+                if isinstance(payload, dict)
+            }
+        }
+    return {}
 
 
 def _normalize_accepted_trace_point(

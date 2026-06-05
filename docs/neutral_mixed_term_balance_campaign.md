@@ -142,6 +142,14 @@ The reference JSONL should include post-boundary/pre-RHS samples, `ddt(Nh)`,
 That is the missing information needed to distinguish time-integrator history
 drift from guard/boundary sequencing differences; the current JAXDRB-side
 artifacts alone do not isolate a unique safe native patch.
+The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
+schema before returning successfully: each accepted-step record must contain
+`Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain
+`ddt(Nh)`, `ddt(Ph)`, `ddt(NVh)`, `SNVh`, `SNVh_pressure_gradient`,
+`SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` somewhere in its
+stage payloads. A reference binary that only writes aggregate final-state
+arrays therefore fails fast with a list of missing fields instead of producing
+an ambiguous accepted-step parity report.
 
 Run the Hermès-free diagnostic with:
 

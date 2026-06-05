@@ -422,7 +422,32 @@ def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
                 {
                     "diagnostic": "neutral_mixed_reference_accepted_step_trace",
                     "time": 0.0,
-                    "stages": {"post_accepted": {}},
+                    "stages": {
+                        "post_accepted": {
+                            name: {
+                                "active_metrics": {"max_abs": 0.0, "rms": 0.0},
+                                "target_adjacent_metrics": {
+                                    "max_abs": 0.0,
+                                    "rms": 0.0,
+                                },
+                                "guard_metrics": {"max_abs": 0.0, "rms": 0.0},
+                                "sample_lineout_y_indices": [0],
+                                "sample_lineout": [0.0],
+                            }
+                            for name in (
+                                "Nh",
+                                "Ph",
+                                "NVh",
+                                "ddt(Nh)",
+                                "ddt(Ph)",
+                                "ddt(NVh)",
+                                "SNVh",
+                                "SNVh_pressure_gradient",
+                                "SNVh_parallel_viscosity",
+                                "SNVh_perpendicular_viscosity",
+                            )
+                        }
+                    },
                 }
             )
             + "\n",
@@ -444,6 +469,45 @@ def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
 
     assert result == trace_path.resolve()
     assert (tmp_path / "work" / "run.log").read_text(encoding="utf-8") == "ok"
+
+
+def test_run_neutral_mixed_hermes_accepted_step_trace_requires_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference_root = tmp_path / "reference"
+    source_dir = reference_root / "tests" / "integrated" / "neutral_mixed" / "data"
+    source_dir.mkdir(parents=True)
+    _write_neutral_mixed_input(source_dir / "BOUT.inp")
+    binary = tmp_path / "hermes-3"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    trace_path = tmp_path / "trace.jsonl"
+
+    def fake_run(command, **kwargs):
+        trace_path.write_text(
+            json.dumps(
+                {
+                    "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+                    "time": 0.0,
+                    "stages": {"post_accepted": {"NVh": {}}},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="ok")
+
+    monkeypatch.setattr(
+        "jax_drb.validation.neutral_mixed_term_balance_campaign.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(ValueError, match="missing required diagnostics"):
+        run_neutral_mixed_hermes_accepted_step_trace(
+            reference_root=reference_root,
+            workdir=tmp_path / "work",
+            hermes_binary=binary,
+            trace_jsonl_path=trace_path,
+        )
 
 
 def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(
