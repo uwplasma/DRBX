@@ -2,22 +2,31 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from jax_drb.validation import (
+    build_neutral_mixed_native_accepted_step_trace_report,
     build_neutral_mixed_substep_hybrid_report,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
     save_neutral_mixed_term_balance_campaign_plot,
+    write_neutral_mixed_native_accepted_step_trace_json,
     write_neutral_mixed_substep_hybrid_json,
     write_neutral_mixed_diagnostic_input,
 )
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_REFERENCE_ARRAYS = _REPO_ROOT / "references" / "baselines" / "reference_arrays" / "neutral_mixed_one_step.npz"
+_REFERENCE_ARRAYS = (
+    _REPO_ROOT
+    / "references"
+    / "baselines"
+    / "reference_arrays"
+    / "neutral_mixed_one_step.npz"
+)
 _COMMITTED_REPORT_JSON = (
     _REPO_ROOT
     / "docs"
@@ -53,7 +62,9 @@ def _write_synthetic_native_history_with_target_drift(path: Path) -> Path:
     return path
 
 
-def _synthetic_native_history_with_scaled_target_drift(scale: float) -> dict[str, object]:
+def _synthetic_native_history_with_scaled_target_drift(
+    scale: float,
+) -> dict[str, object]:
     with np.load(_REFERENCE_ARRAYS) as reference:
         metadata = json.loads(str(reference["__metadata__"].item()))
         time_points = np.asarray(metadata["time_points"], dtype=np.float64)
@@ -112,7 +123,9 @@ function = 0.1 * Nh:function
     return path
 
 
-def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_path: Path) -> None:
+def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(
+    tmp_path: Path,
+) -> None:
     input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
 
     report = build_neutral_mixed_term_balance_campaign_report(
@@ -130,53 +143,105 @@ def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(tmp_pa
     assert "pressure_gradient" in reference_terms
     assert "residual_rate" in reference_terms
     assert "pressure_gradient" in report["term_delta"]["lineouts"]
-    assert report["offender_register"]["native_minus_hermes_term_delta"][0]["target_adjacent_max_abs"] >= 0.0
+    assert (
+        report["offender_register"]["native_minus_hermes_term_delta"][0][
+            "target_adjacent_max_abs"
+        ]
+        >= 0.0
+    )
     assert report["offender_register"]["dominant_residual_cells"]
-    assert report["reference_balance"]["term_metrics"]["residual_rate"]["max_abs"] >= 0.0
+    assert (
+        report["reference_balance"]["term_metrics"]["residual_rate"]["max_abs"] >= 0.0
+    )
     field_register = report["final_field_error_register"]
     assert field_register["target_y_indices"]
-    assert field_register["ranked_by_target_adjacent_max_abs"][0]["field"] in {"Nh", "Ph", "NVh"}
+    assert field_register["ranked_by_target_adjacent_max_abs"][0]["field"] in {
+        "Nh",
+        "Ph",
+        "NVh",
+    }
     assert set(field_register["fields"]) == {"Nh", "Ph", "NVh"}
     assert field_register["fields"]["Nh"]["target_adjacent_max_abs"] >= 0.0
-    assert len(field_register["fields"]["Ph"]["lineout"]) == len(report["active_y_indices"])
+    assert len(field_register["fields"]["Ph"]["lineout"]) == len(
+        report["active_y_indices"]
+    )
     state_driver_register = report["state_driver_register"]
     assert set(state_driver_register["state_rate_errors"]) == {"Nh", "Ph", "NVh"}
-    assert state_driver_register["ranked_state_rate_errors"][0]["field"] in {"Nh", "Ph", "NVh"}
-    assert "pressure_to_pressure_gradient" in state_driver_register["momentum_driver_deltas"]
-    assert "momentum_to_parallel_viscosity" in state_driver_register["momentum_driver_deltas"]
-    pressure_driver = state_driver_register["momentum_driver_deltas"]["pressure_to_pressure_gradient"]
+    assert state_driver_register["ranked_state_rate_errors"][0]["field"] in {
+        "Nh",
+        "Ph",
+        "NVh",
+    }
+    assert (
+        "pressure_to_pressure_gradient"
+        in state_driver_register["momentum_driver_deltas"]
+    )
+    assert (
+        "momentum_to_parallel_viscosity"
+        in state_driver_register["momentum_driver_deltas"]
+    )
+    pressure_driver = state_driver_register["momentum_driver_deltas"][
+        "pressure_to_pressure_gradient"
+    ]
     assert pressure_driver["field"] == "Ph"
     assert pressure_driver["term"] == "pressure_gradient"
     assert len(pressure_driver["term_delta_lineout"]) == len(report["active_y_indices"])
 
 
-def test_committed_neutral_mixed_term_balance_report_closes_direct_nvh_sources() -> None:
+def test_committed_neutral_mixed_term_balance_report_closes_direct_nvh_sources() -> (
+    None
+):
     report = json.loads(_COMMITTED_REPORT_JSON.read_text(encoding="utf-8"))
 
     diagnostics = report["hermes_diagnostic_outputs"]["direct_comparisons"]
-    assert diagnostics["SNVh_pressure_gradient"]["scaled_difference_metrics"]["max_abs"] < 3.0e-19
-    assert diagnostics["SNVh_parallel_viscosity"]["scaled_difference_metrics"]["max_abs"] < 2.0e-18
-    assert diagnostics["SNVh_perpendicular_viscosity"]["scaled_difference_metrics"]["max_abs"] < 2.0e-22
+    assert (
+        diagnostics["SNVh_pressure_gradient"]["scaled_difference_metrics"]["max_abs"]
+        < 3.0e-19
+    )
+    assert (
+        diagnostics["SNVh_parallel_viscosity"]["scaled_difference_metrics"]["max_abs"]
+        < 2.0e-18
+    )
+    assert (
+        diagnostics["SNVh_perpendicular_viscosity"]["scaled_difference_metrics"][
+            "max_abs"
+        ]
+        < 2.0e-22
+    )
 
     state_register = report["state_driver_register"]
     ranked_state_rates = state_register["ranked_state_rate_errors"]
     assert [entry["field"] for entry in ranked_state_rates] == ["Nh", "Ph", "NVh"]
-    assert ranked_state_rates[0]["target_adjacent_max_abs"] == pytest.approx(7.605456118353615e-06)
-    assert ranked_state_rates[1]["target_adjacent_max_abs"] == pytest.approx(7.524079128004568e-07)
-    assert ranked_state_rates[2]["target_adjacent_max_abs"] == pytest.approx(2.023199034449706e-07)
+    assert ranked_state_rates[0]["target_adjacent_max_abs"] == pytest.approx(
+        7.605456118353615e-06
+    )
+    assert ranked_state_rates[1]["target_adjacent_max_abs"] == pytest.approx(
+        7.524079128004568e-07
+    )
+    assert ranked_state_rates[2]["target_adjacent_max_abs"] == pytest.approx(
+        2.023199034449706e-07
+    )
 
     ranked_drivers = state_register["ranked_momentum_driver_deltas"]
     assert [entry["driver"] for entry in ranked_drivers[:2]] == [
         "momentum_to_parallel_viscosity",
         "pressure_to_pressure_gradient",
     ]
-    assert ranked_drivers[0]["target_adjacent_max_abs"] == pytest.approx(1.0011406404022939e-05)
-    assert ranked_drivers[1]["target_adjacent_max_abs"] == pytest.approx(8.096712974357042e-06)
+    assert ranked_drivers[0]["target_adjacent_max_abs"] == pytest.approx(
+        1.0011406404022939e-05
+    )
+    assert ranked_drivers[1]["target_adjacent_max_abs"] == pytest.approx(
+        8.096712974357042e-06
+    )
 
 
-def test_neutral_mixed_term_balance_register_ranks_target_adjacent_state_drift(tmp_path: Path) -> None:
+def test_neutral_mixed_term_balance_register_ranks_target_adjacent_state_drift(
+    tmp_path: Path,
+) -> None:
     input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
-    native_arrays = _write_synthetic_native_history_with_target_drift(tmp_path / "native_target_drift.npz")
+    native_arrays = _write_synthetic_native_history_with_target_drift(
+        tmp_path / "native_target_drift.npz"
+    )
 
     report = build_neutral_mixed_term_balance_campaign_report(
         input_path=input_path,
@@ -187,22 +252,34 @@ def test_neutral_mixed_term_balance_register_ranks_target_adjacent_state_drift(t
     field_register = report["final_field_error_register"]
     ranked_fields = field_register["ranked_by_target_adjacent_max_abs"]
     assert ranked_fields[0]["field"] == "Nh"
-    assert ranked_fields[0]["target_adjacent_max_abs"] == pytest.approx(2.0e-2, rel=1.0e-12, abs=1.0e-12)
+    assert ranked_fields[0]["target_adjacent_max_abs"] == pytest.approx(
+        2.0e-2, rel=1.0e-12, abs=1.0e-12
+    )
     assert field_register["fields"]["Nh"]["interior_max_abs"] == 0.0
-    assert field_register["fields"]["Ph"]["target_adjacent_max_abs"] == pytest.approx(3.0e-3, rel=1.0e-12, abs=1.0e-12)
-    assert field_register["fields"]["NVh"]["target_adjacent_max_abs"] == pytest.approx(1.0e-3, rel=1.0e-12, abs=1.0e-12)
+    assert field_register["fields"]["Ph"]["target_adjacent_max_abs"] == pytest.approx(
+        3.0e-3, rel=1.0e-12, abs=1.0e-12
+    )
+    assert field_register["fields"]["NVh"]["target_adjacent_max_abs"] == pytest.approx(
+        1.0e-3, rel=1.0e-12, abs=1.0e-12
+    )
 
     state_register = report["state_driver_register"]
     ranked_state_rates = state_register["ranked_state_rate_errors"]
     assert ranked_state_rates[0]["field"] == "Nh"
-    assert ranked_state_rates[0]["target_adjacent_max_abs"] == pytest.approx(1.0e-3, rel=1.0e-12, abs=1.0e-12)
-    pressure_driver = state_register["momentum_driver_deltas"]["pressure_to_pressure_gradient"]
+    assert ranked_state_rates[0]["target_adjacent_max_abs"] == pytest.approx(
+        1.0e-3, rel=1.0e-12, abs=1.0e-12
+    )
+    pressure_driver = state_register["momentum_driver_deltas"][
+        "pressure_to_pressure_gradient"
+    ]
     assert pressure_driver["target_adjacent_max_abs"] > 0.0
     assert pressure_driver["interior_max_abs"] >= 0.0
     assert state_register["target_y_indices"] == field_register["target_y_indices"]
 
 
-def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_path: Path) -> None:
+def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(
+    tmp_path: Path,
+) -> None:
     input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
 
     artifacts = create_neutral_mixed_term_balance_campaign_package(
@@ -233,10 +310,14 @@ def test_create_neutral_mixed_term_balance_campaign_package_writes_outputs(tmp_p
         assert "final_field_error_NVh_lineout" in arrays
         assert "state_rate_error_Nh_lineout" in arrays
         assert "state_driver_pressure_to_pressure_gradient_term_delta_lineout" in arrays
-        assert "state_driver_momentum_to_parallel_viscosity_term_delta_lineout" in arrays
+        assert (
+            "state_driver_momentum_to_parallel_viscosity_term_delta_lineout" in arrays
+        )
 
 
-def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(tmp_path: Path) -> None:
+def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(
+    tmp_path: Path,
+) -> None:
     from netCDF4 import Dataset
 
     input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
@@ -280,9 +361,13 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(t
     assert len(comparison["scaled_direct_lineout"]) == len(report["active_y_indices"])
 
 
-def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(tmp_path: Path) -> None:
+def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(
+    tmp_path: Path,
+) -> None:
     source = _write_neutral_mixed_input(tmp_path / "source.inp")
-    target = write_neutral_mixed_diagnostic_input(source, tmp_path / "data" / "BOUT.inp")
+    target = write_neutral_mixed_diagnostic_input(
+        source, tmp_path / "data" / "BOUT.inp"
+    )
 
     text = target.read_text(encoding="utf-8")
     assert "nout = 1" in text
@@ -291,7 +376,9 @@ def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(tmp_path: P
     assert "diagnose = true" in text
 
 
-def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(tmp_path: Path) -> None:
+def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(
+    tmp_path: Path,
+) -> None:
     input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
     report = build_neutral_mixed_substep_hybrid_report(
         reference_root=tmp_path / "missing_reference_root",
@@ -307,26 +394,104 @@ def test_neutral_mixed_substep_hybrid_report_ranks_successes_and_failures(tmp_pa
     assert report["diagnostic"] == "neutral_mixed_substep_hybrid_state"
     assert report["requires_hermes"] is False
     assert report["best"]["internal_substeps"] == 4
-    assert report["best"]["value"] < report["sweep_points"][0]["final_field_error_register"]["fields"]["NVh"]["max_abs"]
+    assert (
+        report["best"]["value"]
+        < report["sweep_points"][0]["final_field_error_register"]["fields"]["NVh"][
+            "max_abs"
+        ]
+    )
     failed = [point for point in report["sweep_points"] if point["status"] == "failed"]
     assert failed
     assert failed[0]["internal_substeps"] == 8
     assert failed[0]["error_type"] == "FileNotFoundError"
 
     successful = [point for point in report["sweep_points"] if point["status"] == "ok"]
-    edge_trace = successful[0]["series_errors"]["fields"]["Nh"]["active_edge_history_trace"]
+    edge_trace = successful[0]["series_errors"]["fields"]["Nh"][
+        "active_edge_history_trace"
+    ]
     assert edge_trace["target_active_y_offsets"] == [0, 1, 8, 9]
     assert edge_trace["target_adjacent_max_abs_by_time"][0] == 0.0
     assert edge_trace["target_adjacent_max_abs_by_time"][-1] == pytest.approx(2.0e-2)
     hybrid = successful[0]["hybrid_state_register"]
     assert set(hybrid["swaps"]) == {"Nh", "Ph", "NVh"}
-    assert hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"] == "Ph"
-    assert hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0]["swapped_field"] == "NVh"
-    assert successful[0]["series_errors"]["ranked_by_final_target_adjacent_max_abs"][0]["field"] == "Nh"
+    assert (
+        hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"]
+        == "Ph"
+    )
+    assert (
+        hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0]["swapped_field"]
+        == "NVh"
+    )
+    assert (
+        successful[0]["series_errors"]["ranked_by_final_target_adjacent_max_abs"][0][
+            "field"
+        ]
+        == "Nh"
+    )
 
     path = write_neutral_mixed_substep_hybrid_json(report, tmp_path / "substeps.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["field"] == "NVh"
+
+
+def test_neutral_mixed_native_accepted_step_trace_report_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+
+    def fake_implicit_history(_config, **kwargs):
+        mesh = kwargs["mesh"]
+        shape = (3, mesh.nx, mesh.local_ny, mesh.nz)
+        base = np.ones(shape, dtype=np.float64)
+        assert kwargs["store_internal_substeps"] is True
+        assert kwargs["internal_substeps"] == 2
+        return SimpleNamespace(
+            density_history=base[[0, -1]],
+            pressure_history=2.0 * base[[0, -1]],
+            momentum_history=3.0 * base[[0, -1]],
+            accepted_step_time_points=np.asarray([0.0, 10.0, 20.0], dtype=np.float64),
+            accepted_step_dt=np.asarray([0.0, 10.0, 10.0], dtype=np.float64),
+            accepted_step_order=np.asarray([0, 1, 2], dtype=np.int32),
+            accepted_step_density_history=base,
+            accepted_step_pressure_history=2.0 * base,
+            accepted_step_momentum_history=3.0 * base,
+            accepted_step_residual_inf_norm=np.asarray(
+                [0.0, 1.0e-10, 2.0e-10], dtype=np.float64
+            ),
+            accepted_step_nonlinear_iterations=np.asarray([0, 2, 3], dtype=np.int32),
+        )
+
+    monkeypatch.setattr(
+        "jax_drb.validation.neutral_mixed_term_balance_campaign.advance_neutral_mixed_implicit_history",
+        fake_implicit_history,
+    )
+
+    report = build_neutral_mixed_native_accepted_step_trace_report(
+        input_path=input_path,
+        internal_substeps=2,
+        steps=1,
+    )
+
+    assert report["diagnostic"] == "neutral_mixed_native_accepted_step_trace"
+    assert report["requires_hermes"] is False
+    assert report["trace_point_count"] == 3
+    assert report["target_y_indices"] == [2, 3, 10, 11]
+    assert report["guard_y_indices"] == [0, 1, 12, 13]
+    assert report["sample_y_indices"] == [0, 1, 2, 3, 10, 11, 12, 13]
+    assert report["trace_points"][1]["solver_order"] == 1
+    assert report["trace_points"][2]["solver_order"] == 2
+    assert report["trace_points"][2]["fields"]["NVh"]["target_adjacent_metrics"][
+        "max_abs"
+    ] == pytest.approx(3.0)
+    assert report["trace_points"][2]["fields"]["Nh"]["sample_lineout"] == pytest.approx(
+        [1.0] * 8
+    )
+
+    path = write_neutral_mixed_native_accepted_step_trace_json(
+        report, tmp_path / "native_trace.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["diagnostic"] == "neutral_mixed_native_accepted_step_trace"
 
 
 def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:
@@ -348,7 +513,9 @@ def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() 
         "value": pytest.approx(4.46733131195939e-6),
     }
 
-    points = {int(point["internal_substeps"]): point for point in report["sweep_points"]}
+    points = {
+        int(point["internal_substeps"]): point for point in report["sweep_points"]
+    }
     assert sorted(points) == [1, 2, 3, 4, 6, 8]
     assert points[3]["status"] == "failed"
     assert points[6]["status"] == "failed"
@@ -368,12 +535,24 @@ def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() 
     assert successful_errors[-1] == pytest.approx(4.46733131195939e-6)
 
     best_hybrid = points[8]["hybrid_state_register"]
-    assert best_hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0]["swapped_field"] == "Ph"
-    assert best_hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0]["swapped_field"] == "NVh"
+    assert (
+        best_hybrid["ranked_by_pressure_gradient_target_adjacent_delta"][0][
+            "swapped_field"
+        ]
+        == "Ph"
+    )
+    assert (
+        best_hybrid["ranked_by_parallel_viscosity_target_adjacent_delta"][0][
+            "swapped_field"
+        ]
+        == "NVh"
+    )
 
     best_trace = points[8]["series_errors"]["fields"]["Nh"]["active_edge_history_trace"]
     assert best_trace["target_active_y_offsets"] == [0, 1, 8, 9]
-    assert best_trace["target_adjacent_max_abs_by_time"][0] == pytest.approx(0.0, abs=2.0e-16)
+    assert best_trace["target_adjacent_max_abs_by_time"][0] == pytest.approx(
+        0.0, abs=2.0e-16
+    )
     assert best_trace["target_adjacent_max_abs_by_time"][-1] == pytest.approx(
         points[8]["series_errors"]["fields"]["Nh"]["final_target_adjacent_max_abs"]
     )

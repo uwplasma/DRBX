@@ -105,6 +105,16 @@ which records accepted internal-step time, `dt`, BDF order, final accepted
 `Nh`, `Ph`, and `NVh`, nonlinear iteration count, and residual norm without
 changing the default history output. That hook is intentionally opt-in because
 it is diagnostic evidence, not a different physical model.
+
+Write the matching native trace artifact with:
+
+```bash
+PYTHONPATH=src jax-drb trace-neutral-mixed-accepted-steps \
+  --case-name neutral_mixed_one_step \
+  --internal-substeps 8 \
+  --json-out neutral_mixed_native_accepted_step_trace.json
+```
+
 For every accepted internal solver step from `t = 0` to the one-step output
 time, the trace should write `time`, `dt`, solver order, and both
 post-boundary/pre-RHS and post-accepted `Nh`, `Ph`, and `NVh` values at the

@@ -6,7 +6,6 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -17,6 +16,7 @@ from ..native.mesh import build_structured_mesh
 from ..native.metrics import build_structured_metrics
 from ..native.neutral_mixed import (
     _sanitize_neutral_state,
+    advance_neutral_mixed_implicit_history,
     compute_neutral_mixed_rhs,
     initialize_neutral_mixed_state,
 )
@@ -73,7 +73,11 @@ def run_neutral_mixed_hermes_diagnostic_rerun(
     if not source_input.exists():
         raise FileNotFoundError(f"Neutral mixed Hermès input not found: {source_input}")
     write_neutral_mixed_diagnostic_input(source_input, data_dir / "BOUT.inp")
-    binary = Path(hermes_binary).expanduser().resolve() if hermes_binary is not None else _default_hermes_binary(root)
+    binary = (
+        Path(hermes_binary).expanduser().resolve()
+        if hermes_binary is not None
+        else _default_hermes_binary(root)
+    )
     completed = subprocess.run(
         [str(binary), "-d", "data"],
         cwd=target_workdir,
@@ -86,10 +90,14 @@ def run_neutral_mixed_hermes_diagnostic_rerun(
     (target_workdir / "run.log").write_text(completed.stdout, encoding="utf-8")
     if completed.returncode != 0:
         tail = "\n".join(completed.stdout.splitlines()[-40:])
-        raise RuntimeError(f"Hermès neutral-mixed diagnostic rerun failed with exit code {completed.returncode}:\n{tail}")
+        raise RuntimeError(
+            f"Hermès neutral-mixed diagnostic rerun failed with exit code {completed.returncode}:\n{tail}"
+        )
     dump_path = data_dir / "BOUT.dmp.0.nc"
     if not dump_path.exists():
-        raise FileNotFoundError(f"Hermès neutral-mixed diagnostic rerun did not produce {dump_path}")
+        raise FileNotFoundError(
+            f"Hermès neutral-mixed diagnostic rerun did not produce {dump_path}"
+        )
     return dump_path
 
 
@@ -119,8 +127,12 @@ def create_neutral_mixed_term_balance_campaign_package(
         hermes_diagnostic_nc=hermes_diagnostic_nc,
     )
     report_json_path = data_dir / f"{case_label}.json"
-    report_json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
-    report_npz_path = _write_neutral_mixed_term_balance_arrays(report, data_dir / f"{case_label}.npz")
+    report_json_path.write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    report_npz_path = _write_neutral_mixed_term_balance_arrays(
+        report, data_dir / f"{case_label}.npz"
+    )
     report_plot_png_path = save_neutral_mixed_term_balance_campaign_plot(
         report,
         images_dir / f"{case_label}.png",
@@ -141,10 +153,16 @@ def build_neutral_mixed_term_balance_campaign_report(
     native_arrays_npz: str | Path | None = None,
     hermes_diagnostic_nc: str | Path | None = None,
 ) -> dict[str, object]:
-    root = Path(reference_root).expanduser().resolve() if reference_root is not None else default_reference_root()
+    root = (
+        Path(reference_root).expanduser().resolve()
+        if reference_root is not None
+        else default_reference_root()
+    )
     if input_path is None:
         if root is None:
-            raise FileNotFoundError("reference_root or input_path is required for neutral mixed term-balance diagnostics.")
+            raise FileNotFoundError(
+                "reference_root or input_path is required for neutral mixed term-balance diagnostics."
+            )
         _, resolved_input_path = resolve_reference_case(case_name, reference_root=root)
         input_path = resolved_input_path
     input_path = Path(input_path).expanduser().resolve()
@@ -157,7 +175,11 @@ def build_neutral_mixed_term_balance_campaign_report(
     reference_npz = (
         Path(reference_arrays_npz)
         if reference_arrays_npz is not None
-        else repo_root() / "references" / "baselines" / "reference_arrays" / f"{case_name}.npz"
+        else repo_root()
+        / "references"
+        / "baselines"
+        / "reference_arrays"
+        / f"{case_name}.npz"
     )
     reference_history = _load_neutral_mixed_history_npz(reference_npz)
     native_history = (
@@ -167,11 +189,19 @@ def build_neutral_mixed_term_balance_campaign_report(
     )
     time_points = np.asarray(reference_history["time_points"], dtype=np.float64)
     if time_points.size < 2:
-        raise ValueError("Neutral mixed term-balance diagnostics require at least two stored time points.")
+        raise ValueError(
+            "Neutral mixed term-balance diagnostics require at least two stored time points."
+        )
     timestep = float(time_points[-1] - time_points[0])
-    reference_initial = _state_from_trimmed_history(reference_history, template_state, time_index=0, mesh=mesh)
-    reference_final = _state_from_trimmed_history(reference_history, template_state, time_index=-1, mesh=mesh)
-    native_final = _state_from_trimmed_history(native_history, template_state, time_index=-1, mesh=mesh)
+    reference_initial = _state_from_trimmed_history(
+        reference_history, template_state, time_index=0, mesh=mesh
+    )
+    reference_final = _state_from_trimmed_history(
+        reference_history, template_state, time_index=-1, mesh=mesh
+    )
+    native_final = _state_from_trimmed_history(
+        native_history, template_state, time_index=-1, mesh=mesh
+    )
     native_balance = _momentum_balance(
         config,
         native_final,
@@ -194,10 +224,13 @@ def build_neutral_mixed_term_balance_campaign_report(
     active_x = slice(mesh.xstart, mesh.xend + 1)
     active_y = slice(mesh.ystart, mesh.yend + 1)
     final_error = np.asarray(
-        native_final.momentum[active_x, active_y, :] - reference_final.momentum[active_x, active_y, :],
+        native_final.momentum[active_x, active_y, :]
+        - reference_final.momentum[active_x, active_y, :],
         dtype=np.float64,
     )
-    worst_x_active, worst_y_active, worst_z = np.unravel_index(np.argmax(np.abs(final_error)), final_error.shape)
+    worst_x_active, worst_y_active, worst_z = np.unravel_index(
+        np.argmax(np.abs(final_error)), final_error.shape
+    )
     worst_x = int(mesh.xstart + worst_x_active)
     worst_y = int(mesh.ystart + worst_y_active)
     line_x = worst_x
@@ -325,7 +358,9 @@ def build_neutral_mixed_term_balance_campaign_report(
             matched_sources={
                 "SNVh_pressure_gradient": reference_balance.get("pressure_gradient"),
                 "SNVh_parallel_viscosity": reference_balance.get("parallel_viscosity"),
-                "SNVh_perpendicular_viscosity": reference_balance.get("perpendicular_viscosity"),
+                "SNVh_perpendicular_viscosity": reference_balance.get(
+                    "perpendicular_viscosity"
+                ),
             },
         )
     return report
@@ -348,10 +383,16 @@ def build_neutral_mixed_substep_hybrid_report(
     claiming a new live-reference comparison.
     """
 
-    root = Path(reference_root).expanduser().resolve() if reference_root is not None else default_reference_root()
+    root = (
+        Path(reference_root).expanduser().resolve()
+        if reference_root is not None
+        else default_reference_root()
+    )
     if input_path is None:
         if root is None:
-            raise FileNotFoundError("reference_root or input_path is required for neutral mixed substep diagnostics.")
+            raise FileNotFoundError(
+                "reference_root or input_path is required for neutral mixed substep diagnostics."
+            )
         _, resolved_input_path = resolve_reference_case(case_name, reference_root=root)
         input_path = resolved_input_path
     input_path = Path(input_path).expanduser().resolve()
@@ -364,15 +405,25 @@ def build_neutral_mixed_substep_hybrid_report(
     reference_npz = (
         Path(reference_arrays_npz)
         if reference_arrays_npz is not None
-        else repo_root() / "references" / "baselines" / "reference_arrays" / f"{case_name}.npz"
+        else repo_root()
+        / "references"
+        / "baselines"
+        / "reference_arrays"
+        / f"{case_name}.npz"
     )
     reference_history = _load_neutral_mixed_history_npz(reference_npz)
     time_points = np.asarray(reference_history["time_points"], dtype=np.float64)
     if time_points.size < 2:
-        raise ValueError("Neutral mixed substep diagnostics require at least two stored time points.")
+        raise ValueError(
+            "Neutral mixed substep diagnostics require at least two stored time points."
+        )
     timestep = float(time_points[-1] - time_points[0])
-    reference_initial = _state_from_trimmed_history(reference_history, template_state, time_index=0, mesh=mesh)
-    reference_final = _state_from_trimmed_history(reference_history, template_state, time_index=-1, mesh=mesh)
+    reference_initial = _state_from_trimmed_history(
+        reference_history, template_state, time_index=0, mesh=mesh
+    )
+    reference_final = _state_from_trimmed_history(
+        reference_history, template_state, time_index=-1, mesh=mesh
+    )
     reference_balance = _momentum_balance(
         config,
         reference_final,
@@ -423,7 +474,9 @@ def build_neutral_mixed_substep_hybrid_report(
         best = {
             "metric": "NVh_final_max_abs",
             "internal_substeps": int(best_point["internal_substeps"]),
-            "value": float(best_point["final_field_error_register"]["fields"]["NVh"]["max_abs"]),  # type: ignore[index]
+            "value": float(
+                best_point["final_field_error_register"]["fields"]["NVh"]["max_abs"]
+            ),  # type: ignore[index]
         }
 
     return {
@@ -459,14 +512,91 @@ def build_neutral_mixed_substep_hybrid_report(
     }
 
 
-def write_neutral_mixed_substep_hybrid_json(report: dict[str, object], path: str | Path) -> Path:
+def build_neutral_mixed_native_accepted_step_trace_report(
+    *,
+    reference_root: str | Path | None = None,
+    case_name: str = "neutral_mixed_one_step",
+    input_path: str | Path | None = None,
+    internal_substeps: int = 8,
+    steps: int = 1,
+) -> dict[str, object]:
+    """Run JAXDRB neutral-mixed implicit history with accepted-step tracing enabled."""
+
+    root = (
+        Path(reference_root).expanduser().resolve()
+        if reference_root is not None
+        else default_reference_root()
+    )
+    if input_path is None:
+        if root is None:
+            raise FileNotFoundError(
+                "reference_root or input_path is required for neutral mixed accepted-step traces."
+            )
+        _, resolved_input_path = resolve_reference_case(case_name, reference_root=root)
+        input_path = resolved_input_path
+    input_path = Path(input_path).expanduser().resolve()
+    config = load_bout_input(input_path)
+    run_config = RunConfiguration.from_config(config)
+    if not run_config.components:
+        raise ValueError(
+            "Neutral mixed accepted-step trace requires one configured component."
+        )
+    section = run_config.components[0].section
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    history = advance_neutral_mixed_implicit_history(
+        config,
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=float(run_config.time.timestep),
+        steps=int(steps),
+        internal_substeps=int(internal_substeps),
+        solver_mode="matrix_free",
+        residual_tolerance=1.0e-8,
+        step_tolerance=1.0e-10,
+        max_nonlinear_iterations=8,
+        linear_restart=20,
+        linear_maxiter=200,
+        linear_rtol=1.0e-8,
+        store_internal_substeps=True,
+    )
+    return _native_accepted_step_trace_report_from_history(
+        history,
+        input_path=input_path,
+        case_name=case_name,
+        section=section,
+        timestep=float(run_config.time.timestep),
+        internal_substeps=int(internal_substeps),
+        steps=int(steps),
+        mesh=mesh,
+    )
+
+
+def write_neutral_mixed_native_accepted_step_trace_json(
+    report: dict[str, object], path: str | Path
+) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return target
 
 
-def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], path: str | Path) -> Path:
+def write_neutral_mixed_substep_hybrid_json(
+    report: dict[str, object], path: str | Path
+) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
+def save_neutral_mixed_term_balance_campaign_plot(
+    report: dict[str, object], path: str | Path
+) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     y = np.asarray(report["active_y_indices"], dtype=np.float64)
@@ -548,9 +678,14 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         "parallel\nviscosity",
         "perp.\nviscosity",
     ]
-    values = np.asarray([float(reference["term_metrics"][name]["max_abs"]) for name in term_order[1:]], dtype=np.float64)
+    values = np.asarray(
+        [float(reference["term_metrics"][name]["max_abs"]) for name in term_order[1:]],
+        dtype=np.float64,
+    )
     x = np.arange(len(values))
-    axes[1, 1].bar(x, np.maximum(values, 1.0e-16), color=[colors[name] for name in term_order[1:]])
+    axes[1, 1].bar(
+        x, np.maximum(values, 1.0e-16), color=[colors[name] for name in term_order[1:]]
+    )
     axes[1, 1].set_xticks(x, bar_labels)
     style_axis(
         axes[1, 1],
@@ -559,15 +694,24 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         yscale="log",
         grid="y",
     )
-    annotate_bars(axes[1, 1], x, np.maximum(values, 1.0e-16), fmt="{:.1e}", fontsize=7.8)
+    annotate_bars(
+        axes[1, 1], x, np.maximum(values, 1.0e-16), fmt="{:.1e}", fontsize=7.8
+    )
 
     delta = report.get("term_delta", {})
     delta_metrics = delta.get("term_metrics", {}) if isinstance(delta, dict) else {}
     delta_values = np.asarray(
-        [float(delta_metrics.get(name, {}).get("target_adjacent_max_abs", 0.0)) for name in term_order[1:]],
+        [
+            float(delta_metrics.get(name, {}).get("target_adjacent_max_abs", 0.0))
+            for name in term_order[1:]
+        ],
         dtype=np.float64,
     )
-    axes[0, 2].bar(x, np.maximum(delta_values, 1.0e-16), color=[colors[name] for name in term_order[1:]])
+    axes[0, 2].bar(
+        x,
+        np.maximum(delta_values, 1.0e-16),
+        color=[colors[name] for name in term_order[1:]],
+    )
     axes[0, 2].set_xticks(x, bar_labels)
     style_axis(
         axes[0, 2],
@@ -576,11 +720,21 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         yscale="log",
         grid="y",
     )
-    annotate_bars(axes[0, 2], x, np.maximum(delta_values, 1.0e-16), fmt="{:.1e}", fontsize=7.5)
+    annotate_bars(
+        axes[0, 2], x, np.maximum(delta_values, 1.0e-16), fmt="{:.1e}", fontsize=7.5
+    )
 
     diagnostics = report.get("hermes_diagnostic_outputs", {})
-    direct_comparisons = diagnostics.get("direct_comparisons", {}) if isinstance(diagnostics, dict) else {}
-    pressure_direct = direct_comparisons.get("SNVh_pressure_gradient", {}) if isinstance(direct_comparisons, dict) else {}
+    direct_comparisons = (
+        diagnostics.get("direct_comparisons", {})
+        if isinstance(diagnostics, dict)
+        else {}
+    )
+    pressure_direct = (
+        direct_comparisons.get("SNVh_pressure_gradient", {})
+        if isinstance(direct_comparisons, dict)
+        else {}
+    )
     closure_names = [
         ("SNVh_pressure_gradient", "pressure\ngrad."),
         ("SNVh_parallel_viscosity", "parallel\nvisc."),
@@ -607,7 +761,11 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
             "SNVh_perpendicular_viscosity": colors["perpendicular_viscosity"],
         }
         closure_colors = [closure_color_map[name] for name in closure_source_names]
-        axes[1, 2].bar(closure_x, np.maximum(np.asarray(closure_values, dtype=np.float64), 1.0e-16), color=closure_colors)
+        axes[1, 2].bar(
+            closure_x,
+            np.maximum(np.asarray(closure_values, dtype=np.float64), 1.0e-16),
+            color=closure_colors,
+        )
         axes[1, 2].set_xticks(closure_x, closure_labels)
         style_axis(
             axes[1, 2],
@@ -623,10 +781,14 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
             fmt="{:.1e}",
             fontsize=7.5,
         )
-    elif isinstance(pressure_direct, dict) and "scaled_direct_lineout" in pressure_direct:
+    elif (
+        isinstance(pressure_direct, dict) and "scaled_direct_lineout" in pressure_direct
+    ):
         axes[1, 2].plot(
             y,
-            np.asarray(pressure_direct["matched_reconstruction_lineout"], dtype=np.float64),
+            np.asarray(
+                pressure_direct["matched_reconstruction_lineout"], dtype=np.float64
+            ),
             color=colors["pressure_gradient"],
             linewidth=2.0,
             label="matched native -Grad_par(Pn)",
@@ -648,7 +810,11 @@ def save_neutral_mixed_term_balance_campaign_plot(report: dict[str, object], pat
         )
         axes[1, 2].legend(frameon=False, fontsize=7.8)
     else:
-        for name in ("pressure_gradient", "parallel_viscosity", "perpendicular_viscosity"):
+        for name in (
+            "pressure_gradient",
+            "parallel_viscosity",
+            "perpendicular_viscosity",
+        ):
             if isinstance(delta, dict) and name in delta.get("lineouts", {}):
                 axes[1, 2].plot(
                     y,
@@ -686,9 +852,13 @@ def _load_neutral_mixed_history_npz(path: str | Path) -> dict[str, object]:
         }
 
 
-def _native_history_from_curated_case(case_name: str, *, reference_root: Path | None) -> dict[str, object]:
+def _native_history_from_curated_case(
+    case_name: str, *, reference_root: Path | None
+) -> dict[str, object]:
     if reference_root is None:
-        raise FileNotFoundError("reference_root is required when native_arrays_npz is not supplied.")
+        raise FileNotFoundError(
+            "reference_root is required when native_arrays_npz is not supplied."
+        )
     result = run_curated_case(case_name, reference_root=reference_root)
     return {
         "time_points": np.asarray(result.time_points, dtype=np.float64),
@@ -705,11 +875,15 @@ def _native_history_from_curated_case_with_substeps(
     internal_substeps: int,
 ) -> dict[str, object]:
     if reference_root is None:
-        raise FileNotFoundError("reference_root is required when native arrays are not supplied for a substep point.")
+        raise FileNotFoundError(
+            "reference_root is required when native arrays are not supplied for a substep point."
+        )
     result = run_curated_case(
         case_name,
         reference_root=reference_root,
-        extra_overrides=(f"runtime:neutral_mixed_internal_substeps={int(internal_substeps)}",),
+        extra_overrides=(
+            f"runtime:neutral_mixed_internal_substeps={int(internal_substeps)}",
+        ),
     )
     return {
         "time_points": np.asarray(result.time_points, dtype=np.float64),
@@ -719,7 +893,9 @@ def _native_history_from_curated_case_with_substeps(
     }
 
 
-def _coerce_neutral_mixed_history(source: str | Path | dict[str, object]) -> dict[str, object]:
+def _coerce_neutral_mixed_history(
+    source: str | Path | dict[str, object],
+) -> dict[str, object]:
     if isinstance(source, (str, Path)):
         return _load_neutral_mixed_history_npz(source)
     return {
@@ -764,8 +940,12 @@ def _build_neutral_mixed_substep_point(
         )
         native_time_points = np.asarray(native_history["time_points"], dtype=np.float64)
         if native_time_points.size < 2:
-            raise ValueError("Native substep history must contain at least two stored time points.")
-        native_final = _state_from_trimmed_history(native_history, template_state, time_index=-1, mesh=mesh)
+            raise ValueError(
+                "Native substep history must contain at least two stored time points."
+            )
+        native_final = _state_from_trimmed_history(
+            native_history, template_state, time_index=-1, mesh=mesh
+        )
         native_balance = _momentum_balance(
             config,
             native_final,
@@ -775,7 +955,9 @@ def _build_neutral_mixed_substep_point(
             scalars=scalars,
             timestep=timestep,
         )
-        line_x, line_y, line_z = _worst_state_error_index(native_final, reference_final, "NVh", active_x=active_x, active_y=active_y)
+        line_x, line_y, line_z = _worst_state_error_index(
+            native_final, reference_final, "NVh", active_x=active_x, active_y=active_y
+        )
         return {
             "internal_substeps": int(internal_substeps),
             "status": "ok",
@@ -792,9 +974,15 @@ def _build_neutral_mixed_substep_point(
                 native_history,
                 {
                     "time_points": np.asarray([0.0, timestep], dtype=np.float64),
-                    "Nh": np.stack([reference_initial.density, reference_final.density]),
-                    "Ph": np.stack([reference_initial.pressure, reference_final.pressure]),
-                    "NVh": np.stack([reference_initial.momentum, reference_final.momentum]),
+                    "Nh": np.stack(
+                        [reference_initial.density, reference_final.density]
+                    ),
+                    "Ph": np.stack(
+                        [reference_initial.pressure, reference_final.pressure]
+                    ),
+                    "NVh": np.stack(
+                        [reference_initial.momentum, reference_final.momentum]
+                    ),
                 },
                 mesh=mesh,
                 active_x=active_x,
@@ -892,9 +1080,21 @@ def _state_from_trimmed_history(
     time_index: int,
     mesh,
 ) -> NeutralMixedState:
-    density = _restore_trimmed_field(np.asarray(history["Nh"], dtype=np.float64)[time_index], template.density, mesh=mesh)
-    pressure = _restore_trimmed_field(np.asarray(history["Ph"], dtype=np.float64)[time_index], template.pressure, mesh=mesh)
-    momentum = _restore_trimmed_field(np.asarray(history["NVh"], dtype=np.float64)[time_index], template.momentum, mesh=mesh)
+    density = _restore_trimmed_field(
+        np.asarray(history["Nh"], dtype=np.float64)[time_index],
+        template.density,
+        mesh=mesh,
+    )
+    pressure = _restore_trimmed_field(
+        np.asarray(history["Ph"], dtype=np.float64)[time_index],
+        template.pressure,
+        mesh=mesh,
+    )
+    momentum = _restore_trimmed_field(
+        np.asarray(history["NVh"], dtype=np.float64)[time_index],
+        template.momentum,
+        mesh=mesh,
+    )
     return _sanitize_neutral_state(
         NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
         mesh,
@@ -915,16 +1115,24 @@ def _worst_state_error_index(
         "NVh": (native_final.momentum, reference_final.momentum),
     }
     native_value, reference_value = field_map[field_name]
-    delta = np.asarray(native_value, dtype=np.float64) - np.asarray(reference_value, dtype=np.float64)
+    delta = np.asarray(native_value, dtype=np.float64) - np.asarray(
+        reference_value, dtype=np.float64
+    )
     active = delta[active_x, active_y, :]
-    x_offset, y_offset, z_index = np.unravel_index(int(np.argmax(np.abs(active))), active.shape)
+    x_offset, y_offset, z_index = np.unravel_index(
+        int(np.argmax(np.abs(active))), active.shape
+    )
     return int(active_x.start + x_offset), int(active_y.start + y_offset), int(z_index)
 
 
-def _active_history_field(history: dict[str, object], field_name: str, *, mesh, active_y: slice) -> np.ndarray:
+def _active_history_field(
+    history: dict[str, object], field_name: str, *, mesh, active_y: slice
+) -> np.ndarray:
     field = np.asarray(history[field_name], dtype=np.float64)
     if field.ndim != 4:
-        raise ValueError(f"Expected {field_name} history to have shape (time, x, y, z), got {field.shape}.")
+        raise ValueError(
+            f"Expected {field_name} history to have shape (time, x, y, z), got {field.shape}."
+        )
     active_y_size = int(active_y.stop - active_y.start)
     if field.shape[2] == active_y_size:
         return field
@@ -944,25 +1152,40 @@ def _neutral_mixed_series_errors(
     active_y: slice,
     target_y_indices: tuple[int, ...],
 ) -> dict[str, object]:
-    target_offsets = _target_offsets(slice(0, active_y.stop - active_y.start), tuple(index - active_y.start for index in target_y_indices))
+    target_offsets = _target_offsets(
+        slice(0, active_y.stop - active_y.start),
+        tuple(index - active_y.start for index in target_y_indices),
+    )
     fields: dict[str, object] = {}
     ranked: list[dict[str, object]] = []
     for name in ("Nh", "Ph", "NVh"):
-        native = _active_history_field(native_history, name, mesh=mesh, active_y=active_y)
-        reference = _active_history_field(reference_history, name, mesh=mesh, active_y=active_y)
+        native = _active_history_field(
+            native_history, name, mesh=mesh, active_y=active_y
+        )
+        reference = _active_history_field(
+            reference_history, name, mesh=mesh, active_y=active_y
+        )
         time_count = min(native.shape[0], reference.shape[0])
-        delta = native[:time_count, active_x, :, :] - reference[:time_count, active_x, :, :]
+        delta = (
+            native[:time_count, active_x, :, :] - reference[:time_count, active_x, :, :]
+        )
         final_delta = delta[-1]
-        target = final_delta[:, target_offsets, :] if target_offsets.size else final_delta
+        target = (
+            final_delta[:, target_offsets, :] if target_offsets.size else final_delta
+        )
         metrics = _array_metrics(delta)
         final_metrics = _array_metrics(final_delta)
-        final_metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        final_metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target))) if target.size else 0.0
+        )
         final_metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
         fields[name] = {
             "time_points_compared": int(time_count),
             "series_max_abs": metrics["max_abs"],
             "series_rms": metrics["rms"],
-            "active_edge_history_trace": _active_edge_history_trace(delta, target_offsets=target_offsets),
+            "active_edge_history_trace": _active_edge_history_trace(
+                delta, target_offsets=target_offsets
+            ),
             **{f"final_{key}": value for key, value in final_metrics.items()},
         }
         ranked.append({"field": name, **fields[name]})  # type: ignore[arg-type]
@@ -976,15 +1199,27 @@ def _neutral_mixed_series_errors(
     }
 
 
-def _active_edge_history_trace(delta: np.ndarray, *, target_offsets: np.ndarray) -> dict[str, object]:
+def _active_edge_history_trace(
+    delta: np.ndarray, *, target_offsets: np.ndarray
+) -> dict[str, object]:
     if delta.ndim != 4:
-        raise ValueError(f"Expected neutral mixed history delta to have shape (time, x, y, z), got {delta.shape}.")
+        raise ValueError(
+            f"Expected neutral mixed history delta to have shape (time, x, y, z), got {delta.shape}."
+        )
     if target_offsets.size:
         target_delta = delta[:, :, target_offsets, :]
     else:
         target_delta = delta
-    target_max_abs = np.max(np.abs(target_delta), axis=(1, 2, 3)) if target_delta.size else np.zeros(delta.shape[0])
-    target_rms = np.sqrt(np.mean(np.square(target_delta), axis=(1, 2, 3))) if target_delta.size else np.zeros(delta.shape[0])
+    target_max_abs = (
+        np.max(np.abs(target_delta), axis=(1, 2, 3))
+        if target_delta.size
+        else np.zeros(delta.shape[0])
+    )
+    target_rms = (
+        np.sqrt(np.mean(np.square(target_delta), axis=(1, 2, 3)))
+        if target_delta.size
+        else np.zeros(delta.shape[0])
+    )
     edge_traces: list[dict[str, object]] = []
     for offset in target_offsets:
         edge_delta = delta[:, :, int(offset), :]
@@ -992,7 +1227,9 @@ def _active_edge_history_trace(delta: np.ndarray, *, target_offsets: np.ndarray)
             {
                 "active_y_offset": int(offset),
                 "max_abs_by_time": np.max(np.abs(edge_delta), axis=(1, 2)).tolist(),
-                "rms_by_time": np.sqrt(np.mean(np.square(edge_delta), axis=(1, 2))).tolist(),
+                "rms_by_time": np.sqrt(
+                    np.mean(np.square(edge_delta), axis=(1, 2))
+                ).tolist(),
             }
         )
     return {
@@ -1007,6 +1244,160 @@ def _active_edge_history_trace(delta: np.ndarray, *, target_offsets: np.ndarray)
     }
 
 
+def _native_accepted_step_trace_report_from_history(
+    history,
+    *,
+    input_path: Path,
+    case_name: str,
+    section: str,
+    timestep: float,
+    internal_substeps: int,
+    steps: int,
+    mesh,
+) -> dict[str, object]:
+    time_points = history.accepted_step_time_points
+    accepted_dt = history.accepted_step_dt
+    accepted_order = history.accepted_step_order
+    density = history.accepted_step_density_history
+    pressure = history.accepted_step_pressure_history
+    momentum = history.accepted_step_momentum_history
+    residual_norm = history.accepted_step_residual_inf_norm
+    nonlinear_iterations = history.accepted_step_nonlinear_iterations
+    if any(
+        item is None
+        for item in (
+            time_points,
+            accepted_dt,
+            accepted_order,
+            density,
+            pressure,
+            momentum,
+            residual_norm,
+            nonlinear_iterations,
+        )
+    ):
+        raise ValueError(
+            "Neutral mixed history was not generated with store_internal_substeps=True."
+        )
+    time_points = np.asarray(time_points, dtype=np.float64)
+    accepted_dt = np.asarray(accepted_dt, dtype=np.float64)
+    accepted_order = np.asarray(accepted_order, dtype=np.int32)
+    residual_norm = np.asarray(residual_norm, dtype=np.float64)
+    nonlinear_iterations = np.asarray(nonlinear_iterations, dtype=np.int32)
+    field_histories = {
+        f"N{section}": np.asarray(density, dtype=np.float64),
+        f"P{section}": np.asarray(pressure, dtype=np.float64),
+        f"NV{section}": np.asarray(momentum, dtype=np.float64),
+    }
+    active_x = slice(mesh.xstart, mesh.xend + 1)
+    active_y = slice(mesh.ystart, mesh.yend + 1)
+    target_y_indices = _target_adjacent_y_indices(mesh)
+    guard_y_indices = _neutral_mixed_guard_y_indices(mesh)
+    sample_y_indices = tuple(sorted(set(target_y_indices).union(guard_y_indices)))
+    line_x = int(mesh.xstart + max((mesh.xend - mesh.xstart) // 2, 0))
+    line_z = int(mesh.nz // 2)
+    trace_points: list[dict[str, object]] = []
+    for index, time_value in enumerate(time_points):
+        trace_points.append(
+            {
+                "index": int(index),
+                "time": float(time_value),
+                "dt": float(accepted_dt[index]),
+                "solver_order": int(accepted_order[index]),
+                "stage": "post_accepted",
+                "residual_inf_norm": float(residual_norm[index]),
+                "nonlinear_iterations": int(nonlinear_iterations[index]),
+                "fields": {
+                    name: _native_accepted_step_field_payload(
+                        values[index],
+                        active_x=active_x,
+                        active_y=active_y,
+                        target_y_indices=target_y_indices,
+                        guard_y_indices=guard_y_indices,
+                        sample_y_indices=sample_y_indices,
+                        line_x=line_x,
+                        line_z=line_z,
+                    )
+                    for name, values in field_histories.items()
+                },
+            }
+        )
+    return {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "requires_hermes": False,
+        "case_name": case_name,
+        "reference_code": "none",
+        "input_path": _sanitize_public_path(input_path),
+        "section": section,
+        "configured_timestep": float(timestep),
+        "steps": int(steps),
+        "internal_substeps": int(internal_substeps),
+        "trace_point_count": int(time_points.size),
+        "active_x_indices": list(range(int(mesh.xstart), int(mesh.xend) + 1)),
+        "active_y_indices": list(range(int(mesh.ystart), int(mesh.yend) + 1)),
+        "target_y_indices": list(target_y_indices),
+        "guard_y_indices": list(guard_y_indices),
+        "sample_y_indices": list(sample_y_indices),
+        "lineout_x_index": line_x,
+        "lineout_z_index": line_z,
+        "time_points": time_points.tolist(),
+        "trace_points": trace_points,
+        "interpretation": (
+            "This is the native post-accepted internal-step trace that should be compared with "
+            "a reference accepted-step trace before changing neutral-mixed target or guard sequencing."
+        ),
+    }
+
+
+def _neutral_mixed_guard_y_indices(mesh) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            index
+            for index in {
+                int(mesh.ystart - 2),
+                int(mesh.ystart - 1),
+                int(mesh.yend + 1),
+                int(mesh.yend + 2),
+            }
+            if 0 <= index < int(mesh.local_ny)
+        )
+    )
+
+
+def _native_accepted_step_field_payload(
+    values: np.ndarray,
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    guard_y_indices: tuple[int, ...],
+    sample_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    array = np.asarray(values, dtype=np.float64)
+    active = array[active_x, active_y, :]
+    target = (
+        array[active_x, target_y_indices, :]
+        if target_y_indices
+        else np.asarray([], dtype=np.float64)
+    )
+    guard = (
+        array[active_x, guard_y_indices, :]
+        if guard_y_indices
+        else np.asarray([], dtype=np.float64)
+    )
+    return {
+        "active_metrics": _array_metrics(active),
+        "target_adjacent_metrics": _array_metrics(target),
+        "guard_metrics": _array_metrics(guard),
+        "sample_lineout_y_indices": list(sample_y_indices),
+        "sample_lineout": array[line_x, sample_y_indices, line_z].tolist()
+        if sample_y_indices
+        else [],
+    }
+
+
 def _state_with_reference_field(
     native_final: NeutralMixedState,
     reference_final: NeutralMixedState,
@@ -1016,9 +1407,22 @@ def _state_with_reference_field(
 ) -> NeutralMixedState:
     return _sanitize_neutral_state(
         NeutralMixedState(
-            density=np.asarray(reference_final.density if field_name == "Nh" else native_final.density, dtype=np.float64).copy(),
-            pressure=np.asarray(reference_final.pressure if field_name == "Ph" else native_final.pressure, dtype=np.float64).copy(),
-            momentum=np.asarray(reference_final.momentum if field_name == "NVh" else native_final.momentum, dtype=np.float64).copy(),
+            density=np.asarray(
+                reference_final.density if field_name == "Nh" else native_final.density,
+                dtype=np.float64,
+            ).copy(),
+            pressure=np.asarray(
+                reference_final.pressure
+                if field_name == "Ph"
+                else native_final.pressure,
+                dtype=np.float64,
+            ).copy(),
+            momentum=np.asarray(
+                reference_final.momentum
+                if field_name == "NVh"
+                else native_final.momentum,
+                dtype=np.float64,
+            ).copy(),
         ),
         mesh,
     )
@@ -1045,7 +1449,9 @@ def _hybrid_state_register(
     swaps: dict[str, object] = {}
     ranked: list[dict[str, object]] = []
     for field_name in ("Nh", "Ph", "NVh"):
-        hybrid = _state_with_reference_field(native_final, reference_final, field_name, mesh=mesh)
+        hybrid = _state_with_reference_field(
+            native_final, reference_final, field_name, mesh=mesh
+        )
         hybrid_balance = _momentum_balance(
             config,
             hybrid,
@@ -1073,11 +1479,23 @@ def _hybrid_state_register(
             line_x=line_x,
             line_z=line_z,
         )
-        residual = np.asarray(hybrid_balance["residual_rate"], dtype=np.float64)[active_x, active_y, :]
+        residual = np.asarray(hybrid_balance["residual_rate"], dtype=np.float64)[
+            active_x, active_y, :
+        ]
         residual_metrics = _array_metrics(residual)
-        term_metrics = term_delta.get("term_metrics", {}) if isinstance(term_delta, dict) else {}
-        pressure_delta = float(term_metrics.get("pressure_gradient", {}).get("target_adjacent_max_abs", 0.0))  # type: ignore[union-attr]
-        viscosity_delta = float(term_metrics.get("parallel_viscosity", {}).get("target_adjacent_max_abs", 0.0))  # type: ignore[union-attr]
+        term_metrics = (
+            term_delta.get("term_metrics", {}) if isinstance(term_delta, dict) else {}
+        )
+        pressure_delta = float(
+            term_metrics.get("pressure_gradient", {}).get(
+                "target_adjacent_max_abs", 0.0
+            )
+        )  # type: ignore[union-attr]
+        viscosity_delta = float(
+            term_metrics.get("parallel_viscosity", {}).get(
+                "target_adjacent_max_abs", 0.0
+            )
+        )  # type: ignore[union-attr]
         swaps[field_name] = {
             "swapped_field": field_name,
             "final_field_error_register": _final_field_error_register(
@@ -1119,7 +1537,9 @@ def _hybrid_state_register(
     }
 
 
-def _restore_trimmed_field(field: np.ndarray, template: np.ndarray, *, mesh) -> np.ndarray:
+def _restore_trimmed_field(
+    field: np.ndarray, template: np.ndarray, *, mesh
+) -> np.ndarray:
     restored = np.asarray(template, dtype=np.float64).copy()
     field_array = np.asarray(field, dtype=np.float64)
     if field_array.shape == restored.shape:
@@ -1128,7 +1548,9 @@ def _restore_trimmed_field(field: np.ndarray, template: np.ndarray, *, mesh) -> 
     if field_array.shape == (mesh.nx, mesh.yend - mesh.ystart + 1, mesh.nz):
         restored[:, active_y, :] = field_array
         return restored
-    raise ValueError(f"Unsupported neutral mixed field shape {field_array.shape}; expected {restored.shape} or trimmed active-y shape.")
+    raise ValueError(
+        f"Unsupported neutral mixed field shape {field_array.shape}; expected {restored.shape} or trimmed active-y shape."
+    )
 
 
 def _momentum_balance(
@@ -1150,11 +1572,16 @@ def _momentum_balance(
         meters_scale=float(scalars["rho_s0"]),
         tnorm=float(scalars["Tnorm"]),
     )
-    time_derivative = (np.asarray(state.momentum, dtype=np.float64) - np.asarray(previous_state.momentum, dtype=np.float64)) / float(timestep)
+    time_derivative = (
+        np.asarray(state.momentum, dtype=np.float64)
+        - np.asarray(previous_state.momentum, dtype=np.float64)
+    ) / float(timestep)
     terms = {"time_derivative": time_derivative}
     terms.update(rhs.momentum_terms)
     terms["rhs_sum"] = np.asarray(rhs.momentum, dtype=np.float64)
-    terms["residual_rate"] = time_derivative - np.asarray(rhs.momentum, dtype=np.float64)
+    terms["residual_rate"] = time_derivative - np.asarray(
+        rhs.momentum, dtype=np.float64
+    )
     return terms
 
 
@@ -1215,7 +1642,9 @@ def _array_metrics(array: np.ndarray) -> dict[str, float]:
 
 def _target_offsets(active_y: slice, target_y_indices: tuple[int, ...]) -> np.ndarray:
     active_indices = np.arange(active_y.start, active_y.stop, dtype=np.int32)
-    return np.flatnonzero(np.isin(active_indices, np.asarray(target_y_indices, dtype=np.int32)))
+    return np.flatnonzero(
+        np.isin(active_indices, np.asarray(target_y_indices, dtype=np.int32))
+    )
 
 
 def _ranked_term_metrics(
@@ -1231,10 +1660,14 @@ def _ranked_term_metrics(
         active = np.asarray(balance[name], dtype=np.float64)[active_x, active_y, :]
         target = active[:, target_offsets, :] if target_offsets.size else active
         metrics = _array_metrics(active)
-        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target))) if target.size else 0.0
+        )
         metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
         ranked.append({"term": name, **metrics})
-    return sorted(ranked, key=lambda item: float(item["target_adjacent_max_abs"]), reverse=True)
+    return sorted(
+        ranked, key=lambda item: float(item["target_adjacent_max_abs"]), reverse=True
+    )
 
 
 def _ranked_term_delta_metrics(
@@ -1250,14 +1683,20 @@ def _ranked_term_delta_metrics(
     for name in _diagnostic_term_names(reference_balance):
         if name not in native_balance:
             continue
-        delta = np.asarray(native_balance[name], dtype=np.float64) - np.asarray(reference_balance[name], dtype=np.float64)
+        delta = np.asarray(native_balance[name], dtype=np.float64) - np.asarray(
+            reference_balance[name], dtype=np.float64
+        )
         active = delta[active_x, active_y, :]
         target = active[:, target_offsets, :] if target_offsets.size else active
         metrics = _array_metrics(active)
-        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target))) if target.size else 0.0
+        )
         metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
         ranked.append({"term": name, **metrics})
-    return sorted(ranked, key=lambda item: float(item["target_adjacent_max_abs"]), reverse=True)
+    return sorted(
+        ranked, key=lambda item: float(item["target_adjacent_max_abs"]), reverse=True
+    )
 
 
 def _term_delta_payload(
@@ -1275,11 +1714,15 @@ def _term_delta_payload(
     for name in _diagnostic_term_names(reference_balance):
         if name not in native_balance:
             continue
-        delta = np.asarray(native_balance[name], dtype=np.float64) - np.asarray(reference_balance[name], dtype=np.float64)
+        delta = np.asarray(native_balance[name], dtype=np.float64) - np.asarray(
+            reference_balance[name], dtype=np.float64
+        )
         active = delta[active_x, active_y, :]
         target = active[:, target_offsets, :] if target_offsets.size else active
         metrics = _array_metrics(active)
-        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target))) if target.size else 0.0
+        )
         metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
         payload["lineouts"][name] = delta[line_x, active_y, line_z].tolist()
         payload["term_metrics"][name] = metrics
@@ -1298,9 +1741,15 @@ def _final_field_error_register(
 ) -> dict[str, object]:
     target_offsets = _target_offsets(active_y, target_y_indices)
     active_y_indices = np.arange(active_y.start, active_y.stop, dtype=np.int32)
-    target_y_values = active_y_indices[target_offsets] if target_offsets.size else active_y_indices
+    target_y_values = (
+        active_y_indices[target_offsets] if target_offsets.size else active_y_indices
+    )
     interior_offsets = np.asarray(
-        [index for index in range(active_y_indices.size) if index not in set(int(value) for value in target_offsets)],
+        [
+            index
+            for index in range(active_y_indices.size)
+            if index not in set(int(value) for value in target_offsets)
+        ],
         dtype=np.int32,
     )
     fields = {
@@ -1311,17 +1760,28 @@ def _final_field_error_register(
     payload_fields: dict[str, object] = {}
     ranked: list[dict[str, object]] = []
     for name, (native_value, reference_value) in fields.items():
-        delta = np.asarray(native_value, dtype=np.float64) - np.asarray(reference_value, dtype=np.float64)
+        delta = np.asarray(native_value, dtype=np.float64) - np.asarray(
+            reference_value, dtype=np.float64
+        )
         active = delta[active_x, active_y, :]
         target = active[:, target_offsets, :] if target_offsets.size else active
-        interior = active[:, interior_offsets, :] if interior_offsets.size else np.asarray([], dtype=np.float64)
+        interior = (
+            active[:, interior_offsets, :]
+            if interior_offsets.size
+            else np.asarray([], dtype=np.float64)
+        )
         metrics = _array_metrics(active)
-        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target))) if target.size else 0.0
+        )
         metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
-        metrics["interior_max_abs"] = float(np.max(np.abs(interior))) if interior.size else 0.0
+        metrics["interior_max_abs"] = (
+            float(np.max(np.abs(interior))) if interior.size else 0.0
+        )
         metrics["interior_rms"] = _rms(interior) if interior.size else 0.0
         metrics["target_to_interior_max_abs_ratio"] = (
-            metrics["target_adjacent_max_abs"] / max(metrics["interior_max_abs"], 1.0e-30)
+            metrics["target_adjacent_max_abs"]
+            / max(metrics["interior_max_abs"], 1.0e-30)
             if interior.size
             else None
         )
@@ -1363,7 +1823,11 @@ def _state_driver_register(
     target_offsets = _target_offsets(active_y, target_y_indices)
     active_y_indices = np.arange(active_y.start, active_y.stop, dtype=np.int32)
     interior_offsets = np.asarray(
-        [index for index in range(active_y_indices.size) if index not in set(int(value) for value in target_offsets)],
+        [
+            index
+            for index in range(active_y_indices.size)
+            if index not in set(int(value) for value in target_offsets)
+        ],
         dtype=np.int32,
     )
     state_fields = {
@@ -1374,14 +1838,25 @@ def _state_driver_register(
     state_rate_errors: dict[str, object] = {}
     ranked_state_rates: list[dict[str, object]] = []
     for name, (native_value, reference_value) in state_fields.items():
-        delta_rate = (np.asarray(native_value, dtype=np.float64) - np.asarray(reference_value, dtype=np.float64)) / float(timestep)
+        delta_rate = (
+            np.asarray(native_value, dtype=np.float64)
+            - np.asarray(reference_value, dtype=np.float64)
+        ) / float(timestep)
         active = delta_rate[active_x, active_y, :]
         target = active[:, target_offsets, :] if target_offsets.size else active
-        interior = active[:, interior_offsets, :] if interior_offsets.size else np.asarray([], dtype=np.float64)
+        interior = (
+            active[:, interior_offsets, :]
+            if interior_offsets.size
+            else np.asarray([], dtype=np.float64)
+        )
         metrics = _array_metrics(active)
-        metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target))) if target.size else 0.0
+        metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target))) if target.size else 0.0
+        )
         metrics["target_adjacent_rms"] = _rms(target) if target.size else 0.0
-        metrics["interior_max_abs"] = float(np.max(np.abs(interior))) if interior.size else 0.0
+        metrics["interior_max_abs"] = (
+            float(np.max(np.abs(interior))) if interior.size else 0.0
+        )
         metrics["interior_rms"] = _rms(interior) if interior.size else 0.0
         state_rate_errors[name] = {
             **metrics,
@@ -1401,31 +1876,55 @@ def _state_driver_register(
         if term_name not in native_balance or term_name not in reference_balance:
             continue
         native_field, reference_field = state_fields[field_name]
-        state_delta = np.asarray(native_field, dtype=np.float64) - np.asarray(reference_field, dtype=np.float64)
-        term_delta = np.asarray(native_balance[term_name], dtype=np.float64) - np.asarray(reference_balance[term_name], dtype=np.float64)
+        state_delta = np.asarray(native_field, dtype=np.float64) - np.asarray(
+            reference_field, dtype=np.float64
+        )
+        term_delta = np.asarray(
+            native_balance[term_name], dtype=np.float64
+        ) - np.asarray(reference_balance[term_name], dtype=np.float64)
         active_state = state_delta[active_x, active_y, :]
         active_term = term_delta[active_x, active_y, :]
-        target_state = active_state[:, target_offsets, :] if target_offsets.size else active_state
-        target_term = active_term[:, target_offsets, :] if target_offsets.size else active_term
-        interior_term = active_term[:, interior_offsets, :] if interior_offsets.size else np.asarray([], dtype=np.float64)
+        target_state = (
+            active_state[:, target_offsets, :] if target_offsets.size else active_state
+        )
+        target_term = (
+            active_term[:, target_offsets, :] if target_offsets.size else active_term
+        )
+        interior_term = (
+            active_term[:, interior_offsets, :]
+            if interior_offsets.size
+            else np.asarray([], dtype=np.float64)
+        )
         target_state_flat = target_state.ravel()
         target_term_flat = target_term.ravel()
         term_metrics = _array_metrics(active_term)
-        term_metrics["target_adjacent_max_abs"] = float(np.max(np.abs(target_term))) if target_term.size else 0.0
-        term_metrics["target_adjacent_rms"] = _rms(target_term) if target_term.size else 0.0
-        term_metrics["interior_max_abs"] = float(np.max(np.abs(interior_term))) if interior_term.size else 0.0
-        term_metrics["interior_rms"] = _rms(interior_term) if interior_term.size else 0.0
+        term_metrics["target_adjacent_max_abs"] = (
+            float(np.max(np.abs(target_term))) if target_term.size else 0.0
+        )
+        term_metrics["target_adjacent_rms"] = (
+            _rms(target_term) if target_term.size else 0.0
+        )
+        term_metrics["interior_max_abs"] = (
+            float(np.max(np.abs(interior_term))) if interior_term.size else 0.0
+        )
+        term_metrics["interior_rms"] = (
+            _rms(interior_term) if interior_term.size else 0.0
+        )
         term_metrics["target_term_to_interior_term_max_abs_ratio"] = (
-            term_metrics["target_adjacent_max_abs"] / max(term_metrics["interior_max_abs"], 1.0e-30)
+            term_metrics["target_adjacent_max_abs"]
+            / max(term_metrics["interior_max_abs"], 1.0e-30)
             if interior_term.size
             else None
         )
         term_metrics["target_term_per_state_max_abs"] = (
-            term_metrics["target_adjacent_max_abs"] / max(float(np.max(np.abs(target_state))), 1.0e-30)
+            term_metrics["target_adjacent_max_abs"]
+            / max(float(np.max(np.abs(target_state))), 1.0e-30)
             if target_state.size
             else None
         )
-        term_metrics["target_state_term_correlation"] = _signed_correlation(target_state_flat, target_term_flat)
+        term_metrics["target_state_term_correlation"] = _signed_correlation(
+            target_state_flat, target_term_flat
+        )
         driver_metrics[label] = {
             "field": field_name,
             "term": term_name,
@@ -1433,7 +1932,9 @@ def _state_driver_register(
             "state_delta_lineout": state_delta[line_x, active_y, line_z].tolist(),
             "term_delta_lineout": term_delta[line_x, active_y, line_z].tolist(),
         }
-        ranked_drivers.append({"driver": label, "field": field_name, "term": term_name, **term_metrics})
+        ranked_drivers.append(
+            {"driver": label, "field": field_name, "term": term_name, **term_metrics}
+        )
 
     return {
         "state_rate_errors": state_rate_errors,
@@ -1477,12 +1978,16 @@ def _dominant_residual_cells(
     active_y: slice,
     count: int,
 ) -> list[dict[str, object]]:
-    residual = np.asarray(balance["residual_rate"][active_x, active_y, :], dtype=np.float64)
+    residual = np.asarray(
+        balance["residual_rate"][active_x, active_y, :], dtype=np.float64
+    )
     flat_count = min(int(count), residual.size)
     if flat_count == 0:
         return []
     flat_indices = np.argpartition(np.abs(residual).ravel(), -flat_count)[-flat_count:]
-    flat_indices = flat_indices[np.argsort(np.abs(residual).ravel()[flat_indices])[::-1]]
+    flat_indices = flat_indices[
+        np.argsort(np.abs(residual).ravel()[flat_indices])[::-1]
+    ]
     terms = tuple(name for name in _diagnostic_term_names(balance) if name != "rhs_sum")
     cells: list[dict[str, object]] = []
     for flat_index in flat_indices:
@@ -1503,12 +2008,16 @@ def _dominant_residual_cells(
     return cells
 
 
-def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: str | Path) -> Path:
+def _write_neutral_mixed_term_balance_arrays(
+    report: dict[str, object], path: str | Path
+) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     arrays: dict[str, np.ndarray] = {
         "active_y_indices": np.asarray(report["active_y_indices"], dtype=np.float64),
-        "final_momentum_error_lineout": np.asarray(report["final_momentum_error"]["lineout"], dtype=np.float64),
+        "final_momentum_error_lineout": np.asarray(
+            report["final_momentum_error"]["lineout"], dtype=np.float64
+        ),
     }
     final_field_register = report.get("final_field_error_register")
     if isinstance(final_field_register, dict):
@@ -1516,42 +2025,56 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
         if isinstance(fields, dict):
             for field_name, payload in fields.items():
                 if isinstance(payload, dict) and "lineout" in payload:
-                    arrays[f"final_field_error_{field_name}_lineout"] = np.asarray(payload["lineout"], dtype=np.float64)
+                    arrays[f"final_field_error_{field_name}_lineout"] = np.asarray(
+                        payload["lineout"], dtype=np.float64
+                    )
     state_driver_register = report.get("state_driver_register")
     if isinstance(state_driver_register, dict):
         state_rates = state_driver_register.get("state_rate_errors", {})
         if isinstance(state_rates, dict):
             for field_name, payload in state_rates.items():
                 if isinstance(payload, dict) and "lineout" in payload:
-                    arrays[f"state_rate_error_{field_name}_lineout"] = np.asarray(payload["lineout"], dtype=np.float64)
+                    arrays[f"state_rate_error_{field_name}_lineout"] = np.asarray(
+                        payload["lineout"], dtype=np.float64
+                    )
         driver_deltas = state_driver_register.get("momentum_driver_deltas", {})
         if isinstance(driver_deltas, dict):
             for driver_name, payload in driver_deltas.items():
                 if not isinstance(payload, dict):
                     continue
                 if "state_delta_lineout" in payload:
-                    arrays[f"state_driver_{driver_name}_state_delta_lineout"] = np.asarray(
-                        payload["state_delta_lineout"],
-                        dtype=np.float64,
+                    arrays[f"state_driver_{driver_name}_state_delta_lineout"] = (
+                        np.asarray(
+                            payload["state_delta_lineout"],
+                            dtype=np.float64,
+                        )
                     )
                 if "term_delta_lineout" in payload:
-                    arrays[f"state_driver_{driver_name}_term_delta_lineout"] = np.asarray(
-                        payload["term_delta_lineout"],
-                        dtype=np.float64,
+                    arrays[f"state_driver_{driver_name}_term_delta_lineout"] = (
+                        np.asarray(
+                            payload["term_delta_lineout"],
+                            dtype=np.float64,
+                        )
                     )
     for group_name in ("native_balance", "reference_balance"):
         for term_name, lineout in report[group_name]["lineouts"].items():
-            arrays[f"{group_name}_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
+            arrays[f"{group_name}_{term_name}_lineout"] = np.asarray(
+                lineout, dtype=np.float64
+            )
     term_delta = report.get("term_delta")
     if isinstance(term_delta, dict):
         for term_name, lineout in term_delta.get("lineouts", {}).items():
-            arrays[f"term_delta_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
+            arrays[f"term_delta_{term_name}_lineout"] = np.asarray(
+                lineout, dtype=np.float64
+            )
     diagnostics = report.get("hermes_diagnostic_outputs")
     if isinstance(diagnostics, dict):
         lineouts = diagnostics.get("lineouts", {})
         if isinstance(lineouts, dict):
             for term_name, lineout in lineouts.items():
-                arrays[f"hermes_diagnostic_{term_name}_lineout"] = np.asarray(lineout, dtype=np.float64)
+                arrays[f"hermes_diagnostic_{term_name}_lineout"] = np.asarray(
+                    lineout, dtype=np.float64
+                )
         reconstructions = diagnostics.get("matched_reconstructions", {})
         if isinstance(reconstructions, dict):
             for term_name, reconstruction in reconstructions.items():
@@ -1565,11 +2088,17 @@ def _write_neutral_mixed_term_balance_arrays(report: dict[str, object], path: st
             for term_name, comparison in direct_comparisons.items():
                 if not isinstance(comparison, dict):
                     continue
-                for line_name in ("matched_reconstruction_lineout", "scaled_direct_lineout", "scaled_difference_lineout"):
+                for line_name in (
+                    "matched_reconstruction_lineout",
+                    "scaled_direct_lineout",
+                    "scaled_difference_lineout",
+                ):
                     if line_name in comparison:
-                        arrays[f"hermes_direct_comparison_{term_name}_{line_name}"] = np.asarray(
-                            comparison[line_name],
-                            dtype=np.float64,
+                        arrays[f"hermes_direct_comparison_{term_name}_{line_name}"] = (
+                            np.asarray(
+                                comparison[line_name],
+                                dtype=np.float64,
+                            )
                         )
     np.savez(target, **arrays)
     return target
@@ -1586,8 +2115,12 @@ def _hermes_diagnostic_payload(
 ) -> dict[str, object]:
     try:
         from netCDF4 import Dataset
-    except ImportError as exc:  # pragma: no cover - dependency is part of the runtime package
-        raise ImportError("netCDF4 is required to read Hermès diagnostic NetCDF output.") from exc
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - dependency is part of the runtime package
+        raise ImportError(
+            "netCDF4 is required to read Hermès diagnostic NetCDF output."
+        ) from exc
 
     target = Path(path).expanduser().resolve()
     field_names = (
@@ -1657,7 +2190,9 @@ def _hermes_diagnostic_payload(
         active = matched[active_x, active_y, :]
         reconstruction_name = reconstruction_names.get(diagnostic_name, diagnostic_name)
         payload["matched_reconstructions"][reconstruction_name] = {
-            "source": reconstruction_descriptions.get(diagnostic_name, "matched postprocessed native reconstruction"),
+            "source": reconstruction_descriptions.get(
+                diagnostic_name, "matched postprocessed native reconstruction"
+            ),
             "lineout": matched[line_x, active_y, line_z].tolist(),
             "field_metrics": {
                 "max_abs": float(np.max(np.abs(active))),
@@ -1688,7 +2223,11 @@ def _hermes_diagnostic_payload(
         matched_active = matched[active_x, active_y, :]
         direct_active = direct[active_x, active_y, :]
         denominator = float(np.sum(np.square(direct_active)))
-        scale = float(np.sum(matched_active * direct_active) / denominator) if denominator > 0.0 else 0.0
+        scale = (
+            float(np.sum(matched_active * direct_active) / denominator)
+            if denominator > 0.0
+            else 0.0
+        )
         scaled_direct = scale * direct
         difference = scaled_direct - matched
         active_difference = difference[active_x, active_y, :]
@@ -1699,7 +2238,9 @@ def _hermes_diagnostic_payload(
                 "max_abs": float(np.max(np.abs(active_difference))),
                 "rms": _rms(active_difference),
             },
-            "matched_reconstruction_lineout": matched[line_x, active_y, line_z].tolist(),
+            "matched_reconstruction_lineout": matched[
+                line_x, active_y, line_z
+            ].tolist(),
             "scaled_direct_lineout": scaled_direct[line_x, active_y, line_z].tolist(),
             "scaled_difference_lineout": difference[line_x, active_y, line_z].tolist(),
         }
@@ -1732,14 +2273,20 @@ def _set_section_option(text: str, section: str, key: str, value: str) -> str:
         suffix = "" if text.endswith("\n") else "\n"
         return f"{text}{suffix}\n[{section}]\n{key} = {value}\n"
     next_header = re.search(r"(?m)^\[[^\]]+\]\s*$", text[header.end() :])
-    section_end = len(text) if next_header is None else header.end() + next_header.start()
+    section_end = (
+        len(text) if next_header is None else header.end() + next_header.start()
+    )
     body = text[header.end() : section_end]
     option_pattern = re.compile(rf"(?m)^(\s*{re.escape(key)}\s*=\s*).*$")
     if option_pattern.search(body):
         body = option_pattern.sub(rf"\g<1>{value}", body, count=1)
     else:
         insertion = f"{key} = {value}\n"
-        body = f"\n{insertion}{body.lstrip()}" if not body.startswith("\n") else f"\n{insertion}{body[1:]}"
+        body = (
+            f"\n{insertion}{body.lstrip()}"
+            if not body.startswith("\n")
+            else f"\n{insertion}{body[1:]}"
+        )
     return text[: header.end()] + body + text[section_end:]
 
 
