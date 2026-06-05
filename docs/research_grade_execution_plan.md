@@ -135,8 +135,9 @@ Relevant source-code findings from a shallow source audit:
 - The boundary-condition documentation identifies exact target/sheath,
   recycling, no-flow, and neutral reflection semantics that must be matched or
   deliberately bounded in `jax_drb`.
-- A fresh local audit of `/Users/rogerio/local/hermes-3` confirms that the most
-  useful parity anchors are not only the integrated decks. The unit tests
+- A fresh local audit of a developer checkout of the reference implementation
+  confirms that the most useful parity anchors are not only the integrated
+  decks. The unit tests
   directly exercise `neutral_mixed`, `sheath_boundary`, `sheath_closure`,
   `noflow_boundary`, `zero_current`, `recycling`, `vorticity`,
   `braginskii_collisions`, `braginskii_friction`,
@@ -144,7 +145,7 @@ Relevant source-code findings from a shallow source audit:
   `braginskii_conduction`, `braginskii_heat_exchange`, `thermal_force`,
   `neutral_full_velocity`, `neutral_boundary`, `hydrogen_charge_exchange`,
   `ionisation`, reaction parsing, and AMJUEL/ADAS rate surfaces.
-- The local `neutral_mixed` source now writes explicit diagnostics for
+- The audited `neutral_mixed` source now writes explicit diagnostics for
   `SNV*_pressure_gradient`, `SNV*_parallel_viscosity`, and
   `SNV*_perpendicular_viscosity`; those are the highest-value reference-side
   fields for closing the remaining `NVh` target-band offender. They should be
@@ -156,8 +157,8 @@ Relevant source-code findings from a shallow source audit:
   differential operators on orthogonal and nonorthogonal metrics and expects
   second-order error decay. This is the strongest model for future
   metric-weighted FCI/VMEC-extender operator gates.
-- The local `/Users/rogerio/local/hermes-2` audit identifies older tokamak
-  workflows that remain useful as postprocessing acceptance tests: target
+- A local audit of the previous-generation reference code identifies older
+  tokamak workflows that remain useful as postprocessing acceptance tests: target
   density/temperature/heat-flux profiles, target power integration, core/SOL
   volume-integrated sources, radiation, ion-neutral exchange, and
   electron-ion energy exchange. These should be mirrored as `jax_drb` analysis
