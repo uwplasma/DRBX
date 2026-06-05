@@ -110,9 +110,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--timestep", type=float, default=1.0e-4)
     parser.add_argument(
         "--rhs-backend",
-        choices=("fixed_full_field_array", "host_bridge"),
+        choices=("fixed_full_field_array", "active_array", "host_bridge"),
         default="fixed_full_field_array",
-        help="Residual backend used by the profile gate; fixed_full_field_array is the JAX-native evidence path.",
+        help=(
+            "Residual backend used by the profile gate; fixed_full_field_array is "
+            "the validated JAX-native evidence path and active_array is the "
+            "opt-in migration seam for active-field RHS kernels."
+        ),
     )
     parser.add_argument("--perturbation-scale", type=float, default=1.0e-6)
     parser.add_argument("--fd-epsilon", type=float, default=1.0e-6)
