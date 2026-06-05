@@ -431,6 +431,28 @@ def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -
         assert field_name in text
 
 
+def test_neutral_mixed_source_diagnostic_reference_patch_is_line_numbered() -> None:
+    patch_path = (
+        _REPO_ROOT / "docs" / "hermes_neutral_mixed_pressure_gradient_diagnostic.patch"
+    )
+    text = patch_path.read_text(encoding="utf-8")
+
+    assert "diff --git a/include/neutral_mixed.hxx" in text
+    assert "diff --git a/src/neutral_mixed.cxx" in text
+    assert "@@ -76,6 +76,9 @@" in text
+    assert "@@ -564,11 +564,12 @@" in text
+    assert "\n@@\n" not in text
+    for token in (
+        "momentum_pressure_gradient_source = -Grad_par(Pn);",
+        "momentum_parallel_viscosity_source = Div_par_K_Grad_par_mod",
+        "momentum_perpendicular_viscosity_source =",
+        "SNV\") + name + std::string(\"_pressure_gradient\")",
+        "SNV\") + name + std::string(\"_parallel_viscosity\")",
+        "SNV\") + name + std::string(\"_perpendicular_viscosity\")",
+    ):
+        assert token in text
+
+
 def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

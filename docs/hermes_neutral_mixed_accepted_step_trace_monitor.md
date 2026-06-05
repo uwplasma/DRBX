@@ -26,6 +26,8 @@ Apply it to a clean, disposable reference-code checkout rather than to a
 working tree with unrelated local edits. The patch has two responsibilities:
 refreshing the CVODE accepted-step state and RHS before timestep monitors run,
 and adding a gated JSONL monitor in the reference application.
+Both reference patches are line-numbered `git apply` patches. Apply the direct
+source-term diagnostic patch first, then the accepted-step monitor patch.
 
 ## Required Reference Changes
 
