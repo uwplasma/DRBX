@@ -67,6 +67,7 @@ def test_configured_recycling_transient_solver_mode_reads_runtime_override() -> 
     "mode",
     (
         "bdf_fixed_full_field_jvp",
+        "bdf_active_array_jvp",
         "fixed_bdf2_jax_linearized",
         "fixed_bdf2_jax_linearized_lineax",
     ),

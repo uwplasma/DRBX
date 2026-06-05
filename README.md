@@ -412,6 +412,8 @@ Focused engineering and benchmark packages:
 - [docs/tokamak_anomalous_diffusion_campaign.md](docs/tokamak_anomalous_diffusion_campaign.md)
 - [docs/tokamak_recycling_observable_campaign.md](docs/tokamak_recycling_observable_campaign.md)
 - [docs/target_recycling_campaign.md](docs/target_recycling_campaign.md)
+- [docs/neutral_mixed_term_balance_campaign.md](docs/neutral_mixed_term_balance_campaign.md)
+- [docs/hermes_neutral_mixed_accepted_step_trace_monitor.md](docs/hermes_neutral_mixed_accepted_step_trace_monitor.md)
 - [docs/impurity_radiation_campaign.md](docs/impurity_radiation_campaign.md)
 - [docs/controller_feedback_campaign.md](docs/controller_feedback_campaign.md)
 - [docs/temperature_feedback_campaign.md](docs/temperature_feedback_campaign.md)
