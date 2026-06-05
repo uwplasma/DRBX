@@ -78,6 +78,7 @@ nav:
       - Neutral Parallel Diffusion: neutral_parallel_diffusion_campaign.md
       - Neutral Mixed Boundary: neutral_mixed_boundary_campaign.md
       - Neutral Mixed Term Balance: neutral_mixed_term_balance_campaign.md
+      - Neutral Mixed Accepted-Step Reference Trace: hermes_neutral_mixed_accepted_step_trace_monitor.md
       - Target Recycling: target_recycling_campaign.md
       - Tokamak Anomalous Diffusion: tokamak_anomalous_diffusion_campaign.md
       - Tokamak Recycling Observable: tokamak_recycling_observable_campaign.md
