@@ -346,7 +346,10 @@ and memory use. The current self-contained gate is:
 `PYTHONPATH=src python scripts/run_recycling_jvp_promotion_gate.py`. It runs the
 hydrogen and D/T/He one-step decks from the committed lightweight fixture root
 unless `JAX_DRB_REFERENCE_ROOT` or `--reference-root` points to a live reference
-checkout. The hydrogen gate passes with worst active-mesh BDF-vs-fixed-JVP
+checkout. Add `--output-dir docs/data/runtime_profile_artifacts/<new-run>` for
+release or paper audits; the wrapper writes one JSON report per case plus an
+aggregate `summary.json` with commands, thresholds, return codes, timings,
+diagnostics, and pairwise deltas. The hydrogen gate passes with worst active-mesh BDF-vs-fixed-JVP
 delta `7.59e-6` under the `1e-5` threshold; the D/T/He gate passes with worst
 delta `2.20e-7` under the `2e-5` threshold. Both gates also require
 `bdf_rhs_backend="fixed_full_field_array"`, `bdf_jacobian_mode="jvp"`, and zero
