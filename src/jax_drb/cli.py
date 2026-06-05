@@ -319,6 +319,16 @@ def _build_parser() -> argparse.ArgumentParser:
     neutral_trace_parser.add_argument("--input-path", type=Path, default=None)
     neutral_trace_parser.add_argument("--internal-substeps", type=int, default=8)
     neutral_trace_parser.add_argument("--steps", type=int, default=1)
+    neutral_trace_parser.add_argument(
+        "--reference-trace-jsonl",
+        "--reference-trace-json",
+        dest="reference_trace_json",
+        type=Path,
+        default=None,
+        help="Optional reference accepted-step JSONL/JSON trace whose times are replayed by the native solver.",
+    )
+    neutral_trace_parser.add_argument("--reference-stage", default="post_accepted")
+    neutral_trace_parser.add_argument("--time-tolerance", type=float, default=1.0e-8)
     neutral_trace_parser.add_argument("--json-out", type=Path, required=True)
     neutral_trace_parser.set_defaults(
         command=_trace_neutral_mixed_accepted_steps_command
@@ -1195,12 +1205,18 @@ def _trace_neutral_mixed_accepted_steps_command(args: argparse.Namespace) -> int
     if int(args.steps) <= 0:
         print("trace-neutral-mixed-accepted-steps: --steps must be positive.")
         return 1
+    if float(args.time_tolerance) <= 0.0:
+        print("trace-neutral-mixed-accepted-steps: --time-tolerance must be positive.")
+        return 1
     report = build_neutral_mixed_native_accepted_step_trace_report(
         reference_root=args.reference_root,
         case_name=args.case_name,
         input_path=args.input_path,
         internal_substeps=int(args.internal_substeps),
         steps=int(args.steps),
+        reference_trace_json=args.reference_trace_json,
+        reference_stage=args.reference_stage,
+        time_tolerance=float(args.time_tolerance),
     )
     path = write_neutral_mixed_native_accepted_step_trace_json(report, args.json_out)
     print(f"diagnostic: {report['diagnostic']}")

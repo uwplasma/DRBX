@@ -59,6 +59,28 @@ regenerate the README/docs movies, or execute the cached validation checks.
 Fresh live-reference reruns are developer-maintenance tasks for refreshing the
 release bundles.
 
+## Repository Footprint Audit
+
+Before release closeout, run the read-only footprint audit:
+
+```bash
+python scripts/audit_repository_footprint.py --top 20 --min-size-mib 1
+```
+
+The audit reports tracked large files from the current working tree, current
+`HEAD` blob sizes, top reachable-history blobs across all refs, untracked files
+that are not excluded by gitignore, and `.git/objects/pack` size. It only runs
+read-only `git` queries and filesystem stats; it does not run garbage
+collection, `git filter-repo`, or any other history-rewriting command.
+
+For automation or an external release record, emit JSON and redirect it outside
+the checkout:
+
+```bash
+python scripts/audit_repository_footprint.py --format json --top 20 \
+  --min-size-mib 1 > /tmp/jax_drb_repository_footprint.json
+```
+
 ## Build The Package
 
 Build the source distribution and wheel locally:
@@ -144,20 +166,26 @@ python scripts/run_promoted_solver_coverage.py
 python scripts/run_fast_research_checks.py
 ```
 
-3. build the distributions locally:
+3. check the repository footprint before creating release artifacts:
+
+```bash
+python scripts/audit_repository_footprint.py --top 20 --min-size-mib 1
+```
+
+4. build the distributions locally:
 
 ```bash
 python -m build
 ```
 
-4. verify the public docs and artifact surface:
+5. verify the public docs and artifact surface:
 
 ```bash
 mkdocs build --strict
 pytest -q tests/test_release_surface.py
 ```
 
-5. verify the release artifact bundle and docs-media restore path when release
+6. verify the release artifact bundle and docs-media restore path when release
    assets have changed:
 
 ```bash
@@ -169,11 +197,11 @@ Use a version tag such as `v1.0.3` only for package releases. Use an artifact
 tag such as `validation-artifacts-YYYY-MM-DD` for docs-media or baseline
 refreshes so the publish workflow remains skipped.
 
-6. dispatch the bounded research campaign workflows that are expected for the
+7. dispatch the bounded research campaign workflows that are expected for the
    release candidate, then wait for GitHub `test`, `docs`, and `coverage` to
    complete successfully on the target commit.
 
-7. optionally run the Python version matrix locally or through CI.
+8. optionally run the Python version matrix locally or through CI.
 
 ## Current Release Boundary
 
