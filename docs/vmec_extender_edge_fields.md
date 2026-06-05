@@ -73,6 +73,16 @@ trilinear interpolation, physical-field-period wrapping, `absB` consistency,
 and the field-line RHS definition. The default tests build a synthetic NetCDF
 fixture and do not require external VMEC, virtual-casing, or tracing checkouts.
 
+The public example is therefore runnable from a clean temporary directory with
+only `jax_drb` on `PYTHONPATH`:
+
+```bash
+tmp=$(mktemp -d)
+cd "$tmp"
+PYTHONPATH=/path/to/jax_drb/src MPLBACKEND=Agg \
+  python /path/to/jax_drb/examples/geometry-3D/vmec-extender/imported_field_demo.py
+```
+
 `create_vmec_extender_sol_smoke_package` adds the first downstream SOL coupling
 gate. It loads an imported field grid, builds one-plane FCI maps, and advances
 a compact scalar model with conservative field-aligned diffusion, open R-Z

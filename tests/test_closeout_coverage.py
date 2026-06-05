@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,5 +87,39 @@ def test_promoted_solver_coverage_builds_pytest_and_report_commands() -> None:
     assert pytest_command[:6] == ["python", "-m", "coverage", "run", "-m", "pytest"]
     assert "--maxfail=1" in pytest_command
     assert "tests/test_native_integrated_2d_recycling.py" in pytest_command
-    assert report_command[:4] == ["python", "-m", "coverage", "report"]
+    assert report_command[:5] == ["python", "-m", "coverage", "report", "--precision=2"]
     assert "src/jax_drb/native/recycling_targets.py" in report_command
+
+
+def test_promoted_solver_coverage_parses_decimal_total_line() -> None:
+    module = _load_script_module("scripts/run_promoted_solver_coverage.py", "promoted_solver_coverage_parse")
+
+    parsed = module._parse_total_coverage(
+        "Name Stmts Miss Cover\n"
+        "foo.py 10 0 100.00%\n"
+        "TOTAL 5143 156 95.19%\n"
+    )
+
+    assert parsed == 95.19
+
+
+def test_promoted_solver_coverage_main_rejects_below_threshold_decimal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_script_module("scripts/run_promoted_solver_coverage.py", "promoted_solver_coverage_main")
+
+    def fake_run(args, **kwargs):
+        if "report" in args:
+            return SimpleNamespace(
+                returncode=0,
+                stdout="Name Stmts Miss Cover\nTOTAL 5143 160 94.99%\n",
+                stderr="",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["run_promoted_solver_coverage.py"])
+    assert module.main() == 1
+
+    monkeypatch.setattr(sys, "argv", ["run_promoted_solver_coverage.py", "--audit"])
+    assert module.main() == 0

@@ -99,11 +99,12 @@ The detailed guide is [Stellarator Examples](stellarator_examples.md).
 
 ## Imported 3D Geometry
 
-The entries in this section document developer regeneration of imported
-external-geometry artifacts. Users can inspect the published figures and movies
-after `fetch_example_artifacts.py`; rerunning the import adapters themselves
-requires the geometry source checkout named by the page. These are not required
-for the self-contained quick-start examples.
+The VMEC-extender entry is a self-contained synthetic validation example that
+writes its own compact NetCDF field grids before running the import and SOL
+smoke gates. The ESSOS imported-geometry entries document developer
+regeneration of external-geometry artifacts; users can inspect the published
+figures and movies after `fetch_example_artifacts.py`, while rerunning those
+adapters requires the geometry source checkout named by the page.
 
 | Example | What it teaches |
 | --- | --- |

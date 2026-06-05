@@ -31,13 +31,14 @@ python scripts/run_promoted_solver_coverage.py --audit
 ```
 
 As of the June 5, 2026 local audit, this promoted slice includes the fixed
-residual active-array transformability gates, passes its tests (`518 passed`,
-`7 deselected`, `1 xfailed`), and reports `95%` total coverage. The remaining
-coverage deficits are concentrated in the hardest and most valuable surfaces:
-runner orchestration, full-sheath lower-target branches, legacy mixed residual
-helpers, target-recycling edge cases, and some CLI subcommand branches. Future
-coverage work should still close those through smaller extracted modules and
-operator tests, not through broad smoke coverage.
+residual active-array transformability gates, passes its tests (`524 passed`,
+`7 deselected`, `1 xfailed`), and reports `95.40%` unrounded total coverage on
+the promoted target files. The remaining coverage deficits are concentrated in
+the hardest and most valuable surfaces: runner orchestration, full-sheath
+lower-target branches, legacy mixed residual helpers, target-recycling edge
+cases, and some CLI subcommand branches. Future coverage work should still
+close those through smaller extracted modules and operator tests, not through
+broad smoke coverage.
 
 The release-closeout threshold is now explicit and reproducible:
 

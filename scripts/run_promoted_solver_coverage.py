@@ -80,6 +80,7 @@ def _build_report_command(*, python_executable: str) -> list[str]:
         "-m",
         "coverage",
         "report",
+        "--precision=2",
         "-m",
         *PROMOTED_SOLVER_TARGETS,
     ]
@@ -89,7 +90,7 @@ def _parse_total_coverage(report_text: str) -> float:
     for line in report_text.splitlines():
         if not line.startswith("TOTAL"):
             continue
-        match = re.search(r"(\d+)%\s*$", line.strip())
+        match = re.search(r"(\d+(?:\.\d+)?)%\s*$", line.strip())
         if match is None:
             break
         return float(match.group(1))
@@ -142,13 +143,13 @@ def main() -> int:
     print(report.stdout, end="")
     total_coverage = _parse_total_coverage(report.stdout)
     if total_coverage < float(args.threshold):
-        message = f"promoted solver coverage gate failed: {total_coverage:.1f}% < required {float(args.threshold):.1f}%"
+        message = f"promoted solver coverage gate failed: {total_coverage:.2f}% < required {float(args.threshold):.2f}%"
         if args.audit:
             print(f"{message} (audit mode)")
             return 0
         print(message, file=sys.stderr)
         return 1
-    print(f"promoted solver coverage gate passed: {total_coverage:.1f}% >= required {float(args.threshold):.1f}%")
+    print(f"promoted solver coverage gate passed: {total_coverage:.2f}% >= required {float(args.threshold):.2f}%")
     return 0
 
 
