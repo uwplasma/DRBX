@@ -55,6 +55,7 @@ class ImplicitStepInfo:
     jvp_jacobian_batch_count: int = 0
     jvp_jacobian_prebuilt_direction_batch_uses: int = 0
     jvp_direction_workspace_reuses: int = 0
+    residual_jitted: bool = False
 
 
 @dataclass(frozen=True)
@@ -1025,6 +1026,7 @@ def solve_jax_linearized_newton_system(
     linear_maxiter: int = 20,
     linear_solver_backend: str = "jax_gmres",
     check_initial_residual: bool = True,
+    jit_residual: bool = False,
 ) -> tuple[np.ndarray, ImplicitStepInfo]:
     try:
         import jax
@@ -1048,6 +1050,7 @@ def solve_jax_linearized_newton_system(
     last_linear_solver_status: int | float | str | None = None
     last_linear_solver_success: bool | None = None
     last_linear_solver_reported_iterations: int | None = None
+    residual_function = jax.jit(residual) if bool(jit_residual) else residual
 
     def _block(value):
         if value is None:
@@ -1083,11 +1086,12 @@ def solve_jax_linearized_newton_system(
             linear_solver_status=last_linear_solver_status,
             linear_solver_success=last_linear_solver_success,
             linear_solver_reported_iterations=last_linear_solver_reported_iterations,
+            residual_jitted=bool(jit_residual),
         )
 
     if check_initial_residual:
         residual_started_at = perf_counter()
-        initial_residual = residual(state)
+        initial_residual = residual_function(state)
         initial_residual = _block(initial_residual)
         residual_evaluation_count += 1
         residual_evaluation_seconds += perf_counter() - residual_started_at
@@ -1101,7 +1105,7 @@ def solve_jax_linearized_newton_system(
 
     for nonlinear_iteration in range(1, int(max_nonlinear_iterations) + 1):
         linearize_started_at = perf_counter()
-        residual_value, linear_map = jax.linearize(residual, state)
+        residual_value, linear_map = jax.linearize(residual_function, state)
         residual_value = _block(residual_value)
         elapsed = perf_counter() - linearize_started_at
         residual_evaluation_count += 1

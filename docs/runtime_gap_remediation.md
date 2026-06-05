@@ -297,6 +297,12 @@ already satisfies the nonlinear tolerance. This removes wasted linearization on
 accepted predictor states while preserving the existing JAX-linearized Newton
 path for genuinely nonlinear updates. It does not change the production BDF
 default or make the slower fixed-JVP output-window path default.
+The same solver now also exposes an opt-in `jit_residual=True` path. That path
+wraps the residual in `jax.jit` before the initial residual check and
+`jax.linearize`, then records `residual_jitted=True` in the returned
+`ImplicitStepInfo`. This is a seam for fixed-layout recycling profiling and
+future matrix-free promotion; it remains opt-in until full output-window parity
+and runtime gates justify changing a production route.
 The audit is deliberately small: it proves the solver backend boundary, not the
 full recycling migration. The full migration still depends on moving the
 remaining recycling residual kernels out of dictionary/NumPy assembly.
