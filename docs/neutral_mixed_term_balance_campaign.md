@@ -198,6 +198,17 @@ or target-boundary reconstruction before the viscosity stencil is changed.
 The comparator ranks state fields with guard metrics, but ranks `ddt(*)` and
 `SNVh_*` fields by active and target-adjacent cells while still reporting guard
 deltas separately.
+A separate final-state input-closure gate now compares native `Dnn`, `Vh`, and
+`eta_h` reconstructions against a reference-style `BOUT.dmp.0.nc` dump. The
+public API entry point is
+`build_neutral_mixed_reference_input_closure_report`, with JSON output handled
+by `write_neutral_mixed_reference_input_closure_json`. On the current
+reference final state this gate closes the neutral diffusion, velocity, and
+viscosity input formulas to roundoff in active, target-adjacent, and guard
+cells. That result is deliberately narrower than the accepted-step comparator:
+it shows that the `eta_h` offender should be pursued in accepted-step
+state/history or target-boundary sequencing, not by changing the already
+matched `eta_h = A_h D_{nn,h} N_h` closure formula.
 The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
 schema before returning successfully: each accepted-step record must contain
 `Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain

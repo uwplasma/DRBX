@@ -207,6 +207,107 @@ def run_neutral_mixed_hermes_accepted_step_trace(
     return trace_path
 
 
+def build_neutral_mixed_reference_input_closure_report(
+    *,
+    input_path: str | Path,
+    hermes_diagnostic_nc: str | Path,
+    section: str = "h",
+) -> dict[str, object]:
+    """Compare native neutral input closures on a reference final state."""
+
+    resolved_input = Path(input_path).expanduser().resolve()
+    config = load_bout_input(resolved_input)
+    run_config = RunConfiguration.from_config(config)
+    mesh = build_structured_mesh(config, run_config)
+    metrics = build_structured_metrics(config, run_config, mesh)
+    scalars = resolved_dataset_scalars(run_config)
+    reference_fields = _load_reference_neutral_mixed_input_closure_fields(
+        hermes_diagnostic_nc,
+        section=section,
+    )
+    prepared = _prepare_neutral_mixed_state(
+        config,
+        NeutralMixedState(
+            density=reference_fields[f"N{section}"],
+            pressure=reference_fields[f"P{section}"],
+            momentum=reference_fields[f"NV{section}"],
+        ),
+        section=section,
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    native_fields = {
+        f"Dnn{section}": prepared.diffusion,
+        f"V{section}": prepared.velocity,
+        f"eta_{section}": prepared.viscosity,
+    }
+    active_x = slice(mesh.xstart, mesh.xend + 1)
+    active_y = slice(mesh.ystart, mesh.yend + 1)
+    target_y_indices = _target_adjacent_y_indices(mesh)
+    guard_y_indices = _neutral_mixed_guard_y_indices(mesh)
+    sample_y_indices = tuple(sorted(set(target_y_indices).union(guard_y_indices)))
+    line_x = int(mesh.xstart + max((mesh.xend - mesh.xstart) // 2, 0))
+    line_z = int(mesh.nz // 2)
+    fields: dict[str, dict[str, object]] = {}
+    for name in native_fields:
+        payload = _input_closure_delta_payload(
+            native_fields[name],
+            reference_fields[name],
+            active_x=active_x,
+            active_y=active_y,
+            target_y_indices=target_y_indices,
+            guard_y_indices=guard_y_indices,
+            sample_y_indices=sample_y_indices,
+            line_x=line_x,
+            line_z=line_z,
+        )
+        payload["field"] = name
+        fields[name] = payload
+    ranked = sorted(
+        fields.values(),
+        key=lambda item: (
+            float(item["max_target_adjacent_delta"]),
+            float(item["max_active_delta"]),
+            float(item["max_guard_delta"]),
+        ),
+        reverse=True,
+    )
+    return {
+        "diagnostic": "neutral_mixed_reference_input_closure",
+        "source_nc": _sanitize_public_path(Path(hermes_diagnostic_nc)),
+        "input_path": _sanitize_public_path(resolved_input),
+        "section": section,
+        "active_x_indices": list(range(int(mesh.xstart), int(mesh.xend) + 1)),
+        "active_y_indices": list(range(int(mesh.ystart), int(mesh.yend) + 1)),
+        "target_y_indices": list(target_y_indices),
+        "guard_y_indices": list(guard_y_indices),
+        "sample_y_indices": list(sample_y_indices),
+        "lineout_x_index": line_x,
+        "lineout_z_index": line_z,
+        "fields": fields,
+        "ranked_fields": ranked,
+        "interpretation": (
+            "If Dnn, V, and eta match on the reference final state, the accepted-step "
+            "input mismatch is caused by accepted-step state/history or boundary sequencing "
+            "rather than the neutral input closure formula."
+        ),
+    }
+
+
+def write_neutral_mixed_reference_input_closure_json(
+    report: dict[str, object],
+    path: str | Path,
+) -> Path:
+    """Write a neutral-mixed input-closure report to JSON."""
+
+    target = Path(path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
 def create_neutral_mixed_term_balance_campaign_package(
     *,
     output_root: str | Path,
@@ -3141,6 +3242,100 @@ def _hermes_diagnostic_payload(
             "scaled_difference_lineout": difference[line_x, active_y, line_z].tolist(),
         }
     return payload
+
+
+def _load_reference_neutral_mixed_input_closure_fields(
+    path: str | Path,
+    *,
+    section: str,
+) -> dict[str, np.ndarray]:
+    try:
+        from netCDF4 import Dataset
+    except (
+        ImportError
+    ) as exc:  # pragma: no cover - dependency is part of the runtime package
+        raise ImportError(
+            "netCDF4 is required to read Hermès diagnostic NetCDF output."
+        ) from exc
+
+    target = Path(path).expanduser().resolve()
+    field_names = (
+        f"N{section}",
+        f"P{section}",
+        f"NV{section}",
+        f"Dnn{section}",
+        f"V{section}",
+        f"eta_{section}",
+    )
+    fields: dict[str, np.ndarray] = {}
+    with Dataset(target) as dataset:
+        missing = [name for name in field_names if name not in dataset.variables]
+        if missing:
+            raise KeyError(
+                "Hermès neutral-mixed input-closure dump is missing variables: "
+                + ", ".join(missing)
+            )
+        for name in field_names:
+            fields[name] = _read_final_netcdf_field(dataset.variables[name])
+    return fields
+
+
+def _read_final_netcdf_field(variable) -> np.ndarray:
+    values = np.asarray(variable[:], dtype=np.float64)
+    if values.ndim == 4:
+        return np.asarray(values[-1], dtype=np.float64)
+    if values.ndim == 3:
+        return np.asarray(values, dtype=np.float64)
+    raise ValueError(
+        "Expected neutral-mixed NetCDF fields shaped (t, x, y, z) or (x, y, z), "
+        f"got {values.shape}."
+    )
+
+
+def _input_closure_delta_payload(
+    native: np.ndarray,
+    reference: np.ndarray,
+    *,
+    active_x: slice,
+    active_y: slice,
+    target_y_indices: tuple[int, ...],
+    guard_y_indices: tuple[int, ...],
+    sample_y_indices: tuple[int, ...],
+    line_x: int,
+    line_z: int,
+) -> dict[str, object]:
+    delta = np.asarray(native, dtype=np.float64) - np.asarray(
+        reference, dtype=np.float64
+    )
+    active = delta[active_x, active_y, :]
+    target = (
+        delta[active_x, target_y_indices, :]
+        if target_y_indices
+        else np.asarray([], dtype=np.float64)
+    )
+    guard = (
+        delta[active_x, guard_y_indices, :]
+        if guard_y_indices
+        else np.asarray([], dtype=np.float64)
+    )
+    sample = (
+        delta[line_x, sample_y_indices, line_z].tolist()
+        if sample_y_indices
+        else []
+    )
+    active_metrics = _array_metrics(active)
+    target_metrics = _array_metrics(target)
+    guard_metrics = _array_metrics(guard)
+    return {
+        "max_active_delta": active_metrics["max_abs"],
+        "active_rms_delta": active_metrics["rms"],
+        "max_target_adjacent_delta": target_metrics["max_abs"],
+        "target_adjacent_rms_delta": target_metrics["rms"],
+        "max_guard_delta": guard_metrics["max_abs"],
+        "guard_rms_delta": guard_metrics["rms"],
+        "max_sample_lineout_delta": float(np.max(np.abs(sample))) if sample else 0.0,
+        "sample_lineout_delta": sample,
+    }
 
 
 def _default_hermes_binary(reference_root: Path) -> Path:

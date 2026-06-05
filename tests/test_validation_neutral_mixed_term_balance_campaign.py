@@ -11,6 +11,7 @@ import jax_drb.validation.neutral_mixed_term_balance_campaign as term_module
 from jax_drb.validation import (
     build_neutral_mixed_accepted_step_trace_parity_report,
     build_neutral_mixed_native_accepted_step_trace_report,
+    build_neutral_mixed_reference_input_closure_report,
     build_neutral_mixed_substep_hybrid_report,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
@@ -19,6 +20,7 @@ from jax_drb.validation import (
     write_neutral_mixed_accepted_step_trace_input,
     write_neutral_mixed_accepted_step_trace_parity_json,
     write_neutral_mixed_native_accepted_step_trace_json,
+    write_neutral_mixed_reference_input_closure_json,
     write_neutral_mixed_substep_hybrid_json,
     write_neutral_mixed_diagnostic_input,
 )
@@ -126,6 +128,52 @@ function = 0.1 * Nh:function
         encoding="utf-8",
     )
     return path
+
+
+def _write_neutral_mixed_input_closure_dump(
+    input_path: Path,
+    dump_path: Path,
+    *,
+    eta_perturbation: float = 0.0,
+) -> Path:
+    from netCDF4 import Dataset
+
+    config = term_module.load_bout_input(input_path)
+    run_config = term_module.RunConfiguration.from_config(config)
+    mesh = term_module.build_structured_mesh(config, run_config)
+    metrics = term_module.build_structured_metrics(config, run_config, mesh)
+    scalars = term_module.resolved_dataset_scalars(run_config)
+    state = term_module.initialize_neutral_mixed_state(config, section="h", mesh=mesh)
+    prepared = term_module._prepare_neutral_mixed_state(
+        config,
+        state,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+    )
+    eta = np.asarray(prepared.viscosity, dtype=np.float64).copy()
+    if eta_perturbation:
+        eta[mesh.xstart, mesh.ystart, 0] += float(eta_perturbation)
+    fields = {
+        "Nh": state.density,
+        "Ph": state.pressure,
+        "NVh": state.momentum,
+        "Dnnh": prepared.diffusion,
+        "Vh": prepared.velocity,
+        "eta_h": eta,
+    }
+    dump_path.parent.mkdir(parents=True, exist_ok=True)
+    with Dataset(dump_path, "w") as dataset:
+        dataset.createDimension("t", 1)
+        dataset.createDimension("x", mesh.nx)
+        dataset.createDimension("y", mesh.local_ny)
+        dataset.createDimension("z", mesh.nz)
+        for name, values in fields.items():
+            variable = dataset.createVariable(name, "f8", ("t", "x", "y", "z"))
+            variable[0, :, :, :] = np.asarray(values, dtype=np.float64)
+    return dump_path
 
 
 def test_build_neutral_mixed_term_balance_campaign_report_has_named_terms(
@@ -364,6 +412,65 @@ def test_neutral_mixed_term_balance_report_can_ingest_hermes_diagnostic_netcdf(
     assert np.isfinite(comparison["least_squares_scale_to_native_units"])
     assert "scaled_difference_metrics" in comparison
     assert len(comparison["scaled_direct_lineout"]) == len(report["active_y_indices"])
+
+
+def test_neutral_mixed_reference_input_closure_report_matches_reference_dump(
+    tmp_path: Path,
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    diagnostic_path = _write_neutral_mixed_input_closure_dump(
+        input_path,
+        tmp_path / "BOUT.dmp.0.nc",
+    )
+
+    report = build_neutral_mixed_reference_input_closure_report(
+        input_path=input_path,
+        hermes_diagnostic_nc=diagnostic_path,
+    )
+    path = write_neutral_mixed_reference_input_closure_json(
+        report,
+        tmp_path / "input_closure.json",
+    )
+
+    assert report["diagnostic"] == "neutral_mixed_reference_input_closure"
+    assert path.exists()
+    assert [entry["field"] for entry in report["ranked_fields"]] == [
+        "Dnnh",
+        "Vh",
+        "eta_h",
+    ]
+    for field in ("Dnnh", "Vh", "eta_h"):
+        payload = report["fields"][field]
+        assert payload["max_active_delta"] <= 1.0e-14
+        assert payload["max_target_adjacent_delta"] <= 1.0e-14
+        assert payload["max_guard_delta"] <= 1.0e-14
+        assert payload["sample_lineout_delta"] == pytest.approx(
+            [0.0] * len(report["sample_y_indices"]),
+            abs=1.0e-14,
+        )
+
+
+def test_neutral_mixed_reference_input_closure_report_ranks_eta_perturbation(
+    tmp_path: Path,
+) -> None:
+    input_path = _write_neutral_mixed_input(tmp_path / "BOUT.inp")
+    diagnostic_path = _write_neutral_mixed_input_closure_dump(
+        input_path,
+        tmp_path / "BOUT.dmp.0.nc",
+        eta_perturbation=1.0e-3,
+    )
+
+    report = build_neutral_mixed_reference_input_closure_report(
+        input_path=input_path,
+        hermes_diagnostic_nc=diagnostic_path,
+    )
+
+    assert report["ranked_fields"][0]["field"] == "eta_h"
+    eta = report["fields"]["eta_h"]
+    assert eta["max_target_adjacent_delta"] == pytest.approx(1.0e-3)
+    assert eta["max_active_delta"] == pytest.approx(1.0e-3)
+    assert report["fields"]["Dnnh"]["max_target_adjacent_delta"] == 0.0
+    assert report["fields"]["Vh"]["max_target_adjacent_delta"] == 0.0
 
 
 def test_write_neutral_mixed_diagnostic_input_enables_hermes_outputs(

@@ -139,6 +139,15 @@ offender is driven by `Vh`/`eta_h` drift or by the parallel-diffusion stencil
 and boundary treatment. In the current rerun, the register is available and
 points first at `eta_h` drift.
 
+A final-state input-closure cross-check now reconstructs `Dnn`, `Vh`, and
+`eta_h` from the reference final-state `Nh`, `Ph`, and `NVh` fields and compares
+those arrays with the reference `BOUT.dmp.0.nc` diagnostics. This closes the
+neutral diffusion, velocity, and viscosity input formulas to roundoff on the
+current reference final state, including target-adjacent and guard cells. The
+remaining accepted-step `eta_h` offender should therefore be treated as a
+state/history or boundary-sequencing issue until a matched accepted-step dump
+shows otherwise.
+
 ## Validation Sequence
 
 After rebuilding the reference executable, generate and compare traces:
