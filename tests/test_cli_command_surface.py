@@ -35,6 +35,7 @@ from jax_drb.cli import (
     _run_case_command,
     _run_reference_case_command,
     _trace_neutral_mixed_accepted_steps_command,
+    _trace_neutral_mixed_reference_accepted_steps_command,
     _validate_reference_baselines_command,
     main,
 )
@@ -99,6 +100,21 @@ def test_default_command_and_argv_normalization_errors_are_explicit() -> None:
         "trace-neutral-mixed-accepted-steps",
         "--json-out",
         "trace.json",
+    ]
+    assert _normalize_cli_argv(
+        [
+            "trace-neutral-mixed-reference-accepted-steps",
+            "--reference-root",
+            "reference",
+            "--workdir",
+            "work",
+        ]
+    ) == [
+        "trace-neutral-mixed-reference-accepted-steps",
+        "--reference-root",
+        "reference",
+        "--workdir",
+        "work",
     ]
     assert _normalize_cli_argv(
         ["compare-neutral-mixed-accepted-traces", "native.json", "reference.jsonl"]
@@ -656,6 +672,56 @@ def test_compare_neutral_mixed_accepted_traces_command_writes_report(
         == 1
     )
     assert "--time-tolerance must be positive" in capsys.readouterr().out
+
+
+def test_trace_neutral_mixed_reference_accepted_steps_command_writes_jsonl(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return tmp_path / "reference_trace.jsonl"
+
+    monkeypatch.setattr(
+        validation_module,
+        "run_neutral_mixed_hermes_accepted_step_trace",
+        fake_run,
+    )
+
+    assert (
+        _trace_neutral_mixed_reference_accepted_steps_command(
+            argparse.Namespace(
+                reference_root=tmp_path / "reference",
+                workdir=tmp_path / "work",
+                hermes_binary=tmp_path / "hermes-3",
+                trace_out=tmp_path / "reference_trace.jsonl",
+                species="h",
+                timeout_seconds=30.0,
+            )
+        )
+        == 0
+    )
+    assert captured["species"] == "h"
+    assert captured["trace_jsonl_path"] == tmp_path / "reference_trace.jsonl"
+    output = capsys.readouterr().out
+    assert "neutral_mixed_reference_accepted_step_trace" in output
+    assert "trace_jsonl:" in output
+
+    assert (
+        _trace_neutral_mixed_reference_accepted_steps_command(
+            argparse.Namespace(
+                reference_root=tmp_path / "reference",
+                workdir=tmp_path / "work",
+                hermes_binary=None,
+                trace_out=None,
+                species="h",
+                timeout_seconds=0.0,
+            )
+        )
+        == 1
+    )
+    assert "--timeout-seconds must be positive" in capsys.readouterr().out
 
 
 def test_compare_recycling_command_uses_formatted_report(monkeypatch, capsys) -> None:
