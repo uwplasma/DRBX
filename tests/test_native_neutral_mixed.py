@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,7 +11,9 @@ from jax_drb.config.boutinp import parse_bout_input
 from jax_drb.native.metrics import build_structured_metrics
 from jax_drb.native.mesh import build_structured_mesh
 from jax_drb.native import neutral_mixed as neutral_mixed_mod
-from jax_drb.native.neutral_mixed_boundaries import apply_density_y_boundaries as _apply_density_y_boundaries
+from jax_drb.native.neutral_mixed_boundaries import (
+    apply_density_y_boundaries as _apply_density_y_boundaries,
+)
 from jax_drb.native.neutral_mixed import (
     _div_a_grad_perp_flows,
     _div_par_k_grad_par_open,
@@ -106,7 +109,9 @@ def test_neutral_mixed_diffusion_matches_known_case_values() -> None:
 
     assert interior.min() == pytest.approx(0.4208780853793485, rel=1e-12, abs=1e-12)
     assert interior.max() == pytest.approx(1.4907267304514251, rel=1e-12, abs=1e-12)
-    assert rhs.diffusion[5, 5, 5] == pytest.approx(1.170446626082471, rel=1e-12, abs=1e-12)
+    assert rhs.diffusion[5, 5, 5] == pytest.approx(
+        1.170446626082471, rel=1e-12, abs=1e-12
+    )
 
 
 def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
@@ -129,12 +134,24 @@ def test_neutral_mixed_rhs_tracks_reference_case_center_values() -> None:
         tnorm=float(scalars["Tnorm"]),
     )
 
-    assert state.density[5, 5, 5] == pytest.approx(expected_density[5, 3, 5], rel=1e-12, abs=1e-12)
-    assert state.pressure[5, 5, 5] == pytest.approx(expected_pressure[5, 3, 5], rel=1e-12, abs=1e-12)
-    assert state.momentum[5, 5, 5] == pytest.approx(expected_momentum[5, 3, 5], rel=1e-12, abs=1e-12)
-    assert rhs.density[5, 5, 5] == pytest.approx(expected_density_rhs[5, 3, 5], rel=3e-2, abs=2e-4)
-    assert rhs.pressure[5, 5, 5] == pytest.approx(expected_pressure_rhs[5, 3, 5], rel=3e-2, abs=2e-4)
-    assert rhs.momentum[5, 5, 5] == pytest.approx(expected_momentum_rhs[5, 3, 5], rel=1e-12, abs=1e-12)
+    assert state.density[5, 5, 5] == pytest.approx(
+        expected_density[5, 3, 5], rel=1e-12, abs=1e-12
+    )
+    assert state.pressure[5, 5, 5] == pytest.approx(
+        expected_pressure[5, 3, 5], rel=1e-12, abs=1e-12
+    )
+    assert state.momentum[5, 5, 5] == pytest.approx(
+        expected_momentum[5, 3, 5], rel=1e-12, abs=1e-12
+    )
+    assert rhs.density[5, 5, 5] == pytest.approx(
+        expected_density_rhs[5, 3, 5], rel=3e-2, abs=2e-4
+    )
+    assert rhs.pressure[5, 5, 5] == pytest.approx(
+        expected_pressure_rhs[5, 3, 5], rel=3e-2, abs=2e-4
+    )
+    assert rhs.momentum[5, 5, 5] == pytest.approx(
+        expected_momentum_rhs[5, 3, 5], rel=1e-12, abs=1e-12
+    )
     assert prepared.temperature[5, 5, 5] == pytest.approx(0.1, rel=1e-12, abs=1e-12)
 
 
@@ -169,7 +186,9 @@ def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
         meters_scale=float(scalars["rho_s0"]),
         tnorm=float(scalars["Tnorm"]),
     )
-    with (_BASELINE_ROOT / "reference_metrics" / "neutral_mixed_rhs_diagnostics.json").open() as handle:
+    with (
+        _BASELINE_ROOT / "reference_metrics" / "neutral_mixed_rhs_diagnostics.json"
+    ).open() as handle:
         payload = json.load(handle)
     probe = payload["probe"]
     y_slice = slice(probe["y_start"], probe["y_end"] + 1)
@@ -200,19 +219,28 @@ def test_neutral_mixed_rhs_matches_compact_reference_diagnostics() -> None:
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        -(_div_a_grad_perp_flows(
-            prepared.diffusion_density,
-            prepared.log_pressure,
-            mesh=mesh,
-            metrics=metrics,
-        )[5, y_slice, 5] - rhs.density[5, y_slice, 5])[interior_offsets],
+        -(
+            _div_a_grad_perp_flows(
+                prepared.diffusion_density,
+                prepared.log_pressure,
+                mesh=mesh,
+                metrics=metrics,
+            )[5, y_slice, 5]
+            - rhs.density[5, y_slice, 5]
+        )[interior_offsets],
         np.asarray(payload["density_parallel_rhs_active"])[interior_offsets],
         rtol=1e-12,
         atol=1e-12,
     )
-    assert prepared.sound_speed[5, 5, 5] == pytest.approx(payload["sound_speed_center"], rel=1e-12, abs=1e-12)
-    assert metrics.g22[5, 5, 5] == pytest.approx(payload["g22_center"], rel=1e-12, abs=1e-18)
-    assert metrics.g_22[5, 5, 5] == pytest.approx(payload["g_22_center"], rel=1e-12, abs=1e-9)
+    assert prepared.sound_speed[5, 5, 5] == pytest.approx(
+        payload["sound_speed_center"], rel=1e-12, abs=1e-12
+    )
+    assert metrics.g22[5, 5, 5] == pytest.approx(
+        payload["g22_center"], rel=1e-12, abs=1e-18
+    )
+    assert metrics.g_22[5, 5, 5] == pytest.approx(
+        payload["g_22_center"], rel=1e-12, abs=1e-9
+    )
 
 
 def test_neutral_mixed_rhs_keeps_guard_derivatives_zero_in_x() -> None:
@@ -252,7 +280,9 @@ def test_neutral_mixed_transport_operators_reproduce_frozen_density_rhs() -> Non
         metrics=metrics,
     )[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :]
     for j_offset, operator in enumerate(operators):
-        density_slice = prepared.density_limited[mesh.xstart : mesh.xend + 1, mesh.ystart + j_offset, :]
+        density_slice = prepared.density_limited[
+            mesh.xstart : mesh.xend + 1, mesh.ystart + j_offset, :
+        ]
         actual = (operator @ density_slice.reshape(-1)).reshape(density_slice.shape)
         expected = active_density_rhs[:, j_offset, :]
         error = actual - expected
@@ -323,8 +353,12 @@ def test_gradient_magnitude_matches_reference_loop() -> None:
             for k in range(mesh.nz):
                 km = (k - 1 + mesh.nz) % mesh.nz
                 kp = (k + 1) % mesh.nz
-                dfdx = (field[i + 1, j, k] - field[i - 1, j, k]) / (dx[i, j, k] + dx[i - 1, j, k])
-                dfdy = (field[i, j + 1, k] - field[i, j - 1, k]) / (dy[i, j, k] + dy[i, j - 1, k])
+                dfdx = (field[i + 1, j, k] - field[i - 1, j, k]) / (
+                    dx[i, j, k] + dx[i - 1, j, k]
+                )
+                dfdy = (field[i, j + 1, k] - field[i, j - 1, k]) / (
+                    dy[i, j, k] + dy[i, j - 1, k]
+                )
                 dfdz = (field[i, j, kp] - field[i, j, km]) / (2.0 * dz[i, j, k])
                 expected[i, j, k] = np.sqrt(
                     g11[i, j, k] * dfdx * dfdx
@@ -354,34 +388,62 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
     for j in range(mesh.ystart, mesh.yend + 1):
         if boundary_flux or j != mesh.yend:
             coefficient_up = 0.5 * (
-                coefficient[mesh.xstart : mesh.xend + 1, j, :] + coefficient[mesh.xstart : mesh.xend + 1, j + 1, :]
+                coefficient[mesh.xstart : mesh.xend + 1, j, :]
+                + coefficient[mesh.xstart : mesh.xend + 1, j + 1, :]
             )
-            jacobian_up = 0.5 * (J[mesh.xstart : mesh.xend + 1, j, :] + J[mesh.xstart : mesh.xend + 1, j + 1, :])
-            metric_up = 0.5 * (g22[mesh.xstart : mesh.xend + 1, j, :] + g22[mesh.xstart : mesh.xend + 1, j + 1, :])
-            gradient_up = 2.0 * (
-                field[mesh.xstart : mesh.xend + 1, j + 1, :] - field[mesh.xstart : mesh.xend + 1, j, :]
-            ) / (
-                dy[mesh.xstart : mesh.xend + 1, j, :] + dy[mesh.xstart : mesh.xend + 1, j + 1, :]
+            jacobian_up = 0.5 * (
+                J[mesh.xstart : mesh.xend + 1, j, :]
+                + J[mesh.xstart : mesh.xend + 1, j + 1, :]
+            )
+            metric_up = 0.5 * (
+                g22[mesh.xstart : mesh.xend + 1, j, :]
+                + g22[mesh.xstart : mesh.xend + 1, j + 1, :]
+            )
+            gradient_up = (
+                2.0
+                * (
+                    field[mesh.xstart : mesh.xend + 1, j + 1, :]
+                    - field[mesh.xstart : mesh.xend + 1, j, :]
+                )
+                / (
+                    dy[mesh.xstart : mesh.xend + 1, j, :]
+                    + dy[mesh.xstart : mesh.xend + 1, j + 1, :]
+                )
             )
             flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
             expected[mesh.xstart : mesh.xend + 1, j, :] += flux_up / (
-                dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
+                dy[mesh.xstart : mesh.xend + 1, j, :]
+                * J[mesh.xstart : mesh.xend + 1, j, :]
             )
 
         if boundary_flux or j != mesh.ystart:
             coefficient_down = 0.5 * (
-                coefficient[mesh.xstart : mesh.xend + 1, j, :] + coefficient[mesh.xstart : mesh.xend + 1, j - 1, :]
+                coefficient[mesh.xstart : mesh.xend + 1, j, :]
+                + coefficient[mesh.xstart : mesh.xend + 1, j - 1, :]
             )
-            jacobian_down = 0.5 * (J[mesh.xstart : mesh.xend + 1, j, :] + J[mesh.xstart : mesh.xend + 1, j - 1, :])
-            metric_down = 0.5 * (g22[mesh.xstart : mesh.xend + 1, j, :] + g22[mesh.xstart : mesh.xend + 1, j - 1, :])
-            gradient_down = 2.0 * (
-                field[mesh.xstart : mesh.xend + 1, j, :] - field[mesh.xstart : mesh.xend + 1, j - 1, :]
-            ) / (
-                dy[mesh.xstart : mesh.xend + 1, j, :] + dy[mesh.xstart : mesh.xend + 1, j - 1, :]
+            jacobian_down = 0.5 * (
+                J[mesh.xstart : mesh.xend + 1, j, :]
+                + J[mesh.xstart : mesh.xend + 1, j - 1, :]
+            )
+            metric_down = 0.5 * (
+                g22[mesh.xstart : mesh.xend + 1, j, :]
+                + g22[mesh.xstart : mesh.xend + 1, j - 1, :]
+            )
+            gradient_down = (
+                2.0
+                * (
+                    field[mesh.xstart : mesh.xend + 1, j, :]
+                    - field[mesh.xstart : mesh.xend + 1, j - 1, :]
+                )
+                / (
+                    dy[mesh.xstart : mesh.xend + 1, j, :]
+                    + dy[mesh.xstart : mesh.xend + 1, j - 1, :]
+                )
             )
             flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
             expected[mesh.xstart : mesh.xend + 1, j, :] -= flux_down / (
-                dy[mesh.xstart : mesh.xend + 1, j, :] * J[mesh.xstart : mesh.xend + 1, j, :]
+                dy[mesh.xstart : mesh.xend + 1, j, :]
+                * J[mesh.xstart : mesh.xend + 1, j, :]
             )
 
     has_connected_y_ends = not mesh.has_lower_y_target and not mesh.has_upper_y_target
@@ -393,19 +455,28 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
             + coefficient[mesh.xstart : mesh.xend + 1, connected, :]
         )
         jacobian_down = 0.5 * (
-            J[mesh.xstart : mesh.xend + 1, lower, :] + J[mesh.xstart : mesh.xend + 1, connected, :]
+            J[mesh.xstart : mesh.xend + 1, lower, :]
+            + J[mesh.xstart : mesh.xend + 1, connected, :]
         )
         metric_down = 0.5 * (
-            g22[mesh.xstart : mesh.xend + 1, lower, :] + g22[mesh.xstart : mesh.xend + 1, connected, :]
+            g22[mesh.xstart : mesh.xend + 1, lower, :]
+            + g22[mesh.xstart : mesh.xend + 1, connected, :]
         )
-        gradient_down = 2.0 * (
-            field[mesh.xstart : mesh.xend + 1, lower, :] - field[mesh.xstart : mesh.xend + 1, connected, :]
-        ) / (
-            dy[mesh.xstart : mesh.xend + 1, lower, :] + dy[mesh.xstart : mesh.xend + 1, connected, :]
+        gradient_down = (
+            2.0
+            * (
+                field[mesh.xstart : mesh.xend + 1, lower, :]
+                - field[mesh.xstart : mesh.xend + 1, connected, :]
+            )
+            / (
+                dy[mesh.xstart : mesh.xend + 1, lower, :]
+                + dy[mesh.xstart : mesh.xend + 1, connected, :]
+            )
         )
         flux_down = coefficient_down * jacobian_down * gradient_down / metric_down
         expected[mesh.xstart : mesh.xend + 1, lower, :] -= flux_down / (
-            dy[mesh.xstart : mesh.xend + 1, lower, :] * J[mesh.xstart : mesh.xend + 1, lower, :]
+            dy[mesh.xstart : mesh.xend + 1, lower, :]
+            * J[mesh.xstart : mesh.xend + 1, lower, :]
         )
 
     if not boundary_flux and has_connected_y_ends:
@@ -416,19 +487,28 @@ def test_div_par_k_grad_par_open_matches_reference_loop(boundary_flux: bool) -> 
             + coefficient[mesh.xstart : mesh.xend + 1, connected, :]
         )
         jacobian_up = 0.5 * (
-            J[mesh.xstart : mesh.xend + 1, upper, :] + J[mesh.xstart : mesh.xend + 1, connected, :]
+            J[mesh.xstart : mesh.xend + 1, upper, :]
+            + J[mesh.xstart : mesh.xend + 1, connected, :]
         )
         metric_up = 0.5 * (
-            g22[mesh.xstart : mesh.xend + 1, upper, :] + g22[mesh.xstart : mesh.xend + 1, connected, :]
+            g22[mesh.xstart : mesh.xend + 1, upper, :]
+            + g22[mesh.xstart : mesh.xend + 1, connected, :]
         )
-        gradient_up = 2.0 * (
-            field[mesh.xstart : mesh.xend + 1, connected, :] - field[mesh.xstart : mesh.xend + 1, upper, :]
-        ) / (
-            dy[mesh.xstart : mesh.xend + 1, upper, :] + dy[mesh.xstart : mesh.xend + 1, connected, :]
+        gradient_up = (
+            2.0
+            * (
+                field[mesh.xstart : mesh.xend + 1, connected, :]
+                - field[mesh.xstart : mesh.xend + 1, upper, :]
+            )
+            / (
+                dy[mesh.xstart : mesh.xend + 1, upper, :]
+                + dy[mesh.xstart : mesh.xend + 1, connected, :]
+            )
         )
         flux_up = coefficient_up * jacobian_up * gradient_up / metric_up
         expected[mesh.xstart : mesh.xend + 1, upper, :] += flux_up / (
-            dy[mesh.xstart : mesh.xend + 1, upper, :] * J[mesh.xstart : mesh.xend + 1, upper, :]
+            dy[mesh.xstart : mesh.xend + 1, upper, :]
+            * J[mesh.xstart : mesh.xend + 1, upper, :]
         )
 
     actual = _div_par_k_grad_par_open(
@@ -488,8 +568,16 @@ def test_div_par_k_grad_par_open_does_not_wrap_open_field_lower_boundary() -> No
     upper = mesh.yend
     dy = np.asarray(metrics.dy, dtype=np.float64)
     g22 = np.asarray(metrics.g_22, dtype=np.float64)
-    lower_gradient = 2.0 * (field[xs, lower + 1, 0] - field[xs, lower, 0]) / (dy[xs, lower, 0] + dy[xs, lower + 1, 0])
-    upper_gradient = 2.0 * (field[xs, upper, 0] - field[xs, upper - 1, 0]) / (dy[xs, upper, 0] + dy[xs, upper - 1, 0])
+    lower_gradient = (
+        2.0
+        * (field[xs, lower + 1, 0] - field[xs, lower, 0])
+        / (dy[xs, lower, 0] + dy[xs, lower + 1, 0])
+    )
+    upper_gradient = (
+        2.0
+        * (field[xs, upper, 0] - field[xs, upper - 1, 0])
+        / (dy[xs, upper, 0] + dy[xs, upper - 1, 0])
+    )
     expected_lower = lower_gradient / g22[xs, lower, 0] / dy[xs, lower, 0]
     expected_upper = -upper_gradient / g22[xs, upper, 0] / dy[xs, upper, 0]
 
@@ -502,9 +590,18 @@ def test_neutral_mixed_active_state_round_trip_preserves_interior() -> None:
     packed = pack_neutral_mixed_active_state(state, mesh=mesh)
     unpacked = unpack_neutral_mixed_active_state(packed, template=state, mesh=mesh)
 
-    np.testing.assert_allclose(unpacked.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
-    np.testing.assert_allclose(unpacked.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
-    np.testing.assert_allclose(unpacked.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :], state.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :])
+    np.testing.assert_allclose(
+        unpacked.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+        state.density[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+    )
+    np.testing.assert_allclose(
+        unpacked.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+        state.pressure[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+    )
+    np.testing.assert_allclose(
+        unpacked.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+        state.momentum[mesh.xstart : mesh.xend + 1, mesh.ystart : mesh.yend + 1, :],
+    )
 
 
 def test_neutral_mixed_connected_y_state_boundaries_wrap_active_ends() -> None:
@@ -519,19 +616,35 @@ def test_neutral_mixed_connected_y_state_boundaries_wrap_active_ends() -> None:
         momentum[:, y_index, :] = 100.0 + float(y_index)
 
     sanitized = neutral_mixed_mod._sanitize_neutral_state(
-        neutral_mixed_mod.NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
+        neutral_mixed_mod.NeutralMixedState(
+            density=density, pressure=pressure, momentum=momentum
+        ),
         mesh,
     )
 
     assert mesh.has_lower_y_target is False
     assert mesh.has_upper_y_target is False
     x_index = mesh.xstart
-    np.testing.assert_allclose(sanitized.density[x_index, mesh.ystart - 1, :], density[x_index, mesh.yend, :])
-    np.testing.assert_allclose(sanitized.density[x_index, mesh.ystart - 2, :], density[x_index, mesh.yend - 1, :])
-    np.testing.assert_allclose(sanitized.pressure[x_index, mesh.yend + 1, :], pressure[x_index, mesh.ystart, :])
-    np.testing.assert_allclose(sanitized.pressure[x_index, mesh.yend + 2, :], pressure[x_index, mesh.ystart + 1, :])
-    np.testing.assert_allclose(sanitized.momentum[x_index, mesh.ystart - 1, :], momentum[x_index, mesh.yend, :])
-    np.testing.assert_allclose(sanitized.momentum[x_index, mesh.yend + 1, :], momentum[x_index, mesh.ystart, :])
+    np.testing.assert_allclose(
+        sanitized.density[x_index, mesh.ystart - 1, :], density[x_index, mesh.yend, :]
+    )
+    np.testing.assert_allclose(
+        sanitized.density[x_index, mesh.ystart - 2, :],
+        density[x_index, mesh.yend - 1, :],
+    )
+    np.testing.assert_allclose(
+        sanitized.pressure[x_index, mesh.yend + 1, :], pressure[x_index, mesh.ystart, :]
+    )
+    np.testing.assert_allclose(
+        sanitized.pressure[x_index, mesh.yend + 2, :],
+        pressure[x_index, mesh.ystart + 1, :],
+    )
+    np.testing.assert_allclose(
+        sanitized.momentum[x_index, mesh.ystart - 1, :], momentum[x_index, mesh.yend, :]
+    )
+    np.testing.assert_allclose(
+        sanitized.momentum[x_index, mesh.yend + 1, :], momentum[x_index, mesh.ystart, :]
+    )
 
 
 def test_neutral_mixed_target_y_state_boundaries_keep_wall_rules() -> None:
@@ -570,19 +683,27 @@ def test_neutral_mixed_target_y_state_boundaries_keep_wall_rules() -> None:
         momentum[:, y_index, :] = 100.0 + float(y_index)
 
     sanitized = neutral_mixed_mod._sanitize_neutral_state(
-        neutral_mixed_mod.NeutralMixedState(density=density, pressure=pressure, momentum=momentum),
+        neutral_mixed_mod.NeutralMixedState(
+            density=density, pressure=pressure, momentum=momentum
+        ),
         mesh,
     )
 
     assert mesh.has_upper_y_target is True
     x_index = mesh.xstart
-    upper_wall = np.maximum(0.5 * (3.0 * density[:, mesh.yend, :] - density[:, mesh.yend - 1, :]), 0.0)
+    upper_wall = np.maximum(
+        0.5 * (3.0 * density[:, mesh.yend, :] - density[:, mesh.yend - 1, :]), 0.0
+    )
     np.testing.assert_allclose(
         sanitized.density[x_index, mesh.yend + 1, :],
         2.0 * upper_wall[x_index, :] - density[x_index, mesh.yend, :],
     )
-    np.testing.assert_allclose(sanitized.pressure[x_index, mesh.yend + 1, :], pressure[x_index, mesh.yend, :])
-    np.testing.assert_allclose(sanitized.momentum[x_index, mesh.yend + 1, :], -momentum[x_index, mesh.yend, :])
+    np.testing.assert_allclose(
+        sanitized.pressure[x_index, mesh.yend + 1, :], pressure[x_index, mesh.yend, :]
+    )
+    np.testing.assert_allclose(
+        sanitized.momentum[x_index, mesh.yend + 1, :], -momentum[x_index, mesh.yend, :]
+    )
 
 
 def test_neutral_mixed_backward_euler_step_solves_active_residual() -> None:
@@ -700,7 +821,9 @@ def test_neutral_mixed_active_jacobian_sparsity_matches_local_stencil() -> None:
         return ((ix * active_ny) + iy) * mesh.nz + iz
 
     def row_columns(row: int) -> set[int]:
-        return set(sparsity.indices[sparsity.indptr[row] : sparsity.indptr[row + 1]].tolist())
+        return set(
+            sparsity.indices[sparsity.indptr[row] : sparsity.indptr[row + 1]].tolist()
+        )
 
     assert sparsity.shape == (3 * active_cells, 3 * active_cells)
 
@@ -761,7 +884,9 @@ def test_neutral_mixed_active_jacobian_color_groups_partition_state() -> None:
     assert len(color_groups) == 3 * min(5, active_nx) * min(5, active_ny) * mesh.nz
 
 
-def test_neutral_mixed_sparse_residual_jacobian_matches_single_column_difference_quotient() -> None:
+def test_neutral_mixed_sparse_residual_jacobian_matches_single_column_difference_quotient() -> (
+    None
+):
     pytest.importorskip("scipy")
 
     config, run_config, mesh, metrics, state, _ = _build_case()
@@ -785,7 +910,12 @@ def test_neutral_mixed_sparse_residual_jacobian_matches_single_column_difference
     jacobian = build_neutral_mixed_sparse_residual_jacobian(residual, packed, mesh=mesh)
     column = 53
     step = np.sqrt(np.finfo(np.float64).eps) * max(1.0, abs(float(packed[column])))
-    direct = (residual(packed + step * np.eye(1, packed.size, column, dtype=np.float64).ravel()) - residual(packed)) / step
+    direct = (
+        residual(
+            packed + step * np.eye(1, packed.size, column, dtype=np.float64).ravel()
+        )
+        - residual(packed)
+    ) / step
     sparse_column = jacobian.getcol(column).toarray().ravel()
 
     np.testing.assert_allclose(sparse_column, direct, rtol=1e-6, atol=1e-8)
@@ -872,7 +1002,9 @@ def test_neutral_mixed_implicit_history_returns_finite_step_sequence() -> None:
     assert np.all(np.isfinite(history.momentum_history))
 
 
-def test_neutral_mixed_internal_substeps_use_be_startup_then_bdf2(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_neutral_mixed_internal_substeps_use_be_startup_then_bdf2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
     scalars = resolved_dataset_scalars(run_config)
     calls: list[tuple[str, float]] = []
@@ -893,7 +1025,9 @@ def test_neutral_mixed_internal_substeps_use_be_startup_then_bdf2(monkeypatch: p
             momentum=state.momentum + 3.0,
         ), object()
 
-    monkeypatch.setattr(neutral_mixed_mod, "advance_neutral_mixed_backward_euler_step", fake_be)
+    monkeypatch.setattr(
+        neutral_mixed_mod, "advance_neutral_mixed_backward_euler_step", fake_be
+    )
     monkeypatch.setattr(neutral_mixed_mod, "advance_neutral_mixed_bdf2_step", fake_bdf2)
 
     history = advance_neutral_mixed_implicit_history(
@@ -910,23 +1044,112 @@ def test_neutral_mixed_internal_substeps_use_be_startup_then_bdf2(monkeypatch: p
     )
 
     assert calls == [("be", 2.5), ("bdf2", 2.5)]
-    np.testing.assert_allclose(history.density_history[-1], history.density_history[0] + 2.0)
-    np.testing.assert_allclose(history.pressure_history[-1], history.pressure_history[0] + 4.0)
-    np.testing.assert_allclose(history.momentum_history[-1], history.momentum_history[0] + 6.0)
+    np.testing.assert_allclose(
+        history.density_history[-1], history.density_history[0] + 2.0
+    )
+    np.testing.assert_allclose(
+        history.pressure_history[-1], history.pressure_history[0] + 4.0
+    )
+    np.testing.assert_allclose(
+        history.momentum_history[-1], history.momentum_history[0] + 6.0
+    )
 
 
-def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_neutral_mixed_internal_substep_trace_records_accepted_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
+    scalars = resolved_dataset_scalars(run_config)
+
+    def fake_be(_config, state, **kwargs):
+        return state.__class__(
+            density=state.density + 1.0,
+            pressure=state.pressure + 2.0,
+            momentum=state.momentum + 3.0,
+        ), SimpleNamespace(residual_inf_norm=1.0e-11, nonlinear_iterations=2)
+
+    def fake_bdf2(_config, state, previous_state, **kwargs):
+        return state.__class__(
+            density=state.density + 1.0,
+            pressure=state.pressure + 2.0,
+            momentum=state.momentum + 3.0,
+        ), SimpleNamespace(residual_inf_norm=2.0e-11, nonlinear_iterations=3)
+
+    monkeypatch.setattr(
+        neutral_mixed_mod, "advance_neutral_mixed_backward_euler_step", fake_be
+    )
+    monkeypatch.setattr(neutral_mixed_mod, "advance_neutral_mixed_bdf2_step", fake_bdf2)
+
+    history = advance_neutral_mixed_implicit_history(
+        config,
+        section="h",
+        mesh=mesh,
+        metrics=metrics,
+        meters_scale=float(scalars["rho_s0"]),
+        tnorm=float(scalars["Tnorm"]),
+        timestep=6.0,
+        steps=1,
+        internal_substeps=3,
+        solver_mode="matrix_free",
+        store_internal_substeps=True,
+    )
+
+    np.testing.assert_allclose(
+        history.accepted_step_time_points, np.asarray([0.0, 2.0, 4.0, 6.0])
+    )
+    np.testing.assert_allclose(
+        history.accepted_step_dt, np.asarray([0.0, 2.0, 2.0, 2.0])
+    )
+    np.testing.assert_array_equal(
+        history.accepted_step_order, np.asarray([0, 1, 2, 2], dtype=np.int32)
+    )
+    np.testing.assert_array_equal(
+        history.accepted_step_nonlinear_iterations,
+        np.asarray([0, 2, 3, 3], dtype=np.int32),
+    )
+    np.testing.assert_allclose(
+        history.accepted_step_residual_inf_norm,
+        np.asarray([0.0, 1.0e-11, 2.0e-11, 2.0e-11]),
+    )
+    assert history.accepted_step_density_history.shape == (
+        4,
+        mesh.nx,
+        mesh.local_ny,
+        mesh.nz,
+    )
+    np.testing.assert_allclose(
+        history.accepted_step_density_history[-1], history.density_history[-1]
+    )
+    np.testing.assert_allclose(
+        history.accepted_step_pressure_history[-1], history.pressure_history[-1]
+    )
+    np.testing.assert_allclose(
+        history.accepted_step_momentum_history[-1], history.momentum_history[-1]
+    )
+
+
+def test_execute_neutral_mixed_case_supports_one_step_and_short_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
 
     class _History:
-        density_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 1.0, dtype=np.float64)
-        pressure_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
-        momentum_history = np.full((3, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
+        density_history = np.full(
+            (3, mesh.nx, mesh.local_ny, mesh.nz), 1.0, dtype=np.float64
+        )
+        pressure_history = np.full(
+            (3, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64
+        )
+        momentum_history = np.full(
+            (3, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64
+        )
 
     captured: list[tuple[int, int, str]] = []
 
     def _fake_history(*args, **kwargs):
-        captured.append((kwargs["steps"], kwargs["internal_substeps"], kwargs["solver_mode"]))
+        captured.append(
+            (kwargs["steps"], kwargs["internal_substeps"], kwargs["solver_mode"])
+        )
         return _History()
 
     monkeypatch.setattr(
@@ -958,18 +1181,28 @@ def test_execute_neutral_mixed_case_supports_one_step_and_short_window(monkeypat
     assert captured[-1] == (run_config.time.nout, 4, "matrix_free")
 
 
-def test_execute_neutral_mixed_case_honors_output_steps_override(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execute_neutral_mixed_case_honors_output_steps_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config, run_config, mesh, metrics, _, _ = _build_small_implicit_case()
 
     class _History:
-        density_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 1.0, dtype=np.float64)
-        pressure_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64)
-        momentum_history = np.full((5, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64)
+        density_history = np.full(
+            (5, mesh.nx, mesh.local_ny, mesh.nz), 1.0, dtype=np.float64
+        )
+        pressure_history = np.full(
+            (5, mesh.nx, mesh.local_ny, mesh.nz), 2.0, dtype=np.float64
+        )
+        momentum_history = np.full(
+            (5, mesh.nx, mesh.local_ny, mesh.nz), 3.0, dtype=np.float64
+        )
 
     captured: list[tuple[int, int, str]] = []
 
     def _fake_history(*args, **kwargs):
-        captured.append((kwargs["steps"], kwargs["internal_substeps"], kwargs["solver_mode"]))
+        captured.append(
+            (kwargs["steps"], kwargs["internal_substeps"], kwargs["solver_mode"])
+        )
         return _History()
 
     monkeypatch.setattr(
@@ -997,11 +1230,16 @@ def test_density_y_boundaries_match_reference_wall_extrapolation() -> None:
     bounded = _apply_density_y_boundaries(state.density, mesh)
 
     lower_wall = np.maximum(
-        0.5 * (3.0 * state.density[:, mesh.ystart, :] - state.density[:, mesh.ystart + 1, :]),
+        0.5
+        * (
+            3.0 * state.density[:, mesh.ystart, :]
+            - state.density[:, mesh.ystart + 1, :]
+        ),
         0.0,
     )
     upper_wall = np.maximum(
-        0.5 * (3.0 * state.density[:, mesh.yend, :] - state.density[:, mesh.yend - 1, :]),
+        0.5
+        * (3.0 * state.density[:, mesh.yend, :] - state.density[:, mesh.yend - 1, :]),
         0.0,
     )
 
@@ -1023,7 +1261,9 @@ def test_soft_floor_matches_reference_formula() -> None:
     values = np.asarray([-1.0, 0.0, 0.02, 0.2], dtype=np.float64)
     minimum = 0.1
     actual = _soft_floor(values, minimum)
-    expected = np.maximum(values, 0.0) + minimum * np.exp(-np.maximum(values, 0.0) / minimum)
+    expected = np.maximum(values, 0.0) + minimum * np.exp(
+        -np.maximum(values, 0.0) / minimum
+    )
 
     np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
 
@@ -1040,17 +1280,25 @@ def test_grad_par_open_matches_centered_bout_metric_form() -> None:
     lower = mesh.ystart
     upper = mesh.yend
 
-    expected_lower = 0.5 * (field[i, lower + 1, k] - field[i, lower - 1, k]) / (
-        dy[i, lower, k] * np.sqrt(g22[i, lower, k])
+    expected_lower = (
+        0.5
+        * (field[i, lower + 1, k] - field[i, lower - 1, k])
+        / (dy[i, lower, k] * np.sqrt(g22[i, lower, k]))
     )
-    expected_upper = 0.5 * (field[i, upper + 1, k] - field[i, upper - 1, k]) / (
-        dy[i, upper, k] * np.sqrt(g22[i, upper, k])
+    expected_upper = (
+        0.5
+        * (field[i, upper + 1, k] - field[i, upper - 1, k])
+        / (dy[i, upper, k] * np.sqrt(g22[i, upper, k]))
     )
     interior = lower + 1
-    expected_interior = 0.5 * (field[i, interior + 1, k] - field[i, interior - 1, k]) / (
-        dy[i, interior, k] * np.sqrt(g22[i, interior, k])
+    expected_interior = (
+        0.5
+        * (field[i, interior + 1, k] - field[i, interior - 1, k])
+        / (dy[i, interior, k] * np.sqrt(g22[i, interior, k]))
     )
 
     assert actual[i, lower, k] == pytest.approx(expected_lower, rel=1e-12, abs=1e-12)
     assert actual[i, upper, k] == pytest.approx(expected_upper, rel=1e-12, abs=1e-12)
-    assert actual[i, interior, k] == pytest.approx(expected_interior, rel=1e-12, abs=1e-12)
+    assert actual[i, interior, k] == pytest.approx(
+        expected_interior, rel=1e-12, abs=1e-12
+    )

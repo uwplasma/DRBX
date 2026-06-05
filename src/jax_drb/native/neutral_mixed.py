@@ -133,6 +133,7 @@ def advance_neutral_mixed_implicit_history(
     linear_restart: int = 20,
     linear_maxiter: int = 200,
     linear_rtol: float = 1.0e-8,
+    store_internal_substeps: bool = False,
 ) -> NeutralMixedHistoryResult:
     if steps < 0:
         raise ValueError("steps must be non-negative")
@@ -143,21 +144,70 @@ def advance_neutral_mixed_implicit_history(
     density_history = [np.asarray(state.density, dtype=np.float64)]
     pressure_history = [np.asarray(state.pressure, dtype=np.float64)]
     momentum_history = [np.asarray(state.momentum, dtype=np.float64)]
+    accepted_time_points = [0.0] if store_internal_substeps else None
+    accepted_dt = [0.0] if store_internal_substeps else None
+    accepted_order = [0] if store_internal_substeps else None
+    accepted_density_history = (
+        [np.asarray(state.density, dtype=np.float64)]
+        if store_internal_substeps
+        else None
+    )
+    accepted_pressure_history = (
+        [np.asarray(state.pressure, dtype=np.float64)]
+        if store_internal_substeps
+        else None
+    )
+    accepted_momentum_history = (
+        [np.asarray(state.momentum, dtype=np.float64)]
+        if store_internal_substeps
+        else None
+    )
+    accepted_residual_inf_norm = [0.0] if store_internal_substeps else None
+    accepted_nonlinear_iterations = [0] if store_internal_substeps else None
 
     if steps == 0:
         return NeutralMixedHistoryResult(
             density_history=np.stack(density_history, axis=0),
             pressure_history=np.stack(pressure_history, axis=0),
             momentum_history=np.stack(momentum_history, axis=0),
+            accepted_step_time_points=np.asarray(accepted_time_points, dtype=np.float64)
+            if accepted_time_points is not None
+            else None,
+            accepted_step_dt=np.asarray(accepted_dt, dtype=np.float64)
+            if accepted_dt is not None
+            else None,
+            accepted_step_order=np.asarray(accepted_order, dtype=np.int32)
+            if accepted_order is not None
+            else None,
+            accepted_step_density_history=np.stack(accepted_density_history, axis=0)
+            if accepted_density_history is not None
+            else None,
+            accepted_step_pressure_history=np.stack(accepted_pressure_history, axis=0)
+            if accepted_pressure_history is not None
+            else None,
+            accepted_step_momentum_history=np.stack(accepted_momentum_history, axis=0)
+            if accepted_momentum_history is not None
+            else None,
+            accepted_step_residual_inf_norm=np.asarray(
+                accepted_residual_inf_norm, dtype=np.float64
+            )
+            if accepted_residual_inf_norm is not None
+            else None,
+            accepted_step_nonlinear_iterations=np.asarray(
+                accepted_nonlinear_iterations, dtype=np.int32
+            )
+            if accepted_nonlinear_iterations is not None
+            else None,
         )
 
     previous_state: NeutralMixedState | None = None
     current_state = state
     sub_timestep = float(timestep) / float(internal_substeps)
+    current_time = 0.0
     for _ in range(steps):
         for _ in range(internal_substeps):
             if previous_state is None:
-                next_state, _ = advance_neutral_mixed_backward_euler_step(
+                next_state, step_info = advance_neutral_mixed_backward_euler_step(
                     config,
                     current_state,
                     section=section,
@@ -174,8 +224,9 @@ def advance_neutral_mixed_implicit_history(
                     linear_maxiter=linear_maxiter,
                     linear_rtol=linear_rtol,
                 )
+                solver_order = 1
             else:
-                next_state, _ = advance_neutral_mixed_bdf2_step(
+                next_state, step_info = advance_neutral_mixed_bdf2_step(
                     config,
                     current_state,
                     previous_state,
@@ -193,7 +244,34 @@ def advance_neutral_mixed_implicit_history(
                     linear_maxiter=linear_maxiter,
                     linear_rtol=linear_rtol,
                 )
+                solver_order = 2
             previous_state, current_state = current_state, next_state
+            current_time += sub_timestep
+            if store_internal_substeps:
+                assert accepted_time_points is not None
+                assert accepted_dt is not None
+                assert accepted_order is not None
+                assert accepted_density_history is not None
+                assert accepted_pressure_history is not None
+                assert accepted_momentum_history is not None
+                assert accepted_residual_inf_norm is not None
+                assert accepted_nonlinear_iterations is not None
+                accepted_time_points.append(float(current_time))
+                accepted_dt.append(float(sub_timestep))
+                accepted_order.append(int(solver_order))
+                accepted_density_history.append(
+                    np.asarray(current_state.density, dtype=np.float64)
+                )
+                accepted_pressure_history.append(
+                    np.asarray(current_state.pressure, dtype=np.float64)
+                )
+                accepted_momentum_history.append(
+                    np.asarray(current_state.momentum, dtype=np.float64)
+                )
+                accepted_residual_inf_norm.append(float(step_info.residual_inf_norm))
+                accepted_nonlinear_iterations.append(
+                    int(step_info.nonlinear_iterations)
+                )
         density_history.append(np.asarray(current_state.density, dtype=np.float64))
         pressure_history.append(np.asarray(current_state.pressure, dtype=np.float64))
         momentum_history.append(np.asarray(current_state.momentum, dtype=np.float64))
@@ -202,6 +280,34 @@ def advance_neutral_mixed_implicit_history(
         density_history=np.stack(density_history, axis=0),
         pressure_history=np.stack(pressure_history, axis=0),
         momentum_history=np.stack(momentum_history, axis=0),
+        accepted_step_time_points=np.asarray(accepted_time_points, dtype=np.float64)
+        if accepted_time_points is not None
+        else None,
+        accepted_step_dt=np.asarray(accepted_dt, dtype=np.float64)
+        if accepted_dt is not None
+        else None,
+        accepted_step_order=np.asarray(accepted_order, dtype=np.int32)
+        if accepted_order is not None
+        else None,
+        accepted_step_density_history=np.stack(accepted_density_history, axis=0)
+        if accepted_density_history is not None
+        else None,
+        accepted_step_pressure_history=np.stack(accepted_pressure_history, axis=0)
+        if accepted_pressure_history is not None
+        else None,
+        accepted_step_momentum_history=np.stack(accepted_momentum_history, axis=0)
+        if accepted_momentum_history is not None
+        else None,
+        accepted_step_residual_inf_norm=np.asarray(
+            accepted_residual_inf_norm, dtype=np.float64
+        )
+        if accepted_residual_inf_norm is not None
+        else None,
+        accepted_step_nonlinear_iterations=np.asarray(
+            accepted_nonlinear_iterations, dtype=np.int32
+        )
+        if accepted_nonlinear_iterations is not None
+        else None,
     )
 
 
@@ -456,7 +562,9 @@ def advance_neutral_mixed_bdf2_step(
     linear_rtol: float = 1.0e-8,
 ) -> tuple[NeutralMixedState, NeutralMixedImplicitStepInfo]:
     previous_packed_state = pack_neutral_mixed_active_state(state, mesh=mesh)
-    previous_previous_packed_state = pack_neutral_mixed_active_state(previous_state, mesh=mesh)
+    previous_previous_packed_state = pack_neutral_mixed_active_state(
+        previous_state, mesh=mesh
+    )
 
     def residual(packed_state: np.ndarray) -> np.ndarray:
         return compute_neutral_mixed_bdf2_residual(
@@ -542,7 +650,9 @@ def compute_neutral_mixed_rhs(
         "parallel_advection": density_parallel_advection,
         "perpendicular_diffusion": density_perpendicular_diffusion,
     }
-    density_rhs = sum(density_terms.values(), np.zeros_like(prepared.density, dtype=np.float64))
+    density_rhs = sum(
+        density_terms.values(), np.zeros_like(prepared.density, dtype=np.float64)
+    )
 
     pressure_parallel_advection = -(5.0 / 3.0) * _div_par_mod_open(
         prepared.pressure,
@@ -551,11 +661,17 @@ def compute_neutral_mixed_rhs(
         mesh=mesh,
         metrics=metrics,
     )
-    pressure_parallel_flow = (5.0 / 2.0) * _neutral_mixed_operators.last_parallel_flow().copy()
-    pressure_parallel_work = (2.0 / 3.0) * prepared.velocity * _grad_par_open(
-        prepared.pressure,
-        mesh=mesh,
-        metrics=metrics,
+    pressure_parallel_flow = (
+        5.0 / 2.0
+    ) * _neutral_mixed_operators.last_parallel_flow().copy()
+    pressure_parallel_work = (
+        (2.0 / 3.0)
+        * prepared.velocity
+        * _grad_par_open(
+            prepared.pressure,
+            mesh=mesh,
+            metrics=metrics,
+        )
     )
     pressure_perpendicular_diffusion = (5.0 / 3.0) * _div_a_grad_perp_flows(
         prepared.diffusion_pressure,
@@ -569,7 +685,11 @@ def compute_neutral_mixed_rhs(
         "perpendicular_diffusion": pressure_perpendicular_diffusion,
     }
 
-    if bool(config.parsed(section, "neutral_conduction")) if config.has_option(section, "neutral_conduction") else True:
+    if (
+        bool(config.parsed(section, "neutral_conduction"))
+        if config.has_option(section, "neutral_conduction")
+        else True
+    ):
         pressure_parallel_conduction = (2.0 / 3.0) * _div_par_k_grad_par_open(
             prepared.conductivity,
             prepared.temperature,
@@ -586,14 +706,18 @@ def compute_neutral_mixed_rhs(
         pressure_terms["parallel_conduction"] = pressure_parallel_conduction
         pressure_terms["perpendicular_conduction"] = pressure_perpendicular_conduction
 
-    momentum_parallel_inertia = -_section_scalar(config, section, "AA", default=1.0) * _div_par_fvv_open(
+    momentum_parallel_inertia = -_section_scalar(
+        config, section, "AA", default=1.0
+    ) * _div_par_fvv_open(
         prepared.density_limited,
         prepared.velocity,
         prepared.sound_speed,
         mesh=mesh,
         metrics=metrics,
     )
-    momentum_pressure_gradient = -_grad_par_open(prepared.pressure, mesh=mesh, metrics=metrics)
+    momentum_pressure_gradient = -_grad_par_open(
+        prepared.pressure, mesh=mesh, metrics=metrics
+    )
     momentum_perpendicular_diffusion = _div_a_grad_perp_flows(
         prepared.diffusion_momentum,
         prepared.log_pressure,
@@ -606,7 +730,11 @@ def compute_neutral_mixed_rhs(
         "perpendicular_diffusion": momentum_perpendicular_diffusion,
     }
 
-    if bool(config.parsed(section, "neutral_viscosity")) if config.has_option(section, "neutral_viscosity") else True:
+    if (
+        bool(config.parsed(section, "neutral_viscosity"))
+        if config.has_option(section, "neutral_viscosity")
+        else True
+    ):
         viscosity_parallel = _div_par_k_grad_par_open(
             prepared.viscosity,
             prepared.velocity,
@@ -623,10 +751,16 @@ def compute_neutral_mixed_rhs(
         viscosity_source = viscosity_parallel + viscosity_perpendicular
         momentum_terms["parallel_viscosity"] = viscosity_parallel
         momentum_terms["perpendicular_viscosity"] = viscosity_perpendicular
-        pressure_terms["viscous_work"] = -(2.0 / 3.0) * prepared.velocity * viscosity_source
+        pressure_terms["viscous_work"] = (
+            -(2.0 / 3.0) * prepared.velocity * viscosity_source
+        )
 
-    pressure_rhs = sum(pressure_terms.values(), np.zeros_like(prepared.pressure, dtype=np.float64))
-    momentum_rhs = sum(momentum_terms.values(), np.zeros_like(prepared.momentum, dtype=np.float64))
+    pressure_rhs = sum(
+        pressure_terms.values(), np.zeros_like(prepared.pressure, dtype=np.float64)
+    )
+    momentum_rhs = sum(
+        momentum_terms.values(), np.zeros_like(prepared.momentum, dtype=np.float64)
+    )
 
     return NeutralMixedRhsResult(
         density=np.asarray(density_rhs, dtype=np.float64),
@@ -635,9 +769,18 @@ def compute_neutral_mixed_rhs(
         diffusion=np.asarray(prepared.diffusion, dtype=np.float64),
         density_parallel_flow=np.asarray(density_parallel_flow, dtype=np.float64),
         pressure_parallel_flow=np.asarray(pressure_parallel_flow, dtype=np.float64),
-        density_terms={name: np.asarray(value, dtype=np.float64) for name, value in density_terms.items()},
-        pressure_terms={name: np.asarray(value, dtype=np.float64) for name, value in pressure_terms.items()},
-        momentum_terms={name: np.asarray(value, dtype=np.float64) for name, value in momentum_terms.items()},
+        density_terms={
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in density_terms.items()
+        },
+        pressure_terms={
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in pressure_terms.items()
+        },
+        momentum_terms={
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in momentum_terms.items()
+        },
     )
 
 
@@ -652,13 +795,17 @@ def compute_neutral_mixed_diffusion(
     flux_limit: float,
     diffusion_limit: float = -1.0,
 ) -> np.ndarray:
-    thermal_speed = np.sqrt(np.asarray(temperature_limited, dtype=np.float64) / atomic_mass)
+    thermal_speed = np.sqrt(
+        np.asarray(temperature_limited, dtype=np.float64) / atomic_mass
+    )
     neutral_lmax = 0.1 / meters_scale
     raw_diffusion = thermal_speed * neutral_lmax
 
     if flux_limit > 0.0:
         grad_magnitude = _gradient_magnitude(log_pressure, mesh=mesh, metrics=metrics)
-        diffusion_max = flux_limit * thermal_speed / (grad_magnitude + (1.0 / neutral_lmax))
+        diffusion_max = (
+            flux_limit * thermal_speed / (grad_magnitude + (1.0 / neutral_lmax))
+        )
         diffusion = raw_diffusion * diffusion_max / (raw_diffusion + diffusion_max)
     else:
         diffusion = raw_diffusion
@@ -686,7 +833,9 @@ def build_neutral_mixed_transport_operators(
     g33 = np.asarray(metrics.g33, dtype=np.float64)
 
     if not np.allclose(g23, 0.0, rtol=1.0e-12, atol=1.0e-12):
-        raise NotImplementedError("Native neutral mixed transport currently requires g23 = 0.")
+        raise NotImplementedError(
+            "Native neutral mixed transport currently requires g23 = 0."
+        )
 
     def index(ix: int, kz: int) -> int:
         return ix * mesh.nz + kz
@@ -708,12 +857,18 @@ def build_neutral_mixed_transport_operators(
                     matrix[row, row] += 0.5 * face_flux / (dx[i, j, k] * J[i, j, k])
                 if mesh.xstart <= i + 1 <= mesh.xend:
                     row = index(i + 1 - mesh.xstart, k)
-                    matrix[row, row] -= 0.5 * face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+                    matrix[row, row] -= (
+                        0.5 * face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+                    )
                 if mesh.xstart <= i <= mesh.xend and mesh.xstart <= i + 1 <= mesh.xend:
                     row_left = index(i - mesh.xstart, k)
                     row_right = index(i + 1 - mesh.xstart, k)
-                    matrix[row_left, row_right] += 0.5 * face_flux / (dx[i, j, k] * J[i, j, k])
-                    matrix[row_right, row_left] -= 0.5 * face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+                    matrix[row_left, row_right] += (
+                        0.5 * face_flux / (dx[i, j, k] * J[i, j, k])
+                    )
+                    matrix[row_right, row_left] -= (
+                        0.5 * face_flux / (dx[i + 1, j, k] * J[i + 1, j, k])
+                    )
 
         for i in range(mesh.xstart, mesh.xend + 1):
             for k in range(mesh.nz):
@@ -729,7 +884,9 @@ def build_neutral_mixed_transport_operators(
                 matrix[row, row] -= face_flux / (J[i, j, k] * dz[i, j, k])
                 matrix[row, row_periodic] += face_flux / (J[i, j, k] * dz[i, j, k])
                 matrix[row_periodic, row] += face_flux / (J[i, j, kp] * dz[i, j, kp])
-                matrix[row_periodic, row_periodic] -= face_flux / (J[i, j, kp] * dz[i, j, kp])
+                matrix[row_periodic, row_periodic] -= face_flux / (
+                    J[i, j, kp] * dz[i, j, kp]
+                )
 
         operators.append(matrix)
     return tuple(operators)
@@ -749,20 +906,42 @@ def _prepare_neutral_mixed_state(
     flux_limit = _section_scalar(config, section, "flux_limit", default=0.2)
     diffusion_limit = _section_scalar(config, section, "diffusion_limit", default=-1.0)
     density_floor = _section_scalar(config, section, "density_floor", default=1.0e-8)
-    temperature_floor = _section_scalar(config, section, "temperature_floor", default=0.1) / tnorm
+    temperature_floor = (
+        _section_scalar(config, section, "temperature_floor", default=0.1) / tnorm
+    )
     pressure_floor = density_floor * temperature_floor
-    lax_flux = bool(config.parsed(section, "lax_flux")) if config.has_option(section, "lax_flux") else True
+    lax_flux = (
+        bool(config.parsed(section, "lax_flux"))
+        if config.has_option(section, "lax_flux")
+        else True
+    )
 
-    density = _apply_neutral_density_boundaries(np.maximum(np.asarray(state.density, dtype=np.float64), 0.0), mesh)
-    pressure = _apply_neutral_pressure_boundaries(np.maximum(np.asarray(state.pressure, dtype=np.float64), 0.0), mesh)
-    momentum = _apply_neutral_momentum_boundaries(np.asarray(state.momentum, dtype=np.float64), mesh)
+    density = _apply_neutral_density_boundaries(
+        np.maximum(np.asarray(state.density, dtype=np.float64), 0.0), mesh
+    )
+    pressure = _apply_neutral_pressure_boundaries(
+        np.maximum(np.asarray(state.pressure, dtype=np.float64), 0.0), mesh
+    )
+    momentum = _apply_neutral_momentum_boundaries(
+        np.asarray(state.momentum, dtype=np.float64), mesh
+    )
 
-    density_limited = _apply_neutral_density_boundaries(_soft_floor(density, density_floor), mesh)
-    temperature = _apply_neutral_temperature_boundaries(pressure / density_limited, mesh)
-    temperature_limited = _apply_neutral_temperature_boundaries(_soft_floor(temperature, temperature_floor), mesh)
-    pressure_limited = _apply_neutral_pressure_boundaries(_soft_floor(pressure, pressure_floor), mesh)
+    density_limited = _apply_neutral_density_boundaries(
+        _soft_floor(density, density_floor), mesh
+    )
+    temperature = _apply_neutral_temperature_boundaries(
+        pressure / density_limited, mesh
+    )
+    temperature_limited = _apply_neutral_temperature_boundaries(
+        _soft_floor(temperature, temperature_floor), mesh
+    )
+    pressure_limited = _apply_neutral_pressure_boundaries(
+        _soft_floor(pressure, pressure_floor), mesh
+    )
     log_pressure = _apply_neutral_pressure_boundaries(np.log(pressure_limited), mesh)
-    velocity = _apply_neutral_velocity_boundaries(momentum / (atomic_mass * density_limited), mesh)
+    velocity = _apply_neutral_velocity_boundaries(
+        momentum / (atomic_mass * density_limited), mesh
+    )
 
     diffusion = compute_neutral_mixed_diffusion(
         temperature_limited,
@@ -774,12 +953,24 @@ def _prepare_neutral_mixed_state(
         flux_limit=flux_limit,
         diffusion_limit=diffusion_limit,
     )
-    diffusion_density = _apply_neutral_diffusion_boundaries(diffusion * density_limited, mesh)
-    diffusion_pressure = _apply_neutral_diffusion_boundaries(diffusion * pressure_limited, mesh)
+    diffusion_density = _apply_neutral_diffusion_boundaries(
+        diffusion * density_limited, mesh
+    )
+    diffusion_pressure = _apply_neutral_diffusion_boundaries(
+        diffusion * pressure_limited, mesh
+    )
     diffusion_momentum = _apply_neutral_diffusion_boundaries(diffusion * momentum, mesh)
-    conductivity = _apply_neutral_diffusion_boundaries((5.0 / 2.0) * diffusion_density, mesh)
-    viscosity = _apply_neutral_diffusion_boundaries(atomic_mass * (2.0 / 5.0) * conductivity, mesh)
-    sound_speed = np.sqrt(np.maximum(temperature, 0.0) * (5.0 / 3.0) / atomic_mass) if lax_flux else np.zeros_like(density)
+    conductivity = _apply_neutral_diffusion_boundaries(
+        (5.0 / 2.0) * diffusion_density, mesh
+    )
+    viscosity = _apply_neutral_diffusion_boundaries(
+        atomic_mass * (2.0 / 5.0) * conductivity, mesh
+    )
+    sound_speed = (
+        np.sqrt(np.maximum(temperature, 0.0) * (5.0 / 3.0) / atomic_mass)
+        if lax_flux
+        else np.zeros_like(density)
+    )
 
     return _PreparedNeutralMixedState(
         density=density,
@@ -817,7 +1008,9 @@ def _evaluate_field_option(
     return np.asarray(broadcast_to_field_shape(value, mesh), dtype=np.float64)
 
 
-def _section_scalar(config: BoutConfig, section: str, name: str, *, default: float) -> float:
+def _section_scalar(
+    config: BoutConfig, section: str, name: str, *, default: float
+) -> float:
     if not config.has_option(section, name):
         return default
     return float(config.parsed(section, name))
@@ -827,7 +1020,9 @@ def _has_connected_y_ends(mesh: StructuredMesh) -> bool:
     return not mesh.has_lower_y_target and not mesh.has_upper_y_target
 
 
-def _apply_connected_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_connected_y_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     result = np.asarray(field, dtype=np.float64).copy()
     if mesh.myg <= 0:
         return result
@@ -839,46 +1034,74 @@ def _apply_connected_y_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np
     return result
 
 
-def _apply_neutral_density_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_neutral_density_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     if _has_connected_y_ends(mesh):
-        return _apply_connected_y_boundaries(_apply_neumann_x_boundaries(field, mesh), mesh)
+        return _apply_connected_y_boundaries(
+            _apply_neumann_x_boundaries(field, mesh), mesh
+        )
     return _apply_density_boundaries(field, mesh)
 
 
-def _apply_neutral_pressure_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_neutral_pressure_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     if _has_connected_y_ends(mesh):
-        return _apply_connected_y_boundaries(_apply_neumann_x_boundaries(field, mesh), mesh)
+        return _apply_connected_y_boundaries(
+            _apply_neumann_x_boundaries(field, mesh), mesh
+        )
     return _apply_pressure_boundaries(field, mesh)
 
 
-def _apply_neutral_temperature_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_neutral_temperature_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     if _has_connected_y_ends(mesh):
-        return _apply_connected_y_boundaries(_apply_neumann_x_boundaries(field, mesh), mesh)
+        return _apply_connected_y_boundaries(
+            _apply_neumann_x_boundaries(field, mesh), mesh
+        )
     return _apply_temperature_boundaries(field, mesh)
 
 
-def _apply_neutral_diffusion_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_neutral_diffusion_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     if _has_connected_y_ends(mesh):
-        return _apply_connected_y_boundaries(_apply_dirichlet_x_boundaries(field, mesh), mesh)
+        return _apply_connected_y_boundaries(
+            _apply_dirichlet_x_boundaries(field, mesh), mesh
+        )
     return _apply_diffusion_boundaries(field, mesh)
 
 
-def _apply_neutral_momentum_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_neutral_momentum_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     if _has_connected_y_ends(mesh):
-        return _apply_connected_y_boundaries(_apply_dirichlet_x_boundaries(field, mesh), mesh)
+        return _apply_connected_y_boundaries(
+            _apply_dirichlet_x_boundaries(field, mesh), mesh
+        )
     return _apply_momentum_boundaries(field, mesh)
 
 
-def _apply_neutral_velocity_boundaries(field: np.ndarray, mesh: StructuredMesh) -> np.ndarray:
+def _apply_neutral_velocity_boundaries(
+    field: np.ndarray, mesh: StructuredMesh
+) -> np.ndarray:
     if _has_connected_y_ends(mesh):
-        return _apply_connected_y_boundaries(_apply_dirichlet_x_boundaries(field, mesh), mesh)
+        return _apply_connected_y_boundaries(
+            _apply_dirichlet_x_boundaries(field, mesh), mesh
+        )
     return _apply_velocity_boundaries(field, mesh)
 
 
-def _sanitize_neutral_state(state: NeutralMixedState, mesh: StructuredMesh) -> NeutralMixedState:
+def _sanitize_neutral_state(
+    state: NeutralMixedState, mesh: StructuredMesh
+) -> NeutralMixedState:
     return NeutralMixedState(
         density=_apply_neutral_density_boundaries(np.maximum(state.density, 0.0), mesh),
-        pressure=_apply_neutral_pressure_boundaries(np.maximum(state.pressure, 0.0), mesh),
+        pressure=_apply_neutral_pressure_boundaries(
+            np.maximum(state.pressure, 0.0), mesh
+        ),
         momentum=_apply_neutral_momentum_boundaries(state.momentum, mesh),
     )
 
@@ -932,16 +1155,22 @@ def _rk4_step(
     )
 
     next_state = NeutralMixedState(
-        density=state.density + (timestep / 6.0) * (k1.density + 2.0 * k2.density + 2.0 * k3.density + k4.density),
+        density=state.density
+        + (timestep / 6.0)
+        * (k1.density + 2.0 * k2.density + 2.0 * k3.density + k4.density),
         pressure=state.pressure
-        + (timestep / 6.0) * (k1.pressure + 2.0 * k2.pressure + 2.0 * k3.pressure + k4.pressure),
+        + (timestep / 6.0)
+        * (k1.pressure + 2.0 * k2.pressure + 2.0 * k3.pressure + k4.pressure),
         momentum=state.momentum
-        + (timestep / 6.0) * (k1.momentum + 2.0 * k2.momentum + 2.0 * k3.momentum + k4.momentum),
+        + (timestep / 6.0)
+        * (k1.momentum + 2.0 * k2.momentum + 2.0 * k3.momentum + k4.momentum),
     )
     return _sanitize_neutral_state(next_state, mesh)
 
 
-def _add_state(state: NeutralMixedState, rhs: NeutralMixedRhsResult, *, scale: float) -> NeutralMixedState:
+def _add_state(
+    state: NeutralMixedState, rhs: NeutralMixedRhsResult, *, scale: float
+) -> NeutralMixedState:
     return NeutralMixedState(
         density=state.density + scale * rhs.density,
         pressure=state.pressure + scale * rhs.pressure,
@@ -958,7 +1187,9 @@ def _active_domain_slices(mesh: StructuredMesh) -> tuple[slice, slice, slice]:
 
 
 def _active_domain_shape(mesh: StructuredMesh) -> tuple[int, int, int]:
-    return active_region_from_slices((mesh.nx, mesh.local_ny, mesh.nz), _active_domain_slices(mesh)).shape
+    return active_region_from_slices(
+        (mesh.nx, mesh.local_ny, mesh.nz), _active_domain_slices(mesh)
+    ).shape
 
 
 def _as_neutral_step_info(info: ImplicitStepInfo) -> NeutralMixedImplicitStepInfo:
@@ -968,10 +1199,16 @@ def _as_neutral_step_info(info: ImplicitStepInfo) -> NeutralMixedImplicitStepInf
         nonlinear_iterations=info.nonlinear_iterations,
         linear_iterations=info.linear_iterations,
         diagnostics={
-            "residual_evaluation_count": int(getattr(info, "residual_evaluation_count", 0)),
-            "residual_evaluation_seconds": float(getattr(info, "residual_evaluation_seconds", 0.0)),
+            "residual_evaluation_count": int(
+                getattr(info, "residual_evaluation_count", 0)
+            ),
+            "residual_evaluation_seconds": float(
+                getattr(info, "residual_evaluation_seconds", 0.0)
+            ),
             "jacobian_refresh_count": int(getattr(info, "jacobian_refresh_count", 0)),
-            "jacobian_assembly_seconds": float(getattr(info, "jacobian_assembly_seconds", 0.0)),
+            "jacobian_assembly_seconds": float(
+                getattr(info, "jacobian_assembly_seconds", 0.0)
+            ),
             "linear_solve_seconds": float(getattr(info, "linear_solve_seconds", 0.0)),
             "line_search_seconds": float(getattr(info, "line_search_seconds", 0.0)),
             "fallback_used": bool(getattr(info, "fallback_used", False)),
@@ -990,9 +1227,15 @@ def _neutral_mixed_jacobian_sparsity(active_shape: tuple[int, int, int]):
 
 
 @lru_cache(maxsize=None)
-def _neutral_mixed_jacobian_color_groups(active_shape: tuple[int, int, int]) -> tuple[tuple[int, ...], ...]:
+def _neutral_mixed_jacobian_color_groups(
+    active_shape: tuple[int, int, int],
+) -> tuple[tuple[int, ...], ...]:
     return build_modulo_color_groups(
         active_shape,
         field_count=3,
-        color_periods=(min(5, active_shape[0]), min(5, active_shape[1]), active_shape[2]),
+        color_periods=(
+            min(5, active_shape[0]),
+            min(5, active_shape[1]),
+            active_shape[2],
+        ),
     )

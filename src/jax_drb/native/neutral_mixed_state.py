@@ -30,6 +30,14 @@ class NeutralMixedHistoryResult:
     density_history: np.ndarray
     pressure_history: np.ndarray
     momentum_history: np.ndarray
+    accepted_step_time_points: np.ndarray | None = None
+    accepted_step_dt: np.ndarray | None = None
+    accepted_step_order: np.ndarray | None = None
+    accepted_step_density_history: np.ndarray | None = None
+    accepted_step_pressure_history: np.ndarray | None = None
+    accepted_step_momentum_history: np.ndarray | None = None
+    accepted_step_residual_inf_norm: np.ndarray | None = None
+    accepted_step_nonlinear_iterations: np.ndarray | None = None
 
 
 @dataclass(frozen=True)

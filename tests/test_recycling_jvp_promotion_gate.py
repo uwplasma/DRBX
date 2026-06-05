@@ -7,8 +7,14 @@ from pathlib import Path
 
 
 def _load_module():
-    script_path = Path(__file__).resolve().parents[1] / "scripts" / "run_recycling_jvp_promotion_gate.py"
-    spec = importlib.util.spec_from_file_location("run_recycling_jvp_promotion_gate", script_path)
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "run_recycling_jvp_promotion_gate.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "run_recycling_jvp_promotion_gate", script_path
+    )
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -26,7 +32,10 @@ def test_recycling_jvp_promotion_gate_builds_single_ion_command() -> None:
         python_executable="python",
     )
 
-    assert command[:2] == ["python", str(module.REPO_ROOT / "scripts" / "compare_recycling_transient_modes.py")]
+    assert command[:2] == [
+        "python",
+        str(module.REPO_ROOT / "scripts" / "compare_recycling_transient_modes.py"),
+    ]
     assert command[command.index("--case") + 1] == "recycling_1d_one_step"
     assert command[command.index("--reference-root") + 1] == "/tmp/reference-root"
     assert command.count("--mode") == 2
@@ -66,9 +75,9 @@ def test_recycling_jvp_promotion_gate_defaults_to_all_cases() -> None:
         "recycling_1d_one_step",
         "recycling_dthe_one_step",
     )
-    assert tuple(gate.case for gate in module._selected_cases(("recycling_dthe_one_step",))) == (
-        "recycling_dthe_one_step",
-    )
+    assert tuple(
+        gate.case for gate in module._selected_cases(("recycling_dthe_one_step",))
+    ) == ("recycling_dthe_one_step",)
 
 
 def test_recycling_jvp_promotion_gate_writes_dry_run_summary(tmp_path: Path) -> None:

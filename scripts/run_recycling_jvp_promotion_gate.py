@@ -110,10 +110,14 @@ def _write_summary(
         "dry_run": bool(dry_run),
         "reference_root": str(reference_root),
         "case_reports": _json_ready(case_reports),
-        "all_cases_passed": all(int(report["returncode"]) == 0 for report in case_reports),
+        "all_cases_passed": all(
+            int(report["returncode"]) == 0 for report in case_reports
+        ),
     }
     output_path = output_dir / "summary.json"
-    output_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+    )
     return output_path
 
 
@@ -166,10 +170,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
     failures = 0
-    output_dir = args.output_dir.expanduser().resolve() if args.output_dir is not None else None
+    output_dir = (
+        args.output_dir.expanduser().resolve() if args.output_dir is not None else None
+    )
     case_reports: list[dict[str, object]] = []
     for gate_case in _selected_cases(args.cases or ()):
-        case_output_json = output_dir / f"{gate_case.case}.json" if output_dir is not None else None
+        case_output_json = (
+            output_dir / f"{gate_case.case}.json" if output_dir is not None else None
+        )
         command = _build_case_command(
             gate_case,
             reference_root=reference_root,
@@ -193,7 +201,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         completed = subprocess.run(command, cwd=REPO_ROOT, env=env)
         report["returncode"] = int(completed.returncode)
         if case_output_json is not None and case_output_json.exists():
-            report["case_report"] = json.loads(case_output_json.read_text(encoding="utf-8"))
+            report["case_report"] = json.loads(
+                case_output_json.read_text(encoding="utf-8")
+            )
         case_reports.append(report)
         if completed.returncode != 0:
             failures += 1

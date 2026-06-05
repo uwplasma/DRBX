@@ -99,6 +99,12 @@ operators.
 
 The next fidelity diagnostic should be an accepted-step trace from the
 reference implementation before another native boundary patch is attempted.
+JAXDRB now exposes the matching native-side hook through
+`advance_neutral_mixed_implicit_history(..., store_internal_substeps=True)`,
+which records accepted internal-step time, `dt`, BDF order, final accepted
+`Nh`, `Ph`, and `NVh`, nonlinear iteration count, and residual norm without
+changing the default history output. That hook is intentionally opt-in because
+it is diagnostic evidence, not a different physical model.
 For every accepted internal solver step from `t = 0` to the one-step output
 time, the trace should write `time`, `dt`, solver order, and both
 post-boundary/pre-RHS and post-accepted `Nh`, `Ph`, and `NVh` values at the
