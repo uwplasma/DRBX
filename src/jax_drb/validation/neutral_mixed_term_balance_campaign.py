@@ -721,12 +721,7 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
     )
     ranked = sorted(
         field_errors.values(),
-        key=lambda item: (
-            float(item["max_target_adjacent_delta"]),
-            float(item["max_guard_delta"]),
-            float(item["max_active_delta"]),
-            float(item["max_sample_lineout_delta"]),
-        ),
+        key=_accepted_trace_field_ranking_key,
         reverse=True,
     )
     return {
@@ -748,7 +743,10 @@ def build_neutral_mixed_accepted_step_trace_parity_report(
             "post-accepted neutral states before changing neutral-mixed boundary or "
             "source sequencing. A target-adjacent or guard-dominated NVh error points "
             "at sheath/guard reconstruction, while an active-domain error at the first "
-            "matched time points at RHS/source assembly."
+            "matched time points at RHS/source assembly. State fields are ranked with "
+            "guard metrics because their guard reconstruction is part of the boundary "
+            "parity question; derivative and source fields are ranked by active and "
+            "target-adjacent cells while still reporting guard deltas separately."
         ),
     }
 
@@ -1934,6 +1932,7 @@ def _compare_accepted_step_trace_points(
                 name,
                 {
                     "field": name,
+                    "comparison_scope": _accepted_trace_field_scope(name),
                     "max_active_delta": 0.0,
                     "max_target_adjacent_delta": 0.0,
                     "max_guard_delta": 0.0,
@@ -2041,6 +2040,28 @@ def _update_trace_error_aggregate(
         if float(value) > float(aggregate[key]):
             aggregate[key] = float(value)
             aggregate["worst_time"] = float(time_value)
+
+
+def _accepted_trace_field_scope(field_name: str) -> str:
+    if field_name.startswith("ddt(") or field_name.startswith("SNV"):
+        return "active_target_rhs_source"
+    return "state_with_guard_boundary"
+
+
+def _accepted_trace_field_ranking_key(item: dict[str, object]) -> tuple[float, ...]:
+    if item.get("comparison_scope") == "active_target_rhs_source":
+        return (
+            float(item["max_target_adjacent_delta"]),
+            float(item["max_active_delta"]),
+            float(item["max_sample_lineout_delta"]),
+            float(item["max_guard_delta"]),
+        )
+    return (
+        float(item["max_target_adjacent_delta"]),
+        float(item["max_guard_delta"]),
+        float(item["max_active_delta"]),
+        float(item["max_sample_lineout_delta"]),
+    )
 
 
 def _state_with_reference_field(

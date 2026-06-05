@@ -150,7 +150,9 @@ semantics of RHS/source diagnostics before changing target-boundary or BDF
 sequencing. The latest matched near-zero accepted step has small active-domain
 term deltas but large RHS/source guard deltas, which points to diagnostic
 guard handling rather than active-domain pressure-gradient or viscosity
-formulas.
+formulas. The comparator therefore ranks state fields with guard metrics, but
+ranks `ddt(*)` and `SNVh_*` fields by active and target-adjacent cells while
+still reporting guard deltas separately.
 The `trace-neutral-mixed-reference-accepted-steps` runner now validates this
 schema before returning successfully: each accepted-step record must contain
 `Nh`, `Ph`, and `NVh` in the `post_accepted` stage, and the JSONL must contain

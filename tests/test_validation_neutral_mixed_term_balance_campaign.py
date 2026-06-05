@@ -811,6 +811,64 @@ def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
     assert payload["diagnostic"] == "neutral_mixed_accepted_step_trace_parity"
 
 
+def test_neutral_mixed_accepted_step_trace_parity_ranks_rhs_by_active_target(
+    tmp_path: Path,
+) -> None:
+    def field(active: float, target: float, guard: float) -> dict[str, object]:
+        return {
+            "active_metrics": {"max_abs": active, "rms": active},
+            "target_adjacent_metrics": {"max_abs": target, "rms": target},
+            "guard_metrics": {"max_abs": guard, "rms": guard},
+            "sample_lineout_y_indices": [0],
+            "sample_lineout": [target],
+        }
+
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "solver_order": 0,
+                "stage": "post_accepted",
+                "fields": {
+                    "NVh": field(0.0, 0.0, 0.0),
+                    "ddt(NVh)": field(0.0, 0.0, 1000.0),
+                },
+            }
+        ],
+    }
+    reference_record = {
+        "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+        "step_index": 0,
+        "time": 0.0,
+        "dt": 0.0,
+        "stages": {
+            "post_accepted": {
+                "NVh": field(0.5, 0.5, 0.5),
+                "ddt(NVh)": field(0.1, 0.1, 0.0),
+            }
+        },
+    }
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(json.dumps(reference_record) + "\n", encoding="utf-8")
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-12,
+    )
+
+    assert report["ranked_fields"][0]["field"] == "NVh"
+    assert report["fields"]["ddt(NVh)"]["comparison_scope"] == (
+        "active_target_rhs_source"
+    )
+    assert report["fields"]["ddt(NVh)"]["max_guard_delta"] == pytest.approx(1000.0)
+
+
 def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:
     path = (
         _REPO_ROOT
