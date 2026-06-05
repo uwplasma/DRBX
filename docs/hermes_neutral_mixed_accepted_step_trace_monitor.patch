@@ -1,0 +1,274 @@
+diff --git a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
+index 0000000..0000000 100644
+--- a/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
++++ b/external/BOUT-dev/src/solver/impls/cvode/cvode.cxx
+@@ -584,6 +584,10 @@ BoutReal CvodeSolver::run(BoutReal tout) {
+                             internal_time, flag);
+       }
+ 
++      // Make accepted-step monitors see the state and RHS at the accepted
++      // CVODE internal time, not the previous output-time state.
++      load_vars(N_VGetArrayPointer(uvec));
++      run_rhs(internal_time);
+       // Call timestep monitor
+       call_timestep_monitors(internal_time, internal_time - last_time);
+     }
+diff --git a/hermes-3.hxx b/hermes-3.hxx
+index 0000000..0000000 100644
+--- a/hermes-3.hxx
++++ b/hermes-3.hxx
+@@ -31,6 +31,7 @@ protected:
+   int init(bool restarting) override;
+   int rhs(BoutReal t, bool linear) override;
+   int precon(BoutReal t, BoutReal gamma, BoutReal delta);
++  int timestepMonitor(BoutReal simtime, BoutReal dt) override;
+ 
+   /// Add variables to be written to the output file
+   ///
+diff --git a/hermes-3.cxx b/hermes-3.cxx
+index 0000000..0000000 100644
+--- a/hermes-3.cxx
++++ b/hermes-3.cxx
+@@ -20,6 +20,7 @@
+ #include "hermes-3.hxx"
+ #include "revision.hxx"
+ 
++#include "include/component.hxx"
+ #include "include/adas_carbon.hxx"
+ #include "include/adas_lithium.hxx"
+ #include "include/adas_neon.hxx"
+@@ -82,11 +83,20 @@
+ #include "include/zero_current.hxx"
+ #include <bout/boundary_factory.hxx>
+ #include <bout/boundary_op.hxx>
++#include <bout/boutcomm.hxx>
+ #include <bout/constants.hxx>
+ #include <bout/field_factory.hxx>
++#include <bout/globals.hxx>
+ 
+ #include "include/recalculate_metric.hxx"
+ 
++#include <cmath>
++#include <fstream>
++#include <iomanip>
++#include <sstream>
++#include <string>
++#include <vector>
++
+ #if !BOUT_USE_METRIC_3D
+ // For standard 2D metrics,
+ // Hermes operators don't need parallel slices
+@@ -290,6 +300,213 @@ private:
+   std::shared_ptr<FieldGenerator> gen; // Generator
+ };
+ 
++namespace {
++using bout::globals::mesh;
++
++struct TraceMetrics {
++  BoutReal max_abs = 0.0;
++  BoutReal rms = 0.0;
++};
++
++int clamp_trace_index(int value, int lower, int upper) {
++  if (value < lower) {
++    return lower;
++  }
++  if (value > upper) {
++    return upper;
++  }
++  return value;
++}
++
++std::vector<int> unique_trace_indices(const std::vector<int>& raw,
++                                      int lower,
++                                      int upper) {
++  std::vector<int> result;
++  for (const int value : raw) {
++    const int clamped = clamp_trace_index(value, lower, upper);
++    bool present = false;
++    for (const int existing : result) {
++      if (existing == clamped) {
++        present = true;
++        break;
++      }
++    }
++    if (!present) {
++      result.push_back(clamped);
++    }
++  }
++  return result;
++}
++
++TraceMetrics field_metrics_on_y_indices(const Field3D& field,
++                                        const std::vector<int>& y_indices) {
++  BoutReal max_abs = 0.0;
++  BoutReal sum_squares = 0.0;
++  int count = 0;
++  for (int x = mesh->xstart; x <= mesh->xend; ++x) {
++    for (const int y : y_indices) {
++      for (int z = 0; z < mesh->LocalNz; ++z) {
++        const BoutReal value = field(x, y, z);
++        const BoutReal magnitude = std::abs(value);
++        if (magnitude > max_abs) {
++          max_abs = magnitude;
++        }
++        sum_squares += value * value;
++        ++count;
++      }
++    }
++  }
++  return {max_abs, count > 0 ? std::sqrt(sum_squares / static_cast<BoutReal>(count))
++                             : 0.0};
++}
++
++std::vector<int> active_y_indices() {
++  std::vector<int> result;
++  for (int y = mesh->ystart; y <= mesh->yend; ++y) {
++    result.push_back(y);
++  }
++  return result;
++}
++
++std::vector<int> target_adjacent_y_indices() {
++  return unique_trace_indices({mesh->ystart, mesh->ystart + 1, mesh->yend - 1,
++                               mesh->yend},
++                              0, mesh->LocalNy - 1);
++}
++
++std::vector<int> guard_y_indices() {
++  return unique_trace_indices({mesh->ystart - 2, mesh->ystart - 1, mesh->yend + 1,
++                               mesh->yend + 2},
++                              0, mesh->LocalNy - 1);
++}
++
++std::string json_metric_payload(const TraceMetrics& metrics) {
++  std::ostringstream stream;
++  stream << "{\"max_abs\":" << metrics.max_abs << ",\"rms\":" << metrics.rms
++         << "}";
++  return stream.str();
++}
++
++std::string json_int_vector(const std::vector<int>& values) {
++  std::ostringstream stream;
++  stream << "[";
++  for (std::size_t index = 0; index < values.size(); ++index) {
++    if (index > 0) {
++      stream << ",";
++    }
++    stream << values[index];
++  }
++  stream << "]";
++  return stream.str();
++}
++
++std::string json_real_vector(const std::vector<BoutReal>& values) {
++  std::ostringstream stream;
++  stream << "[";
++  for (std::size_t index = 0; index < values.size(); ++index) {
++    if (index > 0) {
++      stream << ",";
++    }
++    stream << values[index];
++  }
++  stream << "]";
++  return stream.str();
++}
++
++std::string json_field_payload(const Field3D& field) {
++  const std::vector<int> active = active_y_indices();
++  const std::vector<int> target = target_adjacent_y_indices();
++  const std::vector<int> guard = guard_y_indices();
++  const int sample_x = (mesh->xstart + mesh->xend) / 2;
++  const int sample_z = mesh->LocalNz / 2;
++  std::vector<BoutReal> lineout;
++  lineout.reserve(active.size());
++  for (const int y : active) {
++    lineout.push_back(field(sample_x, y, sample_z));
++  }
++  std::ostringstream stream;
++  stream << "{\"active_metrics\":"
++         << json_metric_payload(field_metrics_on_y_indices(field, active))
++         << ",\"target_adjacent_metrics\":"
++         << json_metric_payload(field_metrics_on_y_indices(field, target))
++         << ",\"guard_metrics\":"
++         << json_metric_payload(field_metrics_on_y_indices(field, guard))
++         << ",\"sample_lineout_y_indices\":" << json_int_vector(active)
++         << ",\"sample_lineout\":" << json_real_vector(lineout) << "}";
++  return stream.str();
++}
++
++std::string json_trace_field(const Options& output_state,
++                             const std::string& field_name) {
++  if (!output_state.isSet(field_name)) {
++    throw BoutException("Neutral-mixed accepted-step trace field '{}' is missing",
++                        field_name);
++  }
++  return std::string("\"") + field_name + "\":" +
++         json_field_payload(getNonFinal<Field3D>(output_state[field_name]));
++}
++} // namespace
++
++int Hermes::timestepMonitor(BoutReal simtime, BoutReal dt) {
++  auto& hermes_options = Options::root()["hermes"];
++  const bool enabled =
++      hermes_options["neutral_mixed_accepted_step_trace"]
++          .doc("Write compact neutral_mixed accepted-step JSONL diagnostics?")
++          .withDefault<bool>(false);
++  if (!enabled) {
++    return 0;
++  }
++
++  // The trace is intended for serial reference parity campaigns. Rank-zero
++  // output is sufficient for those campaigns and avoids JSONL write races.
++  if (BoutComm::rank() != 0) {
++    return 0;
++  }
++
++  const std::string path =
++      hermes_options["neutral_mixed_accepted_step_trace_file"]
++          .doc("Path to append accepted-step neutral_mixed JSONL diagnostics")
++          .withDefault<std::string>("neutral_mixed_reference_accepted_step_trace.jsonl");
++  const std::string species =
++      hermes_options["neutral_mixed_accepted_step_trace_species"]
++          .doc("Neutral species suffix to trace, for example h")
++          .withDefault<std::string>("h");
++
++  Options output_state;
++  outputVars(output_state);
++
++  static int step_index = 0;
++  std::ofstream stream(path, std::ios_base::app);
++  if (!stream) {
++    throw BoutException("Could not open neutral_mixed accepted-step trace file '{}'",
++                        path);
++  }
++  stream << std::setprecision(17);
++  const std::vector<std::string> fields = {
++      "N" + species,
++      "P" + species,
++      "NV" + species,
++      "ddt(N" + species + ")",
++      "ddt(P" + species + ")",
++      "ddt(NV" + species + ")",
++      "SNV" + species,
++      "SNV" + species + "_pressure_gradient",
++      "SNV" + species + "_parallel_viscosity",
++      "SNV" + species + "_perpendicular_viscosity",
++  };
++  stream << "{\"diagnostic\":\"neutral_mixed_reference_accepted_step_trace\","
++         << "\"step_index\":" << step_index++ << ",\"time\":" << simtime
++         << ",\"dt\":" << dt << ",\"stages\":{\"post_accepted\":{";
++  for (std::size_t index = 0; index < fields.size(); ++index) {
++    if (index > 0) {
++      stream << ",";
++    }
++    stream << json_trace_field(output_state, fields[index]);
++  }
++  stream << "}}}\n";
++  return 0;
++}
++
+ int Hermes::init(bool restarting) {
+ 
+   auto &options = Options::root()["hermes"];

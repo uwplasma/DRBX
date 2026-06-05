@@ -20,6 +20,13 @@ must be present first, so the reference output can write
 `SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
 `SNVh_perpendicular_viscosity` in addition to `ddt(NVh)`.
 
+The accepted-step monitor itself is captured as a reproducible patch artifact:
+[hermes_neutral_mixed_accepted_step_trace_monitor.patch](hermes_neutral_mixed_accepted_step_trace_monitor.patch).
+Apply it to a clean, disposable reference-code checkout rather than to a
+working tree with unrelated local edits. The patch has two responsibilities:
+refreshing the CVODE accepted-step state and RHS before timestep monitors run,
+and adding a gated JSONL monitor in the reference application.
+
 ## Required Reference Changes
 
 1. In the CVODE accepted-step loop, refresh the state and RHS before timestep

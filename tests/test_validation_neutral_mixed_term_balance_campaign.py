@@ -403,6 +403,34 @@ def test_write_neutral_mixed_accepted_step_trace_input_enables_monitor(
     assert trace_path.parent.exists()
 
 
+def test_neutral_mixed_accepted_step_reference_patch_documents_required_hook() -> None:
+    patch_path = _REPO_ROOT / "docs" / (
+        "hermes_neutral_mixed_accepted_step_trace_monitor.patch"
+    )
+    text = patch_path.read_text(encoding="utf-8")
+
+    assert "load_vars(N_VGetArrayPointer(uvec));" in text
+    assert "run_rhs(internal_time);" in text
+    assert "int timestepMonitor(BoutReal simtime, BoutReal dt) override;" in text
+    assert "Hermes::timestepMonitor(BoutReal simtime, BoutReal dt)" in text
+    assert "neutral_mixed_accepted_step_trace" in text
+    assert '\\"stages\\":{\\"post_accepted\\"' in text
+    assert "json_field_payload(getNonFinal<Field3D>" in text
+    for field_name in (
+        "N\" + species",
+        "P\" + species",
+        "NV\" + species",
+        "ddt(N\" + species + \")",
+        "ddt(P\" + species + \")",
+        "ddt(NV\" + species + \")",
+        "SNV\" + species",
+        "SNV\" + species + \"_pressure_gradient",
+        "SNV\" + species + \"_parallel_viscosity",
+        "SNV\" + species + \"_perpendicular_viscosity",
+    ):
+        assert field_name in text
+
+
 def test_run_neutral_mixed_hermes_accepted_step_trace_returns_jsonl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

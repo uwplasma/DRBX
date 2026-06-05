@@ -70,7 +70,7 @@ documentation matching the claim.
 | --- | --- | ---: | --- |
 | CI/CD and docs release surface | Local release-surface and targeted shipping slices pass after public-path sanitization; latest pushed CI must still be watched to completion. | 85% | Green docs, test, and coverage on the latest `main` head. |
 | Meaningful promoted coverage | Local closeout and promoted-solver coverage gates meet the `95%` target on promoted surfaces. | 90% | Keep the gates green after every solver/geometry promotion; avoid adding coverage-only smoke tests. |
-| Reference-backed parity | Many RHS, one-step, and campaign gates exist; neutral-mixed direct `SNVh_*` source formulas are now closed, but target-adjacent accepted-step state/history drift and longer recycling windows remain the main scientific offenders. | 70% | Native/reference accepted-step trace parity for `Nh`, `Ph`, `NVh`, `ddt(*)`, and `SNVh_*`, followed by the longer recycling-window ladder. |
+| Reference-backed parity | Many RHS, one-step, and campaign gates exist; neutral-mixed direct `SNVh_*` source formulas are now closed, and the accepted-step reference-monitor patch artifact is now documented and tested. Target-adjacent accepted-step state/history drift and longer recycling windows remain the main scientific offenders. | 72% | Apply the accepted-step patch to a clean reference checkout, generate native/reference traces for `Nh`, `Ph`, `NVh`, `ddt(*)`, and `SNVh_*`, then continue the longer recycling-window ladder. |
 | JAX-native recycling solver | Fixed-layout residual, JVP checks, and fixed-BDF2 diagnostics are present and gated on lightweight fixtures; full output-window default promotion is not yet complete. | 55% | Full open-field recycling transient through the fixed-layout JAX residual, with parity, cProfile/RSS, and JAX trace evidence. |
 | Performance and scaling | Local CPU ensemble scaling and real fixed-layout JVP profiling exist; heavy default solver and GPU scaling remain incomplete. | 50% | Same-machine heavy recycling profiles after each solver switch and one GPU bundle on promoted kernels. |
 | 3D imported-field and VMEC-extender SOL | Import, selected-field, reduced FCI, and smoke campaign gates exist; full non-axisymmetric turbulence claims still require refinement and field-line/connection-length agreement. | 50% | VMEC/imported-field examples that run from a clean clone plus release-hosted data, with Poincare/connection-length/refinement gates and smooth non-axisymmetric movies. |
@@ -958,6 +958,8 @@ Deliverables:
 - keep the direct `neutral_mixed` outputs for `SNVh_pressure_gradient`,
   `SNVh_parallel_viscosity`, and `SNVh_perpendicular_viscosity` locked in the
   term-balance artifact
+- keep the accepted-step monitor patch artifact documented and covered by
+  regression tests so a clean reference checkout can generate JSONL traces
 - add a native/reference accepted-step trace figure for target-band `Nh`,
   `Ph`, `NVh`, `ddt(*)`, `SNVh`, pressure-gradient, parallel-viscosity, and
   perpendicular-viscosity diagnostics
