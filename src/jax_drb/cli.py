@@ -324,6 +324,23 @@ def _build_parser() -> argparse.ArgumentParser:
         command=_trace_neutral_mixed_accepted_steps_command
     )
 
+    neutral_trace_compare_parser = subparsers.add_parser(
+        "compare-neutral-mixed-accepted-traces",
+        help="Compare native and reference accepted-internal-step traces for neutral-mixed NVh parity diagnostics.",
+    )
+    neutral_trace_compare_parser.add_argument("native_trace_json", type=Path)
+    neutral_trace_compare_parser.add_argument("reference_trace_json", type=Path)
+    neutral_trace_compare_parser.add_argument(
+        "--reference-stage", default="post_accepted"
+    )
+    neutral_trace_compare_parser.add_argument(
+        "--time-tolerance", type=float, default=1.0e-8
+    )
+    neutral_trace_compare_parser.add_argument("--json-out", type=Path, required=True)
+    neutral_trace_compare_parser.set_defaults(
+        command=_compare_neutral_mixed_accepted_traces_command
+    )
+
     run_parser = subparsers.add_parser(
         "run",
         help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.",
@@ -419,6 +436,7 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         "compare-neutral-mixed",
         "diagnose-neutral-mixed-substeps",
         "trace-neutral-mixed-accepted-steps",
+        "compare-neutral-mixed-accepted-traces",
         "run",
     }
     head = argv[0]
@@ -1168,6 +1186,38 @@ def _trace_neutral_mixed_accepted_steps_command(args: argparse.Namespace) -> int
     print(f"case: {report['case_name']}")
     print(f"trace_point_count: {report['trace_point_count']}")
     print(f"sample_y_indices: {report['sample_y_indices']}")
+    print(f"json_out: {path}")
+    return 0
+
+
+def _compare_neutral_mixed_accepted_traces_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        build_neutral_mixed_accepted_step_trace_parity_report,
+        write_neutral_mixed_accepted_step_trace_parity_json,
+    )
+
+    if float(args.time_tolerance) <= 0.0:
+        print(
+            "compare-neutral-mixed-accepted-traces: --time-tolerance must be positive."
+        )
+        return 1
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=args.native_trace_json,
+        reference_trace_json=args.reference_trace_json,
+        reference_stage=args.reference_stage,
+        time_tolerance=float(args.time_tolerance),
+    )
+    path = write_neutral_mixed_accepted_step_trace_parity_json(report, args.json_out)
+    print(f"diagnostic: {report['diagnostic']}")
+    print(f"matched_trace_point_count: {report['matched_trace_point_count']}")
+    ranked = report.get("ranked_fields", [])
+    if ranked:
+        worst = ranked[0]
+        print(
+            "worst_field: "
+            f"{worst['field']}, target_delta={worst['max_target_adjacent_delta']:.8e}, "
+            f"guard_delta={worst['max_guard_delta']:.8e}"
+        )
     print(f"json_out: {path}")
     return 0
 

@@ -8,11 +8,13 @@ import numpy as np
 import pytest
 
 from jax_drb.validation import (
+    build_neutral_mixed_accepted_step_trace_parity_report,
     build_neutral_mixed_native_accepted_step_trace_report,
     build_neutral_mixed_substep_hybrid_report,
     build_neutral_mixed_term_balance_campaign_report,
     create_neutral_mixed_term_balance_campaign_package,
     save_neutral_mixed_term_balance_campaign_plot,
+    write_neutral_mixed_accepted_step_trace_parity_json,
     write_neutral_mixed_native_accepted_step_trace_json,
     write_neutral_mixed_substep_hybrid_json,
     write_neutral_mixed_diagnostic_input,
@@ -492,6 +494,113 @@ def test_neutral_mixed_native_accepted_step_trace_report_schema(
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["diagnostic"] == "neutral_mixed_native_accepted_step_trace"
+
+
+def test_neutral_mixed_accepted_step_trace_parity_ingests_reference_jsonl(
+    tmp_path: Path,
+) -> None:
+    native_trace = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "trace_points": [
+            {
+                "index": 0,
+                "time": 0.0,
+                "dt": 0.0,
+                "solver_order": 0,
+                "stage": "post_accepted",
+                "fields": {
+                    "NVh": {
+                        "active_metrics": {"max_abs": 2.0, "rms": 1.0},
+                        "target_adjacent_metrics": {"max_abs": 4.0, "rms": 2.0},
+                        "guard_metrics": {"max_abs": 1.0, "rms": 0.5},
+                        "sample_lineout_y_indices": [0, 1],
+                        "sample_lineout": [1.0, 2.0],
+                    }
+                },
+            },
+            {
+                "index": 1,
+                "time": 1.0e-5,
+                "dt": 1.0e-5,
+                "solver_order": 1,
+                "stage": "post_accepted",
+                "fields": {
+                    "NVh": {
+                        "active_metrics": {"max_abs": 3.0, "rms": 1.5},
+                        "target_adjacent_metrics": {"max_abs": 6.0, "rms": 3.0},
+                        "guard_metrics": {"max_abs": 1.5, "rms": 0.75},
+                        "sample_lineout_y_indices": [0, 1],
+                        "sample_lineout": [2.0, 4.0],
+                    }
+                },
+            },
+        ],
+    }
+    reference_records = [
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 0,
+            "time": 0.0,
+            "dt": 0.0,
+            "solver": {"order": 0},
+            "stages": {
+                "post_accepted": {
+                    "NVh": {
+                        "active_metrics": {"max_abs": 2.5, "rms": 1.0},
+                        "target_adjacent_metrics": {"max_abs": 5.0, "rms": 2.0},
+                        "guard_metrics": {"max_abs": 1.25, "rms": 0.5},
+                        "sample_lineout_y_indices": [0, 1],
+                        "sample_lineout": [1.5, 1.0],
+                    }
+                }
+            },
+        },
+        {
+            "diagnostic": "neutral_mixed_reference_accepted_step_trace",
+            "step_index": 1,
+            "time": 1.0e-5,
+            "dt": 1.0e-5,
+            "solver": {"order": 1},
+            "stages": {
+                "post_accepted": {
+                    "NVh": {
+                        "active_metrics": {"max_abs": 1.0, "rms": 1.0},
+                        "target_adjacent_metrics": {"max_abs": 2.0, "rms": 2.0},
+                        "guard_metrics": {"max_abs": 0.5, "rms": 0.5},
+                        "sample_lineout_y_indices": [0, 1],
+                        "sample_lineout": [1.0, 1.0],
+                    }
+                }
+            },
+        },
+    ]
+    native_path = tmp_path / "native_trace.json"
+    reference_path = tmp_path / "reference_trace.jsonl"
+    native_path.write_text(json.dumps(native_trace), encoding="utf-8")
+    reference_path.write_text(
+        "\n".join(json.dumps(record) for record in reference_records) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_neutral_mixed_accepted_step_trace_parity_report(
+        native_trace_json=native_path,
+        reference_trace_json=reference_path,
+        time_tolerance=1.0e-12,
+    )
+
+    assert report["diagnostic"] == "neutral_mixed_accepted_step_trace_parity"
+    assert report["matched_trace_point_count"] == 2
+    assert report["fields"]["NVh"]["max_active_delta"] == pytest.approx(2.0)
+    assert report["fields"]["NVh"]["max_target_adjacent_delta"] == pytest.approx(4.0)
+    assert report["fields"]["NVh"]["max_guard_delta"] == pytest.approx(1.0)
+    assert report["fields"]["NVh"]["max_sample_lineout_delta"] == pytest.approx(3.0)
+    assert report["ranked_fields"][0]["field"] == "NVh"
+
+    path = write_neutral_mixed_accepted_step_trace_parity_json(
+        report, tmp_path / "trace_parity.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["diagnostic"] == "neutral_mixed_accepted_step_trace_parity"
 
 
 def test_committed_neutral_mixed_substep_hybrid_artifact_tracks_substep_trend() -> None:

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-import numpy as np
+from types import SimpleNamespace
 
-from jax_drb.validation.recycling_batched_jvp_profile import _check_pmap_identity
+import numpy as np
+import pytest
+
+import jax_drb.validation.recycling_batched_jvp_profile as profile_module
+from jax_drb.validation.recycling_batched_jvp_profile import (
+    _check_pmap_identity,
+    build_recycling_batched_jvp_problem,
+)
 
 
 class _ReadyArray:
@@ -33,7 +40,9 @@ def test_recycling_batched_jvp_pmap_identity_helper_requires_multiple_devices() 
 
 
 def test_recycling_batched_jvp_pmap_identity_helper_accepts_identity_map() -> None:
-    passed, max_abs_error, skip_reason = _check_pmap_identity(_FakeJax(), np, ("gpu0", "gpu1"))
+    passed, max_abs_error, skip_reason = _check_pmap_identity(
+        _FakeJax(), np, ("gpu0", "gpu1")
+    )
 
     assert passed is True
     assert max_abs_error == 0.0
@@ -41,8 +50,70 @@ def test_recycling_batched_jvp_pmap_identity_helper_accepts_identity_map() -> No
 
 
 def test_recycling_batched_jvp_pmap_identity_helper_rejects_corrupt_map() -> None:
-    passed, max_abs_error, skip_reason = _check_pmap_identity(_FakeJax(scale=0.0), np, ("gpu0", "gpu1"))
+    passed, max_abs_error, skip_reason = _check_pmap_identity(
+        _FakeJax(scale=0.0), np, ("gpu0", "gpu1")
+    )
 
     assert passed is False
     assert max_abs_error > 0.0
     assert "pmap identity check failed" in str(skip_reason)
+
+
+def test_recycling_batched_jvp_problem_uses_fixed_full_field_backend_by_default(
+    tmp_path, monkeypatch
+) -> None:
+    pytest.importorskip("jax")
+    captured: dict[str, object] = {}
+    input_path = tmp_path / "BOUT.inp"
+    input_path.write_text("nout = 1\n", encoding="utf-8")
+
+    mesh = SimpleNamespace(xstart=0, xend=1, ystart=0, yend=1, nz=1)
+    runtime_model = SimpleNamespace(feedback_names=("flux",))
+    context = SimpleNamespace(
+        residual=lambda state: state,
+        packed_previous_state=np.array([1.0, 2.0], dtype=np.float64),
+        field_names=("Ne",),
+        feedback_names=("flux",),
+    )
+
+    monkeypatch.setattr(profile_module, "load_bout_input", lambda path: {"path": path})
+    monkeypatch.setattr(
+        profile_module.RunConfiguration,
+        "from_config",
+        staticmethod(lambda config: SimpleNamespace()),
+    )
+    monkeypatch.setattr(profile_module, "build_structured_mesh", lambda *args: mesh)
+    monkeypatch.setattr(
+        profile_module, "build_structured_metrics", lambda *args: object()
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "resolved_dataset_scalars",
+        lambda run_config: {"rho_s0": 1.0, "Tnorm": 1.0},
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "_build_recycling_runtime_model",
+        lambda *args, **kwargs: runtime_model,
+    )
+    monkeypatch.setattr(
+        profile_module,
+        "_build_recycling_state_fields",
+        lambda runtime_model: {"Ne": np.ones((2, 2, 1), dtype=np.float64)},
+    )
+
+    def fake_residual_context(*args, **kwargs):
+        captured.update(kwargs)
+        return context
+
+    monkeypatch.setattr(
+        profile_module,
+        "build_recycling_1d_backward_euler_residual_context",
+        fake_residual_context,
+    )
+
+    problem = build_recycling_batched_jvp_problem(input_path)
+
+    assert captured["rhs_backend"] == "fixed_full_field_array"
+    assert problem.rhs_backend == "fixed_full_field_array"
+    assert problem.state_size == 2

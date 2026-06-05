@@ -28,6 +28,7 @@ class RecyclingBatchedJvpProblem:
     feedback_names: tuple[str, ...]
     mesh_active_shape: tuple[int, int, int]
     state_size: int
+    rhs_backend: str
 
 
 def _block_until_ready(value):
@@ -57,21 +58,31 @@ def _check_pmap_identity(jax, jnp, devices) -> tuple[bool, float | None, str | N
         identity = jax.pmap(lambda block: block, devices=devices)
         mapped = identity(probe).block_until_ready()
         max_abs_error = float(jnp.max(jnp.abs(mapped - probe)))
-    except Exception as exc:  # pragma: no cover - depends on optional multi-device runtimes
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - depends on optional multi-device runtimes
         return False, None, f"pmap identity check raised {type(exc).__name__}: {exc}"
     if max_abs_error > 1.0e-12:
-        return False, max_abs_error, f"pmap identity check failed with max_abs_error={max_abs_error:.3e}"
+        return (
+            False,
+            max_abs_error,
+            f"pmap identity check failed with max_abs_error={max_abs_error:.3e}",
+        )
     return True, max_abs_error, None
 
 
 def _deterministic_directions(batch_size: int, state_size: int, *, phase: float = 0.2):
     import jax.numpy as jnp
 
-    coordinates = jnp.arange(int(batch_size) * int(state_size), dtype=jnp.float64).reshape(
-        (int(batch_size), int(state_size))
+    coordinates = jnp.arange(
+        int(batch_size) * int(state_size), dtype=jnp.float64
+    ).reshape((int(batch_size), int(state_size)))
+    directions = jnp.sin(3.1e-4 * coordinates + float(phase)) + 0.5 * jnp.cos(
+        1.7e-4 * coordinates + 0.3
     )
-    directions = jnp.sin(3.1e-4 * coordinates + float(phase)) + 0.5 * jnp.cos(1.7e-4 * coordinates + 0.3)
-    return directions / jnp.maximum(jnp.linalg.norm(directions, axis=1, keepdims=True), 1.0e-30)
+    return directions / jnp.maximum(
+        jnp.linalg.norm(directions, axis=1, keepdims=True), 1.0e-30
+    )
 
 
 def build_recycling_batched_jvp_problem(
@@ -80,6 +91,7 @@ def build_recycling_batched_jvp_problem(
     overrides: tuple[str, ...] = (),
     timestep: float = 1.0e-4,
     evolve_feedback_integrals: bool = False,
+    rhs_backend: str = "fixed_full_field_array",
 ) -> RecyclingBatchedJvpProblem:
     """Build the real D/T/He recycling residual used for batched JVP gates."""
 
@@ -112,6 +124,7 @@ def build_recycling_batched_jvp_problem(
         dataset_scalars=scalars,
         timestep=float(timestep),
         evolve_feedback_integrals=bool(evolve_feedback_integrals),
+        rhs_backend=str(rhs_backend),
     )
     base_state = jnp.asarray(context.packed_previous_state, dtype=jnp.float64)
     return RecyclingBatchedJvpProblem(
@@ -125,10 +138,13 @@ def build_recycling_batched_jvp_problem(
             int(mesh.nz),
         ),
         state_size=int(base_state.size),
+        rhs_backend=str(rhs_backend),
     )
 
 
-def _time_repeated(callable_: Callable[[], object], *, timed_runs: int) -> tuple[float, list[float]]:
+def _time_repeated(
+    callable_: Callable[[], object], *, timed_runs: int
+) -> tuple[float, list[float]]:
     samples: list[float] = []
     for _ in range(max(1, int(timed_runs))):
         started_at = perf_counter()
@@ -191,7 +207,9 @@ def profile_recycling_batched_jvp_problem(
             )
             / (2.0 * float(fd_epsilon))
         )
-        objective_directional_relative_error = abs(grad_directional - fd_directional) / max(1.0e-30, abs(fd_directional))
+        objective_directional_relative_error = abs(
+            grad_directional - fd_directional
+        ) / max(1.0e-30, abs(fd_directional))
 
     batch_results: list[dict[str, object]] = []
     devices = tuple(jax.local_devices())
@@ -199,7 +217,9 @@ def profile_recycling_batched_jvp_problem(
     pmap_sanity_max_abs_error = None
     pmap_skip_reason = None
     if enable_pmap:
-        pmap_sanity_passed, pmap_sanity_max_abs_error, pmap_skip_reason = _check_pmap_identity(jax, jnp, devices)
+        pmap_sanity_passed, pmap_sanity_max_abs_error, pmap_skip_reason = (
+            _check_pmap_identity(jax, jnp, devices)
+        )
     pmap_enabled = bool(enable_pmap and pmap_sanity_passed)
     for batch_size in tuple(int(size) for size in batch_sizes):
         directions = _deterministic_directions(batch_size, problem.state_size)
@@ -221,7 +241,10 @@ def profile_recycling_batched_jvp_problem(
             timed_runs=timed_runs,
         )
         serial_jvp_seconds, serial_jvp_samples = _time_repeated(
-            lambda: tuple(jvp_jit(state, direction) for state, direction in zip(states, directions, strict=True)),
+            lambda: tuple(
+                jvp_jit(state, direction)
+                for state, direction in zip(states, directions, strict=True)
+            ),
             timed_runs=timed_runs,
         )
         batched_jvp_seconds, batched_jvp_samples = _time_repeated(
@@ -229,10 +252,17 @@ def profile_recycling_batched_jvp_problem(
             timed_runs=timed_runs,
         )
         serial_residual_values = jnp.stack([residual_jit(state) for state in states])
-        serial_jvp_values = jnp.stack([jvp_jit(state, direction) for state, direction in zip(states, directions, strict=True)])
+        serial_jvp_values = jnp.stack(
+            [
+                jvp_jit(state, direction)
+                for state, direction in zip(states, directions, strict=True)
+            ]
+        )
         batched_residual_values = batched_residual(states)
         batched_jvp_values = batched_jvp(states, directions)
-        residual_mismatch = float(jnp.max(jnp.abs(batched_residual_values - serial_residual_values)))
+        residual_mismatch = float(
+            jnp.max(jnp.abs(batched_residual_values - serial_residual_values))
+        )
         jvp_mismatch = float(jnp.max(jnp.abs(batched_jvp_values - serial_jvp_values)))
 
         pmap_jvp_seconds = None
@@ -254,31 +284,51 @@ def profile_recycling_batched_jvp_problem(
                     (pmap_device_count, per_device, problem.state_size)
                 )
                 pmap_jvp = jax.pmap(
-                    lambda shard_states, shard_directions: jax.vmap(single_jvp)(shard_states, shard_directions),
+                    lambda shard_states, shard_directions: jax.vmap(single_jvp)(
+                        shard_states, shard_directions
+                    ),
                     devices=devices[:pmap_device_count],
                 )
                 pmap_jvp(sharded_states, sharded_directions).block_until_ready()
-                pmap_jvp_values = pmap_jvp(sharded_states, sharded_directions).block_until_ready()
-                reference_jvp_values = batched_jvp_values[:pmap_batch_size].reshape(pmap_jvp_values.shape)
-                pmap_jvp_batched_max_abs_error = float(jnp.max(jnp.abs(pmap_jvp_values - reference_jvp_values)))
+                pmap_jvp_values = pmap_jvp(
+                    sharded_states, sharded_directions
+                ).block_until_ready()
+                reference_jvp_values = batched_jvp_values[:pmap_batch_size].reshape(
+                    pmap_jvp_values.shape
+                )
+                pmap_jvp_batched_max_abs_error = float(
+                    jnp.max(jnp.abs(pmap_jvp_values - reference_jvp_values))
+                )
                 pmap_jvp_seconds, pmap_jvp_samples = _time_repeated(
                     lambda: pmap_jvp(sharded_states, sharded_directions),
                     timed_runs=timed_runs,
                 )
-                pmap_jvp_speedup_vs_batched = batched_jvp_seconds / max(pmap_jvp_seconds, 1.0e-30)
-                pmap_jvp_speedup_vs_serial = serial_jvp_seconds / max(pmap_jvp_seconds, 1.0e-30)
+                pmap_jvp_speedup_vs_batched = batched_jvp_seconds / max(
+                    pmap_jvp_seconds, 1.0e-30
+                )
+                pmap_jvp_speedup_vs_serial = serial_jvp_seconds / max(
+                    pmap_jvp_seconds, 1.0e-30
+                )
 
         batch_results.append(
             {
                 "batch_size": int(batch_size),
                 "serial_residual_seconds_median": float(serial_residual_seconds),
                 "batched_residual_seconds_median": float(batched_residual_seconds),
-                "residual_speedup_vs_serial": float(serial_residual_seconds / max(batched_residual_seconds, 1.0e-30)),
+                "residual_speedup_vs_serial": float(
+                    serial_residual_seconds / max(batched_residual_seconds, 1.0e-30)
+                ),
                 "serial_jvp_seconds_median": float(serial_jvp_seconds),
                 "batched_jvp_seconds_median": float(batched_jvp_seconds),
-                "jvp_speedup_vs_serial": float(serial_jvp_seconds / max(batched_jvp_seconds, 1.0e-30)),
-                "serial_residual_samples": [float(value) for value in serial_residual_samples],
-                "batched_residual_samples": [float(value) for value in batched_residual_samples],
+                "jvp_speedup_vs_serial": float(
+                    serial_jvp_seconds / max(batched_jvp_seconds, 1.0e-30)
+                ),
+                "serial_residual_samples": [
+                    float(value) for value in serial_residual_samples
+                ],
+                "batched_residual_samples": [
+                    float(value) for value in batched_residual_samples
+                ],
                 "serial_jvp_samples": [float(value) for value in serial_jvp_samples],
                 "batched_jvp_samples": [float(value) for value in batched_jvp_samples],
                 "residual_batched_serial_max_abs_error": residual_mismatch,
@@ -286,7 +336,9 @@ def profile_recycling_batched_jvp_problem(
                 "pmap_device_count": int(pmap_device_count),
                 "pmap_batch_size": int(pmap_batch_size),
                 "pmap_jvp_seconds_median": pmap_jvp_seconds,
-                "pmap_jvp_samples": None if pmap_jvp_samples is None else [float(value) for value in pmap_jvp_samples],
+                "pmap_jvp_samples": None
+                if pmap_jvp_samples is None
+                else [float(value) for value in pmap_jvp_samples],
                 "pmap_jvp_speedup_vs_batched": pmap_jvp_speedup_vs_batched,
                 "pmap_jvp_speedup_vs_serial": pmap_jvp_speedup_vs_serial,
                 "pmap_jvp_batched_max_abs_error": pmap_jvp_batched_max_abs_error,
@@ -297,7 +349,11 @@ def profile_recycling_batched_jvp_problem(
         "case": "recycling_batched_jvp_profile",
         "backend": jax.default_backend(),
         "devices": [
-            {"id": int(device.id), "platform": str(device.platform), "kind": str(device.device_kind)}
+            {
+                "id": int(device.id),
+                "platform": str(device.platform),
+                "kind": str(device.device_kind),
+            }
             for device in devices
         ],
         "pmap_requested": bool(enable_pmap),
@@ -307,6 +363,7 @@ def profile_recycling_batched_jvp_problem(
         "pmap_skip_reason": pmap_skip_reason,
         "mesh_active_shape": list(problem.mesh_active_shape),
         "state_size": int(problem.state_size),
+        "rhs_backend": str(problem.rhs_backend),
         "field_names": list(problem.field_names),
         "feedback_names": list(problem.feedback_names),
         "timed_runs": int(timed_runs),
@@ -341,11 +398,13 @@ def create_recycling_batched_jvp_profile_package(
     timed_runs: int = 5,
     enable_pmap: bool = True,
     check_objective_grad: bool = True,
+    rhs_backend: str = "fixed_full_field_array",
 ) -> dict[str, object]:
     problem = build_recycling_batched_jvp_problem(
         input_path,
         overrides=overrides,
         timestep=timestep,
+        rhs_backend=rhs_backend,
     )
     report = profile_recycling_batched_jvp_problem(
         problem,
@@ -361,8 +420,11 @@ def create_recycling_batched_jvp_profile_package(
         "input_path": "<input-path>/BOUT.inp",
         "overrides": list(overrides),
         "timestep": float(timestep),
+        "rhs_backend": str(rhs_backend),
     }
     output_path = Path(output_dir).expanduser()
     output_path.mkdir(parents=True, exist_ok=True)
-    (output_path / "profile_summary.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (output_path / "profile_summary.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return report

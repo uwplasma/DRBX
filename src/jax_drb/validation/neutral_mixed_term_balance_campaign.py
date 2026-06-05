@@ -585,6 +585,76 @@ def write_neutral_mixed_native_accepted_step_trace_json(
     return target
 
 
+def build_neutral_mixed_accepted_step_trace_parity_report(
+    *,
+    native_trace_json: str | Path,
+    reference_trace_json: str | Path,
+    reference_stage: str = "post_accepted",
+    time_tolerance: float = 1.0e-8,
+) -> dict[str, object]:
+    """Compare native and reference accepted-step traces at matched internal times.
+
+    The reference file may be either the same JSON report shape as the native
+    trace or JSONL records emitted by a timestep-monitor reference run with a
+    ``stages`` dictionary.
+    """
+
+    native_report = _load_accepted_step_trace_records(
+        native_trace_json, preferred_stage="post_accepted"
+    )
+    reference_report = _load_accepted_step_trace_records(
+        reference_trace_json, preferred_stage=reference_stage
+    )
+    native_points = native_report["trace_points"]
+    reference_points = reference_report["trace_points"]
+    matched_points, field_errors = _compare_accepted_step_trace_points(
+        native_points,
+        reference_points,
+        time_tolerance=float(time_tolerance),
+    )
+    ranked = sorted(
+        field_errors.values(),
+        key=lambda item: (
+            float(item["max_target_adjacent_delta"]),
+            float(item["max_guard_delta"]),
+            float(item["max_active_delta"]),
+            float(item["max_sample_lineout_delta"]),
+        ),
+        reverse=True,
+    )
+    return {
+        "diagnostic": "neutral_mixed_accepted_step_trace_parity",
+        "requires_hermes": True,
+        "native_diagnostic": native_report["diagnostic"],
+        "reference_diagnostic": reference_report["diagnostic"],
+        "reference_stage": reference_stage,
+        "native_trace_json": _sanitize_public_path(Path(native_trace_json)),
+        "reference_trace_json": _sanitize_public_path(Path(reference_trace_json)),
+        "trace_point_count": len(native_points),
+        "matched_trace_point_count": len(matched_points),
+        "time_tolerance": float(time_tolerance),
+        "fields": field_errors,
+        "ranked_fields": ranked,
+        "matched_points": matched_points,
+        "interpretation": (
+            "This accepted-internal-step parity report compares native and reference "
+            "post-accepted neutral states before changing neutral-mixed boundary or "
+            "source sequencing. A target-adjacent or guard-dominated NVh error points "
+            "at sheath/guard reconstruction, while an active-domain error at the first "
+            "matched time points at RHS/source assembly."
+        ),
+    }
+
+
+def write_neutral_mixed_accepted_step_trace_parity_json(
+    report: dict[str, object], path: str | Path
+) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
 def write_neutral_mixed_substep_hybrid_json(
     report: dict[str, object], path: str | Path
 ) -> Path:
@@ -1396,6 +1466,284 @@ def _native_accepted_step_field_payload(
         if sample_y_indices
         else [],
     }
+
+
+def _load_accepted_step_trace_records(
+    path: str | Path, *, preferred_stage: str
+) -> dict[str, object]:
+    source = Path(path).expanduser().resolve()
+    text = source.read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError(f"Accepted-step trace file is empty: {source}")
+    records: list[dict[str, object]]
+    if text[0] == "{":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            records = [
+                json.loads(line)
+                for line in text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+        else:
+            if "trace_points" in payload:
+                return {
+                    "diagnostic": str(payload.get("diagnostic", "accepted_step_trace")),
+                    "trace_points": [
+                        _normalize_accepted_trace_point(
+                            point, preferred_stage=preferred_stage
+                        )
+                        for point in payload["trace_points"]
+                    ],
+                }
+            records = [payload]
+    else:
+        records = [
+            json.loads(line)
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+    return {
+        "diagnostic": str(
+            records[0].get("diagnostic", "neutral_mixed_reference_accepted_step_trace")
+            if records
+            else "accepted_step_trace"
+        ),
+        "trace_points": [
+            _normalize_accepted_trace_point(record, preferred_stage=preferred_stage)
+            for record in records
+        ],
+    }
+
+
+def _normalize_accepted_trace_point(
+    point: dict[str, object], *, preferred_stage: str
+) -> dict[str, object]:
+    stages = point.get("stages")
+    if isinstance(stages, dict):
+        stage_payload = stages.get(preferred_stage)
+        if not isinstance(stage_payload, dict):
+            available = ", ".join(str(name) for name in stages)
+            raise KeyError(
+                f"Accepted-step trace point does not contain stage {preferred_stage!r}; "
+                f"available stages: {available}"
+            )
+        fields = {
+            str(name): _normalize_accepted_trace_field_payload(payload)
+            for name, payload in stage_payload.items()
+            if isinstance(payload, dict)
+        }
+        return {
+            "index": int(point.get("step_index", point.get("index", 0))),
+            "time": float(point["time"]),
+            "dt": float(point.get("dt", 0.0)),
+            "solver_order": int(
+                point.get(
+                    "solver_order",
+                    point.get("order", _solver_payload_value(point, "order", 0)),
+                )
+            ),
+            "stage": preferred_stage,
+            "fields": fields,
+        }
+    fields = point.get("fields")
+    if not isinstance(fields, dict):
+        raise KeyError("Accepted-step trace point must contain fields or stages.")
+    return {
+        "index": int(point.get("step_index", point.get("index", 0))),
+        "time": float(point["time"]),
+        "dt": float(point.get("dt", 0.0)),
+        "solver_order": int(point.get("solver_order", point.get("order", 0))),
+        "stage": str(point.get("stage", preferred_stage)),
+        "fields": {
+            str(name): _normalize_accepted_trace_field_payload(payload)
+            for name, payload in fields.items()
+            if isinstance(payload, dict)
+        },
+    }
+
+
+def _solver_payload_value(
+    point: dict[str, object], name: str, default: object
+) -> object:
+    solver = point.get("solver")
+    if isinstance(solver, dict):
+        return solver.get(name, default)
+    return default
+
+
+def _normalize_accepted_trace_field_payload(
+    payload: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "active_metrics": _normalize_metric_payload(payload.get("active_metrics")),
+        "target_adjacent_metrics": _normalize_metric_payload(
+            payload.get("target_adjacent_metrics")
+        ),
+        "guard_metrics": _normalize_metric_payload(payload.get("guard_metrics")),
+        "sample_lineout_y_indices": [
+            int(value) for value in payload.get("sample_lineout_y_indices", [])
+        ],
+        "sample_lineout": [float(value) for value in payload.get("sample_lineout", [])],
+    }
+
+
+def _normalize_metric_payload(payload: object) -> dict[str, float]:
+    if not isinstance(payload, dict):
+        return {"max_abs": 0.0, "rms": 0.0}
+    return {
+        "max_abs": float(payload.get("max_abs", 0.0)),
+        "rms": float(payload.get("rms", 0.0)),
+    }
+
+
+def _compare_accepted_step_trace_points(
+    native_points: list[dict[str, object]],
+    reference_points: list[dict[str, object]],
+    *,
+    time_tolerance: float,
+) -> tuple[list[dict[str, object]], dict[str, dict[str, object]]]:
+    reference_by_time = {
+        round(float(point["time"]) / max(time_tolerance, 1.0e-30)): point
+        for point in reference_points
+    }
+    field_errors: dict[str, dict[str, object]] = {}
+    matched_points: list[dict[str, object]] = []
+    for native_point in native_points:
+        native_time = float(native_point["time"])
+        key = round(native_time / max(time_tolerance, 1.0e-30))
+        reference_point = reference_by_time.get(key)
+        if reference_point is None:
+            reference_point = _nearest_trace_point(reference_points, native_time)
+            if (
+                reference_point is None
+                or abs(float(reference_point["time"]) - native_time) > time_tolerance
+            ):
+                continue
+        point_errors = _compare_accepted_step_fields(native_point, reference_point)
+        matched_points.append(
+            {
+                "native_index": int(native_point["index"]),
+                "reference_index": int(reference_point["index"]),
+                "time": native_time,
+                "reference_time": float(reference_point["time"]),
+                "dt": float(native_point.get("dt", 0.0)),
+                "reference_dt": float(reference_point.get("dt", 0.0)),
+                "field_errors": point_errors,
+            }
+        )
+        for name, error in point_errors.items():
+            aggregate = field_errors.setdefault(
+                name,
+                {
+                    "field": name,
+                    "max_active_delta": 0.0,
+                    "max_target_adjacent_delta": 0.0,
+                    "max_guard_delta": 0.0,
+                    "max_sample_lineout_delta": 0.0,
+                    "worst_time": native_time,
+                },
+            )
+            _update_trace_error_aggregate(aggregate, error, native_time)
+    return matched_points, field_errors
+
+
+def _nearest_trace_point(
+    points: list[dict[str, object]], time_value: float
+) -> dict[str, object] | None:
+    if not points:
+        return None
+    return min(points, key=lambda point: abs(float(point["time"]) - time_value))
+
+
+def _compare_accepted_step_fields(
+    native_point: dict[str, object], reference_point: dict[str, object]
+) -> dict[str, dict[str, float]]:
+    native_fields = native_point["fields"]
+    reference_fields = reference_point["fields"]
+    if not isinstance(native_fields, dict) or not isinstance(reference_fields, dict):
+        raise TypeError("Accepted-step trace fields must be dictionaries.")
+    common = sorted(set(native_fields).intersection(reference_fields))
+    return {
+        name: _compare_accepted_step_field_payload(
+            native_fields[name], reference_fields[name]
+        )
+        for name in common
+        if isinstance(native_fields[name], dict)
+        and isinstance(reference_fields[name], dict)
+    }
+
+
+def _compare_accepted_step_field_payload(
+    native_payload: dict[str, object], reference_payload: dict[str, object]
+) -> dict[str, float]:
+    return {
+        "active_max_abs_delta": _metric_delta(
+            native_payload, reference_payload, "active_metrics", "max_abs"
+        ),
+        "active_rms_delta": _metric_delta(
+            native_payload, reference_payload, "active_metrics", "rms"
+        ),
+        "target_adjacent_max_abs_delta": _metric_delta(
+            native_payload, reference_payload, "target_adjacent_metrics", "max_abs"
+        ),
+        "target_adjacent_rms_delta": _metric_delta(
+            native_payload, reference_payload, "target_adjacent_metrics", "rms"
+        ),
+        "guard_max_abs_delta": _metric_delta(
+            native_payload, reference_payload, "guard_metrics", "max_abs"
+        ),
+        "guard_rms_delta": _metric_delta(
+            native_payload, reference_payload, "guard_metrics", "rms"
+        ),
+        "sample_lineout_max_abs_delta": _lineout_delta(
+            native_payload, reference_payload
+        ),
+    }
+
+
+def _metric_delta(
+    native_payload: dict[str, object],
+    reference_payload: dict[str, object],
+    zone: str,
+    metric: str,
+) -> float:
+    native_metrics = native_payload.get(zone, {})
+    reference_metrics = reference_payload.get(zone, {})
+    if not isinstance(native_metrics, dict) or not isinstance(reference_metrics, dict):
+        return 0.0
+    return abs(
+        float(native_metrics.get(metric, 0.0))
+        - float(reference_metrics.get(metric, 0.0))
+    )
+
+
+def _lineout_delta(
+    native_payload: dict[str, object], reference_payload: dict[str, object]
+) -> float:
+    native_line = np.asarray(native_payload.get("sample_lineout", []), dtype=np.float64)
+    reference_line = np.asarray(
+        reference_payload.get("sample_lineout", []), dtype=np.float64
+    )
+    if native_line.size == 0 or reference_line.size == 0:
+        return 0.0
+    count = min(native_line.size, reference_line.size)
+    return float(np.max(np.abs(native_line[:count] - reference_line[:count])))
+
+
+def _update_trace_error_aggregate(
+    aggregate: dict[str, object], point_error: dict[str, float], time_value: float
+) -> None:
+    updates = {
+        "max_active_delta": point_error["active_max_abs_delta"],
+        "max_target_adjacent_delta": point_error["target_adjacent_max_abs_delta"],
+        "max_guard_delta": point_error["guard_max_abs_delta"],
+        "max_sample_lineout_delta": point_error["sample_lineout_max_abs_delta"],
+    }
+    for key, value in updates.items():
+        if float(value) > float(aggregate[key]):
+            aggregate[key] = float(value)
+            aggregate["worst_time"] = float(time_value)
 
 
 def _state_with_reference_field(

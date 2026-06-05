@@ -53,7 +53,9 @@ def _resolve_input(args: argparse.Namespace) -> Path:
     if args.input_path is not None:
         input_path = args.input_path.expanduser().resolve()
         if not input_path.is_file():
-            raise SystemExit(f"--input-path {input_path} does not exist or is not a file.")
+            raise SystemExit(
+                f"--input-path {input_path} does not exist or is not a file."
+            )
         return input_path
     root = _resolve_reference_root(args)
     if root is None:
@@ -96,11 +98,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("docs") / "data" / "runtime_profile_artifacts" / "recycling_dthe_batched_jvp_gate",
+        default=Path("docs")
+        / "data"
+        / "runtime_profile_artifacts"
+        / "recycling_dthe_batched_jvp_gate",
     )
     parser.add_argument("--override", action="append", default=[])
-    parser.add_argument("--batch-sizes", type=_parse_batch_sizes, default=(1, 4, 16, 64))
+    parser.add_argument(
+        "--batch-sizes", type=_parse_batch_sizes, default=(1, 4, 16, 64)
+    )
     parser.add_argument("--timestep", type=float, default=1.0e-4)
+    parser.add_argument(
+        "--rhs-backend",
+        choices=("fixed_full_field_array", "host_bridge"),
+        default="fixed_full_field_array",
+        help="Residual backend used by the profile gate; fixed_full_field_array is the JAX-native evidence path.",
+    )
     parser.add_argument("--perturbation-scale", type=float, default=1.0e-6)
     parser.add_argument("--fd-epsilon", type=float, default=1.0e-6)
     parser.add_argument("--timed-runs", type=int, default=5)
@@ -151,7 +164,9 @@ def main() -> None:
 
     import jax
 
-    from jax_drb.validation.recycling_batched_jvp_profile import create_recycling_batched_jvp_profile_package
+    from jax_drb.validation.recycling_batched_jvp_profile import (
+        create_recycling_batched_jvp_profile_package,
+    )
 
     trace_cm = (
         jax.profiler.trace(
@@ -170,6 +185,7 @@ def main() -> None:
             overrides=tuple(args.override),
             batch_sizes=tuple(args.batch_sizes),
             timestep=float(args.timestep),
+            rhs_backend=str(args.rhs_backend),
             perturbation_scale=float(args.perturbation_scale),
             fd_epsilon=float(args.fd_epsilon),
             timed_runs=int(args.timed_runs),
@@ -184,11 +200,19 @@ def main() -> None:
 
     report = {
         **report,
-        "jax_trace_dir": None if trace_dir is None else _sanitize_public_path(trace_dir),
-        "device_memory_profile_path": None if memory_profile_path is None else _sanitize_public_path(memory_profile_path),
-        "xla_dump_dir": None if args.xla_dump_dir is None else _sanitize_public_path(args.xla_dump_dir),
+        "jax_trace_dir": None
+        if trace_dir is None
+        else _sanitize_public_path(trace_dir),
+        "device_memory_profile_path": None
+        if memory_profile_path is None
+        else _sanitize_public_path(memory_profile_path),
+        "xla_dump_dir": None
+        if args.xla_dump_dir is None
+        else _sanitize_public_path(args.xla_dump_dir),
         "compilation_cache_dir": (
-            None if args.compilation_cache_dir is None else _sanitize_public_path(args.compilation_cache_dir)
+            None
+            if args.compilation_cache_dir is None
+            else _sanitize_public_path(args.compilation_cache_dir)
         ),
     }
     (args.output_dir / "profile_summary.json").write_text(
