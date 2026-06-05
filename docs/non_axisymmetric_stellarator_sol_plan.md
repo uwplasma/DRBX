@@ -454,18 +454,25 @@ gates should be added in this order:
 2. Promote the current target/sheath response gate into the full field RHS,
    including density, momentum, electron pressure, ion pressure, and neutral
    source slots.
-3. Reduced seeded-filament propagation in the rotating-ellipse geometry,
-   reporting center-of-mass motion, skewness, fluctuation amplitude, and
-   connection-length localization.
-4. Flux-driven reduced turbulence with source, damping, target losses,
-   spectra, radial-flux proxy, and mode-number diagnostics.
-5. Imported equilibrium-map ingestion from a clean NetCDF geometry bundle,
-   including metric consistency, wall/target masks, and selected-field
-   visualization.
-6. ESSOS-imported field-line maps with Poincare plots, connection-length
-   histograms, closed/island/open region classification, and target-aware
-   imported-surface FCI maps.
-7. Differentiability gates for geometry parameters, source amplitude,
+3. Imported-field geometry promotion:
+   load a clean VMEC-extender or imported-field NetCDF bundle, validate
+   metadata, physical-\(\phi\) periodicity, \(|B|\), field-line RHS, endpoint
+   masks, and selected-field interpolation before any dynamics are run.
+4. Field-line/Poincare/connection-length promotion:
+   compare the `jax_drb`-consumed map against the source geometry artifact for
+   closed, open, and hybrid regions; plot Poincare sections, connection-length
+   histograms, endpoint masks, and target labels.
+5. Reduced seeded-filament propagation in the rotating-ellipse and imported QA
+   geometry, reporting center-of-mass motion, skewness, fluctuation amplitude,
+   radial flux proxy, and connection-length localization.
+6. Linear-mode and flux-driven reduced turbulence with source, damping, target
+   losses, spectra, radial-flux proxy, mode-number diagnostics, target load,
+   and source maps.
+7. Grid/timestep refinement for the imported QA turbulence lane. A movie is not
+   promotable unless the same campaign reports non-axisymmetric geometry
+   agreement, smooth time evolution, target/sheath masks, neutral/recycling
+   source maps, and at least one grid or timestep sensitivity check.
+8. Differentiability gates for geometry parameters, source amplitude,
    damping/transport coefficients, and objective functions based on radial
    flux, RMS fluctuation, target load, and connection-length-weighted
    observables.
@@ -549,6 +556,10 @@ This lane is ready for a release claim only when:
 1. all current geometry, operator, and reduced dynamics tests pass;
 2. docs and README show the generated figures and movie;
 3. public docs avoid claiming device-predictive turbulence before target,
-   sheath, source, and imported-equilibrium gates are complete;
+   sheath, source, imported-equilibrium, field-line/Poincare, and refinement
+   gates are complete;
 4. generated artifacts stay small enough for a fast clone;
-5. the next-step validation gaps are explicit and tracked in this plan.
+5. the next-step validation gaps are explicit and tracked in this plan;
+6. every user-facing example can be run from a clean `jax_drb` clone plus
+   release-hosted artifacts, without requiring users to install the geometry or
+   reference-code repositories.

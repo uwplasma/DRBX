@@ -11,7 +11,7 @@ needed for that target state, and the next execution sequence.
 
 ## Current Repository State
 
-Audit date: 2026-04-23.
+Audit date: 2026-06-05.
 
 Active repository:
 
@@ -40,9 +40,24 @@ The current codebase is not empty scaffolding. It already has a meaningful
 native and reference-backed validation surface. The remaining problem is that
 the strongest evidence and the most maintainable architecture do not yet line
 up perfectly: the highest-fidelity recycling lanes still carry host-side
-implicit-solver bottlenecks, the largest files remain too broad, and several
-strong validations live next to legacy or manuscript-only material that should
-not be part of a clean research-code release.
+implicit-solver bottlenecks, the largest files remain too broad, and the 3D
+stellarator/imported-field lane still needs longer, grid-sensitive validation
+before it can support broad non-axisymmetric turbulence claims.
+
+The current release head has local docs/test coverage evidence and GitHub
+Actions docs/test success on the latest pushed commits. The coverage workflow is
+still the long-running release gate and should be checked before any tag. The
+local release gates that must be kept green are:
+
+```bash
+PYTHONPATH=src python scripts/run_closeout_coverage.py
+PYTHONPATH=src python scripts/run_promoted_solver_coverage.py
+PYTHONPATH=src python scripts/run_fast_research_checks.py
+PYTHONPATH=src mkdocs build --strict --clean
+```
+
+The active plan is this file. `plan_jax_drb.md` is an older VMEC-extender
+handoff retained for traceability and should not be treated as the release plan.
 
 ## External Literature And Code Baseline
 
@@ -120,6 +135,33 @@ Relevant source-code findings from a shallow source audit:
 - The boundary-condition documentation identifies exact target/sheath,
   recycling, no-flow, and neutral reflection semantics that must be matched or
   deliberately bounded in `jax_drb`.
+- A fresh local audit of `/Users/rogerio/local/hermes-3` confirms that the most
+  useful parity anchors are not only the integrated decks. The unit tests
+  directly exercise `neutral_mixed`, `sheath_boundary`, `sheath_closure`,
+  `noflow_boundary`, `zero_current`, `recycling`, `vorticity`,
+  `braginskii_collisions`, `braginskii_friction`,
+  `braginskii_ion_viscosity`, `braginskii_electron_viscosity`,
+  `braginskii_conduction`, `braginskii_heat_exchange`, `thermal_force`,
+  `neutral_full_velocity`, `neutral_boundary`, `hydrogen_charge_exchange`,
+  `ionisation`, reaction parsing, and AMJUEL/ADAS rate surfaces.
+- The local `neutral_mixed` source now writes explicit diagnostics for
+  `SNV*_pressure_gradient`, `SNV*_parallel_viscosity`, and
+  `SNV*_perpendicular_viscosity`; those are the highest-value reference-side
+  fields for closing the remaining `NVh` target-band offender. They should be
+  emitted from a clean reference rerun rather than inferred only through
+  matched reconstruction.
+- The integrated tests include drift-wave, Alfvén-wave, 1D fluid MMS,
+  1D recycling, neutral mixed, neutral parallel diffusion, vorticity, and 2D
+  production decks. The `tests/mms_operator` suite checks conservative
+  differential operators on orthogonal and nonorthogonal metrics and expects
+  second-order error decay. This is the strongest model for future
+  metric-weighted FCI/VMEC-extender operator gates.
+- The local `/Users/rogerio/local/hermes-2` audit identifies older tokamak
+  workflows that remain useful as postprocessing acceptance tests: target
+  density/temperature/heat-flux profiles, target power integration, core/SOL
+  volume-integrated sources, radiation, ion-neutral exchange, and
+  electron-ion energy exchange. These should be mirrored as `jax_drb` analysis
+  utilities and plot gates rather than copied as scripts.
 
 Implication for `jax_drb`:
 
@@ -129,6 +171,11 @@ Implication for `jax_drb`:
   what is implemented.
 - Remaining mismatches should be localized to components or boundary terms,
   not described only through aggregate summary errors.
+- Reference-backed campaigns should be rerunnable in two modes: a committed
+  lightweight fixture mode for CI and a developer mode using
+  `JAX_DRB_REFERENCE_ROOT` against a clean local reference checkout. When the
+  reference checkout is dirty, do not create new authoritative baselines from
+  it; use it only for exploratory diagnostics.
 
 ### GBS, GDB, TOKAM3X, SOLEDGE3X, GRILLIX
 
@@ -137,6 +184,8 @@ Primary references:
 - GBS code paper: https://www.sciencedirect.com/science/article/pii/S0021999116001923
 - GBS PDF: https://infoscience.epfl.ch/bitstreams/70937adb-6f71-4d41-98bc-852b4b5b50e9/download
 - GBS kinetic-neutral extension: https://arxiv.org/abs/2112.03573
+- BSTING stellarator-filament paper:
+  https://arxiv.org/abs/1808.08899
 - GDB paper: https://www.sciencedirect.com/science/article/abs/pii/S001046551830208X
 - TOKAM3X paper: https://www.sciencedirect.com/science/article/abs/pii/S0021999116301838
 - SOLEDGE3X detached-regime paper:
@@ -153,6 +202,10 @@ Relevant findings:
   geometry with verification and validation.
 - GRILLIX and related flux-coordinate-independent codes provide the benchmark
   standard for geometry portability and edge turbulence in complex geometry.
+- The stellarator FCI literature shows that non-axisymmetric claims require
+  more than a shaped rendering: field-line maps, three-dimensional metric
+  variation, connection-length structure, endpoint/sheath masks, and
+  non-axisymmetric filament/turbulence response must be checked separately.
 - These codes use convergence studies, profile comparisons, fluctuation
   diagnostics, target observables, and scaling studies as primary figures.
 
@@ -163,6 +216,12 @@ Implication for `jax_drb`:
   transport/source maps, and scaling plots tied to a physical question.
 - The 3D story needs geometry portability tests, not only a single diverted
   tokamak scaffold.
+- The QA stellarator movie should remain labeled as a reduced-transient
+  visualization until it is backed by longer runs, grid and timestep
+  refinement, field-line/Poincare agreement with the imported geometry source,
+  connection-length/sheath endpoint diagnostics, and target-local recycling and
+  neutral source maps. A polished movie is a deliverable, but it is not by
+  itself a validation gate.
 
 ### TCV-X21 And Diverted-Tokamak Benchmark Culture
 
@@ -240,8 +299,12 @@ Primary references:
   https://docs.jax.dev/en/latest/sharded-computation.html
 - JAX `shard_map`:
   https://docs.jax.dev/en/latest/notebooks/shard_map.html
+- JAX `pmap` migration guidance:
+  https://docs.jax.dev/en/latest/_autosummary/jax.pmap.html
 - Lineax matrix-free solves:
   https://docs.kidger.site/lineax/examples/no_materialisation/
+- Lineax linear operators:
+  https://docs.kidger.site/lineax/api/operators/
 - Diffrax adjoints: https://docs.kidger.site/diffrax/api/adjoints/
 - Equinox paper: https://arxiv.org/abs/2111.00254
 - Lineax paper: https://arxiv.org/abs/2311.17283
@@ -257,11 +320,14 @@ Relevant findings:
 - The persistent compilation cache is a real performance feature and should be
   configured before the first compilation.
 - CPU multi-device testing can use explicit host-device count configuration.
-- `shard_map` is the forward-looking SPMD API for mapping work across device
-  shards.
+- `pmap` remains usable but the JAX documentation points new SPMD work toward
+  `shard_map`; that means new multi-GPU/multi-CPU evidence should be designed
+  around explicit sharding of ensembles, parameter scans, or domain slabs
+  rather than ad hoc host multiprocessing.
 - Lineax documents exactly the Newton-matrix use case that matters here:
-  matrix-vector products can be built from `jax.jvp` without materializing the
-  full Jacobian.
+  matrix-vector products can be built from `jax.jvp`/`jax.linearize` without
+  materializing the full Jacobian. This is the right acceptance target for
+  stiff fixed-layout residuals once parity is proven.
 - Diffrax adjoints distinguish direct solver differentiation, forward-mode
   sensitivity, reverse/checkpointed sensitivity, and implicit-function
   differentiation for steady-state solves.
@@ -842,41 +908,69 @@ Target state:
 
 ## Active Execution Sequence
 
-### Phase 0: Planning And Release Hygiene
+### Phase 0: CI, Plan, And Release Hygiene
 
 Deliverables:
 
-- add this consolidated plan and link it from the refactoring/testing docs
+- keep this consolidated plan linked from refactoring, testing, and validation
+  docs
 - fix stale repository URLs in user-facing docs
-- add the new neutral-mixed boundary campaign to the release-surface audit
 - decide which current docs/artifacts are release-critical versus paper-only
-- create an artifact-pruning and history-rewrite checklist
+- keep the artifact-pruning and history-rewrite checklist current
+- keep GitHub docs/test/coverage green on `main`
+- record every new validation gate in this plan, the validation matrix, and the
+  relevant docs page before claiming it in the README
 
 Exit criteria:
 
 - public docs point to the active plan
 - release-surface tests pass
 - no accidental edits to unrelated local artifacts
+- latest pushed head has green docs/test/coverage, or the failing workflow has
+  a documented root cause and a local reproduction
 
-### Phase 1: Repository Slimming
+### Phase 1: Reference-Side Diagnostics And Offender Register
 
 Deliverables:
 
-- remove `legacy/` from the active release branch after confirming it is
-  archived in the paper repository
-- remove manuscript-only docs/examples/artifacts from the active release branch
-- remove old historical large GIFs and unused blobs with `git filter-repo`
-- keep only small, necessary baselines in the main branch
-- document where heavyweight benchmark artifacts are stored
+- rerun clean local reference cases with direct `neutral_mixed` outputs for
+  `SNVh_pressure_gradient`, `SNVh_parallel_viscosity`, and
+  `SNVh_perpendicular_viscosity`
+- add a matched reference/native term-lineout figure for target-band `NVh`
+  pressure-gradient, parallel viscosity, perpendicular viscosity, momentum
+  advection, neutral pressure work, boundary preparation, and source terms
+- maintain a single offender register sorted by case, field, component,
+  absolute error, scaled error, native runtime, reference runtime, and memory
+  proxy
+- mirror the older tokamak target-profile and core/SOL volume-integral
+  postprocessing as `jax_drb` analysis utilities with tests
 
 Exit criteria:
 
-- `.git` pack size reduced by at least half
+- neutral `NVh` mismatch is fixed or localized to a documented equation-level
+  boundary/source difference
+- every remaining reference-backed mismatch has a component-level owner instead
+  of only an aggregate field error
+- reference-derived artifacts are generated only from a clean reference
+  checkout or explicitly labeled exploratory
+
+### Phase 2: Repository Slimming
+
+Deliverables:
+
+- keep only small, necessary baselines in the main branch
+- keep README/docs media release-hosted or otherwise external when large
+- document where heavyweight benchmark artifacts are stored
+- run a footprint audit before each version tag
+
+Exit criteria:
+
+- `.git` pack size remains small enough for fast clone
 - active checkout contains no paper-only planning files
 - package distribution excludes research artifacts that are not needed at
   runtime
 
-### Phase 2: Architecture Split
+### Phase 3: Architecture Split
 
 Deliverables:
 
@@ -892,7 +986,7 @@ Exit criteria:
 - extracted modules have direct unit tests
 - existing promoted parity/campaign tests remain green
 
-### Phase 3: Solver And Differentiability Backbone
+### Phase 4: Solver And Differentiability Backbone
 
 Deliverables:
 
@@ -902,6 +996,10 @@ Deliverables:
 - prototype Lineax matrix-free Newton/Krylov on the compact lane
 - add implicit-function sensitivity for a steady-state fixed-work solve
 - remove unnecessary host-device barriers in recycling residual setup
+- promote `fixed_bdf2_jax_linearized` from a diagnostics-only opt-in lane to a
+  parity/runtime gate on lightweight fixtures, then on live reference cases
+- keep `bdf_fixed_full_field_jvp` as a compatibility bridge until the full
+  fixed-layout output-window route clears reference and performance gates
 
 Exit criteria:
 
@@ -911,13 +1009,40 @@ Exit criteria:
 - runtime and memory are no worse than the current compatibility path on the
   same case, or the tradeoff is explicitly documented
 
-### Phase 4: Fidelity Closure
+### Phase 5: 3D Geometry And Non-Axisymmetric SOL Closure
 
 Deliverables:
 
-- maintain a Hermes parity/runtime/memory offender register that ranks cases by
-  dominant field, component, absolute error, scaled error, wall time, and memory
-  footprint
+- keep field evaluation and field-line tracing owned by imported geometry
+  artifacts; do not duplicate coil/VMEC tracing algorithms in `jax_drb`
+- add VMEC-extender and imported-field examples that load geometry, plot
+  boundary/field-line/Poincare diagnostics, build FCI maps, run linear and
+  nonlinear reduced SOL examples, and analyze target/profile/turbulence
+  diagnostics
+- promote metric-weighted conservative FCI operators with MMS convergence on
+  nonorthogonal metrics
+- add field-line/Poincare/connection-length agreement tests against imported
+  geometry artifacts for closed, open, and hybrid map families
+- add grid/timestep refinement for QA stellarator reduced turbulence and
+  endpoint/sheath/recycling/neutral source maps before any broad turbulence
+  claim
+
+Exit criteria:
+
+- the QA geometry shown in docs/README is traceable to a validated imported
+  field artifact and agrees with the source field-line/Poincare diagnostics
+- stellarator examples run from a clean clone plus release-hosted data without
+  requiring users to install the reference code
+- movies are smooth, non-axisymmetric, and supported by quantitative maps and
+  refinement evidence
+
+### Phase 6: Fidelity Closure
+
+Deliverables:
+
+- maintain a reference parity/runtime/memory offender register that ranks cases
+  by dominant field, component, absolute error, scaled error, wall time, and
+  memory footprint
 - fix neutral-mixed `NVh` boundary-local mismatch or document the exact
   bounded cause with an equation-level explanation
 - promote the open-field recycling transient ladder through one-RHS,
@@ -932,7 +1057,7 @@ Exit criteria:
 - mismatch causes are component-local and documented
 - no paper/docs figure relies on an untested path
 
-### Phase 5: Benchmark Expansion
+### Phase 7: Benchmark Expansion
 
 Deliverables:
 
@@ -950,7 +1075,7 @@ Exit criteria:
 - all benchmark packages have runnable scripts, JSON/NPZ artifacts, and tests
 - claim boundary is explicit in docs and run logs
 
-### Phase 6: Full Release Automation
+### Phase 8: Full Release Automation
 
 Deliverables:
 

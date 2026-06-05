@@ -29,6 +29,11 @@ Before any case family is promoted to `native_exact`, it must have:
 6. restart/resume equivalence if the family is user-facing
 7. output/log/provenance artifact coverage if the family is exposed in CLI/examples
 8. explicit capability-tier labeling in the manifest, docs, and run log
+9. a same-machine runtime and memory entry when compared with a reference code
+10. at least one figure-producing validation artifact if the result is cited in
+    the README, docs overview, or paper plan
+11. a clean distinction between committed lightweight CI fixtures and heavier
+    release-hosted or developer-reference artifacts
 
 ## Validation Layers
 
@@ -39,17 +44,28 @@ Before any case family is promoted to `native_exact`, it must have:
 - ion viscosity scaling and geometry dependence
 - reaction parser, rate interpolation, and source partition
 - vorticity / `phi` / `Apar` operator identities
+- neutral-mixed target-band pressure-gradient, parallel-viscosity,
+  perpendicular-viscosity, and boundary-preparation terms
+- metric-weighted conservative FCI operators on orthogonal and nonorthogonal
+  metrics
 
 ### Parity Regression
 
 - exact summary and array baselines for `native_exact`
 - bounded residual checks for `native_operational`
 - committed cache-backed diagnostics for `scaffolded_reference_backed`
+- direct term-level lineouts for reference-backed offenders when source fields
+  are available, especially neutral `NVh` source decomposition
 
 ### Physics
 
 - conservation / decay / symmetry / steady-state checks
 - benchmark-specific diagnostics for drift-wave, blob, Alfvén, recycling, and tokamak lanes
+- target profiles, target heat flux, core/SOL volume-integrated power balance,
+  ion-neutral exchange, radiation, and source-distribution diagnostics on
+  diverted tokamak lanes
+- connection length, endpoint/sheath mask, field-line/Poincare agreement, and
+  source-map diagnostics on non-axisymmetric imported-field lanes
 
 ### Convergence
 
@@ -67,6 +83,32 @@ Before any case family is promoted to `native_exact`, it must have:
 - precision-mode behavior
 - verbose logging coverage
 - fast-gate execution with bounded wall time for curated research slices
+- same-machine CPU/GPU profile bundles on real promoted kernels, with compile
+  time, execute time, memory proxy, and artifact provenance separated
+
+## Required Next Gates
+
+The next gates are ordered by blocker value:
+
+- `neutral_mixed_nvh_reference_terms`: clean reference rerun that writes
+  pressure-gradient, parallel-viscosity, and perpendicular-viscosity
+  `NVh` terms; matched native/reference lineout figure; unit/operator tests for
+  the boundary and metric form used by the offending cells.
+- `recycling_fixed_bdf2_jax_promotion`: lightweight and live-reference gates
+  for `fixed_bdf2_jax_linearized`, including fixed-layout RHS diagnostics,
+  JAX-linearized action counts, packed feedback-integral evolution, parity,
+  runtime, and memory proxy.
+- `tokamak_target_profile_balance`: target density, electron/ion/neutral
+  temperatures, heat-flux channels, total target power, core/SOL source and
+  radiation integrals, and restart/provenance checks derived from the native
+  analysis utilities.
+- `vmec_extender_fci_geometry_promotion`: imported-field metadata validation,
+  field-line/Poincare agreement, connection-length maps, endpoint masks,
+  conservative operator MMS, linear-mode check, nonlinear reduced-turbulence
+  grid/timestep sensitivity, and polished movie artifacts.
+- `real_kernel_scaling`: CPU `vmap`/ensemble and GPU `jit`/`vmap`/`shard_map`
+  evidence on fixed-layout recycling and 3D PyTree RHS kernels, with compile
+  and execute timing separated.
 
 ## Current Figure Standard
 
