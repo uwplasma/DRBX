@@ -33,10 +33,14 @@ from jax_drb.cli import (
     _reference_cases_command,
     _run_case_command,
     _run_reference_case_command,
+    _trace_neutral_mixed_accepted_steps_command,
     _validate_reference_baselines_command,
     main,
 )
-from jax_drb.parity.arrays import build_portable_array_payload, write_portable_array_payload
+from jax_drb.parity.arrays import (
+    build_portable_array_payload,
+    write_portable_array_payload,
+)
 
 
 def _summary_payload() -> dict[str, object]:
@@ -66,18 +70,34 @@ def test_default_command_and_argv_normalization_errors_are_explicit() -> None:
     assert _normalize_cli_argv([]) == []
     assert _normalize_cli_argv(["inspect", "case.inp"]) == ["inspect", "case.inp"]
     assert _normalize_cli_argv(["--help"]) == ["--help"]
-    assert _normalize_cli_argv(["case.inp", "--dry-run"]) == ["run", "case.inp", "--dry-run"]
+    assert _normalize_cli_argv(["case.inp", "--dry-run"]) == [
+        "run",
+        "case.inp",
+        "--dry-run",
+    ]
 
-    assert _default_command(argparse.Namespace(subcommand="demo", command=lambda args: 42)) == 42
+    assert (
+        _default_command(argparse.Namespace(subcommand="demo", command=lambda args: 42))
+        == 42
+    )
     with pytest.raises(SystemExit):
         _default_command(argparse.Namespace(subcommand=None))
     with pytest.raises(SystemExit):
         main([])
 
-    assert _normalize_cli_argv(["diagnose-neutral-mixed-substeps", "--substeps", "1,2"]) == [
+    assert _normalize_cli_argv(
+        ["diagnose-neutral-mixed-substeps", "--substeps", "1,2"]
+    ) == [
         "diagnose-neutral-mixed-substeps",
         "--substeps",
         "1,2",
+    ]
+    assert _normalize_cli_argv(
+        ["trace-neutral-mixed-accepted-steps", "--json-out", "trace.json"]
+    ) == [
+        "trace-neutral-mixed-accepted-steps",
+        "--json-out",
+        "trace.json",
     ]
 
 
@@ -92,13 +112,21 @@ def test_reference_cases_command_reports_missing_and_resolved_cases(
     resolved = (
         SimpleNamespace(
             exists=False,
-            case=SimpleNamespace(name="missing_case", parity_mode="one_rhs", capability_tier="native_exact"),
+            case=SimpleNamespace(
+                name="missing_case",
+                parity_mode="one_rhs",
+                capability_tier="native_exact",
+            ),
             input_path=tmp_path / "missing" / "BOUT.inp",
             run_config=None,
         ),
         SimpleNamespace(
             exists=True,
-            case=SimpleNamespace(name="ready_case", parity_mode="one_step", capability_tier="native_operational"),
+            case=SimpleNamespace(
+                name="ready_case",
+                parity_mode="one_step",
+                capability_tier="native_operational",
+            ),
             input_path=tmp_path / "ready" / "BOUT.inp",
             run_config=SimpleNamespace(
                 time=SimpleNamespace(nout=2, timestep=5.0),
@@ -106,7 +134,9 @@ def test_reference_cases_command_reports_missing_and_resolved_cases(
             ),
         ),
     )
-    monkeypatch.setattr(cli_module, "resolve_reference_cases", lambda reference_root: resolved)
+    monkeypatch.setattr(
+        cli_module, "resolve_reference_cases", lambda reference_root: resolved
+    )
 
     assert _reference_cases_command(argparse.Namespace(reference_root=tmp_path)) == 0
     output = capsys.readouterr().out
@@ -154,19 +184,33 @@ def test_inspect_command_reports_resolved_normalization(tmp_path: Path, capsys) 
     assert "Nnorm=1e+19" in output
 
 
-def test_compare_summary_and_array_commands_report_ok_and_mismatch(tmp_path: Path, capsys) -> None:
+def test_compare_summary_and_array_commands_report_ok_and_mismatch(
+    tmp_path: Path, capsys
+) -> None:
     expected_json = tmp_path / "expected.json"
     actual_json = tmp_path / "actual.json"
     mismatch_json = tmp_path / "mismatch.json"
     payload = _summary_payload()
     expected_json.write_text(json.dumps(payload), encoding="utf-8")
     actual_json.write_text(json.dumps(payload), encoding="utf-8")
-    mismatch_json.write_text(json.dumps({**payload, "case_name": "changed"}), encoding="utf-8")
+    mismatch_json.write_text(
+        json.dumps({**payload, "case_name": "changed"}), encoding="utf-8"
+    )
 
-    args = argparse.Namespace(expected_json=expected_json, actual_json=actual_json, scalar_rtol=1e-10, scalar_atol=1e-12)
+    args = argparse.Namespace(
+        expected_json=expected_json,
+        actual_json=actual_json,
+        scalar_rtol=1e-10,
+        scalar_atol=1e-12,
+    )
     assert _compare_summary_command(args) == 0
     assert "comparison: ok" in capsys.readouterr().out
-    assert _compare_summary_command(argparse.Namespace(**{**vars(args), "actual_json": mismatch_json})) == 1
+    assert (
+        _compare_summary_command(
+            argparse.Namespace(**{**vars(args), "actual_json": mismatch_json})
+        )
+        == 1
+    )
     assert "case_name" in capsys.readouterr().out
 
     expected_npz = tmp_path / "expected.npz"
@@ -185,7 +229,9 @@ def test_compare_summary_and_array_commands_report_ok_and_mismatch(tmp_path: Pat
     )
     write_portable_array_payload(array_payload, expected_npz)
     write_portable_array_payload(array_payload, actual_npz)
-    write_portable_array_payload({**array_payload, "case_name": "changed"}, mismatch_npz)
+    write_portable_array_payload(
+        {**array_payload, "case_name": "changed"}, mismatch_npz
+    )
     array_args = argparse.Namespace(
         expected_npz=expected_npz,
         actual_npz=actual_npz,
@@ -197,7 +243,12 @@ def test_compare_summary_and_array_commands_report_ok_and_mismatch(tmp_path: Pat
 
     assert _compare_arrays_command(array_args) == 0
     assert "comparison: ok" in capsys.readouterr().out
-    assert _compare_arrays_command(argparse.Namespace(**{**vars(array_args), "actual_npz": mismatch_npz})) == 1
+    assert (
+        _compare_arrays_command(
+            argparse.Namespace(**{**vars(array_args), "actual_npz": mismatch_npz})
+        )
+        == 1
+    )
     assert "case_name" in capsys.readouterr().out
 
 
@@ -235,28 +286,43 @@ def test_run_reference_case_command_writes_summary_and_arrays(
         timestep=1.0,
     )
     monkeypatch.setattr(reference_module, "find_reference_case", lambda case_name: case)
-    monkeypatch.setattr(reference_module, "run_reference_case", lambda *args, **kwargs: SimpleNamespace(summary=summary))
-    monkeypatch.setattr(reference_module, "write_case_baseline_json", lambda summary, path: Path(path))
+    monkeypatch.setattr(
+        reference_module,
+        "run_reference_case",
+        lambda *args, **kwargs: SimpleNamespace(summary=summary),
+    )
+    monkeypatch.setattr(
+        reference_module, "write_case_baseline_json", lambda summary, path: Path(path)
+    )
     monkeypatch.setattr(cli_module, "load_bout_input", lambda path: object())
     monkeypatch.setattr(
         cli_module.RunConfiguration,
         "from_config",
         lambda config: SimpleNamespace(mesh=SimpleNamespace(mxg=1, myg=2)),
     )
-    monkeypatch.setattr(arrays_module, "build_dataset_array_payload", lambda *args, **kwargs: {"case_name": "toy"})
-    monkeypatch.setattr(arrays_module, "write_portable_array_payload", lambda payload, path: Path(path))
+    monkeypatch.setattr(
+        arrays_module,
+        "build_dataset_array_payload",
+        lambda *args, **kwargs: {"case_name": "toy"},
+    )
+    monkeypatch.setattr(
+        arrays_module, "write_portable_array_payload", lambda payload, path: Path(path)
+    )
 
-    assert _run_reference_case_command(
-        argparse.Namespace(
-            reference_root=None,
-            reference_binary=None,
-            case_name="toy",
-            workdir=None,
-            override=[],
-            json_out=None,
-            arrays_out=None,
+    assert (
+        _run_reference_case_command(
+            argparse.Namespace(
+                reference_root=None,
+                reference_binary=None,
+                case_name="toy",
+                workdir=None,
+                override=[],
+                json_out=None,
+                arrays_out=None,
+            )
         )
-    ) == 1
+        == 1
+    )
     assert "set --reference-root" in capsys.readouterr().out
 
     exit_code = _run_reference_case_command(
@@ -291,8 +357,12 @@ def test_run_case_and_validate_reference_commands_cover_success_and_errors(
         "producer": "jax-drb",
         "capability_tier": "native_exact",
     }
-    result = SimpleNamespace(payload=payload, variables={"Ne": np.array([[1.0, 2.0, 3.0]])})
-    monkeypatch.setattr(native_module, "run_curated_case", lambda *args, **kwargs: result)
+    result = SimpleNamespace(
+        payload=payload, variables={"Ne": np.array([[1.0, 2.0, 3.0]])}
+    )
+    monkeypatch.setattr(
+        native_module, "run_curated_case", lambda *args, **kwargs: result
+    )
     run_case_args = argparse.Namespace(
         reference_root=tmp_path,
         case_name="toy",
@@ -306,9 +376,17 @@ def test_run_case_and_validate_reference_commands_cover_success_and_errors(
     assert "json_out:" in output
     assert "arrays_out:" in output
 
-    assert _validate_reference_baselines_command(
-        argparse.Namespace(reference_root=None, reference_binary=None, case=[], baseline_dir=tmp_path)
-    ) == 1
+    assert (
+        _validate_reference_baselines_command(
+            argparse.Namespace(
+                reference_root=None,
+                reference_binary=None,
+                case=[],
+                baseline_dir=tmp_path,
+            )
+        )
+        == 1
+    )
     assert "set --reference-root" in capsys.readouterr().out
     monkeypatch.setattr(
         reference_module,
@@ -318,9 +396,17 @@ def test_run_case_and_validate_reference_commands_cover_success_and_errors(
             SimpleNamespace(case_name="bad_case", ok=False, issues=("Nnorm mismatch",)),
         ),
     )
-    assert _validate_reference_baselines_command(
-        argparse.Namespace(reference_root=tmp_path, reference_binary=None, case=["bad_case"], baseline_dir=tmp_path)
-    ) == 1
+    assert (
+        _validate_reference_baselines_command(
+            argparse.Namespace(
+                reference_root=tmp_path,
+                reference_binary=None,
+                case=["bad_case"],
+                baseline_dir=tmp_path,
+            )
+        )
+        == 1
+    )
     output = capsys.readouterr().out
     assert "ok_case: ok" in output
     assert "bad_case: mismatch" in output
@@ -338,19 +424,26 @@ def test_run_case_forwards_extra_overrides(tmp_path: Path, monkeypatch, capsys) 
     def fake_run_curated_case(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return SimpleNamespace(payload=payload, variables={"Ne": np.array([[1.0, 2.0, 3.0]])})
+        return SimpleNamespace(
+            payload=payload, variables={"Ne": np.array([[1.0, 2.0, 3.0]])}
+        )
 
     monkeypatch.setattr(native_module, "run_curated_case", fake_run_curated_case)
 
-    assert _run_case_command(
-        argparse.Namespace(
-            reference_root=tmp_path,
-            case_name="toy",
-            override=["runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp"],
-            json_out=None,
-            arrays_out=None,
+    assert (
+        _run_case_command(
+            argparse.Namespace(
+                reference_root=tmp_path,
+                case_name="toy",
+                override=[
+                    "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp"
+                ],
+                json_out=None,
+                arrays_out=None,
+            )
         )
-    ) == 0
+        == 0
+    )
 
     assert captured["kwargs"]["extra_overrides"] == (
         "runtime:recycling_transient_solver_mode=bdf_fixed_full_field_jvp",
@@ -358,7 +451,9 @@ def test_run_case_forwards_extra_overrides(tmp_path: Path, monkeypatch, capsys) 
     assert "case: toy" in capsys.readouterr().out
 
 
-def test_diagnose_neutral_mixed_substeps_command_writes_report(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_diagnose_neutral_mixed_substeps_command_writes_report(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     report = {
         "diagnostic": "neutral_mixed_substep_hybrid_state",
         "case_name": "neutral_mixed_one_step",
@@ -369,45 +464,136 @@ def test_diagnose_neutral_mixed_substeps_command_writes_report(tmp_path: Path, m
                 "status": "ok",
                 "final_field_error_register": {"fields": {"NVh": {"max_abs": 1.0e-3}}},
             },
-            {"internal_substeps": 8, "status": "failed", "error_type": "NoConvergence", "error_message": "stalled"},
+            {
+                "internal_substeps": 8,
+                "status": "failed",
+                "error_type": "NoConvergence",
+                "error_message": "stalled",
+            },
         ),
-        "best": {"internal_substeps": 1, "metric": "NVh_final_max_abs", "value": 1.0e-3},
+        "best": {
+            "internal_substeps": 1,
+            "metric": "NVh_final_max_abs",
+            "value": 1.0e-3,
+        },
     }
-    monkeypatch.setattr(validation_module, "build_neutral_mixed_substep_hybrid_report", lambda **kwargs: report)
-    monkeypatch.setattr(validation_module, "write_neutral_mixed_substep_hybrid_json", lambda report, path: Path(path))
+    monkeypatch.setattr(
+        validation_module,
+        "build_neutral_mixed_substep_hybrid_report",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_neutral_mixed_substep_hybrid_json",
+        lambda report, path: Path(path),
+    )
 
     assert _parse_substep_csv("1, 2,4") == (1, 2, 4)
-    assert _diagnose_neutral_mixed_substeps_command(
-        argparse.Namespace(
-            reference_root=tmp_path,
-            case_name="neutral_mixed_one_step",
-            input_path=None,
-            reference_arrays_npz=None,
-            substeps="1,8",
-            json_out=tmp_path / "substeps.json",
+    assert (
+        _diagnose_neutral_mixed_substeps_command(
+            argparse.Namespace(
+                reference_root=tmp_path,
+                case_name="neutral_mixed_one_step",
+                input_path=None,
+                reference_arrays_npz=None,
+                substeps="1,8",
+                json_out=tmp_path / "substeps.json",
+            )
         )
-    ) == 0
+        == 0
+    )
     output = capsys.readouterr().out
     assert "substeps=1: ok" in output
     assert "substeps=8: failed" in output
     assert "json_out:" in output
 
-    assert _diagnose_neutral_mixed_substeps_command(
-        argparse.Namespace(
-            reference_root=tmp_path,
-            case_name="neutral_mixed_one_step",
-            input_path=None,
-            reference_arrays_npz=None,
-            substeps="0",
-            json_out=None,
+    assert (
+        _diagnose_neutral_mixed_substeps_command(
+            argparse.Namespace(
+                reference_root=tmp_path,
+                case_name="neutral_mixed_one_step",
+                input_path=None,
+                reference_arrays_npz=None,
+                substeps="0",
+                json_out=None,
+            )
         )
-    ) == 1
+        == 1
+    )
     assert "positive integers" in capsys.readouterr().out
 
 
+def test_trace_neutral_mixed_accepted_steps_command_writes_report(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    report = {
+        "diagnostic": "neutral_mixed_native_accepted_step_trace",
+        "case_name": "neutral_mixed_one_step",
+        "trace_point_count": 9,
+        "sample_y_indices": [0, 1, 2, 3, 10, 11, 12, 13],
+    }
+    captured: dict[str, object] = {}
+
+    def fake_build(**kwargs):
+        captured.update(kwargs)
+        return report
+
+    monkeypatch.setattr(
+        validation_module,
+        "build_neutral_mixed_native_accepted_step_trace_report",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_neutral_mixed_native_accepted_step_trace_json",
+        lambda report, path: Path(path),
+    )
+
+    assert (
+        _trace_neutral_mixed_accepted_steps_command(
+            argparse.Namespace(
+                reference_root=tmp_path,
+                case_name="neutral_mixed_one_step",
+                input_path=None,
+                internal_substeps=8,
+                steps=1,
+                json_out=tmp_path / "native_trace.json",
+            )
+        )
+        == 0
+    )
+    assert captured["internal_substeps"] == 8
+    assert captured["steps"] == 1
+    output = capsys.readouterr().out
+    assert "neutral_mixed_native_accepted_step_trace" in output
+    assert "trace_point_count: 9" in output
+    assert "json_out:" in output
+
+    assert (
+        _trace_neutral_mixed_accepted_steps_command(
+            argparse.Namespace(
+                reference_root=tmp_path,
+                case_name="neutral_mixed_one_step",
+                input_path=None,
+                internal_substeps=0,
+                steps=1,
+                json_out=tmp_path / "native_trace.json",
+            )
+        )
+        == 1
+    )
+    assert "--internal-substeps must be positive" in capsys.readouterr().out
+
+
 def test_compare_recycling_command_uses_formatted_report(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(diff_module, "compare_recycling_artifacts", lambda *args, **kwargs: SimpleNamespace(ok=False))
-    monkeypatch.setattr(diff_module, "format_recycling_diff_report", lambda result: "formatted diff")
+    monkeypatch.setattr(
+        diff_module,
+        "compare_recycling_artifacts",
+        lambda *args, **kwargs: SimpleNamespace(ok=False),
+    )
+    monkeypatch.setattr(
+        diff_module, "format_recycling_diff_report", lambda result: "formatted diff"
+    )
 
     exit_code = _compare_recycling_command(
         argparse.Namespace(
@@ -447,7 +633,9 @@ def test_wave_and_blob_cli_analysis_commands_write_optional_artifacts(
     )
     drift_parity = SimpleNamespace(
         expected=drift,
-        actual=SimpleNamespace(measured_gamma_over_wstar=0.12, measured_omega_over_wstar=0.22),
+        actual=SimpleNamespace(
+            measured_gamma_over_wstar=0.12, measured_omega_over_wstar=0.22
+        ),
         variable_errors={"Ni": SimpleNamespace(max_abs_error=1.0e-3, rms_error=2.0e-4)},
     )
     blob_parity = SimpleNamespace(
@@ -457,36 +645,62 @@ def test_wave_and_blob_cli_analysis_commands_write_optional_artifacts(
         center_of_mass_x_max_abs_error=3.0e-3,
         center_of_mass_z_max_abs_error=4.0e-3,
     )
-    monkeypatch.setattr(validation_module, "compare_drift_wave_npz", lambda *args, **kwargs: drift_parity)
-    monkeypatch.setattr(validation_module, "write_drift_wave_parity_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_drift_wave_parity_plot", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "compare_blob2d_artifacts", lambda *args, **kwargs: blob_parity)
-    monkeypatch.setattr(validation_module, "write_blob2d_parity_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_blob2d_parity_plot", lambda result, path: Path(path))
+    monkeypatch.setattr(
+        validation_module,
+        "compare_drift_wave_npz",
+        lambda *args, **kwargs: drift_parity,
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_drift_wave_parity_json",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "save_drift_wave_parity_plot",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "compare_blob2d_artifacts",
+        lambda *args, **kwargs: blob_parity,
+    )
+    monkeypatch.setattr(
+        validation_module, "write_blob2d_parity_json", lambda result, path: Path(path)
+    )
+    monkeypatch.setattr(
+        validation_module, "save_blob2d_parity_plot", lambda result, path: Path(path)
+    )
 
-    assert _compare_drift_wave_command(
-        argparse.Namespace(
-            input_file=tmp_path / "BOUT.inp",
-            expected_npz=tmp_path / "expected.npz",
-            actual_npz=tmp_path / "actual.npz",
-            density_variable="Ni",
-            x_index=0,
-            y_index=1,
-            fit_points=4,
-            json_out=tmp_path / "drift.json",
-            plot_out=tmp_path / "drift.png",
+    assert (
+        _compare_drift_wave_command(
+            argparse.Namespace(
+                input_file=tmp_path / "BOUT.inp",
+                expected_npz=tmp_path / "expected.npz",
+                actual_npz=tmp_path / "actual.npz",
+                density_variable="Ni",
+                x_index=0,
+                y_index=1,
+                fit_points=4,
+                json_out=tmp_path / "drift.json",
+                plot_out=tmp_path / "drift.png",
+            )
         )
-    ) == 0
-    assert _compare_blob2d_command(
-        argparse.Namespace(
-            expected_artifact=tmp_path / "expected.json",
-            actual_artifact=tmp_path / "actual.json",
-            density_variable="Ne",
-            background_density=1.0,
-            json_out=tmp_path / "blob.json",
-            plot_out=tmp_path / "blob.png",
+        == 0
+    )
+    assert (
+        _compare_blob2d_command(
+            argparse.Namespace(
+                expected_artifact=tmp_path / "expected.json",
+                actual_artifact=tmp_path / "actual.json",
+                density_variable="Ne",
+                background_density=1.0,
+                json_out=tmp_path / "blob.json",
+                plot_out=tmp_path / "blob.png",
+            )
         )
-    ) == 0
+        == 0
+    )
     output = capsys.readouterr().out
     assert "expected_gamma_over_wstar" in output
     assert "center_of_mass_z_max_abs_error" in output
@@ -533,49 +747,90 @@ def test_drift_and_alfven_cli_analysis_commands_write_optional_artifacts(
         mean_square_max_abs_error=1.0e-3,
         mean_square_rms_error=2.0e-4,
     )
-    monkeypatch.setattr(validation_module, "analyze_drift_wave_npz", lambda *args, **kwargs: drift)
-    monkeypatch.setattr(validation_module, "write_drift_wave_analysis_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_drift_wave_diagnostic_plot", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "analyze_alfven_wave_npz", lambda *args, **kwargs: alfven)
-    monkeypatch.setattr(validation_module, "write_alfven_wave_analysis_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_alfven_wave_diagnostic_plot", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "compare_alfven_wave_npz", lambda *args, **kwargs: alfven_parity)
-    monkeypatch.setattr(validation_module, "write_alfven_wave_parity_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_alfven_wave_parity_plot", lambda result, path: Path(path))
+    monkeypatch.setattr(
+        validation_module, "analyze_drift_wave_npz", lambda *args, **kwargs: drift
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_drift_wave_analysis_json",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "save_drift_wave_diagnostic_plot",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module, "analyze_alfven_wave_npz", lambda *args, **kwargs: alfven
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_alfven_wave_analysis_json",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "save_alfven_wave_diagnostic_plot",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "compare_alfven_wave_npz",
+        lambda *args, **kwargs: alfven_parity,
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_alfven_wave_parity_json",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "save_alfven_wave_parity_plot",
+        lambda result, path: Path(path),
+    )
 
-    assert _analyze_drift_wave_command(
-        argparse.Namespace(
-            input_file=tmp_path / "BOUT.inp",
-            arrays_npz=tmp_path / "arrays.npz",
-            density_variable="Ni",
-            x_index=0,
-            y_index=1,
-            fit_points=4,
-            json_out=tmp_path / "drift.json",
-            plot_out=tmp_path / "drift.png",
+    assert (
+        _analyze_drift_wave_command(
+            argparse.Namespace(
+                input_file=tmp_path / "BOUT.inp",
+                arrays_npz=tmp_path / "arrays.npz",
+                density_variable="Ni",
+                x_index=0,
+                y_index=1,
+                fit_points=4,
+                json_out=tmp_path / "drift.json",
+                plot_out=tmp_path / "drift.png",
+            )
         )
-    ) == 0
-    assert _analyze_alfven_wave_command(
-        argparse.Namespace(
-            input_file=tmp_path / "BOUT.inp",
-            arrays_npz=tmp_path / "arrays.npz",
-            field_variable="phi",
-            x_index=2,
-            json_out=tmp_path / "alfven.json",
-            plot_out=tmp_path / "alfven.png",
+        == 0
+    )
+    assert (
+        _analyze_alfven_wave_command(
+            argparse.Namespace(
+                input_file=tmp_path / "BOUT.inp",
+                arrays_npz=tmp_path / "arrays.npz",
+                field_variable="phi",
+                x_index=2,
+                json_out=tmp_path / "alfven.json",
+                plot_out=tmp_path / "alfven.png",
+            )
         )
-    ) == 0
-    assert _compare_alfven_wave_command(
-        argparse.Namespace(
-            input_file=tmp_path / "BOUT.inp",
-            expected_npz=tmp_path / "expected.npz",
-            actual_npz=tmp_path / "actual.npz",
-            field_variable="phi",
-            x_index=2,
-            json_out=tmp_path / "alfven_parity.json",
-            plot_out=tmp_path / "alfven_parity.png",
+        == 0
+    )
+    assert (
+        _compare_alfven_wave_command(
+            argparse.Namespace(
+                input_file=tmp_path / "BOUT.inp",
+                expected_npz=tmp_path / "expected.npz",
+                actual_npz=tmp_path / "actual.npz",
+                field_variable="phi",
+                x_index=2,
+                json_out=tmp_path / "alfven_parity.json",
+                plot_out=tmp_path / "alfven_parity.png",
+            )
         )
-    ) == 0
+        == 0
+    )
     output = capsys.readouterr().out
     assert "measured_gamma_over_wstar" in output
     assert "relative_phase_speed_error" in output
@@ -609,40 +864,68 @@ def test_neutral_mixed_cli_analysis_and_compare_commands_write_optional_artifact
             "pressure": SimpleNamespace(max_abs_error=3.0e-3, rms_error=4.0e-4),
         },
     )
-    monkeypatch.setattr(validation_module, "analyze_neutral_mixed_npz", lambda *args, **kwargs: analysis)
-    monkeypatch.setattr(validation_module, "write_neutral_mixed_analysis_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_neutral_mixed_diagnostic_plot", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "compare_neutral_mixed_artifacts", lambda *args, **kwargs: parity)
-    monkeypatch.setattr(validation_module, "write_neutral_mixed_parity_json", lambda result, path: Path(path))
-    monkeypatch.setattr(validation_module, "save_neutral_mixed_parity_plot", lambda result, path: Path(path))
+    monkeypatch.setattr(
+        validation_module, "analyze_neutral_mixed_npz", lambda *args, **kwargs: analysis
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_neutral_mixed_analysis_json",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "save_neutral_mixed_diagnostic_plot",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "compare_neutral_mixed_artifacts",
+        lambda *args, **kwargs: parity,
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "write_neutral_mixed_parity_json",
+        lambda result, path: Path(path),
+    )
+    monkeypatch.setattr(
+        validation_module,
+        "save_neutral_mixed_parity_plot",
+        lambda result, path: Path(path),
+    )
 
-    assert _analyze_neutral_mixed_command(
-        argparse.Namespace(
-            arrays_npz=tmp_path / "arrays.npz",
-            density_variable="Nh",
-            pressure_variable="Ph",
-            momentum_variable="NVh",
-            x_index=1,
-            y_index=2,
-            z_index=0,
-            json_out=tmp_path / "neutral.json",
-            plot_out=tmp_path / "neutral.png",
+    assert (
+        _analyze_neutral_mixed_command(
+            argparse.Namespace(
+                arrays_npz=tmp_path / "arrays.npz",
+                density_variable="Nh",
+                pressure_variable="Ph",
+                momentum_variable="NVh",
+                x_index=1,
+                y_index=2,
+                z_index=0,
+                json_out=tmp_path / "neutral.json",
+                plot_out=tmp_path / "neutral.png",
+            )
         )
-    ) == 0
-    assert _compare_neutral_mixed_command(
-        argparse.Namespace(
-            expected_artifact=tmp_path / "expected.json",
-            actual_artifact=tmp_path / "actual.json",
-            density_variable="Nh",
-            pressure_variable="Ph",
-            momentum_variable="NVh",
-            x_index=1,
-            y_index=2,
-            z_index=0,
-            json_out=tmp_path / "neutral_parity.json",
-            plot_out=tmp_path / "neutral_parity.png",
+        == 0
+    )
+    assert (
+        _compare_neutral_mixed_command(
+            argparse.Namespace(
+                expected_artifact=tmp_path / "expected.json",
+                actual_artifact=tmp_path / "actual.json",
+                density_variable="Nh",
+                pressure_variable="Ph",
+                momentum_variable="NVh",
+                x_index=1,
+                y_index=2,
+                z_index=0,
+                json_out=tmp_path / "neutral_parity.json",
+                plot_out=tmp_path / "neutral_parity.png",
+            )
         )
-    ) == 0
+        == 0
+    )
     output = capsys.readouterr().out
     assert "center_temperature_final" in output
     assert "pressure: max_abs_error" in output

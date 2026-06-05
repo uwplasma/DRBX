@@ -29,7 +29,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=False)
 
-    inspect_parser = subparsers.add_parser("inspect", help="Inspect an input deck and print the resolved plan.")
+    inspect_parser = subparsers.add_parser(
+        "inspect", help="Inspect an input deck and print the resolved plan."
+    )
     inspect_parser.add_argument("input_file", type=Path)
     inspect_parser.set_defaults(command=_inspect_command)
 
@@ -56,11 +58,28 @@ def _build_parser() -> argparse.ArgumentParser:
         default=_default_reference_root(),
         help="Path to the external benchmark checkout used for case lookup and default binary discovery.",
     )
-    run_case_parser.add_argument("--reference-binary", type=Path, default=_default_reference_binary())
+    run_case_parser.add_argument(
+        "--reference-binary", type=Path, default=_default_reference_binary()
+    )
     run_case_parser.add_argument("--workdir", type=Path, default=None)
-    run_case_parser.add_argument("--override", action="append", default=[], help="Additional source-style overrides such as nout=0.")
-    run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the run summary to a JSON file.")
-    run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
+    run_case_parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help="Additional source-style overrides such as nout=0.",
+    )
+    run_case_parser.add_argument(
+        "--json-out",
+        type=Path,
+        default=None,
+        help="Write the run summary to a JSON file.",
+    )
+    run_case_parser.add_argument(
+        "--arrays-out",
+        type=Path,
+        default=None,
+        help="Write the full comparison arrays to a compressed NPZ.",
+    )
     run_case_parser.set_defaults(command=_run_reference_case_command)
 
     compare_parser = subparsers.add_parser(
@@ -114,9 +133,24 @@ def _build_parser() -> argparse.ArgumentParser:
         default=_default_reference_root(),
         help="Path to the external benchmark checkout used to locate the curated input file.",
     )
-    run_case_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary to JSON.")
-    run_case_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the full comparison arrays to a compressed NPZ.")
-    run_case_parser.add_argument("--override", action="append", default=[], help="Additional native-run overrides such as runtime:neutral_mixed_internal_substeps=8.")
+    run_case_parser.add_argument(
+        "--json-out",
+        type=Path,
+        default=None,
+        help="Write the portable summary to JSON.",
+    )
+    run_case_parser.add_argument(
+        "--arrays-out",
+        type=Path,
+        default=None,
+        help="Write the full comparison arrays to a compressed NPZ.",
+    )
+    run_case_parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help="Additional native-run overrides such as runtime:neutral_mixed_internal_substeps=8.",
+    )
     run_case_parser.set_defaults(command=_run_case_command)
 
     validate_reference_parser = subparsers.add_parser(
@@ -129,15 +163,27 @@ def _build_parser() -> argparse.ArgumentParser:
         default=_default_reference_root(),
         help="Path to the external benchmark checkout used for case lookup and binary discovery.",
     )
-    validate_reference_parser.add_argument("--reference-binary", type=Path, default=_default_reference_binary())
-    validate_reference_parser.add_argument("--case", action="append", default=[], help="Specific case name to validate. Repeat to validate multiple cases.")
+    validate_reference_parser.add_argument(
+        "--reference-binary", type=Path, default=_default_reference_binary()
+    )
+    validate_reference_parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        help="Specific case name to validate. Repeat to validate multiple cases.",
+    )
     validate_reference_parser.add_argument(
         "--baseline-dir",
         type=Path,
-        default=Path(__file__).resolve().parents[2] / "references" / "baselines" / "reference",
+        default=Path(__file__).resolve().parents[2]
+        / "references"
+        / "baselines"
+        / "reference",
         help="Directory containing committed reference summary baselines.",
     )
-    validate_reference_parser.set_defaults(command=_validate_reference_baselines_command)
+    validate_reference_parser.set_defaults(
+        command=_validate_reference_baselines_command
+    )
 
     analyze_drift_wave_parser = subparsers.add_parser(
         "analyze-drift-wave",
@@ -246,27 +292,98 @@ def _build_parser() -> argparse.ArgumentParser:
         default=_default_reference_root(),
         help="Path to the external benchmark checkout used only when native histories must be generated.",
     )
-    neutral_substeps_parser.add_argument("--case-name", default="neutral_mixed_one_step")
+    neutral_substeps_parser.add_argument(
+        "--case-name", default="neutral_mixed_one_step"
+    )
     neutral_substeps_parser.add_argument("--input-path", type=Path, default=None)
-    neutral_substeps_parser.add_argument("--reference-arrays-npz", type=Path, default=None)
+    neutral_substeps_parser.add_argument(
+        "--reference-arrays-npz", type=Path, default=None
+    )
     neutral_substeps_parser.add_argument("--substeps", default="1,2,3,4,6,8")
     neutral_substeps_parser.add_argument("--json-out", type=Path, default=None)
-    neutral_substeps_parser.set_defaults(command=_diagnose_neutral_mixed_substeps_command)
+    neutral_substeps_parser.set_defaults(
+        command=_diagnose_neutral_mixed_substeps_command
+    )
 
-    run_parser = subparsers.add_parser("run", help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.")
+    neutral_trace_parser = subparsers.add_parser(
+        "trace-neutral-mixed-accepted-steps",
+        help="Write a JAXDRB native accepted-internal-step trace for neutral-mixed NVh parity diagnostics.",
+    )
+    neutral_trace_parser.add_argument(
+        "--reference-root",
+        type=Path,
+        default=_default_reference_root(),
+        help="Path to the external benchmark checkout used only to resolve the input when --input-path is omitted.",
+    )
+    neutral_trace_parser.add_argument("--case-name", default="neutral_mixed_one_step")
+    neutral_trace_parser.add_argument("--input-path", type=Path, default=None)
+    neutral_trace_parser.add_argument("--internal-substeps", type=int, default=8)
+    neutral_trace_parser.add_argument("--steps", type=int, default=1)
+    neutral_trace_parser.add_argument("--json-out", type=Path, required=True)
+    neutral_trace_parser.set_defaults(
+        command=_trace_neutral_mixed_accepted_steps_command
+    )
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.",
+    )
     run_parser.add_argument("input_file", type=Path)
-    run_parser.add_argument("--dry-run", action="store_true", help="Only inspect configuration and exit successfully.")
-    run_parser.add_argument("--precision", choices=("float32", "float64"), default=None, help="Override runtime floating-point precision for this run.")
-    run_parser.add_argument("--case-name", type=str, default=None, help="Optional case label for output metadata.")
-    run_parser.add_argument("--output-dir", type=Path, default=None, help="Write standard run artifacts into this directory.")
-    run_parser.add_argument("--json-out", type=Path, default=None, help="Write the portable summary JSON.")
-    run_parser.add_argument("--arrays-out", type=Path, default=None, help="Write the portable array NPZ.")
-    run_parser.add_argument("--restart-out", type=Path, default=None, help="Write the restart NPZ bundle.")
-    run_parser.add_argument("--log-out", type=Path, default=None, help="Write a verbose run log JSON.")
-    run_parser.add_argument("--restart-in", type=Path, default=None, help="Resume from a previously written restart NPZ bundle.")
-    run_parser.add_argument("--resume-steps", type=int, default=None, help="Additional output intervals to run after loading --restart-in.")
-    run_parser.add_argument("--verbose", action="store_true", help="Emit detailed staged terminal output for this run.")
-    run_parser.add_argument("--quiet", action="store_true", help="Suppress the pretty terminal run summary.")
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Only inspect configuration and exit successfully.",
+    )
+    run_parser.add_argument(
+        "--precision",
+        choices=("float32", "float64"),
+        default=None,
+        help="Override runtime floating-point precision for this run.",
+    )
+    run_parser.add_argument(
+        "--case-name",
+        type=str,
+        default=None,
+        help="Optional case label for output metadata.",
+    )
+    run_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Write standard run artifacts into this directory.",
+    )
+    run_parser.add_argument(
+        "--json-out", type=Path, default=None, help="Write the portable summary JSON."
+    )
+    run_parser.add_argument(
+        "--arrays-out", type=Path, default=None, help="Write the portable array NPZ."
+    )
+    run_parser.add_argument(
+        "--restart-out", type=Path, default=None, help="Write the restart NPZ bundle."
+    )
+    run_parser.add_argument(
+        "--log-out", type=Path, default=None, help="Write a verbose run log JSON."
+    )
+    run_parser.add_argument(
+        "--restart-in",
+        type=Path,
+        default=None,
+        help="Resume from a previously written restart NPZ bundle.",
+    )
+    run_parser.add_argument(
+        "--resume-steps",
+        type=int,
+        default=None,
+        help="Additional output intervals to run after loading --restart-in.",
+    )
+    run_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Emit detailed staged terminal output for this run.",
+    )
+    run_parser.add_argument(
+        "--quiet", action="store_true", help="Suppress the pretty terminal run summary."
+    )
     run_parser.set_defaults(command=_run_command)
 
     parser.set_defaults(command=_default_command)
@@ -275,7 +392,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _default_command(args: argparse.Namespace) -> int:
     if getattr(args, "subcommand", None) is None:
-        raise SystemExit("Use `jax_drb inspect <input>` or `jax_drb <input> --dry-run`.")
+        raise SystemExit(
+            "Use `jax_drb inspect <input>` or `jax_drb <input> --dry-run`."
+        )
     return args.command(args)
 
 
@@ -299,6 +418,7 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         "analyze-neutral-mixed",
         "compare-neutral-mixed",
         "diagnose-neutral-mixed-substeps",
+        "trace-neutral-mixed-accepted-steps",
         "run",
     }
     head = argv[0]
@@ -321,7 +441,9 @@ def _inspect_command(args: argparse.Namespace) -> int:
         f"MXG={run_config.mesh.mxg}, MYG={run_config.mesh.myg}, "
         f"parallel_transform={run_config.mesh.parallel_transform.type}"
     )
-    print(f"scheduled components: {', '.join(request.label for request in run_config.components)}")
+    print(
+        f"scheduled components: {', '.join(request.label for request in run_config.components)}"
+    )
 
     if run_config.normalization is not None:
         normalization = run_config.normalization
@@ -342,13 +464,17 @@ def _inspect_command(args: argparse.Namespace) -> int:
 
 def _reference_cases_command(args: argparse.Namespace) -> int:
     if args.reference_root is None:
-        print("reference-cases: set --reference-root or JAX_DRB_REFERENCE_ROOT to a local reference checkout.")
+        print(
+            "reference-cases: set --reference-root or JAX_DRB_REFERENCE_ROOT to a local reference checkout."
+        )
         return 1
 
     resolved_cases = resolve_reference_cases(args.reference_root)
     for resolved in resolved_cases:
         status = "missing" if not resolved.exists else resolved.case.parity_mode
-        print(f"{resolved.case.name}: {status} [{resolved.case.capability_tier}] -> {resolved.input_path}")
+        print(
+            f"{resolved.case.name}: {status} [{resolved.case.capability_tier}] -> {resolved.input_path}"
+        )
         if resolved.run_config is None:
             continue
         print(
@@ -365,21 +491,40 @@ def _run_command(args: argparse.Namespace) -> int:
         return _inspect_command(args)
     config = load_bout_input(args.input_file)
     run_config = RunConfiguration.from_config(config)
-    resolved_precision = resolve_runtime_precision(requested=args.precision, config=config)
+    resolved_precision = resolve_runtime_precision(
+        requested=args.precision, config=config
+    )
     cache_dir = configure_jax_runtime(precision=resolved_precision)
     import jax
     from .native import run_input_case
     from .native.runner import NativeRestartState, build_restart_state
-    from .parity.arrays import build_portable_array_payload, write_portable_array_payload
+    from .parity.arrays import (
+        build_portable_array_payload,
+        write_portable_array_payload,
+    )
     from .parity.portable import write_portable_summary_payload
-    from .runtime import build_run_log_payload, load_restart_bundle, print_run_log, write_restart_bundle, write_run_log_payload
+    from .runtime import (
+        build_run_log_payload,
+        load_restart_bundle,
+        print_run_log,
+        write_restart_bundle,
+        write_run_log_payload,
+    )
     from .runtime.output import build_run_event, print_run_event
 
     command_started_at = time.perf_counter()
     output_dir = args.output_dir or _config_path(config, "output", "directory")
-    case_name = args.case_name or _config_string(config, "output", "case_name") or args.input_file.stem
+    case_name = (
+        args.case_name
+        or _config_string(config, "output", "case_name")
+        or args.input_file.stem
+    )
     restart_in = args.restart_in or _config_path(config, "restart", "input")
-    resume_steps = args.resume_steps if args.resume_steps is not None else _config_int(config, "restart", "resume_steps")
+    resume_steps = (
+        args.resume_steps
+        if args.resume_steps is not None
+        else _config_int(config, "restart", "resume_steps")
+    )
     logging_quiet = _config_bool(config, "runtime:logging", "quiet", default=False)
     logging_verbose = _config_optional_bool(config, "runtime:logging", "verbose")
     logging_verbosity = _config_string(config, "runtime:logging", "verbosity")
@@ -443,7 +588,9 @@ def _run_command(args: argparse.Namespace) -> int:
             current_time=bundle.current_time,
             completed_steps=bundle.completed_steps,
             variables=",".join(sorted(bundle.state_variables)),
-            requested_resume_steps=resume_steps if resume_steps is not None else "(default)",
+            requested_resume_steps=resume_steps
+            if resume_steps is not None
+            else "(default)",
         )
 
     def relay_native_event(event: Mapping[str, Any]) -> None:
@@ -451,12 +598,21 @@ def _run_command(args: argparse.Namespace) -> int:
             return
         details = event.get("details")
         if isinstance(details, Mapping):
-            record_event(str(event.get("stage", "progress")), str(event.get("message", "Native progress update")), **dict(details))
+            record_event(
+                str(event.get("stage", "progress")),
+                str(event.get("message", "Native progress update")),
+                **dict(details),
+            )
         else:
-            record_event(str(event.get("stage", "progress")), str(event.get("message", "Native progress update")))
+            record_event(
+                str(event.get("stage", "progress")),
+                str(event.get("message", "Native progress update")),
+            )
 
     started_at = time.perf_counter()
-    record_event("run", "Launching native run", mode="run", restart=restart_state is not None)
+    record_event(
+        "run", "Launching native run", mode="run", restart=restart_state is not None
+    )
     result = run_input_case(
         args.input_file,
         case_name=case_name,
@@ -491,7 +647,9 @@ def _run_command(args: argparse.Namespace) -> int:
             "Resolved artifact destinations",
             summary_json=args.json_out if args.json_out is not None else "(disabled)",
             arrays_npz=args.arrays_out if args.arrays_out is not None else "(disabled)",
-            restart_npz=args.restart_out if args.restart_out is not None else "(disabled)",
+            restart_npz=args.restart_out
+            if args.restart_out is not None
+            else "(disabled)",
             run_log_json=args.log_out if args.log_out is not None else "(disabled)",
         )
 
@@ -517,7 +675,9 @@ def _run_command(args: argparse.Namespace) -> int:
         )
         path = write_portable_array_payload(array_payload, args.arrays_out)
         output_paths["arrays_npz"] = _sanitize_logged_path(path) or str(path)
-        record_event("artifacts", "Wrote arrays NPZ", path=path, variables=len(result.variables))
+        record_event(
+            "artifacts", "Wrote arrays NPZ", path=path, variables=len(result.variables)
+        )
 
     restart_bundle = build_restart_state(result, parity_mode="run")
     if args.restart_out is not None and restart_bundle is not None:
@@ -532,10 +692,16 @@ def _run_command(args: argparse.Namespace) -> int:
         )
     elif args.restart_out is not None and restart_bundle is None:
         output_paths["restart_npz"] = "(unsupported for this component set)"
-        record_event("artifacts", "Restart bundle unsupported for this run", path=args.restart_out)
+        record_event(
+            "artifacts",
+            "Restart bundle unsupported for this run",
+            path=args.restart_out,
+        )
 
     if args.log_out is not None:
-        output_paths["run_log_json"] = _sanitize_logged_path(args.log_out) or str(args.log_out)
+        output_paths["run_log_json"] = _sanitize_logged_path(args.log_out) or str(
+            args.log_out
+        )
     if output_paths:
         record_event("artifacts", "Planned run artifacts", **output_paths)
 
@@ -575,7 +741,12 @@ def _run_command(args: argparse.Namespace) -> int:
         events=tuple(events),
     )
     if args.log_out is not None:
-        record_event("artifacts", "Writing verbose run log JSON", path=args.log_out, event_count=len(events))
+        record_event(
+            "artifacts",
+            "Writing verbose run log JSON",
+            path=args.log_out,
+            event_count=len(events),
+        )
         log_payload["events"] = list(events)
         log_payload["event_count"] = len(events)
         log_payload["event_stages"] = [str(event.get("stage", "")) for event in events]
@@ -709,14 +880,18 @@ def _config_value(config, section: str, key: str, default: Any = None) -> Any:
     return default
 
 
-def _config_string(config, section: str, key: str, default: str | None = None) -> str | None:
+def _config_string(
+    config, section: str, key: str, default: str | None = None
+) -> str | None:
     value = _config_value(config, section, key, default)
     if value is None:
         return None
     return str(value)
 
 
-def _config_int(config, section: str, key: str, default: int | None = None) -> int | None:
+def _config_int(
+    config, section: str, key: str, default: int | None = None
+) -> int | None:
     value = _config_value(config, section, key, default)
     if value is None:
         return None
@@ -748,7 +923,11 @@ def _default_reference_binary() -> Path | None:
 
 def _run_reference_case_command(args: argparse.Namespace) -> int:
     from .parity.arrays import build_dataset_array_payload, write_portable_array_payload
-    from .parity.reference import find_reference_case, run_reference_case, write_case_baseline_json
+    from .parity.reference import (
+        find_reference_case,
+        run_reference_case,
+        write_case_baseline_json,
+    )
 
     if args.reference_root is None:
         print("run-reference-case: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
@@ -768,11 +947,19 @@ def _run_reference_case_command(args: argparse.Namespace) -> int:
     print(f"case: {summary.case_name}")
     print(f"parity_mode: {summary.parity_mode}")
     print(f"workdir: {summary.workdir}")
-    print(f"overrides: {', '.join(summary.overrides) if summary.overrides else '(none)'}")
+    print(
+        f"overrides: {', '.join(summary.overrides) if summary.overrides else '(none)'}"
+    )
     print(f"time_points: {summary.time_points}")
-    print(f"compare_variables: {', '.join(summary.compare_variables) if summary.compare_variables else '(none)'}")
+    print(
+        f"compare_variables: {', '.join(summary.compare_variables) if summary.compare_variables else '(none)'}"
+    )
     for name, variable in summary.variable_summaries.items():
-        delta = "n/a" if variable.max_abs_delta_last_first is None else f"{variable.max_abs_delta_last_first:.8e}"
+        delta = (
+            "n/a"
+            if variable.max_abs_delta_last_first is None
+            else f"{variable.max_abs_delta_last_first:.8e}"
+        )
         print(
             f"  {name}: shape={variable.shape}, min={variable.minimum:.8e}, "
             f"max={variable.maximum:.8e}, mean={variable.mean:.8e}, delta={delta}"
@@ -862,7 +1049,10 @@ def _compare_recycling_command(args: argparse.Namespace) -> int:
 def _run_case_command(args: argparse.Namespace) -> int:
     configure_jax_runtime()
     from .native import run_curated_case
-    from .parity.arrays import build_array_payload_from_summary_payload, write_portable_array_payload
+    from .parity.arrays import (
+        build_array_payload_from_summary_payload,
+        write_portable_array_payload,
+    )
     from .parity.portable import write_portable_summary_payload
 
     if args.reference_root is None:
@@ -878,7 +1068,9 @@ def _run_case_command(args: argparse.Namespace) -> int:
     print(f"case: {payload['case_name']}")
     print(f"parity_mode: {payload['parity_mode']}")
     print(f"producer: {payload['producer']}")
-    print(f"compare_variables: {', '.join(payload['compare_variables']) if payload['compare_variables'] else '(none)'}")
+    print(
+        f"compare_variables: {', '.join(payload['compare_variables']) if payload['compare_variables'] else '(none)'}"
+    )
     for name, variable in payload["variable_summaries"].items():
         delta = variable["max_abs_delta_last_first"]
         delta_text = "n/a" if delta is None else f"{delta:.8e}"
@@ -890,7 +1082,9 @@ def _run_case_command(args: argparse.Namespace) -> int:
         path = write_portable_summary_payload(payload, args.json_out)
         print(f"json_out: {path}")
     if args.arrays_out is not None:
-        array_payload = build_array_payload_from_summary_payload(payload, result.variables)
+        array_payload = build_array_payload_from_summary_payload(
+            payload, result.variables
+        )
         path = write_portable_array_payload(array_payload, args.arrays_out)
         print(f"arrays_out: {path}")
     return 0
@@ -906,7 +1100,10 @@ def _parse_substep_csv(value: str) -> tuple[int, ...]:
 
 
 def _diagnose_neutral_mixed_substeps_command(args: argparse.Namespace) -> int:
-    from .validation import build_neutral_mixed_substep_hybrid_report, write_neutral_mixed_substep_hybrid_json
+    from .validation import (
+        build_neutral_mixed_substep_hybrid_report,
+        write_neutral_mixed_substep_hybrid_json,
+    )
 
     try:
         substeps = _parse_substep_csv(args.substeps)
@@ -934,18 +1131,54 @@ def _diagnose_neutral_mixed_substeps_command(args: argparse.Namespace) -> int:
         print(text)
     best = report.get("best")
     if isinstance(best, dict):
-        print(f"best: substeps={best['internal_substeps']}, {best['metric']}={best['value']:.8e}")
+        print(
+            f"best: substeps={best['internal_substeps']}, {best['metric']}={best['value']:.8e}"
+        )
     if args.json_out is not None:
         path = write_neutral_mixed_substep_hybrid_json(report, args.json_out)
         print(f"json_out: {path}")
-    return 0 if any(point.get("status") == "ok" for point in report["sweep_points"]) else 1
+    return (
+        0 if any(point.get("status") == "ok" for point in report["sweep_points"]) else 1
+    )
+
+
+def _trace_neutral_mixed_accepted_steps_command(args: argparse.Namespace) -> int:
+    from .validation import (
+        build_neutral_mixed_native_accepted_step_trace_report,
+        write_neutral_mixed_native_accepted_step_trace_json,
+    )
+
+    if int(args.internal_substeps) <= 0:
+        print(
+            "trace-neutral-mixed-accepted-steps: --internal-substeps must be positive."
+        )
+        return 1
+    if int(args.steps) <= 0:
+        print("trace-neutral-mixed-accepted-steps: --steps must be positive.")
+        return 1
+    report = build_neutral_mixed_native_accepted_step_trace_report(
+        reference_root=args.reference_root,
+        case_name=args.case_name,
+        input_path=args.input_path,
+        internal_substeps=int(args.internal_substeps),
+        steps=int(args.steps),
+    )
+    path = write_neutral_mixed_native_accepted_step_trace_json(report, args.json_out)
+    print(f"diagnostic: {report['diagnostic']}")
+    print(f"case: {report['case_name']}")
+    print(f"trace_point_count: {report['trace_point_count']}")
+    print(f"sample_y_indices: {report['sample_y_indices']}")
+    print(f"json_out: {path}")
+    return 0
 
 
 def _validate_reference_baselines_command(args: argparse.Namespace) -> int:
     from .parity.reference import validate_reference_baselines
 
     if args.reference_root is None:
-        print("validate-reference-baselines: set --reference-root or JAX_DRB_REFERENCE_ROOT.")
+        print(
+            "validate-reference-baselines: set --reference-root or JAX_DRB_REFERENCE_ROOT."
+        )
         return 1
 
     results = validate_reference_baselines(
@@ -1081,7 +1314,9 @@ def _compare_drift_wave_command(args: argparse.Namespace) -> int:
         fit_points=args.fit_points,
     )
     print(f"density_variable: {result.expected.density_variable}")
-    print(f"trace_index: x={result.expected.trace_x_index}, y={result.expected.trace_y_index}")
+    print(
+        f"trace_index: x={result.expected.trace_x_index}, y={result.expected.trace_y_index}"
+    )
     print(f"fit_points: {result.expected.fit_points}")
     print(f"expected_gamma_over_wstar: {result.expected.measured_gamma_over_wstar:.8e}")
     print(f"actual_gamma_over_wstar: {result.actual.measured_gamma_over_wstar:.8e}")
@@ -1118,8 +1353,12 @@ def _compare_blob2d_command(args: argparse.Namespace) -> int:
     print(f"background_density: {result.expected.background_density:.8e}")
     print(f"peak_max_abs_error: {result.peak_max_abs_error:.8e}")
     print(f"peak_rms_error: {result.peak_rms_error:.8e}")
-    print(f"center_of_mass_x_max_abs_error: {result.center_of_mass_x_max_abs_error:.8e}")
-    print(f"center_of_mass_z_max_abs_error: {result.center_of_mass_z_max_abs_error:.8e}")
+    print(
+        f"center_of_mass_x_max_abs_error: {result.center_of_mass_x_max_abs_error:.8e}"
+    )
+    print(
+        f"center_of_mass_z_max_abs_error: {result.center_of_mass_z_max_abs_error:.8e}"
+    )
     if args.json_out is not None:
         path = write_blob2d_parity_json(result, args.json_out)
         print(f"json_out: {path}")
@@ -1148,7 +1387,9 @@ def _analyze_neutral_mixed_command(args: argparse.Namespace) -> int:
     print(f"density_variable: {result.density_variable}")
     print(f"pressure_variable: {result.pressure_variable}")
     print(f"momentum_variable: {result.momentum_variable}")
-    print(f"center_index: x={result.center_index_x}, y={result.center_index_y}, z={result.center_index_z}")
+    print(
+        f"center_index: x={result.center_index_x}, y={result.center_index_y}, z={result.center_index_z}"
+    )
     print(f"center_density_final: {result.center_density_history[-1]:.8e}")
     print(f"center_pressure_final: {result.center_pressure_history[-1]:.8e}")
     print(f"center_momentum_final: {result.center_momentum_history[-1]:.8e}")
@@ -1182,7 +1423,9 @@ def _compare_neutral_mixed_command(args: argparse.Namespace) -> int:
         y_index=args.y_index,
         z_index=args.z_index,
     )
-    print(f"center_index: x={result.expected.center_index_x}, y={result.expected.center_index_y}, z={result.expected.center_index_z}")
+    print(
+        f"center_index: x={result.expected.center_index_x}, y={result.expected.center_index_y}, z={result.expected.center_index_z}"
+    )
     for name, series_error in sorted(result.series_errors.items()):
         print(
             f"{name}: max_abs_error={series_error.max_abs_error:.8e}, "
